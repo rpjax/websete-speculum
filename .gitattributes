@@ -1,0 +1,21 @@
+# https://git-scm.com/docs/gitattributes
+* text=auto
+
+*.cs text diff=csharp
+*.cshtml text diff=html
+*.razor text diff=html
+
+*.csproj text merge=union
+*.vbproj text merge=union
+*.fsproj text merge=union
+*.props text merge=union
+*.targets text merge=union
+*.sln text merge=union
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.snk binary
+*.pfx binary

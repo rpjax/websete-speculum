@@ -1,0 +1,6 @@
+@Websete.Speculum.Host_HostAddress = http://localhost:5018
+
+GET {{Websete.Speculum.Host_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

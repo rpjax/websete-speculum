@@ -1,41 +1,35 @@
+using Websete.Speculum.Browser;
+using Websete.Speculum.Host;
+using Websete.Speculum.Host.Hubs;
+
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
-// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
-builder.Services.AddOpenApi();
+builder.Services.AddSingleton<BrowserService>();
+builder.Services.AddSingleton<SessionRegistry>();
+builder.Services.AddControllers();
+
+// SignalR is the exclusive signaling channel for WebRTC session management.
+// The old raw-WebSocket endpoint is gone — all offer/answer/ICE flows through the hub.
+builder.Services.AddSignalR();
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
-{
-    app.MapOpenApi();
-}
+var browserService = app.Services.GetRequiredService<BrowserService>();
+var camoufoxPath   = app.Configuration["Camoufox:ExecutablePath"]
+    ?? throw new InvalidOperationException(
+           "Camoufox:ExecutablePath is not configured. " +
+           "Set it in appsettings.json or via the Camoufox__ExecutablePath environment variable.");
 
-app.UseHttpsRedirection();
+await browserService.InitializeAsync(camoufoxPath);
 
-var summaries = new[]
-{
-    "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
-};
+app.Lifetime.ApplicationStopping.Register(() =>
+    browserService.DisposeAsync().AsTask().GetAwaiter().GetResult());
 
-app.MapGet("/weatherforecast", () =>
-{
-    var forecast =  Enumerable.Range(1, 5).Select(index =>
-        new WeatherForecast
-        (
-            DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
-            Random.Shared.Next(-20, 55),
-            summaries[Random.Shared.Next(summaries.Length)]
-        ))
-        .ToArray();
-    return forecast;
-})
-.WithName("GetWeatherForecast");
+app.UseDefaultFiles();
+app.UseStaticFiles();
+app.MapControllers();
+
+// ── SignalR hub ───────────────────────────────────────────────────────────────
+app.MapHub<VirtualizationHub>("/hub/virtualization");
 
 app.Run();
-
-record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
-{
-    public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
-}

@@ -1,5 +1,40 @@
 services:
-  speculum:
+
+  # ── Node.js browser sidecar ──────────────────────────────────────────────────
+  # Must start before the app so the WebSocket endpoint is ready when .NET
+  # attempts to create the first session.
+  sidecar:
+    build:
+      context: ./sidecar
+      dockerfile: Dockerfile
+    # Chrome's content-process sandbox requires SYS_ADMIN inside Docker.
+    cap_add:
+      - SYS_ADMIN
+    # Chrome uses /dev/shm for inter-process communication.
+    # 2 GB covers ~3-4 concurrent Chrome sessions.
+    shm_size: 2gb
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - SIDECAR_PORT=3000
+    # Healthcheck: HTTP GET /health served by the Node WS server.
+    # The app waits for this before trying to connect (see depends_on below).
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:3000/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    # ── GPU passthrough (optional) ─────────────────────────────────────────────
+    # Uncomment to pass the host GPU to Chrome for real WebGL fingerprinting.
+    # Requires the host to have an Nvidia/AMD GPU with DRI enabled.
+    # devices:
+    #   - /dev/dri/card0:/dev/dri/card0
+    #   - /dev/dri/renderD128:/dev/dri/renderD128
+
+  # ── .NET orchestrator ────────────────────────────────────────────────────────
+  # Serves the client, manages sessions, relays frames between sidecar and client.
+  app:
     build:
       context: .
       dockerfile: Dockerfile
@@ -7,14 +42,11 @@ services:
       - "8080:8080"
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
-      # Override Camoufox path here if needed (default is set in Dockerfile)
-      # - Camoufox__ExecutablePath=/opt/camoufox
+      # Points to the sidecar WebSocket server (resolved via Docker DNS).
+      - Sidecar__BaseUrl=ws://sidecar:3000
+    # Only start the app once the sidecar healthcheck passes.
+    # Prevents "session not found on sidecar" errors on startup.
+    depends_on:
+      sidecar:
+        condition: service_healthy
     restart: unless-stopped
-    # Firefox's content-process sandbox requires this in Docker.
-    # Without it, Camoufox will fail to launch child processes.
-    cap_add:
-      - SYS_ADMIN
-    # Shared memory — Firefox uses /dev/shm for IPC between processes.
-    # Each session spawns a dedicated Firefox process; 512 MB per session is
-    # typical. 2 GB covers ~4 concurrent sessions with headroom.
-    shm_size: 2gb

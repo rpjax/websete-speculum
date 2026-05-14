@@ -4,25 +4,15 @@ using Websete.Speculum.Browser;
 namespace Websete.Speculum.Host.Controllers;
 
 [ApiController]
-public class VirtualizationController : ControllerBase
+public sealed class VirtualizationController : ControllerBase
 {
-    private BrowserService _browserService { get; }
+    private readonly SidecarService _sidecar;
 
-    public VirtualizationController(BrowserService browserService)
-    {
-        _browserService = browserService;
-    }
+    public VirtualizationController(SidecarService sidecar)
+        => _sidecar = sidecar;
 
-    // ── Endpoints ─────────────────────────────────────────────────────────────
-
+    /// <summary>Returns basic health information and active session count.</summary>
     [HttpGet("/status")]
     public IActionResult Status() =>
-        Ok(new { status = "ok", activeSessions = _browserService.ActiveSessions });
-
-    [HttpGet("/virtualization")]
-    public async Task<ActionResult> GetVirtualizationPage()
-    {
-        var html = await System.IO.File.ReadAllTextAsync("wwwroot/virtualization.html");
-        return Content(html, "text/html");
-    }
+        Ok(new { status = "ok", activeSessions = _sidecar.ActiveSessions });
 }

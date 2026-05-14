@@ -1,320 +1,546 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Speculum</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Speculum</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-    body {
-      background: #0d0d0d;
-      color: #e0e0e0;
-      font-family: system-ui, sans-serif;
-      height: 100vh;
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
-    }
+  html, body {
+    width: 100%; height: 100%;
+    background: #0d0d0d;
+    color: #e0e0e0;
+    font-family: system-ui, sans-serif;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
 
-    #toolbar {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 8px 12px;
-      background: #1a1a1a;
-      border-bottom: 1px solid #2a2a2a;
-      flex-shrink: 0;
-    }
+  /* ── Toolbar ─────────────────────────────────────────────────────────── */
+  #toolbar {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: #1a1a1a;
+    border-bottom: 1px solid #2a2a2a;
+    user-select: none;
+  }
 
-    #url-bar {
-      flex: 1;
-      background: #2a2a2a;
-      border: 1px solid #3a3a3a;
-      border-radius: 6px;
-      color: #e0e0e0;
-      font-size: 13px;
-      padding: 5px 10px;
-      outline: none;
-    }
+  #brand {
+    font-size: 13px;
+    font-weight: 600;
+    color: #888;
+    white-space: nowrap;
+    letter-spacing: 0.05em;
+  }
 
-    #url-bar:focus { border-color: #5a8dee; }
+  #url-bar {
+    flex: 1;
+    background: #0d0d0d;
+    border: 1px solid #333;
+    border-radius: 4px;
+    color: #e0e0e0;
+    font-size: 13px;
+    padding: 5px 10px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  #url-bar:focus { border-color: #555; }
 
-    button {
-      background: #2a2a2a;
-      border: 1px solid #3a3a3a;
-      border-radius: 6px;
-      color: #e0e0e0;
-      cursor: pointer;
-      font-size: 12px;
-      padding: 5px 12px;
-    }
+  #go-btn {
+    background: #2a2a2a;
+    border: 1px solid #3a3a3a;
+    border-radius: 4px;
+    color: #e0e0e0;
+    cursor: pointer;
+    font-size: 13px;
+    padding: 5px 14px;
+    white-space: nowrap;
+    transition: background 0.15s;
+  }
+  #go-btn:hover { background: #333; }
+  #go-btn:disabled { opacity: 0.4; cursor: default; }
 
-    button:hover  { background: #3a3a3a; }
-    button:disabled { opacity: 0.4; cursor: default; }
+  #status {
+    font-size: 11px;
+    color: #888;
+    white-space: nowrap;
+  }
+  #status.connected   { color: #4caf50; }
+  #status.connecting  { color: #ff9800; }
+  #status.error       { color: #f44336; }
 
-    #status-bar {
-      font-size: 11px;
-      color: #888;
-      padding: 0 4px;
-      white-space: nowrap;
-    }
+  /* ── FPS counter (dev only) ──────────────────────────────────────────── */
+  #fps {
+    display: none;
+    font-size: 11px;
+    color: #555;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+    min-width: 52px;
+    text-align: right;
+  }
+  #fps.active { display: block; }
 
-    #viewport {
-      flex: 1;
-      overflow: hidden;
-      display: flex;
-      justify-content: center;
-      align-items: flex-start;
-      background: #111;
-    }
+  /* ── Viewport ────────────────────────────────────────────────────────── */
+  #viewport {
+    flex: 1 1 auto;
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    touch-action: none; /* let canvas handle all touch events */
+  }
 
-    #screen {
-      cursor: crosshair;
-      display: block;
-      image-rendering: pixelated;
-    }
+  #canvas {
+    display: block;
+    cursor: default;
+    image-rendering: pixelated;
+    touch-action: none;
+  }
 
-    #overlay {
-      position: fixed;
-      inset: 0;
-      background: rgba(0,0,0,0.75);
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 16px;
-    }
+  /* ── Overlay ─────────────────────────────────────────────────────────── */
+  #overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: rgba(13,13,13,0.85);
+    gap: 16px;
+  }
+  #overlay.hidden { display: none; }
 
-    #overlay h2 { font-size: 18px; font-weight: 500; }
-    #overlay p  { font-size: 13px; color: #888; }
+  #overlay p { color: #888; font-size: 14px; }
 
-    #connect-btn {
-      background: #5a8dee;
-      border-color: #5a8dee;
-      padding: 8px 24px;
-      font-size: 14px;
-    }
-
-    #connect-btn:hover { background: #4a7dde; }
-  </style>
+  #connect-btn {
+    background: #1e88e5;
+    border: none;
+    border-radius: 6px;
+    color: #fff;
+    cursor: pointer;
+    font-size: 14px;
+    padding: 10px 28px;
+    transition: background 0.15s;
+  }
+  #connect-btn:hover { background: #1565c0; }
+</style>
 </head>
 <body>
 
+<!-- ── Toolbar ────────────────────────────────────────────────────────────── -->
 <div id="toolbar">
-  <span style="font-size:13px;font-weight:600;color:#5a8dee">Speculum</span>
-  <input id="url-bar" type="text" placeholder="https://example.com" value="https://example.com" />
+  <span id="brand">SPECULUM</span>
+  <input id="url-bar" type="text" placeholder="https://" spellcheck="false"/>
   <button id="go-btn" disabled>Go</button>
-  <span id="status-bar">disconnected</span>
+  <span id="status" class="connecting">Connecting...</span>
+  <span id="fps"></span>
 </div>
 
+<!-- ── Viewport ───────────────────────────────────────────────────────────── -->
 <div id="viewport">
-  <canvas id="screen" width="1280" height="720"></canvas>
-</div>
+  <canvas id="canvas"></canvas>
 
-<div id="overlay">
-  <h2>Speculum</h2>
-  <p>Headless browser stream over WebRTC</p>
-  <button id="connect-btn">Connect</button>
+  <div id="overlay">
+    <p>Remote browser not connected</p>
+    <button id="connect-btn">Connect</button>
+  </div>
 </div>
 
 <script>
-  const BROWSER_W = 1280;
-  const BROWSER_H = 720;
+'use strict';
 
-  const canvas     = document.getElementById('screen');
-  const ctx        = canvas.getContext('2d');
-  const overlay    = document.getElementById('overlay');
-  const urlBar     = document.getElementById('url-bar');
-  const goBtn      = document.getElementById('go-btn');
-  const statusEl   = document.getElementById('status-bar');
-  const connectBtn = document.getElementById('connect-btn');
+// ── Dev mode ──────────────────────────────────────────────────────────────────
+const IS_DEV = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
 
-  // Active channels — set once WebRTC is up.
-  let inputChannel = null;
-  let rpcChannel   = null;
+// ── Protocol constants ────────────────────────────────────────────────────────
+const MSG_TILE = 0x01;
+const MSG_FULL = 0x02;
+// 0x03 = skip: nothing to render
 
-  let scale = 1;
+// ── DOM refs ──────────────────────────────────────────────────────────────────
+const canvas     = document.getElementById('canvas');
+const ctx        = canvas.getContext('2d');
+const overlay    = document.getElementById('overlay');
+const statusEl   = document.getElementById('status');
+const urlBar     = document.getElementById('url-bar');
+const goBtn      = document.getElementById('go-btn');
+const connectBtn = document.getElementById('connect-btn');
+const viewport   = document.getElementById('viewport');
+const fpsEl      = document.getElementById('fps');
 
-  // ── Layout ───────────────────────────────────────────────────────────────────
+if (IS_DEV) fpsEl.classList.add('active');
 
-  function fitCanvas() {
-    const vw = canvas.parentElement.clientWidth;
-    const vh = canvas.parentElement.clientHeight;
-    scale = Math.min(vw / BROWSER_W, vh / BROWSER_H);
-    canvas.style.width  = (BROWSER_W * scale) + 'px';
-    canvas.style.height = (BROWSER_H * scale) + 'px';
+// ── Session state ─────────────────────────────────────────────────────────────
+let hub       = null;
+let ws        = null;
+let sessionId = null;
+let sessionW  = 1280;
+let sessionH  = 720;
+
+// ── Canvas layout ─────────────────────────────────────────────────────────────
+function fitCanvas() {
+  if (!canvas.width) return;
+  const vw = viewport.clientWidth;
+  const vh = viewport.clientHeight;
+  const ar = sessionW / sessionH;
+  let w = vw, h = vw / ar;
+  if (h > vh) { h = vh; w = vh * ar; }
+  canvas.style.width  = Math.floor(w) + 'px';
+  canvas.style.height = Math.floor(h) + 'px';
+}
+window.addEventListener('resize', fitCanvas);
+
+// ── Status indicator ──────────────────────────────────────────────────────────
+function setStatus(text, cls) {
+  statusEl.textContent = text;
+  statusEl.className   = cls;
+}
+
+// ── FPS counter (dev only) ────────────────────────────────────────────────────
+let fpsFrames  = 0;
+let fpsLastTs  = performance.now();
+
+function tickFps() {
+  if (!IS_DEV) return;
+  fpsFrames++;
+  const now     = performance.now();
+  const elapsed = now - fpsLastTs;
+  if (elapsed >= 1000) {
+    fpsEl.textContent = Math.round(fpsFrames * 1000 / elapsed) + ' fps';
+    fpsFrames = 0;
+    fpsLastTs = now;
   }
+}
 
-  window.addEventListener('resize', fitCanvas);
-  fitCanvas();
+// ── Frame rendering (requestAnimationFrame-paced) ─────────────────────────────
+// One slot: the latest frame waiting to be rendered. Older frames are evicted
+// when a newer one arrives — we always render the most recent state, never a
+// stale backlog. This keeps latency at one frame regardless of how fast frames
+// arrive vs. how fast the GPU can draw.
+let pendingFrame = null;
+let rafPending   = false;
 
-  // ── Connect ──────────────────────────────────────────────────────────────────
+function scheduleRender() {
+  if (rafPending) return;
+  rafPending = true;
+  requestAnimationFrame(renderNext);
+}
 
-  connectBtn.addEventListener('click', connect);
+function renderNext() {
+  rafPending   = false;
+  const fn     = pendingFrame;
+  pendingFrame = null;
+  if (!fn) return;
+  fn().then(() => {
+    tickFps();
+    if (pendingFrame) scheduleRender(); // another frame arrived while we were drawing
+  });
+}
 
-  function connect() {
-    const sessionId = crypto.randomUUID();
-    const wsProto   = location.protocol === 'https:' ? 'wss' : 'ws';
-    const sigUrl    = `${wsProto}://${location.host}/signaling/${sessionId}`;
+async function handleFrame(buffer) {
+  if (!(buffer instanceof ArrayBuffer)) return;
+  const view = new DataView(buffer);
+  if (buffer.byteLength < 1) return;
+  const type = view.getUint8(0);
 
-    // ── Peer connection
-    const pc = new RTCPeerConnection({
-      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-    });
+  if (type === MSG_FULL) {
+    // Layout: [0] type | [1-4] frameId | [5-8] len | [9+] jpeg
+    if (buffer.byteLength < 9) return;
+    const len = view.getUint32(5, true);
+    if (9 + len > buffer.byteLength) return;
+    const jpeg = buffer.slice(9, 9 + len);
 
-    // ── DataChannels
-    //   video  — unreliable, unordered: always prefer the freshest frame.
-    //   input  — reliable, ordered: no event must be lost or reordered.
-    //   rpc    — reliable, ordered: placeholder for future event-driven RPC.
-    const videoChannel = pc.createDataChannel('video', { ordered: false, maxRetransmits: 0 });
-    inputChannel       = pc.createDataChannel('input', { ordered: true });
-    rpcChannel         = pc.createDataChannel('rpc',   { ordered: true });
-
-    videoChannel.binaryType = 'arraybuffer';
-
-    videoChannel.onopen  = () => setStatus('streaming');
-    videoChannel.onclose = () => setStatus('video closed');
-
-    // Latest-frame-wins: if a new frame arrives before the previous one is decoded,
-    // we discard the old one. This prevents queue buildup under burst conditions.
-    let pendingFrame   = null;
-    let rafScheduled   = false;
-
-    videoChannel.onmessage = (e) => {
-      pendingFrame = e.data;
-      if (!rafScheduled) {
-        rafScheduled = true;
-        requestAnimationFrame(commitFrame);
-      }
+    // Evict any pending frame — we only ever render the latest one.
+    pendingFrame = async () => {
+      const blob = new Blob([jpeg], { type: 'image/jpeg' });
+      const bmp  = await createImageBitmap(blob);
+      try   { ctx.drawImage(bmp, 0, 0, sessionW, sessionH); }
+      finally { bmp.close(); }
     };
+    scheduleRender();
 
-    function commitFrame() {
-      rafScheduled = false;
-      if (!pendingFrame) return;
-      const data  = pendingFrame;
-      pendingFrame = null;
-      // createImageBitmap decodes JPEG off the main thread (browser-managed worker).
-      // Much faster than Blob → URL → new Image → onload → drawImage.
-      createImageBitmap(new Blob([data], { type: 'image/jpeg' })).then(bitmap => {
-        ctx.drawImage(bitmap, 0, 0, BROWSER_W, BROWSER_H);
-        bitmap.close();
-      });
+  } else if (type === MSG_TILE) {
+    // Tile frames are kept for backwards-compatibility but the sidecar no
+    // longer sends them. If they do arrive, render them as a batch.
+    if (buffer.byteLength < 7) return;
+    const numTiles = view.getUint16(5, true);
+    let offset = 7;
+    const tiles = [];
+
+    for (let i = 0; i < numTiles; i++) {
+      if (offset + 12 > buffer.byteLength) break;
+      const x   = view.getUint16(offset, true); offset += 2;
+      const y   = view.getUint16(offset, true); offset += 2;
+      const w   = view.getUint16(offset, true); offset += 2;
+      const h   = view.getUint16(offset, true); offset += 2;
+      const len = view.getUint32(offset, true); offset += 4;
+      if (offset + len > buffer.byteLength) break;
+      tiles.push({ x, y, w, h, jpeg: buffer.slice(offset, offset + len) });
+      offset += len;
     }
 
-    inputChannel.onopen = () => {
-      goBtn.disabled = false;
-      sendInput({ type: 'navigate', url: urlBar.value });
+    if (tiles.length === 0) return;
+
+    pendingFrame = async () => {
+      await Promise.all(tiles.map(async ({ x, y, w, h, jpeg }) => {
+        const blob = new Blob([jpeg], { type: 'image/jpeg' });
+        const bmp  = await createImageBitmap(blob);
+        try   { ctx.drawImage(bmp, x, y, w, h); }
+        finally { bmp.close(); }
+      }));
     };
-    inputChannel.onclose = () => { goBtn.disabled = true; };
+    scheduleRender();
 
-    // rpc — placeholder
-    rpcChannel.onopen    = () => {};
-    rpcChannel.onmessage = (e) => console.debug('[rpc]', e.data);
-
-    // ── Signaling WebSocket
-    const ws = new WebSocket(sigUrl);
-
-    ws.onopen = async () => {
-      setStatus('negotiating...');
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      ws.send(JSON.stringify({ type: 'offer', sdp: offer.sdp }));
-    };
-
-    ws.onmessage = async (e) => {
-      const msg = JSON.parse(e.data);
-      if (msg.type === 'answer') {
-        await pc.setRemoteDescription(msg);
-      } else if (msg.type === 'candidate') {
-        await pc.addIceCandidate(msg.candidate).catch(() => {});
-      }
-    };
-
-    ws.onerror = () => setStatus('signaling error');
-    ws.onclose = () => {
-      if (pc.connectionState !== 'connected') setStatus('disconnected');
-    };
-
-    // ── ICE trickle
-    pc.onicecandidate = (e) => {
-      if (e.candidate && ws.readyState === WebSocket.OPEN)
-        ws.send(JSON.stringify({ type: 'candidate', candidate: e.candidate }));
-    };
-
-    // ── Connection state
-    pc.onconnectionstatechange = () => {
-      setStatus(pc.connectionState);
-      if (pc.connectionState === 'connected')    overlay.style.display = 'none';
-      if (pc.connectionState === 'disconnected' ||
-          pc.connectionState === 'failed')        overlay.style.display = 'flex';
-    };
+  } else if (type !== 0x03) {
+    console.warn('[speculum] Unknown frame type:', type);
   }
+}
 
+// ── Input helpers ─────────────────────────────────────────────────────────────
+function canvasToPage(clientX, clientY) {
+  const rect = canvas.getBoundingClientRect();
+  return {
+    x: Math.round((clientX - rect.left) * (sessionW / rect.width)),
+    y: Math.round((clientY - rect.top)  * (sessionH / rect.height)),
+  };
+}
 
-  // ── Navigation ───────────────────────────────────────────────────────────────
-
-  goBtn.addEventListener('click', navigate);
-  urlBar.addEventListener('keydown', (e) => { if (e.key === 'Enter') navigate(); });
-
-  function navigate() {
-    let url = urlBar.value.trim();
-    if (!url.startsWith('http')) url = 'https://' + url;
-    sendInput({ type: 'navigate', url });
+function sendInput(obj) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(obj));
   }
+}
 
-  // ── Mouse ────────────────────────────────────────────────────────────────────
+// ── Mouse events ──────────────────────────────────────────────────────────────
+let lastMoveTime  = 0;
+// Tracks which buttons are currently held (mousedown came from canvas).
+// Used to: (a) catch mouseup outside the canvas, (b) continue reporting
+// mousemove during drag even when the cursor leaves the canvas element.
+const pressedBtns = new Set();
 
-  canvas.addEventListener('click', (e) => {
-    const [x, y] = canvasToPage(e);
-    sendInput({ type: 'click', x, y });
+canvas.addEventListener('mousemove', e => {
+  const now = performance.now();
+  if (now - lastMoveTime < 16) return; // ~60 Hz cap
+  lastMoveTime = now;
+  const {x, y} = canvasToPage(e.clientX, e.clientY);
+  sendInput({ type: 'mousemove', x, y });
+});
+
+canvas.addEventListener('mousedown', e => {
+  e.preventDefault();
+  canvas.focus();
+  pressedBtns.add(e.button);
+  const {x, y} = canvasToPage(e.clientX, e.clientY);
+  sendInput({ type: 'mousedown', x, y, button: e.button });
+});
+
+// Listen on window so mouseup is always caught even if the cursor left the
+// canvas while a button was held (drag-out). The pressedBtns guard prevents
+// forwarding releases for clicks that never started on the canvas.
+window.addEventListener('mouseup', e => {
+  if (!pressedBtns.has(e.button)) return;
+  pressedBtns.delete(e.button);
+  const {x, y} = canvasToPage(e.clientX, e.clientY);
+  sendInput({ type: 'mouseup', x, y, button: e.button });
+});
+
+// Continue tracking position while dragging outside the canvas boundary.
+window.addEventListener('mousemove', e => {
+  if (pressedBtns.size === 0) return; // not dragging — canvas listener handles in-bounds moves
+  const now = performance.now();
+  if (now - lastMoveTime < 16) return;
+  lastMoveTime = now;
+  const {x, y} = canvasToPage(e.clientX, e.clientY);
+  sendInput({ type: 'mousemove', x, y });
+});
+
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  const {x, y} = canvasToPage(e.clientX, e.clientY);
+  // Normalize deltaMode to pixels before forwarding.
+  //   deltaMode 0 = DOM_DELTA_PIXEL  → already pixels (trackpads, most browsers)
+  //   deltaMode 1 = DOM_DELTA_LINE   → ×40 px/line  (typical physical mouse wheel on Windows)
+  //   deltaMode 2 = DOM_DELTA_PAGE   → ×viewport height/width
+  let dX = e.deltaX, dY = e.deltaY;
+  if      (e.deltaMode === 1) { dX *= 40; dY *= 40; }
+  else if (e.deltaMode === 2) { dX *= window.innerWidth; dY *= window.innerHeight; }
+  sendInput({ type: 'wheel', x, y, deltaX: dX, deltaY: dY });
+}, { passive: false });
+
+// ── Touch events — mapped to pointer messages ─────────────────────────────────
+// Single-touch → left-button mouse. Multi-touch is not forwarded (rare need,
+// would require CDP touch API on the sidecar side).
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  canvas.focus();
+  const t = e.changedTouches[0];
+  if (!t) return;
+  const {x, y} = canvasToPage(t.clientX, t.clientY);
+  sendInput({ type: 'mousedown', x, y, button: 0 });
+}, { passive: false });
+
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault();
+  const t = e.touches[0];
+  if (!t) return;
+  const now = performance.now();
+  if (now - lastMoveTime < 16) return;
+  lastMoveTime = now;
+  const {x, y} = canvasToPage(t.clientX, t.clientY);
+  sendInput({ type: 'mousemove', x, y });
+}, { passive: false });
+
+canvas.addEventListener('touchend', e => {
+  e.preventDefault();
+  const t = e.changedTouches[0];
+  if (!t) return;
+  const {x, y} = canvasToPage(t.clientX, t.clientY);
+  sendInput({ type: 'mouseup', x, y, button: 0 });
+}, { passive: false });
+
+canvas.addEventListener('touchcancel', e => {
+  e.preventDefault();
+  const t = e.changedTouches[0];
+  if (!t) return;
+  const {x, y} = canvasToPage(t.clientX, t.clientY);
+  sendInput({ type: 'mouseup', x, y, button: 0 });
+}, { passive: false });
+
+// ── Keyboard events ───────────────────────────────────────────────────────────
+canvas.setAttribute('tabindex', '0');
+
+// Tracks keys for which we forwarded a keydown. Ensures:
+//   • keyup is only sent when there is a matching keydown (prevents spurious
+//     keyup for passthrough keys like F12 that we never forwarded as keydown).
+//   • blur can release all held keys atomically, preventing stuck modifiers
+//     and stuck printable keys when the canvas loses focus.
+const heldKeys = new Set();
+
+canvas.addEventListener('keydown', e => {
+  // Pass these through to the host browser unchanged.
+  if (e.key === 'F12') return;
+  if ((e.ctrlKey || e.metaKey) && ['r', 'l', 't', 'w', 'n'].includes(e.key.toLowerCase())) return;
+
+  e.preventDefault();
+  heldKeys.add(e.key);
+  sendInput({ type: 'keydown', key: e.key });
+});
+
+canvas.addEventListener('keyup', e => {
+  // Only forward keyup when we forwarded the matching keydown.
+  if (!heldKeys.has(e.key)) return;
+  heldKeys.delete(e.key);
+  sendInput({ type: 'keyup', key: e.key });
+});
+
+// When the canvas loses focus, release every held key in the virtual browser.
+// Without this, modifier keys (Shift, Ctrl…) and held printable keys would
+// remain stuck until the user presses and releases them again.
+canvas.addEventListener('blur', () => {
+  for (const key of heldKeys) {
+    sendInput({ type: 'keyup', key });
+  }
+  heldKeys.clear();
+});
+
+// ── Navigation ────────────────────────────────────────────────────────────────
+function navigate(rawUrl) {
+  if (!rawUrl || !sessionId || !hub) return;
+  let url = rawUrl.trim();
+  if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+  urlBar.value = url;
+  hub.invoke('NavigateAsync', { sessionId, url }).catch(err => {
+    console.error('[navigate]', err);
   });
+}
 
-  canvas.addEventListener('mousemove', (e) => {
-    const [x, y] = canvasToPage(e);
-    sendInput({ type: 'mousemove', x, y });
-  });
+goBtn.addEventListener('click', () => navigate(urlBar.value));
+urlBar.addEventListener('keydown', e => {
+  if (e.key === 'Enter') { e.preventDefault(); navigate(urlBar.value); }
+});
 
-  canvas.addEventListener('wheel', (e) => {
-    e.preventDefault();
-    sendInput({ type: 'wheel', deltaX: e.deltaX, deltaY: e.deltaY });
-  }, { passive: false });
+// ── WebSocket (binary frame streaming + input) ────────────────────────────────
+function openWebSocket(sid) {
+  const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${scheme}://${location.host}/ws/${sid}`);
+  ws.binaryType = 'arraybuffer';
 
-  function canvasToPage(e) {
-    const rect = canvas.getBoundingClientRect();
-    return [
-      Math.round((e.clientX - rect.left) / scale),
-      Math.round((e.clientY - rect.top)  / scale)
-    ];
+  ws.onopen = () => {
+    setStatus('Streaming', 'connected');
+    goBtn.disabled = false;
+    overlay.classList.add('hidden');
+    canvas.focus();
+  };
+
+  ws.onmessage = e => {
+    handleFrame(e.data);
+  };
+
+  ws.onclose = () => {
+    setStatus('Disconnected — click to reconnect', 'error');
+    goBtn.disabled = true;
+    overlay.classList.remove('hidden');
+    ws = null;
+  };
+
+  ws.onerror = err => console.error('[ws]', err);
+}
+
+// ── SignalR + session creation ─────────────────────────────────────────────────
+async function connect() {
+  setStatus('Connecting...', 'connecting');
+  connectBtn.disabled = true;
+
+  try {
+    hub = new signalR.HubConnectionBuilder()
+      .withUrl('/hub/virtualization')
+      .withAutomaticReconnect()
+      .configureLogging(signalR.LogLevel.Warning)
+      .build();
+
+    hub.onclose(() => {
+      setStatus('Hub disconnected', 'error');
+      overlay.classList.remove('hidden');
+    });
+
+    await hub.start();
+
+    const resp = await hub.invoke('CreateSessionAsync', {
+      width:      1280,
+      height:     720,
+      initialUrl: null,
+    });
+
+    sessionId = resp.sessionId;
+    sessionW  = resp.width;
+    sessionH  = resp.height;
+
+    canvas.width  = sessionW;
+    canvas.height = sessionH;
+    fitCanvas();
+
+    openWebSocket(sessionId);
+
+  } catch (err) {
+    console.error('[connect]', err);
+    setStatus('Error: ' + err.message, 'error');
+    connectBtn.disabled = false;
   }
+}
 
-  // ── Keyboard ─────────────────────────────────────────────────────────────────
+connectBtn.addEventListener('click', connect);
 
-  document.addEventListener('keydown', (e) => {
-    if (!inputChannel || inputChannel.readyState !== 'open') return;
-    if (document.activeElement === urlBar) return;
-    e.preventDefault();
-    if (e.key.length === 1) sendInput({ type: 'type',     text: e.key });
-    else                    sendInput({ type: 'keypress', key:  e.key });
-  });
-
-  // ── Helpers ──────────────────────────────────────────────────────────────────
-
-  function sendInput(obj) {
-    if (inputChannel?.readyState === 'open')
-      inputChannel.send(JSON.stringify(obj));
-  }
-
-  // Public API para o canal RPC (placeholder).
-  function sendRpc(event, payload = {}) {
-    if (rpcChannel?.readyState === 'open')
-      rpcChannel.send(JSON.stringify({ event, payload }));
-  }
-
-  function setStatus(s) {
-    statusEl.textContent = s;
-  }
+// Auto-connect on load.
+connect();
 </script>
-
 </body>
 </html>

@@ -101,7 +101,7 @@ public sealed class SidecarClient : IAsyncDisposable
             if (filled == buf.Length)
                 Array.Resize(ref buf, buf.Length * 2);
 
-            WebSocketReceiveResult result;
+            ValueWebSocketReceiveResult result;
             try
             {
                 result = await _ws.ReceiveAsync(buf.AsMemory(filled), timeoutCt);

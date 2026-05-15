@@ -24,6 +24,9 @@ namespace Websete.Speculum.Host.Certs;
 /// </summary>
 public sealed class CertificateProvider : ICertificateProvider, IDisposable
 {
+    const string FullChainFile = "fullchain.pem";
+    const string PrivateKeyFile = "privkey.pem";
+
     private readonly record struct Entry(
         string           Domain,
         bool             AllowSubDomains,
@@ -60,8 +63,8 @@ public sealed class CertificateProvider : ICertificateProvider, IDisposable
         {
             var domain       = profile.Domain;
             var dir          = Path.Combine(certBasePath, domain);
-            var privkeyPath  = Path.Combine(dir, "privkey.pem");
-            var fullchainPath = Path.Combine(dir, "fullchain.pem");
+            var privkeyPath  = Path.Combine(dir, PrivateKeyFile);
+            var fullchainPath = Path.Combine(dir, FullChainFile);
 
             AssertFileExists(privkeyPath,  profile.Domain, "private key");
             AssertFileExists(fullchainPath, profile.Domain, "full chain");

@@ -13,8 +13,8 @@ import { CreateMessage, decodeMessage } from './Protocol';
  *
  * Protocol (per WS connection):
  *   1. .NET sends { type: "create", sessionId, width, height, url? }
- *   2. Sidecar starts Xvfb + Chrome + CDP screencast, replies { type: "ready", sessionId }
- *   3. Sidecar streams binary frame messages (tile/full/skip)
+ *   2. Sidecar starts Xvfb + Chrome + FFmpeg, replies { type: "ready", sessionId }
+ *   3. Sidecar streams binary frame messages (full / skip)
  *   4. .NET sends JSON input/control messages
  *   5. WS close → session disposed
  */
@@ -61,7 +61,14 @@ wss.on('connection', (ws: WebSocket) => {
             const { sessionId, width, height, url } = msg as CreateMessage;
 
             if (session) {
-                console.warn(`[${sessionId}] Duplicate create — ignoring`);
+                // A second "create" on the same connection is a protocol error.
+                // Notify the caller so it does not hang waiting for "ready".
+                console.warn(`[${sessionId}] Duplicate create on existing session — rejecting`);
+                ws.send(JSON.stringify({
+                    type:    'error',
+                    sessionId,
+                    message: 'A session already exists on this connection.',
+                }));
                 return;
             }
 
@@ -85,16 +92,23 @@ wss.on('connection', (ws: WebSocket) => {
 
         // ── Input / control ───────────────────────────────────────────────────
         if (session) {
+            // handleMessage is already guarded; errors are logged internally.
             await session.handleMessage(text);
         }
     });
 
-    ws.on('close', async () => {
-        if (session) {
-            activeSessions.delete(session);
-            await session.dispose();
-            session = undefined;
-        }
+    // Non-async close handler — fire-and-forget disposal with explicit error catch.
+    // Using an async handler here would produce unhandled rejections because the
+    // 'ws' library ignores the return value of event callbacks.
+    ws.on('close', () => {
+        if (!session) return;
+        const s = session;
+        session = undefined;
+        activeSessions.delete(s);
+
+        s.dispose().catch(err =>
+            console.warn('[sidecar] Session dispose error:', (err as Error).message),
+        );
     });
 
     ws.on('error', (err) => {

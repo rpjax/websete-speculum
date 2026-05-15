@@ -17,6 +17,12 @@ import { encodeFullFrame } from './Protocol';
  * samples that buffer at exactly TARGET_FPS, sending duplicate frames only when
  * there is nothing new to show (handled by the identity hash skip below).
  *
+ * ── Startup confirmation ──────────────────────────────────────────────────────
+ * FFmpegCapture.start() is async and does NOT return until FFmpeg has produced
+ * its first JPEG frame. If FFmpeg exits before producing any output (e.g. not
+ * in PATH, or the display is not yet ready), start() rejects with an error.
+ * This gives callers a clear failure signal rather than a silently dead capture.
+ *
  * ── Frame identity skip ───────────────────────────────────────────────────────
  * For static content, FFmpeg re-encodes the same pixels deterministically:
  * same Xvfb content → identical JPEG bytes → same 32-byte prefix+suffix hash →
@@ -39,37 +45,68 @@ export class FFmpegCapture {
 
     private constructor() {}
 
-    static async start(
+    /**
+     * Spawns FFmpeg and waits until the first JPEG frame is produced before
+     * returning. This confirms that FFmpeg started successfully and x11grab
+     * connected to the display.
+     *
+     * @throws if FFmpeg exits before producing any output (spawn error, ENOENT,
+     *         display not ready, etc.).
+     */
+    static start(
         displayNum: number,
         width:      number,
         height:     number,
         onFrame:    (buf: Buffer) => void,
     ): Promise<FFmpegCapture> {
         const fc = new FFmpegCapture();
-        fc._launch(displayNum, width, height, onFrame);
-        return fc;
+
+        return new Promise<FFmpegCapture>((resolve, reject) => {
+            // settle() ensures only the first outcome (frame | error | exit)
+            // resolves or rejects the promise. Subsequent calls are no-ops.
+            let settled = false;
+            function settle(fn: () => void): void {
+                if (settled) return;
+                settled = true;
+                fn();
+            }
+
+            fc._spawn(displayNum, width, height,
+                (firstJpeg) => {
+                    // First frame produced — FFmpeg is alive and healthy.
+                    onFrame(encodeFullFrame(++fc._frameId, firstJpeg));
+                    settle(() => resolve(fc));
+                },
+                (err) => settle(() => reject(err)),
+                onFrame,
+            );
+        });
     }
 
-    private _launch(
-        displayNum: number,
-        width:      number,
-        height:     number,
-        onFrame:    (buf: Buffer) => void,
+    // ── Internal spawn ────────────────────────────────────────────────────────
+
+    private _spawn(
+        displayNum:  number,
+        width:       number,
+        height:      number,
+        onFirstFrame:(jpeg: Buffer) => void,
+        onStartError:(err: Error) => void,
+        onFrame:     (buf: Buffer) => void,
     ): void {
         const display = `:${displayNum}`;
 
         const proc = spawn(FFMPEG_BIN, [
-            '-loglevel',    'error',            // suppress info/stats noise
+            '-loglevel',    'error',
             // ── Input ────────────────────────────────────────────────────────
-            '-f',           'x11grab',          // X11 screen grabber (uses XShm)
+            '-f',           'x11grab',
             '-video_size',  `${width}x${height}`,
             '-framerate',   String(TARGET_FPS),
-            '-draw_mouse',  '0',                // suppress the X11 cursor overlay
+            '-draw_mouse',  '0',
             '-i',           display,
             // ── Output ───────────────────────────────────────────────────────
-            '-vcodec',      'mjpeg',            // per-frame JPEG, no inter-frame
+            '-vcodec',      'mjpeg',
             '-q:v',         String(JPEG_QUALITY),
-            '-f',           'image2pipe',       // concatenated JPEG stream on stdout
+            '-f',           'image2pipe',
             'pipe:1',
         ], {
             env:   { ...process.env, DISPLAY: display },
@@ -81,7 +118,8 @@ export class FFmpegCapture {
         const splitter = new JpegSplitter();
         proc.stdout!.pipe(splitter);
 
-        let prevHash = '';
+        let prevHash   = '';
+        let firstFrame = true;
 
         splitter.on('data', (jpeg: Buffer) => {
             if (this._stopped) return;
@@ -90,8 +128,19 @@ export class FFmpegCapture {
             const hash =
                 jpeg.subarray(0, 16).toString('hex') +
                 jpeg.subarray(-16).toString('hex');
-            if (hash === prevHash) return;
+
+            if (hash === prevHash) {
+                // No new content — but this still proves FFmpeg is running.
+                if (firstFrame) { firstFrame = false; onFirstFrame(jpeg); }
+                return;
+            }
             prevHash = hash;
+
+            if (firstFrame) {
+                firstFrame = false;
+                onFirstFrame(jpeg);
+                return; // onFirstFrame already relays this frame
+            }
 
             onFrame(encodeFullFrame(++this._frameId, jpeg));
         });
@@ -102,16 +151,27 @@ export class FFmpegCapture {
             }
         });
 
-        proc.on('close', (code, signal) => {
+        proc.on('error', (err) => {
+            // Spawn-level error (ENOENT, EACCES, etc.).
+            onStartError(new Error(`[FFmpegCapture] Failed to spawn FFmpeg: ${err.message}`));
             if (!this._stopped) {
+                console.error('[FFmpegCapture] spawn error:', err.message);
+            }
+        });
+
+        proc.on('close', (code, signal) => {
+            if (firstFrame) {
+                // Exited before producing a single frame — startup failure.
+                onStartError(new Error(
+                    `[FFmpegCapture] FFmpeg exited before producing any frames ` +
+                    `(code=${code} signal=${signal}). ` +
+                    `Check that DISPLAY :${displayNum} is running and accessible.`,
+                ));
+            } else if (!this._stopped) {
                 console.error(
                     `[FFmpegCapture] FFmpeg exited unexpectedly — code=${code} signal=${signal}`,
                 );
             }
-        });
-
-        proc.on('error', (err) => {
-            console.error('[FFmpegCapture] failed to spawn FFmpeg:', err.message);
         });
     }
 

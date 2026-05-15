@@ -111,27 +111,34 @@ export class Session {
             //
             // Strategy: wait for the popup to navigate to its real URL (away from
             // about:blank), close it immediately, then redirect the main page there.
-            context.on('page', async (newPage) => {
+            //
+            // The handler is non-async from the EventEmitter's perspective; errors
+            // are caught internally so they never become unhandled Promise rejections.
+            context.on('page', (newPage) => {
                 if (newPage === page) return;
 
-                let targetUrl: string | null = null;
-                try {
-                    await newPage.waitForURL(
-                        (u) => u.protocol !== 'about:' && u.protocol !== 'chrome-extension:',
-                        { timeout: 3_000 },
-                    );
-                    targetUrl = newPage.url();
-                } catch {
-                    // Opened but never navigated to a real URL — just close it.
-                }
-
-                try { await newPage.close(); } catch { /* best-effort */ }
-
-                if (targetUrl) {
+                (async () => {
+                    let targetUrl: string | null = null;
                     try {
-                        await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
-                    } catch { /* navigation error — ignore */ }
-                }
+                        await newPage.waitForURL(
+                            (u) => u.protocol !== 'about:' && u.protocol !== 'chrome-extension:',
+                            { timeout: 3_000 },
+                        );
+                        targetUrl = newPage.url();
+                    } catch {
+                        // Opened but never navigated to a real URL — just close it.
+                    }
+
+                    try { await newPage.close(); } catch { /* best-effort */ }
+
+                    if (targetUrl) {
+                        try {
+                            await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+                        } catch { /* navigation error — ignore */ }
+                    }
+                })().catch(err => {
+                    console.warn(`[${sessionId}] New-tab interception error:`, (err as Error).message);
+                });
             });
 
             // ── URL sync ──────────────────────────────────────────────────────

@@ -1,7 +1,7 @@
 using Microsoft.AspNetCore.SignalR;
-using Websete.Speculum.Host.Services;
+using Websete.Speculum.Host.Virtualization.Services;
 
-namespace Websete.Speculum.Host.Hubs;
+namespace Websete.Speculum.Host.Virtualization.Hubs;
 
 /// <summary>
 /// SignalR hub — thin controller. All business logic lives in
@@ -13,10 +13,16 @@ namespace Websete.Speculum.Host.Hubs;
 /// </summary>
 public sealed class VirtualizationHub : Hub
 {
-    private readonly IVirtualizationService _service;
+    private readonly IVirtualizationService        _service;
+    private readonly ILogger<VirtualizationHub>    _logger;
 
-    public VirtualizationHub(IVirtualizationService service)
-        => _service = service;
+    public VirtualizationHub(
+        IVirtualizationService     service,
+        ILogger<VirtualizationHub> logger)
+    {
+        _service = service;
+        _logger  = logger;
+    }
 
     // ── Session lifecycle ─────────────────────────────────────────────────────
 
@@ -44,7 +50,19 @@ public sealed class VirtualizationHub : Hub
 
     public override async Task OnDisconnectedAsync(Exception? exception)
     {
-        await _service.CleanupConnectionAsync(Context.ConnectionId);
+        // Wrap cleanup so that any failure does NOT prevent base.OnDisconnectedAsync
+        // from running — if the base call is skipped, SignalR cannot clean up its
+        // own connection state (group memberships, connection tracking, etc.).
+        try
+        {
+            await _service.CleanupConnectionAsync(Context.ConnectionId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Error cleaning up sessions for connection {Conn}", Context.ConnectionId);
+        }
+
         await base.OnDisconnectedAsync(exception);
     }
 }

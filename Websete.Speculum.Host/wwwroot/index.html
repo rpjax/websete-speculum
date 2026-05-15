@@ -38,20 +38,22 @@
     letter-spacing: 0.05em;
   }
 
+  /* URL bar is display-only — the MITM engine determines the target URL.
+     Users navigate by interacting with the virtual browser itself. */
   #url-bar {
     flex: 1;
     background: #0d0d0d;
     border: 1px solid #333;
     border-radius: 4px;
-    color: #e0e0e0;
+    color: #888;
     font-size: 13px;
     padding: 5px 10px;
     outline: none;
-    transition: border-color 0.15s;
+    cursor: default;
+    user-select: text; /* allow copying, but not typing */
   }
-  #url-bar:focus { border-color: #555; }
 
-  #back-btn, #fwd-btn, #go-btn {
+  #back-btn, #fwd-btn {
     background: #2a2a2a;
     border: 1px solid #3a3a3a;
     border-radius: 4px;
@@ -63,9 +65,8 @@
     transition: background 0.15s;
     flex-shrink: 0;
   }
-  #go-btn { padding: 5px 14px; }
-  #back-btn:hover, #fwd-btn:hover, #go-btn:hover { background: #333; }
-  #back-btn:disabled, #fwd-btn:disabled, #go-btn:disabled { opacity: 0.4; cursor: default; }
+  #back-btn:hover, #fwd-btn:hover { background: #333; }
+  #back-btn:disabled, #fwd-btn:disabled { opacity: 0.4; cursor: default; }
 
   #status {
     font-size: 11px;
@@ -145,8 +146,7 @@
   <span id="brand">SPECULUM</span>
   <button id="back-btn" disabled title="Back">&#8592;</button>
   <button id="fwd-btn"  disabled title="Forward">&#8594;</button>
-  <input id="url-bar" type="text" placeholder="https://" spellcheck="false"/>
-  <button id="go-btn" disabled>Go</button>
+  <input id="url-bar" type="text" placeholder="—" spellcheck="false" readonly tabindex="-1"/>
   <span id="status" class="connecting">Connecting...</span>
   <span id="fps"></span>
 </div>
@@ -179,7 +179,6 @@ const ctx        = canvas.getContext('2d');
 const overlay    = document.getElementById('overlay');
 const statusEl   = document.getElementById('status');
 const urlBar     = document.getElementById('url-bar');
-const goBtn      = document.getElementById('go-btn');
 const backBtn    = document.getElementById('back-btn');
 const fwdBtn     = document.getElementById('fwd-btn');
 const connectBtn = document.getElementById('connect-btn');
@@ -418,7 +417,7 @@ canvas.addEventListener('wheel', e => {
   //   deltaMode 2 = DOM_DELTA_PAGE   → ×viewport height/width
   let dX = e.deltaX, dY = e.deltaY;
   if      (e.deltaMode === 1) { dX *= 40; dY *= 40; }
-  else if (e.deltaMode === 2) { dX *= window.innerWidth; dY *= window.innerHeight; }
+  else if (e.deltaMode === 2) { dX *= canvas.clientWidth; dY *= canvas.clientHeight; }
   sendInput({ type: 'wheel', x, y, deltaX: dX, deltaY: dY });
 }, { passive: false });
 
@@ -499,22 +498,11 @@ canvas.addEventListener('blur', () => {
 });
 
 // ── Navigation ────────────────────────────────────────────────────────────────
-function navigate(rawUrl) {
-  if (!rawUrl || !sessionId || !hub) return;
-  let url = rawUrl.trim();
-  if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
-  urlBar.value = url;
-  hub.invoke('NavigateAsync', { sessionId, url }).catch(err => {
-    console.error('[navigate]', err);
-  });
-}
-
-goBtn.addEventListener('click',  () => navigate(urlBar.value));
+// Navigation is driven by the MITM engine — users interact with the virtual
+// browser directly (click links, use back/forward). There is no "navigate to"
+// command from the client.
 backBtn.addEventListener('click', () => sendInput({ type: 'goback' }));
 fwdBtn.addEventListener('click',  () => sendInput({ type: 'goforward' }));
-urlBar.addEventListener('keydown', e => {
-  if (e.key === 'Enter') { e.preventDefault(); navigate(urlBar.value); }
-});
 
 // ── WebSocket (binary frame streaming + input) ────────────────────────────────
 function openWebSocket(sid) {
@@ -524,7 +512,6 @@ function openWebSocket(sid) {
 
   ws.onopen = () => {
     setStatus('Streaming', 'connected');
-    goBtn.disabled  = false;
     backBtn.disabled = false;
     fwdBtn.disabled  = false;
     overlay.classList.add('hidden');
@@ -537,7 +524,6 @@ function openWebSocket(sid) {
 
   ws.onclose = () => {
     setStatus('Disconnected — click to reconnect', 'error');
-    goBtn.disabled   = true;
     backBtn.disabled = true;
     fwdBtn.disabled  = true;
     overlay.classList.remove('hidden');
@@ -549,6 +535,12 @@ function openWebSocket(sid) {
 
 // ── SignalR + session creation ─────────────────────────────────────────────────
 async function connect() {
+  // Clean up any previous hub so reconnect doesn't leak SignalR connections.
+  if (hub) {
+    try { await hub.stop(); } catch { /* ignore */ }
+    hub = null;
+  }
+
   setStatus('Connecting...', 'connecting');
   connectBtn.disabled = true;
 
@@ -571,10 +563,14 @@ async function connect() {
     const initW = viewport.clientWidth  || 1280;
     const initH = viewport.clientHeight || 720;
 
+    // Send the current page URL so the server can apply MITM forwarding rules
+    // and open the virtual browser at the corresponding upstream URL.
+    // e.g. "https://www.websete.localhost/cars?q=1"
+    //   → "https://www.olx.com.br/cars?q=1" (after rewriting on the server)
     const resp = await hub.invoke('CreateSessionAsync', {
       width:      initW,
       height:     initH,
-      initialUrl: null,
+      initialUrl: window.location.href,
     });
 
     sessionId = resp.sessionId;

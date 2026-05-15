@@ -1,7 +1,7 @@
 using System.Threading.Channels;
 using Websete.Speculum.Browser;
 
-namespace Websete.Speculum.Host.Services;
+namespace Websete.Speculum.Host.Virtualization.Services;
 
 /// <summary>
 /// Wraps a <see cref="SidecarSession"/> and implements <see cref="IVirtualizationSession"/>.

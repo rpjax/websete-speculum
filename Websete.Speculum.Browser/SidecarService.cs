@@ -30,9 +30,6 @@ public sealed class SidecarService : IAsyncDisposable
         string? initialUrl = null,
         CancellationToken ct = default)
     {
-        if (_sessions.ContainsKey(sessionId))
-            throw new InvalidOperationException($"Session '{sessionId}' already exists.");
-
         var client = new SidecarClient(sessionId);
 
         try
@@ -46,7 +43,16 @@ public sealed class SidecarService : IAsyncDisposable
         }
 
         var session = new SidecarSession(sessionId, width, height, client);
-        _sessions[sessionId] = session;
+
+        // TryAdd is the authoritative guard against duplicate IDs.
+        // Session IDs are GUIDs so duplicates are astronomically unlikely;
+        // this is a safety net rather than a real-world concern.
+        if (!_sessions.TryAdd(sessionId, session))
+        {
+            await session.DisposeAsync();
+            throw new InvalidOperationException($"Session '{sessionId}' already exists.");
+        }
+
         return session;
     }
 
@@ -66,10 +72,14 @@ public sealed class SidecarService : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        foreach (var session in _sessions.Values)
+        // Snapshot the values before clearing so sessions added concurrently
+        // during disposal are not silently leaked.
+        var snapshot = _sessions.Values.ToList();
+        _sessions.Clear();
+
+        foreach (var session in snapshot)
         {
             try { await session.DisposeAsync(); } catch { /* best-effort */ }
         }
-        _sessions.Clear();
     }
 }

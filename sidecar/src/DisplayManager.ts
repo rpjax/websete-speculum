@@ -236,16 +236,34 @@ export class DisplayManager {
     async dispose(): Promise<void> {
         // Kill WM first; it holds a connection to the display.
         if (this._wm && this._wm.exitCode === null) {
-            this._wm.kill();
-            await new Promise<void>(r => this._wm!.once('exit', r));
+            this._wm.kill('SIGTERM');
+            await DisplayManager.waitForExit(this._wm, 3_000);
+            // Escalate to SIGKILL if SIGTERM was ignored.
+            if (this._wm.exitCode === null) this._wm.kill('SIGKILL');
         }
 
         if (this._xvfb.exitCode === null) {
-            this._xvfb.kill();
-            await new Promise<void>(r => this._xvfb.once('exit', r));
+            this._xvfb.kill('SIGTERM');
+            await DisplayManager.waitForExit(this._xvfb, 3_000);
+            if (this._xvfb.exitCode === null) this._xvfb.kill('SIGKILL');
         }
 
         // Clean up stale lock file so the display number can be reused.
         try { fs.unlinkSync(`/tmp/.X${this.number}-lock`); } catch { /* already gone */ }
+    }
+
+    /**
+     * Waits for a child process to exit, with a hard timeout.
+     * Does NOT send any signal — callers must send SIGTERM before calling this.
+     */
+    private static waitForExit(
+        proc:      ReturnType<typeof spawn>,
+        timeoutMs: number,
+    ): Promise<void> {
+        return new Promise<void>(resolve => {
+            if (proc.exitCode !== null) { resolve(); return; }
+            const timer = setTimeout(resolve, timeoutMs);
+            proc.once('exit', () => { clearTimeout(timer); resolve(); });
+        });
     }
 }

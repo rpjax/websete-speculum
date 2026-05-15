@@ -1,7 +1,9 @@
 using System.Collections.Concurrent;
 using Websete.Speculum.Browser;
+using Websete.Speculum.Host.Config;
+using Websete.Speculum.Host.Rewriting;
 
-namespace Websete.Speculum.Host.Services;
+namespace Websete.Speculum.Host.Virtualization.Services;
 
 /// <summary>
 /// Orchestrates the full lifecycle of virtualization sessions.
@@ -9,10 +11,11 @@ namespace Websete.Speculum.Host.Services;
 /// Responsibilities:
 ///   • Create / look up / close <see cref="VirtualizationSession"/> instances.
 ///   • Map SignalR connection IDs to sessions for automatic cleanup on disconnect.
+///   • Apply URL rewriting via <see cref="IUrlRewriter"/> so the virtual browser
+///     opens the upstream (real) site instead of the downstream (proxied) domain.
 ///
-/// No WebRTC, no ICE candidates, no SignalR push from this layer —
-/// the frame relay is handled by <c>ClientWebSocketHandler</c> directly
-/// reading from <see cref="IVirtualizationSession.FrameChannel"/>.
+/// Frame relay is handled by <c>ClientWebSocketHandler</c> directly reading
+/// from <see cref="IVirtualizationSession.FrameChannel"/>.
 /// </summary>
 public sealed class VirtualizationService : IVirtualizationService, IAsyncDisposable
 {
@@ -20,12 +23,20 @@ public sealed class VirtualizationService : IVirtualizationService, IAsyncDispos
 
     private readonly ConcurrentDictionary<string, Entry> _sessions = new();
     private readonly SidecarService                      _sidecar;
+    private readonly IUrlRewriter                        _rewriter;
+    private readonly SpeculumConfig                      _config;
     private readonly ILogger<VirtualizationService>      _logger;
 
-    public VirtualizationService(SidecarService sidecar, ILogger<VirtualizationService> logger)
+    public VirtualizationService(
+        SidecarService                 sidecar,
+        IUrlRewriter                   rewriter,
+        SpeculumConfig                 config,
+        ILogger<VirtualizationService> logger)
     {
-        _sidecar = sidecar;
-        _logger  = logger;
+        _sidecar  = sidecar;
+        _rewriter = rewriter;
+        _config   = config;
+        _logger   = logger;
     }
 
     // ── IVirtualizationService ────────────────────────────────────────────────
@@ -34,14 +45,31 @@ public sealed class VirtualizationService : IVirtualizationService, IAsyncDispos
         CreateSessionRequest request,
         string               connectionId)
     {
+        // Enforce the configured session cap before allocating any resources.
+        if (_sessions.Count >= _config.MaxSessions)
+            throw new InvalidOperationException(
+                $"Session limit reached ({_config.MaxSessions}). " +
+                "No new sessions can be created until an existing one is closed.");
+
         var sessionId = Guid.NewGuid().ToString();
-        _logger.LogInformation("[{Id}] Creating session for connection {Conn}", sessionId, connectionId);
+        _logger.LogInformation("[{Id}] Creating session for connection {Conn}",
+            sessionId, connectionId);
+
+        // Rewrite the initial URL through the MITM forwarding rules.
+        // The client sends its own page URL (window.location.href); the
+        // rewriter replaces the downstream domain with the upstream domain
+        // while preserving the path and query string verbatim.
+        //
+        // Example:
+        //   "https://www.websete.localhost/cars?q=1"
+        //   → "https://www.olx.com.br/cars?q=1"
+        var resolvedUrl = RewriteUrl(sessionId, request.InitialUrl);
 
         var sidecarSession = await _sidecar.CreateSessionAsync(
             sessionId,
             request.Width,
             request.Height,
-            request.InitialUrl);
+            resolvedUrl);
 
         var session = new VirtualizationSession(sidecarSession);
         _sessions[sessionId] = new Entry(session, connectionId);
@@ -101,4 +129,41 @@ public sealed class VirtualizationService : IVirtualizationService, IAsyncDispos
     private IVirtualizationSession Require(string sessionId)
         => GetSession(sessionId)
            ?? throw new InvalidOperationException($"Session '{sessionId}' not found.");
+
+    /// <summary>
+    /// Parses <paramref name="rawUrl"/>, extracts the host, and asks the
+    /// rewriter to apply the matching forwarding profile's rules.
+    /// Returns <c>null</c> when no URL is provided or no profile matched.
+    /// </summary>
+    private string? RewriteUrl(string sessionId, string? rawUrl)
+    {
+        if (string.IsNullOrWhiteSpace(rawUrl))
+            return null;
+
+        if (!Uri.TryCreate(rawUrl, UriKind.Absolute, out var uri))
+        {
+            _logger.LogWarning("[{Id}] InitialUrl is not a valid absolute URI: {Url}",
+                sessionId, rawUrl);
+            return rawUrl;
+        }
+
+        var rewritten = _rewriter.Rewrite(rawUrl, uri.Host);
+
+        if (rewritten is null)
+        {
+            _logger.LogWarning(
+                "[{Id}] No forwarding profile matched host '{Host}'; " +
+                "opening session without navigation.",
+                sessionId, uri.Host);
+            return null;
+        }
+
+        if (!string.Equals(rewritten, rawUrl, StringComparison.Ordinal))
+        {
+            _logger.LogInformation("[{Id}] URL rewritten: {From} → {To}",
+                sessionId, rawUrl, rewritten);
+        }
+
+        return rewritten;
+    }
 }

@@ -1,8 +1,8 @@
 using System.Net.WebSockets;
 using System.Text;
-using Websete.Speculum.Host.Services;
+using Websete.Speculum.Host.Virtualization.Services;
 
-namespace Websete.Speculum.Host.Ws;
+namespace Websete.Speculum.Host.Virtualization.Ws;
 
 /// <summary>
 /// Handles a binary WebSocket connection from one browser client at /ws/{sessionId}.
@@ -122,15 +122,28 @@ public static class ClientWebSocketHandler
         CancellationToken      ct)
     {
         // 8 KB is ample for a JSON input message; grow on demand.
-        var buf    = new byte[8 * 1024];
-        int filled = 0;
+        // Hard cap at 1 MB — no legitimate input message should approach this.
+        // A client sending a message larger than the cap will have its connection
+        // closed via the natural break path (ws.State check on next iteration).
+        var buf          = new byte[8 * 1024];
+        int filled       = 0;
+        const int MaxMsg = 1 * 1024 * 1024; // 1 MB
 
         try
         {
             while (!ct.IsCancellationRequested && ws.State == WebSocketState.Open)
             {
                 if (filled == buf.Length)
-                    Array.Resize(ref buf, buf.Length * 2);
+                {
+                    if (buf.Length >= MaxMsg)
+                    {
+                        logger.LogWarning(
+                            "[{Id}] Incoming message exceeds {Cap} MB; closing connection.",
+                            sessionId, MaxMsg / 1024 / 1024);
+                        break;
+                    }
+                    Array.Resize(ref buf, Math.Min(buf.Length * 2, MaxMsg));
+                }
 
                 var result = await ws.ReceiveAsync(buf.AsMemory(filled), ct);
 

@@ -1,6 +1,6 @@
 using System.Threading.Channels;
 
-namespace Websete.Speculum.Host.Services;
+namespace Websete.Speculum.Host.Virtualization.Services;
 
 // ── Request / response records ────────────────────────────────────────────────
 

@@ -18,9 +18,9 @@ namespace Websete.Speculum.Browser;
 /// </summary>
 public sealed class SidecarClient : IAsyncDisposable
 {
-    private readonly ClientWebSocket                     _ws  = new();
-    private readonly CancellationTokenSource             _cts = new();
-    private readonly Channel<ReadOnlyMemory<byte>>       _frames;
+    private readonly ClientWebSocket               _ws     = new();
+    private readonly CancellationTokenSource       _cts    = new();
+    private readonly Channel<ReadOnlyMemory<byte>> _frames;
 
     public string SessionId { get; }
 
@@ -40,9 +40,9 @@ public sealed class SidecarClient : IAsyncDisposable
         // without letting stale frames accumulate.
         _frames = Channel.CreateBounded<ReadOnlyMemory<byte>>(new BoundedChannelOptions(4)
         {
-            FullMode      = BoundedChannelFullMode.DropOldest,
-            SingleWriter  = true,
-            SingleReader  = true,
+            FullMode     = BoundedChannelFullMode.DropOldest,
+            SingleWriter = true,
+            SingleReader = true,
         });
     }
 
@@ -51,11 +51,14 @@ public sealed class SidecarClient : IAsyncDisposable
     /// <summary>
     /// Connects to the sidecar WebSocket, sends the "create" command, and
     /// waits for the "ready" acknowledgement before returning.
+    ///
+    /// Throws <see cref="TimeoutException"/> if the sidecar does not respond
+    /// within 30 seconds (e.g. Xvfb or Chrome failed to start).
     /// </summary>
     public async Task ConnectAsync(
-        string sidecarBaseUrl,
-        int    width,
-        int    height,
+        string  sidecarBaseUrl,
+        int     width,
+        int     height,
         string? initialUrl = null,
         CancellationToken ct = default)
     {
@@ -83,31 +86,77 @@ public sealed class SidecarClient : IAsyncDisposable
 
     private async Task WaitForReadyAsync(CancellationToken ct)
     {
-        var buf = new byte[4096];
+        // Hard timeout: Xvfb + Chrome launch typically completes in < 5 s.
+        // 30 s gives ample headroom on slow machines / cold Docker images.
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeoutCts.CancelAfter(TimeSpan.FromSeconds(30));
+        var timeoutCt = timeoutCts.Token;
+
+        // Accumulate fragmented WebSocket text messages before parsing.
+        var buf    = new byte[64 * 1024];
+        int filled = 0;
 
         while (true)
         {
-            var result = await _ws.ReceiveAsync(buf.AsMemory(), ct);
+            if (filled == buf.Length)
+                Array.Resize(ref buf, buf.Length * 2);
+
+            WebSocketReceiveResult result;
+            try
+            {
+                result = await _ws.ReceiveAsync(buf.AsMemory(filled), timeoutCt);
+            }
+            catch (OperationCanceledException) when (
+                timeoutCts.IsCancellationRequested && !ct.IsCancellationRequested)
+            {
+                // The 30-second timeout fired — sidecar did not become ready.
+                throw new TimeoutException(
+                    $"Sidecar did not become ready within 30 s (session {SessionId}). " +
+                    "Check sidecar logs for Xvfb or Chrome startup errors.");
+            }
 
             if (result.MessageType == WebSocketMessageType.Close)
                 throw new InvalidOperationException(
-                    $"Sidecar closed connection before ready (session {SessionId}).");
+                    $"Sidecar closed connection before reporting ready (session {SessionId}).");
 
             if (result.MessageType != WebSocketMessageType.Text)
-                continue; // ignore binary before ready
-
-            var text = Encoding.UTF8.GetString(buf, 0, result.Count);
-            using var doc = JsonDocument.Parse(text);
-            var type = doc.RootElement.GetProperty("type").GetString();
-
-            if (type == "ready")  return;
-            if (type == "error")
             {
-                var msg = doc.RootElement.TryGetProperty("message", out var m)
-                    ? m.GetString() : "unknown error";
-                throw new InvalidOperationException(
-                    $"Sidecar reported error for session {SessionId}: {msg}");
+                // Binary frames before ready are unexpected — skip them.
+                filled = 0;
+                continue;
             }
+
+            filled += result.Count;
+
+            if (!result.EndOfMessage) continue; // wait for full message
+
+            var text = Encoding.UTF8.GetString(buf, 0, filled);
+            filled = 0; // reset for next message
+
+            string? type;
+            try
+            {
+                using var doc = JsonDocument.Parse(text);
+                type = doc.RootElement.GetProperty("type").GetString();
+
+                if (type == "ready") return;
+
+                if (type == "error")
+                {
+                    var msg = doc.RootElement.TryGetProperty("message", out var m)
+                        ? m.GetString() : "unknown error";
+                    throw new InvalidOperationException(
+                        $"Sidecar reported error for session {SessionId}: {msg}");
+                }
+            }
+            catch (JsonException ex)
+            {
+                throw new InvalidOperationException(
+                    $"Sidecar sent malformed JSON during handshake " +
+                    $"(session {SessionId}): {ex.Message}. Raw: {text[..Math.Min(text.Length, 200)]}");
+            }
+
+            // Any other message type during handshake is ignored (forward-compatible).
         }
     }
 
@@ -121,16 +170,32 @@ public sealed class SidecarClient : IAsyncDisposable
     private async Task ReceiveLoopAsync(CancellationToken ct)
     {
         // Use a 64 KB initial buffer; grow as needed for large frames.
-        var buf = new byte[64 * 1024];
+        var buf    = new byte[64 * 1024];
         int filled = 0;
+
+        // Safety cap: reject messages larger than this to prevent unbounded
+        // memory growth from a misbehaving sidecar.
+        const int MaxFrameSize = 32 * 1024 * 1024; // 32 MB
 
         try
         {
             while (!ct.IsCancellationRequested && _ws.State == WebSocketState.Open)
             {
-                // Grow buffer if needed.
                 if (filled == buf.Length)
-                    Array.Resize(ref buf, buf.Length * 2);
+                {
+                    if (buf.Length >= MaxFrameSize)
+                    {
+                        // Incoming frame exceeds the safety cap — discard and resync.
+                        Console.Error.WriteLine(
+                            $"[SidecarClient:{SessionId}] Frame exceeded {MaxFrameSize / 1024 / 1024} MB; discarding.");
+                        filled = 0;
+                        // Continue receiving to drain the oversized message.
+                    }
+                    else
+                    {
+                        Array.Resize(ref buf, Math.Min(buf.Length * 2, MaxFrameSize));
+                    }
+                }
 
                 var result = await _ws.ReceiveAsync(buf.AsMemory(filled), ct);
 
@@ -148,8 +213,8 @@ public sealed class SidecarClient : IAsyncDisposable
                     buf.AsSpan(0, filled).CopyTo(frame);
                     _frames.Writer.TryWrite(frame.AsMemory());
                 }
-                // Text frames from the sidecar (e.g. "ready") are ignored here —
-                // they are only expected during the handshake phase.
+                // Text frames (e.g. "ready") are only expected during handshake —
+                // ignore any that arrive after the receive loop starts.
 
                 filled = 0;
             }
@@ -157,7 +222,8 @@ public sealed class SidecarClient : IAsyncDisposable
         catch (OperationCanceledException) { /* normal shutdown */ }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            Console.Error.WriteLine($"[SidecarClient:{SessionId}] Receive loop error: {ex.Message}");
+            Console.Error.WriteLine(
+                $"[SidecarClient:{SessionId}] Receive loop error: {ex.Message}");
         }
         finally
         {
@@ -189,7 +255,8 @@ public sealed class SidecarClient : IAsyncDisposable
         try
         {
             if (_ws.State == WebSocketState.Open)
-                await _ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "session ended",
+                await _ws.CloseAsync(
+                    WebSocketCloseStatus.NormalClosure, "session ended",
                     CancellationToken.None);
         }
         catch { /* best-effort */ }

@@ -1,7 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Websete.Speculum.Browser;
 
-namespace Websete.Speculum.Host.Controllers;
+namespace Websete.Speculum.Host.Virtualization.Controllers;
 
 [ApiController]
 public sealed class VirtualizationController : ControllerBase

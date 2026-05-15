@@ -22,6 +22,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         matchbox-window-manager \
         xdotool \
         ffmpeg \
+        x11-xserver-utils \
         mesa-utils \
         libgl1-mesa-dri \
         libgl1 \

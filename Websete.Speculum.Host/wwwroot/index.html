@@ -51,19 +51,21 @@
   }
   #url-bar:focus { border-color: #555; }
 
-  #go-btn {
+  #back-btn, #fwd-btn, #go-btn {
     background: #2a2a2a;
     border: 1px solid #3a3a3a;
     border-radius: 4px;
     color: #e0e0e0;
     cursor: pointer;
     font-size: 13px;
-    padding: 5px 14px;
+    padding: 5px 10px;
     white-space: nowrap;
     transition: background 0.15s;
+    flex-shrink: 0;
   }
-  #go-btn:hover { background: #333; }
-  #go-btn:disabled { opacity: 0.4; cursor: default; }
+  #go-btn { padding: 5px 14px; }
+  #back-btn:hover, #fwd-btn:hover, #go-btn:hover { background: #333; }
+  #back-btn:disabled, #fwd-btn:disabled, #go-btn:disabled { opacity: 0.4; cursor: default; }
 
   #status {
     font-size: 11px;
@@ -91,13 +93,17 @@
     flex: 1 1 auto;
     position: relative;
     overflow: hidden;
-    display: flex;
-    align-items: center;
-    justify-content: center;
     touch-action: none; /* let canvas handle all touch events */
   }
 
+  /* Canvas covers the viewport exactly — 1:1 pixel mapping when the virtual
+     browser resolution matches the viewport size (maintained via ResizeObserver
+     + xrandr live resize).  No aspect-ratio letterboxing; no scaling. */
   #canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
     display: block;
     cursor: default;
     image-rendering: pixelated;
@@ -137,6 +143,8 @@
 <!-- ── Toolbar ────────────────────────────────────────────────────────────── -->
 <div id="toolbar">
   <span id="brand">SPECULUM</span>
+  <button id="back-btn" disabled title="Back">&#8592;</button>
+  <button id="fwd-btn"  disabled title="Forward">&#8594;</button>
   <input id="url-bar" type="text" placeholder="https://" spellcheck="false"/>
   <button id="go-btn" disabled>Go</button>
   <span id="status" class="connecting">Connecting...</span>
@@ -163,6 +171,7 @@ const IS_DEV = location.hostname === 'localhost' || location.hostname === '127.0
 const MSG_TILE = 0x01;
 const MSG_FULL = 0x02;
 // 0x03 = skip: nothing to render
+const MSG_URL  = 0x04;  // URL update from sidecar
 
 // ── DOM refs ──────────────────────────────────────────────────────────────────
 const canvas     = document.getElementById('canvas');
@@ -171,6 +180,8 @@ const overlay    = document.getElementById('overlay');
 const statusEl   = document.getElementById('status');
 const urlBar     = document.getElementById('url-bar');
 const goBtn      = document.getElementById('go-btn');
+const backBtn    = document.getElementById('back-btn');
+const fwdBtn     = document.getElementById('fwd-btn');
 const connectBtn = document.getElementById('connect-btn');
 const viewport   = document.getElementById('viewport');
 const fpsEl      = document.getElementById('fps');
@@ -185,17 +196,44 @@ let sessionW  = 1280;
 let sessionH  = 720;
 
 // ── Canvas layout ─────────────────────────────────────────────────────────────
-function fitCanvas() {
-  if (!canvas.width) return;
-  const vw = viewport.clientWidth;
-  const vh = viewport.clientHeight;
-  const ar = sessionW / sessionH;
-  let w = vw, h = vw / ar;
-  if (h > vh) { h = vh; w = vh * ar; }
-  canvas.style.width  = Math.floor(w) + 'px';
-  canvas.style.height = Math.floor(h) + 'px';
+// The canvas element fills its parent (#viewport) via CSS (position:absolute,
+// inset:0). We only need to update the canvas pixel buffer dimensions so they
+// match the viewport's CSS pixel size — giving 1:1 mapping with zero scaling.
+function syncCanvasSize(w, h) {
+  sessionW      = w;
+  sessionH      = h;
+  canvas.width  = w;
+  canvas.height = h;
 }
-window.addEventListener('resize', fitCanvas);
+
+// ── ResizeObserver — propagates viewport size changes to the virtual browser ──
+// Debounced 250 ms to avoid flooding the sidecar during continuous drag-resize.
+// Only fires once the WebSocket is open (no session → no resize to send).
+let resizeTimer = null;
+
+const resizeObserver = new ResizeObserver(entries => {
+  const entry = entries[0];
+  if (!entry) return;
+  const w = Math.round(entry.contentRect.width);
+  const h = Math.round(entry.contentRect.height);
+  if (w < 100 || h < 100) return;   // ignore degenerate sizes during layout
+  if (w === sessionW && h === sessionH) return; // nothing changed
+
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => {
+    // Update the canvas buffer immediately so new frames paint at the right size.
+    // The canvas will appear blank for ~600 ms while the sidecar resizes Xvfb
+    // and restarts FFmpeg — this is acceptable.
+    syncCanvasSize(w, h);
+
+    // Tell the sidecar to resize the virtual display.
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      sendInput({ type: 'resize', width: w, height: h });
+    }
+  }, 250);
+});
+
+resizeObserver.observe(viewport);
 
 // ── Status indicator ──────────────────────────────────────────────────────────
 function setStatus(text, cls) {
@@ -297,6 +335,14 @@ async function handleFrame(buffer) {
       }));
     };
     scheduleRender();
+
+  } else if (type === MSG_URL) {
+    // Layout: [0] type | [1-4] len | [5+] UTF-8 url
+    if (buffer.byteLength < 5) return;
+    const len = view.getUint32(1, true);
+    if (5 + len > buffer.byteLength) return;
+    const url = new TextDecoder().decode(new Uint8Array(buffer, 5, len));
+    urlBar.value = url;
 
   } else if (type !== 0x03) {
     console.warn('[speculum] Unknown frame type:', type);
@@ -463,7 +509,9 @@ function navigate(rawUrl) {
   });
 }
 
-goBtn.addEventListener('click', () => navigate(urlBar.value));
+goBtn.addEventListener('click',  () => navigate(urlBar.value));
+backBtn.addEventListener('click', () => sendInput({ type: 'goback' }));
+fwdBtn.addEventListener('click',  () => sendInput({ type: 'goforward' }));
 urlBar.addEventListener('keydown', e => {
   if (e.key === 'Enter') { e.preventDefault(); navigate(urlBar.value); }
 });
@@ -476,7 +524,9 @@ function openWebSocket(sid) {
 
   ws.onopen = () => {
     setStatus('Streaming', 'connected');
-    goBtn.disabled = false;
+    goBtn.disabled  = false;
+    backBtn.disabled = false;
+    fwdBtn.disabled  = false;
     overlay.classList.add('hidden');
     canvas.focus();
   };
@@ -487,7 +537,9 @@ function openWebSocket(sid) {
 
   ws.onclose = () => {
     setStatus('Disconnected — click to reconnect', 'error');
-    goBtn.disabled = true;
+    goBtn.disabled   = true;
+    backBtn.disabled = true;
+    fwdBtn.disabled  = true;
     overlay.classList.remove('hidden');
     ws = null;
   };
@@ -514,19 +566,20 @@ async function connect() {
 
     await hub.start();
 
+    // Use the actual viewport pixel dimensions so the virtual browser
+    // resolution matches the client's available space from the first frame.
+    const initW = viewport.clientWidth  || 1280;
+    const initH = viewport.clientHeight || 720;
+
     const resp = await hub.invoke('CreateSessionAsync', {
-      width:      1280,
-      height:     720,
+      width:      initW,
+      height:     initH,
       initialUrl: null,
     });
 
     sessionId = resp.sessionId;
-    sessionW  = resp.width;
-    sessionH  = resp.height;
-
-    canvas.width  = sessionW;
-    canvas.height = sessionH;
-    fitCanvas();
+    // Server echoes back the accepted dimensions (may clamp if out of range).
+    syncCanvasSize(resp.width, resp.height);
 
     openWebSocket(sessionId);
 

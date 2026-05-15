@@ -15,6 +15,7 @@
 export const MSG_TILE = 0x01;
 export const MSG_FULL = 0x02;
 export const MSG_SKIP = 0x03;
+export const MSG_URL  = 0x04;  // URL update: sidecar → client
 
 // ── Frame skip (1 byte) ───────────────────────────────────────────────────────
 
@@ -92,19 +93,40 @@ export function encodeFullFrame(frameId: number, jpeg: Buffer): Buffer {
     return buf;
 }
 
+// ── URL update encoding (sidecar → client, binary) ───────────────────────────
+
+/**
+ * Encodes a URL-update message.
+ *
+ * Layout:
+ *   [0]      type    = 0x04              (1 byte)
+ *   [1..4]   len                         (4 bytes LE uint32)
+ *   [5..]    url                         (len bytes UTF-8)
+ */
+export function encodeUrlUpdate(url: string): Buffer {
+    const urlBytes = Buffer.from(url, 'utf8');
+    const buf = Buffer.allocUnsafe(1 + 4 + urlBytes.length);
+    buf[0] = MSG_URL;
+    buf.writeUInt32LE(urlBytes.length, 1);
+    urlBytes.copy(buf, 5);
+    return buf;
+}
+
 // ── Input event types (text JSON from .NET) ───────────────────────────────────
 
 export type InputEvent =
-    | { type: 'navigate';  url: string }
-    | { type: 'mousemove'; x: number; y: number }
-    | { type: 'mousedown'; x: number; y: number; button: number }
-    | { type: 'mouseup';   x: number; y: number; button: number }
-    | { type: 'wheel';     x: number; y: number; deltaX: number; deltaY: number }
-    | { type: 'keydown';   key: string }
-    | { type: 'keyup';     key: string }
-    | { type: 'type';      text: string }
-    | { type: 'resize';    width: number; height: number }
-    | { type: 'refresh' };
+    | { type: 'navigate';   url: string }
+    | { type: 'mousemove';  x: number; y: number }
+    | { type: 'mousedown';  x: number; y: number; button: number }
+    | { type: 'mouseup';    x: number; y: number; button: number }
+    | { type: 'wheel';      x: number; y: number; deltaX: number; deltaY: number }
+    | { type: 'keydown';    key: string }
+    | { type: 'keyup';      key: string }
+    | { type: 'type';       text: string }
+    | { type: 'resize';     width: number; height: number }
+    | { type: 'refresh' }
+    | { type: 'goback' }
+    | { type: 'goforward' };
 
 export type CreateMessage = {
     type:      'create';

@@ -1,27 +1,37 @@
-import { chromium, Browser, BrowserContext, Page } from 'patchright';
+import { chromium, BrowserContext, Page } from 'patchright';
 import * as path from 'path';
+import * as fs   from 'fs';
 
 /**
- * Launches a non-headless Chrome instance bound to a specific Xvfb display
- * via Patchright (drop-in Playwright replacement that patches Chrome's CDP
- * Runtime domain to remove all automation markers).
+ * Launches a non-headless Chrome instance bound to a specific Xvfb display.
  *
- * The WebGL spoof extension is loaded on every launch to replace Mesa/llvmpipe
- * vendor strings with plausible Intel GPU strings.
+ * ── Why we delete the profile dir on every launch ────────────────────────────
+ * Chrome persists window bounds in the profile (Default/Preferences → "browser"
+ * → "window_placement"). If a previous session left the window in non-fullscreen
+ * state, Chrome restores that on next launch and ignores --start-fullscreen.
+ * Deleting the dir before launch guarantees a clean slate every session.
+ * Cookies/localStorage are irrelevant here — each session is intentionally
+ * isolated, and the profile is scoped per-display so concurrent sessions never
+ * collide.
+ *
+ * ── Why CDP setWindowBounds instead of --start-fullscreen / --kiosk / --app ─
+ * Those flags only affect the window Chrome creates at startup. Playwright's
+ * launchPersistentContext may create or adopt a different window via CDP; that
+ * window ignores startup flags. Browser.setWindowBounds targets the exact window
+ * our page lives in — it works reliably regardless of how the window was created.
+ *
+ * ── Suppressing the "press Esc to exit" notification ────────────────────────
+ * The notification is part of Chrome's ExclusiveAccessBubble feature. Disabling
+ * it via --disable-features=ExclusiveAccessBubble prevents it from appearing
+ * when we call setWindowBounds { windowState: 'fullscreen' }.
  */
 
 const CHROME_EXECUTABLE =
     process.env['CHROME_EXECUTABLE'] ?? '/opt/google/chrome/google-chrome';
 
-// __dirname resolves to <sidecar_root>/dist at runtime.
-// One level up reaches <sidecar_root>/extensions/webgl-spoof.
-const EXTENSION_PATH = path.resolve(
-    __dirname,
-    '../extensions/webgl-spoof',
-);
+const EXTENSION_PATH = path.resolve(__dirname, '../extensions/webgl-spoof');
 
 export interface BrowserHandle {
-    browser: Browser;
     context: BrowserContext;
     page:    Page;
 }
@@ -31,45 +41,41 @@ export async function launchBrowser(
     width:      number,
     height:     number,
 ): Promise<BrowserHandle> {
-    const browser = await chromium.launch({
+    const displayId   = displayEnv.replace(':', '');
+    const userDataDir = `/tmp/speculum-profile-${displayId}`;
+
+    // Fresh profile on every session — prevents Chrome from restoring a
+    // previously-saved non-fullscreen window state.
+    try { fs.rmSync(userDataDir, { recursive: true, force: true }); } catch { /* best-effort */ }
+
+    const context = await chromium.launchPersistentContext(userDataDir, {
         headless:       false,
         executablePath: CHROME_EXECUTABLE,
 
-        // Bind this browser instance to the session's virtual X11 display.
         env: {
             ...process.env as Record<string, string>,
             DISPLAY: displayEnv,
         },
 
         args: [
-            // Security: required inside Docker (no setuid sandbox helper).
+            // Security.
             '--no-sandbox',
-            '--disable-setuid-sandbox',
+            '--test-type',   // suppresses the "unsupported flag: --no-sandbox" infobar
 
-            // Anti-detection: removes the `AutomationControlled` feature that
-            // sets navigator.webdriver = true and adds the CDP marker to
-            // window.chrome. Combined with Patchright's Runtime domain patches
-            // this eliminates all known JS automation fingerprints.
+            // Anti-detection.
             '--disable-blink-features=AutomationControlled',
 
-            // App mode: hides Chrome's browser chrome (address bar, tabs, toolbar).
-            // Navigation is driven entirely via CDP page.goto() — no UI needed.
-            '--app=about:blank',
-
-            // Geometry: open maximised to fill the entire Xvfb framebuffer.
             `--window-size=${width},${height}`,
             '--window-position=0,0',
-            '--start-maximized',
 
-            // GPU / rendering: Mesa is available but we want software rendering
-            // for compatibility. The WebGL extension will spoof the vendor string.
+            // GPU: software renderer for Docker compatibility.
             '--use-gl=swiftshader',
 
-            // Load the WebGL spoof extension before any page script runs.
+            // WebGL vendor spoof extension.
             `--load-extension=${EXTENSION_PATH}`,
             `--disable-extensions-except=${EXTENSION_PATH}`,
 
-            // Performance: reduce memory overhead per session.
+            // Performance / noise reduction.
             '--disable-background-networking',
             '--disable-default-apps',
             '--disable-sync',
@@ -77,21 +83,39 @@ export async function launchBrowser(
             '--metrics-recording-only',
             '--mute-audio',
             '--no-first-run',
-
-            // Stability: disable crash reporter overhead.
             '--disable-breakpad',
         ],
-    });
 
-    // One context per browser — isolated cookies, localStorage, and network state.
-    const context = await browser.newContext({
-        viewport:   { width, height },
-        locale:     'en-US',
-        timezoneId: 'America/New_York',
+        // null = let Chrome use its natural window size instead of injecting
+        // Emulation.setDeviceMetricsOverride via CDP. After setWindowBounds
+        // makes the window fullscreen, Chrome renders at the Xvfb resolution
+        // exactly. Forcing a viewport override on top of that creates a mismatch
+        // that causes sites to add a compensatory horizontal scrollbar.
+        viewport:    null,
+        locale:      'en-US',
+        timezoneId:  'America/New_York',
         colorScheme: 'dark',
     });
 
-    const page = await context.newPage();
+    let page = context.pages()[0];
+    if (!page) page = await context.newPage();
 
-    return { browser, context, page };
+    // CDP setWindowBounds is the only reliable way to hide Chrome's browser
+    // chrome (address bar, tabs, toolbar) when the page is created via
+    // launchPersistentContext. Startup flags (--kiosk, --start-fullscreen,
+    // --app) apply to Chrome's own startup window, not to the window
+    // Playwright connects to via CDP.
+    try {
+        const cdp = await context.newCDPSession(page);
+        const { windowId } = await cdp.send('Browser.getWindowForTarget', {});
+        await cdp.send('Browser.setWindowBounds', {
+            windowId,
+            bounds: { windowState: 'fullscreen' },
+        });
+        await cdp.detach();
+    } catch (err) {
+        console.warn('[BrowserManager] setWindowBounds failed:', (err as Error).message);
+    }
+
+    return { context, page };
 }

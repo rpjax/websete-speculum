@@ -256,22 +256,73 @@ export class Session {
             }
 
             // ── JsBridge — console forwarding ─────────────────────────────────
-            // Installed before page.goto() so console output from the initial
-            // navigation is captured. Uses Playwright's 'console' event which
-            // wraps CDP Runtime.consoleAPICalled internally.
+            // Subscribed on our own CDPSession (not page.on('console')) for a
+            // critical reason:
+            //
+            //   page.on('console') listens on Playwright's *internal* CDP session.
+            //   When evaljs runs code via Runtime.evaluate on OUR session, Chrome
+            //   routes Runtime.consoleAPICalled back to OUR session only — not to
+            //   Playwright's. So page.on('console') silently drops every console.*
+            //   call produced by vcon().
+            //
+            // By enabling Runtime and Log on our session we capture:
+            //   • Runtime.consoleAPICalled — all JS console.* calls, including
+            //     those triggered by our own Runtime.evaluate (evaljs).
+            //   • Log.entryAdded — browser-level messages: network errors (401,
+            //     ERR_NAME_NOT_RESOLVED), CSP violations, mixed-content warnings.
             //
             // Text is capped at 64 KB per message to prevent a runaway logger
             // from flooding the WebSocket.
             if (jsBridgeEnabled) {
-                page.on('console', (msg) => {
+                await cdp.send('Runtime.enable', {});
+                await cdp.send('Log.enable',     {});
+
+                const sendConsole = (level: number, text: string): void => {
                     if (ws.readyState !== ws.OPEN) return;
-                    const level = CONSOLE_LEVELS[msg.type()] ?? 0;
-                    let   text  = msg.text();
                     if (text.length > 65_536) text = text.slice(0, 65_536) + ' … [truncated]';
                     ws.send(encodeConsoleMessage(level, text), { binary: true });
+                };
+
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                cdp.on('Runtime.consoleAPICalled', (event: any) => {
+                    const level = CONSOLE_LEVELS[event.type as string] ?? 0;
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    const text = (event.args as any[]).map((arg: any): string => {
+                        if (arg.type === 'undefined')               return 'undefined';
+                        if (arg.unserializableValue !== undefined)  return String(arg.unserializableValue);
+                        if (arg.value !== undefined)
+                            return typeof arg.value === 'string'
+                                ? arg.value
+                                : JSON.stringify(arg.value);
+                        return String(arg.description ?? '');
+                    }).join(' ');
+                    sendConsole(level, text);
                 });
+
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                cdp.on('Log.entryAdded', (event: any) => {
+                    const entry  = event.entry as { level: string; text: string };
+                    const lvlMap: Record<string, number> =
+                        { verbose: 0, info: 3, warning: 1, error: 2 };
+                    sendConsole(lvlMap[entry.level] ?? 0, entry.text);
+                });
+
                 console.log(`[${sessionId}] JsBridge console forwarding active`);
             }
+
+            // ── URL sync ──────────────────────────────────────────────────────
+            // Registered before page.goto() so the very first navigation is
+            // captured and the client URL bar reflects the initial page.
+            // Whenever the main frame navigates (user click, page.goto, goBack,
+            // goForward, or new-tab redirect), send the current URL to the client
+            // so the URL bar stays in sync without the client having to poll.
+            page.on('framenavigated', (frame) => {
+                if (frame !== page.mainFrame()) return;
+                const currentUrl = page.url();
+                if (currentUrl.startsWith('about:') || currentUrl.startsWith('chrome:')) return;
+                if (ws.readyState !== ws.OPEN) return;
+                ws.send(encodeUrlUpdate(currentUrl), { binary: true });
+            });
 
             // Navigate to initial URL if provided.
             if (url) {
@@ -356,18 +407,6 @@ export class Session {
                 });
             });
 
-            // ── URL sync ──────────────────────────────────────────────────────
-            // Whenever the main frame navigates (user click, page.goto, goBack,
-            // goForward, or new-tab redirect), send the current URL to the client
-            // so the URL bar stays in sync without the client having to poll.
-            page.on('framenavigated', (frame) => {
-                if (frame !== page.mainFrame()) return;
-                const currentUrl = page.url();
-                if (currentUrl.startsWith('about:') || currentUrl.startsWith('chrome:')) return;
-                if (ws.readyState !== ws.OPEN) return;
-                ws.send(encodeUrlUpdate(currentUrl), { binary: true });
-            });
-
             // FFmpegCapture reads the Xvfb framebuffer via XShm (zero-copy) and
             // JPEG-encodes at ~2 ms/frame — far faster than CDP captureScreenshot.
             const capture = await FFmpegCapture.start(
@@ -425,6 +464,7 @@ export class Session {
                     break;
 
                 case 'wheel':
+                    await this._page.mouse.move(msg.x, msg.y);
                     await this._page.mouse.wheel(msg.deltaX, msg.deltaY);
                     break;
 
@@ -468,6 +508,16 @@ export class Session {
                 // serialised as JSON. Console output produced by the code is
                 // captured by the 'console' event handler above and forwarded
                 // as MSG_CONSOLE frames independently.
+                //
+                // ⚠ We use this._cdp.send('Runtime.evaluate') directly instead
+                //   of page.evaluate(). page.evaluate() runs in an isolated
+                //   *utility context* (not the main frame context). Playwright
+                //   filters Runtime.consoleAPICalled by executionContextId and
+                //   only emits the 'console' event for the *main* context —
+                //   so console calls from page.evaluate() are silently dropped.
+                //   Calling Runtime.evaluate without contextId defaults to the
+                //   page's main execution context, where console events flow
+                //   through page.on('console') correctly.
                 case 'evaljs': {
                     if (!this._jsBridgeEnabled) break;
 
@@ -476,26 +526,47 @@ export class Session {
                     let value = '';
 
                     try {
-                        // Evaluate the code string in the page's global scope.
-                        // The helper IIFE:
-                        //   • Uses indirect eval so the code runs at global scope.
-                        //   • Returns null when the result is undefined (so
-                        //     Playwright's structured-clone transport doesn't
-                        //     silently discard it).
-                        //   • JSON.stringifies non-primitive results; falls back
-                        //     to String() for non-serialisable values.
-                        const raw: unknown = await this._page.evaluate(
-                            `(function(c){
-                                try {
-                                    var r=(0,eval)(c);
-                                    if(r===undefined)return null;
-                                    try{return JSON.stringify(r)}catch{return String(r)}
-                                } catch(e) {
-                                    throw new Error(e instanceof Error?e.message:String(e));
-                                }
-                            })(${JSON.stringify(code)})`,
-                        );
-                        value = raw === null ? '' : String(raw);
+                        // The wrapper async IIFE:
+                        //   • Indirect eval runs the code at global scope (access
+                        //     to window, document, etc.).
+                        //   • If the result is a thenable (Promise), it is awaited
+                        //     before serialisation — so `await vcon("await fetch(…)")`
+                        //     returns the resolved value, not a plain Promise object.
+                        //   • Returns { ok, v } so errors are reported through the
+                        //     result value rather than CDP exceptionDetails, which
+                        //     avoids the need to parse the exception description.
+                        //   • v is null for undefined results (undefined is not
+                        //     JSON-serialisable across the CDP boundary).
+                        //   • awaitPromise:true tells CDP to await the outer Promise
+                        //     returned by the async IIFE before resolving the call.
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                        const res: any = await this._cdp.send('Runtime.evaluate', {
+                            expression: `(async function(){try{`
+                                + `var __r=(0,eval)(${JSON.stringify(code)});`
+                                + `if(__r&&typeof __r.then==='function')__r=await __r;`
+                                + `return{ok:true,v:__r===undefined?null:`
+                                + `(function(){try{return JSON.stringify(__r)}catch(_){return String(__r)}})()}`
+                                + `}catch(e){return{ok:false,v:e.message||String(e)}}})()`,
+                            returnByValue: true,
+                            awaitPromise:  true,
+                            timeout:       10_000,
+                        });
+
+                        if (res.exceptionDetails) {
+                            // The wrapper itself threw — should not happen.
+                            ok    = false;
+                            value = res.exceptionDetails.text ?? 'Evaluation error';
+                        } else {
+                            const r = res.result?.value as { ok: boolean; v: string | null } | undefined;
+                            if (!r) {
+                                value = '';
+                            } else if (r.ok) {
+                                value = r.v ?? '';
+                            } else {
+                                ok    = false;
+                                value = r.v ?? 'Unknown error';
+                            }
+                        }
                     } catch (err) {
                         ok    = false;
                         value = (err as Error).message;

@@ -5,6 +5,18 @@ using System.Threading.Channels;
 namespace Websete.Speculum.Browser;
 
 /// <summary>
+/// Represents a single script to be injected into every page of the session.
+/// The sidecar receives this via the "create" handshake payload.
+/// </summary>
+/// <param name="Position">
+/// Injection position: <c>HeaderTop</c>, <c>HeaderBottom</c>, <c>BodyTop</c>, or <c>BodyBottom</c>.
+/// Controls execution timing via <c>addInitScript</c> wrapping in the sidecar.
+/// </param>
+/// <param name="Type">Script type: <c>Classic</c> or <c>Module</c>.</param>
+/// <param name="Content">Literal JavaScript source to inject.</param>
+public sealed record ScriptPayload(string Position, string Type, string Content);
+
+/// <summary>
 /// Manages the WebSocket connection from the .NET app to the Node.js sidecar
 /// for one browser session.
 ///
@@ -61,11 +73,13 @@ public sealed class SidecarClient : IAsyncDisposable
     /// within 30 seconds (e.g. Xvfb or Chrome failed to start).
     /// </summary>
     public async Task ConnectAsync(
-        string  sidecarBaseUrl,
-        int     width,
-        int     height,
-        string? initialUrl = null,
-        CancellationToken ct = default)
+        string                        sidecarBaseUrl,
+        int                           width,
+        int                           height,
+        string?                       initialUrl      = null,
+        IReadOnlyList<ScriptPayload>? scripts         = null,
+        bool                          jsBridgeEnabled = false,
+        CancellationToken             ct              = default)
     {
         var uri = new Uri(sidecarBaseUrl.TrimEnd('/'));
 
@@ -73,13 +87,23 @@ public sealed class SidecarClient : IAsyncDisposable
 
         // Build and send the session-create command.
         // SerializeToUtf8Bytes goes directly to UTF-8 bytes; no intermediate string.
+        //
+        // The scripts array carries the literal JS content of every configured
+        // ScriptInjection entry. The sidecar installs them via context.addInitScript()
+        // so they run on every navigation for the lifetime of the session.
+        var scriptDtos = (scripts ?? [])
+            .Select(s => new { position = s.Position, type = s.Type, content = s.Content })
+            .ToArray();
+
         var createBytes = JsonSerializer.SerializeToUtf8Bytes(new
         {
-            type      = "create",
-            sessionId = SessionId,
+            type            = "create",
+            sessionId       = SessionId,
             width,
             height,
-            url       = initialUrl,
+            url             = initialUrl,
+            scripts         = scriptDtos,
+            jsBridgeEnabled,
         });
         await SendCoreAsync(createBytes, ct);
 

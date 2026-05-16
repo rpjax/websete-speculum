@@ -24,17 +24,19 @@ public sealed class SidecarService : IAsyncDisposable
     /// "create" command, and waits for the sidecar to confirm readiness.
     /// </summary>
     public async Task<SidecarSession> CreateSessionAsync(
-        string  sessionId,
-        int     width      = 1280,
-        int     height     = 720,
-        string? initialUrl = null,
-        CancellationToken ct = default)
+        string                        sessionId,
+        int                           width           = 1280,
+        int                           height          = 720,
+        string?                       initialUrl      = null,
+        IReadOnlyList<ScriptPayload>? scripts         = null,
+        bool                          jsBridgeEnabled = false,
+        CancellationToken             ct              = default)
     {
         var client = new SidecarClient(sessionId);
 
         try
         {
-            await client.ConnectAsync(SidecarBaseUrl, width, height, initialUrl, ct);
+            await client.ConnectAsync(SidecarBaseUrl, width, height, initialUrl, scripts, jsBridgeEnabled, ct);
         }
         catch
         {

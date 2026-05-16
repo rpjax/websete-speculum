@@ -3,7 +3,60 @@ import { BrowserContext, Page, CDPSession } from 'patchright';
 import { DisplayManager } from './DisplayManager';
 import { launchBrowser }  from './BrowserManager';
 import { FFmpegCapture }  from './FFmpegCapture';
-import { decodeMessage, encodeUrlUpdate } from './Protocol';
+import {
+    decodeMessage,
+    encodeUrlUpdate,
+    encodeConsoleMessage,
+    encodeEvalResult,
+    CONSOLE_LEVELS,
+    ScriptEntry,
+} from './Protocol';
+
+// ── Script injection helpers ───────────────────────────────────────────────────
+
+/**
+ * Maps Position to a numeric sort key so scripts are registered in the
+ * correct order when multiple entries are declared.
+ */
+const POSITION_ORDER: Record<string, number> = {
+    HeaderTop:    0,
+    HeaderBottom: 1,
+    BodyTop:      2,
+    BodyBottom:   3,
+};
+
+/**
+ * Wraps a script's content with the appropriate execution-timing adapter
+ * based on its declared Position:
+ *
+ *   HeaderTop / HeaderBottom — bare content, runs immediately when the
+ *     document starts (before any page scripts, via addInitScript).
+ *
+ *   BodyTop  — deferred to DOMContentLoaded (DOM built, resources pending).
+ *
+ *   BodyBottom — deferred to window.load (page fully loaded, all resources).
+ *
+ * Module scripts are further wrapped in an async IIFE so top-level `await`
+ * and ESM semantics are available without requiring a real <script type=module>.
+ */
+function wrapScript(entry: ScriptEntry): string {
+    let body = entry.content;
+
+    // Module: provide async context and isolate scope.
+    if (entry.type === 'Module') {
+        body = `(async () => {\n${body}\n})();`;
+    }
+
+    switch (entry.position) {
+        case 'BodyTop':
+            return `document.addEventListener('DOMContentLoaded', function () {\n${body}\n});`;
+        case 'BodyBottom':
+            return `window.addEventListener('load', function () {\n${body}\n});`;
+        default:
+            // HeaderTop / HeaderBottom: execute immediately at document start.
+            return body;
+    }
+}
 
 /** Maps DOM MouseEvent.button (0=left,1=middle,2=right) → Playwright button name. */
 function domButton(b: number): 'left' | 'middle' | 'right' {
@@ -43,41 +96,48 @@ export class Session {
     /** Guard that prevents concurrent resize operations. */
     private _resizing: boolean = false;
 
+    /** Whether the JsBridge (console forwarding + evaljs) is active. */
+    private _jsBridgeEnabled: boolean;
+
     private _disposed: boolean = false;
 
     private constructor(
-        sessionId: string,
-        ws:        WebSocket,
-        display:   DisplayManager,
-        context:   BrowserContext,
-        page:      Page,
-        cdp:       CDPSession,
-        capture:   FFmpegCapture,
-        width:     number,
-        height:    number,
-        onFrame:   (buf: Buffer) => void,
+        sessionId:       string,
+        ws:              WebSocket,
+        display:         DisplayManager,
+        context:         BrowserContext,
+        page:            Page,
+        cdp:             CDPSession,
+        capture:         FFmpegCapture,
+        width:           number,
+        height:          number,
+        onFrame:         (buf: Buffer) => void,
+        jsBridgeEnabled: boolean,
     ) {
-        this.sessionId = sessionId;
-        this._ws       = ws;
-        this._display  = display;
-        this._context  = context;
-        this._page     = page;
-        this._cdp      = cdp;
-        this._capture  = capture;
-        this._width    = width;
-        this._height   = height;
-        this._onFrame  = onFrame;
+        this.sessionId        = sessionId;
+        this._ws              = ws;
+        this._display         = display;
+        this._context         = context;
+        this._page            = page;
+        this._cdp             = cdp;
+        this._capture         = capture;
+        this._width           = width;
+        this._height          = height;
+        this._onFrame         = onFrame;
+        this._jsBridgeEnabled = jsBridgeEnabled;
     }
 
     // ── Factory ───────────────────────────────────────────────────────────────
 
     static async create(
-        sessionId: string,
-        ws:        WebSocket,
-        display:   DisplayManager,
-        width:     number,
-        height:    number,
-        url?:      string,
+        sessionId:       string,
+        ws:              WebSocket,
+        display:         DisplayManager,
+        width:           number,
+        height:          number,
+        url?:            string,
+        scripts:         ScriptEntry[] = [],
+        jsBridgeEnabled: boolean       = false,
     ): Promise<Session> {
         console.log(`[${sessionId}] Launching Chrome on display ${display.displayEnv}`);
 
@@ -164,6 +224,54 @@ export class Session {
                     }, true);
                 })();
             `);
+
+            // ── Script injection ──────────────────────────────────────────────
+            // Installed on the context (not per-page) so scripts run on every
+            // navigation for the full lifetime of the session.
+            //
+            // Scripts are sorted by Position order (HeaderTop → HeaderBottom →
+            // BodyTop → BodyBottom) so addInitScript registration respects the
+            // intended precedence. Within the same Position, declaration order
+            // from appsettings is preserved.
+            //
+            // Each script is wrapped by wrapScript() to enforce timing:
+            //   Header* → bare content (runs immediately at document start)
+            //   BodyTop → DOMContentLoaded listener
+            //   BodyBottom → window.load listener
+            if (scripts.length > 0) {
+                const sorted = [...scripts].sort(
+                    (a, b) =>
+                        (POSITION_ORDER[a.position] ?? 99) -
+                        (POSITION_ORDER[b.position] ?? 99),
+                );
+
+                for (const script of sorted) {
+                    await context.addInitScript(wrapScript(script));
+                }
+
+                console.log(
+                    `[${sessionId}] Injected ${scripts.length} script(s): ` +
+                    sorted.map(s => `${s.position}/${s.type}`).join(', '),
+                );
+            }
+
+            // ── JsBridge — console forwarding ─────────────────────────────────
+            // Installed before page.goto() so console output from the initial
+            // navigation is captured. Uses Playwright's 'console' event which
+            // wraps CDP Runtime.consoleAPICalled internally.
+            //
+            // Text is capped at 64 KB per message to prevent a runaway logger
+            // from flooding the WebSocket.
+            if (jsBridgeEnabled) {
+                page.on('console', (msg) => {
+                    if (ws.readyState !== ws.OPEN) return;
+                    const level = CONSOLE_LEVELS[msg.type()] ?? 0;
+                    let   text  = msg.text();
+                    if (text.length > 65_536) text = text.slice(0, 65_536) + ' … [truncated]';
+                    ws.send(encodeConsoleMessage(level, text), { binary: true });
+                });
+                console.log(`[${sessionId}] JsBridge console forwarding active`);
+            }
 
             // Navigate to initial URL if provided.
             if (url) {
@@ -270,7 +378,7 @@ export class Session {
 
             return new Session(
                 sessionId, ws, display, context, page, cdp,
-                capture, width, height, onFrame,
+                capture, width, height, onFrame, jsBridgeEnabled,
             );
         } catch (err) {
             // Clean up partially-created resources on failure.
@@ -354,6 +462,51 @@ export class Session {
                 case 'goforward':
                     await this._page.goForward({ waitUntil: 'domcontentloaded', timeout: 30_000 });
                     break;
+
+                // ── JsBridge — evaluate JS in the virtual browser ────────────
+                // Runs arbitrary code in the page context and returns the result
+                // serialised as JSON. Console output produced by the code is
+                // captured by the 'console' event handler above and forwarded
+                // as MSG_CONSOLE frames independently.
+                case 'evaljs': {
+                    if (!this._jsBridgeEnabled) break;
+
+                    const { id, code } = msg;
+                    let ok    = true;
+                    let value = '';
+
+                    try {
+                        // Evaluate the code string in the page's global scope.
+                        // The helper IIFE:
+                        //   • Uses indirect eval so the code runs at global scope.
+                        //   • Returns null when the result is undefined (so
+                        //     Playwright's structured-clone transport doesn't
+                        //     silently discard it).
+                        //   • JSON.stringifies non-primitive results; falls back
+                        //     to String() for non-serialisable values.
+                        const raw: unknown = await this._page.evaluate(
+                            `(function(c){
+                                try {
+                                    var r=(0,eval)(c);
+                                    if(r===undefined)return null;
+                                    try{return JSON.stringify(r)}catch{return String(r)}
+                                } catch(e) {
+                                    throw new Error(e instanceof Error?e.message:String(e));
+                                }
+                            })(${JSON.stringify(code)})`,
+                        );
+                        value = raw === null ? '' : String(raw);
+                    } catch (err) {
+                        ok    = false;
+                        value = (err as Error).message;
+                    }
+
+                    const buf = encodeEvalResult(id, ok, value);
+                    if (this._ws.readyState === this._ws.OPEN) {
+                        this._ws.send(buf, { binary: true });
+                    }
+                    break;
+                }
 
                 // ── Live resize ───────────────────────────────────────────────
                 // The client sends { type:'resize', width, height } whenever its

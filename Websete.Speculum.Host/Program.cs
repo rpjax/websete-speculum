@@ -3,6 +3,7 @@ using Websete.Speculum.Browser;
 using Websete.Speculum.Host.Certs;
 using Websete.Speculum.Host.Config;
 using Websete.Speculum.Host.Rewriting;
+using Websete.Speculum.Host.ScriptInjection;
 using Websete.Speculum.Host.Virtualization.Hubs;
 using Websete.Speculum.Host.Virtualization.Services;
 using Websete.Speculum.Host.Virtualization.Ws;
@@ -59,6 +60,11 @@ builder.WebHost.ConfigureKestrel(kestrel =>
 // ── URL rewriting (MITM forwarding rules) ─────────────────────────────────────
 builder.Services.AddSingleton<IUrlRewriter, UrlRewriter>();
 
+// ── Script injection ──────────────────────────────────────────────────────────
+// Reads and caches declared script files from wwwroot at startup.
+// Throws at startup if any file is missing or exceeds the size cap.
+builder.Services.AddSingleton<ScriptInjectionService>();
+
 // ── Sidecar service ───────────────────────────────────────────────────────────
 // SidecarService manages WebSocket connections to the Node.js sidecar.
 // The BaseUrl is configured via appsettings or environment variable
@@ -82,6 +88,12 @@ builder.Services.AddControllers();
 builder.Services.AddSignalR();
 
 var app = builder.Build();
+
+// ── Eager singleton resolution ────────────────────────────────────────────────
+// Force construction of singletons that read from disk at startup so that any
+// misconfiguration (missing file, bad path) causes an immediate, clear crash
+// rather than failing silently on the first request.
+app.Services.GetRequiredService<ScriptInjectionService>();
 
 // ── Shutdown ──────────────────────────────────────────────────────────────────
 var sidecarService = app.Services.GetRequiredService<SidecarService>();

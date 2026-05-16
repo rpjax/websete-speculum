@@ -8,7 +8,7 @@ namespace Websete.Speculum.Host.Virtualization.Services;
 public record CreateSessionRequest(int Width = 1280, int Height = 720, string? InitialUrl = null);
 
 /// <summary>Returned after the session is ready on the sidecar.</summary>
-public record CreateSessionResponse(string SessionId, int Width, int Height);
+public record CreateSessionResponse(string SessionId, int Width, int Height, bool JsBridgeEnabled);
 
 /// <summary>Asks the server to reload the current page.</summary>
 public record RefreshRequest(string SessionId);

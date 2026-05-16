@@ -14,7 +14,21 @@ internal sealed class SpeculumConfigBindingModel
     public string Environment { get; set; } = string.Empty;
     public string HttpAddress { get; set; } = string.Empty;
     public int MaxSessions { get; set; }
-    public ForwardingProfileBinding[] ForwardingProfiles { get; set; } = Array.Empty<ForwardingProfileBinding>();
+    public ForwardingProfileBinding[]  ForwardingProfiles { get; set; } = Array.Empty<ForwardingProfileBinding>();
+    public ScriptInjectionBinding[]    ScriptInjection    { get; set; } = Array.Empty<ScriptInjectionBinding>();
+    public JsBridgeBinding             JsBridge           { get; set; } = new();
+}
+
+internal sealed class ScriptInjectionBinding
+{
+    public string Position { get; set; } = "HeaderTop";
+    public string File     { get; set; } = string.Empty;
+    public string Type     { get; set; } = "Classic";
+}
+
+internal sealed class JsBridgeBinding
+{
+    public bool Enable { get; set; } = false;
 }
 
 internal sealed class ForwardingProfileBinding
@@ -31,6 +45,38 @@ internal sealed class ForwardingRuleBinding
 }
 
 #endregion
+
+/// <summary>
+/// Immutable snapshot of the JsBridge configuration.
+/// </summary>
+public sealed class JsBridgeOptions
+{
+    /// <summary>
+    /// When <c>true</c>, the sidecar forwards virtual browser console output
+    /// to the downstream client and exposes <c>window.vcon(code)</c>.
+    /// </summary>
+    public bool Enable { get; }
+
+    internal JsBridgeOptions(bool enable) => Enable = enable;
+}
+
+/// <summary>
+/// Immutable representation of a single script injection entry.
+/// <see cref="ScriptInjectionService"/> resolves the file content at startup.
+/// </summary>
+public sealed class ScriptInjectionEntry
+{
+    public string Position { get; }
+    public string File     { get; }
+    public string Type     { get; }
+
+    internal ScriptInjectionEntry(string position, string file, string type)
+    {
+        Position = position;
+        File     = file;
+        Type     = type;
+    }
+}
 
 public sealed class ForwardingRule
 {
@@ -66,18 +112,24 @@ public sealed class SpeculumConfig
     public string Environment { get; }
     public string HttpAddress { get; }
     public int MaxSessions { get; }
-    public ImmutableArray<ForwardingProfile> ForwardingProfiles { get; }
+    public ImmutableArray<ForwardingProfile>    ForwardingProfiles { get; }
+    public ImmutableArray<ScriptInjectionEntry> ScriptInjection    { get; }
+    public JsBridgeOptions                      JsBridge           { get; }
 
     private SpeculumConfig(
         string environment,
         string httpAddress,
         int maxSessions,
-        ImmutableArray<ForwardingProfile> forwardingProfiles)
+        ImmutableArray<ForwardingProfile>    forwardingProfiles,
+        ImmutableArray<ScriptInjectionEntry> scriptInjection,
+        JsBridgeOptions                      jsBridge)
     {
-        Environment = environment;
-        HttpAddress = httpAddress;
-        MaxSessions = maxSessions;
+        Environment        = environment;
+        HttpAddress        = httpAddress;
+        MaxSessions        = maxSessions;
         ForwardingProfiles = forwardingProfiles;
+        ScriptInjection    = scriptInjection;
+        JsBridge           = jsBridge;
     }
 
     /// <summary>
@@ -111,11 +163,21 @@ public sealed class SpeculumConfig
             profiles.Add(new ForwardingProfile(pb.Domain, pb.AllowSubDomains, rules.MoveToImmutable()));
         }
 
+        var rawScripts = m.ScriptInjection ?? Array.Empty<ScriptInjectionBinding>();
+        var scripts    = ImmutableArray.CreateBuilder<ScriptInjectionEntry>(rawScripts.Length);
+
+        foreach (var sb in rawScripts)
+            scripts.Add(new ScriptInjectionEntry(sb.Position, sb.File, sb.Type));
+
+        var jsBridge = new JsBridgeOptions(m.JsBridge?.Enable ?? false);
+
         return new SpeculumConfig(
             m.Environment,
             m.HttpAddress,
             m.MaxSessions,
-            profiles.MoveToImmutable());
+            profiles.MoveToImmutable(),
+            scripts.MoveToImmutable(),
+            jsBridge);
     }
 }
 
@@ -140,6 +202,7 @@ internal static class SpeculumConfigValidator
         ValidateHttpAddress(config.HttpAddress, b);
         ValidateMaxSessions(config.MaxSessions, b);
         ValidateForwardingProfiles(config.ForwardingProfiles, b);
+        ValidateScriptInjection(config.ScriptInjection, b);
 
         b.ThrowIfInvalid();
     }
@@ -270,6 +333,60 @@ internal static class SpeculumConfigValidator
 
         if (!IsValidFqdn(v))
             b.WithError(jsonPath, "Not a valid domain");
+    }
+
+    private static readonly HashSet<string> ValidPositions =
+        new(["HeaderTop", "HeaderBottom", "BodyTop", "BodyBottom"], StringComparer.Ordinal);
+
+    private static readonly HashSet<string> ValidTypes =
+        new(["Classic", "Module"], StringComparer.Ordinal);
+
+    private const int MaxScriptFileSizeBytes = 5 * 1024 * 1024; // 5 MB
+
+    private static void ValidateScriptInjection(ScriptInjectionBinding[]? entries, ValidationResultBuilder b)
+    {
+        if (entries is null or { Length: 0 }) return; // ScriptInjection is optional
+
+        for (var i = 0; i < entries.Length; i++)
+        {
+            var prefix = $"$.ScriptInjection[{i}]";
+            var entry  = entries[i];
+
+            if (entry is null) { b.WithError(prefix, "Entry is null"); continue; }
+
+            // Position
+            if (string.IsNullOrWhiteSpace(entry.Position))
+                b.WithError(prefix + ".Position", "Position is empty");
+            else if (!ValidPositions.Contains(entry.Position))
+                b.WithError(prefix + ".Position",
+                    $"Invalid value '{entry.Position}'. Valid values: {string.Join(", ", ValidPositions)}");
+
+            // Type
+            if (string.IsNullOrWhiteSpace(entry.Type))
+                b.WithError(prefix + ".Type", "Type is empty");
+            else if (!ValidTypes.Contains(entry.Type))
+                b.WithError(prefix + ".Type",
+                    $"Invalid value '{entry.Type}'. Valid values: {string.Join(", ", ValidTypes)}");
+
+            // File — must be a root-relative URL path to a .js file; no traversal
+            if (string.IsNullOrWhiteSpace(entry.File))
+            {
+                b.WithError(prefix + ".File", "File is empty");
+            }
+            else
+            {
+                var f = entry.File.Trim();
+
+                if (!f.StartsWith('/'))
+                    b.WithError(prefix + ".File", "File must be a root-relative path starting with '/'");
+
+                if (f.Contains("..") || f.Contains('\\'))
+                    b.WithError(prefix + ".File", "File must not contain '..' or backslashes");
+
+                if (!f.EndsWith(".js", StringComparison.OrdinalIgnoreCase))
+                    b.WithError(prefix + ".File", "File must have a .js extension");
+            }
+        }
     }
 
     private static bool IsValidFqdn(string domain)

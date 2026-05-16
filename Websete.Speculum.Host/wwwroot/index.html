@@ -168,10 +168,14 @@
 const IS_DEV = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
 
 // ── Protocol constants ────────────────────────────────────────────────────────
-const MSG_TILE = 0x01;
-const MSG_FULL = 0x02;
+const MSG_TILE        = 0x01;
+const MSG_FULL        = 0x02;
 // 0x03 = skip: nothing to render
-const MSG_URL  = 0x04;  // URL update from sidecar
+const MSG_URL         = 0x04;  // URL update from sidecar
+const MSG_CONSOLE     = 0x05;  // Virtual browser console output
+const MSG_EVAL_RESULT = 0x06;  // vcon() evaluation result
+
+const VCON_METHODS = ['log', 'warn', 'error', 'info', 'debug'];
 
 // ── DOM refs ──────────────────────────────────────────────────────────────────
 const canvas     = document.getElementById('canvas');
@@ -188,11 +192,16 @@ const fpsEl      = document.getElementById('fps');
 if (IS_DEV) fpsEl.classList.add('active');
 
 // ── Session state ─────────────────────────────────────────────────────────────
-let hub       = null;
-let ws        = null;
-let sessionId = null;
-let sessionW  = 1280;
-let sessionH  = 720;
+let hub             = null;
+let ws              = null;
+let sessionId       = null;
+let sessionW        = 1280;
+let sessionH        = 720;
+let jsBridgeEnabled = false;
+
+// ── JsBridge — pending vcon() calls ───────────────────────────────────────────
+let   _evalId      = 0;
+const _evalPending = new Map(); // id → { resolve, reject, timer }
 
 // ── Canvas layout ─────────────────────────────────────────────────────────────
 // The canvas element fills its parent (#viewport) via CSS (position:absolute,
@@ -347,9 +356,109 @@ async function handleFrame(buffer) {
     const url = new TextDecoder().decode(new Uint8Array(buffer, 5, len));
     urlBar.value = url;
 
+  } else if (type === MSG_CONSOLE) {
+    // Layout: [0] type | [1] level | [2-5] len | [6+] UTF-8 text
+    if (buffer.byteLength < 6) return;
+    const level = view.getUint8(1);
+    const len   = view.getUint32(2, true);
+    if (6 + len > buffer.byteLength) return;
+    const text  = new TextDecoder().decode(new Uint8Array(buffer, 6, len));
+    const fn    = console[VCON_METHODS[level] ?? 'log'];
+    fn.call(console,
+      '%c[VCON]%c ' + text,
+      'color:#ff9800;font-weight:bold;font-family:monospace',
+      'color:inherit;font-family:monospace',
+    );
+
+  } else if (type === MSG_EVAL_RESULT) {
+    // Layout: [0] type | [1-4] id | [5] ok | [6-9] len | [10+] UTF-8 value
+    if (buffer.byteLength < 10) return;
+    const id    = view.getUint32(1, true);
+    const ok    = view.getUint8(5) === 1;
+    const len   = view.getUint32(6, true);
+    if (10 + len > buffer.byteLength) return;
+    const value = new TextDecoder().decode(new Uint8Array(buffer, 10, len));
+    const pending = _evalPending.get(id);
+    if (pending) {
+      clearTimeout(pending.timer);
+      _evalPending.delete(id);
+      if (ok) {
+        // Empty value = undefined result (e.g. console.log return value).
+        if (value === '') { pending.resolve(undefined); return; }
+        try   { pending.resolve(JSON.parse(value)); }
+        catch { pending.resolve(value); } // not JSON — return as string
+      } else {
+        pending.reject(new Error(value));
+      }
+    }
+
   } else if (type !== 0x03) {
     console.warn('[speculum] Unknown frame type:', type);
   }
+}
+
+// ── JsBridge client — vcon() + startup banner ─────────────────────────────────
+
+/**
+ * Exposes window.vcon(code) — evaluates JavaScript in the virtual browser
+ * and returns the result as a Promise. Console output produced by the code
+ * appears in the local console with [VCON]: prefix via the console bridge.
+ *
+ * Example:
+ *   await vcon('window.location.href')    // → "https://..."
+ *   await vcon('console.log(document.title)')  // → undefined + [VCON]: title
+ */
+function installVcon() {
+  window.vcon = function vcon(code) {
+    return new Promise(function (resolve, reject) {
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        reject(new Error('[vcon] No active session'));
+        return;
+      }
+      const id = ++_evalId;
+      const timer = setTimeout(function () {
+        if (_evalPending.has(id)) {
+          _evalPending.delete(id);
+          reject(new Error('[vcon] Timed out after 10 s'));
+        }
+      }, 10_000);
+      _evalPending.set(id, { resolve, reject, timer });
+      sendInput({ type: 'evaljs', id, code });
+    });
+  };
+}
+
+function uninstallVcon() {
+  delete window.vcon;
+}
+
+/**
+ * Prints a formatted startup banner to the browser console every time a new
+ * session is established (WS opened). Shows session ID, viewport, and
+ * JsBridge status so the operator knows the current configuration at a glance.
+ */
+function printBanner() {
+  const BADGE = 'background:#1565c0;color:#fff;font-weight:bold;padding:2px 8px;border-radius:3px;letter-spacing:.05em';
+  const DIM   = 'color:#666;font-weight:bold';
+  const VAL   = 'color:#ddd;font-family:monospace';
+  const OK    = 'background:#1b5e20;color:#a5d6a7;padding:1px 5px;border-radius:2px;font-weight:bold';
+  const NOK   = 'background:#b71c1c;color:#ef9a9a;padding:1px 5px;border-radius:2px;font-weight:bold';
+  const HINT  = 'color:#666;font-style:italic';
+
+  console.groupCollapsed(
+    '%c SPECULUM %c — virtual browser bridge',
+    BADGE, 'color:#888',
+  );
+  console.log('%cSession  %c' + sessionId,         DIM, VAL);
+  console.log('%cViewport %c' + sessionW + '×' + sessionH, DIM, VAL);
+
+  if (jsBridgeEnabled) {
+    console.log('%cJsBridge %cenabled %c→ await window.vcon(code)', DIM, OK, HINT);
+  } else {
+    console.log('%cJsBridge %cdisabled', DIM, NOK);
+  }
+
+  console.groupEnd();
 }
 
 // ── Input helpers ─────────────────────────────────────────────────────────────
@@ -528,6 +637,7 @@ function openWebSocket(sid) {
     fwdBtn.disabled  = false;
     overlay.classList.add('hidden');
     canvas.focus();
+    printBanner();
   };
 
   ws.onmessage = e => {
@@ -545,6 +655,18 @@ function openWebSocket(sid) {
     // entries don't carry over into the next session.
     heldKeys.clear();
     pressedBtns.clear();
+
+    // Cancel all pending vcon() calls so they reject immediately instead of
+    // hanging until their 10 s timeout fires.
+    for (const { reject, timer } of _evalPending.values()) {
+      clearTimeout(timer);
+      reject(new Error('[vcon] Session closed'));
+    }
+    _evalPending.clear();
+
+    // Remove vcon from the global scope — it's session-scoped.
+    if (jsBridgeEnabled) uninstallVcon();
+    jsBridgeEnabled = false;
   };
 
   ws.onerror = err => console.error('[ws]', err);
@@ -590,9 +712,15 @@ async function connect() {
       initialUrl: window.location.href,
     });
 
-    sessionId = resp.sessionId;
+    sessionId       = resp.sessionId;
+    jsBridgeEnabled = resp.jsBridgeEnabled ?? false;
+
     // Server echoes back the accepted dimensions (may clamp if out of range).
     syncCanvasSize(resp.width, resp.height);
+
+    // Expose window.vcon() when the bridge is enabled so the operator can
+    // evaluate JS in the virtual browser from the downstream console.
+    if (jsBridgeEnabled) installVcon();
 
     openWebSocket(sessionId);
 

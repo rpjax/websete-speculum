@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using Websete.Speculum.Browser;
 using Websete.Speculum.Host.Config;
 using Websete.Speculum.Host.Rewriting;
+using Websete.Speculum.Host.ScriptInjection;
 
 namespace Websete.Speculum.Host.Virtualization.Services;
 
@@ -23,20 +24,23 @@ public sealed class VirtualizationService : IVirtualizationService, IAsyncDispos
 
     private readonly ConcurrentDictionary<string, Entry> _sessions = new();
     private readonly SidecarService                      _sidecar;
+    private readonly ScriptInjectionService              _scriptInjection;
     private readonly IUrlRewriter                        _rewriter;
     private readonly SpeculumConfig                      _config;
     private readonly ILogger<VirtualizationService>      _logger;
 
     public VirtualizationService(
         SidecarService                 sidecar,
+        ScriptInjectionService         scriptInjection,
         IUrlRewriter                   rewriter,
         SpeculumConfig                 config,
         ILogger<VirtualizationService> logger)
     {
-        _sidecar  = sidecar;
-        _rewriter = rewriter;
-        _config   = config;
-        _logger   = logger;
+        _sidecar         = sidecar;
+        _scriptInjection = scriptInjection;
+        _rewriter        = rewriter;
+        _config          = config;
+        _logger          = logger;
     }
 
     // ── IVirtualizationService ────────────────────────────────────────────────
@@ -65,17 +69,31 @@ public sealed class VirtualizationService : IVirtualizationService, IAsyncDispos
         //   → "https://www.olx.com.br/cars?q=1"
         var resolvedUrl = RewriteUrl(sessionId, request.InitialUrl);
 
+        // Map resolved scripts to the DTO expected by SidecarClient.
+        // Content is already loaded in memory by ScriptInjectionService at startup.
+        var scripts = _scriptInjection.Scripts
+            .Select(s => new ScriptPayload(s.Position, s.Type, s.Content))
+            .ToList();
+
+        if (scripts.Count > 0)
+            _logger.LogInformation("[{Id}] Injecting {Count} script(s) into session",
+                sessionId, scripts.Count);
+
+        var jsBridgeEnabled = _config.JsBridge.Enable;
+
         var sidecarSession = await _sidecar.CreateSessionAsync(
             sessionId,
             request.Width,
             request.Height,
-            resolvedUrl);
+            resolvedUrl,
+            scripts,
+            jsBridgeEnabled);
 
         var session = new VirtualizationSession(sidecarSession);
         _sessions[sessionId] = new Entry(session, connectionId);
 
-        _logger.LogInformation("[{Id}] Session ready", sessionId);
-        return new CreateSessionResponse(sessionId, request.Width, request.Height);
+        _logger.LogInformation("[{Id}] Session ready (JsBridge={JsBridge})", sessionId, jsBridgeEnabled);
+        return new CreateSessionResponse(sessionId, request.Width, request.Height, jsBridgeEnabled);
     }
 
     public IVirtualizationSession? GetSession(string sessionId)

@@ -75,6 +75,10 @@ export async function launchBrowser(
             `--window-size=${width},${height}`,
             '--window-position=0,0',
 
+            // Suppress the "Press Esc to exit fullscreen" browser notification
+            // that appears when setWindowBounds switches Chrome to fullscreen state.
+            '--disable-features=ExclusiveAccessBubble',
+
             // GPU: software renderer for Docker compatibility.
             '--use-gl=swiftshader',
 

@@ -105,13 +105,14 @@ export class DisplayManager {
      * Changes the active virtual display resolution via xrandr.
      *
      * Strategy:
-     *   1. Generate a modeline for the requested size with `cvt`.
+     *   1. Compute a modeline for WxH@60Hz in TypeScript (no `cvt` binary).
      *   2. Register it with xrandr (--newmode / --addmode) — idempotent.
-     *   3. Switch the virtual output to the new mode.
+     *   3. Switch the output AND the framebuffer in one command.
      *
-     * If cvt or mode switching fails (e.g. the Xvfb version does not fully
-     * support RandR output mode changes), we fall back to `xrandr --fb WxH`
-     * which at minimum resizes the virtual framebuffer.
+     * The output must be switched to the new mode BEFORE --fb can shrink the
+     * framebuffer; xrandr rejects --fb values smaller than the current CRTC
+     * output size.  Combining --output --mode --fb in a single invocation
+     * satisfies this constraint atomically.
      *
      * The xrandr output name is cached after the first successful call so
      * subsequent resizes skip the `xrandr` list parse entirely.
@@ -127,11 +128,81 @@ export class DisplayManager {
     // ── Internals ─────────────────────────────────────────────────────────────
 
     /**
+     * Computes a syntactically valid xrandr modeline for width×height @ 60 Hz.
+     *
+     * Xvfb is a virtual display — there is no real hardware to validate pixel
+     * clock accuracy or blanking timings.  We use a simplified blanking
+     * formula derived from the CVT standard that is accepted by xrandr without
+     * requiring the `cvt` binary to be installed.
+     *
+     * Formula:
+     *   Horizontal — 8 % H-sync pulse width (of H-total), rounded to the
+     *   8-pixel character cell granularity; 12.5 % total blanking.
+     *   Vertical   — 28 lines of blanking (3 front / 4 sync / 21 back),
+     *   typical for a 60 Hz display.
+     *   Pixel clock — H-total × V-total × 60, rounded to the nearest
+     *   0.25 MHz (xrandr's mandatory clock-step granularity).
+     */
+    private static computeModeline(
+        width:  number,
+        height: number,
+        hz = 60,
+    ): { name: string; params: string[] } {
+        const CELL  = 8;    // character cell granularity (pixels)
+        const STEP  = 0.25; // pixel-clock step (MHz)
+
+        // ── Horizontal ────────────────────────────────────────────────────────
+        // Active area rounded up to cell boundary, then add 12.5 % blanking
+        // (also a multiple of 2 cells so the total stays on the cell grid).
+        const hActive = Math.ceil(width  / CELL) * CELL;
+        const hBlank  = Math.round(hActive * 0.125 / (CELL * 2)) * (CELL * 2);
+        const hTotal  = hActive + hBlank;
+        // H-sync pulse = 8 % of H-total, rounded to cell boundary.
+        const hSync   = Math.round(0.08 * hTotal / CELL) * CELL;
+        // Front porch fills half the blanking minus half the sync pulse.
+        const hFront  = Math.round(hBlank / 2 - hSync / 2);
+        const hSS     = hActive + hFront;
+        const hSE     = hSS + hSync;
+
+        // ── Vertical ──────────────────────────────────────────────────────────
+        const vActive = height;
+        const vFront  = 3;
+        const vSync   = 4;
+        const vBack   = 21;
+        const vTotal  = vActive + vFront + vSync + vBack;
+        const vSS     = vActive + vFront;
+        const vSE     = vSS + vSync;
+
+        // ── Pixel clock ───────────────────────────────────────────────────────
+        const rawClock = hTotal * vTotal * hz / 1_000_000; // MHz
+        const clock    = Math.round(rawClock / STEP) * STEP;
+
+        const name = `${width}x${height}_${hz}.00`;
+        return {
+            name,
+            params: [
+                clock.toFixed(2),
+                String(hActive), String(hSS), String(hSE), String(hTotal),
+                String(vActive), String(vSS), String(vSE), String(vTotal),
+            ],
+        };
+    }
+
+    /**
      * Applies a resolution change via xrandr.
      *
      * Returns the resolved output name so callers can cache it and skip the
      * `xrandr` list-parse on subsequent calls.  Pass a non-null
-     * `cachedOutputName` to skip step 2 (output name resolution).
+     * `cachedOutputName` to skip the output name discovery step.
+     *
+     * ── Why --fb alone cannot shrink the framebuffer ──────────────────────────
+     * xrandr rejects `--fb WxH` when any active CRTC output is configured at a
+     * larger mode.  Xvfb is launched at 4096×2160 (maximum SHM allocation), so
+     * its initial CRTC is 4096×2160.  Calling `--fb 1280x720` fails with:
+     *   "specified screen not large enough for output screen (4096x2160+0+0)".
+     * The solution is to switch the output to the target mode WITH --fb in a
+     * single xrandr invocation (`--output X --mode M --fb WxH`).  xrandr then
+     * resizes the CRTC and the framebuffer atomically, satisfying the constraint.
      */
     private static async applyXrandr(
         displayNum:        number,
@@ -143,24 +214,16 @@ export class DisplayManager {
         const env     = { ...process.env as Record<string, string>, DISPLAY: display };
 
         try {
-            // ── Step 1: generate a modeline for WxH@60Hz ─────────────────────
-            // cvt output (example):
-            //   # 1280x720 59.86 Hz (CVT 0.92M9) ...
-            //   Modeline "1280x720_60.00"   74.50  1280 1344 1472 1664  720 ...
-            const { stdout: cvtOut } =
-                await execFileAsync('cvt', [String(width), String(height), '60']);
-
-            const modelineMatch = cvtOut.match(/Modeline\s+"([^"]+)"\s+(.*)/);
-            if (!modelineMatch) {
-                throw new Error(`cvt output not parseable: ${cvtOut.trim()}`);
-            }
-            const [, modeName, rawParams] = modelineMatch;
-            const modeParams = rawParams.trim().split(/\s+/);
+            // ── Step 1: compute modeline in TypeScript ────────────────────────
+            // No `cvt` binary required.  The formula produces values accepted by
+            // Xvfb's xrandr driver (virtual hardware, no timing validation).
+            const { name: modeName, params: modeParams } =
+                DisplayManager.computeModeline(width, height);
 
             // ── Step 2: find the xrandr output name ───────────────────────────
-            // Xvfb with RANDR extension typically exposes one virtual output.
-            // Its name varies by Xvfb version: "VIRTUAL1", "screen", etc.
-            // Skip this step when we already have the name from a previous call.
+            // Xvfb with RANDR extension exposes one virtual output.
+            // Its name varies by version: "VIRTUAL1", "screen", etc.
+            // Skip if we already resolved it on a previous call.
             let outputName = cachedOutputName;
             if (!outputName) {
                 const { stdout: xrOut } =
@@ -168,7 +231,7 @@ export class DisplayManager {
 
                 const outputMatch = xrOut.match(/^(\S+)\s+(?:connected|disconnected)/m);
                 if (!outputMatch) {
-                    throw new Error(`No xrandr output found in: ${xrOut.trim()}`);
+                    throw new Error(`No xrandr output found in:\n${xrOut.trim()}`);
                 }
                 outputName = outputMatch[1];
             }
@@ -190,7 +253,10 @@ export class DisplayManager {
                 );
             } catch { /* already attached — ignore */ }
 
-            // ── Step 4: switch output + framebuffer to the new size ───────────
+            // ── Step 4: switch output + framebuffer atomically ────────────────
+            // Combining --output --mode --fb in one invocation is mandatory:
+            // the CRTC mode changes to WxH first, then --fb WxH succeeds
+            // because the output no longer exceeds the requested size.
             await execFileAsync('xrandr', [
                 '--display', display,
                 '--output',  outputName,
@@ -198,30 +264,13 @@ export class DisplayManager {
                 '--fb',      `${width}x${height}`,
             ], { env });
 
-            console.log(`[DisplayManager :${displayNum}] xrandr → ${width}×${height}`);
+            console.log(`[DisplayManager :${displayNum}] xrandr → ${width}×${height} (mode ${modeName})`);
             return outputName;
         } catch (err) {
-            // Fallback: change only the framebuffer size. Some X11 clients
-            // (including Chrome fullscreen) may still respond to this via
-            // the ConfigureNotify / RandR notification path.
-            console.warn(
-                `[DisplayManager :${displayNum}] xrandr mode switch failed (${(err as Error).message}), ` +
-                `falling back to --fb`,
+            console.error(
+                `[DisplayManager :${displayNum}] xrandr failed (${(err as Error).message.split('\n')[0]}). ` +
+                `Display stays at its current resolution.`,
             );
-            try {
-                await execFileAsync(
-                    'xrandr',
-                    ['--display', display, '--fb', `${width}x${height}`],
-                    { env },
-                );
-            } catch (fbErr) {
-                console.error(
-                    `[DisplayManager :${displayNum}] xrandr --fb also failed:`,
-                    (fbErr as Error).message,
-                );
-            }
-            // The --fb fallback does not resolve an output name.
-            // Return whatever the caller already knew (may be null).
             return cachedOutputName ?? null;
         }
     }

@@ -55,7 +55,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         libxrandr2 \
         libxrender1 \
         libxtst6 \
-        libasound2 \
+        libasound2t64 \
     && rm -rf /var/lib/apt/lists/*
 
 # ── Install Google Chrome stable ──────────────────────────────────────────────

@@ -1,5 +1,4 @@
 using System.Net.WebSockets;
-using System.Text;
 using System.Text.Json;
 using System.Threading.Channels;
 
@@ -13,14 +12,20 @@ namespace Websete.Speculum.Browser;
 ///   • Sends the "create" handshake and waits for "ready".
 ///   • Runs a background receive loop that publishes binary frame messages
 ///     to <see cref="FrameChannel"/> (read by the client WS relay).
-///   • Exposes <see cref="SendInputAsync"/> for forwarding input JSON from
-///     the browser client.
+///   • Exposes <see cref="SendInputAsync"/> for forwarding input bytes from
+///     the browser client — zero allocation, no UTF-8 round-trip.
+///
+/// Thread safety:
+///   Concurrent senders (SignalR hub methods + WS relay loop) are serialised
+///   through <see cref="_sendLock"/> because <see cref="ClientWebSocket"/>
+///   only allows one outstanding SendAsync at a time.
 /// </summary>
 public sealed class SidecarClient : IAsyncDisposable
 {
-    private readonly ClientWebSocket               _ws     = new();
-    private readonly CancellationTokenSource       _cts    = new();
+    private readonly ClientWebSocket               _ws        = new();
+    private readonly CancellationTokenSource       _cts       = new();
     private readonly Channel<ReadOnlyMemory<byte>> _frames;
+    private readonly SemaphoreSlim                 _sendLock  = new(1, 1);
 
     public string SessionId { get; }
 
@@ -66,8 +71,9 @@ public sealed class SidecarClient : IAsyncDisposable
 
         await _ws.ConnectAsync(uri, ct);
 
-        // Send the session create command.
-        var create = JsonSerializer.Serialize(new
+        // Build and send the session-create command.
+        // SerializeToUtf8Bytes goes directly to UTF-8 bytes; no intermediate string.
+        var createBytes = JsonSerializer.SerializeToUtf8Bytes(new
         {
             type      = "create",
             sessionId = SessionId,
@@ -75,7 +81,7 @@ public sealed class SidecarClient : IAsyncDisposable
             height,
             url       = initialUrl,
         });
-        await SendTextAsync(create, ct);
+        await SendCoreAsync(createBytes, ct);
 
         // Wait for the "ready" reply (or "error").
         await WaitForReadyAsync(ct);
@@ -130,7 +136,7 @@ public sealed class SidecarClient : IAsyncDisposable
 
             if (!result.EndOfMessage) continue; // wait for full message
 
-            var text = Encoding.UTF8.GetString(buf, 0, filled);
+            var text   = System.Text.Encoding.UTF8.GetString(buf, 0, filled);
             filled = 0; // reset for next message
 
             string? type;
@@ -233,16 +239,39 @@ public sealed class SidecarClient : IAsyncDisposable
 
     // ── Sending ───────────────────────────────────────────────────────────────
 
-    /// <summary>Forwards a JSON input/control message to the sidecar.</summary>
-    public Task SendInputAsync(string json, CancellationToken ct = default)
-        => SendTextAsync(json, ct);
+    /// <summary>
+    /// Forwards raw UTF-8 JSON bytes to the sidecar as a Text WebSocket frame.
+    ///
+    /// This is the zero-allocation hot path: callers pass the raw bytes they
+    /// already have (received from the browser WS, or from
+    /// <see cref="JsonSerializer.SerializeToUtf8Bytes"/>) without any string
+    /// intermediary or re-encoding.
+    ///
+    /// Thread-safe: concurrent callers (SignalR hub + WS relay loop) are
+    /// serialised through <see cref="_sendLock"/>.
+    /// </summary>
+    public Task SendInputAsync(ReadOnlyMemory<byte> raw, CancellationToken ct = default)
+        => SendCoreAsync(raw, ct);
 
-    private async Task SendTextAsync(string text, CancellationToken ct)
+    /// <summary>
+    /// Core send — all outgoing messages go through here so the
+    /// <see cref="_sendLock"/> guarantees only one outstanding
+    /// <see cref="ClientWebSocket.SendAsync"/> at a time.
+    /// </summary>
+    private async Task SendCoreAsync(ReadOnlyMemory<byte> data, CancellationToken ct)
     {
-        if (_ws.State != WebSocketState.Open) return;
-
-        var bytes = Encoding.UTF8.GetBytes(text);
-        await _ws.SendAsync(bytes.AsMemory(), WebSocketMessageType.Text, true, ct);
+        // Acquire the send lock before checking state to avoid a TOCTOU race
+        // where the socket closes between the check and the send.
+        await _sendLock.WaitAsync(ct);
+        try
+        {
+            if (_ws.State != WebSocketState.Open) return;
+            await _ws.SendAsync(data, WebSocketMessageType.Text, true, ct);
+        }
+        finally
+        {
+            _sendLock.Release();
+        }
     }
 
     // ── Disposal ──────────────────────────────────────────────────────────────
@@ -264,6 +293,7 @@ public sealed class SidecarClient : IAsyncDisposable
         {
             _ws.Dispose();
             _cts.Dispose();
+            _sendLock.Dispose();
         }
     }
 }

@@ -26,6 +26,10 @@ export class DisplayManager {
     private _xvfb: ChildProcess;
     private _wm:   ChildProcess | null;
 
+    // Cached xrandr output name (e.g. "VIRTUAL1") — resolved once during start()
+    // and reused on every subsequent resize() to skip the `xrandr` list parse.
+    private _cachedOutputName: string | null = null;
+
     private constructor(number: number, xvfb: ChildProcess, wm: ChildProcess | null) {
         this.number = number;
         this._xvfb  = xvfb;
@@ -81,7 +85,8 @@ export class DisplayManager {
 
         // Set the active resolution to the caller-requested size.
         // Chrome will launch and see this resolution (not 4096×2160).
-        await DisplayManager.applyXrandr(number, width, height);
+        // applyXrandr returns the output name it resolved so we can cache it.
+        const cachedOutputName = await DisplayManager.applyXrandr(number, width, height, null);
 
         // Start a minimal window manager. matchbox-window-manager forces every
         // window to fill the screen and handles all X11 event plumbing,
@@ -91,7 +96,9 @@ export class DisplayManager {
         // Give the WM a moment to connect before Chrome tries to open a window.
         await new Promise<void>(r => setTimeout(r, 200));
 
-        return new DisplayManager(number, xvfb, wm);
+        const dm = new DisplayManager(number, xvfb, wm);
+        dm._cachedOutputName = cachedOutputName;
+        return dm;
     }
 
     /**
@@ -105,18 +112,33 @@ export class DisplayManager {
      * If cvt or mode switching fails (e.g. the Xvfb version does not fully
      * support RandR output mode changes), we fall back to `xrandr --fb WxH`
      * which at minimum resizes the virtual framebuffer.
+     *
+     * The xrandr output name is cached after the first successful call so
+     * subsequent resizes skip the `xrandr` list parse entirely.
      */
     async resize(width: number, height: number): Promise<void> {
-        await DisplayManager.applyXrandr(this.number, width, height);
+        const resolved = await DisplayManager.applyXrandr(
+            this.number, width, height, this._cachedOutputName,
+        );
+        // Update the cache in case it was resolved for the first time here.
+        if (resolved && !this._cachedOutputName) this._cachedOutputName = resolved;
     }
 
     // ── Internals ─────────────────────────────────────────────────────────────
 
+    /**
+     * Applies a resolution change via xrandr.
+     *
+     * Returns the resolved output name so callers can cache it and skip the
+     * `xrandr` list-parse on subsequent calls.  Pass a non-null
+     * `cachedOutputName` to skip step 2 (output name resolution).
+     */
     private static async applyXrandr(
-        displayNum: number,
-        width:      number,
-        height:     number,
-    ): Promise<void> {
+        displayNum:        number,
+        width:             number,
+        height:            number,
+        cachedOutputName:  string | null,
+    ): Promise<string | null> {
         const display = `:${displayNum}`;
         const env     = { ...process.env as Record<string, string>, DISPLAY: display };
 
@@ -138,14 +160,18 @@ export class DisplayManager {
             // ── Step 2: find the xrandr output name ───────────────────────────
             // Xvfb with RANDR extension typically exposes one virtual output.
             // Its name varies by Xvfb version: "VIRTUAL1", "screen", etc.
-            const { stdout: xrOut } =
-                await execFileAsync('xrandr', ['--display', display], { env });
+            // Skip this step when we already have the name from a previous call.
+            let outputName = cachedOutputName;
+            if (!outputName) {
+                const { stdout: xrOut } =
+                    await execFileAsync('xrandr', ['--display', display], { env });
 
-            const outputMatch = xrOut.match(/^(\S+)\s+(?:connected|disconnected)/m);
-            if (!outputMatch) {
-                throw new Error(`No xrandr output found in: ${xrOut.trim()}`);
+                const outputMatch = xrOut.match(/^(\S+)\s+(?:connected|disconnected)/m);
+                if (!outputMatch) {
+                    throw new Error(`No xrandr output found in: ${xrOut.trim()}`);
+                }
+                outputName = outputMatch[1];
             }
-            const outputName = outputMatch[1];
 
             // ── Step 3: register the mode (idempotent) ────────────────────────
             try {
@@ -173,6 +199,7 @@ export class DisplayManager {
             ], { env });
 
             console.log(`[DisplayManager :${displayNum}] xrandr → ${width}×${height}`);
+            return outputName;
         } catch (err) {
             // Fallback: change only the framebuffer size. Some X11 clients
             // (including Chrome fullscreen) may still respond to this via
@@ -193,6 +220,9 @@ export class DisplayManager {
                     (fbErr as Error).message,
                 );
             }
+            // The --fb fallback does not resolve an output name.
+            // Return whatever the caller already knew (may be null).
+            return cachedOutputName ?? null;
         }
     }
 

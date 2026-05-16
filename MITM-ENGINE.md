@@ -230,20 +230,108 @@ aparecem em paths reais.
 ### Layout no disco
 
 ```
-{certBasePath}/
+Certificates/                     ← certBasePath (veja resolução abaixo)
   {domain}/
     privkey.pem      ← chave privada RSA/EC
     fullchain.pem    ← certificado + intermediários (ordem PEM padrão Let's Encrypt)
 ```
 
-O `certBasePath` padrão é `{ContentRootPath}/Certificates` em desenvolvimento e
-pode ser sobrescrito via `appsettings.json` ou variável de ambiente:
+### Resolução do certBasePath
+
+A app procura a pasta `Certificates` **ao lado do próprio binário**, usando
+`AppContext.BaseDirectory`:
+
+| Contexto | `AppContext.BaseDirectory` | Pasta procurada |
+|----------|---------------------------|-----------------|
+| `dotnet run` (dev) | `bin/Debug/net10.0/` | `bin/Debug/net10.0/Certificates/` |
+| Docker (`dotnet publish`) | `/app/` | `/app/Certificates/` |
+| Qualquer outro deploy | diretório do `.dll` | `<dir>/Certificates/` |
+
+O caminho pode ser sobrescrito via configuração para cenários especiais:
 
 ```json
-{ "CertificatesPath": "/Certificates" }
+{ "CertificatesPath": "/mnt/secrets/certs" }
 ```
 
-Em Docker, `/Certificates` é montado como volume com os certs reais.
+Ou via variável de ambiente:
+
+```
+CertificatesPath=/mnt/secrets/certs
+```
+
+### Certificados no projeto (bundled na imagem)
+
+A pasta `Websete.Speculum.Host/Certificates/` é rastreada no git e copiada
+para o output de build automaticamente via `.csproj`:
+
+```xml
+<Content Include="Certificates\**\*">
+  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+</Content>
+```
+
+**Para usar seus certificados existentes**, coloque-os na pasta correta:
+
+```
+Websete.Speculum.Host/Certificates/
+  websete.localhost/
+    privkey.pem       ← sua chave privada
+    fullchain.pem     ← seu certificado (+ cadeia, se houver)
+```
+
+Para adicionar um novo perfil de forwarding:
+1. Adicione a entrada em `appsettings.json` (`ForwardingProfiles`)
+2. Crie a pasta `Certificates/{novo.dominio}/` com os respectivos `.pem`
+
+### Como os certs chegam no Docker
+
+O Dockerfile faz `COPY . .` (copia o repo inteiro para o build stage),
+depois `dotnet publish` copia os Content items (incluindo `Certificates/`)
+para `/app/publish/Certificates/`, e finalmente `COPY --from=build /app/publish .`
+coloca tudo em `/app/`. Nenhuma instrução extra no Dockerfile é necessária.
+
+```
+repo/
+  Websete.Speculum.Host/
+    Certificates/
+      websete.localhost/
+        privkey.pem       ← commitado no git (cert de dev)
+        fullchain.pem     ← commitado no git (cert de dev)
+
+ dotnet publish
+      ↓
+/app/publish/
+  Websete.Speculum.Host.dll
+  Certificates/
+    websete.localhost/
+      privkey.pem
+      fullchain.pem
+
+ COPY --from=build
+      ↓
+/app/                     ← AppContext.BaseDirectory no container
+  Certificates/
+    websete.localhost/
+      privkey.pem
+      fullchain.pem
+```
+
+### Certs de produção
+
+Para produção, **não commite** chaves privadas reais. Monte um volume Docker:
+
+```yaml
+volumes:
+  - /etc/letsencrypt/live:/app/Certificates:ro
+```
+
+Ou use a variável de ambiente:
+
+```
+CertificatesPath=/etc/letsencrypt/live
+```
+
+desde que o layout de subpastas por domínio seja respeitado.
 
 ### Carregamento (fail-fast)
 

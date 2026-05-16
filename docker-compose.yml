@@ -39,7 +39,7 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "8080:8080"
+      - "443:443"
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
       # Points to the sidecar WebSocket server (resolved via Docker DNS).

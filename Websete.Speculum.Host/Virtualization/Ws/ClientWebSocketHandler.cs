@@ -1,5 +1,4 @@
 using System.Net.WebSockets;
-using System.Text;
 using Websete.Speculum.Host.Virtualization.Services;
 
 namespace Websete.Speculum.Host.Virtualization.Ws;
@@ -155,8 +154,11 @@ public static class ClientWebSocketHandler
 
                 if (result.MessageType == WebSocketMessageType.Text)
                 {
-                    var json = Encoding.UTF8.GetString(buf, 0, filled);
-                    await session.DispatchInputAsync(json, ct);
+                    // Zero-copy relay: pass the raw UTF-8 bytes directly to the
+                    // sidecar without decoding to string and re-encoding.
+                    // Safe because RelayInputAsync is sequential — buf is not
+                    // written again until after DispatchInputAsync returns.
+                    await session.DispatchInputAsync(new ReadOnlyMemory<byte>(buf, 0, filled), ct);
                 }
                 // Binary messages from the client are not expected — ignore them.
 

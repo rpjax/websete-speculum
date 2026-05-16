@@ -22,7 +22,7 @@ internal sealed class VirtualizationSession : IVirtualizationSession
     public Task NavigateAsync(string url)               => _sidecar.NavigateAsync(url);
     public Task RefreshAsync()                          => _sidecar.RefreshAsync();
     public Task ResizeAsync(int width, int height)      => _sidecar.ResizeAsync(width, height);
-    public Task DispatchInputAsync(string json, CancellationToken ct = default) => _sidecar.DispatchInputAsync(json, ct);
+    public Task DispatchInputAsync(ReadOnlyMemory<byte> raw, CancellationToken ct = default) => _sidecar.DispatchInputAsync(raw, ct);
 
     public ValueTask DisposeAsync()                     => _sidecar.DisposeAsync();
 }

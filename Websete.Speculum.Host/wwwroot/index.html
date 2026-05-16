@@ -203,6 +203,7 @@ function syncCanvasSize(w, h) {
   sessionH      = h;
   canvas.width  = w;
   canvas.height = h;
+  invalidateRect(); // canvas dimensions changed → cached rect is stale
 }
 
 // ── ResizeObserver — propagates viewport size changes to the virtual browser ──
@@ -217,6 +218,9 @@ const resizeObserver = new ResizeObserver(entries => {
   const h = Math.round(entry.contentRect.height);
   if (w < 100 || h < 100) return;   // ignore degenerate sizes during layout
   if (w === sessionW && h === sessionH) return; // nothing changed
+
+  // Viewport geometry changed → cached rect is definitely stale.
+  invalidateRect();
 
   clearTimeout(resizeTimer);
   resizeTimer = setTimeout(() => {
@@ -349,11 +353,19 @@ async function handleFrame(buffer) {
 }
 
 // ── Input helpers ─────────────────────────────────────────────────────────────
+// Cache the bounding rect so mousemove never triggers a layout reflow.
+// Invalidated by ResizeObserver (viewport size change) and by the resize
+// debounce callback (canvas dimensions updated), which both cover every
+// case where the rect can change.
+let _cachedRect = null;
+
+function invalidateRect() { _cachedRect = null; }
+
 function canvasToPage(clientX, clientY) {
-  const rect = canvas.getBoundingClientRect();
+  if (!_cachedRect) _cachedRect = canvas.getBoundingClientRect();
   return {
-    x: Math.round((clientX - rect.left) * (sessionW / rect.width)),
-    y: Math.round((clientY - rect.top)  * (sessionH / rect.height)),
+    x: Math.round((clientX - _cachedRect.left) * (sessionW / _cachedRect.width)),
+    y: Math.round((clientY - _cachedRect.top)  * (sessionH / _cachedRect.height)),
   };
 }
 
@@ -528,6 +540,11 @@ function openWebSocket(sid) {
     fwdBtn.disabled  = true;
     overlay.classList.remove('hidden');
     ws = null;
+
+    // The virtual browser is gone — discard any held input state so stale
+    // entries don't carry over into the next session.
+    heldKeys.clear();
+    pressedBtns.clear();
   };
 
   ws.onerror = err => console.error('[ws]', err);

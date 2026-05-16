@@ -39,10 +39,11 @@ public interface IVirtualizationSession : IAsyncDisposable
     Task ResizeAsync(int width, int height);
 
     /// <summary>
-    /// Forwards a raw JSON input message (mousemove, keydown, etc.) from the
-    /// browser client directly to the sidecar.
+    /// Forwards raw UTF-8 JSON bytes (mousemove, keydown, etc.) received from
+    /// the browser client directly to the sidecar — zero-copy: no string
+    /// decode or re-encode in the relay path.
     /// </summary>
-    Task DispatchInputAsync(string json, CancellationToken ct = default);
+    Task DispatchInputAsync(ReadOnlyMemory<byte> raw, CancellationToken ct = default);
 }
 
 // ── Service interface ─────────────────────────────────────────────────────────

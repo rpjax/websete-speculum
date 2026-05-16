@@ -109,29 +109,64 @@ export class Session {
             // This is mandatory for a MITM proxy: the user must never be able to
             // escape the session by spawning an uncontrolled window.
             //
-            // Strategy: wait for the popup to navigate to its real URL (away from
-            // about:blank), close it immediately, then redirect the main page there.
+            // Strategy:
+            //   1. Immediately sever window.opener so the new page cannot
+            //      manipulate the main page while we wait.
+            //   2. Wait for domcontentloaded (not just the first URL change) so
+            //      all HTTP-level redirects have been followed and we capture the
+            //      final destination URL, not an intermediate tracking redirect.
+            //   3. Close the new page, then navigate the main page.
+            //
+            // Why not waitForURL?
+            //   waitForURL fires on the first non-about: URL, which is often a
+            //   tracking/redirect intermediary. Loading that URL as the main page
+            //   causes the tracking page to behave differently (no opener, wrong
+            //   context) and may redirect back to the original page — the source
+            //   of the "vai e vem" oscillation.
+            //
+            // Why null opener?
+            //   Some redirect pages do window.opener.location = finalUrl before
+            //   our goto() runs. This creates two concurrent navigations on the
+            //   main page (one from the popup's JS, one from our goto()), which
+            //   race non-deterministically and produce the oscillation.
             //
             // The handler is non-async from the EventEmitter's perspective; errors
             // are caught internally so they never become unhandled Promise rejections.
             context.on('page', (newPage) => {
                 if (newPage === page) return;
 
+                // Sever opener immediately — this addInitScript runs before any
+                // script on the new page's real URL (fires on every navigation of
+                // this page instance, including the first one away from about:blank).
+                // Pass as a string so TypeScript does not try to type-check browser
+                // globals (window) that do not exist in the Node.js lib.
+                newPage.addInitScript(`
+                    try {
+                        Object.defineProperty(window, 'opener', {
+                            value: null, writable: false, configurable: false,
+                        });
+                    } catch (e) { /* already non-configurable — ignore */ }
+                `).catch(() => { /* page closed before script could be added */ });
+
                 (async () => {
                     let targetUrl: string | null = null;
                     try {
-                        await newPage.waitForURL(
-                            (u) => u.protocol !== 'about:' && u.protocol !== 'chrome-extension:',
-                            { timeout: 3_000 },
-                        );
+                        // domcontentloaded guarantees all HTTP redirects have been
+                        // followed. The URL at this point is the final destination,
+                        // not an intermediate redirect hop.
+                        await newPage.waitForLoadState('domcontentloaded', { timeout: 5_000 });
                         targetUrl = newPage.url();
                     } catch {
-                        // Opened but never navigated to a real URL — just close it.
+                        // Never reached a real page (timeout, crash, already closed).
+                        // Just close it and bail — no navigation on the main page.
                     }
 
                     try { await newPage.close(); } catch { /* best-effort */ }
 
-                    if (targetUrl) {
+                    if (targetUrl &&
+                        !targetUrl.startsWith('about:') &&
+                        !targetUrl.startsWith('chrome:'))
+                    {
                         try {
                             await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
                         } catch { /* navigation error — ignore */ }

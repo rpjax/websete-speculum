@@ -18,8 +18,14 @@ builder.Services.AddSingleton(speculumConfig);
 //         {certBasePath}/{domain}/fullchain.pem
 // Override CertificatesPath in appsettings or via environment variable to
 // point at the correct root in Docker (/Certificates) vs development.
+// Look for certificates next to the binary regardless of working directory.
+// AppContext.BaseDirectory resolves to:
+//   • Development (dotnet run)  → bin/Debug/net10.0/
+//   • Docker (dotnet publish)   → /app/
+//   • Any other deployment      → directory that contains the .dll
+// Override via appsettings or env var (CertificatesPath) for exotic layouts.
 var certBasePath = builder.Configuration["CertificatesPath"]
-    ?? Path.Combine(builder.Environment.ContentRootPath, "Certificates");
+    ?? Path.Combine(AppContext.BaseDirectory, "Certificates");
 
 var certLoader = CertificateProvider.Create(speculumConfig, certBasePath);
 builder.Services.AddSingleton<ICertificateProvider>(certLoader);

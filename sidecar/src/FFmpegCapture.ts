@@ -193,52 +193,97 @@ export class FFmpegCapture {
  * always followed by 0x00.  Therefore the two-byte sequence 0xFF 0xD9 (EOI
  * marker) is unique — it cannot appear inside a valid JPEG payload — making
  * it a reliable frame boundary.
+ *
+ * ── Performance design ───────────────────────────────────────────────────────
+ * The naive implementation uses Buffer.concat() on every incoming chunk, which
+ * is O(n²): each concat copies all accumulated bytes plus the new chunk.
+ * At 60 fps with multi-chunk frames this causes thousands of allocations and
+ * copies per second.
+ *
+ * This implementation uses a single pre-allocated, geometrically-growing buffer
+ * (_buf) with an explicit write cursor (_len).  Incoming chunks are copied in
+ * once via Buffer.copy (a single memcpy).  Frame extraction compacts the buffer
+ * in-place via memmove-safe overlapping Buffer.copy.  The only per-frame
+ * allocation is the Buffer.from() that hands ownership of the JPEG to the
+ * downstream consumer.
  */
 class JpegSplitter extends Transform {
-    private _buf: Buffer = Buffer.alloc(0);
+    // Pre-allocated accumulation buffer (256 KB initial, grows geometrically).
+    // _len tracks the amount of valid data; _buf.length is the physical capacity.
+    private _buf: Buffer = Buffer.allocUnsafe(256 * 1024);
+    private _len: number = 0;
 
-    // Safety cap: if the buffer somehow grows beyond this without a valid JPEG
-    // frame being found (e.g. corrupt stream), discard and resync.
+    // Safety cap: discard and resync if buffer grows beyond this without a
+    // complete frame being found (e.g. corrupt / truncated stream).
     private static readonly MAX_BUF = 8 * 1024 * 1024; // 8 MB
 
     _transform(chunk: Buffer, _enc: string, cb: TransformCallback): void {
-        this._buf = Buffer.concat([this._buf, chunk]);
+        // ── Grow the accumulation buffer if needed ────────────────────────────
+        const needed = this._len + chunk.length;
 
-        while (this._buf.length >= 4) {
-            if (this._buf.length > JpegSplitter.MAX_BUF) {
-                // Resync: skip to the next SOI marker.
-                const next = this._find(0xFF, 0xD8, 0);
-                this._buf  = next === -1 ? Buffer.alloc(0) : this._buf.subarray(next);
-                if (next === -1) break;
-            }
+        if (needed > JpegSplitter.MAX_BUF) {
+            // Over cap: discard current accumulation and start fresh.
+            this._len = 0;
+        }
 
+        if (needed > this._buf.length) {
+            // Geometrically grow (double) so future appends are O(1) amortised.
+            const newCap = Math.min(
+                Math.max(this._buf.length * 2, needed),
+                JpegSplitter.MAX_BUF,
+            );
+            const newBuf = Buffer.allocUnsafe(newCap);
+            this._buf.copy(newBuf, 0, 0, this._len);
+            this._buf = newBuf;
+        }
+
+        // Append chunk — single memcpy, no intermediate allocation.
+        chunk.copy(this._buf, this._len);
+        this._len += chunk.length;
+
+        // ── Extract all complete JPEG frames ──────────────────────────────────
+        while (this._len >= 4) {
+            // Find SOI (0xFF 0xD8).
             const soi = this._find(0xFF, 0xD8, 0);
-            if (soi === -1) { this._buf = Buffer.alloc(0); break; }
+            if (soi === -1) { this._len = 0; break; } // no frame start — discard all
 
-            const eoi = this._find(0xFF, 0xD9, soi + 2);
-            if (eoi === -1) {
-                // Incomplete frame — trim leading garbage and wait for more data.
-                if (soi > 0) this._buf = this._buf.subarray(soi);
-                break;
+            // Compact: remove any leading garbage before the SOI.
+            // Buffer.copy with overlapping src/dst is memmove-safe in Node.js.
+            if (soi > 0) {
+                this._buf.copy(this._buf, 0, soi, this._len);
+                this._len -= soi;
+                if (this._len < 4) break;
             }
 
-            this.push(Buffer.from(this._buf.subarray(soi, eoi + 2)));
-            this._buf = this._buf.subarray(eoi + 2);
+            // Find EOI (0xFF 0xD9) — search after the 2-byte SOI marker.
+            const eoi = this._find(0xFF, 0xD9, 2);
+            if (eoi === -1) break; // incomplete frame — wait for more data
+
+            // Emit the complete frame as a new buffer (transfers ownership).
+            const frameEnd = eoi + 2;
+            this.push(Buffer.from(this._buf.subarray(0, frameEnd)));
+
+            // Compact: slide remaining data to position 0.
+            const remaining = this._len - frameEnd;
+            if (remaining > 0) {
+                this._buf.copy(this._buf, 0, frameEnd, this._len);
+            }
+            this._len = remaining;
         }
 
         cb();
     }
 
     _flush(cb: TransformCallback): void {
-        this._buf = Buffer.alloc(0);
+        this._len = 0; // release any partial frame on stream end
         cb();
     }
 
+    /** Finds the two-byte marker [b1, b2] starting at `from` within [0, _len). */
     private _find(b1: number, b2: number, from: number): number {
-        const buf = this._buf;
-        const end = buf.length - 1;
+        const end = this._len - 1; // need at least two bytes
         for (let i = from; i < end; i++) {
-            if (buf[i] === b1 && buf[i + 1] === b2) return i;
+            if (this._buf[i] === b1 && this._buf[i + 1] === b2) return i;
         }
         return -1;
     }

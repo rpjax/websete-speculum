@@ -30,24 +30,32 @@ public sealed class SidecarSession : IAsyncDisposable
     }
 
     // ── Browser control ───────────────────────────────────────────────────────
+    // SerializeToUtf8Bytes goes directly to UTF-8 — no string intermediary.
 
     public Task NavigateAsync(string url, CancellationToken ct = default) =>
-        _client.SendInputAsync(JsonSerializer.Serialize(new { type = "navigate", url }), ct);
+        _client.SendInputAsync(
+            JsonSerializer.SerializeToUtf8Bytes(new { type = "navigate", url }),
+            ct);
 
     public Task RefreshAsync(CancellationToken ct = default) =>
-        _client.SendInputAsync(JsonSerializer.Serialize(new { type = "refresh" }), ct);
+        _client.SendInputAsync(
+            JsonSerializer.SerializeToUtf8Bytes(new { type = "refresh" }),
+            ct);
 
     public Task ResizeAsync(int width, int height, CancellationToken ct = default) =>
-        _client.SendInputAsync(JsonSerializer.Serialize(new { type = "resize", width, height }), ct);
+        _client.SendInputAsync(
+            JsonSerializer.SerializeToUtf8Bytes(new { type = "resize", width, height }),
+            ct);
 
     // ── Input relay ───────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Forwards a raw JSON input message received from the browser client
-    /// directly to the sidecar (navigate, mousemove, keydown, etc.).
+    /// Forwards a raw UTF-8 JSON message received from the browser client
+    /// directly to the sidecar — zero-copy: the original receive buffer is
+    /// used as-is, with no string decode or re-encode.
     /// </summary>
-    public Task DispatchInputAsync(string json, CancellationToken ct = default) =>
-        _client.SendInputAsync(json, ct);
+    public Task DispatchInputAsync(ReadOnlyMemory<byte> raw, CancellationToken ct = default) =>
+        _client.SendInputAsync(raw, ct);
 
     // ── Disposal ──────────────────────────────────────────────────────────────
 

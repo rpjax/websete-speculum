@@ -1,4 +1,4 @@
-import { chromium, BrowserContext, Page } from 'patchright';
+import { chromium, BrowserContext, Page, CDPSession } from 'patchright';
 import * as path from 'path';
 import * as fs   from 'fs';
 
@@ -34,6 +34,13 @@ const EXTENSION_PATH = path.resolve(__dirname, '../extensions/webgl-spoof');
 export interface BrowserHandle {
     context: BrowserContext;
     page:    Page;
+    /**
+     * Page-level CDP session, kept alive so callers can send CDP commands
+     * (e.g. Emulation.setDeviceMetricsOverride on resize) without opening a
+     * new session on each call.  Caller is responsible for cdp.detach() on
+     * session disposal.
+     */
+    cdp:     CDPSession;
 }
 
 export async function launchBrowser(
@@ -100,22 +107,45 @@ export async function launchBrowser(
     let page = context.pages()[0];
     if (!page) page = await context.newPage();
 
-    // CDP setWindowBounds is the only reliable way to hide Chrome's browser
-    // chrome (address bar, tabs, toolbar) when the page is created via
-    // launchPersistentContext. Startup flags (--kiosk, --start-fullscreen,
-    // --app) apply to Chrome's own startup window, not to the window
-    // Playwright connects to via CDP.
+    // CDP setup:
+    //   1. setWindowBounds { fullscreen } hides Chrome's browser chrome
+    //      (address bar, tab bar, toolbar). Startup flags like --kiosk or
+    //      --start-fullscreen do not reliably hide the UI when the window is
+    //      created via launchPersistentContext.
+    //
+    //   2. setDeviceMetricsOverride is the AUTHORITATIVE viewport controller.
+    //      setWindowBounds { fullscreen } asks matchbox-window-manager to fill
+    //      the screen — but matchbox may use the Xvfb physical framebuffer size
+    //      (4096×2160, the SHM allocation) rather than the xrandr virtual
+    //      resolution (width×height). That causes Chrome to render at 4096×2160
+    //      and FFmpeg to capture only a partial view. setDeviceMetricsOverride
+    //      tells Chrome's renderer exactly what viewport to use, bypassing all
+    //      WM / RANDR ambiguity.  FFmpeg always captures from (0,0); the
+    //      rendered content always starts at (0,0) in fullscreen mode.
+    //
+    //   The cdp session is kept alive and returned to the caller so that resize
+    //   operations can update the override without opening a new session.
+    const cdp = await context.newCDPSession(page);
     try {
-        const cdp = await context.newCDPSession(page);
         const { windowId } = await cdp.send('Browser.getWindowForTarget', {});
         await cdp.send('Browser.setWindowBounds', {
             windowId,
             bounds: { windowState: 'fullscreen' },
         });
-        await cdp.detach();
     } catch (err) {
         console.warn('[BrowserManager] setWindowBounds failed:', (err as Error).message);
     }
 
-    return { context, page };
+    try {
+        await cdp.send('Emulation.setDeviceMetricsOverride', {
+            width,
+            height,
+            deviceScaleFactor: 1,
+            mobile:            false,
+        });
+    } catch (err) {
+        console.warn('[BrowserManager] setDeviceMetricsOverride failed:', (err as Error).message);
+    }
+
+    return { context, page, cdp };
 }

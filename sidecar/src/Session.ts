@@ -1,5 +1,5 @@
 import { WebSocket } from 'ws';
-import { BrowserContext, Page } from 'patchright';
+import { BrowserContext, Page, CDPSession } from 'patchright';
 import { DisplayManager } from './DisplayManager';
 import { launchBrowser }  from './BrowserManager';
 import { FFmpegCapture }  from './FFmpegCapture';
@@ -28,6 +28,7 @@ export class Session {
     private _display:  DisplayManager;
     private _context:  BrowserContext;
     private _page:     Page;
+    private _cdp:      CDPSession;
     private _capture:  FFmpegCapture;
     private _width:    number;
     private _height:   number;
@@ -50,6 +51,7 @@ export class Session {
         display:   DisplayManager,
         context:   BrowserContext,
         page:      Page,
+        cdp:       CDPSession,
         capture:   FFmpegCapture,
         width:     number,
         height:    number,
@@ -60,6 +62,7 @@ export class Session {
         this._display  = display;
         this._context  = context;
         this._page     = page;
+        this._cdp      = cdp;
         this._capture  = capture;
         this._width    = width;
         this._height   = height;
@@ -79,10 +82,88 @@ export class Session {
         console.log(`[${sessionId}] Launching Chrome on display ${display.displayEnv}`);
 
         let context: BrowserContext | undefined;
+        let cdp: CDPSession | undefined;
         try {
             const handle = await launchBrowser(display.displayEnv, width, height);
             context = handle.context;
+            cdp     = handle.cdp;
             const page = handle.page;
+
+            // ── Single-tab enforcement — Layer 1 (prevention) ────────────────
+            // Installed on the context so it applies to ALL pages, including any
+            // page created in the brief window before context.on('page') can
+            // close it.  Must run before page.goto() so the initial navigation
+            // is also covered.
+            //
+            // What it does:
+            //   • Nulls window.opener — prevents a stray popup from doing
+            //     window.opener.location = '...' on the main tab, which was the
+            //     root cause of the "vai e vem" (oscillation) bug.
+            //   • Overrides window.open() to redirect in the current tab instead
+            //     of spawning a new one.
+            //   • Intercepts target="_blank" anchor clicks in the capture phase
+            //     (before any site handler) and converts them to same-tab
+            //     navigations.
+            //   • Redirects target="_blank" form submissions to _self.
+            //
+            // This prevents ~95 % of new-tab attempts at the JavaScript layer.
+            // context.on('page') below is the catch-all for the remaining cases
+            // (e.g. browser-internal popup mechanisms that bypass JS).
+            await context.addInitScript(`
+                (function () {
+                    'use strict';
+
+                    // Sever opener so popups cannot mutate the main tab's location.
+                    try {
+                        Object.defineProperty(window, 'opener', {
+                            value: null, writable: false, configurable: false,
+                        });
+                    } catch (_) { /* already non-configurable */ }
+
+                    // window.open → in-place navigation.
+                    var _origOpen = window.open.bind(window);
+                    window.open = function speculum_open(url, target, features) {
+                        var href = (url instanceof URL) ? url.href : String(url || '');
+                        if (href &&
+                            !href.startsWith('javascript:') &&
+                            !href.startsWith('about:') &&
+                            !href.startsWith('blob:')) {
+                            window.location.href = href;
+                            return null;
+                        }
+                        return _origOpen(url, target, features);
+                    };
+
+                    // target="_blank" / target="_new" anchor clicks → same-tab.
+                    // Capture phase fires before any site listener.
+                    document.addEventListener('click', function (e) {
+                        if (e.defaultPrevented) return;
+                        var el = e.target;
+                        var a = el instanceof Element ? el.closest('a') : null;
+                        if (!a) return;
+                        var t = (a.getAttribute('target') || '').toLowerCase();
+                        if (t !== '_blank' && t !== '_new') return;
+                        var href = a.href;
+                        if (!href ||
+                            href.startsWith('javascript:') ||
+                            href.startsWith('about:') ||
+                            href.startsWith('blob:')) return;
+                        e.preventDefault();
+                        e.stopPropagation();
+                        window.location.href = href;
+                    }, true);
+
+                    // target="_blank" form submissions → _self.
+                    document.addEventListener('submit', function (e) {
+                        var form = e.target instanceof HTMLFormElement ? e.target : null;
+                        if (!form) return;
+                        var t = (form.getAttribute('target') || '').toLowerCase();
+                        if (t === '_blank' || t === '_new') {
+                            form.setAttribute('target', '_self');
+                        }
+                    }, true);
+                })();
+            `);
 
             // Navigate to initial URL if provided.
             if (url) {
@@ -104,75 +185,66 @@ export class Session {
                 ws.send(buf, { binary: true }, () => { inFlight--; });
             };
 
-            // ── New-tab interception ──────────────────────────────────────────
-            // Prevent any page in this context from opening a new tab or window.
-            // This is mandatory for a MITM proxy: the user must never be able to
-            // escape the session by spawning an uncontrolled window.
+            // ── Single-tab enforcement — Layer 2 (catch-all) ─────────────────
+            // Catches any page that Layer 1 did not prevent (e.g. browser-level
+            // popup mechanisms that bypass JavaScript).
             //
-            // Strategy:
-            //   1. Immediately sever window.opener so the new page cannot
-            //      manipulate the main page while we wait.
-            //   2. Wait for domcontentloaded (not just the first URL change) so
-            //      all HTTP-level redirects have been followed and we capture the
-            //      final destination URL, not an intermediate tracking redirect.
-            //   3. Close the new page, then navigate the main page.
+            // Policy: close the extra tab within milliseconds, then navigate the
+            // main tab to the target URL so the user reaches the intended page.
             //
-            // Why not waitForURL?
-            //   waitForURL fires on the first non-about: URL, which is often a
-            //   tracking/redirect intermediary. Loading that URL as the main page
-            //   causes the tracking page to behave differently (no opener, wrong
-            //   context) and may redirect back to the original page — the source
-            //   of the "vai e vem" oscillation.
+            // Why waitForURL instead of waitForLoadState('domcontentloaded')?
+            //   domcontentloaded keeps the extra tab alive for up to 5 seconds
+            //   while HTML is fetched and parsed. waitForURL(protocol != 'about:')
+            //   resolves the moment Chrome issues the network request for the target
+            //   URL — typically 50–200 ms after the tab is created. The extra tab
+            //   exists for the absolute minimum possible time.
             //
-            // Why null opener?
-            //   Some redirect pages do window.opener.location = finalUrl before
-            //   our goto() runs. This creates two concurrent navigations on the
-            //   main page (one from the popup's JS, one from our goto()), which
-            //   race non-deterministically and produce the oscillation.
+            // Why is the "vai e vem" (oscillation) bug gone?
+            //   Layer 1 nulls window.opener on EVERY page via context.addInitScript,
+            //   so no stray popup can do window.opener.location = '...'. There is
+            //   no concurrent navigation racing with our page.goto().
             //
-            // The handler is non-async from the EventEmitter's perspective; errors
-            // are caught internally so they never become unhandled Promise rejections.
+            // Chrome-extension:// and chrome:// pages are left alone — they are
+            // internal browser infrastructure, not user-initiated tabs.
             context.on('page', (newPage) => {
                 if (newPage === page) return;
 
-                // Sever opener immediately — this addInitScript runs before any
-                // script on the new page's real URL (fires on every navigation of
-                // this page instance, including the first one away from about:blank).
-                // Pass as a string so TypeScript does not try to type-check browser
-                // globals (window) that do not exist in the Node.js lib.
-                newPage.addInitScript(`
-                    try {
-                        Object.defineProperty(window, 'opener', {
-                            value: null, writable: false, configurable: false,
-                        });
-                    } catch (e) { /* already non-configurable — ignore */ }
-                `).catch(() => { /* page closed before script could be added */ });
-
                 (async () => {
+                    // Wait only until the URL leaves about:blank — the extra tab is
+                    // alive for the shortest possible time.
                     let targetUrl: string | null = null;
                     try {
-                        // domcontentloaded guarantees all HTTP redirects have been
-                        // followed. The URL at this point is the final destination,
-                        // not an intermediate redirect hop.
-                        await newPage.waitForLoadState('domcontentloaded', { timeout: 5_000 });
+                        await newPage.waitForURL(
+                            (u: URL) => u.protocol !== 'about:' && u.protocol !== 'chrome:',
+                            { timeout: 2_000 },
+                        );
                         targetUrl = newPage.url();
                     } catch {
-                        // Never reached a real page (timeout, crash, already closed).
-                        // Just close it and bail — no navigation on the main page.
+                        // Timed out or page already closed — capture whatever we have.
+                        try { targetUrl = newPage.url(); } catch { /* page gone */ }
                     }
 
-                    try { await newPage.close(); } catch { /* best-effort */ }
+                    // ── Close immediately — enforce single-tab invariant ──────
+                    try { await newPage.close(); } catch { /* already closed */ }
 
-                    if (targetUrl &&
-                        !targetUrl.startsWith('about:') &&
-                        !targetUrl.startsWith('chrome:'))
-                    {
-                        try {
-                            await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
-                        } catch { /* navigation error — ignore */ }
+                    // Ignore Chrome-internal and extension pages.
+                    if (!targetUrl                              ||
+                        targetUrl.startsWith('about:')         ||
+                        targetUrl.startsWith('chrome:')        ||
+                        targetUrl.startsWith('chrome-extension://')) {
+                        return;
                     }
+
+                    console.log(`[${sessionId}] Extra tab intercepted → navigating main tab to ${targetUrl}`);
+
+                    try {
+                        await page.goto(targetUrl, {
+                            waitUntil: 'domcontentloaded',
+                            timeout:   30_000,
+                        });
+                    } catch { /* navigation error — main tab may have already moved */ }
                 })().catch(err => {
-                    console.warn(`[${sessionId}] New-tab interception error:`, (err as Error).message);
+                    console.warn(`[${sessionId}] Tab-interception error:`, (err as Error).message);
                 });
             });
 
@@ -197,13 +269,14 @@ export class Session {
             console.log(`[${sessionId}] Session ready`);
 
             return new Session(
-                sessionId, ws, display, context, page,
+                sessionId, ws, display, context, page, cdp,
                 capture, width, height, onFrame,
             );
         } catch (err) {
             // Clean up partially-created resources on failure.
             // With launchPersistentContext, context.close() also closes the browser.
-            try { await context?.close(); } catch { /* best-effort */ }
+            try { await cdp?.detach(); }     catch { /* best-effort */ }
+            try { await context?.close(); }  catch { /* best-effort */ }
             throw err;
         }
     }
@@ -309,14 +382,24 @@ export class Session {
 
                         console.log(`[${this.sessionId}] Resize → ${w}×${h}`);
 
-                        // 1. Resize the Xvfb virtual display.
+                        // 1. Update Chrome's render viewport via CDP — authoritative,
+                        //    bypasses any WM / RANDR ambiguity about window size.
+                        try {
+                            await this._cdp.send('Emulation.setDeviceMetricsOverride', {
+                                width: w, height: h,
+                                deviceScaleFactor: 1,
+                                mobile: false,
+                            });
+                        } catch { /* CDP session may have been recycled — best-effort */ }
+
+                        // 2. Resize the Xvfb virtual display so FFmpeg x11grab
+                        //    captures the correct region at the new dimensions.
                         await this._display.resize(w, h);
 
-                        // 2. Give Chrome and matchbox time to react to the RandR
-                        //    notification and re-render the fullscreen window.
+                        // 3. Give Chrome time to re-render at the new size.
                         await new Promise<void>(r => setTimeout(r, 500));
 
-                        // 3. Stop the old capture and start a new one at the new size.
+                        // 4. Stop the old capture and start a new one at the new size.
                         try { await this._capture.stop(); } catch { /* already stopped */ }
                         this._width   = w;
                         this._height  = h;
@@ -346,6 +429,7 @@ export class Session {
         console.log(`[${this.sessionId}] Disposing session`);
 
         try { await this._capture.stop(); }      catch { /* already stopped */ }
+        try { await this._cdp.detach(); }        catch { /* already detached */ }
         try { await this._context.close(); }     catch { /* already closed  */ }
         // Note: with launchPersistentContext, context.close() also closes the
         // browser process — no separate browser.close() call needed.

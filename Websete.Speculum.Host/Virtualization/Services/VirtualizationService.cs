@@ -72,7 +72,7 @@ public sealed class VirtualizationService : IVirtualizationService, IAsyncDispos
         // Map resolved scripts to the DTO expected by SidecarClient.
         // Content is already loaded in memory by ScriptInjectionService at startup.
         var scripts = _scriptInjection.Scripts
-            .Select(s => new ScriptPayload(s.Position, s.Type, s.Content))
+            .Select(s => new ScriptPayload(s.Position, s.Type, s.File, s.Content))
             .ToList();
 
         if (scripts.Count > 0)

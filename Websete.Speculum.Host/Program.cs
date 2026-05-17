@@ -11,7 +11,7 @@ using Websete.Speculum.Host.Virtualization.Ws;
 var builder = WebApplication.CreateBuilder(args);
 
 // ── Configuration snapshot ────────────────────────────────────────────────────
-var speculumConfig = SpeculumConfig.Load(builder.Configuration);
+var speculumConfig = SpeculumConfig.Load(builder.Configuration, builder.Environment.WebRootPath);
 builder.Services.AddSingleton(speculumConfig);
 
 // ── Certificates (fail-fast: every profile must have a cert) ──────────────────

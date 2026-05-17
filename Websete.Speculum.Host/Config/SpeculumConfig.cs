@@ -137,13 +137,19 @@ public sealed class SpeculumConfig
     /// igual ao fluxo montado por <c>WebApplication.CreateBuilder(args)</c> em <c>Program.cs</c>.
     /// Retorna um snapshot imutável (coleções e texto não são mutáveis pelo consumidor).
     /// </summary>
-    public static SpeculumConfig Load(IConfiguration configuration)
+    /// <param name="configuration">The merged configuration (appsettings + environment).</param>
+    /// <param name="webRootPath">
+    ///   Absolute path to <c>wwwroot</c>. When supplied, every <c>ScriptInjection[*].File</c>
+    ///   entry is resolved against this root and validated to exist on disk.
+    ///   Pass <see langword="null"/> only in unit tests that do not touch the file system.
+    /// </param>
+    public static SpeculumConfig Load(IConfiguration configuration, string? webRootPath = null)
     {
         ArgumentNullException.ThrowIfNull(configuration);
 
         var binding = new SpeculumConfigBindingModel();
         configuration.Bind(binding);
-        SpeculumConfigValidator.Validate(binding);
+        SpeculumConfigValidator.Validate(binding, webRootPath);
         return Freeze(binding);
     }
 
@@ -192,7 +198,7 @@ internal static class SpeculumConfigValidator
 
     private static ReadOnlySpan<char> PathSeparatorsAndSlashes => "/\\";
 
-    internal static void Validate(SpeculumConfigBindingModel config)
+    internal static void Validate(SpeculumConfigBindingModel config, string? webRootPath = null)
     {
         ArgumentNullException.ThrowIfNull(config);
 
@@ -202,7 +208,7 @@ internal static class SpeculumConfigValidator
         ValidateHttpAddress(config.HttpAddress, b);
         ValidateMaxSessions(config.MaxSessions, b);
         ValidateForwardingProfiles(config.ForwardingProfiles, b);
-        ValidateScriptInjection(config.ScriptInjection, b);
+        ValidateScriptInjection(config.ScriptInjection, b, webRootPath);
 
         b.ThrowIfInvalid();
     }
@@ -343,7 +349,10 @@ internal static class SpeculumConfigValidator
 
     private const int MaxScriptFileSizeBytes = 5 * 1024 * 1024; // 5 MB
 
-    private static void ValidateScriptInjection(ScriptInjectionBinding[]? entries, ValidationResultBuilder b)
+    private static void ValidateScriptInjection(
+        ScriptInjectionBinding[]? entries,
+        ValidationResultBuilder   b,
+        string?                   webRootPath)
     {
         if (entries is null or { Length: 0 }) return; // ScriptInjection is optional
 
@@ -368,23 +377,46 @@ internal static class SpeculumConfigValidator
                 b.WithError(prefix + ".Type",
                     $"Invalid value '{entry.Type}'. Valid values: {string.Join(", ", ValidTypes)}");
 
-            // File — must be a root-relative URL path to a .js file; no traversal
+            // File — format first, then disk existence
             if (string.IsNullOrWhiteSpace(entry.File))
             {
                 b.WithError(prefix + ".File", "File is empty");
             }
             else
             {
-                var f = entry.File.Trim();
+                var f          = entry.File.Trim();
+                var formatOk   = true;
 
                 if (!f.StartsWith('/'))
+                {
                     b.WithError(prefix + ".File", "File must be a root-relative path starting with '/'");
+                    formatOk = false;
+                }
 
                 if (f.Contains("..") || f.Contains('\\'))
+                {
                     b.WithError(prefix + ".File", "File must not contain '..' or backslashes");
+                    formatOk = false;
+                }
 
                 if (!f.EndsWith(".js", StringComparison.OrdinalIgnoreCase))
+                {
                     b.WithError(prefix + ".File", "File must have a .js extension");
+                    formatOk = false;
+                }
+
+                // Disk existence — only checked when the path format is valid and
+                // webRootPath is known (null only in tests).
+                if (formatOk && webRootPath != null)
+                {
+                    var physical = Path.Combine(
+                        webRootPath,
+                        f.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+
+                    if (!File.Exists(physical))
+                        b.WithError(prefix + ".File",
+                            $"File not found: '{f}' (resolved to '{physical}')");
+                }
             }
         }
     }

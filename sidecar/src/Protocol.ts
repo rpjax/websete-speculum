@@ -198,11 +198,17 @@ export type InputEvent =
  * Received from .NET as part of the "create" handshake payload.
  */
 export type ScriptEntry = {
-    /** Controls execution timing via addInitScript wrapping. */
+    /** Controls when the <script> element is appended to the DOM. */
     position: 'HeaderTop' | 'HeaderBottom' | 'BodyTop' | 'BodyBottom';
-    /** Classic = synchronous script; Module = ESM (wrapped in async IIFE). */
+    /** Classic = no type attribute; Module = type="module". */
     type:     'Classic' | 'Module';
-    /** Literal JavaScript source to inject. */
+    /**
+     * The wwwroot-relative URL path used as the script's src attribute
+     * (e.g. "/libs/qrcode.js"). The sidecar serves this path from memory
+     * when the virtual browser requests it from the current page's origin.
+     */
+    file:     string;
+    /** Literal JavaScript source (read from disk by .NET at startup). */
     content:  string;
 };
 

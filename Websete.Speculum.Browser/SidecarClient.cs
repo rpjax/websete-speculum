@@ -10,11 +10,15 @@ namespace Websete.Speculum.Browser;
 /// </summary>
 /// <param name="Position">
 /// Injection position: <c>HeaderTop</c>, <c>HeaderBottom</c>, <c>BodyTop</c>, or <c>BodyBottom</c>.
-/// Controls execution timing via <c>addInitScript</c> wrapping in the sidecar.
 /// </param>
-/// <param name="Type">Script type: <c>Classic</c> or <c>Module</c>.</param>
-/// <param name="Content">Literal JavaScript source to inject.</param>
-public sealed record ScriptPayload(string Position, string Type, string Content);
+/// <param name="Type">Script type: <c>Classic</c> (no type attr) or <c>Module</c> (type="module").</param>
+/// <param name="File">
+/// The wwwroot-relative URL path used as the <c>src</c> attribute of the injected
+/// <c>&lt;script&gt;</c> element (e.g. <c>/libs/qrcode.js</c>). The sidecar intercepts
+/// same-origin requests for this path and serves the content from memory.
+/// </param>
+/// <param name="Content">Literal JavaScript source (read from disk by .NET at startup).</param>
+public sealed record ScriptPayload(string Position, string Type, string File, string Content);
 
 /// <summary>
 /// Manages the WebSocket connection from the .NET app to the Node.js sidecar
@@ -92,7 +96,7 @@ public sealed class SidecarClient : IAsyncDisposable
         // ScriptInjection entry. The sidecar installs them via context.addInitScript()
         // so they run on every navigation for the lifetime of the session.
         var scriptDtos = (scripts ?? [])
-            .Select(s => new { position = s.Position, type = s.Type, content = s.Content })
+            .Select(s => new { position = s.Position, type = s.Type, file = s.File, content = s.Content })
             .ToArray();
 
         var createBytes = JsonSerializer.SerializeToUtf8Bytes(new

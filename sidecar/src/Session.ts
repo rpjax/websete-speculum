@@ -25,39 +25,6 @@ const POSITION_ORDER: Record<string, number> = {
     BodyBottom:   3,
 };
 
-/**
- * Wraps a script's content with the appropriate execution-timing adapter
- * based on its declared Position:
- *
- *   HeaderTop / HeaderBottom — bare content, runs immediately when the
- *     document starts (before any page scripts, via addInitScript).
- *
- *   BodyTop  — deferred to DOMContentLoaded (DOM built, resources pending).
- *
- *   BodyBottom — deferred to window.load (page fully loaded, all resources).
- *
- * Module scripts are further wrapped in an async IIFE so top-level `await`
- * and ESM semantics are available without requiring a real <script type=module>.
- */
-function wrapScript(entry: ScriptEntry): string {
-    let body = entry.content;
-
-    // Module: provide async context and isolate scope.
-    if (entry.type === 'Module') {
-        body = `(async () => {\n${body}\n})();`;
-    }
-
-    switch (entry.position) {
-        case 'BodyTop':
-            return `document.addEventListener('DOMContentLoaded', function () {\n${body}\n});`;
-        case 'BodyBottom':
-            return `window.addEventListener('load', function () {\n${body}\n});`;
-        default:
-            // HeaderTop / HeaderBottom: execute immediately at document start.
-            return body;
-    }
-}
-
 /** Maps DOM MouseEvent.button (0=left,1=middle,2=right) → Playwright button name. */
 function domButton(b: number): 'left' | 'middle' | 'right' {
     if (b === 1) return 'middle';
@@ -225,19 +192,36 @@ export class Session {
                 })();
             `);
 
-            // ── Script injection ──────────────────────────────────────────────
-            // Installed on the context (not per-page) so scripts run on every
-            // navigation for the full lifetime of the session.
+            // ── Script injection via <script src> + request interception ─────
             //
-            // Scripts are sorted by Position order (HeaderTop → HeaderBottom →
-            // BodyTop → BodyBottom) so addInitScript registration respects the
-            // intended precedence. Within the same Position, declaration order
-            // from appsettings is preserved.
+            // Why <script src> instead of addInitScript inline / CDP evaluate?
+            //   Playwright/Patchright executes addInitScript code in an isolated
+            //   utility world (__playwright_utility_world__). Variables assigned
+            //   there (e.g. window.myLib = ...) are NOT visible to main-world
+            //   page scripts, and console.* calls are not captured by our CDP
+            //   session's Runtime.consoleAPICalled handler.
             //
-            // Each script is wrapped by wrapScript() to enforce timing:
-            //   Header* → bare content (runs immediately at document start)
-            //   BodyTop → DOMContentLoaded listener
-            //   BodyBottom → window.load listener
+            //   A <script src="..."> element, even when created by isolated-world
+            //   code, always executes in the main world. So:
+            //     • window assignments are visible to page scripts ✓
+            //     • console.log is captured by our Runtime.consoleAPICalled ✓
+            //
+            // Request interception (context.route):
+            //   A URL predicate intercepts requests where:
+            //     1. the request hostname matches the current page hostname, AND
+            //     2. the request pathname is one of our configured script paths.
+            //   Matching requests are fulfilled from the in-memory content map.
+            //   All other requests pass through unchanged.
+            //   The hostname check uses page.url() at request time — handles
+            //   navigation across sites correctly.
+            //
+            // DOM injection (addInitScript):
+            //   A single addInitScript creates <script src> elements at the right
+            //   moment according to Position:
+            //     HeaderTop / HeaderBottom → appended to <head> at document start
+            //     BodyTop                 → prepended to <body> at DOMContentLoaded
+            //     BodyBottom              → appended to <body> at window.load
+            //   Classic scripts get no type attribute; Module scripts get type="module".
             if (scripts.length > 0) {
                 const sorted = [...scripts].sort(
                     (a, b) =>
@@ -245,13 +229,79 @@ export class Session {
                         (POSITION_ORDER[b.position] ?? 99),
                 );
 
-                for (const script of sorted) {
-                    await context.addInitScript(wrapScript(script));
+                // ── In-memory content map ─────────────────────────────────────
+                const staticFiles = new Map<string, Buffer>();
+                for (const s of sorted) {
+                    staticFiles.set(s.file, Buffer.from(s.content, 'utf8'));
                 }
 
+                // ── Route interceptor ─────────────────────────────────────────
+                // Predicate is evaluated for every request. Only matching requests
+                // reach the handler; the rest are let through without overhead.
+                await context.route(
+                    (url: URL) => {
+                        try {
+                            const pageHref = page.url();
+                            if (!pageHref.startsWith('http')) return false;
+                            return url.hostname === new URL(pageHref).hostname
+                                && staticFiles.has(url.pathname);
+                        } catch {
+                            return false;
+                        }
+                    },
+                    async (route) => {
+                        const content = staticFiles.get(
+                            new URL(route.request().url()).pathname,
+                        )!;
+                        await route.fulfill({
+                            status:      200,
+                            contentType: 'application/javascript; charset=utf-8',
+                            body:        content,
+                        });
+                    },
+                );
+
+                // ── DOM injection init script ─────────────────────────────────
+                // Runs in the isolated utility world, but DOM elements it creates
+                // execute in the main world — that is the whole point.
+                const toSpec = (arr: ScriptEntry[]): string =>
+                    JSON.stringify(arr.map(s => ({ src: s.file, mod: s.type === 'Module' })));
+
+                const headScripts     = sorted.filter(s => s.position === 'HeaderTop' || s.position === 'HeaderBottom');
+                const domreadyScripts = sorted.filter(s => s.position === 'BodyTop');
+                const loadedScripts   = sorted.filter(s => s.position === 'BodyBottom');
+
+                const lines: string[] = ['(function () {'];
+                lines.push('    function mk(s) {');
+                lines.push('        var el = document.createElement(\'script\');');
+                lines.push('        el.src = s.src;');
+                lines.push('        if (s.mod) el.type = \'module\';');
+                lines.push('        return el;');
+                lines.push('    }');
+
+                if (headScripts.length > 0) {
+                    lines.push(`    var head = document.head || document.documentElement;`);
+                    lines.push(`    ${toSpec(headScripts)}.forEach(function(s) { head.appendChild(mk(s)); });`);
+                }
+                if (domreadyScripts.length > 0) {
+                    lines.push(`    document.addEventListener('DOMContentLoaded', function() {`);
+                    lines.push(`        var b = document.body || document.documentElement;`);
+                    lines.push(`        ${toSpec(domreadyScripts)}.forEach(function(s) { b.insertBefore(mk(s), b.firstChild); });`);
+                    lines.push(`    });`);
+                }
+                if (loadedScripts.length > 0) {
+                    lines.push(`    window.addEventListener('load', function() {`);
+                    lines.push(`        var b = document.body || document.documentElement;`);
+                    lines.push(`        ${toSpec(loadedScripts)}.forEach(function(s) { b.appendChild(mk(s)); });`);
+                    lines.push(`    });`);
+                }
+                lines.push('})();');
+
+                await context.addInitScript(lines.join('\n'));
+
                 console.log(
-                    `[${sessionId}] Injected ${scripts.length} script(s): ` +
-                    sorted.map(s => `${s.position}/${s.type}`).join(', '),
+                    `[${sessionId}] Script injection ready (${scripts.length} script(s)): ` +
+                    sorted.map(s => `${s.position}:${s.file}`).join(', '),
                 );
             }
 

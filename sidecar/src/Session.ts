@@ -12,11 +12,11 @@ import {
     ScriptEntry,
 } from './Protocol';
 
-// ── Script injection helpers ───────────────────────────────────────────────────
+// ── Constants ─────────────────────────────────────────────────────────────────
 
 /**
- * Maps Position to a numeric sort key so scripts are registered in the
- * correct order when multiple entries are declared.
+ * Maps ScriptEntry.position to a numeric sort key so scripts are injected
+ * in the correct DOM order when multiple entries are declared.
  */
 const POSITION_ORDER: Record<string, number> = {
     HeaderTop:    0,
@@ -24,6 +24,9 @@ const POSITION_ORDER: Record<string, number> = {
     BodyTop:      2,
     BodyBottom:   3,
 };
+
+/** Maps Log.entryAdded severity strings to wire-level level bytes (same as CONSOLE_LEVELS). */
+const LOG_LEVEL: Record<string, number> = { verbose: 0, info: 3, warning: 1, error: 2 };
 
 /** Maps DOM MouseEvent.button (0=left,1=middle,2=right) → Playwright button name. */
 function domButton(b: number): 'left' | 'middle' | 'right' {
@@ -192,36 +195,42 @@ export class Session {
                 })();
             `);
 
-            // ── Script injection via <script src> + request interception ─────
+            // ── Script injection via HTML response rewriting ──────────────
             //
-            // Why <script src> instead of addInitScript inline / CDP evaluate?
-            //   Playwright/Patchright executes addInitScript code in an isolated
-            //   utility world (__playwright_utility_world__). Variables assigned
-            //   there (e.g. window.myLib = ...) are NOT visible to main-world
-            //   page scripts, and console.* calls are not captured by our CDP
-            //   session's Runtime.consoleAPICalled handler.
+            // Strategy:
+            //   1. context.route intercepts the main-frame HTML response before
+            //      Chrome parses it.  We parse the HTML (regex) and insert
+            //      <script src="..."> tags at the configured position.
+            //      The browser then fetches those src URLs as ordinary requests.
             //
-            //   A <script src="..."> element, even when created by isolated-world
-            //   code, always executes in the main world. So:
-            //     • window assignments are visible to page scripts ✓
-            //     • console.log is captured by our Runtime.consoleAPICalled ✓
+            //   2. The same route handler intercepts those script fetch requests
+            //      and serves the content from memory — the request never leaves
+            //      the container.
             //
-            // Request interception (context.route):
-            //   A URL predicate intercepts requests where:
-            //     1. the request hostname matches the current page hostname, AND
-            //     2. the request pathname is one of our configured script paths.
-            //   Matching requests are fulfilled from the in-memory content map.
-            //   All other requests pass through unchanged.
-            //   The hostname check uses page.url() at request time — handles
-            //   navigation across sites correctly.
+            // Why this approach instead of addInitScript / CDP injection?
+            //   • addInitScript runs in Playwright's utility world — globals set
+            //     there are invisible to page scripts in the main world.
+            //   • CDP Page.addScriptToEvaluateOnNewDocument injects into the main
+            //     world, but the script content is executed as an opaque eval
+            //     string; source maps, ES-module semantics, and the script's own
+            //     self-referential paths all break.
+            //   • HTML rewriting is transparent to Chrome: it sees a real
+            //     <script src> tag in the response HTML and handles everything
+            //     natively — execution in the main world, correct module semantics,
+            //     devtools source visibility, etc.
             //
-            // DOM injection (addInitScript):
-            //   A single addInitScript creates <script src> elements at the right
-            //   moment according to Position:
-            //     HeaderTop / HeaderBottom → appended to <head> at document start
-            //     BodyTop                 → prepended to <body> at DOMContentLoaded
-            //     BodyBottom              → appended to <body> at window.load
-            //   Classic scripts get no type attribute; Module scripts get type="module".
+            // CSP handling:
+            //   Our injected <script> tags would be blocked by a strict CSP that
+            //   does not whitelist our src paths.  We strip both the HTTP header
+            //   and any <meta> equivalent from the HTML so that CSP is absent
+            //   entirely.  Page.setBypassCSP(CDP) covers any remaining edge cases
+            //   (e.g. workers that inherit CSP from the parent page).
+            //
+            // Position semantics:
+            //   HeaderTop    → immediately after <head>  (or <html> if no <head>)
+            //   HeaderBottom → immediately before </head>
+            //   BodyTop      → immediately after <body>
+            //   BodyBottom   → immediately before </body>
             if (scripts.length > 0) {
                 const sorted = [...scripts].sort(
                     (a, b) =>
@@ -229,75 +238,149 @@ export class Session {
                         (POSITION_ORDER[b.position] ?? 99),
                 );
 
-                // ── In-memory content map ─────────────────────────────────────
-                const staticFiles = new Map<string, Buffer>();
-                for (const s of sorted) {
-                    staticFiles.set(s.file, Buffer.from(s.content, 'utf8'));
-                }
+                // In-memory map: pathname → JS source for serving script fetches.
+                const staticFiles = new Map<string, string>();
+                for (const s of sorted) staticFiles.set(s.file, s.content);
 
-                // ── Route interceptor ─────────────────────────────────────────
-                // Predicate is evaluated for every request. Only matching requests
-                // reach the handler; the rest are let through without overhead.
-                await context.route(
-                    (url: URL) => {
-                        try {
-                            const pageHref = page.url();
-                            if (!pageHref.startsWith('http')) return false;
-                            return url.hostname === new URL(pageHref).hostname
-                                && staticFiles.has(url.pathname);
-                        } catch {
-                            return false;
+                // Pre-built HTML tag strings, grouped by position.
+                const tagsAt = (pos: string): string =>
+                    sorted
+                        .filter(s => s.position === pos)
+                        .map(s => s.type === 'Module'
+                            ? `<script type="module" src="${s.file}"></script>`
+                            : `<script src="${s.file}"></script>`)
+                        .join('\n');
+
+                const headTopTags    = tagsAt('HeaderTop');
+                const headBottomTags = tagsAt('HeaderBottom');
+                const bodyTopTags    = tagsAt('BodyTop');
+                const bodyBottomTags = tagsAt('BodyBottom');
+
+                // Belt-and-suspenders: also disables CSP for workers / dynamic imports.
+                try { await cdp.send('Page.setBypassCSP', { enabled: true }); } catch { /* best-effort */ }
+
+                await context.route('**', async (route) => {
+                    try {
+                        const request    = route.request();
+                        const requestUrl = new URL(request.url());
+
+                        // ── Serve injected scripts from memory ─────────────────
+                        // Only serve when the request originates from the same host
+                        // as the current page (Referer header set by Chrome).
+                        if (staticFiles.has(requestUrl.pathname)) {
+                            const referer = request.headers()['referer'] ?? '';
+                            const refHost = referer.startsWith('http')
+                                ? new URL(referer).hostname : '';
+                            if (refHost && requestUrl.hostname === refHost) {
+                                const content = staticFiles.get(requestUrl.pathname)!;
+                                console.log(
+                                    `[${sessionId}] Serving ${requestUrl.pathname}` +
+                                    ` (${content.length} B)`,
+                                );
+                                await route.fulfill({
+                                    status:      200,
+                                    contentType: 'application/javascript; charset=utf-8',
+                                    body:        content,
+                                });
+                                return;
+                            }
                         }
-                    },
-                    async (route) => {
-                        const content = staticFiles.get(
-                            new URL(route.request().url()).pathname,
-                        )!;
-                        await route.fulfill({
-                            status:      200,
-                            contentType: 'application/javascript; charset=utf-8',
-                            body:        content,
-                        });
-                    },
-                );
 
-                // ── DOM injection init script ─────────────────────────────────
-                // Runs in the isolated utility world, but DOM elements it creates
-                // execute in the main world — that is the whole point.
-                const toSpec = (arr: ScriptEntry[]): string =>
-                    JSON.stringify(arr.map(s => ({ src: s.file, mod: s.type === 'Module' })));
+                        // ── Rewrite main-frame HTML to inject <script src> tags ─
+                        if (request.resourceType() === 'document' &&
+                            request.frame() === page.mainFrame()) {
 
-                const headScripts     = sorted.filter(s => s.position === 'HeaderTop' || s.position === 'HeaderBottom');
-                const domreadyScripts = sorted.filter(s => s.position === 'BodyTop');
-                const loadedScripts   = sorted.filter(s => s.position === 'BodyBottom');
+                            let response;
+                            try {
+                                response = await route.fetch();
+                            } catch (fetchErr) {
+                                console.warn(
+                                    `[${sessionId}] fetch failed:`,
+                                    (fetchErr as Error).message,
+                                );
+                                await route.continue();
+                                return;
+                            }
 
-                const lines: string[] = ['(function () {'];
-                lines.push('    function mk(s) {');
-                lines.push('        var el = document.createElement(\'script\');');
-                lines.push('        el.src = s.src;');
-                lines.push('        if (s.mod) el.type = \'module\';');
-                lines.push('        return el;');
-                lines.push('    }');
+                            const ct = (response.headers()['content-type'] ?? '').toLowerCase();
+                            if (!ct.includes('text/html')) {
+                                await route.fulfill({ response });
+                                return;
+                            }
 
-                if (headScripts.length > 0) {
-                    lines.push(`    var head = document.head || document.documentElement;`);
-                    lines.push(`    ${toSpec(headScripts)}.forEach(function(s) { head.appendChild(mk(s)); });`);
-                }
-                if (domreadyScripts.length > 0) {
-                    lines.push(`    document.addEventListener('DOMContentLoaded', function() {`);
-                    lines.push(`        var b = document.body || document.documentElement;`);
-                    lines.push(`        ${toSpec(domreadyScripts)}.forEach(function(s) { b.insertBefore(mk(s), b.firstChild); });`);
-                    lines.push(`    });`);
-                }
-                if (loadedScripts.length > 0) {
-                    lines.push(`    window.addEventListener('load', function() {`);
-                    lines.push(`        var b = document.body || document.documentElement;`);
-                    lines.push(`        ${toSpec(loadedScripts)}.forEach(function(s) { b.appendChild(mk(s)); });`);
-                    lines.push(`    });`);
-                }
-                lines.push('})();');
+                            let html = await response.text();
 
-                await context.addInitScript(lines.join('\n'));
+                            // HeaderTop — right after <head> (fallback: after <html>)
+                            if (headTopTags) {
+                                if (/<head(\s[^>]*)?>/i.test(html))
+                                    html = html.replace(/<head(\s[^>]*)?>/i, `<head$1>\n${headTopTags}`);
+                                else if (/<html(\s[^>]*)?>/i.test(html))
+                                    html = html.replace(/<html(\s[^>]*)?>/i, `<html$1>\n${headTopTags}`);
+                                else
+                                    html = headTopTags + '\n' + html;
+                            }
+
+                            // HeaderBottom — right before </head> (fallback: before <body>)
+                            if (headBottomTags) {
+                                if (/<\/head>/i.test(html))
+                                    html = html.replace(/<\/head>/i, `${headBottomTags}\n</head>`);
+                                else
+                                    html = html.replace(/<body(\s[^>]*)?>/i, `${headBottomTags}\n<body$1>`);
+                            }
+
+                            // BodyTop — right after <body> (fallback: after </head>)
+                            if (bodyTopTags) {
+                                if (/<body(\s[^>]*)?>/i.test(html))
+                                    html = html.replace(/<body(\s[^>]*)?>/i, `<body$1>\n${bodyTopTags}`);
+                                else
+                                    html = html.replace(/<\/head>/i, `</head>\n${bodyTopTags}`);
+                            }
+
+                            // BodyBottom — right before </body> (fallback: append)
+                            if (bodyBottomTags) {
+                                if (/<\/body>/i.test(html))
+                                    html = html.replace(/<\/body>/i, `${bodyBottomTags}\n</body>`);
+                                else
+                                    html += '\n' + bodyBottomTags;
+                            }
+
+                            // Strip CSP from HTTP headers.
+                            const headers: Record<string, string> = {};
+                            for (const [k, v] of Object.entries(response.headers())) {
+                                const kl = k.toLowerCase();
+                                if (kl === 'content-security-policy'             ||
+                                    kl === 'content-security-policy-report-only' ||
+                                    kl === 'content-length') continue;
+                                headers[k] = v;
+                            }
+
+                            // Strip CSP from <meta http-equiv> tags in the HTML.
+                            html = html.replace(
+                                /<meta[^>]*http-equiv=["']?content-security-policy["']?[^>]*\/?>/gi,
+                                '',
+                            );
+
+                            console.log(
+                                `[${sessionId}] HTML rewritten: ` +
+                                requestUrl.href.slice(0, 100),
+                            );
+                            await route.fulfill({
+                                status:  response.status(),
+                                headers,
+                                body:    html,
+                            });
+                            return;
+                        }
+
+                        await route.continue();
+                    } catch (err) {
+                        console.error(
+                            `[${sessionId}] Route error:`,
+                            (err as Error).message,
+                        );
+                        try { await route.continue(); } catch { /* WS gone */ }
+                    }
+                });
 
                 console.log(
                     `[${sessionId}] Script injection ready (${scripts.length} script(s)): ` +
@@ -351,10 +434,8 @@ export class Session {
 
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 cdp.on('Log.entryAdded', (event: any) => {
-                    const entry  = event.entry as { level: string; text: string };
-                    const lvlMap: Record<string, number> =
-                        { verbose: 0, info: 3, warning: 1, error: 2 };
-                    sendConsole(lvlMap[entry.level] ?? 0, entry.text);
+                    const entry = event.entry as { level: string; text: string };
+                    sendConsole(LOG_LEVEL[entry.level] ?? 0, entry.text);
                 });
 
                 console.log(`[${sessionId}] JsBridge console forwarding active`);
@@ -374,27 +455,11 @@ export class Session {
                 ws.send(encodeUrlUpdate(currentUrl), { binary: true });
             });
 
-            // Navigate to initial URL if provided.
-            if (url) {
-                await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 });
-            }
-
-            // ── Frame relay with in-flight dropping ───────────────────────────
-            // Allow at most MAX_IN_FLIGHT frames queued in the WS send buffer at
-            // once. If the .NET relay or the network is slow, inFlight hits the
-            // cap and new frames are dropped rather than accumulating in memory.
-            const MAX_IN_FLIGHT = 3;
-            let   inFlight      = 0;
-
-            // Build the frame callback once so resize can reuse it.
-            const onFrame = (buf: Buffer): void => {
-                if (ws.readyState !== ws.OPEN) return;
-                if (inFlight >= MAX_IN_FLIGHT)   return; // network backed up — drop
-                inFlight++;
-                ws.send(buf, { binary: true }, () => { inFlight--; });
-            };
-
             // ── Single-tab enforcement — Layer 2 (catch-all) ─────────────────
+            // Registered BEFORE page.goto() so popups opened by page scripts
+            // during the initial load are caught — not just popups triggered
+            // by later user interaction.
+            //
             // Catches any page that Layer 1 did not prevent (e.g. browser-level
             // popup mechanisms that bypass JavaScript).
             //
@@ -456,6 +521,26 @@ export class Session {
                     console.warn(`[${sessionId}] Tab-interception error:`, (err as Error).message);
                 });
             });
+
+            // Navigate to initial URL if provided.
+            if (url) {
+                await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+            }
+
+            // ── Frame relay with in-flight dropping ───────────────────────────
+            // Allow at most MAX_IN_FLIGHT frames queued in the WS send buffer at
+            // once. If the .NET relay or the network is slow, inFlight hits the
+            // cap and new frames are dropped rather than accumulating in memory.
+            const MAX_IN_FLIGHT = 3;
+            let   inFlight      = 0;
+
+            // Build the frame callback once so resize can reuse it.
+            const onFrame = (buf: Buffer): void => {
+                if (ws.readyState !== ws.OPEN) return;
+                if (inFlight >= MAX_IN_FLIGHT)   return; // network backed up — drop
+                inFlight++;
+                ws.send(buf, { binary: true }, () => { inFlight--; });
+            };
 
             // FFmpegCapture reads the Xvfb framebuffer via XShm (zero-copy) and
             // JPEG-encodes at ~2 ms/frame — far faster than CDP captureScreenshot.
@@ -554,20 +639,20 @@ export class Session {
                     break;
 
                 // ── JsBridge — evaluate JS in the virtual browser ────────────
-                // Runs arbitrary code in the page context and returns the result
-                // serialised as JSON. Console output produced by the code is
-                // captured by the 'console' event handler above and forwarded
-                // as MSG_CONSOLE frames independently.
+                // Runs arbitrary code in the page's main execution context and
+                // returns the result serialised as JSON. Console output produced
+                // during the evaluation is captured independently by the
+                // cdp.on('Runtime.consoleAPICalled') handler above and forwarded
+                // as MSG_CONSOLE frames — the two channels are fully decoupled.
                 //
-                // ⚠ We use this._cdp.send('Runtime.evaluate') directly instead
-                //   of page.evaluate(). page.evaluate() runs in an isolated
-                //   *utility context* (not the main frame context). Playwright
-                //   filters Runtime.consoleAPICalled by executionContextId and
-                //   only emits the 'console' event for the *main* context —
-                //   so console calls from page.evaluate() are silently dropped.
-                //   Calling Runtime.evaluate without contextId defaults to the
-                //   page's main execution context, where console events flow
-                //   through page.on('console') correctly.
+                // ⚠ We send Runtime.evaluate directly on our CDPSession instead
+                //   of page.evaluate(). page.evaluate() uses Playwright's internal
+                //   isolated utility world — console.* calls from that world are
+                //   routed back only to Playwright's own internal session, not to
+                //   ours, so they would be silently dropped from the JsBridge.
+                //   Omitting contextId in Runtime.evaluate defaults to the page's
+                //   main execution context, whose Runtime.consoleAPICalled events
+                //   ARE delivered to our CDPSession (which has Runtime.enable active).
                 case 'evaljs': {
                     if (!this._jsBridgeEnabled) break;
 

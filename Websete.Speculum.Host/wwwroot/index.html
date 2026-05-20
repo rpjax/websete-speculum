@@ -382,12 +382,21 @@ async function handleFrame(buffer) {
     if (pending) {
       clearTimeout(pending.timer);
       _evalPending.delete(id);
+      const VSTYLE = 'color:#ff9800;font-weight:bold;font-family:monospace';
       if (ok) {
         // Empty value = undefined result (e.g. console.log return value).
+        // Those cases already produce a [VCON] line via MSG_CONSOLE, so we
+        // stay silent here to avoid a redundant line.
         if (value === '') { pending.resolve(undefined); return; }
-        try   { pending.resolve(JSON.parse(value)); }
-        catch { pending.resolve(value); } // not JSON — return as string
+        let parsed;
+        try   { parsed = JSON.parse(value); }
+        catch { parsed = value; } // not JSON — return as string
+        // Log with [VCON] ← so the operator can tell at a glance that this
+        // value came from the virtual browser, not the local page.
+        console.log('%c[VCON] ←%c', VSTYLE, 'color:inherit', parsed);
+        pending.resolve(parsed);
       } else {
+        console.error('%c[VCON] ←%c Error: ' + value, VSTYLE, 'color:inherit');
         pending.reject(new Error(value));
       }
     }

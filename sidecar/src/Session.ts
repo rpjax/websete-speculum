@@ -195,42 +195,41 @@ export class Session {
                 })();
             `);
 
-            // ── Script injection via HTML response rewriting ──────────────
+            // ── Script injection via CDP Page.addScriptToEvaluateOnNewDocument ──
             //
-            // Strategy:
-            //   1. context.route intercepts the main-frame HTML response before
-            //      Chrome parses it.  We parse the HTML (regex) and insert
-            //      <script src="..."> tags at the configured position.
-            //      The browser then fetches those src URLs as ordinary requests.
+            // Why this instead of context.route / route.fetch?
             //
-            //   2. The same route handler intercepts those script fetch requests
-            //      and serves the content from memory — the request never leaves
-            //      the container.
+            //   route.fetch() makes a real HTTP request from Node.js — it uses
+            //   Node.js's TLS stack, which has a completely different JA3/JA4
+            //   fingerprint than Chrome's BoringSSL. Cloudflare and similar
+            //   systems compare the TLS fingerprint of the TCP handshake against
+            //   the declared User-Agent; a Node.js JA3 with a Chrome UA is an
+            //   instant 403. Even having context.route() active (without fetch)
+            //   enables CDP Fetch domain interception, which some fingerprinters
+            //   detect via timing or internal Chrome property differences.
             //
-            // Why this approach instead of addInitScript / CDP injection?
-            //   • addInitScript runs in Playwright's utility world — globals set
-            //     there are invisible to page scripts in the main world.
-            //   • CDP Page.addScriptToEvaluateOnNewDocument injects into the main
-            //     world, but the script content is executed as an opaque eval
-            //     string; source maps, ES-module semantics, and the script's own
-            //     self-referential paths all break.
-            //   • HTML rewriting is transparent to Chrome: it sees a real
-            //     <script src> tag in the response HTML and handles everything
-            //     natively — execution in the main world, correct module semantics,
-            //     devtools source visibility, etc.
+            // Why this instead of context.addInitScript?
             //
-            // CSP handling:
-            //   Our injected <script> tags would be blocked by a strict CSP that
-            //   does not whitelist our src paths.  We strip both the HTTP header
-            //   and any <meta> equivalent from the HTML so that CSP is absent
-            //   entirely.  Page.setBypassCSP(CDP) covers any remaining edge cases
-            //   (e.g. workers that inherit CSP from the parent page).
+            //   Playwright/Patchright executes addInitScript in the isolated
+            //   utility world (__playwright_utility_world__), a separate V8
+            //   context. Globals set there — window.myLib, prototype patches,
+            //   window.open overrides — are invisible to page scripts in the
+            //   main world. The injection would silently do nothing.
             //
-            // Position semantics:
-            //   HeaderTop    → immediately after <head>  (or <html> if no <head>)
-            //   HeaderBottom → immediately before </head>
-            //   BodyTop      → immediately after <body>
-            //   BodyBottom   → immediately before </body>
+            // Page.addScriptToEvaluateOnNewDocument (raw CDP, no worldName):
+            //   • Chrome runs it in the MAIN world, before any page script.
+            //   • Persists across every navigation for the lifetime of the CDP
+            //     session — no re-injection needed after page.goto().
+            //   • Never touches the network stack; zero impact on TLS/HTTP
+            //     fingerprints; Cloudflare cannot detect it.
+            //   • Not subject to CSP — Chrome's engine evaluates it directly,
+            //     bypassing the page's content-security-policy entirely.
+            //
+            // Position timing:
+            //   HeaderTop / HeaderBottom → script runs at document start (before
+            //     the page's own <script> tags execute).
+            //   BodyTop  → wrapped in DOMContentLoaded (DOM ready, scripts done).
+            //   BodyBottom → wrapped in window 'load' (all resources loaded).
             if (scripts.length > 0) {
                 const sorted = [...scripts].sort(
                     (a, b) =>
@@ -238,154 +237,38 @@ export class Session {
                         (POSITION_ORDER[b.position] ?? 99),
                 );
 
-                // In-memory map: pathname → JS source for serving script fetches.
-                const staticFiles = new Map<string, string>();
-                for (const s of sorted) staticFiles.set(s.file, s.content);
-
-                // Pre-built HTML tag strings, grouped by position.
-                const tagsAt = (pos: string): string =>
-                    sorted
-                        .filter(s => s.position === pos)
-                        .map(s => s.type === 'Module'
-                            ? `<script type="module" src="${s.file}"></script>`
-                            : `<script src="${s.file}"></script>`)
-                        .join('\n');
-
-                const headTopTags    = tagsAt('HeaderTop');
-                const headBottomTags = tagsAt('HeaderBottom');
-                const bodyTopTags    = tagsAt('BodyTop');
-                const bodyBottomTags = tagsAt('BodyBottom');
-
-                // Belt-and-suspenders: also disables CSP for workers / dynamic imports.
+                // Disable CSP at the Chrome level so any secondary resource the
+                // injected scripts might load (dynamic import, fetch) is not blocked.
+                // This has no network footprint — it is a pure CDP command.
                 try { await cdp.send('Page.setBypassCSP', { enabled: true }); } catch { /* best-effort */ }
 
-                await context.route('**', async (route) => {
-                    try {
-                        const request    = route.request();
-                        const requestUrl = new URL(request.url());
+                for (const s of sorted) {
+                    let source: string;
 
-                        // ── Serve injected scripts from memory ─────────────────
-                        // Only serve when the request originates from the same host
-                        // as the current page (Referer header set by Chrome).
-                        if (staticFiles.has(requestUrl.pathname)) {
-                            const referer = request.headers()['referer'] ?? '';
-                            const refHost = referer.startsWith('http')
-                                ? new URL(referer).hostname : '';
-                            if (refHost && requestUrl.hostname === refHost) {
-                                const content = staticFiles.get(requestUrl.pathname)!;
-                                console.log(
-                                    `[${sessionId}] Serving ${requestUrl.pathname}` +
-                                    ` (${content.length} B)`,
-                                );
-                                await route.fulfill({
-                                    status:      200,
-                                    contentType: 'application/javascript; charset=utf-8',
-                                    body:        content,
-                                });
-                                return;
-                            }
-                        }
-
-                        // ── Rewrite main-frame HTML to inject <script src> tags ─
-                        if (request.resourceType() === 'document' &&
-                            request.frame() === page.mainFrame()) {
-
-                            let response;
-                            try {
-                                response = await route.fetch();
-                            } catch (fetchErr) {
-                                console.warn(
-                                    `[${sessionId}] fetch failed:`,
-                                    (fetchErr as Error).message,
-                                );
-                                await route.continue();
-                                return;
-                            }
-
-                            const ct = (response.headers()['content-type'] ?? '').toLowerCase();
-                            if (!ct.includes('text/html')) {
-                                await route.fulfill({ response });
-                                return;
-                            }
-
-                            let html = await response.text();
-
-                            // HeaderTop — right after <head> (fallback: after <html>)
-                            if (headTopTags) {
-                                if (/<head(\s[^>]*)?>/i.test(html))
-                                    html = html.replace(/<head(\s[^>]*)?>/i, `<head$1>\n${headTopTags}`);
-                                else if (/<html(\s[^>]*)?>/i.test(html))
-                                    html = html.replace(/<html(\s[^>]*)?>/i, `<html$1>\n${headTopTags}`);
-                                else
-                                    html = headTopTags + '\n' + html;
-                            }
-
-                            // HeaderBottom — right before </head> (fallback: before <body>)
-                            if (headBottomTags) {
-                                if (/<\/head>/i.test(html))
-                                    html = html.replace(/<\/head>/i, `${headBottomTags}\n</head>`);
-                                else
-                                    html = html.replace(/<body(\s[^>]*)?>/i, `${headBottomTags}\n<body$1>`);
-                            }
-
-                            // BodyTop — right after <body> (fallback: after </head>)
-                            if (bodyTopTags) {
-                                if (/<body(\s[^>]*)?>/i.test(html))
-                                    html = html.replace(/<body(\s[^>]*)?>/i, `<body$1>\n${bodyTopTags}`);
-                                else
-                                    html = html.replace(/<\/head>/i, `</head>\n${bodyTopTags}`);
-                            }
-
-                            // BodyBottom — right before </body> (fallback: append)
-                            if (bodyBottomTags) {
-                                if (/<\/body>/i.test(html))
-                                    html = html.replace(/<\/body>/i, `${bodyBottomTags}\n</body>`);
-                                else
-                                    html += '\n' + bodyBottomTags;
-                            }
-
-                            // Strip CSP from HTTP headers.
-                            const headers: Record<string, string> = {};
-                            for (const [k, v] of Object.entries(response.headers())) {
-                                const kl = k.toLowerCase();
-                                if (kl === 'content-security-policy'             ||
-                                    kl === 'content-security-policy-report-only' ||
-                                    kl === 'content-length') continue;
-                                headers[k] = v;
-                            }
-
-                            // Strip CSP from <meta http-equiv> tags in the HTML.
-                            html = html.replace(
-                                /<meta[^>]*http-equiv=["']?content-security-policy["']?[^>]*\/?>/gi,
-                                '',
-                            );
-
-                            console.log(
-                                `[${sessionId}] HTML rewritten: ` +
-                                requestUrl.href.slice(0, 100),
-                            );
-                            await route.fulfill({
-                                status:  response.status(),
-                                headers,
-                                body:    html,
-                            });
-                            return;
-                        }
-
-                        await route.continue();
-                    } catch (err) {
-                        console.error(
-                            `[${sessionId}] Route error:`,
-                            (err as Error).message,
-                        );
-                        try { await route.continue(); } catch { /* WS gone */ }
+                    if (s.position === 'HeaderTop' || s.position === 'HeaderBottom') {
+                        // No wrapper — runs synchronously at document start.
+                        source = s.content;
+                    } else if (s.position === 'BodyTop') {
+                        // Defer until DOM is ready.
+                        source =
+                            '(function(){\n' +
+                            '  document.addEventListener("DOMContentLoaded",function(){\n' +
+                            s.content + '\n' +
+                            '  });\n' +
+                            '})();';
+                    } else {
+                        // BodyBottom — defer until all resources have loaded.
+                        source =
+                            '(function(){\n' +
+                            '  window.addEventListener("load",function(){\n' +
+                            s.content + '\n' +
+                            '  });\n' +
+                            '})();';
                     }
-                });
 
-                console.log(
-                    `[${sessionId}] Script injection ready (${scripts.length} script(s)): ` +
-                    sorted.map(s => `${s.position}:${s.file}`).join(', '),
-                );
+                    await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source });
+                    console.log(`[${sessionId}] Registered injection: ${s.position} ${s.file}`);
+                }
             }
 
             // ── JsBridge — console forwarding ─────────────────────────────────

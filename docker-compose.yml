@@ -39,7 +39,8 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "443:443"
+      - "443:443/tcp"   # HTTPS (HTTP/1.1 + HTTP/2)
+      - "443:443/udp"   # QUIC / HTTP/3 (required for WebTransport)
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
       # Points to the sidecar WebSocket server (resolved via Docker DNS).

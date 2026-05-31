@@ -1,40 +1,30 @@
-import { WebSocket } from 'ws';
-import { BrowserContext, Page, CDPSession } from 'patchright';
-import { DisplayManager } from './DisplayManager';
-import { launchBrowser }  from './BrowserManager';
-import { H264Capture }    from './H264Capture';
-import {
-    decodeMessage,
-    encodeUrlUpdate,
-    encodeConsoleMessage,
-    encodeEvalResult,
-    CONSOLE_LEVELS,
-    ScriptEntry,
-} from './Protocol';
-
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.Session = void 0;
+const BrowserManager_1 = require("./BrowserManager");
+const H264Capture_1 = require("./H264Capture");
+const Protocol_1 = require("./Protocol");
 // ── Constants ─────────────────────────────────────────────────────────────────
-
 /**
  * Maps ScriptEntry.position to a numeric sort key so scripts are injected
  * in the correct DOM order when multiple entries are declared.
  */
-const POSITION_ORDER: Record<string, number> = {
-    HeaderTop:    0,
+const POSITION_ORDER = {
+    HeaderTop: 0,
     HeaderBottom: 1,
-    BodyTop:      2,
-    BodyBottom:   3,
+    BodyTop: 2,
+    BodyBottom: 3,
 };
-
 /** Maps Log.entryAdded severity strings to wire-level level bytes (same as CONSOLE_LEVELS). */
-const LOG_LEVEL: Record<string, number> = { verbose: 0, info: 3, warning: 1, error: 2 };
-
+const LOG_LEVEL = { verbose: 0, info: 3, warning: 1, error: 2 };
 /** Maps DOM MouseEvent.button (0=left,1=middle,2=right) → Playwright button name. */
-function domButton(b: number): 'left' | 'middle' | 'right' {
-    if (b === 1) return 'middle';
-    if (b === 2) return 'right';
+function domButton(b) {
+    if (b === 1)
+        return 'middle';
+    if (b === 2)
+        return 'right';
     return 'left';
 }
-
 /**
  * Represents one complete browser session:
  *   Xvfb display → Chrome (non-headless) → FFmpeg x11grab → binary WS frames
@@ -44,81 +34,50 @@ function domButton(b: number): 'left' | 'middle' | 'right' {
  *   Session.create() → send frames → handleMessage() for input
  *   dispose() → stops capture → closes browser → kills Xvfb
  */
-export class Session {
-    readonly sessionId: string;
-
-    private _ws:       WebSocket;
-    private _display:  DisplayManager;
-    private _context:  BrowserContext;
-    private _page:     Page;
-    private _cdp:      CDPSession;
-    private _capture:  H264Capture;
-    private _width:    number;
-    private _height:   number;
-
+class Session {
+    sessionId;
+    _ws;
+    _display;
+    _context;
+    _page;
+    _cdp;
+    _capture;
+    _width;
+    _height;
     /**
      * The frame callback shared across all FFmpegCapture instances for this
      * session. Stored so we can hand it to a new capture after a resize
      * without re-wiring the WebSocket send logic.
      */
-    private _onFrame:  (buf: Buffer) => void;
-
+    _onFrame;
     /** Guard that prevents concurrent resize operations. */
-    private _resizing: boolean = false;
-
+    _resizing = false;
     /** Whether the JsBridge (console forwarding + evaljs) is active. */
-    private _jsBridgeEnabled: boolean;
-
-    private _disposed: boolean = false;
-
-    private constructor(
-        sessionId:       string,
-        ws:              WebSocket,
-        display:         DisplayManager,
-        context:         BrowserContext,
-        page:            Page,
-        cdp:             CDPSession,
-        capture:         H264Capture,
-        width:           number,
-        height:          number,
-        onFrame:         (buf: Buffer) => void,
-        jsBridgeEnabled: boolean,
-    ) {
-        this.sessionId        = sessionId;
-        this._ws              = ws;
-        this._display         = display;
-        this._context         = context;
-        this._page            = page;
-        this._cdp             = cdp;
-        this._capture         = capture;
-        this._width           = width;
-        this._height          = height;
-        this._onFrame         = onFrame;
+    _jsBridgeEnabled;
+    _disposed = false;
+    constructor(sessionId, ws, display, context, page, cdp, capture, width, height, onFrame, jsBridgeEnabled) {
+        this.sessionId = sessionId;
+        this._ws = ws;
+        this._display = display;
+        this._context = context;
+        this._page = page;
+        this._cdp = cdp;
+        this._capture = capture;
+        this._width = width;
+        this._height = height;
+        this._onFrame = onFrame;
         this._jsBridgeEnabled = jsBridgeEnabled;
     }
-
     // ── Factory ───────────────────────────────────────────────────────────────
-
-    static async create(
-        sessionId:       string,
-        ws:              WebSocket,
-        display:         DisplayManager,
-        width:           number,
-        height:          number,
-        url?:            string,
-        scripts:         ScriptEntry[] = [],
-        jsBridgeEnabled: boolean       = false,
-    ): Promise<Session> {
+    static async create(sessionId, ws, display, width, height, url, scripts = [], jsBridgeEnabled = false) {
         console.log(`[${sessionId}] Launching Chrome on display ${display.displayEnv}`);
-
-        let context: BrowserContext | undefined;
-        let cdp: CDPSession | undefined;
+        let context;
+        let cdp;
         try {
-            const handle = await launchBrowser(display.displayEnv, width, height);
+            const handle = await (0, BrowserManager_1.launchBrowser)(display.displayEnv, width, height);
             context = handle.context;
-            cdp     = handle.cdp;
+            cdp = handle.cdp;
             const page = handle.page;
-
             // ── Single-tab enforcement — Layer 1 (prevention) ────────────────
             // Installed on the context so it applies to ALL pages, including any
             // page created in the brief window before context.on('page') can
@@ -194,7 +153,6 @@ export class Session {
                     }, true);
                 })();
             `);
-
             // ── Script injection via Runtime.evaluate (main world) ───────────────
             //
             // Every pre-navigation injection mechanism that goes through
@@ -224,51 +182,39 @@ export class Session {
             // execute in HeaderTop → HeaderBottom → BodyTop → BodyBottom order.
             // Wrapping in DOMContentLoaded / load listeners is unnecessary here
             // because we inject after domcontentloaded has already fired.
-            let injectAll: (() => Promise<void>) | null = null;
-
+            let injectAll = null;
             if (scripts.length > 0) {
                 // Disable CSP enforcement so any resources the injected scripts
                 // load (dynamic import, fetch, etc.) are not blocked.
                 // Pure CDP command — no network footprint.
-                try { await cdp.send('Page.setBypassCSP', { enabled: true }); } catch { /* best-effort */ }
-
-                const sorted = [...scripts].sort(
-                    (a, b) =>
-                        (POSITION_ORDER[a.position] ?? 99) -
-                        (POSITION_ORDER[b.position] ?? 99),
-                );
-
+                try {
+                    await cdp.send('Page.setBypassCSP', { enabled: true });
+                }
+                catch { /* best-effort */ }
+                const sorted = [...scripts].sort((a, b) => (POSITION_ORDER[a.position] ?? 99) -
+                    (POSITION_ORDER[b.position] ?? 99));
                 const cdpSession = cdp; // narrow away 'undefined' for the closure
-                injectAll = async (): Promise<void> => {
+                injectAll = async () => {
                     for (const s of sorted) {
                         try {
                             await cdpSession.send('Runtime.evaluate', {
-                                expression:    s.content,
+                                expression: s.content,
                                 returnByValue: false,
-                                silent:        true,
+                                silent: true,
                             });
                             console.log(`[${sessionId}] Injected: ${s.file}`);
-                        } catch (err) {
-                            console.warn(
-                                `[${sessionId}] Injection failed (${s.file}):`,
-                                (err as Error).message,
-                            );
+                        }
+                        catch (err) {
+                            console.warn(`[${sessionId}] Injection failed (${s.file}):`, err.message);
                         }
                     }
                 };
-
                 // Re-inject automatically on every subsequent navigation so
                 // scripts survive redirects and full-page reloads.
                 page.on('load', () => {
-                    injectAll!().catch(err =>
-                        console.warn(
-                            `[${sessionId}] Re-injection error:`,
-                            (err as Error).message,
-                        ),
-                    );
+                    injectAll().catch(err => console.warn(`[${sessionId}] Re-injection error:`, err.message));
                 });
             }
-
             // ── JsBridge — console forwarding ─────────────────────────────────
             // Subscribed on our own CDPSession (not page.on('console')) for a
             // critical reason:
@@ -289,21 +235,23 @@ export class Session {
             // from flooding the WebSocket.
             if (jsBridgeEnabled) {
                 await cdp.send('Runtime.enable', {});
-                await cdp.send('Log.enable',     {});
-
-                const sendConsole = (level: number, text: string): void => {
-                    if (ws.readyState !== ws.OPEN) return;
-                    if (text.length > 65_536) text = text.slice(0, 65_536) + ' … [truncated]';
-                    ws.send(encodeConsoleMessage(level, text), { binary: true });
+                await cdp.send('Log.enable', {});
+                const sendConsole = (level, text) => {
+                    if (ws.readyState !== ws.OPEN)
+                        return;
+                    if (text.length > 65_536)
+                        text = text.slice(0, 65_536) + ' … [truncated]';
+                    ws.send((0, Protocol_1.encodeConsoleMessage)(level, text), { binary: true });
                 };
-
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                cdp.on('Runtime.consoleAPICalled', (event: any) => {
-                    const level = CONSOLE_LEVELS[event.type as string] ?? 0;
+                cdp.on('Runtime.consoleAPICalled', (event) => {
+                    const level = Protocol_1.CONSOLE_LEVELS[event.type] ?? 0;
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    const text = (event.args as any[]).map((arg: any): string => {
-                        if (arg.type === 'undefined')               return 'undefined';
-                        if (arg.unserializableValue !== undefined)  return String(arg.unserializableValue);
+                    const text = event.args.map((arg) => {
+                        if (arg.type === 'undefined')
+                            return 'undefined';
+                        if (arg.unserializableValue !== undefined)
+                            return String(arg.unserializableValue);
                         if (arg.value !== undefined)
                             return typeof arg.value === 'string'
                                 ? arg.value
@@ -312,16 +260,13 @@ export class Session {
                     }).join(' ');
                     sendConsole(level, text);
                 });
-
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                cdp.on('Log.entryAdded', (event: any) => {
-                    const entry = event.entry as { level: string; text: string };
+                cdp.on('Log.entryAdded', (event) => {
+                    const entry = event.entry;
                     sendConsole(LOG_LEVEL[entry.level] ?? 0, entry.text);
                 });
-
                 console.log(`[${sessionId}] JsBridge console forwarding active`);
             }
-
             // ── URL sync ──────────────────────────────────────────────────────
             // Registered before page.goto() so the very first navigation is
             // captured and the client URL bar reflects the initial page.
@@ -329,13 +274,15 @@ export class Session {
             // goForward, or new-tab redirect), send the current URL to the client
             // so the URL bar stays in sync without the client having to poll.
             page.on('framenavigated', (frame) => {
-                if (frame !== page.mainFrame()) return;
+                if (frame !== page.mainFrame())
+                    return;
                 const currentUrl = page.url();
-                if (currentUrl.startsWith('about:') || currentUrl.startsWith('chrome:')) return;
-                if (ws.readyState !== ws.OPEN) return;
-                ws.send(encodeUrlUpdate(currentUrl), { binary: true });
+                if (currentUrl.startsWith('about:') || currentUrl.startsWith('chrome:'))
+                    return;
+                if (ws.readyState !== ws.OPEN)
+                    return;
+                ws.send((0, Protocol_1.encodeUrlUpdate)(currentUrl), { binary: true });
             });
-
             // ── Single-tab enforcement — Layer 2 (catch-all) ─────────────────
             // Registered BEFORE page.goto() so popups opened by page scripts
             // during the initial load are caught — not just popups triggered
@@ -362,143 +309,132 @@ export class Session {
             // Chrome-extension:// and chrome:// pages are left alone — they are
             // internal browser infrastructure, not user-initiated tabs.
             context.on('page', (newPage) => {
-                if (newPage === page) return;
-
+                if (newPage === page)
+                    return;
                 (async () => {
                     // Wait only until the URL leaves about:blank — the extra tab is
                     // alive for the shortest possible time.
-                    let targetUrl: string | null = null;
+                    let targetUrl = null;
                     try {
-                        await newPage.waitForURL(
-                            (u: URL) => u.protocol !== 'about:' && u.protocol !== 'chrome:',
-                            { timeout: 2_000 },
-                        );
+                        await newPage.waitForURL((u) => u.protocol !== 'about:' && u.protocol !== 'chrome:', { timeout: 2_000 });
                         targetUrl = newPage.url();
-                    } catch {
-                        // Timed out or page already closed — capture whatever we have.
-                        try { targetUrl = newPage.url(); } catch { /* page gone */ }
                     }
-
+                    catch {
+                        // Timed out or page already closed — capture whatever we have.
+                        try {
+                            targetUrl = newPage.url();
+                        }
+                        catch { /* page gone */ }
+                    }
                     // ── Close immediately — enforce single-tab invariant ──────
-                    try { await newPage.close(); } catch { /* already closed */ }
-
+                    try {
+                        await newPage.close();
+                    }
+                    catch { /* already closed */ }
                     // Ignore Chrome-internal and extension pages.
-                    if (!targetUrl                              ||
-                        targetUrl.startsWith('about:')         ||
-                        targetUrl.startsWith('chrome:')        ||
+                    if (!targetUrl ||
+                        targetUrl.startsWith('about:') ||
+                        targetUrl.startsWith('chrome:') ||
                         targetUrl.startsWith('chrome-extension://')) {
                         return;
                     }
-
                     console.log(`[${sessionId}] Extra tab intercepted → navigating main tab to ${targetUrl}`);
-
                     try {
                         await page.goto(targetUrl, {
                             waitUntil: 'domcontentloaded',
-                            timeout:   30_000,
+                            timeout: 30_000,
                         });
-                    } catch { /* navigation error — main tab may have already moved */ }
+                    }
+                    catch { /* navigation error — main tab may have already moved */ }
                 })().catch(err => {
-                    console.warn(`[${sessionId}] Tab-interception error:`, (err as Error).message);
+                    console.warn(`[${sessionId}] Tab-interception error:`, err.message);
                 });
             });
-
             // Navigate to initial URL if provided.
             if (url) {
                 await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 });
             }
-
             // Inject scripts into the main world now that the page has loaded.
             // This is done after goto() so Runtime.evaluate targets a live
             // execution context (not the blank about:blank context from before
             // the first navigation).
-            if (injectAll) await injectAll();
-
+            if (injectAll)
+                await injectAll();
             // ── Frame relay with in-flight dropping ───────────────────────────
             // Allow at most MAX_IN_FLIGHT frames queued in the WS send buffer at
             // once. If the .NET relay or the network is slow, inFlight hits the
             // cap and new frames are dropped rather than accumulating in memory.
             const MAX_IN_FLIGHT = 3;
-            let   inFlight      = 0;
-
+            let inFlight = 0;
             // Build the frame callback once so resize can reuse it.
-            const onFrame = (buf: Buffer): void => {
-                if (ws.readyState !== ws.OPEN) return;
-                if (inFlight >= MAX_IN_FLIGHT)   return; // network backed up — drop
+            const onFrame = (buf) => {
+                if (ws.readyState !== ws.OPEN)
+                    return;
+                if (inFlight >= MAX_IN_FLIGHT)
+                    return; // network backed up — drop
                 inFlight++;
                 ws.send(buf, { binary: true }, () => { inFlight--; });
             };
-
             // H264Capture captures the Xvfb framebuffer via FFmpeg x11grab and encodes to H.264
             // (libx264 ultrafast+zerolatency). Each frame is emitted as a MSG_H264 encoded buffer
             // ready for WebSocket relay.
-            const capture = await H264Capture.start(
-                display.number, width, height, onFrame,
-            );
-
+            const capture = await H264Capture_1.H264Capture.start(display.number, width, height, onFrame);
             console.log(`[${sessionId}] Session ready`);
-
-            return new Session(
-                sessionId, ws, display, context, page, cdp,
-                capture, width, height, onFrame, jsBridgeEnabled,
-            );
-        } catch (err) {
+            return new Session(sessionId, ws, display, context, page, cdp, capture, width, height, onFrame, jsBridgeEnabled);
+        }
+        catch (err) {
             // Clean up partially-created resources on failure.
             // With launchPersistentContext, context.close() also closes the browser.
-            try { await cdp?.detach(); }     catch { /* best-effort */ }
-            try { await context?.close(); }  catch { /* best-effort */ }
+            try {
+                await cdp?.detach();
+            }
+            catch { /* best-effort */ }
+            try {
+                await context?.close();
+            }
+            catch { /* best-effort */ }
             throw err;
         }
     }
-
     // ── Input dispatch ────────────────────────────────────────────────────────
-
-    async handleMessage(raw: string): Promise<void> {
-        const msg = decodeMessage(raw);
-        if (!msg || msg.type === 'create') return;
-
+    async handleMessage(raw) {
+        const msg = (0, Protocol_1.decodeMessage)(raw);
+        if (!msg || msg.type === 'create')
+            return;
         try {
             switch (msg.type) {
                 case 'navigate':
                     await this._page.goto(msg.url, {
                         waitUntil: 'domcontentloaded',
-                        timeout:   30_000,
+                        timeout: 30_000,
                     });
                     break;
-
                 case 'refresh':
                     await this._page.reload({ waitUntil: 'domcontentloaded', timeout: 30_000 });
                     break;
-
                 // ── Pointer — page.mouse uses CDP page-coords, no screen offset ──
                 // CDP Input.dispatchMouseEvent injects mouse events into Chrome's
                 // rendering pipeline (JS events, :hover states, clicks) reliably
                 // without requiring X11 focus.  The cursor is rendered client-side
                 // as a software overlay on the canvas — see index.html.
-
                 case 'mousemove':
-                    this._page.mouse.move(msg.x, msg.y).catch(() => {});
+                    this._page.mouse.move(msg.x, msg.y).catch(() => { });
                     break;
-
                 case 'mousedown':
                     await this._page.mouse.move(msg.x, msg.y);
                     await this._page.mouse.down({ button: domButton(msg.button) });
                     break;
-
                 case 'mouseup':
                     await this._page.mouse.move(msg.x, msg.y);
                     await this._page.mouse.up({ button: domButton(msg.button) });
                     break;
-
                 case 'wheel':
                     await this._page.mouse.move(msg.x, msg.y);
                     await this._page.mouse.wheel(msg.deltaX, msg.deltaY);
                     break;
-
                 // ── Keyboard — page.keyboard uses CDP; works even without X11 focus ──
                 // (once mouse moved to CDP, Chrome's X11 window loses X11 focus, so
                 // xdotool keystrokes are silently dropped. CDP keyboard bypasses that.)
-
                 case 'keydown':
                     // keyboard.down/up only accepts ASCII printable chars and
                     // named DOM keys (e.g. "Enter", "Shift"). Non-ASCII chars
@@ -506,30 +442,27 @@ export class Session {
                     // which accepts any Unicode codepoint.
                     if (msg.key.length === 1 && msg.key.charCodeAt(0) > 127) {
                         await this._page.keyboard.type(msg.key);
-                    } else {
+                    }
+                    else {
                         await this._page.keyboard.down(msg.key);
                     }
                     break;
-
                 case 'keyup':
                     // Skip keyup for non-ASCII chars — the matching keydown
                     // already handled the full press cycle via keyboard.type().
-                    if (msg.key.length === 1 && msg.key.charCodeAt(0) > 127) break;
+                    if (msg.key.length === 1 && msg.key.charCodeAt(0) > 127)
+                        break;
                     await this._page.keyboard.up(msg.key);
                     break;
-
                 case 'type':
                     await this._page.keyboard.type(msg.text);
                     break;
-
                 case 'goback':
                     await this._page.goBack({ waitUntil: 'domcontentloaded', timeout: 30_000 });
                     break;
-
                 case 'goforward':
                     await this._page.goForward({ waitUntil: 'domcontentloaded', timeout: 30_000 });
                     break;
-
                 // ── JsBridge — evaluate JS in the virtual browser ────────────
                 // Runs arbitrary code in the page's main execution context and
                 // returns the result serialised as JSON. Console output produced
@@ -546,12 +479,11 @@ export class Session {
                 //   main execution context, whose Runtime.consoleAPICalled events
                 //   ARE delivered to our CDPSession (which has Runtime.enable active).
                 case 'evaljs': {
-                    if (!this._jsBridgeEnabled) break;
-
+                    if (!this._jsBridgeEnabled)
+                        break;
                     const { id, code } = msg;
-                    let ok    = true;
+                    let ok = true;
                     let value = '';
-
                     try {
                         // The wrapper async IIFE:
                         //   • Indirect eval runs the code at global scope (access
@@ -567,7 +499,7 @@ export class Session {
                         //   • awaitPromise:true tells CDP to await the outer Promise
                         //     returned by the async IIFE before resolving the call.
                         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                        const res: any = await this._cdp.send('Runtime.evaluate', {
+                        const res = await this._cdp.send('Runtime.evaluate', {
                             expression: `(async function(){try{`
                                 + `var __r=(0,eval)(${JSON.stringify(code)});`
                                 + `if(__r&&typeof __r.then==='function')__r=await __r;`
@@ -575,37 +507,38 @@ export class Session {
                                 + `(function(){try{return JSON.stringify(__r)}catch(_){return String(__r)}})()}`
                                 + `}catch(e){return{ok:false,v:e.message||String(e)}}})()`,
                             returnByValue: true,
-                            awaitPromise:  true,
-                            timeout:       10_000,
+                            awaitPromise: true,
+                            timeout: 10_000,
                         });
-
                         if (res.exceptionDetails) {
                             // The wrapper itself threw — should not happen.
-                            ok    = false;
+                            ok = false;
                             value = res.exceptionDetails.text ?? 'Evaluation error';
-                        } else {
-                            const r = res.result?.value as { ok: boolean; v: string | null } | undefined;
+                        }
+                        else {
+                            const r = res.result?.value;
                             if (!r) {
                                 value = '';
-                            } else if (r.ok) {
+                            }
+                            else if (r.ok) {
                                 value = r.v ?? '';
-                            } else {
-                                ok    = false;
+                            }
+                            else {
+                                ok = false;
                                 value = r.v ?? 'Unknown error';
                             }
                         }
-                    } catch (err) {
-                        ok    = false;
-                        value = (err as Error).message;
                     }
-
-                    const buf = encodeEvalResult(id, ok, value);
+                    catch (err) {
+                        ok = false;
+                        value = err.message;
+                    }
+                    const buf = (0, Protocol_1.encodeEvalResult)(id, ok, value);
                     if (this._ws.readyState === this._ws.OPEN) {
                         this._ws.send(buf, { binary: true });
                     }
                     break;
                 }
-
                 // ── Live resize ───────────────────────────────────────────────
                 // The client sends { type:'resize', width, height } whenever its
                 // viewport element changes size (debounced 250 ms).
@@ -621,21 +554,20 @@ export class Session {
                 //
                 // A _resizing guard prevents overlapping resize operations.
                 case 'resize': {
-                    if (this._resizing) break;
+                    if (this._resizing)
+                        break;
                     this._resizing = true;
                     try {
                         const w = msg.width;
                         const h = msg.height;
-
                         // Ignore no-ops and absurdly small sizes.
-                        if (w === this._width && h === this._height) break;
-                        if (w < 100 || h < 100) break;
-
+                        if (w === this._width && h === this._height)
+                            break;
+                        if (w < 100 || h < 100)
+                            break;
                         const prevW = this._width;
                         const prevH = this._height;
-
                         console.log(`[${this.sessionId}] Resize → ${w}×${h}`);
-
                         // 1. Update Chrome's render viewport via CDP — authoritative,
                         //    bypasses any WM / RANDR ambiguity about window size.
                         try {
@@ -644,71 +576,63 @@ export class Session {
                                 deviceScaleFactor: 1,
                                 mobile: false,
                             });
-                        } catch { /* CDP session may have been recycled — best-effort */ }
-
+                        }
+                        catch { /* CDP session may have been recycled — best-effort */ }
                         // 2. Resize the Xvfb virtual display so FFmpeg x11grab
                         //    captures the correct region at the new dimensions.
                         await this._display.resize(w, h);
-
                         // 3. Give Chrome time to re-render at the new size.
-                        await new Promise<void>(r => setTimeout(r, 500));
-
+                        await new Promise(r => setTimeout(r, 500));
                         // 4. Stop the old capture and start a new one at the new size.
                         //    If starting the new capture fails, fall back to the
                         //    previous dimensions so the session never goes frameless.
-                        try { await this._capture.stop(); } catch { /* already stopped */ }
-
                         try {
-                            this._capture = await H264Capture.start(
-                                this._display.number, w, h, this._onFrame,
-                            );
-                            this._width  = w;
+                            await this._capture.stop();
+                        }
+                        catch { /* already stopped */ }
+                        try {
+                            this._capture = await H264Capture_1.H264Capture.start(this._display.number, w, h, this._onFrame);
+                            this._width = w;
                             this._height = h;
                             console.log(`[${this.sessionId}] Capture restarted at ${w}×${h}`);
-                        } catch (startErr) {
-                            console.error(
-                                `[${this.sessionId}] Capture restart at ${w}×${h} failed:`,
-                                (startErr as Error).message,
-                                '— falling back to', `${prevW}×${prevH}`,
-                            );
+                        }
+                        catch (startErr) {
+                            console.error(`[${this.sessionId}] Capture restart at ${w}×${h} failed:`, startErr.message, '— falling back to', `${prevW}×${prevH}`);
                             // Restore old dimensions and restart capture at previous size.
                             try {
-                                this._capture = await H264Capture.start(
-                                    this._display.number, prevW, prevH, this._onFrame,
-                                );
-                            } catch (fallbackErr) {
-                                console.error(
-                                    `[${this.sessionId}] Fallback capture also failed:`,
-                                    (fallbackErr as Error).message,
-                                );
+                                this._capture = await H264Capture_1.H264Capture.start(this._display.number, prevW, prevH, this._onFrame);
+                            }
+                            catch (fallbackErr) {
+                                console.error(`[${this.sessionId}] Fallback capture also failed:`, fallbackErr.message);
                                 // Session is now frameless — dispose it.
-                                this.dispose().catch(() => {});
+                                this.dispose().catch(() => { });
                             }
                         }
-                    } finally {
+                    }
+                    finally {
                         this._resizing = false;
                     }
                     break;
                 }
             }
-        } catch (err) {
+        }
+        catch (err) {
             // Malformed or late input — ignore.
-            console.warn(`[${this.sessionId}] Input error (${msg.type}):`, (err as Error).message);
+            console.warn(`[${this.sessionId}] Input error (${msg.type}):`, err.message);
         }
     }
-
     // ── Disposal ──────────────────────────────────────────────────────────────
-
-    async dispose(): Promise<void> {
-        if (this._disposed) return;
+    async dispose() {
+        if (this._disposed)
+            return;
         this._disposed = true;
-
         console.log(`[${this.sessionId}] Disposing session`);
-
         // 1. Stop FFmpeg immediately (SIGTERM, non-blocking — proc.kill() returns
         //    synchronously). No frames will be sent after this point.
-        try { await this._capture.stop(); } catch { /* already stopped */ }
-
+        try {
+            await this._capture.stop();
+        }
+        catch { /* already stopped */ }
         // 2. Close Chrome and kill the virtual display in parallel.
         //    They are independent: Xvfb shutdown does not depend on Chrome having
         //    exited gracefully, and Chrome will crash if Xvfb dies first — that is
@@ -718,13 +642,19 @@ export class Session {
             // Browser close: CDP detach must precede context.close() so the CDP
             // session does not race against the closing browser process.
             (async () => {
-                try { await this._cdp.detach(); }    catch { /* already detached */ }
-                try { await this._context.close(); } catch { /* already closed   */ }
+                try {
+                    await this._cdp.detach();
+                }
+                catch { /* already detached */ }
+                try {
+                    await this._context.close();
+                }
+                catch { /* already closed   */ }
             })(),
-
             // Display: SIGKILL both WM and Xvfb immediately — no grace period
             // needed for display infrastructure.
-            this._display.dispose().catch(() => { /* best-effort */ }),
+            this._display.dispose().catch(() => { }),
         ]);
     }
 }
+exports.Session = Session;

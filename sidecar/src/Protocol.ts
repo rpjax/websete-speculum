@@ -231,3 +231,19 @@ export function decodeMessage(raw: string): InputEvent | CreateMessage | null {
         return null;
     }
 }
+
+// ── H.264 frame encoding (sidecar → .NET) ────────────────────────────────────
+export const MSG_H264 = 0x07;
+
+/**
+ * Encodes an H.264 frame for relay to .NET.
+ * Layout: [0] 0x07 | [1] isKeyframe | [2..5] len LE | [6..] H.264 Annex B NAL units.
+ */
+export function encodeH264Frame(isKeyframe: boolean, data: Buffer): Buffer {
+    const buf = Buffer.allocUnsafe(1 + 1 + 4 + data.length);
+    buf[0] = MSG_H264;
+    buf[1] = isKeyframe ? 1 : 0;
+    buf.writeUInt32LE(data.length, 2);
+    data.copy(buf, 6);
+    return buf;
+}

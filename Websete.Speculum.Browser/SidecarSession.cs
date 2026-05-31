@@ -4,8 +4,9 @@ using System.Threading.Channels;
 namespace Websete.Speculum.Browser;
 
 /// <summary>
-/// High-level abstraction over <see cref="SidecarClient"/> that exposes
-/// the API consumed by the Host layer (VirtualizationSession, WS handler).
+/// High-level abstraction over SidecarClient.
+/// Exposes typed channels for video and control messages, and a method
+/// for dispatching raw input JSON to the sidecar.
 /// </summary>
 public sealed class SidecarSession : IAsyncDisposable
 {
@@ -16,10 +17,14 @@ public sealed class SidecarSession : IAsyncDisposable
     public int    Height    { get; }
 
     /// <summary>
-    /// Readable channel of raw binary frame messages from the sidecar.
-    /// The client WebSocket relay consumes this and forwards bytes to the browser.
+    /// H.264 video frames (MSG_H264 encoded, ready for WebTransport relay).
     /// </summary>
-    public ChannelReader<ReadOnlyMemory<byte>> FrameChannel => _client.FrameChannel;
+    public ChannelReader<ReadOnlyMemory<byte>> VideoChannel   => _client.VideoChannel;
+
+    /// <summary>
+    /// Control messages (MSG_URL / MSG_CONSOLE / MSG_EVAL_RESULT) in wire encoding.
+    /// </summary>
+    public ChannelReader<ReadOnlyMemory<byte>> ControlChannel => _client.ControlChannel;
 
     public SidecarSession(string sessionId, int width, int height, SidecarClient client)
     {
@@ -30,30 +35,21 @@ public sealed class SidecarSession : IAsyncDisposable
     }
 
     // ── Browser control ───────────────────────────────────────────────────────
-    // SerializeToUtf8Bytes goes directly to UTF-8 — no string intermediary.
 
     public Task NavigateAsync(string url, CancellationToken ct = default) =>
         _client.SendInputAsync(
-            JsonSerializer.SerializeToUtf8Bytes(new { type = "navigate", url }),
-            ct);
+            JsonSerializer.SerializeToUtf8Bytes(new { type = "navigate", url }), ct);
 
     public Task RefreshAsync(CancellationToken ct = default) =>
         _client.SendInputAsync(
-            JsonSerializer.SerializeToUtf8Bytes(new { type = "refresh" }),
-            ct);
+            JsonSerializer.SerializeToUtf8Bytes(new { type = "refresh" }), ct);
 
     public Task ResizeAsync(int width, int height, CancellationToken ct = default) =>
         _client.SendInputAsync(
-            JsonSerializer.SerializeToUtf8Bytes(new { type = "resize", width, height }),
-            ct);
+            JsonSerializer.SerializeToUtf8Bytes(new { type = "resize", width, height }), ct);
 
     // ── Input relay ───────────────────────────────────────────────────────────
 
-    /// <summary>
-    /// Forwards a raw UTF-8 JSON message received from the browser client
-    /// directly to the sidecar — zero-copy: the original receive buffer is
-    /// used as-is, with no string decode or re-encode.
-    /// </summary>
     public Task DispatchInputAsync(ReadOnlyMemory<byte> raw, CancellationToken ct = default) =>
         _client.SendInputAsync(raw, ct);
 

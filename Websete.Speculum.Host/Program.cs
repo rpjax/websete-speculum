@@ -4,51 +4,35 @@ using Websete.Speculum.Host.Certs;
 using Websete.Speculum.Host.Config;
 using Websete.Speculum.Host.Rewriting;
 using Websete.Speculum.Host.ScriptInjection;
-using Websete.Speculum.Host.Virtualization.Hubs;
 using Websete.Speculum.Host.Virtualization.Services;
 using Websete.Speculum.Host.Virtualization.Ws;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// ── Configuration snapshot ────────────────────────────────────────────────────
+// ── Configuration ─────────────────────────────────────────────────────────────
 var speculumConfig = SpeculumConfig.Load(builder.Configuration, builder.Environment.WebRootPath);
 builder.Services.AddSingleton(speculumConfig);
 
-// ── Certificates (fail-fast: every profile must have a cert) ──────────────────
-// Layout: {certBasePath}/{domain}/privkey.pem
-//         {certBasePath}/{domain}/fullchain.pem
-// Override CertificatesPath in appsettings or via environment variable to
-// point at the correct root in Docker (/Certificates) vs development.
-// Look for certificates next to the binary regardless of working directory.
-// AppContext.BaseDirectory resolves to:
-//   • Development (dotnet run)  → bin/Debug/net10.0/
-//   • Docker (dotnet publish)   → /app/
-//   • Any other deployment      → directory that contains the .dll
-// Override via appsettings or env var (CertificatesPath) for exotic layouts.
+// ── Certificates ──────────────────────────────────────────────────────────────
 var certBasePath = builder.Configuration["CertificatesPath"]
     ?? Path.Combine(AppContext.BaseDirectory, "Certificates");
-
 var certLoader = CertificateProvider.Create(speculumConfig, certBasePath);
 builder.Services.AddSingleton<ICertificateProvider>(certLoader);
 
-// ── Kestrel: HTTPS listener with per-domain certificate selection (SNI) ────────
-// HttpAddress from config (e.g. "0.0.0.0:443") is parsed into an IPEndPoint.
-// Kestrel's ServerCertificateSelector fires per-TLS-connection with the SNI
-// server name; we delegate to ICertificateProvider which was pre-loaded above.
+// ── Kestrel: HTTP/1.1 + HTTP/2 + HTTP/3 on the same port ─────────────────────
+// HTTP/3 runs over QUIC (UDP). Same TLS config as HTTP/1.1+2.
+// Kestrel automatically advertises HTTP/3 via Alt-Svc response headers.
 if (!IPEndPoint.TryParse(speculumConfig.HttpAddress, out var listenEndpoint))
     throw new InvalidOperationException(
-        $"Invalid HttpAddress '{speculumConfig.HttpAddress}'. " +
-        "Expected host:port format, e.g. '0.0.0.0:443'.");
+        $"Invalid HttpAddress '{speculumConfig.HttpAddress}'.");
 
 builder.WebHost.ConfigureKestrel(kestrel =>
 {
     kestrel.Listen(listenEndpoint.Address, listenEndpoint.Port, listen =>
     {
+        listen.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http1AndHttp2;
         listen.UseHttps(https =>
         {
-            // certLoader is captured here (before builder.Build()) and is
-            // safe to use in the selector because it is fully initialised
-            // and immutable at this point.
             https.ServerCertificateSelector = (_, serverName) =>
                 string.IsNullOrEmpty(serverName)
                     ? certLoader.GetDefaultCertificate()
@@ -57,75 +41,100 @@ builder.WebHost.ConfigureKestrel(kestrel =>
     });
 });
 
-// ── URL rewriting (MITM forwarding rules) ─────────────────────────────────────
+// ── Services ──────────────────────────────────────────────────────────────────
 builder.Services.AddSingleton<IUrlRewriter, UrlRewriter>();
-
-// ── Script injection ──────────────────────────────────────────────────────────
-// Reads and caches declared script files from wwwroot at startup.
-// Throws at startup if any file is missing or exceeds the size cap.
 builder.Services.AddSingleton<ScriptInjectionService>();
 
-// ── Sidecar service ───────────────────────────────────────────────────────────
-// SidecarService manages WebSocket connections to the Node.js sidecar.
-// The BaseUrl is configured via appsettings or environment variable
-// (Sidecar__BaseUrl=ws://sidecar:3000 in docker-compose).
 builder.Services.AddSingleton<SidecarService>(sp =>
 {
     var config  = sp.GetRequiredService<IConfiguration>();
     var baseUrl = config["Sidecar:BaseUrl"]
-        ?? throw new InvalidOperationException(
-               "Sidecar:BaseUrl is not configured. " +
-               "Set it via appsettings.json or the Sidecar__BaseUrl environment variable.");
-
+        ?? throw new InvalidOperationException("Sidecar:BaseUrl is not configured.");
     return new SidecarService { SidecarBaseUrl = baseUrl };
 });
 
-// ── Domain services ───────────────────────────────────────────────────────────
 builder.Services.AddSingleton<IVirtualizationService, VirtualizationService>();
-
-// ── ASP.NET Core ──────────────────────────────────────────────────────────────
 builder.Services.AddControllers();
-builder.Services.AddSignalR();
 
 var app = builder.Build();
 
 // ── Eager singleton resolution ────────────────────────────────────────────────
-// Force construction of singletons that read from disk at startup so that any
-// misconfiguration (missing file, bad path) causes an immediate, clear crash
-// rather than failing silently on the first request.
 app.Services.GetRequiredService<ScriptInjectionService>();
 
 // ── Shutdown ──────────────────────────────────────────────────────────────────
 var sidecarService = app.Services.GetRequiredService<SidecarService>();
 app.Lifetime.ApplicationStopping.Register(() =>
 {
-    // Run on the thread pool to avoid any potential sync-context deadlock.
-    // GetAwaiter().GetResult() then blocks until disposal completes so that
-    // the host does not exit before all sidecar connections are closed.
-    Task.Run(() => sidecarService.DisposeAsync().AsTask())
-        .GetAwaiter()
-        .GetResult();
+    Task.Run(() => sidecarService.DisposeAsync().AsTask()).GetAwaiter().GetResult();
 });
-
-// Release X509 certificate resources on shutdown.
 app.Lifetime.ApplicationStopped.Register(() => certLoader.Dispose());
 
 // ── Pipeline ──────────────────────────────────────────────────────────────────
-// WebSocket support must come before routing so the upgrade happens correctly.
-app.UseWebSockets(new WebSocketOptions
-{
-    KeepAliveInterval = TimeSpan.FromSeconds(30),
-});
+app.UseWebSockets();          // enables WS upgrade on any endpoint
 
 app.UseDefaultFiles();
-app.UseStaticFiles();
+
+// Serve static files but tell browsers never to cache index.html so a
+// new deployment is always picked up without a hard refresh.
+app.UseStaticFiles(new StaticFileOptions
+{
+    OnPrepareResponse = ctx =>
+    {
+        if (ctx.File.Name.Equals("index.html", StringComparison.OrdinalIgnoreCase))
+        {
+            ctx.Context.Response.Headers["Cache-Control"] = "no-store, no-cache, must-revalidate";
+            ctx.Context.Response.Headers["Pragma"]        = "no-cache";
+        }
+    },
+});
 
 app.MapControllers();
 
-// Binary WebSocket endpoint: one connection per browser session.
-// ClientWebSocketHandler relays frames (sidecar → client) and input (client → sidecar).
-app.Map("/ws/{sessionId}", ClientWebSocketHandler.HandleAsync);
+// ── REST API: session lifecycle ───────────────────────────────────────────────
 
-app.MapHub<VirtualizationHub>("/hub/virtualization");
+// POST /api/sessions — create a new browser session, return session metadata.
+// The client then opens a WebTransport connection to /wt/{sessionId}.
+app.MapPost("/api/sessions", async (
+    HttpContext            httpCtx,
+    IVirtualizationService service,
+    ILogger<Program>       logger) =>
+{
+    CreateSessionRequest? req;
+    try   { req = await httpCtx.Request.ReadFromJsonAsync<CreateSessionRequest>(); }
+    catch { req = null; }
+    req ??= new CreateSessionRequest();
+
+    try
+    {
+        var resp = await service.CreateSessionAsync(req);
+        return Results.Json(resp);
+    }
+    catch (InvalidOperationException ex)
+    {
+        logger.LogWarning("Session creation failed: {Msg}", ex.Message);
+        return Results.Problem(ex.Message, statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+});
+
+// DELETE /api/sessions/{id} — explicitly close a session.
+app.MapDelete("/api/sessions/{sessionId}", async (
+    string                 sessionId,
+    IVirtualizationService service) =>
+{
+    await service.CloseSessionAsync(sessionId);
+    return Results.NoContent();
+});
+
+// ── WebSocket: one connection per session ─────────────────────────────────────
+// Bidirectional binary WebSocket on wss:// (TCP).  The same H.264 binary
+// protocol runs over this channel — type byte multiplexes video/control/input.
+app.Map("/ws/{sessionId}", async (HttpContext context, IVirtualizationService service) =>
+{
+    var logger = context.RequestServices
+        .GetRequiredService<ILoggerFactory>()
+        .CreateLogger(nameof(WebSocketSessionHandler));
+
+    await WebSocketSessionHandler.HandleAsync(context, service, logger);
+});
 
 app.Run();

@@ -1,9 +1,43 @@
-import { spawn, execFile, ChildProcess } from 'child_process';
-import { promisify } from 'util';
-import * as fs from 'fs';
-
-const execFileAsync = promisify(execFile);
-
+"use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.DisplayManager = void 0;
+const child_process_1 = require("child_process");
+const util_1 = require("util");
+const fs = __importStar(require("fs"));
+const execFileAsync = (0, util_1.promisify)(child_process_1.execFile);
 /**
  * Manages a single Xvfb virtual framebuffer + matchbox-window-manager.
  *
@@ -21,26 +55,22 @@ const execFileAsync = promisify(execFile);
  * after Xvfb starts (see applyXrandr), so Chrome always launches into the
  * correct resolution even though Xvfb's physical framebuffer is larger.
  */
-export class DisplayManager {
-    readonly number: number;
-    private _xvfb: ChildProcess;
-    private _wm:   ChildProcess | null;
-
+class DisplayManager {
+    number;
+    _xvfb;
+    _wm;
     // Cached xrandr output name (e.g. "VIRTUAL1") — resolved once during start()
     // and reused on every subsequent resize() to skip the `xrandr` list parse.
-    private _cachedOutputName: string | null = null;
-
-    private constructor(number: number, xvfb: ChildProcess, wm: ChildProcess | null) {
+    _cachedOutputName = null;
+    constructor(number, xvfb, wm) {
         this.number = number;
-        this._xvfb  = xvfb;
-        this._wm    = wm;
+        this._xvfb = xvfb;
+        this._wm = wm;
     }
-
     /** DISPLAY string, e.g. ":100" */
-    get displayEnv(): string {
+    get displayEnv() {
         return `:${this.number}`;
     }
-
     /**
      * Starts Xvfb on `:{number}` and waits until its lock file appears
      * (the conventional X11 server readiness signal), then starts matchbox.
@@ -49,58 +79,47 @@ export class DisplayManager {
      * caller-requested dimensions are applied immediately via xrandr so that
      * Chrome sees the correct resolution from the start.
      */
-    static async start(
-        number: number,
-        width:  number,
-        height: number,
-    ): Promise<DisplayManager> {
+    static async start(number, width, height) {
         const lockFile = `/tmp/.X${number}-lock`;
-
         // Remove stale lock from a previous crash so Xvfb can claim the display.
-        try { fs.unlinkSync(lockFile); } catch { /* did not exist */ }
-
+        try {
+            fs.unlinkSync(lockFile);
+        }
+        catch { /* did not exist */ }
         // Allocate the maximum possible framebuffer at launch time.
         // xrandr will set the active resolution to width×height right after.
-        const xvfb = spawn('Xvfb', [
+        const xvfb = (0, child_process_1.spawn)('Xvfb', [
             `:${number}`,
-            '-screen',    '0', '4096x2160x24',
-            '-ac',                        // disable access control
-            '+extension', 'GLX',          // required for compositing paths
-            '+extension', 'RANDR',        // required for xrandr resizing
+            '-screen', '0', '4096x2160x24',
+            '-ac', // disable access control
+            '+extension', 'GLX', // required for compositing paths
+            '+extension', 'RANDR', // required for xrandr resizing
             '+render',
         ], {
             stdio: ['ignore', 'pipe', 'pipe'],
         });
-
         // Drain stdout/stderr so pipe buffers never fill and block Xvfb.
         xvfb.stdout?.resume();
         xvfb.stderr?.resume();
-
         xvfb.on('error', err => {
             console.error(`[Xvfb :${number}] spawn error:`, err.message);
         });
-
         // Poll for the X11 lock file — its existence signals the server is ready.
         await DisplayManager.waitForLock(lockFile, xvfb, number);
-
         // Set the active resolution to the caller-requested size.
         // Chrome will launch and see this resolution (not 4096×2160).
         // applyXrandr returns the output name it resolved so we can cache it.
         const cachedOutputName = await DisplayManager.applyXrandr(number, width, height, null);
-
         // Start a minimal window manager. matchbox-window-manager forces every
         // window to fill the screen and handles all X11 event plumbing,
         // including forwarding RandR resize events to fullscreen windows.
         const wm = DisplayManager.tryStartWm(number);
-
         // Give the WM a moment to connect before Chrome tries to open a window.
-        await new Promise<void>(r => setTimeout(r, 200));
-
+        await new Promise(r => setTimeout(r, 200));
         const dm = new DisplayManager(number, xvfb, wm);
         dm._cachedOutputName = cachedOutputName;
         return dm;
     }
-
     /**
      * Changes the active virtual display resolution via xrandr.
      *
@@ -117,16 +136,13 @@ export class DisplayManager {
      * The xrandr output name is cached after the first successful call so
      * subsequent resizes skip the `xrandr` list parse entirely.
      */
-    async resize(width: number, height: number): Promise<void> {
-        const resolved = await DisplayManager.applyXrandr(
-            this.number, width, height, this._cachedOutputName,
-        );
+    async resize(width, height) {
+        const resolved = await DisplayManager.applyXrandr(this.number, width, height, this._cachedOutputName);
         // Update the cache in case it was resolved for the first time here.
-        if (resolved && !this._cachedOutputName) this._cachedOutputName = resolved;
+        if (resolved && !this._cachedOutputName)
+            this._cachedOutputName = resolved;
     }
-
     // ── Internals ─────────────────────────────────────────────────────────────
-
     /**
      * Computes a syntactically valid xrandr modeline for width×height @ 60 Hz.
      *
@@ -143,40 +159,32 @@ export class DisplayManager {
      *   Pixel clock — H-total × V-total × 60, rounded to the nearest
      *   0.25 MHz (xrandr's mandatory clock-step granularity).
      */
-    private static computeModeline(
-        width:  number,
-        height: number,
-        hz = 60,
-    ): { name: string; params: string[] } {
-        const CELL  = 8;    // character cell granularity (pixels)
-        const STEP  = 0.25; // pixel-clock step (MHz)
-
+    static computeModeline(width, height, hz = 60) {
+        const CELL = 8; // character cell granularity (pixels)
+        const STEP = 0.25; // pixel-clock step (MHz)
         // ── Horizontal ────────────────────────────────────────────────────────
         // Active area rounded up to cell boundary, then add 12.5 % blanking
         // (also a multiple of 2 cells so the total stays on the cell grid).
-        const hActive = Math.ceil(width  / CELL) * CELL;
-        const hBlank  = Math.round(hActive * 0.125 / (CELL * 2)) * (CELL * 2);
-        const hTotal  = hActive + hBlank;
+        const hActive = Math.ceil(width / CELL) * CELL;
+        const hBlank = Math.round(hActive * 0.125 / (CELL * 2)) * (CELL * 2);
+        const hTotal = hActive + hBlank;
         // H-sync pulse = 8 % of H-total, rounded to cell boundary.
-        const hSync   = Math.round(0.08 * hTotal / CELL) * CELL;
+        const hSync = Math.round(0.08 * hTotal / CELL) * CELL;
         // Front porch fills half the blanking minus half the sync pulse.
-        const hFront  = Math.round(hBlank / 2 - hSync / 2);
-        const hSS     = hActive + hFront;
-        const hSE     = hSS + hSync;
-
+        const hFront = Math.round(hBlank / 2 - hSync / 2);
+        const hSS = hActive + hFront;
+        const hSE = hSS + hSync;
         // ── Vertical ──────────────────────────────────────────────────────────
         const vActive = height;
-        const vFront  = 3;
-        const vSync   = 4;
-        const vBack   = 21;
-        const vTotal  = vActive + vFront + vSync + vBack;
-        const vSS     = vActive + vFront;
-        const vSE     = vSS + vSync;
-
+        const vFront = 3;
+        const vSync = 4;
+        const vBack = 21;
+        const vTotal = vActive + vFront + vSync + vBack;
+        const vSS = vActive + vFront;
+        const vSE = vSS + vSync;
         // ── Pixel clock ───────────────────────────────────────────────────────
         const rawClock = hTotal * vTotal * hz / 1_000_000; // MHz
-        const clock    = Math.round(rawClock / STEP) * STEP;
-
+        const clock = Math.round(rawClock / STEP) * STEP;
         const name = `${width}x${height}_${hz}.00`;
         return {
             name,
@@ -187,7 +195,6 @@ export class DisplayManager {
             ],
         };
     }
-
     /**
      * Applies a resolution change via xrandr.
      *
@@ -204,144 +211,116 @@ export class DisplayManager {
      * single xrandr invocation (`--output X --mode M --fb WxH`).  xrandr then
      * resizes the CRTC and the framebuffer atomically, satisfying the constraint.
      */
-    private static async applyXrandr(
-        displayNum:        number,
-        width:             number,
-        height:            number,
-        cachedOutputName:  string | null,
-    ): Promise<string | null> {
+    static async applyXrandr(displayNum, width, height, cachedOutputName) {
         const display = `:${displayNum}`;
-        const env     = { ...process.env as Record<string, string>, DISPLAY: display };
-
+        const env = { ...process.env, DISPLAY: display };
         try {
             // ── Step 1: compute modeline in TypeScript ────────────────────────
             // No `cvt` binary required.  The formula produces values accepted by
             // Xvfb's xrandr driver (virtual hardware, no timing validation).
-            const { name: modeName, params: modeParams } =
-                DisplayManager.computeModeline(width, height);
-
+            const { name: modeName, params: modeParams } = DisplayManager.computeModeline(width, height);
             // ── Step 2: find the xrandr output name ───────────────────────────
             // Xvfb with RANDR extension exposes one virtual output.
             // Its name varies by version: "VIRTUAL1", "screen", etc.
             // Skip if we already resolved it on a previous call.
             let outputName = cachedOutputName;
             if (!outputName) {
-                const { stdout: xrOut } =
-                    await execFileAsync('xrandr', ['--display', display], { env });
-
+                const { stdout: xrOut } = await execFileAsync('xrandr', ['--display', display], { env });
                 const outputMatch = xrOut.match(/^(\S+)\s+(?:connected|disconnected)/m);
                 if (!outputMatch) {
                     throw new Error(`No xrandr output found in:\n${xrOut.trim()}`);
                 }
                 outputName = outputMatch[1];
             }
-
             // ── Step 3: register the mode (idempotent) ────────────────────────
             try {
-                await execFileAsync(
-                    'xrandr',
-                    ['--display', display, '--newmode', modeName, ...modeParams],
-                    { env },
-                );
-            } catch { /* mode already registered — ignore */ }
-
+                await execFileAsync('xrandr', ['--display', display, '--newmode', modeName, ...modeParams], { env });
+            }
+            catch { /* mode already registered — ignore */ }
             try {
-                await execFileAsync(
-                    'xrandr',
-                    ['--display', display, '--addmode', outputName, modeName],
-                    { env },
-                );
-            } catch { /* already attached — ignore */ }
-
+                await execFileAsync('xrandr', ['--display', display, '--addmode', outputName, modeName], { env });
+            }
+            catch { /* already attached — ignore */ }
             // ── Step 4: switch output + framebuffer atomically ────────────────
             // Combining --output --mode --fb in one invocation is mandatory:
             // the CRTC mode changes to WxH first, then --fb WxH succeeds
             // because the output no longer exceeds the requested size.
             await execFileAsync('xrandr', [
                 '--display', display,
-                '--output',  outputName,
-                '--mode',    modeName,
-                '--fb',      `${width}x${height}`,
+                '--output', outputName,
+                '--mode', modeName,
+                '--fb', `${width}x${height}`,
             ], { env });
-
             console.log(`[DisplayManager :${displayNum}] xrandr → ${width}×${height} (mode ${modeName})`);
             return outputName;
-        } catch (err) {
-            console.error(
-                `[DisplayManager :${displayNum}] xrandr failed (${(err as Error).message.split('\n')[0]}). ` +
-                `Display stays at its current resolution.`,
-            );
+        }
+        catch (err) {
+            console.error(`[DisplayManager :${displayNum}] xrandr failed (${err.message.split('\n')[0]}). ` +
+                `Display stays at its current resolution.`);
             return cachedOutputName ?? null;
         }
     }
-
-    private static async waitForLock(
-        lockFile: string,
-        xvfb:     ChildProcess,
-        number:   number,
-        timeoutMs = 10_000,
-    ): Promise<void> {
+    static async waitForLock(lockFile, xvfb, number, timeoutMs = 10_000) {
         const deadline = Date.now() + timeoutMs;
-
         while (!fs.existsSync(lockFile)) {
             if (xvfb.exitCode !== null) {
-                throw new Error(
-                    `Xvfb :${number} exited prematurely (code ${xvfb.exitCode}).`,
-                );
+                throw new Error(`Xvfb :${number} exited prematurely (code ${xvfb.exitCode}).`);
             }
             if (Date.now() >= deadline) {
                 xvfb.kill();
                 throw new Error(`Xvfb :${number} did not start within ${timeoutMs} ms.`);
             }
-            await new Promise<void>(r => setTimeout(r, 50));
+            await new Promise(r => setTimeout(r, 50));
         }
     }
-
-    private static tryStartWm(displayNumber: number): ChildProcess | null {
+    static tryStartWm(displayNumber) {
         try {
-            const wm = spawn('matchbox-window-manager', ['-use_titlebar', 'no'], {
-                env:   { ...process.env as Record<string, string>, DISPLAY: `:${displayNumber}` },
+            const wm = (0, child_process_1.spawn)('matchbox-window-manager', ['-use_titlebar', 'no'], {
+                env: { ...process.env, DISPLAY: `:${displayNumber}` },
                 stdio: ['ignore', 'pipe', 'pipe'],
             });
             wm.stdout?.resume();
             wm.stderr?.resume();
-            wm.on('error', () => { /* matchbox not installed — degrade gracefully */ });
+            wm.on('error', () => { });
             return wm;
-        } catch {
+        }
+        catch {
             return null;
         }
     }
-
-    async dispose(): Promise<void> {
+    async dispose() {
         // Send SIGKILL to both processes immediately and simultaneously.
         // Neither WM nor Xvfb holds user data — there is no value in a graceful
         // SIGTERM + wait cycle. SIGKILL causes exit within milliseconds.
-        if (this._wm   && this._wm.exitCode   === null) this._wm.kill('SIGKILL');
-        if (this._xvfb &&  this._xvfb.exitCode === null) this._xvfb.kill('SIGKILL');
-
+        if (this._wm && this._wm.exitCode === null)
+            this._wm.kill('SIGKILL');
+        if (this._xvfb && this._xvfb.exitCode === null)
+            this._xvfb.kill('SIGKILL');
         // Wait for both to confirm exit in parallel (should be near-instant after SIGKILL).
         // The 2 s timeout is just a safety net — it should never be reached in practice.
         await Promise.all([
-            this._wm   ? DisplayManager.waitForExit(this._wm,   2_000) : Promise.resolve(),
+            this._wm ? DisplayManager.waitForExit(this._wm, 2_000) : Promise.resolve(),
             this._xvfb ? DisplayManager.waitForExit(this._xvfb, 2_000) : Promise.resolve(),
         ]);
-
         // Clean up stale lock file so the display number can be reused.
-        try { fs.unlinkSync(`/tmp/.X${this.number}-lock`); } catch { /* already gone */ }
+        try {
+            fs.unlinkSync(`/tmp/.X${this.number}-lock`);
+        }
+        catch { /* already gone */ }
     }
-
     /**
      * Waits for a child process to exit, with a hard timeout.
      * Does NOT send any signal — callers must send SIGTERM before calling this.
      */
-    private static waitForExit(
-        proc:      ReturnType<typeof spawn>,
-        timeoutMs: number,
-    ): Promise<void> {
-        return new Promise<void>(resolve => {
-            if (proc.exitCode !== null) { resolve(); return; }
+    static waitForExit(proc, timeoutMs) {
+        return new Promise(resolve => {
+            if (proc.exitCode !== null) {
+                resolve();
+                return;
+            }
             const timer = setTimeout(resolve, timeoutMs);
             proc.once('exit', () => { clearTimeout(timer); resolve(); });
         });
     }
 }
+exports.DisplayManager = DisplayManager;

@@ -4,7 +4,6 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>Speculum</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js"></script>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -107,7 +106,7 @@
     height: 100%;
     display: block;
     cursor: default;
-    image-rendering: pixelated;
+    image-rendering: auto;  /* bilinear scaling; avoids blocky nearest-neighbour */
     touch-action: none;
   }
 
@@ -168,9 +167,6 @@
 const IS_DEV = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
 
 // ── Protocol constants ────────────────────────────────────────────────────────
-const MSG_TILE        = 0x01;
-const MSG_FULL        = 0x02;
-// 0x03 = skip: nothing to render
 const MSG_URL         = 0x04;  // URL update from sidecar
 const MSG_CONSOLE     = 0x05;  // Virtual browser console output
 const MSG_EVAL_RESULT = 0x06;  // vcon() evaluation result
@@ -192,8 +188,8 @@ const fpsEl      = document.getElementById('fps');
 if (IS_DEV) fpsEl.classList.add('active');
 
 // ── Session state ─────────────────────────────────────────────────────────────
-let hub             = null;
-let ws              = null;
+let ws              = null;   // WebSocket connection (replaces WebTransport)
+let decoder         = null;
 let sessionId       = null;
 let sessionW        = 1280;
 let sessionH        = 720;
@@ -204,20 +200,15 @@ let   _evalId      = 0;
 const _evalPending = new Map(); // id → { resolve, reject, timer }
 
 // ── Canvas layout ─────────────────────────────────────────────────────────────
-// The canvas element fills its parent (#viewport) via CSS (position:absolute,
-// inset:0). We only need to update the canvas pixel buffer dimensions so they
-// match the viewport's CSS pixel size — giving 1:1 mapping with zero scaling.
 function syncCanvasSize(w, h) {
   sessionW      = w;
   sessionH      = h;
   canvas.width  = w;
   canvas.height = h;
-  invalidateRect(); // canvas dimensions changed → cached rect is stale
+  invalidateRect();
 }
 
 // ── ResizeObserver — propagates viewport size changes to the virtual browser ──
-// Debounced 250 ms to avoid flooding the sidecar during continuous drag-resize.
-// Only fires once the WebSocket is open (no session → no resize to send).
 let resizeTimer = null;
 
 const resizeObserver = new ResizeObserver(entries => {
@@ -225,23 +216,28 @@ const resizeObserver = new ResizeObserver(entries => {
   if (!entry) return;
   const w = Math.round(entry.contentRect.width);
   const h = Math.round(entry.contentRect.height);
-  if (w < 100 || h < 100) return;   // ignore degenerate sizes during layout
-  if (w === sessionW && h === sessionH) return; // nothing changed
+  if (w < 100 || h < 100) return;
+  if (w === sessionW && h === sessionH) return;
 
-  // Viewport geometry changed → cached rect is definitely stale.
   invalidateRect();
 
   clearTimeout(resizeTimer);
   resizeTimer = setTimeout(() => {
-    // Update the canvas buffer immediately so new frames paint at the right size.
-    // The canvas will appear blank for ~600 ms while the sidecar resizes Xvfb
-    // and restarts FFmpeg — this is acceptable.
     syncCanvasSize(w, h);
 
-    // Tell the sidecar to resize the virtual display.
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      sendInput({ type: 'resize', width: w, height: h });
+    // Reconfigure VideoDecoder for new dimensions
+    if (decoder && decoder.state !== 'closed') {
+      try {
+        decoder.configure({
+          codec:              'avc1.42002a',
+          codedWidth:         w,
+          codedHeight:        h,
+          optimizeForLatency: true,
+        });
+      } catch (e) { console.warn('[decoder] reconfigure error', e); }
     }
+
+    sendControl({ type: 'resize', width: w, height: h });
   }, 250);
 });
 
@@ -269,100 +265,57 @@ function tickFps() {
   }
 }
 
-// ── Frame rendering (requestAnimationFrame-paced) ─────────────────────────────
-// One slot: the latest frame waiting to be rendered. Older frames are evicted
-// when a newer one arrives — we always render the most recent state, never a
-// stale backlog. This keeps latency at one frame regardless of how fast frames
-// arrive vs. how fast the GPU can draw.
-let pendingFrame = null;
-let rafPending   = false;
+// ── Server message parser ─────────────────────────────────────────────────────
+// Each WebSocket binary message is a complete protocol frame identified by its
+// first byte.  No streaming reader needed — WS delivers complete messages.
+//
+// Server → Client message formats (all little-endian):
+//   0x07 MSG_H264:        [type:1][isKeyframe:1][dataLen:4][H.264 Annex B data]
+//   0x04 MSG_URL:         [type:1][len:4][UTF-8 url]
+//   0x05 MSG_CONSOLE:     [type:1][level:1][len:4][UTF-8 text]
+//   0x06 MSG_EVAL_RESULT: [type:1][id:4][ok:1][len:4][UTF-8 value]
+function onServerMessage(event) {
+  if (!(event.data instanceof ArrayBuffer)) return;
+  const buf  = new Uint8Array(event.data);
+  if (buf.length === 0) return;
+  const view = new DataView(event.data);
+  const type = buf[0];
 
-function scheduleRender() {
-  if (rafPending) return;
-  rafPending = true;
-  requestAnimationFrame(renderNext);
-}
+  if (type === 0x07) { // MSG_H264 — video frame
+    if (buf.length < 6) return;
+    const isKeyframe = buf[1] === 1;
+    const dataLen    = view.getUint32(2, true);
+    if (6 + dataLen > buf.length) return;
 
-function renderNext() {
-  rafPending   = false;
-  const fn     = pendingFrame;
-  pendingFrame = null;
-  if (!fn) return;
-  fn().then(() => {
-    tickFps();
-    if (pendingFrame) scheduleRender(); // another frame arrived while we were drawing
-  });
-}
-
-async function handleFrame(buffer) {
-  if (!(buffer instanceof ArrayBuffer)) return;
-  const view = new DataView(buffer);
-  if (buffer.byteLength < 1) return;
-  const type = view.getUint8(0);
-
-  if (type === MSG_FULL) {
-    // Layout: [0] type | [1-4] frameId | [5-8] len | [9+] jpeg
-    if (buffer.byteLength < 9) return;
-    const len = view.getUint32(5, true);
-    if (9 + len > buffer.byteLength) return;
-    const jpeg = buffer.slice(9, 9 + len);
-
-    // Evict any pending frame — we only ever render the latest one.
-    pendingFrame = async () => {
-      const blob = new Blob([jpeg], { type: 'image/jpeg' });
-      const bmp  = await createImageBitmap(blob);
-      try   { ctx.drawImage(bmp, 0, 0, sessionW, sessionH); }
-      finally { bmp.close(); }
-    };
-    scheduleRender();
-
-  } else if (type === MSG_TILE) {
-    // Tile frames are kept for backwards-compatibility but the sidecar no
-    // longer sends them. If they do arrive, render them as a batch.
-    if (buffer.byteLength < 7) return;
-    const numTiles = view.getUint16(5, true);
-    let offset = 7;
-    const tiles = [];
-
-    for (let i = 0; i < numTiles; i++) {
-      if (offset + 12 > buffer.byteLength) break;
-      const x   = view.getUint16(offset, true); offset += 2;
-      const y   = view.getUint16(offset, true); offset += 2;
-      const w   = view.getUint16(offset, true); offset += 2;
-      const h   = view.getUint16(offset, true); offset += 2;
-      const len = view.getUint32(offset, true); offset += 4;
-      if (offset + len > buffer.byteLength) break;
-      tiles.push({ x, y, w, h, jpeg: buffer.slice(offset, offset + len) });
-      offset += len;
+    // If the decoder was closed due to an error, wait for the next keyframe
+    // (IDR) and then recreate it — the new IDR resets the H.264 state machine.
+    if (!decoder || decoder.state === 'closed') {
+      if (!isKeyframe) return;   // delta frame with no live decoder → skip
+      decoder = createDecoder();
+      decoder.configure({
+        codec:              'avc1.42002a',
+        codedWidth:         sessionW,
+        codedHeight:        sessionH,
+        optimizeForLatency: true,
+      });
     }
 
-    if (tiles.length === 0) return;
+    if (decoder.state !== 'configured') return;
+    tickFps();
+    decoder.decode(new EncodedVideoChunk({
+      type:      isKeyframe ? 'key' : 'delta',
+      timestamp: performance.now() * 1000,
+      data:      event.data.slice(6, 6 + dataLen),
+    }));
 
-    pendingFrame = async () => {
-      await Promise.all(tiles.map(async ({ x, y, w, h, jpeg }) => {
-        const blob = new Blob([jpeg], { type: 'image/jpeg' });
-        const bmp  = await createImageBitmap(blob);
-        try   { ctx.drawImage(bmp, x, y, w, h); }
-        finally { bmp.close(); }
-      }));
-    };
-    scheduleRender();
+  } else if (type === MSG_URL) { // 0x04 — URL update
+    if (buf.length < 5) return;
+    urlBar.value = new TextDecoder().decode(new Uint8Array(event.data, 5, view.getUint32(1, true)));
 
-  } else if (type === MSG_URL) {
-    // Layout: [0] type | [1-4] len | [5+] UTF-8 url
-    if (buffer.byteLength < 5) return;
-    const len = view.getUint32(1, true);
-    if (5 + len > buffer.byteLength) return;
-    const url = new TextDecoder().decode(new Uint8Array(buffer, 5, len));
-    urlBar.value = url;
-
-  } else if (type === MSG_CONSOLE) {
-    // Layout: [0] type | [1] level | [2-5] len | [6+] UTF-8 text
-    if (buffer.byteLength < 6) return;
-    const level = view.getUint8(1);
-    const len   = view.getUint32(2, true);
-    if (6 + len > buffer.byteLength) return;
-    const text  = new TextDecoder().decode(new Uint8Array(buffer, 6, len));
+  } else if (type === MSG_CONSOLE) { // 0x05 — virtual browser console
+    if (buf.length < 6) return;
+    const level = buf[1];
+    const text  = new TextDecoder().decode(new Uint8Array(event.data, 6, view.getUint32(2, true)));
     const fn    = console[VCON_METHODS[level] ?? 'log'];
     fn.call(console,
       '%c[VCON]%c ' + text,
@@ -370,53 +323,67 @@ async function handleFrame(buffer) {
       'color:inherit;font-family:monospace',
     );
 
-  } else if (type === MSG_EVAL_RESULT) {
-    // Layout: [0] type | [1-4] id | [5] ok | [6-9] len | [10+] UTF-8 value
-    if (buffer.byteLength < 10) return;
-    const id    = view.getUint32(1, true);
-    const ok    = view.getUint8(5) === 1;
-    const len   = view.getUint32(6, true);
-    if (10 + len > buffer.byteLength) return;
-    const value = new TextDecoder().decode(new Uint8Array(buffer, 10, len));
+  } else if (type === MSG_EVAL_RESULT) { // 0x06 — vcon() result
+    if (buf.length < 10) return;
+    const id      = view.getUint32(1, true);
+    const ok      = buf[5] === 1;
+    const value   = new TextDecoder().decode(new Uint8Array(event.data, 10, view.getUint32(6, true)));
     const pending = _evalPending.get(id);
     if (pending) {
       clearTimeout(pending.timer);
       _evalPending.delete(id);
-      const VSTYLE = 'color:#ff9800;font-weight:bold;font-family:monospace';
+      const VS = 'color:#ff9800;font-weight:bold;font-family:monospace';
       if (ok) {
-        // Empty value = undefined result (e.g. console.log return value).
-        // Those cases already produce a [VCON] line via MSG_CONSOLE, so we
-        // stay silent here to avoid a redundant line.
         if (value === '') { pending.resolve(undefined); return; }
         let parsed;
         try   { parsed = JSON.parse(value); }
-        catch { parsed = value; } // not JSON — return as string
-        // Log with [VCON] ← so the operator can tell at a glance that this
-        // value came from the virtual browser, not the local page.
-        console.log('%c[VCON] ←%c', VSTYLE, 'color:inherit', parsed);
+        catch { parsed = value; }
+        console.log('%c[VCON] ←%c', VS, 'color:inherit', parsed);
         pending.resolve(parsed);
       } else {
-        console.error('%c[VCON] ←%c Error: ' + value, VSTYLE, 'color:inherit');
+        console.error('%c[VCON] ←%c Error: ' + value, VS, 'color:inherit');
         pending.reject(new Error(value));
       }
     }
-
-  } else if (type !== 0x03) {
-    console.warn('[speculum] Unknown frame type:', type);
   }
 }
 
-// ── JsBridge client — vcon() + startup banner ─────────────────────────────────
+// ── StreamReader helper (REMOVED — no longer needed with WebSocket) ────────────
+// Dead code below kept as a placeholder to avoid breaking line-number references.
+class StreamReader {
+  // (StreamReader body removed — no longer needed with WebSocket)
+}
 
-/**
- * Exposes window.vcon(code) — evaluates JavaScript in the virtual browser
- * and returns the result as a Promise. Console output produced by the code
- * appears in the local console with [VCON]: prefix via the console bridge.
- *
- * Example:
- *   await vcon('window.location.href')    // → "https://..."
- *   await vcon('console.log(document.title)')  // → undefined + [VCON]: title
- */
+// ── VideoDecoder ──────────────────────────────────────────────────────────────
+function createDecoder() {
+  const d = new VideoDecoder({
+    output: (frame) => {
+      ctx.drawImage(frame, 0, 0, sessionW, sessionH);
+      frame.close();
+      tickFps();
+    },
+    error: (e) => {
+      console.warn('[VideoDecoder] error — will recreate on next keyframe:', e);
+      // Explicitly close so decoder.state === 'closed' below.
+      // onServerMessage skips all non-keyframes until a new decoder is ready.
+      try { d.close(); } catch { /* already closed */ }
+    },
+  });
+  return d;
+}
+
+// ── Send helpers — all events go as JSON text on the single WebSocket ─────────
+function sendEvent(obj) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify(obj));
+}
+
+// Aliases kept so the rest of the event listeners need no changes.
+function sendMouseMove(x, y) { sendEvent({ type: 'mousemove', x, y }); }
+function sendInput(obj)       { sendEvent(obj); }
+function sendControl(obj)     { sendEvent(obj); }
+
+// ── JsBridge client — vcon() + startup banner ─────────────────────────────────
 function installVcon() {
   window.vcon = function vcon(code) {
     return new Promise(function (resolve, reject) {
@@ -432,7 +399,7 @@ function installVcon() {
         }
       }, 10_000);
       _evalPending.set(id, { resolve, reject, timer });
-      sendInput({ type: 'evaljs', id, code });
+      sendControl({ type: 'evaljs', id, code });
     });
   };
 }
@@ -441,11 +408,6 @@ function uninstallVcon() {
   delete window.vcon;
 }
 
-/**
- * Prints a formatted startup banner to the browser console every time a new
- * session is established (WS opened). Shows session ID, viewport, and
- * JsBridge status so the operator knows the current configuration at a glance.
- */
 function printBanner() {
   const BADGE = 'background:#1565c0;color:#fff;font-weight:bold;padding:2px 8px;border-radius:3px;letter-spacing:.05em';
   const DIM   = 'color:#666;font-weight:bold';
@@ -460,6 +422,7 @@ function printBanner() {
   );
   console.log('%cSession  %c' + sessionId,         DIM, VAL);
   console.log('%cViewport %c' + sessionW + '×' + sessionH, DIM, VAL);
+  console.log('%cTransport%c WebSocket (wss)',              DIM, VAL);
 
   if (jsBridgeEnabled) {
     console.log('%cJsBridge %cenabled %c→ await window.vcon(code)', DIM, OK, HINT);
@@ -471,10 +434,6 @@ function printBanner() {
 }
 
 // ── Input helpers ─────────────────────────────────────────────────────────────
-// Cache the bounding rect so mousemove never triggers a layout reflow.
-// Invalidated by ResizeObserver (viewport size change) and by the resize
-// debounce callback (canvas dimensions updated), which both cover every
-// case where the rect can change.
 let _cachedRect = null;
 
 function invalidateRect() { _cachedRect = null; }
@@ -487,25 +446,16 @@ function canvasToPage(clientX, clientY) {
   };
 }
 
-function sendInput(obj) {
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify(obj));
-  }
-}
-
 // ── Mouse events ──────────────────────────────────────────────────────────────
 let lastMoveTime  = 0;
-// Tracks which buttons are currently held (mousedown came from canvas).
-// Used to: (a) catch mouseup outside the canvas, (b) continue reporting
-// mousemove during drag even when the cursor leaves the canvas element.
 const pressedBtns = new Set();
 
 canvas.addEventListener('mousemove', e => {
   const now = performance.now();
-  if (now - lastMoveTime < 16) return; // ~60 Hz cap
+  if (now - lastMoveTime < 16) return; // ~60 Hz cap for server events
   lastMoveTime = now;
   const {x, y} = canvasToPage(e.clientX, e.clientY);
-  sendInput({ type: 'mousemove', x, y });
+  sendMouseMove(x, y);
 });
 
 canvas.addEventListener('mousedown', e => {
@@ -516,9 +466,6 @@ canvas.addEventListener('mousedown', e => {
   sendInput({ type: 'mousedown', x, y, button: e.button });
 });
 
-// Listen on window so mouseup is always caught even if the cursor left the
-// canvas while a button was held (drag-out). The pressedBtns guard prevents
-// forwarding releases for clicks that never started on the canvas.
 window.addEventListener('mouseup', e => {
   if (!pressedBtns.has(e.button)) return;
   pressedBtns.delete(e.button);
@@ -526,14 +473,14 @@ window.addEventListener('mouseup', e => {
   sendInput({ type: 'mouseup', x, y, button: e.button });
 });
 
-// Continue tracking position while dragging outside the canvas boundary.
 window.addEventListener('mousemove', e => {
-  if (pressedBtns.size === 0) return; // not dragging — canvas listener handles in-bounds moves
-  const now = performance.now();
-  if (now - lastMoveTime < 16) return;
-  lastMoveTime = now;
-  const {x, y} = canvasToPage(e.clientX, e.clientY);
-  sendInput({ type: 'mousemove', x, y });
+  if (pressedBtns.size > 0) {
+    const now = performance.now();
+    if (now - lastMoveTime < 16) return;
+    lastMoveTime = now;
+    const {x, y} = canvasToPage(e.clientX, e.clientY);
+    sendMouseMove(x, y);
+  }
 });
 
 canvas.addEventListener('contextmenu', e => e.preventDefault());
@@ -541,19 +488,13 @@ canvas.addEventListener('contextmenu', e => e.preventDefault());
 canvas.addEventListener('wheel', e => {
   e.preventDefault();
   const {x, y} = canvasToPage(e.clientX, e.clientY);
-  // Normalize deltaMode to pixels before forwarding.
-  //   deltaMode 0 = DOM_DELTA_PIXEL  → already pixels (trackpads, most browsers)
-  //   deltaMode 1 = DOM_DELTA_LINE   → ×40 px/line  (typical physical mouse wheel on Windows)
-  //   deltaMode 2 = DOM_DELTA_PAGE   → ×viewport height/width
   let dX = e.deltaX, dY = e.deltaY;
   if      (e.deltaMode === 1) { dX *= 40; dY *= 40; }
   else if (e.deltaMode === 2) { dX *= canvas.clientWidth; dY *= canvas.clientHeight; }
   sendInput({ type: 'wheel', x, y, deltaX: dX, deltaY: dY });
 }, { passive: false });
 
-// ── Touch events — mapped to pointer messages ─────────────────────────────────
-// Single-touch → left-button mouse. Multi-touch is not forwarded (rare need,
-// would require CDP touch API on the sidecar side).
+// ── Touch events ──────────────────────────────────────────────────────────────
 canvas.addEventListener('touchstart', e => {
   e.preventDefault();
   canvas.focus();
@@ -571,7 +512,7 @@ canvas.addEventListener('touchmove', e => {
   if (now - lastMoveTime < 16) return;
   lastMoveTime = now;
   const {x, y} = canvasToPage(t.clientX, t.clientY);
-  sendInput({ type: 'mousemove', x, y });
+  sendMouseMove(x, y);
 }, { passive: false });
 
 canvas.addEventListener('touchend', e => {
@@ -593,15 +534,9 @@ canvas.addEventListener('touchcancel', e => {
 // ── Keyboard events ───────────────────────────────────────────────────────────
 canvas.setAttribute('tabindex', '0');
 
-// Tracks keys for which we forwarded a keydown. Ensures:
-//   • keyup is only sent when there is a matching keydown (prevents spurious
-//     keyup for passthrough keys like F12 that we never forwarded as keydown).
-//   • blur can release all held keys atomically, preventing stuck modifiers
-//     and stuck printable keys when the canvas loses focus.
 const heldKeys = new Set();
 
 canvas.addEventListener('keydown', e => {
-  // Pass these through to the host browser unchanged.
   if (e.key === 'F12') return;
   if ((e.ctrlKey || e.metaKey) && ['r', 'l', 't', 'w', 'n'].includes(e.key.toLowerCase())) return;
 
@@ -611,15 +546,11 @@ canvas.addEventListener('keydown', e => {
 });
 
 canvas.addEventListener('keyup', e => {
-  // Only forward keyup when we forwarded the matching keydown.
   if (!heldKeys.has(e.key)) return;
   heldKeys.delete(e.key);
   sendInput({ type: 'keyup', key: e.key });
 });
 
-// When the canvas loses focus, release every held key in the virtual browser.
-// Without this, modifier keys (Shift, Ctrl…) and held printable keys would
-// remain stuck until the user presses and releases them again.
 canvas.addEventListener('blur', () => {
   for (const key of heldKeys) {
     sendInput({ type: 'keyup', key });
@@ -628,110 +559,105 @@ canvas.addEventListener('blur', () => {
 });
 
 // ── Navigation ────────────────────────────────────────────────────────────────
-// Navigation is driven by the MITM engine — users interact with the virtual
-// browser directly (click links, use back/forward). There is no "navigate to"
-// command from the client.
-backBtn.addEventListener('click', () => sendInput({ type: 'goback' }));
-fwdBtn.addEventListener('click',  () => sendInput({ type: 'goforward' }));
+backBtn.addEventListener('click', () => sendControl({ type: 'goback' }));
+fwdBtn.addEventListener('click',  () => sendControl({ type: 'goforward' }));
 
-// ── WebSocket (binary frame streaming + input) ────────────────────────────────
-function openWebSocket(sid) {
-  const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
-  ws = new WebSocket(`${scheme}://${location.host}/ws/${sid}`);
-  ws.binaryType = 'arraybuffer';
+// ── Disconnect cleanup ────────────────────────────────────────────────────────
+function onDisconnected() {
+  setStatus('Disconnected — click to reconnect', 'error');
+  backBtn.disabled = true;
+  fwdBtn.disabled  = true;
+  overlay.classList.remove('hidden');
+  connectBtn.disabled = false;
 
-  ws.onopen = () => {
+  heldKeys.clear();
+  pressedBtns.clear();
+
+  for (const { reject, timer } of _evalPending.values()) {
+    clearTimeout(timer);
+    reject(new Error('[vcon] Session closed'));
+  }
+  _evalPending.clear();
+
+  if (jsBridgeEnabled) uninstallVcon();
+  jsBridgeEnabled = false;
+
+  if (decoder && decoder.state !== 'closed') {
+    try { decoder.close(); } catch { /* ignore */ }
+  }
+  decoder = null;
+
+  if (ws) {
+    ws.onclose   = null; // prevent recursive call
+    ws.onerror   = null;
+    ws.onmessage = null;
+    if (ws.readyState === WebSocket.OPEN) try { ws.close(); } catch { /* ignore */ }
+    ws = null;
+  }
+}
+
+// ── WebSocket + session creation ──────────────────────────────────────────────
+async function connect() {
+  setStatus('Connecting...', 'connecting');
+  connectBtn.disabled = true;
+
+  try {
+    // 1. Create session via HTTP POST
+    const initW = viewport.clientWidth  || 1280;
+    const initH = viewport.clientHeight || 720;
+
+    const resp = await fetch('/api/sessions', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({
+        width:      initW,
+        height:     initH,
+        initialUrl: window.location.href,
+      }),
+    });
+
+    if (!resp.ok) {
+      const msg = await resp.text().catch(() => resp.statusText);
+      throw new Error(`Session creation failed (${resp.status}): ${msg}`);
+    }
+
+    const data = await resp.json();
+    sessionId       = data.sessionId;
+    jsBridgeEnabled = data.jsBridgeEnabled ?? false;
+    syncCanvasSize(data.width, data.height);
+
+    // 2. Create VideoDecoder
+    decoder = createDecoder();
+    decoder.configure({
+      codec:              'avc1.42002a', // H.264 Baseline 4.2
+      codedWidth:         data.width,
+      codedHeight:        data.height,
+      optimizeForLatency: true,
+    });
+
+    // 3. Open WebSocket
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    ws = new WebSocket(`${proto}//${location.host}/ws/${sessionId}`);
+    ws.binaryType = 'arraybuffer';
+
+    await new Promise((resolve, reject) => {
+      ws.onopen  = resolve;
+      ws.onerror = (e) => reject(new Error('WebSocket connection failed'));
+    });
+
+    ws.onmessage = onServerMessage;
+    ws.onclose   = () => onDisconnected();
+    ws.onerror   = () => onDisconnected();
+
+    // Ready
     setStatus('Streaming', 'connected');
     backBtn.disabled = false;
     fwdBtn.disabled  = false;
     overlay.classList.add('hidden');
     canvas.focus();
-    printBanner();
-  };
 
-  ws.onmessage = e => {
-    handleFrame(e.data);
-  };
-
-  ws.onclose = () => {
-    setStatus('Disconnected — click to reconnect', 'error');
-    backBtn.disabled = true;
-    fwdBtn.disabled  = true;
-    overlay.classList.remove('hidden');
-    ws = null;
-
-    // The virtual browser is gone — discard any held input state so stale
-    // entries don't carry over into the next session.
-    heldKeys.clear();
-    pressedBtns.clear();
-
-    // Cancel all pending vcon() calls so they reject immediately instead of
-    // hanging until their 10 s timeout fires.
-    for (const { reject, timer } of _evalPending.values()) {
-      clearTimeout(timer);
-      reject(new Error('[vcon] Session closed'));
-    }
-    _evalPending.clear();
-
-    // Remove vcon from the global scope — it's session-scoped.
-    if (jsBridgeEnabled) uninstallVcon();
-    jsBridgeEnabled = false;
-  };
-
-  ws.onerror = err => console.error('[ws]', err);
-}
-
-// ── SignalR + session creation ─────────────────────────────────────────────────
-async function connect() {
-  // Clean up any previous hub so reconnect doesn't leak SignalR connections.
-  if (hub) {
-    try { await hub.stop(); } catch { /* ignore */ }
-    hub = null;
-  }
-
-  setStatus('Connecting...', 'connecting');
-  connectBtn.disabled = true;
-
-  try {
-    hub = new signalR.HubConnectionBuilder()
-      .withUrl('/hub/virtualization')
-      .withAutomaticReconnect()
-      .configureLogging(signalR.LogLevel.Warning)
-      .build();
-
-    hub.onclose(() => {
-      setStatus('Hub disconnected', 'error');
-      overlay.classList.remove('hidden');
-    });
-
-    await hub.start();
-
-    // Use the actual viewport pixel dimensions so the virtual browser
-    // resolution matches the client's available space from the first frame.
-    const initW = viewport.clientWidth  || 1280;
-    const initH = viewport.clientHeight || 720;
-
-    // Send the current page URL so the server can apply MITM forwarding rules
-    // and open the virtual browser at the corresponding upstream URL.
-    // e.g. "https://www.websete.localhost/cars?q=1"
-    //   → "https://www.olx.com.br/cars?q=1" (after rewriting on the server)
-    const resp = await hub.invoke('CreateSessionAsync', {
-      width:      initW,
-      height:     initH,
-      initialUrl: window.location.href,
-    });
-
-    sessionId       = resp.sessionId;
-    jsBridgeEnabled = resp.jsBridgeEnabled ?? false;
-
-    // Server echoes back the accepted dimensions (may clamp if out of range).
-    syncCanvasSize(resp.width, resp.height);
-
-    // Expose window.vcon() when the bridge is enabled so the operator can
-    // evaluate JS in the virtual browser from the downstream console.
     if (jsBridgeEnabled) installVcon();
-
-    openWebSocket(sessionId);
+    printBanner();
 
   } catch (err) {
     console.error('[connect]', err);

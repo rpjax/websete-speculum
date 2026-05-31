@@ -5,153 +5,6 @@ namespace Websete.Speculum.Host.Virtualization.Services;
 /*
  * Refactor — WIP
  */
-
-public interface IVirtualizationSession2 { }
-
-// ── DTOs ──────────────────────────────────────────────────────────────────────
-
-public class Frame
-{
-    public ReadOnlyMemory<byte> Data      { get; init; }
-    public long                 Timestamp { get; init; }
-}
-
-public class InputEvent
-{
-    public required string Type    { get; init; }
-    public required string Payload { get; init; }
-}
-
-public class ControlEvent
-{
-    public required string Type    { get; init; }
-    public required string Payload { get; init; }
-}
-
-/// <summary>
-/// Comando <c>evaljs</c> originado no cliente e destinado ao motor JS do
-/// navegador virtual.
-/// </summary>
-public class ConsoleInputEvent
-{
-    /// <summary>Correlação com o <c>MSG_EVAL_RESULT</c> de resposta.</summary>
-    public int            Id   { get; init; }
-    public required string Code { get; init; }
-}
-
-/// <summary>
-/// Saída produzida pelo navegador virtual: <c>MSG_CONSOLE</c> (log/warn/error)
-/// ou <c>MSG_EVAL_RESULT</c>, já codificados no protocolo binário.
-/// </summary>
-public class ConsoleOutputEvent
-{
-    /// <summary>Frame binário já encodificado, pronto para relay ao cliente.</summary>
-    public ReadOnlyMemory<byte> Data { get; init; }
-}
-
-// ── Conexões externas ─────────────────────────────────────────────────────────
-
-public interface IDownstreamConnection
-{
-    // REVIEW: sintaxe original tinha ')' extra — corrigido.
-    Task CloseAsync(CancellationToken ct = default);
-}
-
-public interface IVirtualBrowserConnection
-{
-    Task StopAsync(CancellationToken ct = default);
-}
-
-// ── Canais de controle (URL updates, navegação) ───────────────────────────────
-
-public interface IControlSource
-{
-    ChannelReader<ControlEvent> GetControlEventReader();
-}
-
-public interface IControlSink
-{
-    Task WriteControlEventAsync(
-        ControlEvent      controlEvent,
-        CancellationToken ct = default);
-}
-
-// ── Canais de vídeo ───────────────────────────────────────────────────────────
-
-public interface IFrameSource
-{
-    ChannelReader<Frame> GetFrameReader();
-}
-
-public interface IFrameSink
-{
-    Task WriteFrameAsync(
-        Frame             frame,
-        CancellationToken ct = default);
-}
-
-// ── Canais de input do usuário ────────────────────────────────────────────────
-
-public interface IInputSource
-{
-    ChannelReader<InputEvent> GetInputEventReader();
-}
-
-public interface IInputSink
-{
-    Task WriteInputEventAsync(
-        InputEvent        inputEvent,
-        CancellationToken ct = default);
-}
-
-// ── Canais de console JS (JsBridge) ──────────────────────────────────────────
-
-/// <summary>
-/// Produz comandos <c>evaljs</c>: lê eventos enviados pelo cliente e os
-/// disponibiliza para a sessão despachar ao navegador virtual.
-/// <br/>Fluxo: cliente → [source] → sessão
-/// </summary>
-public interface IJsConsoleInputSource
-{
-    ChannelReader<ConsoleInputEvent> GetConsoleInputReader();
-}
-
-/// <summary>
-/// Consome comandos <c>evaljs</c>: recebe o evento da sessão e o envia ao
-/// motor JS do navegador virtual para execução.
-/// <br/>Fluxo: sessão → [sink] → navegador virtual
-/// </summary>
-public interface IJsConsoleInputSink
-{
-    Task WriteConsoleInputAsync(
-        ConsoleInputEvent inputEvent,
-        CancellationToken ct = default);
-}
-
-/// <summary>
-/// Produz saídas do console JS: lê logs (<c>MSG_CONSOLE</c>) e resultados de
-/// eval (<c>MSG_EVAL_RESULT</c>) gerados pelo navegador virtual.
-/// <br/>Fluxo: navegador virtual → [source] → sessão
-/// </summary>
-public interface IJsConsoleOutputSource
-{
-    ChannelReader<ConsoleOutputEvent> GetConsoleOutputReader();
-}
-
-/// <summary>
-/// Consome saídas do console JS: recebe o frame binário da sessão e o
-/// retransmite ao cliente downstream.
-/// <br/>Fluxo: sessão → [sink] → cliente
-/// </summary>
-public interface IJsConsoleOutputSink
-{
-    Task WriteConsoleOutputAsync(
-        ConsoleOutputEvent outputEvent,
-        CancellationToken  ct = default);
-}
-
-// ── VSession ──────────────────────────────────────────────────────────────────
-
 public class VSession : IVirtualizationSession2
 {
     // ── Estado ────────────────────────────────────────────────────────────────
@@ -172,6 +25,10 @@ public class VSession : IVirtualizationSession2
     private readonly IInputSource _inputSource;
     private readonly IInputSink   _inputSink;
 
+    // Controle — URL updates, navegação (navegador virtual → cliente)
+    private readonly IControlSource _controlSource;
+    private readonly IControlSink   _controlSink;
+
     // JsBridge — console JS (evaljs + logs)
     private readonly IJsConsoleInputSource  _consoleInputSource;
     private readonly IJsConsoleInputSink    _consoleInputSink;
@@ -188,16 +45,10 @@ public class VSession : IVirtualizationSession2
     // ── Tasks de plano de fundo ───────────────────────────────────────────────
 
     private Task? _frameStreamingTask;
+    private Task? _controlStreamingTask;
     private Task? _inputProcessingTask;
     private Task? _consoleInputProcessingTask;
     private Task? _consoleOutputStreamingTask;
-
-    // REVIEW: _controlProcessingTask estava declarado mas nunca iniciado em
-    //         StartAsync nem aguardado em StopAsync. IControlSource/IControlSink
-    //         existem nas interfaces mas não foram conectados ao construtor.
-    //         Mantido como TODO até o pipeline de controle ser definido.
-    // TODO: adicionar IControlSource + IControlSink quando o pipeline de controle
-    //       (URL updates, navegação) for implementado.
 
     // ── Construtor ────────────────────────────────────────────────────────────
 
@@ -206,6 +57,8 @@ public class VSession : IVirtualizationSession2
         IVirtualBrowserConnection virtualBrowserConnection,
         IFrameSource              frameSource,
         IFrameSink                frameSink,
+        IControlSource            controlSource,
+        IControlSink              controlSink,
         IInputSource              inputSource,
         IInputSink                inputSink,
         IJsConsoleInputSource     consoleInputSource,
@@ -218,6 +71,8 @@ public class VSession : IVirtualizationSession2
         _virtualBrowserConnection = virtualBrowserConnection;
         _frameSource              = frameSource;
         _frameSink                = frameSink;
+        _controlSource            = controlSource;
+        _controlSink              = controlSink;
         _inputSource              = inputSource;
         _inputSink                = inputSink;
         _consoleInputSource       = consoleInputSource;
@@ -256,6 +111,13 @@ public class VSession : IVirtualizationSession2
             "frames",
             _frameSource.GetFrameReader(),
             (frame, ct) => _frameSink.WriteFrameAsync(frame, ct),
+            failFast: true,
+            sessionCt), schedulerCt);
+
+        _controlStreamingTask = Task.Run(() => ForwardPipelineAsync(
+            "control",
+            _controlSource.GetControlEventReader(),
+            (ev, ct) => _controlSink.WriteControlEventAsync(ev, ct),
             failFast: true,
             sessionCt), schedulerCt);
 
@@ -300,11 +162,12 @@ public class VSession : IVirtualizationSession2
             _logger.LogCritical(ex, "Erro ao disparar sinal de cancelamento da sessão.");
         }
 
-        var backgroundTasks = new List<Task>(4);
-        if (_frameStreamingTask         is { } ft) backgroundTasks.Add(ft);
-        if (_inputProcessingTask        is { } it) backgroundTasks.Add(it);
-        if (_consoleInputProcessingTask is { } ct) backgroundTasks.Add(ct);
-        if (_consoleOutputStreamingTask is { } ot) backgroundTasks.Add(ot);
+        var backgroundTasks = new List<Task>(5);
+        if (_frameStreamingTask         is { } ft)  backgroundTasks.Add(ft);
+        if (_controlStreamingTask       is { } ctrl) backgroundTasks.Add(ctrl);
+        if (_inputProcessingTask        is { } it)  backgroundTasks.Add(it);
+        if (_consoleInputProcessingTask is { } ci)  backgroundTasks.Add(ci);
+        if (_consoleOutputStreamingTask is { } co)  backgroundTasks.Add(co);
 
         if (backgroundTasks.Count > 0)
         {
@@ -318,10 +181,6 @@ public class VSession : IVirtualizationSession2
             }
         }
 
-        // REVIEW: IDownstreamConnection.CloseAsync e IVirtualBrowserConnection.StopAsync
-        //         nunca eram chamados — o teardown apenas cancelava o CTS, deixando as
-        //         conexões abertas até GC. Adicionado aqui como lógica de fechamento
-        //         explícito após drenagem dos loops.
         await CloseConnectionsAsync();
     }
 
@@ -331,15 +190,9 @@ public class VSession : IVirtualizationSession2
     /// Loop genérico de forwarding: drena <paramref name="reader"/> e despacha
     /// cada item via <paramref name="writer"/>.
     /// </summary>
-    /// <param name="pipelineName">
-    ///   Nome usado nos logs — identifica o pipeline sem ambiguidade.
-    /// </param>
-    /// <param name="reader">
-    ///   Canal de origem; completado externamente quando a fonte encerra.
-    /// </param>
-    /// <param name="writer">
-    ///   Delegate de escrita no destino; recebe o item e o token da sessão.
-    /// </param>
+    /// <param name="pipelineName">Nome usado nos logs.</param>
+    /// <param name="reader">Canal de origem.</param>
+    /// <param name="writer">Delegate de escrita no destino.</param>
     /// <param name="failFast">
     ///   <c>true</c>: qualquer falha de escrita encerra o loop (ex: vídeo,
     ///   console-output — colapso do canal downstream é irrecuperável).<br/>
@@ -349,8 +202,7 @@ public class VSession : IVirtualizationSession2
     /// <param name="ct">Token de cancelamento da sessão.</param>
     /// <param name="itemContext">
     ///   Delegate opcional que extrai contexto diagnóstico do item para o log
-    ///   de erro (ex: <c>ev => $" EvalId={ev.Id}"</c>). Retorna string vazia
-    ///   quando <c>null</c>.
+    ///   de erro (ex: <c>ev => $" EvalId={ev.Id}"</c>).
     /// </param>
     private async Task ForwardPipelineAsync<T>(
         string                           pipelineName,

@@ -3,42 +3,66 @@ using System.Threading.Channels;
 namespace Websete.Speculum.Host.Virtualization.Services;
 
 /*
- * Refactor
+ * Refactor — WIP
  */
 
-public interface IVirtualizationSession2
-{
+public interface IVirtualizationSession2 { }
 
-}
+// ── DTOs ──────────────────────────────────────────────────────────────────────
 
-// DTOs
 public class Frame
 {
-    public ReadOnlyMemory<byte> Data { get; init; }
-    public long Timestamp { get; init; }
+    public ReadOnlyMemory<byte> Data      { get; init; }
+    public long                 Timestamp { get; init; }
 }
 
 public class InputEvent
 {
-    public string Type { get; init; }
-    public string Payload { get; init; }
+    public required string Type    { get; init; }
+    public required string Payload { get; init; }
 }
 
 public class ControlEvent
 {
-    public string Type { get; init; }
-    public string Payload { get; init; }
+    public required string Type    { get; init; }
+    public required string Payload { get; init; }
 }
+
+/// <summary>
+/// Comando <c>evaljs</c> originado no cliente e destinado ao motor JS do
+/// navegador virtual.
+/// </summary>
+public class ConsoleInputEvent
+{
+    /// <summary>Correlação com o <c>MSG_EVAL_RESULT</c> de resposta.</summary>
+    public int            Id   { get; init; }
+    public required string Code { get; init; }
+}
+
+/// <summary>
+/// Saída produzida pelo navegador virtual: <c>MSG_CONSOLE</c> (log/warn/error)
+/// ou <c>MSG_EVAL_RESULT</c>, já codificados no protocolo binário.
+/// </summary>
+public class ConsoleOutputEvent
+{
+    /// <summary>Frame binário já encodificado, pronto para relay ao cliente.</summary>
+    public ReadOnlyMemory<byte> Data { get; init; }
+}
+
+// ── Conexões externas ─────────────────────────────────────────────────────────
 
 public interface IDownstreamConnection
 {
-    Task CloseAsync(CancellationToken ct = default));
+    // REVIEW: sintaxe original tinha ')' extra — corrigido.
+    Task CloseAsync(CancellationToken ct = default);
 }
 
 public interface IVirtualBrowserConnection
 {
     Task StopAsync(CancellationToken ct = default);
 }
+
+// ── Canais de controle (URL updates, navegação) ───────────────────────────────
 
 public interface IControlSource
 {
@@ -48,9 +72,11 @@ public interface IControlSource
 public interface IControlSink
 {
     Task WriteControlEventAsync(
-        ControlEvent controlEvent,
+        ControlEvent      controlEvent,
         CancellationToken ct = default);
 }
+
+// ── Canais de vídeo ───────────────────────────────────────────────────────────
 
 public interface IFrameSource
 {
@@ -60,9 +86,11 @@ public interface IFrameSource
 public interface IFrameSink
 {
     Task WriteFrameAsync(
-        Frame frame,
+        Frame             frame,
         CancellationToken ct = default);
 }
+
+// ── Canais de input do usuário ────────────────────────────────────────────────
 
 public interface IInputSource
 {
@@ -72,110 +100,186 @@ public interface IInputSource
 public interface IInputSink
 {
     Task WriteInputEventAsync(
-        InputEvent inputEvent,
+        InputEvent        inputEvent,
         CancellationToken ct = default);
 }
 
-// produces console inputs
+// ── Canais de console JS (JsBridge) ──────────────────────────────────────────
+
+/// <summary>
+/// Produz comandos <c>evaljs</c>: lê eventos enviados pelo cliente e os
+/// disponibiliza para a sessão despachar ao navegador virtual.
+/// <br/>Fluxo: cliente → [source] → sessão
+/// </summary>
 public interface IJsConsoleInputSource
 {
-
+    ChannelReader<ConsoleInputEvent> GetConsoleInputReader();
 }
 
-// consumes console outputs
+/// <summary>
+/// Consome comandos <c>evaljs</c>: recebe o evento da sessão e o envia ao
+/// motor JS do navegador virtual para execução.
+/// <br/>Fluxo: sessão → [sink] → navegador virtual
+/// </summary>
 public interface IJsConsoleInputSink
 {
-    
+    Task WriteConsoleInputAsync(
+        ConsoleInputEvent inputEvent,
+        CancellationToken ct = default);
 }
 
-// produces console outputs
+/// <summary>
+/// Produz saídas do console JS: lê logs (<c>MSG_CONSOLE</c>) e resultados de
+/// eval (<c>MSG_EVAL_RESULT</c>) gerados pelo navegador virtual.
+/// <br/>Fluxo: navegador virtual → [source] → sessão
+/// </summary>
 public interface IJsConsoleOutputSource
 {
-    
+    ChannelReader<ConsoleOutputEvent> GetConsoleOutputReader();
 }
 
-// consumes console inputs
+/// <summary>
+/// Consome saídas do console JS: recebe o frame binário da sessão e o
+/// retransmite ao cliente downstream.
+/// <br/>Fluxo: sessão → [sink] → cliente
+/// </summary>
 public interface IJsConsoleOutputSink
 {
-
+    Task WriteConsoleOutputAsync(
+        ConsoleOutputEvent outputEvent,
+        CancellationToken  ct = default);
 }
+
+// ── VSession ──────────────────────────────────────────────────────────────────
 
 public class VSession : IVirtualizationSession2
 {
-    // Constants for internal state management
+    // ── Estado ────────────────────────────────────────────────────────────────
+
     const int StateStopped = 0;
     const int StateRunning = 1;
 
-    // Dependencies
-    private IDownstreamConnection _downstreamConnection { get; }
-    private IVirtualBrowserConnection _virtualBrowserConnection { get; }
-    // Frame source/sink abstractions for video streaming
-    private IFrameSource _frameSource { get; }
-    private IFrameSink _frameSink { get; }
-    // Input source/sink abstractions for user input events
-    private IInputSource _inputSource { get; }
-    private IInputSink _inputSink { get; }
-    // Logger for diagnostics and error reporting
-    private ILogger _logger { get; }
+    // ── Dependências ──────────────────────────────────────────────────────────
 
-    // Internal state
-    private CancellationTokenSource _cancellationSource { get; }
-    private int _sessionState;
+    private readonly IDownstreamConnection     _downstreamConnection;
+    private readonly IVirtualBrowserConnection _virtualBrowserConnection;
 
-    // Background tasks
-    private Task? _controlProcessingTask { get; set; }
-    private Task? _frameStreamingTask { get; set; }
-    private Task? _inputProcessingTask { get; set; }
+    // Vídeo
+    private readonly IFrameSource _frameSource;
+    private readonly IFrameSink   _frameSink;
+
+    // Input do usuário
+    private readonly IInputSource _inputSource;
+    private readonly IInputSink   _inputSink;
+
+    // JsBridge — console JS (evaljs + logs)
+    private readonly IJsConsoleInputSource  _consoleInputSource;
+    private readonly IJsConsoleInputSink    _consoleInputSink;
+    private readonly IJsConsoleOutputSource _consoleOutputSource;
+    private readonly IJsConsoleOutputSink   _consoleOutputSink;
+
+    private readonly ILogger _logger;
+
+    // ── Estado interno ────────────────────────────────────────────────────────
+
+    private readonly CancellationTokenSource _cancellationSource;
+    private          int                     _sessionState;
+
+    // ── Tasks de plano de fundo ───────────────────────────────────────────────
+
+    private Task? _frameStreamingTask;
+    private Task? _inputProcessingTask;
+    private Task? _consoleInputProcessingTask;
+    private Task? _consoleOutputStreamingTask;
+
+    // REVIEW: _controlProcessingTask estava declarado mas nunca iniciado em
+    //         StartAsync nem aguardado em StopAsync. IControlSource/IControlSink
+    //         existem nas interfaces mas não foram conectados ao construtor.
+    //         Mantido como TODO até o pipeline de controle ser definido.
+    // TODO: adicionar IControlSource + IControlSink quando o pipeline de controle
+    //       (URL updates, navegação) for implementado.
+
+    // ── Construtor ────────────────────────────────────────────────────────────
 
     public VSession(
-        IDownstreamConnection downstreamConnection,
+        IDownstreamConnection     downstreamConnection,
         IVirtualBrowserConnection virtualBrowserConnection,
-        IFrameSource frameSource,
-        IFrameSink frameSink,
-        IInputSource inputSource,
-        IInputSink inputSink,
-        ILogger logger)
+        IFrameSource              frameSource,
+        IFrameSink                frameSink,
+        IInputSource              inputSource,
+        IInputSink                inputSink,
+        IJsConsoleInputSource     consoleInputSource,
+        IJsConsoleInputSink       consoleInputSink,
+        IJsConsoleOutputSource    consoleOutputSource,
+        IJsConsoleOutputSink      consoleOutputSink,
+        ILogger                   logger)
     {
-        _downstreamConnection = downstreamConnection;
+        _downstreamConnection     = downstreamConnection;
         _virtualBrowserConnection = virtualBrowserConnection;
-        _frameSource = frameSource;
-        _frameSink = frameSink;
-        _inputSource = inputSource;
-        _inputSink = inputSink;
-        _logger = logger;
+        _frameSource              = frameSource;
+        _frameSink                = frameSink;
+        _inputSource              = inputSource;
+        _inputSink                = inputSink;
+        _consoleInputSource       = consoleInputSource;
+        _consoleInputSink         = consoleInputSink;
+        _consoleOutputSource      = consoleOutputSource;
+        _consoleOutputSink        = consoleOutputSink;
+        _logger                   = logger;
 
-        _cancellationSource = new();
-        _sessionState = StateStopped;
-
-        _frameStreamingTask = null;
-        _inputProcessingTask = null;
+        _cancellationSource = new CancellationTokenSource();
+        _sessionState       = StateStopped;
     }
+
+    // ── Ciclo de vida ─────────────────────────────────────────────────────────
 
     public async ValueTask DisposeAsync()
     {
         await StopAsync();
         _cancellationSource.Dispose();
-        _frameStreamingTask = null;
-        _inputProcessingTask = null;
         GC.SuppressFinalize(this);
     }
 
     public Task StartAsync(CancellationToken ct = default)
     {
         if (Interlocked.Exchange(ref _sessionState, StateRunning) == StateRunning)
-        {
             throw new InvalidOperationException("A sessão já está em execução.");
-        }
 
-        // Vincula o token externo de inicialização ao token global da sessão
-        var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, _cancellationSource.Token);
+        // linkedCts: guarda de agendamento (segundo arg de Task.Run) — impede
+        // que as tasks sejam enfileiradas se ct já estiver cancelado.
+        // O corpo dos loops usa _cancellationSource.Token (vida da sessão).
+        // 'using' descarta o handle imediatamente após o agendamento.
+        using var linkedCts   = CancellationTokenSource.CreateLinkedTokenSource(ct, _cancellationSource.Token);
+        var       schedulerCt = linkedCts.Token;
+        var       sessionCt   = _cancellationSource.Token;
 
-        // Despacha o processamento pesado do loop para o ThreadPool de forma não-bloqueante
-        _frameStreamingTask = Task.Run(()
-            => StartStreamingFramesAsync(_cancellationSource.Token), linkedCts.Token);
+        _frameStreamingTask = Task.Run(() => ForwardPipelineAsync(
+            "frames",
+            _frameSource.GetFrameReader(),
+            (frame, ct) => _frameSink.WriteFrameAsync(frame, ct),
+            failFast: true,
+            sessionCt), schedulerCt);
 
-        _inputProcessingTask = Task.Run(() 
-            => StartProcessingInputsAsync(_cancellationSource.Token), linkedCts.Token);
+        _inputProcessingTask = Task.Run(() => ForwardPipelineAsync(
+            "input",
+            _inputSource.GetInputEventReader(),
+            (ev, ct) => _inputSink.WriteInputEventAsync(ev, ct),
+            failFast: false,
+            sessionCt), schedulerCt);
+
+        _consoleInputProcessingTask = Task.Run(() => ForwardPipelineAsync(
+            "console-input",
+            _consoleInputSource.GetConsoleInputReader(),
+            (ev, ct) => _consoleInputSink.WriteConsoleInputAsync(ev, ct),
+            failFast: false,
+            sessionCt,
+            itemContext: ev => $" EvalId={ev.Id}"), schedulerCt);
+
+        _consoleOutputStreamingTask = Task.Run(() => ForwardPipelineAsync(
+            "console-output",
+            _consoleOutputSource.GetConsoleOutputReader(),
+            (ev, ct) => _consoleOutputSink.WriteConsoleOutputAsync(ev, ct),
+            failFast: true,
+            sessionCt), schedulerCt);
 
         return Task.CompletedTask;
     }
@@ -183,9 +287,7 @@ public class VSession : IVirtualizationSession2
     public async Task StopAsync()
     {
         if (Interlocked.Exchange(ref _sessionState, StateStopped) == StateStopped)
-        {
             return; // Previne reentrância caso StopAsync seja disparado em paralelo
-        }
 
         _logger.LogInformation("Finalizando sessão de virtualização...");
 
@@ -198,19 +300,16 @@ public class VSession : IVirtualizationSession2
             _logger.LogCritical(ex, "Erro ao disparar sinal de cancelamento da sessão.");
         }
 
-        // Agrupa as duas tarefas ativas para aguardar a limpeza completa dos buffers
-        var backgroundTasks = new List<Task>();
-
-        if (_frameStreamingTask != null) 
-            backgroundTasks.Add(_frameStreamingTask);
-        if (_inputProcessingTask != null) 
-            backgroundTasks.Add(_inputProcessingTask);
+        var backgroundTasks = new List<Task>(4);
+        if (_frameStreamingTask         is { } ft) backgroundTasks.Add(ft);
+        if (_inputProcessingTask        is { } it) backgroundTasks.Add(it);
+        if (_consoleInputProcessingTask is { } ct) backgroundTasks.Add(ct);
+        if (_consoleOutputStreamingTask is { } ot) backgroundTasks.Add(ot);
 
         if (backgroundTasks.Count > 0)
         {
             try
             {
-                // Aguarda de forma concorrente a conclusão orgânica ou forçada de ambos os loops
                 await Task.WhenAll(backgroundTasks);
             }
             catch (Exception ex)
@@ -218,88 +317,93 @@ public class VSession : IVirtualizationSession2
                 _logger.LogError(ex, "Ocorreu uma falha ao encerrar as tarefas de plano de fundo da sessão.");
             }
         }
+
+        // REVIEW: IDownstreamConnection.CloseAsync e IVirtualBrowserConnection.StopAsync
+        //         nunca eram chamados — o teardown apenas cancelava o CTS, deixando as
+        //         conexões abertas até GC. Adicionado aqui como lógica de fechamento
+        //         explícito após drenagem dos loops.
+        await CloseConnectionsAsync();
     }
 
-    private async Task StartStreamingFramesAsync(CancellationToken ct)
+    // ── Pipeline unificado de forwarding ─────────────────────────────────────
+
+    /// <summary>
+    /// Loop genérico de forwarding: drena <paramref name="reader"/> e despacha
+    /// cada item via <paramref name="writer"/>.
+    /// </summary>
+    /// <param name="pipelineName">
+    ///   Nome usado nos logs — identifica o pipeline sem ambiguidade.
+    /// </param>
+    /// <param name="reader">
+    ///   Canal de origem; completado externamente quando a fonte encerra.
+    /// </param>
+    /// <param name="writer">
+    ///   Delegate de escrita no destino; recebe o item e o token da sessão.
+    /// </param>
+    /// <param name="failFast">
+    ///   <c>true</c>: qualquer falha de escrita encerra o loop (ex: vídeo,
+    ///   console-output — colapso do canal downstream é irrecuperável).<br/>
+    ///   <c>false</c>: falhas isoladas são toleradas com <c>continue</c>
+    ///   (ex: input de mouse, evaljs — degradação parcial aceitável).
+    /// </param>
+    /// <param name="ct">Token de cancelamento da sessão.</param>
+    /// <param name="itemContext">
+    ///   Delegate opcional que extrai contexto diagnóstico do item para o log
+    ///   de erro (ex: <c>ev => $" EvalId={ev.Id}"</c>). Retorna string vazia
+    ///   quando <c>null</c>.
+    /// </param>
+    private async Task ForwardPipelineAsync<T>(
+        string                           pipelineName,
+        ChannelReader<T>                 reader,
+        Func<T, CancellationToken, Task> writer,
+        bool                             failFast,
+        CancellationToken                ct,
+        Func<T, string>?                 itemContext = null)
     {
         try
         {
-            var reader = _frameSource.GetFrameReader();
-
-            await foreach (var frame in reader.ReadAllAsync(ct))
+            await foreach (var item in reader.ReadAllAsync(ct))
             {
-                if (ct.IsCancellationRequested) break;
-
                 try
                 {
-                    await _frameSink.WriteFrameAsync(frame, ct);
+                    await writer(item, ct);
                 }
-                catch (OperationCanceledException)
-                {
-                    break;
-                }
+                catch (OperationCanceledException) { break; }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Falha ao encaminhar frame no pipeline de mídia (Downstream).");
-                    break; // Quebra o loop caso o canal de saída sofra um colapso (ex: desconexão do cliente)
+                    var ctx = itemContext?.Invoke(item) ?? string.Empty;
+                    _logger.LogError(ex, "Falha no pipeline '{Name}'{Context}.", pipelineName, ctx);
+                    if (failFast) break;
+                    else          continue;
                 }
             }
         }
-        catch (OperationCanceledException)
-        {
-            // Cancelamento limpo via token da sessão
-        }
+        catch (OperationCanceledException) { /* cancelamento limpo via token da sessão */ }
         catch (Exception ex)
         {
-            _logger.LogCritical(ex, "Falha crítica não tratada no pipeline de frames.");
+            _logger.LogCritical(ex, "Falha crítica não tratada no pipeline '{Name}'.", pipelineName);
         }
         finally
         {
-            _logger.LogInformation("Loop de streaming de frames encerrado.");
+            _logger.LogInformation("Loop do pipeline '{Name}' encerrado.", pipelineName);
         }
     }
 
-    private async Task StartProcessingInputsAsync(CancellationToken ct)
+    // ── Teardown das conexões externas ────────────────────────────────────────
+
+    private async Task CloseConnectionsAsync()
     {
-        try
-        {
-            var reader = _inputSource.GetInputEventReader();
-
-            // Consome continuamente os eventos enviados pelo cliente através do canal de entrada
-            await foreach (var inputEvent in reader.ReadAllAsync(ct))
-            {
-                if (ct.IsCancellationRequested) break;
-
-                try
-                {
-                    // Despacha o input para o Sink (Node.js/Sidecar -> xdotool)
-                    await _inputSink.WriteInputEventAsync(inputEvent, ct);
-                }
-                catch (OperationCanceledException)
-                {
-                    break;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Falha ao injetar evento de input no pipeline do navegador virtual (Upstream).");
-                    // Diferente do vídeo, uma falha isolada de input (ex: lag de digitação) 
-                    // pode tolerar um 'continue' para não derrubar a usabilidade da sessão inteira de imediato
-                    continue;
-                }
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            // Cancelamento limpo via token da sessão
-        }
-        catch (Exception ex)
-        {
-            _logger.LogCritical(ex, "Falha crítica não tratada no pipeline de inputs.");
-        }
-        finally
-        {
-            _logger.LogInformation("Loop de processamento de inputs encerrado.");
-        }
+        await Task.WhenAll(
+            TryCloseAsync("downstream",      () => _downstreamConnection.CloseAsync()),
+            TryCloseAsync("virtual browser", () => _virtualBrowserConnection.StopAsync()));
     }
 
+    private async Task TryCloseAsync(string label, Func<Task> action)
+    {
+        try   { await action(); }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Erro ao fechar conexão '{Label}' durante teardown.", label);
+        }
+    }
 }

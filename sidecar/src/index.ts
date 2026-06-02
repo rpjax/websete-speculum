@@ -13,8 +13,8 @@ import { CreateMessage, decodeMessage } from './Protocol';
  *
  * Protocol (per WS connection):
  *   1. .NET sends { type: "create", sessionId, width, height, url? }
- *   2. Sidecar starts Xvfb + Chrome + FFmpeg, replies { type: "ready", sessionId }
- *   3. Sidecar streams binary frame messages (full / skip)
+ *   2. Sidecar starts Xvfb + Chrome + CDP screencast, replies { type: "ready", sessionId }
+ *   3. Sidecar streams binary MSG_SCREENCAST (0x08) JPEG frames
  *   4. .NET sends JSON input/control messages
  *   5. WS close → session disposed
  */

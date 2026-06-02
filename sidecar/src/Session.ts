@@ -25,10 +25,10 @@ const POSITION_ORDER: Record<string, number> = {
     BodyBottom:   3,
 };
 
-/** Maps Log.entryAdded severity strings to wire-level level bytes (same as CONSOLE_LEVELS). */
+/** Maps Log.entryAdded severity strings to wire-level level bytes. */
 const LOG_LEVEL: Record<string, number> = { verbose: 0, info: 3, warning: 1, error: 2 };
 
-/** Maps DOM MouseEvent.button (0=left,1=middle,2=right) → Playwright button name. */
+/** Maps DOM MouseEvent.button (0=left, 1=middle, 2=right) → Playwright button name. */
 function domButton(b: number): 'left' | 'middle' | 'right' {
     if (b === 1) return 'middle';
     if (b === 2) return 'right';
@@ -58,10 +58,9 @@ export class Session {
 
     /**
      * The frame callback wired to the WebSocket send logic.
-     * Stored so ScreencastCapture.restart() can reuse it on resize
-     * without re-wiring.
+     * Stored so ScreencastCapture.restart() can reuse it on resize.
      */
-    private _onFrame:  (buf: Buffer) => void;
+    private _onFrame: (buf: Buffer) => void;
 
     /** Guard that prevents concurrent resize operations. */
     private _resizing: boolean = false;
@@ -119,311 +118,27 @@ export class Session {
             cdp     = handle.cdp;
             const page = handle.page;
 
-            // ── Single-tab enforcement — Layer 1 (prevention) ────────────────
-            // Installed on the context so it applies to ALL pages, including any
-            // page created in the brief window before context.on('page') can
-            // close it.  Must run before page.goto() so the initial navigation
-            // is also covered.
-            //
-            // What it does:
-            //   • Nulls window.opener — prevents a stray popup from doing
-            //     window.opener.location = '...' on the main tab, which was the
-            //     root cause of the "vai e vem" (oscillation) bug.
-            //   • Overrides window.open() to redirect in the current tab instead
-            //     of spawning a new one.
-            //   • Intercepts target="_blank" anchor clicks in the capture phase
-            //     (before any site handler) and converts them to same-tab
-            //     navigations.
-            //   • Redirects target="_blank" form submissions to _self.
-            //
-            // This prevents ~95 % of new-tab attempts at the JavaScript layer.
-            // context.on('page') below is the catch-all for the remaining cases
-            // (e.g. browser-internal popup mechanisms that bypass JS).
-            await context.addInitScript(`
-                (function () {
-                    'use strict';
+            await Session._setupSingleTabEnforcement(context);
+            const injectAll = await Session._buildScriptInjector(cdp, page, scripts, sessionId);
+            if (jsBridgeEnabled) await Session._setupJsBridge(cdp, ws, sessionId);
+            Session._setupUrlSync(page, ws);
+            Session._setupTabInterception(context, page, sessionId);
 
-                    // Sever opener so popups cannot mutate the main tab's location.
-                    try {
-                        Object.defineProperty(window, 'opener', {
-                            value: null, writable: false, configurable: false,
-                        });
-                    } catch (_) { /* already non-configurable */ }
-
-                    // window.open → in-place navigation.
-                    var _origOpen = window.open.bind(window);
-                    window.open = function speculum_open(url, target, features) {
-                        var href = (url instanceof URL) ? url.href : String(url || '');
-                        if (href &&
-                            !href.startsWith('javascript:') &&
-                            !href.startsWith('about:') &&
-                            !href.startsWith('blob:')) {
-                            window.location.href = href;
-                            return null;
-                        }
-                        return _origOpen(url, target, features);
-                    };
-
-                    // target="_blank" / target="_new" anchor clicks → same-tab.
-                    // Capture phase fires before any site listener.
-                    document.addEventListener('click', function (e) {
-                        if (e.defaultPrevented) return;
-                        var el = e.target;
-                        var a = el instanceof Element ? el.closest('a') : null;
-                        if (!a) return;
-                        var t = (a.getAttribute('target') || '').toLowerCase();
-                        if (t !== '_blank' && t !== '_new') return;
-                        var href = a.href;
-                        if (!href ||
-                            href.startsWith('javascript:') ||
-                            href.startsWith('about:') ||
-                            href.startsWith('blob:')) return;
-                        e.preventDefault();
-                        e.stopPropagation();
-                        window.location.href = href;
-                    }, true);
-
-                    // target="_blank" form submissions → _self.
-                    document.addEventListener('submit', function (e) {
-                        var form = e.target instanceof HTMLFormElement ? e.target : null;
-                        if (!form) return;
-                        var t = (form.getAttribute('target') || '').toLowerCase();
-                        if (t === '_blank' || t === '_new') {
-                            form.setAttribute('target', '_self');
-                        }
-                    }, true);
-                })();
-            `);
-
-            // ── Script injection via Runtime.evaluate (main world) ───────────────
-            //
-            // Every pre-navigation injection mechanism that goes through
-            // Playwright/Patchright (addInitScript, Page.addScriptToEvaluate-
-            // OnNewDocument via CDPSession) is silently re-routed into the
-            // isolated utility world (__playwright_utility_world__).  Globals
-            // set there — window.qrcode, prototype patches, window.open
-            // overrides — are invisible to the page's own scripts in the main
-            // world.  The injection compiles and runs, but its side-effects are
-            // contained in a separate V8 context that page code never sees.
-            //
-            // Runtime.evaluate on our own CDPSession is the ONLY confirmed
-            // main-world execution path.  Proof: vcon() calls
-            //   cdp.send('Runtime.evaluate', { expression })
-            // and `await vcon("window")` returns "[object Window]" — the real
-            // main-world global.
-            //
-            // Strategy:
-            //   1. Build an `injectAll` closure that evaluates each script's
-            //      content directly in the main world via Runtime.evaluate.
-            //   2. Register `page.on('load', injectAll)` so scripts survive
-            //      full-page navigations that happen after session creation.
-            //   3. Call injectAll() once after the initial page.goto() so the
-            //      globals are available immediately.
-            //
-            // Position ordering (POSITION_ORDER sort) is preserved: scripts
-            // execute in HeaderTop → HeaderBottom → BodyTop → BodyBottom order.
-            // Wrapping in DOMContentLoaded / load listeners is unnecessary here
-            // because we inject after domcontentloaded has already fired.
-            let injectAll: (() => Promise<void>) | null = null;
-
-            if (scripts.length > 0) {
-                // Disable CSP enforcement so any resources the injected scripts
-                // load (dynamic import, fetch, etc.) are not blocked.
-                // Pure CDP command — no network footprint.
-                try { await cdp.send('Page.setBypassCSP', { enabled: true }); } catch { /* best-effort */ }
-
-                const sorted = [...scripts].sort(
-                    (a, b) =>
-                        (POSITION_ORDER[a.position] ?? 99) -
-                        (POSITION_ORDER[b.position] ?? 99),
-                );
-
-                const cdpSession = cdp; // narrow away 'undefined' for the closure
-                injectAll = async (): Promise<void> => {
-                    for (const s of sorted) {
-                        try {
-                            await cdpSession.send('Runtime.evaluate', {
-                                expression:    s.content,
-                                returnByValue: false,
-                                silent:        true,
-                            });
-                            console.log(`[${sessionId}] Injected: ${s.file}`);
-                        } catch (err) {
-                            console.warn(
-                                `[${sessionId}] Injection failed (${s.file}):`,
-                                (err as Error).message,
-                            );
-                        }
-                    }
-                };
-
-                // Re-inject automatically on every subsequent navigation so
-                // scripts survive redirects and full-page reloads.
-                page.on('load', () => {
-                    injectAll!().catch(err =>
-                        console.warn(
-                            `[${sessionId}] Re-injection error:`,
-                            (err as Error).message,
-                        ),
-                    );
-                });
-            }
-
-            // ── JsBridge — console forwarding ─────────────────────────────────
-            // Subscribed on our own CDPSession (not page.on('console')) for a
-            // critical reason:
-            //
-            //   page.on('console') listens on Playwright's *internal* CDP session.
-            //   When evaljs runs code via Runtime.evaluate on OUR session, Chrome
-            //   routes Runtime.consoleAPICalled back to OUR session only — not to
-            //   Playwright's. So page.on('console') silently drops every console.*
-            //   call produced by vcon().
-            //
-            // By enabling Runtime and Log on our session we capture:
-            //   • Runtime.consoleAPICalled — all JS console.* calls, including
-            //     those triggered by our own Runtime.evaluate (evaljs).
-            //   • Log.entryAdded — browser-level messages: network errors (401,
-            //     ERR_NAME_NOT_RESOLVED), CSP violations, mixed-content warnings.
-            //
-            // Text is capped at 64 KB per message to prevent a runaway logger
-            // from flooding the WebSocket.
-            if (jsBridgeEnabled) {
-                await cdp.send('Runtime.enable', {});
-                await cdp.send('Log.enable',     {});
-
-                const sendConsole = (level: number, text: string): void => {
-                    if (ws.readyState !== ws.OPEN) return;
-                    if (text.length > 65_536) text = text.slice(0, 65_536) + ' … [truncated]';
-                    ws.send(encodeConsoleMessage(level, text), { binary: true });
-                };
-
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                cdp.on('Runtime.consoleAPICalled', (event: any) => {
-                    const level = CONSOLE_LEVELS[event.type as string] ?? 0;
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    const text = (event.args as any[]).map((arg: any): string => {
-                        if (arg.type === 'undefined')               return 'undefined';
-                        if (arg.unserializableValue !== undefined)  return String(arg.unserializableValue);
-                        if (arg.value !== undefined)
-                            return typeof arg.value === 'string'
-                                ? arg.value
-                                : JSON.stringify(arg.value);
-                        return String(arg.description ?? '');
-                    }).join(' ');
-                    sendConsole(level, text);
-                });
-
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                cdp.on('Log.entryAdded', (event: any) => {
-                    const entry = event.entry as { level: string; text: string };
-                    sendConsole(LOG_LEVEL[entry.level] ?? 0, entry.text);
-                });
-
-                console.log(`[${sessionId}] JsBridge console forwarding active`);
-            }
-
-            // ── URL sync ──────────────────────────────────────────────────────
-            // Registered before page.goto() so the very first navigation is
-            // captured and the client URL bar reflects the initial page.
-            // Whenever the main frame navigates (user click, page.goto, goBack,
-            // goForward, or new-tab redirect), send the current URL to the client
-            // so the URL bar stays in sync without the client having to poll.
-            page.on('framenavigated', (frame) => {
-                if (frame !== page.mainFrame()) return;
-                const currentUrl = page.url();
-                // Only forward navigable http/https URLs — drop about:, chrome:,
-                // chrome-error:, blob:, data:, etc.
-                if (!/^https?:\/\//i.test(currentUrl)) return;
-                if (ws.readyState !== ws.OPEN) return;
-                ws.send(encodeUrlUpdate(currentUrl), { binary: true });
-            });
-
-            // ── Single-tab enforcement — Layer 2 (catch-all) ─────────────────
-            // Registered BEFORE page.goto() so popups opened by page scripts
-            // during the initial load are caught — not just popups triggered
-            // by later user interaction.
-            //
-            // Catches any page that Layer 1 did not prevent (e.g. browser-level
-            // popup mechanisms that bypass JavaScript).
-            //
-            // Policy: close the extra tab within milliseconds, then navigate the
-            // main tab to the target URL so the user reaches the intended page.
-            //
-            // Why waitForURL instead of waitForLoadState('domcontentloaded')?
-            //   domcontentloaded keeps the extra tab alive for up to 5 seconds
-            //   while HTML is fetched and parsed. waitForURL(protocol != 'about:')
-            //   resolves the moment Chrome issues the network request for the target
-            //   URL — typically 50–200 ms after the tab is created. The extra tab
-            //   exists for the absolute minimum possible time.
-            //
-            // Why is the "vai e vem" (oscillation) bug gone?
-            //   Layer 1 nulls window.opener on EVERY page via context.addInitScript,
-            //   so no stray popup can do window.opener.location = '...'. There is
-            //   no concurrent navigation racing with our page.goto().
-            //
-            // Chrome-extension:// and chrome:// pages are left alone — they are
-            // internal browser infrastructure, not user-initiated tabs.
-            context.on('page', (newPage) => {
-                if (newPage === page) return;
-
-                (async () => {
-                    // Wait only until the URL leaves about:blank — the extra tab is
-                    // alive for the shortest possible time.
-                    let targetUrl: string | null = null;
-                    try {
-                        await newPage.waitForURL(
-                            (u: URL) => u.protocol !== 'about:' && u.protocol !== 'chrome:',
-                            { timeout: 2_000 },
-                        );
-                        targetUrl = newPage.url();
-                    } catch {
-                        // Timed out or page already closed — capture whatever we have.
-                        try { targetUrl = newPage.url(); } catch { /* page gone */ }
-                    }
-
-                    // ── Close immediately — enforce single-tab invariant ──────
-                    try { await newPage.close(); } catch { /* already closed */ }
-
-                    // Ignore Chrome-internal and extension pages.
-                    if (!targetUrl                              ||
-                        targetUrl.startsWith('about:')         ||
-                        targetUrl.startsWith('chrome:')        ||
-                        targetUrl.startsWith('chrome-extension://')) {
-                        return;
-                    }
-
-                    console.log(`[${sessionId}] Extra tab intercepted → navigating main tab to ${targetUrl}`);
-
-                    try {
-                        await page.goto(targetUrl, {
-                            waitUntil: 'domcontentloaded',
-                            timeout:   30_000,
-                        });
-                    } catch { /* navigation error — main tab may have already moved */ }
-                })().catch(err => {
-                    console.warn(`[${sessionId}] Tab-interception error:`, (err as Error).message);
-                });
-            });
-
-            // Navigate to initial URL if provided.
             if (url) {
                 await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 });
             }
 
-            // Inject scripts into the main world now that the page has loaded.
-            // This is done after goto() so Runtime.evaluate targets a live
-            // execution context (not the blank about:blank context from before
-            // the first navigation).
+            // Inject scripts into the main world after the initial navigation so
+            // Runtime.evaluate targets a live execution context (not about:blank).
             if (injectAll) await injectAll();
 
-            // ── Frame relay with in-flight dropping ───────────────────────────
+            // ── Frame relay with in-flight back-pressure ──────────────────────
             // Allow at most MAX_IN_FLIGHT frames queued in the WS send buffer at
-            // once. If the .NET relay or the network is slow, inFlight hits the
+            // once.  If the .NET relay or the network is slow, inFlight hits the
             // cap and new frames are dropped rather than accumulating in memory.
             const MAX_IN_FLIGHT = 3;
             let   inFlight      = 0;
 
-            // Build the frame callback once so resize can reuse it.
             const onFrame = (buf: Buffer): void => {
                 if (ws.readyState !== ws.OPEN) return;
                 if (inFlight >= MAX_IN_FLIGHT)   return; // network backed up — drop
@@ -431,8 +146,6 @@ export class Session {
                 ws.send(buf, { binary: true }, () => { inFlight--; });
             };
 
-            // ScreencastCapture uses CDP Page.startScreencast — Chrome pushes JPEG
-            // frames directly, no FFmpeg or Xvfb read required.
             const capture = await ScreencastCapture.start(cdp, width, height, onFrame);
 
             console.log(`[${sessionId}] Session ready`);
@@ -443,7 +156,6 @@ export class Session {
             );
         } catch (err) {
             // Clean up partially-created resources on failure.
-            // With launchPersistentContext, context.close() also closes the browser.
             try { await cdp?.detach(); }     catch { /* best-effort */ }
             try { await context?.close(); }  catch { /* best-effort */ }
             throw err;
@@ -469,11 +181,10 @@ export class Session {
                     await this._page.reload({ waitUntil: 'domcontentloaded', timeout: 30_000 });
                     break;
 
-                // ── Pointer — page.mouse uses CDP page-coords, no screen offset ──
-                // CDP Input.dispatchMouseEvent injects mouse events into Chrome's
-                // rendering pipeline (JS events, :hover states, clicks) reliably
-                // without requiring X11 focus.  The cursor is rendered client-side
-                // as a software overlay on the canvas — see index.html.
+                // ── Pointer — CDP Input.dispatchMouseEvent ───────────────────
+                // Injects events into Chrome's rendering pipeline (JS events,
+                // :hover states, clicks) without requiring X11 focus.  The cursor
+                // is rendered client-side as a software overlay on the canvas.
 
                 case 'mousemove':
                     this._page.mouse.move(msg.x, msg.y).catch(() => {});
@@ -494,15 +205,14 @@ export class Session {
                     await this._page.mouse.wheel(msg.deltaX, msg.deltaY);
                     break;
 
-                // ── Keyboard — page.keyboard uses CDP; works even without X11 focus ──
-                // (once mouse moved to CDP, Chrome's X11 window loses X11 focus, so
-                // xdotool keystrokes are silently dropped. CDP keyboard bypasses that.)
+                // ── Keyboard — CDP Input.dispatchKeyEvent ────────────────────
+                // Works even without X11 focus (once mouse moved via CDP, Chrome's
+                // X11 window loses X11 focus so xdotool keystrokes are dropped).
 
                 case 'keydown':
-                    // keyboard.down/up only accepts ASCII printable chars and
-                    // named DOM keys (e.g. "Enter", "Shift"). Non-ASCII chars
-                    // (ç, é, ã, ñ, CJK, etc.) must go through keyboard.type()
-                    // which accepts any Unicode codepoint.
+                    // keyboard.down/up accepts ASCII printable chars and named DOM
+                    // keys ("Enter", "Shift", …).  Non-ASCII chars (ç, é, ã, CJK…)
+                    // must go through keyboard.type() which accepts any Unicode point.
                     if (msg.key.length === 1 && msg.key.charCodeAt(0) > 127) {
                         await this._page.keyboard.type(msg.key);
                     } else {
@@ -511,8 +221,8 @@ export class Session {
                     break;
 
                 case 'keyup':
-                    // Skip keyup for non-ASCII chars — the matching keydown
-                    // already handled the full press cycle via keyboard.type().
+                    // Skip keyup for non-ASCII — the matching keydown already handled
+                    // the full press cycle via keyboard.type().
                     if (msg.key.length === 1 && msg.key.charCodeAt(0) > 127) break;
                     await this._page.keyboard.up(msg.key);
                     break;
@@ -529,128 +239,13 @@ export class Session {
                     await this._page.goForward({ waitUntil: 'domcontentloaded', timeout: 30_000 });
                     break;
 
-                // ── JsBridge — evaluate JS in the virtual browser ────────────
-                // Runs arbitrary code in the page's main execution context and
-                // returns the result serialised as JSON. Console output produced
-                // during the evaluation is captured independently by the
-                // cdp.on('Runtime.consoleAPICalled') handler above and forwarded
-                // as MSG_CONSOLE frames — the two channels are fully decoupled.
-                //
-                // ⚠ We send Runtime.evaluate directly on our CDPSession instead
-                //   of page.evaluate(). page.evaluate() uses Playwright's internal
-                //   isolated utility world — console.* calls from that world are
-                //   routed back only to Playwright's own internal session, not to
-                //   ours, so they would be silently dropped from the JsBridge.
-                //   Omitting contextId in Runtime.evaluate defaults to the page's
-                //   main execution context, whose Runtime.consoleAPICalled events
-                //   ARE delivered to our CDPSession (which has Runtime.enable active).
-                case 'evaljs': {
-                    if (!this._jsBridgeEnabled) break;
-
-                    const { id, code } = msg;
-                    let ok    = true;
-                    let value = '';
-
-                    try {
-                        // The wrapper async IIFE:
-                        //   • Indirect eval runs the code at global scope (access
-                        //     to window, document, etc.).
-                        //   • If the result is a thenable (Promise), it is awaited
-                        //     before serialisation — so `await vcon("await fetch(…)")`
-                        //     returns the resolved value, not a plain Promise object.
-                        //   • Returns { ok, v } so errors are reported through the
-                        //     result value rather than CDP exceptionDetails, which
-                        //     avoids the need to parse the exception description.
-                        //   • v is null for undefined results (undefined is not
-                        //     JSON-serialisable across the CDP boundary).
-                        //   • awaitPromise:true tells CDP to await the outer Promise
-                        //     returned by the async IIFE before resolving the call.
-                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                        const res: any = await this._cdp.send('Runtime.evaluate', {
-                            expression: `(async function(){try{`
-                                + `var __r=(0,eval)(${JSON.stringify(code)});`
-                                + `if(__r&&typeof __r.then==='function')__r=await __r;`
-                                + `return{ok:true,v:__r===undefined?null:`
-                                + `(function(){try{return JSON.stringify(__r)}catch(_){return String(__r)}})()}`
-                                + `}catch(e){return{ok:false,v:e.message||String(e)}}})()`,
-                            returnByValue: true,
-                            awaitPromise:  true,
-                            timeout:       10_000,
-                        });
-
-                        if (res.exceptionDetails) {
-                            // The wrapper itself threw — should not happen.
-                            ok    = false;
-                            value = res.exceptionDetails.text ?? 'Evaluation error';
-                        } else {
-                            const r = res.result?.value as { ok: boolean; v: string | null } | undefined;
-                            if (!r) {
-                                value = '';
-                            } else if (r.ok) {
-                                value = r.v ?? '';
-                            } else {
-                                ok    = false;
-                                value = r.v ?? 'Unknown error';
-                            }
-                        }
-                    } catch (err) {
-                        ok    = false;
-                        value = (err as Error).message;
-                    }
-
-                    const buf = encodeEvalResult(id, ok, value);
-                    if (this._ws.readyState === this._ws.OPEN) {
-                        this._ws.send(buf, { binary: true });
-                    }
+                case 'evaljs':
+                    if (this._jsBridgeEnabled) await this._handleEvalJs(msg.id, msg.code);
                     break;
-                }
 
-                // ── Live resize ───────────────────────────────────────────────
-                // The client sends { type:'resize', width, height } whenever its
-                // viewport element changes size (debounced 250 ms).
-                //
-                // With ScreencastCapture the resize is pure CDP:
-                //   1. setDeviceMetricsOverride — tells Chrome's renderer the new
-                //      viewport size. No Xvfb or WM interaction required.
-                //   2. Restart screencast — stop + startScreencast with the new
-                //      maxWidth/maxHeight hints so Chrome encodes at the new size.
-                //
-                // A _resizing guard prevents overlapping resize operations.
-                case 'resize': {
-                    if (this._resizing) break;
-                    this._resizing = true;
-                    try {
-                        const w = msg.width;
-                        const h = msg.height;
-
-                        // Ignore no-ops and absurdly small sizes.
-                        if (w === this._width && h === this._height) break;
-                        if (w < 100 || h < 100) break;
-
-                        console.log(`[${this.sessionId}] Resize → ${w}×${h}`);
-
-                        // 1. Update Chrome's render viewport via CDP.
-                        try {
-                            await this._cdp.send('Emulation.setDeviceMetricsOverride', {
-                                width: w, height: h,
-                                deviceScaleFactor: 1,
-                                mobile: false,
-                            });
-                        } catch { /* CDP session may have been recycled — best-effort */ }
-
-                        // 2. Restart screencast at the new dimensions.
-                        await this._capture.restart(w, h, this._onFrame);
-
-                        this._width  = w;
-                        this._height = h;
-                        console.log(`[${this.sessionId}] Resize complete → ${w}×${h}`);
-                    } catch (err) {
-                        console.error(`[${this.sessionId}] Resize failed:`, (err as Error).message);
-                    } finally {
-                        this._resizing = false;
-                    }
+                case 'resize':
+                    await this._handleResize(msg.width, msg.height);
                     break;
-                }
             }
         } catch (err) {
             // Malformed or late input — ignore.
@@ -670,21 +265,396 @@ export class Session {
         try { await this._capture.stop(); } catch { /* already stopped */ }
 
         // 2. Close Chrome and kill the virtual display in parallel.
-        //    They are independent: Xvfb shutdown does not depend on Chrome having
-        //    exited gracefully, and Chrome will crash if Xvfb dies first — that is
-        //    acceptable because we are tearing the session down anyway.
-        //    Running them concurrently reduces disposal time from ~5-8 s to ~1-2 s.
+        //    Running them concurrently reduces disposal time from ~5–8 s to ~1–2 s.
         await Promise.allSettled([
-            // Browser close: CDP detach must precede context.close() so the CDP
-            // session does not race against the closing browser process.
             (async () => {
                 try { await this._cdp.detach(); }    catch { /* already detached */ }
                 try { await this._context.close(); } catch { /* already closed   */ }
             })(),
-
-            // Display: SIGKILL both WM and Xvfb immediately — no grace period
-            // needed for display infrastructure.
             this._display.dispose().catch(() => { /* best-effort */ }),
         ]);
+    }
+
+    // ── Private handlers ─────────────────────────────────────────────────────
+
+    /**
+     * Evaluates arbitrary JS in the page's main execution context and sends
+     * the result back as a MSG_EVAL_RESULT (0x06) frame.
+     *
+     * ⚠ Uses Runtime.evaluate on our own CDPSession (not page.evaluate()) so that
+     *   console.* calls from the evaluated code are delivered to our session's
+     *   Runtime.consoleAPICalled handler and forwarded via the JsBridge.
+     *   page.evaluate() runs in the isolated utility world where console calls
+     *   are not routed to our listener.
+     */
+    private async _handleEvalJs(id: number, code: string): Promise<void> {
+        let ok    = true;
+        let value = '';
+
+        try {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const res: any = await this._cdp.send('Runtime.evaluate', {
+                expression:    Session._wrapEval(code),
+                returnByValue: true,
+                awaitPromise:  true,
+                timeout:       10_000,
+            });
+
+            if (res.exceptionDetails) {
+                // The wrapper IIFE itself threw — should not happen.
+                ok    = false;
+                value = res.exceptionDetails.text ?? 'Evaluation error';
+            } else {
+                const r = res.result?.value as { ok: boolean; v: string | null } | undefined;
+                if (!r) {
+                    value = '';
+                } else if (r.ok) {
+                    value = r.v ?? '';
+                } else {
+                    ok    = false;
+                    value = r.v ?? 'Unknown error';
+                }
+            }
+        } catch (err) {
+            ok    = false;
+            value = (err as Error).message;
+        }
+
+        if (this._ws.readyState === this._ws.OPEN) {
+            this._ws.send(encodeEvalResult(id, ok, value), { binary: true });
+        }
+    }
+
+    /**
+     * Resizes the virtual viewport and restarts the screencast at new dimensions.
+     *
+     * Resize is pure CDP — no Xvfb or WM interaction required:
+     *   1. setDeviceMetricsOverride — tells Chrome's renderer the new viewport size.
+     *   2. ScreencastCapture.restart — stop + startScreencast with new size hints.
+     *
+     * A _resizing guard prevents overlapping resize operations (client debounces
+     * at 250 ms; guard is a safety net for any race that slips through).
+     */
+    private async _handleResize(w: number, h: number): Promise<void> {
+        if (this._resizing) return;
+        if (w === this._width && h === this._height) return; // no-op
+        if (w < 100 || h < 100) return;                     // absurdly small — ignore
+
+        this._resizing = true;
+        try {
+            console.log(`[${this.sessionId}] Resize → ${w}×${h}`);
+
+            try {
+                await this._cdp.send('Emulation.setDeviceMetricsOverride', {
+                    width: w, height: h,
+                    deviceScaleFactor: 1,
+                    mobile: false,
+                });
+            } catch { /* CDP session may have been recycled — best-effort */ }
+
+            await this._capture.restart(w, h, this._onFrame);
+
+            this._width  = w;
+            this._height = h;
+            console.log(`[${this.sessionId}] Resize complete → ${w}×${h}`);
+        } catch (err) {
+            console.error(`[${this.sessionId}] Resize failed:`, (err as Error).message);
+        } finally {
+            this._resizing = false;
+        }
+    }
+
+    // ── Private setup helpers ─────────────────────────────────────────────────
+
+    /**
+     * Installs single-tab enforcement on the browser context (Layer 1).
+     *
+     * Applied via context.addInitScript so it runs on ALL pages, including pages
+     * created before context.on('page') can close them.  Called before page.goto()
+     * so the initial navigation is also covered.
+     *
+     * What it does:
+     *   • Nulls window.opener — prevents a popup from doing
+     *     window.opener.location = '...' on the main tab (root cause of the
+     *     "vai e vem" oscillation bug).
+     *   • Overrides window.open() to redirect in the current tab.
+     *   • Intercepts target="_blank" anchor clicks (capture phase) and converts
+     *     them to same-tab navigations.
+     *   • Redirects target="_blank" form submissions to _self.
+     *
+     * _setupTabInterception() is the catch-all for browser-level popup mechanisms
+     * that bypass JavaScript.
+     */
+    private static async _setupSingleTabEnforcement(context: BrowserContext): Promise<void> {
+        await context.addInitScript(`
+            (function () {
+                'use strict';
+
+                // Sever opener so popups cannot mutate the main tab's location.
+                try {
+                    Object.defineProperty(window, 'opener', {
+                        value: null, writable: false, configurable: false,
+                    });
+                } catch (_) { /* already non-configurable */ }
+
+                // window.open → in-place navigation.
+                var _origOpen = window.open.bind(window);
+                window.open = function speculum_open(url, target, features) {
+                    var href = (url instanceof URL) ? url.href : String(url || '');
+                    if (href &&
+                        !href.startsWith('javascript:') &&
+                        !href.startsWith('about:') &&
+                        !href.startsWith('blob:')) {
+                        window.location.href = href;
+                        return null;
+                    }
+                    return _origOpen(url, target, features);
+                };
+
+                // target="_blank" / target="_new" anchor clicks → same-tab.
+                // Capture phase fires before any site listener.
+                document.addEventListener('click', function (e) {
+                    if (e.defaultPrevented) return;
+                    var el = e.target;
+                    var a = el instanceof Element ? el.closest('a') : null;
+                    if (!a) return;
+                    var t = (a.getAttribute('target') || '').toLowerCase();
+                    if (t !== '_blank' && t !== '_new') return;
+                    var href = a.href;
+                    if (!href ||
+                        href.startsWith('javascript:') ||
+                        href.startsWith('about:') ||
+                        href.startsWith('blob:')) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    window.location.href = href;
+                }, true);
+
+                // target="_blank" form submissions → _self.
+                document.addEventListener('submit', function (e) {
+                    var form = e.target instanceof HTMLFormElement ? e.target : null;
+                    if (!form) return;
+                    var t = (form.getAttribute('target') || '').toLowerCase();
+                    if (t === '_blank' || t === '_new') {
+                        form.setAttribute('target', '_self');
+                    }
+                }, true);
+            })();
+        `);
+    }
+
+    /**
+     * Builds an `injectAll` closure that evaluates each script in the main world
+     * via Runtime.evaluate, then wires it to `page.on('load')` for re-injection
+     * on every subsequent navigation.
+     *
+     * Returns null when scripts is empty.
+     *
+     * ── Why Runtime.evaluate (not addInitScript) ─────────────────────────────
+     * All Playwright/Patchright injection mechanisms route scripts into the
+     * isolated utility world (__playwright_utility_world__).  Globals set there
+     * are invisible to page code in the main world.  Runtime.evaluate on our own
+     * CDPSession is the only confirmed main-world execution path — omitting
+     * contextId defaults to the page's main execution context.
+     */
+    private static async _buildScriptInjector(
+        cdp:       CDPSession,
+        page:      Page,
+        scripts:   ScriptEntry[],
+        sessionId: string,
+    ): Promise<(() => Promise<void>) | null> {
+        if (scripts.length === 0) return null;
+
+        // Disable CSP so resources loaded by injected scripts (dynamic import,
+        // fetch, etc.) are not blocked.
+        try { await cdp.send('Page.setBypassCSP', { enabled: true }); } catch { /* best-effort */ }
+
+        const sorted = [...scripts].sort(
+            (a, b) =>
+                (POSITION_ORDER[a.position] ?? 99) -
+                (POSITION_ORDER[b.position] ?? 99),
+        );
+
+        const injectAll = async (): Promise<void> => {
+            for (const s of sorted) {
+                try {
+                    await cdp.send('Runtime.evaluate', {
+                        expression:    s.content,
+                        returnByValue: false,
+                        silent:        true,
+                    });
+                    console.log(`[${sessionId}] Injected: ${s.file}`);
+                } catch (err) {
+                    console.warn(
+                        `[${sessionId}] Injection failed (${s.file}):`,
+                        (err as Error).message,
+                    );
+                }
+            }
+        };
+
+        // Re-inject on every subsequent navigation so scripts survive redirects
+        // and full-page reloads.
+        page.on('load', () => {
+            injectAll().catch(err =>
+                console.warn(`[${sessionId}] Re-injection error:`, (err as Error).message),
+            );
+        });
+
+        return injectAll;
+    }
+
+    /**
+     * Enables Runtime + Log on our CDPSession and wires console forwarding to
+     * the WebSocket as MSG_CONSOLE (0x05) frames.
+     *
+     * ── Why we listen on our CDPSession (not page.on('console')) ─────────────
+     * page.on('console') listens on Playwright's internal CDP session.  When
+     * evaljs runs code via Runtime.evaluate on OUR session, Chrome routes
+     * Runtime.consoleAPICalled back to OUR session only — so page.on('console')
+     * silently drops every console.* call produced by vcon().
+     *
+     * Runtime.consoleAPICalled captures JS console.* calls; Log.entryAdded
+     * captures browser-level messages (network errors, CSP violations, etc.).
+     */
+    private static async _setupJsBridge(
+        cdp:       CDPSession,
+        ws:        WebSocket,
+        sessionId: string,
+    ): Promise<void> {
+        await cdp.send('Runtime.enable', {});
+        await cdp.send('Log.enable',     {});
+
+        const sendConsole = (level: number, text: string): void => {
+            if (ws.readyState !== ws.OPEN) return;
+            if (text.length > 65_536) text = text.slice(0, 65_536) + ' … [truncated]';
+            ws.send(encodeConsoleMessage(level, text), { binary: true });
+        };
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        cdp.on('Runtime.consoleAPICalled', (event: any) => {
+            const level = CONSOLE_LEVELS[event.type as string] ?? 0;
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const text = (event.args as any[]).map((arg: any): string => {
+                if (arg.type === 'undefined')              return 'undefined';
+                if (arg.unserializableValue !== undefined) return String(arg.unserializableValue);
+                if (arg.value !== undefined)
+                    return typeof arg.value === 'string'
+                        ? arg.value
+                        : JSON.stringify(arg.value);
+                return String(arg.description ?? '');
+            }).join(' ');
+            sendConsole(level, text);
+        });
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        cdp.on('Log.entryAdded', (event: any) => {
+            const entry = event.entry as { level: string; text: string };
+            sendConsole(LOG_LEVEL[entry.level] ?? 0, entry.text);
+        });
+
+        console.log(`[${sessionId}] JsBridge console forwarding active`);
+    }
+
+    /**
+     * Sends the current URL to the client as a MSG_URL (0x04) frame whenever
+     * the main frame navigates.
+     *
+     * Registered before page.goto() so the initial navigation is captured.
+     * Only http/https URLs are forwarded; about:, chrome:, etc. are dropped.
+     */
+    private static _setupUrlSync(page: Page, ws: WebSocket): void {
+        page.on('framenavigated', (frame) => {
+            if (frame !== page.mainFrame()) return;
+            const currentUrl = page.url();
+            if (!/^https?:\/\//i.test(currentUrl)) return;
+            if (ws.readyState !== ws.OPEN) return;
+            ws.send(encodeUrlUpdate(currentUrl), { binary: true });
+        });
+    }
+
+    /**
+     * Catches any new tab that Layer 1 did not prevent (browser-level popup
+     * mechanisms that bypass JavaScript) and redirects the main tab to the
+     * target URL (Layer 2 catch-all).
+     *
+     * Registered before page.goto() so popups opened during the initial load
+     * are also caught.
+     *
+     * Policy: close the extra tab as soon as its URL leaves about:blank, then
+     * navigate the main tab to the target.  waitForURL is used instead of
+     * waitForLoadState so the extra tab is closed in ~50–200 ms rather than
+     * waiting up to 5 s for DOMContentLoaded.
+     *
+     * Chrome-extension:// and chrome:// pages are ignored — they are internal
+     * browser infrastructure, not user-initiated tabs.
+     */
+    private static _setupTabInterception(
+        context:   BrowserContext,
+        page:      Page,
+        sessionId: string,
+    ): void {
+        context.on('page', (newPage) => {
+            if (newPage === page) return;
+
+            (async () => {
+                let targetUrl: string | null = null;
+                try {
+                    await newPage.waitForURL(
+                        (u: URL) => u.protocol !== 'about:' && u.protocol !== 'chrome:',
+                        { timeout: 2_000 },
+                    );
+                    targetUrl = newPage.url();
+                } catch {
+                    try { targetUrl = newPage.url(); } catch { /* page gone */ }
+                }
+
+                try { await newPage.close(); } catch { /* already closed */ }
+
+                if (!targetUrl                              ||
+                    targetUrl.startsWith('about:')         ||
+                    targetUrl.startsWith('chrome:')        ||
+                    targetUrl.startsWith('chrome-extension://')) {
+                    return;
+                }
+
+                console.log(`[${sessionId}] Extra tab intercepted → navigating main tab to ${targetUrl}`);
+
+                try {
+                    await page.goto(targetUrl, {
+                        waitUntil: 'domcontentloaded',
+                        timeout:   30_000,
+                    });
+                } catch { /* navigation error — main tab may have already moved */ }
+            })().catch(err => {
+                console.warn(`[${sessionId}] Tab-interception error:`, (err as Error).message);
+            });
+        });
+    }
+
+    // ── Private utility ───────────────────────────────────────────────────────
+
+    /**
+     * Wraps user code in an async IIFE suitable for Runtime.evaluate.
+     *
+     *   • (0,eval) runs at global scope (access to window, document, etc.).
+     *   • If the result is a thenable it is awaited — so `await vcon("await fetch(…)")`
+     *     resolves the value, not a plain Promise object.
+     *   • Returns { ok, v } so errors travel through the result value rather than
+     *     CDP exceptionDetails (avoids parsing the exception description).
+     *   • v is null for undefined results (undefined is not JSON-serialisable
+     *     across the CDP boundary).
+     *   • awaitPromise:true on the Runtime.evaluate call tells CDP to await the
+     *     async IIFE before resolving.
+     */
+    private static _wrapEval(code: string): string {
+        return (
+            `(async function(){try{`
+            + `var __r=(0,eval)(${JSON.stringify(code)});`
+            + `if(__r&&typeof __r.then==='function')__r=await __r;`
+            + `return{ok:true,v:__r===undefined?null:`
+            + `(function(){try{return JSON.stringify(__r)}catch(_){return String(__r)}})()}`
+            + `}catch(e){return{ok:false,v:e.message||String(e)}}})() `
+        );
     }
 }

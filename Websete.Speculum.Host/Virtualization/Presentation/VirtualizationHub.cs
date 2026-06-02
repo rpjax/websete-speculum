@@ -77,12 +77,20 @@ public sealed class VirtualizationHub : Hub
         => RequireSession().GetConsoleOutputReader();
 
     // ── Input streams (client → server) ──────────────────────────────────────
+    //
+    // IMPORTANT: These methods MUST return Task (not void).
+    // SignalR's DefaultHubDispatcher casts the return value to Task and awaits it.
+    // A void/null return is treated as an immediately-completed Task, which causes
+    // SignalR to complete the Channel<T>.Writer right away — ReadAllAsync on the
+    // reader then yields nothing and the input pump exits without processing any events.
+    // Returning the live pump Task keeps the streaming invocation open for the
+    // full session lifetime (until the client completes the Subject or disconnects).
 
-    public void OpenUserInputChannel(ChannelReader<UserInput> channelReader)
-        => RequireSession().ConsumeUserInput(channelReader);
+    public Task OpenUserInputChannel(ChannelReader<UserInput> channelReader)
+        => RequireSession().ConsumeUserInputAsync(channelReader);
 
-    public void OpenConsoleInputChannel(ChannelReader<ConsoleInput> channelReader)
-        => RequireSession().ConsumeConsoleInput(channelReader);
+    public Task OpenConsoleInputChannel(ChannelReader<ConsoleInput> channelReader)
+        => RequireSession().ConsumeConsoleInputAsync(channelReader);
 
     // ── Browser control ───────────────────────────────────────────────────────
 

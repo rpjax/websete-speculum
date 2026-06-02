@@ -12,10 +12,10 @@ const execFileAsync = promisify(execFile);
  * events are processed, eliminating cursor-trail artifacts.
  *
  * ── Why 4096×2160 initial allocation ──────────────────────────────────────
- * Xvfb allocates its shared-memory framebuffer at launch time and cannot
- * grow it. Starting at 4096×2160 lets xrandr switch to any smaller or equal
- * resolution at runtime — including the user's actual viewport, and any
- * future resize — without restarting the display server.
+ * Xvfb allocates its shared-memory framebuffer at launch time and cannot grow
+ * it.  Starting at 4096×2160 lets xrandr switch to any smaller or equal
+ * resolution at runtime — including the user's actual viewport and any future
+ * resize — without restarting the display server.
  *
  * The initial size passed by the caller is applied immediately via xrandr
  * after Xvfb starts (see applyXrandr), so Chrome always launches into the
@@ -25,10 +25,6 @@ export class DisplayManager {
     readonly number: number;
     private _xvfb: ChildProcess;
     private _wm:   ChildProcess | null;
-
-    // Cached xrandr output name (e.g. "VIRTUAL1") — resolved once during start()
-    // and reused on every subsequent resize() to skip the `xrandr` list parse.
-    private _cachedOutputName: string | null = null;
 
     private constructor(number: number, xvfb: ChildProcess, wm: ChildProcess | null) {
         this.number = number;
@@ -85,8 +81,7 @@ export class DisplayManager {
 
         // Set the active resolution to the caller-requested size.
         // Chrome will launch and see this resolution (not 4096×2160).
-        // applyXrandr returns the output name it resolved so we can cache it.
-        const cachedOutputName = await DisplayManager.applyXrandr(number, width, height, null);
+        await DisplayManager.applyXrandr(number, width, height);
 
         // Start a minimal window manager. matchbox-window-manager forces every
         // window to fill the screen and handles all X11 event plumbing,
@@ -96,33 +91,7 @@ export class DisplayManager {
         // Give the WM a moment to connect before Chrome tries to open a window.
         await new Promise<void>(r => setTimeout(r, 200));
 
-        const dm = new DisplayManager(number, xvfb, wm);
-        dm._cachedOutputName = cachedOutputName;
-        return dm;
-    }
-
-    /**
-     * Changes the active virtual display resolution via xrandr.
-     *
-     * Strategy:
-     *   1. Compute a modeline for WxH@60Hz in TypeScript (no `cvt` binary).
-     *   2. Register it with xrandr (--newmode / --addmode) — idempotent.
-     *   3. Switch the output AND the framebuffer in one command.
-     *
-     * The output must be switched to the new mode BEFORE --fb can shrink the
-     * framebuffer; xrandr rejects --fb values smaller than the current CRTC
-     * output size.  Combining --output --mode --fb in a single invocation
-     * satisfies this constraint atomically.
-     *
-     * The xrandr output name is cached after the first successful call so
-     * subsequent resizes skip the `xrandr` list parse entirely.
-     */
-    async resize(width: number, height: number): Promise<void> {
-        const resolved = await DisplayManager.applyXrandr(
-            this.number, width, height, this._cachedOutputName,
-        );
-        // Update the cache in case it was resolved for the first time here.
-        if (resolved && !this._cachedOutputName) this._cachedOutputName = resolved;
+        return new DisplayManager(number, xvfb, wm);
     }
 
     // ── Internals ─────────────────────────────────────────────────────────────
@@ -191,10 +160,6 @@ export class DisplayManager {
     /**
      * Applies a resolution change via xrandr.
      *
-     * Returns the resolved output name so callers can cache it and skip the
-     * `xrandr` list-parse on subsequent calls.  Pass a non-null
-     * `cachedOutputName` to skip the output name discovery step.
-     *
      * ── Why --fb alone cannot shrink the framebuffer ──────────────────────────
      * xrandr rejects `--fb WxH` when any active CRTC output is configured at a
      * larger mode.  Xvfb is launched at 4096×2160 (maximum SHM allocation), so
@@ -205,11 +170,10 @@ export class DisplayManager {
      * resizes the CRTC and the framebuffer atomically, satisfying the constraint.
      */
     private static async applyXrandr(
-        displayNum:        number,
-        width:             number,
-        height:            number,
-        cachedOutputName:  string | null,
-    ): Promise<string | null> {
+        displayNum: number,
+        width:      number,
+        height:     number,
+    ): Promise<void> {
         const display = `:${displayNum}`;
         const env     = { ...process.env as Record<string, string>, DISPLAY: display };
 
@@ -223,18 +187,14 @@ export class DisplayManager {
             // ── Step 2: find the xrandr output name ───────────────────────────
             // Xvfb with RANDR extension exposes one virtual output.
             // Its name varies by version: "VIRTUAL1", "screen", etc.
-            // Skip if we already resolved it on a previous call.
-            let outputName = cachedOutputName;
-            if (!outputName) {
-                const { stdout: xrOut } =
-                    await execFileAsync('xrandr', ['--display', display], { env });
+            const { stdout: xrOut } =
+                await execFileAsync('xrandr', ['--display', display], { env });
 
-                const outputMatch = xrOut.match(/^(\S+)\s+(?:connected|disconnected)/m);
-                if (!outputMatch) {
-                    throw new Error(`No xrandr output found in:\n${xrOut.trim()}`);
-                }
-                outputName = outputMatch[1];
+            const outputMatch = xrOut.match(/^(\S+)\s+(?:connected|disconnected)/m);
+            if (!outputMatch) {
+                throw new Error(`No xrandr output found in:\n${xrOut.trim()}`);
             }
+            const outputName = outputMatch[1];
 
             // ── Step 3: register the mode (idempotent) ────────────────────────
             try {
@@ -265,13 +225,11 @@ export class DisplayManager {
             ], { env });
 
             console.log(`[DisplayManager :${displayNum}] xrandr → ${width}×${height} (mode ${modeName})`);
-            return outputName;
         } catch (err) {
             console.error(
                 `[DisplayManager :${displayNum}] xrandr failed (${(err as Error).message.split('\n')[0]}). ` +
                 `Display stays at its current resolution.`,
             );
-            return cachedOutputName ?? null;
         }
     }
 

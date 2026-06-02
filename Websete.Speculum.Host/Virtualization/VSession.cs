@@ -76,8 +76,9 @@ public class VSession : IVSession
             _connectionOptions.Width,
             _connectionOptions.Height,
             _connectionOptions.InitialUrl,
+            scripts:         _connectionOptions.Scripts.Count > 0 ? _connectionOptions.Scripts : null,
             jsBridgeEnabled: _connectionOptions.JsBridgeEnabled,
-            ct: ct);
+            ct:              ct);
 
         _pumpFramesTask  = PumpFramesAsync(_cts.Token);
         _pumpConsoleTask = PumpConsoleOutputAsync(_cts.Token);
@@ -116,16 +117,25 @@ public class VSession : IVSession
     public ChannelReader<Frame> GetFrameReader() => _frameChannel.Reader;
     public ChannelReader<ConsoleOutput> GetConsoleOutputReader() => _consoleOutputChannel.Reader;
 
-    public void ConsumeUserInput(ChannelReader<UserInput> channelReader)
+    /// <summary>
+    /// Starts and returns the pump task for user input events.
+    /// The caller MUST await this task — SignalR keeps the client→server streaming
+    /// channel alive only while the hub method's returned Task is pending.
+    /// If the method returns void (or a completed Task), SignalR immediately marks
+    /// the ChannelReader as complete, causing ReadAllAsync to yield nothing.
+    /// </summary>
+    public Task ConsumeUserInputAsync(ChannelReader<UserInput> channelReader)
     {
         if (_client is null) throw new InvalidOperationException("Sessão não iniciada.");
         _pumpUserInputTask = PumpUserInputAsync(channelReader, _cts.Token);
+        return _pumpUserInputTask;
     }
 
-    public void ConsumeConsoleInput(ChannelReader<ConsoleInput> channelReader)
+    public Task ConsumeConsoleInputAsync(ChannelReader<ConsoleInput> channelReader)
     {
         if (_client is null) throw new InvalidOperationException("Sessão não iniciada.");
         _pumpConsoleInputTask = PumpConsoleInputAsync(channelReader, _cts.Token);
+        return _pumpConsoleInputTask;
     }
 
     // ── Controlo ──────────────────────────────────────────────────────────────
@@ -177,9 +187,20 @@ public class VSession : IVSession
         try
         {
             await foreach (var ev in reader.ReadAllAsync(ct))
-                await _client!.SendInputAsync(Encoding.UTF8.GetBytes(ev.Payload).AsMemory(), ct);
+            {
+                try
+                {
+                    await _client!.SendInputAsync(Encoding.UTF8.GetBytes(ev.Payload).AsMemory(), ct);
+                }
+                catch (OperationCanceledException) { throw; }          // let outer catch handle shutdown
+                catch (Exception ex) when (ex is not OutOfMemoryException)
+                {
+                    // Sidecar WS hiccup — log and keep processing; do NOT kill the pump.
+                    _logger.LogWarning(ex, "Erro ao enviar input de usuário para o sidecar.");
+                }
+            }
         }
-        catch (OperationCanceledException) { }
+        catch (OperationCanceledException) { /* normal shutdown */ }
     }
 
     private async Task PumpConsoleInputAsync(ChannelReader<ConsoleInput> reader, CancellationToken ct)
@@ -188,15 +209,23 @@ public class VSession : IVSession
         {
             await foreach (var ev in reader.ReadAllAsync(ct))
             {
-                var payload = JsonSerializer.SerializeToUtf8Bytes(new
+                try
                 {
-                    type = "evaljs",
-                    id = ev.Id,
-                    code = ev.Code,
-                });
-                await _client!.SendInputAsync(payload.AsMemory(), ct);
+                    var payload = JsonSerializer.SerializeToUtf8Bytes(new
+                    {
+                        type = "evaljs",
+                        id   = ev.Id,
+                        code = ev.Code,
+                    });
+                    await _client!.SendInputAsync(payload.AsMemory(), ct);
+                }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception ex) when (ex is not OutOfMemoryException)
+                {
+                    _logger.LogWarning(ex, "Erro ao enviar evaljs para o sidecar (id={Id}).", ev.Id);
+                }
             }
         }
-        catch (OperationCanceledException) { }
+        catch (OperationCanceledException) { /* normal shutdown */ }
     }
 }

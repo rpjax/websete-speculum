@@ -129,6 +129,64 @@ export type InputEvent =
     /** JsBridge: execute JS in the virtual browser and return the result. */
     | { type: 'evaljs';     id: number; code: string };
 
+// ── Session status (sidecar → .NET, binary) ──────────────────────────────────
+
+export const MSG_STATUS   = 0x09;
+export const MSG_REDIRECT = 0x0A;
+
+/**
+ * Periodic snapshot of sidecar-side session state.
+ * Published every 1 s; consumed by .NET which augments it with fps/uptime
+ * before sending to the client as a typed SignalR message.
+ */
+export type StatusPayload = {
+    tabCount: number;   // context.pages().length — must always be 1
+    url:      string;   // current page URL
+    resizing: boolean;  // true while a resize is in progress
+    width:    number;   // active viewport width
+    height:   number;   // active viewport height
+};
+
+/**
+ * Encodes a session status snapshot.
+ *
+ * Layout:
+ *   [0]     type = 0x09          (1 byte)
+ *   [1..4]  len                  (4 bytes LE uint32)
+ *   [5..]   JSON payload         (len bytes UTF-8)
+ */
+export function encodeStatusFrame(payload: StatusPayload): Buffer {
+    const json      = JSON.stringify(payload);
+    const jsonBytes = Buffer.from(json, 'utf8');
+    const buf       = Buffer.allocUnsafe(1 + 4 + jsonBytes.length);
+    buf[0] = MSG_STATUS;
+    buf.writeUInt32LE(jsonBytes.length, 1);
+    jsonBytes.copy(buf, 5);
+    return buf;
+}
+
+// ── Navigation redirect (sidecar → .NET → client) ────────────────────────────
+
+/**
+ * Sent by the sidecar when the virtual browser tries to navigate outside the
+ * upstream domain.  The .NET relay forwards it to the client, which performs
+ * a real `window.location.href` redirect, closing the Speculum session and
+ * taking the user directly to the intended destination.
+ *
+ * Layout (same as encodeUrlUpdate):
+ *   [0]     type = 0x0A          (1 byte)
+ *   [1..4]  len                  (4 bytes LE uint32)
+ *   [5..]   url                  (len bytes UTF-8)
+ */
+export function encodeRedirectFrame(url: string): Buffer {
+    const urlBytes = Buffer.from(url, 'utf8');
+    const buf = Buffer.allocUnsafe(1 + 4 + urlBytes.length);
+    buf[0] = MSG_REDIRECT;
+    buf.writeUInt32LE(urlBytes.length, 1);
+    urlBytes.copy(buf, 5);
+    return buf;
+}
+
 // ── Script injection ──────────────────────────────────────────────────────────
 
 /**
@@ -160,6 +218,12 @@ export type CreateMessage = {
     scripts?:  ScriptEntry[];
     /** When true, forward virtual console output and handle evaljs requests. */
     jsBridgeEnabled?: boolean;
+    /**
+     * When set, the navigation guard prevents the virtual browser from leaving
+     * this upstream domain (exact match or subdomain).  Any blocked navigation
+     * triggers a MSG_REDIRECT (0x0A) so the real client browser navigates instead.
+     */
+    upstreamDomain?: string;
 };
 
 export function decodeMessage(raw: string): InputEvent | CreateMessage | null {

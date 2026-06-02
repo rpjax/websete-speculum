@@ -9,10 +9,10 @@ namespace Websete.Speculum.Host.Certs;
 ///
 /// Expected on-disk layout:
 /// <code>
-///   {certBasePath}/{domain}/privkey.pem
-///   {certBasePath}/{domain}/fullchain.pem
+///   {certBasePath}/{downstream}/privkey.pem
+///   {certBasePath}/{downstream}/fullchain.pem
 /// </code>
-/// where <c>domain</c> is <see cref="ForwardingProfile.Domain"/>.
+/// where <c>downstream</c> is <see cref="ForwardingProfile.Downstream"/>.
 ///
 /// Throws <see cref="InvalidOperationException"/> during <see cref="Create"/>
 /// if any certificate file is missing — the application must not start
@@ -28,8 +28,7 @@ public sealed class CertificateProvider : ICertificateProvider, IDisposable
     const string PrivateKeyFile = "privkey.pem";
 
     private readonly record struct Entry(
-        string           Domain,
-        bool             AllowSubDomains,
+        string           Downstream,
         X509Certificate2 Certificate);
 
     private readonly ImmutableArray<Entry> _entries;
@@ -61,24 +60,24 @@ public sealed class CertificateProvider : ICertificateProvider, IDisposable
 
         foreach (var profile in config.ForwardingProfiles)
         {
-            var domain       = profile.Domain;
-            var dir          = Path.Combine(certBasePath, domain);
-            var privkeyPath  = Path.Combine(dir, PrivateKeyFile);
-            var fullchainPath = Path.Combine(dir, FullChainFile);
+            var downstream    = profile.Downstream;
+            var dir           = Path.Combine(certBasePath, downstream);
+            var privkeyPath   = Path.Combine(dir, PrivateKeyFile);
+            var fullchainPath  = Path.Combine(dir, FullChainFile);
 
-            AssertFileExists(privkeyPath,  profile.Domain, "private key");
-            AssertFileExists(fullchainPath, profile.Domain, "full chain");
+            AssertFileExists(privkeyPath,  downstream, "private key");
+            AssertFileExists(fullchainPath, downstream, "full chain");
 
             // CreateFromPemFile reads fullchain (cert + intermediates) and
             // the separate private key. Works on all .NET 10 platforms.
             var cert = X509Certificate2.CreateFromPemFile(fullchainPath, privkeyPath);
 
             Console.WriteLine(
-                $"[Certs] Loaded certificate for '{domain}': " +
+                $"[Certs] Loaded certificate for '{downstream}': " +
                 $"subject={cert.Subject} " +
                 $"expires={cert.GetExpirationDateString()}");
 
-            builder.Add(new Entry(domain, profile.AllowSubDomains, cert));
+            builder.Add(new Entry(downstream, cert));
         }
 
         return new CertificateProvider(builder.MoveToImmutable());
@@ -95,12 +94,13 @@ public sealed class CertificateProvider : ICertificateProvider, IDisposable
         foreach (var entry in _entries)
         {
             // Exact match.
-            if (serverName.Equals(entry.Domain, StringComparison.OrdinalIgnoreCase))
+            if (serverName.Equals(entry.Downstream, StringComparison.OrdinalIgnoreCase))
                 return entry.Certificate;
 
             // Subdomain match: www.websete.localhost → websete.localhost.
-            if (entry.AllowSubDomains &&
-                serverName.EndsWith('.' + entry.Domain, StringComparison.OrdinalIgnoreCase))
+            // Safe because the startup validator ensures no two downstreams are
+            // in a parent/child relationship, so this match is always unambiguous.
+            if (serverName.EndsWith('.' + entry.Downstream, StringComparison.OrdinalIgnoreCase))
                 return entry.Certificate;
         }
 

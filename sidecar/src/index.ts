@@ -58,7 +58,7 @@ wss.on('connection', (ws: WebSocket) => {
 
         // ── Session creation ──────────────────────────────────────────────────
         if (msg.type === 'create') {
-            const { sessionId, width, height, url, scripts = [], jsBridgeEnabled = false } = msg as CreateMessage;
+            const { sessionId, width, height, url, scripts = [], jsBridgeEnabled = false, upstreamDomain } = msg as CreateMessage;
 
             if (session) {
                 // A second "create" on the same connection is a protocol error.
@@ -77,7 +77,7 @@ wss.on('connection', (ws: WebSocket) => {
 
             try {
                 const display = await DisplayManager.start(displayNum, width, height);
-                session = await Session.create(sessionId, ws, display, width, height, url, scripts, jsBridgeEnabled);
+                session = await Session.create(sessionId, ws, display, width, height, url, scripts, jsBridgeEnabled, upstreamDomain);
                 activeSessions.add(session);
 
                 ws.send(JSON.stringify({ type: 'ready', sessionId }));

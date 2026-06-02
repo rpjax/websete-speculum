@@ -8,6 +8,8 @@ import {
     encodeUrlUpdate,
     encodeConsoleMessage,
     encodeEvalResult,
+    encodeStatusFrame,
+    encodeRedirectFrame,
     CONSOLE_LEVELS,
     ScriptEntry,
 } from './Protocol';
@@ -68,6 +70,9 @@ export class Session {
     /** Whether the JsBridge (console forwarding + evaljs) is active. */
     private _jsBridgeEnabled: boolean;
 
+    /** Interval handle for the 1 s status publisher. Cleared in dispose(). */
+    private _statusInterval: ReturnType<typeof setInterval> | null = null;
+
     private _disposed: boolean = false;
 
     private constructor(
@@ -107,6 +112,7 @@ export class Session {
         url?:            string,
         scripts:         ScriptEntry[] = [],
         jsBridgeEnabled: boolean       = false,
+        upstreamDomain?: string,
     ): Promise<Session> {
         console.log(`[${sessionId}] Launching Chrome on display ${display.displayEnv}`);
 
@@ -123,6 +129,7 @@ export class Session {
             if (jsBridgeEnabled) await Session._setupJsBridge(cdp, ws, sessionId);
             Session._setupUrlSync(page, ws);
             Session._setupTabInterception(context, page, sessionId);
+            if (upstreamDomain) Session._setupNavigationGuard(page, ws, sessionId, upstreamDomain);
 
             if (url) {
                 await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 });
@@ -150,10 +157,12 @@ export class Session {
 
             console.log(`[${sessionId}] Session ready`);
 
-            return new Session(
+            const session = new Session(
                 sessionId, ws, display, context, page, cdp,
                 capture, width, height, onFrame, jsBridgeEnabled,
             );
+            session._setupStatusPublisher();
+            return session;
         } catch (err) {
             // Clean up partially-created resources on failure.
             try { await cdp?.detach(); }     catch { /* best-effort */ }
@@ -259,6 +268,13 @@ export class Session {
         if (this._disposed) return;
         this._disposed = true;
 
+        // Stop the status publisher immediately so no more frames are sent
+        // during the teardown window.
+        if (this._statusInterval !== null) {
+            clearInterval(this._statusInterval);
+            this._statusInterval = null;
+        }
+
         console.log(`[${this.sessionId}] Disposing session`);
 
         // 1. Stop the CDP screencast — no more frames will be sent after this.
@@ -362,6 +378,34 @@ export class Session {
         } finally {
             this._resizing = false;
         }
+    }
+
+    // ── Private status publisher ──────────────────────────────────────────────
+
+    /**
+     * Starts a 1 s interval that sends a MSG_STATUS (0x09) frame to .NET.
+     * .NET intercepts the frame, augments it with fps/uptime, and forwards
+     * it to the client via a dedicated SignalR channel — the existing frame
+     * and console channels are untouched.
+     *
+     * Called once at the end of create() on the newly constructed instance.
+     * Private members are accessible from the static create() in TypeScript.
+     */
+    private _setupStatusPublisher(): void {
+        this._statusInterval = setInterval(() => this._sendStatus(), 1_000);
+    }
+
+    private _sendStatus(): void {
+        if (this._ws.readyState !== this._ws.OPEN) return;
+        try {
+            this._ws.send(encodeStatusFrame({
+                tabCount: this._context.pages().length,
+                url:      this._page.url(),
+                resizing: this._resizing,
+                width:    this._width,
+                height:   this._height,
+            }), { binary: true });
+        } catch { /* WS closed mid-send — interval cleared in dispose() */ }
     }
 
     // ── Private setup helpers ─────────────────────────────────────────────────
@@ -630,6 +674,78 @@ export class Session {
                 console.warn(`[${sessionId}] Tab-interception error:`, (err as Error).message);
             });
         });
+    }
+
+    /**
+     * Installs a `page.route('**')` handler that prevents the virtual browser
+     * from navigating outside `upstreamDomain` (exact or subdomain match).
+     *
+     * When a blocked navigation is detected the handler:
+     *   1. Sends a MSG_REDIRECT (0x0A) frame to the .NET relay, which forwards
+     *      it to the real client browser.
+     *   2. Aborts the navigation so the virtual browser stays on its current page.
+     *
+     * The client-side JS performs `window.location.href = url`, closing the
+     * Speculum session naturally via SignalR disconnect.
+     *
+     * Fast-path design: the handler checks `isNavigationRequest()` first so the
+     * per-request overhead for images, scripts and other sub-resources is minimal
+     * (a single boolean check before `route.continue()`).
+     */
+    private static _setupNavigationGuard(
+        page:           Page,
+        ws:             WebSocket,
+        sessionId:      string,
+        upstreamDomain: string,
+    ): void {
+        page.route('**', async (route) => {
+            const request = route.request();
+
+            // Fast path — sub-resources and sub-frame navigations are always allowed.
+            if (!request.isNavigationRequest() || request.frame() !== page.mainFrame()) {
+                await route.continue();
+                return;
+            }
+
+            const rawUrl = request.url();
+
+            // Non-http(s) navigations (about:, data:, blob:, …) are allowed through.
+            if (!rawUrl.startsWith('http://') && !rawUrl.startsWith('https://')) {
+                await route.continue();
+                return;
+            }
+
+            try {
+                const host = new URL(rawUrl).hostname;
+
+                if (Session._isWithinUpstream(host, upstreamDomain)) {
+                    await route.continue();
+                    return;
+                }
+
+                // External navigation — block and redirect the real client browser.
+                console.log(
+                    `[${sessionId}] Navigation blocked: '${host}' ∉ '${upstreamDomain}' → client redirect → ${rawUrl}`,
+                );
+                if (ws.readyState === ws.OPEN)
+                    ws.send(encodeRedirectFrame(rawUrl), { binary: true });
+
+                await route.abort();
+            } catch {
+                // Malformed URL — allow through rather than breaking the page.
+                await route.continue();
+            }
+        });
+    }
+
+    /**
+     * Returns `true` if `host` is the upstream domain itself or any subdomain of it.
+     * e.g. `_isWithinUpstream('comprasegura.olx.com.br', 'olx.com.br')` → `true`
+     *      `_isWithinUpstream('youtube.com', 'olx.com.br')`             → `false`
+     */
+    private static _isWithinUpstream(host: string, upstreamDomain: string): boolean {
+        return host === upstreamDomain ||
+               host.endsWith('.' + upstreamDomain);
     }
 
     // ── Private utility ───────────────────────────────────────────────────────

@@ -179,7 +179,18 @@ const MSG_URL         = 0x04;
 const MSG_CONSOLE     = 0x05;
 const MSG_EVAL_RESULT = 0x06;
 const MSG_SCREENCAST  = 0x08;  // CDP Page.startScreencast JPEG frame
+const MSG_REDIRECT    = 0x0A;  // virtual browser left upstream domain → redirect real browser
 const VCON_METHODS    = ['log', 'warn', 'error', 'info', 'debug'];
+
+// ── Session status monitor — console styles ───────────────────────────────────
+const _ST = {
+  badge:   'background:#1a3a4a;color:#80cbc4;font-weight:700;padding:1px 7px;border-radius:3px;font-family:monospace;font-size:11px',
+  key:     'color:#546e7a;font-family:monospace',
+  val:     'color:#cfd8dc;font-family:monospace',
+  ok:      'color:#4caf50;font-weight:700;font-family:monospace',
+  warn:    'color:#ff9800;font-weight:700;font-family:monospace',
+  err:     'color:#f44336;font-weight:700;font-family:monospace',
+};
 
 // ── DOM refs ──────────────────────────────────────────────────────────────────
 const canvas     = document.getElementById('canvas');
@@ -202,6 +213,10 @@ let consoleInputSubject = null;
 let sessionW            = 1280;
 let sessionH            = 720;
 let _currentUrl         = '';   // last URL reported by the virtual browser
+
+// ── Status monitor state ──────────────────────────────────────────────────────
+let _statusLastLogTs  = 0;   // performance.now() of last periodic log
+let _statusPrevTabs   = -1;  // previous tabCount (-1 = not yet received)
 
 // ── JsBridge — pending vcon() calls ───────────────────────────────────────────
 let   _evalId      = 0;
@@ -336,6 +351,20 @@ function onConsoleOutput(output) {
       console.error('%c[VCON] ←%c Error: ' + value, 'color:#ff9800;font-weight:bold;font-family:monospace', 'color:inherit');
       p.reject(new Error(value));
     }
+
+  } else if (type === MSG_REDIRECT) {
+    // The virtual browser tried to navigate outside the upstream domain.
+    // Redirect the real browser instead — this closes the Speculum session.
+    if (bytes.length < 5) return;
+    const len         = view.getUint32(1, true);
+    const redirectUrl = new TextDecoder().decode(bytes.slice(5, 5 + len));
+    console.info(
+      '%c[SPECULUM]%c Leaving — virtual browser navigated outside upstream domain → %c' + redirectUrl,
+      'background:#1565c0;color:#fff;font-weight:bold;padding:1px 6px;border-radius:3px',
+      'color:#888',
+      'color:#1e88e5',
+    );
+    window.location.href = redirectUrl;
   }
 }
 
@@ -365,6 +394,100 @@ function installVcon() {
 
 function uninstallVcon() { delete window.vcon; }
 
+// ── Session status monitor ────────────────────────────────────────────────────
+
+/** Format milliseconds as HH:MM:SS. */
+function _fmtUptime(ms) {
+  const s = Math.floor(ms / 1000);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  return String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0') + ':' + String(s % 60).padStart(2,'0');
+}
+
+/**
+ * Prints a full console.table snapshot of the current session status.
+ * Used on first status and whenever a tab-count anomaly changes state.
+ */
+function _printStatusTable(s) {
+  const tabOk  = s.tabCount === 1;
+  const tabStr = tabOk ? '✔  ' + s.tabCount : '⚠  ' + s.tabCount + ' (expected 1)';
+  console.groupCollapsed('%c SPECULUM STATUS ', _ST.badge);
+  console.table({
+    'Tabs':       tabStr,
+    'FPS':        s.fps.toFixed(1),
+    'Resolution': s.width + '×' + s.height,
+    'Uptime':     _fmtUptime(s.uptimeMs),
+    'Resizing':   s.resizing ? 'yes' : 'no',
+    'JsBridge':   s.jsBridgeEnabled ? 'enabled' : 'disabled',
+    'URL':        s.url,
+    'Session':    s.sessionId.slice(0, 8) + '…',
+  });
+  console.groupEnd();
+}
+
+/**
+ * Called on every SessionStatus message (~1 s interval).
+ *
+ * Behaviour:
+ *   • First call: prints a full status table.
+ *   • Every 5 s: logs a compact one-liner via console.debug (visible only
+ *     when DevTools level ≥ Verbose; keeps the console clean by default).
+ *   • Immediately on tab-count change: prints a warning/info + full table.
+ */
+function onSessionStatus(s) {
+  const now   = performance.now();
+  const tabOk = s.tabCount === 1;
+
+  // First status ever — print full table and set baseline.
+  if (_statusPrevTabs === -1) {
+    _statusPrevTabs  = s.tabCount;
+    _statusLastLogTs = now;
+    _printStatusTable(s);
+    if (!tabOk) {
+      console.warn(
+        '%c SPECULUM %c ⚠ TAB ANOMALY: ' + s.tabCount + ' tab(s) open (expected 1)',
+        _ST.badge, _ST.warn,
+      );
+    }
+    return;
+  }
+
+  // Periodic compact log (every 5 s, Verbose-only via console.debug).
+  if (now - _statusLastLogTs >= 5_000) {
+    _statusLastLogTs = now;
+    const tabMark = tabOk ? '✔' : '⚠';
+    console.debug(
+      '%c SPECULUM %c ' + tabMark + ' tabs=%c' + s.tabCount +
+      '%c  fps=%c' + s.fps.toFixed(1) +
+      '%c  ' + s.width + '×' + s.height +
+      '  up=%c' + _fmtUptime(s.uptimeMs) +
+      '%c  ' + (s.url.length > 55 ? s.url.slice(0, 52) + '…' : s.url),
+      _ST.badge, _ST.key,
+      tabOk ? _ST.ok : _ST.warn,
+      _ST.key, _ST.val,
+      _ST.key, _ST.val,
+      _ST.key, _ST.val,
+    );
+  }
+
+  // Tab count changed — alert immediately.
+  if (s.tabCount !== _statusPrevTabs) {
+    _statusPrevTabs = s.tabCount;
+    if (!tabOk) {
+      console.warn(
+        '%c SPECULUM %c ⚠ TAB ANOMALY: ' + s.tabCount + ' tab(s) open (expected 1)',
+        _ST.badge, _ST.warn,
+      );
+      _printStatusTable(s);
+    } else {
+      console.info(
+        '%c SPECULUM %c ✔ Tab count restored to 1',
+        _ST.badge, _ST.ok,
+      );
+    }
+  }
+}
+
 function printBanner(w, h) {
   const BADGE = 'background:#1565c0;color:#fff;font-weight:bold;padding:2px 8px;border-radius:3px;letter-spacing:.05em';
   const DIM   = 'color:#666;font-weight:bold';
@@ -393,6 +516,10 @@ function onDisconnected() {
     rej(new Error('[vcon] Session closed'));
   }
   _evalPending.clear();
+
+  // Reset status monitor so the next connect prints a fresh table.
+  _statusLastLogTs = 0;
+  _statusPrevTabs  = -1;
 
   uninstallVcon();
 
@@ -432,6 +559,15 @@ async function connect() {
     connection.stream('OpenConsoleOutputChannel').subscribe({
       next:     onConsoleOutput,
       error:    (err) => console.error('[console stream]', err),
+      complete: () => {},
+    });
+
+    // ── Status monitor (server → client, independent stream) ──────────────
+    // Carries SessionStatus objects (~1 s interval) from the sidecar.
+    // Never touches the frame or console channels.
+    connection.stream('OpenStatusChannel').subscribe({
+      next:     onSessionStatus,
+      error:    (err) => console.warn('[status stream]', err),
       complete: () => {},
     });
 

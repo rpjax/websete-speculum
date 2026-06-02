@@ -33,14 +33,7 @@ internal sealed class JsBridgeBinding
 
 internal sealed class ForwardingProfileBinding
 {
-    public string Domain { get; set; } = string.Empty;
-    public bool AllowSubDomains { get; set; } = true;
-    public ForwardingRuleBinding[] Rules { get; set; } = Array.Empty<ForwardingRuleBinding>();
-}
-
-internal sealed class ForwardingRuleBinding
-{
-    public string Upstream { get; set; } = string.Empty;
+    public string Upstream   { get; set; } = string.Empty;
     public string Downstream { get; set; } = string.Empty;
 }
 
@@ -78,29 +71,47 @@ public sealed class ScriptInjectionEntry
     }
 }
 
-public sealed class ForwardingRule
-{
-    public string Upstream { get; }
-    public string Downstream { get; }
-
-    internal ForwardingRule(string upstream, string downstream)
-    {
-        Upstream = upstream;
-        Downstream = downstream;
-    }
-}
-
+/// <summary>
+/// Immutable forwarding profile: maps one downstream domain (the Speculum-owned
+/// domain, e.g. <c>websete.localhost</c>) to one upstream real site
+/// (e.g. <c>olx.com.br</c>).
+///
+/// Multiple profiles enable multiple domains pointing to the same host, each
+/// routing to a different upstream.  The uniqueness constraint enforced at
+/// startup guarantees that no two downstreams are in a parent/subdomain
+/// relationship, so host matching is always unambiguous.
+/// </summary>
 public sealed class ForwardingProfile
 {
-    public string Domain { get; }
-    public bool AllowSubDomains { get; }
-    public ImmutableArray<ForwardingRule> Rules { get; }
+    /// <summary>The real target site (e.g. <c>olx.com.br</c>).</summary>
+    public string Upstream   { get; }
 
-    internal ForwardingProfile(string domain, bool allowSubDomains, ImmutableArray<ForwardingRule> rules)
+    /// <summary>
+    /// The Speculum-owned domain clients connect to (e.g. <c>websete.localhost</c>).
+    /// Subdomains are matched automatically; the uniqueness constraint prevents
+    /// ambiguity when multiple profiles are configured.
+    /// </summary>
+    public string Downstream { get; }
+
+    internal ForwardingProfile(string upstream, string downstream)
     {
-        Domain = domain;
-        AllowSubDomains = allowSubDomains;
-        Rules = rules;
+        Upstream   = upstream;
+        Downstream = downstream;
+    }
+
+    /// <summary>
+    /// Returns <see langword="true"/> when <paramref name="host"/> equals
+    /// <see cref="Downstream"/> or is a direct subdomain of it
+    /// (e.g. <c>www.websete.localhost</c> matches <c>websete.localhost</c>).
+    ///
+    /// Subdomain matching is safe because the startup validator guarantees no
+    /// two downstreams are in a parent/child relationship.
+    /// </summary>
+    public bool MatchesHost(string host)
+    {
+        if (string.IsNullOrEmpty(host)) return false;
+        return host.Equals(Downstream, StringComparison.OrdinalIgnoreCase) ||
+               host.EndsWith('.' + Downstream, StringComparison.OrdinalIgnoreCase);
     }
 }
 
@@ -159,15 +170,7 @@ public sealed class SpeculumConfig
         var profiles = ImmutableArray.CreateBuilder<ForwardingProfile>(rawProfiles.Length);
 
         foreach (var pb in rawProfiles)
-        {
-            var ruleBindings = pb.Rules ?? Array.Empty<ForwardingRuleBinding>();
-            var rules = ImmutableArray.CreateBuilder<ForwardingRule>(ruleBindings.Length);
-
-            foreach (var rb in ruleBindings)
-                rules.Add(new ForwardingRule(rb.Upstream, rb.Downstream));
-
-            profiles.Add(new ForwardingProfile(pb.Domain, pb.AllowSubDomains, rules.MoveToImmutable()));
-        }
+            profiles.Add(new ForwardingProfile(pb.Upstream.Trim(), pb.Downstream.Trim()));
 
         var rawScripts = m.ScriptInjection ?? Array.Empty<ScriptInjectionBinding>();
         var scripts    = ImmutableArray.CreateBuilder<ScriptInjectionEntry>(rawScripts.Length);
@@ -261,67 +264,53 @@ internal static class SpeculumConfigValidator
             return;
         }
 
-        var seenDomains = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
         for (var i = 0; i < profiles.Length; i++)
         {
-            var prefix = $"$.ForwardingProfiles[{i}]";
+            var prefix  = $"$.ForwardingProfiles[{i}]";
             var profile = profiles[i];
 
-            if (profile is null)
-            {
-                b.WithError(prefix, "Entry is null");
-                continue;
-            }
+            if (profile is null) { b.WithError(prefix, "Entry is null"); continue; }
 
-            ValidateProfileDomain(profile.Domain, prefix + ".Domain", b);
-
-            if (IsValidFqdn(profile.Domain.Trim()) &&
-                !seenDomains.Add(profile.Domain.Trim()))
-            {
-                b.WithError(prefix + ".Domain", "Duplicate domain across ForwardingProfiles");
-            }
-
-            var rules = profile.Rules ?? Array.Empty<ForwardingRuleBinding>();
-            if (rules.Length == 0)
-            {
-                b.WithError(prefix + ".Rules", "At least one rule is required per profile");
-                continue;
-            }
-
-            for (var r = 0; r < rules.Length; r++)
-            {
-                var rulePrefix = $"{prefix}.Rules[{r}]";
-                var rule = rules[r];
-
-                if (rule is null)
-                {
-                    b.WithError(rulePrefix, "Entry is null");
-                    continue;
-                }
-
-                ValidateRewriteHost(rule.Upstream, rulePrefix + ".Upstream", b);
-                ValidateRewriteHost(rule.Downstream, rulePrefix + ".Downstream", b);
-            }
+            ValidateFqdn(profile.Upstream,   prefix + ".Upstream",   b);
+            ValidateFqdn(profile.Downstream, prefix + ".Downstream", b);
         }
-    }
 
-    /// <summary>Espelha validateDomain / validateRewriteRule do bootstrap Go.</summary>
-    private static void ValidateProfileDomain(string domain, string jsonPath, ValidationResultBuilder b)
-    {
-        if (string.IsNullOrWhiteSpace(domain))
+        // ── Downstream uniqueness and non-containment ─────────────────────────
+        // Two profiles conflict when one downstream is a subdomain of the other.
+        // Example: "websete.localhost" and "api.websete.localhost" conflict because
+        // the second would be matched by the first's subdomain rule, making routing
+        // ambiguous.  Exact duplicates are also rejected.
+        for (var i = 0; i < profiles.Length; i++)
         {
-            b.WithError(jsonPath, "Domain is empty");
-            return;
+            var a = profiles[i]?.Downstream?.Trim() ?? "";
+            if (!IsValidFqdn(a)) continue;
+
+            for (var j = i + 1; j < profiles.Length; j++)
+            {
+                var b2 = profiles[j]?.Downstream?.Trim() ?? "";
+                if (!IsValidFqdn(b2)) continue;
+
+                if (a.Equals(b2, StringComparison.OrdinalIgnoreCase))
+                {
+                    b.WithError($"$.ForwardingProfiles[{j}].Downstream",
+                        $"Duplicate downstream '{b2}' — each downstream must be unique");
+                }
+                else if (b2.EndsWith('.' + a, StringComparison.OrdinalIgnoreCase))
+                {
+                    b.WithError($"$.ForwardingProfiles[{j}].Downstream",
+                        $"'{b2}' is a subdomain of '{a}' — downstreams cannot contain one another");
+                }
+                else if (a.EndsWith('.' + b2, StringComparison.OrdinalIgnoreCase))
+                {
+                    b.WithError($"$.ForwardingProfiles[{i}].Downstream",
+                        $"'{a}' is a subdomain of '{b2}' — downstreams cannot contain one another");
+                }
+            }
         }
-
-        var d = domain.Trim();
-
-        if (!IsValidFqdn(d))
-            b.WithError(jsonPath, "Must be a valid FQDN (ex: 'example.com'), not a URL");
     }
 
-    private static void ValidateRewriteHost(string value, string jsonPath, ValidationResultBuilder b)
+    /// <summary>Validates that <paramref name="value"/> is a bare FQDN (no scheme, path or spaces).</summary>
+    private static void ValidateFqdn(string value, string jsonPath, ValidationResultBuilder b)
     {
         if (string.IsNullOrWhiteSpace(value))
         {
@@ -333,12 +322,12 @@ internal static class SpeculumConfigValidator
 
         if (ContainsAnyChar(v.AsSpan(), UrlAndPathChars))
         {
-            b.WithError(jsonPath, "Not a valid domain (must be FQDN; no scheme, spaces or path)");
+            b.WithError(jsonPath, "Must be a bare FQDN — no scheme, spaces or path (e.g. 'example.com')");
             return;
         }
 
         if (!IsValidFqdn(v))
-            b.WithError(jsonPath, "Not a valid domain");
+            b.WithError(jsonPath, "Not a valid FQDN");
     }
 
     private static readonly HashSet<string> ValidPositions =

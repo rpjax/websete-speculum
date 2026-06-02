@@ -10,8 +10,16 @@ public interface IVSession
     Task StopAsync(CancellationToken ct = default);
 
     // channels
-    ChannelReader<Frame> GetFrameReader();
+    ChannelReader<Frame>         GetFrameReader();
     ChannelReader<ConsoleOutput> GetConsoleOutputReader();
+
+    /// <summary>
+    /// Periodic session health snapshots (every 1 s).
+    /// Carries tab count, FPS, uptime, URL and other diagnostics.
+    /// Delivered via a separate SignalR stream so the frame and console
+    /// channels are completely unaffected.
+    /// </summary>
+    ChannelReader<SessionStatus> GetStatusReader();
     /// <summary>
     /// Starts pumping input events from <paramref name="channelReader"/> to the sidecar.
     /// Returns a <see cref="Task"/> that completes when the stream ends or the session stops.

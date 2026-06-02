@@ -38,6 +38,9 @@ builder.WebHost.ConfigureKestrel(kestrel =>
     });
 });
 
+// ── SpeculumConfig — registered so the hub can inject it ─────────────────────
+builder.Services.AddSingleton(speculumConfig);
+
 // ── Virtualization services ───────────────────────────────────────────────────
 builder.Services.AddSingleton(sp =>
 {

@@ -15,6 +15,8 @@ internal static class SidecarProtocol
     public const byte MsgEvalResult = 0x06;
     public const byte MsgH264       = 0x07; // legacy — kept for compatibility
     public const byte MsgScreencast = 0x08; // CDP Page.startScreencast JPEG frames
+    public const byte MsgStatus     = 0x09; // session status snapshot (1 s interval)
+    public const byte MsgRedirect   = 0x0A; // navigation blocked — redirect real browser
 }
 
 /// <summary>
@@ -83,6 +85,7 @@ public sealed class SidecarClient : IAsyncDisposable
         string?                       initialUrl      = null,
         IReadOnlyList<ScriptPayload>? scripts         = null,
         bool                          jsBridgeEnabled = false,
+        string?                       upstreamDomain  = null,
         CancellationToken             ct              = default)
     {
         var uri = new Uri(sidecarBaseUrl.TrimEnd('/'));
@@ -101,6 +104,7 @@ public sealed class SidecarClient : IAsyncDisposable
             url             = initialUrl,
             scripts         = scriptDtos,
             jsBridgeEnabled,
+            upstreamDomain,
         });
         await SendCoreAsync(createBytes, ct);
         await WaitForReadyAsync(ct);
@@ -236,9 +240,12 @@ public sealed class SidecarClient : IAsyncDisposable
         }
         else if (type is SidecarProtocol.MsgUrl
                       or SidecarProtocol.MsgConsole
-                      or SidecarProtocol.MsgEvalResult)
+                      or SidecarProtocol.MsgEvalResult
+                      or SidecarProtocol.MsgStatus
+                      or SidecarProtocol.MsgRedirect)
         {
-            // Copy the raw control message — relay as-is to the control stream.
+            // Copy the raw control message — relay to the control stream.
+            // VSession intercepts MSG_STATUS before forwarding; all others pass through.
             var msg = new byte[len];
             Buffer.BlockCopy(buf, 0, msg, 0, len);
             _control.Writer.TryWrite(msg.AsMemory());

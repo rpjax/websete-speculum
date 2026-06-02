@@ -2,96 +2,34 @@
  * Binary wire protocol between sidecar and .NET relay.
  *
  * Sidecar → .NET (binary frames):
- *   [0x01] Tile frame  — only changed 128×128 tiles
- *   [0x02] Full frame  — complete JPEG (>60 % tiles dirty or first frame)
- *   [0x03] Frame skip  — no content changed (1 byte only)
+ *   [0x04] MSG_URL         — virtual browser URL changed
+ *   [0x05] MSG_CONSOLE     — console.* output from virtual page
+ *   [0x06] MSG_EVAL_RESULT — result of a vcon() evaljs request
+ *   [0x08] MSG_SCREENCAST  — JPEG frame from CDP Page.startScreencast
  *
  * .NET → Sidecar (text JSON):
- *   Input events and control commands (navigate, resize, etc.)
+ *   Input events and control commands (navigate, resize, evaljs, …)
  */
 
 // ── Message type constants ────────────────────────────────────────────────────
 
-export const MSG_TILE        = 0x01;
-export const MSG_FULL        = 0x02;
-export const MSG_SKIP        = 0x03;
-export const MSG_URL         = 0x04;  // URL update:         sidecar → client
+export const MSG_URL         = 0x04;  // URL update:          sidecar → client
 export const MSG_CONSOLE     = 0x05;  // Virtual console log: sidecar → client
 export const MSG_EVAL_RESULT = 0x06;  // vcon() result:       sidecar → client
+export const MSG_SCREENCAST  = 0x08;  // CDP JPEG screencast: sidecar → client
 
-// ── Frame skip (1 byte) ───────────────────────────────────────────────────────
-
-export const SKIP_FRAME = Buffer.from([MSG_SKIP]);
-
-// ── Tile frame encoding ───────────────────────────────────────────────────────
-
-export interface TileData {
-    x:    number;  // uint16
-    y:    number;  // uint16
-    w:    number;  // uint16
-    h:    number;  // uint16
-    jpeg: Buffer;
-}
+// ── Screencast frame encoding (sidecar → .NET) ────────────────────────────────
 
 /**
- * Encodes a tile frame message.
+ * Encodes a native CDP screencast frame (JPEG pushed by Chrome).
+ * Layout: [0] 0x08 | [1..] jpeg bytes
  *
- * Layout:
- *   [0]      type     = 0x01              (1 byte)
- *   [1..4]   frameId                      (4 bytes LE uint32)
- *   [5..6]   numTiles                     (2 bytes LE uint16)
- *   per tile:
- *     [+0..1] x                           (2 bytes LE uint16)
- *     [+2..3] y                           (2 bytes LE uint16)
- *     [+4..5] w                           (2 bytes LE uint16)
- *     [+6..7] h                           (2 bytes LE uint16)
- *     [+8..11] len                        (4 bytes LE uint32)
- *     [+12..] jpeg                        (len bytes)
+ * No length prefix needed — WebSocket frames are already message-delimited.
  */
-export function encodeTileFrame(frameId: number, tiles: TileData[]): Buffer {
-    // Pre-calculate total size.
-    let size = 1 + 4 + 2; // type + frameId + numTiles
-    for (const t of tiles) size += 2 + 2 + 2 + 2 + 4 + t.jpeg.length;
-
-    const buf = Buffer.allocUnsafe(size);
-    let off = 0;
-
-    buf[off++] = MSG_TILE;
-    buf.writeUInt32LE(frameId, off); off += 4;
-    buf.writeUInt16LE(tiles.length, off); off += 2;
-
-    for (const t of tiles) {
-        buf.writeUInt16LE(t.x, off); off += 2;
-        buf.writeUInt16LE(t.y, off); off += 2;
-        buf.writeUInt16LE(t.w, off); off += 2;
-        buf.writeUInt16LE(t.h, off); off += 2;
-        buf.writeUInt32LE(t.jpeg.length, off); off += 4;
-        t.jpeg.copy(buf, off); off += t.jpeg.length;
-    }
-
-    return buf;
-}
-
-// ── Full frame encoding ───────────────────────────────────────────────────────
-
-/**
- * Encodes a full-frame message.
- *
- * Layout:
- *   [0]      type     = 0x02              (1 byte)
- *   [1..4]   frameId                      (4 bytes LE uint32)
- *   [5..8]   len                          (4 bytes LE uint32)
- *   [9..]    jpeg                         (len bytes)
- */
-export function encodeFullFrame(frameId: number, jpeg: Buffer): Buffer {
-    const buf = Buffer.allocUnsafe(1 + 4 + 4 + jpeg.length);
-    let off = 0;
-
-    buf[off++] = MSG_FULL;
-    buf.writeUInt32LE(frameId, off); off += 4;
-    buf.writeUInt32LE(jpeg.length, off); off += 4;
-    jpeg.copy(buf, off);
-
+export function encodeScreencastFrame(jpeg: Buffer): Buffer {
+    const buf = Buffer.allocUnsafe(1 + jpeg.length);
+    buf[0] = MSG_SCREENCAST;
+    jpeg.copy(buf, 1);
     return buf;
 }
 
@@ -230,20 +168,4 @@ export function decodeMessage(raw: string): InputEvent | CreateMessage | null {
     } catch {
         return null;
     }
-}
-
-// ── H.264 frame encoding (sidecar → .NET) ────────────────────────────────────
-export const MSG_H264 = 0x07;
-
-/**
- * Encodes an H.264 frame for relay to .NET.
- * Layout: [0] 0x07 | [1] isKeyframe | [2..5] len LE | [6..] H.264 Annex B NAL units.
- */
-export function encodeH264Frame(isKeyframe: boolean, data: Buffer): Buffer {
-    const buf = Buffer.allocUnsafe(1 + 1 + 4 + data.length);
-    buf[0] = MSG_H264;
-    buf[1] = isKeyframe ? 1 : 0;
-    buf.writeUInt32LE(data.length, 2);
-    data.copy(buf, 6);
-    return buf;
 }

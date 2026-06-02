@@ -1,8 +1,8 @@
 import { WebSocket } from 'ws';
 import { BrowserContext, Page, CDPSession } from 'patchright';
-import { DisplayManager } from './DisplayManager';
-import { launchBrowser }  from './BrowserManager';
-import { H264Capture }    from './H264Capture';
+import { DisplayManager }    from './DisplayManager';
+import { launchBrowser }     from './BrowserManager';
+import { ScreencastCapture } from './ScreencastCapture';
 import {
     decodeMessage,
     encodeUrlUpdate,
@@ -37,12 +37,12 @@ function domButton(b: number): 'left' | 'middle' | 'right' {
 
 /**
  * Represents one complete browser session:
- *   Xvfb display → Chrome (non-headless) → FFmpeg x11grab → binary WS frames
+ *   Xvfb display → Chrome (non-headless) → CDP Page.startScreencast → JPEG WS frames
  *   binary WS input → CDP mouse/keyboard → Chrome
  *
  * Lifecycle:
  *   Session.create() → send frames → handleMessage() for input
- *   dispose() → stops capture → closes browser → kills Xvfb
+ *   dispose() → stops screencast → closes browser → kills Xvfb
  */
 export class Session {
     readonly sessionId: string;
@@ -52,14 +52,14 @@ export class Session {
     private _context:  BrowserContext;
     private _page:     Page;
     private _cdp:      CDPSession;
-    private _capture:  H264Capture;
+    private _capture:  ScreencastCapture;
     private _width:    number;
     private _height:   number;
 
     /**
-     * The frame callback shared across all FFmpegCapture instances for this
-     * session. Stored so we can hand it to a new capture after a resize
-     * without re-wiring the WebSocket send logic.
+     * The frame callback wired to the WebSocket send logic.
+     * Stored so ScreencastCapture.restart() can reuse it on resize
+     * without re-wiring.
      */
     private _onFrame:  (buf: Buffer) => void;
 
@@ -78,7 +78,7 @@ export class Session {
         context:         BrowserContext,
         page:            Page,
         cdp:             CDPSession,
-        capture:         H264Capture,
+        capture:         ScreencastCapture,
         width:           number,
         height:          number,
         onFrame:         (buf: Buffer) => void,
@@ -331,7 +331,9 @@ export class Session {
             page.on('framenavigated', (frame) => {
                 if (frame !== page.mainFrame()) return;
                 const currentUrl = page.url();
-                if (currentUrl.startsWith('about:') || currentUrl.startsWith('chrome:')) return;
+                // Only forward navigable http/https URLs — drop about:, chrome:,
+                // chrome-error:, blob:, data:, etc.
+                if (!/^https?:\/\//i.test(currentUrl)) return;
                 if (ws.readyState !== ws.OPEN) return;
                 ws.send(encodeUrlUpdate(currentUrl), { binary: true });
             });
@@ -429,12 +431,9 @@ export class Session {
                 ws.send(buf, { binary: true }, () => { inFlight--; });
             };
 
-            // H264Capture captures the Xvfb framebuffer via FFmpeg x11grab and encodes to H.264
-            // (libx264 ultrafast+zerolatency). Each frame is emitted as a MSG_H264 encoded buffer
-            // ready for WebSocket relay.
-            const capture = await H264Capture.start(
-                display.number, width, height, onFrame,
-            );
+            // ScreencastCapture uses CDP Page.startScreencast — Chrome pushes JPEG
+            // frames directly, no FFmpeg or Xvfb read required.
+            const capture = await ScreencastCapture.start(cdp, width, height, onFrame);
 
             console.log(`[${sessionId}] Session ready`);
 
@@ -610,14 +609,11 @@ export class Session {
                 // The client sends { type:'resize', width, height } whenever its
                 // viewport element changes size (debounced 250 ms).
                 //
-                // Sequence:
-                //   1. xrandr switches the Xvfb virtual display to the new size.
-                //      matchbox-window-manager forwards the RandR event to Chrome,
-                //      which resizes its fullscreen window to fill the new display.
-                //   2. Wait 500 ms for Chrome to settle (re-render at new size).
-                //   3. Restart FFmpegCapture at the new size. FFmpeg's x11grab
-                //      always captures from (0,0) with the given -video_size, so
-                //      it naturally frames the new resolution.
+                // With ScreencastCapture the resize is pure CDP:
+                //   1. setDeviceMetricsOverride — tells Chrome's renderer the new
+                //      viewport size. No Xvfb or WM interaction required.
+                //   2. Restart screencast — stop + startScreencast with the new
+                //      maxWidth/maxHeight hints so Chrome encodes at the new size.
                 //
                 // A _resizing guard prevents overlapping resize operations.
                 case 'resize': {
@@ -631,13 +627,9 @@ export class Session {
                         if (w === this._width && h === this._height) break;
                         if (w < 100 || h < 100) break;
 
-                        const prevW = this._width;
-                        const prevH = this._height;
-
                         console.log(`[${this.sessionId}] Resize → ${w}×${h}`);
 
-                        // 1. Update Chrome's render viewport via CDP — authoritative,
-                        //    bypasses any WM / RANDR ambiguity about window size.
+                        // 1. Update Chrome's render viewport via CDP.
                         try {
                             await this._cdp.send('Emulation.setDeviceMetricsOverride', {
                                 width: w, height: h,
@@ -646,45 +638,14 @@ export class Session {
                             });
                         } catch { /* CDP session may have been recycled — best-effort */ }
 
-                        // 2. Resize the Xvfb virtual display so FFmpeg x11grab
-                        //    captures the correct region at the new dimensions.
-                        await this._display.resize(w, h);
+                        // 2. Restart screencast at the new dimensions.
+                        await this._capture.restart(w, h, this._onFrame);
 
-                        // 3. Give Chrome time to re-render at the new size.
-                        await new Promise<void>(r => setTimeout(r, 500));
-
-                        // 4. Stop the old capture and start a new one at the new size.
-                        //    If starting the new capture fails, fall back to the
-                        //    previous dimensions so the session never goes frameless.
-                        try { await this._capture.stop(); } catch { /* already stopped */ }
-
-                        try {
-                            this._capture = await H264Capture.start(
-                                this._display.number, w, h, this._onFrame,
-                            );
-                            this._width  = w;
-                            this._height = h;
-                            console.log(`[${this.sessionId}] Capture restarted at ${w}×${h}`);
-                        } catch (startErr) {
-                            console.error(
-                                `[${this.sessionId}] Capture restart at ${w}×${h} failed:`,
-                                (startErr as Error).message,
-                                '— falling back to', `${prevW}×${prevH}`,
-                            );
-                            // Restore old dimensions and restart capture at previous size.
-                            try {
-                                this._capture = await H264Capture.start(
-                                    this._display.number, prevW, prevH, this._onFrame,
-                                );
-                            } catch (fallbackErr) {
-                                console.error(
-                                    `[${this.sessionId}] Fallback capture also failed:`,
-                                    (fallbackErr as Error).message,
-                                );
-                                // Session is now frameless — dispose it.
-                                this.dispose().catch(() => {});
-                            }
-                        }
+                        this._width  = w;
+                        this._height = h;
+                        console.log(`[${this.sessionId}] Resize complete → ${w}×${h}`);
+                    } catch (err) {
+                        console.error(`[${this.sessionId}] Resize failed:`, (err as Error).message);
                     } finally {
                         this._resizing = false;
                     }
@@ -705,8 +666,7 @@ export class Session {
 
         console.log(`[${this.sessionId}] Disposing session`);
 
-        // 1. Stop FFmpeg immediately (SIGTERM, non-blocking — proc.kill() returns
-        //    synchronously). No frames will be sent after this point.
+        // 1. Stop the CDP screencast — no more frames will be sent after this.
         try { await this._capture.stop(); } catch { /* already stopped */ }
 
         // 2. Close Chrome and kill the virtual display in parallel.

@@ -83,10 +83,10 @@ public sealed class SidecarClient : IAsyncDisposable
         int                           width,
         int                           height,
         string?                       initialUrl      = null,
-        IReadOnlyList<ScriptPayload>? scripts         = null,
-        bool                          jsBridgeEnabled = false,
-        string?                       upstreamDomain  = null,
-        CancellationToken             ct              = default)
+        IReadOnlyList<ScriptPayload>? scripts                  = null,
+        bool                          jsBridgeEnabled          = false,
+        IReadOnlyList<string>?        allowedNavigationDomains = null,
+        CancellationToken             ct                       = default)
     {
         var uri = new Uri(sidecarBaseUrl.TrimEnd('/'));
         await _ws.ConnectAsync(uri, ct);
@@ -104,21 +104,38 @@ public sealed class SidecarClient : IAsyncDisposable
             url             = initialUrl,
             scripts         = scriptDtos,
             jsBridgeEnabled,
-            upstreamDomain,
+            allowedNavigationDomains,
         });
         await SendCoreAsync(createBytes, ct);
-        await WaitForReadyAsync(ct);
-        _ = ReceiveLoopAsync(_cts.Token);
+        var preReadyFrames = await WaitForReadyAsync(ct);
+        _ = ReceiveLoopAsync(_cts.Token, preReadyFrames);
     }
 
-    private async Task WaitForReadyAsync(CancellationToken ct)
+    /// <summary>
+    /// Waits for the sidecar to send <c>{ "type": "ready" }</c> and returns
+    /// any binary frames that arrived before that handshake message.
+    ///
+    /// Binary frames received during the handshake phase are NOT discarded —
+    /// they are buffered and returned so that <see cref="ReceiveLoopAsync"/>
+    /// can replay them immediately before entering the normal receive loop.
+    ///
+    /// This matters because the sidecar may emit MSG_CONSOLE (0x05) frames
+    /// while the browser is still loading the initial URL (e.g. a console.log
+    /// in a HeaderTop injected script executes during page.goto, before the
+    /// sidecar sends the "ready" acknowledgement).  Without buffering those
+    /// frames would be silently dropped here, never reaching the client.
+    /// </summary>
+    private async Task<List<byte[]>> WaitForReadyAsync(CancellationToken ct)
     {
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeoutCts.CancelAfter(TimeSpan.FromSeconds(30));
         var timeoutCt = timeoutCts.Token;
 
-        var buf    = new byte[64 * 1024];
-        int filled = 0;
+        var buf          = new byte[64 * 1024];
+        int filled       = 0;
+        var preReady     = new List<byte[]>();
+        int binaryFilled = 0;
+        var binaryBuf    = new byte[256 * 1024];
 
         while (true)
         {
@@ -140,19 +157,41 @@ public sealed class SidecarClient : IAsyncDisposable
                 throw new InvalidOperationException(
                     $"Sidecar closed connection before reporting ready (session {SessionId}).");
 
-            if (result.MessageType != WebSocketMessageType.Text) { filled = 0; continue; }
+            // ── Binary frame: buffer for replay after ReceiveLoopAsync starts ──
+            if (result.MessageType == WebSocketMessageType.Binary)
+            {
+                // Grow binary accumulator if needed.
+                if (binaryFilled + result.Count > binaryBuf.Length)
+                    Array.Resize(ref binaryBuf, Math.Max(binaryBuf.Length * 2, binaryFilled + result.Count));
 
+                Buffer.BlockCopy(buf, 0, binaryBuf, binaryFilled, result.Count);
+                binaryFilled += result.Count;
+
+                if (result.EndOfMessage)
+                {
+                    // Complete binary message — save a copy for replay.
+                    var frame = new byte[binaryFilled];
+                    Buffer.BlockCopy(binaryBuf, 0, frame, 0, binaryFilled);
+                    preReady.Add(frame);
+                    binaryFilled = 0;
+                }
+                // Reset the text accumulator (separate buffer) and keep looping.
+                filled = 0;
+                continue;
+            }
+
+            // ── Text frame: look for "ready" / "error" JSON ───────────────────
             filled += result.Count;
             if (!result.EndOfMessage) continue;
 
-            var text   = System.Text.Encoding.UTF8.GetString(buf, 0, filled);
+            var text = System.Text.Encoding.UTF8.GetString(buf, 0, filled);
             filled = 0;
 
             try
             {
                 using var doc = JsonDocument.Parse(text);
                 var type = doc.RootElement.GetProperty("type").GetString();
-                if (type == "ready") return;
+                if (type == "ready") return preReady;
                 if (type == "error")
                 {
                     var msg = doc.RootElement.TryGetProperty("message", out var m)
@@ -171,7 +210,7 @@ public sealed class SidecarClient : IAsyncDisposable
 
     // ── Receive loop ──────────────────────────────────────────────────────────
 
-    private async Task ReceiveLoopAsync(CancellationToken ct)
+    private async Task ReceiveLoopAsync(CancellationToken ct, List<byte[]>? preReadyFrames = null)
     {
         var buf    = new byte[256 * 1024]; // 256 KB initial — JPEG frames at 1080p can reach ~200 KB
         int filled = 0;
@@ -179,6 +218,17 @@ public sealed class SidecarClient : IAsyncDisposable
 
         try
         {
+            // Replay binary frames that arrived before the "ready" handshake.
+            // These are typically early MSG_CONSOLE frames from scripts that
+            // execute during the sidecar's initial page.goto() — before the
+            // "ready" acknowledgement is sent.
+            if (preReadyFrames is { Count: > 0 })
+            {
+                foreach (var frame in preReadyFrames)
+                    RouteFrame(frame, frame.Length);
+                preReadyFrames.Clear();
+            }
+
             while (!ct.IsCancellationRequested && _ws.State == WebSocketState.Open)
             {
                 if (filled == buf.Length)

@@ -128,11 +128,10 @@ width, height) {
     //      setWindowBounds { fullscreen } asks matchbox-window-manager to fill
     //      the screen — but matchbox may use the Xvfb physical framebuffer size
     //      (4096×2160, the SHM allocation) rather than the xrandr virtual
-    //      resolution (width×height). That causes Chrome to render at 4096×2160
-    //      and FFmpeg to capture only a partial view. setDeviceMetricsOverride
-    //      tells Chrome's renderer exactly what viewport to use, bypassing all
-    //      WM / RANDR ambiguity.  FFmpeg always captures from (0,0); the
-    //      rendered content always starts at (0,0) in fullscreen mode.
+    //      resolution (width×height).  That causes Chrome to render at 4096×2160
+    //      and CDP screencast to capture only a partial viewport.
+    //      setDeviceMetricsOverride tells Chrome's renderer exactly what viewport
+    //      to use, bypassing all WM / RANDR ambiguity.
     //
     //   The cdp session is kept alive and returned to the caller so that resize
     //   operations can update the override without opening a new session.

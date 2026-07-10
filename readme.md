@@ -1,60 +1,90 @@
 # Websete.Speculum (W7S)
 
-**Websete.Speculum** é uma engine de isolamento de navegação e espelhamento remoto de alta performance baseada em .NET 9. Diferente do motor W7 original, que opera na interceptação de pacotes, o **Speculum** utiliza um modelo *Headless Browser-to-Stream*.
+**Websete.Speculum** is a remote browser isolation engine. A real Chromium instance runs on the server; the user interacts with a low-latency JPEG screencast rendered in a `<canvas>`.
 
-O projeto renderiza sites em instâncias isoladas do Chromium no servidor e transmite o feed visual em tempo real para o cliente via protocolo **WebRTC**, garantindo bypass total de detecções de rede e uma experiência de usuário fluida através de renderização em `<canvas>`.
-
----
-
-## 👁️ O Conceito "Speculum"
-
-O nome, vindo do latim para **Espelho**, reflete a arquitetura do sistema: o usuário não interage com o site real, mas sim com um "reflexo" interativo de baixíssima latência.
-
-- **Isolamento Total:** O navegador do cliente nunca toca o domínio alvo.
-- **Bypass de Client-Side:** Scripts de detecção de bot e impressões digitais (fingerprinting) veem apenas o ambiente controlado do servidor.
-- **Renderização via Canvas:** O feed de vídeo é decodificado e desenhado em um elemento `<canvas>`, permitindo manipulação de frames e ocultação de elementos de UI originais.
+The motor is **domain-agnostic**: Traefik terminates TLS at the edge. Runtime configuration (target site, session limits, script injection) lives in a **local SQLite database**, seeded once from `appsettings.json` on first boot.
 
 ---
 
-## 🚀 Arquitetura Técnica
+## Architecture
 
-### 1. Browser Stack (.NET + Playwright)
-Utiliza **Playwright for .NET** para gerenciar o ciclo de vida dos navegadores.
-- **Context Isolation:** Cada sessão de usuário possui seu próprio `BrowserContext`, isolando cookies, cache e armazenamento local.
-- **Stealth Injection:** Scripts de evasão são injetados no nível de kernel do browser para mascarar a natureza headless.
+```
+Browser  →  Traefik (TLS)  →  .NET Host (:8080 HTTP)
+                                  ├─ SignalR /vhub (control + streams)
+                                  ├─ Admin API /api/admin/config/*
+                                  └─ SQLite (runtime config)
+                              →  Sidecar (Chrome + CDP screencast)
+```
 
-### 2. Streaming Pipeline (WebRTC)
-A transmissão utiliza o protocolo WebRTC para garantir latência sub-100ms.
-- **Signaling Server:** Implementado em ASP.NET Core para troca de SDP (Session Description Protocol) e ICE Candidates.
-- **Video Track:** Utiliza o motor nativo do Chromium para codificação (H.264/VP8) otimizada, reduzindo o overhead de CPU da VPS.
-- **DataChannel:** Canal de dados bidirecional para o envio de inputs (cliques, movimentos de mouse e teclado) do cliente para o servidor.
-
-### 3. Client-Side (Canvas Renderer)
-O frontend recebe o stream de vídeo e o vincula a um elemento `<canvas>` via `requestAnimationFrame`.
-- **Sync de Input:** As coordenadas do mouse no Canvas são normalizadas e enviadas de volta para o Playwright para execução precisa das ações.
-
----
-
-## 📊 Capacidade Estimada (KVM Hostinger)
-
-| Recurso | KVM 1 (1 vCPU / 4GB) | KVM 8 (8 vCPU / 32GB) |
-| :--- | :--- | :--- |
-| **Usuários Simultâneos** | 2 a 3 | 20 a 25 |
-| **FPS Médio** | 15 - 20 FPS | 30 - 60 FPS |
-| **Latência Média** | ~150ms | ~60ms |
+| Layer | Role |
+|-------|------|
+| **Traefik** | HTTPS, Let's Encrypt, routes to `app:8080` |
+| **.NET Host** | Sessions, config store, frame relay, setup page |
+| **Sidecar** | Xvfb + Chrome + navigation guard + JPEG frames |
+| **Client** | `index.html` — canvas renderer + SignalR |
 
 ---
 
-## 🛠️ Configuração e Execução
+## Configuration
 
-### Pré-requisitos
-- .NET 9.0 SDK
-- PowerShell (para scripts de build)
-- Certificados SSL (Fullchain e PrivateKey na pasta `/Certificates`)
+### Bootstrap (appsettings / env — required to start)
 
-### Instalação
-1. Clone o repositório
-2. Instale as dependências do Playwright:
-   ```bash
-   dotnet build
-   playwright install --with-deps chromium
+| Key | Description |
+|-----|-------------|
+| `HttpAddress` | Kestrel listen address (e.g. `0.0.0.0:8080`) |
+| `Database:Path` | SQLite file path (e.g. `/data/speculum.db`) |
+| `Sidecar:BaseUrl` | WebSocket URL (e.g. `ws://sidecar:3000`) |
+| `Admin:ApiKey` | Bearer token for admin API |
+
+### Runtime (SQLite — source of truth)
+
+| Section | Required | Description |
+|---------|----------|-------------|
+| `Forwarding` | Yes | `host` (FQDN) + `domains` (navigation allowlist, supports `*.`) |
+| `MaxSessions` | Yes | Concurrent session limit |
+| `Environment` | Yes | `Dev` or `Prod` |
+| `ScriptInjection` | No | Array of `{ file }` or `{ source }` entries |
+| `JsBridge` | No | `{ "enable": true\|false }` — NULL means disabled |
+
+**Seed rule:** on boot, if a DB section is NULL and `appsettings` has a value, it is written to the DB once. `appsettings` never overwrites existing DB values.
+
+When required sections are missing, `/` redirects to `/setup`.
+
+---
+
+## Admin API
+
+| Endpoint | Auth | Description |
+|----------|------|-------------|
+| `GET /health` | Public | Process alive |
+| `GET /ready` | Public | Config complete |
+| `GET /api/admin/config/status` | Public | `{ operational, missing }` |
+| `GET/PUT/DELETE /api/admin/config/{section}` | Bearer | Manage runtime config |
+
+OpenAPI: `/openapi/v1.json`
+
+---
+
+## Docker
+
+```bash
+export TRAEFIK_DOMAIN=speculum.example.com
+export ACME_EMAIL=admin@example.com
+export ADMIN_API_KEY=your-secret-key
+docker compose up -d
+```
+
+---
+
+## Local development
+
+```bash
+# Terminal 1 — sidecar
+cd sidecar && npm run build && node dist/index.js
+
+# Terminal 2 — host
+cd Websete.Speculum.Host
+dotnet run
+```
+
+Default `appsettings.json` seeds OLX forwarding on first run. DB file: `data/speculum.db`.

@@ -47,8 +47,8 @@ const Protocol_1 = require("./Protocol");
  *
  * Protocol (per WS connection):
  *   1. .NET sends { type: "create", sessionId, width, height, url? }
- *   2. Sidecar starts Xvfb + Chrome + FFmpeg, replies { type: "ready", sessionId }
- *   3. Sidecar streams binary frame messages (full / skip)
+ *   2. Sidecar starts Xvfb + Chrome + CDP screencast, replies { type: "ready", sessionId }
+ *   3. Sidecar streams binary MSG_SCREENCAST (0x08) JPEG frames
  *   4. .NET sends JSON input/control messages
  *   5. WS close → session disposed
  */
@@ -83,7 +83,7 @@ wss.on('connection', (ws) => {
             return;
         // ── Session creation ──────────────────────────────────────────────────
         if (msg.type === 'create') {
-            const { sessionId, width, height, url, scripts = [], jsBridgeEnabled = false } = msg;
+            const { sessionId, width, height, url, scripts = [], jsBridgeEnabled = false, allowedNavigationDomains } = msg;
             if (session) {
                 // A second "create" on the same connection is a protocol error.
                 // Notify the caller so it does not hang waiting for "ready".
@@ -99,7 +99,7 @@ wss.on('connection', (ws) => {
             console.log(`[${sessionId}] Creating session on display :${displayNum}`);
             try {
                 const display = await DisplayManager_1.DisplayManager.start(displayNum, width, height);
-                session = await Session_1.Session.create(sessionId, ws, display, width, height, url, scripts, jsBridgeEnabled);
+                session = await Session_1.Session.create(sessionId, ws, display, width, height, url, scripts, jsBridgeEnabled, allowedNavigationDomains);
                 activeSessions.add(session);
                 ws.send(JSON.stringify({ type: 'ready', sessionId }));
             }

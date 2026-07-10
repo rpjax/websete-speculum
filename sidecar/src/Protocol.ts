@@ -219,11 +219,10 @@ export type CreateMessage = {
     /** When true, forward virtual console output and handle evaljs requests. */
     jsBridgeEnabled?: boolean;
     /**
-     * When set, the navigation guard prevents the virtual browser from leaving
-     * this upstream domain (exact match or subdomain).  Any blocked navigation
-     * triggers a MSG_REDIRECT (0x0A) so the real client browser navigates instead.
+     * When set, the navigation guard prevents main-frame document navigations
+     * to hosts outside these patterns. Blocked navigations trigger MSG_REDIRECT.
      */
-    upstreamDomain?: string;
+    allowedNavigationDomains?: string[];
 };
 
 export function decodeMessage(raw: string): InputEvent | CreateMessage | null {

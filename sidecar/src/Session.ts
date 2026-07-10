@@ -16,17 +16,6 @@ import {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-/**
- * Maps ScriptEntry.position to a numeric sort key so scripts are injected
- * in the correct DOM order when multiple entries are declared.
- */
-const POSITION_ORDER: Record<string, number> = {
-    HeaderTop:    0,
-    HeaderBottom: 1,
-    BodyTop:      2,
-    BodyBottom:   3,
-};
-
 /** Maps Log.entryAdded severity strings to wire-level level bytes. */
 const LOG_LEVEL: Record<string, number> = { verbose: 0, info: 3, warning: 1, error: 2 };
 
@@ -112,7 +101,7 @@ export class Session {
         url?:            string,
         scripts:         ScriptEntry[] = [],
         jsBridgeEnabled: boolean       = false,
-        upstreamDomain?: string,
+        allowedNavigationDomains?: string[],
     ): Promise<Session> {
         console.log(`[${sessionId}] Launching Chrome on display ${display.displayEnv}`);
 
@@ -125,19 +114,25 @@ export class Session {
             const page = handle.page;
 
             await Session._setupSingleTabEnforcement(context);
-            const injectAll = await Session._buildScriptInjector(cdp, page, scripts, sessionId);
             if (jsBridgeEnabled) await Session._setupJsBridge(cdp, ws, sessionId);
             Session._setupUrlSync(page, ws);
             Session._setupTabInterception(context, page, sessionId);
-            if (upstreamDomain) Session._setupNavigationGuard(page, ws, sessionId, upstreamDomain);
+
+            if (scripts.length > 0) {
+                // Bypass CSP so injected scripts execute regardless of page policy.
+                try { await cdp.send('Page.setBypassCSP', { enabled: true }); } catch { /* best-effort */ }
+            }
+
+            // Unified CDP Fetch interception on our own CDPSession — handles
+            // local script serving, navigation guard and HTML injection without
+            // ever using page.route() for requests that hit the real network.
+            if (scripts.length > 0 || (allowedNavigationDomains && allowedNavigationDomains.length > 0)) {
+                await Session._setupFetchInterception(cdp, ws, sessionId, scripts, allowedNavigationDomains);
+            }
 
             if (url) {
                 await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 });
             }
-
-            // Inject scripts into the main world after the initial navigation so
-            // Runtime.evaluate targets a live execution context (not about:blank).
-            if (injectAll) await injectAll();
 
             // ── Frame relay with in-flight back-pressure ──────────────────────
             // Allow at most MAX_IN_FLIGHT frames queued in the WS send buffer at
@@ -488,64 +483,235 @@ export class Session {
     }
 
     /**
-     * Builds an `injectAll` closure that evaluates each script in the main world
-     * via Runtime.evaluate, then wires it to `page.on('load')` for re-injection
-     * on every subsequent navigation.
+     * Unified CDP Fetch interception on our own CDPSession — replaces page.route()
+     * entirely for the three concerns below.  A single Fetch.enable call with
+     * targeted patterns ensures Chrome always sees native requests; we only touch
+     * things after they've already happened (or block them before they go out).
      *
-     * Returns null when scripts is empty.
+     * ── Why not page.route() for local scripts ────────────────────────────────
+     * When Playwright's internal session serves a script via route.fulfill(), Chrome
+     * routes Runtime.consoleAPICalled events from that script's execution back to
+     * Playwright's session — not ours.  By fulfilling the request on OUR CDPSession
+     * instead, Chrome routes console events to us and they appear in VCON.
      *
-     * ── Why Runtime.evaluate (not addInitScript) ─────────────────────────────
-     * All Playwright/Patchright injection mechanisms route scripts into the
-     * isolated utility world (__playwright_utility_world__).  Globals set there
-     * are invisible to page code in the main world.  Runtime.evaluate on our own
-     * CDPSession is the only confirmed main-world execution path — omitting
-     * contextId defaults to the page's main execution context.
+     * ── Patterns and responsibility ───────────────────────────────────────────
+     *
+     *   requestStage:'Request'  + urlPattern per script
+     *     → Local resource serving: match by pathname, fulfill from memory.
+     *       No network request is ever made for these paths.
+     *
+     *   requestStage:'Request'  + resourceType:'Document'  (if allowedNavigationDomains set)
+     *     → Navigation guard: check hostname, fail + MSG_REDIRECT if external.
+     *       Allowed navigations continue natively (Fetch.continueRequest).
+     *
+     *   requestStage:'Response' + resourceType:'Document'  (if scripts configured)
+     *     → HTML injection: receive native response body, inject <script> tags,
+     *       fulfill with modified body.  Server always saw the real Chrome request.
+     *
+     * Everything that doesn't match a pattern → Chrome handles it natively, this
+     * session is never involved, zero overhead.
      */
-    private static async _buildScriptInjector(
-        cdp:       CDPSession,
-        page:      Page,
-        scripts:   ScriptEntry[],
-        sessionId: string,
-    ): Promise<(() => Promise<void>) | null> {
-        if (scripts.length === 0) return null;
+    private static async _setupFetchInterception(
+        cdp:            CDPSession,
+        ws:             WebSocket,
+        sessionId:      string,
+        scripts:        ScriptEntry[],
+        allowedNavigationDomains: string[] | undefined,
+    ): Promise<void> {
+        const scriptMap  = new Map(scripts.map(s => [s.file, s] as const));
+        const hasScripts = scripts.length > 0;
+        const hasGuard   = !!allowedNavigationDomains && allowedNavigationDomains.length > 0;
 
-        // Disable CSP so resources loaded by injected scripts (dynamic import,
-        // fetch, etc.) are not blocked.
-        try { await cdp.send('Page.setBypassCSP', { enabled: true }); } catch { /* best-effort */ }
+        // Build the minimal set of Fetch patterns needed.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const patterns: any[] = [];
 
-        const sorted = [...scripts].sort(
-            (a, b) =>
-                (POSITION_ORDER[a.position] ?? 99) -
-                (POSITION_ORDER[b.position] ?? 99),
-        );
+        // One pattern per local script path (request stage).
+        // '*' prefix matches any origin so the same path works across sub-domains.
+        for (const s of scripts) {
+            patterns.push({ requestStage: 'Request', urlPattern: `*${s.file}*` });
+        }
 
-        const injectAll = async (): Promise<void> => {
-            for (const s of sorted) {
+        // Document request stage → navigation guard.
+        if (hasGuard) {
+            patterns.push({ requestStage: 'Request', resourceType: 'Document' });
+        }
+
+        // Document response stage → HTML injection.
+        if (hasScripts) {
+            patterns.push({ requestStage: 'Response', resourceType: 'Document' });
+        }
+
+        await cdp.send('Fetch.enable', { patterns });
+
+        // Resolve the main frame's ID so the navigation guard only applies to
+        // top-level navigations.  Sub-frame document loads (ad SafeFrames, OAuth
+        // pop-ups converted to iframes, etc.) must be allowed through even when
+        // their origin is outside the upstream domain.
+        let mainFrameId: string | undefined;
+        try {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const { frameTree } = await cdp.send('Page.getFrameTree', {}) as any;
+            mainFrameId = frameTree?.frame?.id as string | undefined;
+        } catch { /* best-effort — guard will be skipped for unresolved frames */ }
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        cdp.on('Fetch.requestPaused', async (event: any) => {
+            const { requestId, responseStatusCode, responseHeaders, request } = event;
+            const url = request?.url as string ?? '';
+
+            // ── Response stage: HTML injection ──────────────────────────────────
+            if (responseStatusCode !== undefined) {
+                // Redirects (3xx) have no body — pass through immediately.
+                // Calling Fetch.getResponseBody on a redirect produces:
+                //   "Can only get response body on requests captured after headers received."
+                if (responseStatusCode >= 300 && responseStatusCode < 400) {
+                    try { await cdp.send('Fetch.continueResponse', { requestId }); } catch { /* best-effort */ }
+                    return;
+                }
+
+                // Only inject into the main frame's documents.
+                // Sub-frame HTML (ad iframes, SafeFrames, OAuth frames, …) would
+                // receive unnecessary script tags and generate spurious script requests
+                // from third-party origins.
+                if (mainFrameId && event.frameId !== mainFrameId) {
+                    try { await cdp.send('Fetch.continueResponse', { requestId }); } catch { /* best-effort */ }
+                    return;
+                }
+
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const ct: string = (responseHeaders as any[] ?? [])
+                    .find((h: any) => h.name.toLowerCase() === 'content-type')?.value ?? '';
+
+                if (!ct.includes('text/html')) {
+                    try { await cdp.send('Fetch.continueResponse', { requestId }); } catch { /* best-effort */ }
+                    return;
+                }
+
                 try {
-                    await cdp.send('Runtime.evaluate', {
-                        expression:    s.content,
-                        returnByValue: false,
-                        silent:        true,
+                    const { body, base64Encoded } = await cdp.send('Fetch.getResponseBody', { requestId });
+                    const html    = base64Encoded
+                        ? Buffer.from(body as string, 'base64').toString('utf-8')
+                        : (body as string);
+                    const patched = Session._injectScriptTags(html, scripts);
+
+                    // Strip Content-Encoding and Content-Length — body is decoded
+                    // and potentially larger; stale values would corrupt rendering.
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    const headers = (responseHeaders as any[] ?? [])
+                        .filter((h: any) => !['content-encoding', 'content-length']
+                            .includes(h.name.toLowerCase()));
+
+                    await cdp.send('Fetch.fulfillRequest', {
+                        requestId,
+                        responseCode:    responseStatusCode,
+                        responseHeaders: headers,
+                        body:            Buffer.from(patched, 'utf-8').toString('base64'),
                     });
-                    console.log(`[${sessionId}] Injected: ${s.file}`);
+                    console.log(`[${sessionId}] HTML injected: ${scripts.length} script tag(s)`);
                 } catch (err) {
-                    console.warn(
-                        `[${sessionId}] Injection failed (${s.file}):`,
-                        (err as Error).message,
-                    );
+                    console.warn(`[${sessionId}] HTML injection failed:`, (err as Error).message);
+                    try { await cdp.send('Fetch.continueResponse', { requestId }); } catch { /* best-effort */ }
+                }
+                return;
+            }
+
+            // ── Request stage ───────────────────────────────────────────────────
+
+            // Local script serving — match on pathname so query strings are ignored.
+            if (hasScripts && url) {
+                try {
+                    const { pathname } = new URL(url);
+                    const script = scriptMap.get(pathname);
+                    if (script) {
+                        await cdp.send('Fetch.fulfillRequest', {
+                            requestId,
+                            responseCode: 200,
+                            responseHeaders: [
+                                { name: 'content-type',  value: 'text/javascript; charset=utf-8' },
+                                { name: 'cache-control', value: 'no-store' },
+                            ],
+                            body: Buffer.from(script.content, 'utf-8').toString('base64'),
+                        });
+                        console.log(`[${sessionId}] Served from memory: ${pathname}`);
+                        return;
+                    }
+                } catch { /* invalid URL — fall through */ }
+            }
+
+            // Navigation guard — block Document requests that leave the upstream domain,
+            // but ONLY for the main frame.  Sub-frame navigations (ad SafeFrames,
+            // OAuth iframes, etc.) are legitimate page behaviour and must not be blocked
+            // even when their destination is an external domain.
+            if (hasGuard && url && (url.startsWith('http://') || url.startsWith('https://'))) {
+                const isMainFrame = !mainFrameId || event.frameId === mainFrameId;
+
+                if (isMainFrame) {
+                    try {
+                        const host = new URL(url).hostname;
+                        if (!Session._matchesAllowedDomain(host, allowedNavigationDomains!)) {
+                            console.log(
+                                `[${sessionId}] Navigation blocked: '${host}' ∉ allowed domains → client redirect`,
+                            );
+                            if (ws.readyState === ws.OPEN)
+                                ws.send(encodeRedirectFrame(url), { binary: true });
+                            await cdp.send('Fetch.failRequest', { requestId, errorReason: 'Aborted' });
+                            return;
+                        }
+                    } catch { /* malformed URL — fall through */ }
                 }
             }
-        };
 
-        // Re-inject on every subsequent navigation so scripts survive redirects
-        // and full-page reloads.
-        page.on('load', () => {
-            injectAll().catch(err =>
-                console.warn(`[${sessionId}] Re-injection error:`, (err as Error).message),
-            );
+            // Allowed request — proceed natively.
+            try { await cdp.send('Fetch.continueRequest', { requestId }); } catch { /* best-effort */ }
         });
+    }
 
-        return injectAll;
+    /**
+     * Inserts `<script src>` (Classic) or `<script type="module" src>` (Module)
+     * tags into an HTML string at the four configurable positions:
+     *
+     *   HeaderTop    → immediately after `<head>`
+     *   HeaderBottom → immediately before `</head>`
+     *   BodyTop      → immediately after `<body>`
+     *   BodyBottom   → immediately before `</body>`
+     *
+     * Scripts at the same position preserve their declaration order.
+     * The regex replacements are intentionally simple — they handle the vast
+     * majority of real-world HTML.  The script `src` values are wwwroot-relative
+     * paths validated at startup (e.g. `/libs/qrcode.js`), so no escaping needed.
+     */
+    private static _injectScriptTags(html: string, scripts: ScriptEntry[]): string {
+        const groups: Record<string, ScriptEntry[]> = {
+            HeaderTop:    [],
+            HeaderBottom: [],
+            BodyTop:      [],
+            BodyBottom:   [],
+        };
+        for (const s of scripts) {
+            if (s.position in groups) groups[s.position].push(s);
+        }
+
+        const toTag = (s: ScriptEntry): string =>
+            s.type === 'Module'
+                ? `<script type="module" src="${s.file}"></script>`
+                : `<script src="${s.file}"></script>`;
+
+        const block = (entries: ScriptEntry[]): string =>
+            entries.map(toTag).join('\n');
+
+        let result = html;
+        const ht = block(groups.HeaderTop);
+        const hb = block(groups.HeaderBottom);
+        const bt = block(groups.BodyTop);
+        const bb = block(groups.BodyBottom);
+
+        if (ht) result = result.replace(/(<head\b[^>]*>)/i,  `$1\n${ht}`);
+        if (hb) result = result.replace(/(<\/head>)/i,        `${hb}\n$1`);
+        if (bt) result = result.replace(/(<body\b[^>]*>)/i,  `$1\n${bt}`);
+        if (bb) result = result.replace(/(<\/body>)/i,        `${bb}\n$1`);
+
+        return result;
     }
 
     /**
@@ -677,75 +843,20 @@ export class Session {
     }
 
     /**
-     * Installs a `page.route('**')` handler that prevents the virtual browser
-     * from navigating outside `upstreamDomain` (exact or subdomain match).
-     *
-     * When a blocked navigation is detected the handler:
-     *   1. Sends a MSG_REDIRECT (0x0A) frame to the .NET relay, which forwards
-     *      it to the real client browser.
-     *   2. Aborts the navigation so the virtual browser stays on its current page.
-     *
-     * The client-side JS performs `window.location.href = url`, closing the
-     * Speculum session naturally via SignalR disconnect.
-     *
-     * Fast-path design: the handler checks `isNavigationRequest()` first so the
-     * per-request overhead for images, scripts and other sub-resources is minimal
-     * (a single boolean check before `route.continue()`).
+     * Returns true when <paramref name="host"/> matches at least one pattern.
+     * Wildcard patterns use the form `*.example.com` (does not match apex).
      */
-    private static _setupNavigationGuard(
-        page:           Page,
-        ws:             WebSocket,
-        sessionId:      string,
-        upstreamDomain: string,
-    ): void {
-        page.route('**', async (route) => {
-            const request = route.request();
-
-            // Fast path — sub-resources and sub-frame navigations are always allowed.
-            if (!request.isNavigationRequest() || request.frame() !== page.mainFrame()) {
-                await route.continue();
-                return;
+    private static _matchesAllowedDomain(host: string, patterns: string[]): boolean {
+        for (const pattern of patterns) {
+            if (!pattern) continue;
+            if (pattern.startsWith('*.')) {
+                const suffix = pattern.slice(2);
+                if (host.endsWith('.' + suffix)) return true;
+            } else if (host === pattern) {
+                return true;
             }
-
-            const rawUrl = request.url();
-
-            // Non-http(s) navigations (about:, data:, blob:, …) are allowed through.
-            if (!rawUrl.startsWith('http://') && !rawUrl.startsWith('https://')) {
-                await route.continue();
-                return;
-            }
-
-            try {
-                const host = new URL(rawUrl).hostname;
-
-                if (Session._isWithinUpstream(host, upstreamDomain)) {
-                    await route.continue();
-                    return;
-                }
-
-                // External navigation — block and redirect the real client browser.
-                console.log(
-                    `[${sessionId}] Navigation blocked: '${host}' ∉ '${upstreamDomain}' → client redirect → ${rawUrl}`,
-                );
-                if (ws.readyState === ws.OPEN)
-                    ws.send(encodeRedirectFrame(rawUrl), { binary: true });
-
-                await route.abort();
-            } catch {
-                // Malformed URL — allow through rather than breaking the page.
-                await route.continue();
-            }
-        });
-    }
-
-    /**
-     * Returns `true` if `host` is the upstream domain itself or any subdomain of it.
-     * e.g. `_isWithinUpstream('comprasegura.olx.com.br', 'olx.com.br')` → `true`
-     *      `_isWithinUpstream('youtube.com', 'olx.com.br')`             → `false`
-     */
-    private static _isWithinUpstream(host: string, upstreamDomain: string): boolean {
-        return host === upstreamDomain ||
-               host.endsWith('.' + upstreamDomain);
+        }
+        return false;
     }
 
     // ── Private utility ───────────────────────────────────────────────────────

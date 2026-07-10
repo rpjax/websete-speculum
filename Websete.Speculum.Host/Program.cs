@@ -1,6 +1,9 @@
 using System.Net;
-using Websete.Speculum.Host.Certs;
-using Websete.Speculum.Host.Config;
+using Websete.Speculum.Host.Admin;
+using Websete.Speculum.Host.Config.Bootstrap;
+using Websete.Speculum.Host.Config.Scripts;
+using Websete.Speculum.Host.Config.Store;
+using Websete.Speculum.Host.Middleware;
 using Websete.Speculum.Host.Virtualization;
 using Websete.Speculum.Host.Virtualization.Contracts;
 using Websete.Speculum.Host.Virtualization.Options;
@@ -9,121 +12,54 @@ using Websete.Speculum.Host.Virtualization.Sidecar;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// ── Configuration ─────────────────────────────────────────────────────────────
-var speculumConfig = SpeculumConfig.Load(builder.Configuration, builder.Environment.WebRootPath);
+var bootstrap = BootstrapConfig.Load(builder.Configuration);
+builder.Services.AddSingleton(bootstrap);
 
-// ── Certificates ──────────────────────────────────────────────────────────────
-var certBasePath = builder.Configuration["CertificatesPath"]
-    ?? Path.Combine(AppContext.BaseDirectory, "Certificates");
-var certLoader = CertificateProvider.Create(speculumConfig, certBasePath);
-builder.Services.AddSingleton<ICertificateProvider>(certLoader);
-
-// ── Kestrel ───────────────────────────────────────────────────────────────────
-if (!IPEndPoint.TryParse(speculumConfig.HttpAddress, out var listenEndpoint))
-    throw new InvalidOperationException(
-        $"Invalid HttpAddress '{speculumConfig.HttpAddress}'.");
+if (!IPEndPoint.TryParse(bootstrap.HttpAddress, out var listenEndpoint))
+    throw new InvalidOperationException($"Invalid HttpAddress '{bootstrap.HttpAddress}'.");
 
 builder.WebHost.ConfigureKestrel(kestrel =>
 {
-    kestrel.Listen(listenEndpoint.Address, listenEndpoint.Port, listen =>
-    {
-        listen.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http1AndHttp2AndHttp3;
-        listen.UseHttps(https =>
-        {
-            https.ServerCertificateSelector = (_, serverName) =>
-                string.IsNullOrEmpty(serverName)
-                    ? certLoader.GetDefaultCertificate()
-                    : certLoader.GetCertificate(serverName);
-        });
-    });
+    kestrel.Listen(listenEndpoint.Address, listenEndpoint.Port);
 });
 
-// ── SpeculumConfig — registered so the hub can inject it ─────────────────────
-builder.Services.AddSingleton(speculumConfig);
-
-// ── Virtualization services ───────────────────────────────────────────────────
-builder.Services.AddSingleton(sp =>
-{
-    var cfg = sp.GetRequiredService<IConfiguration>();
-    return new SidecarBrowserClientOptions
-    {
-        SidecarBaseUrl = cfg["Sidecar:BaseUrl"]
-            ?? throw new InvalidOperationException("Sidecar:BaseUrl is not configured."),
-    };
-});
-
-// ── VirtualBrowserConnectionOptions ──────────────────────────────────────────
-// JsBridgeEnabled and Scripts come from SpeculumConfig (JsBridge:Enable and
-// ScriptInjection sections).  Width/Height/InitialUrl use dedicated Browser:*
-// keys for per-deploy overrides.
-//
-// Script file content is read once at startup from wwwroot so the sidecar
-// never needs file-system access to the host.  Files that do not exist on
-// disk are skipped with a warning (SpeculumConfigValidator already enforced
-// existence in Production; this guard covers hot-reload in Development).
-builder.Services.AddSingleton(sp =>
-{
-    var cfg      = sp.GetRequiredService<IConfiguration>();
-    var webRoot  = builder.Environment.WebRootPath;
-    var logger   = sp.GetRequiredService<ILogger<Program>>();
-
-    var scripts = speculumConfig.ScriptInjection
-        .Select(entry =>
-        {
-            var physical = Path.Combine(
-                webRoot,
-                entry.File.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
-
-            if (!File.Exists(physical))
-            {
-                logger.LogWarning(
-                    "ScriptInjection: file '{File}' not found at '{Physical}' — skipping.",
-                    entry.File, physical);
-                return null;
-            }
-
-            var content = File.ReadAllText(physical);
-            return new ScriptPayload(entry.Position, entry.Type, entry.File, content);
-        })
-        .Where(p => p is not null)
-        .Cast<ScriptPayload>()
-        .ToList();
-
-    if (scripts.Count > 0)
-        logger.LogInformation("ScriptInjection: {Count} script(s) will be injected into every virtual page.", scripts.Count);
-
-    return new VirtualBrowserConnectionOptions
-    {
-        Width           = cfg.GetValue("Browser:Width",  1280),
-        Height          = cfg.GetValue("Browser:Height", 720),
-        InitialUrl      = cfg["Browser:InitialUrl"],
-        // JsBridgeEnabled comes from JsBridge:Enable (SpeculumConfig), NOT Browser:JsBridgeEnabled.
-        // Browser:JsBridgeEnabled was a dead key — the config has always used the JsBridge section.
-        JsBridgeEnabled = speculumConfig.JsBridge.Enable,
-        Scripts         = scripts,
-    };
-});
-
-// Sessions are per-connection: VSessionRegistry is singleton, keyed by ConnectionId.
-// The hub (transient) creates/looks up sessions via the registry.
-// Cleanup happens in VirtualizationHub.OnDisconnectedAsync.
+builder.Services.AddHttpClient(nameof(ScriptResolver));
+builder.Services.AddSingleton<ScriptResolver>();
 builder.Services.AddSingleton<IVSessionRegistry, VSessionRegistry>();
+builder.Services.AddSingleton<ISpeculumConfigStore>(sp =>
+    new SpeculumConfigStore(
+        bootstrap.DatabasePath,
+        builder.Configuration,
+        sp.GetRequiredService<ScriptResolver>(),
+        sp.GetRequiredService<IVSessionRegistry>(),
+        sp.GetRequiredService<IWebHostEnvironment>(),
+        sp.GetRequiredService<ILogger<SpeculumConfigStore>>()));
 
-// ── SignalR ───────────────────────────────────────────────────────────────────
+builder.Services.AddSingleton(new SidecarBrowserClientOptions
+{
+    SidecarBaseUrl = bootstrap.SidecarBaseUrl,
+});
+
 builder.Services.AddSignalR();
+builder.Services.AddOpenApi();
 
 var app = builder.Build();
 
-// ── Shutdown ──────────────────────────────────────────────────────────────────
-app.Lifetime.ApplicationStopped.Register(() => certLoader.Dispose());
+var configStore = app.Services.GetRequiredService<ISpeculumConfigStore>();
+await configStore.InitializeAsync();
 
-// ── Pipeline ──────────────────────────────────────────────────────────────────
+app.UseMiddleware<AdminAuthMiddleware>();
+app.UseMiddleware<SetupMiddleware>();
+
+app.MapOpenApi();
+
 app.UseDefaultFiles();
 app.UseStaticFiles(new StaticFileOptions
 {
     OnPrepareResponse = ctx =>
     {
-        if (ctx.File.Name.Equals("index.html", StringComparison.OrdinalIgnoreCase))
+        if (ctx.File.Name.Equals("index.html", StringComparison.OrdinalIgnoreCase)
+            || ctx.File.Name.Equals("setup.html", StringComparison.OrdinalIgnoreCase))
         {
             ctx.Context.Response.Headers["Cache-Control"] = "no-store, no-cache, must-revalidate";
             ctx.Context.Response.Headers["Pragma"]        = "no-cache";
@@ -131,9 +67,13 @@ app.UseStaticFiles(new StaticFileOptions
     },
 });
 
+app.MapAdminEndpoints();
+app.MapGet("/setup", async ctx =>
+{
+    var path = Path.Combine(app.Environment.WebRootPath, "setup.html");
+    await ctx.Response.SendFileAsync(path);
+});
 app.MapHub<VirtualizationHub>("/vhub");
-
-// Every unmatched route serves index.html — the virtual browser is the app.
 app.MapFallbackToFile("index.html");
 
 app.Run();

@@ -179,7 +179,7 @@ const MSG_URL         = 0x04;
 const MSG_CONSOLE     = 0x05;
 const MSG_EVAL_RESULT = 0x06;
 const MSG_SCREENCAST  = 0x08;  // CDP Page.startScreencast JPEG frame
-const MSG_REDIRECT    = 0x0A;  // virtual browser left upstream domain → redirect real browser
+const MSG_REDIRECT    = 0x0A;  // virtual browser left allowed navigation domain → redirect real browser
 const VCON_METHODS    = ['log', 'warn', 'error', 'info', 'debug'];
 
 // ── Session status monitor — console styles ───────────────────────────────────
@@ -353,13 +353,13 @@ function onConsoleOutput(output) {
     }
 
   } else if (type === MSG_REDIRECT) {
-    // The virtual browser tried to navigate outside the upstream domain.
+    // The virtual browser tried to navigate outside the allowed domain list.
     // Redirect the real browser instead — this closes the Speculum session.
     if (bytes.length < 5) return;
     const len         = view.getUint32(1, true);
     const redirectUrl = new TextDecoder().decode(bytes.slice(5, 5 + len));
     console.info(
-      '%c[SPECULUM]%c Leaving — virtual browser navigated outside upstream domain → %c' + redirectUrl,
+      '%c[SPECULUM]%c Leaving — virtual browser navigated outside allowed domains → %c' + redirectUrl,
       'background:#1565c0;color:#fff;font-weight:bold;padding:1px 6px;border-radius:3px',
       'color:#888',
       'color:#1e88e5',
@@ -534,6 +534,18 @@ async function connect() {
   setStatus('Connecting...', 'connecting');
   connectBtn.disabled = true;
 
+  try {
+    const readyRes = await fetch('/ready');
+    if (!readyRes.ok) {
+      window.location.replace('/setup');
+      return;
+    }
+  } catch {
+    setStatus('Error: cannot reach server', 'error');
+    connectBtn.disabled = false;
+    return;
+  }
+
   connection = new signalR.HubConnectionBuilder()
     .withUrl('/vhub')
     .withAutomaticReconnect()
@@ -547,7 +559,8 @@ async function connect() {
     await connection.start();
 
     // ── Start server-side session ─────────────────────────────────────────
-    await connection.invoke('StartSessionAsync');
+    // Pass the client's current URL — server preserves pathname + query on Forwarding.Host.
+    await connection.invoke('StartSessionAsync', window.location.href);
 
     // ── Open output streams (server → client) ─────────────────────────────
     connection.stream('OpenFrameChannel').subscribe({
@@ -584,7 +597,7 @@ async function connect() {
     syncCanvasSize(initW, initH);
 
     // Tell the sidecar the actual client viewport size.
-    // The virtual browser's initial URL is configured server-side (Browser:InitialUrl).
+    // Sync viewport with the sidecar (client-driven dimensions).
     await connection.invoke('ResizeAsync', initW, initH);
 
     // ── Ready ─────────────────────────────────────────────────────────────

@@ -19,4 +19,10 @@ public interface IVSessionRegistry
     /// Devolve <c>true</c> se existia uma sessão registada.
     /// </summary>
     bool TryRemove(string connectionId, [NotNullWhen(true)] out VSession? session);
+
+    /// <summary>Number of active virtualization sessions.</summary>
+    int ActiveCount { get; }
+
+    /// <summary>Stops and removes all active sessions.</summary>
+    Task StopAllAsync(CancellationToken ct = default);
 }

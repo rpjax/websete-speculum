@@ -8,34 +8,16 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- SIPSorcery removed: no more WebRTC video track -->
-    <PackageReference Include="Aidan.Core" Version="1.9.0" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.0">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Websete.Speculum.Browser\Websete.Speculum.Browser.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Folder Include="Forwarding\Services\" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <!--
-      Development certificates: every file under Certificates/ is copied to the
-      build output directory alongside the binary (AppContext.BaseDirectory).
-
-      This makes the app self-contained in development:
-        dotnet run  →  bin/Debug/net10.0/Certificates/{domain}/…
-        dotnet publish  →  publish/Certificates/{domain}/…   (then into Docker)
-
-      Production certs are NOT committed to git; mount them as a Docker volume
-      or point CertificatesPath at the correct directory via environment variable.
-    -->
-    <Content Include="Certificates\**\*">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
   </ItemGroup>
 
   <ItemGroup>

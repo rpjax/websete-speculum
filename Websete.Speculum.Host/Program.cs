@@ -29,7 +29,6 @@ builder.Services.AddSingleton<IVSessionRegistry, VSessionRegistry>();
 builder.Services.AddSingleton<ISpeculumConfigStore>(sp =>
     new SpeculumConfigStore(
         bootstrap.DatabasePath,
-        builder.Configuration,
         sp.GetRequiredService<ScriptResolver>(),
         sp.GetRequiredService<IVSessionRegistry>(),
         sp.GetRequiredService<IWebHostEnvironment>(),

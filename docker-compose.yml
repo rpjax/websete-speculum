@@ -54,7 +54,6 @@ services:
       - HttpAddress=0.0.0.0:8080
       - Database__Path=/data/speculum.db
       - Sidecar__BaseUrl=ws://sidecar:3000
-      - Admin__ApiKey=${ADMIN_API_KEY:?ADMIN_API_KEY is required}
     depends_on:
       sidecar:
         condition: service_healthy

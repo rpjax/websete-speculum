@@ -47,10 +47,10 @@ public class ConfigValidatorTests
     }
 
     [Fact]
-    public void Environment_RejectsUnknownValue()
+    public void Admin_RejectsEmptyApiKey()
     {
-        var json = JsonDocument.Parse("\"Staging\"").RootElement;
+        var json = JsonDocument.Parse("""{ "apiKey": "" }""").RootElement;
         Assert.Throws<ConfigValidationException>(() =>
-            ConfigValidator.ValidateSection(ConfigSectionKeys.Environment, json, webRootPath: null));
+            ConfigValidator.ValidateSection(ConfigSectionKeys.Admin, json, webRootPath: null));
     }
 }

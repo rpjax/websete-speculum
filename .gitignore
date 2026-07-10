@@ -6,6 +6,10 @@
 # dotenv files
 .env
 
+# dockup deploy artifacts
+deploy/speculum.dockup.json
+deploy/out/
+
 # User-specific files
 *.rsuser
 *.suo

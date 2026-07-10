@@ -9,6 +9,8 @@ namespace Websete.Speculum.Host.Config.Store;
 
 public sealed class SpeculumConfigStore : ISpeculumConfigStore
 {
+    internal const string FactoryAdminApiKey = "password";
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -16,7 +18,6 @@ public sealed class SpeculumConfigStore : ISpeculumConfigStore
     };
 
     private readonly string _databasePath;
-    private readonly IConfiguration _configuration;
     private readonly ScriptResolver _scriptResolver;
     private readonly IVSessionRegistry _sessionRegistry;
     private readonly IWebHostEnvironment _env;
@@ -29,18 +30,16 @@ public sealed class SpeculumConfigStore : ISpeculumConfigStore
 
     public SpeculumConfigStore(
         string databasePath,
-        IConfiguration configuration,
         ScriptResolver scriptResolver,
         IVSessionRegistry sessionRegistry,
         IWebHostEnvironment env,
         ILogger<SpeculumConfigStore> logger)
     {
-        _databasePath     = databasePath;
-        _configuration    = configuration;
-        _scriptResolver   = scriptResolver;
-        _sessionRegistry  = sessionRegistry;
-        _env              = env;
-        _logger           = logger;
+        _databasePath    = databasePath;
+        _scriptResolver  = scriptResolver;
+        _sessionRegistry = sessionRegistry;
+        _env             = env;
+        _logger          = logger;
     }
 
     public SpeculumRuntimeConfig Current
@@ -62,29 +61,7 @@ public sealed class SpeculumConfigStore : ISpeculumConfigStore
     {
         await using var db = CreateContext();
         await EnsureSchemaAsync(db, ct);
-
-        foreach (var key in ConfigSectionKeys.All)
-        {
-            var entity = await db.ConfigSections.FindAsync([key], ct);
-            if (entity is not null && entity.ValueJson is not null)
-                continue;
-
-            var fallback = ReadFallbackSection(key);
-            if (fallback is null)
-                continue;
-
-            entity ??= new ConfigSectionEntity { Key = key };
-            entity.ValueJson = fallback;
-            entity.UpdatedAt = DateTimeOffset.UtcNow;
-
-            if (db.Entry(entity).State == EntityState.Detached)
-                db.ConfigSections.Add(entity);
-            else
-                db.ConfigSections.Update(entity);
-
-            _logger.LogInformation("Seeded configuration section '{Key}' from appsettings.", key);
-        }
-
+        await EnsureFactoryAdminSeedAsync(db, ct);
         await db.SaveChangesAsync(ct);
         await ReloadAsync(db, ct, killSessionsOnForwardingChange: false);
     }
@@ -141,6 +118,9 @@ public sealed class SpeculumConfigStore : ISpeculumConfigStore
         if (!ConfigSectionKeys.All.Contains(key))
             return Error($"Unknown configuration section '{key}'.");
 
+        if (key == ConfigSectionKeys.Admin)
+            return Error("Admin section cannot be deleted.");
+
         await using var db = CreateContext();
         var entity = await db.ConfigSections.FindAsync([key], ct);
         if (entity is not null)
@@ -152,6 +132,22 @@ public sealed class SpeculumConfigStore : ISpeculumConfigStore
 
         var killSessions = key == ConfigSectionKeys.Forwarding;
         return await ReloadAsync(db, ct, killSessions);
+    }
+
+    private static async Task EnsureFactoryAdminSeedAsync(SpeculumDbContext db, CancellationToken ct)
+    {
+        var entity = await db.ConfigSections.FindAsync([ConfigSectionKeys.Admin], ct);
+        if (entity is not null && entity.ValueJson is not null)
+            return;
+
+        entity ??= new ConfigSectionEntity { Key = ConfigSectionKeys.Admin };
+        entity.ValueJson = JsonSerializer.Serialize(new AdminOptions { ApiKey = FactoryAdminApiKey }, JsonOptions);
+        entity.UpdatedAt = DateTimeOffset.UtcNow;
+
+        if (db.Entry(entity).State == EntityState.Detached)
+            db.ConfigSections.Add(entity);
+        else
+            db.ConfigSections.Update(entity);
     }
 
     private async Task<ConfigUpdateResult> ReloadAsync(
@@ -167,9 +163,9 @@ public sealed class SpeculumConfigStore : ISpeculumConfigStore
             .Where(s => s.ValueJson is not null)
             .ToDictionary(s => s.Key, s => s.ValueJson!);
 
-        var forwarding = ParseForwarding(map);
-        var maxSessions = ParseMaxSessions(map);
-        var environment = ParseEnvironment(map);
+        var adminApiKey     = ParseAdminApiKey(map);
+        var forwarding      = ParseForwarding(map);
+        var maxSessions     = ParseMaxSessions(map);
         var scriptInjection = ParseScriptInjection(map);
         var jsBridgeEnabled = ParseJsBridge(map);
 
@@ -187,15 +183,15 @@ public sealed class SpeculumConfigStore : ISpeculumConfigStore
                 {
                     _current = new SpeculumRuntimeConfig
                     {
-                        Forwarding       = forwarding,
-                        MaxSessions      = maxSessions,
-                        Environment      = environment,
-                        ScriptInjection  = scriptInjection,
-                        JsBridgeEnabled  = jsBridgeEnabled,
-                        ResolvedScripts  = [],
+                        AdminApiKey     = adminApiKey,
+                        Forwarding      = forwarding,
+                        MaxSessions     = maxSessions,
+                        ScriptInjection = scriptInjection,
+                        JsBridgeEnabled = jsBridgeEnabled,
+                        ResolvedScripts = [],
                     };
-                    _isOperational    = false;
-                    _missingRequired  = ComputeMissing(_current);
+                    _isOperational   = false;
+                    _missingRequired = ComputeMissing(_current);
                 }
 
                 return new ConfigUpdateResult
@@ -210,9 +206,9 @@ public sealed class SpeculumConfigStore : ISpeculumConfigStore
 
         var runtime = new SpeculumRuntimeConfig
         {
+            AdminApiKey     = adminApiKey,
             Forwarding      = forwarding,
             MaxSessions     = maxSessions,
-            Environment     = environment,
             ScriptInjection = scriptInjection,
             JsBridgeEnabled = jsBridgeEnabled,
             ResolvedScripts = resolvedScripts,
@@ -248,76 +244,16 @@ public sealed class SpeculumConfigStore : ISpeculumConfigStore
         if (config.MaxSessions is null or <= 0)
             missing.Add(ConfigSectionKeys.MaxSessions);
 
-        if (string.IsNullOrWhiteSpace(config.Environment))
-            missing.Add(ConfigSectionKeys.Environment);
-
         return missing.ToArray();
     }
 
-    private string? ReadFallbackSection(string key)
+    private static string ParseAdminApiKey(IReadOnlyDictionary<string, string> map)
     {
-        var section = _configuration.GetSection(key);
-        if (!SectionHasValue(section))
-            return null;
+        if (!map.TryGetValue(ConfigSectionKeys.Admin, out var json))
+            return FactoryAdminApiKey;
 
-        return key switch
-        {
-            ConfigSectionKeys.MaxSessions => SerializeMaxSessionsFallback(section),
-            ConfigSectionKeys.Environment => SerializeEnvironmentFallback(section),
-            _ => SerializeSection(section),
-        };
-    }
-
-    private static bool SectionHasValue(IConfigurationSection section)
-    {
-        if (!string.IsNullOrEmpty(section.Value))
-            return true;
-
-        return section.GetChildren().Any();
-    }
-
-    private static string SerializeSection(IConfigurationSection section)
-    {
-        var obj = BuildObject(section);
-        return JsonSerializer.Serialize(obj, JsonOptions);
-    }
-
-    private static string SerializeMaxSessionsFallback(IConfigurationSection section)
-    {
-        if (!int.TryParse(section.Value, out var value))
-            throw new InvalidOperationException("MaxSessions fallback must be a number.");
-
-        return JsonSerializer.Serialize(value);
-    }
-
-    private static string SerializeEnvironmentFallback(IConfigurationSection section)
-    {
-        var value = section.Value?.Trim();
-        if (string.IsNullOrEmpty(value))
-            throw new InvalidOperationException("Environment fallback must be a string.");
-
-        return JsonSerializer.Serialize(value);
-    }
-
-    private static object? BuildObject(IConfigurationSection section)
-    {
-        var children = section.GetChildren().ToList();
-        if (children.Count == 0)
-            return section.Value;
-
-        if (children.All(c => int.TryParse(c.Key, out _)))
-        {
-            return children
-                .OrderBy(c => int.Parse(c.Key))
-                .Select(c => BuildObject(c))
-                .ToList();
-        }
-
-        var dict = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
-        foreach (var child in children)
-            dict[child.Key] = BuildObject(child);
-
-        return dict;
+        var options = JsonSerializer.Deserialize<AdminOptions>(json, JsonOptions);
+        return string.IsNullOrWhiteSpace(options?.ApiKey) ? FactoryAdminApiKey : options.ApiKey;
     }
 
     private static ForwardingOptions? ParseForwarding(IReadOnlyDictionary<string, string> map)
@@ -336,17 +272,6 @@ public sealed class SpeculumConfigStore : ISpeculumConfigStore
         using var doc = JsonDocument.Parse(json);
         return doc.RootElement.ValueKind == JsonValueKind.Number
             ? doc.RootElement.GetInt32()
-            : null;
-    }
-
-    private static string? ParseEnvironment(IReadOnlyDictionary<string, string> map)
-    {
-        if (!map.TryGetValue(ConfigSectionKeys.Environment, out var json))
-            return null;
-
-        using var doc = JsonDocument.Parse(json);
-        return doc.RootElement.ValueKind == JsonValueKind.String
-            ? doc.RootElement.GetString()
             : null;
     }
 

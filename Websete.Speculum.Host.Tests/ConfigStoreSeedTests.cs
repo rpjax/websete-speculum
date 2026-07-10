@@ -1,8 +1,8 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Logging.Abstractions;
+using Websete.Speculum.Host.Config.Runtime;
 using Websete.Speculum.Host.Config.Scripts;
 using Websete.Speculum.Host.Config.Store;
 using Websete.Speculum.Host.Virtualization;
@@ -29,43 +29,42 @@ public class ConfigStoreSeedTests : IDisposable
     }
 
     [Fact]
-    public async Task Seed_WritesAppsettingsToDb_WhenDbEmpty()
+    public async Task Seed_WritesFactoryAdminOnly_WhenDbEmpty()
     {
-        var config = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["Forwarding:Host"]    = "www.example.com",
-                ["Forwarding:Domains:0"] = "example.com",
-                ["Forwarding:Domains:1"] = "*.example.com",
-                ["MaxSessions"]        = "5",
-                ["Environment"]        = "Dev",
-            })
-            .Build();
-
-        var store = CreateStore(config);
+        var store = CreateStore();
         await store.InitializeAsync();
 
-        Assert.True(store.IsOperational);
-
-        // Second init with different appsettings must not overwrite DB.
-        var config2 = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["Forwarding:Host"] = "www.other.com",
-                ["Forwarding:Domains:0"] = "other.com",
-                ["MaxSessions"]     = "99",
-                ["Environment"]     = "Prod",
-            })
-            .Build();
-
-        var store2 = CreateStore(config2);
-        await store2.InitializeAsync();
-
-        Assert.Equal("www.example.com", store2.Current.Forwarding!.Host);
-        Assert.Equal(5, store2.Current.MaxSessions);
+        Assert.False(store.IsOperational);
+        Assert.Equal("password", store.Current.AdminApiKey);
+        Assert.Null(store.Current.Forwarding);
+        Assert.Null(store.Current.MaxSessions);
     }
 
-    private SpeculumConfigStore CreateStore(IConfiguration config)
+    [Fact]
+    public async Task Seed_DoesNotOverwriteExistingSections()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+
+        await store.PutSectionAsync(ConfigSectionKeys.Forwarding,
+            JsonDocument.Parse("""
+            { "host": "www.example.com", "domains": ["example.com", "*.example.com"] }
+            """).RootElement);
+        await store.PutSectionAsync(ConfigSectionKeys.MaxSessions,
+            JsonDocument.Parse("5").RootElement);
+        await store.PutSectionAsync(ConfigSectionKeys.Admin,
+            JsonDocument.Parse("""{ "apiKey": "custom-key" }""").RootElement);
+
+        var store2 = CreateStore();
+        await store2.InitializeAsync();
+
+        Assert.True(store2.IsOperational);
+        Assert.Equal("www.example.com", store2.Current.Forwarding!.Host);
+        Assert.Equal(5, store2.Current.MaxSessions);
+        Assert.Equal("custom-key", store2.Current.AdminApiKey);
+    }
+
+    private SpeculumConfigStore CreateStore()
     {
         var env = new FakeWebHostEnvironment { WebRootPath = _tempDir };
         var registry = new VSessionRegistry();
@@ -76,7 +75,6 @@ public class ConfigStoreSeedTests : IDisposable
 
         return new SpeculumConfigStore(
             _dbPath,
-            config,
             resolver,
             registry,
             env,

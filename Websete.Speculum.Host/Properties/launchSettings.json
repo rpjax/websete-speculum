@@ -8,16 +8,8 @@
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development",
         "HttpAddress": "0.0.0.0:8080",
-        "Admin__ApiKey": "dev-change-me"
-      }
-    },
-    "https": {
-      "commandName": "Project",
-      "dotnetRunMessages": true,
-      "launchBrowser": false,
-      "applicationUrl": "https://localhost:7034;http://localhost:5018",
-      "environmentVariables": {
-        "ASPNETCORE_ENVIRONMENT": "Development"
+        "Database__Path": "data/speculum.db",
+        "Sidecar__BaseUrl": "ws://localhost:3000"
       }
     }
   }

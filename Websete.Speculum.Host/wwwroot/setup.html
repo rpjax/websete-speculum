@@ -67,15 +67,12 @@
 
   <div class="card">
     <h2>Como configurar</h2>
-    <p>Use a Admin API com header <code>Authorization: Bearer &lt;Admin:ApiKey&gt;</code>:</p>
+    <p>Use a Admin API com header <code>Authorization: Bearer password</code> (chave de fábrica; altere via <code>PUT /api/admin/config/Admin</code>):</p>
     <pre>PUT /api/admin/config/Forwarding
 { "host": "www.exemplo.com", "domains": ["exemplo.com", "*.exemplo.com"] }
 
 PUT /api/admin/config/MaxSessions
 10
-
-PUT /api/admin/config/Environment
-"Prod"
 
 PUT /api/admin/config/JsBridge
 { "enable": true }</pre>

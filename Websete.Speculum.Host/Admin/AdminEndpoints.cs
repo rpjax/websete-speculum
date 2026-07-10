@@ -1,5 +1,5 @@
 using System.Text.Json;
-using Websete.Speculum.Host.Config.Bootstrap;
+using Websete.Speculum.Host.Config.Runtime;
 using Websete.Speculum.Host.Config.Store;
 
 namespace Websete.Speculum.Host.Admin;
@@ -7,15 +7,10 @@ namespace Websete.Speculum.Host.Admin;
 public sealed class AdminAuthMiddleware
 {
     private readonly RequestDelegate _next;
-    private readonly string _apiKey;
 
-    public AdminAuthMiddleware(RequestDelegate next, BootstrapConfig bootstrap)
-    {
-        _next    = next;
-        _apiKey  = bootstrap.AdminApiKey;
-    }
+    public AdminAuthMiddleware(RequestDelegate next) => _next = next;
 
-    public async Task InvokeAsync(HttpContext context)
+    public async Task InvokeAsync(HttpContext context, ISpeculumConfigStore store)
     {
         var path = context.Request.Path.Value ?? "";
         if (!path.StartsWith("/api/admin/config/", StringComparison.OrdinalIgnoreCase)
@@ -25,8 +20,9 @@ public sealed class AdminAuthMiddleware
             return;
         }
 
+        var apiKey = store.Current.AdminApiKey;
         if (!TryGetBearerToken(context.Request.Headers.Authorization, out var token)
-            || !string.Equals(token, _apiKey, StringComparison.Ordinal))
+            || !string.Equals(token, apiKey, StringComparison.Ordinal))
         {
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
             await context.Response.WriteAsJsonAsync(new { error = "Unauthorized" });
@@ -69,9 +65,13 @@ public static class AdminEndpoints
         app.MapGet("/api/admin/config/{section}", async (string section, ISpeculumConfigStore store) =>
         {
             var value = await store.GetSectionAsync(section);
-            return value is null
-                ? Results.NotFound(new { error = $"Section '{section}' is not configured." })
-                : Results.Json(value.Value);
+            if (value is null)
+                return Results.NotFound(new { error = $"Section '{section}' is not configured." });
+
+            if (section.Equals(ConfigSectionKeys.Admin, StringComparison.OrdinalIgnoreCase))
+                return Results.Json(new { configured = true });
+
+            return Results.Json(value.Value);
         });
 
         app.MapPut("/api/admin/config/{section}", async (
@@ -98,7 +98,9 @@ public static class AdminEndpoints
         app.MapDelete("/api/admin/config/{section}", async (string section, ISpeculumConfigStore store) =>
         {
             var result = await store.DeleteSectionAsync(section);
-            return Results.Ok(result);
+            return result.Success
+                ? Results.Ok(result)
+                : Results.BadRequest(result);
         });
     }
 }

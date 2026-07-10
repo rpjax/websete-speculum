@@ -1,0 +1,152 @@
+{
+  "dev": {
+    "namespace": "websete",
+    "network": "speculum-dev",
+    "env": [
+      { "name": "TRAEFIK_DOMAIN", "value": "speculum.websete.localhost" },
+      { "name": "ACME_EMAIL", "value": "" }
+    ],
+    "containers": [
+      {
+        "id": "traefik",
+        "imageRef": "traefik:v3.3",
+        "command": [
+          "--api.dashboard=false",
+          "--providers.docker=true",
+          "--providers.docker.exposedbydefault=false",
+          "--entrypoints.web.address=:80",
+          "--entrypoints.websecure.address=:443",
+          "--entrypoints.web.http.redirections.entrypoint.to=websecure",
+          "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+        ],
+        "ports": [
+          { "host": 8080, "container": 80 },
+          { "host": 8443, "container": 443 }
+        ],
+        "volumes": [
+          { "host": "/var/run/docker.sock", "container": "/var/run/docker.sock:ro" }
+        ]
+      },
+      {
+        "id": "sidecar",
+        "image": "speculum-sidecar",
+        "context": "sidecar",
+        "dockerfile": "Dockerfile",
+        "capAdd": ["SYS_ADMIN"],
+        "shmSize": "2gb",
+        "env": [
+          { "name": "NODE_ENV", "value": "production" },
+          { "name": "SIDECAR_PORT", "value": "3000" }
+        ],
+        "healthcheck": {
+          "test": ["CMD", "curl", "-sf", "http://localhost:3000/health"],
+          "interval": "15s",
+          "timeout": "5s",
+          "startPeriod": "20s",
+          "retries": 3
+        }
+      },
+      {
+        "id": "app",
+        "image": "speculum-app",
+        "context": ".",
+        "dockerfile": "Dockerfile",
+        "dependsOn": [{ "id": "sidecar", "condition": "service_healthy" }],
+        "env": [
+          { "name": "ASPNETCORE_ENVIRONMENT", "value": "Development" },
+          { "name": "HttpAddress", "value": "0.0.0.0:8080" },
+          { "name": "Database__Path", "value": "/data/speculum.db" },
+          { "name": "Sidecar__BaseUrl", "value": "ws://sidecar:3000" }
+        ],
+        "volumes": [{ "name": "speculum-data", "container": "/data" }],
+        "labels": [
+          "traefik.enable=true",
+          "traefik.http.routers.speculum.rule=Host(`${TRAEFIK_DOMAIN}`)",
+          "traefik.http.routers.speculum.entrypoints=websecure",
+          "traefik.http.services.speculum.loadbalancer.server.port=8080"
+        ]
+      }
+    ],
+    "volumes": [{ "name": "speculum-data" }]
+  },
+  "prod": {
+    "namespace": "websete",
+    "network": "speculum",
+    "env": [
+      { "name": "TRAEFIK_DOMAIN", "value": "speculum.websete.org" },
+      { "name": "ACME_EMAIL", "value": "admin@websete.org" }
+    ],
+    "containers": [
+      {
+        "id": "traefik",
+        "imageRef": "traefik:v3.3",
+        "command": [
+          "--api.dashboard=false",
+          "--providers.docker=true",
+          "--providers.docker.exposedbydefault=false",
+          "--entrypoints.web.address=:80",
+          "--entrypoints.websecure.address=:443",
+          "--entrypoints.web.http.redirections.entrypoint.to=websecure",
+          "--entrypoints.web.http.redirections.entrypoint.scheme=https",
+          "--certificatesresolvers.le.acme.httpchallenge=true",
+          "--certificatesresolvers.le.acme.httpchallenge.entrypoint=web",
+          "--certificatesresolvers.le.acme.email=${ACME_EMAIL}",
+          "--certificatesresolvers.le.acme.storage=/letsencrypt/acme.json"
+        ],
+        "ports": [
+          { "host": 80, "container": 80 },
+          { "host": 443, "container": 443 }
+        ],
+        "volumes": [
+          { "host": "/var/run/docker.sock", "container": "/var/run/docker.sock:ro" },
+          { "name": "traefik-letsencrypt", "container": "/letsencrypt" }
+        ],
+        "env": [{ "name": "ACME_EMAIL", "value": "${ACME_EMAIL}" }]
+      },
+      {
+        "id": "sidecar",
+        "image": "speculum-sidecar",
+        "context": "sidecar",
+        "dockerfile": "Dockerfile",
+        "capAdd": ["SYS_ADMIN"],
+        "shmSize": "2gb",
+        "env": [
+          { "name": "NODE_ENV", "value": "production" },
+          { "name": "SIDECAR_PORT", "value": "3000" }
+        ],
+        "healthcheck": {
+          "test": ["CMD", "curl", "-sf", "http://localhost:3000/health"],
+          "interval": "15s",
+          "timeout": "5s",
+          "startPeriod": "20s",
+          "retries": 3
+        }
+      },
+      {
+        "id": "app",
+        "image": "speculum-app",
+        "context": ".",
+        "dockerfile": "Dockerfile",
+        "dependsOn": [{ "id": "sidecar", "condition": "service_healthy" }],
+        "env": [
+          { "name": "ASPNETCORE_ENVIRONMENT", "value": "Production" },
+          { "name": "HttpAddress", "value": "0.0.0.0:8080" },
+          { "name": "Database__Path", "value": "/data/speculum.db" },
+          { "name": "Sidecar__BaseUrl", "value": "ws://sidecar:3000" }
+        ],
+        "volumes": [{ "name": "speculum-data", "container": "/data" }],
+        "labels": [
+          "traefik.enable=true",
+          "traefik.http.routers.speculum.rule=Host(`${TRAEFIK_DOMAIN}`)",
+          "traefik.http.routers.speculum.entrypoints=websecure",
+          "traefik.http.routers.speculum.tls.certresolver=le",
+          "traefik.http.services.speculum.loadbalancer.server.port=8080"
+        ]
+      }
+    ],
+    "volumes": [
+      { "name": "speculum-data" },
+      { "name": "traefik-letsencrypt" }
+    ]
+  }
+}

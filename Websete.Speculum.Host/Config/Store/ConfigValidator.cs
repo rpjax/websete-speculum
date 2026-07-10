@@ -37,23 +37,20 @@ public static class ConfigValidator
     private static readonly HashSet<string> ValidTypes =
         new(["Classic", "Module"], StringComparer.Ordinal);
 
-    private static readonly HashSet<string> ValidEnvironments =
-        new(["Dev", "Prod"], StringComparer.OrdinalIgnoreCase);
-
     public static void ValidateSection(string key, JsonElement body, string? webRootPath)
     {
         var errors = new List<(string, string)>();
 
         switch (key)
         {
+            case ConfigSectionKeys.Admin:
+                ValidateAdmin(body, errors);
+                break;
             case ConfigSectionKeys.Forwarding:
                 ValidateForwarding(body, errors);
                 break;
             case ConfigSectionKeys.MaxSessions:
                 ValidateMaxSessions(body, errors);
-                break;
-            case ConfigSectionKeys.Environment:
-                ValidateEnvironment(body, errors);
                 break;
             case ConfigSectionKeys.ScriptInjection:
                 ValidateScriptInjection(body, errors, webRootPath);
@@ -68,39 +65,6 @@ public static class ConfigValidator
 
         if (errors.Count > 0)
             throw new ConfigValidationException(errors);
-    }
-
-    public static void ValidateOperational(SpeculumRuntimeConfig config)
-    {
-        var errors = new List<(string, string)>();
-
-        if (config.Forwarding is null)
-            errors.Add(("$.Forwarding", "Forwarding is required."));
-        else
-        {
-            try { ValidateForwarding(ToJson(config.Forwarding), errors); }
-            catch { /* individual errors already added */ }
-        }
-
-        if (config.MaxSessions is null or <= 0)
-            errors.Add(("$.MaxSessions", "MaxSessions must be greater than 0."));
-        else if (config.MaxSessions > 65535)
-            errors.Add(("$.MaxSessions", "MaxSessions exceeds upper bound (65535)."));
-
-        if (string.IsNullOrWhiteSpace(config.Environment))
-            errors.Add(("$.Environment", "Environment is required."));
-        else if (!ValidEnvironments.Contains(config.Environment))
-            errors.Add(("$.Environment", "Environment must be 'Dev' or 'Prod'."));
-
-        if (errors.Count > 0)
-            throw new ConfigValidationException(errors);
-    }
-
-    private static JsonElement ToJson(ForwardingOptions forwarding)
-    {
-        var json = JsonSerializer.Serialize(forwarding);
-        using var doc = JsonDocument.Parse(json);
-        return doc.RootElement.Clone();
     }
 
     private static void ValidateForwarding(JsonElement body, List<(string, string)> errors)
@@ -175,17 +139,22 @@ public static class ConfigValidator
             errors.Add(("$.MaxSessions", "Exceeds upper bound (65535)."));
     }
 
-    private static void ValidateEnvironment(JsonElement body, List<(string, string)> errors)
+    private static void ValidateAdmin(JsonElement body, List<(string, string)> errors)
     {
-        if (body.ValueKind != JsonValueKind.String)
+        if (body.ValueKind != JsonValueKind.Object)
         {
-            errors.Add(("$.Environment", "Must be a JSON string."));
+            errors.Add(("$.Admin", "Must be a JSON object."));
             return;
         }
 
-        var value = body.GetString()?.Trim() ?? "";
-        if (!ValidEnvironments.Contains(value))
-            errors.Add(("$.Environment", "Must be 'Dev' or 'Prod'."));
+        if (!body.TryGetProperty("apiKey", out var keyEl) || keyEl.ValueKind != JsonValueKind.String)
+        {
+            errors.Add(("$.Admin.apiKey", "apiKey is required."));
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(keyEl.GetString()))
+            errors.Add(("$.Admin.apiKey", "apiKey must not be empty."));
     }
 
     private static void ValidateJsBridge(JsonElement body, List<(string, string)> errors)

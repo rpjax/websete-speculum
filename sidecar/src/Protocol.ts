@@ -131,8 +131,9 @@ export type InputEvent =
 
 // ── Session status (sidecar → .NET, binary) ──────────────────────────────────
 
-export const MSG_STATUS   = 0x09;
-export const MSG_REDIRECT = 0x0A;
+export const MSG_STATUS        = 0x09;
+export const MSG_REDIRECT      = 0x0A;
+export const MSG_PROFILE_CHUNK = 0x0B;
 
 /**
  * Periodic snapshot of sidecar-side session state.
@@ -214,20 +215,24 @@ export type CreateMessage = {
     width:     number;
     height:    number;
     url?:      string;
-    /** Scripts to install via context.addInitScript() before the first navigation. */
+    /** gzip tar of Chrome userDataDir (base64) — restored before launch. */
+    profileBlob?: string;
     scripts?:  ScriptEntry[];
-    /** When true, forward virtual console output and handle evaljs requests. */
     jsBridgeEnabled?: boolean;
-    /**
-     * When set, the navigation guard prevents main-frame document navigations
-     * to hosts outside these patterns. Blocked navigations trigger MSG_REDIRECT.
-     */
     allowedNavigationDomains?: string[];
 };
 
-export function decodeMessage(raw: string): InputEvent | CreateMessage | null {
+export type SnapshotMessage = { type: 'snapshot' };
+
+export type MergeProfilesMessage = {
+    type:         'mergeProfiles';
+    baseBlob:     string;
+    incomingBlob: string;
+};
+
+export function decodeMessage(raw: string): InputEvent | CreateMessage | SnapshotMessage | MergeProfilesMessage | null {
     try {
-        return JSON.parse(raw) as InputEvent | CreateMessage;
+        return JSON.parse(raw) as InputEvent | CreateMessage | SnapshotMessage | MergeProfilesMessage;
     } catch {
         return null;
     }

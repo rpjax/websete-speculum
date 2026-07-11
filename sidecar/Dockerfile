@@ -80,7 +80,7 @@ WORKDIR /app
 # Install devDependencies too so tsc is available for the build step.
 COPY package*.json ./
 RUN --mount=type=cache,target=/root/.npm \
-    npm install --prefer-offline
+    npm ci --prefer-offline
 
 # Install only Playwright system dependencies — NOT the Chromium browser binary.
 # We use the system google-chrome-stable installed above.

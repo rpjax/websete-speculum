@@ -12,7 +12,7 @@
  *   Input events and control commands (navigate, resize, evaljs, …)
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.MSG_REDIRECT = exports.MSG_STATUS = exports.CONSOLE_LEVELS = exports.MSG_SCREENCAST = exports.MSG_EVAL_RESULT = exports.MSG_CONSOLE = exports.MSG_URL = void 0;
+exports.MSG_PROFILE_CHUNK = exports.MSG_REDIRECT = exports.MSG_STATUS = exports.CONSOLE_LEVELS = exports.MSG_SCREENCAST = exports.MSG_EVAL_RESULT = exports.MSG_CONSOLE = exports.MSG_URL = void 0;
 exports.encodeScreencastFrame = encodeScreencastFrame;
 exports.encodeConsoleMessage = encodeConsoleMessage;
 exports.encodeEvalResult = encodeEvalResult;
@@ -114,6 +114,7 @@ function encodeUrlUpdate(url) {
 // ── Session status (sidecar → .NET, binary) ──────────────────────────────────
 exports.MSG_STATUS = 0x09;
 exports.MSG_REDIRECT = 0x0A;
+exports.MSG_PROFILE_CHUNK = 0x0B;
 /**
  * Encodes a session status snapshot.
  *

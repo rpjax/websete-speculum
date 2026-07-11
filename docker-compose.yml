@@ -54,6 +54,12 @@ services:
       - HttpAddress=0.0.0.0:8080
       - Database__Path=/data/speculum.db
       - Sidecar__BaseUrl=ws://sidecar:3000
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
     depends_on:
       sidecar:
         condition: service_healthy

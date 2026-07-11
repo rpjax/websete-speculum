@@ -1,8 +1,47 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.Session = void 0;
+const fs = __importStar(require("fs"));
 const BrowserManager_1 = require("./BrowserManager");
 const ScreencastCapture_1 = require("./ScreencastCapture");
+const AsyncChain_1 = require("./AsyncChain");
+const MouseMoveCoalescer_1 = require("./MouseMoveCoalescer");
+const NavigationGeneration_1 = require("./NavigationGeneration");
+const ResizeGuard_1 = require("./ResizeGuard");
+const ProfileArchive_1 = require("./ProfileArchive");
 const Protocol_1 = require("./Protocol");
 // ── Constants ─────────────────────────────────────────────────────────────────
 /** Maps Log.entryAdded severity strings to wire-level level bytes. */
@@ -40,13 +79,21 @@ class Session {
      */
     _onFrame;
     /** Guard that prevents concurrent resize operations. */
-    _resizing = false;
+    _resizeGuard = new ResizeGuard_1.ResizeGuard();
+    /** Monotonic token — stale navigations are discarded after completion. */
+    _navigation = new NavigationGeneration_1.NavigationGeneration();
+    /** True while profile snapshot is being captured. */
+    _snapshotting = false;
+    /** Latest-wins coalesce buffer for mousemove. */
+    _mouseMoveCoalescer;
     /** Whether the JsBridge (console forwarding + evaljs) is active. */
     _jsBridgeEnabled;
     /** Interval handle for the 1 s status publisher. Cleared in dispose(). */
     _statusInterval = null;
+    _userDataDir;
     _disposed = false;
-    constructor(sessionId, ws, display, context, page, cdp, capture, width, height, onFrame, jsBridgeEnabled) {
+    _browserQuiesced = false;
+    constructor(sessionId, ws, display, context, page, cdp, capture, width, height, onFrame, jsBridgeEnabled, userDataDir) {
         this.sessionId = sessionId;
         this._ws = ws;
         this._display = display;
@@ -58,16 +105,24 @@ class Session {
         this._height = height;
         this._onFrame = onFrame;
         this._jsBridgeEnabled = jsBridgeEnabled;
+        this._userDataDir = userDataDir;
+        this._mouseMoveCoalescer = new MouseMoveCoalescer_1.MouseMoveCoalescer((x, y) => {
+            if (this._snapshotting || this._disposed)
+                return;
+            this._page.mouse.move(x, y).catch(() => { });
+        });
     }
     // ── Factory ───────────────────────────────────────────────────────────────
-    static async create(sessionId, ws, display, width, height, url, scripts = [], jsBridgeEnabled = false, allowedNavigationDomains) {
+    static async create(sessionId, ws, display, width, height, url, scripts = [], jsBridgeEnabled = false, allowedNavigationDomains, profileBlob) {
         console.log(`[${sessionId}] Launching Chrome on display ${display.displayEnv}`);
         let context;
         let cdp;
+        let userDataDir = '';
         try {
-            const handle = await (0, BrowserManager_1.launchBrowser)(display.displayEnv, width, height);
+            const handle = await (0, BrowserManager_1.launchBrowser)(sessionId, display.displayEnv, width, height, profileBlob);
             context = handle.context;
             cdp = handle.cdp;
+            userDataDir = handle.userDataDir;
             const page = handle.page;
             await Session._setupSingleTabEnforcement(context);
             if (jsBridgeEnabled)
@@ -106,7 +161,7 @@ class Session {
             };
             const capture = await ScreencastCapture_1.ScreencastCapture.start(cdp, width, height, onFrame);
             console.log(`[${sessionId}] Session ready`);
-            const session = new Session(sessionId, ws, display, context, page, cdp, capture, width, height, onFrame, jsBridgeEnabled);
+            const session = new Session(sessionId, ws, display, context, page, cdp, capture, width, height, onFrame, jsBridgeEnabled, userDataDir);
             session._setupStatusPublisher();
             return session;
         }
@@ -125,26 +180,32 @@ class Session {
     }
     // ── Input dispatch ────────────────────────────────────────────────────────
     async handleMessage(raw) {
+        if (this._snapshotting)
+            return;
         const msg = (0, Protocol_1.decodeMessage)(raw);
         if (!msg || msg.type === 'create')
             return;
         try {
             switch (msg.type) {
-                case 'navigate':
-                    await this._page.goto(msg.url, {
+                case 'navigate': {
+                    const url = msg.url;
+                    if (!url.startsWith('http://') && !url.startsWith('https://'))
+                        break;
+                    await this._runNavigation(() => this._page.goto(url, {
                         waitUntil: 'domcontentloaded',
                         timeout: 30_000,
-                    });
+                    }));
                     break;
+                }
                 case 'refresh':
-                    await this._page.reload({ waitUntil: 'domcontentloaded', timeout: 30_000 });
+                    await this._runNavigation(() => this._page.reload({ waitUntil: 'domcontentloaded', timeout: 30_000 }));
                     break;
                 // ── Pointer — CDP Input.dispatchMouseEvent ───────────────────
                 // Injects events into Chrome's rendering pipeline (JS events,
                 // :hover states, clicks) without requiring X11 focus.  The cursor
                 // is rendered client-side as a software overlay on the canvas.
                 case 'mousemove':
-                    this._page.mouse.move(msg.x, msg.y).catch(() => { });
+                    this._queueMouseMove(msg.x, msg.y);
                     break;
                 case 'mousedown':
                     await this._page.mouse.move(msg.x, msg.y);
@@ -183,10 +244,10 @@ class Session {
                     await this._page.keyboard.type(msg.text);
                     break;
                 case 'goback':
-                    await this._page.goBack({ waitUntil: 'domcontentloaded', timeout: 30_000 });
+                    await this._runNavigation(() => this._page.goBack({ waitUntil: 'domcontentloaded', timeout: 30_000 }));
                     break;
                 case 'goforward':
-                    await this._page.goForward({ waitUntil: 'domcontentloaded', timeout: 30_000 });
+                    await this._runNavigation(() => this._page.goForward({ waitUntil: 'domcontentloaded', timeout: 30_000 }));
                     break;
                 case 'evaljs':
                     if (this._jsBridgeEnabled)
@@ -202,7 +263,54 @@ class Session {
             console.warn(`[${this.sessionId}] Input error (${msg.type}):`, err.message);
         }
     }
+    _queueMouseMove(x, y) {
+        if (this._snapshotting)
+            return;
+        this._mouseMoveCoalescer.queue(x, y);
+    }
+    async _runNavigation(action) {
+        const generation = this._navigation.begin();
+        try {
+            await action();
+            if (!this._navigation.isCurrent(generation))
+                return;
+        }
+        catch (err) {
+            if (this._navigation.isCurrent(generation)) {
+                console.warn(`[${this.sessionId}] Navigation error:`, err.message);
+            }
+        }
+    }
     // ── Disposal ──────────────────────────────────────────────────────────────
+    async captureSnapshot() {
+        this._snapshotting = true;
+        console.log(`[${this.sessionId}] Capturing profile snapshot from ${this._userDataDir}`);
+        if (this._statusInterval !== null) {
+            clearInterval(this._statusInterval);
+            this._statusInterval = null;
+        }
+        try {
+            await this._capture.stop();
+        }
+        catch { /* already stopped */ }
+        if (!this._browserQuiesced) {
+            try {
+                await this._cdp.detach();
+            }
+            catch { /* best-effort */ }
+            try {
+                await this._context.close();
+            }
+            catch { /* best-effort */ }
+            this._browserQuiesced = true;
+        }
+        const blob = await (0, ProfileArchive_1.archiveProfile)(this._userDataDir);
+        if (this._ws.readyState === this._ws.OPEN) {
+            (0, ProfileArchive_1.sendProfileChunks)(this._ws, blob);
+            this._ws.send(JSON.stringify({ type: 'snapshotDone', byteSize: blob.length }));
+        }
+        return blob.length;
+    }
     async dispose() {
         if (this._disposed)
             return;
@@ -220,20 +328,25 @@ class Session {
         }
         catch { /* already stopped */ }
         // 2. Close Chrome and kill the virtual display in parallel.
-        //    Running them concurrently reduces disposal time from ~5–8 s to ~1–2 s.
         await Promise.allSettled([
             (async () => {
-                try {
-                    await this._cdp.detach();
+                if (!this._browserQuiesced) {
+                    try {
+                        await this._cdp.detach();
+                    }
+                    catch { /* already detached */ }
+                    try {
+                        await this._context.close();
+                    }
+                    catch { /* already closed   */ }
                 }
-                catch { /* already detached */ }
-                try {
-                    await this._context.close();
-                }
-                catch { /* already closed   */ }
             })(),
             this._display.dispose().catch(() => { }),
         ]);
+        try {
+            fs.rmSync(this._userDataDir, { recursive: true, force: true });
+        }
+        catch { /* best-effort */ }
     }
     // ── Private handlers ─────────────────────────────────────────────────────
     /**
@@ -295,13 +408,16 @@ class Session {
      * at 250 ms; guard is a safety net for any race that slips through).
      */
     async _handleResize(w, h) {
-        if (this._resizing)
+        if (!this._resizeGuard.tryBegin())
             return;
-        if (w === this._width && h === this._height)
-            return; // no-op
-        if (w < 100 || h < 100)
-            return; // absurdly small — ignore
-        this._resizing = true;
+        if (w === this._width && h === this._height) {
+            this._resizeGuard.end();
+            return;
+        }
+        if (w < 100 || h < 100) {
+            this._resizeGuard.end();
+            return;
+        }
         try {
             console.log(`[${this.sessionId}] Resize → ${w}×${h}`);
             try {
@@ -321,7 +437,7 @@ class Session {
             console.error(`[${this.sessionId}] Resize failed:`, err.message);
         }
         finally {
-            this._resizing = false;
+            this._resizeGuard.end();
         }
     }
     // ── Private status publisher ──────────────────────────────────────────────
@@ -344,7 +460,7 @@ class Session {
             this._ws.send((0, Protocol_1.encodeStatusFrame)({
                 tabCount: this._context.pages().length,
                 url: this._page.url(),
-                resizing: this._resizing,
+                resizing: this._resizeGuard.isActive,
                 width: this._width,
                 height: this._height,
             }), { binary: true });
@@ -490,6 +606,13 @@ class Session {
         }
         catch { /* best-effort — guard will be skipped for unresolved frames */ }
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        cdp.on('Page.frameNavigated', (event) => {
+            const frame = event?.frame;
+            if (frame && !frame.parentId)
+                mainFrameId = frame.id;
+        });
+        const htmlInjectChain = new AsyncChain_1.AsyncChain();
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         cdp.on('Fetch.requestPaused', async (event) => {
             const { requestId, responseStatusCode, responseHeaders, request } = event;
             const url = request?.url ?? '';
@@ -527,24 +650,24 @@ class Session {
                     return;
                 }
                 try {
-                    const { body, base64Encoded } = await cdp.send('Fetch.getResponseBody', { requestId });
-                    const html = base64Encoded
-                        ? Buffer.from(body, 'base64').toString('utf-8')
-                        : body;
-                    const patched = Session._injectScriptTags(html, scripts);
-                    // Strip Content-Encoding and Content-Length — body is decoded
-                    // and potentially larger; stale values would corrupt rendering.
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    const headers = (responseHeaders ?? [])
-                        .filter((h) => !['content-encoding', 'content-length']
-                        .includes(h.name.toLowerCase()));
-                    await cdp.send('Fetch.fulfillRequest', {
-                        requestId,
-                        responseCode: responseStatusCode,
-                        responseHeaders: headers,
-                        body: Buffer.from(patched, 'utf-8').toString('base64'),
+                    await htmlInjectChain.run(async () => {
+                        const { body, base64Encoded } = await cdp.send('Fetch.getResponseBody', { requestId });
+                        const html = base64Encoded
+                            ? Buffer.from(body, 'base64').toString('utf-8')
+                            : body;
+                        const patched = Session._injectScriptTags(html, scripts);
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                        const headers = (responseHeaders ?? [])
+                            .filter((h) => !['content-encoding', 'content-length']
+                            .includes(h.name.toLowerCase()));
+                        await cdp.send('Fetch.fulfillRequest', {
+                            requestId,
+                            responseCode: responseStatusCode,
+                            responseHeaders: headers,
+                            body: Buffer.from(patched, 'utf-8').toString('base64'),
+                        });
+                        console.log(`[${sessionId}] HTML injected: ${scripts.length} script tag(s)`);
                     });
-                    console.log(`[${sessionId}] HTML injected: ${scripts.length} script tag(s)`);
                 }
                 catch (err) {
                     console.warn(`[${sessionId}] HTML injection failed:`, err.message);
@@ -756,6 +879,8 @@ class Session {
                     targetUrl.startsWith('chrome-extension://')) {
                     return;
                 }
+                if (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://'))
+                    return;
                 console.log(`[${sessionId}] Extra tab intercepted → navigating main tab to ${targetUrl}`);
                 try {
                     await page.goto(targetUrl, {
@@ -774,15 +899,17 @@ class Session {
      * Wildcard patterns use the form `*.example.com` (does not match apex).
      */
     static _matchesAllowedDomain(host, patterns) {
+        const normalizedHost = host.toLowerCase();
         for (const pattern of patterns) {
             if (!pattern)
                 continue;
-            if (pattern.startsWith('*.')) {
-                const suffix = pattern.slice(2);
-                if (host.endsWith('.' + suffix))
+            const normalizedPattern = pattern.toLowerCase();
+            if (normalizedPattern.startsWith('*.')) {
+                const suffix = normalizedPattern.slice(2);
+                if (normalizedHost.endsWith('.' + suffix))
                     return true;
             }
-            else if (host === pattern) {
+            else if (normalizedHost === normalizedPattern) {
                 return true;
             }
         }

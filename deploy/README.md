@@ -51,6 +51,8 @@ docker compose pull
 docker compose up -d
 ```
 
-Configure `Forwarding` and other runtime sections via Admin API after the stack is up (`Authorization: Bearer password` on first boot; change via `PUT /api/admin/config/Admin`).
+Configure `Forwarding` and other runtime sections via Admin API after the stack is up.
+
+**Bootstrap key:** on first boot the host seeds a random Admin API key. In **Development**, the full key is logged once. In **Production**, only an 8-character prefix is logged — set `ADMIN_BOOTSTRAP_KEY` in the app container env before first boot to supply your own key. Rotate via `PUT /api/admin/config/Admin`.
 
 Full dockup documentation: [github.com/rpjax/npm-dockup](https://github.com/rpjax/npm-dockup)

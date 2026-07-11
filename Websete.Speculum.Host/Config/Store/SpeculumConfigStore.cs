@@ -3,13 +3,15 @@ using Microsoft.EntityFrameworkCore;
 using Websete.Speculum.Host.Config.Persistence;
 using Websete.Speculum.Host.Config.Runtime;
 using Websete.Speculum.Host.Config.Scripts;
+using Websete.Speculum.Host.Scripts;
 using Websete.Speculum.Host.Virtualization.Contracts;
+using Websete.Speculum.Host.Virtualization.Persistence;
 
 namespace Websete.Speculum.Host.Config.Store;
 
 public sealed class SpeculumConfigStore : ISpeculumConfigStore
 {
-    internal const string FactoryAdminApiKey = "password";
+    public const string BootstrapKeyEnvVar = "ADMIN_BOOTSTRAP_KEY";
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -19,7 +21,10 @@ public sealed class SpeculumConfigStore : ISpeculumConfigStore
 
     private readonly string _databasePath;
     private readonly ScriptResolver _scriptResolver;
+    private readonly IInjectedScriptStore _scriptStore;
     private readonly IVSessionRegistry _sessionRegistry;
+    private readonly IProfileSnapshotMerger _snapshotMerger;
+    private readonly IBrowserSnapshotStore _snapshotStore;
     private readonly IWebHostEnvironment _env;
     private readonly ILogger<SpeculumConfigStore> _logger;
     private readonly object _lock = new();
@@ -31,13 +36,19 @@ public sealed class SpeculumConfigStore : ISpeculumConfigStore
     public SpeculumConfigStore(
         string databasePath,
         ScriptResolver scriptResolver,
+        IInjectedScriptStore scriptStore,
         IVSessionRegistry sessionRegistry,
+        IProfileSnapshotMerger snapshotMerger,
+        IBrowserSnapshotStore snapshotStore,
         IWebHostEnvironment env,
         ILogger<SpeculumConfigStore> logger)
     {
         _databasePath    = databasePath;
         _scriptResolver  = scriptResolver;
+        _scriptStore     = scriptStore;
         _sessionRegistry = sessionRegistry;
+        _snapshotMerger  = snapshotMerger;
+        _snapshotStore   = snapshotStore;
         _env             = env;
         _logger          = logger;
     }
@@ -73,11 +84,18 @@ public sealed class SpeculumConfigStore : ISpeculumConfigStore
 
         try
         {
-            ConfigValidator.ValidateSection(key, body, _env.WebRootPath);
+            ConfigValidator.ValidateSection(key, body);
         }
         catch (ConfigValidationException ex)
         {
             return Error(ex.Errors.Select(e => $"{e.Path}: {e.Message}").ToArray());
+        }
+
+        if (key == ConfigSectionKeys.ScriptInjection)
+        {
+            var scriptErrors = await ValidateScriptIdsExistAsync(body);
+            if (scriptErrors.Count > 0)
+                return Error(scriptErrors.ToArray());
         }
 
         var json = body.GetRawText();
@@ -94,6 +112,9 @@ public sealed class SpeculumConfigStore : ISpeculumConfigStore
             db.ConfigSections.Update(entity);
 
         await db.SaveChangesAsync(ct);
+
+        if (key == ConfigSectionKeys.SnapshotPolicy)
+            await _snapshotStore.RefreshPolicyAsync(ct);
 
         var killSessions = key == ConfigSectionKeys.Forwarding;
         return await ReloadAsync(db, ct, killSessions);
@@ -134,20 +155,61 @@ public sealed class SpeculumConfigStore : ISpeculumConfigStore
         return await ReloadAsync(db, ct, killSessions);
     }
 
-    private static async Task EnsureFactoryAdminSeedAsync(SpeculumDbContext db, CancellationToken ct)
+    private async Task EnsureFactoryAdminSeedAsync(SpeculumDbContext db, CancellationToken ct)
     {
         var entity = await db.ConfigSections.FindAsync([ConfigSectionKeys.Admin], ct);
         if (entity is not null && entity.ValueJson is not null)
             return;
 
         entity ??= new ConfigSectionEntity { Key = ConfigSectionKeys.Admin };
-        entity.ValueJson = JsonSerializer.Serialize(new AdminOptions { ApiKey = FactoryAdminApiKey }, JsonOptions);
+        var bootstrapKey = Environment.GetEnvironmentVariable(BootstrapKeyEnvVar);
+        if (string.IsNullOrWhiteSpace(bootstrapKey))
+            bootstrapKey = Guid.NewGuid().ToString("N");
+
+        entity.ValueJson = JsonSerializer.Serialize(new AdminOptions { ApiKey = bootstrapKey }, JsonOptions);
         entity.UpdatedAt = DateTimeOffset.UtcNow;
 
         if (db.Entry(entity).State == EntityState.Detached)
             db.ConfigSections.Add(entity);
         else
             db.ConfigSections.Update(entity);
+
+        if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(BootstrapKeyEnvVar)))
+        {
+            if (_env.IsDevelopment())
+            {
+                _logger.LogWarning(
+                    "Bootstrap admin API key (set {EnvVar} to override): {ApiKey}",
+                    BootstrapKeyEnvVar, bootstrapKey);
+            }
+            else
+            {
+                _logger.LogWarning(
+                    "Bootstrap admin API key seeded. Prefix: {Prefix}… Set {EnvVar} before first boot in production.",
+                    bootstrapKey[..Math.Min(8, bootstrapKey.Length)], BootstrapKeyEnvVar);
+            }
+        }
+    }
+
+    private async Task<List<string>> ValidateScriptIdsExistAsync(JsonElement body, CancellationToken ct = default)
+    {
+        var errors = new List<string>();
+        if (body.ValueKind != JsonValueKind.Array) return errors;
+
+        var i = 0;
+        foreach (var entry in body.EnumerateArray())
+        {
+            if (entry.TryGetProperty("scriptId", out var idEl) && idEl.ValueKind == JsonValueKind.String)
+            {
+                var id = idEl.GetString()?.Trim();
+                if (!string.IsNullOrEmpty(id) && !await _scriptStore.ExistsAsync(id, ct))
+                    errors.Add($"$.ScriptInjection[{i}].scriptId: Script '{id}' not found.");
+            }
+
+            i++;
+        }
+
+        return errors;
     }
 
     private async Task<ConfigUpdateResult> ReloadAsync(
@@ -156,7 +218,7 @@ public sealed class SpeculumConfigStore : ISpeculumConfigStore
         bool killSessionsOnForwardingChange)
     {
         if (killSessionsOnForwardingChange)
-            await _sessionRegistry.StopAllAsync(ct);
+            await _sessionRegistry.StopAllAsync(_snapshotMerger, ct);
 
         var sections = await db.ConfigSections.AsNoTracking().ToListAsync(ct);
         var map = sections
@@ -170,6 +232,7 @@ public sealed class SpeculumConfigStore : ISpeculumConfigStore
         var jsBridgeEnabled = ParseJsBridge(map);
 
         IReadOnlyList<Virtualization.Sidecar.ScriptPayload> resolvedScripts = [];
+        var scriptWarnings = new List<string>();
         if (scriptInjection.Count > 0)
         {
             try
@@ -178,29 +241,9 @@ public sealed class SpeculumConfigStore : ISpeculumConfigStore
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to resolve ScriptInjection entries.");
-                lock (_lock)
-                {
-                    _current = new SpeculumRuntimeConfig
-                    {
-                        AdminApiKey     = adminApiKey,
-                        Forwarding      = forwarding,
-                        MaxSessions     = maxSessions,
-                        ScriptInjection = scriptInjection,
-                        JsBridgeEnabled = jsBridgeEnabled,
-                        ResolvedScripts = [],
-                    };
-                    _isOperational   = false;
-                    _missingRequired = ComputeMissing(_current);
-                }
-
-                return new ConfigUpdateResult
-                {
-                    Success         = false,
-                    Errors          = [$"ScriptInjection: {ex.Message}"],
-                    IsOperational   = false,
-                    MissingRequired = _missingRequired,
-                };
+                _logger.LogWarning(ex,
+                    "ScriptInjection resolve failed — motor stays operational without injected scripts.");
+                scriptWarnings.Add($"ScriptInjection: {ex.Message}");
             }
         }
 
@@ -229,6 +272,7 @@ public sealed class SpeculumConfigStore : ISpeculumConfigStore
             Success         = true,
             IsOperational   = operational,
             MissingRequired = missing,
+            Errors          = scriptWarnings.Count > 0 ? scriptWarnings.ToArray() : [],
         };
     }
 
@@ -250,10 +294,10 @@ public sealed class SpeculumConfigStore : ISpeculumConfigStore
     private static string ParseAdminApiKey(IReadOnlyDictionary<string, string> map)
     {
         if (!map.TryGetValue(ConfigSectionKeys.Admin, out var json))
-            return FactoryAdminApiKey;
+            return "";
 
         var options = JsonSerializer.Deserialize<AdminOptions>(json, JsonOptions);
-        return string.IsNullOrWhiteSpace(options?.ApiKey) ? FactoryAdminApiKey : options.ApiKey;
+        return options?.ApiKey?.Trim() ?? "";
     }
 
     private static ForwardingOptions? ParseForwarding(IReadOnlyDictionary<string, string> map)

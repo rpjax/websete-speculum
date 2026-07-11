@@ -1,66 +1,48 @@
+using System.Buffers;
+using System.Buffers.Binary;
 using System.Net.WebSockets;
+using System.Text;
 using System.Text.Json;
 using System.Threading.Channels;
 
 namespace Websete.Speculum.Host.Virtualization.Sidecar;
 
-/// <summary>
-/// Protocol constants shared between sidecar and .NET.
-/// </summary>
 internal static class SidecarProtocol
 {
-    public const byte MsgSkip       = 0x03;
-    public const byte MsgUrl        = 0x04;
-    public const byte MsgConsole    = 0x05;
-    public const byte MsgEvalResult = 0x06;
-    public const byte MsgH264       = 0x07; // legacy — kept for compatibility
-    public const byte MsgScreencast = 0x08; // CDP Page.startScreencast JPEG frames
-    public const byte MsgStatus     = 0x09; // session status snapshot (1 s interval)
-    public const byte MsgRedirect   = 0x0A; // navigation blocked — redirect real browser
+    public const byte MsgSkip         = 0x03;
+    public const byte MsgUrl          = 0x04;
+    public const byte MsgConsole      = 0x05;
+    public const byte MsgEvalResult   = 0x06;
+    public const byte MsgH264         = 0x07;
+    public const byte MsgScreencast   = 0x08;
+    public const byte MsgStatus       = 0x09;
+    public const byte MsgRedirect     = 0x0A;
+    public const byte MsgProfileChunk = 0x0B;
 }
 
-/// <summary>
-/// Represents a single script to be injected into every page of the session.
-/// </summary>
 public sealed record ScriptPayload(string Position, string Type, string File, string Content);
 
-/// <summary>
-/// Manages the WebSocket connection from .NET to the Node.js sidecar for one session.
-///
-/// Routes incoming messages to two typed channels:
-///   VideoChannel   — MSG_SCREENCAST (0x08) JPEG frames from CDP Page.startScreencast
-///   ControlChannel — MSG_URL (0x04) / MSG_CONSOLE (0x05) / MSG_EVAL_RESULT (0x06)
-///
-/// Outgoing input events (JSON text) are serialised through _sendLock.
-/// </summary>
 public sealed class SidecarClient : IAsyncDisposable
 {
-    private readonly ClientWebSocket                _ws       = new();
-    private readonly CancellationTokenSource        _cts      = new();
-    private readonly Channel<ReadOnlyMemory<byte>>  _video;
-    private readonly Channel<ReadOnlyMemory<byte>>  _control;
-    private readonly SemaphoreSlim                  _sendLock = new(1, 1);
+    private readonly ClientWebSocket               _ws       = new();
+    private readonly CancellationTokenSource       _cts      = new();
+    private readonly Channel<ReadOnlyMemory<byte>> _video;
+    private readonly Channel<ReadOnlyMemory<byte>> _control;
+    private readonly SemaphoreSlim                 _sendLock = new(1, 1);
+
+    private Task? _receiveTask;
+    private TaskCompletionSource<byte[]>? _snapshotTcs;
+    private MemoryStream? _snapshotStream;
 
     public string SessionId { get; }
 
-    /// <summary>
-    /// JPEG screencast frames from CDP Page.startScreencast.
-    /// Wire format: [0x08][jpeg bytes…]
-    /// Bounded capacity 2 with DropOldest — always delivers the latest frame.
-    /// </summary>
     public ChannelReader<ReadOnlyMemory<byte>> VideoChannel   => _video.Reader;
-
-    /// <summary>
-    /// Control messages (MSG_URL / MSG_CONSOLE / MSG_EVAL_RESULT) in their
-    /// original wire encoding (type byte + payload), ready for relay to the client.
-    /// </summary>
     public ChannelReader<ReadOnlyMemory<byte>> ControlChannel => _control.Reader;
 
     public SidecarClient(string sessionId)
     {
         SessionId = sessionId;
 
-        // Video: bounded, drop oldest — we want the latest frame, not a backlog.
         _video = Channel.CreateBounded<ReadOnlyMemory<byte>>(new BoundedChannelOptions(2)
         {
             FullMode     = BoundedChannelFullMode.DropOldest,
@@ -68,7 +50,6 @@ public sealed class SidecarClient : IAsyncDisposable
             SingleReader = true,
         });
 
-        // Control: unbounded — control messages are rare and must not be dropped.
         _control = Channel.CreateUnbounded<ReadOnlyMemory<byte>>(new UnboundedChannelOptions
         {
             SingleWriter = true,
@@ -76,13 +57,12 @@ public sealed class SidecarClient : IAsyncDisposable
         });
     }
 
-    // ── Connection ────────────────────────────────────────────────────────────
-
     public async Task ConnectAsync(
         string                        sidecarBaseUrl,
         int                           width,
         int                           height,
-        string?                       initialUrl      = null,
+        string?                       initialUrl               = null,
+        byte[]?                       profileBlob              = null,
         IReadOnlyList<ScriptPayload>? scripts                  = null,
         bool                          jsBridgeEnabled          = false,
         IReadOnlyList<string>?        allowedNavigationDomains = null,
@@ -95,36 +75,42 @@ public sealed class SidecarClient : IAsyncDisposable
             .Select(s => new { position = s.Position, type = s.Type, file = s.File, content = s.Content })
             .ToArray();
 
-        var createBytes = JsonSerializer.SerializeToUtf8Bytes(new
+        var createPayload = new Dictionary<string, object?>
         {
-            type            = "create",
-            sessionId       = SessionId,
-            width,
-            height,
-            url             = initialUrl,
-            scripts         = scriptDtos,
-            jsBridgeEnabled,
-            allowedNavigationDomains,
-        });
+            ["type"]                     = "create",
+            ["sessionId"]                = SessionId,
+            ["width"]                    = width,
+            ["height"]                   = height,
+            ["url"]                      = initialUrl,
+            ["scripts"]                  = scriptDtos,
+            ["jsBridgeEnabled"]          = jsBridgeEnabled,
+            ["allowedNavigationDomains"] = allowedNavigationDomains,
+        };
+
+        if (profileBlob is { Length: > 0 })
+            createPayload["profileBlob"] = Convert.ToBase64String(profileBlob);
+
+        var createBytes = JsonSerializer.SerializeToUtf8Bytes(createPayload);
         await SendCoreAsync(createBytes, ct);
+
         var preReadyFrames = await WaitForReadyAsync(ct);
-        _ = ReceiveLoopAsync(_cts.Token, preReadyFrames);
+        _receiveTask = ReceiveLoopAsync(_cts.Token, preReadyFrames);
     }
 
-    /// <summary>
-    /// Waits for the sidecar to send <c>{ "type": "ready" }</c> and returns
-    /// any binary frames that arrived before that handshake message.
-    ///
-    /// Binary frames received during the handshake phase are NOT discarded —
-    /// they are buffered and returned so that <see cref="ReceiveLoopAsync"/>
-    /// can replay them immediately before entering the normal receive loop.
-    ///
-    /// This matters because the sidecar may emit MSG_CONSOLE (0x05) frames
-    /// while the browser is still loading the initial URL (e.g. a console.log
-    /// in a HeaderTop injected script executes during page.goto, before the
-    /// sidecar sends the "ready" acknowledgement).  Without buffering those
-    /// frames would be silently dropped here, never reaching the client.
-    /// </summary>
+    public async Task<byte[]> RequestSnapshotAsync(CancellationToken ct = default)
+    {
+        if (_ws.State != WebSocketState.Open)
+            throw new InvalidOperationException("Sidecar WebSocket is not open.");
+
+        _snapshotStream = new MemoryStream();
+        _snapshotTcs    = new TaskCompletionSource<byte[]>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var request = JsonSerializer.SerializeToUtf8Bytes(new { type = "snapshot" });
+        await SendCoreAsync(request, ct);
+
+        return await _snapshotTcs.Task.WaitAsync(ct);
+    }
+
     private async Task<List<byte[]>> WaitForReadyAsync(CancellationToken ct)
     {
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -157,10 +143,8 @@ public sealed class SidecarClient : IAsyncDisposable
                 throw new InvalidOperationException(
                     $"Sidecar closed connection before reporting ready (session {SessionId}).");
 
-            // ── Binary frame: buffer for replay after ReceiveLoopAsync starts ──
             if (result.MessageType == WebSocketMessageType.Binary)
             {
-                // Grow binary accumulator if needed.
                 if (binaryFilled + result.Count > binaryBuf.Length)
                     Array.Resize(ref binaryBuf, Math.Max(binaryBuf.Length * 2, binaryFilled + result.Count));
 
@@ -169,22 +153,20 @@ public sealed class SidecarClient : IAsyncDisposable
 
                 if (result.EndOfMessage)
                 {
-                    // Complete binary message — save a copy for replay.
                     var frame = new byte[binaryFilled];
                     Buffer.BlockCopy(binaryBuf, 0, frame, 0, binaryFilled);
                     preReady.Add(frame);
                     binaryFilled = 0;
                 }
-                // Reset the text accumulator (separate buffer) and keep looping.
+
                 filled = 0;
                 continue;
             }
 
-            // ── Text frame: look for "ready" / "error" JSON ───────────────────
             filled += result.Count;
             if (!result.EndOfMessage) continue;
 
-            var text = System.Text.Encoding.UTF8.GetString(buf, 0, filled);
+            var text = Encoding.UTF8.GetString(buf, 0, filled);
             filled = 0;
 
             try
@@ -208,20 +190,14 @@ public sealed class SidecarClient : IAsyncDisposable
         }
     }
 
-    // ── Receive loop ──────────────────────────────────────────────────────────
-
     private async Task ReceiveLoopAsync(CancellationToken ct, List<byte[]>? preReadyFrames = null)
     {
-        var buf    = new byte[256 * 1024]; // 256 KB initial — JPEG frames at 1080p can reach ~200 KB
+        var buf    = ArrayPool<byte>.Shared.Rent(256 * 1024);
         int filled = 0;
-        const int MaxFrameSize = 64 * 1024 * 1024; // 64 MB hard cap
+        const int MaxFrameSize = 64 * 1024 * 1024;
 
         try
         {
-            // Replay binary frames that arrived before the "ready" handshake.
-            // These are typically early MSG_CONSOLE frames from scripts that
-            // execute during the sidecar's initial page.goto() — before the
-            // "ready" acknowledgement is sent.
             if (preReadyFrames is { Count: > 0 })
             {
                 foreach (var frame in preReadyFrames)
@@ -234,76 +210,138 @@ public sealed class SidecarClient : IAsyncDisposable
                 if (filled == buf.Length)
                 {
                     if (buf.Length >= MaxFrameSize) { filled = 0; }
-                    else Array.Resize(ref buf, Math.Min(buf.Length * 2, MaxFrameSize));
+                    else
+                    {
+                        var bigger = ArrayPool<byte>.Shared.Rent(Math.Min(buf.Length * 2, MaxFrameSize));
+                        Buffer.BlockCopy(buf, 0, bigger, 0, filled);
+                        ArrayPool<byte>.Shared.Return(buf);
+                        buf = bigger;
+                    }
                 }
 
                 var result = await _ws.ReceiveAsync(buf.AsMemory(filled), ct);
                 if (result.MessageType == WebSocketMessageType.Close) break;
+
                 filled += result.Count;
                 if (!result.EndOfMessage) continue;
 
                 if (result.MessageType == WebSocketMessageType.Binary)
                     RouteFrame(buf, filled);
+                else
+                    HandleTextMessage(Encoding.UTF8.GetString(buf, 0, filled));
 
                 filled = 0;
             }
         }
-        catch (OperationCanceledException) { /* normal shutdown */ }
+        catch (OperationCanceledException) { }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             Console.Error.WriteLine($"[SidecarClient:{SessionId}] Receive loop error: {ex.Message}");
         }
         finally
         {
+            ArrayPool<byte>.Shared.Return(buf);
             _video.Writer.TryComplete();
             _control.Writer.TryComplete();
+            _snapshotTcs?.TrySetException(new OperationCanceledException("Sidecar receive loop ended."));
         }
     }
 
-    /// <summary>
-    /// Routes a complete binary message to the appropriate channel based on
-    /// the first byte (message type tag).
-    /// </summary>
+    private void HandleTextMessage(string text)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(text);
+            if (!doc.RootElement.TryGetProperty("type", out var typeEl)) return;
+
+            var type = typeEl.GetString();
+            if (type == "snapshotDone")
+            {
+                var byteSize = doc.RootElement.TryGetProperty("byteSize", out var sizeEl)
+                    ? sizeEl.GetInt32()
+                    : (int)(_snapshotStream?.Length ?? 0);
+
+                if (_snapshotStream is null || _snapshotTcs is null) return;
+
+                var blob = _snapshotStream.ToArray();
+                _snapshotStream.Dispose();
+                _snapshotStream = null;
+
+                if (blob.Length != byteSize)
+                {
+                    FailSnapshot(new InvalidOperationException(
+                        $"Snapshot size mismatch: expected {byteSize}, got {blob.Length}."));
+                    return;
+                }
+
+                _snapshotTcs.TrySetResult(blob);
+                _snapshotTcs = null;
+                return;
+            }
+
+            if (_snapshotTcs is not null && type is "snapshotError" or "error")
+            {
+                var msg = doc.RootElement.TryGetProperty("message", out var m)
+                    ? m.GetString() ?? "snapshot failed"
+                    : "snapshot failed";
+                FailSnapshot(new InvalidOperationException(msg));
+            }
+        }
+        catch (Exception ex)
+        {
+            FailSnapshot(ex);
+        }
+    }
+
+    private void FailSnapshot(Exception ex)
+    {
+        _snapshotStream?.Dispose();
+        _snapshotStream = null;
+        _snapshotTcs?.TrySetException(ex);
+        _snapshotTcs = null;
+    }
+
     private void RouteFrame(byte[] buf, int len)
     {
         if (len < 1) return;
         var type = buf[0];
 
+        if (type == SidecarProtocol.MsgProfileChunk)
+        {
+            if (len < 2 || _snapshotStream is null) return;
+            _snapshotStream.Write(buf, 1, len - 1);
+            return;
+        }
+
         if (type == SidecarProtocol.MsgScreencast)
         {
-            // Layout: [0] 0x08 | [1..] JPEG bytes
-            // No length prefix — the WS frame boundary is the message delimiter.
             if (len < 2) return;
             var frame = new byte[len];
             Buffer.BlockCopy(buf, 0, frame, 0, len);
             _video.Writer.TryWrite(frame.AsMemory());
+            return;
         }
-        else if (type == SidecarProtocol.MsgH264)
+
+        if (type == SidecarProtocol.MsgH264)
         {
-            // Legacy H.264 path — kept for forward-compatibility.
             if (len < 6) return;
-            var dataLen = BitConverter.ToUInt32(buf, 2);
-            if (6 + dataLen > len) return;
             var frame = new byte[len];
             Buffer.BlockCopy(buf, 0, frame, 0, len);
             _video.Writer.TryWrite(frame.AsMemory());
+            return;
         }
-        else if (type is SidecarProtocol.MsgUrl
-                      or SidecarProtocol.MsgConsole
-                      or SidecarProtocol.MsgEvalResult
-                      or SidecarProtocol.MsgStatus
-                      or SidecarProtocol.MsgRedirect)
+
+        if (type is SidecarProtocol.MsgUrl
+                  or SidecarProtocol.MsgConsole
+                  or SidecarProtocol.MsgEvalResult
+                  or SidecarProtocol.MsgStatus
+                  or SidecarProtocol.MsgRedirect)
         {
-            // Copy the raw control message — relay to the control stream.
-            // VSession intercepts MSG_STATUS before forwarding; all others pass through.
             var msg = new byte[len];
             Buffer.BlockCopy(buf, 0, msg, 0, len);
             _control.Writer.TryWrite(msg.AsMemory());
         }
-        // MSG_SKIP (0x03) and legacy JPEG types (0x01, 0x02) are silently dropped.
     }
-
-    // ── Sending ───────────────────────────────────────────────────────────────
 
     public Task SendInputAsync(ReadOnlyMemory<byte> raw, CancellationToken ct = default)
         => SendCoreAsync(raw, ct);
@@ -322,26 +360,32 @@ public sealed class SidecarClient : IAsyncDisposable
         }
     }
 
-    // ── Disposal ──────────────────────────────────────────────────────────────
-
     public async ValueTask DisposeAsync()
     {
         await _cts.CancelAsync();
+
+        if (_receiveTask is not null)
+        {
+            try
+            {
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+                await _receiveTask.WaitAsync(timeout.Token);
+            }
+            catch { /* best-effort */ }
+        }
+
         _video.Writer.TryComplete();
         _control.Writer.TryComplete();
+        _snapshotStream?.Dispose();
+        _snapshotTcs?.TrySetCanceled();
 
         try
         {
-            // CloseOutputAsync (half-close): sends our close frame but does NOT
-            // wait for the sidecar to echo one back.  The sidecar's ws.on('close')
-            // fires as soon as it receives our close frame and starts disposal
-            // immediately.  Using CloseAsync here would block DisposeAsync until
-            // the sidecar finishes the handshake — adding unnecessary latency.
             if (_ws.State is WebSocketState.Open or WebSocketState.CloseReceived)
                 await _ws.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "session ended",
                     CancellationToken.None);
         }
-        catch { /* best-effort */ }
+        catch { }
         finally
         {
             _ws.Dispose();

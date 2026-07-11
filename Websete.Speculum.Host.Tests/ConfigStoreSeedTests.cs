@@ -5,8 +5,10 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Websete.Speculum.Host.Config.Runtime;
 using Websete.Speculum.Host.Config.Scripts;
 using Websete.Speculum.Host.Config.Store;
+using Websete.Speculum.Host.Scripts;
 using Websete.Speculum.Host.Virtualization;
 using Websete.Speculum.Host.Virtualization.Contracts;
+using Websete.Speculum.Host.Virtualization.Persistence;
 
 namespace Websete.Speculum.Host.Tests;
 
@@ -29,15 +31,19 @@ public class ConfigStoreSeedTests : IDisposable
     }
 
     [Fact]
-    public async Task Seed_WritesFactoryAdminOnly_WhenDbEmpty()
+    public async Task Seed_WritesBootstrapAdminOnly_WhenDbEmpty()
     {
+        Environment.SetEnvironmentVariable(SpeculumConfigStore.BootstrapKeyEnvVar, "test-bootstrap-key");
+
         var store = CreateStore();
         await store.InitializeAsync();
 
         Assert.False(store.IsOperational);
-        Assert.Equal("password", store.Current.AdminApiKey);
+        Assert.Equal("test-bootstrap-key", store.Current.AdminApiKey);
         Assert.Null(store.Current.Forwarding);
         Assert.Null(store.Current.MaxSessions);
+
+        Environment.SetEnvironmentVariable(SpeculumConfigStore.BootstrapKeyEnvVar, null);
     }
 
     [Fact]
@@ -68,17 +74,32 @@ public class ConfigStoreSeedTests : IDisposable
     {
         var env = new FakeWebHostEnvironment { WebRootPath = _tempDir };
         var registry = new VSessionRegistry();
+        var scriptStore = new InjectedScriptStore(_dbPath);
         var resolver = new ScriptResolver(
             new HttpClientFactoryStub(),
-            env,
+            scriptStore,
             NullLogger<ScriptResolver>.Instance);
 
         return new SpeculumConfigStore(
             _dbPath,
             resolver,
+            scriptStore,
             registry,
+            new FakeProfileSnapshotMerger(),
+            new BrowserSnapshotStore(_dbPath, NullLogger<BrowserSnapshotStore>.Instance),
             env,
             NullLogger<SpeculumConfigStore>.Instance);
+    }
+
+    private sealed class FakeProfileSnapshotMerger : IProfileSnapshotMerger
+    {
+        public Task MergeAndSaveAsync(
+            string cookieId,
+            byte[] incomingBlob,
+            string lastUrl,
+            DateTimeOffset capturedAt,
+            CancellationToken ct = default)
+            => Task.CompletedTask;
     }
 
     private sealed class FakeWebHostEnvironment : IWebHostEnvironment

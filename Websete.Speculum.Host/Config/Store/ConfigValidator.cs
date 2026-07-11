@@ -37,7 +37,7 @@ public static class ConfigValidator
     private static readonly HashSet<string> ValidTypes =
         new(["Classic", "Module"], StringComparer.Ordinal);
 
-    public static void ValidateSection(string key, JsonElement body, string? webRootPath)
+    public static void ValidateSection(string key, JsonElement body)
     {
         var errors = new List<(string, string)>();
 
@@ -53,10 +53,13 @@ public static class ConfigValidator
                 ValidateMaxSessions(body, errors);
                 break;
             case ConfigSectionKeys.ScriptInjection:
-                ValidateScriptInjection(body, errors, webRootPath);
+                ValidateScriptInjection(body, errors);
                 break;
             case ConfigSectionKeys.JsBridge:
                 ValidateJsBridge(body, errors);
+                break;
+            case ConfigSectionKeys.SnapshotPolicy:
+                ValidateSnapshotPolicy(body, errors);
                 break;
             default:
                 errors.Add(("$.key", $"Unknown configuration section '{key}'."));
@@ -172,7 +175,7 @@ public static class ConfigValidator
         }
     }
 
-    private static void ValidateScriptInjection(JsonElement body, List<(string, string)> errors, string? webRootPath)
+    private static void ValidateScriptInjection(JsonElement body, List<(string, string)> errors)
     {
         if (body.ValueKind != JsonValueKind.Array)
         {
@@ -191,21 +194,25 @@ public static class ConfigValidator
                 continue;
             }
 
-            var hasFile   = entry.TryGetProperty("file", out var fileEl)   && fileEl.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(fileEl.GetString());
-            var hasSource = entry.TryGetProperty("source", out var srcEl)  && srcEl.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(srcEl.GetString());
+            var hasScriptId = entry.TryGetProperty("scriptId", out var idEl)
+                && idEl.ValueKind == JsonValueKind.String
+                && !string.IsNullOrWhiteSpace(idEl.GetString());
+            var hasUrl = entry.TryGetProperty("url", out var urlEl)
+                && urlEl.ValueKind == JsonValueKind.String
+                && !string.IsNullOrWhiteSpace(urlEl.GetString());
 
-            if (hasFile == hasSource)
+            if (hasScriptId == hasUrl)
             {
-                errors.Add((prefix, "Exactly one of 'file' or 'source' must be set."));
+                errors.Add((prefix, "Exactly one of 'scriptId' or 'url' must be set."));
                 i++;
                 continue;
             }
 
-            if (hasFile)
-                ValidateScriptFile(fileEl.GetString()!.Trim(), prefix + ".file", errors, webRootPath);
+            if (hasScriptId)
+                ValidateScriptId(idEl.GetString()!.Trim(), prefix + ".scriptId", errors);
 
-            if (hasSource)
-                ValidateScriptSource(srcEl.GetString()!.Trim(), prefix + ".source", errors);
+            if (hasUrl)
+                ValidateScriptUrl(urlEl.GetString()!.Trim(), prefix + ".url", errors);
 
             if (entry.TryGetProperty("position", out var posEl))
             {
@@ -223,30 +230,43 @@ public static class ConfigValidator
         }
     }
 
-    private static void ValidateScriptFile(string file, string path, List<(string, string)> errors, string? webRootPath)
+    private static void ValidateScriptId(string scriptId, string path, List<(string, string)> errors)
     {
-        if (!file.StartsWith('/'))
-            errors.Add((path, "Must be a root-relative path starting with '/'."));
-        if (file.Contains("..") || file.Contains('\\'))
-            errors.Add((path, "Must not contain '..' or backslashes."));
-        if (!file.EndsWith(".js", StringComparison.OrdinalIgnoreCase))
-            errors.Add((path, "Must have a .js extension."));
-
-        if (webRootPath is not null && !errors.Any(e => e.Item1 == path))
-        {
-            var physical = Path.Combine(webRootPath, file.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
-            if (!File.Exists(physical))
-                errors.Add((path, $"File not found: '{file}'."));
-        }
+        if (scriptId.Length != 32 || !scriptId.All(c => char.IsAsciiHexDigit(c)))
+            errors.Add((path, "Must be a 32-character hex script id."));
     }
 
-    private static void ValidateScriptSource(string source, string path, List<(string, string)> errors)
+    private static void ValidateScriptUrl(string url, string path, List<(string, string)> errors)
     {
-        if (!Uri.TryCreate(source, UriKind.Absolute, out var uri)
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)
             || uri.Scheme is not "http" and not "https")
         {
             errors.Add((path, "Must be an absolute http or https URL."));
+            return;
         }
+
+        if (!SsrfGuard.IsAllowedUrl(uri))
+            errors.Add((path, "URL is blocked by SSRF guard (private/reserved addresses)."));
+    }
+
+    private static void ValidateSnapshotPolicy(JsonElement body, List<(string, string)> errors)
+    {
+        if (body.ValueKind != JsonValueKind.Object)
+        {
+            errors.Add(("$.SnapshotPolicy", "Must be a JSON object."));
+            return;
+        }
+
+        if (!body.TryGetProperty("ttlDays", out var ttlEl) || !ttlEl.TryGetInt32(out var ttl))
+        {
+            errors.Add(("$.SnapshotPolicy.ttlDays", "ttlDays integer is required."));
+            return;
+        }
+
+        if (ttl <= 0)
+            errors.Add(("$.SnapshotPolicy.ttlDays", "Must be greater than 0."));
+        if (ttl > 3650)
+            errors.Add(("$.SnapshotPolicy.ttlDays", "Exceeds upper bound (3650 days)."));
     }
 
     private static bool IsValidFqdn(string value)

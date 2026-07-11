@@ -6,9 +6,24 @@
 # dotenv files
 .env
 
+# Cursor / Claude local settings
+.claude/
+
+# Sidecar build output (built in Docker only)
+sidecar/dist/
+
+# TLS material
+**/Certificates/**/*.pem
+
 # dockup deploy artifacts
 deploy/speculum.dockup.json
 deploy/out/
+
+# npm pack residue under vendored client libs
+Websete.Speculum.Host/wwwroot/libs/package/
+Websete.Speculum.Host/wwwroot/libs/*.tgz
+Websete.Speculum.Host/wwwroot/libs/qrcode.js
+Websete.Speculum.Host/wwwroot/libs/dist.js
 
 # User-specific files
 *.rsuser

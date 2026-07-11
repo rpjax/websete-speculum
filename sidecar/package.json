@@ -5,12 +5,12 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
-    "dev": "ts-node src/index.ts"
+    "dev": "ts-node src/index.ts",
+    "test": "npm run build && node --test dist/test/session-coherence.test.js"
   },
   "dependencies": {
-    "patchright": "latest",
-    "ws": "^8.18.0",
-    "sharp": "^0.33.0"
+    "patchright": "1.49.1",
+    "ws": "^8.18.0"
   },
   "devDependencies": {
     "typescript": "^5.4.0",

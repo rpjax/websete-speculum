@@ -41,7 +41,7 @@ public class ConfigValidatorTests
             """).RootElement;
 
         var ex = Assert.Throws<ConfigValidationException>(() =>
-            ConfigValidator.ValidateSection(ConfigSectionKeys.Forwarding, json, webRootPath: null));
+            ConfigValidator.ValidateSection(ConfigSectionKeys.Forwarding, json));
 
         Assert.Contains(ex.Errors, e => e.Path.Contains("host"));
     }
@@ -51,6 +51,6 @@ public class ConfigValidatorTests
     {
         var json = JsonDocument.Parse("""{ "apiKey": "" }""").RootElement;
         Assert.Throws<ConfigValidationException>(() =>
-            ConfigValidator.ValidateSection(ConfigSectionKeys.Admin, json, webRootPath: null));
+            ConfigValidator.ValidateSection(ConfigSectionKeys.Admin, json));
     }
 }

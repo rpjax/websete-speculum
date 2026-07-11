@@ -9,9 +9,12 @@ public sealed class SetupMiddleware
         "/health",
         "/ready",
         "/setup",
-        "/api/admin",
+        "/setup.html",
+        "/api/admin/config/status",
         "/libs/",
-        "/openapi",
+        "/js/",
+        "/workers/",
+        "/vhub",
     ];
 
     private readonly RequestDelegate _next;
@@ -23,6 +26,12 @@ public sealed class SetupMiddleware
         var path = context.Request.Path.Value ?? "";
 
         if (IsPassThrough(path))
+        {
+            await _next(context);
+            return;
+        }
+
+        if (IsBootstrapApi(path))
         {
             await _next(context);
             return;
@@ -67,4 +76,12 @@ public sealed class SetupMiddleware
 
         return false;
     }
+
+    /// <summary>
+    /// Admin API and OpenAPI must work before the motor is operational (bootstrap).
+    /// Auth is enforced by <see cref="Admin.AdminAuthMiddleware"/>.
+    /// </summary>
+    private static bool IsBootstrapApi(string path) =>
+        path.StartsWith("/api/admin/", StringComparison.OrdinalIgnoreCase)
+        || path.StartsWith("/openapi", StringComparison.OrdinalIgnoreCase);
 }

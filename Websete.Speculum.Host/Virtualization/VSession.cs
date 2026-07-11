@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Buffers.Binary;
 using System.Text;
 using System.Text.Json;
@@ -5,6 +6,7 @@ using System.Threading.Channels;
 using Websete.Speculum.Host.Virtualization.Contracts;
 using Websete.Speculum.Host.Virtualization.Models;
 using Websete.Speculum.Host.Virtualization.Options;
+using Websete.Speculum.Host.Virtualization.Persistence;
 using Websete.Speculum.Host.Virtualization.Sidecar;
 
 namespace Websete.Speculum.Host.Virtualization;
@@ -32,10 +34,19 @@ public class VSession : IVSession
     private readonly Channel<SessionStatus> _statusChannel;
 
     private int      _frameCount     = 0;
+    private long     _frameSequence  = 0;
     private double   _lastFps        = 0;
     private DateTime _fpsWindowStart = DateTime.UtcNow;
     private DateTime _startTime;
     private string   _sessionId      = "";
+    private string   _lastUrl        = "";
+    private string?  _cookieId;
+
+    public string? CookieId
+    {
+        get => _cookieId;
+        set => _cookieId = value;
+    }
 
     public VSession(
         SidecarBrowserClientOptions sidecarOptions,
@@ -45,6 +56,7 @@ public class VSession : IVSession
         _sidecarOptions = sidecarOptions;
         _snapshot       = snapshot;
         _logger         = logger;
+        _lastUrl        = snapshot.InitialUrl;
 
         _frameChannel = Channel.CreateBounded<Frame>(new BoundedChannelOptions(2)
         {
@@ -71,22 +83,56 @@ public class VSession : IVSession
         if (Interlocked.Exchange(ref _sessionState, StateRunning) == StateRunning)
             throw new InvalidOperationException("A sessão já está em execução.");
 
-        _client    = new SidecarClient(Guid.NewGuid().ToString("N"));
+        var client = new SidecarClient(Guid.NewGuid().ToString("N"));
         _startTime = DateTime.UtcNow;
-        _sessionId = _client.SessionId;
+        _sessionId = client.SessionId;
 
-        await _client.ConnectAsync(
-            _sidecarOptions.SidecarBaseUrl,
-            width:                      1280,
-            height:                     720,
-            initialUrl:                 _snapshot.InitialUrl,
-            scripts:                    _snapshot.Scripts.Count > 0 ? _snapshot.Scripts : null,
-            jsBridgeEnabled:            _snapshot.JsBridgeEnabled,
-            allowedNavigationDomains:   _snapshot.AllowedNavigationDomains,
-            ct:                         ct);
+        try
+        {
+            await client.ConnectAsync(
+                _sidecarOptions.SidecarBaseUrl,
+                width:                    _snapshot.Width,
+                height:                   _snapshot.Height,
+                initialUrl:               _snapshot.InitialUrl,
+                profileBlob:              _snapshot.ProfileBlob,
+                scripts:                  _snapshot.Scripts.Count > 0 ? _snapshot.Scripts : null,
+                jsBridgeEnabled:          _snapshot.JsBridgeEnabled,
+                allowedNavigationDomains: _snapshot.AllowedNavigationDomains,
+                ct:                       ct);
 
-        _pumpFramesTask  = PumpFramesAsync(_cts.Token);
-        _pumpConsoleTask = PumpConsoleOutputAsync(_cts.Token);
+            _client = client;
+            _pumpFramesTask  = PumpFramesAsync(_cts.Token);
+            _pumpConsoleTask = PumpConsoleOutputAsync(_cts.Token);
+        }
+        catch
+        {
+            Interlocked.Exchange(ref _sessionState, StateStopped);
+            try { await client.DisposeAsync(); } catch { /* best-effort */ }
+            throw;
+        }
+    }
+
+    public async Task CaptureAndPersistAsync(
+        string cookieId,
+        IProfileSnapshotMerger merger,
+        CancellationToken ct = default)
+    {
+        if (_client is null || string.IsNullOrWhiteSpace(cookieId)) return;
+
+        try
+        {
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeoutCts.CancelAfter(TimeSpan.FromSeconds(30));
+
+            var blob = await _client.RequestSnapshotAsync(timeoutCts.Token);
+            var url  = string.IsNullOrWhiteSpace(_lastUrl) ? _snapshot.InitialUrl : _lastUrl;
+            await merger.MergeAndSaveAsync(cookieId, blob, url, DateTimeOffset.UtcNow, timeoutCts.Token);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Snapshot capture failed for cookie {CookiePrefix}… — continuing teardown.",
+                cookieId[..Math.Min(8, cookieId.Length)]);
+        }
     }
 
     public async Task StopAsync(CancellationToken ct = default)
@@ -137,8 +183,16 @@ public class VSession : IVSession
     }
 
     public Task NavigateAsync(string url, CancellationToken ct = default)
-        => _client!.SendInputAsync(
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)
+            || uri.Scheme is not "http" and not "https")
+        {
+            throw new ArgumentException("URL de navegação inválida — apenas http/https são permitidos.", nameof(url));
+        }
+
+        return _client!.SendInputAsync(
             JsonSerializer.SerializeToUtf8Bytes(new { type = "navigate", url }).AsMemory(), ct);
+    }
 
     public Task ResizeAsync(int width, int height, CancellationToken ct = default)
         => _client!.SendInputAsync(
@@ -150,10 +204,17 @@ public class VSession : IVSession
         {
             await foreach (var data in _client!.VideoChannel.ReadAllAsync(ct))
             {
+                if (data.IsEmpty || data.Span[0] != SidecarProtocol.MsgScreencast) continue;
+
+                var jpegLen = data.Length - 1;
+                var jpeg    = new byte[jpegLen];
+                data.Span.Slice(1, jpegLen).CopyTo(jpeg);
+
                 Interlocked.Increment(ref _frameCount);
                 _frameChannel.Writer.TryWrite(new Frame
                 {
-                    Data      = data,
+                    Jpeg      = jpeg,
+                    Sequence  = Interlocked.Increment(ref _frameSequence),
                     Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                 });
             }
@@ -259,10 +320,13 @@ public class VSession : IVSession
                 _fpsWindowStart = now;
             }
 
+            if (root.TryGetProperty("url", out var u))
+                _lastUrl = u.GetString() ?? _lastUrl;
+
             return new SessionStatus
             {
                 TabCount        = root.TryGetProperty("tabCount", out var tc) ? tc.GetInt32()     : -1,
-                Url             = root.TryGetProperty("url",      out var u)  ? u.GetString() ?? "" : "",
+                Url             = _lastUrl,
                 Resizing        = root.TryGetProperty("resizing", out var r)  && r.GetBoolean(),
                 Width           = root.TryGetProperty("width",    out var w)  ? w.GetInt32()     : 0,
                 Height          = root.TryGetProperty("height",   out var h)  ? h.GetInt32()     : 0,

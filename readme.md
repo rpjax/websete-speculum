@@ -46,16 +46,25 @@ Three layers:
 |---------|----------|-------------|
 | `Forwarding` | Yes | `host` (FQDN) + `domains` (navigation allowlist, supports `*.`) |
 | `MaxSessions` | Yes | Concurrent session limit |
-| `ScriptInjection` | No | Array of `{ file }` or `{ source }` entries |
+| `ScriptInjection` | No | Array of `{ scriptId }` (DB upload) or `{ url }` (external, SSRF-guarded) |
+| `SnapshotPolicy` | No | `{ "ttlDays": 30 }` — browser profile snapshot TTL |
 | `JsBridge` | No | `{ "enable": true\|false }` — NULL means disabled |
 
 On first boot the motor is **not operational** until `Forwarding` and `MaxSessions` are configured via Admin API.
 
 ### 3. Admin auth (SQLite — factory seed)
 
-On first boot, section `Admin` is seeded with `{ "apiKey": "password" }`. Change it via `PUT /api/admin/config/Admin`.
+On first boot, section `Admin` is seeded with a random `apiKey` (printed to container logs). Override with env `ADMIN_BOOTSTRAP_KEY`. Change it via `PUT /api/admin/config/Admin`.
 
 When required motor sections are missing, `/` redirects to `/setup`.
+
+### 4. Session persistence (cookie + SQLite BLOB)
+
+- Cookie `speculum_sid` (HttpOnly) identifies returning visitors.
+- On disconnect, the sidecar tar.gz's the Chrome profile; the host stores it in `browser_snapshots`.
+- **Multi-tab merge:** profiles are merged per file path — complementary files are kept; same path conflicts use last-write-wins (mtime). Volatile Chrome caches are excluded.
+- `last_url` uses last-write-wins by disconnect timestamp.
+- TTL configurable via `SnapshotPolicy` (default 30 days). Admin: `GET/DELETE /api/admin/snapshots`.
 
 ---
 
@@ -67,10 +76,16 @@ When required motor sections are missing, `/` redirects to `/setup`.
 | `GET /ready` | Public | Config complete |
 | `GET /api/admin/config/status` | Public | `{ operational, missing }` |
 | `GET/PUT/DELETE /api/admin/config/{section}` | Bearer | Manage runtime config |
+| `GET/DELETE /api/admin/snapshots[/{cookieId}]` | Bearer | Snapshot metadata (no blob) |
+| `GET/POST/DELETE /api/admin/scripts[/{id}]` | Bearer | Upload/list injected scripts |
 
-Default Bearer token on first boot: `password`. `GET Admin` returns `{ "configured": true }` (key is never echoed).
+Bootstrap API key: check container logs on first boot, or set `ADMIN_BOOTSTRAP_KEY`. `GET Admin` returns `{ "configured": true }` (key is never echoed).
 
-OpenAPI: `/openapi/v1.json`
+OpenAPI (protected): `/openapi/v1.json`
+
+**Public motor surface:** `GET /`, `/vhub`, `/libs/*`, `/js/*`, `/workers/*`, `/health`, `/ready`, `/setup`, `GET /api/admin/config/status`.
+
+**Sidecar:** internal Docker network only — do not publish port 3000 on Traefik.
 
 ---
 
@@ -116,4 +131,25 @@ cd Websete.Speculum.Host
 dotnet run
 ```
 
-Infra env vars are in `Properties/launchSettings.json`. DB file: `data/speculum.db`. Configure motor sections via Admin API (`Bearer password` on first boot).
+Infra env vars are in `Properties/launchSettings.json`. DB file: `data/speculum.db`. Configure motor sections via Admin API (bootstrap key from logs or `ADMIN_BOOTSTRAP_KEY`).
+
+### Client libs (`wwwroot/libs/`)
+
+Self-hosted SignalR + MessagePack (no CDN). Only these files belong in `wwwroot/libs/`:
+
+- `signalr.min.js`
+- `signalr-protocol-msgpack.min.js`
+
+Refresh from npm when upgrading (do **not** commit `package/` or `.tgz` residue):
+
+```bash
+cd Websete.Speculum.Host/wwwroot/libs
+npm pack @microsoft/signalr@10.0.0
+npm pack @microsoft/signalr-protocol-msgpack@10.0.0
+tar -xf microsoft-signalr-10.0.0.tgz package/dist/browser/signalr.min.js
+tar -xf microsoft-signalr-protocol-msgpack-10.0.0.tgz package/dist/browser/signalr-protocol-msgpack.min.js
+mv package/dist/browser/signalr.min.js .
+mv package/dist/browser/signalr-protocol-msgpack.min.js .
+rm -rf package *.tgz
+# Recompute SRI for index.html: certutil -hashfile <file> SHA256 → sha256-<hex>
+```

@@ -1,4 +1,7 @@
 using Websete.Speculum.Host.Config.Runtime;
+using Websete.Speculum.Host.Config.Scripts;
+using Websete.Speculum.Host.Config.Store;
+using Websete.Speculum.Host.Scripts;
 using Websete.Speculum.Host.Virtualization.Sidecar;
 
 namespace Websete.Speculum.Host.Config.Scripts;
@@ -6,17 +9,17 @@ namespace Websete.Speculum.Host.Config.Scripts;
 public sealed class ScriptResolver
 {
     private const long MaxFileSizeBytes = 5 * 1024 * 1024;
-    private readonly IHttpClientFactory _httpClientFactory;
-    private readonly IWebHostEnvironment _env;
+    private readonly IHttpClientFactory    _httpClientFactory;
+    private readonly IInjectedScriptStore  _scriptStore;
     private readonly ILogger<ScriptResolver> _logger;
 
     public ScriptResolver(
         IHttpClientFactory httpClientFactory,
-        IWebHostEnvironment env,
+        IInjectedScriptStore scriptStore,
         ILogger<ScriptResolver> logger)
     {
         _httpClientFactory = httpClientFactory;
-        _env               = env;
+        _scriptStore       = scriptStore;
         _logger            = logger;
     }
 
@@ -27,9 +30,6 @@ public sealed class ScriptResolver
         if (entries.Count == 0)
             return [];
 
-        var webRoot = _env.WebRootPath
-            ?? throw new InvalidOperationException("WebRootPath is not configured.");
-
         var results = new List<ScriptPayload>(entries.Count);
 
         foreach (var entry in entries)
@@ -37,20 +37,27 @@ public sealed class ScriptResolver
             string content;
             string fileKey;
 
-            if (!string.IsNullOrWhiteSpace(entry.File))
+            if (!string.IsNullOrWhiteSpace(entry.ScriptId))
             {
-                fileKey = entry.File.Trim();
-                content = await ReadFileAsync(webRoot, fileKey, ct);
+                var id = entry.ScriptId.Trim();
+                var entity = await _scriptStore.TryGetAsync(id, ct)
+                    ?? throw new InvalidOperationException($"Script id '{id}' not found in database.");
+
+                fileKey = $"/scripts/{id}.js";
+                content = entity.Content;
             }
-            else if (!string.IsNullOrWhiteSpace(entry.Source))
+            else if (!string.IsNullOrWhiteSpace(entry.Url))
             {
-                fileKey = entry.Source.Trim();
-                content = await FetchSourceAsync(fileKey, ct);
+                fileKey = entry.Url.Trim();
+                content = await FetchUrlAsync(fileKey, ct);
             }
             else
             {
-                throw new InvalidOperationException("Script injection entry has no file or source.");
+                throw new InvalidOperationException("Script injection entry has no scriptId or url.");
             }
+
+            if (content.Length > MaxFileSizeBytes)
+                throw new InvalidOperationException($"Script '{fileKey}' exceeds 5 MB limit.");
 
             results.Add(new ScriptPayload(entry.Position, entry.Type, fileKey, content));
         }
@@ -61,34 +68,32 @@ public sealed class ScriptResolver
         return results;
     }
 
-    private static async Task<string> ReadFileAsync(string webRoot, string file, CancellationToken ct)
+    private async Task<string> FetchUrlAsync(string url, CancellationToken ct)
     {
-        var relative = file.TrimStart('/').Replace('/', Path.DirectorySeparatorChar);
-        var fullPath = Path.GetFullPath(Path.Combine(webRoot, relative));
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+            throw new InvalidOperationException($"Invalid script URL: '{url}'.");
 
-        if (!fullPath.StartsWith(webRoot, StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException($"Script file '{file}' resolves outside wwwroot.");
+        if (!SsrfGuard.IsAllowedUrl(uri))
+            throw new InvalidOperationException($"Script URL blocked by SSRF guard: '{url}'.");
 
-        if (!File.Exists(fullPath))
-            throw new FileNotFoundException($"Script file not found: '{file}'", fullPath);
-
-        var info = new FileInfo(fullPath);
-        if (info.Length > MaxFileSizeBytes)
-            throw new InvalidOperationException($"Script file '{file}' exceeds 5 MB limit.");
-
-        return await File.ReadAllTextAsync(fullPath, ct);
-    }
-
-    private async Task<string> FetchSourceAsync(string url, CancellationToken ct)
-    {
         var client = _httpClientFactory.CreateClient(nameof(ScriptResolver));
-        using var response = await client.GetAsync(url, ct);
+        using var response = await client.GetAsync(uri, ct);
+
+        if ((int)response.StatusCode is >= 300 and < 400)
+            throw new InvalidOperationException($"Redirects are not allowed for script URLs: '{url}'.");
+
         response.EnsureSuccessStatusCode();
 
-        var content = await response.Content.ReadAsStringAsync(ct);
-        if (content.Length > MaxFileSizeBytes)
-            throw new InvalidOperationException($"Script source '{url}' exceeds 5 MB limit.");
+        var mediaType = response.Content.Headers.ContentType?.MediaType ?? "";
+        if (!string.IsNullOrEmpty(mediaType)
+            && !mediaType.Contains("javascript", StringComparison.OrdinalIgnoreCase)
+            && !mediaType.Contains("text/plain", StringComparison.OrdinalIgnoreCase)
+            && mediaType != "application/octet-stream")
+        {
+            throw new InvalidOperationException(
+                $"Script URL '{url}' returned unexpected Content-Type '{mediaType}'.");
+        }
 
-        return content;
+        return await response.Content.ReadAsStringAsync(ct);
     }
 }

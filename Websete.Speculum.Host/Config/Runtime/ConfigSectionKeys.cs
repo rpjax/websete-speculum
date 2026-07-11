@@ -7,6 +7,7 @@ public static class ConfigSectionKeys
     public const string MaxSessions      = "MaxSessions";
     public const string ScriptInjection  = "ScriptInjection";
     public const string JsBridge         = "JsBridge";
+    public const string SnapshotPolicy   = "SnapshotPolicy";
 
     public static readonly string[] All =
     [
@@ -15,6 +16,7 @@ public static class ConfigSectionKeys
         MaxSessions,
         ScriptInjection,
         JsBridge,
+        SnapshotPolicy,
     ];
 
     public static readonly string[] RequiredForOperation =

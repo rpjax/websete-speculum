@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using Websete.Speculum.Host.Virtualization.Persistence;
 
 namespace Websete.Speculum.Host.Virtualization.Contracts;
 
@@ -23,6 +24,27 @@ public interface IVSessionRegistry
     /// <summary>Number of active virtualization sessions.</summary>
     int ActiveCount { get; }
 
-    /// <summary>Stops and removes all active sessions.</summary>
-    Task StopAllAsync(CancellationToken ct = default);
+    /// <summary>
+    /// Atomically reserves a session slot when under <paramref name="max"/>.
+    /// Returns false when the limit is already reached.
+    /// </summary>
+    bool TryAcquireSlot(int max);
+
+    /// <summary>Releases a slot reserved by <see cref="TryAcquireSlot"/> when start fails.</summary>
+    void ReleaseSlot();
+
+    /// <summary>Tracks a session still starting (not yet registered).</summary>
+    void TrackStarting(string connectionId, VSession session);
+
+    /// <summary>
+    /// Moves a starting session into the active registry.
+    /// Returns false if the connection was cancelled during startup.
+    /// </summary>
+    bool TryPromoteStarting(string connectionId, VSession session);
+
+    /// <summary>Removes and returns a session that was still starting.</summary>
+    bool TryCancelStarting(string connectionId, [NotNullWhen(true)] out VSession? session);
+
+    /// <summary>Captures snapshots, stops and removes all active and starting sessions.</summary>
+    Task StopAllAsync(IProfileSnapshotMerger merger, CancellationToken ct = default);
 }

@@ -253,6 +253,8 @@ Sidecar changes require rebuilding `speculum-sidecar`; active sessions should dr
 | ACME failure (prod) | DNS or port 80 blocked | Verify A records and firewall |
 | Chrome crashes in sidecar | Low `/dev/shm` | Confirm `shm_size: 2gb` in manifest |
 | `dockup validate` fails | JSON syntax or missing `--root` | Run from `deploy/` with `--root ..` |
+| `docker buildx build requires 1 argument` (Windows) | Repo path with spaces + dockup 2.0.1 `shell:true` breaks `docker build` | Upgrade dockup to **>= 2.0.2**, or clone repo to a path without spaces |
+| `npm ci` fails in sidecar build | `package-lock.json` out of sync with `package.json` | Run `npm install` in `sidecar/` and rebuild |
 
 Logs:
 

@@ -19,6 +19,9 @@ sidecar/dist/
 deploy/speculum.dockup.json
 deploy/out/
 
+# Local API SQLite (dotnet run)
+Speculum.Api/data/
+
 # web build output
 web/dist/
 

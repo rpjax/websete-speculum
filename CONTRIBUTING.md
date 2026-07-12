@@ -42,9 +42,10 @@ All PRs should pass local verification:
 dotnet test Speculum.sln -c Release
 cd sidecar && npm ci && npm test
 cd web && npm ci && npm run lint && npm run build
+cd deploy && dockup validate --root ..
 ```
 
-CI (`.github/workflows/ci.yml`) enforces the same three jobs.
+CI (`.github/workflows/ci.yml`) enforces dotnet, sidecar, web, compose, and dockup validate on every push/PR.
 
 ### Code principles
 

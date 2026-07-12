@@ -1,3 +1,4 @@
+using System.Net;
 using Microsoft.AspNetCore.Cors.Infrastructure;
 using Speculum.Api.Config.Bootstrap;
 using Speculum.Api.Config.Runtime;
@@ -17,23 +18,20 @@ public sealed class DynamicCorsPolicyProvider : ICorsPolicyProvider
     public Task<CorsPolicy?> GetPolicyAsync(HttpContext context, string? policyName)
     {
         var store = context.RequestServices.GetRequiredService<ISpeculumConfigStore>();
+        var hosting = store.Current.Hosting;
+        var statuses = store.Current.HostingProfileStatuses;
 
         var builder = new CorsPolicyBuilder();
-
-        if (store.IsSubdomainMirroringOperational)
+        builder.SetIsOriginAllowed(origin =>
         {
-            var bootstrapOrigins = new HashSet<string>(
-                _bootstrap.CorsAllowedOrigins,
-                StringComparer.OrdinalIgnoreCase);
+            if (_bootstrap.DevCorsOrigins.Contains(origin, StringComparer.OrdinalIgnoreCase))
+                return true;
 
-            builder.SetIsOriginAllowed(origin =>
-                bootstrapOrigins.Contains(origin)
-                || HostMapper.IsAllowedMotorOrigin(origin, _bootstrap.MotorPublicDomain));
-        }
-        else
-        {
-            builder.WithOrigins(_bootstrap.CorsAllowedOrigins.ToArray());
-        }
+            if (!Uri.TryCreate(origin, UriKind.Absolute, out var uri))
+                return false;
+
+            return HostingProfileResolver.IsAllowedOriginHost(uri.Host, hosting, statuses);
+        });
 
         builder.AllowAnyHeader()
                .AllowAnyMethod()

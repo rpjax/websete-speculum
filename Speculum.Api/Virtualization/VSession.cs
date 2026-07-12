@@ -3,6 +3,7 @@ using System.Buffers.Binary;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Channels;
+using Speculum.Api.Config.Runtime;
 using Speculum.Api.Virtualization.Contracts;
 using Speculum.Api.Virtualization.Models;
 using Speculum.Api.Virtualization.Options;
@@ -18,6 +19,7 @@ public class VSession : IVSession
 
     private readonly SidecarBrowserClientOptions _sidecarOptions;
     private readonly SessionConfigSnapshot       _snapshot;
+    private readonly MotorUrlAdapter             _urlAdapter;
     private readonly ILogger                     _logger;
 
     private int _sessionState;
@@ -51,10 +53,12 @@ public class VSession : IVSession
     public VSession(
         SidecarBrowserClientOptions sidecarOptions,
         SessionConfigSnapshot       snapshot,
+        MotorUrlAdapter             urlAdapter,
         ILogger                     logger)
     {
         _sidecarOptions = sidecarOptions;
         _snapshot       = snapshot;
+        _urlAdapter     = urlAdapter;
         _logger         = logger;
         _currentUrl     = snapshot.InitialUrl;
 
@@ -251,7 +255,13 @@ public class VSession : IVSession
                                  or SidecarProtocol.MsgConsole
                                  or SidecarProtocol.MsgEvalResult
                                  or SidecarProtocol.MsgRedirect)
-                    _consoleOutputChannel.Writer.TryWrite(new ConsoleOutput { Data = raw });
+                {
+                    var transformed = TransformConsoleMessage(raw);
+                    _consoleOutputChannel.Writer.TryWrite(new ConsoleOutput
+                    {
+                        Data = transformed ?? raw,
+                    });
+                }
             }
         }
         catch (OperationCanceledException) { }
@@ -260,6 +270,43 @@ public class VSession : IVSession
             _consoleOutputChannel.Writer.TryComplete();
             _statusChannel.Writer.TryComplete();
         }
+    }
+
+    private ReadOnlyMemory<byte>? TransformConsoleMessage(ReadOnlyMemory<byte> raw)
+    {
+        if (raw.Length < 5 || raw.Span[0] != SidecarProtocol.MsgUrl)
+            return null;
+
+        var len = (int)BinaryPrimitives.ReadUInt32LittleEndian(raw.Span.Slice(1, 4));
+        if (5 + len > raw.Length)
+            return null;
+
+        var targetUrl = Encoding.UTF8.GetString(raw.Span.Slice(5, len));
+        var clientUrl = MapTargetUrlForClient(targetUrl);
+        var clientBytes = Encoding.UTF8.GetBytes(clientUrl);
+
+        var result = new byte[1 + 4 + clientBytes.Length];
+        result[0] = SidecarProtocol.MsgUrl;
+        BinaryPrimitives.WriteUInt32LittleEndian(result.AsSpan(1, 4), (uint)clientBytes.Length);
+        clientBytes.CopyTo(result.AsSpan(5));
+        return result;
+    }
+
+    private string MapTargetUrlForClient(string targetUrl)
+    {
+        var forwarding = _snapshot.Forwarding;
+        if (forwarding is null)
+            return targetUrl;
+
+        var profile = _snapshot.HostingProfile;
+        if (profile is null)
+        {
+            return _urlAdapter.EncodeTargetToClientBootstrap(
+                targetUrl, forwarding, _snapshot.MotorRequestHost);
+        }
+
+        return _urlAdapter.EncodeTargetToClient(
+            targetUrl, profile, forwarding, _snapshot.MotorRequestHost);
     }
 
     private async Task PumpUserInputAsync(ChannelReader<string> reader, CancellationToken ct)
@@ -335,7 +382,10 @@ public class VSession : IVSession
             }
 
             if (root.TryGetProperty("url", out var u))
-                _currentUrl = u.GetString() ?? _currentUrl;
+            {
+                var targetUrl = u.GetString() ?? _currentUrl;
+                _currentUrl = MapTargetUrlForClient(targetUrl);
+            }
 
             return new SessionStatus
             {

@@ -4,10 +4,10 @@ import { api, type ConfigStatus } from '@/lib/api'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 
-function subdomainBadge(sub?: ConfigStatus['subdomainMirroring']) {
-  if (!sub?.enabled) return { label: 'Disabled', className: 'border-muted text-muted-foreground' }
-  if (sub.operational) return { label: 'Operational', className: 'border-green-700 text-green-400' }
-  return { label: 'Misconfigured', className: 'border-amber-700 text-amber-400' }
+function profileBadge(p: NonNullable<ConfigStatus['hosting']>['profiles'][number]) {
+  if (!p.subdomainMirroringEnabled) return { label: 'Apex + NSO', className: 'border-muted text-muted-foreground' }
+  if (p.mirroringOperational) return { label: 'Mirroring OK', className: 'border-green-700 text-green-400' }
+  return { label: 'Mirroring pending', className: 'border-amber-700 text-amber-400' }
 }
 
 export default function DashboardPage() {
@@ -19,8 +19,6 @@ export default function DashboardPage() {
       .then(setStatus)
       .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Failed'))
   }, [])
-
-  const sub = status ? subdomainBadge(status.subdomainMirroring) : null
 
   return (
     <div className="space-y-6">
@@ -55,26 +53,32 @@ export default function DashboardPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Subdomain mirroring</CardTitle>
-          <CardDescription>Optional — mirrors target subdomains on the motor domain</CardDescription>
+          <CardTitle>Hosting profiles</CardTitle>
+          <CardDescription>Per-domain TLS, mirroring, and URL mode</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          {status && sub && (
-            <>
-              <div className="flex items-center gap-2">
-                <span>Status</span>
-                <Badge className={sub.className}>{sub.label}</Badge>
-              </div>
-              {status.subdomainMirroring?.enabled && status.subdomainMirroring.missing.length > 0 && (
-                <ul className="list-disc pl-5 text-amber-400">
-                  {status.subdomainMirroring.missing.map((m) => <li key={m}>{m}</li>)}
-                </ul>
-              )}
-              <Link className="text-sm text-primary underline" to="/admin/subdomain-mirroring">
-                Configure subdomain mirroring
-              </Link>
-            </>
+          {status?.hosting?.profiles.length === 0 && (
+            <p className="text-sm text-muted-foreground">No domains configured — bootstrap via VPS IP.</p>
           )}
+          {status?.hosting?.profiles.map((p) => {
+            const b = profileBadge(p)
+            return (
+              <div key={p.domain} className="rounded-md border border-border p-3 text-sm">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-medium">{p.domain}</span>
+                  <Badge className={b.className}>{b.label}</Badge>
+                </div>
+                {p.missing.length > 0 && (
+                  <ul className="mt-2 list-disc pl-5 text-amber-400">
+                    {p.missing.map((m) => <li key={m}>{m}</li>)}
+                  </ul>
+                )}
+              </div>
+            )
+          })}
+          <Link className="text-sm text-primary underline" to="/admin/hosting">
+            Configure hosting
+          </Link>
         </CardContent>
       </Card>
     </div>

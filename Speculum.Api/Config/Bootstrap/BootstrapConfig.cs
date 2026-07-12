@@ -4,31 +4,31 @@ namespace Speculum.Api.Config.Bootstrap;
 
 public sealed class BootstrapConfig
 {
-    private static readonly string[] DefaultCorsOrigins =
+    private static readonly string[] DefaultDevCorsOrigins =
     [
-        "https://speculum.localhost",
-        "http://speculum.localhost:8080",
         "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://speculum.localhost:8080",
     ];
 
     public string HttpAddress { get; }
     public string DatabasePath { get; }
     public string SidecarBaseUrl { get; }
-    public string MotorPublicDomain { get; }
-    public IReadOnlyList<string> CorsAllowedOrigins { get; }
+    public IReadOnlyList<string> DevCorsOrigins { get; }
+    public bool IsDevelopment { get; }
 
     private BootstrapConfig(
         string httpAddress,
         string databasePath,
         string sidecarBaseUrl,
-        string motorPublicDomain,
-        IReadOnlyList<string> corsAllowedOrigins)
+        IReadOnlyList<string> devCorsOrigins,
+        bool isDevelopment)
     {
-        HttpAddress        = httpAddress;
-        DatabasePath       = databasePath;
-        SidecarBaseUrl     = sidecarBaseUrl;
-        MotorPublicDomain  = motorPublicDomain;
-        CorsAllowedOrigins = corsAllowedOrigins;
+        HttpAddress     = httpAddress;
+        DatabasePath    = databasePath;
+        SidecarBaseUrl  = sidecarBaseUrl;
+        DevCorsOrigins  = devCorsOrigins;
+        IsDevelopment   = isDevelopment;
     }
 
     public static BootstrapConfig Load(IConfiguration configuration)
@@ -49,26 +49,25 @@ public sealed class BootstrapConfig
         if (string.IsNullOrEmpty(sidecarBaseUrl))
             throw new InvalidOperationException("Sidecar:BaseUrl environment variable is required.");
 
-        var motorPublicDomain = configuration["Motor:PublicDomain"]?.Trim();
-        if (string.IsNullOrEmpty(motorPublicDomain))
-            throw new InvalidOperationException("Motor:PublicDomain environment variable is required.");
+        var env = configuration["ASPNETCORE_ENVIRONMENT"]?.Trim() ?? "Production";
+        var isDev = env.Equals("Development", StringComparison.OrdinalIgnoreCase);
 
         var corsRaw = configuration["Cors:AllowedOrigins"]?.Trim();
-        IReadOnlyList<string> corsOrigins;
+        IReadOnlyList<string> devCors;
         if (string.IsNullOrEmpty(corsRaw))
         {
-            corsOrigins = DefaultCorsOrigins;
+            devCors = DefaultDevCorsOrigins;
         }
         else
         {
-            corsOrigins = corsRaw
+            devCors = corsRaw
                 .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                 .Where(o => !string.IsNullOrWhiteSpace(o))
                 .ToArray();
-            if (corsOrigins.Count == 0)
-                corsOrigins = DefaultCorsOrigins;
+            if (devCors.Count == 0)
+                devCors = DefaultDevCorsOrigins;
         }
 
-        return new BootstrapConfig(httpAddress, databasePath, sidecarBaseUrl, motorPublicDomain, corsOrigins);
+        return new BootstrapConfig(httpAddress, databasePath, sidecarBaseUrl, devCors, isDev);
     }
 }

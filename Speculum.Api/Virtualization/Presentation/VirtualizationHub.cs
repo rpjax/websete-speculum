@@ -1,6 +1,5 @@
 using System.Threading.Channels;
 using Microsoft.AspNetCore.SignalR;
-using Speculum.Api.Config.Bootstrap;
 using Speculum.Api.Config.Runtime;
 using Speculum.Api.Config.Store;
 using Speculum.Api.Virtualization.Contracts;
@@ -16,7 +15,7 @@ public sealed class VirtualizationHub : Hub
     private readonly SidecarBrowserClientOptions _sidecarOptions;
     private readonly ISpeculumConfigStore        _configStore;
     private readonly IBrowserSessionStore        _sessionStore;
-    private readonly BootstrapConfig             _bootstrap;
+    private readonly MotorUrlAdapter             _urlAdapter;
     private readonly ILogger<VirtualizationHub>  _logger;
 
     public VirtualizationHub(
@@ -24,14 +23,14 @@ public sealed class VirtualizationHub : Hub
         SidecarBrowserClientOptions sidecarOptions,
         ISpeculumConfigStore        configStore,
         IBrowserSessionStore        sessionStore,
-        BootstrapConfig             bootstrap,
+        MotorUrlAdapter             urlAdapter,
         ILogger<VirtualizationHub>  logger)
     {
         _registry       = registry;
         _sidecarOptions = sidecarOptions;
         _configStore    = configStore;
         _sessionStore   = sessionStore;
-        _bootstrap      = bootstrap;
+        _urlAdapter     = urlAdapter;
         _logger         = logger;
     }
 
@@ -39,7 +38,7 @@ public sealed class VirtualizationHub : Hub
         string clientUrl,
         int viewportWidth,
         int viewportHeight,
-        string? clientToken)
+        SessionIdentity? identity)
     {
         if (string.IsNullOrWhiteSpace(clientUrl))
             throw new HubException("clientUrl é obrigatório.");
@@ -52,19 +51,7 @@ public sealed class VirtualizationHub : Hub
                 "Configure via /api/admin/config.");
         }
 
-        string resolvedClientToken;
-        try
-        {
-            resolvedClientToken = ClientTokenNormalizer.Resolve(clientToken);
-        }
-        catch (ArgumentException ex)
-        {
-            throw new HubException(ex.Message);
-        }
-
-        var config     = _configStore.Current;
-        var forwarding = config.Forwarding!;
-        var subdomainOn = _configStore.IsSubdomainMirroringOperational;
+        var resolvedIdentity = ResolveIdentity(identity);
 
         if (_registry.TryRemove(Context.ConnectionId, out var oldActive))
         {
@@ -100,6 +87,9 @@ public sealed class VirtualizationHub : Hub
             }
         }
 
+        var config     = _configStore.Current;
+        var forwarding = config.Forwarding!;
+
         if (!_registry.TryAcquireSlot(config.MaxSessions!.Value))
             throw new HubException("Limite de sessões simultâneas atingido.");
 
@@ -107,16 +97,20 @@ public sealed class VirtualizationHub : Hub
         var promoted       = false;
         try
         {
-            var browserSessionId = await _sessionStore.ResolveOrCreateSessionAsync(
-                resolvedClientToken, Context.ConnectionAborted);
+            var (browserSessionId, clientToken) = await _sessionStore.ResolveOrCreateSessionAsync(
+                resolvedIdentity, Context.ConnectionAborted);
 
             var browserState = await _sessionStore.LoadStateAsync(browserSessionId, Context.ConnectionAborted);
 
+            var motorHost = Context.GetHttpContext()?.Request.Host.Value ?? "";
+            var profile   = HostingProfileResolver.Resolve(motorHost, config.Hosting);
+
             var initialUrl = InitialUrlBuilder.Build(
+                _urlAdapter,
                 forwarding,
                 clientUrl,
-                subdomainOn,
-                _bootstrap.MotorPublicDomain);
+                profile,
+                motorHost);
 
             _logger.LogInformation(
                 "Conexão {ConnectionId}: iniciando sessão em {InitialUrl} (sessionId={SessionPrefix}…)",
@@ -133,9 +127,12 @@ public sealed class VirtualizationHub : Hub
                 Scripts                  = config.ResolvedScripts,
                 JsBridgeEnabled          = config.JsBridgeEnabled,
                 AllowedNavigationDomains = forwarding.Domains,
+                HostingProfile           = profile,
+                Forwarding               = forwarding,
+                MotorRequestHost         = motorHost,
             };
 
-            session = new VSession(_sidecarOptions, sessionSnapshot, _logger);
+            session = new VSession(_sidecarOptions, sessionSnapshot, _urlAdapter, _logger);
             session.PersistedSessionId = browserSessionId;
             _registry.TrackStarting(Context.ConnectionId, session);
 
@@ -151,6 +148,8 @@ public sealed class VirtualizationHub : Hub
 
             promoted = true;
             session  = null;
+
+            return clientToken;
         }
         catch (HubException)
         {
@@ -191,8 +190,6 @@ public sealed class VirtualizationHub : Hub
                     _registry.ReleaseSlot();
             }
         }
-
-        return resolvedClientToken;
     }
 
     public override async Task OnDisconnectedAsync(Exception? exception)
@@ -253,15 +250,20 @@ public sealed class VirtualizationHub : Hub
         if (string.IsNullOrWhiteSpace(clientUrl))
             throw new HubException("URL de navegação é obrigatória.");
 
-        var forwarding = _configStore.Current.Forwarding!;
+        var config     = _configStore.Current;
+        var forwarding = config.Forwarding!;
+        var motorHost  = Context.GetHttpContext()?.Request.Host.Value ?? "";
+        var profile    = HostingProfileResolver.Resolve(motorHost, config.Hosting);
+
         string targetUrl;
         try
         {
-            targetUrl = InitialUrlBuilder.Build(
+            targetUrl = InitialUrlBuilder.BuildNavigateTarget(
+                _urlAdapter,
                 forwarding,
                 clientUrl,
-                _configStore.IsSubdomainMirroringOperational,
-                _bootstrap.MotorPublicDomain);
+                profile,
+                motorHost);
         }
         catch (ArgumentException ex)
         {
@@ -273,6 +275,23 @@ public sealed class VirtualizationHub : Hub
 
     public Task ResizeAsync(int width, int height)
         => RequireSession().ResizeAsync(width, height);
+
+    private static SessionIdentity ResolveIdentity(SessionIdentity? identity)
+    {
+        if (identity is null)
+            return new SessionIdentity();
+
+        if (!string.IsNullOrWhiteSpace(identity.ClientToken))
+        {
+            return new SessionIdentity
+            {
+                ClientToken = ClientTokenNormalizer.Resolve(identity.ClientToken),
+                Indexers    = identity.Indexers,
+            };
+        }
+
+        return identity;
+    }
 
     private VSession RequireSession()
     {

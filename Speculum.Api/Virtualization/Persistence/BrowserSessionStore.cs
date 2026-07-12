@@ -106,23 +106,57 @@ public sealed class BrowserSessionStore : IBrowserSessionStore
 
     public async Task<string> ResolveOrCreateSessionAsync(string clientToken, CancellationToken ct = default)
     {
+        var (sessionId, _) = await ResolveOrCreateSessionAsync(
+            new SessionIdentity { ClientToken = clientToken }, ct);
+        return sessionId;
+    }
+
+    public async Task<(string SessionId, string ClientToken)> ResolveOrCreateSessionAsync(
+        SessionIdentity identity,
+        CancellationToken ct = default)
+    {
+        var indexers = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        if (!string.IsNullOrWhiteSpace(identity.ClientToken))
+            indexers[ClientTokenIndexer] = ClientTokenNormalizer.Resolve(identity.ClientToken);
+
+        if (identity.Indexers is not null)
+        {
+            foreach (var (type, key) in identity.Indexers)
+            {
+                if (string.IsNullOrWhiteSpace(type) || string.IsNullOrWhiteSpace(key))
+                    continue;
+                indexers[type.Trim()] = key.Trim();
+            }
+        }
+
         await using var db = CreateContext();
         await using var conn = db.Database.GetDbConnection();
         await conn.OpenAsync(ct);
 
-        await using (var lookup = conn.CreateCommand())
+        foreach (var (type, key) in indexers)
         {
+            await using var lookup = conn.CreateCommand();
             lookup.CommandText = """
                 SELECT session_id FROM browser_session_indexers
                 WHERE indexer_type = $type AND indexer_key = $key
                 """;
-            AddParam(lookup, "$type", ClientTokenIndexer);
-            AddParam(lookup, "$key", clientToken);
+            AddParam(lookup, "$type", type);
+            AddParam(lookup, "$key", key);
 
             var existing = await lookup.ExecuteScalarAsync(ct);
             if (existing is string sessionId)
-                return sessionId;
+            {
+                var token = indexers.GetValueOrDefault(ClientTokenIndexer)
+                            ?? await GetClientTokenForSessionAsync(conn, sessionId, ct)
+                            ?? ClientTokenNormalizer.Resolve(null);
+                return (sessionId, token);
+            }
         }
+
+        var resolvedToken = indexers.GetValueOrDefault(ClientTokenIndexer)
+                            ?? ClientTokenNormalizer.Resolve(null);
+        indexers[ClientTokenIndexer] = resolvedToken;
 
         var newSessionId = Guid.NewGuid().ToString("N");
         var now          = DateTimeOffset.UtcNow;
@@ -141,19 +175,37 @@ public sealed class BrowserSessionStore : IBrowserSessionStore
             await insertSession.ExecuteNonQueryAsync(ct);
         }
 
-        await using (var insertIndexer = conn.CreateCommand())
+        foreach (var (type, key) in indexers)
         {
+            await using var insertIndexer = conn.CreateCommand();
             insertIndexer.CommandText = """
-                INSERT INTO browser_session_indexers (indexer_type, indexer_key, session_id)
+                INSERT OR IGNORE INTO browser_session_indexers (indexer_type, indexer_key, session_id)
                 VALUES ($type, $key, $id)
                 """;
-            AddParam(insertIndexer, "$type", ClientTokenIndexer);
-            AddParam(insertIndexer, "$key", clientToken);
+            AddParam(insertIndexer, "$type", type);
+            AddParam(insertIndexer, "$key", key);
             AddParam(insertIndexer, "$id", newSessionId);
             await insertIndexer.ExecuteNonQueryAsync(ct);
         }
 
-        return newSessionId;
+        return (newSessionId, resolvedToken);
+    }
+
+    private static async Task<string?> GetClientTokenForSessionAsync(
+        System.Data.Common.DbConnection conn,
+        string sessionId,
+        CancellationToken ct)
+    {
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT indexer_key FROM browser_session_indexers
+            WHERE indexer_type = $type AND session_id = $id
+            LIMIT 1
+            """;
+        AddParam(cmd, "$type", ClientTokenIndexer);
+        AddParam(cmd, "$id", sessionId);
+        var result = await cmd.ExecuteScalarAsync(ct);
+        return result as string;
     }
 
     public async Task<BrowserStatePayload?> LoadStateAsync(string sessionId, CancellationToken ct = default)

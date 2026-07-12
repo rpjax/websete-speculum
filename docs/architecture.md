@@ -24,7 +24,7 @@ Speculum is a **remote browser isolation** platform. A real Chromium instance ru
 | **Isolation** | Browsing happens in server-side Chrome; only pixels and input events cross the wire |
 | **Domain flexibility** | No hard-coded target site; `Forwarding` section defines the remote site host and navigation allowlist |
 | **Operational clarity** | `/ready` and `/api/admin/config/status` expose whether the motor can start sessions |
-| **Split front/back** | React SPA on motor domain; API + SignalR on API subdomain with explicit CORS |
+| **Same-origin edge** | React SPA, REST, and SignalR share one motor host; EdgeWriter routes `/api` and `/vhub` to the API container |
 | **Repeatable deploy** | [dockup](../deploy/README.md) generates environment-specific compose stacks |
 
 ---
@@ -34,13 +34,13 @@ Speculum is a **remote browser isolation** platform. A real Chromium instance ru
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │  End-user browser                                                            │
-│    speculum.<domain>  →  React SPA (motor, setup, admin)                    │
+│    speculum.<domain>  →  React SPA + /api + /vhub (same origin)           │
 └───────────────────────────────┬─────────────────────────────────────────────┘
                                 │ HTTPS (REST, static assets)
                                 │ WSS + MessagePack (SignalR /vhub)
                                 ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│  api.speculum.<domain>  →  Speculum.Api (.NET 10)                           │
+│  Speculum.Api (.NET 10) — Traefik routes /api, /vhub, /health, /ready       │
 │    • BootstrapConfig (env)                                                   │
 │    • ISpeculumConfigStore → SQLite runtime sections                          │
 │    • VirtualizationHub → session orchestration                               │
@@ -73,9 +73,9 @@ Production and development both use **four containers** on a shared Docker netwo
 
 | Service | Image | Exposed | Traefik rule |
 |---------|-------|---------|--------------|
-| `traefik` | `traefik:v3.6.1` | Host ports | Routes by `Host()` label |
-| `web` | `speculum-web` | Via Traefik | `TRAEFIK_MOTOR_DOMAIN` |
-| `api` | `speculum-api` | Via Traefik | `TRAEFIK_API_DOMAIN` |
+| `traefik` | `traefik:v3.6.1` | Host ports | EdgeWriter file provider + docker provider |
+| `web` | `speculum-web` | Via Traefik | Apex/www + wildcard subdomains (mirroring) |
+| `api` | `speculum-api` | Via Traefik | PathPrefix `/api`, `/vhub`, `/health`, … |
 | `sidecar` | `speculum-sidecar` | Internal only | — |
 
 **Canonical workflow:** `cd deploy && dockup deploy --env dev|prod --root ..`
@@ -87,10 +87,9 @@ See [deploy/README.md](../deploy/README.md) for ports, TLS, and VPS transfer.
 | Aspect | Dev (`dockup --env dev`) | Prod (`dockup --env prod`) |
 |--------|--------------------------|----------------------------|
 | Traefik ports | `8080` (HTTP) | `80` / `443` |
-| TLS | None (plug-and-play) | Let's Encrypt (`ACME_EMAIL`) |
-| Motor URL | `http://speculum.localhost:8080` | `https://<TRAEFIK_MOTOR_DOMAIN>` |
-| API URL | `http://api.speculum.localhost:8080` | `https://<TRAEFIK_API_DOMAIN>` |
-| CORS | Dev origins + `localhost:5173` | Motor origin only |
+| TLS | None (plug-and-play) | Let's Encrypt (`ACME_EMAIL` + Hosting profiles) |
+| Public URL | `http://speculum.localhost:8080` | `https://<profile-domain>` |
+| CORS | Dev origins + `localhost:5173` | Known Hosting hosts (mirrored subdomains when operational) |
 
 ---
 
@@ -106,12 +105,12 @@ sequenceDiagram
     participant S as sidecar
 
     U->>W: Open /
-    W->>A: GET /ready (API host)
+    W->>A: GET /ready (same origin)
     alt not operational
         W->>U: Redirect /setup
     end
     W->>A: SignalR connect /vhub
-    W->>A: StartSessionAsync(url, w, h, clientToken)
+    W->>A: StartSessionAsync(url, w, h, SessionIdentity)
     A->>A: Check MaxSessions, resolve session_id
     A->>S: WebSocket create session (+ browser state import)
     S->>S: Launch Chrome on Xvfb
@@ -123,8 +122,8 @@ sequenceDiagram
 ### Session identity and URL sync
 
 - The motor stores a **`client_token`** in a cookie (`speculum_client_token`). The API maps it to an internal **`session_id`** (SQLite primary key).
-- `StartSessionAsync(clientUrl, w, h, clientToken)` accepts the client token and returns the effective id for the hub connection.
-- **URL is never persisted or restored.** Initial navigation uses the client path + query only (`InitialUrlBuilder`).
+- `StartSessionAsync(clientUrl, w, h, SessionIdentity?)` accepts `{ clientToken }` and optional indexers; returns the effective client token.
+- **URL is never persisted or restored.** Initial navigation uses `MotorUrlAdapter` + `InitialUrlBuilder` (apex+NSO or subdomain mirroring per **Hosting** profile).
 - On disconnect, browser state (cookies, localStorage, IndexedDB, history) is exported via CDP and stored relationally in SQLite (`browser_sessions` + child tables).
 - There is **no HTTP session cookie** for the motor; persistence is client token + server state.
 
@@ -132,12 +131,12 @@ sequenceDiagram
 
 | Mode | Trigger | Client URL bar | Cookie domain |
 |------|---------|----------------|---------------|
-| **Apex (default)** | `SubdomainMirroring.enabled = false` | Always apex motor host (`speculum.com/path`) | Apex hostname |
-| **Subdomain mirroring** | Feature ON **and** operational | Mirrors target subdomains (`www.speculum.com` ↔ `www.olx.com.br`) | `.<motorPublicDomain>` |
+| **Apex + NSO** | `Hosting.profiles[].subdomainMirroringEnabled = false` | Apex motor host + `_w7s_nso` query param (path sync only) | Host-only |
+| **Subdomain mirroring** | Profile mirroring ON **and** operational | Server-mapped motor subdomains (`www.speculum.com` ↔ `www.olx.com.br`) | `.<profile.domain>` when mirroring ON |
 
-Subdomain mirroring is **optional and OFF by default**. When enabled but misconfigured, runtime degrades to apex mode; `/api/admin/config/status` exposes `subdomainMirroring.operational` and `missing`.
+Mirroring is **per domain profile** in SQLite section `Hosting`. When enabled but misconfigured, `/api/admin/config/status` exposes `hosting.profiles[].missing`.
 
-When subdomain mirroring is operational, target redirects that change subdomain trigger `window.location.href` on the client (same session via cookie). In apex mode, `MSG_URL` maps redirects to the apex path and uses `history.pushState` without cross-subdomain reload.
+In apex+NSO mode the server encodes target subdomain in `_w7s_nso`; the client uses `history.pushState` only. When mirroring is operational, subdomain changes use `window.location.href`.
 
 ### Navigation guard
 
@@ -158,10 +157,14 @@ Required for API boot. Never stored in SQLite.
 | `HttpAddress` | `0.0.0.0:8080` | Kestrel bind |
 | `Database__Path` | `/data/speculum.db` | SQLite file |
 | `Sidecar__BaseUrl` | `ws://sidecar:3000` | Sidecar WebSocket |
-| `Cors__AllowedOrigins` | `http://speculum.localhost:8080;...` | Semicolon-separated SPA origins |
-| `Motor__PublicDomain` | `speculum.com` | Public apex of the motor (cookies, CORS, HostMapper) |
-| `ASPNETCORE_ENVIRONMENT` | `Development` / `Production` | ASP.NET environment |
+| `Cors__AllowedOrigins` | `http://localhost:5173;...` | Dev SPA origins (semicolon-separated) |
+| `Traefik__Root` | `/data/traefik` | EdgeWriter materialization root |
+| `Traefik__DynamicDir` | `/data/traefik/dynamic` | Traefik file provider directory |
+| `Traefik__DockerSocket` | `/var/run/docker.sock` | Optional — SIGHUP reload after edge writes |
+| `ASPNETCORE_ENVIRONMENT` | `Development` / `Production` | NSO encrypt off in Development |
 | `ADMIN_BOOTSTRAP_KEY` | (optional) | Override first-boot admin API key |
+
+Motor domains, TLS, and mirroring live in SQLite **`Hosting`** (Admin UI), not in container env.
 
 ### Layer 2 — Motor runtime (SQLite + Admin API)
 
@@ -171,10 +174,12 @@ Required for API boot. Never stored in SQLite.
 | `MaxSessions` | Yes | Concurrent session cap |
 | `ScriptInjection` | No | Injected script ids or URLs |
 | `SessionPolicy` | No | e.g. `{ "ttlDays": 30 }` (alias: `SnapshotPolicy`) |
-| `SubdomainMirroring` | No | `{ "enabled": false, "edgeTls": { ... } }` — opt-in wildcard subdomain mirror |
+| `Hosting` | No | Per-domain TLS, mirroring, Cloudflare credentials |
 | `JsBridge` | No | `{ "enable": true \| false }` |
 
-`Forwarding.host` is the site the motor opens (`https://{host}{path}`). It is independent of Traefik motor/API hostnames.
+`Forwarding.host` is the site the motor opens (`https://{host}{path}`). It is independent of motor **Hosting** profile domains (Traefik edge hostnames).
+
+Changing `Forwarding` or `Hosting` terminates all active sessions.
 
 ### Layer 3 — Admin credentials (SQLite, seeded once)
 
@@ -187,8 +192,8 @@ On first boot, `Admin.apiKey` is generated randomly (or taken from `ADMIN_BOOTST
 | Surface | Auth | Notes |
 |---------|------|-------|
 | `/health`, `/ready` | Public | Liveness / readiness (`/ready` does not require subdomain mirroring) |
-| `GET /api/admin/config/status` | Public | Setup UI; includes `subdomainMirroring` status |
-| `GET /api/public/client-config` | Public | Motor public domain + subdomain mirroring flag |
+| `GET /api/admin/config/status` | Public | Setup UI; includes `hosting.profiles` (+ legacy `subdomainMirroring` aggregate) |
+| `GET /api/public/client-config` | Public | Motor profiles, mirroring flags, NSO param name |
 | `/vhub` (SignalR) | Public | Edge protection expected from Traefik / network policy |
 | `/api/admin/*`, `/openapi/*` | Bearer `Admin.apiKey` | Enforced by `AdminAuthMiddleware` |
 | Script URL resolution | SSRF guard | `SsrfGuard` + custom DNS resolver for remote script fetches |
@@ -207,8 +212,6 @@ Defence in depth: Traefik TLS and network policy are expected at the edge; the A
 | Docker volume | `speculum-data` | SQLite file + Traefik dynamic config (`/data/traefik/`) in deployed stacks |
 | Client | Cookie | `speculum_client_token` (domain depends on subdomain mirroring mode) |
 | Client | `sessionStorage` | Admin Bearer token |
-
-Changing `Forwarding` terminates all active sessions.
 
 ---
 

@@ -2,7 +2,7 @@ import * as signalR from '@microsoft/signalr'
 import * as msgpack from '@microsoft/signalr-protocol-msgpack'
 import { API_URL } from '@/lib/env'
 import { fetchClientConfig, loadClientToken, saveClientToken, type ClientConfig } from '@/lib/session-id'
-import { mapTargetToClientUrl, syncClientLocation } from '@/lib/host-mapper'
+import { syncClientLocation } from '@/lib/host-mapper'
 import FrameWorker from './frame-decode.worker?worker'
 
 const MSG_URL = 0x04
@@ -158,7 +158,7 @@ export class MotorEngine {
         window.location.replace('/setup')
         return
       }
-      this.clientConfig = await fetchClientConfig(API_URL)
+      this.clientConfig = await fetchClientConfig(API_URL, true)
     } catch {
       if (!this.isActive()) return
       this.emit({ status: 'error', statusText: 'Error: cannot reach server', showOverlay: true })
@@ -298,7 +298,7 @@ export class MotorEngine {
         window.location.href,
         initW,
         initH,
-        loadClientToken(this.clientConfig!),
+        { clientToken: loadClientToken() },
       )
     } catch (err) {
       if (isSetupRequiredError(err)) {
@@ -428,16 +428,13 @@ export class MotorEngine {
     if (type === MSG_URL) {
       if (bytes.length < 5) return
       const len = view.getUint32(1, true)
-      const targetUrl = new TextDecoder().decode(bytes.slice(5, 5 + len))
-      const mapped = this.clientConfig
-        ? mapTargetToClientUrl(targetUrl, this.clientConfig)
-        : targetUrl
+      const mapped = new TextDecoder().decode(bytes.slice(5, 5 + len))
       this.currentUrl = mapped
       if (document.activeElement !== this.elements.urlBar) {
         this.elements.urlBar.value = mapped
         this.emit({ url: mapped })
       }
-      syncClientLocation(mapped)
+      syncClientLocation(mapped, !!this.clientConfig?.mirroringEnabled)
     } else if (type === MSG_CONSOLE) {
       if (bytes.length < 6) return
       const level = bytes[1]
@@ -476,12 +473,10 @@ export class MotorEngine {
     else if (!this.jsBridgeEnabled) this.uninstallVcon()
 
     if (s.url && this.elements && document.activeElement !== this.elements.urlBar) {
-      const mapped = this.clientConfig
-        ? mapTargetToClientUrl(s.url, this.clientConfig)
-        : s.url
-      this.currentUrl = mapped
-      this.elements.urlBar.value = mapped
-      this.emit({ url: mapped })
+      this.currentUrl = s.url
+      this.elements.urlBar.value = s.url
+      this.emit({ url: s.url })
+      syncClientLocation(s.url, !!this.clientConfig?.mirroringEnabled)
     }
   }
 

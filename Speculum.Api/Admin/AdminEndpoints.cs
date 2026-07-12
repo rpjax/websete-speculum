@@ -105,6 +105,16 @@ public static class AdminEndpoints
             {
                 operational = store.IsOperational,
                 missing     = store.MissingRequired,
+                hosting = new
+                {
+                    profiles = store.Current.HostingProfileStatuses.Select(p => new
+                    {
+                        domain                = p.Domain,
+                        subdomainMirroringEnabled = p.SubdomainMirroringEnabled,
+                        mirroringOperational  = p.MirroringOperational,
+                        missing               = p.Missing,
+                    }),
+                },
                 subdomainMirroring = new
                 {
                     enabled     = store.SubdomainMirroringEnabled,

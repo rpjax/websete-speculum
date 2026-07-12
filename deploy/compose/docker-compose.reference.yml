@@ -6,27 +6,18 @@ services:
     entrypoint: ["/bin/sh", "-ec"]
     command:
       - >-
-        set -a; [ -f /data/traefik/cloudflare.env ] && . /data/traefik/cloudflare.env; set +a;
+        set -a; for f in /data/traefik/cloudflare-*.env; do [ -f "$$f" ] && . "$$f"; done; set +a;
         exec /entrypoint.sh traefik
         --api.dashboard=false
         --providers.docker=true
         --providers.docker.exposedbydefault=false
+        --providers.docker.network=speculum
         --entrypoints.web.address=:80
         --entrypoints.websecure.address=:443
         --entrypoints.websecure.http.tls=true
-        --entrypoints.web.http.redirections.entrypoint.to=websecure
-        --entrypoints.web.http.redirections.entrypoint.scheme=https
-        --certificatesresolvers.le.acme.httpchallenge=true
-        --certificatesresolvers.le.acme.httpchallenge.entrypoint=web
-        --certificatesresolvers.le.acme.email=${ACME_EMAIL}
-        --certificatesresolvers.le.acme.storage=/letsencrypt/acme.json
-        --certificatesresolvers.le-dns.acme.dnschallenge=true
-        --certificatesresolvers.le-dns.acme.dnschallenge.provider=cloudflare
-        --certificatesresolvers.le-dns.acme.dnschallenge.resolvers=1.1.1.1:53,8.8.8.8:53
-        --certificatesresolvers.le-dns.acme.email=${ACME_EMAIL}
-        --certificatesresolvers.le-dns.acme.storage=/letsencrypt/acme-dns.json
-        --providers.file.directory=/data/traefik/dynamic
+        --providers.file.filename=/data/traefik/traefik.static.yml
         --providers.file.watch=true
+        --providers.file.directory=/data/traefik/dynamic
     ports:
       - "80:80"
       - "443:443"
@@ -34,8 +25,6 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - traefik-letsencrypt:/letsencrypt
       - speculum-data:/data
-    environment:
-      - ACME_EMAIL=${ACME_EMAIL:-admin@example.com}
 
   sidecar:
     build:
@@ -63,14 +52,15 @@ services:
     restart: unless-stopped
     volumes:
       - speculum-data:/data
+      - /var/run/docker.sock:/var/run/docker.sock:ro
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
       - HttpAddress=0.0.0.0:8080
       - Database__Path=/data/speculum.db
       - Sidecar__BaseUrl=ws://sidecar:3000
-      - Cors__AllowedOrigins=https://${TRAEFIK_MOTOR_DOMAIN:-speculum.localhost}
-      - Motor__PublicDomain=${TRAEFIK_MOTOR_DOMAIN:-speculum.localhost}
+      - Traefik__Root=/data/traefik
       - Traefik__DynamicDir=/data/traefik/dynamic
+      - Traefik__DockerSocket=/var/run/docker.sock
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
       interval: 15s
@@ -82,17 +72,12 @@ services:
         condition: service_healthy
     labels:
       - traefik.enable=true
-      - traefik.http.routers.speculum-api.rule=Host(`${TRAEFIK_API_DOMAIN:-api.speculum.localhost}`)
-      - traefik.http.routers.speculum-api.entrypoints=websecure
-      - traefik.http.routers.speculum-api.tls.certresolver=le
       - traefik.http.services.speculum-api.loadbalancer.server.port=8080
 
   web:
     build:
       context: ../../web
       dockerfile: Dockerfile
-      args:
-        VITE_API_URL: https://${TRAEFIK_API_DOMAIN:-api.speculum.localhost}
     image: speculum-web
     restart: unless-stopped
     depends_on:
@@ -106,9 +91,6 @@ services:
       retries: 3
     labels:
       - traefik.enable=true
-      - traefik.http.routers.speculum-web.rule=Host(`${TRAEFIK_MOTOR_DOMAIN:-speculum.localhost}`)
-      - traefik.http.routers.speculum-web.entrypoints=websecure
-      - traefik.http.routers.speculum-web.tls.certresolver=le
       - traefik.http.services.speculum-web.loadbalancer.server.port=80
 
 volumes:

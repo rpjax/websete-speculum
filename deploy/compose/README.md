@@ -19,14 +19,14 @@ Optional **production-style** stack without [dockup](../README.md). Use this onl
 From this directory (`deploy/compose/`):
 
 ```bash
-export TRAEFIK_MOTOR_DOMAIN=speculum.example.com
-export TRAEFIK_API_DOMAIN=api.speculum.example.com
 export ACME_EMAIL=admin@example.com
 
 docker compose -f docker-compose.reference.yml up -d --build
 ```
 
 Build contexts point to component folders (`Speculum.Api/`, `web/`, `sidecar/`) — paths are relative to this file.
+
+After first boot, open `/admin` and configure **Hosting** (domains, TLS). EdgeWriter materializes Traefik routes; no split API subdomain env vars.
 
 ---
 
@@ -36,7 +36,7 @@ Build contexts point to component folders (`Speculum.Api/`, `web/`, `sidecar/`) 
 |--------|--------------|---------------------|
 | Traefik ports | `8080` (HTTP) | `80` / `443` |
 | TLS (local) | None | ACME-oriented (needs real DNS for LE) |
-| CORS / VITE_API_URL | `http://*.localhost:8080` | Uses `https://${TRAEFIK_API_DOMAIN}` without port |
+| CORS | `Cors__AllowedOrigins` + localhost Vite | Same-origin; configure Hosting in Admin |
 
 For plug-and-play local dev without certificate setup, use **dockup dev** (`http://speculum.localhost:8080`).
 

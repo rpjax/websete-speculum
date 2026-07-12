@@ -6,8 +6,8 @@ import { cn } from '@/lib/utils'
 const NAV = [
   { to: '/admin', label: 'Dashboard', exact: true },
   { to: '/admin/forwarding', label: 'Forwarding' },
+  { to: '/admin/hosting', label: 'Hosting' },
   { to: '/admin/max-sessions', label: 'Max Sessions' },
-  { to: '/admin/subdomain-mirroring', label: 'Subdomain Mirroring' },
   { to: '/admin/js-bridge', label: 'JsBridge' },
   { to: '/admin/session-policy', label: 'Session Policy' },
   { to: '/admin/script-injection', label: 'Script Injection' },

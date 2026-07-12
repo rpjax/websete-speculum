@@ -36,13 +36,19 @@ Content-Type: application/json
   "ttlDays": 30
 }
 
-### Subdomain mirroring — disable (requires auth)
-PUT {{host}}/api/admin/config/SubdomainMirroring
+### Hosting — disable mirroring on profile (requires auth)
+PUT {{host}}/api/admin/config/Hosting
 Authorization: Bearer {{adminKey}}
 Content-Type: application/json
 
 {
-  "enabled": false
+  "acmeEmail": "admin@example.com",
+  "profiles": [
+    {
+      "domain": "speculum.localhost",
+      "subdomainMirroringEnabled": false
+    }
+  ]
 }
 
 ### List browser sessions (requires auth)

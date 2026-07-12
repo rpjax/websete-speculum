@@ -1,3 +1,4 @@
+using Speculum.Api.Config.Runtime;
 using Speculum.Api.Virtualization.Sidecar;
 
 namespace Speculum.Api.Virtualization;
@@ -14,4 +15,7 @@ public sealed class SessionConfigSnapshot
     public IReadOnlyList<ScriptPayload> Scripts { get; init; } = [];
     public bool JsBridgeEnabled { get; init; }
     public string[] AllowedNavigationDomains { get; init; } = [];
+    public HostingProfileOptions? HostingProfile { get; init; }
+    public ForwardingOptions? Forwarding { get; init; }
+    public string MotorRequestHost { get; init; } = "";
 }

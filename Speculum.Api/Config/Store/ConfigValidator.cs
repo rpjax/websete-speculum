@@ -40,8 +40,8 @@ public static class ConfigValidator
     public static void ValidateSection(
         string key,
         JsonElement body,
-        string? motorPublicDomain = null,
-        ForwardingOptions? currentForwarding = null)
+        ForwardingOptions? currentForwarding = null,
+        HostingOptions? currentHosting = null)
     {
         key = ConfigSectionKeys.NormalizeKey(key);
         var errors = new List<(string, string)>();
@@ -66,8 +66,11 @@ public static class ConfigValidator
             case ConfigSectionKeys.SessionPolicy:
                 ValidateSessionPolicy(body, errors);
                 break;
+            case ConfigSectionKeys.Hosting:
+                ValidateHosting(body, errors, currentForwarding);
+                break;
             case ConfigSectionKeys.SubdomainMirroring:
-                ValidateSubdomainMirroring(body, errors, currentForwarding, motorPublicDomain);
+                ValidateSubdomainMirroringLegacy(body, errors, currentForwarding);
                 break;
             default:
                 errors.Add(("$.key", $"Unknown configuration section '{key}'."));
@@ -277,15 +280,129 @@ public static class ConfigValidator
             errors.Add(("$.SessionPolicy.ttlDays", "Exceeds upper bound (3650 days)."));
     }
 
-    private static void ValidateSubdomainMirroring(
+    private static void ValidateHosting(
         JsonElement body,
         List<(string, string)> errors,
-        ForwardingOptions? currentForwarding,
-        string? motorPublicDomain)
+        ForwardingOptions? currentForwarding)
     {
         if (body.ValueKind != JsonValueKind.Object)
         {
-            errors.Add(("$.SubdomainMirroring", "Must be a JSON object."));
+            errors.Add(("$.Hosting", "Must be a JSON object."));
+            return;
+        }
+
+        if (body.TryGetProperty("acmeEmail", out var acmeEl)
+            && acmeEl.ValueKind == JsonValueKind.String
+            && !string.IsNullOrWhiteSpace(acmeEl.GetString())
+            && !IsValidEmail(acmeEl.GetString()!))
+        {
+            errors.Add(("$.Hosting.acmeEmail", "Must be a valid email address."));
+        }
+
+        if (!body.TryGetProperty("profiles", out var profilesEl) || profilesEl.ValueKind != JsonValueKind.Array)
+        {
+            errors.Add(("$.Hosting.profiles", "profiles array is required."));
+            return;
+        }
+
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var i = 0;
+        foreach (var profile in profilesEl.EnumerateArray())
+        {
+            var prefix = $"$.Hosting.profiles[{i}]";
+            if (profile.ValueKind != JsonValueKind.Object)
+            {
+                errors.Add((prefix, "Must be a JSON object."));
+                i++;
+                continue;
+            }
+
+            if (!profile.TryGetProperty("domain", out var domainEl) || domainEl.ValueKind != JsonValueKind.String)
+            {
+                errors.Add(($"{prefix}.domain", "domain is required."));
+            }
+            else
+            {
+                var domain = domainEl.GetString()?.Trim() ?? "";
+                if (!IsValidFqdn(domain))
+                    errors.Add(($"{prefix}.domain", "Must be a valid FQDN."));
+                else if (!seen.Add(domain))
+                    errors.Add(($"{prefix}.domain", "Duplicate domain."));
+            }
+
+            if (profile.TryGetProperty("acmeEmail", out var pAcme)
+                && pAcme.ValueKind == JsonValueKind.String
+                && !string.IsNullOrWhiteSpace(pAcme.GetString())
+                && !IsValidEmail(pAcme.GetString()!))
+            {
+                errors.Add(($"{prefix}.acmeEmail", "Must be a valid email address."));
+            }
+
+            var mirroring = profile.TryGetProperty("subdomainMirroringEnabled", out var mEl)
+                            && mEl.ValueKind == JsonValueKind.True;
+
+            if (mirroring)
+                ValidateProfileEdgeTls(profile, prefix, errors, currentForwarding);
+
+            i++;
+        }
+    }
+
+    private static void ValidateProfileEdgeTls(
+        JsonElement profile,
+        string prefix,
+        List<(string, string)> errors,
+        ForwardingOptions? currentForwarding)
+    {
+        if (!profile.TryGetProperty("edgeTls", out var edgeTls) || edgeTls.ValueKind != JsonValueKind.Object)
+        {
+            errors.Add(($"{prefix}.edgeTls", "edgeTls object is required when subdomainMirroringEnabled."));
+            return;
+        }
+
+        if (!edgeTls.TryGetProperty("provider", out var providerEl)
+            || providerEl.ValueKind != JsonValueKind.String
+            || !string.Equals(providerEl.GetString(), "cloudflare", StringComparison.OrdinalIgnoreCase))
+        {
+            errors.Add(($"{prefix}.edgeTls.provider", "Must be 'cloudflare'."));
+        }
+
+        if (!edgeTls.TryGetProperty("email", out var emailEl)
+            || emailEl.ValueKind != JsonValueKind.String
+            || string.IsNullOrWhiteSpace(emailEl.GetString()))
+        {
+            errors.Add(($"{prefix}.edgeTls.email", "email is required when mirroring enabled."));
+        }
+
+        if (!edgeTls.TryGetProperty("apiToken", out var tokenEl)
+            || tokenEl.ValueKind != JsonValueKind.String
+            || string.IsNullOrWhiteSpace(tokenEl.GetString())
+            || tokenEl.GetString() == "***")
+        {
+            errors.Add(($"{prefix}.edgeTls.apiToken", "apiToken is required when mirroring enabled."));
+        }
+
+        if (currentForwarding is null || currentForwarding.Domains.Length == 0)
+        {
+            errors.Add(($"{prefix}", "Forwarding.domains must be configured when mirroring enabled."));
+        }
+        else if (!HostMapper.HasWildcardDomain(currentForwarding.Domains))
+        {
+            errors.Add(($"{prefix}", "Forwarding.domains must include a wildcard when mirroring enabled."));
+        }
+    }
+
+    private static bool IsValidEmail(string value)
+        => value.Contains('@') && !value.StartsWith('@') && !value.EndsWith('@');
+
+    private static void ValidateSubdomainMirroringLegacy(
+        JsonElement body,
+        List<(string, string)> errors,
+        ForwardingOptions? currentForwarding)
+    {
+        if (body.ValueKind != JsonValueKind.Object)
+        {
+            errors.Add(("$.SubdomainMirroring", "Must be a JSON object. Use Hosting section instead."));
             return;
         }
 
@@ -295,45 +412,7 @@ public static class ConfigValidator
         if (!enabled)
             return;
 
-        if (string.IsNullOrWhiteSpace(motorPublicDomain))
-            errors.Add(("$.SubdomainMirroring", "Motor:PublicDomain bootstrap env is required when enabled."));
-
-        if (!body.TryGetProperty("edgeTls", out var edgeTls) || edgeTls.ValueKind != JsonValueKind.Object)
-        {
-            errors.Add(("$.SubdomainMirroring.edgeTls", "edgeTls object is required when enabled."));
-            return;
-        }
-
-        if (!edgeTls.TryGetProperty("provider", out var providerEl)
-            || providerEl.ValueKind != JsonValueKind.String
-            || !string.Equals(providerEl.GetString(), "cloudflare", StringComparison.OrdinalIgnoreCase))
-        {
-            errors.Add(("$.SubdomainMirroring.edgeTls.provider", "Must be 'cloudflare'."));
-        }
-
-        if (!edgeTls.TryGetProperty("email", out var emailEl)
-            || emailEl.ValueKind != JsonValueKind.String
-            || string.IsNullOrWhiteSpace(emailEl.GetString()))
-        {
-            errors.Add(("$.SubdomainMirroring.edgeTls.email", "email is required when enabled."));
-        }
-
-        if (!edgeTls.TryGetProperty("apiToken", out var tokenEl)
-            || tokenEl.ValueKind != JsonValueKind.String
-            || string.IsNullOrWhiteSpace(tokenEl.GetString())
-            || tokenEl.GetString() == "***")
-        {
-            errors.Add(("$.SubdomainMirroring.edgeTls.apiToken", "apiToken is required when enabled."));
-        }
-
-        if (currentForwarding is null || currentForwarding.Domains.Length == 0)
-        {
-            errors.Add(("$.SubdomainMirroring", "Forwarding.domains must be configured with a wildcard entry when enabled."));
-        }
-        else if (!HostMapper.HasWildcardDomain(currentForwarding.Domains))
-        {
-            errors.Add(("$.SubdomainMirroring", "Forwarding.domains must include at least one wildcard pattern (e.g. *.example.com) when enabled."));
-        }
+        errors.Add(("$.SubdomainMirroring", "Legacy section deprecated. Configure Hosting profiles instead."));
     }
 
     private static bool IsValidFqdn(string value)

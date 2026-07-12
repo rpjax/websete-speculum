@@ -83,7 +83,6 @@ public class ConfigStoreSeedTests : IDisposable
         Environment.SetEnvironmentVariable("HttpAddress", "127.0.0.1:8080");
         Environment.SetEnvironmentVariable("Database__Path", _dbPath);
         Environment.SetEnvironmentVariable("Sidecar__BaseUrl", "ws://127.0.0.1:3000");
-        Environment.SetEnvironmentVariable("Motor__PublicDomain", "speculum.test");
 
         var config = new ConfigurationBuilder().AddEnvironmentVariables().Build();
         var bootstrap = BootstrapConfig.Load(config);
@@ -105,7 +104,8 @@ public class ConfigStoreSeedTests : IDisposable
             sessionStore,
             env,
             NullLogger<SpeculumConfigStore>.Instance,
-            EmptyServiceProvider.Instance);
+            EmptyServiceProvider.Instance,
+            config);
     }
 
     private sealed class EmptyServiceProvider : IServiceProvider

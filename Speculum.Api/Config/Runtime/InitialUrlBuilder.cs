@@ -2,26 +2,30 @@ namespace Speculum.Api.Config.Runtime;
 
 public static class InitialUrlBuilder
 {
-    /// <summary>
-    /// Builds the virtual browser's initial URL from forwarding config and the client's current URL.
-    /// </summary>
     public static string Build(
+        MotorUrlAdapter adapter,
         ForwardingOptions forwarding,
         string clientUrl,
-        bool subdomainMirroringEnabled,
-        string motorPublicDomain)
+        HostingProfileOptions? profile,
+        string motorRequestHost)
     {
         ArgumentNullException.ThrowIfNull(forwarding);
+        ArgumentNullException.ThrowIfNull(adapter);
 
         if (string.IsNullOrWhiteSpace(forwarding.Host))
             throw new ArgumentException("Forwarding host is required.", nameof(forwarding));
 
-        if (!Uri.TryCreate(clientUrl, UriKind.Absolute, out var uri))
-            throw new ArgumentException("clientUrl must be an absolute URL.", nameof(clientUrl));
+        if (profile is null)
+            return adapter.ParseClientToTargetBootstrap(clientUrl, forwarding);
 
-        if (subdomainMirroringEnabled)
-            return HostMapper.MapClientToTarget(clientUrl, motorPublicDomain, forwarding);
-
-        return $"https://{forwarding.Host.Trim()}{uri.PathAndQuery}";
+        return adapter.ParseClientToTarget(clientUrl, profile, forwarding);
     }
+
+    public static string BuildNavigateTarget(
+        MotorUrlAdapter adapter,
+        ForwardingOptions forwarding,
+        string clientUrl,
+        HostingProfileOptions? profile,
+        string motorRequestHost)
+        => Build(adapter, forwarding, clientUrl, profile, motorRequestHost);
 }

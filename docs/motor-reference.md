@@ -11,17 +11,18 @@
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
-│ User browser — speculum-web (React)                                       │
+│ User browser — speculum.<domain> (same origin)                            │
 │   /           — canvas motor (SignalR client)                           │
 │   /admin/*    — admin panel (REST + Bearer)                               │
+│   /api, /vhub — Speculum.Api (.NET 10)                                    │
 └───────────────────────────────┬──────────────────────────────────────────┘
-                                │ HTTPS cross-origin
+                                │ internal Docker network
                                 ▼
 ┌──────────────────────────────────────────────────────────────────────────┐
-│ api.speculum.<domain> — Speculum.Api (.NET 10)                            │
-│  BootstrapConfig + CORS (dynamic when subdomain mirroring ON)             │
+│ Speculum.Api                                                              │
+│  BootstrapConfig + dynamic CORS (Hosting profiles)                        │
 │  ISpeculumConfigStore — SQLite runtime config                             │
-│  VirtualizationHub — StartSessionAsync(clientUrl, w, h, clientToken)      │
+│  VirtualizationHub — StartSessionAsync(clientUrl, w, h, SessionIdentity)  │
 │  BrowserSessionStore — Tier 4 state (cookies, LS, IDB, history)           │
 │  VSession — sidecar relay                                                 │
 └───────────────────────────────┬──────────────────────────────────────────┘
@@ -62,38 +63,36 @@ External main-frame navigation → sidecar sends `MSG_REDIRECT 0x0A` → client 
 
 ## 3. URL sync and subdomain mirroring
 
-### Apex mode (default)
+### Apex + NSO mode (default per profile)
 
-- Client URL bar stays on motor apex (`speculum.com/path`).
-- Target redirects that change subdomain are mapped to apex + path via `MSG_URL` + `history.pushState`.
-- Initial navigation: `InitialUrlBuilder` uses `https://{Forwarding.host}{clientPathAndQuery}`.
+- Client URL bar stays on motor apex (`speculum.com/path?_w7s_nso=…`).
+- Target subdomain is encoded in `_w7s_nso` (JSON `{ "v": 1, "h": "www" }`, base64; AES-GCM in Production).
+- Server maps sidecar URLs via `MotorUrlAdapter`; client uses `history.pushState` only (no subdomain redirect).
 
-### Subdomain mirroring (opt-in)
+### Subdomain mirroring (per Hosting profile)
 
-Section `SubdomainMirroring`:
+Section `Hosting`:
 
 ```json
 {
-  "enabled": true,
-  "edgeTls": {
-    "provider": "cloudflare",
-    "email": "admin@example.com",
-    "apiToken": "..."
-  }
+  "acmeEmail": "admin@example.com",
+  "profiles": [{
+    "domain": "speculum.com",
+    "subdomainMirroringEnabled": true,
+    "edgeTls": { "provider": "cloudflare", "email": "...", "apiToken": "..." }
+  }]
 }
 ```
 
-When **operational** (`enabled` + Cloudflare credentials + wildcard in `Forwarding.domains` + `Motor__PublicDomain`):
+When **operational** (mirroring ON + Cloudflare + wildcard in `Forwarding.domains`):
 
 - `HostMapper` maps client ↔ target hosts (e.g. `www.speculum.com` ↔ `www.olx.com.br`).
 - `MSG_URL` triggers `window.location.href` when the client host changes.
-- Session cookie uses `Domain=.<motorPublicDomain>`.
-
-When enabled but misconfigured, runtime **degrades to apex mode**; status is exposed at `GET /api/admin/config/status`.
+- Session cookie uses `Domain=.<profile.domain>`.
 
 **URL is never persisted or restored** across sessions.
 
-Public client bootstrap: `GET /api/public/client-config` → `{ motorPublicDomain, subdomainMirroringEnabled, forwardingHost }`.
+Public client bootstrap: `GET /api/public/client-config` → `{ nsoParamName, forwardingHost, mirroringEnabled, currentDomain, profiles[] }`.
 
 ---
 
@@ -101,9 +100,9 @@ Public client bootstrap: `GET /api/public/client-config` → `{ motorPublicDomai
 
 SQLite table `config_sections (key, value_json, updated_at)`.
 
-**Infrastructure (env only):** `HttpAddress`, `Database__Path`, `Sidecar__BaseUrl`, `Motor__PublicDomain`, `Cors__AllowedOrigins`, `ASPNETCORE_ENVIRONMENT`.
+**Infrastructure (env only):** `HttpAddress`, `Database__Path`, `Sidecar__BaseUrl`, `Traefik__Root`, `Traefik__DynamicDir`, `Traefik__DockerSocket`, `Cors__AllowedOrigins`, `ASPNETCORE_ENVIRONMENT`.
 
-**Motor sections (SQLite + Admin API):** `Forwarding`, `MaxSessions`, `ScriptInjection`, `SessionPolicy` (alias `SnapshotPolicy`), `SubdomainMirroring`, `JsBridge`.
+**Motor sections (SQLite + Admin API):** `Hosting`, `Forwarding`, `MaxSessions`, `ScriptInjection`, `SessionPolicy`, `JsBridge`. Legacy `SubdomainMirroring` migrates to `Hosting` on boot.
 
 **Admin section (SQLite, factory seed):** random `apiKey` on first boot (full key in dev logs; prefix only in production). Override with env `ADMIN_BOOTSTRAP_KEY` before first boot.
 
@@ -116,15 +115,15 @@ Operational requires: `Forwarding` (host + domains), `MaxSessions`. Subdomain mi
 
 Admin API: `PUT/GET/DELETE /api/admin/config/{section}` with `Authorization: Bearer {Admin.apiKey}`. `GET Admin` returns `{ "configured": true }` (key is never echoed).
 
-Changing `Forwarding` kills all active sessions.
+Changing `Forwarding` or `Hosting` kills all active sessions.
 
 ---
 
 ## 5. Session lifecycle
 
 1. React motor fetches `/api/public/client-config` and reads `speculum_client_token` cookie (or receives a new token from the hub).
-2. Motor connects SignalR to `api` host `/vhub`.
-3. `StartSessionAsync(clientUrl, w, h, clientToken)` resolves `client_token` → internal `session_id`, returns effective id for the hub connection.
+2. Motor connects SignalR to `/vhub` (same origin).
+3. `StartSessionAsync(clientUrl, w, h, SessionIdentity?)` resolves identity → internal `session_id`, returns client token.
 4. Hub checks `IsOperational`, `MaxSessions`, loads Tier 4 browser state by `session_id`.
 5. Sidecar: import state → Xvfb → Chrome → screencast → frames.
 6. Disconnect → CDP export (cookies, localStorage, IndexedDB, history) → SQLite relational store.
@@ -151,10 +150,10 @@ There is **no HTTP session cookie** for the motor; persistence is client token +
 When not operational:
 - React motor `fetch(/ready)` → redirect to `/setup`
 - `/admin` — configure via UI (Bearer API key)
-- `/health`, `/ready`, `/api/admin/config/status`, `/api/public/client-config`, `/vhub` negotiate — public on API host
-- `StartSessionAsync` throws `HubException` until configured
+- `/health`, `/ready`, `/api/admin/config/status`, `/api/public/client-config`, `/vhub` negotiate — public (same origin as the SPA)
+- `StartSessionAsync` throws `HubException` until Forwarding and MaxSessions are configured
 
-Subdomain mirroring status is shown separately; it does not block base motor readiness.
+Per-profile mirroring status is in `hosting.profiles`; it does not block base motor readiness.
 
 ---
 
@@ -164,8 +163,14 @@ Services: `traefik`, `sidecar`, `api` (`speculum-api`), `web` (`speculum-web`).
 
 **Canonical deploy:** [dockup](../deploy/README.md) from `deploy/` with `--root ..`.
 
-When subdomain mirroring is enabled in Admin, the API writes `/data/traefik/cloudflare.env` and `/data/traefik/dynamic/subdomain-wildcard.yml` on the shared volume. **Restart Traefik** after the first enable so it sources the Cloudflare token and issues the wildcard certificate.
+When subdomain mirroring is enabled on a **Hosting** profile, EdgeWriter materializes per-domain files under `/data/traefik/`:
+
+- `cloudflare-{domain-sanitized}.env` — Cloudflare DNS API token for DNS-01
+- `dynamic/wildcard-{domain-sanitized}.yml` — HTTPS + HTTP→HTTPS redirect for mirrored subdomains
+- `dynamic/motor.yml` — apex/www routers and shared `speculum-acme` redirect middleware
+
+Traefik reloads via file watch (`providers.file.watch=true`) and optional SIGHUP from the API (`Traefik__DockerSocket`).
 
 Optional reference compose (without dockup): [deploy/compose/docker-compose.reference.yml](../deploy/compose/docker-compose.reference.yml).
 
-Env: `TRAEFIK_MOTOR_DOMAIN`, `TRAEFIK_API_DOMAIN`, `Motor__PublicDomain`, `Cors__AllowedOrigins`, `HttpAddress`, `Database__Path`, `Sidecar__BaseUrl`, `Traefik__DynamicDir` (prod).
+Env (infra only): `HttpAddress`, `Database__Path`, `Sidecar__BaseUrl`, `Traefik__Root`, `Traefik__DynamicDir`, `Cors__AllowedOrigins`, `ASPNETCORE_ENVIRONMENT`. Motor domains in SQLite `Hosting`.

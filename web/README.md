@@ -1,6 +1,6 @@
 # Speculum Web
 
-React **single-page application** for the Speculum motor, first-run setup, and administration. Built with Vite, TypeScript, Tailwind CSS v4, and Radix-based UI primitives. Communicates with `Speculum.Api` over cross-origin HTTP/HTTPS (REST + SignalR with MessagePack).
+React **single-page application** for the Speculum motor, first-run setup, and administration. Built with Vite, TypeScript, Tailwind CSS v4, and Radix-based UI primitives. Communicates with `Speculum.Api` on the same host (REST + SignalR with MessagePack).
 
 ---
 
@@ -30,7 +30,7 @@ React **single-page application** for the Speculum motor, first-run setup, and a
 | `/admin/forwarding` | Forwarding section | Bearer |
 | `/admin/max-sessions` | MaxSessions section | Bearer |
 | `/admin/js-bridge` | JsBridge section | Bearer |
-| `/admin/subdomain-mirroring` | SubdomainMirroring (opt-in) | Bearer |
+| `/admin/hosting` | Hosting profiles (TLS, mirroring) | Bearer |
 | `/admin/session-policy` | SessionPolicy section | Bearer |
 | `/admin/script-injection` | ScriptInjection section | Bearer |
 | `/admin/scripts` | Upload / list injected scripts | Bearer |
@@ -47,12 +47,12 @@ web (nginx in prod)
   ├─ static assets (Vite build)
   └─ SPA fallback → index.html
 
-Browser ──► API host (VITE_API_URL)
+Browser ──► same host (relative `/api`, `/vhub`)
   ├─ fetch /ready, /api/admin/*
   └─ SignalR /vhub (MessagePack, credentials)
 ```
 
-The motor and admin call the **API origin** (`VITE_API_URL`), not the motor origin. CORS on the API must list the web origin.
+Same-origin by default (`API_URL = ''`). Traefik routes API paths on the motor host. Optional `VITE_API_URL` only for cross-origin Vite dev.
 
 ---
 
@@ -73,19 +73,15 @@ cp .env.example .env
 
 | Variable | Description |
 |----------|-------------|
-| `VITE_API_URL` | Full origin of Speculum.Api (no trailing slash) |
+| `VITE_API_URL` | Optional — omit for same-origin (dockup/prod). Set for cross-origin local dev only. |
 
 Examples:
 
 ```bash
-# Local dotnet run + Vite
+# Same-origin (default) — leave unset in .env
+
+# Vite dev against dotnet on :8080
 VITE_API_URL=http://localhost:8080
-
-# Dockup dev (Traefik HTTP on :8080)
-VITE_API_URL=http://api.speculum.localhost:8080
-
-# Production (baked into image at build time)
-VITE_API_URL=https://api.speculum.yourdomain.com
 ```
 
 `VITE_*` variables are embedded at **build time**. Changing them requires a rebuild (or `npm run dev` restart in development).
@@ -118,7 +114,7 @@ web/src/
 │   ├── api.ts          REST helpers
 │   ├── auth.ts         sessionStorage Bearer token
 │   ├── session-id.ts   client_token cookie + client-config fetch
-│   └── env.ts          VITE_API_URL accessor
+│   └── env.ts          API_URL (empty = same-origin)
 ├── App.tsx             React Router routes
 └── main.tsx
 ```
@@ -133,7 +129,7 @@ web/src/
 | `motor-engine.ts` | Canvas render, input capture, redirect handling, stream teardown |
 | `frame-decode.worker.ts` | Off-main-thread JPEG decode with latest-frame coalescing |
 
-Session identity: `speculum_client_token` cookie (domain depends on subdomain mirroring mode). Passed to `StartSessionAsync` for Tier 4 browser state restore. URL is never persisted.
+Session identity: `speculum_client_token` cookie (domain depends on mirroring mode). Passed as `SessionIdentity` to `StartSessionAsync` for Tier 4 browser state restore. URL is never persisted.
 
 Protocol details: [../docs/motor-reference.md](../docs/motor-reference.md).
 
@@ -143,7 +139,7 @@ Protocol details: [../docs/motor-reference.md](../docs/motor-reference.md).
 
 - API key entered on `/admin` login → stored in `sessionStorage`
 - All config mutations use `Authorization: Bearer <key>`
-- OpenAPI page fetches `/openapi/v1.json` from API host
+- OpenAPI page fetches `/openapi/v1.json` (same origin)
 
 ---
 
@@ -167,11 +163,9 @@ npm run preview
 ## Docker
 
 ```bash
-docker build --build-arg VITE_API_URL=https://api.example.com -t speculum-web .
+docker build -t speculum-web .
 ```
 
-`web/Dockerfile` builds the SPA and serves it with **nginx**. CSP `connect-src` is generated from `VITE_API_URL` (scheme-aware `ws`/`wss`).
-
-In dockup stacks, `VITE_API_URL` is set per environment in `speculum.dockup.example.json` build args.
+`web/Dockerfile` serves the SPA with **nginx**. CSP uses `connect-src 'self'` (same-origin API/SignalR via Traefik).
 
 Parent docs: [../readme.md](../readme.md) · [../deploy/README.md](../deploy/README.md)

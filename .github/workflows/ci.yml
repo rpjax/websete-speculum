@@ -42,8 +42,6 @@ jobs:
           node-version: '22'
       - name: Install, lint, and build
         working-directory: web
-        env:
-          VITE_API_URL: https://api.speculum.localhost
         run: |
           npm ci
           npm run lint

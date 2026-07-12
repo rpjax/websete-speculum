@@ -1,6 +1,6 @@
 # Speculum.Api.Tests
 
-Automated tests for `Speculum.Api` — config store, SSRF guard, HostMapper, browser session store, EdgeTls writer, viewport validation, and HTTP smoke tests via `WebApplicationFactory`.
+Automated tests for `Speculum.Api` — config store, SSRF guard, HostMapper, browser session store, EdgeWriter, viewport validation, and HTTP smoke tests via `WebApplicationFactory`.
 
 ## Run
 
@@ -19,7 +19,7 @@ dotnet test Speculum.sln -c Release
 | Test file | Focus |
 |-----------|-------|
 | `SmokeTests.cs` | Health, readiness, CORS, public client-config |
-| `ConfigStoreTests.cs` | Validators, HostMapper modes, subdomain evaluator, EdgeTlsWriter |
+| `ConfigStoreTests.cs` | Validators, HostMapper modes, EdgeWriter, hosting evaluator |
 | `DynamicCorsPolicyProviderTests.cs` | CORS apex vs subdomain mirroring modes |
 | `ConfigStoreSeedTests.cs` | Admin bootstrap seeding |
 | `SsrfGuardTests.cs` | Private IP blocking for script URLs |

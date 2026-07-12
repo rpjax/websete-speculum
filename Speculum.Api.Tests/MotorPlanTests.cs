@@ -179,12 +179,11 @@ public class ConfigValidatorScriptTests
         ConfigValidator.ValidateSection(
             ConfigSectionKeys.SubdomainMirroring,
             body,
-            "speculum.com",
             new ForwardingOptions { Host = "www.olx.com.br", Domains = ["olx.com.br"] });
     }
 
     [Fact]
-    public void SubdomainMirroring_WhenEnabled_RequiresWildcard()
+    public void SubdomainMirroring_WhenEnabled_IsDeprecated()
     {
         var body = System.Text.Json.JsonDocument.Parse("""
             {
@@ -197,15 +196,60 @@ public class ConfigValidatorScriptTests
             ConfigValidator.ValidateSection(
                 ConfigSectionKeys.SubdomainMirroring,
                 body,
-                "speculum.com",
                 new ForwardingOptions { Host = "www.olx.com.br", Domains = ["olx.com.br"] }));
 
-        Assert.Contains(ex.Errors, e => e.Message.Contains("wildcard"));
+        Assert.Contains(ex.Errors, e => e.Message.Contains("deprecated", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Hosting_WhenMirroringOnWithWildcard_Passes()
+    {
+        var body = System.Text.Json.JsonDocument.Parse("""
+            {
+              "acmeEmail": "admin@example.com",
+              "profiles": [{
+                "domain": "speculum.com",
+                "subdomainMirroringEnabled": true,
+                "edgeTls": { "provider": "cloudflare", "email": "a@b.com", "apiToken": "tok" }
+              }]
+            }
+            """).RootElement;
+
+        ConfigValidator.ValidateSection(
+            ConfigSectionKeys.Hosting,
+            body,
+            new ForwardingOptions { Host = "www.olx.com.br", Domains = ["olx.com.br", "*.olx.com.br"] });
+    }
+
+    [Fact]
+    public void Hosting_WhenMirroringOn_RequiresWildcard()
+    {
+        var body = System.Text.Json.JsonDocument.Parse("""
+            {
+              "acmeEmail": "admin@example.com",
+              "profiles": [{
+                "domain": "speculum.com",
+                "subdomainMirroringEnabled": true,
+                "edgeTls": { "provider": "cloudflare", "email": "a@b.com", "apiToken": "tok" }
+              }]
+            }
+            """).RootElement;
+
+        var ex = Assert.Throws<ConfigValidationException>(() =>
+            ConfigValidator.ValidateSection(
+                ConfigSectionKeys.Hosting,
+                body,
+                new ForwardingOptions { Host = "www.olx.com.br", Domains = ["olx.com.br"] }));
+
+        Assert.Contains(ex.Errors, e => e.Message.Contains("wildcard", StringComparison.OrdinalIgnoreCase));
     }
 }
 
 public class VSessionRegistryTests
 {
+    private static MotorUrlAdapter TestAdapter()
+        => new(new NavigationStateCodec(new byte[32], encrypt: false));
+
     [Fact]
     public void TryAcquireSlot_IsAtomic()
     {
@@ -224,6 +268,7 @@ public class VSessionRegistryTests
         var session  = new VSession(
             new Virtualization.Options.SidecarBrowserClientOptions { SidecarBaseUrl = "ws://localhost" },
             new SessionConfigSnapshot { InitialUrl = "https://example.com" },
+            TestAdapter(),
             NullLogger<VSession>.Instance);
 
         registry.TrackStarting("conn-1", session);
@@ -238,6 +283,7 @@ public class VSessionRegistryTests
         var session  = new VSession(
             new Virtualization.Options.SidecarBrowserClientOptions { SidecarBaseUrl = "ws://localhost" },
             new SessionConfigSnapshot { InitialUrl = "https://example.com" },
+            TestAdapter(),
             NullLogger<VSession>.Instance);
 
         Assert.True(registry.TryAcquireSlot(10));
@@ -254,6 +300,9 @@ public class VSessionRegistryTests
         public Task InitializeAsync(CancellationToken ct = default) => Task.CompletedTask;
         public Task<string> ResolveOrCreateSessionAsync(string clientToken, CancellationToken ct = default)
             => Task.FromResult(Guid.NewGuid().ToString("N"));
+        public Task<(string SessionId, string ClientToken)> ResolveOrCreateSessionAsync(
+            SessionIdentity identity, CancellationToken ct = default)
+            => Task.FromResult((Guid.NewGuid().ToString("N"), identity.ClientToken ?? Guid.NewGuid().ToString("N")));
         public Task<BrowserStatePayload?> LoadStateAsync(string sessionId, CancellationToken ct = default)
             => Task.FromResult<BrowserStatePayload?>(null);
         public Task SaveStateAsync(string sessionId, BrowserStatePayload state, CancellationToken ct = default)

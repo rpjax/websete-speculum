@@ -1,6 +1,8 @@
 using System.Net;
 using Speculum.Api.Admin;
 using Speculum.Api.Config.Bootstrap;
+using Speculum.Api.Config.Persistence;
+using Speculum.Api.Config.Runtime;
 using Speculum.Api.Config.Scripts;
 using Speculum.Api.Config.Store;
 using Speculum.Api.Hosting;
@@ -46,8 +48,17 @@ builder.Services.AddSingleton<IBrowserSessionStore>(sp =>
     new BrowserSessionStore(
         bootstrap.DatabasePath,
         sp.GetRequiredService<ILogger<BrowserSessionStore>>()));
-builder.Services.AddSingleton<EdgeTlsWriter>();
-builder.Services.AddHostedService(sp => sp.GetRequiredService<EdgeTlsWriter>());
+builder.Services.AddSingleton<MotorSecretsStore>(_ => new MotorSecretsStore(bootstrap.DatabasePath));
+builder.Services.AddSingleton<NavigationStateCodec>(sp =>
+{
+    var secrets = sp.GetRequiredService<MotorSecretsStore>();
+    var key = secrets.GetOrCreateNavigationStateKeyAsync().GetAwaiter().GetResult();
+    return new NavigationStateCodec(key, encrypt: !bootstrap.IsDevelopment);
+});
+builder.Services.AddSingleton<MotorUrlAdapter>();
+builder.Services.AddSingleton<TraefikReloader>();
+builder.Services.AddSingleton<EdgeWriter>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<EdgeWriter>());
 builder.Services.AddSingleton<ISpeculumConfigStore>(sp =>
     new SpeculumConfigStore(
         bootstrap.DatabasePath,
@@ -58,7 +69,8 @@ builder.Services.AddSingleton<ISpeculumConfigStore>(sp =>
         sp.GetRequiredService<IBrowserSessionStore>(),
         sp.GetRequiredService<IWebHostEnvironment>(),
         sp.GetRequiredService<ILogger<SpeculumConfigStore>>(),
-        sp));
+        sp,
+        sp.GetRequiredService<IConfiguration>()));
 
 builder.Services.AddHostedService<GracefulShutdownHostedService>();
 

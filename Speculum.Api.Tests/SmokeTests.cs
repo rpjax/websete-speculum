@@ -1,12 +1,14 @@
 namespace Speculum.Api.Tests;
 
-public sealed class SmokeTests : IClassFixture<SpeculumWebApplicationFactory>, IDisposable
+public sealed class SmokeTests : IDisposable
 {
+    private readonly SpeculumWebApplicationFactory _factory;
     private readonly HttpClient _client;
 
-    public SmokeTests(SpeculumWebApplicationFactory factory)
+    public SmokeTests()
     {
-        _client = factory.CreateClient();
+        _factory = new SpeculumWebApplicationFactory();
+        _client = _factory.CreateClient();
     }
 
     [Fact]
@@ -78,19 +80,27 @@ public sealed class SmokeTests : IClassFixture<SpeculumWebApplicationFactory>, I
     }
 
     [Fact]
-    public async Task Client_config_is_public()
+    public async Task Client_config_is_public_and_has_expected_shape()
     {
         var response = await _client.GetAsync("/api/public/client-config");
         response.EnsureSuccessStatusCode();
+
+        var json = await response.Content.ReadAsStringAsync();
+        using var doc = System.Text.Json.JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        Assert.True(root.TryGetProperty("nsoParamName", out _));
+        Assert.True(root.TryGetProperty("profiles", out var profiles));
+        Assert.Equal(System.Text.Json.JsonValueKind.Array, profiles.ValueKind);
     }
 
     public void Dispose()
     {
         _client.Dispose();
+        _factory.Dispose();
         try
         {
-            if (File.Exists(SpeculumWebApplicationFactory.DbPath))
-                File.Delete(SpeculumWebApplicationFactory.DbPath);
+            if (File.Exists(_factory.DbPath))
+                File.Delete(_factory.DbPath);
         }
         catch { /* best-effort */ }
     }

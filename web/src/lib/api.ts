@@ -16,6 +16,14 @@ export class ApiError extends Error {
 export interface ConfigStatus {
   operational: boolean
   missing: string[]
+  hosting?: {
+    profiles: Array<{
+      domain: string
+      subdomainMirroringEnabled: boolean
+      mirroringOperational: boolean
+      missing: string[]
+    }>
+  }
   subdomainMirroring?: {
     enabled: boolean
     operational: boolean

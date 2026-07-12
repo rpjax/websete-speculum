@@ -39,7 +39,7 @@ Open **http://speculum.localhost:8080** — no TLS setup required (dev uses plai
 
 1. Copy the bootstrap API key from the `api` container logs, or use **`password`** in dockup dev (`ADMIN_BOOTSTRAP_KEY`). If login fails after changing the key, run `docker compose down -v` in `out/dev` and redeploy.
 2. Go to **/admin** and sign in.
-3. Configure **Forwarding** (target site apex + navigation domains) and **MaxSessions**.
+3. Configure **Hosting** (motor domain) and **Forwarding** (target site apex + navigation domains) and **MaxSessions**.
 4. Open **/** to start the virtual browser.
 
 Full deploy guide: [deploy/README.md](deploy/README.md).
@@ -57,7 +57,7 @@ cd Speculum.Api && dotnet run
 cd web && cp .env.example .env && npm ci && npm run dev
 ```
 
-Set `VITE_API_URL=http://localhost:8080` in `web/.env`. Ensure API CORS includes `http://localhost:5173` (default when `Cors__AllowedOrigins` is unset in Development).
+Set `VITE_API_URL` only for cross-origin dev (optional). Default empty = same-origin relative `/api` and `/vhub`. Ensure API CORS includes your dev origin (default `http://localhost:5173` in Development).
 
 ---
 
@@ -87,13 +87,10 @@ Speculum/
 ## Architecture
 
 ```
-Browser  →  Traefik
-              ├─ TRAEFIK_MOTOR_DOMAIN   →  speculum-web (React)
-              └─ TRAEFIK_API_DOMAIN     →  speculum-api
-                                            ├─ SignalR /vhub
-                                            ├─ Admin /api/admin/*
-                                            └─ SQLite
-                                          →  sidecar (internal)
+Browser  →  Traefik (EdgeWriter routes)
+              ├─ PathPrefix /api, /vhub, …  →  speculum-api
+              └─ default                    →  speculum-web (React)
+                                            →  sidecar (internal)
 ```
 
 | Layer | Role |
@@ -103,7 +100,7 @@ Browser  →  Traefik
 | **Speculum.Api** | Sessions, config store, frame relay, OpenAPI |
 | **Sidecar** | Xvfb + Chrome + navigation guard + JPEG frames |
 
-**Dev hostnames:** `speculum.localhost` (web) and `api.speculum.localhost` (API) on port **8080** (HTTP).
+**Dev:** Traefik on port **8080** (HTTP). Same-origin — web, `/api`, and `/vhub` share one host. Virgin VPS: `http://<IP>/admin`.
 
 Deep dive: [docs/architecture.md](docs/architecture.md) · Motor internals: [docs/motor-reference.md](docs/motor-reference.md)
 
@@ -118,19 +115,21 @@ Deep dive: [docs/architecture.md](docs/architecture.md) · Motor internals: [doc
 | `HttpAddress` | Kestrel listen address (e.g. `0.0.0.0:8080`) |
 | `Database__Path` | SQLite path (e.g. `/data/speculum.db`) |
 | `Sidecar__BaseUrl` | Sidecar WebSocket (e.g. `ws://sidecar:3000`) |
-| `Cors__AllowedOrigins` | Semicolon-separated SPA origins |
-| `Motor__PublicDomain` | Public apex of the motor (e.g. `speculum.com`) |
+| `Cors__AllowedOrigins` | Dev SPA origins (semicolon-separated) |
+| `Traefik__Root` / `Traefik__DynamicDir` | EdgeWriter materialization paths |
 | `ASPNETCORE_ENVIRONMENT` | `Development` or `Production` |
+
+Motor domains and TLS are configured in Admin → **Hosting** (SQLite), not container env.
 
 ### Motor runtime (SQLite — via admin UI or REST)
 
 | Section | Required | Description |
 |---------|----------|-------------|
-| `Forwarding` | Yes | `host` (target site FQDN, e.g. `www.olx.com.br`) + `domains` (navigation allowlist) |
+| `Forwarding` | Yes | Target site apex + navigation allowlist |
 | `MaxSessions` | Yes | Concurrent session limit |
+| `Hosting` | No | Per-domain TLS, mirroring, Cloudflare (Admin → Hosting) |
 | `ScriptInjection` | No | `{ scriptId }` or `{ url }` entries |
 | `SessionPolicy` | No | `{ "ttlDays": 30 }` |
-| `SubdomainMirroring` | No | Opt-in subdomain URL mirror + Cloudflare wildcard TLS |
 | `JsBridge` | No | `{ "enable": true \| false }` |
 
 When not operational, the motor redirects to `/setup`.
@@ -141,9 +140,9 @@ When not operational, the motor redirects to `/setup`.
 
 ### Session persistence
 
-- Client: cookie `speculum_client_token` (apex or `.<motorPublicDomain>` when subdomain mirroring is operational)
+- Client: cookie `speculum_client_token` (host-only in apex+NSO mode; `.<profile.domain>` when mirroring operational)
 - Server: Tier 4 browser state in SQLite (`browser_sessions` + cookies, localStorage, IndexedDB, history tables)
-- `StartSessionAsync(clientUrl, w, h, clientToken)` returns the effective session id for SignalR
+- `StartSessionAsync(clientUrl, w, h, SessionIdentity?)` returns the effective client token for the cookie
 - **URL is never persisted** — only browser state crosses sessions
 
 ---
@@ -154,15 +153,15 @@ When not operational, the motor redirects to `/setup`.
 |----------|------|-------------|
 | `GET /health` | Public | Process alive |
 | `GET /ready` | Public | Motor configured and ready |
-| `GET /api/admin/config/status` | Public | `{ operational, missing, subdomainMirroring }` |
-| `GET /api/public/client-config` | Public | Motor domain + subdomain mirroring flag |
+| `GET /api/admin/config/status` | Public | `{ operational, missing, hosting }` (+ legacy `subdomainMirroring` aggregate) |
+| `GET /api/public/client-config` | Public | Hosting profiles, mirroring flags, NSO param name |
 | `GET/PUT/DELETE /api/admin/config/{section}` | Bearer | Runtime config sections |
 | `GET/DELETE /api/admin/sessions[/{sessionId}]` | Bearer | Session metadata and browser state drill-down |
 | `GET/POST/DELETE /api/admin/scripts[/{id}]` | Bearer | Injected script CRUD |
 
 OpenAPI (protected): `/openapi/v1.json`
 
-**Public surfaces:** `/health`, `/ready`, `/api/admin/config/status`, `/vhub` (SignalR negotiate). Protect the API host at the edge in production as needed.
+**Public surfaces:** `/health`, `/ready`, `/api/admin/config/status`, `/vhub` (SignalR negotiate). Restrict edge exposure in production as needed.
 
 Example requests: `Speculum.Api/Speculum.Api.http`
 

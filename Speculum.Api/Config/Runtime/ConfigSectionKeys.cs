@@ -8,6 +8,7 @@ public static class ConfigSectionKeys
     public const string ScriptInjection     = "ScriptInjection";
     public const string JsBridge            = "JsBridge";
     public const string SessionPolicy       = "SessionPolicy";
+    public const string Hosting             = "Hosting";
     public const string SubdomainMirroring  = "SubdomainMirroring";
 
     /// <summary>Legacy alias — reads/writes map to <see cref="SessionPolicy"/>.</summary>
@@ -21,6 +22,7 @@ public static class ConfigSectionKeys
         ScriptInjection,
         JsBridge,
         SessionPolicy,
+        Hosting,
         SubdomainMirroring,
     ];
 

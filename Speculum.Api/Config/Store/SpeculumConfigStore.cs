@@ -22,13 +22,13 @@ public sealed class SpeculumConfigStore : ISpeculumConfigStore
     };
 
     private readonly string _databasePath;
-    private readonly string _motorPublicDomain;
     private readonly ScriptResolver _scriptResolver;
     private readonly IInjectedScriptStore _scriptStore;
     private readonly IVSessionRegistry _sessionRegistry;
     private readonly IBrowserSessionStore _sessionStore;
     private readonly IWebHostEnvironment _env;
     private readonly IServiceProvider _services;
+    private readonly IConfiguration _configuration;
     private readonly ILogger<SpeculumConfigStore> _logger;
     private readonly object _lock = new();
 
@@ -48,17 +48,18 @@ public sealed class SpeculumConfigStore : ISpeculumConfigStore
         IBrowserSessionStore sessionStore,
         IWebHostEnvironment env,
         ILogger<SpeculumConfigStore> logger,
-        IServiceProvider services)
+        IServiceProvider services,
+        IConfiguration configuration)
     {
-        _databasePath      = databasePath;
-        _motorPublicDomain = bootstrap.MotorPublicDomain;
-        _scriptResolver    = scriptResolver;
-        _scriptStore       = scriptStore;
-        _sessionRegistry   = sessionRegistry;
-        _sessionStore      = sessionStore;
-        _env               = env;
-        _logger            = logger;
-        _services          = services;
+        _databasePath   = databasePath;
+        _scriptResolver = scriptResolver;
+        _scriptStore    = scriptStore;
+        _sessionRegistry = sessionRegistry;
+        _sessionStore   = sessionStore;
+        _env            = env;
+        _logger         = logger;
+        _services       = services;
+        _configuration  = configuration;
     }
 
     public SpeculumRuntimeConfig Current
@@ -96,8 +97,15 @@ public sealed class SpeculumConfigStore : ISpeculumConfigStore
         await using var db = CreateContext();
         await EnsureSchemaAsync(db, ct);
         await EnsureFactoryAdminSeedAsync(db, ct);
+        await MigrateLegacyConfigAsync(db, ct);
         await db.SaveChangesAsync(ct);
+
+        var secretsStore = _services.GetService<MotorSecretsStore>();
+        if (secretsStore is not null)
+            await secretsStore.GetOrCreateNavigationStateKeyAsync(ct);
+
         await ReloadAsync(db, ct, killSessionsOnForwardingChange: false);
+        _services.GetService<EdgeWriter>()?.Apply();
     }
 
     public async Task<ConfigUpdateResult> PutSectionAsync(string key, JsonElement body, CancellationToken ct = default)
@@ -107,12 +115,12 @@ public sealed class SpeculumConfigStore : ISpeculumConfigStore
         if (!ConfigSectionKeys.All.Contains(key))
             return Error($"Unknown configuration section '{key}'.");
 
-        if (key == ConfigSectionKeys.SubdomainMirroring)
-            body = await MergeSubdomainMirroringPutAsync(body, ct);
+        if (key == ConfigSectionKeys.Hosting)
+            body = await MergeHostingPutAsync(body, ct);
 
         try
         {
-            ConfigValidator.ValidateSection(key, body, _motorPublicDomain, Current.Forwarding);
+            ConfigValidator.ValidateSection(key, body, Current.Forwarding, Current.Hosting);
         }
         catch (ConfigValidationException ex)
         {
@@ -144,11 +152,11 @@ public sealed class SpeculumConfigStore : ISpeculumConfigStore
         if (key == ConfigSectionKeys.SessionPolicy)
             await _sessionStore.RefreshPolicyAsync(ct);
 
-        var killSessions = key == ConfigSectionKeys.Forwarding;
+        var killSessions = key is ConfigSectionKeys.Forwarding or ConfigSectionKeys.Hosting;
         var result = await ReloadAsync(db, ct, killSessions);
 
-        if (key == ConfigSectionKeys.SubdomainMirroring)
-            _services.GetService<EdgeTlsWriter>()?.Apply();
+        if (key == ConfigSectionKeys.Hosting)
+            _services.GetService<EdgeWriter>()?.Apply();
 
         return result;
     }
@@ -164,6 +172,12 @@ public sealed class SpeculumConfigStore : ISpeculumConfigStore
         var entity = await db.ConfigSections.AsNoTracking().FirstOrDefaultAsync(e => e.Key == key, ct);
         if (entity?.ValueJson is null)
         {
+            if (key == ConfigSectionKeys.Hosting)
+            {
+                using var doc = JsonDocument.Parse("""{"acmeEmail":"","profiles":[]}""");
+                return doc.RootElement.Clone();
+            }
+
             if (key == ConfigSectionKeys.SubdomainMirroring)
             {
                 using var doc = JsonDocument.Parse("""{"enabled":false}""");
@@ -172,6 +186,9 @@ public sealed class SpeculumConfigStore : ISpeculumConfigStore
 
             return null;
         }
+
+        if (key == ConfigSectionKeys.Hosting)
+            return MaskHosting(entity.ValueJson);
 
         if (key == ConfigSectionKeys.SubdomainMirroring)
             return MaskSubdomainMirroring(entity.ValueJson);
@@ -202,38 +219,97 @@ public sealed class SpeculumConfigStore : ISpeculumConfigStore
         if (key == ConfigSectionKeys.SessionPolicy)
             await _sessionStore.RefreshPolicyAsync(ct);
 
-        var killSessions = key == ConfigSectionKeys.Forwarding;
+        var killSessions = key is ConfigSectionKeys.Forwarding or ConfigSectionKeys.Hosting;
         var result = await ReloadAsync(db, ct, killSessions);
 
-        if (key == ConfigSectionKeys.SubdomainMirroring)
-            _services.GetService<EdgeTlsWriter>()?.Apply();
+        if (key == ConfigSectionKeys.Hosting)
+            _services.GetService<EdgeWriter>()?.Apply();
 
         return result;
     }
 
-    private async Task<JsonElement> MergeSubdomainMirroringPutAsync(JsonElement body, CancellationToken ct)
+    private async Task MigrateLegacyConfigAsync(SpeculumDbContext db, CancellationToken ct)
     {
-        if (!body.TryGetProperty("edgeTls", out var edgeTls)
-            || edgeTls.ValueKind != JsonValueKind.Object
-            || !edgeTls.TryGetProperty("apiToken", out var tokenEl)
-            || tokenEl.ValueKind != JsonValueKind.String
-            || tokenEl.GetString() != "***")
+        var existing = await db.ConfigSections.AsNoTracking()
+            .FirstOrDefaultAsync(e => e.Key == ConfigSectionKeys.Hosting, ct);
+
+        // Hosting section exists (even with empty profiles) — never re-run legacy migration.
+        if (existing is not null)
+            return;
+
+        var legacyDomain = _configuration["Motor:PublicDomain"]?.Trim()
+                           ?? Environment.GetEnvironmentVariable("Motor__PublicDomain")?.Trim();
+
+        SubdomainMirroringOptions? legacyMirroring = null;
+        var mirroringEntity = await db.ConfigSections.AsNoTracking()
+            .FirstOrDefaultAsync(e => e.Key == ConfigSectionKeys.SubdomainMirroring, ct);
+        if (mirroringEntity?.ValueJson is not null)
+        {
+            legacyMirroring = JsonSerializer.Deserialize<SubdomainMirroringOptions>(
+                mirroringEntity.ValueJson, JsonOptions);
+        }
+
+        if (string.IsNullOrWhiteSpace(legacyDomain) && legacyMirroring?.Enabled != true)
+            return;
+
+        var profiles = new List<HostingProfileOptions>();
+
+        if (!string.IsNullOrWhiteSpace(legacyDomain))
+        {
+            profiles.Add(new HostingProfileOptions
+            {
+                Domain = legacyDomain,
+                SubdomainMirroringEnabled = legacyMirroring?.Enabled == true,
+                EdgeTls = legacyMirroring?.Enabled == true ? legacyMirroring.EdgeTls : null,
+            });
+        }
+
+        if (profiles.Count == 0)
+            return;
+
+        var acmeEmail = legacyMirroring?.EdgeTls?.Email?.Trim() ?? "";
+        var hostingJson = JsonSerializer.Serialize(new HostingOptions
+        {
+            AcmeEmail = acmeEmail,
+            Profiles  = profiles,
+        }, JsonOptions);
+
+        var updatedAt = DateTimeOffset.UtcNow.ToString("O");
+        await db.Database.ExecuteSqlRawAsync(
+            """
+            INSERT INTO config_sections (key, value_json, updated_at)
+            VALUES ({0}, {1}, {2})
+            ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at
+            """,
+            [ConfigSectionKeys.Hosting, hostingJson, updatedAt],
+            ct);
+
+        _logger.LogInformation(
+            "Migrated legacy Motor:PublicDomain / SubdomainMirroring into Hosting profiles.");
+    }
+
+    private async Task<JsonElement> MergeHostingPutAsync(JsonElement body, CancellationToken ct)
+    {
+        if (body.ValueKind != JsonValueKind.Object
+            || !body.TryGetProperty("profiles", out var profiles)
+            || profiles.ValueKind != JsonValueKind.Array)
         {
             return body;
         }
 
-        var existing = await GetSectionRawAsync(ConfigSectionKeys.SubdomainMirroring, ct);
-        if (existing is null)
-            return body;
-
-        using var existingDoc = JsonDocument.Parse(existing);
-        var existingToken = existingDoc.RootElement.TryGetProperty("edgeTls", out var existingEdge)
-                            && existingEdge.TryGetProperty("apiToken", out var existingTokenEl)
-            ? existingTokenEl.GetString()
-            : null;
-
-        if (string.IsNullOrWhiteSpace(existingToken))
-            return body;
+        var existing = await GetSectionRawAsync(ConfigSectionKeys.Hosting, ct);
+        Dictionary<string, string>? tokenByDomain = null;
+        if (existing is not null)
+        {
+            try
+            {
+                var prev = JsonSerializer.Deserialize<HostingOptions>(existing, JsonOptions);
+                tokenByDomain = prev?.Profiles
+                    .Where(p => p.EdgeTls?.ApiToken is not null)
+                    .ToDictionary(p => p.Domain, p => p.EdgeTls!.ApiToken!, StringComparer.OrdinalIgnoreCase);
+            }
+            catch { /* ignore */ }
+        }
 
         using var stream = new MemoryStream();
         using (var writer = new Utf8JsonWriter(stream))
@@ -241,25 +317,71 @@ public sealed class SpeculumConfigStore : ISpeculumConfigStore
             writer.WriteStartObject();
             foreach (var prop in body.EnumerateObject())
             {
-                if (prop.NameEquals("edgeTls"))
+                if (!prop.NameEquals("profiles"))
                 {
-                    writer.WritePropertyName("edgeTls");
-                    writer.WriteStartObject();
-                    foreach (var edgeProp in edgeTls.EnumerateObject())
-                    {
-                        if (edgeProp.NameEquals("apiToken"))
-                        {
-                            writer.WriteString("apiToken", existingToken);
-                            continue;
-                        }
-
-                        edgeProp.WriteTo(writer);
-                    }
-                    writer.WriteEndObject();
+                    prop.WriteTo(writer);
                     continue;
                 }
 
-                prop.WriteTo(writer);
+                writer.WritePropertyName("profiles");
+                writer.WriteStartArray();
+                foreach (var profile in profiles.EnumerateArray())
+                {
+                    if (profile.ValueKind != JsonValueKind.Object)
+                    {
+                        profile.WriteTo(writer);
+                        continue;
+                    }
+
+                    var domain = profile.TryGetProperty("domain", out var dEl) && dEl.ValueKind == JsonValueKind.String
+                        ? dEl.GetString()?.Trim() ?? ""
+                        : "";
+
+                    var needsTokenMerge = profile.TryGetProperty("edgeTls", out var edgeTls)
+                                          && edgeTls.ValueKind == JsonValueKind.Object
+                                          && edgeTls.TryGetProperty("apiToken", out var tokenEl)
+                                          && tokenEl.ValueKind == JsonValueKind.String
+                                          && tokenEl.GetString() == "***";
+
+                    string? existingToken = null;
+                    if (needsTokenMerge && tokenByDomain is not null && !string.IsNullOrEmpty(domain)
+                        && tokenByDomain.TryGetValue(domain, out var byDomain))
+                    {
+                        existingToken = byDomain;
+                    }
+
+                    if (!needsTokenMerge || existingToken is null)
+                    {
+                        profile.WriteTo(writer);
+                        continue;
+                    }
+
+                    writer.WriteStartObject();
+                    foreach (var p in profile.EnumerateObject())
+                    {
+                        if (!p.NameEquals("edgeTls"))
+                        {
+                            p.WriteTo(writer);
+                            continue;
+                        }
+
+                        writer.WritePropertyName("edgeTls");
+                        writer.WriteStartObject();
+                        foreach (var ep in edgeTls.EnumerateObject())
+                        {
+                            if (ep.NameEquals("apiToken"))
+                            {
+                                writer.WriteString("apiToken", existingToken);
+                                continue;
+                            }
+
+                            ep.WriteTo(writer);
+                        }
+                        writer.WriteEndObject();
+                    }
+                    writer.WriteEndObject();
+                }
+                writer.WriteEndArray();
             }
             writer.WriteEndObject();
         }
@@ -273,6 +395,72 @@ public sealed class SpeculumConfigStore : ISpeculumConfigStore
         await using var db = CreateContext();
         var entity = await db.ConfigSections.AsNoTracking().FirstOrDefaultAsync(e => e.Key == key, ct);
         return entity?.ValueJson;
+    }
+
+    private static JsonElement MaskHosting(string json)
+    {
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+
+        if (!root.TryGetProperty("profiles", out var profiles) || profiles.ValueKind != JsonValueKind.Array)
+            return root.Clone();
+
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            writer.WriteStartObject();
+            foreach (var prop in root.EnumerateObject())
+            {
+                if (!prop.NameEquals("profiles"))
+                {
+                    prop.WriteTo(writer);
+                    continue;
+                }
+
+                writer.WritePropertyName("profiles");
+                writer.WriteStartArray();
+                foreach (var profile in profiles.EnumerateArray())
+                {
+                    if (profile.ValueKind != JsonValueKind.Object
+                        || !profile.TryGetProperty("edgeTls", out var edgeTls)
+                        || edgeTls.ValueKind != JsonValueKind.Object)
+                    {
+                        profile.WriteTo(writer);
+                        continue;
+                    }
+
+                    writer.WriteStartObject();
+                    foreach (var p in profile.EnumerateObject())
+                    {
+                        if (!p.NameEquals("edgeTls"))
+                        {
+                            p.WriteTo(writer);
+                            continue;
+                        }
+
+                        writer.WritePropertyName("edgeTls");
+                        writer.WriteStartObject();
+                        foreach (var ep in edgeTls.EnumerateObject())
+                        {
+                            if (ep.NameEquals("apiToken") && ep.Value.ValueKind == JsonValueKind.String)
+                            {
+                                writer.WriteString("apiToken", "***");
+                                continue;
+                            }
+
+                            ep.WriteTo(writer);
+                        }
+                        writer.WriteEndObject();
+                    }
+                    writer.WriteEndObject();
+                }
+                writer.WriteEndArray();
+            }
+            writer.WriteEndObject();
+        }
+
+        using var masked = JsonDocument.Parse(stream.ToArray());
+        return masked.RootElement.Clone();
     }
 
     private static JsonElement MaskSubdomainMirroring(string json)
@@ -398,8 +586,8 @@ public sealed class SpeculumConfigStore : ISpeculumConfigStore
         var forwarding      = ParseForwarding(map);
         var maxSessions     = ParseMaxSessions(map);
         var scriptInjection = ParseScriptInjection(map);
-        var jsBridgeEnabled      = ParseJsBridge(map);
-        var subdomainMirroring   = ParseSubdomainMirroring(map);
+        var jsBridgeEnabled = ParseJsBridge(map);
+        var hosting         = ParseHosting(map);
 
         IReadOnlyList<Virtualization.Sidecar.ScriptPayload> resolvedScripts = [];
         var scriptWarnings = new List<string>();
@@ -417,8 +605,13 @@ public sealed class SpeculumConfigStore : ISpeculumConfigStore
             }
         }
 
-        var (subOp, subMissing) = SubdomainMirroringEvaluator.Evaluate(
-            subdomainMirroring, forwarding, _motorPublicDomain);
+        var profileStatuses = HostingEvaluator.EvaluateAll(hosting, forwarding);
+        var anyMirroringEnabled = hosting.Profiles.Any(p => p.SubdomainMirroringEnabled);
+        var anyMirroringOperational = profileStatuses.Any(p => p.SubdomainMirroringEnabled && p.MirroringOperational);
+        var mirroringMissing = profileStatuses
+            .Where(p => p.SubdomainMirroringEnabled && !p.MirroringOperational)
+            .SelectMany(p => p.Missing.Select(m => $"{p.Domain}:{m}"))
+            .ToArray();
 
         var runtime = new SpeculumRuntimeConfig
         {
@@ -428,10 +621,11 @@ public sealed class SpeculumConfigStore : ISpeculumConfigStore
             ScriptInjection                 = scriptInjection,
             JsBridgeEnabled                 = jsBridgeEnabled,
             ResolvedScripts                 = resolvedScripts,
-            SubdomainMirroring              = subdomainMirroring,
-            SubdomainMirroringEnabled       = subdomainMirroring.Enabled,
-            IsSubdomainMirroringOperational = subOp,
-            MissingSubdomainMirroring       = subMissing,
+            Hosting                         = hosting,
+            HostingProfileStatuses          = profileStatuses,
+            SubdomainMirroringEnabled       = anyMirroringEnabled,
+            IsSubdomainMirroringOperational = anyMirroringOperational,
+            MissingSubdomainMirroring       = mirroringMissing,
         };
 
         var missing = ComputeMissing(runtime);
@@ -439,12 +633,12 @@ public sealed class SpeculumConfigStore : ISpeculumConfigStore
 
         lock (_lock)
         {
-            _current                          = runtime;
-            _isOperational                    = operational;
-            _missingRequired                  = missing;
-            _subdomainMirroringEnabled        = subdomainMirroring.Enabled;
-            _isSubdomainMirroringOperational  = subOp;
-            _missingSubdomainMirroring        = subMissing;
+            _current                         = runtime;
+            _isOperational                   = operational;
+            _missingRequired                 = missing;
+            _subdomainMirroringEnabled       = anyMirroringEnabled;
+            _isSubdomainMirroringOperational = anyMirroringOperational;
+            _missingSubdomainMirroring       = mirroringMissing;
         }
 
         return new ConfigUpdateResult
@@ -452,8 +646,8 @@ public sealed class SpeculumConfigStore : ISpeculumConfigStore
             Success                         = true,
             IsOperational                   = operational,
             MissingRequired                 = missing,
-            IsSubdomainMirroringOperational = subOp,
-            MissingSubdomainMirroring       = subMissing,
+            IsSubdomainMirroringOperational = anyMirroringOperational,
+            MissingSubdomainMirroring       = mirroringMissing,
             Errors                          = scriptWarnings.Count > 0 ? scriptWarnings.ToArray() : [],
         };
     }
@@ -509,13 +703,13 @@ public sealed class SpeculumConfigStore : ISpeculumConfigStore
         return JsonSerializer.Deserialize<ScriptInjectionEntry[]>(json, JsonOptions) ?? [];
     }
 
-    private static SubdomainMirroringOptions ParseSubdomainMirroring(IReadOnlyDictionary<string, string> map)
+    private static HostingOptions ParseHosting(IReadOnlyDictionary<string, string> map)
     {
-        if (!map.TryGetValue(ConfigSectionKeys.SubdomainMirroring, out var json))
-            return new SubdomainMirroringOptions();
+        if (!map.TryGetValue(ConfigSectionKeys.Hosting, out var json))
+            return new HostingOptions();
 
-        return JsonSerializer.Deserialize<SubdomainMirroringOptions>(json, JsonOptions)
-               ?? new SubdomainMirroringOptions();
+        return JsonSerializer.Deserialize<HostingOptions>(json, JsonOptions)
+               ?? new HostingOptions();
     }
 
     private static bool ParseJsBridge(IReadOnlyDictionary<string, string> map)

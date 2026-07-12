@@ -30,4 +30,4 @@ Technical documentation for the **Speculum** remote browser isolation platform (
 
 - **Deploy:** always use `deploy/` + dockup. Do not hand-edit `deploy/out/` — it is generated.
 - **Configuration:** infrastructure via environment variables; motor behaviour via SQLite + Admin API.
-- **Domains:** motor UI and API run on separate hostnames (Traefik routes by `Host`).
+- **Domains:** same-origin — SPA, `/api`, and `/vhub` share one motor host; EdgeWriter materializes Traefik routes per **Hosting** profile.

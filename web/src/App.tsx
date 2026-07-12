@@ -8,7 +8,7 @@ import ForwardingPage from '@/features/admin/ForwardingPage'
 import MaxSessionsPage from '@/features/admin/MaxSessionsPage'
 import JsBridgePage from '@/features/admin/JsBridgePage'
 import SessionPolicyPage from '@/features/admin/SessionPolicyPage'
-import SubdomainMirroringPage from '@/features/admin/SubdomainMirroringPage'
+import HostingPage from '@/features/admin/HostingPage'
 import ScriptInjectionPage from '@/features/admin/ScriptInjectionPage'
 import ScriptsPage from '@/features/admin/ScriptsPage'
 import SessionsPage from '@/features/admin/SessionsPage'
@@ -32,7 +32,7 @@ export default function App() {
             <Route path="max-sessions" element={<MaxSessionsPage />} />
             <Route path="js-bridge" element={<JsBridgePage />} />
             <Route path="session-policy" element={<SessionPolicyPage />} />
-            <Route path="subdomain-mirroring" element={<SubdomainMirroringPage />} />
+            <Route path="hosting" element={<HostingPage />} />
             <Route path="script-injection" element={<ScriptInjectionPage />} />
             <Route path="scripts" element={<ScriptsPage />} />
             <Route path="sessions" element={<SessionsPage />} />

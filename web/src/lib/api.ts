@@ -16,14 +16,31 @@ export class ApiError extends Error {
 export interface ConfigStatus {
   operational: boolean
   missing: string[]
+  subdomainMirroring?: {
+    enabled: boolean
+    operational: boolean
+    missing: string[]
+  }
 }
 
-export interface SnapshotMeta {
+export interface SessionMeta {
   sessionId: string
-  lastUrl: string
-  byteSize: number
+  clientToken: string
   updatedAt: string
   expiresAt: string
+  cookieCount: number
+  localStorageCount: number
+  idbRecordCount: number
+  historyCount: number
+}
+
+export interface SessionDetail {
+  sessionId: string
+  clientToken: string
+  cookies: Array<{ name: string; domain: string; path: string; value: string }>
+  localStorage: Array<{ origin: string; key: string; value: string }>
+  idbRecords: Array<{ origin: string; databaseName: string; storeName: string; keyJson: string }>
+  history: Array<{ url: string; title: string; indexOrder: number }>
 }
 
 export interface ScriptMeta {
@@ -86,9 +103,12 @@ export const api = {
     request(`/api/admin/config/${section}`, { method: 'PUT', body: JSON.stringify(body) }),
   deleteSection: (section: string) =>
     request(`/api/admin/config/${section}`, { method: 'DELETE' }),
-  listSnapshots: () => request<SnapshotMeta[]>('/api/admin/snapshots'),
-  deleteSnapshot: (sessionId: string) =>
-    request(`/api/admin/snapshots/${sessionId}`, { method: 'DELETE' }),
+  get: <T = unknown>(path: string) => request<T>(path),
+  delete: (path: string) => request(path, { method: 'DELETE' }),
+  listSessions: () => request<SessionMeta[]>('/api/admin/sessions'),
+  getSession: (sessionId: string) => request<SessionDetail>(`/api/admin/sessions/${sessionId}`),
+  deleteSession: (sessionId: string) =>
+    request(`/api/admin/sessions/${sessionId}`, { method: 'DELETE' }),
   listScripts: () => request<ScriptMeta[]>('/api/admin/scripts'),
   uploadScript: (file: File, name?: string) => {
     const form = new FormData()

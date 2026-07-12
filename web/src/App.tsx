@@ -7,10 +7,12 @@ import DashboardPage from '@/features/admin/DashboardPage'
 import ForwardingPage from '@/features/admin/ForwardingPage'
 import MaxSessionsPage from '@/features/admin/MaxSessionsPage'
 import JsBridgePage from '@/features/admin/JsBridgePage'
-import SnapshotPolicyPage from '@/features/admin/SnapshotPolicyPage'
+import SessionPolicyPage from '@/features/admin/SessionPolicyPage'
+import SubdomainMirroringPage from '@/features/admin/SubdomainMirroringPage'
 import ScriptInjectionPage from '@/features/admin/ScriptInjectionPage'
 import ScriptsPage from '@/features/admin/ScriptsPage'
-import SnapshotsPage from '@/features/admin/SnapshotsPage'
+import SessionsPage from '@/features/admin/SessionsPage'
+import SessionDetailPage from '@/features/admin/SessionDetailPage'
 import AdminKeyPage from '@/features/admin/AdminKeyPage'
 import OpenApiPage from '@/features/admin/OpenApiPage'
 
@@ -29,10 +31,12 @@ export default function App() {
             <Route path="forwarding" element={<ForwardingPage />} />
             <Route path="max-sessions" element={<MaxSessionsPage />} />
             <Route path="js-bridge" element={<JsBridgePage />} />
-            <Route path="snapshot-policy" element={<SnapshotPolicyPage />} />
+            <Route path="session-policy" element={<SessionPolicyPage />} />
+            <Route path="subdomain-mirroring" element={<SubdomainMirroringPage />} />
             <Route path="script-injection" element={<ScriptInjectionPage />} />
             <Route path="scripts" element={<ScriptsPage />} />
-            <Route path="snapshots" element={<SnapshotsPage />} />
+            <Route path="sessions" element={<SessionsPage />} />
+            <Route path="sessions/:sessionId" element={<SessionDetailPage />} />
             <Route path="api-key" element={<AdminKeyPage />} />
             <Route path="openapi" element={<OpenApiPage />} />
           </Route>

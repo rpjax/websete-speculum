@@ -2,8 +2,7 @@ import * as http             from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { DisplayManager }            from './DisplayManager';
 import { Session }                   from './Session';
-import { mergeProfiles }             from './ProfileMerger';
-import { sendProfileChunks }         from './ProfileArchive';
+import { BrowserStatePayload }       from './BrowserState';
 import { CreateMessage, decodeMessage } from './Protocol';
 
 const PORT = parseInt(process.env['SIDECAR_PORT'] ?? '3000', 10);
@@ -37,27 +36,10 @@ wss.on('connection', (ws: WebSocket) => {
         const msg  = decodeMessage(text);
         if (!msg) return;
 
-        if (msg.type === 'mergeProfiles' && 'baseBlob' in msg && 'incomingBlob' in msg) {
-            try {
-                const base     = Buffer.from(msg.baseBlob, 'base64');
-                const incoming = Buffer.from(msg.incomingBlob, 'base64');
-                const merged   = await mergeProfiles(base, incoming);
-                sendProfileChunks(ws, merged);
-                ws.send(JSON.stringify({ type: 'mergeDone', byteSize: merged.length }));
-            } catch (err) {
-                const message = (err as Error).message;
-                console.warn('[sidecar] Profile merge failed:', message);
-                if (ws.readyState === ws.OPEN) {
-                    ws.send(JSON.stringify({ type: 'mergeError', message }));
-                }
-            }
-            return;
-        }
-
         if (msg.type === 'create') {
             const {
                 sessionId, width, height, url, scripts = [],
-                jsBridgeEnabled = false, allowedNavigationDomains, profileBlob,
+                jsBridgeEnabled = false, allowedNavigationDomains, browserState,
             } = msg as CreateMessage;
 
             if (session) {
@@ -77,14 +59,9 @@ wss.on('connection', (ws: WebSocket) => {
             try {
                 display = await DisplayManager.start(displayNum, width, height);
 
-                let profileBuffer: Buffer | undefined;
-                if (profileBlob) {
-                    profileBuffer = Buffer.from(profileBlob, 'base64');
-                }
-
                 session = await Session.create(
                     sessionId, ws, display, width, height, url, scripts,
-                    jsBridgeEnabled, allowedNavigationDomains, profileBuffer,
+                    jsBridgeEnabled, allowedNavigationDomains, browserState,
                 );
                 activeSessions.add(session);
 
@@ -103,15 +80,16 @@ wss.on('connection', (ws: WebSocket) => {
             return;
         }
 
-        if (msg.type === 'snapshot') {
+        if (msg.type === 'exportState') {
             if (!session) return;
             try {
-                await session.captureSnapshot();
+                const state = await session.captureState();
+                ws.send(JSON.stringify({ type: 'stateExport', state }));
             } catch (err) {
                 const message = (err as Error).message;
-                console.warn(`[${session?.sessionId}] Snapshot failed:`, message);
+                console.warn(`[${session?.sessionId}] State export failed:`, message);
                 if (ws.readyState === ws.OPEN) {
-                    ws.send(JSON.stringify({ type: 'snapshotError', message }));
+                    ws.send(JSON.stringify({ type: 'stateExportError', message }));
                 }
             }
             return;

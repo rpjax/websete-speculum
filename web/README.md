@@ -1,6 +1,6 @@
 # Speculum Web
 
-React **single-page application** for the Speculum motor, first-run setup, and administration. Built with Vite, TypeScript, Tailwind CSS v4, and Radix-based UI primitives. Communicates with `Speculum.Api` over cross-origin HTTPS (REST + SignalR with MessagePack).
+React **single-page application** for the Speculum motor, first-run setup, and administration. Built with Vite, TypeScript, Tailwind CSS v4, and Radix-based UI primitives. Communicates with `Speculum.Api` over cross-origin HTTP/HTTPS (REST + SignalR with MessagePack).
 
 ---
 
@@ -30,10 +30,11 @@ React **single-page application** for the Speculum motor, first-run setup, and a
 | `/admin/forwarding` | Forwarding section | Bearer |
 | `/admin/max-sessions` | MaxSessions section | Bearer |
 | `/admin/js-bridge` | JsBridge section | Bearer |
-| `/admin/snapshot-policy` | SnapshotPolicy section | Bearer |
+| `/admin/subdomain-mirroring` | SubdomainMirroring (opt-in) | Bearer |
+| `/admin/session-policy` | SessionPolicy section | Bearer |
 | `/admin/script-injection` | ScriptInjection section | Bearer |
 | `/admin/scripts` | Upload / list injected scripts | Bearer |
-| `/admin/snapshots` | Browser profile snapshots | Bearer |
+| `/admin/sessions` | Browser sessions drill-down | Bearer |
 | `/admin/api-key` | Rotate admin key | Bearer |
 | `/admin/openapi` | Embedded OpenAPI viewer | Bearer |
 
@@ -80,8 +81,8 @@ Examples:
 # Local dotnet run + Vite
 VITE_API_URL=http://localhost:8080
 
-# Dockup dev (Traefik HTTPS on :8443)
-VITE_API_URL=https://api.speculum.localhost:8443
+# Dockup dev (Traefik HTTP on :8080)
+VITE_API_URL=http://api.speculum.localhost:8080
 
 # Production (baked into image at build time)
 VITE_API_URL=https://api.speculum.yourdomain.com
@@ -116,7 +117,7 @@ web/src/
 ├── lib/
 │   ├── api.ts          REST helpers
 │   ├── auth.ts         sessionStorage Bearer token
-│   ├── session-id.ts   localStorage session id
+│   ├── session-id.ts   client_token cookie + client-config fetch
 │   └── env.ts          VITE_API_URL accessor
 ├── App.tsx             React Router routes
 └── main.tsx
@@ -132,7 +133,7 @@ web/src/
 | `motor-engine.ts` | Canvas render, input capture, redirect handling, stream teardown |
 | `frame-decode.worker.ts` | Off-main-thread JPEG decode with latest-frame coalescing |
 
-Session id: persisted as `speculum_session_id` in `localStorage`. Passed to `StartSessionAsync` for profile restore.
+Session identity: `speculum_client_token` cookie (domain depends on subdomain mirroring mode). Passed to `StartSessionAsync` for Tier 4 browser state restore. URL is never persisted.
 
 Protocol details: [../docs/motor-reference.md](../docs/motor-reference.md).
 

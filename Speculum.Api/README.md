@@ -25,7 +25,8 @@ ASP.NET Core **API-only** backend for Speculum. Hosts the SignalR virtualization
 | Session orchestration | `VirtualizationHub` → `VSessionRegistry` → `VSession` |
 | Sidecar communication | `SidecarClient` WebSocket to Patchright sidecar |
 | Runtime config | `SpeculumConfigStore` + SQLite `config_sections` |
-| Profile snapshots | `BrowserSnapshotStore`, `ProfileSnapshotMerger` |
+| Browser state persistence | `BrowserSessionStore` — Tier 4 CDP export (cookies, LS, IDB, history) |
+| Subdomain mirroring | `HostMapper`, `EdgeTlsWriter`, `DynamicCorsPolicyProvider` (opt-in) |
 | Script injection | `InjectedScriptStore`, `ScriptResolver` (SSRF-safe HTTP) |
 | Admin auth | `AdminAuthMiddleware` — Bearer `Admin.apiKey` |
 | Graceful shutdown | `GracefulShutdownHostedService` — drains sessions |
@@ -43,13 +44,13 @@ Speculum.Api/
 │   ├── Runtime/              Section DTOs (Forwarding, MaxSessions, …)
 │   ├── Scripts/              ScriptResolver
 │   └── Store/                SpeculumConfigStore, SsrfGuard, validators
-├── Hosting/                  GracefulShutdownHostedService
+├── Hosting/                  EdgeTlsWriter, DynamicCorsPolicyProvider, GracefulShutdown
 ├── Middleware/               SecurityHeadersMiddleware
 ├── Scripts/                  Injected script persistence
 ├── Virtualization/
 │   ├── Presentation/         VirtualizationHub (SignalR)
-│   ├── Sidecar/              SidecarClient, profile merge client
-│   ├── Persistence/          Browser snapshots
+│   ├── Sidecar/              SidecarClient
+│   ├── Persistence/          BrowserSessionStore
 │   └── …                     VSession, registry, models
 ├── Program.cs
 ├── Speculum.Api.http         REST examples for IDE / curl
@@ -75,6 +76,7 @@ Environment variables (required):
 | `Database__Path` | `./speculum.db` (or absolute path) |
 | `Sidecar__BaseUrl` | `ws://127.0.0.1:3000` |
 | `Cors__AllowedOrigins` | `http://localhost:5173` (optional; defaults include Vite + dockup dev) |
+| `Motor__PublicDomain` | `speculum.localhost` (motor apex for cookies and HostMapper) |
 
 Optional:
 
@@ -112,7 +114,8 @@ API listens on `http://localhost:8080`. Pair with `web` dev server on port 5173.
 |--------|------|-------------|
 | GET | `/health` | Liveness |
 | GET | `/ready` | Readiness (503 if motor not configured) |
-| GET | `/api/admin/config/status` | Operational status for setup UI |
+| GET | `/api/admin/config/status` | Operational status (+ subdomain mirroring) |
+| GET | `/api/public/client-config` | Public motor domain and feature flags |
 | * | `/vhub` | SignalR hub (negotiate + WebSocket) |
 
 ### Protected (Bearer)
@@ -120,11 +123,11 @@ API listens on `http://localhost:8080`. Pair with `web` dev server on port 5173.
 | Method | Path | Description |
 |--------|------|-------------|
 | GET/PUT/DELETE | `/api/admin/config/{section}` | Config CRUD |
-| GET/DELETE | `/api/admin/snapshots[/{sessionId}]` | Snapshot metadata |
+| GET/DELETE | `/api/admin/sessions[/{sessionId}]` | Session metadata and browser state |
 | GET/POST/DELETE | `/api/admin/scripts[/{id}]` | Script upload (multipart `.js`, max 5 MB) |
 | GET | `/openapi/v1.json` | OpenAPI document |
 
-Config sections: `Forwarding`, `MaxSessions`, `ScriptInjection`, `SnapshotPolicy`, `JsBridge`, `Admin`.
+Config sections: `Forwarding`, `MaxSessions`, `ScriptInjection`, `SessionPolicy` (`SnapshotPolicy` alias), `SubdomainMirroring`, `JsBridge`, `Admin`.
 
 ---
 
@@ -148,7 +151,7 @@ Motor behaviour reference: [../docs/motor-reference.md](../docs/motor-reference.
 dotnet test ../Speculum.Api.Tests/Speculum.Api.Tests.csproj -c Release
 ```
 
-Tests use `WebApplicationFactory` (`Program.Integration.cs`) for smoke, config store, SSRF, motor plan, and snapshot merge coverage.
+Tests use `WebApplicationFactory` (`Program.Integration.cs`) for smoke, config store, SSRF, HostMapper, browser session store, and EdgeTls writer coverage.
 
 ---
 

@@ -10,19 +10,16 @@
     "containers": [
       {
         "id": "traefik",
-        "imageRef": "traefik:v3.3",
+        "imageRef": "traefik:v3.6.1",
         "command": [
           "--api.dashboard=false",
           "--providers.docker=true",
           "--providers.docker.exposedbydefault=false",
-          "--entrypoints.web.address=:80",
-          "--entrypoints.websecure.address=:443",
-          "--entrypoints.web.http.redirections.entrypoint.to=websecure",
-          "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+          "--providers.docker.network=speculum-dev",
+          "--entrypoints.web.address=:80"
         ],
         "ports": [
-          { "host": 8080, "container": 80 },
-          { "host": 8443, "container": 443 }
+          { "host": 8080, "container": 80 }
         ],
         "volumes": [
           { "host": "/var/run/docker.sock", "container": "/var/run/docker.sock:ro" }
@@ -65,13 +62,15 @@
           { "name": "HttpAddress", "value": "0.0.0.0:8080" },
           { "name": "Database__Path", "value": "/data/speculum.db" },
           { "name": "Sidecar__BaseUrl", "value": "ws://sidecar:3000" },
-          { "name": "Cors__AllowedOrigins", "value": "https://speculum.localhost:8443;http://localhost:5173" }
+          { "name": "Cors__AllowedOrigins", "value": "http://speculum.localhost:8080;http://localhost:5173" },
+          { "name": "Motor__PublicDomain", "value": "${TRAEFIK_MOTOR_DOMAIN}" },
+          { "name": "ADMIN_BOOTSTRAP_KEY", "value": "password" }
         ],
         "volumes": [{ "name": "speculum-data", "container": "/data" }],
         "labels": [
           "traefik.enable=true",
-          "traefik.http.routers.speculum-api.rule=Host(`${TRAEFIK_API_DOMAIN}`)",
-          "traefik.http.routers.speculum-api.entrypoints=websecure",
+          "traefik.http.routers.speculum-api.rule=Host(`${TRAEFIK_API_DOMAIN}`) || Host(`${TRAEFIK_API_DOMAIN}:8080`)",
+          "traefik.http.routers.speculum-api.entrypoints=web",
           "traefik.http.services.speculum-api.loadbalancer.server.port=8080"
         ]
       },
@@ -81,7 +80,7 @@
         "context": "web",
         "dockerfile": "Dockerfile",
         "buildArgs": [
-          { "name": "VITE_API_URL", "value": "https://api.speculum.localhost:8443" }
+          { "name": "VITE_API_URL", "value": "http://api.speculum.localhost:8080" }
         ],
         "dependsOn": [{ "id": "api", "condition": "service_healthy" }],
         "healthcheck": {
@@ -93,8 +92,8 @@
         },
         "labels": [
           "traefik.enable=true",
-          "traefik.http.routers.speculum-web.rule=Host(`${TRAEFIK_MOTOR_DOMAIN}`)",
-          "traefik.http.routers.speculum-web.entrypoints=websecure",
+          "traefik.http.routers.speculum-web.rule=Host(`${TRAEFIK_MOTOR_DOMAIN}`) || Host(`${TRAEFIK_MOTOR_DOMAIN}:8080`)",
+          "traefik.http.routers.speculum-web.entrypoints=web",
           "traefik.http.services.speculum-web.loadbalancer.server.port=80"
         ]
       }
@@ -112,19 +111,10 @@
     "containers": [
       {
         "id": "traefik",
-        "imageRef": "traefik:v3.3",
+        "imageRef": "traefik:v3.6.1",
+        "entrypoint": ["/bin/sh", "-ec"],
         "command": [
-          "--api.dashboard=false",
-          "--providers.docker=true",
-          "--providers.docker.exposedbydefault=false",
-          "--entrypoints.web.address=:80",
-          "--entrypoints.websecure.address=:443",
-          "--entrypoints.web.http.redirections.entrypoint.to=websecure",
-          "--entrypoints.web.http.redirections.entrypoint.scheme=https",
-          "--certificatesresolvers.le.acme.httpchallenge=true",
-          "--certificatesresolvers.le.acme.httpchallenge.entrypoint=web",
-          "--certificatesresolvers.le.acme.email=${ACME_EMAIL}",
-          "--certificatesresolvers.le.acme.storage=/letsencrypt/acme.json"
+          "set -a; [ -f /data/traefik/cloudflare.env ] && . /data/traefik/cloudflare.env; set +a; exec /entrypoint.sh traefik --api.dashboard=false --providers.docker=true --providers.docker.exposedbydefault=false --entrypoints.web.address=:80 --entrypoints.websecure.address=:443 --entrypoints.websecure.http.tls=true --entrypoints.web.http.redirections.entrypoint.to=websecure --entrypoints.web.http.redirections.entrypoint.scheme=https --certificatesresolvers.le.acme.httpchallenge=true --certificatesresolvers.le.acme.httpchallenge.entrypoint=web --certificatesresolvers.le.acme.email=${ACME_EMAIL} --certificatesresolvers.le.acme.storage=/letsencrypt/acme.json --certificatesresolvers.le-dns.acme.dnschallenge=true --certificatesresolvers.le-dns.acme.dnschallenge.provider=cloudflare --certificatesresolvers.le-dns.acme.dnschallenge.resolvers=1.1.1.1:53,8.8.8.8:53 --certificatesresolvers.le-dns.acme.email=${ACME_EMAIL} --certificatesresolvers.le-dns.acme.storage=/letsencrypt/acme-dns.json --providers.file.directory=/data/traefik/dynamic --providers.file.watch=true"
         ],
         "ports": [
           { "host": 80, "container": 80 },
@@ -132,9 +122,12 @@
         ],
         "volumes": [
           { "host": "/var/run/docker.sock", "container": "/var/run/docker.sock:ro" },
-          { "name": "traefik-letsencrypt", "container": "/letsencrypt" }
+          { "name": "traefik-letsencrypt", "container": "/letsencrypt" },
+          { "name": "speculum-data", "container": "/data" }
         ],
-        "env": [{ "name": "ACME_EMAIL", "value": "${ACME_EMAIL}" }]
+        "env": [
+          { "name": "ACME_EMAIL", "value": "${ACME_EMAIL}" }
+        ]
       },
       {
         "id": "sidecar",
@@ -173,7 +166,9 @@
           { "name": "HttpAddress", "value": "0.0.0.0:8080" },
           { "name": "Database__Path", "value": "/data/speculum.db" },
           { "name": "Sidecar__BaseUrl", "value": "ws://sidecar:3000" },
-          { "name": "Cors__AllowedOrigins", "value": "https://${TRAEFIK_MOTOR_DOMAIN}" }
+          { "name": "Cors__AllowedOrigins", "value": "https://${TRAEFIK_MOTOR_DOMAIN}" },
+          { "name": "Motor__PublicDomain", "value": "${TRAEFIK_MOTOR_DOMAIN}" },
+          { "name": "Traefik__DynamicDir", "value": "/data/traefik/dynamic" }
         ],
         "volumes": [{ "name": "speculum-data", "container": "/data" }],
         "labels": [

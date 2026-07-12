@@ -39,7 +39,7 @@ public class VSession : IVSession
     private DateTime _fpsWindowStart = DateTime.UtcNow;
     private DateTime _startTime;
     private string   _sidecarSessionId = "";
-    private string   _lastUrl        = "";
+    private string   _currentUrl       = "";
     private string?  _persistedSessionId;
 
     public string? PersistedSessionId
@@ -56,7 +56,7 @@ public class VSession : IVSession
         _sidecarOptions = sidecarOptions;
         _snapshot       = snapshot;
         _logger         = logger;
-        _lastUrl        = snapshot.InitialUrl;
+        _currentUrl     = snapshot.InitialUrl;
 
         _frameChannel = Channel.CreateBounded<Frame>(new BoundedChannelOptions(2)
         {
@@ -94,7 +94,7 @@ public class VSession : IVSession
                 width:                    _snapshot.Width,
                 height:                   _snapshot.Height,
                 initialUrl:               _snapshot.InitialUrl,
-                profileBlob:              _snapshot.ProfileBlob,
+                browserState:             _snapshot.BrowserState,
                 scripts:                  _snapshot.Scripts.Count > 0 ? _snapshot.Scripts : null,
                 jsBridgeEnabled:          _snapshot.JsBridgeEnabled,
                 allowedNavigationDomains: _snapshot.AllowedNavigationDomains,
@@ -114,7 +114,7 @@ public class VSession : IVSession
 
     public async Task CaptureAndPersistAsync(
         string sessionId,
-        IProfileSnapshotMerger merger,
+        IBrowserSessionStore store,
         CancellationToken ct = default)
     {
         if (_client is null || string.IsNullOrWhiteSpace(sessionId)) return;
@@ -124,13 +124,12 @@ public class VSession : IVSession
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             timeoutCts.CancelAfter(TimeSpan.FromSeconds(30));
 
-            var blob = await _client.RequestSnapshotAsync(timeoutCts.Token);
-            var url  = string.IsNullOrWhiteSpace(_lastUrl) ? _snapshot.InitialUrl : _lastUrl;
-            await merger.MergeAndSaveAsync(sessionId, blob, url, DateTimeOffset.UtcNow, timeoutCts.Token);
+            var state = await _client.RequestStateExportAsync(timeoutCts.Token);
+            await store.SaveStateAsync(sessionId, state, timeoutCts.Token);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Snapshot capture failed for session {SessionPrefix}… — continuing teardown.",
+            _logger.LogWarning(ex, "State capture failed for session {SessionPrefix}… — continuing teardown.",
                 sessionId[..Math.Min(8, sessionId.Length)]);
         }
     }
@@ -168,7 +167,7 @@ public class VSession : IVSession
     public ChannelReader<ConsoleOutput> GetConsoleOutputReader() => _consoleOutputChannel.Reader;
     public ChannelReader<SessionStatus> GetStatusReader()        => _statusChannel.Reader;
 
-    public Task ConsumeUserInputAsync(ChannelReader<UserInput> channelReader)
+    public Task ConsumeUserInputAsync(ChannelReader<string> channelReader)
     {
         if (_client is null) throw new InvalidOperationException("Sessão não iniciada.");
         _pumpUserInputTask = PumpUserInputAsync(channelReader, _cts.Token);
@@ -218,10 +217,12 @@ public class VSession : IVSession
                 data.Span.Slice(1, jpegLen).CopyTo(jpeg);
 
                 Interlocked.Increment(ref _frameCount);
+                var seq = Interlocked.Increment(ref _frameSequence);
+
                 _frameChannel.Writer.TryWrite(new Frame
                 {
                     Jpeg      = jpeg,
-                    Sequence  = Interlocked.Increment(ref _frameSequence),
+                    Sequence  = seq,
                     Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                 });
             }
@@ -261,21 +262,21 @@ public class VSession : IVSession
         }
     }
 
-    private async Task PumpUserInputAsync(ChannelReader<UserInput> reader, CancellationToken ct)
+    private async Task PumpUserInputAsync(ChannelReader<string> reader, CancellationToken ct)
     {
         try
         {
-            await foreach (var ev in reader.ReadAllAsync(ct))
+            await foreach (var payload in reader.ReadAllAsync(ct))
             {
                 try
                 {
-                    if (!SidecarInputGuard.TryValidateUserInputPayload(ev.Payload, out var rejectReason))
+                    if (!SidecarInputGuard.TryValidateUserInputPayload(payload, out var rejectReason))
                     {
                         _logger.LogWarning("Input de utilizador bloqueado: {Reason}", rejectReason);
                         continue;
                     }
 
-                    await _client!.SendInputAsync(Encoding.UTF8.GetBytes(ev.Payload).AsMemory(), ct);
+                    await _client!.SendInputAsync(Encoding.UTF8.GetBytes(payload).AsMemory(), ct);
                 }
                 catch (OperationCanceledException) { throw; }
                 catch (Exception ex) when (ex is not OutOfMemoryException)
@@ -334,12 +335,12 @@ public class VSession : IVSession
             }
 
             if (root.TryGetProperty("url", out var u))
-                _lastUrl = u.GetString() ?? _lastUrl;
+                _currentUrl = u.GetString() ?? _currentUrl;
 
             return new SessionStatus
             {
                 TabCount        = root.TryGetProperty("tabCount", out var tc) ? tc.GetInt32()     : -1,
-                Url             = _lastUrl,
+                Url             = _currentUrl,
                 Resizing        = root.TryGetProperty("resizing", out var r)  && r.GetBoolean(),
                 Width           = root.TryGetProperty("width",    out var w)  ? w.GetInt32()     : 0,
                 Height          = root.TryGetProperty("height",   out var h)  ? h.GetInt32()     : 0,

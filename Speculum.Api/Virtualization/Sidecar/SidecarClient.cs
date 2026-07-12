@@ -4,26 +4,32 @@ using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Channels;
+using Speculum.Api.Virtualization.Persistence;
 
 namespace Speculum.Api.Virtualization.Sidecar;
 
 internal static class SidecarProtocol
 {
-    public const byte MsgSkip         = 0x03;
-    public const byte MsgUrl          = 0x04;
-    public const byte MsgConsole      = 0x05;
-    public const byte MsgEvalResult   = 0x06;
-    public const byte MsgH264         = 0x07;
-    public const byte MsgScreencast   = 0x08;
-    public const byte MsgStatus       = 0x09;
-    public const byte MsgRedirect     = 0x0A;
-    public const byte MsgProfileChunk = 0x0B;
+    public const byte MsgSkip       = 0x03;
+    public const byte MsgUrl        = 0x04;
+    public const byte MsgConsole    = 0x05;
+    public const byte MsgEvalResult = 0x06;
+    public const byte MsgH264       = 0x07;
+    public const byte MsgScreencast = 0x08;
+    public const byte MsgStatus     = 0x09;
+    public const byte MsgRedirect   = 0x0A;
 }
 
 public sealed record ScriptPayload(string Position, string Type, string File, string Content);
 
 public sealed class SidecarClient : IAsyncDisposable
 {
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        PropertyNameCaseInsensitive = true,
+    };
+
     private readonly ClientWebSocket               _ws       = new();
     private readonly CancellationTokenSource       _cts      = new();
     private readonly Channel<ReadOnlyMemory<byte>> _video;
@@ -31,8 +37,7 @@ public sealed class SidecarClient : IAsyncDisposable
     private readonly SemaphoreSlim                 _sendLock = new(1, 1);
 
     private Task? _receiveTask;
-    private TaskCompletionSource<byte[]>? _snapshotTcs;
-    private MemoryStream? _snapshotStream;
+    private TaskCompletionSource<BrowserStatePayload>? _stateExportTcs;
 
     public string SessionId { get; }
 
@@ -62,7 +67,7 @@ public sealed class SidecarClient : IAsyncDisposable
         int                           width,
         int                           height,
         string?                       initialUrl               = null,
-        byte[]?                       profileBlob              = null,
+        BrowserStatePayload?          browserState             = null,
         IReadOnlyList<ScriptPayload>? scripts                  = null,
         bool                          jsBridgeEnabled          = false,
         IReadOnlyList<string>?        allowedNavigationDomains = null,
@@ -87,28 +92,28 @@ public sealed class SidecarClient : IAsyncDisposable
             ["allowedNavigationDomains"] = allowedNavigationDomains,
         };
 
-        if (profileBlob is { Length: > 0 })
-            createPayload["profileBlob"] = Convert.ToBase64String(profileBlob);
+        if (browserState is not null)
+            createPayload["browserState"] = browserState;
 
-        var createBytes = JsonSerializer.SerializeToUtf8Bytes(createPayload);
+        var createBytes = JsonSerializer.SerializeToUtf8Bytes(createPayload, JsonOptions);
         await SendCoreAsync(createBytes, ct);
 
         var preReadyFrames = await WaitForReadyAsync(ct);
         _receiveTask = ReceiveLoopAsync(_cts.Token, preReadyFrames);
     }
 
-    public async Task<byte[]> RequestSnapshotAsync(CancellationToken ct = default)
+    public async Task<BrowserStatePayload> RequestStateExportAsync(CancellationToken ct = default)
     {
         if (_ws.State != WebSocketState.Open)
             throw new InvalidOperationException("Sidecar WebSocket is not open.");
 
-        _snapshotStream = new MemoryStream();
-        _snapshotTcs    = new TaskCompletionSource<byte[]>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _stateExportTcs = new TaskCompletionSource<BrowserStatePayload>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
 
-        var request = JsonSerializer.SerializeToUtf8Bytes(new { type = "snapshot" });
+        var request = JsonSerializer.SerializeToUtf8Bytes(new { type = "exportState" });
         await SendCoreAsync(request, ct);
 
-        return await _snapshotTcs.Task.WaitAsync(ct);
+        return await _stateExportTcs.Task.WaitAsync(ct);
     }
 
     private async Task<List<byte[]>> WaitForReadyAsync(CancellationToken ct)
@@ -243,7 +248,7 @@ public sealed class SidecarClient : IAsyncDisposable
             ArrayPool<byte>.Shared.Return(buf);
             _video.Writer.TryComplete();
             _control.Writer.TryComplete();
-            _snapshotTcs?.TrySetException(new OperationCanceledException("Sidecar receive loop ended."));
+            _stateExportTcs?.TrySetException(new OperationCanceledException("Sidecar receive loop ended."));
         }
     }
 
@@ -255,63 +260,43 @@ public sealed class SidecarClient : IAsyncDisposable
             if (!doc.RootElement.TryGetProperty("type", out var typeEl)) return;
 
             var type = typeEl.GetString();
-            if (type == "snapshotDone")
+            if (type == "stateExport")
             {
-                var byteSize = doc.RootElement.TryGetProperty("byteSize", out var sizeEl)
-                    ? sizeEl.GetInt32()
-                    : (int)(_snapshotStream?.Length ?? 0);
+                if (_stateExportTcs is null) return;
 
-                if (_snapshotStream is null || _snapshotTcs is null) return;
+                var state = JsonSerializer.Deserialize<BrowserStatePayload>(
+                    doc.RootElement.GetProperty("state").GetRawText(), JsonOptions)
+                    ?? new BrowserStatePayload();
 
-                var blob = _snapshotStream.ToArray();
-                _snapshotStream.Dispose();
-                _snapshotStream = null;
-
-                if (blob.Length != byteSize)
-                {
-                    FailSnapshot(new InvalidOperationException(
-                        $"Snapshot size mismatch: expected {byteSize}, got {blob.Length}."));
-                    return;
-                }
-
-                _snapshotTcs.TrySetResult(blob);
-                _snapshotTcs = null;
+                _stateExportTcs.TrySetResult(state);
+                _stateExportTcs = null;
                 return;
             }
 
-            if (_snapshotTcs is not null && type is "snapshotError" or "error")
+            if (_stateExportTcs is not null && type is "stateExportError" or "error")
             {
                 var msg = doc.RootElement.TryGetProperty("message", out var m)
-                    ? m.GetString() ?? "snapshot failed"
-                    : "snapshot failed";
-                FailSnapshot(new InvalidOperationException(msg));
+                    ? m.GetString() ?? "state export failed"
+                    : "state export failed";
+                FailStateExport(new InvalidOperationException(msg));
             }
         }
         catch (Exception ex)
         {
-            FailSnapshot(ex);
+            FailStateExport(ex);
         }
     }
 
-    private void FailSnapshot(Exception ex)
+    private void FailStateExport(Exception ex)
     {
-        _snapshotStream?.Dispose();
-        _snapshotStream = null;
-        _snapshotTcs?.TrySetException(ex);
-        _snapshotTcs = null;
+        _stateExportTcs?.TrySetException(ex);
+        _stateExportTcs = null;
     }
 
     private void RouteFrame(byte[] buf, int len)
     {
         if (len < 1) return;
         var type = buf[0];
-
-        if (type == SidecarProtocol.MsgProfileChunk)
-        {
-            if (len < 2 || _snapshotStream is null) return;
-            _snapshotStream.Write(buf, 1, len - 1);
-            return;
-        }
 
         if (type == SidecarProtocol.MsgScreencast)
         {
@@ -376,8 +361,7 @@ public sealed class SidecarClient : IAsyncDisposable
 
         _video.Writer.TryComplete();
         _control.Writer.TryComplete();
-        _snapshotStream?.Dispose();
-        _snapshotTcs?.TrySetCanceled();
+        _stateExportTcs?.TrySetCanceled();
 
         try
         {

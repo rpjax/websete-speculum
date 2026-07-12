@@ -13,11 +13,13 @@ public sealed class AdminAuthMiddleware
         "/health",
         "/ready",
         "/api/admin/config/status",
+        "/api/public/client-config",
     ];
 
     private static readonly string[] PublicPrefixes =
     [
         "/vhub",
+        "/api/public/",
     ];
 
     private readonly RequestDelegate _next;
@@ -103,10 +105,17 @@ public static class AdminEndpoints
             {
                 operational = store.IsOperational,
                 missing     = store.MissingRequired,
+                subdomainMirroring = new
+                {
+                    enabled     = store.SubdomainMirroringEnabled,
+                    operational = store.IsSubdomainMirroringOperational,
+                    missing     = store.MissingSubdomainMirroring,
+                },
             }));
 
         app.MapGet("/api/admin/config/{section}", async (string section, ISpeculumConfigStore store) =>
         {
+            section = ConfigSectionKeys.NormalizeKey(section);
             var value = await store.GetSectionAsync(section);
             if (value is null)
                 return Results.NotFound(new { error = $"Section '{section}' is not configured." });
@@ -146,24 +155,23 @@ public static class AdminEndpoints
                 : Results.BadRequest(result);
         });
 
-        app.MapGet("/api/admin/snapshots", async (IBrowserSnapshotStore snapshots) =>
-            Results.Ok(await snapshots.ListAsync()));
+        app.MapGet("/api/admin/sessions", async (IBrowserSessionStore sessions) =>
+            Results.Ok(await sessions.ListSessionsAsync()));
 
-        app.MapGet("/api/admin/snapshots/{sessionId}", async (string sessionId, IBrowserSnapshotStore snapshots) =>
+        app.MapGet("/api/admin/sessions/{sessionId}", async (string sessionId, IBrowserSessionStore sessions) =>
         {
-            var list = await snapshots.ListAsync();
-            var meta = list.FirstOrDefault(s => s.SessionId == sessionId);
-            return meta is null
-                ? Results.NotFound(new { error = "Snapshot not found." })
-                : Results.Ok(meta);
+            var detail = await sessions.GetSessionDetailAsync(sessionId);
+            return detail is null
+                ? Results.NotFound(new { error = "Session not found." })
+                : Results.Ok(detail);
         });
 
-        app.MapDelete("/api/admin/snapshots/{sessionId}", async (string sessionId, IBrowserSnapshotStore snapshots) =>
+        app.MapDelete("/api/admin/sessions/{sessionId}", async (string sessionId, IBrowserSessionStore sessions) =>
         {
-            var deleted = await snapshots.DeleteAsync(sessionId);
+            var deleted = await sessions.DeleteSessionAsync(sessionId);
             return deleted
                 ? Results.Ok(new { deleted = true })
-                : Results.NotFound(new { error = "Snapshot not found." });
+                : Results.NotFound(new { error = "Session not found." });
         });
 
         app.MapGet("/api/admin/scripts", async (IInjectedScriptStore scripts) =>

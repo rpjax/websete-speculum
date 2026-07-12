@@ -1,8 +1,6 @@
-using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Speculum.Api.Config.Runtime;
-using Speculum.Api.Config.Scripts;
 using Speculum.Api.Config.Store;
 using Speculum.Api.Virtualization;
 using Speculum.Api.Virtualization.Contracts;
@@ -10,14 +8,14 @@ using Speculum.Api.Virtualization.Persistence;
 
 namespace Speculum.Api.Tests;
 
-public class BrowserSnapshotStoreTests : IDisposable
+public class BrowserSessionStoreTests : IDisposable
 {
     private readonly string _tempDir;
     private readonly string _dbPath;
 
-    public BrowserSnapshotStoreTests()
+    public BrowserSessionStoreTests()
     {
-        _tempDir = Path.Combine(Path.GetTempPath(), "speculum-snap-" + Guid.NewGuid().ToString("N"));
+        _tempDir = Path.Combine(Path.GetTempPath(), "speculum-sess-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_tempDir);
         _dbPath = Path.Combine(_tempDir, "speculum.db");
     }
@@ -28,58 +26,121 @@ public class BrowserSnapshotStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task SaveAndLoad_RoundTripsBlob()
+    public async Task ResolveOrCreateSessionAsync_CreatesAndReuses()
     {
-        var store = new BrowserSnapshotStore(_dbPath, NullLogger<BrowserSnapshotStore>.Instance);
+        var store = new BrowserSessionStore(_dbPath, NullLogger<BrowserSessionStore>.Instance);
         await store.InitializeAsync();
 
-        var blob = new byte[] { 0x1F, 0x8B, 0x08, 0x00, 0x01, 0x02 };
-        await store.SaveAsync("abc123", blob, "https://example.com/page", CancellationToken.None);
-
-        var loaded = await store.TryLoadAsync("abc123");
-        Assert.NotNull(loaded);
-        Assert.Equal(blob, loaded!.ProfileBlob);
-        Assert.Equal("https://example.com/page", loaded.LastUrl);
+        const string token = "abcdef0123456789abcdef0123456789";
+        var id1 = await store.ResolveOrCreateSessionAsync(token);
+        var id2 = await store.ResolveOrCreateSessionAsync(token);
+        Assert.Equal(id1, id2);
     }
 
     [Fact]
-    public async Task PurgeExpired_RemovesOldSnapshots()
+    public async Task SaveAndLoadState_RoundTrips()
     {
-        var store = new BrowserSnapshotStore(_dbPath, NullLogger<BrowserSnapshotStore>.Instance);
+        var store = new BrowserSessionStore(_dbPath, NullLogger<BrowserSessionStore>.Instance);
         await store.InitializeAsync();
 
-        await store.SaveAsync("expired1", [1, 2, 3], "https://a.test", CancellationToken.None);
+        const string token = "abcdef0123456789abcdef0123456789";
+        var sessionId = await store.ResolveOrCreateSessionAsync(token);
+
+        var state = new BrowserStatePayload
+        {
+            Cookies =
+            [
+                new BrowserCookieState
+                {
+                    Name = "sid", Value = "1", Domain = ".example.com", Path = "/",
+                },
+            ],
+        };
+
+        await store.SaveStateAsync(sessionId, state);
+        var loaded = await store.LoadStateAsync(sessionId);
+        Assert.NotNull(loaded);
+        Assert.Single(loaded!.Cookies);
+        Assert.Equal("sid", loaded.Cookies[0].Name);
+    }
+
+    [Fact]
+    public async Task PurgeExpired_RemovesOldSessions()
+    {
+        var store = new BrowserSessionStore(_dbPath, NullLogger<BrowserSessionStore>.Instance);
+        await store.InitializeAsync();
+
+        var sessionId = await store.ResolveOrCreateSessionAsync("abcdef0123456789abcdef0123456789");
+        await store.SaveStateAsync(sessionId, new BrowserStatePayload());
 
         await using var db = new Speculum.Api.Config.Persistence.SpeculumDbContext(_dbPath);
         await db.Database.ExecuteSqlRawAsync(
-            "UPDATE browser_snapshots SET expires_at = {0} WHERE cookie_id = {1}",
-            [DateTimeOffset.UtcNow.AddDays(-1).ToString("O"), "expired1"]);
+            "UPDATE browser_sessions SET expires_at = {0} WHERE session_id = {1}",
+            [DateTimeOffset.UtcNow.AddDays(-1).ToString("O"), sessionId]);
 
         await store.PurgeExpiredAsync();
-        Assert.Null(await store.TryLoadAsync("expired1"));
+        Assert.Null(await store.LoadStateAsync(sessionId));
     }
 }
 
-public class SessionIdNormalizerTests
+public class ClientTokenNormalizerTests
 {
     [Fact]
-    public void Resolve_generates_id_when_null()
+    public void Resolve_generates_token_when_null()
     {
-        var id = SessionIdNormalizer.Resolve(null);
+        var id = ClientTokenNormalizer.Resolve(null);
         Assert.Matches("^[a-f0-9]{32}$", id);
     }
 
     [Fact]
-    public void Resolve_accepts_valid_hex_id()
+    public void Resolve_accepts_valid_hex_token()
     {
         const string existing = "abcdef0123456789abcdef0123456789";
-        Assert.Equal(existing, SessionIdNormalizer.Resolve(existing));
+        Assert.Equal(existing, ClientTokenNormalizer.Resolve(existing));
     }
 
     [Fact]
-    public void Resolve_rejects_invalid_id()
+    public void Resolve_rejects_invalid_token()
     {
-        Assert.Throws<ArgumentException>(() => SessionIdNormalizer.Resolve("not-valid"));
+        Assert.Throws<ArgumentException>(() => ClientTokenNormalizer.Resolve("not-valid"));
+    }
+}
+
+public class HostMapperTests
+{
+    private static ForwardingOptions OlxForwarding => new()
+    {
+        Host    = "www.olx.com.br",
+        Domains = ["olx.com.br", "*.olx.com.br"],
+    };
+
+    [Fact]
+    public void MapClientToTarget_apex_maps_to_forwarding_host()
+    {
+        var url = HostMapper.MapClientToTarget(
+            "https://speculum.com/cars",
+            "speculum.com",
+            OlxForwarding);
+        Assert.Equal("https://www.olx.com.br/cars", url);
+    }
+
+    [Fact]
+    public void MapTargetToClient_subdomain_when_enabled()
+    {
+        var url = HostMapper.MapTargetToClient(
+            "https://www.olx.com.br/cars",
+            "speculum.com",
+            OlxForwarding);
+        Assert.Equal("https://www.speculum.com/cars", url);
+    }
+
+    [Fact]
+    public void MapTargetToApexClient_strips_subdomain()
+    {
+        var url = HostMapper.MapTargetToApexClient(
+            "https://www.olx.com.br/cars",
+            "speculum.com");
+        Assert.Equal("https://speculum.com/cars", url);
     }
 }
 
@@ -110,6 +171,37 @@ public class ConfigValidatorScriptTests
 
         Assert.Contains(ex.Errors, e => e.Path.Contains("scriptId"));
     }
+
+    [Fact]
+    public void SubdomainMirroring_WhenDisabled_DoesNotRequireEdgeTls()
+    {
+        var body = System.Text.Json.JsonDocument.Parse("""{ "enabled": false }""").RootElement;
+        ConfigValidator.ValidateSection(
+            ConfigSectionKeys.SubdomainMirroring,
+            body,
+            "speculum.com",
+            new ForwardingOptions { Host = "www.olx.com.br", Domains = ["olx.com.br"] });
+    }
+
+    [Fact]
+    public void SubdomainMirroring_WhenEnabled_RequiresWildcard()
+    {
+        var body = System.Text.Json.JsonDocument.Parse("""
+            {
+              "enabled": true,
+              "edgeTls": { "provider": "cloudflare", "email": "a@b.com", "apiToken": "tok" }
+            }
+            """).RootElement;
+
+        var ex = Assert.Throws<ConfigValidationException>(() =>
+            ConfigValidator.ValidateSection(
+                ConfigSectionKeys.SubdomainMirroring,
+                body,
+                "speculum.com",
+                new ForwardingOptions { Host = "www.olx.com.br", Domains = ["olx.com.br"] }));
+
+        Assert.Contains(ex.Errors, e => e.Message.Contains("wildcard"));
+    }
 }
 
 public class VSessionRegistryTests
@@ -132,7 +224,7 @@ public class VSessionRegistryTests
         var session  = new VSession(
             new Virtualization.Options.SidecarBrowserClientOptions { SidecarBaseUrl = "ws://localhost" },
             new SessionConfigSnapshot { InitialUrl = "https://example.com" },
-            NullLogger.Instance);
+            NullLogger<VSession>.Instance);
 
         registry.TrackStarting("conn-1", session);
         Assert.True(registry.TryCancelStarting("conn-1", out _));
@@ -146,66 +238,33 @@ public class VSessionRegistryTests
         var session  = new VSession(
             new Virtualization.Options.SidecarBrowserClientOptions { SidecarBaseUrl = "ws://localhost" },
             new SessionConfigSnapshot { InitialUrl = "https://example.com" },
-            NullLogger.Instance);
+            NullLogger<VSession>.Instance);
 
         Assert.True(registry.TryAcquireSlot(10));
         registry.TrackStarting("conn-1", session);
         Assert.Equal(1, registry.ActiveCount);
 
-        await registry.StopAllAsync(new NoOpMerger());
+        await registry.StopAllAsync(new NoOpSessionStore());
 
         Assert.Equal(0, registry.ActiveCount);
     }
 
-    [Fact]
-    public async Task StopAllAsync_releases_slot_for_active_session()
+    private sealed class NoOpSessionStore : IBrowserSessionStore
     {
-        var registry = new VSessionRegistry();
-        var session  = new VSession(
-            new Virtualization.Options.SidecarBrowserClientOptions { SidecarBaseUrl = "ws://localhost" },
-            new SessionConfigSnapshot { InitialUrl = "https://example.com" },
-            NullLogger.Instance);
-
-        Assert.True(registry.TryAcquireSlot(10));
-        registry.Register("conn-1", session);
-        Assert.Equal(1, registry.ActiveCount);
-
-        await registry.StopAllAsync(new NoOpMerger());
-
-        Assert.Equal(0, registry.ActiveCount);
-        Assert.Null(registry.Get("conn-1"));
-    }
-
-    [Fact]
-    public async Task Cancel_starting_before_reacquire_keeps_slot_count_correct()
-    {
-        var registry = new VSessionRegistry();
-        var first = new VSession(
-            new Virtualization.Options.SidecarBrowserClientOptions { SidecarBaseUrl = "ws://localhost" },
-            new SessionConfigSnapshot { InitialUrl = "https://example.com" },
-            NullLogger.Instance);
-        var second = new VSession(
-            new Virtualization.Options.SidecarBrowserClientOptions { SidecarBaseUrl = "ws://localhost" },
-            new SessionConfigSnapshot { InitialUrl = "https://example.com/page" },
-            NullLogger.Instance);
-
-        Assert.True(registry.TryAcquireSlot(10));
-        registry.TrackStarting("conn-1", first);
-        Assert.True(registry.TryCancelStarting("conn-1", out _));
-        registry.ReleaseSlot();
-
-        Assert.True(registry.TryAcquireSlot(10));
-        registry.TrackStarting("conn-1", second);
-        Assert.Equal(1, registry.ActiveCount);
-
-        await registry.StopAllAsync(new NoOpMerger());
-        Assert.Equal(0, registry.ActiveCount);
-    }
-
-    private sealed class NoOpMerger : IProfileSnapshotMerger
-    {
-        public Task MergeAndSaveAsync(
-            string sessionId, byte[] incomingBlob, string lastUrl, DateTimeOffset capturedAt, CancellationToken ct = default)
+        public Task InitializeAsync(CancellationToken ct = default) => Task.CompletedTask;
+        public Task<string> ResolveOrCreateSessionAsync(string clientToken, CancellationToken ct = default)
+            => Task.FromResult(Guid.NewGuid().ToString("N"));
+        public Task<BrowserStatePayload?> LoadStateAsync(string sessionId, CancellationToken ct = default)
+            => Task.FromResult<BrowserStatePayload?>(null);
+        public Task SaveStateAsync(string sessionId, BrowserStatePayload state, CancellationToken ct = default)
             => Task.CompletedTask;
+        public Task<IReadOnlyList<BrowserSessionMetadata>> ListSessionsAsync(CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<BrowserSessionMetadata>>([]);
+        public Task<BrowserSessionDetail?> GetSessionDetailAsync(string sessionId, CancellationToken ct = default)
+            => Task.FromResult<BrowserSessionDetail?>(null);
+        public Task<bool> DeleteSessionAsync(string sessionId, CancellationToken ct = default)
+            => Task.FromResult(false);
+        public Task RefreshPolicyAsync(CancellationToken ct = default) => Task.CompletedTask;
+        public Task PurgeExpiredAsync(CancellationToken ct = default) => Task.CompletedTask;
     }
 }

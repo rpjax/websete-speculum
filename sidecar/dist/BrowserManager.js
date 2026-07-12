@@ -33,29 +33,24 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.profileDirForSession = profileDirForSession;
 exports.launchBrowser = launchBrowser;
+const fs = __importStar(require("fs"));
+const os = __importStar(require("os"));
 const path = __importStar(require("path"));
 const patchright_1 = require("patchright");
-const ProfileArchive_1 = require("./ProfileArchive");
-const fs = __importStar(require("fs"));
+const BrowserState_1 = require("./BrowserState");
 const CHROME_EXECUTABLE = process.env['CHROME_EXECUTABLE'] ?? '/usr/bin/google-chrome';
 const EXTENSION_PATH = path.resolve(__dirname, '../extensions/webgl-spoof');
-async function launchBrowser(sessionId, displayEnv, width, height, profileBlob) {
-    const userDataDir = (0, ProfileArchive_1.profileDirForSession)(sessionId);
-    if (profileBlob && profileBlob.length > 0) {
-        try {
-            fs.rmSync(userDataDir, { recursive: true, force: true });
-        }
-        catch { /* best-effort */ }
-        await (0, ProfileArchive_1.extractProfile)(userDataDir, profileBlob);
-        console.log(`[${sessionId}] Restored profile (${profileBlob.length} bytes) → ${userDataDir}`);
+function profileDirForSession(sessionId) {
+    return path.join(os.tmpdir(), 'speculum-profiles', sessionId);
+}
+async function launchBrowser(sessionId, displayEnv, width, height, browserState) {
+    const userDataDir = profileDirForSession(sessionId);
+    try {
+        fs.rmSync(userDataDir, { recursive: true, force: true });
     }
-    else {
-        try {
-            fs.rmSync(userDataDir, { recursive: true, force: true });
-        }
-        catch { /* best-effort */ }
-    }
+    catch { /* best-effort */ }
     const context = await patchright_1.chromium.launchPersistentContext(userDataDir, {
         headless: false,
         executablePath: CHROME_EXECUTABLE,
@@ -111,6 +106,10 @@ async function launchBrowser(sessionId, displayEnv, width, height, profileBlob) 
     }
     catch (err) {
         console.warn('[BrowserManager] setDeviceMetricsOverride failed:', err.message);
+    }
+    if (browserState) {
+        await (0, BrowserState_1.importBrowserState)(cdp, page, browserState);
+        console.log(`[${sessionId}] Restored browser state (cookies=${browserState.cookies.length})`);
     }
     return { context, page, cdp, userDataDir };
 }

@@ -11,6 +11,8 @@
  *   Input events and control commands (navigate, resize, evaljs, …)
  */
 
+import type { BrowserStatePayload } from './BrowserState';
+
 // ── Message type constants ────────────────────────────────────────────────────
 
 export const MSG_URL         = 0x04;  // URL update:          sidecar → client
@@ -131,9 +133,8 @@ export type InputEvent =
 
 // ── Session status (sidecar → .NET, binary) ──────────────────────────────────
 
-export const MSG_STATUS        = 0x09;
-export const MSG_REDIRECT      = 0x0A;
-export const MSG_PROFILE_CHUNK = 0x0B;
+export const MSG_STATUS   = 0x09;
+export const MSG_REDIRECT = 0x0A;
 
 /**
  * Periodic snapshot of sidecar-side session state.
@@ -215,24 +216,17 @@ export type CreateMessage = {
     width:     number;
     height:    number;
     url?:      string;
-    /** gzip tar of Chrome userDataDir (base64) — restored before launch. */
-    profileBlob?: string;
+    browserState?: BrowserStatePayload;
     scripts?:  ScriptEntry[];
     jsBridgeEnabled?: boolean;
     allowedNavigationDomains?: string[];
 };
 
-export type SnapshotMessage = { type: 'snapshot' };
+export type ExportStateMessage = { type: 'exportState' };
 
-export type MergeProfilesMessage = {
-    type:         'mergeProfiles';
-    baseBlob:     string;
-    incomingBlob: string;
-};
-
-export function decodeMessage(raw: string): InputEvent | CreateMessage | SnapshotMessage | MergeProfilesMessage | null {
+export function decodeMessage(raw: string): InputEvent | CreateMessage | ExportStateMessage | null {
     try {
-        return JSON.parse(raw) as InputEvent | CreateMessage | SnapshotMessage | MergeProfilesMessage;
+        return JSON.parse(raw) as InputEvent | CreateMessage | ExportStateMessage;
     } catch {
         return null;
     }

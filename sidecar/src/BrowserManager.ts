@@ -1,7 +1,8 @@
+import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { chromium, BrowserContext, Page, CDPSession } from 'patchright';
-import { extractProfile, profileDirForSession } from './ProfileArchive';
-import * as fs from 'fs';
+import { BrowserStatePayload, importBrowserState } from './BrowserState';
 
 const CHROME_EXECUTABLE =
     process.env['CHROME_EXECUTABLE'] ?? '/usr/bin/google-chrome';
@@ -15,22 +16,20 @@ export interface BrowserHandle {
     userDataDir: string;
 }
 
+export function profileDirForSession(sessionId: string): string {
+    return path.join(os.tmpdir(), 'speculum-profiles', sessionId);
+}
+
 export async function launchBrowser(
-    sessionId:  string,
-    displayEnv: string,
-    width:      number,
-    height:     number,
-    profileBlob?: Buffer,
+    sessionId:    string,
+    displayEnv:   string,
+    width:        number,
+    height:       number,
+    browserState?: BrowserStatePayload,
 ): Promise<BrowserHandle> {
     const userDataDir = profileDirForSession(sessionId);
 
-    if (profileBlob && profileBlob.length > 0) {
-        try { fs.rmSync(userDataDir, { recursive: true, force: true }); } catch { /* best-effort */ }
-        await extractProfile(userDataDir, profileBlob);
-        console.log(`[${sessionId}] Restored profile (${profileBlob.length} bytes) → ${userDataDir}`);
-    } else {
-        try { fs.rmSync(userDataDir, { recursive: true, force: true }); } catch { /* best-effort */ }
-    }
+    try { fs.rmSync(userDataDir, { recursive: true, force: true }); } catch { /* best-effort */ }
 
     const context = await chromium.launchPersistentContext(userDataDir, {
         headless:       false,
@@ -90,6 +89,11 @@ export async function launchBrowser(
         });
     } catch (err) {
         console.warn('[BrowserManager] setDeviceMetricsOverride failed:', (err as Error).message);
+    }
+
+    if (browserState) {
+        await importBrowserState(cdp, page, browserState);
+        console.log(`[${sessionId}] Restored browser state (cookies=${browserState.cookies.length})`);
     }
 
     return { context, page, cdp, userDataDir };

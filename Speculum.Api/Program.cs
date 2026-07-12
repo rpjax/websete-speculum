@@ -26,16 +26,8 @@ builder.WebHost.ConfigureKestrel(kestrel =>
     kestrel.Listen(listenEndpoint.Address, listenEndpoint.Port);
 });
 
-builder.Services.AddCors(options =>
-{
-    options.AddDefaultPolicy(policy =>
-    {
-        policy.WithOrigins(bootstrap.CorsAllowedOrigins.ToArray())
-              .AllowAnyHeader()
-              .AllowAnyMethod()
-              .AllowCredentials();
-    });
-});
+builder.Services.AddCors();
+builder.Services.AddSingleton<Microsoft.AspNetCore.Cors.Infrastructure.ICorsPolicyProvider, DynamicCorsPolicyProvider>();
 
 builder.Services.AddSingleton<IDnsResolver, SystemDnsResolver>();
 
@@ -50,23 +42,23 @@ builder.Services.AddSingleton<IInjectedScriptStore>(sp =>
     new InjectedScriptStore(bootstrap.DatabasePath));
 builder.Services.AddSingleton<ScriptResolver>();
 builder.Services.AddSingleton<IVSessionRegistry, VSessionRegistry>();
-builder.Services.AddSingleton<IBrowserSnapshotStore>(sp =>
-    new BrowserSnapshotStore(
+builder.Services.AddSingleton<IBrowserSessionStore>(sp =>
+    new BrowserSessionStore(
         bootstrap.DatabasePath,
-        sp.GetRequiredService<ILogger<BrowserSnapshotStore>>()));
-builder.Services.AddSingleton<ISidecarProfileMergeClient>(sp =>
-    new SidecarProfileMergeClient(sp.GetRequiredService<SidecarBrowserClientOptions>()));
-builder.Services.AddSingleton<IProfileSnapshotMerger, ProfileSnapshotMerger>();
+        sp.GetRequiredService<ILogger<BrowserSessionStore>>()));
+builder.Services.AddSingleton<EdgeTlsWriter>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<EdgeTlsWriter>());
 builder.Services.AddSingleton<ISpeculumConfigStore>(sp =>
     new SpeculumConfigStore(
         bootstrap.DatabasePath,
+        bootstrap,
         sp.GetRequiredService<ScriptResolver>(),
         sp.GetRequiredService<IInjectedScriptStore>(),
         sp.GetRequiredService<IVSessionRegistry>(),
-        sp.GetRequiredService<IProfileSnapshotMerger>(),
-        sp.GetRequiredService<IBrowserSnapshotStore>(),
+        sp.GetRequiredService<IBrowserSessionStore>(),
         sp.GetRequiredService<IWebHostEnvironment>(),
-        sp.GetRequiredService<ILogger<SpeculumConfigStore>>()));
+        sp.GetRequiredService<ILogger<SpeculumConfigStore>>(),
+        sp));
 
 builder.Services.AddHostedService<GracefulShutdownHostedService>();
 
@@ -75,17 +67,21 @@ builder.Services.AddSingleton(new SidecarBrowserClientOptions
     SidecarBaseUrl = bootstrap.SidecarBaseUrl,
 });
 
-builder.Services.AddSignalR().AddMessagePackProtocol();
+builder.Services.AddSignalR(options =>
+{
+    options.MaximumReceiveMessageSize = 512 * 1024;
+    options.StreamBufferCapacity      = 16;
+}).AddMessagePackProtocol();
 builder.Services.AddOpenApi();
 
 var app = builder.Build();
 
 var configStore = app.Services.GetRequiredService<ISpeculumConfigStore>();
-var snapshotStore = app.Services.GetRequiredService<IBrowserSnapshotStore>();
+var sessionStore = app.Services.GetRequiredService<IBrowserSessionStore>();
 var scriptStore = app.Services.GetRequiredService<IInjectedScriptStore>();
 
 await scriptStore.InitializeAsync();
-await snapshotStore.InitializeAsync();
+await sessionStore.InitializeAsync();
 await configStore.InitializeAsync();
 
 app.UseRouting();
@@ -94,7 +90,12 @@ app.UseMiddleware<SecurityHeadersMiddleware>();
 app.UseMiddleware<AdminAuthMiddleware>();
 
 app.MapOpenApi();
+app.MapPublicEndpoints();
 app.MapAdminEndpoints();
-app.MapHub<VirtualizationHub>("/vhub");
+app.MapHub<VirtualizationHub>("/vhub", options =>
+{
+    options.TransportMaxBufferSize    = 512 * 1024;
+    options.ApplicationMaxBufferSize  = 512 * 1024;
+});
 
 app.Run();

@@ -35,9 +35,9 @@ dockup validate --root ..
 dockup deploy --env dev --root ..
 ```
 
-Open **https://speculum.localhost:8443** (accept the self-signed certificate).
+Open **http://speculum.localhost:8080** — no TLS setup required (dev uses plain HTTP).
 
-1. Copy the bootstrap API key from the `api` container logs.
+1. Copy the bootstrap API key from the `api` container logs, or use **`password`** in dockup dev (`ADMIN_BOOTSTRAP_KEY`). If login fails after changing the key, run `docker compose down -v` in `out/dev` and redeploy.
 2. Go to **/admin** and sign in.
 3. Configure **Forwarding** (target site apex + navigation domains) and **MaxSessions**.
 4. Open **/** to start the virtual browser.
@@ -87,7 +87,7 @@ Speculum/
 ## Architecture
 
 ```
-Browser  →  Traefik (TLS)
+Browser  →  Traefik
               ├─ TRAEFIK_MOTOR_DOMAIN   →  speculum-web (React)
               └─ TRAEFIK_API_DOMAIN     →  speculum-api
                                             ├─ SignalR /vhub
@@ -98,12 +98,12 @@ Browser  →  Traefik (TLS)
 
 | Layer | Role |
 |-------|------|
-| **Traefik** | HTTPS termination, host-based routing |
+| **Traefik** | Host-based routing (HTTP in dev, HTTPS in prod) |
 | **speculum-web** | Motor `/`, setup `/setup`, admin `/admin/*` |
 | **Speculum.Api** | Sessions, config store, frame relay, OpenAPI |
 | **Sidecar** | Xvfb + Chrome + navigation guard + JPEG frames |
 
-**Dev hostnames:** `speculum.localhost` (web) and `api.speculum.localhost` (API) on port **8443**.
+**Dev hostnames:** `speculum.localhost` (web) and `api.speculum.localhost` (API) on port **8080** (HTTP).
 
 Deep dive: [docs/architecture.md](docs/architecture.md) · Motor internals: [docs/motor-reference.md](docs/motor-reference.md)
 
@@ -119,16 +119,18 @@ Deep dive: [docs/architecture.md](docs/architecture.md) · Motor internals: [doc
 | `Database__Path` | SQLite path (e.g. `/data/speculum.db`) |
 | `Sidecar__BaseUrl` | Sidecar WebSocket (e.g. `ws://sidecar:3000`) |
 | `Cors__AllowedOrigins` | Semicolon-separated SPA origins |
+| `Motor__PublicDomain` | Public apex of the motor (e.g. `speculum.com`) |
 | `ASPNETCORE_ENVIRONMENT` | `Development` or `Production` |
 
 ### Motor runtime (SQLite — via admin UI or REST)
 
 | Section | Required | Description |
 |---------|----------|-------------|
-| `Forwarding` | Yes | `host` (target apex FQDN) + `domains` (navigation allowlist) |
+| `Forwarding` | Yes | `host` (target site FQDN, e.g. `www.olx.com.br`) + `domains` (navigation allowlist) |
 | `MaxSessions` | Yes | Concurrent session limit |
 | `ScriptInjection` | No | `{ scriptId }` or `{ url }` entries |
-| `SnapshotPolicy` | No | `{ "ttlDays": 30 }` |
+| `SessionPolicy` | No | `{ "ttlDays": 30 }` |
+| `SubdomainMirroring` | No | Opt-in subdomain URL mirror + Cloudflare wildcard TLS |
 | `JsBridge` | No | `{ "enable": true \| false }` |
 
 When not operational, the motor redirects to `/setup`.
@@ -139,9 +141,10 @@ When not operational, the motor redirects to `/setup`.
 
 ### Session persistence
 
-- Client: `localStorage` key `speculum_session_id`
-- Server: Chrome profile snapshots in SQLite (`browser_snapshots`)
-- `StartSessionAsync(clientUrl, w, h, sessionId?)` returns the effective `sessionId`
+- Client: cookie `speculum_client_token` (apex or `.<motorPublicDomain>` when subdomain mirroring is operational)
+- Server: Tier 4 browser state in SQLite (`browser_sessions` + cookies, localStorage, IndexedDB, history tables)
+- `StartSessionAsync(clientUrl, w, h, clientToken)` returns the effective session id for SignalR
+- **URL is never persisted** — only browser state crosses sessions
 
 ---
 
@@ -151,9 +154,10 @@ When not operational, the motor redirects to `/setup`.
 |----------|------|-------------|
 | `GET /health` | Public | Process alive |
 | `GET /ready` | Public | Motor configured and ready |
-| `GET /api/admin/config/status` | Public | `{ operational, missing }` |
+| `GET /api/admin/config/status` | Public | `{ operational, missing, subdomainMirroring }` |
+| `GET /api/public/client-config` | Public | Motor domain + subdomain mirroring flag |
 | `GET/PUT/DELETE /api/admin/config/{section}` | Bearer | Runtime config sections |
-| `GET/DELETE /api/admin/snapshots[/{sessionId}]` | Bearer | Snapshot metadata |
+| `GET/DELETE /api/admin/sessions[/{sessionId}]` | Bearer | Session metadata and browser state drill-down |
 | `GET/POST/DELETE /api/admin/scripts[/{id}]` | Bearer | Injected script CRUD |
 
 OpenAPI (protected): `/openapi/v1.json`
@@ -198,7 +202,7 @@ CI runs the same matrix on push/PR to `main` / `master` (see `.github/workflows/
 
 ```bash
 cd deploy
-dockup deploy --env dev --root ..    # local HTTPS on :8443
+dockup deploy --env dev --root ..    # local HTTP on :8080
 dockup deploy --env prod --root ..   # Let's Encrypt on :443
 ```
 

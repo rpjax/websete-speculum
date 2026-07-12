@@ -37,8 +37,13 @@ public static class ConfigValidator
     private static readonly HashSet<string> ValidTypes =
         new(["Classic", "Module"], StringComparer.Ordinal);
 
-    public static void ValidateSection(string key, JsonElement body)
+    public static void ValidateSection(
+        string key,
+        JsonElement body,
+        string? motorPublicDomain = null,
+        ForwardingOptions? currentForwarding = null)
     {
+        key = ConfigSectionKeys.NormalizeKey(key);
         var errors = new List<(string, string)>();
 
         switch (key)
@@ -58,8 +63,11 @@ public static class ConfigValidator
             case ConfigSectionKeys.JsBridge:
                 ValidateJsBridge(body, errors);
                 break;
-            case ConfigSectionKeys.SnapshotPolicy:
-                ValidateSnapshotPolicy(body, errors);
+            case ConfigSectionKeys.SessionPolicy:
+                ValidateSessionPolicy(body, errors);
+                break;
+            case ConfigSectionKeys.SubdomainMirroring:
+                ValidateSubdomainMirroring(body, errors, currentForwarding, motorPublicDomain);
                 break;
             default:
                 errors.Add(("$.key", $"Unknown configuration section '{key}'."));
@@ -249,24 +257,83 @@ public static class ConfigValidator
             errors.Add((path, "URL is blocked by SSRF guard (private/reserved addresses)."));
     }
 
-    private static void ValidateSnapshotPolicy(JsonElement body, List<(string, string)> errors)
+    private static void ValidateSessionPolicy(JsonElement body, List<(string, string)> errors)
     {
         if (body.ValueKind != JsonValueKind.Object)
         {
-            errors.Add(("$.SnapshotPolicy", "Must be a JSON object."));
+            errors.Add(("$.SessionPolicy", "Must be a JSON object."));
             return;
         }
 
         if (!body.TryGetProperty("ttlDays", out var ttlEl) || !ttlEl.TryGetInt32(out var ttl))
         {
-            errors.Add(("$.SnapshotPolicy.ttlDays", "ttlDays integer is required."));
+            errors.Add(("$.SessionPolicy.ttlDays", "ttlDays integer is required."));
             return;
         }
 
         if (ttl <= 0)
-            errors.Add(("$.SnapshotPolicy.ttlDays", "Must be greater than 0."));
+            errors.Add(("$.SessionPolicy.ttlDays", "Must be greater than 0."));
         if (ttl > 3650)
-            errors.Add(("$.SnapshotPolicy.ttlDays", "Exceeds upper bound (3650 days)."));
+            errors.Add(("$.SessionPolicy.ttlDays", "Exceeds upper bound (3650 days)."));
+    }
+
+    private static void ValidateSubdomainMirroring(
+        JsonElement body,
+        List<(string, string)> errors,
+        ForwardingOptions? currentForwarding,
+        string? motorPublicDomain)
+    {
+        if (body.ValueKind != JsonValueKind.Object)
+        {
+            errors.Add(("$.SubdomainMirroring", "Must be a JSON object."));
+            return;
+        }
+
+        var enabled = body.TryGetProperty("enabled", out var enabledEl)
+                      && enabledEl.ValueKind == JsonValueKind.True;
+
+        if (!enabled)
+            return;
+
+        if (string.IsNullOrWhiteSpace(motorPublicDomain))
+            errors.Add(("$.SubdomainMirroring", "Motor:PublicDomain bootstrap env is required when enabled."));
+
+        if (!body.TryGetProperty("edgeTls", out var edgeTls) || edgeTls.ValueKind != JsonValueKind.Object)
+        {
+            errors.Add(("$.SubdomainMirroring.edgeTls", "edgeTls object is required when enabled."));
+            return;
+        }
+
+        if (!edgeTls.TryGetProperty("provider", out var providerEl)
+            || providerEl.ValueKind != JsonValueKind.String
+            || !string.Equals(providerEl.GetString(), "cloudflare", StringComparison.OrdinalIgnoreCase))
+        {
+            errors.Add(("$.SubdomainMirroring.edgeTls.provider", "Must be 'cloudflare'."));
+        }
+
+        if (!edgeTls.TryGetProperty("email", out var emailEl)
+            || emailEl.ValueKind != JsonValueKind.String
+            || string.IsNullOrWhiteSpace(emailEl.GetString()))
+        {
+            errors.Add(("$.SubdomainMirroring.edgeTls.email", "email is required when enabled."));
+        }
+
+        if (!edgeTls.TryGetProperty("apiToken", out var tokenEl)
+            || tokenEl.ValueKind != JsonValueKind.String
+            || string.IsNullOrWhiteSpace(tokenEl.GetString())
+            || tokenEl.GetString() == "***")
+        {
+            errors.Add(("$.SubdomainMirroring.edgeTls.apiToken", "apiToken is required when enabled."));
+        }
+
+        if (currentForwarding is null || currentForwarding.Domains.Length == 0)
+        {
+            errors.Add(("$.SubdomainMirroring", "Forwarding.domains must be configured with a wildcard entry when enabled."));
+        }
+        else if (!HostMapper.HasWildcardDomain(currentForwarding.Domains))
+        {
+            errors.Add(("$.SubdomainMirroring", "Forwarding.domains must include at least one wildcard pattern (e.g. *.example.com) when enabled."));
+        }
     }
 
     private static bool IsValidFqdn(string value)

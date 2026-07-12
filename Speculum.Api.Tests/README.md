@@ -1,6 +1,6 @@
 # Speculum.Api.Tests
 
-Automated tests for `Speculum.Api` — config store, SSRF guard, motor planning, snapshot merge, viewport validation, and HTTP smoke tests via `WebApplicationFactory`.
+Automated tests for `Speculum.Api` — config store, SSRF guard, HostMapper, browser session store, EdgeTls writer, viewport validation, and HTTP smoke tests via `WebApplicationFactory`.
 
 ## Run
 
@@ -18,12 +18,12 @@ dotnet test Speculum.sln -c Release
 
 | Test file | Focus |
 |-----------|-------|
-| `SmokeTests.cs` | Health, readiness, public admin status |
-| `ConfigStoreTests.cs` | SQLite config CRUD and operational gate |
+| `SmokeTests.cs` | Health, readiness, CORS, public client-config |
+| `ConfigStoreTests.cs` | Validators, HostMapper modes, subdomain evaluator, EdgeTlsWriter |
+| `DynamicCorsPolicyProviderTests.cs` | CORS apex vs subdomain mirroring modes |
 | `ConfigStoreSeedTests.cs` | Admin bootstrap seeding |
 | `SsrfGuardTests.cs` | Private IP blocking for script URLs |
-| `MotorPlanTests.cs` | Session / forwarding integration |
-| `ProfileSnapshotMergerTests.cs` | Profile BLOB merge logic |
+| `MotorPlanTests.cs` | BrowserSessionStore, ClientTokenNormalizer, HostMapper |
 | `ViewportDimensionsTests.cs` | Viewport parsing |
 
 Integration host entry point: `Speculum.Api/Program.Integration.cs` (partial `Program` for test visibility).

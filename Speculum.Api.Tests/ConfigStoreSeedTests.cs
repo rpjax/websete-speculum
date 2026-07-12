@@ -1,7 +1,10 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Logging.Abstractions;
+using Speculum.Api.Config.Bootstrap;
 using Speculum.Api.Config.Runtime;
 using Speculum.Api.Config.Scripts;
 using Speculum.Api.Config.Store;
@@ -61,6 +64,11 @@ public class ConfigStoreSeedTests : IDisposable
         await store.PutSectionAsync(ConfigSectionKeys.Admin,
             JsonDocument.Parse("""{ "apiKey": "custom-key" }""").RootElement);
 
+        Assert.True(store.IsOperational);
+        Assert.Equal("www.example.com", store.Current.Forwarding!.Host);
+        Assert.Equal(5, store.Current.MaxSessions);
+        Assert.Equal("custom-key", store.Current.AdminApiKey);
+
         var store2 = CreateStore();
         await store2.InitializeAsync();
 
@@ -72,9 +80,17 @@ public class ConfigStoreSeedTests : IDisposable
 
     private SpeculumConfigStore CreateStore()
     {
+        Environment.SetEnvironmentVariable("HttpAddress", "127.0.0.1:8080");
+        Environment.SetEnvironmentVariable("Database__Path", _dbPath);
+        Environment.SetEnvironmentVariable("Sidecar__BaseUrl", "ws://127.0.0.1:3000");
+        Environment.SetEnvironmentVariable("Motor__PublicDomain", "speculum.test");
+
+        var config = new ConfigurationBuilder().AddEnvironmentVariables().Build();
+        var bootstrap = BootstrapConfig.Load(config);
         var env = new FakeWebHostEnvironment { WebRootPath = _tempDir };
         var registry = new VSessionRegistry();
         var scriptStore = new InjectedScriptStore(_dbPath);
+        var sessionStore = new BrowserSessionStore(_dbPath, NullLogger<BrowserSessionStore>.Instance);
         var resolver = new ScriptResolver(
             new HttpClientFactoryStub(),
             scriptStore,
@@ -82,24 +98,20 @@ public class ConfigStoreSeedTests : IDisposable
 
         return new SpeculumConfigStore(
             _dbPath,
+            bootstrap,
             resolver,
             scriptStore,
             registry,
-            new FakeProfileSnapshotMerger(),
-            new BrowserSnapshotStore(_dbPath, NullLogger<BrowserSnapshotStore>.Instance),
+            sessionStore,
             env,
-            NullLogger<SpeculumConfigStore>.Instance);
+            NullLogger<SpeculumConfigStore>.Instance,
+            EmptyServiceProvider.Instance);
     }
 
-    private sealed class FakeProfileSnapshotMerger : IProfileSnapshotMerger
+    private sealed class EmptyServiceProvider : IServiceProvider
     {
-        public Task MergeAndSaveAsync(
-            string sessionId,
-            byte[] incomingBlob,
-            string lastUrl,
-            DateTimeOffset capturedAt,
-            CancellationToken ct = default)
-            => Task.CompletedTask;
+        public static readonly EmptyServiceProvider Instance = new();
+        public object? GetService(Type serviceType) => null;
     }
 
     private sealed class FakeWebHostEnvironment : IWebHostEnvironment

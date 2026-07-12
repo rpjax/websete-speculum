@@ -6,20 +6,20 @@ namespace Speculum.Api.Hosting;
 public sealed class GracefulShutdownHostedService : IHostedService
 {
     private readonly IVSessionRegistry       _registry;
-    private readonly IProfileSnapshotMerger _merger;
+    private readonly IBrowserSessionStore    _sessionStore;
     private readonly IHostApplicationLifetime _lifetime;
     private readonly ILogger<GracefulShutdownHostedService> _logger;
 
     public GracefulShutdownHostedService(
         IVSessionRegistry registry,
-        IProfileSnapshotMerger merger,
+        IBrowserSessionStore sessionStore,
         IHostApplicationLifetime lifetime,
         ILogger<GracefulShutdownHostedService> logger)
     {
-        _registry = registry;
-        _merger   = merger;
-        _lifetime = lifetime;
-        _logger   = logger;
+        _registry     = registry;
+        _sessionStore = sessionStore;
+        _lifetime     = lifetime;
+        _logger       = logger;
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -28,8 +28,8 @@ public sealed class GracefulShutdownHostedService : IHostedService
         {
             try
             {
-                _logger.LogInformation("Application stopping — capturing snapshots and draining sessions.");
-                _registry.StopAllAsync(_merger, _lifetime.ApplicationStopping).GetAwaiter().GetResult();
+                _logger.LogInformation("Application stopping — capturing browser state and draining sessions.");
+                _registry.StopAllAsync(_sessionStore, _lifetime.ApplicationStopping).GetAwaiter().GetResult();
             }
             catch (Exception ex)
             {

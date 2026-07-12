@@ -1,7 +1,8 @@
 import * as signalR from '@microsoft/signalr'
 import * as msgpack from '@microsoft/signalr-protocol-msgpack'
 import { API_URL } from '@/lib/env'
-import { loadSessionId, saveSessionId } from '@/lib/session-id'
+import { fetchClientConfig, loadClientToken, saveClientToken, type ClientConfig } from '@/lib/session-id'
+import { mapTargetToClientUrl, syncClientLocation } from '@/lib/host-mapper'
 import FrameWorker from './frame-decode.worker?worker'
 
 const MSG_URL = 0x04
@@ -60,7 +61,7 @@ export class MotorEngine {
   private connecting = false
   private frameWorker: Worker | null = null
   private latestDrawnSeq = 0
-  private userInputSubject: signalR.Subject<{ type: string; payload: string }> | null = null
+  private userInputSubject: signalR.Subject<string> | null = null
   private consoleInputSubject: signalR.Subject<{ id: number; code: string }> | null = null
   private sessionW = 1280
   private sessionH = 720
@@ -81,6 +82,7 @@ export class MotorEngine {
   private streamDisposers: Array<() => void> = []
   private elements: MotorElements | null = null
   private mounted = false
+  private clientConfig: ClientConfig | null = null
 
   private state: MotorUiState = {
     status: 'idle',
@@ -156,6 +158,7 @@ export class MotorEngine {
         window.location.replace('/setup')
         return
       }
+      this.clientConfig = await fetchClientConfig(API_URL)
     } catch {
       if (!this.isActive()) return
       this.emit({ status: 'error', statusText: 'Error: cannot reach server', showOverlay: true })
@@ -167,7 +170,10 @@ export class MotorEngine {
     if (!this.isActive()) return
 
     this.connection = new signalR.HubConnectionBuilder()
-      .withUrl(`${API_URL}/vhub`, { withCredentials: true })
+      .withUrl(`${API_URL}/vhub`, {
+        withCredentials: true,
+        transport: signalR.HttpTransportType.WebSockets,
+      })
       .withHubProtocol(new msgpack.MessagePackHubProtocol())
       .withAutomaticReconnect()
       .build()
@@ -244,12 +250,12 @@ export class MotorEngine {
     const initH = elements.viewport.clientHeight || 720
     this.syncCanvasSize(initW, initH)
 
-    const sessionId = await this.invokeStartSession(initW, initH)
-    if (!sessionId) {
+    const clientToken = await this.invokeStartSession(initW, initH)
+    if (!clientToken) {
       await this.stopConnection()
       return
     }
-    saveSessionId(sessionId)
+    if (this.clientConfig) saveClientToken(clientToken, this.clientConfig)
 
     this.subscribeStream<FramePayload>('OpenFrameChannel', {
       next: (frame) => this.onFrame(frame),
@@ -292,7 +298,7 @@ export class MotorEngine {
         window.location.href,
         initW,
         initH,
-        loadSessionId(),
+        loadClientToken(this.clientConfig!),
       )
     } catch (err) {
       if (isSetupRequiredError(err)) {
@@ -387,11 +393,12 @@ export class MotorEngine {
   }
 
   private onFrame(frame: FramePayload) {
-    if (!frame?.jpeg?.length || !this.elements) return
+    const raw = frame as FramePayload & { Jpeg?: Uint8Array | number[] }
+    const jpeg = frame?.jpeg ?? raw.Jpeg
+    if (!jpeg?.length || !this.elements) return
     const seq = frame.sequence ?? 0
     if (seq < this.latestDrawnSeq) return
     this.ensureFrameWorker()
-    const jpeg = frame.jpeg
     const buf = jpeg instanceof Uint8Array
       ? jpeg.buffer.slice(jpeg.byteOffset, jpeg.byteOffset + jpeg.byteLength)
       : new Uint8Array(jpeg).buffer
@@ -421,11 +428,16 @@ export class MotorEngine {
     if (type === MSG_URL) {
       if (bytes.length < 5) return
       const len = view.getUint32(1, true)
-      this.currentUrl = new TextDecoder().decode(bytes.slice(5, 5 + len))
+      const targetUrl = new TextDecoder().decode(bytes.slice(5, 5 + len))
+      const mapped = this.clientConfig
+        ? mapTargetToClientUrl(targetUrl, this.clientConfig)
+        : targetUrl
+      this.currentUrl = mapped
       if (document.activeElement !== this.elements.urlBar) {
-        this.elements.urlBar.value = this.currentUrl
-        this.emit({ url: this.currentUrl })
+        this.elements.urlBar.value = mapped
+        this.emit({ url: mapped })
       }
+      syncClientLocation(mapped)
     } else if (type === MSG_CONSOLE) {
       if (bytes.length < 6) return
       const level = bytes[1]
@@ -464,9 +476,12 @@ export class MotorEngine {
     else if (!this.jsBridgeEnabled) this.uninstallVcon()
 
     if (s.url && this.elements && document.activeElement !== this.elements.urlBar) {
-      this.currentUrl = s.url
-      this.elements.urlBar.value = s.url
-      this.emit({ url: s.url })
+      const mapped = this.clientConfig
+        ? mapTargetToClientUrl(s.url, this.clientConfig)
+        : s.url
+      this.currentUrl = mapped
+      this.elements.urlBar.value = mapped
+      this.emit({ url: mapped })
     }
   }
 
@@ -497,7 +512,7 @@ export class MotorEngine {
 
   private sendInput(obj: Record<string, unknown>) {
     if (!this.userInputSubject) return
-    this.userInputSubject.next({ type: String(obj.type), payload: JSON.stringify(obj) })
+    this.userInputSubject.next(JSON.stringify(obj))
   }
 
   private invalidateRect() {

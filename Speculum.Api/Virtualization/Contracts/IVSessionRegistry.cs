@@ -45,6 +45,6 @@ public interface IVSessionRegistry
     /// <summary>Removes and returns a session that was still starting.</summary>
     bool TryCancelStarting(string connectionId, [NotNullWhen(true)] out VSession? session);
 
-    /// <summary>Captures snapshots, stops and removes all active and starting sessions.</summary>
-    Task StopAllAsync(IProfileSnapshotMerger merger, CancellationToken ct = default);
+    /// <summary>Captures browser state, stops and removes all active and starting sessions.</summary>
+    Task StopAllAsync(IBrowserSessionStore store, CancellationToken ct = default);
 }

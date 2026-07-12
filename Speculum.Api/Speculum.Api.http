@@ -7,6 +7,9 @@ GET {{host}}/health
 ### Setup status (public)
 GET {{host}}/api/admin/config/status
 
+### Client config (public)
+GET {{host}}/api/public/client-config
+
 ### Forwarding (requires auth)
 PUT {{host}}/api/admin/config/Forwarding
 Authorization: Bearer {{adminKey}}
@@ -23,6 +26,28 @@ Authorization: Bearer {{adminKey}}
 Content-Type: application/json
 
 10
+
+### Session policy (requires auth)
+PUT {{host}}/api/admin/config/SessionPolicy
+Authorization: Bearer {{adminKey}}
+Content-Type: application/json
+
+{
+  "ttlDays": 30
+}
+
+### Subdomain mirroring — disable (requires auth)
+PUT {{host}}/api/admin/config/SubdomainMirroring
+Authorization: Bearer {{adminKey}}
+Content-Type: application/json
+
+{
+  "enabled": false
+}
+
+### List browser sessions (requires auth)
+GET {{host}}/api/admin/sessions
+Authorization: Bearer {{adminKey}}
 
 ### Change admin key (requires current key)
 PUT {{host}}/api/admin/config/Admin

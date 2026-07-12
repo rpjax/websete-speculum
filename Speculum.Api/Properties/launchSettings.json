@@ -10,7 +10,8 @@
         "HttpAddress": "0.0.0.0:8080",
         "Database__Path": "data/speculum.db",
         "Sidecar__BaseUrl": "ws://localhost:3000",
-        "Cors__AllowedOrigins": "http://localhost:5173;https://speculum.localhost"
+        "Motor__PublicDomain": "speculum.localhost",
+        "Cors__AllowedOrigins": "http://localhost:5173;http://speculum.localhost:8080"
       }
     }
   }

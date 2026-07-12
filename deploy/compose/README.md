@@ -34,11 +34,11 @@ Build contexts point to component folders (`Speculum.Api/`, `web/`, `sidecar/`) 
 
 | Aspect | dockup `dev` | This reference file |
 |--------|--------------|---------------------|
-| Traefik ports | `8080` / `8443` | `80` / `443` |
-| TLS (local) | Self-signed on `:8443` | ACME-oriented (needs real DNS for LE) |
-| CORS / VITE_API_URL | Includes `:8443` for dev | Uses `https://${TRAEFIK_API_DOMAIN}` without port |
+| Traefik ports | `8080` (HTTP) | `80` / `443` |
+| TLS (local) | None | ACME-oriented (needs real DNS for LE) |
+| CORS / VITE_API_URL | `http://*.localhost:8080` | Uses `https://${TRAEFIK_API_DOMAIN}` without port |
 
-For local HTTPS on `:8443`, use **dockup dev** instead.
+For plug-and-play local dev without certificate setup, use **dockup dev** (`http://speculum.localhost:8080`).
 
 ---
 

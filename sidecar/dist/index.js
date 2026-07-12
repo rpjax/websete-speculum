@@ -37,8 +37,6 @@ const http = __importStar(require("http"));
 const ws_1 = require("ws");
 const DisplayManager_1 = require("./DisplayManager");
 const Session_1 = require("./Session");
-const ProfileMerger_1 = require("./ProfileMerger");
-const ProfileArchive_1 = require("./ProfileArchive");
 const Protocol_1 = require("./Protocol");
 const PORT = parseInt(process.env['SIDECAR_PORT'] ?? '3000', 10);
 if (isNaN(PORT) || PORT < 1 || PORT > 65535) {
@@ -65,25 +63,8 @@ wss.on('connection', (ws) => {
         const msg = (0, Protocol_1.decodeMessage)(text);
         if (!msg)
             return;
-        if (msg.type === 'mergeProfiles' && 'baseBlob' in msg && 'incomingBlob' in msg) {
-            try {
-                const base = Buffer.from(msg.baseBlob, 'base64');
-                const incoming = Buffer.from(msg.incomingBlob, 'base64');
-                const merged = await (0, ProfileMerger_1.mergeProfiles)(base, incoming);
-                (0, ProfileArchive_1.sendProfileChunks)(ws, merged);
-                ws.send(JSON.stringify({ type: 'mergeDone', byteSize: merged.length }));
-            }
-            catch (err) {
-                const message = err.message;
-                console.warn('[sidecar] Profile merge failed:', message);
-                if (ws.readyState === ws.OPEN) {
-                    ws.send(JSON.stringify({ type: 'mergeError', message }));
-                }
-            }
-            return;
-        }
         if (msg.type === 'create') {
-            const { sessionId, width, height, url, scripts = [], jsBridgeEnabled = false, allowedNavigationDomains, profileBlob, } = msg;
+            const { sessionId, width, height, url, scripts = [], jsBridgeEnabled = false, allowedNavigationDomains, browserState, } = msg;
             if (session) {
                 console.warn(`[${sessionId}] Duplicate create on existing session — rejecting`);
                 ws.send(JSON.stringify({
@@ -98,11 +79,7 @@ wss.on('connection', (ws) => {
             let display;
             try {
                 display = await DisplayManager_1.DisplayManager.start(displayNum, width, height);
-                let profileBuffer;
-                if (profileBlob) {
-                    profileBuffer = Buffer.from(profileBlob, 'base64');
-                }
-                session = await Session_1.Session.create(sessionId, ws, display, width, height, url, scripts, jsBridgeEnabled, allowedNavigationDomains, profileBuffer);
+                session = await Session_1.Session.create(sessionId, ws, display, width, height, url, scripts, jsBridgeEnabled, allowedNavigationDomains, browserState);
                 activeSessions.add(session);
                 ws.send(JSON.stringify({ type: 'ready', sessionId }));
             }
@@ -117,17 +94,18 @@ wss.on('connection', (ws) => {
             }
             return;
         }
-        if (msg.type === 'snapshot') {
+        if (msg.type === 'exportState') {
             if (!session)
                 return;
             try {
-                await session.captureSnapshot();
+                const state = await session.captureState();
+                ws.send(JSON.stringify({ type: 'stateExport', state }));
             }
             catch (err) {
                 const message = err.message;
-                console.warn(`[${session?.sessionId}] Snapshot failed:`, message);
+                console.warn(`[${session?.sessionId}] State export failed:`, message);
                 if (ws.readyState === ws.OPEN) {
-                    ws.send(JSON.stringify({ type: 'snapshotError', message }));
+                    ws.send(JSON.stringify({ type: 'stateExportError', message }));
                 }
             }
             return;

@@ -64,7 +64,7 @@ public sealed class VSessionRegistry : IVSessionRegistry
     public bool TryCancelStarting(string connectionId, [NotNullWhen(true)] out VSession? session)
         => _starting.TryRemove(connectionId, out session);
 
-    public async Task StopAllAsync(IProfileSnapshotMerger merger, CancellationToken ct = default)
+    public async Task StopAllAsync(IBrowserSessionStore store, CancellationToken ct = default)
     {
         var connectionIds = _sessions.Keys
             .Concat(_starting.Keys)
@@ -87,7 +87,7 @@ public sealed class VSessionRegistry : IVSessionRegistry
 
             if (!string.IsNullOrWhiteSpace(session.PersistedSessionId))
             {
-                try { await session.CaptureAndPersistAsync(session.PersistedSessionId!, merger, ct); }
+                try { await session.CaptureAndPersistAsync(session.PersistedSessionId!, store, ct); }
                 catch { /* best-effort */ }
             }
 

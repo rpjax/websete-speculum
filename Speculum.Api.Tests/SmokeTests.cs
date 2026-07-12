@@ -1,33 +1,12 @@
-using Microsoft.AspNetCore.Mvc.Testing;
-
 namespace Speculum.Api.Tests;
 
-public sealed class SmokeTests : IClassFixture<WebApplicationFactory<Program>>, IDisposable
+public sealed class SmokeTests : IClassFixture<SpeculumWebApplicationFactory>, IDisposable
 {
-    private readonly WebApplicationFactory<Program> _factory;
-    private readonly string _dbPath;
     private readonly HttpClient _client;
-    private readonly string? _prevHttp;
-    private readonly string? _prevDb;
-    private readonly string? _prevSidecar;
-    private readonly string? _prevCors;
 
-    public SmokeTests(WebApplicationFactory<Program> factory)
+    public SmokeTests(SpeculumWebApplicationFactory factory)
     {
-        _dbPath = Path.Combine(Path.GetTempPath(), $"speculum-smoke-{Guid.NewGuid():N}.db");
-
-        _prevHttp    = Environment.GetEnvironmentVariable("HttpAddress");
-        _prevDb      = Environment.GetEnvironmentVariable("Database__Path");
-        _prevSidecar = Environment.GetEnvironmentVariable("Sidecar__BaseUrl");
-        _prevCors    = Environment.GetEnvironmentVariable("Cors__AllowedOrigins");
-
-        Environment.SetEnvironmentVariable("HttpAddress", "127.0.0.1:18080");
-        Environment.SetEnvironmentVariable("Database__Path", _dbPath);
-        Environment.SetEnvironmentVariable("Sidecar__BaseUrl", "ws://127.0.0.1:39999");
-        Environment.SetEnvironmentVariable("Cors__AllowedOrigins", "http://localhost:5173");
-
-        _factory = factory;
-        _client  = _factory.CreateClient();
+        _client = factory.CreateClient();
     }
 
     [Fact]
@@ -98,13 +77,21 @@ public sealed class SmokeTests : IClassFixture<WebApplicationFactory<Program>>, 
         response.EnsureSuccessStatusCode();
     }
 
+    [Fact]
+    public async Task Client_config_is_public()
+    {
+        var response = await _client.GetAsync("/api/public/client-config");
+        response.EnsureSuccessStatusCode();
+    }
+
     public void Dispose()
     {
         _client.Dispose();
-        Environment.SetEnvironmentVariable("HttpAddress", _prevHttp);
-        Environment.SetEnvironmentVariable("Database__Path", _prevDb);
-        Environment.SetEnvironmentVariable("Sidecar__BaseUrl", _prevSidecar);
-        Environment.SetEnvironmentVariable("Cors__AllowedOrigins", _prevCors);
-        try { if (File.Exists(_dbPath)) File.Delete(_dbPath); } catch { /* best-effort */ }
+        try
+        {
+            if (File.Exists(SpeculumWebApplicationFactory.DbPath))
+                File.Delete(SpeculumWebApplicationFactory.DbPath);
+        }
+        catch { /* best-effort */ }
     }
 }

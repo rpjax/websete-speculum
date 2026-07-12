@@ -2,12 +2,16 @@ namespace Speculum.Api.Config.Runtime;
 
 public static class ConfigSectionKeys
 {
-    public const string Admin            = "Admin";
-    public const string Forwarding       = "Forwarding";
-    public const string MaxSessions      = "MaxSessions";
-    public const string ScriptInjection  = "ScriptInjection";
-    public const string JsBridge         = "JsBridge";
-    public const string SnapshotPolicy   = "SnapshotPolicy";
+    public const string Admin               = "Admin";
+    public const string Forwarding          = "Forwarding";
+    public const string MaxSessions         = "MaxSessions";
+    public const string ScriptInjection     = "ScriptInjection";
+    public const string JsBridge            = "JsBridge";
+    public const string SessionPolicy       = "SessionPolicy";
+    public const string SubdomainMirroring  = "SubdomainMirroring";
+
+    /// <summary>Legacy alias — reads/writes map to <see cref="SessionPolicy"/>.</summary>
+    public const string SnapshotPolicy = "SnapshotPolicy";
 
     public static readonly string[] All =
     [
@@ -16,7 +20,8 @@ public static class ConfigSectionKeys
         MaxSessions,
         ScriptInjection,
         JsBridge,
-        SnapshotPolicy,
+        SessionPolicy,
+        SubdomainMirroring,
     ];
 
     public static readonly string[] RequiredForOperation =
@@ -24,4 +29,9 @@ public static class ConfigSectionKeys
         Forwarding,
         MaxSessions,
     ];
+
+    public static string NormalizeKey(string key)
+        => key.Equals(SnapshotPolicy, StringComparison.OrdinalIgnoreCase)
+            ? SessionPolicy
+            : key;
 }

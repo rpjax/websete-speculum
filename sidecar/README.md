@@ -1,6 +1,6 @@
 # Speculum sidecar
 
-Node.js service that runs **real Chromium** (via [Patchright](https://github.com/Kaliiiiiiiiii-Vinyzu/patchright)) on a virtual framebuffer (Xvfb). The API connects over WebSocket; the sidecar manages browser lifecycle, CDP screencast, input injection, navigation guarding, and Chrome profile capture.
+Node.js service that runs **real Chromium** (via [Patchright](https://github.com/Kaliiiiiiiiii-Vinyzu/patchright)) on a virtual framebuffer (Xvfb). The API connects over WebSocket; the sidecar manages browser lifecycle, CDP screencast, input injection, navigation guarding, and **Tier 4 browser state** export/import (cookies, localStorage, IndexedDB, history).
 
 This container is **never exposed** to the public internet in production stacks — only `Speculum.Api` talks to it on the Docker network.
 
@@ -28,10 +28,11 @@ Speculum.Api  ──ws://sidecar:3000──►  sidecar
                                          ├─ DisplayManager (Xvfb displays)
                                          ├─ Session (Chrome + CDP)
                                          ├─ ScreencastCapture → JPEG
-                                         └─ ProfileMerger (on shutdown)
+                                         ├─ ScreencastCapture → JPEG
+                                         └─ BrowserState (CDP export/import on shutdown/create)
 ```
 
-Each API session maps to one sidecar `Session` with its own display number, viewport, navigation allowlist, and optional profile BLOB restore.
+Each API session maps to one sidecar `Session` with its own display number, viewport, navigation allowlist, and optional browser state restore.
 
 ---
 
@@ -45,7 +46,7 @@ sidecar/
 │   ├── BrowserManager.ts     Patchright launch and CDP
 │   ├── ScreencastCapture.ts  JPEG frame pipeline
 │   ├── Protocol.ts           JSON control messages
-│   ├── ProfileMerger.ts      Chrome profile merge for snapshots
+│   ├── BrowserState.ts       CDP export/import (cookies, LS, IDB, history)
 │   ├── DisplayManager.ts     Xvfb display allocation
 │   └── test/                 Node built-in test runner
 ├── extensions/webgl-spoof/   Optional extension payload
@@ -92,12 +93,12 @@ Control plane uses **JSON** messages (see `Protocol.ts`). Key inbound types:
 
 | Type | Purpose |
 |------|---------|
-| `create` | Start session: `sessionId`, `width`, `height`, `url`, `scripts`, `allowedNavigationDomains`, optional `profileBlob` |
+| `create` | Start session: `sessionId`, `width`, `height`, `url`, optional `browserState`, `scripts`, `allowedNavigationDomains` |
 | `input` | Pointer/keyboard events from motor client |
 | `navigate` | Programmatic navigation |
 | `eval` | JavaScript evaluation in page context |
-| `destroy` | Tear down session and capture profile |
-| `mergeProfiles` | Merge two profile BLOBs (API-assisted snapshot merge) |
+| `destroy` | Tear down session and capture browser state |
+| `exportState` | On-demand CDP export (cookies, localStorage, IndexedDB, history) |
 
 ---
 

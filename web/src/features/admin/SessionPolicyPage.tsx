@@ -5,20 +5,26 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 
-export default function SnapshotPolicyPage() {
+export default function SessionPolicyPage() {
   const [ttlDays, setTtlDays] = useState('30')
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    api.getSection<{ ttlDays: number }>('SnapshotPolicy').then((v) => setTtlDays(String(v.ttlDays))).catch(() => {})
+    api.getSection<{ ttlDays: number }>('SessionPolicy')
+      .then((v) => setTtlDays(String(v.ttlDays)))
+      .catch(() =>
+        api.getSection<{ ttlDays: number }>('SnapshotPolicy')
+          .then((v) => setTtlDays(String(v.ttlDays)))
+          .catch(() => {}),
+      )
   }, [])
 
   async function save() {
     setMessage(null)
     setError(null)
     try {
-      await api.putSection('SnapshotPolicy', { ttlDays: Number(ttlDays) })
+      await api.putSection('SessionPolicy', { ttlDays: Number(ttlDays) })
       setMessage('Saved')
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Save failed')
@@ -29,7 +35,7 @@ export default function SnapshotPolicyPage() {
     setMessage(null)
     setError(null)
     try {
-      await api.deleteSection('SnapshotPolicy')
+      await api.deleteSection('SessionPolicy')
       setTtlDays('30')
       setMessage('Deleted (default 30-day TTL applies)')
     } catch (e: unknown) {
@@ -39,9 +45,9 @@ export default function SnapshotPolicyPage() {
 
   return (
     <div className="mx-auto max-w-xl space-y-4">
-      <h1 className="text-2xl font-semibold">Snapshot Policy</h1>
+      <h1 className="text-2xl font-semibold">Session Policy</h1>
       <Card>
-        <CardHeader><CardTitle>Profile snapshot TTL</CardTitle></CardHeader>
+        <CardHeader><CardTitle>Browser session TTL</CardTitle></CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="ttl">TTL (days)</Label>

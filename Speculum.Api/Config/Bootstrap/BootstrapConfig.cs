@@ -7,25 +7,28 @@ public sealed class BootstrapConfig
     private static readonly string[] DefaultCorsOrigins =
     [
         "https://speculum.localhost",
-        "https://speculum.localhost:8443",
+        "http://speculum.localhost:8080",
         "http://localhost:5173",
     ];
 
     public string HttpAddress { get; }
     public string DatabasePath { get; }
     public string SidecarBaseUrl { get; }
+    public string MotorPublicDomain { get; }
     public IReadOnlyList<string> CorsAllowedOrigins { get; }
 
     private BootstrapConfig(
         string httpAddress,
         string databasePath,
         string sidecarBaseUrl,
+        string motorPublicDomain,
         IReadOnlyList<string> corsAllowedOrigins)
     {
-        HttpAddress         = httpAddress;
-        DatabasePath        = databasePath;
-        SidecarBaseUrl      = sidecarBaseUrl;
-        CorsAllowedOrigins  = corsAllowedOrigins;
+        HttpAddress        = httpAddress;
+        DatabasePath       = databasePath;
+        SidecarBaseUrl     = sidecarBaseUrl;
+        MotorPublicDomain  = motorPublicDomain;
+        CorsAllowedOrigins = corsAllowedOrigins;
     }
 
     public static BootstrapConfig Load(IConfiguration configuration)
@@ -46,6 +49,10 @@ public sealed class BootstrapConfig
         if (string.IsNullOrEmpty(sidecarBaseUrl))
             throw new InvalidOperationException("Sidecar:BaseUrl environment variable is required.");
 
+        var motorPublicDomain = configuration["Motor:PublicDomain"]?.Trim();
+        if (string.IsNullOrEmpty(motorPublicDomain))
+            throw new InvalidOperationException("Motor:PublicDomain environment variable is required.");
+
         var corsRaw = configuration["Cors:AllowedOrigins"]?.Trim();
         IReadOnlyList<string> corsOrigins;
         if (string.IsNullOrEmpty(corsRaw))
@@ -62,6 +69,6 @@ public sealed class BootstrapConfig
                 corsOrigins = DefaultCorsOrigins;
         }
 
-        return new BootstrapConfig(httpAddress, databasePath, sidecarBaseUrl, corsOrigins);
+        return new BootstrapConfig(httpAddress, databasePath, sidecarBaseUrl, motorPublicDomain, corsOrigins);
     }
 }

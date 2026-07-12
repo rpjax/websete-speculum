@@ -41,7 +41,7 @@ const AsyncChain_1 = require("./AsyncChain");
 const MouseMoveCoalescer_1 = require("./MouseMoveCoalescer");
 const NavigationGeneration_1 = require("./NavigationGeneration");
 const ResizeGuard_1 = require("./ResizeGuard");
-const ProfileArchive_1 = require("./ProfileArchive");
+const BrowserState_1 = require("./BrowserState");
 const Protocol_1 = require("./Protocol");
 // ── Constants ─────────────────────────────────────────────────────────────────
 /** Maps Log.entryAdded severity strings to wire-level level bytes. */
@@ -82,8 +82,8 @@ class Session {
     _resizeGuard = new ResizeGuard_1.ResizeGuard();
     /** Monotonic token — stale navigations are discarded after completion. */
     _navigation = new NavigationGeneration_1.NavigationGeneration();
-    /** True while profile snapshot is being captured. */
-    _snapshotting = false;
+    /** True while browser state export is in progress. */
+    _exportingState = false;
     /** Latest-wins coalesce buffer for mousemove. */
     _mouseMoveCoalescer;
     /** Whether the JsBridge (console forwarding + evaljs) is active. */
@@ -107,19 +107,19 @@ class Session {
         this._jsBridgeEnabled = jsBridgeEnabled;
         this._userDataDir = userDataDir;
         this._mouseMoveCoalescer = new MouseMoveCoalescer_1.MouseMoveCoalescer((x, y) => {
-            if (this._snapshotting || this._disposed)
+            if (this._exportingState || this._disposed)
                 return;
             this._page.mouse.move(x, y).catch(() => { });
         });
     }
     // ── Factory ───────────────────────────────────────────────────────────────
-    static async create(sessionId, ws, display, width, height, url, scripts = [], jsBridgeEnabled = false, allowedNavigationDomains, profileBlob) {
+    static async create(sessionId, ws, display, width, height, url, scripts = [], jsBridgeEnabled = false, allowedNavigationDomains, browserState) {
         console.log(`[${sessionId}] Launching Chrome on display ${display.displayEnv}`);
         let context;
         let cdp;
         let userDataDir = '';
         try {
-            const handle = await (0, BrowserManager_1.launchBrowser)(sessionId, display.displayEnv, width, height, profileBlob);
+            const handle = await (0, BrowserManager_1.launchBrowser)(sessionId, display.displayEnv, width, height, browserState);
             context = handle.context;
             cdp = handle.cdp;
             userDataDir = handle.userDataDir;
@@ -180,7 +180,7 @@ class Session {
     }
     // ── Input dispatch ────────────────────────────────────────────────────────
     async handleMessage(raw) {
-        if (this._snapshotting)
+        if (this._exportingState)
             return;
         const msg = (0, Protocol_1.decodeMessage)(raw);
         if (!msg || msg.type === 'create')
@@ -264,7 +264,7 @@ class Session {
         }
     }
     _queueMouseMove(x, y) {
-        if (this._snapshotting)
+        if (this._exportingState)
             return;
         this._mouseMoveCoalescer.queue(x, y);
     }
@@ -282,34 +282,15 @@ class Session {
         }
     }
     // ── Disposal ──────────────────────────────────────────────────────────────
-    async captureSnapshot() {
-        this._snapshotting = true;
-        console.log(`[${this.sessionId}] Capturing profile snapshot from ${this._userDataDir}`);
-        if (this._statusInterval !== null) {
-            clearInterval(this._statusInterval);
-            this._statusInterval = null;
-        }
+    async captureState() {
+        this._exportingState = true;
         try {
-            await this._capture.stop();
+            console.log(`[${this.sessionId}] Exporting browser state via CDP`);
+            return await (0, BrowserState_1.exportBrowserState)(this._cdp, this._page);
         }
-        catch { /* already stopped */ }
-        if (!this._browserQuiesced) {
-            try {
-                await this._cdp.detach();
-            }
-            catch { /* best-effort */ }
-            try {
-                await this._context.close();
-            }
-            catch { /* best-effort */ }
-            this._browserQuiesced = true;
+        finally {
+            this._exportingState = false;
         }
-        const blob = await (0, ProfileArchive_1.archiveProfile)(this._userDataDir);
-        if (this._ws.readyState === this._ws.OPEN) {
-            (0, ProfileArchive_1.sendProfileChunks)(this._ws, blob);
-            this._ws.send(JSON.stringify({ type: 'snapshotDone', byteSize: blob.length }));
-        }
-        return blob.length;
     }
     async dispose() {
         if (this._disposed)

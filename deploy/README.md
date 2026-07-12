@@ -43,7 +43,7 @@ Each service owns its image: `Speculum.Api/Dockerfile`, `web/Dockerfile`, `sidec
 | Docker Engine + Compose v2 | Linux recommended for production |
 | Node.js 22+ | For global dockup CLI |
 | DNS (prod) | Apex + `api.speculum.<apex>` → server IP |
-| Ports | Dev: `8080`/`8443`; Prod: `80`/`443` |
+| Ports | Dev: `8080` (HTTP); Prod: `80`/`443` |
 
 Install dockup (once):
 
@@ -75,7 +75,7 @@ Deploy local dev stack:
 dockup deploy --env dev --root ..
 ```
 
-Open **https://speculum.localhost:8443** and accept the self-signed certificate.
+Open **http://speculum.localhost:8080** — dev uses plain HTTP so no certificate trust step is required.
 
 ---
 
@@ -99,22 +99,24 @@ Each environment (`dev`, `prod`) defines:
 |----------|-------------|--------------|
 | `TRAEFIK_MOTOR_DOMAIN` | `speculum.localhost` | `seudominio.com` |
 | `TRAEFIK_API_DOMAIN` | `api.speculum.localhost` | `api.speculum.seudominio.com` |
-| `ACME_EMAIL` | `""` (empty — dev uses default cert) | `admin@example.com` |
+| `ACME_EMAIL` | `""` (empty — dev has no TLS) | `admin@example.com` |
 
 ### API container env (set in manifest)
 
 | Variable | Dev | Prod |
 |----------|-----|------|
-| `Cors__AllowedOrigins` | `https://speculum.localhost:8443;http://localhost:5173` | `https://${TRAEFIK_MOTOR_DOMAIN}` |
+| `ADMIN_BOOTSTRAP_KEY` | `password` (first boot only) | Set in manifest before first boot |
+| `Cors__AllowedOrigins` | `http://speculum.localhost:8080;http://localhost:5173` | `https://${TRAEFIK_MOTOR_DOMAIN}` |
+| `Motor__PublicDomain` | `speculum.localhost` | Apex motor domain (no `api.` prefix) |
 | `ASPNETCORE_ENVIRONMENT` | `Development` | `Production` |
 
 ### Web build arg
 
 | Build arg | Dev | Prod |
 |-----------|-----|------|
-| `VITE_API_URL` | `https://api.speculum.localhost:8443` | `https://${TRAEFIK_API_DOMAIN}` |
+| `VITE_API_URL` | `http://api.speculum.localhost:8080` | `https://${TRAEFIK_API_DOMAIN}` |
 
-**Important:** Dev Traefik listens on host **8443** → HTTPS URLs must include `:8443` in CORS and `VITE_API_URL`.
+**Important:** Dev Traefik listens on host **8080** only (HTTP). URLs, CORS, and `VITE_API_URL` must use `http://` and include `:8080`. Traefik `Host()` rules also match `*:8080` because browsers send the port in the `Host` header when it is non-standard.
 
 ---
 
@@ -145,17 +147,17 @@ dockup deploy --env prod --only api --root ..
 
 | | **dev** | **prod** |
 |---|---------|----------|
-| Traefik host ports | `8080` → 80, `8443` → 443 | `80`, `443` |
-| TLS | Default/self-signed | Let's Encrypt HTTP challenge |
-| Motor URL | `https://speculum.localhost:8443` | `https://<TRAEFIK_MOTOR_DOMAIN>` |
-| API URL | `https://api.speculum.localhost:8443` | `https://<TRAEFIK_API_DOMAIN>` |
+| Traefik host ports | `8080` → 80 (HTTP only) | `80`, `443` |
+| TLS | None (plug-and-play local dev) | Let's Encrypt HTTP (apex) + DNS challenge prep for optional wildcard |
+| Motor URL | `http://speculum.localhost:8080` | `https://<TRAEFIK_MOTOR_DOMAIN>` |
+| API URL | `http://api.speculum.localhost:8080` | `https://<TRAEFIK_API_DOMAIN>` |
 | Output directory | `deploy/out/dev/` | `deploy/out/prod/` |
 
 ### Services (both environments)
 
 | ID | Image | Public |
 |----|-------|--------|
-| `traefik` | `traefik:v3.3` | Edge ports |
+| `traefik` | `traefik:v3.6.1` | Edge ports |
 | `sidecar` | `speculum-sidecar` (build) | Internal |
 | `api` | `speculum-api` (build) | Via Traefik API host |
 | `web` | `speculum-web` (build) | Via Traefik motor host |
@@ -184,15 +186,12 @@ deploy/out/
 
 Infrastructure env vars are set by dockup. **Motor** configuration is still required in SQLite:
 
-1. Read bootstrap admin key from API logs:
-   ```bash
-   docker logs <namespace>-api-1 2>&1 | grep -i bootstrap
-   ```
-   Or set `ADMIN_BOOTSTRAP_KEY` in the manifest before first boot.
+1. Sign in at `http://<motor-domain>/admin` with API key **`password`** (dev default from `ADMIN_BOOTSTRAP_KEY`). If the DB was created before this key was set, run `docker compose down -v` in `out/dev` and redeploy.
 
 2. Open `https://<motor-domain>/admin` and configure:
-   - **Forwarding** — `host` = target site apex (not Traefik hostname)
+   - **Forwarding** — `host` = target site apex (e.g. `www.olx.com.br`); `domains` = navigation allowlist
    - **MaxSessions** — concurrent browser cap
+   - **Subdomain Mirroring** (optional, OFF by default) — enable only if you need mirrored subdomains and have Cloudflare DNS API credentials
 
 3. Verify readiness:
    ```bash
@@ -228,6 +227,20 @@ docker compose ps
 
 Ensure firewall allows `80` and `443`. DNS for motor and API hosts must point to the VPS before ACME succeeds.
 
+### Optional: subdomain mirroring (wildcard TLS)
+
+By default the motor runs in **apex mode** — all client URLs stay on the motor apex; no Cloudflare token is required.
+
+To mirror target subdomains (e.g. `www.olx.com.br` → `www.speculum.com`):
+
+1. Set `Motor__PublicDomain` in the API container env to the motor apex (e.g. `seudominio.com`).
+2. In Admin → **Subdomain Mirroring**, enable the feature and provide Cloudflare ACME email + API token (`Zone:DNS:Edit`).
+3. Add a wildcard entry to **Forwarding.domains** (e.g. `*.olx.com.br`).
+4. When operational, the API writes `/data/traefik/cloudflare.env` and `dynamic/subdomain-wildcard.yml` on the shared Traefik volume.
+5. **Restart the Traefik container** after the first enable or credential change so it sources `/data/traefik/cloudflare.env` and issues the wildcard certificate (prod Traefik entrypoint loads this file on start).
+
+The base motor (`/ready`, apex TLS) continues to work even if subdomain mirroring is misconfigured.
+
 ---
 
 ## Partial deploys
@@ -247,7 +260,9 @@ Sidecar changes require rebuilding `speculum-sidecar`; active sessions should dr
 
 | Symptom | Likely cause | Action |
 |---------|--------------|--------|
-| CORS errors in browser | `Cors__AllowedOrigins` missing web origin or wrong port | Dev must include `:8443` on HTTPS origins |
+| Traefik 404 on `http://speculum.localhost:8080` | Missing `Host(:8080)` rule | Regenerate dev compose; labels must include `Host(\`domain:8080\`)` |
+| Traefik docker provider errors / all routes 404 | Docker 29+ with Traefik **< 3.6.1** | Use `traefik:v3.6.1` or newer in the manifest |
+| CORS errors in browser | `Cors__AllowedOrigins` missing web origin or wrong port | Dev must include `http://speculum.localhost:8080` |
 | Motor cannot connect SignalR | Wrong `VITE_API_URL` baked into web image | Rebuild `web` with correct build arg |
 | `ready` returns 503 | Forwarding / MaxSessions not configured | Use `/admin` or Admin API |
 | ACME failure (prod) | DNS or port 80 blocked | Verify A records and firewall |

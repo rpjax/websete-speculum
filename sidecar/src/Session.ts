@@ -8,7 +8,7 @@ import { AsyncChain }        from './AsyncChain';
 import { MouseMoveCoalescer } from './MouseMoveCoalescer';
 import { NavigationGeneration } from './NavigationGeneration';
 import { ResizeGuard } from './ResizeGuard';
-import { archiveProfile, sendProfileChunks } from './ProfileArchive';
+import { exportBrowserState, BrowserStatePayload } from './BrowserState';
 import {
     decodeMessage,
     encodeUrlUpdate,
@@ -65,8 +65,8 @@ export class Session {
     /** Monotonic token — stale navigations are discarded after completion. */
     private readonly _navigation = new NavigationGeneration();
 
-    /** True while profile snapshot is being captured. */
-    private _snapshotting: boolean = false;
+    /** True while browser state export is in progress. */
+    private _exportingState: boolean = false;
 
     /** Latest-wins coalesce buffer for mousemove. */
     private readonly _mouseMoveCoalescer: MouseMoveCoalescer;
@@ -109,7 +109,7 @@ export class Session {
         this._jsBridgeEnabled = jsBridgeEnabled;
         this._userDataDir     = userDataDir;
         this._mouseMoveCoalescer = new MouseMoveCoalescer((x, y) => {
-            if (this._snapshotting || this._disposed) return;
+            if (this._exportingState || this._disposed) return;
             this._page.mouse.move(x, y).catch(() => {});
         });
     }
@@ -126,7 +126,7 @@ export class Session {
         scripts:         ScriptEntry[] = [],
         jsBridgeEnabled: boolean       = false,
         allowedNavigationDomains?: string[],
-        profileBlob?:   Buffer,
+        browserState?: BrowserStatePayload,
     ): Promise<Session> {
         console.log(`[${sessionId}] Launching Chrome on display ${display.displayEnv}`);
 
@@ -134,7 +134,7 @@ export class Session {
         let cdp: CDPSession | undefined;
         let userDataDir = '';
         try {
-            const handle = await launchBrowser(sessionId, display.displayEnv, width, height, profileBlob);
+            const handle = await launchBrowser(sessionId, display.displayEnv, width, height, browserState);
             context     = handle.context;
             cdp         = handle.cdp;
             userDataDir = handle.userDataDir;
@@ -196,7 +196,7 @@ export class Session {
     // ── Input dispatch ────────────────────────────────────────────────────────
 
     async handleMessage(raw: string): Promise<void> {
-        if (this._snapshotting) return;
+        if (this._exportingState) return;
 
         const msg = decodeMessage(raw);
         if (!msg || msg.type === 'create') return;
@@ -298,7 +298,7 @@ export class Session {
     }
 
     private _queueMouseMove(x: number, y: number): void {
-        if (this._snapshotting) return;
+        if (this._exportingState) return;
         this._mouseMoveCoalescer.queue(x, y);
     }
 
@@ -319,29 +319,14 @@ export class Session {
 
     // ── Disposal ──────────────────────────────────────────────────────────────
 
-    async captureSnapshot(): Promise<number> {
-        this._snapshotting = true;
-        console.log(`[${this.sessionId}] Capturing profile snapshot from ${this._userDataDir}`);
-
-        if (this._statusInterval !== null) {
-            clearInterval(this._statusInterval);
-            this._statusInterval = null;
+    async captureState(): Promise<BrowserStatePayload> {
+        this._exportingState = true;
+        try {
+            console.log(`[${this.sessionId}] Exporting browser state via CDP`);
+            return await exportBrowserState(this._cdp, this._page);
+        } finally {
+            this._exportingState = false;
         }
-
-        try { await this._capture.stop(); } catch { /* already stopped */ }
-
-        if (!this._browserQuiesced) {
-            try { await this._cdp.detach(); }    catch { /* best-effort */ }
-            try { await this._context.close(); } catch { /* best-effort */ }
-            this._browserQuiesced = true;
-        }
-
-        const blob = await archiveProfile(this._userDataDir);
-        if (this._ws.readyState === this._ws.OPEN) {
-            sendProfileChunks(this._ws, blob);
-            this._ws.send(JSON.stringify({ type: 'snapshotDone', byteSize: blob.length }));
-        }
-        return blob.length;
     }
 
     async dispose(): Promise<void> {

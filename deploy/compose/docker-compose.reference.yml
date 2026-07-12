@@ -1,26 +1,39 @@
 services:
 
   traefik:
-    image: traefik:v3.3
+    image: traefik:v3.6.1
     restart: unless-stopped
+    entrypoint: ["/bin/sh", "-ec"]
     command:
-      - --api.dashboard=false
-      - --providers.docker=true
-      - --providers.docker.exposedbydefault=false
-      - --entrypoints.web.address=:80
-      - --entrypoints.websecure.address=:443
-      - --entrypoints.web.http.redirections.entrypoint.to=websecure
-      - --entrypoints.web.http.redirections.entrypoint.scheme=https
-      - --certificatesresolvers.le.acme.httpchallenge=true
-      - --certificatesresolvers.le.acme.httpchallenge.entrypoint=web
-      - --certificatesresolvers.le.acme.email=${ACME_EMAIL}
-      - --certificatesresolvers.le.acme.storage=/letsencrypt/acme.json
+      - >-
+        set -a; [ -f /data/traefik/cloudflare.env ] && . /data/traefik/cloudflare.env; set +a;
+        exec /entrypoint.sh traefik
+        --api.dashboard=false
+        --providers.docker=true
+        --providers.docker.exposedbydefault=false
+        --entrypoints.web.address=:80
+        --entrypoints.websecure.address=:443
+        --entrypoints.websecure.http.tls=true
+        --entrypoints.web.http.redirections.entrypoint.to=websecure
+        --entrypoints.web.http.redirections.entrypoint.scheme=https
+        --certificatesresolvers.le.acme.httpchallenge=true
+        --certificatesresolvers.le.acme.httpchallenge.entrypoint=web
+        --certificatesresolvers.le.acme.email=${ACME_EMAIL}
+        --certificatesresolvers.le.acme.storage=/letsencrypt/acme.json
+        --certificatesresolvers.le-dns.acme.dnschallenge=true
+        --certificatesresolvers.le-dns.acme.dnschallenge.provider=cloudflare
+        --certificatesresolvers.le-dns.acme.dnschallenge.resolvers=1.1.1.1:53,8.8.8.8:53
+        --certificatesresolvers.le-dns.acme.email=${ACME_EMAIL}
+        --certificatesresolvers.le-dns.acme.storage=/letsencrypt/acme-dns.json
+        --providers.file.directory=/data/traefik/dynamic
+        --providers.file.watch=true
     ports:
       - "80:80"
       - "443:443"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - traefik-letsencrypt:/letsencrypt
+      - speculum-data:/data
     environment:
       - ACME_EMAIL=${ACME_EMAIL:-admin@example.com}
 
@@ -56,6 +69,8 @@ services:
       - Database__Path=/data/speculum.db
       - Sidecar__BaseUrl=ws://sidecar:3000
       - Cors__AllowedOrigins=https://${TRAEFIK_MOTOR_DOMAIN:-speculum.localhost}
+      - Motor__PublicDomain=${TRAEFIK_MOTOR_DOMAIN:-speculum.localhost}
+      - Traefik__DynamicDir=/data/traefik/dynamic
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
       interval: 15s

@@ -1,70 +1,149 @@
-# Websete.Speculum (W7S)
+# Speculum
 
-**Websete.Speculum** is a remote browser isolation engine. A real Chromium instance runs on the server; the user interacts with a low-latency JPEG screencast rendered in a `<canvas>`.
+**Remote browser isolation** for the Websete (W7S) platform. A real Chromium instance runs on the server; users interact through a low-latency JPEG screencast in a React canvas. Runtime motor configuration lives in **SQLite** and is managed through the Admin API and admin UI.
 
-The motor is **domain-agnostic**: Traefik terminates TLS at the edge. Runtime configuration (target site, session limits, script injection) lives in a **local SQLite database**, managed via Admin API.
+---
+
+## Table of contents
+
+- [Quick start](#quick-start)
+- [Repository map](#repository-map)
+- [Architecture](#architecture)
+- [Configuration](#configuration)
+- [Admin API](#admin-api)
+- [Development](#development)
+- [Deploy](#deploy)
+- [Verification](#verification)
+- [Documentation index](#documentation-index)
+
+---
+
+## Quick start
+
+### Option A — Full stack with dockup (recommended)
+
+Prerequisites: [Docker](https://docs.docker.com/get-docker/), [Node.js 22+](https://nodejs.org/) (for dockup CLI).
+
+```bash
+npm install -g @rodrigopjax/dockup   # >= 2.0.1
+
+cd deploy
+cp speculum.dockup.example.json speculum.dockup.json
+# Edit domains if needed (defaults work for local dev)
+
+dockup validate --root ..
+dockup deploy --env dev --root ..
+```
+
+Open **https://speculum.localhost:8443** (accept the self-signed certificate).
+
+1. Copy the bootstrap API key from the `api` container logs.
+2. Go to **/admin** and sign in.
+3. Configure **Forwarding** (target site apex + navigation domains) and **MaxSessions**.
+4. Open **/** to start the virtual browser.
+
+Full deploy guide: [deploy/README.md](deploy/README.md).
+
+### Option B — Local development (three terminals)
+
+```bash
+# Terminal 1 — sidecar
+cd sidecar && npm ci && npm run build && npm start
+
+# Terminal 2 — API
+cd Speculum.Api && dotnet run
+
+# Terminal 3 — web
+cd web && cp .env.example .env && npm ci && npm run dev
+```
+
+Set `VITE_API_URL=http://localhost:8080` in `web/.env`. Ensure API CORS includes `http://localhost:5173` (default when `Cors__AllowedOrigins` is unset in Development).
+
+---
+
+## Repository map
+
+```
+Speculum/
+├── Speculum.Api/           # .NET 10 API — SignalR hub, admin REST, SQLite config
+├── Speculum.Api.Tests/     # Integration and unit tests
+├── web/                    # React SPA — motor, setup, admin
+├── sidecar/                # Node sidecar — Chrome + CDP screencast
+├── deploy/                 # dockup config (canonical deploy path)
+│   ├── speculum.dockup.example.json
+│   └── compose/            # Optional reference docker-compose
+├── docs/                   # Architecture and motor reference
+├── Dockerfile              # speculum-api image (context: repo root)
+├── Speculum.sln
+└── .github/workflows/ci.yml
+```
+
+| Artifact | Purpose |
+|----------|---------|
+| `deploy/speculum.dockup.json` | Your local dockup config (gitignored; copy from example) |
+| `deploy/out/{dev,prod}/` | Generated compose stacks (gitignored) |
+| `docker-compose.dcproj` | Visual Studio Docker tooling → references `deploy/compose/` |
 
 ---
 
 ## Architecture
 
 ```
-Browser  →  Traefik (TLS)  →  .NET Host (:8080 HTTP)
-                                  ├─ SignalR /vhub (control + streams)
-                                  ├─ Admin API /api/admin/config/*
-                                  └─ SQLite (runtime config)
-                              →  Sidecar (Chrome + CDP screencast)
+Browser  →  Traefik (TLS)
+              ├─ TRAEFIK_MOTOR_DOMAIN   →  speculum-web (React)
+              └─ TRAEFIK_API_DOMAIN     →  speculum-api
+                                            ├─ SignalR /vhub
+                                            ├─ Admin /api/admin/*
+                                            └─ SQLite
+                                          →  sidecar (internal)
 ```
 
 | Layer | Role |
 |-------|------|
-| **Traefik** | HTTPS, Let's Encrypt, routes to `app:8080` |
-| **.NET Host** | Sessions, config store, frame relay, setup page |
+| **Traefik** | HTTPS termination, host-based routing |
+| **speculum-web** | Motor `/`, setup `/setup`, admin `/admin/*` |
+| **Speculum.Api** | Sessions, config store, frame relay, OpenAPI |
 | **Sidecar** | Xvfb + Chrome + navigation guard + JPEG frames |
-| **Client** | `index.html` — canvas renderer + SignalR |
+
+**Dev hostnames:** `speculum.localhost` (web) and `api.speculum.localhost` (API) on port **8443**.
+
+Deep dive: [docs/architecture.md](docs/architecture.md) · Motor internals: [docs/motor-reference.md](docs/motor-reference.md)
 
 ---
 
 ## Configuration
 
-Three layers:
-
-### 1. Infrastructure (env only — required to start)
+### Infrastructure (environment — API will not start without these)
 
 | Key | Description |
 |-----|-------------|
 | `HttpAddress` | Kestrel listen address (e.g. `0.0.0.0:8080`) |
-| `Database__Path` | SQLite file path (e.g. `/data/speculum.db`) |
-| `Sidecar__BaseUrl` | WebSocket URL (e.g. `ws://sidecar:3000`) |
+| `Database__Path` | SQLite path (e.g. `/data/speculum.db`) |
+| `Sidecar__BaseUrl` | Sidecar WebSocket (e.g. `ws://sidecar:3000`) |
+| `Cors__AllowedOrigins` | Semicolon-separated SPA origins |
 | `ASPNETCORE_ENVIRONMENT` | `Development` or `Production` |
 
-`appsettings.json` contains only `Logging` and `AllowedHosts`.
-
-### 2. Runtime motor (SQLite — source of truth)
+### Motor runtime (SQLite — via admin UI or REST)
 
 | Section | Required | Description |
 |---------|----------|-------------|
-| `Forwarding` | Yes | `host` (FQDN) + `domains` (navigation allowlist, supports `*.`) |
+| `Forwarding` | Yes | `host` (target apex FQDN) + `domains` (navigation allowlist) |
 | `MaxSessions` | Yes | Concurrent session limit |
-| `ScriptInjection` | No | Array of `{ scriptId }` (DB upload) or `{ url }` (external, SSRF-guarded) |
-| `SnapshotPolicy` | No | `{ "ttlDays": 30 }` — browser profile snapshot TTL |
-| `JsBridge` | No | `{ "enable": true\|false }` — NULL means disabled |
+| `ScriptInjection` | No | `{ scriptId }` or `{ url }` entries |
+| `SnapshotPolicy` | No | `{ "ttlDays": 30 }` |
+| `JsBridge` | No | `{ "enable": true \| false }` |
 
-On first boot the motor is **not operational** until `Forwarding` and `MaxSessions` are configured via Admin API.
+When not operational, the motor redirects to `/setup`.
 
-### 3. Admin auth (SQLite — factory seed)
+### Admin authentication
 
-On first boot, section `Admin` is seeded with a random `apiKey` (printed to container logs). Override with env `ADMIN_BOOTSTRAP_KEY`. Change it via `PUT /api/admin/config/Admin`.
+`Admin.apiKey` is seeded on first database creation. Override before first boot with `ADMIN_BOOTSTRAP_KEY`. The full key is logged in Development; Production logs a prefix only.
 
-When required motor sections are missing, `/` redirects to `/setup`.
+### Session persistence
 
-### 4. Session persistence (cookie + SQLite BLOB)
-
-- Cookie `speculum_sid` (HttpOnly) identifies returning visitors.
-- On disconnect, the sidecar tar.gz's the Chrome profile; the host stores it in `browser_snapshots`.
-- **Multi-tab merge:** profiles are merged per file path — complementary files are kept; same path conflicts use last-write-wins (mtime). Volatile Chrome caches are excluded.
-- `last_url` uses last-write-wins by disconnect timestamp.
-- TTL configurable via `SnapshotPolicy` (default 30 days). Admin: `GET/DELETE /api/admin/snapshots`.
+- Client: `localStorage` key `speculum_session_id`
+- Server: Chrome profile snapshots in SQLite (`browser_snapshots`)
+- `StartSessionAsync(clientUrl, w, h, sessionId?)` returns the effective `sessionId`
 
 ---
 
@@ -73,83 +152,92 @@ When required motor sections are missing, `/` redirects to `/setup`.
 | Endpoint | Auth | Description |
 |----------|------|-------------|
 | `GET /health` | Public | Process alive |
-| `GET /ready` | Public | Config complete |
+| `GET /ready` | Public | Motor configured and ready |
 | `GET /api/admin/config/status` | Public | `{ operational, missing }` |
-| `GET/PUT/DELETE /api/admin/config/{section}` | Bearer | Manage runtime config |
-| `GET/DELETE /api/admin/snapshots[/{cookieId}]` | Bearer | Snapshot metadata (no blob) |
-| `GET/POST/DELETE /api/admin/scripts[/{id}]` | Bearer | Upload/list injected scripts |
-
-Bootstrap API key: check container logs on first boot, or set `ADMIN_BOOTSTRAP_KEY`. `GET Admin` returns `{ "configured": true }` (key is never echoed).
+| `GET/PUT/DELETE /api/admin/config/{section}` | Bearer | Runtime config sections |
+| `GET/DELETE /api/admin/snapshots[/{sessionId}]` | Bearer | Snapshot metadata |
+| `GET/POST/DELETE /api/admin/scripts[/{id}]` | Bearer | Injected script CRUD |
 
 OpenAPI (protected): `/openapi/v1.json`
 
-**Public motor surface:** `GET /`, `/vhub`, `/libs/*`, `/js/*`, `/workers/*`, `/health`, `/ready`, `/setup`, `GET /api/admin/config/status`.
+**Public surfaces:** `/health`, `/ready`, `/api/admin/config/status`, `/vhub` (SignalR negotiate). Protect the API host at the edge in production as needed.
 
-**Sidecar:** internal Docker network only — do not publish port 3000 on Traefik.
+Example requests: `Speculum.Api/Speculum.Api.http`
 
 ---
 
-## Docker
+## Development
 
-Quick local stack (build from source):
+### Prerequisites
+
+| Tool | Version |
+|------|---------|
+| [.NET SDK](https://dotnet.microsoft.com/download) | 10.0.x |
+| [Node.js](https://nodejs.org/) | 22.x |
+| Docker | Latest (for dockup / sidecar image) |
+
+### Run tests and builds
 
 ```bash
-export TRAEFIK_DOMAIN=speculum.example.com
-export ACME_EMAIL=admin@example.com
-docker compose up -d
+dotnet test Speculum.sln -c Release
+cd sidecar && npm ci && npm test
+cd web && npm ci && npm run lint && npm run build
 ```
 
-### Build and deploy (dockup)
+CI runs the same matrix on push/PR to `main` / `master` (see `.github/workflows/ci.yml`).
 
-Production-oriented build, push, and compose artifacts via [dockup](deploy/README.md) v2:
+### Component READMEs
+
+- [Speculum.Api/README.md](Speculum.Api/README.md)
+- [web/README.md](web/README.md)
+- [sidecar/README.md](sidecar/README.md)
+
+---
+
+## Deploy
+
+**Canonical path:** [dockup](https://github.com/rpjax/npm-dockup) from `deploy/`.
 
 ```bash
-npm install -g @rodrigopjax/dockup   # >= 2.0.1
 cd deploy
-cp speculum.dockup.example.json speculum.dockup.json
-dockup validate --root ..
-dockup deploy --env prod --root ..
+dockup deploy --env dev --root ..    # local HTTPS on :8443
+dockup deploy --env prod --root ..   # Let's Encrypt on :443
 ```
 
-| Environment | Default host | TLS | Published ports |
-|-------------|--------------|-----|-----------------|
-| `dev` | `speculum.websete.localhost` | Self-signed | `8080` (HTTP), `8443` (HTTPS) |
-| `prod` | `speculum.websete.org` | Let's Encrypt | `80`, `443` |
+Production VPS workflow: generate `out/prod/`, copy to server, `docker compose up -d`. Details in [deploy/README.md](deploy/README.md).
 
-Copy `deploy/out/prod/` to the VPS, then `docker compose pull && docker compose up -d`. See [deploy/README.md](deploy/README.md) for details.
+An optional hand-maintained compose file lives at [deploy/compose/docker-compose.reference.yml](deploy/compose/docker-compose.reference.yml) for environments without dockup.
 
 ---
 
-## Local development
+## Verification
+
+After changes, run:
 
 ```bash
-# Terminal 1 — sidecar
-cd sidecar && npm run build && node dist/index.js
-
-# Terminal 2 — host
-cd Websete.Speculum.Host
-dotnet run
+dotnet test Speculum.sln -c Release
+cd sidecar && npm test
+cd web && npm run lint && npm run build
 ```
 
-Infra env vars are in `Properties/launchSettings.json`. DB file: `data/speculum.db`. Configure motor sections via Admin API (bootstrap key from logs or `ADMIN_BOOTSTRAP_KEY`).
+For dockup stacks: `dockup validate --root ..` before deploy.
 
-### Client libs (`wwwroot/libs/`)
+---
 
-Self-hosted SignalR + MessagePack (no CDN). Only these files belong in `wwwroot/libs/`:
+## Documentation index
 
-- `signalr.min.js`
-- `signalr-protocol-msgpack.min.js`
+| Document | Description |
+|----------|-------------|
+| [docs/README.md](docs/README.md) | Documentation hub |
+| [docs/architecture.md](docs/architecture.md) | System design and security |
+| [docs/motor-reference.md](docs/motor-reference.md) | Protocol, forwarding, sessions |
+| [deploy/README.md](deploy/README.md) | dockup workflow (dev + prod) |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute and code standards |
 
-Refresh from npm when upgrading (do **not** commit `package/` or `.tgz` residue):
+Legacy W7 Go engine docs (archived): [docs/archive/w7-go-engine.md](docs/archive/w7-go-engine.md)
 
-```bash
-cd Websete.Speculum.Host/wwwroot/libs
-npm pack @microsoft/signalr@10.0.0
-npm pack @microsoft/signalr-protocol-msgpack@10.0.0
-tar -xf microsoft-signalr-10.0.0.tgz package/dist/browser/signalr.min.js
-tar -xf microsoft-signalr-protocol-msgpack-10.0.0.tgz package/dist/browser/signalr-protocol-msgpack.min.js
-mv package/dist/browser/signalr.min.js .
-mv package/dist/browser/signalr-protocol-msgpack.min.js .
-rm -rf package *.tgz
-# Recompute SRI for index.html: certutil -hashfile <file> SHA256 → sha256-<hex>
-```
+---
+
+## License and notice
+
+Speculum is part of the Websete platform. Use only on systems and domains you are authorized to operate. Remote browser isolation does not replace legal, contractual, or organisational security controls.

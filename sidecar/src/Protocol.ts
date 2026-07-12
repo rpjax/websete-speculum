@@ -200,12 +200,12 @@ export type ScriptEntry = {
     /** Classic = no type attribute; Module = type="module". */
     type:     'Classic' | 'Module';
     /**
-     * The wwwroot-relative URL path used as the script's src attribute
-     * (e.g. "/libs/qrcode.js"). The sidecar serves this path from memory
+     * Synthetic same-origin URL path used as the script's src attribute.
+     * The sidecar serves this path from memory
      * when the virtual browser requests it from the current page's origin.
      */
     file:     string;
-    /** Literal JavaScript source (read from disk by .NET at startup). */
+    /** Literal JavaScript source resolved by .NET before session startup. */
     content:  string;
 };
 

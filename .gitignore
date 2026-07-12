@@ -19,11 +19,8 @@ sidecar/dist/
 deploy/speculum.dockup.json
 deploy/out/
 
-# npm pack residue under vendored client libs
-Websete.Speculum.Host/wwwroot/libs/package/
-Websete.Speculum.Host/wwwroot/libs/*.tgz
-Websete.Speculum.Host/wwwroot/libs/qrcode.js
-Websete.Speculum.Host/wwwroot/libs/dist.js
+# web build output
+web/dist/
 
 # User-specific files
 *.rsuser

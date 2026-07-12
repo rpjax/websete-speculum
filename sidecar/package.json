@@ -1,7 +1,7 @@
 {
   "name": "speculum-sidecar",
   "version": "1.0.0",
-  "description": "Websete Speculum browser sidecar — Chrome non-headless on Xvfb, CDP screencast, xdotool input",
+  "description": "Speculum browser sidecar — Chrome on Xvfb, CDP screencast, navigation guard",
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",

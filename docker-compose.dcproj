@@ -6,9 +6,9 @@
     <ProjectGuid>{B4F2E8A3-1D9C-4E7F-B5A2-6C3D8E9F1B2A}</ProjectGuid>
     <DockerLaunchAction>LaunchBrowser</DockerLaunchAction>
     <DockerServiceUrl>{Scheme}://localhost:{ServicePort}</DockerServiceUrl>
-    <DockerServiceName>speculum</DockerServiceName>
+    <DockerServiceName>web</DockerServiceName>
   </PropertyGroup>
   <ItemGroup>
-    <None Include="docker-compose.yml" />
+    <None Include="deploy\compose\docker-compose.reference.yml" />
   </ItemGroup>
 </Project>

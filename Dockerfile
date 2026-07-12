@@ -3,15 +3,15 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
-COPY ["Websete.Speculum.Host/Websete.Speculum.Host.csproj", "Websete.Speculum.Host/"]
+COPY ["Speculum.Api/Speculum.Api.csproj", "Speculum.Api/"]
 
 RUN --mount=type=cache,target=/root/.nuget/packages \
-    dotnet restore "Websete.Speculum.Host/Websete.Speculum.Host.csproj"
+    dotnet restore "Speculum.Api/Speculum.Api.csproj"
 
 COPY . .
 
 RUN --mount=type=cache,target=/root/.nuget/packages \
-    dotnet publish "Websete.Speculum.Host/Websete.Speculum.Host.csproj" \
+    dotnet publish "Speculum.Api/Speculum.Api.csproj" \
         -c Release -o /app/publish --no-restore
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0
@@ -21,4 +21,4 @@ WORKDIR /app
 COPY --from=build /app/publish .
 
 EXPOSE 8080/tcp
-ENTRYPOINT ["dotnet", "Websete.Speculum.Host.dll"]
+ENTRYPOINT ["dotnet", "Speculum.Api.dll"]

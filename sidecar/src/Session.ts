@@ -782,8 +782,8 @@ export class Session {
      *
      * Scripts at the same position preserve their declaration order.
      * The regex replacements are intentionally simple — they handle the vast
-     * majority of real-world HTML.  The script `src` values are wwwroot-relative
-     * paths validated at startup (e.g. `/libs/qrcode.js`), so no escaping needed.
+     * majority of real-world HTML. The script `src` values are synthetic
+     * same-origin paths backed by in-memory script payloads and validated at startup.
      */
     private static _injectScriptTags(html: string, scripts: ScriptEntry[]): string {
         const groups: Record<string, ScriptEntry[]> = {

@@ -1,0 +1,101 @@
+services:
+
+  traefik:
+    image: traefik:v3.3
+    restart: unless-stopped
+    command:
+      - --api.dashboard=false
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --certificatesresolvers.le.acme.httpchallenge=true
+      - --certificatesresolvers.le.acme.httpchallenge.entrypoint=web
+      - --certificatesresolvers.le.acme.email=${ACME_EMAIL}
+      - --certificatesresolvers.le.acme.storage=/letsencrypt/acme.json
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik-letsencrypt:/letsencrypt
+    environment:
+      - ACME_EMAIL=${ACME_EMAIL:-admin@example.com}
+
+  sidecar:
+    build:
+      context: ../../sidecar
+      dockerfile: Dockerfile
+    cap_add:
+      - SYS_ADMIN
+    shm_size: 2gb
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - SIDECAR_PORT=3000
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:3000/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+  api:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    image: speculum-api
+    restart: unless-stopped
+    volumes:
+      - speculum-data:/data
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - HttpAddress=0.0.0.0:8080
+      - Database__Path=/data/speculum.db
+      - Sidecar__BaseUrl=ws://sidecar:3000
+      - Cors__AllowedOrigins=https://${TRAEFIK_MOTOR_DOMAIN:-speculum.localhost}
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    depends_on:
+      sidecar:
+        condition: service_healthy
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.speculum-api.rule=Host(`${TRAEFIK_API_DOMAIN:-api.speculum.localhost}`)
+      - traefik.http.routers.speculum-api.entrypoints=websecure
+      - traefik.http.routers.speculum-api.tls.certresolver=le
+      - traefik.http.services.speculum-api.loadbalancer.server.port=8080
+
+  web:
+    build:
+      context: ../../web
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: https://${TRAEFIK_API_DOMAIN:-api.speculum.localhost}
+    image: speculum-web
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/"]
+      interval: 15s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.speculum-web.rule=Host(`${TRAEFIK_MOTOR_DOMAIN:-speculum.localhost}`)
+      - traefik.http.routers.speculum-web.entrypoints=websecure
+      - traefik.http.routers.speculum-web.tls.certresolver=le
+      - traefik.http.services.speculum-web.loadbalancer.server.port=80
+
+volumes:
+  speculum-data:
+  traefik-letsencrypt:

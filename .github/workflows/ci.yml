@@ -14,11 +14,11 @@ jobs:
         with:
           dotnet-version: '10.0.x'
       - name: Restore
-        run: dotnet restore Websete.Speculum.sln
+        run: dotnet restore Speculum.sln
       - name: Build
-        run: dotnet build Websete.Speculum.sln -c Release --no-restore
+        run: dotnet build Speculum.sln -c Release --no-restore
       - name: Test
-        run: dotnet test Websete.Speculum.sln -c Release --no-build --verbosity normal
+        run: dotnet test Speculum.sln -c Release --no-build --verbosity normal
 
   sidecar:
     runs-on: ubuntu-latest
@@ -32,3 +32,26 @@ jobs:
         run: |
           npm ci
           npm test
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install, lint, and build
+        working-directory: web
+        env:
+          VITE_API_URL: https://api.speculum.localhost
+        run: |
+          npm ci
+          npm run lint
+          npm run build
+
+  compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate reference compose
+        run: docker compose -f deploy/compose/docker-compose.reference.yml config

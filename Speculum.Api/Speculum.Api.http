@@ -1,0 +1,34 @@
+@host = http://localhost:8080
+@adminKey = {{$dotenv ADMIN_BOOTSTRAP_KEY}}
+
+### Health (public)
+GET {{host}}/health
+
+### Setup status (public)
+GET {{host}}/api/admin/config/status
+
+### Forwarding (requires auth)
+PUT {{host}}/api/admin/config/Forwarding
+Authorization: Bearer {{adminKey}}
+Content-Type: application/json
+
+{
+  "host": "www.exemplo.com",
+  "domains": ["exemplo.com", "*.exemplo.com"]
+}
+
+### MaxSessions (requires auth)
+PUT {{host}}/api/admin/config/MaxSessions
+Authorization: Bearer {{adminKey}}
+Content-Type: application/json
+
+10
+
+### Change admin key (requires current key)
+PUT {{host}}/api/admin/config/Admin
+Authorization: Bearer {{adminKey}}
+Content-Type: application/json
+
+{
+  "apiKey": "your-new-secret"
+}

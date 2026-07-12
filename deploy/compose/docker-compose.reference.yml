@@ -15,9 +15,8 @@ services:
         --entrypoints.web.address=:80
         --entrypoints.websecure.address=:443
         --entrypoints.websecure.http.tls=true
-        --providers.file.filename=/data/traefik/traefik.static.yml
-        --providers.file.watch=true
         --providers.file.directory=/data/traefik/dynamic
+        --providers.file.watch=true
     ports:
       - "80:80"
       - "443:443"

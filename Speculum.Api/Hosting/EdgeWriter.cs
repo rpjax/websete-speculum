@@ -107,7 +107,8 @@ public sealed class EdgeWriter : IHostedService
             {string.Join('\n', resolverLines)}
             """;
 
-        File.WriteAllText(Path.Combine(_traefikRoot, "traefik.static.yml"), yaml);
+        File.WriteAllText(Path.Combine(_dynamicDir, "certificates.yml"), yaml);
+        TryDelete(Path.Combine(_traefikRoot, "traefik.static.yml"));
     }
 
     private void WriteBootstrapRouter()

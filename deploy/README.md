@@ -32,7 +32,7 @@
 | **Reproducible output** | `out/dev` and `out/prod` are disposable, regenerable artifacts |
 | **CI-friendly** | `dockup validate` catches config errors before deploy |
 
-Root `Dockerfile` (API) and `web/Dockerfile`, `sidecar/Dockerfile` are build contexts referenced from the repo root (`--root ..`).
+Each service owns its image: `Speculum.Api/Dockerfile`, `web/Dockerfile`, `sidecar/Dockerfile`. Dockup resolves those contexts from the repo root (`--root ..`).
 
 ---
 

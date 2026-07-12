@@ -154,12 +154,13 @@ Tests use `WebApplicationFactory` (`Program.Integration.cs`) for smoke, config s
 
 ## Docker image
 
-Built from repository root:
+Built from this directory:
 
 ```bash
-docker build -f Dockerfile -t speculum-api .
+cd Speculum.Api
+docker build -t speculum-api .
 ```
 
-The root `Dockerfile` publishes `Speculum.Api` only. In composed stacks, the API container mounts a volume at `/data` for SQLite.
+In composed stacks, the API container mounts a volume at `/data` for SQLite.
 
 Deploy context: [../deploy/README.md](../deploy/README.md).

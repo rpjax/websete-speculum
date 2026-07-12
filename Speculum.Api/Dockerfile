@@ -3,15 +3,15 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
-COPY ["Speculum.Api/Speculum.Api.csproj", "Speculum.Api/"]
+COPY ["Speculum.Api.csproj", "./"]
 
 RUN --mount=type=cache,target=/root/.nuget/packages \
-    dotnet restore "Speculum.Api/Speculum.Api.csproj"
+    dotnet restore "Speculum.Api.csproj"
 
 COPY . .
 
 RUN --mount=type=cache,target=/root/.nuget/packages \
-    dotnet publish "Speculum.Api/Speculum.Api.csproj" \
+    dotnet publish "Speculum.Api.csproj" \
         -c Release -o /app/publish --no-restore
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0

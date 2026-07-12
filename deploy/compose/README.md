@@ -9,8 +9,8 @@ Optional **production-style** stack without [dockup](../README.md). Use this onl
 | Use dockup | Use this reference compose |
 |------------|----------------------------|
 | Normal dev and prod workflows | Quick experiment on a machine without Node/dockup |
-| Regenerating `out/dev` and `out/prod` | Visual Studio Docker Compose project (`docker-compose.dcproj`) |
-| Validated manifest + env substitution | Manual `docker compose` with host ports 80/443 |
+| Regenerating `out/dev` and `out/prod` | Manual `docker compose` with host ports 80/443 |
+| Validated manifest + env substitution | Environments where dockup CLI is not installed |
 
 ---
 
@@ -26,7 +26,7 @@ export ACME_EMAIL=admin@example.com
 docker compose -f docker-compose.reference.yml up -d --build
 ```
 
-Build contexts point to the repository root (`../../`) and component folders — paths are relative to this file.
+Build contexts point to component folders (`Speculum.Api/`, `web/`, `sidecar/`) — paths are relative to this file.
 
 ---
 
@@ -39,12 +39,6 @@ Build contexts point to the repository root (`../../`) and component folders —
 | CORS / VITE_API_URL | Includes `:8443` for dev | Uses `https://${TRAEFIK_API_DOMAIN}` without port |
 
 For local HTTPS on `:8443`, use **dockup dev** instead.
-
----
-
-## Visual Studio
-
-`docker-compose.dcproj` at the solution root references `docker-compose.reference.yml` for Container Tools integration. Set startup project to **docker-compose** in Visual Studio to launch the stack.
 
 ---
 

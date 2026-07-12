@@ -44,7 +44,7 @@ services:
 
   api:
     build:
-      context: ../..
+      context: ../../Speculum.Api
       dockerfile: Dockerfile
     image: speculum-api
     restart: unless-stopped

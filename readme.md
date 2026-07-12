@@ -65,15 +65,14 @@ Set `VITE_API_URL=http://localhost:8080` in `web/.env`. Ensure API CORS includes
 
 ```
 Speculum/
-├── Speculum.Api/           # .NET 10 API — SignalR hub, admin REST, SQLite config
+├── Speculum.Api/           # .NET 10 API (+ Dockerfile → speculum-api)
 ├── Speculum.Api.Tests/     # Integration and unit tests
-├── web/                    # React SPA — motor, setup, admin
-├── sidecar/                # Node sidecar — Chrome + CDP screencast
+├── web/                    # React SPA (+ Dockerfile → speculum-web)
+├── sidecar/                # Chrome sidecar (+ Dockerfile → speculum-sidecar)
 ├── deploy/                 # dockup config (canonical deploy path)
 │   ├── speculum.dockup.example.json
 │   └── compose/            # Optional reference docker-compose
 ├── docs/                   # Architecture and motor reference
-├── Dockerfile              # speculum-api image (context: repo root)
 ├── Speculum.sln
 └── .github/workflows/ci.yml
 ```
@@ -82,7 +81,6 @@ Speculum/
 |----------|---------|
 | `deploy/speculum.dockup.json` | Your local dockup config (gitignored; copy from example) |
 | `deploy/out/{dev,prod}/` | Generated compose stacks (gitignored) |
-| `docker-compose.dcproj` | Visual Studio Docker tooling → references `deploy/compose/` |
 
 ---
 

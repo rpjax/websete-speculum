@@ -16,8 +16,11 @@ Thank you for improving Speculum. This guide covers local workflow, quality expe
 
 ### Full stack (recommended for integration testing)
 
+Requires [@rodrigopjax/dockup](https://github.com/rpjax/npm-dockup) **>= 2.0.2**.
+
 ```bash
 cd deploy && cp speculum.dockup.example.json speculum.dockup.json
+dockup validate --root ..
 dockup deploy --env dev --root ..
 ```
 

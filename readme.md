@@ -25,7 +25,7 @@
 Prerequisites: [Docker](https://docs.docker.com/get-docker/), [Node.js 22+](https://nodejs.org/) (for dockup CLI).
 
 ```bash
-npm install -g @rodrigopjax/dockup   # >= 2.0.1
+npm install -g @rodrigopjax/dockup   # >= 2.0.2
 
 cd deploy
 cp speculum.dockup.example.json speculum.dockup.json
@@ -218,7 +218,7 @@ cd sidecar && npm test
 cd web && npm run lint && npm run build
 ```
 
-For dockup stacks: `dockup validate --root ..` before deploy.
+For dockup stacks: `dockup validate --root ..` before deploy (requires **dockup >= 2.0.2**).
 
 ---
 

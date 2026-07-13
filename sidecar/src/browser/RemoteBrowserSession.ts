@@ -10,6 +10,12 @@ import { NavigationGuard }   from '../navigation/NavigationGuard';
 import { InputPipeline }     from '../input/InputPipeline';
 import { exportBrowserState, BrowserStatePayload } from '../BrowserState';
 import { ScriptEntry } from '../protocol/wire-protocol';
+import {
+    capProbeData,
+    collectDiagProbeEvidence,
+    type DiagProbeEvidence,
+    type DiagProbeOptions,
+} from './DiagProbe';
 
 /**
  * Represents one complete browser session:
@@ -174,6 +180,29 @@ export class RemoteBrowserSession {
         } finally {
             this._exportingState = false;
         }
+    }
+
+    async runDiagProbe(ops: string[], options: DiagProbeOptions = {}): Promise<DiagProbeEvidence> {
+        if (this._disposed) {
+            throw new Error('session disposed');
+        }
+
+        const data = await collectDiagProbeEvidence(
+            ops,
+            {
+                display:         this._display,
+                context:         this._context,
+                page:            this._page,
+                cdp:             this._cdp,
+                userDataDir:     this._userDataDir,
+                exportingState:  this._exportingState,
+            },
+            options,
+        );
+
+        return capProbeData(data, options.maxProbeResponseBytes && options.maxProbeResponseBytes > 0
+            ? options.maxProbeResponseBytes
+            : 512 * 1024);
     }
 
     async dispose(): Promise<void> {

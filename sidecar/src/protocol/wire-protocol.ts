@@ -117,9 +117,32 @@ export type CreateMessage = {
 
 export type ExportStateMessage = { type: 'exportState' };
 
-export function decodeMessage(raw: string): InputEvent | CreateMessage | ExportStateMessage | null {
+export type DiagProbeMessage = {
+    type:               'diagProbe';
+    requestId:          string;
+    ops:                string[];
+    evaluateExpression?: string;
+    domSelector?:       string;
+    maxProbeResponseBytes?: number;
+};
+
+export type DiagResultMessage = {
+    type:       'diagResult';
+    requestId:  string;
+    ok:         boolean;
+    errorCode?: string;
+    data?:      object;
+};
+
+export type SidecarInboundMessage =
+    | InputEvent
+    | CreateMessage
+    | ExportStateMessage
+    | DiagProbeMessage;
+
+export function decodeMessage(raw: string): SidecarInboundMessage | null {
     try {
-        return JSON.parse(raw) as InputEvent | CreateMessage | ExportStateMessage;
+        return JSON.parse(raw) as SidecarInboundMessage;
     } catch {
         return null;
     }

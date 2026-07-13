@@ -37,6 +37,18 @@ export class VirtualDisplay {
         return `:${this.number}`;
     }
 
+    /** Xvfb child process PID, if spawned successfully. */
+    get xvfbPid(): number | null {
+        const pid = this._xvfb.pid;
+        return typeof pid === 'number' && pid > 0 ? pid : null;
+    }
+
+    /** matchbox-window-manager child process PID, if running. */
+    get wmPid(): number | null {
+        const pid = this._wm?.pid;
+        return typeof pid === 'number' && pid > 0 ? pid : null;
+    }
+
     /**
      * Starts Xvfb on `:{number}` and waits until its lock file appears
      * (the conventional X11 server readiness signal), then starts matchbox.

@@ -1,7 +1,10 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import { VirtualDisplay } from '../browser/VirtualDisplay';
 import { RemoteBrowserSession } from '../browser/RemoteBrowserSession';
-import { CreateMessage, decodeMessage } from '../protocol/wire-protocol';
+import { CreateMessage, decodeMessage, type DiagProbeMessage } from '../protocol/wire-protocol';
+
+const MAX_PROBE_RESPONSE_BYTES = 8 * 1024 * 1024; // absolute wire ceiling (matches API validator max)
+const DEFAULT_PROBE_RESPONSE_BYTES = 512 * 1024;
 
 const POINTER_TYPES = new Set(['mousemove', 'mousedown', 'mouseup', 'wheel']);
 
@@ -88,6 +91,61 @@ export class WsSessionHost {
                     console.warn(`[${session?.sessionId}] State export failed:`, message);
                     if (ws.readyState === ws.OPEN) {
                         ws.send(JSON.stringify({ type: 'stateExportError', message }));
+                    }
+                }
+                return;
+            }
+
+            if (msg.type === 'diagProbe') {
+                const probe = msg as DiagProbeMessage;
+                if (!session) {
+                    ws.send(JSON.stringify({
+                        type:      'diagResult',
+                        requestId: probe.requestId,
+                        ok:        false,
+                        errorCode: 'session_gone',
+                    }));
+                    return;
+                }
+
+                try {
+                    const limit = Math.min(
+                        MAX_PROBE_RESPONSE_BYTES,
+                        typeof probe.maxProbeResponseBytes === 'number' && probe.maxProbeResponseBytes > 0
+                            ? probe.maxProbeResponseBytes
+                            : DEFAULT_PROBE_RESPONSE_BYTES,
+                    );
+                    const data = await session.runDiagProbe(probe.ops, {
+                        evaluateExpression: probe.evaluateExpression,
+                        domSelector:        probe.domSelector,
+                        maxProbeResponseBytes: limit,
+                    });
+                    let payload = JSON.stringify({
+                        type:      'diagResult',
+                        requestId: probe.requestId,
+                        ok:        true,
+                        data,
+                    });
+                    if (Buffer.byteLength(payload, 'utf8') > limit) {
+                        payload = JSON.stringify({
+                            type:      'diagResult',
+                            requestId: probe.requestId,
+                            ok:        false,
+                            errorCode: 'response_too_large',
+                        });
+                    }
+                    ws.send(payload);
+                } catch (err) {
+                    const message = (err as Error).message;
+                    console.warn(`[${session.sessionId}] Diag probe failed:`, message);
+                    if (ws.readyState === ws.OPEN) {
+                        ws.send(JSON.stringify({
+                            type:      'diagResult',
+                            requestId: probe.requestId,
+                            ok:        false,
+                            errorCode: message.includes('disposed') ? 'session_gone' : 'probe_failed',
+                            data:      { message },
+                        }));
                     }
                 }
                 return;

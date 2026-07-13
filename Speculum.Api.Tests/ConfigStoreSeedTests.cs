@@ -9,6 +9,7 @@ using Speculum.Api.Config.Runtime;
 using Speculum.Api.Config.Application;
 using Speculum.Api.Config.Persistence;
 using Speculum.Api.Config.Store;
+using Speculum.Api.Diagnostics.Abstractions;
 using Speculum.Api.Edge;
 using Speculum.Api.Scripts;
 using Speculum.Api.Motor.Live;
@@ -30,6 +31,11 @@ public class ConfigStoreSeedTests : IDisposable
 
     public void Dispose()
     {
+        Environment.SetEnvironmentVariable("HttpAddress", null);
+        Environment.SetEnvironmentVariable("Database__Path", null);
+        Environment.SetEnvironmentVariable("Sidecar__BaseUrl", null);
+        Environment.SetEnvironmentVariable(ConfigService.BootstrapKeyEnvVar, null);
+        Environment.SetEnvironmentVariable("SPECULUM_DIAGNOSTICS_PROFILE", null);
         try { Directory.Delete(_tempDir, recursive: true); }
         catch { /* best-effort */ }
     }
@@ -46,6 +52,7 @@ public class ConfigStoreSeedTests : IDisposable
         Assert.Equal("test-bootstrap-key", store.Current.AdminApiKey);
         Assert.Null(store.Current.Forwarding);
         Assert.Null(store.Current.MaxSessions);
+        Assert.True(store.Current.Diagnostics.Enabled);
 
         Environment.SetEnvironmentVariable(ConfigService.BootstrapKeyEnvVar, null);
     }
@@ -79,6 +86,53 @@ public class ConfigStoreSeedTests : IDisposable
         Assert.Equal("custom-key", store2.Current.AdminApiKey);
     }
 
+    [Fact]
+    public async Task Delete_Diagnostics_reseeds_development_defaults()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+
+        await store.PutSectionAsync(ConfigSectionKeys.Diagnostics,
+            JsonDocument.Parse("""
+            {
+              "enabled": true,
+              "defaultLevel": "Metrics",
+              "domains": {
+                "motorLive": "Metrics",
+                "sidecarBrowser": "Metrics",
+                "hostResources": "Metrics",
+                "browserQuery": "Off",
+                "persistedSessions": "Metrics"
+              }
+            }
+            """).RootElement);
+
+        Assert.Equal("Off", store.Current.Diagnostics.Domains.BrowserQuery);
+
+        var result = await store.DeleteSectionAsync(ConfigSectionKeys.Diagnostics);
+        Assert.True(result.Success);
+        Assert.Equal("BrowserQuery", store.Current.Diagnostics.Domains.BrowserQuery);
+        Assert.Equal("Events", store.Current.Diagnostics.Domains.MotorLive);
+    }
+
+    [Fact]
+    public async Task Seed_uses_Assertive_profile_when_env_set()
+    {
+        Environment.SetEnvironmentVariable("SPECULUM_DIAGNOSTICS_PROFILE", "Assertive");
+        try
+        {
+            var store = CreateStore();
+            await store.InitializeAsync();
+            Assert.Equal("BrowserQuery", store.Current.Diagnostics.Domains.BrowserQuery);
+            Assert.Equal("BrowserQuery", store.Current.Diagnostics.Domains.MotorLive);
+            Assert.Equal("BrowserQuery", store.Current.Diagnostics.DefaultLevel);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("SPECULUM_DIAGNOSTICS_PROFILE", null);
+        }
+    }
+
     private ConfigService CreateStore()
     {
         Environment.SetEnvironmentVariable("HttpAddress", "127.0.0.1:8080");
@@ -110,7 +164,7 @@ public class ConfigStoreSeedTests : IDisposable
             NullLogger<EdgeSynchronizer>.Instance);
         IConfigChangeHandler[] handlers =
         [
-            new MotorSessionDrainHandler(registry, sessionStore),
+            new MotorSessionDrainHandler(registry, sessionStore, new NullDiagnosticsEventBus()),
             new EdgeSyncConfigHandler(edgeSynchronizer),
         ];
 

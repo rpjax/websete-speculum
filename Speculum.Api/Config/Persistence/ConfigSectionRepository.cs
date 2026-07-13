@@ -78,6 +78,23 @@ public sealed class ConfigSectionRepository
         await db.SaveChangesAsync(ct);
     }
 
+    /// <summary>True when the section row exists <em>and</em> has a non-null JSON value.</summary>
+    public async Task<bool> HasConfiguredValueAsync(string key, CancellationToken ct = default)
+    {
+        await using var db = CreateContext();
+        return await db.ConfigSections.AsNoTracking()
+            .AnyAsync(e => e.Key == key && e.ValueJson != null, ct);
+    }
+
+    public async Task DeleteRowAsync(string key, CancellationToken ct = default)
+    {
+        await using var db = CreateContext();
+        await db.Database.ExecuteSqlRawAsync(
+            "DELETE FROM config_sections WHERE key = {0}",
+            [key],
+            ct);
+    }
+
     public async Task<int> EnsureAdminSeedAsync(string key, string valueJson, CancellationToken ct = default)
     {
         await using var db = CreateContext();

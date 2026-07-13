@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Speculum.Api.Config.Runtime;
 using Speculum.Api.Config.Store;
+using Speculum.Api.Diagnostics.Pipeline;
 using Speculum.Api.Motor.Live;
 using Speculum.Api.Motor.Mapping;
 using Speculum.Api.Motor.Sidecar;
@@ -242,6 +243,8 @@ public class MotorSessionRegistryTests
             new SessionConfigSnapshot { InitialUrl = "https://example.com" },
             TestAdapter(),
             new SidecarClientFactory(),
+            new NullDiagnosticsEventBus(),
+            new DiagnosticsRuntime(),
             NullLogger<MotorSession>.Instance);
 
         registry.TrackStarting("conn-1", session);
@@ -258,6 +261,8 @@ public class MotorSessionRegistryTests
             new SessionConfigSnapshot { InitialUrl = "https://example.com" },
             TestAdapter(),
             new SidecarClientFactory(),
+            new NullDiagnosticsEventBus(),
+            new DiagnosticsRuntime(),
             NullLogger<MotorSession>.Instance);
 
         Assert.True(registry.TryAcquireSlot(10));

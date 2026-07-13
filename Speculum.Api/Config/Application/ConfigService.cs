@@ -3,6 +3,7 @@ using Speculum.Api.Config.Persistence;
 using Speculum.Api.Config.Runtime;
 using Speculum.Api.Scripts;
 using Speculum.Api.Config.Store;
+using Speculum.Api.Diagnostics.Configuration;
 using Speculum.Api.Edge;
 using Speculum.Api.BrowserPersistence;
 
@@ -71,6 +72,7 @@ public sealed class ConfigService : ISpeculumConfigStore
     {
         await _repository.EnsureSchemaAsync(ct);
         await EnsureFactoryAdminSeedAsync(ct);
+        await EnsureDiagnosticsSeedAsync(ct);
         await _secretsStore.GetOrCreateNavigationStateKeyAsync(ct);
         await ReloadAsync(ct);
 
@@ -150,6 +152,13 @@ public sealed class ConfigService : ISpeculumConfigStore
         if (key == ConfigSectionKeys.Admin)
             return Error("Admin section cannot be deleted.");
 
+        if (key == ConfigSectionKeys.Diagnostics)
+        {
+            await _repository.DeleteRowAsync(key, ct);
+            await EnsureDiagnosticsSeedAsync(ct);
+            return await ApplyChangeAsync(key, drainSessions: false, ct);
+        }
+
         await _repository.ClearValueAsync(key, ct);
 
         if (key == ConfigSectionKeys.SessionPolicy)
@@ -219,6 +228,27 @@ public sealed class ConfigService : ISpeculumConfigStore
                     bootstrapKey[..Math.Min(8, bootstrapKey.Length)], BootstrapKeyEnvVar);
             }
         }
+    }
+
+    private async Task EnsureDiagnosticsSeedAsync(CancellationToken ct)
+    {
+        if (await _repository.HasConfiguredValueAsync(ConfigSectionKeys.Diagnostics, ct))
+            return;
+
+        var profile = Environment.GetEnvironmentVariable("SPECULUM_DIAGNOSTICS_PROFILE");
+        DiagnosticsOptions seed;
+        if (string.Equals(profile, "Assertive", StringComparison.OrdinalIgnoreCase))
+            seed = DiagnosticsSeedProfiles.Assertive();
+        else if (_env.IsDevelopment())
+            seed = DiagnosticsSeedProfiles.Development();
+        else
+            seed = DiagnosticsSeedProfiles.Production();
+
+        var json = JsonSerializer.Serialize(seed, JsonOptions);
+        await _repository.UpsertAsync(ConfigSectionKeys.Diagnostics, json, ct);
+        _logger.LogInformation(
+            "Diagnostics section seeded with profile {Profile}.",
+            string.IsNullOrWhiteSpace(profile) ? (_env.IsDevelopment() ? "Development" : "Production") : profile);
     }
 
     private async Task<List<string>> ValidateScriptIdsExistAsync(JsonElement body, CancellationToken ct = default)

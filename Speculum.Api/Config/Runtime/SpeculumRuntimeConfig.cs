@@ -1,3 +1,4 @@
+using Speculum.Api.Diagnostics.Configuration;
 using Speculum.Api.Motor.Sidecar;
 
 namespace Speculum.Api.Config.Runtime;
@@ -12,4 +13,5 @@ public sealed class SpeculumRuntimeConfig
     public IReadOnlyList<ScriptPayload> ResolvedScripts { get; init; } = [];
     public HostingOptions Hosting { get; init; } = new();
     public IReadOnlyList<HostingProfileStatus> HostingProfileStatuses { get; init; } = [];
+    public DiagnosticsOptions Diagnostics { get; init; } = new();
 }

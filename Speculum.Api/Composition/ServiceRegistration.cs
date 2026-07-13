@@ -4,6 +4,12 @@ using Speculum.Api.Config.Application;
 using Speculum.Api.Config.Bootstrap;
 using Speculum.Api.Config.Persistence;
 using Speculum.Api.Config.Store;
+using Speculum.Api.Diagnostics.Abstractions;
+using Speculum.Api.Diagnostics.Configuration;
+using Speculum.Api.Diagnostics.Pipeline;
+using Speculum.Api.Diagnostics.Probes;
+using Speculum.Api.Diagnostics.Query;
+using Speculum.Api.Diagnostics.Redaction;
 using Speculum.Api.Edge;
 using Speculum.Api.Edge.Cors;
 using Speculum.Api.Infrastructure;
@@ -72,7 +78,38 @@ public static class ServiceRegistration
         builder.Services.AddSingleton<IEdgeSynchronizer, EdgeSynchronizer>();
         builder.Services.AddSingleton<IConfigChangeHandler, MotorSessionDrainHandler>();
         builder.Services.AddSingleton<IConfigChangeHandler, EdgeSyncConfigHandler>();
+        builder.Services.AddSingleton<IConfigChangeHandler, DiagnosticsConfigHandler>();
         builder.Services.AddSingleton<ISpeculumConfigStore, ConfigService>();
+
+        builder.Services.AddSingleton<DiagnosticsRuntime>();
+        builder.Services.AddSingleton<IDiagnosticsRuntime>(sp => sp.GetRequiredService<DiagnosticsRuntime>());
+        builder.Services.AddSingleton<SessionEventRing>();
+        builder.Services.AddSingleton<NullDiagnosticsSink>();
+        builder.Services.AddSingleton(sp =>
+            new SqliteDiagnosticsEventSink(
+                bootstrap.DatabasePath,
+                sp.GetRequiredService<IDiagnosticsRuntime>(),
+                new Lazy<IDiagnosticsEventBus>(() => sp.GetRequiredService<IDiagnosticsEventBus>())));
+        builder.Services.AddSingleton<IDiagnosticsSink>(sp => sp.GetRequiredService<SqliteDiagnosticsEventSink>());
+        builder.Services.AddSingleton<IDiagnosticsEventBus, DiagnosticsEventBus>();
+        builder.Services.AddSingleton<Lazy<IDiagnosticsEventBus>>(sp =>
+            new Lazy<IDiagnosticsEventBus>(() => sp.GetRequiredService<IDiagnosticsEventBus>()));
+        builder.Services.AddSingleton<DiagnosticsProbeGate>();
+        builder.Services.AddSingleton<HostResourceProbe>();
+        builder.Services.AddSingleton<IDiagnosticsProbeProvider, HostResourceProbeProvider>();
+        builder.Services.AddSingleton<IDiagnosticsProbeProvider, MotorSessionProbeAdapter>();
+        builder.Services.AddSingleton<IDiagnosticsProbeProvider, SidecarDiagProbeProvider>();
+        builder.Services.AddSingleton<IDiagnosticsRedactor>(sp =>
+        {
+            var env = sp.GetRequiredService<IWebHostEnvironment>();
+            IDiagnosticsRedactor redactor = env.IsDevelopment()
+                ? new DevelopmentIdentityRedactor()
+                : new ProductionMarketRedactor();
+            if (sp.GetRequiredService<IDiagnosticsRuntime>() is DiagnosticsRuntime runtime)
+                runtime.SetRedactionMode(redactor.Mode);
+            return redactor;
+        });
+        builder.Services.AddHostedService<DiagnosticsCleanupHostedService>();
 
         builder.Services.AddSingleton<EdgeWriter>();
         builder.Services.AddHostedService(sp => sp.GetRequiredService<EdgeWriter>());
@@ -101,6 +138,7 @@ public static class ServiceRegistration
         app.MapOpenApi();
         app.MapPublicEndpoints();
         app.MapAdminEndpoints();
+        app.MapDiagnosticsEndpoints();
         app.MapHub<MotorHub>("/vhub", options =>
         {
             options.TransportMaxBufferSize    = 512 * 1024;

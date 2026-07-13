@@ -12,7 +12,7 @@ public interface IMotorSessionRegistry
     /// <summary>Associa (ou substitui) uma sessão ao ID de conexão dado.</summary>
     void Register(string connectionId, IMotorSession session);
 
-    /// <summary>Devolve a sessão associada ou <c>null</c> se não existir.</summary>
+    /// <summary>Devolve a sessão associada (activa ou starting) ou <c>null</c>.</summary>
     IMotorSession? Get(string connectionId);
 
     /// <summary>
@@ -23,6 +23,9 @@ public interface IMotorSessionRegistry
 
     /// <summary>Number of active motor sessions.</summary>
     int ActiveCount { get; }
+
+    /// <summary>Number of sessions still starting.</summary>
+    int StartingCount { get; }
 
     /// <summary>
     /// Atomically reserves a session slot when under <paramref name="max"/>.
@@ -44,6 +47,18 @@ public interface IMotorSessionRegistry
 
     /// <summary>Removes and returns a session that was still starting.</summary>
     bool TryCancelStarting(string connectionId, [NotNullWhen(true)] out IMotorSession? session);
+
+    IReadOnlyList<MotorSessionListItem> ListSessions();
+
+    bool TryFindByPersistedSessionId(
+        string persistedSessionId,
+        [NotNullWhen(true)] out IMotorSession? session,
+        [NotNullWhen(true)] out string? connectionId);
+
+    bool TryFindBySidecarSessionId(
+        string sidecarSessionId,
+        [NotNullWhen(true)] out IMotorSession? session,
+        [NotNullWhen(true)] out string? connectionId);
 
     /// <summary>Captures browser state, stops and removes all active and starting sessions.</summary>
     Task StopAllAsync(IBrowserSessionStore store, CancellationToken ct = default);

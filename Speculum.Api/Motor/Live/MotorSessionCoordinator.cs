@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.SignalR;
 using Speculum.Api.Config.Runtime;
 using Speculum.Api.Config.Store;
+using Speculum.Api.Diagnostics.Abstractions;
 using Speculum.Api.Motor.Mapping;
 using Speculum.Api.BrowserPersistence;
 
@@ -13,6 +14,7 @@ public sealed class MotorSessionCoordinator
     private readonly IBrowserSessionStore       _sessionStore;
     private readonly MotorUrlAdapter            _urlAdapter;
     private readonly IMotorSessionFactory       _sessionFactory;
+    private readonly IDiagnosticsEventBus       _diagnostics;
     private readonly ILogger<MotorSessionCoordinator> _logger;
 
     public MotorSessionCoordinator(
@@ -21,6 +23,7 @@ public sealed class MotorSessionCoordinator
         IBrowserSessionStore       sessionStore,
         MotorUrlAdapter            urlAdapter,
         IMotorSessionFactory       sessionFactory,
+        IDiagnosticsEventBus       diagnostics,
         ILogger<MotorSessionCoordinator> logger)
     {
         _registry       = registry;
@@ -28,6 +31,7 @@ public sealed class MotorSessionCoordinator
         _sessionStore   = sessionStore;
         _urlAdapter     = urlAdapter;
         _sessionFactory = sessionFactory;
+        _diagnostics    = diagnostics;
         _logger         = logger;
     }
 
@@ -52,6 +56,11 @@ public sealed class MotorSessionCoordinator
         }
 
         var resolvedIdentity = ResolveIdentity(identity);
+        var correlationId = string.IsNullOrWhiteSpace(resolvedIdentity.CorrelationId)
+            ? Guid.NewGuid().ToString("N")
+            : resolvedIdentity.CorrelationId!.Trim();
+
+        Publish(connectionId, "Motor.SessionStarting", correlationId);
 
         if (_registry.TryRemove(connectionId, out var oldActive))
         {
@@ -92,6 +101,8 @@ public sealed class MotorSessionCoordinator
 
         if (!_registry.TryAcquireSlot(config.MaxSessions!.Value))
             throw new HubException("Limite de sessões simultâneas atingido.");
+
+        Publish(connectionId, "Motor.SlotAcquired", correlationId);
 
         IMotorSession? session = null;
         var promoted           = false;
@@ -134,9 +145,14 @@ public sealed class MotorSessionCoordinator
 
             session = _sessionFactory.Create(sessionSnapshot);
             session.PersistedSessionId = browserSessionId;
+            session.ClientToken = clientToken;
+            session.CorrelationId = correlationId;
+            session.ConnectionId = connectionId;
             _registry.TrackStarting(connectionId, session);
 
             await session.StartAsync(connectionAborted);
+            // Sidecar Connected only after ConnectAsync succeeds inside StartAsync.
+            Publish(connectionId, "Motor.SidecarConnected", correlationId, session);
 
             if (!_registry.TryPromoteStarting(connectionId, session))
             {
@@ -147,16 +163,20 @@ public sealed class MotorSessionCoordinator
             }
 
             promoted = true;
+            Publish(connectionId, "Motor.SessionPromoted", correlationId, session);
+            Publish(connectionId, "Motor.SessionStarted", correlationId, session);
             session  = null;
 
             return clientToken;
         }
         catch (HubException)
         {
+            Publish(connectionId, "Motor.SessionStartFailed", correlationId, session, DiagnosticsSeverity.Error);
             throw;
         }
         catch (ArgumentException ex)
         {
+            Publish(connectionId, "Motor.SessionStartFailed", correlationId, session, DiagnosticsSeverity.Error);
             throw new HubException(ex.Message);
         }
         catch (OperationCanceledException) when (connectionAborted.IsCancellationRequested)
@@ -164,11 +184,13 @@ public sealed class MotorSessionCoordinator
             _logger.LogInformation(
                 "Startup cancelado para ConnectionId={ConnectionId}.",
                 connectionId);
+            Publish(connectionId, "Motor.SessionStartFailed", correlationId, session, DiagnosticsSeverity.Warning);
             throw new HubException("Sessão cancelada durante startup.");
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Falha ao iniciar sessão.");
+            Publish(connectionId, "Motor.SessionStartFailed", correlationId, session, DiagnosticsSeverity.Error);
             throw new HubException("Falha ao iniciar sessão virtual.");
         }
         finally
@@ -187,16 +209,21 @@ public sealed class MotorSessionCoordinator
                 }
 
                 if (cancelled)
+                {
                     _registry.ReleaseSlot();
+                    Publish(connectionId, "Motor.SlotReleased", correlationId);
+                }
             }
         }
     }
 
     public async Task HandleDisconnectedAsync(string connectionId)
     {
+        var correlationId = Guid.NewGuid().ToString("N");
         if (_registry.TryCancelStarting(connectionId, out var starting))
         {
             _registry.ReleaseSlot();
+            Publish(connectionId, "Motor.SessionStopping", correlationId, starting);
             try { await starting.StopAsync(); }
             catch (Exception ex)
             {
@@ -204,14 +231,23 @@ public sealed class MotorSessionCoordinator
                     "Erro ao parar sessão em startup na desconexão (ConnectionId={ConnectionId}).",
                     connectionId);
             }
+            Publish(connectionId, "Motor.SessionStopped", correlationId, starting);
+            Publish(connectionId, "Motor.SlotReleased", correlationId);
         }
         else if (_registry.TryRemove(connectionId, out var session))
         {
+            Publish(connectionId, "Motor.SessionStopping", correlationId, session);
             if (!string.IsNullOrWhiteSpace(session.PersistedSessionId))
             {
-                try { await session.CaptureAndPersistAsync(session.PersistedSessionId!, _sessionStore); }
+                Publish(connectionId, "Motor.StateExportRequested", correlationId, session);
+                try
+                {
+                    await session.CaptureAndPersistAsync(session.PersistedSessionId!, _sessionStore);
+                    Publish(connectionId, "Motor.StateExportCompleted", correlationId, session);
+                }
                 catch (Exception ex)
                 {
+                    Publish(connectionId, "Motor.StateExportFailed", correlationId, session, DiagnosticsSeverity.Warning);
                     _logger.LogWarning(ex,
                         "Erro ao persistir estado (ConnectionId={ConnectionId}).",
                         connectionId);
@@ -225,10 +261,14 @@ public sealed class MotorSessionCoordinator
                     "Erro ao parar sessão na desconexão (ConnectionId={ConnectionId}).",
                     connectionId);
             }
+
+            Publish(connectionId, "Motor.SessionStopped", correlationId, session);
+            Publish(connectionId, "Motor.SlotReleased", correlationId);
+            Publish(connectionId, "Motor.SidecarDisconnected", correlationId, session);
         }
     }
 
-    public Task NavigateMotorSessionAsync(string connectionId, string clientUrl, string? motorHost)
+    public async Task NavigateMotorSessionAsync(string connectionId, string clientUrl, string? motorHost)
     {
         if (string.IsNullOrWhiteSpace(clientUrl))
             throw new HubException("URL de navegação é obrigatória.");
@@ -237,6 +277,7 @@ public sealed class MotorSessionCoordinator
         var forwarding = config.Forwarding!;
         motorHost ??= "";
         var profile = HostingProfileResolver.Resolve(motorHost, config.Hosting);
+        var correlationId = Guid.NewGuid().ToString("N");
 
         string targetUrl;
         try
@@ -257,7 +298,39 @@ public sealed class MotorSessionCoordinator
         if (session is null)
             throw new HubException("Sessão não iniciada. Chame StartSessionAsync primeiro.");
 
-        return session.NavigateAsync(targetUrl);
+        Publish(connectionId, "Motor.NavigateRequested", correlationId, session, payload: new { targetUrl });
+
+        try
+        {
+            await session.NavigateAsync(targetUrl);
+            Publish(connectionId, "Motor.NavigateCompleted", correlationId, session);
+        }
+        catch (ArgumentException)
+        {
+            Publish(connectionId, "Motor.NavigateRejected", correlationId, session, DiagnosticsSeverity.Warning);
+            throw;
+        }
+    }
+
+    private void Publish(
+        string connectionId,
+        string name,
+        string correlationId,
+        IMotorSession? session = null,
+        DiagnosticsSeverity severity = DiagnosticsSeverity.Information,
+        object? payload = null)
+    {
+        _diagnostics.Publish(new DiagnosticsEvent
+        {
+            Domain = DiagnosticsDomain.MotorLive,
+            Name = name,
+            Severity = severity,
+            CorrelationId = correlationId,
+            ConnectionId = connectionId,
+            PersistedSessionId = session?.PersistedSessionId,
+            SidecarSessionId = session?.SidecarSessionId,
+            Payload = payload,
+        });
     }
 
     private static SessionIdentity ResolveIdentity(SessionIdentity? identity)
@@ -270,6 +343,7 @@ public sealed class MotorSessionCoordinator
             return new SessionIdentity
             {
                 ClientToken = ClientTokenNormalizer.Resolve(identity.ClientToken),
+                CorrelationId = identity.CorrelationId,
                 Indexers    = identity.Indexers,
             };
         }

@@ -36,6 +36,8 @@ public sealed class SidecarClient : ISidecarClient
 
     private Task? _receiveTask;
     private TaskCompletionSource<BrowserStatePayload>? _stateExportTcs;
+    private TaskCompletionSource<object>? _diagProbeTcs;
+    private string? _diagProbeRequestId;
 
     public string SessionId { get; }
 
@@ -112,6 +114,39 @@ public sealed class SidecarClient : ISidecarClient
         await SendCoreAsync(request, ct);
 
         return await _stateExportTcs.Task.WaitAsync(ct);
+    }
+
+    public async Task<object> RequestDiagnosticsAsync(
+        IReadOnlyList<string> ops,
+        string? evaluateExpression = null,
+        string? domSelector = null,
+        int? maxProbeResponseBytes = null,
+        CancellationToken ct = default)
+    {
+        if (_ws.State != WebSocketState.Open)
+            throw new InvalidOperationException("Sidecar WebSocket is not open.");
+
+        var requestId = Guid.NewGuid().ToString("N");
+        _diagProbeRequestId = requestId;
+        _diagProbeTcs = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var payload = new Dictionary<string, object?>
+        {
+            ["type"] = "diagProbe",
+            ["requestId"] = requestId,
+            ["ops"] = ops,
+        };
+        if (!string.IsNullOrWhiteSpace(evaluateExpression))
+            payload["evaluateExpression"] = evaluateExpression;
+        if (!string.IsNullOrWhiteSpace(domSelector))
+            payload["domSelector"] = domSelector;
+        if (maxProbeResponseBytes is > 0)
+            payload["maxProbeResponseBytes"] = maxProbeResponseBytes.Value;
+
+        var request = JsonSerializer.SerializeToUtf8Bytes(payload, JsonOptions);
+        await SendCoreAsync(request, ct);
+
+        return await _diagProbeTcs.Task.WaitAsync(ct);
     }
 
     private async Task<List<byte[]>> WaitForReadyAsync(CancellationToken ct)
@@ -271,6 +306,36 @@ public sealed class SidecarClient : ISidecarClient
                 return;
             }
 
+            if (type == "diagResult")
+            {
+                if (_diagProbeTcs is null) return;
+                var requestId = doc.RootElement.TryGetProperty("requestId", out var rid)
+                    ? rid.GetString()
+                    : null;
+                if (_diagProbeRequestId is not null
+                    && !string.Equals(requestId, _diagProbeRequestId, StringComparison.Ordinal))
+                    return;
+
+                if (doc.RootElement.TryGetProperty("ok", out var okEl) && okEl.ValueKind == JsonValueKind.False)
+                {
+                    var err = doc.RootElement.TryGetProperty("errorCode", out var ec)
+                        ? ec.GetString() ?? "probe_failed"
+                        : "probe_failed";
+                    _diagProbeTcs.TrySetException(new InvalidOperationException(err));
+                }
+                else
+                {
+                    object data = doc.RootElement.TryGetProperty("data", out var dataEl)
+                        ? JsonSerializer.Deserialize<object>(dataEl.GetRawText(), JsonOptions) ?? new { }
+                        : new { };
+                    _diagProbeTcs.TrySetResult(data);
+                }
+
+                _diagProbeTcs = null;
+                _diagProbeRequestId = null;
+                return;
+            }
+
             if (_stateExportTcs is not null && type is "stateExportError" or "error")
             {
                 var msg = doc.RootElement.TryGetProperty("message", out var m)
@@ -282,6 +347,9 @@ public sealed class SidecarClient : ISidecarClient
         catch (Exception ex)
         {
             FailStateExport(ex);
+            _diagProbeTcs?.TrySetException(ex);
+            _diagProbeTcs = null;
+            _diagProbeRequestId = null;
         }
     }
 

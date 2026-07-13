@@ -1,9 +1,8 @@
-using System.Buffers;
 using System.Buffers.Binary;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Channels;
-using Speculum.Api.Config.Runtime;
+using Speculum.Api.Diagnostics.Abstractions;
 using Speculum.Api.Motor.Mapping;
 using Speculum.Api.Motor.Sidecar;
 using Speculum.Api.BrowserPersistence;
@@ -20,6 +19,8 @@ public sealed class MotorSession : IMotorSession
     private readonly SessionConfigSnapshot       _snapshot;
     private readonly MotorUrlAdapter             _urlAdapter;
     private readonly ISidecarClientFactory       _sidecarClientFactory;
+    private readonly IDiagnosticsEventBus        _diagnostics;
+    private readonly IDiagnosticsRuntime         _runtime;
     private readonly ILogger                   _logger;
 
     private int _sessionState;
@@ -43,6 +44,18 @@ public sealed class MotorSession : IMotorSession
     private string   _sidecarSessionId = "";
     private string   _currentUrl       = "";
     private string?  _persistedSessionId;
+    private MotorSessionPhase _phase = MotorSessionPhase.Stopped;
+    private DateTimeOffset _lastEventUtc = DateTimeOffset.UtcNow;
+    private DateTimeOffset? _lastFrameUtc;
+    private string? _lastNavigateResult;
+    private DateTimeOffset? _lastNavigateUtc;
+    private string? _lastFault;
+    private int _exportingState;
+    private string _connectionId = "";
+    private string? _correlationId;
+    private string? _clientToken;
+    private int _inputAcceptedApprox;
+    private int _inputForwardedApprox;
 
     public string? PersistedSessionId
     {
@@ -50,17 +63,41 @@ public sealed class MotorSession : IMotorSession
         set => _persistedSessionId = value;
     }
 
+    public string SidecarSessionId => _sidecarSessionId;
+
+    public string? CorrelationId
+    {
+        get => _correlationId;
+        set => _correlationId = value;
+    }
+
+    public string? ClientToken
+    {
+        get => _clientToken;
+        set => _clientToken = value;
+    }
+
+    public string ConnectionId
+    {
+        get => _connectionId;
+        set => _connectionId = value ?? "";
+    }
+
     public MotorSession(
         SidecarBrowserClientOptions sidecarOptions,
         SessionConfigSnapshot       snapshot,
         MotorUrlAdapter             urlAdapter,
         ISidecarClientFactory       sidecarClientFactory,
+        IDiagnosticsEventBus        diagnostics,
+        IDiagnosticsRuntime         runtime,
         ILogger                     logger)
     {
         _sidecarOptions       = sidecarOptions;
         _snapshot             = snapshot;
         _urlAdapter           = urlAdapter;
         _sidecarClientFactory = sidecarClientFactory;
+        _diagnostics          = diagnostics;
+        _runtime              = runtime;
         _logger               = logger;
         _currentUrl           = snapshot.InitialUrl;
 
@@ -84,6 +121,59 @@ public sealed class MotorSession : IMotorSession
         _sessionState = StateStopped;
     }
 
+    public void MarkPhase(MotorSessionPhase phase)
+    {
+        _phase = phase;
+        _lastEventUtc = DateTimeOffset.UtcNow;
+    }
+
+    public MotorSessionDiagnosticsSnapshot GetDiagnosticsSnapshot()
+    {
+        return new MotorSessionDiagnosticsSnapshot
+        {
+            ConnectionId = _connectionId,
+            PersistedSessionId = _persistedSessionId,
+            SidecarSessionId = _sidecarSessionId,
+            ClientToken = _clientToken,
+            CorrelationId = _correlationId,
+            Phase = _phase,
+            StartedAt = _startTime == default ? null : new DateTimeOffset(_startTime, TimeSpan.Zero),
+            UptimeMs = _startTime == default ? 0 : (long)(DateTime.UtcNow - _startTime).TotalMilliseconds,
+            LastEventUtc = _lastEventUtc,
+            Fps = _lastFps,
+            FrameSequence = Volatile.Read(ref _frameSequence),
+            LastFrameUtc = _lastFrameUtc,
+            InputQueueApprox = Math.Max(0, _inputAcceptedApprox - _inputForwardedApprox),
+            FrameChannelDepth = _frameChannel.Reader.Count,
+            StatusChannelDepth = _statusChannel.Reader.Count,
+            CurrentUrl = _currentUrl,
+            LastNavigateResult = _lastNavigateResult,
+            LastNavigateUtc = _lastNavigateUtc,
+            SidecarConnected = _client is not null && Volatile.Read(ref _sessionState) == StateRunning,
+            LastFault = _lastFault,
+            ExportingState = Volatile.Read(ref _exportingState) != 0,
+            ForwardingHost = _snapshot.Forwarding?.Host,
+            JsBridgeEnabled = _snapshot.JsBridgeEnabled,
+            ScriptCount = _snapshot.Scripts.Count,
+            AllowlistCount = _snapshot.AllowedNavigationDomains?.Length ?? 0,
+            ProfileDomain = _snapshot.HostingProfile?.Domain,
+        };
+    }
+
+    public async Task<object> RequestDiagnosticsProbeAsync(
+        IReadOnlyList<string> ops,
+        string? evaluateExpression,
+        string? domSelector,
+        int? maxProbeResponseBytes = null,
+        CancellationToken ct = default)
+    {
+        if (_client is null || Volatile.Read(ref _sessionState) != StateRunning)
+            throw new InvalidOperationException("session_gone");
+
+        return await _client.RequestDiagnosticsAsync(
+            ops, evaluateExpression, domSelector, maxProbeResponseBytes, ct);
+    }
+
     public async Task StartAsync(CancellationToken ct = default)
     {
         if (Interlocked.Exchange(ref _sessionState, StateRunning) == StateRunning)
@@ -92,6 +182,7 @@ public sealed class MotorSession : IMotorSession
         var client = _sidecarClientFactory.Create(Guid.NewGuid().ToString("N"));
         _startTime = DateTime.UtcNow;
         _sidecarSessionId = client.SessionId;
+        MarkPhase(MotorSessionPhase.Starting);
 
         try
         {
@@ -109,10 +200,13 @@ public sealed class MotorSession : IMotorSession
             _client = client;
             _pumpFramesTask  = PumpFramesAsync(_cts.Token);
             _pumpConsoleTask = PumpConsoleOutputAsync(_cts.Token);
+            MarkPhase(MotorSessionPhase.Running);
         }
-        catch
+        catch (Exception ex)
         {
+            _lastFault = ex.Message;
             Interlocked.Exchange(ref _sessionState, StateStopped);
+            MarkPhase(MotorSessionPhase.Stopped);
             try { await client.DisposeAsync(); } catch { /* best-effort */ }
             throw;
         }
@@ -125,6 +219,7 @@ public sealed class MotorSession : IMotorSession
     {
         if (_client is null || string.IsNullOrWhiteSpace(sessionId)) return;
 
+        Interlocked.Exchange(ref _exportingState, 1);
         try
         {
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -135,8 +230,13 @@ public sealed class MotorSession : IMotorSession
         }
         catch (Exception ex)
         {
+            _lastFault = ex.Message;
             _logger.LogWarning(ex, "State capture failed for session {SessionPrefix}… — continuing teardown.",
                 sessionId[..Math.Min(8, sessionId.Length)]);
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _exportingState, 0);
         }
     }
 
@@ -145,6 +245,7 @@ public sealed class MotorSession : IMotorSession
         if (Interlocked.Exchange(ref _sessionState, StateStopped) == StateStopped)
             return;
 
+        MarkPhase(MotorSessionPhase.Stopping);
         _logger.LogInformation("Finalizando sessão de virtualização...");
 
         await _cts.CancelAsync();
@@ -167,6 +268,7 @@ public sealed class MotorSession : IMotorSession
         }
 
         _cts.Dispose();
+        MarkPhase(MotorSessionPhase.Stopped);
     }
 
     public ChannelReader<Frame>         GetFrameReader()         => _frameChannel.Reader;
@@ -192,23 +294,46 @@ public sealed class MotorSession : IMotorSession
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)
             || uri.Scheme is not "http" and not "https")
         {
+            _lastNavigateResult = "failed";
+            _lastNavigateUtc = DateTimeOffset.UtcNow;
             throw new ArgumentException("URL de navegação inválida — apenas http/https são permitidos.", nameof(url));
         }
 
         if (!SidecarInputGuard.IsNavigationUrlAllowed(url, _snapshot.AllowedNavigationDomains))
         {
+            _lastNavigateResult = "rejected";
+            _lastNavigateUtc = DateTimeOffset.UtcNow;
             throw new ArgumentException(
                 "URL de navegação fora da allowlist de domínios configurada.",
                 nameof(url));
         }
 
+        _lastNavigateResult = "ok";
+        _lastNavigateUtc = DateTimeOffset.UtcNow;
+        _currentUrl = url;
         return _client!.SendInputAsync(
             JsonSerializer.SerializeToUtf8Bytes(new { type = "navigate", url }).AsMemory(), ct);
     }
 
     public Task ResizeAsync(int width, int height, CancellationToken ct = default)
-        => _client!.SendInputAsync(
+    {
+        if (_runtime.IsEnabled(DiagnosticsDomain.MotorLive, DiagnosticsLevel.Events))
+        {
+            _diagnostics.Publish(new DiagnosticsEvent
+            {
+                Domain = DiagnosticsDomain.MotorLive,
+                Name = "Motor.ResizeRequested",
+                CorrelationId = _correlationId,
+                ConnectionId = _connectionId,
+                PersistedSessionId = _persistedSessionId,
+                SidecarSessionId = _sidecarSessionId,
+                Payload = new { width, height },
+            });
+        }
+
+        return _client!.SendInputAsync(
             JsonSerializer.SerializeToUtf8Bytes(new { type = "resize", width, height }).AsMemory(), ct);
+    }
 
     private async Task PumpFramesAsync(CancellationToken ct)
     {
@@ -224,6 +349,7 @@ public sealed class MotorSession : IMotorSession
 
                 Interlocked.Increment(ref _frameCount);
                 var seq = Interlocked.Increment(ref _frameSequence);
+                _lastFrameUtc = DateTimeOffset.UtcNow;
 
                 _frameChannel.Writer.TryWrite(new Frame
                 {
@@ -234,6 +360,24 @@ public sealed class MotorSession : IMotorSession
             }
         }
         catch (OperationCanceledException) { }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            _lastFault = ex.Message;
+            if (_runtime.IsEnabled(DiagnosticsDomain.MotorLive, DiagnosticsLevel.Events))
+            {
+                _diagnostics.Publish(new DiagnosticsEvent
+                {
+                    Domain = DiagnosticsDomain.MotorLive,
+                    Name = "Motor.SidecarFaulted",
+                    Severity = DiagnosticsSeverity.Error,
+                    CorrelationId = _correlationId,
+                    ConnectionId = _connectionId,
+                    PersistedSessionId = _persistedSessionId,
+                    SidecarSessionId = _sidecarSessionId,
+                    Payload = new { fault = ex.Message },
+                });
+            }
+        }
         finally { _frameChannel.Writer.TryComplete(); }
     }
 
@@ -317,6 +461,7 @@ public sealed class MotorSession : IMotorSession
         {
             await foreach (var payload in reader.ReadAllAsync(ct))
             {
+                Interlocked.Increment(ref _inputAcceptedApprox);
                 try
                 {
                     if (!SidecarInputGuard.TryValidateUserInputPayload(payload, out var rejectReason))
@@ -326,6 +471,7 @@ public sealed class MotorSession : IMotorSession
                     }
 
                     await _client!.SendInputAsync(Encoding.UTF8.GetBytes(payload).AsMemory(), ct);
+                    Interlocked.Increment(ref _inputForwardedApprox);
                 }
                 catch (OperationCanceledException) { throw; }
                 catch (Exception ex) when (ex is not OutOfMemoryException)
@@ -389,7 +535,9 @@ public sealed class MotorSession : IMotorSession
                 _currentUrl = MapTargetUrlForClient(targetUrl);
             }
 
-            return new SessionStatus
+            _lastEventUtc = DateTimeOffset.UtcNow;
+
+            var status = new SessionStatus
             {
                 TabCount        = root.TryGetProperty("tabCount", out var tc) ? tc.GetInt32()     : -1,
                 Url             = _currentUrl,
@@ -401,7 +549,42 @@ public sealed class MotorSession : IMotorSession
                 SessionId       = _sidecarSessionId,
                 JsBridgeEnabled = _snapshot.JsBridgeEnabled,
             };
+
+            MaybeMirrorStatus(status);
+            return status;
         }
         catch { return null; }
+    }
+
+    private void MaybeMirrorStatus(SessionStatus status)
+    {
+        if (!_runtime.IsEnabled(DiagnosticsDomain.MotorLive, DiagnosticsLevel.Metrics))
+            return;
+
+        var sampling = _runtime.GetSnapshot().Options.Sampling;
+        var mirrorRatio = Math.Min(sampling.StatusMirrorRatio, sampling.ExpensiveEventRatio);
+        if (mirrorRatio <= 0)
+            return;
+        if (mirrorRatio < 1.0 && Random.Shared.NextDouble() > mirrorRatio)
+            return;
+
+        _diagnostics.Publish(new DiagnosticsEvent
+        {
+            Domain = DiagnosticsDomain.MotorLive,
+            Name = "Motor.StatusMirrored",
+            Severity = DiagnosticsSeverity.Information,
+            CorrelationId = _correlationId,
+            ConnectionId = _connectionId,
+            PersistedSessionId = _persistedSessionId,
+            SidecarSessionId = _sidecarSessionId,
+            Payload = new
+            {
+                fps = status.Fps,
+                uptimeMs = status.UptimeMs,
+                tabCount = status.TabCount,
+                width = status.Width,
+                height = status.Height,
+            },
+        }, persist: false);
     }
 }

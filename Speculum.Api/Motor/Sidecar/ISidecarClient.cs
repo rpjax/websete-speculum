@@ -21,5 +21,11 @@ public interface ISidecarClient : IAsyncDisposable
         CancellationToken             ct                       = default);
 
     Task<BrowserStatePayload> RequestStateExportAsync(CancellationToken ct = default);
+    Task<object> RequestDiagnosticsAsync(
+        IReadOnlyList<string> ops,
+        string? evaluateExpression = null,
+        string? domSelector = null,
+        int? maxProbeResponseBytes = null,
+        CancellationToken ct = default);
     Task SendInputAsync(ReadOnlyMemory<byte> raw, CancellationToken ct = default);
 }

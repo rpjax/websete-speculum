@@ -2,6 +2,8 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Speculum.Api.Config.Runtime;
+using Speculum.Api.Diagnostics.Abstractions;
+using Speculum.Api.Diagnostics.Pipeline;
 using Speculum.Api.Motor.Mapping;
 
 namespace Speculum.Api.Config.Store;
@@ -68,6 +70,9 @@ public static class ConfigValidator
                 break;
             case ConfigSectionKeys.Hosting:
                 ValidateHosting(body, errors, currentForwarding);
+                break;
+            case ConfigSectionKeys.Diagnostics:
+                ValidateDiagnostics(body, errors);
                 break;
             default:
                 errors.Add(("$.key", $"Unknown configuration section '{key}'."));
@@ -387,6 +392,100 @@ public static class ConfigValidator
         {
             errors.Add(($"{prefix}", "Forwarding.domains must include a wildcard when mirroring enabled."));
         }
+    }
+
+    private static void ValidateDiagnostics(JsonElement body, List<(string, string)> errors)
+    {
+        if (body.ValueKind != JsonValueKind.Object)
+        {
+            errors.Add(("$.Diagnostics", "Must be a JSON object."));
+            return;
+        }
+
+        if (body.TryGetProperty("enabled", out var enabledEl)
+            && enabledEl.ValueKind is not JsonValueKind.True and not JsonValueKind.False)
+        {
+            errors.Add(("$.Diagnostics.enabled", "Must be a boolean."));
+        }
+
+        if (body.TryGetProperty("defaultLevel", out var defaultLevel)
+            && defaultLevel.ValueKind == JsonValueKind.String
+            && !Enum.TryParse<DiagnosticsLevel>(defaultLevel.GetString(), true, out _))
+        {
+            errors.Add(("$.Diagnostics.defaultLevel", "Invalid diagnostics level."));
+        }
+
+        if (body.TryGetProperty("domains", out var domains) && domains.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var prop in domains.EnumerateObject())
+            {
+                if (prop.Value.ValueKind != JsonValueKind.String
+                    || !Enum.TryParse<DiagnosticsLevel>(prop.Value.GetString(), true, out _))
+                {
+                    errors.Add(($"$.Diagnostics.domains.{prop.Name}", "Invalid diagnostics level."));
+                }
+            }
+        }
+
+        if (body.TryGetProperty("storage", out var storage) && storage.ValueKind == JsonValueKind.Object)
+        {
+            if (storage.TryGetProperty("maxBytes", out var maxBytes)
+                && (!maxBytes.TryGetInt64(out var mb) || mb < 1024))
+                errors.Add(("$.Diagnostics.storage.maxBytes", "Must be >= 1024."));
+
+            if (storage.TryGetProperty("ttlHours", out var ttl)
+                && (!ttl.TryGetInt32(out var hours) || hours < 1))
+                errors.Add(("$.Diagnostics.storage.ttlHours", "Must be >= 1."));
+
+            if (storage.TryGetProperty("maxEventsPerSession", out var maxEv)
+                && (!maxEv.TryGetInt32(out var me) || me < 1))
+                errors.Add(("$.Diagnostics.storage.maxEventsPerSession", "Must be >= 1."));
+
+            if (storage.TryGetProperty("overflow", out var overflow)
+                && overflow.ValueKind == JsonValueKind.String
+                && !string.Equals(overflow.GetString(), "DropOldest", StringComparison.OrdinalIgnoreCase))
+                errors.Add(("$.Diagnostics.storage.overflow", "Must be 'DropOldest'."));
+        }
+
+        if (body.TryGetProperty("sampling", out var sampling) && sampling.ValueKind == JsonValueKind.Object)
+        {
+            ValidateRatio(sampling, "statusMirrorRatio", "$.Diagnostics.sampling.statusMirrorRatio", errors);
+            ValidateRatio(sampling, "expensiveEventRatio", "$.Diagnostics.sampling.expensiveEventRatio", errors);
+        }
+
+        if (body.TryGetProperty("elevate", out var elevate) && elevate.ValueKind == JsonValueKind.Object)
+        {
+            if (elevate.TryGetProperty("browserQueryMaxMinutes", out var mins)
+                && (!mins.TryGetInt32(out var m) || m < 1 || m > 1440))
+                errors.Add(("$.Diagnostics.elevate.browserQueryMaxMinutes", "Must be 1..1440."));
+        }
+
+        if (body.TryGetProperty("probe", out var probe) && probe.ValueKind == JsonValueKind.Object)
+        {
+            if (probe.TryGetProperty("diagTimeoutMs", out var timeout)
+                && (!timeout.TryGetInt32(out var t) || t < 100 || t > 120_000))
+                errors.Add(("$.Diagnostics.probe.diagTimeoutMs", "Must be 100..120000."));
+
+            if (probe.TryGetProperty("maxConcurrentProbesPerSession", out var conc)
+                && (!conc.TryGetInt32(out var c) || c < 1 || c > 32))
+                errors.Add(("$.Diagnostics.probe.maxConcurrentProbesPerSession", "Must be 1..32."));
+
+            if (probe.TryGetProperty("maxProbeResponseBytes", out var bytes)
+                && (!bytes.TryGetInt32(out var b) || b < 1024 || b > 8 * 1024 * 1024))
+                errors.Add(("$.Diagnostics.probe.maxProbeResponseBytes", "Must be 1024..8388608."));
+
+            if (probe.TryGetProperty("hostSampleIntervalMs", out var hostInterval)
+                && (!hostInterval.TryGetInt32(out var hi) || hi < 100 || hi > 60_000))
+                errors.Add(("$.Diagnostics.probe.hostSampleIntervalMs", "Must be 100..60000."));
+        }
+    }
+
+    private static void ValidateRatio(JsonElement parent, string name, string path, List<(string, string)> errors)
+    {
+        if (!parent.TryGetProperty(name, out var el))
+            return;
+        if (!el.TryGetDouble(out var ratio) || ratio < 0 || ratio > 1)
+            errors.Add((path, "Must be a number between 0 and 1."));
     }
 
     private static bool IsValidEmail(string value)

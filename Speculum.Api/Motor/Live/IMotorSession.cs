@@ -11,6 +11,19 @@ public interface IMotorSession
     Task CaptureAndPersistAsync(string sessionId, IBrowserSessionStore store, CancellationToken ct = default);
 
     string? PersistedSessionId { get; set; }
+    string SidecarSessionId { get; }
+    string? CorrelationId { get; set; }
+    string? ClientToken { get; set; }
+    string ConnectionId { get; set; }
+
+    void MarkPhase(Diagnostics.Abstractions.MotorSessionPhase phase);
+    MotorSessionDiagnosticsSnapshot GetDiagnosticsSnapshot();
+    Task<object> RequestDiagnosticsProbeAsync(
+        IReadOnlyList<string> ops,
+        string? evaluateExpression,
+        string? domSelector,
+        int? maxProbeResponseBytes = null,
+        CancellationToken ct = default);
 
     ChannelReader<Frame>         GetFrameReader();
     ChannelReader<ConsoleOutput> GetConsoleOutputReader();

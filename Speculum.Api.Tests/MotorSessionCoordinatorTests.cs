@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging.Abstractions;
 using Speculum.Api.Config.Runtime;
 using Speculum.Api.Config.Store;
+using Speculum.Api.Diagnostics.Abstractions;
 using Speculum.Api.Motor.Live;
 using Speculum.Api.Motor.Live.Models;
 using Speculum.Api.Motor.Mapping;
@@ -18,7 +19,8 @@ public sealed class MotorSessionCoordinatorTests
         ISpeculumConfigStore configStore,
         IMotorSessionRegistry registry,
         IBrowserSessionStore sessionStore,
-        IMotorSessionFactory? sessionFactory = null)
+        IMotorSessionFactory? sessionFactory = null,
+        IDiagnosticsEventBus? diagnostics = null)
     {
         var urlAdapter = new MotorUrlAdapter(new NavigationStateCodec(new byte[32], encrypt: false));
         return new MotorSessionCoordinator(
@@ -27,6 +29,7 @@ public sealed class MotorSessionCoordinatorTests
             sessionStore,
             urlAdapter,
             sessionFactory ?? new StubMotorSessionFactory(),
+            diagnostics ?? new NullDiagnosticsEventBus(),
             NullLogger<MotorSessionCoordinator>.Instance);
     }
 
@@ -76,6 +79,35 @@ public sealed class MotorSessionCoordinatorTests
     }
 
     [Fact]
+    public async Task StartSessionAsync_emits_SidecarConnected_only_after_StartAsync()
+    {
+        var order = new List<string>();
+        var session = new TrackingMotorSession
+        {
+            OnStartAsync = () => order.Add("StartAsync"),
+        };
+        var bus = new RecordingDiagnosticsEventBus(order);
+
+        var coordinator = CreateCoordinator(
+            new StubConfigStore(operational: true),
+            new StubMotorSessionRegistry(),
+            new StubBrowserSessionStore(clientToken: "tok"),
+            sessionFactory: new FixedMotorSessionFactory(session),
+            diagnostics: bus);
+
+        await coordinator.StartSessionAsync(
+            "conn-1", "speculum.com", CancellationToken.None,
+            "https://speculum.com", 1280, 720, null);
+
+        var startIdx = order.IndexOf("StartAsync");
+        var connectedIdx = order.IndexOf("Motor.SidecarConnected");
+        var startedIdx = order.IndexOf("Motor.SessionStarted");
+        Assert.True(startIdx >= 0, "StartAsync should run");
+        Assert.True(connectedIdx > startIdx, "SidecarConnected must follow StartAsync");
+        Assert.True(startedIdx > connectedIdx, "SessionStarted must follow SidecarConnected");
+    }
+
+    [Fact]
     public async Task NavigateMotorSessionAsync_throws_when_session_missing()
     {
         var coordinator = CreateCoordinator(
@@ -108,12 +140,44 @@ public sealed class MotorSessionCoordinatorTests
         Assert.Contains("example.com", session.LastNavigateUrl, StringComparison.OrdinalIgnoreCase);
     }
 
+    private sealed class RecordingDiagnosticsEventBus(List<string> order) : IDiagnosticsEventBus
+    {
+        public void Publish(DiagnosticsEvent diagnosticsEvent, bool persist = true)
+            => order.Add(diagnosticsEvent.Name);
+    }
+
+    private sealed class FixedMotorSessionFactory(IMotorSession session) : IMotorSessionFactory
+    {
+        public IMotorSession Create(SessionConfigSnapshot snapshot) => session;
+    }
+
     private sealed class TrackingMotorSession : IMotorSession
     {
         public string? LastNavigateUrl { get; private set; }
+        public Action? OnStartAsync { get; init; }
         public string? PersistedSessionId { get; set; }
+        public string SidecarSessionId { get; init; } = "sidecar-tracking";
+        public string? CorrelationId { get; set; }
+        public string? ClientToken { get; set; }
+        public string ConnectionId { get; set; } = "";
 
-        public Task StartAsync(CancellationToken ct = default) => Task.CompletedTask;
+        public void MarkPhase(MotorSessionPhase phase) { }
+
+        public MotorSessionDiagnosticsSnapshot GetDiagnosticsSnapshot() => new();
+
+        public Task<object> RequestDiagnosticsProbeAsync(
+            IReadOnlyList<string> ops,
+            string? evaluateExpression,
+            string? domSelector,
+            int? maxProbeResponseBytes = null,
+            CancellationToken ct = default)
+            => Task.FromResult<object>(new { });
+
+        public Task StartAsync(CancellationToken ct = default)
+        {
+            OnStartAsync?.Invoke();
+            return Task.CompletedTask;
+        }
         public Task StopAsync(CancellationToken ct = default) => Task.CompletedTask;
         public Task CaptureAndPersistAsync(string sessionId, IBrowserSessionStore store, CancellationToken ct = default)
             => Task.CompletedTask;
@@ -181,6 +245,7 @@ public sealed class MotorSessionCoordinatorTests
         public StubMotorSessionRegistry(bool acquireSlot = true) => _acquireSlot = acquireSlot;
 
         public int ActiveCount => _session is null ? 0 : 1;
+        public int StartingCount => 0;
 
         public void Register(string connectionId, IMotorSession session) => _session = session;
 
@@ -210,6 +275,28 @@ public sealed class MotorSessionCoordinatorTests
             session = _session;
             _session = null;
             return session is not null;
+        }
+
+        public IReadOnlyList<MotorSessionListItem> ListSessions() => [];
+
+        public bool TryFindByPersistedSessionId(
+            string persistedSessionId,
+            [NotNullWhen(true)] out IMotorSession? session,
+            [NotNullWhen(true)] out string? connectionId)
+        {
+            session = null;
+            connectionId = null;
+            return false;
+        }
+
+        public bool TryFindBySidecarSessionId(
+            string sidecarSessionId,
+            [NotNullWhen(true)] out IMotorSession? session,
+            [NotNullWhen(true)] out string? connectionId)
+        {
+            session = null;
+            connectionId = null;
+            return false;
         }
 
         public Task StopAllAsync(IBrowserSessionStore store, CancellationToken ct = default)
@@ -262,6 +349,22 @@ public sealed class MotorSessionCoordinatorTests
     private sealed class StubMotorSession : IMotorSession
     {
         public string? PersistedSessionId { get; set; }
+        public string SidecarSessionId { get; init; } = "sidecar-stub";
+        public string? CorrelationId { get; set; }
+        public string? ClientToken { get; set; }
+        public string ConnectionId { get; set; } = "";
+
+        public void MarkPhase(MotorSessionPhase phase) { }
+
+        public MotorSessionDiagnosticsSnapshot GetDiagnosticsSnapshot() => new();
+
+        public Task<object> RequestDiagnosticsProbeAsync(
+            IReadOnlyList<string> ops,
+            string? evaluateExpression,
+            string? domSelector,
+            int? maxProbeResponseBytes = null,
+            CancellationToken ct = default)
+            => Task.FromResult<object>(new { });
 
         public Task StartAsync(CancellationToken ct = default) => Task.CompletedTask;
         public Task StopAsync(CancellationToken ct = default) => Task.CompletedTask;

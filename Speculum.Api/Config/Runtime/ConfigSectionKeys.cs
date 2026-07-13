@@ -9,6 +9,7 @@ public static class ConfigSectionKeys
     public const string JsBridge            = "JsBridge";
     public const string SessionPolicy       = "SessionPolicy";
     public const string Hosting             = "Hosting";
+    public const string Diagnostics         = "Diagnostics";
 
     public static readonly string[] All =
     [
@@ -19,6 +20,7 @@ public static class ConfigSectionKeys
         JsBridge,
         SessionPolicy,
         Hosting,
+        Diagnostics,
     ];
 
     public static readonly string[] RequiredForOperation =

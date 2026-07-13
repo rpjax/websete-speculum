@@ -9,6 +9,7 @@ using Speculum.Api.Config.Bootstrap;
 using Speculum.Api.Config.Persistence;
 using Speculum.Api.Config.Runtime;
 using Speculum.Api.Config.Store;
+using Speculum.Api.Diagnostics.Abstractions;
 using Speculum.Api.Edge;
 using Speculum.Api.Motor.Live;
 using Speculum.Api.Scripts;
@@ -30,6 +31,9 @@ public sealed class ConfigServicePipelineTests : IDisposable
 
     public void Dispose()
     {
+        Environment.SetEnvironmentVariable("HttpAddress", null);
+        Environment.SetEnvironmentVariable("Database__Path", null);
+        Environment.SetEnvironmentVariable("Sidecar__BaseUrl", null);
         try { Directory.Delete(_tempDir, recursive: true); }
         catch { /* best-effort */ }
     }
@@ -125,7 +129,7 @@ public sealed class ConfigServicePipelineTests : IDisposable
 
         IConfigChangeHandler[] handlers =
         [
-            new MotorSessionDrainHandler(registry, sessionStore),
+            new MotorSessionDrainHandler(registry, sessionStore, new NullDiagnosticsEventBus()),
             new EdgeSyncConfigHandler(sync),
         ];
 
@@ -172,6 +176,7 @@ public sealed class ConfigServicePipelineTests : IDisposable
     {
         public int StopAllCount { get; private set; }
         public int ActiveCount => 0;
+        public int StartingCount => 0;
 
         public void Register(string connectionId, IMotorSession session) { }
         public IMotorSession? Get(string connectionId) => null;
@@ -187,6 +192,28 @@ public sealed class ConfigServicePipelineTests : IDisposable
         public bool TryCancelStarting(string connectionId, [NotNullWhen(true)] out IMotorSession? session)
         {
             session = null;
+            return false;
+        }
+
+        public IReadOnlyList<MotorSessionListItem> ListSessions() => [];
+
+        public bool TryFindByPersistedSessionId(
+            string persistedSessionId,
+            [NotNullWhen(true)] out IMotorSession? session,
+            [NotNullWhen(true)] out string? connectionId)
+        {
+            session = null;
+            connectionId = null;
+            return false;
+        }
+
+        public bool TryFindBySidecarSessionId(
+            string sidecarSessionId,
+            [NotNullWhen(true)] out IMotorSession? session,
+            [NotNullWhen(true)] out string? connectionId)
+        {
+            session = null;
+            connectionId = null;
             return false;
         }
 

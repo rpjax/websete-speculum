@@ -2,6 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using Speculum.Api.Config.Application;
 using Speculum.Api.Config.Runtime;
 using Speculum.Api.Config.Store;
+using Speculum.Api.Diagnostics.Abstractions;
 using Speculum.Api.Edge;
 using Speculum.Api.Motor.Live;
 using Speculum.Api.BrowserPersistence;
@@ -47,7 +48,7 @@ public sealed class ConfigPipelineTests
     public async Task Forwarding_pre_reload_drains_motor_sessions()
     {
         var registry = new RecordingMotorSessionRegistry();
-        var handler = new MotorSessionDrainHandler(registry, new NoOpBrowserSessionStore());
+        var handler = new MotorSessionDrainHandler(registry, new NoOpBrowserSessionStore(), new NullDiagnosticsEventBus());
 
         await handler.HandleAsync(Context(ConfigSectionKeys.Forwarding, ConfigChangePhase.PreReload));
 
@@ -58,7 +59,7 @@ public sealed class ConfigPipelineTests
     public async Task Hosting_pre_reload_drains_motor_sessions()
     {
         var registry = new RecordingMotorSessionRegistry();
-        var handler = new MotorSessionDrainHandler(registry, new NoOpBrowserSessionStore());
+        var handler = new MotorSessionDrainHandler(registry, new NoOpBrowserSessionStore(), new NullDiagnosticsEventBus());
 
         await handler.HandleAsync(Context(ConfigSectionKeys.Hosting, ConfigChangePhase.PreReload));
 
@@ -70,7 +71,7 @@ public sealed class ConfigPipelineTests
     {
         var registry = new RecordingMotorSessionRegistry();
         var sync = new RecordingEdgeSynchronizer();
-        var drainHandler = new MotorSessionDrainHandler(registry, new NoOpBrowserSessionStore());
+        var drainHandler = new MotorSessionDrainHandler(registry, new NoOpBrowserSessionStore(), new NullDiagnosticsEventBus());
         var syncHandler = new EdgeSyncConfigHandler(sync);
 
         await drainHandler.HandleAsync(Context(ConfigSectionKeys.MaxSessions, ConfigChangePhase.PreReload));
@@ -102,6 +103,7 @@ public sealed class ConfigPipelineTests
     {
         public int StopAllCount { get; private set; }
         public int ActiveCount => 0;
+        public int StartingCount => 0;
 
         public void Register(string connectionId, IMotorSession session) { }
         public IMotorSession? Get(string connectionId) => null;
@@ -117,6 +119,28 @@ public sealed class ConfigPipelineTests
         public bool TryCancelStarting(string connectionId, [NotNullWhen(true)] out IMotorSession? session)
         {
             session = null;
+            return false;
+        }
+
+        public IReadOnlyList<MotorSessionListItem> ListSessions() => [];
+
+        public bool TryFindByPersistedSessionId(
+            string persistedSessionId,
+            [NotNullWhen(true)] out IMotorSession? session,
+            [NotNullWhen(true)] out string? connectionId)
+        {
+            session = null;
+            connectionId = null;
+            return false;
+        }
+
+        public bool TryFindBySidecarSessionId(
+            string sidecarSessionId,
+            [NotNullWhen(true)] out IMotorSession? session,
+            [NotNullWhen(true)] out string? connectionId)
+        {
+            session = null;
+            connectionId = null;
             return false;
         }
 

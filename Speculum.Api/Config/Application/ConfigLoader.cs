@@ -2,6 +2,7 @@ using System.Text.Json;
 using Speculum.Api.Config.Application;
 using Speculum.Api.Config.Runtime;
 using Speculum.Api.Config.Store;
+using Speculum.Api.Diagnostics.Configuration;
 using Speculum.Api.Scripts;
 using Speculum.Api.Motor.Sidecar;
 
@@ -34,6 +35,7 @@ public sealed class ConfigLoader
         var scriptInjection = ParseScriptInjection(sections);
         var jsBridgeEnabled = ParseJsBridge(sections);
         var hosting         = ParseHosting(sections);
+        var diagnostics     = ParseDiagnostics(sections);
 
         IReadOnlyList<ScriptPayload> resolvedScripts = [];
         var scriptWarnings = new List<string>();
@@ -63,6 +65,7 @@ public sealed class ConfigLoader
             ResolvedScripts        = resolvedScripts,
             Hosting                = hosting,
             HostingProfileStatuses = profileStatuses,
+            Diagnostics            = diagnostics,
         };
 
         var missing = ComputeMissing(runtime);
@@ -144,5 +147,14 @@ public sealed class ConfigLoader
 
         var options = JsonSerializer.Deserialize<JsBridgeOptions>(json, JsonOptions);
         return options?.Enable ?? false;
+    }
+
+    private static DiagnosticsOptions ParseDiagnostics(IReadOnlyDictionary<string, string> map)
+    {
+        if (!map.TryGetValue(ConfigSectionKeys.Diagnostics, out var json))
+            return new DiagnosticsOptions();
+
+        return JsonSerializer.Deserialize<DiagnosticsOptions>(json, JsonOptions)
+               ?? new DiagnosticsOptions();
     }
 }

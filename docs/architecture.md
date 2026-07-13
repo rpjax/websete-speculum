@@ -43,10 +43,13 @@ Speculum is a **remote browser isolation** platform. A real Chromium instance ru
 | **Edge** | `Edge/` | How is Traefik/CORS materialized from Hosting config? |
 | **Infrastructure** | `Infrastructure/` | Cross-cutting hosted services (graceful shutdown) |
 | **Browser persistence** | `BrowserPersistence/` | How is Chrome state stored in SQLite between visits? |
+| **Diagnostics** | `Diagnostics/` | How do we observe/assert motor truth (events, probes, budgets)? |
 | **Admin** | `Admin/` | HTTP surface for operators |
 | **Scripts** | `Scripts/` | Injected script storage and SSRF-safe resolution |
 
-**Vocabulary:** Speculum = platform; Motor = live browsing; W7S = wire/client boundary only (`_w7s_nso`, [w7s-sidecar-protocol.md](w7s-sidecar-protocol.md)).
+The **Diagnostics** pipeline follows **Observe → Govern → Record → Query → Present**: motor and sidecar signals are observed at configured levels, governed by budgets/elevate/redaction, recorded in SQLite and in-memory rings, queried through **`/api/admin/diagnostics/v1`** (Admin diagnostics REST), and presented in the admin Diagnostics page. See [diagnostics.md](diagnostics.md).
+
+**Vocabulary:** Speculum = platform; Motor = live browsing; W7S = wire/client boundary only (`_w7s_nso`, [w7s-sidecar-protocol.md](w7s-sidecar-protocol.md)). See also [diagnostics.md](diagnostics.md).
 
 **Distinction:** `MotorSession` (live relay) ≠ `BrowserSessionStore` (persisted snapshots).
 

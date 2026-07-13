@@ -120,6 +120,7 @@ Deep dive: [docs/architecture.md](docs/architecture.md) · Motor internals: [doc
 | `Cors__AllowedOrigins` | Dev SPA origins (semicolon-separated) |
 | `Traefik__Root` / `Traefik__DynamicDir` | EdgeSynchronizer materialization paths |
 | `ASPNETCORE_ENVIRONMENT` | `Development` or `Production` |
+| `SPECULUM_DIAGNOSTICS_PROFILE` | Optional first-boot Diagnostics seed when the SQLite `Diagnostics` section is absent. Set to `Assertive` for CI or integration environments that need full observability defaults (BrowserQuery domains, tight budgets). Otherwise seeds follow `ASPNETCORE_ENVIRONMENT` (`Development` / `Production`). |
 
 Motor domains and TLS are configured in Admin → **Hosting** (SQLite), not container env.
 
@@ -133,6 +134,7 @@ Motor domains and TLS are configured in Admin → **Hosting** (SQLite), not cont
 | `ScriptInjection` | No | `{ scriptId }` or `{ url }` entries |
 | `SessionPolicy` | No | `{ "ttlDays": 30 }` |
 | `JsBridge` | No | `{ "enable": true \| false }` |
+| `Diagnostics` | No | Observability levels, storage budgets, probe limits (seeded on first boot; see `SPECULUM_DIAGNOSTICS_PROFILE`) |
 
 When not operational, the motor redirects to `/setup`.
 
@@ -222,7 +224,7 @@ After changes, run:
 ```bash
 dotnet test Speculum.sln -c Release
 cd sidecar && npm test
-cd web && npm run lint && npm run build
+cd web && npm run lint && npm test && npm run build
 ```
 
 For dockup stacks: `dockup validate --root ..` before deploy (requires **dockup >= 2.0.2**).

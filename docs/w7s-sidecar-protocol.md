@@ -63,6 +63,23 @@ Sidecar replies with `{"type":"ready","sessionId":"…"}` or `{"type":"error","s
 
 `{"type":"exportState"}` — sidecar responds with browser state payload (see sidecar `BrowserState.ts`).
 
+### Diagnostics probe
+
+`{"type":"diagProbe","requestId":"…","ops":["process","tabs","export","cookies","storage","dom","evaluate","resources"],"evaluateExpression":"…","domSelector":"…","maxProbeResponseBytes":524288}`
+
+- `ops` selects evidence sections to collect (all optional except those listed).
+- `evaluateExpression` required when `evaluate` is in `ops`.
+- `domSelector` required when `dom` is in `ops`.
+- `maxProbeResponseBytes` optional cap on the serialized `diagResult` payload (default **512 KiB** / `524288`). Exceeding the cap yields `errorCode: response_too_large`.
+
+Sidecar replies with:
+
+```json
+{ "type": "diagResult", "requestId": "…", "ok": true, "data": { } }
+```
+
+On failure: `{ "type": "diagResult", "requestId": "…", "ok": false, "errorCode": "session_gone" }` (no active session), `response_too_large` (payload exceeds `maxProbeResponseBytes`), or other probe error codes.
+
 ---
 
 ## Client-visible W7S

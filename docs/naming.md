@@ -12,6 +12,7 @@ This document defines vocabulary and naming rules for the API and sidecar codeba
 | **Browser persistence** | Chrome state in SQLite (not live relay) | `BrowserSessionStore`, `BrowserPersistence/` |
 | **Sidecar** | Node process hosting Chrome | `SidecarClient`, `sidecar/` |
 | **Edge** | Traefik, TLS, CORS | `EdgeSynchronizer`, `TraefikYamlBuilder` |
+| **Diagnostics** | Assertable observability (events, probes, governance) | `IDiagnosticsRuntime`, `/api/admin/diagnostics/v1` |
 
 **W7S must not appear** in C# namespaces, internal class names, application logs, or API folder names.
 
@@ -57,9 +58,10 @@ Domain types must not reference ASP.NET, SignalR, or `IServiceProvider`.
 ## Stable public contracts (do not rename)
 
 - REST `/api/admin/config/{section}`
+- REST `/api/admin/diagnostics/v1/*` (`diagnosticsSchemaVersion`)
 - SignalR hub route `/vhub` and hub method names
 - W7S query param `_w7s_nso`
-- Sidecar WS message types `create` / `ready` / `error` and binary opcodes `0x04`–`0x0A`
+- Sidecar WS message types `create` / `ready` / `error` / `diagProbe` / `diagResult` and binary opcodes `0x04`–`0x0A`
 
 ## V1.0.0 development policy
 

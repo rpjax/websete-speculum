@@ -103,6 +103,7 @@ Containers are **domain-agnostic**. No `Motor__PublicDomain`, `VITE_API_URL`, or
 | `Traefik__Root`, `Traefik__DynamicDir`, `Traefik__DockerSocket` | EdgeSynchronizer + Traefik reload |
 | `Cors__AllowedOrigins` | Dev-only SPA origins (`localhost:5173`) |
 | `ADMIN_BOOTSTRAP_KEY` | Optional first-boot admin key (dev) |
+| `SPECULUM_DIAGNOSTICS_PROFILE` | Optional first-boot Diagnostics seed on the API container (`Assertive` for CI / full observability; otherwise `Development` or `Production` from `ASPNETCORE_ENVIRONMENT`) |
 
 ### Web image
 

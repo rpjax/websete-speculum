@@ -10,6 +10,7 @@ Technical documentation for the **Speculum** remote browser isolation platform (
 |----------|----------|----------|
 | [../readme.md](../readme.md) | Everyone | Project overview, quick start, repository map |
 | [architecture.md](architecture.md) | Architects, operators | System design, data flows, security boundaries |
+| [diagnostics.md](diagnostics.md) | Backend / QA / Phase 3 | Assertable observability contracts + Assert Cookbook |
 | [motor-reference.md](motor-reference.md) | Backend / motor developers | Session lifecycle, forwarding model, binary protocol |
 | [../deploy/README.md](../deploy/README.md) | DevOps | **Canonical deploy** via [dockup](https://github.com/rpjax/npm-dockup) |
 

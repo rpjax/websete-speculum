@@ -59,7 +59,15 @@ Cursor: um plano detalhado por fase (não três no mesmo turn).
 
 ## Referências no repo
 
-- `docs/naming.md`, `docs/architecture.md`, `readme.md` (status V1.0.0 em desenvolvimento)
-- API: `Motor/`, `Edge/`, `BrowserPersistence/`, `Config/Application/`
-- Web: `web/src/features/motor/`, `web/src/lib/`
+- `docs/naming.md`, `docs/architecture.md`, `docs/diagnostics.md` (Assert Cookbook Fase 2→3), `readme.md`
+- API: `Motor/`, `Edge/`, `BrowserPersistence/`, `Config/Application/`, `Diagnostics/`
+- Web: `web/src/features/motor/`, `web/src/features/admin/DiagnosticsPage.tsx`, `web/src/lib/diagnosticsApi.ts`
+- Admin REST: `/api/admin/diagnostics/v1/*` + secção config `Diagnostics`
 - Já existe telemetria leve: `SessionStatus` no canal SignalR (não substitui diagnostics/admin probes)
+
+## Estado
+
+- **Fase 1:** concluída (Motor live refactor + Vitest).
+- **Fase 2:** concluída a 100% (Diagnostics control plane, sidecar diagProbe, Admin UI, cookbook, testes).
+- **Fase 3:** pendente (CI assertiva / Playwright matrix).
+- **Fase 2b:** hub admin SignalR — fora de scope.

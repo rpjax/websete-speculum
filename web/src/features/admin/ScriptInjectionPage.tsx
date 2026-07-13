@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api } from '@/lib/api'
+import { api, ConfigSections } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
@@ -11,7 +11,7 @@ export default function ScriptInjectionPage() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    api.getSection<unknown>('ScriptInjection')
+    api.getSection<unknown>(ConfigSections.ScriptInjection)
       .then((v) => setJson(JSON.stringify(v, null, 2)))
       .catch(() => {})
   }, [])
@@ -21,7 +21,7 @@ export default function ScriptInjectionPage() {
     setError(null)
     try {
       const body = JSON.parse(json)
-      await api.putSection('ScriptInjection', body)
+      await api.putSection(ConfigSections.ScriptInjection, body)
       setMessage('Saved')
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Invalid JSON or save failed')
@@ -32,7 +32,7 @@ export default function ScriptInjectionPage() {
     setMessage(null)
     setError(null)
     try {
-      await api.deleteSection('ScriptInjection')
+      await api.deleteSection(ConfigSections.ScriptInjection)
       setJson('[]')
       setMessage('Deleted')
     } catch (e: unknown) {

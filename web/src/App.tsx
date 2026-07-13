@@ -16,7 +16,7 @@ import SessionDetailPage from '@/features/admin/SessionDetailPage'
 import AdminKeyPage from '@/features/admin/AdminKeyPage'
 import OpenApiPage from '@/features/admin/OpenApiPage'
 
-const MotorPage = lazy(() => import('@/features/motor/MotorPage'))
+const MotorPage = lazy(() => import('@/features/motor/live/MotorPage'))
 
 export default function App() {
   return (

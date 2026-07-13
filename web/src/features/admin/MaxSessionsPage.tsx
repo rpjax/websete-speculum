@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api } from '@/lib/api'
+import { api, ConfigSections } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -11,14 +11,14 @@ export default function MaxSessionsPage() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    api.getSection<number>('MaxSessions').then((v) => setValue(String(v))).catch(() => {})
+    api.getSection<number>(ConfigSections.MaxSessions).then((v) => setValue(String(v))).catch(() => {})
   }, [])
 
   async function save() {
     setMessage(null)
     setError(null)
     try {
-      await api.putSection('MaxSessions', Number(value))
+      await api.putSection(ConfigSections.MaxSessions, Number(value))
       setMessage('Saved')
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Save failed')

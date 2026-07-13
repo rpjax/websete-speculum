@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { api } from '@/lib/api'
+import { api, ConfigSections } from '@/lib/api'
 import { setApiKey } from '@/lib/auth'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -19,7 +19,7 @@ export default function AdminKeyPage() {
       return
     }
     try {
-      await api.putSection('Admin', { apiKey: newKey.trim() })
+      await api.putSection(ConfigSections.Admin, { apiKey: newKey.trim() })
       setApiKey(newKey.trim())
       setNewKey('')
       setMessage('API key rotated. Session updated with new key.')

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { api, type ConfigStatus } from '@/lib/api'
+import { api, ConfigSections, type ConfigStatus } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -33,7 +33,7 @@ export default function HostingPage() {
 
   async function load() {
     const [cfg, st] = await Promise.all([
-      api.getSection<HostingConfig>('Hosting').catch((): HostingConfig => ({ acmeEmail: '', profiles: [] })),
+      api.getSection<HostingConfig>(ConfigSections.Hosting).catch((): HostingConfig => ({ acmeEmail: '', profiles: [] })),
       api.getStatus(),
     ])
     setAcmeEmail(cfg.acmeEmail ?? '')
@@ -82,7 +82,7 @@ export default function HostingPage() {
             }
           }),
       }
-      await api.putSection('Hosting', body)
+      await api.putSection(ConfigSections.Hosting, body)
       await load()
       setMessage('Hosting configuration saved')
     } catch (e: unknown) {

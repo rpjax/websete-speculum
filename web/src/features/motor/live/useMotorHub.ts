@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { MotorEngine, type MotorUiState } from './motor-engine'
+import { MotorEngine, type MotorUiState } from './MotorEngine'
 
 export function useMotorHub() {
   const canvasRef = useRef<HTMLCanvasElement>(null)

@@ -99,6 +99,12 @@ Default dev server: `http://localhost:5173`.
 
 Ensure API `Cors__AllowedOrigins` includes `http://localhost:5173`.
 
+```bash
+npm test          # Vitest (unit)
+npm run lint
+npm run build
+```
+
 ---
 
 ## Project structure
@@ -106,16 +112,18 @@ Ensure API `Cors__AllowedOrigins` includes `http://localhost:5173`.
 ```
 web/src/
 ├── features/
-│   ├── motor/          Canvas motor, useMotorHub, frame-decode worker
-│   ├── admin/          Admin pages and layout
-│   └── setup/          Setup / status page
-├── components/ui/      shadcn-style primitives (button, card, …)
+│   ├── motor/
+│   │   ├── live/           MotorEngine facade, SignalR, screencast, input, vcon
+│   │   └── mapping/        syncClientLocation (address-bar only)
+│   ├── admin/              Admin pages and layout
+│   └── setup/              Setup / status page
+├── components/ui/          shadcn-style primitives (button, card, …)
 ├── lib/
-│   ├── api.ts          REST helpers
-│   ├── auth.ts         sessionStorage Bearer token
-│   ├── session-id.ts   client_token cookie + client-config fetch
-│   └── env.ts          API_URL (empty = same-origin)
-├── App.tsx             React Router routes
+│   ├── api.ts              REST helpers + ConfigSections (PascalCase)
+│   ├── auth.ts             sessionStorage Bearer token
+│   ├── clientConfig.ts     client_token cookie + client-config fetch
+│   └── env.ts              API_URL (empty = same-origin)
+├── App.tsx                 React Router routes
 └── main.tsx
 ```
 
@@ -125,11 +133,16 @@ web/src/
 
 | Module | Responsibility |
 |--------|----------------|
-| `useMotorHub.ts` | SignalR connection lifecycle, reconnect, hub method calls |
-| `motor-engine.ts` | Canvas render, input capture, redirect handling, stream teardown |
-| `frame-decode.worker.ts` | Off-main-thread JPEG decode with latest-frame coalescing |
+| `live/useMotorHub.ts` | React adapter for MotorEngine |
+| `live/MotorEngine.ts` | Session orchestration facade |
+| `live/MotorConnection.ts` | SignalR `/vhub`, streams, StartSession |
+| `live/MotorScreencast.ts` | JPEG worker + canvas + FPS |
+| `live/MotorInput.ts` | Pointer/keyboard + NavigateAsync |
+| `live/MotorVcon.ts` | Console opcodes + `window.vcon` |
+| `live/frame-decode.worker.ts` | Off-main-thread JPEG decode |
+| `mapping/syncClientLocation.ts` | pushState / mirroring redirect |
 
-Session identity: `speculum_client_token` cookie (domain depends on mirroring mode). Passed as `SessionIdentity` to `StartSessionAsync` for Tier 4 browser state restore. URL is never persisted.
+Session identity: `speculum_client_token` cookie (domain depends on mirroring mode). Passed as `SessionIdentity` to `StartSessionAsync` for browser state restore. URL is never persisted.
 
 Protocol details: [../docs/motor-reference.md](../docs/motor-reference.md).
 
@@ -138,6 +151,7 @@ Protocol details: [../docs/motor-reference.md](../docs/motor-reference.md).
 ## Admin panel
 
 - API key entered on `/admin` login → stored in `sessionStorage`
+- Config section paths use exact PascalCase via `ConfigSections` in `lib/api.ts`
 - All config mutations use `Authorization: Bearer <key>`
 - OpenAPI page fetches `/openapi/v1.json` (same origin)
 
@@ -146,11 +160,12 @@ Protocol details: [../docs/motor-reference.md](../docs/motor-reference.md).
 ## Production build
 
 ```bash
+npm test
 npm run lint
 npm run build
 ```
 
-Output: `dist/` (gitignored). CI runs lint + build on every push/PR.
+Output: `dist/` (gitignored). CI runs lint + test + build on every push/PR.
 
 Preview locally:
 

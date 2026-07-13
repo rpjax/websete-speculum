@@ -40,11 +40,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Install, lint, and build
+      - name: Install, lint, test, and build
         working-directory: web
         run: |
           npm ci
           npm run lint
+          npm test
           npm run build
 
   compose:

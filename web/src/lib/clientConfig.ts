@@ -56,3 +56,6 @@ export function clearClientToken(config: ClientConfig): void {
   if (domain) cookie += `; Domain=${domain}`
   document.cookie = cookie
 }
+
+/** @internal Exported for tests — cookie name used by client token helpers. */
+export const CLIENT_TOKEN_COOKIE = COOKIE_NAME

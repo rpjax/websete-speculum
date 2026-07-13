@@ -95,16 +95,29 @@ async function request<T>(path: string, init: RequestInitEx = {}): Promise<T> {
   return text ? JSON.parse(text) as T : (undefined as T)
 }
 
+export const ConfigSections = {
+  Admin: 'Admin',
+  Forwarding: 'Forwarding',
+  MaxSessions: 'MaxSessions',
+  ScriptInjection: 'ScriptInjection',
+  SessionPolicy: 'SessionPolicy',
+  JsBridge: 'JsBridge',
+  Hosting: 'Hosting',
+} as const
+
+export type ConfigSectionName = (typeof ConfigSections)[keyof typeof ConfigSections]
+
 export const api = {
   getStatus: () => request<ConfigStatus>('/api/admin/config/status', { auth: false }),
   getReady: async () => {
     const res = await fetch(`${API_URL}/ready`, { credentials: 'include' })
     return res.ok
   },
-  getSection: <T = unknown>(section: string) => request<T>(`/api/admin/config/${section}`),
-  putSection: (section: string, body: unknown) =>
+  getSection: <T = unknown>(section: ConfigSectionName | string) =>
+    request<T>(`/api/admin/config/${section}`),
+  putSection: (section: ConfigSectionName | string, body: unknown) =>
     request(`/api/admin/config/${section}`, { method: 'PUT', body: JSON.stringify(body) }),
-  deleteSection: (section: string) =>
+  deleteSection: (section: ConfigSectionName | string) =>
     request(`/api/admin/config/${section}`, { method: 'DELETE' }),
   get: <T = unknown>(path: string) => request<T>(path),
   delete: (path: string) => request(path, { method: 'DELETE' }),

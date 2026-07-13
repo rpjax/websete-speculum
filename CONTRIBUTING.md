@@ -43,7 +43,7 @@ All PRs should pass local verification:
 ```bash
 dotnet test Speculum.sln -c Release
 cd sidecar && npm ci && npm test
-cd web && npm ci && npm run lint && npm run build
+cd web && npm ci && npm test && npm run lint && npm run build
 cd deploy && dockup validate --root ..
 ```
 
@@ -54,7 +54,7 @@ CI (`.github/workflows/ci.yml`) enforces dotnet, sidecar, web, compose, and dock
 - **Minimal scope** — one logical change per commit/PR when possible.
 - **Match conventions** — follow [docs/naming.md](docs/naming.md) (Speculum / Motor / W7S vocabulary).
 - **No drive-by refactors** — avoid unrelated formatting or renames.
-- **Tests when behaviour changes** — extend `Speculum.Api.Tests` or sidecar tests for regressions; web tests are lint + build unless you add behavioural tests.
+- **Tests when behaviour changes** — extend `Speculum.Api.Tests`, sidecar tests, or `web` Vitest for regressions.
 
 ---
 

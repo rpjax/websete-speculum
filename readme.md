@@ -186,7 +186,7 @@ Example requests: `Speculum.Api/Speculum.Api.http`
 ```bash
 dotnet test Speculum.sln -c Release
 cd sidecar && npm ci && npm test
-cd web && npm ci && npm run lint && npm run build
+cd web && npm ci && npm test && npm run lint && npm run build
 ```
 
 CI runs the same matrix on push/PR to `main` / `master` (see `.github/workflows/ci.yml`).

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api } from '@/lib/api'
+import { api, ConfigSections } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -11,7 +11,7 @@ export default function SessionPolicyPage() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    api.getSection<{ ttlDays: number }>('SessionPolicy')
+    api.getSection<{ ttlDays: number }>(ConfigSections.SessionPolicy)
       .then((v) => setTtlDays(String(v.ttlDays)))
       .catch(() => {})
   }, [])
@@ -20,7 +20,7 @@ export default function SessionPolicyPage() {
     setMessage(null)
     setError(null)
     try {
-      await api.putSection('SessionPolicy', { ttlDays: Number(ttlDays) })
+      await api.putSection(ConfigSections.SessionPolicy, { ttlDays: Number(ttlDays) })
       setMessage('Saved')
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Save failed')
@@ -31,7 +31,7 @@ export default function SessionPolicyPage() {
     setMessage(null)
     setError(null)
     try {
-      await api.deleteSection('SessionPolicy')
+      await api.deleteSection(ConfigSections.SessionPolicy)
       setTtlDays('30')
       setMessage('Deleted (default 30-day TTL applies)')
     } catch (e: unknown) {

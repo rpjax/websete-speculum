@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api } from '@/lib/api'
+import { api, ConfigSections } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
@@ -11,14 +11,14 @@ export default function JsBridgePage() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    api.getSection<{ enable: boolean }>('JsBridge').then((v) => setEnabled(v.enable)).catch(() => {})
+    api.getSection<{ enable: boolean }>(ConfigSections.JsBridge).then((v) => setEnabled(v.enable)).catch(() => {})
   }, [])
 
   async function save() {
     setMessage(null)
     setError(null)
     try {
-      await api.putSection('JsBridge', { enable: enabled })
+      await api.putSection(ConfigSections.JsBridge, { enable: enabled })
       setMessage('Saved')
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Save failed')
@@ -27,7 +27,7 @@ export default function JsBridgePage() {
 
   async function remove() {
     try {
-      await api.deleteSection('JsBridge')
+      await api.deleteSection(ConfigSections.JsBridge)
       setEnabled(false)
       setMessage('Deleted (disabled by default)')
     } catch (e: unknown) {

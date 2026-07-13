@@ -32,6 +32,17 @@ This document defines vocabulary and naming rules for the API and sidecar codeba
 | Chrome instance on server | — | `RemoteBrowserSession` |
 | Persisted browser state (SQLite) | `BrowserSessionStore` | — |
 
+## Web client folders
+
+The React app mirrors the same Motor domains:
+
+| Folder | Question it answers |
+|--------|---------------------|
+| `web/src/features/motor/live/` | How does the live SignalR session work in the browser? |
+| `web/src/features/motor/mapping/` | How does the client sync its address bar (not server HostMapper)? |
+
+W7S remains wire/UI boundary only (e.g. `_w7s_nso`, setup copy). Do not invent parallel virtualization vocabulary in `web/`.
+
 ## Dependency direction
 
 ```

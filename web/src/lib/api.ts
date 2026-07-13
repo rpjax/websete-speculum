@@ -103,6 +103,7 @@ export const ConfigSections = {
   SessionPolicy: 'SessionPolicy',
   JsBridge: 'JsBridge',
   Hosting: 'Hosting',
+  Diagnostics: 'Diagnostics',
 } as const
 
 export type ConfigSectionName = (typeof ConfigSections)[keyof typeof ConfigSections]

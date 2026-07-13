@@ -15,6 +15,7 @@ import SessionsPage from '@/features/admin/SessionsPage'
 import SessionDetailPage from '@/features/admin/SessionDetailPage'
 import AdminKeyPage from '@/features/admin/AdminKeyPage'
 import OpenApiPage from '@/features/admin/OpenApiPage'
+import DiagnosticsPage from '@/features/admin/DiagnosticsPage'
 
 const MotorPage = lazy(() => import('@/features/motor/live/MotorPage'))
 
@@ -37,6 +38,7 @@ export default function App() {
             <Route path="scripts" element={<ScriptsPage />} />
             <Route path="sessions" element={<SessionsPage />} />
             <Route path="sessions/:sessionId" element={<SessionDetailPage />} />
+            <Route path="diagnostics" element={<DiagnosticsPage />} />
             <Route path="api-key" element={<AdminKeyPage />} />
             <Route path="openapi" element={<OpenApiPage />} />
           </Route>

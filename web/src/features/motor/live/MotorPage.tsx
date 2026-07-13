@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils'
 export default function MotorPage() {
   const { canvasRef, viewportRef, urlBarRef, ui, connect, goBack, goForward } = useMotorHub()
   const showFps = location.hostname === 'localhost' || location.hostname === '127.0.0.1' || location.hostname.endsWith('.localhost')
+  const showDiag = import.meta.env.DEV || new URLSearchParams(window.location.search).get('diag') === '1'
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-[#0d0d0d] text-[#e0e0e0]">
@@ -31,6 +32,15 @@ export default function MotorPage() {
           <span className="min-w-[52px] text-right text-xs text-[#555] tabular-nums">{ui.fps} fps</span>
         )}
       </div>
+
+      {showDiag && (
+        <div className="shrink-0 border-b border-[#2a2a2a] bg-[#141414] px-3 py-1.5 font-mono text-[10px] text-[#666]">
+          {ui.correlationId && <span className="mr-3">corr={ui.correlationId.slice(0, 12)}</span>}
+          {ui.connectionId && <span className="mr-3">conn={ui.connectionId.slice(0, 12)}</span>}
+          {ui.persistedSessionId && <span className="mr-3">persisted={ui.persistedSessionId.slice(0, 12)}</span>}
+          {ui.sidecarSessionId && <span>sidecar={ui.sidecarSessionId.slice(0, 8)}</span>}
+        </div>
+      )}
 
       <div ref={viewportRef} className="relative min-h-0 flex-1 touch-none">
         <canvas ref={canvasRef} className="absolute inset-0 block h-full w-full cursor-default touch-none" />

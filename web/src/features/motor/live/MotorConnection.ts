@@ -28,6 +28,7 @@ export class MotorConnection {
   private userInputSubject: signalR.Subject<string> | null = null
   private consoleInputSubject: signalR.Subject<{ id: number; code: string }> | null = null
   private handlers: MotorConnectionHandlers
+  private intentionalStop = false
 
   constructor(handlers: MotorConnectionHandlers) {
     this.handlers = handlers
@@ -35,6 +36,10 @@ export class MotorConnection {
 
   get hub() {
     return this.connection
+  }
+
+  getConnectionId(): string | null {
+    return this.connection?.connectionId ?? null
   }
 
   getUserInputSubject() {
@@ -47,6 +52,7 @@ export class MotorConnection {
 
   async start(): Promise<void> {
     await this.stop()
+    this.intentionalStop = false
     this.connection = new signalR.HubConnectionBuilder()
       .withUrl(`${API_URL}/vhub`, {
         withCredentials: true,
@@ -59,7 +65,10 @@ export class MotorConnection {
     this.connection.onclose(() => {
       this.connection = null
       this.teardownChannels()
-      this.handlers.onDisconnected()
+      if (!this.intentionalStop) {
+        this.handlers.onDisconnected()
+      }
+      this.intentionalStop = false
     })
     this.connection.onreconnecting(() => this.handlers.onReconnecting())
     this.connection.onreconnected(async () => {
@@ -78,7 +87,7 @@ export class MotorConnection {
   /** Set by MotorEngine after construction — used for reconnect bootstrap. */
   rebootstrap: (() => Promise<void>) | null = null
 
-  async invokeStartSession(initW: number, initH: number): Promise<string | null> {
+  async invokeStartSession(initW: number, initH: number, correlationId?: string): Promise<string | null> {
     if (!this.connection) return null
     try {
       return await this.connection.invoke<string>(
@@ -86,7 +95,7 @@ export class MotorConnection {
         window.location.href,
         initW,
         initH,
-        { clientToken: loadClientToken() },
+        { clientToken: loadClientToken(), correlationId },
       )
     } catch (err) {
       if (isSetupRequiredError(err)) {
@@ -141,6 +150,7 @@ export class MotorConnection {
   }
 
   async stop() {
+    this.intentionalStop = true
     this.teardownChannels()
     if (this.connection) {
       try { await this.connection.stop() } catch { /* ignore */ }

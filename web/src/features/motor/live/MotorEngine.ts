@@ -26,6 +26,10 @@ export class MotorEngine {
   private elements: MotorElements | null = null
   private mounted = false
   private clientConfig: ClientConfig | null = null
+  private correlationId: string | undefined
+  private connectionId: string | undefined
+  private persistedSessionId: string | undefined
+  private sidecarSessionId: string | undefined
 
   private screencast = new MotorScreencast()
   private vcon = new MotorVcon({
@@ -71,8 +75,19 @@ export class MotorEngine {
   }
 
   private emit(partial: Partial<MotorUiState>) {
-    this.state = { ...this.state, ...partial }
+    this.state = {
+      ...this.state,
+      ...partial,
+      correlationId:     partial.correlationId ?? this.correlationId ?? this.state.correlationId,
+      connectionId:        partial.connectionId ?? this.connectionId ?? this.state.connectionId,
+      persistedSessionId: partial.persistedSessionId ?? this.persistedSessionId ?? this.state.persistedSessionId,
+      sidecarSessionId:  partial.sidecarSessionId ?? this.sidecarSessionId ?? this.state.sidecarSessionId,
+    }
     for (const l of this.listeners) l(this.state)
+  }
+
+  private newCorrelationId(): string {
+    return crypto.randomUUID().replace(/-/g, '')
   }
 
   mount(elements: MotorElements) {
@@ -147,6 +162,9 @@ export class MotorEngine {
         await this.stopSession()
         return
       }
+      this.connectionId = this.connection.getConnectionId() ?? undefined
+      this.correlationId = this.newCorrelationId()
+      this.emit({ connectionId: this.connectionId, correlationId: this.correlationId })
       await this.bootstrapSession()
     } catch (err) {
       console.error('[connect]', err)
@@ -167,12 +185,14 @@ export class MotorEngine {
     const initH = elements.viewport.clientHeight || 720
     this.syncCanvasSize(initW, initH)
 
-    const clientToken = await this.connection.invokeStartSession(initW, initH)
+    const clientToken = await this.connection.invokeStartSession(initW, initH, this.correlationId)
     if (!clientToken) {
       await this.stopSession()
       return
     }
     if (this.clientConfig) saveClientToken(clientToken, this.clientConfig)
+    this.persistedSessionId = clientToken
+    this.emit({ persistedSessionId: clientToken })
 
     this.connection.openChannels()
     this.input.setUserInputSubject(this.connection.getUserInputSubject())
@@ -237,6 +257,11 @@ export class MotorEngine {
 
   private onSessionStatus(s: SessionStatusPayload) {
     this.vcon.setJsBridgeEnabled(!!s.jsBridgeEnabled)
+
+    if (s.sessionId) {
+      this.sidecarSessionId = s.sessionId
+      this.emit({ sidecarSessionId: s.sessionId })
+    }
 
     if (s.url && this.elements && document.activeElement !== this.elements.urlBar) {
       this.currentUrl = s.url

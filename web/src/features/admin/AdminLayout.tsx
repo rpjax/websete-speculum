@@ -13,6 +13,7 @@ const NAV = [
   { to: '/admin/script-injection', label: 'Script Injection' },
   { to: '/admin/scripts', label: 'Scripts' },
   { to: '/admin/sessions', label: 'Sessions' },
+  { to: '/admin/diagnostics', label: 'Diagnostics' },
   { to: '/admin/api-key', label: 'API Key' },
   { to: '/admin/openapi', label: 'OpenAPI' },
 ]

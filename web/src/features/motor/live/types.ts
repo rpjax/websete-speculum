@@ -7,6 +7,10 @@ export interface MotorUiState {
   url: string
   fps: number | null
   navDisabled: boolean
+  correlationId?: string
+  connectionId?: string
+  persistedSessionId?: string
+  sidecarSessionId?: string
 }
 
 export interface FramePayload {

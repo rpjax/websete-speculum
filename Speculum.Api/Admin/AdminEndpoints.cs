@@ -2,7 +2,7 @@ using System.Text.Json;
 using Speculum.Api.Config.Runtime;
 using Speculum.Api.Config.Store;
 using Speculum.Api.Scripts;
-using Speculum.Api.Virtualization.Persistence;
+using Speculum.Api.BrowserPersistence;
 
 namespace Speculum.Api.Admin;
 
@@ -115,17 +115,10 @@ public static class AdminEndpoints
                         missing               = p.Missing,
                     }),
                 },
-                subdomainMirroring = new
-                {
-                    enabled     = store.SubdomainMirroringEnabled,
-                    operational = store.IsSubdomainMirroringOperational,
-                    missing     = store.MissingSubdomainMirroring,
-                },
             }));
 
         app.MapGet("/api/admin/config/{section}", async (string section, ISpeculumConfigStore store) =>
         {
-            section = ConfigSectionKeys.NormalizeKey(section);
             var value = await store.GetSectionAsync(section);
             if (value is null)
                 return Results.NotFound(new { error = $"Section '{section}' is not configured." });

@@ -2,6 +2,8 @@
 
 Thank you for improving Speculum. This guide covers local workflow, quality expectations, and where to place changes.
 
+> **V1.0.0 development:** The project is **not released**. Do not add semver tags, release notes, or backward-compatibility shims unless explicitly requested for a future launch. Breaking config/API changes are acceptable while V1 is in development.
+
 ---
 
 ## Before you start
@@ -50,7 +52,7 @@ CI (`.github/workflows/ci.yml`) enforces dotnet, sidecar, web, compose, and dock
 ### Code principles
 
 - **Minimal scope** — one logical change per commit/PR when possible.
-- **Match conventions** — follow existing naming, folder layout, and patterns in the touched project.
+- **Match conventions** — follow [docs/naming.md](docs/naming.md) (Speculum / Motor / W7S vocabulary).
 - **No drive-by refactors** — avoid unrelated formatting or renames.
 - **Tests when behaviour changes** — extend `Speculum.Api.Tests` or sidecar tests for regressions; web tests are lint + build unless you add behavioural tests.
 
@@ -84,7 +86,8 @@ When you change behaviour, update the relevant README in the same PR:
 
 | Area | Document |
 |------|----------|
-| Cross-cutting design | `docs/architecture.md` |
+| Cross-cutting design | `docs/architecture.md`, `docs/naming.md` |
+| W7S sidecar wire | `docs/w7s-sidecar-protocol.md` |
 | Motor / protocol | `docs/motor-reference.md` |
 | Deploy | `deploy/README.md` |
 | Component | `Speculum.Api/`, `web/`, or `sidecar/` README |

@@ -7,6 +7,7 @@ Speculum is a **remote browser isolation** platform. A real Chromium instance ru
 ## Table of contents
 
 - [Design goals](#design-goals)
+- [Code domains](#code-domains)
 - [Logical view](#logical-view)
 - [Physical deployment](#physical-deployment)
 - [Request and session flows](#request-and-session-flows)
@@ -24,8 +25,30 @@ Speculum is a **remote browser isolation** platform. A real Chromium instance ru
 | **Isolation** | Browsing happens in server-side Chrome; only pixels and input events cross the wire |
 | **Domain flexibility** | No hard-coded target site; `Forwarding` section defines the remote site host and navigation allowlist |
 | **Operational clarity** | `/ready` and `/api/admin/config/status` expose whether the motor can start sessions |
-| **Same-origin edge** | React SPA, REST, and SignalR share one motor host; EdgeWriter routes `/api` and `/vhub` to the API container |
+| **Same-origin edge** | React SPA, REST, and SignalR share one motor host; `EdgeSynchronizer` materializes Traefik routes for `/api` and `/vhub` to the API container |
 | **Repeatable deploy** | [dockup](../deploy/README.md) generates environment-specific compose stacks |
+
+---
+
+## Code domains
+
+`Speculum.Api` is organized by responsibility (see [naming.md](naming.md)):
+
+| Domain | Folder | Question it answers |
+|--------|--------|---------------------|
+| **Config** | `Config/` | What does the motor know about itself? (SQLite sections, validation) |
+| **Motor / Mapping** | `Motor/Mapping/` | How do client URLs map to the forwarded site? |
+| **Motor / Live** | `Motor/Live/` | How does a live SignalR session relay to the sidecar? |
+| **Motor / Sidecar** | `Motor/Sidecar/` | How does the API speak the W7S sidecar wire protocol? |
+| **Edge** | `Edge/` | How is Traefik/CORS materialized from Hosting config? |
+| **Infrastructure** | `Infrastructure/` | Cross-cutting hosted services (graceful shutdown) |
+| **Browser persistence** | `BrowserPersistence/` | How is Chrome state stored in SQLite between visits? |
+| **Admin** | `Admin/` | HTTP surface for operators |
+| **Scripts** | `Scripts/` | Injected script storage and SSRF-safe resolution |
+
+**Vocabulary:** Speculum = platform; Motor = live browsing; W7S = wire/client boundary only (`_w7s_nso`, [w7s-sidecar-protocol.md](w7s-sidecar-protocol.md)).
+
+**Distinction:** `MotorSession` (live relay) ≠ `BrowserSessionStore` (persisted snapshots).
 
 ---
 
@@ -42,9 +65,9 @@ Speculum is a **remote browser isolation** platform. A real Chromium instance ru
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │  Speculum.Api (.NET 10) — Traefik routes /api, /vhub, /health, /ready       │
 │    • BootstrapConfig (env)                                                   │
-│    • ISpeculumConfigStore → SQLite runtime sections                          │
-│    • VirtualizationHub → session orchestration                               │
-│    • VSession → sidecar WebSocket relay                                      │
+│    • ConfigService (`ISpeculumConfigStore`) → SQLite runtime sections          │
+│    • MotorHub → live session coordination                                    │
+│    • MotorSession → sidecar WebSocket relay                                  │
 │    • Admin API + OpenAPI                                                     │
 └───────────────────────────────┬─────────────────────────────────────────────┘
                                 │ ws://sidecar:3000 (internal Docker network)
@@ -60,7 +83,7 @@ Speculum is a **remote browser isolation** platform. A real Chromium instance ru
 
 | Layer | Repository path | Responsibility |
 |-------|-----------------|----------------|
-| **Edge** | Traefik (dockup) | TLS, HTTP→HTTPS redirect, host-based routing |
+| **Edge** | Traefik + `EdgeSynchronizer` | TLS, HTTP→HTTPS redirect, host-based routing |
 | **Web** | `web/` | Motor UI, setup wizard, admin panel |
 | **API** | `Speculum.Api/` | Sessions, config store, frame relay, admin REST |
 | **Sidecar** | `sidecar/` | Chrome lifecycle, input, screencast, browser state export/import |
@@ -73,7 +96,7 @@ Production and development both use **four containers** on a shared Docker netwo
 
 | Service | Image | Exposed | Traefik rule |
 |---------|-------|---------|--------------|
-| `traefik` | `traefik:v3.6.1` | Host ports | EdgeWriter file provider + docker provider |
+| `traefik` | `traefik:v3.6.1` | Host ports | EdgeSynchronizer file provider + docker provider |
 | `web` | `speculum-web` | Via Traefik | Apex/www + wildcard subdomains (mirroring) |
 | `api` | `speculum-api` | Via Traefik | PathPrefix `/api`, `/vhub`, `/health`, … |
 | `sidecar` | `speculum-sidecar` | Internal only | — |
@@ -158,7 +181,7 @@ Required for API boot. Never stored in SQLite.
 | `Database__Path` | `/data/speculum.db` | SQLite file |
 | `Sidecar__BaseUrl` | `ws://sidecar:3000` | Sidecar WebSocket |
 | `Cors__AllowedOrigins` | `http://localhost:5173;...` | Dev SPA origins (semicolon-separated) |
-| `Traefik__Root` | `/data/traefik` | EdgeWriter materialization root |
+| `Traefik__Root` | `/data/traefik` | EdgeSynchronizer materialization root |
 | `Traefik__DynamicDir` | `/data/traefik/dynamic` | Traefik file provider directory |
 | `Traefik__DockerSocket` | `/var/run/docker.sock` | Optional — SIGHUP reload after edge writes |
 | `ASPNETCORE_ENVIRONMENT` | `Development` / `Production` | NSO encrypt off in Development |
@@ -173,9 +196,11 @@ Motor domains, TLS, and mirroring live in SQLite **`Hosting`** (Admin UI), not i
 | `Forwarding` | Yes | `host` (target site FQDN) + `domains` (navigation allowlist) |
 | `MaxSessions` | Yes | Concurrent session cap |
 | `ScriptInjection` | No | Injected script ids or URLs |
-| `SessionPolicy` | No | e.g. `{ "ttlDays": 30 }` (alias: `SnapshotPolicy`) |
+| `SessionPolicy` | No | e.g. `{ "ttlDays": 30 }` |
 | `Hosting` | No | Per-domain TLS, mirroring, Cloudflare credentials |
 | `JsBridge` | No | `{ "enable": true \| false }` |
+
+REST `{section}` path segments must match these names **exactly** (PascalCase). During V1 development there are no legacy aliases or migration keys.
 
 `Forwarding.host` is the site the motor opens (`https://{host}{path}`). It is independent of motor **Hosting** profile domains (Traefik edge hostnames).
 
@@ -192,7 +217,7 @@ On first boot, `Admin.apiKey` is generated randomly (or taken from `ADMIN_BOOTST
 | Surface | Auth | Notes |
 |---------|------|-------|
 | `/health`, `/ready` | Public | Liveness / readiness (`/ready` does not require subdomain mirroring) |
-| `GET /api/admin/config/status` | Public | Setup UI; includes `hosting.profiles` (+ legacy `subdomainMirroring` aggregate) |
+| `GET /api/admin/config/status` | Public | Setup UI; includes `hosting.profiles` |
 | `GET /api/public/client-config` | Public | Motor profiles, mirroring flags, NSO param name |
 | `/vhub` (SignalR) | Public | Edge protection expected from Traefik / network policy |
 | `/api/admin/*`, `/openapi/*` | Bearer `Admin.apiKey` | Enforced by `AdminAuthMiddleware` |
@@ -229,6 +254,8 @@ Defence in depth: Traefik TLS and network policy are expected at the edge; the A
 
 ## Related documents
 
+- [Naming guide](naming.md) — Speculum / Motor / W7S vocabulary
+- [W7S sidecar protocol](w7s-sidecar-protocol.md) — wire format between API and sidecar
 - [Motor reference](motor-reference.md) — protocol bytes, config store algorithm, setup mode
 - [Deploy guide](../deploy/README.md) — dockup commands, VPS workflow
 - [API README](../Speculum.Api/README.md) — project layout and local run

@@ -2,6 +2,8 @@
 
 **Remote browser isolation** for the Websete (W7S) platform. A real Chromium instance runs on the server; users interact through a low-latency JPEG screencast in a React canvas. Runtime motor configuration lives in **SQLite** and is managed through the Admin API and admin UI.
 
+> **Development status:** Speculum **V1.0.0** is **in active development** — not released yet. There are no semver tags, release branches, or changelog entries until launch is announced. The codebase does **not** carry backward-compatibility bridges; config/API shape changes are allowed until then.
+
 ---
 
 ## Table of contents
@@ -87,7 +89,7 @@ Speculum/
 ## Architecture
 
 ```
-Browser  →  Traefik (EdgeWriter routes)
+Browser  →  Traefik (EdgeSynchronizer routes)
               ├─ PathPrefix /api, /vhub, …  →  speculum-api
               └─ default                    →  speculum-web (React)
                                             →  sidecar (internal)
@@ -116,7 +118,7 @@ Deep dive: [docs/architecture.md](docs/architecture.md) · Motor internals: [doc
 | `Database__Path` | SQLite path (e.g. `/data/speculum.db`) |
 | `Sidecar__BaseUrl` | Sidecar WebSocket (e.g. `ws://sidecar:3000`) |
 | `Cors__AllowedOrigins` | Dev SPA origins (semicolon-separated) |
-| `Traefik__Root` / `Traefik__DynamicDir` | EdgeWriter materialization paths |
+| `Traefik__Root` / `Traefik__DynamicDir` | EdgeSynchronizer materialization paths |
 | `ASPNETCORE_ENVIRONMENT` | `Development` or `Production` |
 
 Motor domains and TLS are configured in Admin → **Hosting** (SQLite), not container env.
@@ -153,13 +155,15 @@ When not operational, the motor redirects to `/setup`.
 |----------|------|-------------|
 | `GET /health` | Public | Process alive |
 | `GET /ready` | Public | Motor configured and ready |
-| `GET /api/admin/config/status` | Public | `{ operational, missing, hosting }` (+ legacy `subdomainMirroring` aggregate) |
+| `GET /api/admin/config/status` | Public | `{ operational, missing, hosting.profiles }` — per-profile mirroring status |
 | `GET /api/public/client-config` | Public | Hosting profiles, mirroring flags, NSO param name |
-| `GET/PUT/DELETE /api/admin/config/{section}` | Bearer | Runtime config sections |
+| `GET/PUT/DELETE /api/admin/config/{section}` | Bearer | Runtime config sections (see below) |
 | `GET/DELETE /api/admin/sessions[/{sessionId}]` | Bearer | Session metadata and browser state drill-down |
 | `GET/POST/DELETE /api/admin/scripts[/{id}]` | Bearer | Injected script CRUD |
 
 OpenAPI (protected): `/openapi/v1.json`
+
+**Config `{section}` names** are exact PascalCase literals: `Admin`, `Forwarding`, `MaxSessions`, `ScriptInjection`, `SessionPolicy`, `JsBridge`, `Hosting`. Other spellings (e.g. `sessionpolicy`, `SnapshotPolicy`) return `400` / `404`.
 
 **Public surfaces:** `/health`, `/ready`, `/api/admin/config/status`, `/vhub` (SignalR negotiate). Restrict edge exposure in production as needed.
 

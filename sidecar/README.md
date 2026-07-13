@@ -25,14 +25,13 @@ This container is **never exposed** to the public internet in production stacks 
 
 ```
 Speculum.Api  ──ws://sidecar:3000──►  sidecar
-                                         ├─ DisplayManager (Xvfb displays)
-                                         ├─ Session (Chrome + CDP)
-                                         ├─ ScreencastCapture → JPEG
-                                         ├─ ScreencastCapture → JPEG
+                                         ├─ WsSessionHost (WebSocket transport)
+                                         ├─ RemoteBrowserSession (Chrome + CDP)
+                                         ├─ ScreencastPipeline → JPEG
                                          └─ BrowserState (CDP export/import on shutdown/create)
 ```
 
-Each API session maps to one sidecar `Session` with its own display number, viewport, navigation allowlist, and optional browser state restore.
+Each API session maps to one `RemoteBrowserSession` with its own display number, viewport, navigation allowlist, and optional browser state restore.
 
 ---
 
@@ -41,14 +40,20 @@ Each API session maps to one sidecar `Session` with its own display number, view
 ```
 sidecar/
 ├── src/
-│   ├── index.ts              HTTP /health + WebSocket server
-│   ├── Session.ts            Chrome lifecycle, message routing
-│   ├── BrowserManager.ts     Patchright launch and CDP
-│   ├── ScreencastCapture.ts  JPEG frame pipeline
-│   ├── Protocol.ts           JSON control messages
-│   ├── BrowserState.ts       CDP export/import (cookies, LS, IDB, history)
-│   ├── DisplayManager.ts     Xvfb display allocation
-│   └── test/                 Node built-in test runner
+│   ├── index.ts                    HTTP /health + WebSocket server
+│   ├── transport/WsSessionHost.ts  WS handshake + session routing
+│   ├── browser/
+│   │   ├── RemoteBrowserSession.ts Chrome lifecycle orchestrator
+│   │   ├── BrowserLauncher.ts      Patchright launch and CDP
+│   │   ├── ScreencastPipeline.ts   JPEG frame pipeline
+│   │   ├── VirtualDisplay.ts       Xvfb display allocation
+│   │   ├── JsBridgeSetup.ts        evaljs + console bridge
+│   │   └── UrlSyncBridge.ts        URL/status sync
+│   ├── navigation/NavigationGuard.ts
+│   ├── input/InputPipeline.ts
+│   ├── protocol/wire-protocol.ts   Binary + JSON wire contracts
+│   ├── BrowserState.ts             CDP export/import (cookies, LS, IDB, history)
+│   └── test/                       Node built-in test runner
 ├── extensions/webgl-spoof/   Optional extension payload
 ├── Dockerfile                Production image (Chrome + Xvfb + deps)
 └── package.json
@@ -89,7 +94,7 @@ For interactive debugging without Docker, you need Xvfb and Chromium dependencie
 
 ## WebSocket protocol
 
-Control plane uses **JSON** messages (see `Protocol.ts`). Key inbound types:
+Control plane uses **JSON** messages (see `protocol/wire-protocol.ts`). Key inbound types:
 
 | Type | Purpose |
 |------|---------|

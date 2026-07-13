@@ -2,7 +2,6 @@ using System.Net;
 using System.Net.Http;
 using Microsoft.Extensions.Logging.Abstractions;
 using Speculum.Api.Config.Runtime;
-using Speculum.Api.Config.Scripts;
 using Speculum.Api.Config.Store;
 using Speculum.Api.Scripts;
 

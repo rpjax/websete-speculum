@@ -2,6 +2,8 @@
 
 Technical documentation for the **Speculum** remote browser isolation platform (W7S).
 
+> **V1.0.0** is in **active development** (not released). Documentation describes the current codebase; there is no semver or backward-compatibility guarantee until launch is announced.
+
 ## Start here
 
 | Document | Audience | Contents |
@@ -18,7 +20,7 @@ Technical documentation for the **Speculum** remote browser isolation platform (
 | API (.NET 10) | `Speculum.Api/` | [README](../Speculum.Api/README.md) |
 | Web client (React) | `web/` | [README](../web/README.md) |
 | Browser sidecar (Node) | `sidecar/` | [README](../sidecar/README.md) |
-| Tests | `Speculum.Api.Tests/` | Covered in API README and root readme |
+| Tests | `Speculum.Api.Tests/` | [README](../Speculum.Api.Tests/README.md) |
 
 ## Archive
 
@@ -30,4 +32,5 @@ Technical documentation for the **Speculum** remote browser isolation platform (
 
 - **Deploy:** always use `deploy/` + dockup. Do not hand-edit `deploy/out/` — it is generated.
 - **Configuration:** infrastructure via environment variables; motor behaviour via SQLite + Admin API.
-- **Domains:** same-origin — SPA, `/api`, and `/vhub` share one motor host; EdgeWriter materializes Traefik routes per **Hosting** profile.
+- **Domains:** same-origin — SPA, `/api`, and `/vhub` share one motor host; `EdgeSynchronizer` materializes Traefik routes per **Hosting** profile.
+- **Naming:** see [naming.md](naming.md) (Speculum / Motor / W7S vocabulary).

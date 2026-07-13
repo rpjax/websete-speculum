@@ -21,10 +21,10 @@
 ┌──────────────────────────────────────────────────────────────────────────┐
 │ Speculum.Api                                                              │
 │  BootstrapConfig + dynamic CORS (Hosting profiles)                        │
-│  ISpeculumConfigStore — SQLite runtime config                             │
-│  VirtualizationHub — StartSessionAsync(clientUrl, w, h, SessionIdentity)  │
-│  BrowserSessionStore — Tier 4 state (cookies, LS, IDB, history)           │
-│  VSession — sidecar relay                                                 │
+│  ConfigService (ISpeculumConfigStore) — SQLite runtime config             │
+│  MotorHub — StartSessionAsync(clientUrl, w, h, SessionIdentity)           │
+│  BrowserSessionStore — persisted browser state (cookies, LS, IDB, history)│
+│  MotorSession — live sidecar relay                                        │
 └───────────────────────────────┬──────────────────────────────────────────┘
                                 │ ws://sidecar:3000
                                 ▼
@@ -102,7 +102,7 @@ SQLite table `config_sections (key, value_json, updated_at)`.
 
 **Infrastructure (env only):** `HttpAddress`, `Database__Path`, `Sidecar__BaseUrl`, `Traefik__Root`, `Traefik__DynamicDir`, `Traefik__DockerSocket`, `Cors__AllowedOrigins`, `ASPNETCORE_ENVIRONMENT`.
 
-**Motor sections (SQLite + Admin API):** `Hosting`, `Forwarding`, `MaxSessions`, `ScriptInjection`, `SessionPolicy`, `JsBridge`. Legacy `SubdomainMirroring` migrates to `Hosting` on boot.
+**Motor sections (SQLite + Admin API):** `Hosting`, `Forwarding`, `MaxSessions`, `ScriptInjection`, `SessionPolicy`, `JsBridge`.
 
 **Admin section (SQLite, factory seed):** random `apiKey` on first boot (full key in dev logs; prefix only in production). Override with env `ADMIN_BOOTSTRAP_KEY` before first boot.
 
@@ -163,7 +163,7 @@ Services: `traefik`, `sidecar`, `api` (`speculum-api`), `web` (`speculum-web`).
 
 **Canonical deploy:** [dockup](../deploy/README.md) from `deploy/` with `--root ..`.
 
-When subdomain mirroring is enabled on a **Hosting** profile, EdgeWriter materializes per-domain files under `/data/traefik/`:
+When subdomain mirroring is enabled on a **Hosting** profile, `EdgeSynchronizer` materializes per-domain files under `/data/traefik/`:
 
 - `cloudflare-{domain-sanitized}.env` — Cloudflare DNS API token for DNS-01
 - `dynamic/wildcard-{domain-sanitized}.yml` — HTTPS + HTTP→HTTPS redirect for mirrored subdomains

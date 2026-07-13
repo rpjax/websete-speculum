@@ -24,11 +24,6 @@ export interface ConfigStatus {
       missing: string[]
     }>
   }
-  subdomainMirroring?: {
-    enabled: boolean
-    operational: boolean
-    missing: string[]
-  }
 }
 
 export interface SessionMeta {

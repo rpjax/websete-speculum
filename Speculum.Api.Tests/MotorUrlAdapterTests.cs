@@ -1,5 +1,7 @@
+using Speculum.Api.BrowserPersistence;
 using Speculum.Api.Config.Runtime;
-using Speculum.Api.Virtualization;
+using Speculum.Api.Motor.Mapping;
+using Speculum.Api.Motor.Live;
 
 namespace Speculum.Api.Tests;
 
@@ -35,11 +37,11 @@ public class MotorUrlAdapterTests
         var adapter = DevAdapter();
         var codec = new NavigationStateCodec(new byte[32], encrypt: false);
         var encoded = codec.Encode(new NavigationStateV1 { H = "cars" });
-        var clientUrl = $"https://speculum.com/list?{NavigationStateParam.Name}={encoded}";
+        var clientUrl = $"https://speculum.com/list?{W7sNavigationQueryParam.Name}={encoded}";
 
         var target = adapter.ParseClientToTarget(clientUrl, ApexProfile, OlxForwarding);
         Assert.Equal("https://cars.olx.com.br/list", target);
-        Assert.DoesNotContain(NavigationStateParam.Name, target);
+        Assert.DoesNotContain(W7sNavigationQueryParam.Name, target);
     }
 
     [Fact]
@@ -53,7 +55,7 @@ public class MotorUrlAdapterTests
             "speculum.com");
 
         Assert.StartsWith("https://speculum.com/list", client, StringComparison.Ordinal);
-        Assert.Contains($"{NavigationStateParam.Name}=", client);
+        Assert.Contains($"{W7sNavigationQueryParam.Name}=", client);
         Assert.DoesNotContain("cars.olx.com.br", client);
     }
 
@@ -158,8 +160,8 @@ public class SessionIdentityStoreTests
         var db = Path.Combine(dir, "speculum.db");
         try
         {
-            var store = new Speculum.Api.Virtualization.Persistence.BrowserSessionStore(
-                db, Microsoft.Extensions.Logging.Abstractions.NullLogger<Speculum.Api.Virtualization.Persistence.BrowserSessionStore>.Instance);
+            var store = new BrowserSessionStore(
+                db, Microsoft.Extensions.Logging.Abstractions.NullLogger<BrowserSessionStore>.Instance);
             await store.InitializeAsync();
 
             var token = "abcdef0123456789abcdef0123456789";

@@ -6,7 +6,7 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts",
-    "test": "npm run build && node --test dist/test/session-coherence.test.js"
+    "test": "npm run build && node --test dist/test/session-coherence.test.js dist/test/wire-protocol.test.js dist/test/create-handshake.test.js"
   },
   "dependencies": {
     "patchright": "1.49.1",

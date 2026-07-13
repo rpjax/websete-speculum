@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 
 namespace Speculum.Api.Config.Persistence;
@@ -20,42 +21,59 @@ public sealed class MotorSecretsStore
     public async Task<byte[]> GetOrCreateNavigationStateKeyAsync(CancellationToken ct = default)
     {
         await using var db = CreateContext();
-        var entity = await db.ConfigSections.FindAsync([MotorSecretsKeys.SectionKey], ct);
+        var existing = await db.ConfigSections.AsNoTracking()
+            .Where(e => e.Key == MotorSecretsKeys.SectionKey)
+            .Select(e => e.ValueJson)
+            .FirstOrDefaultAsync(ct);
 
-        if (entity?.ValueJson is not null)
+        if (existing is not null)
         {
-            try
-            {
-                using var doc = System.Text.Json.JsonDocument.Parse(entity.ValueJson);
-                if (doc.RootElement.TryGetProperty("navigationStateKey", out var keyEl)
-                    && keyEl.ValueKind == System.Text.Json.JsonValueKind.String)
-                {
-                    var b64 = keyEl.GetString();
-                    if (!string.IsNullOrEmpty(b64))
-                        return Convert.FromBase64String(b64);
-                }
-            }
-            catch { /* regenerate below */ }
+            var parsed = TryParseKey(existing);
+            if (parsed is not null)
+                return parsed;
         }
 
         var key = new byte[32];
         RandomNumberGenerator.Fill(key);
-        var json = System.Text.Json.JsonSerializer.Serialize(new
+        var json = JsonSerializer.Serialize(new
         {
             navigationStateKey = Convert.ToBase64String(key),
         });
+        var updatedAt = DateTimeOffset.UtcNow.ToString("O");
 
-        entity ??= new ConfigSectionEntity { Key = MotorSecretsKeys.SectionKey };
-        entity.ValueJson = json;
-        entity.UpdatedAt = DateTimeOffset.UtcNow;
+        await db.Database.ExecuteSqlRawAsync(
+            """
+            INSERT INTO config_sections (key, value_json, updated_at)
+            VALUES ({0}, {1}, {2})
+            ON CONFLICT(key) DO NOTHING
+            """,
+            [MotorSecretsKeys.SectionKey, json, updatedAt],
+            ct);
 
-        if (db.Entry(entity).State == EntityState.Detached)
-            db.ConfigSections.Add(entity);
-        else
-            db.ConfigSections.Update(entity);
+        var persisted = await db.ConfigSections.AsNoTracking()
+            .Where(e => e.Key == MotorSecretsKeys.SectionKey)
+            .Select(e => e.ValueJson)
+            .FirstOrDefaultAsync(ct);
 
-        await db.SaveChangesAsync(ct);
-        return key;
+        return TryParseKey(persisted!) ?? key;
+    }
+
+    private static byte[]? TryParseKey(string json)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.TryGetProperty("navigationStateKey", out var keyEl)
+                && keyEl.ValueKind == JsonValueKind.String)
+            {
+                var b64 = keyEl.GetString();
+                if (!string.IsNullOrEmpty(b64))
+                    return Convert.FromBase64String(b64);
+            }
+        }
+        catch { /* caller regenerates */ }
+
+        return null;
     }
 
     private SpeculumDbContext CreateContext()

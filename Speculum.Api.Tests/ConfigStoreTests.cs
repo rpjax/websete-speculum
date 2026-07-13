@@ -5,7 +5,8 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Speculum.Api.Config.Bootstrap;
 using Speculum.Api.Config.Runtime;
 using Speculum.Api.Config.Store;
-using Speculum.Api.Hosting;
+using Speculum.Api.Edge;
+using Speculum.Api.Motor.Mapping;
 
 namespace Speculum.Api.Tests;
 
@@ -80,66 +81,6 @@ public class ConfigValidatorTests
     }
 }
 
-public class SubdomainMirroringEvaluatorTests
-{
-    private static ForwardingOptions OlxWithWildcard => new()
-    {
-        Host    = "www.olx.com.br",
-        Domains = ["olx.com.br", "*.olx.com.br"],
-    };
-
-    [Fact]
-    public void WhenDisabled_ReturnsNotOperational()
-    {
-        var (op, missing) = SubdomainMirroringEvaluator.Evaluate(
-            new SubdomainMirroringOptions { Enabled = false },
-            OlxWithWildcard,
-            "speculum.com");
-        Assert.False(op);
-        Assert.Empty(missing);
-    }
-
-    [Fact]
-    public void WhenEnabledWithoutWildcard_ReportsMissing()
-    {
-        var (op, missing) = SubdomainMirroringEvaluator.Evaluate(
-            new SubdomainMirroringOptions
-            {
-                Enabled = true,
-                EdgeTls = new EdgeTlsOptions
-                {
-                    Provider = "cloudflare",
-                    Email    = "a@b.com",
-                    ApiToken = "tok",
-                },
-            },
-            new ForwardingOptions { Host = "www.olx.com.br", Domains = ["olx.com.br"] },
-            "speculum.com");
-        Assert.False(op);
-        Assert.Contains("forwarding.domainsWildcard", missing);
-    }
-
-    [Fact]
-    public void WhenEnabledAndComplete_IsOperational()
-    {
-        var (op, missing) = SubdomainMirroringEvaluator.Evaluate(
-            new SubdomainMirroringOptions
-            {
-                Enabled = true,
-                EdgeTls = new EdgeTlsOptions
-                {
-                    Provider = "cloudflare",
-                    Email    = "a@b.com",
-                    ApiToken = "tok",
-                },
-            },
-            OlxWithWildcard,
-            "speculum.com");
-        Assert.True(op);
-        Assert.Empty(missing);
-    }
-}
-
 public class EdgeWriterTests : IDisposable
 {
     private readonly string _tempDir;
@@ -190,6 +131,16 @@ public class EdgeWriterTests : IDisposable
     }
 
     [Fact]
+    public void Apply_OmitsMotorRedirectInDevelopment()
+    {
+        var writer = CreateWriter(mirroring: false, isDevelopment: true);
+        writer.Apply();
+
+        Assert.False(File.Exists(Path.Combine(_tempDir, "dynamic", "motor.yml")));
+        Assert.True(File.Exists(Path.Combine(_tempDir, "dynamic", "bootstrap.yml")));
+    }
+
+    [Fact]
     public void Apply_WritesHttpRedirectWhenProfilesExist()
     {
         var writer = CreateWriter(mirroring: false);
@@ -201,28 +152,28 @@ public class EdgeWriterTests : IDisposable
         Assert.Contains("!PathPrefix(`/.well-known/acme-challenge/`)", motor);
     }
 
-    private EdgeWriter CreateWriter(bool mirroring)
+    private EdgeWriter CreateWriter(bool mirroring, bool isDevelopment = false)
     {
         var dbPath = Path.Combine(_tempDir, "speculum.db");
         var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
         {
-            ["HttpAddress"]     = "127.0.0.1:8080",
-            ["Database:Path"]   = dbPath,
-            ["Sidecar:BaseUrl"] = "ws://127.0.0.1:3000",
-            ["Traefik:Root"]    = _tempDir,
+            ["HttpAddress"]              = "127.0.0.1:8080",
+            ["Database:Path"]            = dbPath,
+            ["Sidecar:BaseUrl"]          = "ws://127.0.0.1:3000",
+            ["Traefik:Root"]             = _tempDir,
+            ["ASPNETCORE_ENVIRONMENT"]   = isDevelopment ? "Development" : "Production",
         }).Build();
 
         var bootstrap = BootstrapConfig.Load(config);
-        var services = new ServiceCollection()
-            .AddSingleton<ISpeculumConfigStore>(new StubEdgeConfigStore(mirroring))
-            .BuildServiceProvider();
-
-        return new EdgeWriter(
-            services,
+        var store = new StubEdgeConfigStore(mirroring);
+        var synchronizer = new EdgeSynchronizer(
+            new Lazy<ISpeculumConfigStore>(() => store),
             bootstrap,
             new TraefikReloader(config, NullLogger<TraefikReloader>.Instance),
             config,
-            NullLogger<EdgeWriter>.Instance);
+            NullLogger<EdgeSynchronizer>.Instance);
+
+        return new EdgeWriter(synchronizer);
     }
 
     private sealed class StubEdgeConfigStore : ISpeculumConfigStore
@@ -262,9 +213,6 @@ public class EdgeWriterTests : IDisposable
         public SpeculumRuntimeConfig Current { get; }
         public bool IsOperational => true;
         public IReadOnlyList<string> MissingRequired => [];
-        public bool SubdomainMirroringEnabled => Current.Hosting.Profiles.Any(p => p.SubdomainMirroringEnabled);
-        public bool IsSubdomainMirroringOperational => SubdomainMirroringEnabled;
-        public IReadOnlyList<string> MissingSubdomainMirroring => [];
 
         public Task InitializeAsync(CancellationToken ct = default) => Task.CompletedTask;
         public Task<ConfigUpdateResult> PutSectionAsync(string key, JsonElement body, CancellationToken ct = default)

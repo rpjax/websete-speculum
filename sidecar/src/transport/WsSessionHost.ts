@@ -1,0 +1,122 @@
+import { WebSocketServer, WebSocket } from 'ws';
+import { VirtualDisplay } from '../browser/VirtualDisplay';
+import { RemoteBrowserSession } from '../browser/RemoteBrowserSession';
+import { CreateMessage, decodeMessage } from '../protocol/wire-protocol';
+
+const POINTER_TYPES = new Set(['mousemove', 'mousedown', 'mouseup', 'wheel']);
+
+/**
+ * WebSocket session host — one WS connection maps to at most one browser session.
+ */
+export class WsSessionHost {
+    private nextDisplay = 100;
+    private readonly activeSessions = new Set<RemoteBrowserSession>();
+
+    attach(wss: WebSocketServer): void {
+        wss.on('connection', (ws: WebSocket) => this.handleConnection(ws));
+    }
+
+    async shutdown(): Promise<void> {
+        const disposeAll = [...this.activeSessions].map(s =>
+            s.dispose().catch(err =>
+                console.warn('[sidecar] Session dispose error:', (err as Error).message),
+            ),
+        );
+        await Promise.all(disposeAll);
+        this.activeSessions.clear();
+    }
+
+    private handleConnection(ws: WebSocket): void {
+        let session: RemoteBrowserSession | undefined;
+
+        ws.on('message', async (raw: Buffer | string) => {
+            const text = typeof raw === 'string' ? raw : raw.toString('utf8');
+            const msg  = decodeMessage(text);
+            if (!msg) return;
+
+            if (msg.type === 'create') {
+                const {
+                    sessionId, width, height, url, scripts = [],
+                    jsBridgeEnabled = false, allowedNavigationDomains, browserState,
+                } = msg as CreateMessage;
+
+                if (session) {
+                    console.warn(`[${sessionId}] Duplicate create on existing session — rejecting`);
+                    ws.send(JSON.stringify({
+                        type:    'error',
+                        sessionId,
+                        message: 'A session already exists on this connection.',
+                    }));
+                    return;
+                }
+
+                const displayNum = this.nextDisplay++;
+                console.log(`[${sessionId}] Creating session on display :${displayNum}`);
+
+                let display: VirtualDisplay | undefined;
+                try {
+                    display = await VirtualDisplay.start(displayNum, width, height);
+
+                    session = await RemoteBrowserSession.create(
+                        sessionId, ws, display, width, height, url, scripts,
+                        jsBridgeEnabled, allowedNavigationDomains, browserState,
+                    );
+                    this.activeSessions.add(session);
+
+                    ws.send(JSON.stringify({ type: 'ready', sessionId }));
+                } catch (err) {
+                    const message = (err as Error).message;
+                    console.error(`[${sessionId}] Failed to create session:`, message);
+                    if (display) {
+                        display.dispose().catch(dispErr =>
+                            console.warn(`[${sessionId}] Display dispose after create failure:`, (dispErr as Error).message),
+                        );
+                    }
+                    ws.send(JSON.stringify({ type: 'error', sessionId, message }));
+                    ws.close();
+                }
+                return;
+            }
+
+            if (msg.type === 'exportState') {
+                if (!session) return;
+                try {
+                    const state = await session.captureState();
+                    ws.send(JSON.stringify({ type: 'stateExport', state }));
+                } catch (err) {
+                    const message = (err as Error).message;
+                    console.warn(`[${session?.sessionId}] State export failed:`, message);
+                    if (ws.readyState === ws.OPEN) {
+                        ws.send(JSON.stringify({ type: 'stateExportError', message }));
+                    }
+                }
+                return;
+            }
+
+            if (session) {
+                if (POINTER_TYPES.has(msg.type)) {
+                    session.handleMessage(text).catch(err =>
+                        console.warn(`[${session!.sessionId}] Input error:`, (err as Error).message),
+                    );
+                    return;
+                }
+                await session.handleMessage(text);
+            }
+        });
+
+        ws.on('close', () => {
+            if (!session) return;
+            const s = session;
+            session = undefined;
+            this.activeSessions.delete(s);
+
+            s.dispose().catch(err =>
+                console.warn('[sidecar] Session dispose error:', (err as Error).message),
+            );
+        });
+
+        ws.on('error', (err) => {
+            console.error('[sidecar] WS error:', err.message);
+        });
+    }
+}

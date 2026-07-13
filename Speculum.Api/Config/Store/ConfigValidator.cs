@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Speculum.Api.Config.Runtime;
+using Speculum.Api.Motor.Mapping;
 
 namespace Speculum.Api.Config.Store;
 
@@ -43,7 +44,6 @@ public static class ConfigValidator
         ForwardingOptions? currentForwarding = null,
         HostingOptions? currentHosting = null)
     {
-        key = ConfigSectionKeys.NormalizeKey(key);
         var errors = new List<(string, string)>();
 
         switch (key)
@@ -68,9 +68,6 @@ public static class ConfigValidator
                 break;
             case ConfigSectionKeys.Hosting:
                 ValidateHosting(body, errors, currentForwarding);
-                break;
-            case ConfigSectionKeys.SubdomainMirroring:
-                ValidateSubdomainMirroringLegacy(body, errors, currentForwarding);
                 break;
             default:
                 errors.Add(("$.key", $"Unknown configuration section '{key}'."));
@@ -394,26 +391,6 @@ public static class ConfigValidator
 
     private static bool IsValidEmail(string value)
         => value.Contains('@') && !value.StartsWith('@') && !value.EndsWith('@');
-
-    private static void ValidateSubdomainMirroringLegacy(
-        JsonElement body,
-        List<(string, string)> errors,
-        ForwardingOptions? currentForwarding)
-    {
-        if (body.ValueKind != JsonValueKind.Object)
-        {
-            errors.Add(("$.SubdomainMirroring", "Must be a JSON object. Use Hosting section instead."));
-            return;
-        }
-
-        var enabled = body.TryGetProperty("enabled", out var enabledEl)
-                      && enabledEl.ValueKind == JsonValueKind.True;
-
-        if (!enabled)
-            return;
-
-        errors.Add(("$.SubdomainMirroring", "Legacy section deprecated. Configure Hosting profiles instead."));
-    }
 
     private static bool IsValidFqdn(string value)
     {

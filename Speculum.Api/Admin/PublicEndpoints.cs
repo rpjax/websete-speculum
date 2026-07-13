@@ -1,6 +1,7 @@
 using Speculum.Api.Config.Bootstrap;
 using Speculum.Api.Config.Runtime;
 using Speculum.Api.Config.Store;
+using Speculum.Api.Motor.Mapping;
 
 namespace Speculum.Api.Admin;
 
@@ -20,7 +21,7 @@ public static class PublicEndpoints
 
             return Results.Ok(new
             {
-                nsoParamName = NavigationStateParam.Name,
+                nsoParamName = W7sNavigationQueryParam.Name,
                 forwardingHost = config.Forwarding?.Host ?? "",
                 profiles = config.Hosting.Profiles.Select(p => new
                 {

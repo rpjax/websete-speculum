@@ -100,7 +100,7 @@ Containers are **domain-agnostic**. No `Motor__PublicDomain`, `VITE_API_URL`, or
 | Variable | Purpose |
 |----------|---------|
 | `HttpAddress`, `Database__Path`, `Sidecar__BaseUrl` | API bootstrap |
-| `Traefik__Root`, `Traefik__DynamicDir`, `Traefik__DockerSocket` | EdgeWriter + Traefik reload |
+| `Traefik__Root`, `Traefik__DynamicDir`, `Traefik__DockerSocket` | EdgeSynchronizer + Traefik reload |
 | `Cors__AllowedOrigins` | Dev-only SPA origins (`localhost:5173`) |
 | `ADMIN_BOOTSTRAP_KEY` | Optional first-boot admin key (dev) |
 
@@ -112,7 +112,7 @@ Same-origin: the web image uses **relative** `/api` and `/vhub` paths. No `VITE_
 
 1. Deploy stack — Traefik serves HTTP catch-all via `bootstrap.yml` (any Host, including IP).
 2. Open `http://<VPS-IP>/admin` — configure **Hosting** (domains, TLS email, mirroring) and **Forwarding** (target site).
-3. EdgeWriter materializes Traefik static/dynamic files; apex HTTPS via HTTP-01; wildcard per profile via DNS-01 when mirroring is ON.
+3. EdgeSynchronizer materializes Traefik static/dynamic files; apex HTTPS via HTTP-01; wildcard per profile via DNS-01 when mirroring is ON.
 
 ---
 
@@ -155,7 +155,7 @@ dockup deploy --env prod --only api --root ..
 | `traefik` | `traefik:v3.6.1` | Edge ports |
 | `sidecar` | `speculum-sidecar` (build) | Internal |
 | `api` | `speculum-api` (build) | Via Traefik (same host as web) |
-| `web` | `speculum-web` (build) | Via Traefik (EdgeWriter routes) |
+| `web` | `speculum-web` (build) | Via Traefik (EdgeSynchronizer routes) |
 
 ---
 
@@ -224,7 +224,7 @@ Ensure firewall allows `80` and `443`. DNS for each Hosting profile apex must po
 
 ### Optional: subdomain mirroring (wildcard TLS)
 
-Configure in Admin → **Hosting**: one profile per motor domain. Enable **Subdomain mirroring** and provide Cloudflare credentials. Add a wildcard to **Forwarding.domains** (e.g. `*.example.com`). EdgeWriter materializes `cloudflare-{domain}.env` and `wildcard-{domain}.yml` under `/data/traefik/`. Restart Traefik if wildcard certs do not appear (multi-domain Cloudflare tokens may require manual cert upload — see architecture docs).
+Configure in Admin → **Hosting**: one profile per motor domain. Enable **Subdomain mirroring** and provide Cloudflare credentials. Add a wildcard to **Forwarding.domains** (e.g. `*.example.com`). EdgeSynchronizer materializes `cloudflare-{domain}.env` and `wildcard-{domain}.yml` under `/data/traefik/`. Restart Traefik if wildcard certs do not appear (multi-domain Cloudflare tokens may require manual cert upload — see architecture docs).
 
 ---
 
@@ -245,12 +245,12 @@ Sidecar changes require rebuilding `speculum-sidecar`; active sessions should dr
 
 | Symptom | Likely cause | Action |
 |---------|--------------|--------|
-| Traefik 404 on motor paths | EdgeWriter not run / empty Hosting | Configure Hosting in Admin; check `/data/traefik/dynamic/` |
+| Traefik 404 on motor paths | EdgeSynchronizer not run / empty Hosting | Configure Hosting in Admin; check `/data/traefik/dynamic/` |
 | Traefik docker provider errors / all routes 404 | Docker 29+ with Traefik **< 3.6.1** | Use `traefik:v3.6.1` or newer in the manifest |
 | CORS errors in browser | `Cors__AllowedOrigins` missing dev origin | Include `http://localhost:5173` and `http://speculum.localhost:8080` in dev |
 | Motor cannot connect SignalR | Traefik routing or not same-origin | Same-origin stack: no `VITE_API_URL`; verify `/vhub` reaches API |
 | `ready` returns 503 | Forwarding / MaxSessions not configured | Use `/admin` or Admin API |
-| Mirrored subdomain 404 on `/api` or `/vhub` | Wildcard routers missing API paths | Redeploy API with current EdgeWriter; check `wildcard-*.yml` includes `speculum-api-wildcard` |
+| Mirrored subdomain 404 on `/api` or `/vhub` | Wildcard routers missing API paths | Redeploy API with current EdgeSynchronizer; check `wildcard-*.yml` includes `speculum-api-wildcard` |
 | ACME failure (prod) | DNS or port 80 blocked | Verify A records and firewall |
 | Chrome crashes in sidecar | Low `/dev/shm` | Confirm `shm_size: 2gb` in manifest |
 | `dockup validate` fails | JSON syntax or missing `--root` | Run from `deploy/` with `--root ..` |
@@ -280,7 +280,7 @@ export ACME_EMAIL=admin@example.com
 docker compose -f docker-compose.reference.yml up -d --build
 ```
 
-Configure **Hosting** in Admin after first boot — Traefik routes are materialized by EdgeWriter, not compose env vars.
+Configure **Hosting** in Admin after first boot — Traefik routes are materialized by EdgeSynchronizer, not compose env vars.
 
 See [compose/README.md](compose/README.md). **Prefer dockup** for parity with documented dev/prod workflows.
 

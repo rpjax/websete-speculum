@@ -9,10 +9,6 @@ public static class ConfigSectionKeys
     public const string JsBridge            = "JsBridge";
     public const string SessionPolicy       = "SessionPolicy";
     public const string Hosting             = "Hosting";
-    public const string SubdomainMirroring  = "SubdomainMirroring";
-
-    /// <summary>Legacy alias — reads/writes map to <see cref="SessionPolicy"/>.</summary>
-    public const string SnapshotPolicy = "SnapshotPolicy";
 
     public static readonly string[] All =
     [
@@ -23,7 +19,6 @@ public static class ConfigSectionKeys
         JsBridge,
         SessionPolicy,
         Hosting,
-        SubdomainMirroring,
     ];
 
     public static readonly string[] RequiredForOperation =
@@ -31,9 +26,4 @@ public static class ConfigSectionKeys
         Forwarding,
         MaxSessions,
     ];
-
-    public static string NormalizeKey(string key)
-        => key.Equals(SnapshotPolicy, StringComparison.OrdinalIgnoreCase)
-            ? SessionPolicy
-            : key;
 }

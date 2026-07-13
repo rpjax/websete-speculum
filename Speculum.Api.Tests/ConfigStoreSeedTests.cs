@@ -6,12 +6,13 @@ using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Logging.Abstractions;
 using Speculum.Api.Config.Bootstrap;
 using Speculum.Api.Config.Runtime;
-using Speculum.Api.Config.Scripts;
+using Speculum.Api.Config.Application;
+using Speculum.Api.Config.Persistence;
 using Speculum.Api.Config.Store;
+using Speculum.Api.Edge;
 using Speculum.Api.Scripts;
-using Speculum.Api.Virtualization;
-using Speculum.Api.Virtualization.Contracts;
-using Speculum.Api.Virtualization.Persistence;
+using Speculum.Api.Motor.Live;
+using Speculum.Api.BrowserPersistence;
 
 namespace Speculum.Api.Tests;
 
@@ -36,7 +37,7 @@ public class ConfigStoreSeedTests : IDisposable
     [Fact]
     public async Task Seed_WritesBootstrapAdminOnly_WhenDbEmpty()
     {
-        Environment.SetEnvironmentVariable(SpeculumConfigStore.BootstrapKeyEnvVar, "test-bootstrap-key");
+        Environment.SetEnvironmentVariable(ConfigService.BootstrapKeyEnvVar, "test-bootstrap-key");
 
         var store = CreateStore();
         await store.InitializeAsync();
@@ -46,7 +47,7 @@ public class ConfigStoreSeedTests : IDisposable
         Assert.Null(store.Current.Forwarding);
         Assert.Null(store.Current.MaxSessions);
 
-        Environment.SetEnvironmentVariable(SpeculumConfigStore.BootstrapKeyEnvVar, null);
+        Environment.SetEnvironmentVariable(ConfigService.BootstrapKeyEnvVar, null);
     }
 
     [Fact]
@@ -78,7 +79,7 @@ public class ConfigStoreSeedTests : IDisposable
         Assert.Equal("custom-key", store2.Current.AdminApiKey);
     }
 
-    private SpeculumConfigStore CreateStore()
+    private ConfigService CreateStore()
     {
         Environment.SetEnvironmentVariable("HttpAddress", "127.0.0.1:8080");
         Environment.SetEnvironmentVariable("Database__Path", _dbPath);
@@ -87,7 +88,7 @@ public class ConfigStoreSeedTests : IDisposable
         var config = new ConfigurationBuilder().AddEnvironmentVariables().Build();
         var bootstrap = BootstrapConfig.Load(config);
         var env = new FakeWebHostEnvironment { WebRootPath = _tempDir };
-        var registry = new VSessionRegistry();
+        var registry = new MotorSessionRegistry();
         var scriptStore = new InjectedScriptStore(_dbPath);
         var sessionStore = new BrowserSessionStore(_dbPath, NullLogger<BrowserSessionStore>.Instance);
         var resolver = new ScriptResolver(
@@ -95,23 +96,35 @@ public class ConfigStoreSeedTests : IDisposable
             scriptStore,
             NullLogger<ScriptResolver>.Instance);
 
-        return new SpeculumConfigStore(
-            _dbPath,
-            bootstrap,
-            resolver,
-            scriptStore,
-            registry,
-            sessionStore,
-            env,
-            NullLogger<SpeculumConfigStore>.Instance,
-            EmptyServiceProvider.Instance,
-            config);
-    }
+        var repository = new ConfigSectionRepository(_dbPath);
+        var loader = new ConfigLoader(resolver, NullLogger<ConfigLoader>.Instance);
+        var secrets = new MotorSecretsStore(_dbPath);
 
-    private sealed class EmptyServiceProvider : IServiceProvider
-    {
-        public static readonly EmptyServiceProvider Instance = new();
-        public object? GetService(Type serviceType) => null;
+        ConfigService? store = null;
+        var lazyStore = new Lazy<ISpeculumConfigStore>(() => store!);
+        var edgeSynchronizer = new EdgeSynchronizer(
+            lazyStore,
+            bootstrap,
+            new TraefikReloader(config, NullLogger<TraefikReloader>.Instance),
+            config,
+            NullLogger<EdgeSynchronizer>.Instance);
+        IConfigChangeHandler[] handlers =
+        [
+            new MotorSessionDrainHandler(registry, sessionStore),
+            new EdgeSyncConfigHandler(edgeSynchronizer),
+        ];
+
+        store = new ConfigService(
+            repository,
+            loader,
+            scriptStore,
+            sessionStore,
+            secrets,
+            handlers,
+            env,
+            NullLogger<ConfigService>.Instance);
+
+        return store;
     }
 
     private sealed class FakeWebHostEnvironment : IWebHostEnvironment

@@ -1,6 +1,6 @@
 # Speculum.Api.Tests
 
-Automated tests for `Speculum.Api` — config store, SSRF guard, HostMapper, browser session store, EdgeWriter, viewport validation, and HTTP smoke tests via `WebApplicationFactory`.
+Automated tests for `Speculum.Api` — config store, SSRF guard, HostMapper, browser session store, EdgeSynchronizer, sidecar wire protocol, viewport validation, and HTTP smoke tests via `WebApplicationFactory`.
 
 ## Run
 
@@ -18,11 +18,18 @@ dotnet test Speculum.sln -c Release
 
 | Test file | Focus |
 |-----------|-------|
-| `SmokeTests.cs` | Health, readiness, CORS, public client-config |
-| `ConfigStoreTests.cs` | Validators, HostMapper modes, EdgeWriter, hosting evaluator |
+| `SmokeTests.cs` | Health, readiness, CORS, public client-config (`SpeculumIntegrationTestCollection`, shared `WebApplicationFactory`) |
+| `ConfigStoreTests.cs` | Validators, HostMapper modes, EdgeWriter boot wrapper, hosting evaluator |
+| `ConfigSectionRepositoryTests.cs` | Atomic config section upsert |
+| `ConfigServicePipelineTests.cs` | ConfigService PUT pipeline (drain/sync ordering) |
+| `ConfigPipelineTests.cs` | PreReload drain / PostReload edge sync handlers |
+| `MotorSessionCoordinatorTests.cs` | Session start, slot limits, navigation |
+| `MotorUrlAdapterTests.cs` | URL mapping, mirroring modes, navigation state |
 | `DynamicCorsPolicyProviderTests.cs` | CORS apex vs subdomain mirroring modes |
 | `ConfigStoreSeedTests.cs` | Admin bootstrap seeding |
 | `SsrfGuardTests.cs` | Private IP blocking for script URLs |
+| `SidecarInputGuardTests.cs` | Sidecar input validation |
+| `SidecarWireProtocolTests.cs` | Binary frame encode/decode layout |
 | `MotorPlanTests.cs` | BrowserSessionStore, ClientTokenNormalizer, HostMapper |
 | `ViewportDimensionsTests.cs` | Viewport parsing |
 

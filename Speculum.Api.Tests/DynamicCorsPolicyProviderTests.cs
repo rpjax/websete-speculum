@@ -5,7 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Speculum.Api.Config.Bootstrap;
 using Speculum.Api.Config.Runtime;
 using Speculum.Api.Config.Store;
-using Speculum.Api.Hosting;
+using Speculum.Api.Edge.Cors;
 
 namespace Speculum.Api.Tests;
 
@@ -110,9 +110,6 @@ public class DynamicCorsPolicyProviderTests
         public SpeculumRuntimeConfig Current { get; }
         public bool IsOperational => true;
         public IReadOnlyList<string> MissingRequired => [];
-        public bool SubdomainMirroringEnabled => false;
-        public bool IsSubdomainMirroringOperational => false;
-        public IReadOnlyList<string> MissingSubdomainMirroring => [];
 
         public Task InitializeAsync(CancellationToken ct = default) => Task.CompletedTask;
         public Task<ConfigUpdateResult> PutSectionAsync(string key, JsonElement body, CancellationToken ct = default)

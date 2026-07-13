@@ -2,9 +2,10 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Speculum.Api.Config.Runtime;
 using Speculum.Api.Config.Store;
-using Speculum.Api.Virtualization;
-using Speculum.Api.Virtualization.Contracts;
-using Speculum.Api.Virtualization.Persistence;
+using Speculum.Api.Motor.Live;
+using Speculum.Api.Motor.Mapping;
+using Speculum.Api.Motor.Sidecar;
+using Speculum.Api.BrowserPersistence;
 
 namespace Speculum.Api.Tests;
 
@@ -173,35 +174,6 @@ public class ConfigValidatorScriptTests
     }
 
     [Fact]
-    public void SubdomainMirroring_WhenDisabled_DoesNotRequireEdgeTls()
-    {
-        var body = System.Text.Json.JsonDocument.Parse("""{ "enabled": false }""").RootElement;
-        ConfigValidator.ValidateSection(
-            ConfigSectionKeys.SubdomainMirroring,
-            body,
-            new ForwardingOptions { Host = "www.olx.com.br", Domains = ["olx.com.br"] });
-    }
-
-    [Fact]
-    public void SubdomainMirroring_WhenEnabled_IsDeprecated()
-    {
-        var body = System.Text.Json.JsonDocument.Parse("""
-            {
-              "enabled": true,
-              "edgeTls": { "provider": "cloudflare", "email": "a@b.com", "apiToken": "tok" }
-            }
-            """).RootElement;
-
-        var ex = Assert.Throws<ConfigValidationException>(() =>
-            ConfigValidator.ValidateSection(
-                ConfigSectionKeys.SubdomainMirroring,
-                body,
-                new ForwardingOptions { Host = "www.olx.com.br", Domains = ["olx.com.br"] }));
-
-        Assert.Contains(ex.Errors, e => e.Message.Contains("deprecated", StringComparison.OrdinalIgnoreCase));
-    }
-
-    [Fact]
     public void Hosting_WhenMirroringOnWithWildcard_Passes()
     {
         var body = System.Text.Json.JsonDocument.Parse("""
@@ -245,7 +217,7 @@ public class ConfigValidatorScriptTests
     }
 }
 
-public class VSessionRegistryTests
+public class MotorSessionRegistryTests
 {
     private static MotorUrlAdapter TestAdapter()
         => new(new NavigationStateCodec(new byte[32], encrypt: false));
@@ -253,7 +225,7 @@ public class VSessionRegistryTests
     [Fact]
     public void TryAcquireSlot_IsAtomic()
     {
-        var registry = new VSessionRegistry();
+        var registry = new MotorSessionRegistry();
         Assert.True(registry.TryAcquireSlot(2));
         Assert.True(registry.TryAcquireSlot(2));
         Assert.False(registry.TryAcquireSlot(2));
@@ -264,12 +236,13 @@ public class VSessionRegistryTests
     [Fact]
     public void TryPromoteStarting_FailsAfterCancel()
     {
-        var registry = new VSessionRegistry();
-        var session  = new VSession(
-            new Virtualization.Options.SidecarBrowserClientOptions { SidecarBaseUrl = "ws://localhost" },
+        var registry = new MotorSessionRegistry();
+        var session  = new MotorSession(
+            new SidecarBrowserClientOptions { SidecarBaseUrl = "ws://localhost" },
             new SessionConfigSnapshot { InitialUrl = "https://example.com" },
             TestAdapter(),
-            NullLogger<VSession>.Instance);
+            new SidecarClientFactory(),
+            NullLogger<MotorSession>.Instance);
 
         registry.TrackStarting("conn-1", session);
         Assert.True(registry.TryCancelStarting("conn-1", out _));
@@ -279,12 +252,13 @@ public class VSessionRegistryTests
     [Fact]
     public async Task StopAllAsync_releases_slot_for_starting_session()
     {
-        var registry = new VSessionRegistry();
-        var session  = new VSession(
-            new Virtualization.Options.SidecarBrowserClientOptions { SidecarBaseUrl = "ws://localhost" },
+        var registry = new MotorSessionRegistry();
+        var session  = new MotorSession(
+            new SidecarBrowserClientOptions { SidecarBaseUrl = "ws://localhost" },
             new SessionConfigSnapshot { InitialUrl = "https://example.com" },
             TestAdapter(),
-            NullLogger<VSession>.Instance);
+            new SidecarClientFactory(),
+            NullLogger<MotorSession>.Instance);
 
         Assert.True(registry.TryAcquireSlot(10));
         registry.TrackStarting("conn-1", session);

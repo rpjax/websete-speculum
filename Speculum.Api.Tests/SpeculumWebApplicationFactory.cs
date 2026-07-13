@@ -17,12 +17,27 @@ public sealed class SpeculumWebApplicationFactory : WebApplicationFactory<Progra
         {
             config.AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["HttpAddress"]            = "127.0.0.1:18080",
+                ["HttpAddress"]            = "127.0.0.1:0",
                 ["Database:Path"]          = DbPath,
                 ["Sidecar:BaseUrl"]        = "ws://127.0.0.1:39999",
                 ["Cors:AllowedOrigins"]    = "http://localhost:5173",
                 ["ASPNETCORE_ENVIRONMENT"] = "Development",
             });
         });
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            try
+            {
+                if (File.Exists(DbPath))
+                    File.Delete(DbPath);
+            }
+            catch { /* best-effort */ }
+        }
+
+        base.Dispose(disposing);
     }
 }

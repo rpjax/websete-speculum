@@ -1,14 +1,13 @@
 namespace Speculum.Api.Tests;
 
+[Collection(nameof(SpeculumIntegrationTestCollection))]
 public sealed class SmokeTests : IDisposable
 {
-    private readonly SpeculumWebApplicationFactory _factory;
     private readonly HttpClient _client;
 
-    public SmokeTests()
+    public SmokeTests(SpeculumWebApplicationFactory factory)
     {
-        _factory = new SpeculumWebApplicationFactory();
-        _client = _factory.CreateClient();
+        _client = factory.CreateClient();
     }
 
     [Fact]
@@ -93,15 +92,5 @@ public sealed class SmokeTests : IDisposable
         Assert.Equal(System.Text.Json.JsonValueKind.Array, profiles.ValueKind);
     }
 
-    public void Dispose()
-    {
-        _client.Dispose();
-        _factory.Dispose();
-        try
-        {
-            if (File.Exists(_factory.DbPath))
-                File.Delete(_factory.DbPath);
-        }
-        catch { /* best-effort */ }
-    }
+    public void Dispose() => _client.Dispose();
 }

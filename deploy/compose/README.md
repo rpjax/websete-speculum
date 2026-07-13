@@ -26,7 +26,7 @@ docker compose -f docker-compose.reference.yml up -d --build
 
 Build contexts point to component folders (`Speculum.Api/`, `web/`, `sidecar/`) — paths are relative to this file.
 
-After first boot, open `/admin` and configure **Hosting** (domains, TLS). EdgeWriter materializes Traefik routes; no split API subdomain env vars.
+After first boot, open `/admin` and configure **Hosting** (domains, TLS). EdgeSynchronizer materializes Traefik routes; no split API subdomain env vars.
 
 ---
 

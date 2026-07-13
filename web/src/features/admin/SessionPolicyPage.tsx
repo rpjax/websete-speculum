@@ -13,11 +13,7 @@ export default function SessionPolicyPage() {
   useEffect(() => {
     api.getSection<{ ttlDays: number }>('SessionPolicy')
       .then((v) => setTtlDays(String(v.ttlDays)))
-      .catch(() =>
-        api.getSection<{ ttlDays: number }>('SnapshotPolicy')
-          .then((v) => setTtlDays(String(v.ttlDays)))
-          .catch(() => {}),
-      )
+      .catch(() => {})
   }, [])
 
   async function save() {

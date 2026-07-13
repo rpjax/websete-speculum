@@ -38,24 +38,35 @@ Run sidecar, API, and web separately — see component READMEs:
 
 ## Quality bar
 
-All PRs should pass local verification:
+### Local (fast gate — no Chrome)
 
 ```bash
-dotnet test Speculum.sln -c Release
+dotnet test Speculum.sln -c Release --filter "Category!=MotorAssertive"
 cd sidecar && npm ci && npm test
 cd web && npm ci && npm test && npm run lint && npm run build
 cd deploy && dockup validate --root ..
+docker compose -f deploy/compose/docker-compose.motor-assert.yml config
 ```
 
-CI (`.github/workflows/ci.yml`) enforces dotnet, sidecar, web, compose, and dockup validate on every push/PR.
+Do **not** routinely run the motor-assertive Docker stack (sidecar + Xvfb + Chromium) on a laptop — that job is GitHub Actions only.
+
+### CI (required for `main`)
+
+| Job | Role |
+|-----|------|
+| `dotnet` / `sidecar` / `web` / `compose` / `dockup` | Fast gate |
+| **`motor-assertive`** | Fixture Node + API + sidecar/Chrome; Act→Assert via diagnostics |
+
+Branch protection on `main` should require **all** of the above checks (especially `motor-assertive`).
+
+MotorAssert sources: `Speculum.MotorAssert.Tests/` + fixture `tests/motor-fixture/` + compose `deploy/compose/docker-compose.motor-assert.yml`.
 
 ### Code principles
 
 - **Minimal scope** — one logical change per commit/PR when possible.
 - **Match conventions** — follow [docs/naming.md](docs/naming.md) (Speculum / Motor / W7S vocabulary).
 - **No drive-by refactors** — avoid unrelated formatting or renames.
-- **Tests when behaviour changes** — extend `Speculum.Api.Tests`, sidecar tests, or `web` Vitest for regressions.
-
+- **Tests when behaviour changes** — extend `Speculum.Api.Tests`, `Speculum.MotorAssert.Tests` (CI Chrome), sidecar tests, or `web` Vitest.
 ---
 
 ## Project boundaries

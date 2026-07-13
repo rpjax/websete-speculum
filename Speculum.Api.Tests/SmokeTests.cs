@@ -20,6 +20,22 @@ public sealed class SmokeTests : IDisposable
     [Fact]
     public async Task Ready_returns_service_unavailable_when_unconfigured()
     {
+        // Shared WebApplicationFactory DB may have been mutated by sibling tests —
+        // wipe required sections so /ready asserts the unconfigured contract.
+        using (var auth = new HttpRequestMessage(HttpMethod.Delete, "/api/admin/config/Forwarding"))
+        {
+            auth.Headers.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", "smoke-test-admin-key");
+            await _client.SendAsync(auth);
+        }
+
+        using (var auth = new HttpRequestMessage(HttpMethod.Delete, "/api/admin/config/MaxSessions"))
+        {
+            auth.Headers.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", "smoke-test-admin-key");
+            await _client.SendAsync(auth);
+        }
+
         var response = await _client.GetAsync("/ready");
         Assert.Equal(System.Net.HttpStatusCode.ServiceUnavailable, response.StatusCode);
     }

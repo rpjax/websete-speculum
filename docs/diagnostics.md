@@ -91,3 +91,13 @@ Ids, FSM phase, timing, fps/frames, navigation result, sidecar connected/fault, 
 ## Sidecar probes
 
 Wire: `diagProbe` / `diagResult`. Ops: `process`, `tabs`, `export`, `cookies`, `storage`, `dom`, `evaluate`, `resources`. Soft-cap via `maxProbeResponseBytes` (default 512 KiB, absolute wire ceiling 8 MiB).
+
+## Phase 3 CI (motor-assertive)
+
+- **Fast gate (local + Actions):** unit/contract tests — no Chromium. Filter: `Category!=MotorAssertive`.
+- **Full gate (GitHub Actions only):** job `motor-assertive` boots [`deploy/compose/docker-compose.motor-assert.yml`](../deploy/compose/docker-compose.motor-assert.yml) (fixture + evil-fixture + sidecar + API + Traefik), seeds Forwarding→`fixture.test`, then runs [`Speculum.MotorAssert.Tests`](../Speculum.MotorAssert.Tests/) with `MOTOR_ASSERT_API_BASE` set.
+- Fixture contract: [`tests/motor-fixture/README.md`](../tests/motor-fixture/README.md).
+- Matrix inventory: [`Speculum.MotorAssert.Tests/MATRIX.md`](../Speculum.MotorAssert.Tests/MATRIX.md).
+- On failure Actions uploads compose logs + diagnostics dumps under the runner temp dir.
+
+Do not run the Chrome stack as day-to-day local verification.

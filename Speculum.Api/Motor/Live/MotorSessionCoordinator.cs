@@ -305,10 +305,10 @@ public sealed class MotorSessionCoordinator
             await session.NavigateAsync(targetUrl);
             Publish(connectionId, "Motor.NavigateCompleted", correlationId, session);
         }
-        catch (ArgumentException)
+        catch (ArgumentException ex)
         {
             Publish(connectionId, "Motor.NavigateRejected", correlationId, session, DiagnosticsSeverity.Warning);
-            throw;
+            throw new HubException(ex.Message);
         }
     }
 

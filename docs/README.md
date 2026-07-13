@@ -22,6 +22,8 @@ Technical documentation for the **Speculum** remote browser isolation platform (
 | Web client (React) | `web/` | [README](../web/README.md) |
 | Browser sidecar (Node) | `sidecar/` | [README](../sidecar/README.md) |
 | Tests | `Speculum.Api.Tests/` | [README](../Speculum.Api.Tests/README.md) |
+| MotorAssert (CI Chrome) | `Speculum.MotorAssert.Tests/` | [README](../Speculum.MotorAssert.Tests/README.md) |
+| Motor fixture site | `tests/motor-fixture/` | [README](../tests/motor-fixture/README.md) |
 
 ## Archive
 

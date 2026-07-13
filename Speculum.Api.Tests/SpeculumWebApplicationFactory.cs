@@ -13,6 +13,7 @@ public sealed class SpeculumWebApplicationFactory : WebApplicationFactory<Progra
     private string? _prevDatabasePath;
     private string? _prevSidecarBaseUrl;
     private string? _prevCors;
+    private string? _prevAdminKey;
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -22,6 +23,7 @@ public sealed class SpeculumWebApplicationFactory : WebApplicationFactory<Progra
         _prevDatabasePath = Environment.GetEnvironmentVariable("Database__Path");
         _prevSidecarBaseUrl = Environment.GetEnvironmentVariable("Sidecar__BaseUrl");
         _prevCors = Environment.GetEnvironmentVariable("Cors__AllowedOrigins");
+        _prevAdminKey = Environment.GetEnvironmentVariable("ADMIN_BOOTSTRAP_KEY");
 
         // BootstrapConfig.Load reads IConfiguration; env vars often win over
         // in-memory keys, so pin an isolated empty database for smoke tests.
@@ -29,6 +31,7 @@ public sealed class SpeculumWebApplicationFactory : WebApplicationFactory<Progra
         Environment.SetEnvironmentVariable("Database__Path", DbPath);
         Environment.SetEnvironmentVariable("Sidecar__BaseUrl", "ws://127.0.0.1:39999");
         Environment.SetEnvironmentVariable("Cors__AllowedOrigins", "http://localhost:5173");
+        Environment.SetEnvironmentVariable("ADMIN_BOOTSTRAP_KEY", "smoke-test-admin-key");
 
         builder.ConfigureAppConfiguration((_, config) =>
         {
@@ -51,6 +54,7 @@ public sealed class SpeculumWebApplicationFactory : WebApplicationFactory<Progra
             Restore("Database__Path", _prevDatabasePath);
             Restore("Sidecar__BaseUrl", _prevSidecarBaseUrl);
             Restore("Cors__AllowedOrigins", _prevCors);
+            Restore("ADMIN_BOOTSTRAP_KEY", _prevAdminKey);
 
             try
             {

@@ -1,0 +1,14 @@
+{
+  "name": "speculum-motor-fixture",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Deterministic HTTP/HTTPS fixture site for Speculum motor-assertive CI (not for local Chrome day-to-day).",
+  "main": "server.mjs",
+  "scripts": {
+    "start": "node server.mjs",
+    "start:evil": "FIXTURE_ROLE=evil PORT=443 HEALTH_PORT=8091 node server.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

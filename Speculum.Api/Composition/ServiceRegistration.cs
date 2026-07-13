@@ -120,6 +120,13 @@ public static class ServiceRegistration
             SidecarBaseUrl = bootstrap.SidecarBaseUrl,
         });
 
+        builder.Services.ConfigureHttpJsonOptions(options =>
+        {
+            options.SerializerOptions.Converters.Add(
+                new System.Text.Json.Serialization.JsonStringEnumConverter());
+            options.SerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
+        });
+
         builder.Services.AddSignalR(options =>
         {
             options.MaximumReceiveMessageSize = 512 * 1024;

@@ -58,6 +58,9 @@ export async function launchBrowser(
             '--mute-audio',
             '--no-first-run',
             '--disable-breakpad',
+            ...(process.env['SPECULUM_IGNORE_CERT_ERRORS'] === '1'
+                ? ['--ignore-certificate-errors']
+                : []),
         ],
 
         viewport:    null,

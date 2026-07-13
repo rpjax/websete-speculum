@@ -69,5 +69,5 @@ Cursor: um plano detalhado por fase (não três no mesmo turn).
 
 - **Fase 1:** concluída (Motor live refactor + Vitest).
 - **Fase 2:** concluída a 100% (Diagnostics control plane, sidecar diagProbe, Admin UI, cookbook, testes).
-- **Fase 3:** pendente (CI assertiva / Playwright matrix).
+- **Fase 3:** concluída (dual gate + fixture + MotorAssert matrix A–O no job `motor-assertive`; Chrome só GitHub Actions; K4 ACME nightly). Correções finais: clientToken hex, canais SignalR input/frame/status/console, rotas fixture C/N/B6/B9/B10.
 - **Fase 2b:** hub admin SignalR — fora de scope.

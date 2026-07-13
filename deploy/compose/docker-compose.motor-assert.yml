@@ -1,0 +1,126 @@
+# Motor-assertive stack — GitHub Actions only (real Chrome in sidecar).
+# Do not treat this as day-to-day local QA on a laptop.
+#
+# Usage (CI):
+#   docker compose -f deploy/compose/docker-compose.motor-assert.yml up -d --build
+#   # seed + dotnet test Speculum.MotorAssert.Tests
+
+name: motor-assert
+
+services:
+  fixture:
+    build:
+      context: ../../tests/motor-fixture
+      dockerfile: Dockerfile
+    environment:
+      FIXTURE_ROLE: good
+      FIXTURE_HOSTNAME: fixture.test
+      PORT: "443"
+      HEALTH_PORT: "8090"
+    networks:
+      motor-assert:
+        aliases:
+          - fixture.test
+
+  evil-fixture:
+    build:
+      context: ../../tests/motor-fixture
+      dockerfile: Dockerfile
+    environment:
+      FIXTURE_ROLE: evil
+      FIXTURE_HOSTNAME: evil-fixture.test
+      PORT: "443"
+      HEALTH_PORT: "8091"
+    networks:
+      motor-assert:
+        aliases:
+          - evil-fixture.test
+
+  sidecar:
+    build:
+      context: ../../sidecar
+      dockerfile: Dockerfile
+    cap_add:
+      - SYS_ADMIN
+    shm_size: 2gb
+    environment:
+      NODE_ENV: production
+      SIDECAR_PORT: "3000"
+      SPECULUM_IGNORE_CERT_ERRORS: "1"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 5s
+      start_period: 40s
+      retries: 12
+    networks:
+      - motor-assert
+
+  api:
+    build:
+      context: ../../Speculum.Api
+      dockerfile: Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      HttpAddress: "0.0.0.0:8080"
+      Database__Path: /data/speculum.db
+      Sidecar__BaseUrl: "ws://sidecar:3000"
+      ADMIN_BOOTSTRAP_KEY: "motor-assert-admin-key"
+      SPECULUM_DIAGNOSTICS_PROFILE: Assertive
+      Cors__AllowedOrigins: "http://localhost;http://127.0.0.1;http://fixture.test"
+      Traefik__Root: /data/traefik
+      Traefik__DynamicDir: /data/traefik/dynamic
+      Traefik__DockerSocket: /var/run/docker.sock
+    volumes:
+      - motor-assert-data:/data
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      start_period: 25s
+      retries: 12
+    depends_on:
+      sidecar:
+        condition: service_healthy
+      fixture:
+        condition: service_healthy
+      evil-fixture:
+        condition: service_healthy
+    ports:
+      - "18080:8080"
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.motor-assert-api.rule=PathPrefix(`/`)
+      - traefik.http.routers.motor-assert-api.entrypoints=web
+      - traefik.http.services.motor-assert-api.loadbalancer.server.port=8080
+    networks:
+      - motor-assert
+
+  traefik:
+    image: traefik:v3.6.1
+    command:
+      - --api.dashboard=false
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.docker.network=motor-assert
+      - --entrypoints.web.address=:80
+      - --providers.file.directory=/data/traefik/dynamic
+      - --providers.file.watch=true
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - motor-assert-data:/data
+    ports:
+      - "18081:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - motor-assert
+
+networks:
+  motor-assert:
+    name: motor-assert
+
+volumes:
+  motor-assert-data:

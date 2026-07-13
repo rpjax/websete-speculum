@@ -344,23 +344,52 @@ public static class DiagnosticsEndpoints
     private static object ShapeSnapshot(MotorSessionDiagnosticsSnapshot snap, IDiagnosticsRuntime runtime)
     {
         var level = runtime.GetEffectiveLevel(DiagnosticsDomain.MotorLive);
+        // Always emit Phase as a stable string for Act→Assert (cookbook / MotorAssert).
         if (level <= DiagnosticsLevel.Metrics)
         {
             return new
             {
-                snap.ConnectionId,
-                snap.Phase,
-                snap.Fps,
-                snap.UptimeMs,
-                snap.SidecarConnected,
-                snap.FrameSequence,
-                snap.FrameChannelDepth,
-                snap.StatusChannelDepth,
-                snap.InputQueueApprox,
+                connectionId = snap.ConnectionId,
+                phase = snap.Phase.ToString(),
+                fps = snap.Fps,
+                uptimeMs = snap.UptimeMs,
+                sidecarConnected = snap.SidecarConnected,
+                frameSequence = snap.FrameSequence,
+                frameChannelDepth = snap.FrameChannelDepth,
+                statusChannelDepth = snap.StatusChannelDepth,
+                inputQueueApprox = snap.InputQueueApprox,
             };
         }
 
-        return snap;
+        return new
+        {
+            connectionId = snap.ConnectionId,
+            persistedSessionId = snap.PersistedSessionId,
+            sidecarSessionId = snap.SidecarSessionId,
+            clientToken = snap.ClientToken,
+            correlationId = snap.CorrelationId,
+            phase = snap.Phase.ToString(),
+            startedAt = snap.StartedAt,
+            uptimeMs = snap.UptimeMs,
+            lastEventUtc = snap.LastEventUtc,
+            fps = snap.Fps,
+            frameSequence = snap.FrameSequence,
+            lastFrameUtc = snap.LastFrameUtc,
+            inputQueueApprox = snap.InputQueueApprox,
+            frameChannelDepth = snap.FrameChannelDepth,
+            statusChannelDepth = snap.StatusChannelDepth,
+            currentUrl = snap.CurrentUrl,
+            lastNavigateResult = snap.LastNavigateResult,
+            lastNavigateUtc = snap.LastNavigateUtc,
+            sidecarConnected = snap.SidecarConnected,
+            lastFault = snap.LastFault,
+            exportingState = snap.ExportingState,
+            forwardingHost = snap.ForwardingHost,
+            jsBridgeEnabled = snap.JsBridgeEnabled,
+            scriptCount = snap.ScriptCount,
+            allowlistCount = snap.AllowlistCount,
+            profileDomain = snap.ProfileDomain,
+        };
     }
 
     private static IEnumerable<object> QueryTimeline(

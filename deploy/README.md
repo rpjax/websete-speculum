@@ -105,6 +105,8 @@ Containers are **domain-agnostic**. No `Motor__PublicDomain`, `VITE_API_URL`, or
 | `ADMIN_BOOTSTRAP_KEY` | Optional first-boot admin key (dev) |
 | `SPECULUM_DIAGNOSTICS_PROFILE` | Optional first-boot Diagnostics seed on the API container (`Assertive` for CI / full observability; otherwise `Development` or `Production` from `ASPNETCORE_ENVIRONMENT`) |
 
+CI motor-assertive (GitHub Actions only): compose file `deploy/compose/docker-compose.motor-assert.yml` + seed script `deploy/compose/seed-motor-assert.sh`. Not intended for laptop day-to-day use.
+
 ### Web image
 
 Same-origin: the web image uses **relative** `/api` and `/vhub` paths. No `VITE_API_URL` build arg.

@@ -186,12 +186,13 @@ Example requests: `Speculum.Api/Speculum.Api.http`
 ### Run tests and builds
 
 ```bash
-dotnet test Speculum.sln -c Release
+# Fast gate (no Chrome / no sidecar Docker)
+dotnet test Speculum.sln -c Release --filter "Category!=MotorAssertive"
 cd sidecar && npm ci && npm test
 cd web && npm ci && npm test && npm run lint && npm run build
 ```
 
-CI runs the same matrix on push/PR to `main` / `master` (see `.github/workflows/ci.yml`).
+CI also runs the required **`motor-assertive`** job (fixture + sidecar Chromium) on GitHub Actions only — see [docs/diagnostics.md](docs/diagnostics.md) and [CONTRIBUTING.md](CONTRIBUTING.md). Do not treat that stack as day-to-day local QA.
 
 ### Component READMEs
 
@@ -215,20 +216,23 @@ Production VPS workflow: generate `out/prod/`, copy to server, `docker compose u
 
 An optional hand-maintained compose file lives at [deploy/compose/docker-compose.reference.yml](deploy/compose/docker-compose.reference.yml) for environments without dockup.
 
+CI-only motor assert stack (Chrome): [deploy/compose/docker-compose.motor-assert.yml](deploy/compose/docker-compose.motor-assert.yml).
+
 ---
 
 ## Verification
 
-After changes, run:
+After changes, run the **fast gate** (no Chrome):
 
 ```bash
-dotnet test Speculum.sln -c Release
+dotnet test Speculum.sln -c Release --filter "Category!=MotorAssertive"
 cd sidecar && npm test
 cd web && npm run lint && npm test && npm run build
 ```
 
 For dockup stacks: `dockup validate --root ..` before deploy (requires **dockup >= 2.0.2**).
 
+Full motor assert (fixture + Chromium) runs only in GitHub Actions job `motor-assertive`.
 ---
 
 ## Documentation index

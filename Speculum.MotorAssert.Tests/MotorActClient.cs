@@ -148,7 +148,9 @@ public sealed class MotorActClient : IAsyncDisposable
     }
 
     public Task SendWheelAsync(double x, double y, double deltaY = 120, CancellationToken ct = default) =>
-        SendUserInputJsonAsync(JsonSerializer.Serialize(new { type = "wheel", x, y, deltaY }), ct);
+        SendUserInputJsonAsync(
+            JsonSerializer.Serialize(new { type = "wheel", x, y, deltaX = 0, deltaY }),
+            ct);
 
     public Task SendKeyAsync(string key, CancellationToken ct = default) =>
         SendUserInputJsonAsync(JsonSerializer.Serialize(new { type = "keydown", key }), ct);

@@ -4,32 +4,28 @@ import { encodeScreencastFrame } from '../protocol/wire-protocol';
 /**
  * Captures frames from the virtual browser via CDP Page.startScreencast.
  *
- * Chrome pushes JPEG frames to us — no polling loop, no FFmpeg, no Xvfb read.
- * Each frame is ACKed immediately (fire-and-forget) so Chrome sends the next
- * frame without waiting for a full round-trip, maximising throughput.
+ * Chrome pushes JPEG frames on visual change. For idle/static pages that only
+ * emit a single frame, we also push an idle screenshot on a timer so clients
+ * and assertive probes always observe a live stream (not a one-shot still).
  *
- * ── Resize ───────────────────────────────────────────────────────────────────
- * Call restart(w, h, onFrame) instead of stop()+start(). This stops the
- * current screencast and restarts it with new maxWidth/maxHeight hints.
- * Emulation.setDeviceMetricsOverride should be called before restart() so
- * Chrome's renderer has already switched to the new viewport when the first
- * new frame arrives.
- *
- * ── Listener lifetime ────────────────────────────────────────────────────────
- * We store a reference to the current Page.screencastFrame handler and
- * explicitly remove it before re-attaching on restart(), so there is never
- * more than one active listener on the CDPSession at a time.
+ * Each screencast frame is ACKed immediately (fire-and-forget) so Chrome can
+ * enqueue the next frame without waiting for a full round-trip.
  */
 export class ScreencastPipeline {
     private _cdp:     CDPSession;
     private _stopped: boolean                           = false;
     private _handler: ((event: unknown) => void) | null = null;
+    private _onFrame: ((buf: Buffer) => void) | null    = null;
+    private _idleTimer: ReturnType<typeof setInterval> | null = null;
+    private _lastFrameAt = 0;
+    private _idleBusy = false;
+
+    /** Push a fallback screenshot if Chromium stayed silent this long. */
+    private static readonly IDLE_MS = 750;
 
     private constructor(cdp: CDPSession) {
         this._cdp = cdp;
     }
-
-    // ── Factory ───────────────────────────────────────────────────────────────
 
     static async start(
         cdp:     CDPSession,
@@ -42,56 +38,53 @@ export class ScreencastPipeline {
         return sc;
     }
 
-    // ── Restart on resize ─────────────────────────────────────────────────────
-
     async restart(
         width:   number,
         height:  number,
         onFrame: (buf: Buffer) => void,
     ): Promise<void> {
         if (this._stopped) return;
+        this._clearIdleTimer();
         try { await this._cdp.send('Page.stopScreencast', {}); } catch { /* best-effort */ }
         await this._attach(width, height, onFrame);
     }
 
-    // ── Stop ──────────────────────────────────────────────────────────────────
-
     async stop(): Promise<void> {
         if (this._stopped) return;
         this._stopped = true;
+        this._clearIdleTimer();
 
         if (this._handler) {
             this._cdp.off('Page.screencastFrame', this._handler);
             this._handler = null;
         }
+        this._onFrame = null;
 
         try { await this._cdp.send('Page.stopScreencast', {}); } catch { /* best-effort */ }
     }
-
-    // ── Private ───────────────────────────────────────────────────────────────
 
     private async _attach(
         width:   number,
         height:  number,
         onFrame: (buf: Buffer) => void,
     ): Promise<void> {
-        // Remove the previous listener so we never double-fire.
         if (this._handler) {
             this._cdp.off('Page.screencastFrame', this._handler);
         }
 
         const cdp  = this._cdp;
         const self = this;
+        this._onFrame = onFrame;
+        this._lastFrameAt = Date.now();
 
         this._handler = function screencastFrameHandler(event: unknown): void {
             if (self._stopped) return;
             const ev = event as { data: string; sessionId: number };
 
-            // ACK immediately — fire-and-forget.
-            // Chrome will NOT send the next frame until it receives the ACK for
-            // the current one, so we must send it before doing any heavy work.
+            // ACK immediately — Chromium waits for ack before sending another frame.
             cdp.send('Page.screencastFrameAck', { sessionId: ev.sessionId }).catch(() => {});
 
+            self._lastFrameAt = Date.now();
             onFrame(encodeScreencastFrame(Buffer.from(ev.data, 'base64')));
         };
 
@@ -104,5 +97,44 @@ export class ScreencastPipeline {
             maxHeight:     height,
             everyNthFrame: 1,
         });
+
+        this._armIdleTimer();
+    }
+
+    private _armIdleTimer(): void {
+        this._clearIdleTimer();
+        this._idleTimer = setInterval(() => {
+            void this._maybeIdleCapture();
+        }, ScreencastPipeline.IDLE_MS);
+        // Unref so the timer never keeps the Node process alive alone.
+        this._idleTimer.unref?.();
+    }
+
+    private _clearIdleTimer(): void {
+        if (this._idleTimer) {
+            clearInterval(this._idleTimer);
+            this._idleTimer = null;
+        }
+    }
+
+    private async _maybeIdleCapture(): Promise<void> {
+        if (this._stopped || this._idleBusy || !this._onFrame) return;
+        if (Date.now() - this._lastFrameAt < ScreencastPipeline.IDLE_MS) return;
+
+        this._idleBusy = true;
+        try {
+            const result = await this._cdp.send('Page.captureScreenshot', {
+                format: 'jpeg',
+                quality: 80,
+                fromSurface: true,
+            }) as { data: string };
+            if (this._stopped || !this._onFrame || !result?.data) return;
+            this._lastFrameAt = Date.now();
+            this._onFrame(encodeScreencastFrame(Buffer.from(result.data, 'base64')));
+        } catch {
+            // CDP may be mid-navigation; skip this tick.
+        } finally {
+            this._idleBusy = false;
+        }
     }
 }

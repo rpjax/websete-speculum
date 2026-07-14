@@ -45,6 +45,15 @@ public class MotorUrlAdapterTests
     }
 
     [Fact]
+    public void ParseClientToTarget_RejectsNonHttpSchemes()
+    {
+        var adapter = DevAdapter();
+        var ex = Assert.Throws<ArgumentException>(() =>
+            adapter.ParseClientToTarget("ftp://speculum.com/", ApexProfile, OlxForwarding));
+        Assert.Contains("http or https", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void EncodeTargetToClient_ApexMode_AddsEncryptedNsoInDevIsBase64()
     {
         var adapter = DevAdapter();

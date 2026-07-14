@@ -92,6 +92,11 @@ public sealed class ConfigLoader
         if (config.MaxSessions is null or <= 0)
             missing.Add(ConfigSectionKeys.MaxSessions);
 
+        // At least one Hosting profile is required so edge routing / Host header
+        // resolution have an apex domain to bind (same bar as Forwarding + MaxSessions).
+        if (config.Hosting.Profiles.Count == 0)
+            missing.Add(ConfigSectionKeys.Hosting);
+
         return missing.ToArray();
     }
 

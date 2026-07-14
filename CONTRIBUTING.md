@@ -22,7 +22,8 @@ Requires [@rodrigopjax/dockup](https://github.com/rpjax/npm-dockup) **>= 2.0.2**
 
 ```bash
 cd deploy && cp speculum.dockup.example.json speculum.dockup.json
-dockup validate --root ..
+dockup validate -c speculum.dockup.example.json --root ..   # also works before copy
+# or, after copy: dockup validate --root ..
 dockup deploy --env dev --root ..
 ```
 
@@ -44,9 +45,11 @@ Run sidecar, API, and web separately — see component READMEs:
 dotnet test Speculum.sln -c Release --filter "Category!=MotorAssertive"
 cd sidecar && npm ci && npm test
 cd web && npm ci && npm test && npm run lint && npm run build
-cd deploy && dockup validate --root ..
+cd deploy && dockup validate -c speculum.dockup.example.json --root ..
 docker compose -f deploy/compose/docker-compose.motor-assert.yml config
 ```
+
+If you maintain a local `deploy/speculum.dockup.json` (gitignored), `dockup validate --root ..` from `deploy/` works the same.
 
 Do **not** routinely run the motor-assertive Docker stack (sidecar + Xvfb + Chromium) on a laptop — that job is GitHub Actions only.
 

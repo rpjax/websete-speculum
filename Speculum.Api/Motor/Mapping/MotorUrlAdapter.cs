@@ -21,6 +21,8 @@ public sealed class MotorUrlAdapter
         if (!Uri.TryCreate(clientUrl, UriKind.Absolute, out var uri))
             throw new ArgumentException("clientUrl must be an absolute URL.", nameof(clientUrl));
 
+        RequireHttpOrHttps(uri, nameof(clientUrl));
+
         if (profile.SubdomainMirroringEnabled)
             return HostMapper.MapClientToTarget(clientUrl, profile.Domain, forwarding);
 
@@ -34,7 +36,19 @@ public sealed class MotorUrlAdapter
         if (!Uri.TryCreate(clientUrl, UriKind.Absolute, out var uri))
             throw new ArgumentException("clientUrl must be an absolute URL.", nameof(clientUrl));
 
+        RequireHttpOrHttps(uri, nameof(clientUrl));
+
         return ParseApexClientToTarget(uri, forwarding);
+    }
+
+    private static void RequireHttpOrHttps(Uri uri, string paramName)
+    {
+        if (uri.Scheme is not "http" and not "https")
+        {
+            throw new ArgumentException(
+                "clientUrl must use http or https scheme.",
+                paramName);
+        }
     }
 
     public string EncodeTargetToClient(

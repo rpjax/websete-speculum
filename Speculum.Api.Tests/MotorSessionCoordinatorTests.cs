@@ -64,6 +64,23 @@ public sealed class MotorSessionCoordinatorTests
     }
 
     [Fact]
+    public async Task StartSessionAsync_rejects_invalid_client_token_with_hub_exception()
+    {
+        var coordinator = CreateCoordinator(
+            new StubConfigStore(operational: true),
+            new StubMotorSessionRegistry(),
+            new StubBrowserSessionStore());
+
+        var identity = new SessionIdentity { ClientToken = "tok-not-hex" };
+        var ex = await Assert.ThrowsAsync<HubException>(() =>
+            coordinator.StartSessionAsync(
+                "conn-1", "speculum.com", CancellationToken.None,
+                "https://speculum.com", 1280, 720, identity));
+
+        Assert.Contains("clientToken", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task StartSessionAsync_returns_client_token_on_happy_path()
     {
         var coordinator = CreateCoordinator(

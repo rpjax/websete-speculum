@@ -1,5 +1,7 @@
 # Speculum documentation
 
+[![CI](https://github.com/rpjax/websete-speculum/actions/workflows/ci.yml/badge.svg)](https://github.com/rpjax/websete-speculum/actions/workflows/ci.yml)
+
 Technical documentation for the **Speculum** remote browser isolation platform (W7S).
 
 > **V1.0.0** is in **active development** (not released). Documentation describes the current codebase; there is no semver or backward-compatibility guarantee until launch is announced.

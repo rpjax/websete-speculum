@@ -1,5 +1,7 @@
 # Speculum
 
+[![CI](https://github.com/rpjax/websete-speculum/actions/workflows/ci.yml/badge.svg)](https://github.com/rpjax/websete-speculum/actions/workflows/ci.yml)
+
 **Remote browser isolation** for the Websete (W7S) platform. A real Chromium instance runs on the server; users interact through a low-latency JPEG screencast in a React canvas. Runtime motor configuration lives in **SQLite** and is managed through the Admin API and admin UI.
 
 > **Development status:** Speculum **V1.0.0** is **in active development** — not released yet. There are no semver tags, release branches, or changelog entries until launch is announced. The codebase does **not** carry backward-compatibility bridges; config/API shape changes are allowed until then.
@@ -33,9 +35,11 @@ cd deploy
 cp speculum.dockup.example.json speculum.dockup.json
 # Edit domains if needed (defaults work for local dev)
 
-dockup validate --root ..
+dockup validate -c speculum.dockup.example.json --root ..
 dockup deploy --env dev --root ..
 ```
+
+If you already copied to `speculum.dockup.json` (gitignored), `dockup validate --root ..` also works.
 
 Open **http://speculum.localhost:8080** — no TLS setup required (dev uses plain HTTP).
 

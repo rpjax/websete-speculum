@@ -69,6 +69,10 @@ public class ConfigStoreSeedTests : IDisposable
             """).RootElement);
         await store.PutSectionAsync(ConfigSectionKeys.MaxSessions,
             JsonDocument.Parse("5").RootElement);
+        await store.PutSectionAsync(ConfigSectionKeys.Hosting,
+            JsonDocument.Parse("""
+            { "profiles": [{ "domain": "example.test", "subdomainMirroringEnabled": false }] }
+            """).RootElement);
         await store.PutSectionAsync(ConfigSectionKeys.Admin,
             JsonDocument.Parse("""{ "apiKey": "custom-key" }""").RootElement);
 

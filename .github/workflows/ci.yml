@@ -70,7 +70,7 @@ jobs:
         run: npm install -g @rodrigopjax/dockup@2.0.2
       - name: Validate dockup manifest
         working-directory: deploy
-        run: dockup validate --root ..
+        run: dockup validate -c speculum.dockup.example.json --root ..
 
   motor-assertive:
     name: motor-assertive

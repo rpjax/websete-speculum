@@ -55,7 +55,17 @@ public sealed class MotorSessionCoordinator
                 "Configure via /api/admin/config.");
         }
 
-        var resolvedIdentity = ResolveIdentity(identity);
+        SessionIdentity resolvedIdentity;
+        try
+        {
+            resolvedIdentity = ResolveIdentity(identity);
+        }
+        catch (ArgumentException ex)
+        {
+            // HubException messages reach SignalR clients; bare ArgumentException does not.
+            throw new HubException(ex.Message);
+        }
+
         var correlationId = string.IsNullOrWhiteSpace(resolvedIdentity.CorrelationId)
             ? Guid.NewGuid().ToString("N")
             : resolvedIdentity.CorrelationId!.Trim();

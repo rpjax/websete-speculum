@@ -85,10 +85,13 @@ export class InputPipeline {
                     await this._deps.page.mouse.up({ button: domButton(msg.button) });
                     break;
 
-                case 'wheel':
+                case 'wheel': {
+                    const deltaX = Number.isFinite(msg.deltaX) ? msg.deltaX : 0;
+                    const deltaY = Number.isFinite(msg.deltaY) ? msg.deltaY : 0;
                     await this._deps.page.mouse.move(msg.x, msg.y);
-                    await this._deps.page.mouse.wheel(msg.deltaX, msg.deltaY);
+                    await this._deps.page.mouse.wheel(deltaX, deltaY);
                     break;
+                }
 
                 case 'keydown':
                     if (msg.key.length === 1 && msg.key.charCodeAt(0) > 127) {

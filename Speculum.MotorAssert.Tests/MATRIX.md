@@ -78,20 +78,19 @@ Source of truth for Act→Assert coverage. **Depth:** `deep` = effect assert in 
 | Diagnostics governance | `InputResizeProbeGovernanceTests`, `DiagnosticsEdgeDeepTests`, `DiagnosticsGovernance/*` |
 | Bug traps (known-red) | `BugTraps/*` (MsgPack web contract also in Api.Tests + Vitest) |
 
-## Known red (intentional until hotfix plan)
+## Known red (intentional until product green)
 
-CI **required** may fail intentionally. Do **not** skip or weaken:
+Do **not** skip or weaken. MsgPack camelCase Bugs A/B are **fixed** (`MotorHubMessagePack` + `[Key]` DTOs).
 
-| Trap / harden | Layer | Symptom until hotfix |
-|---------------|-------|----------------------|
-| MsgPack `clientToken` camelCase | `Api.Tests/Diagnostics/Contracts` | Identity bind drop → new session every tab |
-| MsgPack `SessionStatus.url` camelCase | same + Vitest `sessionStatusPayload.test` | Client URL never syncs |
+| Item | Layer | Notes |
+|------|-------|-------|
 | E3 history ≥2 | MotorAssert | CDP history / seed weakness |
 | L11 soft-cap `ok:false` | MotorAssert | Soft-cap may still return ok:true |
 | Others (A8/A9/B1/E6/E7/F1/F3/J7/K3/M1) | MotorAssert | Product gaps revealed by strict asserts |
 | Emitter publish units | `Api.Tests/.../Emitters` | Must stay green (bus recorder; not a trap) |
+| E8 / B12 | MotorAssert BugTraps | Re-check on stack after MsgPack deploy |
 
-Follow-up plan: **hotfixes only** (MsgPack naming, URL sync, revealed assert failures). Do not greenwash traps.
+Follow-up: treat remaining assert failures as product work. Prefer event waits over `Task.Delay` when extending.
 
 Depth note: MotorAssert + emitter units are hardened for Act→Assert completeness (SessionResolved / UrlMapped / export / probes). Remaining `Task.Delay` waits are still present where no event exists yet — prefer event waits over delays when extending.
 

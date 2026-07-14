@@ -1,16 +1,15 @@
 # Known red CI (diagnostics + bug traps)
 
-This branch intentionally keeps **failing** tests that document real product bugs and hardened contracts. Do not `[Skip]` / `[Ignore]` them.
+Hardened asserts and remaining product gaps may still fail. Do not `[Skip]` / `[Ignore]` them — fix the product.
 
-## Bug traps (must stay red until hotfix plan)
+## MsgPack camelCase (Bugs A/B) — fixed
 
-| ID | Test | Failure means |
-|----|------|---------------|
-| A′ | `MsgPackHubContractTests.SessionIdentity_deserializes_js_camelCase_clientToken` | Web `clientToken` does not bind → session rebind broken |
-| B′ | `MsgPackHubContractTests.SessionStatus_roundtrip_exposes_camelCase_url_for_js_client` | Hub status keys not camelCase → `MotorEngine` never sees `url` |
-| B′ web | `sessionStatusPayload.test.ts` PascalCase case | Same bug from the React reader path |
-| E8 | MotorAssert rebind trap | (C# path may pass; MsgPack is the real browser trap) |
-| B12 | MotorAssert UrlMapped / status NSO | Relay mapped-URL contract |
+| ID | Test | Status |
+|----|------|--------|
+| A′ | `MsgPackHubContractTests.SessionIdentity_deserializes_js_camelCase_clientToken` | Green via `[Key("clientToken")]` + `MotorHubMessagePack` |
+| B′ | `MsgPackHubContractTests.SessionStatus_roundtrip_exposes_camelCase_url_for_js_client` | Green via `[Key("url")]` + camelCase wire |
+| B′ web | `sessionStatusPayload.test.ts` | Green (camelCase required; PascalCase ignored by design) |
+| E8 / B12 | MotorAssert rebind / UrlMapped traps | Re-validate after deploy; C# Act path already camelCase-aligned |
 
 ## Hardened asserts (may fail; fix product, not the assert)
 
@@ -20,8 +19,7 @@ A8 SidecarFaulted + session_gone, A9 viewport dims, B1 probe `/nav/b`, E3 multi-
 
 `DiagnosticsEmitterPublishTests`: SessionResolved payload fields, restored+counts, UrlMapped once per distinct clientUrl, Off drops publishes, Degraded accepts catalog Motor events.
 
-## Hotfix plan (next)
+## Next
 
-1. MessagePack camelCase (or web normalize) for `SessionIdentity` + `SessionStatus`.
-2. Any product fixes for hardened MotorAssert failures.
-3. CI green **without** weakening asserts.
+1. Re-run MotorAssert against stack; fix any post-MsgPack assert failures without weakening.
+2. Residual suite polish (`Task.Delay` → event waits) in a later wave.

@@ -1,5 +1,4 @@
 using MessagePack;
-using MessagePack.Resolvers;
 using Speculum.Api.Motor.Live;
 using Speculum.Api.Motor.Live.Models;
 
@@ -7,12 +6,10 @@ namespace Speculum.Api.Tests;
 
 /// <summary>
 /// Hub MessagePack must bind the same camelCase keys the React client sends/reads.
-/// Known-red until hotfix: ContractlessStandardResolver is case-sensitive on property names.
 /// </summary>
 public sealed class MsgPackHubContractTests
 {
-    private static readonly MessagePackSerializerOptions Options =
-        MessagePackSerializerOptions.Standard.WithResolver(ContractlessStandardResolver.Instance);
+    private static readonly MessagePackSerializerOptions Options = MotorHubMessagePack.Options;
 
     [Fact]
     public void SessionIdentity_deserializes_js_camelCase_clientToken()
@@ -27,11 +24,9 @@ public sealed class MsgPackHubContractTests
         var bytes = MessagePackSerializer.Serialize(jsMap, Options);
         var identity = MessagePackSerializer.Deserialize<SessionIdentity>(bytes, Options);
 
-        Assert.False(
-            string.IsNullOrWhiteSpace(identity.ClientToken),
-            "BUG A trap: MessagePack dropped camelCase clientToken — web StartSession cannot rebind. " +
-            "Fix in hotfix plan (camelCase protocol / Key attributes).");
+        Assert.False(string.IsNullOrWhiteSpace(identity.ClientToken));
         Assert.Equal("abcdef0123456789abcdef0123456789", identity.ClientToken);
+        Assert.Equal("actcorrelationid0000000000000001", identity.CorrelationId);
     }
 
     [Fact]
@@ -51,7 +46,6 @@ public sealed class MsgPackHubContractTests
         };
 
         var bytes = MessagePackSerializer.Serialize(status, Options);
-        // JS reads object keys as produced on the wire — enumerate MessagePack map keys.
         var reader = new MessagePackReader(bytes);
         Assert.Equal(MessagePackType.Map, reader.NextMessagePackType);
         var count = reader.ReadMapHeader();
@@ -62,17 +56,14 @@ public sealed class MsgPackHubContractTests
             reader.Skip();
         }
 
-        Assert.True(
-            keys.Contains("url"),
-            "BUG B trap: SessionStatus MsgPack keys are not camelCase (got: "
-            + string.Join(", ", keys.OrderBy(k => k))
-            + "). MotorEngine reads status.url and never syncClientLocation. Fix in hotfix plan.");
+        Assert.Contains("url", keys);
         Assert.Contains("sessionId", keys);
         Assert.Contains("jsBridgeEnabled", keys);
+        Assert.DoesNotContain("Url", keys);
     }
 
     [Fact]
-    public void SessionIdentity_pascalCase_still_binds_for_csharp_act_clients()
+    public void SessionIdentity_object_roundtrip_preserves_clientToken()
     {
         var identity = new SessionIdentity
         {
@@ -82,5 +73,6 @@ public sealed class MsgPackHubContractTests
         var bytes = MessagePackSerializer.Serialize(identity, Options);
         var round = MessagePackSerializer.Deserialize<SessionIdentity>(bytes, Options);
         Assert.Equal(identity.ClientToken, round.ClientToken);
+        Assert.Equal(identity.CorrelationId, round.CorrelationId);
     }
 }

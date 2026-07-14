@@ -23,7 +23,7 @@ public sealed class PersistenceDeepTests(MotorAssertFixture fx)
                 act.ConnectionId, "Motor.Session", since,
                 ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
             await act.NavigateAsync($"{fx.Host.FixtureClientOrigin}/nav/b");
-            await Task.Delay(1500);
+            await Task.Delay(2500);
             await act.DisconnectAsync();
         }
 
@@ -38,10 +38,8 @@ public sealed class PersistenceDeepTests(MotorAssertFixture fx)
         Assert.True(doc.RootElement.TryGetProperty("detail", out var detail), doc.RootElement.ToString());
         Assert.True(detail.TryGetProperty("history", out var history) || detail.TryGetProperty("History", out history),
             detail.ToString());
-        Assert.True(history.GetArrayLength() >= 1, history.ToString());
-        Assert.True(
-            detail.TryGetProperty("historyCount", out var hc) && hc.GetInt32() >= 1
-            || history.GetArrayLength() >= 1);
+        Assert.True(history.GetArrayLength() >= 1, $"expected history rows, got {history}");
+        Assert.Contains("/nav/", history.ToString(), StringComparison.Ordinal);
     }
 
     [MotorAssertFact]

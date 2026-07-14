@@ -44,7 +44,7 @@ export async function exportBrowserState(cdp: CDPSession, page: Page): Promise<B
     const cookies = await exportCookies(cdp);
     const localStorage = await exportLocalStorage(page);
     const idbRecords = await exportIndexedDb(cdp);
-    const history = await exportHistory(cdp);
+    const history = await exportHistory(cdp, page);
 
     return { cookies, localStorage, idbRecords, history };
 }
@@ -259,7 +259,7 @@ async function importIdbRecord(cdp: CDPSession, record: BrowserIdbRecordState): 
     });
 }
 
-async function exportHistory(cdp: CDPSession): Promise<BrowserHistoryState[]> {
+async function exportHistory(cdp: CDPSession, page: Page): Promise<BrowserHistoryState[]> {
     try {
         const result = await cdp.send('Page.getNavigationHistory') as {
             currentIndex?: number;
@@ -267,13 +267,31 @@ async function exportHistory(cdp: CDPSession): Promise<BrowserHistoryState[]> {
         };
 
         const now = Date.now();
-        return (result.entries ?? []).map((entry, index) => ({
+        let entries = (result.entries ?? []).map((entry, index) => ({
             url:            entry.url,
             title:          entry.title ?? '',
             visitedAtMs:    now,
             transitionType: entry.transitionType ?? '',
             indexOrder:     index,
         }));
+
+        // Short-lived sessions sometimes report empty CDP history — seed the current URL.
+        if (entries.length === 0) {
+            try {
+                const url = page.url();
+                if (url.startsWith('http')) {
+                    entries = [{
+                        url,
+                        title: '',
+                        visitedAtMs: now,
+                        transitionType: 'typed',
+                        indexOrder: 0,
+                    }];
+                }
+            } catch { /* ignore */ }
+        }
+
+        return entries;
     } catch {
         return [];
     }

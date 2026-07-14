@@ -17,10 +17,10 @@ jobs:
         run: dotnet restore Speculum.sln
       - name: Build
         run: dotnet build Speculum.sln -c Release --no-restore
-      - name: Test (fast gate — exclude MotorAssertive / Chrome)
+      - name: Test (fast gate — exclude MotorAssertive / MotorPerf / Chrome)
         run: >
           dotnet test Speculum.sln -c Release --no-build --verbosity normal
-          --filter "Category!=MotorAssertive"
+          --filter "Category!=MotorAssertive&Category!=MotorPerf"
 
   sidecar:
     runs-on: ubuntu-latest

@@ -4,6 +4,9 @@ import { ScreencastPipeline } from '../browser/ScreencastPipeline';
 import { MouseMoveCoalescer } from '../MouseMoveCoalescer';
 import { NavigationGeneration } from '../NavigationGeneration';
 import { ResizeGuard } from '../ResizeGuard';
+import { normalizeWheelDeltas } from './wheel-defaults';
+
+export { normalizeWheelDeltas } from './wheel-defaults';
 
 /** Maps DOM MouseEvent.button (0=left, 1=middle, 2=right) → Playwright button name. */
 function domButton(b: number): 'left' | 'middle' | 'right' {
@@ -86,8 +89,7 @@ export class InputPipeline {
                     break;
 
                 case 'wheel': {
-                    const deltaX = Number.isFinite(msg.deltaX) ? msg.deltaX : 0;
-                    const deltaY = Number.isFinite(msg.deltaY) ? msg.deltaY : 0;
+                    const { deltaX, deltaY } = normalizeWheelDeltas(msg);
                     await this._deps.page.mouse.move(msg.x, msg.y);
                     await this._deps.page.mouse.wheel(deltaX, deltaY);
                     break;

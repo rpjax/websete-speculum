@@ -38,6 +38,8 @@ Catalog Act→Assert events are **never** randomly sampled away. `StatusMirrorRa
 
 Each recipe: Act → poll events with `?since=` / `namePrefix=` → assert snapshot / errorCode.
 
+**Harness helpers** (`Speculum.MotorAssert.Tests`): prefer `ExpectEvaluateAsync`, `ExpectCookieAsync`, `ExpectLocalStorageAsync`, `WaitFrameSequenceAtLeastAsync`, `RequireSessionAsync` / `RequireSnapshot` / `RequireString` — missing JSON properties fail hard (no soft skip).
+
 ### 1. Session lifecycle
 
 1. Act: SignalR `StartSessionAsync` with `identity.correlationId` (client Act id) — same id is stored on the session and emitted on `Motor.SessionStarted`.
@@ -72,8 +74,20 @@ Each recipe: Act → poll events with `?since=` / `namePrefix=` → assert snaps
 2. Enable `domains.browserQuery: BrowserQuery` → probe ops `cookies` OK.
 3. Set BrowserQuery `Off` → probe returns `403` `{ "errorCode": "probe_level_insufficient" }`.
 4. Concurrent probes beyond `maxConcurrentProbesPerSession` → `429` `{ "errorCode": "probe_busy" }`.
-5. Probe response exceeding `maxProbeResponseBytes` → `errorCode: response_too_large`.
+5. Probe response exceeding `maxProbeResponseBytes` → HTTP `413` with `errorCode: response_too_large`, **or** a soft-capped success whose body stays under the budget (never an uncapped multi‑100KB DOM dump). MotorAssert `L11` locks this contract.
 6. PUT elevate → assert `GET /events?namePrefix=Diagnostics.Elevate` includes `ElevateStarted`; TTL/DELETE → `ElevateExpired`.
+
+### 7. Performance SLOs (`perf.yml` / `Speculum.MotorPerf.Tests`)
+
+Informational — **does not** block merge. Documented floors:
+
+| SLO | Floor |
+|-----|--------|
+| Storage overflow under tiny `maxBytes` + session churn | `Diagnostics.StorageOverflow` appears |
+| Frame growth | `frameSequence >= 2` within 8s of `SessionStarted` (idle screencast) |
+| Probe storm | Concurrent probes beyond cap → `429` / `probe_busy` without hang |
+
+Functional overflow correctness (small event set) lives in required MotorAssert `M_storage_overflow_contract`.
 
 ### 6. Redaction
 

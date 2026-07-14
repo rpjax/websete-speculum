@@ -1,6 +1,7 @@
 # Speculum
 
 [![CI](https://github.com/rpjax/websete-speculum/actions/workflows/ci.yml/badge.svg)](https://github.com/rpjax/websete-speculum/actions/workflows/ci.yml)
+[![Perf](https://github.com/rpjax/websete-speculum/actions/workflows/perf.yml/badge.svg)](https://github.com/rpjax/websete-speculum/actions/workflows/perf.yml)
 
 **Remote browser isolation** for the Websete (W7S) platform. A real Chromium instance runs on the server; users interact through a low-latency JPEG screencast in a React canvas. Runtime motor configuration lives in **SQLite** and is managed through the Admin API and admin UI.
 

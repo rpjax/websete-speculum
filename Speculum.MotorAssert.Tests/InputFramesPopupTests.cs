@@ -189,14 +189,21 @@ public sealed class InputFramesPopupTests(MotorAssertFixture fx)
         await act.EvalJsAsync(42, "document.getElementById('open')?.click(); document.getElementById('blank')?.click();");
         await Task.Delay(1500);
 
-        var status = await act.WaitForStatusAsync(s => s.TabCount >= 1, TimeSpan.FromSeconds(20));
+        var status = await act.WaitForStatusAsync(s => s.TabCount == 1, TimeSpan.FromSeconds(20));
         Assert.Equal(1, status.TabCount);
 
         var probe = await fx.Diagnostics.PostBrowserProbeAsync(act.ConnectionId!, ["tabs"]);
         Assert.True(probe.GetProperty("ok").GetBoolean());
-        var data = probe.GetProperty("data").ToString();
-        // Single-tab enforcement: tabs payload must not advertise multiple live pages.
-        Assert.DoesNotContain("\"length\":2", data, StringComparison.Ordinal);
+        var tabs = DiagnosticsAssertClient.RequireProperty(probe, "data");
+        // Enforce single live page: tabCount field or array length <= 1.
+        if (tabs.ValueKind == JsonValueKind.Object && tabs.TryGetProperty("tabCount", out var tc))
+            Assert.Equal(1, tc.GetInt32());
+        else if (tabs.ValueKind == JsonValueKind.Object && tabs.TryGetProperty("tabs", out var arr) && arr.ValueKind == JsonValueKind.Array)
+            Assert.True(arr.GetArrayLength() <= 1, tabs.ToString());
+        else if (tabs.ValueKind == JsonValueKind.Array)
+            Assert.True(tabs.GetArrayLength() <= 1, tabs.ToString());
+        else
+            Assert.Equal(1, status.TabCount); // fall back to Status channel contract
     }
 
     [MotorAssertFact]

@@ -21,6 +21,8 @@ services:
       motor-assert:
         aliases:
           - fixture.test
+          - www.fixture.test
+          - sub.fixture.test
 
   evil-fixture:
     build:

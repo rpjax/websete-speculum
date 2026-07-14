@@ -1,50 +1,77 @@
-# MotorAssert matrix (Phase 3)
+# MotorAssert matrix (A–O)
 
-Inventory of Act→Assert coverage in `Speculum.MotorAssert.Tests`. Cases marked **deferred** are intentional non-blockers for the PR gate (see plan Phase 3).
+Source of truth for Act→Assert coverage. **Depth:** `deep` = effect assert in required CI; `contract` = governance/shape assert in required CI; `perf` = `perf.yml` only; `deferred-K4` = manual/nightly ACME.
 
-| ID | Coverage | Test method(s) |
-|----|----------|----------------|
-| A1 | lifecycle + correlation + session_gone | `A1_session_lifecycle_correlation_and_session_gone` |
-| A2 | not ready when Hosting wiped | `A2_not_ready_when_hosting_wiped_then_restore` |
-| A3 | MaxSessions reject | `A3_max_sessions_rejects_second_start` |
-| A7 | resource probe + gone | `A7_resource_probe_while_running_then_gone` |
-| A8 | sidecar fault | **deferred** (container stop overnight) |
-| A9 | viewport defaults | `A9_viewport_defaults_when_zero` |
-| A10 | clientToken hex round-trip + reject | `A10_*` / `A10b_*` |
-| B1–B3 | navigate allowlist / reject / scheme | `B1_*` `B2_*` `B3_*` |
-| B4 | off-allowlist programmatic nav | `B4_programmatic_off_allowlist_navigate_keeps_session_alive` |
-| B6 | asset-escape page stays alive | `B6_asset_escape_page_loads_without_killing_session` |
-| B9 | path/query preserve | `B9_path_and_query_preserved_on_navigate` |
-| B10 | redirect chain | `B10_redirect_chain_lands_on_end` |
-| B11 | SPA path | `B11_spa_path_navigate` |
-| C1–C5 | mouse / key / wheel / guard / bad JSON | `InputFramesPopupTests` |
-| D1 | resize event | `D1_resize_emits_requested` |
-| D3–D4 | frames + status/tabCount | `D3_*` `D4_*` |
-| E1–E2 | persist export/restore | `E1_E2_*` |
-| E4 | persisted list/get | `E4_admin_persisted_list_and_get` |
-| F1 | SessionPolicy | `F1_*` |
-| G2–G4 | drain Forwarding/Hosting; MaxSessions no-drain | `G2_*` `G3_*` `G4_*` |
-| H1–H2 | script upload + inject marker | `H1_*` `H2_*` |
-| H5 | script URL SSRF | `H5_*` |
-| I1–I4 | JsBridge + evaljs + console | `I1_*` `I2_*` `I3_*` `I4_*` |
-| J1–J3 | public config / ready / status | `J1_J2_*` `J3_*` |
-| J7 | mirroring misconfigured | `J7_*` |
-| K2 | Traefik `/health` `/ready` | `K2_*` |
-| K4 | ACME/DNS | **nightly/manual only** |
-| L1–L13 | probes / gates / host | `L1_*` `L8_*` `L11_*` `L13_*` |
-| M2 / M11 | elevate + catalog | `M2_*` `M11_*` |
-| N1–N2 | popup / `_blank` single-tab | `N1_N2_*` |
-| O1–O5 | auth / opacity / validation / wipe Forwarding | `O1_*` `O2_*` `O3_*` `O5_*` |
+| ID | Depth | Coverage | Test method(s) |
+|----|-------|----------|----------------|
+| A1 | deep | lifecycle + correlation + session_gone | `A1_session_lifecycle_correlation_and_session_gone` |
+| A2 | deep | not ready when Hosting wiped | `A2_not_ready_when_hosting_wiped_then_restore` |
+| A3 | deep | MaxSessions reject | `A3_max_sessions_rejects_second_start` |
+| A4 | deep | 2nd StartSession replace + SessionStarted | `A4_second_start_promotes_new_session` |
+| A5 | deep | cancel Starting → slot released | `A5_cancel_starting_releases_slot` |
+| A6 | deep | disconnect → StateExportCompleted + persisted | `A6_disconnect_exports_and_persists` |
+| A7 | deep | resource probe + gone | `A7_resource_probe_while_running_then_gone` |
+| A8 | deep | sidecar stop → fault / session cleanup | `A8_sidecar_stop_faults_and_cleans_session` |
+| A9 | deep | viewport defaults | `A9_viewport_defaults_when_zero` |
+| A10 | deep | clientToken hex round-trip + reject | `A10_*` / `A10b_*` |
+| B1–B3 | deep | navigate allowlist / reject / scheme | `B1_*` `B2_*` `B3_*` |
+| B4 | deep | goEvil → redirect wire + alive + tabs | `B4_*` / `B4b_*` |
+| B5 | deep | domain wildcard allowlist E2E | `B5_wildcard_subdomain_allowed` |
+| B6 | deep | asset-escape page stays alive | `B6_*` |
+| B7 | deep | NSO apex → target host probe | `B7_nso_apex_lands_on_target_host` |
+| B8 | deep | Hosting mirroring ON + status/probe | `B8_mirroring_operational_and_sub_host` |
+| B9 | deep | path/query preserve | `B9_*` |
+| B10 | deep | redirect chain + history goback/forward | `B10_*` / `B10b_*` |
+| B11 | deep | SPA path | `B11_*` |
+| C1–C5 | deep | mouse / key / wheel / guard / bad JSON | `InputFramesPopupTests` |
+| D1 | deep | resize dims on status | `D1_*` |
+| D2 | deep | resize &lt;100 noop | `D2_resize_below_100_is_noop` |
+| D3–D4 | deep | frames + status/tabCount | `D3_*` `D4_*` |
+| E1–E2 | deep | persist export/restore cookie+LS | `E1_E2_*` |
+| E3 | deep | history rows in persisted detail | `E3_persisted_detail_includes_history` |
+| E4 | deep | persisted list/get | `E4_*` |
+| E5 | deep | identity indexers resolve same session | `E5_indexers_resolve_same_persisted_session` |
+| E6 | deep | export fail path event | `E6_state_export_failed_on_sidecar_kill` |
+| E7 | deep | drain keeps prior persisted state | `E7_drain_preserves_persisted_state` |
+| F1 | deep | SessionPolicy PUT | `F1_*` |
+| F2–F3 | deep | TTL + delete policy → default | `F2_*` `F3_*` |
+| G2–G4 | deep | drain Forwarding/Hosting; MaxSessions no-drain | `G2_*` `G3_*` `G4_*` |
+| H1–H2 | deep | script upload + inject marker | `H1_*` `H2_*` |
+| H3–H4 | deep | HeaderTop/BodyBottom Classic vs Module | `H3_*` `H4_*` |
+| H5 | deep | script URL SSRF | `H5_*` |
+| H6–H8 | deep | missing id 400; delete; size limit | `H6_*` `H7_*` `H8_*` |
+| I1–I4 | deep | JsBridge + evaljs + console | `I1_*` `I2_*` `I3_*` `I4_*` |
+| I5 | deep | JsBridge flip mid-session snapshot immutable | `I5_*` |
+| J1–J3 | deep | public config / ready / status | `J1_J2_*` `J3_*` |
+| J4–J6 | deep | mirroring status fields (with B8) | `B8_*` / `J7_*` |
+| J7 | deep | mirroring misconfigured status | `J7_*` |
+| K1 | deep | Hosting PUT → Traefik dynamic files | `K1_hosting_put_writes_bootstrap_yml` |
+| K2 | deep | Traefik health/ready/client-config/negotiate | `K2_*` |
+| K3 | deep | CORS preflight via Traefik | `K3_cors_preflight_via_traefik` |
+| K4 | deferred-K4 | ACME/DNS | manual/nightly only |
+| L1–L8 | deep | probes / gates | `L1_*` `L8_*` / `L2_*`… |
+| L9–L10 | deep | probe_busy 429; timeout errorCode | `L9_*` `L10_*` |
+| L11 | contract | soft-cap XOR 413 | `L11_*` |
+| L12 | deep | resolve op | `L12_*` |
+| L13 | deep | host probe | `L13_*` |
+| M1 | deep | ConfigApplied / seed Assertive | `M1_*` |
+| M2 / M11 | deep | elevate + catalog | `M2_*` `M11_*` |
+| M overflow | contract | tiny maxBytes → StorageOverflow | `M_storage_overflow_contract` |
+| M redaction | contract | Dev `none` + schema (Prod unit) | `M_redaction_development_none` |
+| N1–N2 | deep | popup / `_blank` single-tab | `N1_N2_*` |
+| O1–O5 | deep | auth / opacity / validation / wipe | `O1_*`…`O5_*` |
+| O4 | deep | casing/validation matrix | `O4_section_casing_validation` |
 
 ## Organization
 
-| File | Role |
-|------|------|
-| `Support`-free root helpers | `MotorActClient`, `DiagnosticsAssertClient`, `MotorAssertHost`, `MotorAssertTokens` |
-| `LifecycleAndNavigateTests` | A / B |
-| `InputFramesPopupTests` | C / D3–D4 / N / I2 / I4 / B4 |
-| `PersistenceDrainInjectionTests` | E / F / G / H |
-| `InputResizeProbeGovernanceTests` | D1 / L / M / O / J1 / K2 |
-| `JsBridgeHostingMiscTests` | I1 / I3 / J3 / J7 / A2 / O5 |
+| Area | File(s) |
+|------|---------|
+| Helpers | `MotorActClient`, `DiagnosticsAssertClient`, `MotorAssertHost`, `MotorAssertTokens` |
+| Lifecycle | `LifecycleAndNavigateTests`, `LifecycleDeepTests` |
+| Navigation | `LifecycleAndNavigateTests`, `NavigationDeepTests`, `InputFramesPopupTests` (B4) |
+| Input / frames | `InputFramesPopupTests`, `InputResizeProbeGovernanceTests` |
+| Persistence / scripts | `PersistenceDrainInjectionTests`, `PersistenceDeepTests`, `ScriptsDeepTests` |
+| Hosting / edge | `JsBridgeHostingMiscTests`, `DiagnosticsEdgeDeepTests` |
+| Diagnostics governance | `InputResizeProbeGovernanceTests`, `DiagnosticsEdgeDeepTests` |
 
-P (unit/contract) stays in `Speculum.Api.Tests` + sidecar Vitest under the fast gate.
+P (unit/contract pyramid) stays in `Speculum.Api.Tests` + sidecar `npm test` + web Vitest under the fast gate. Stress/SLO → `Speculum.MotorPerf.Tests` + `.github/workflows/perf.yml` (not required).

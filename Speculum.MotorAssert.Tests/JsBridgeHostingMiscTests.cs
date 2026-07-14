@@ -21,10 +21,9 @@ public sealed class JsBridgeHostingMiscTests(MotorAssertFixture fx)
             act.ConnectionId, "Motor.Session", since,
             ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
 
-        var session = await fx.Diagnostics.TryGetSessionAsync(act.ConnectionId!);
-        var snap = session!.Value.GetProperty("snapshot");
-        if (snap.TryGetProperty("jsBridgeEnabled", out var flag))
-            Assert.True(flag.GetBoolean());
+        var session = await fx.Diagnostics.RequireSessionAsync(act.ConnectionId!);
+        var snap = fx.Diagnostics.RequireSnapshot(session);
+        Assert.True(fx.Diagnostics.RequireBool(snap, "jsBridgeEnabled"));
     }
 
     [MotorAssertFact]
@@ -42,10 +41,9 @@ public sealed class JsBridgeHostingMiscTests(MotorAssertFixture fx)
                 act.ConnectionId, "Motor.Session", since,
                 ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
 
-            var session = await fx.Diagnostics.TryGetSessionAsync(act.ConnectionId!);
-            var snap = session!.Value.GetProperty("snapshot");
-            if (snap.TryGetProperty("jsBridgeEnabled", out var flag))
-                Assert.False(flag.GetBoolean());
+            var session = await fx.Diagnostics.RequireSessionAsync(act.ConnectionId!);
+            var snap = fx.Diagnostics.RequireSnapshot(session);
+            Assert.False(fx.Diagnostics.RequireBool(snap, "jsBridgeEnabled"));
         }
         finally
         {
@@ -76,12 +74,19 @@ public sealed class JsBridgeHostingMiscTests(MotorAssertFixture fx)
         {
             var status = await fx.Host.Http.GetAsync("api/admin/config/status");
             status.EnsureSuccessStatusCode();
-            var text = await status.Content.ReadAsStringAsync();
+            using var doc = JsonDocument.Parse(await status.Content.ReadAsStringAsync());
+            Assert.True(doc.RootElement.TryGetProperty("hosting", out var hosting)
+                        || doc.RootElement.TryGetProperty("Hosting", out hosting)
+                        || doc.RootElement.TryGetProperty("profiles", out hosting)
+                        || doc.RootElement.TryGetProperty("isOperational", out _),
+                $"status JSON must expose hosting/operational shape: {doc.RootElement}");
+            var text = doc.RootElement.ToString();
             Assert.True(
                 text.Contains("mirroring", StringComparison.OrdinalIgnoreCase)
-                || text.Contains("operational", StringComparison.OrdinalIgnoreCase)
-                || text.Contains("edgeTls", StringComparison.OrdinalIgnoreCase),
-                "expected hosting status to speak about mirroring/TLS when mirroring enabled without TLS");
+                || text.Contains("MirroringOperational", StringComparison.OrdinalIgnoreCase)
+                || text.Contains("edgeTls", StringComparison.OrdinalIgnoreCase)
+                || !put.IsSuccessStatusCode,
+                "expected mirroring / TLS signal when mirroring enabled without TLS");
         }
 
         var restore = await fx.RestoreHostingApexAsync();

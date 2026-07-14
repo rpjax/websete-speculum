@@ -1,6 +1,7 @@
 # Speculum documentation
 
 [![CI](https://github.com/rpjax/websete-speculum/actions/workflows/ci.yml/badge.svg)](https://github.com/rpjax/websete-speculum/actions/workflows/ci.yml)
+[![Perf](https://github.com/rpjax/websete-speculum/actions/workflows/perf.yml/badge.svg)](https://github.com/rpjax/websete-speculum/actions/workflows/perf.yml)
 
 Technical documentation for the **Speculum** remote browser isolation platform (W7S).
 

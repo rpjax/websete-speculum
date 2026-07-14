@@ -21,7 +21,12 @@ export class ScreencastPipeline {
     private _idleBusy = false;
 
     /** Push a fallback screenshot if Chromium stayed silent this long. */
-    private static readonly IDLE_MS = 750;
+    static readonly IDLE_MS = 750;
+
+    /** Pure idle decision — unit-tested without CDP. */
+    static shouldEmitIdleFrame(lastFrameAt: number, now: number, idleMs = ScreencastPipeline.IDLE_MS): boolean {
+        return now - lastFrameAt >= idleMs;
+    }
 
     private constructor(cdp: CDPSession) {
         this._cdp = cdp;
@@ -119,7 +124,7 @@ export class ScreencastPipeline {
 
     private async _maybeIdleCapture(): Promise<void> {
         if (this._stopped || this._idleBusy || !this._onFrame) return;
-        if (Date.now() - this._lastFrameAt < ScreencastPipeline.IDLE_MS) return;
+        if (!ScreencastPipeline.shouldEmitIdleFrame(this._lastFrameAt, Date.now())) return;
 
         this._idleBusy = true;
         try {

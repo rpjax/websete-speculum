@@ -24,7 +24,6 @@ public sealed class PersistenceDrainInjectionTests(MotorAssertFixture fx)
                 act.ConnectionId, "Motor.Session", since,
                 ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
 
-            // Give fixture scripts a beat to write storage.
             await Task.Delay(1500);
             await act.DisconnectAsync();
         }
@@ -45,8 +44,9 @@ public sealed class PersistenceDrainInjectionTests(MotorAssertFixture fx)
             act2.ConnectionId, "Motor.Session", since2,
             ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId2));
 
-        var probe = await fx.Diagnostics.PostBrowserProbeAsync(act2.ConnectionId!, ["cookies", "storage"]);
-        Assert.True(probe.GetProperty("ok").GetBoolean());
+        await Task.Delay(1500);
+        await fx.Diagnostics.ExpectCookieAsync(act2.ConnectionId!, "sf_marker", "state-cookie");
+        await fx.Diagnostics.ExpectLocalStorageAsync(act2.ConnectionId!, "sf_ls", "state-ls");
     }
 
     [MotorAssertFact]

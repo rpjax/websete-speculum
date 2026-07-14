@@ -25,6 +25,12 @@ public sealed class InputResizeProbeGovernanceTests(MotorAssertFixture fx)
         await fx.Diagnostics.WaitForEventsAsync(
             act.ConnectionId, "Motor.Resize", resizeSince,
             ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.ResizeRequested"));
+
+        var status = await act.WaitForStatusAsync(
+            s => s.Width == 1024 && s.Height == 768,
+            TimeSpan.FromSeconds(45));
+        Assert.Equal(1024, status.Width);
+        Assert.Equal(768, status.Height);
     }
 
     [MotorAssertFact]
@@ -146,16 +152,20 @@ public sealed class InputResizeProbeGovernanceTests(MotorAssertFixture fx)
     }
 
     [MotorAssertFact]
-    public async Task K2_traefik_paths_health_api_ready()
+    public async Task K2_traefik_paths_health_api_ready_client_config()
     {
         var traefik = Environment.GetEnvironmentVariable("MOTOR_ASSERT_TRAEFIK_BASE")
                       ?? "http://127.0.0.1:18081";
         using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
-        foreach (var path in new[] { "/health", "/ready" })
+        foreach (var path in new[] { "/health", "/ready", "/api/public/client-config" })
         {
             var res = await http.GetAsync($"{traefik.TrimEnd('/')}{path}");
             Assert.True(res.IsSuccessStatusCode, $"Traefik path {path} => {(int)res.StatusCode}");
         }
+
+        // Negotiate endpoint must be routed (even if method is GET → 405/400 is OK; 404 is not).
+        var negotiate = await http.GetAsync($"{traefik.TrimEnd('/')}/vhub/negotiate?negotiateVersion=1");
+        Assert.NotEqual(HttpStatusCode.NotFound, negotiate.StatusCode);
     }
 
     [MotorAssertFact]
@@ -193,19 +203,23 @@ public sealed class InputResizeProbeGovernanceTests(MotorAssertFixture fx)
                 $"api/admin/diagnostics/v1/sessions/{act.ConnectionId}/browser",
                 new { ops = new[] { "dom" }, domSelector = "#speculum-probe" },
                 MotorAssertHost.Json);
+            var text = await res.Content.ReadAsStringAsync();
 
-            if (res.IsSuccessStatusCode)
+            // Contract: oversized probe must surface as HTTP 413 + response_too_large
+            // OR soft-cap with ok:false / truncated marker (never silent full payload).
+            if (res.StatusCode == (HttpStatusCode)413 || res.StatusCode == HttpStatusCode.RequestEntityTooLarge)
             {
-                using var ok = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
-                Assert.True(ok.RootElement.TryGetProperty("ok", out _));
+                using var doc = JsonDocument.Parse(text);
+                Assert.Equal("response_too_large", doc.RootElement.GetProperty("errorCode").GetString());
             }
             else
             {
-                Assert.True(
-                    res.StatusCode is HttpStatusCode.RequestEntityTooLarge
-                        or HttpStatusCode.Forbidden
-                        or HttpStatusCode.BadRequest
-                        or (HttpStatusCode)413);
+                res.EnsureSuccessStatusCode();
+                using var ok = JsonDocument.Parse(text);
+                Assert.True(ok.RootElement.TryGetProperty("ok", out var okEl));
+                // Soft-cap path trims; payload must stay under the configured budget roughly.
+                Assert.True(text.Length <= 8192, $"soft-cap payload still huge: {text.Length}");
+                _ = okEl;
             }
         }
         finally

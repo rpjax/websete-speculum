@@ -1,0 +1,67 @@
+name: Perf
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 6 * * *'
+  push:
+    branches: [main, master]
+
+jobs:
+  motor-perf:
+    name: motor-perf
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Map motor host for Hosting profile
+        run: |
+          echo "127.0.0.1 speculum.test" | sudo tee -a /etc/hosts
+
+      - name: Build motor-assert stack
+        run: docker compose -f deploy/compose/docker-compose.motor-assert.yml up -d --build
+
+      - name: Wait for stack health
+        run: |
+          set -euo pipefail
+          ok=0
+          for i in $(seq 1 90); do
+            if curl -sf http://127.0.0.1:18080/health >/dev/null \
+              && docker compose -f deploy/compose/docker-compose.motor-assert.yml ps --status running | grep -q sidecar; then
+              ok=1
+              break
+            fi
+            sleep 2
+          done
+          if [ "$ok" != "1" ]; then
+            docker compose -f deploy/compose/docker-compose.motor-assert.yml ps >&2 || true
+            exit 1
+          fi
+
+      - name: Seed admin config
+        run: |
+          chmod +x deploy/compose/seed-motor-assert.sh
+          MOTOR_ASSERT_API_BASE=http://127.0.0.1:18080 \
+          MOTOR_ASSERT_ADMIN_KEY=motor-assert-admin-key \
+            ./deploy/compose/seed-motor-assert.sh
+
+      - name: Run MotorPerf SLO tests
+        env:
+          MOTOR_ASSERT_API_BASE: http://speculum.test:18080
+          MOTOR_ASSERT_MOTOR_HOST: speculum.test
+          MOTOR_ASSERT_ADMIN_KEY: motor-assert-admin-key
+          MOTOR_ASSERT_CLIENT_ORIGIN: https://speculum.test
+          MOTOR_ASSERT_TRAEFIK_BASE: http://127.0.0.1:18081
+          MOTOR_ASSERT_DUMP_DIR: ${{ runner.temp }}/motor-perf-dumps
+        run: >
+          dotnet test Speculum.MotorPerf.Tests/Speculum.MotorPerf.Tests.csproj
+          -c Release --filter "Category=MotorPerf" --verbosity normal
+
+      - name: Tear down
+        if: always()
+        run: docker compose -f deploy/compose/docker-compose.motor-assert.yml down -v --remove-orphans

@@ -5,6 +5,9 @@ using System.Text.Json;
 
 namespace Speculum.MotorAssert.Tests;
 
+/// <summary>
+/// Act→Assert helpers for diagnostics probes/snapshots. Missing properties fail hard.
+/// </summary>
 public sealed class DiagnosticsAssertClient(MotorAssertHost host)
 {
     private static readonly JsonSerializerOptions Json = MotorAssertHost.Json;
@@ -23,6 +26,34 @@ public sealed class DiagnosticsAssertClient(MotorAssertHost host)
         res.EnsureSuccessStatusCode();
         using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync(ct));
         return doc.RootElement.Clone();
+    }
+
+    public async Task<JsonElement> RequireSessionAsync(string connectionId, CancellationToken ct = default)
+    {
+        var session = await TryGetSessionAsync(connectionId, ct);
+        Assert.NotNull(session);
+        return session!.Value;
+    }
+
+    public JsonElement RequireSnapshot(JsonElement sessionEnvelope)
+    {
+        Assert.True(sessionEnvelope.TryGetProperty("snapshot", out var snap), "session envelope missing snapshot");
+        return snap;
+    }
+
+    public string RequireString(JsonElement obj, string name)
+    {
+        Assert.True(obj.TryGetProperty(name, out var el), $"missing property '{name}'");
+        var s = el.GetString();
+        Assert.False(string.IsNullOrWhiteSpace(s), $"property '{name}' empty");
+        return s!;
+    }
+
+    public bool RequireBool(JsonElement obj, string name)
+    {
+        Assert.True(obj.TryGetProperty(name, out var el), $"missing property '{name}'");
+        Assert.True(el.ValueKind is JsonValueKind.True or JsonValueKind.False, $"property '{name}' not bool");
+        return el.GetBoolean();
     }
 
     public async Task AssertSessionGoneAsync(string connectionId, CancellationToken ct = default)
@@ -123,9 +154,87 @@ public sealed class DiagnosticsAssertClient(MotorAssertHost host)
         return doc.RootElement.Clone();
     }
 
+    public async Task<string> ExpectEvaluateAsync(
+        string connectionId,
+        string expression,
+        string expectedSubstring,
+        CancellationToken ct = default)
+    {
+        var probe = await PostBrowserProbeAsync(connectionId, ["evaluate"], evaluateExpression: expression, ct: ct);
+        Assert.True(probe.GetProperty("ok").GetBoolean(), probe.ToString());
+        Assert.True(probe.TryGetProperty("data", out var data), "probe missing data");
+        var text = data.ToString();
+        Assert.Contains(expectedSubstring, text, StringComparison.Ordinal);
+        return text;
+    }
+
+    public async Task ExpectCookieAsync(
+        string connectionId,
+        string name,
+        string? valueContains = null,
+        CancellationToken ct = default)
+    {
+        var probe = await PostBrowserProbeAsync(connectionId, ["cookies"], ct: ct);
+        Assert.True(probe.GetProperty("ok").GetBoolean(), probe.ToString());
+        var blob = probe.GetProperty("data").ToString();
+        Assert.Contains(name, blob, StringComparison.Ordinal);
+        if (valueContains is not null)
+            Assert.Contains(valueContains, blob, StringComparison.Ordinal);
+    }
+
+    public async Task ExpectLocalStorageAsync(
+        string connectionId,
+        string key,
+        string valueContains,
+        CancellationToken ct = default)
+    {
+        var probe = await PostBrowserProbeAsync(
+            connectionId,
+            ["evaluate"],
+            evaluateExpression: $"localStorage.getItem({JsonSerializer.Serialize(key)})",
+            ct: ct);
+        Assert.True(probe.GetProperty("ok").GetBoolean(), probe.ToString());
+        Assert.Contains(valueContains, probe.GetProperty("data").ToString(), StringComparison.Ordinal);
+    }
+
+    public async Task WaitFrameSequenceAtLeastAsync(
+        string connectionId,
+        long minSequence,
+        TimeSpan? timeout = null,
+        CancellationToken ct = default)
+    {
+        var deadline = DateTime.UtcNow + (timeout ?? TimeSpan.FromSeconds(45));
+        while (DateTime.UtcNow < deadline)
+        {
+            var session = await RequireSessionAsync(connectionId, ct);
+            var snap = RequireSnapshot(session);
+            Assert.True(snap.TryGetProperty("frameSequence", out var seqEl), "snapshot missing frameSequence");
+            if (seqEl.GetInt64() >= minSequence)
+                return;
+            await Task.Delay(200, ct);
+        }
+
+        throw new TimeoutException($"frameSequence never reached {minSequence}");
+    }
+
     public static bool HasEvent(IReadOnlyList<JsonElement> events, string name, string? correlationId = null)
         => events.Any(e =>
             string.Equals(e.GetProperty("name").GetString(), name, StringComparison.Ordinal)
             && (correlationId is null
                 || string.Equals(e.GetProperty("correlationId").GetString(), correlationId, StringComparison.Ordinal)));
+
+    public static JsonElement RequireProperty(JsonElement obj, string name)
+    {
+        Assert.True(obj.TryGetProperty(name, out var el), $"missing property '{name}' on {obj}");
+        return el;
+    }
+
+    public async Task<(int ActiveCount, int StartingCount)> GetRegistryCountsAsync(CancellationToken ct = default)
+    {
+        using var doc = await host.Http.GetFromJsonAsync<JsonDocument>("api/admin/diagnostics/v1/sessions", Json, ct);
+        var root = doc!.RootElement;
+        var active = RequireProperty(root, "activeCount").GetInt32();
+        var starting = root.TryGetProperty("startingCount", out var sc) ? sc.GetInt32() : 0;
+        return (active, starting);
+    }
 }

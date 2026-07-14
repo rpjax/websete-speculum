@@ -30,6 +30,12 @@ curl -sf -X PUT "${API_BASE}/api/admin/config/JsBridge" \
   -H "${AUTH}" -H "Content-Type: application/json" \
   -d '{"enable":true}'
 
+# Assertive diagnostics profile is also set via SPECULUM_DIAGNOSTICS_PROFILE=Assertive on the API container.
+# Ensure BrowserQuery floors for MotorAssert / MotorPerf.
+curl -sf -X PUT "${API_BASE}/api/admin/config/Diagnostics" \
+  -H "${AUTH}" -H "Content-Type: application/json" \
+  -d '{"enabled":true,"defaultLevel":"BrowserQuery","domains":{"motorLive":"BrowserQuery","sidecarBrowser":"BrowserQuery","hostResources":"Metrics","browserQuery":"BrowserQuery","persistedSessions":"BrowserQuery"},"probe":{"maxConcurrentProbesPerSession":2,"diagTimeoutMs":10000,"maxProbeResponseBytes":524288}}'
+
 echo "Waiting for /ready ..."
 for i in $(seq 1 30); do
   if curl -sf "${API_BASE}/ready" >/dev/null; then

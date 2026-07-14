@@ -147,8 +147,8 @@ public sealed class InputResizeProbeGovernanceTests(MotorAssertFixture fx)
         var cfg = await fx.Host.Http.GetAsync("/api/public/client-config");
         cfg.EnsureSuccessStatusCode();
         using var doc = JsonDocument.Parse(await cfg.Content.ReadAsStringAsync());
-        Assert.True(doc.RootElement.TryGetProperty("nsoParamName", out _)
-                    || doc.RootElement.TryGetProperty("NsoParamName", out _));
+        Assert.True(doc.RootElement.TryGetProperty("nsoParamName", out _),
+            $"client-config missing nsoParamName: {doc.RootElement}");
     }
 
     [MotorAssertFact]

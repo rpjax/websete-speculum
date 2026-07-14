@@ -81,6 +81,11 @@ public sealed class LifecycleAndNavigateTests(MotorAssertFixture fx)
         await fx.Diagnostics.WaitForEventsAsync(
             act.ConnectionId, "Motor.Navigate", navSince,
             ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.NavigateCompleted"));
+
+        await fx.Diagnostics.ExpectEvaluateAsync(
+            act.ConnectionId!,
+            "location.pathname",
+            "/nav/b");
     }
 
     [MotorAssertFact]

@@ -449,7 +449,7 @@ public sealed class MotorSession : IMotorSession
         return result;
     }
 
-    private string MapTargetUrlForClient(string targetUrl)
+    internal string MapTargetUrlForClient(string targetUrl)
     {
         var forwarding = _snapshot.Forwarding;
         string clientUrl;

@@ -137,13 +137,7 @@ public sealed class LifecycleDeepTests(MotorAssertFixture fx)
         }
 
         if (connId is not null)
-        {
-            try { await fx.Diagnostics.AssertSessionGoneAsync(connId); }
-            catch (TimeoutException)
-            {
-                // Hub may still hold the connection until Act disconnects; fault event is the contract.
-            }
-        }
+            await fx.Diagnostics.AssertSessionGoneAsync(connId);
     }
 
     private static string? ResolveComposeFile()

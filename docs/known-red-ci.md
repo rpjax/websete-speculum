@@ -14,7 +14,11 @@ This branch intentionally keeps **failing** tests that document real product bug
 
 ## Hardened asserts (may fail; fix product, not the assert)
 
-A9 viewport dims, E3 multi-entry history, E7 cookie/LS after drain, F3 DELETE→404, J7 mirroring `missing[]`, L11 soft-cap `ok:false`, M1 exact `Diagnostics.ConfigApplied`, no StartSession retry.
+A8 SidecarFaulted + session_gone, A9 viewport dims, B1 probe `/nav/b`, E3 multi-entry history, E6 SidecarFaulted then StateExportFailed, E7 cookie/LS after drain, F1 DELETE SessionPolicy, F3 DELETE→404, J7 mirroring `missing[]`, K3 CORS success status, L11 soft-cap `ok:false`, M1 exact `Diagnostics.ConfigApplied`, no StartSession retry, strict FindPersistedSessionId (token-only), camelCase-only detail JSON (`history`/`cookies`/`localStorage`).
+
+## Diagnostics emitter publish (unit — must stay green)
+
+`DiagnosticsEmitterPublishTests`: SessionResolved payload fields, restored+counts, UrlMapped once per distinct clientUrl, Off drops publishes, Degraded accepts catalog Motor events.
 
 ## Hotfix plan (next)
 

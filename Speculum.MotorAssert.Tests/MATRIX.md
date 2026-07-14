@@ -11,10 +11,10 @@ Source of truth for Act→Assert coverage. **Depth:** `deep` = effect assert in 
 | A5 | deep | cancel Starting → slot released | `A5_cancel_starting_releases_slot` |
 | A6 | deep | disconnect → StateExportCompleted + persisted | `A6_disconnect_exports_and_persists` |
 | A7 | deep | resource probe + gone | `A7_resource_probe_while_running_then_gone` |
-| A8 | deep | sidecar stop → fault / session cleanup | `A8_sidecar_stop_faults_and_cleans_session` |
+| A8 | deep | sidecar stop → SidecarFaulted **and** session_gone | `A8_sidecar_stop_faults_and_cleans_session` |
 | A9 | deep | viewport defaults **1280×720** when 0×0 | `A9_viewport_defaults_when_zero` |
 | A10 | deep | clientToken hex round-trip + reject | `A10_*` / `A10b_*` |
-| B1–B3 | deep | navigate allowlist / reject / scheme | `B1_*` `B2_*` `B3_*` |
+| B1–B3 | deep | navigate allowlist (**B1 probe `/nav/b`**) / reject / scheme | `B1_*` `B2_*` `B3_*` |
 | B4 | deep | goEvil → redirect wire + alive + tabs | `B4_*` / `B4b_*` |
 | B5 | deep | domain wildcard allowlist E2E | `B5_wildcard_subdomain_allowed` |
 | B6 | deep | asset-escape page stays alive | `B6_*` |
@@ -33,7 +33,7 @@ Source of truth for Act→Assert coverage. **Depth:** `deep` = effect assert in 
 | E3 | deep | history ≥2 `/nav/a`+`/nav/b` | `E3_persisted_detail_includes_history` |
 | E4 | deep | persisted list/get | `E4_*` |
 | E5 | deep | identity indexers resolve same session | `E5_indexers_resolve_same_persisted_session` |
-| E6 | deep | export fail path event | `E6_state_export_failed_on_sidecar_kill` |
+| E6 | deep | sidecar kill → SidecarFaulted then StateExportFailed | `E6_state_export_failed_on_sidecar_kill` |
 | E7 | deep | drain keeps cookie+LS in persisted | `E7_drain_preserves_persisted_state` |
 | E8 | deep | rebind same token → one persisted row | `E8_*` (`BugTraps/SessionRebindTrapTests`) |
 | F1 | deep | SessionPolicy PUT | `F1_*` |
@@ -88,8 +88,11 @@ CI **required** may fail intentionally. Do **not** skip or weaken:
 | MsgPack `SessionStatus.url` camelCase | same + Vitest `sessionStatusPayload.test` | Client URL never syncs |
 | E3 history ≥2 | MotorAssert | CDP history / seed weakness |
 | L11 soft-cap `ok:false` | MotorAssert | Soft-cap may still return ok:true |
-| Others (A9/E7/F3/J7/M1) | MotorAssert | Product gaps revealed by strict asserts |
+| Others (A8/A9/B1/E6/E7/F1/F3/J7/K3/M1) | MotorAssert | Product gaps revealed by strict asserts |
+| Emitter publish units | `Api.Tests/.../Emitters` | Must stay green (bus recorder; not a trap) |
 
 Follow-up plan: **hotfixes only** (MsgPack naming, URL sync, revealed assert failures). Do not greenwash traps.
+
+Depth note: MotorAssert + emitter units are hardened for Act→Assert completeness (SessionResolved / UrlMapped / export / probes). Remaining `Task.Delay` waits are still present where no event exists yet — prefer event waits over delays when extending.
 
 P (unit/contract pyramid) stays in `Speculum.Api.Tests` + sidecar `npm test` + web Vitest under the fast gate. Stress/SLO → `Speculum.MotorPerf.Tests` + `.github/workflows/perf.yml` (not required).

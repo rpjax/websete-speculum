@@ -192,10 +192,10 @@ public sealed class DiagnosticsEdgeDeepTests(MotorAssertFixture fx)
             $"api/admin/diagnostics/v1/resolve?connectionId={Uri.EscapeDataString(act.ConnectionId!)}");
         res.EnsureSuccessStatusCode();
         using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
-        Assert.True(
-            doc.RootElement.TryGetProperty("snapshot", out _)
-            || doc.RootElement.TryGetProperty("connectionId", out _),
-            doc.RootElement.ToString());
+        Assert.True(doc.RootElement.TryGetProperty("connectionId", out var cid), doc.RootElement.ToString());
+        Assert.Equal(act.ConnectionId, cid.GetString());
+        Assert.True(doc.RootElement.TryGetProperty("snapshot", out var snap), doc.RootElement.ToString());
+        Assert.True(snap.TryGetProperty("phase", out _), snap.ToString());
     }
 
     [MotorAssertFact]
@@ -308,9 +308,7 @@ public sealed class DiagnosticsEdgeDeepTests(MotorAssertFixture fx)
         req.Headers.TryAddWithoutValidation("Origin", "http://127.0.0.1");
         req.Headers.TryAddWithoutValidation("Access-Control-Request-Method", "GET");
         var allowed = await http.SendAsync(req);
-        Assert.True(
-            allowed.IsSuccessStatusCode || allowed.StatusCode == HttpStatusCode.NoContent,
-            $"allowed preflight {(int)allowed.StatusCode}");
+        Assert.True(allowed.IsSuccessStatusCode, $"allowed preflight {(int)allowed.StatusCode}");
 
         using var deniedReq = new HttpRequestMessage(HttpMethod.Options, $"{traefik.TrimEnd('/')}/api/public/client-config");
         deniedReq.Headers.TryAddWithoutValidation("Origin", "https://evil-not-allowed.example");

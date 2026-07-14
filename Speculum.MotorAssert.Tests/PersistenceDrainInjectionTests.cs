@@ -191,17 +191,15 @@ public sealed class PersistenceDrainInjectionTests(MotorAssertFixture fx)
         {
             if (item.TryGetProperty("clientToken", out var ct)
                 && string.Equals(ct.GetString(), token, StringComparison.Ordinal)
-                && item.TryGetProperty("sessionId", out var sid))
+                && item.TryGetProperty("sessionId", out var sid)
+                && sid.GetString() is { } id)
             {
-                sessionId = sid.GetString();
+                sessionId = id;
                 break;
             }
-
-            if (item.TryGetProperty("id", out var id))
-                sessionId ??= id.GetString();
         }
 
-        Assert.False(string.IsNullOrWhiteSpace(sessionId));
+        Assert.False(string.IsNullOrWhiteSpace(sessionId), $"no persisted row for token {token}");
         var detail = await fx.Host.Http.GetAsync($"api/admin/diagnostics/v1/persisted/{sessionId}");
         detail.EnsureSuccessStatusCode();
     }
@@ -212,7 +210,10 @@ public sealed class PersistenceDrainInjectionTests(MotorAssertFixture fx)
         var put = await fx.Host.PutConfigAsync("SessionPolicy", new { ttlDays = 7 });
         put.EnsureSuccessStatusCode();
         var del = await fx.Host.DeleteConfigAsync("SessionPolicy");
-        Assert.True(del.IsSuccessStatusCode || del.StatusCode is HttpStatusCode.BadRequest);
+        Assert.True(del.IsSuccessStatusCode, $"DELETE SessionPolicy => {(int)del.StatusCode}");
+        var get = await fx.Host.Http.GetAsync("api/admin/config/SessionPolicy");
+        Assert.Equal(HttpStatusCode.NotFound, get.StatusCode);
+        await fx.Host.PutConfigAsync("SessionPolicy", new { ttlDays = 30 });
     }
 
     [MotorAssertFact]

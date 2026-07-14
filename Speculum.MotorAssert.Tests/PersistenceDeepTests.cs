@@ -36,8 +36,7 @@ public sealed class PersistenceDeepTests(MotorAssertFixture fx)
         detailRes.EnsureSuccessStatusCode();
         using var doc = JsonDocument.Parse(await detailRes.Content.ReadAsStringAsync());
         Assert.True(doc.RootElement.TryGetProperty("detail", out var detail), doc.RootElement.ToString());
-        Assert.True(detail.TryGetProperty("history", out var history) || detail.TryGetProperty("History", out history),
-            detail.ToString());
+        Assert.True(detail.TryGetProperty("history", out var history), detail.ToString());
         Assert.True(history.GetArrayLength() >= 2, $"expected >=2 history rows after nav a→b, got {history}");
         var histText = history.ToString();
         Assert.Contains("/nav/a", histText, StringComparison.Ordinal);
@@ -125,15 +124,16 @@ public sealed class PersistenceDeepTests(MotorAssertFixture fx)
         try
         {
             RunCompose(composeFile, "stop", "sidecar");
-            // Fault may land before disconnect; after disconnect expect export Failed.
-            await Task.Delay(1500);
-            await act.DisconnectAsync();
-
             await fx.Diagnostics.WaitForEventsAsync(
-                null, "Motor.", since,
-                ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.StateExportFailed")
-                      || DiagnosticsAssertClient.HasEvent(ev, "Motor.SidecarFaulted"),
+                act.ConnectionId, "Motor.", since,
+                ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SidecarFaulted"),
                 timeout: TimeSpan.FromSeconds(90));
+
+            await act.DisconnectAsync();
+            await fx.Diagnostics.WaitForEventsAsync(
+                null, "Motor.StateExport", since,
+                ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.StateExportFailed"),
+                timeout: TimeSpan.FromSeconds(60));
         }
         finally
         {
@@ -182,12 +182,9 @@ public sealed class PersistenceDeepTests(MotorAssertFixture fx)
         detail.EnsureSuccessStatusCode();
         using var detailDoc = JsonDocument.Parse(await detail.Content.ReadAsStringAsync());
         Assert.True(detailDoc.RootElement.TryGetProperty("detail", out var detailEl), detailDoc.RootElement.ToString());
-        Assert.True(detailEl.TryGetProperty("cookies", out var cookies) || detailEl.TryGetProperty("Cookies", out cookies),
-            detailEl.ToString());
+        Assert.True(detailEl.TryGetProperty("cookies", out var cookies), detailEl.ToString());
         Assert.Contains("sf_marker", cookies.ToString(), StringComparison.Ordinal);
-        Assert.True(
-            detailEl.TryGetProperty("localStorage", out var ls) || detailEl.TryGetProperty("LocalStorage", out ls),
-            detailEl.ToString());
+        Assert.True(detailEl.TryGetProperty("localStorage", out var ls), detailEl.ToString());
         Assert.Contains("sf_ls", ls.ToString(), StringComparison.Ordinal);
     }
 

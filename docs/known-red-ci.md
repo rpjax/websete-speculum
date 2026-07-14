@@ -13,7 +13,7 @@ Hardened asserts and remaining product gaps may still fail. Do not `[Skip]` / `[
 
 ## Hardened asserts (may fail; fix product, not the assert)
 
-A8 SidecarFaulted + session_gone, A9 viewport dims, B1 probe `/nav/b`, E3 multi-entry history, E6 SidecarFaulted then StateExportFailed, E7 cookie/LS after drain, F1 DELETE SessionPolicy, F3 DELETE→404, J7 mirroring `missing[]`, K3 CORS success status, L11 soft-cap `ok:false`, M1 exact `Diagnostics.ConfigApplied`, no StartSession retry, strict FindPersistedSessionId (token-only), camelCase-only detail JSON (`history`/`cookies`/`localStorage`).
+A8 SidecarFaulted + session_gone (+ sidecar `/health` wait after restart), A9 viewport dims, B1 probe `/nav/b`, E3 multi-entry history, E6 SidecarFaulted then StateExportFailed (+ `/health` wait), E7 cookie/LS after drain, F1 DELETE SessionPolicy, F3 DELETE→404, J7 mirroring without edgeTls → 400, K3 CORS success status, L11 soft-cap → `response_too_large`, M1 exact `Diagnostics.ConfigApplied`, no StartSession retry, strict FindPersistedSessionId (token-only), camelCase-only detail JSON (`history`/`cookies`/`localStorage`).
 
 ## Diagnostics emitter publish (unit — must stay green)
 

@@ -137,6 +137,7 @@ public sealed class PersistenceDeepTests(MotorAssertFixture fx)
         finally
         {
             RunCompose(composeFile, "start", "sidecar");
+            await MotorAssertCompose.WaitSidecarHttpHealthyAsync(composeFile);
             await fx.Host.EnsureReadyAsync();
         }
     }
@@ -156,6 +157,7 @@ public sealed class PersistenceDeepTests(MotorAssertFixture fx)
                 act.ConnectionId, "Motor.Session", since,
                 ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
             await fx.Diagnostics.WaitCookieAsync(act.ConnectionId!, "sf_marker", "state-cookie");
+            await fx.Diagnostics.WaitLocalStorageAsync(act.ConnectionId!, "sf_ls", "state-ls");
             await act.DisconnectAsync();
         }
 
@@ -164,6 +166,7 @@ public sealed class PersistenceDeepTests(MotorAssertFixture fx)
             ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.StateExportCompleted"));
 
         var sessionId = await FindPersistedSessionIdAsync(token);
+        await WaitPersistedCookiesContainAsync(sessionId, "sf_marker");
 
         var drainSince = DateTimeOffset.UtcNow.AddSeconds(-1);
         var put = await fx.Host.PutConfigAsync("Forwarding", new
@@ -176,6 +179,7 @@ public sealed class PersistenceDeepTests(MotorAssertFixture fx)
             null, "Motor.Drain", drainSince,
             ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.DrainCompleted"));
 
+        await WaitPersistedCookiesContainAsync(sessionId, "sf_marker");
         var detail = await fx.Host.Http.GetAsync($"api/admin/diagnostics/v1/persisted/{sessionId}");
         detail.EnsureSuccessStatusCode();
         using var detailDoc = JsonDocument.Parse(await detail.Content.ReadAsStringAsync());
@@ -184,6 +188,30 @@ public sealed class PersistenceDeepTests(MotorAssertFixture fx)
         Assert.Contains("sf_marker", cookies.ToString(), StringComparison.Ordinal);
         Assert.True(detailEl.TryGetProperty("localStorage", out var ls), detailEl.ToString());
         Assert.Contains("sf_ls", ls.ToString(), StringComparison.Ordinal);
+    }
+
+    private async Task WaitPersistedCookiesContainAsync(string sessionId, string marker)
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(30);
+        string? last = null;
+        while (DateTime.UtcNow < deadline)
+        {
+            var detail = await fx.Host.Http.GetAsync($"api/admin/diagnostics/v1/persisted/{sessionId}");
+            if (detail.IsSuccessStatusCode)
+            {
+                var text = await detail.Content.ReadAsStringAsync();
+                last = text;
+                using var doc = JsonDocument.Parse(text);
+                if (doc.RootElement.TryGetProperty("detail", out var d)
+                    && d.TryGetProperty("cookies", out var cookies)
+                    && cookies.ToString().Contains(marker, StringComparison.Ordinal))
+                    return;
+            }
+
+            await Task.Delay(250);
+        }
+
+        Assert.Fail($"persisted session {sessionId} never showed cookie '{marker}'. last={last}");
     }
 
     [MotorAssertFact]

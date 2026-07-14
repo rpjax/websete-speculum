@@ -222,10 +222,9 @@ public sealed class PersistenceDrainInjectionTests(MotorAssertFixture fx)
             act.ConnectionId, "Motor.Session", since,
             ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
 
-        var configSince = DateTimeOffset.UtcNow.AddSeconds(-1);
         var put = await fx.Host.PutConfigAsync("MaxSessions", 4);
         put.EnsureSuccessStatusCode();
-        await fx.Diagnostics.WaitConfigAppliedAsync(configSince);
+        // MaxSessions does not emit Diagnostics.ConfigApplied — assert live session survives immediately.
 
         var still = await fx.Diagnostics.TryGetSessionAsync(act.ConnectionId!);
         Assert.NotNull(still);

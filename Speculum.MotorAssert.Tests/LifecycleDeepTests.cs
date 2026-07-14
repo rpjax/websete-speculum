@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Net.Http.Json;
 using System.Text.Json;
 
@@ -131,7 +130,7 @@ public sealed class LifecycleDeepTests(MotorAssertFixture fx)
         finally
         {
             RunCompose(composeFile!, "start", "sidecar");
-            await WaitSidecarHealthyAsync(composeFile!);
+            await MotorAssertCompose.WaitSidecarHttpHealthyAsync(composeFile!);
             await fx.Host.EnsureReadyAsync();
         }
 
@@ -151,50 +150,5 @@ public sealed class LifecycleDeepTests(MotorAssertFixture fx)
     }
 
     private static void RunCompose(string composeFile, params string[] args)
-    {
-        var psi = new ProcessStartInfo
-        {
-            FileName = "docker",
-            ArgumentList = { "compose", "-f", composeFile },
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-        };
-        foreach (var a in args)
-            psi.ArgumentList.Add(a);
-
-        using var p = Process.Start(psi)!;
-        var stdout = p.StandardOutput.ReadToEnd();
-        var stderr = p.StandardError.ReadToEnd();
-        p.WaitForExit(120_000);
-        Assert.True(p.ExitCode == 0, $"docker compose {string.Join(' ', args)} failed: {stdout}\n{stderr}");
-    }
-
-    private static async Task WaitSidecarHealthyAsync(string composeFile)
-    {
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(120);
-        while (DateTime.UtcNow < deadline)
-        {
-            var psi = new ProcessStartInfo
-            {
-                FileName = "docker",
-                ArgumentList =
-                {
-                    "compose", "-f", composeFile, "ps", "--status", "running", "--format", "json",
-                },
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-            };
-            using var p = Process.Start(psi)!;
-            var stdout = await p.StandardOutput.ReadToEndAsync();
-            await p.WaitForExitAsync();
-            if (stdout.Contains("sidecar", StringComparison.OrdinalIgnoreCase))
-                return;
-
-            await Task.Delay(1000);
-        }
-
-        Assert.Fail("sidecar did not return to running after A8 restart");
-    }
+        => MotorAssertCompose.Run(composeFile, args);
 }

@@ -52,7 +52,7 @@ public sealed class JsBridgeHostingMiscTests(MotorAssertFixture fx)
     }
 
     [MotorAssertFact]
-    public async Task J7_mirroring_misconfigured_status()
+    public async Task J7_mirroring_without_edge_tls_is_rejected()
     {
         var put = await fx.Host.PutConfigAsync("Hosting", new
         {
@@ -65,27 +65,9 @@ public sealed class JsBridgeHostingMiscTests(MotorAssertFixture fx)
                 },
             },
         });
-        put.EnsureSuccessStatusCode();
-
-        try
-        {
-            var status = await fx.Host.Http.GetAsync("api/admin/config/status");
-            status.EnsureSuccessStatusCode();
-            using var doc = JsonDocument.Parse(await status.Content.ReadAsStringAsync());
-            Assert.True(doc.RootElement.TryGetProperty("hosting", out var hosting), doc.RootElement.ToString());
-            Assert.True(hosting.TryGetProperty("profiles", out var profiles), hosting.ToString());
-            Assert.True(profiles.GetArrayLength() >= 1, profiles.ToString());
-            var profile = profiles[0];
-            Assert.True(profile.GetProperty("subdomainMirroringEnabled").GetBoolean());
-            Assert.False(profile.GetProperty("mirroringOperational").GetBoolean());
-            Assert.True(profile.TryGetProperty("missing", out var missing), profile.ToString());
-            Assert.True(missing.GetArrayLength() >= 1, $"expected missing[] when mirroring ON without TLS: {profile}");
-        }
-        finally
-        {
-            var restore = await fx.RestoreHostingApexAsync();
-            restore.EnsureSuccessStatusCode();
-        }
+        Assert.Equal(HttpStatusCode.BadRequest, put.StatusCode);
+        var body = await put.Content.ReadAsStringAsync();
+        Assert.Contains("edgeTls", body, StringComparison.OrdinalIgnoreCase);
     }
 
     [MotorAssertFact]

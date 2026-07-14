@@ -47,7 +47,7 @@ Source of truth for Act→Assert coverage. **Depth:** `deep` = effect assert in 
 | I5 | deep | JsBridge flip mid-session snapshot immutable | `I5_*` |
 | J1–J3 | deep | public config / ready / status | `J1_J2_*` `J3_*` |
 | J4–J6 | deep | mirroring status fields (with B8) | `B8_*` / `J7_*` |
-| J7 | deep | mirroring misconfigured status | `J7_*` |
+| J7 | deep | mirroring ON without edgeTls → **400** | `J7_mirroring_without_edge_tls_is_rejected` |
 | K1 | deep | Hosting PUT → Traefik dynamic files | `K1_hosting_put_writes_bootstrap_yml` |
 | K2 | deep | Traefik health/ready/client-config/negotiate | `K2_*` |
 | K3 | deep | CORS preflight via Traefik | `K3_cors_preflight_via_traefik` |

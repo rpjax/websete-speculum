@@ -63,7 +63,8 @@ public sealed class InputFramesPopupTests(MotorAssertFixture fx)
             act.ConnectionId, "Motor.Session", since,
             ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
 
-        await fx.Diagnostics.WaitFixturePageAsync(act.ConnectionId!, "click-target");
+        await fx.Diagnostics.WaitEvaluateContainsAsync(
+            act.ConnectionId!, "document.getElementById('out')?.getAttribute('data-clicks')", "0");
         await act.SendWheelAsync(400, 300, 160);
         await fx.Diagnostics.WaitEvaluateContainsAsync(
             act.ConnectionId!, "window.__SPECULUM_WHEEL__ === true", "true");

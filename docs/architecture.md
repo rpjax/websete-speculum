@@ -257,7 +257,9 @@ Defence in depth: Traefik TLS and network policy are expected at the edge; the A
 
 ## Related documents
 
+- [Engineering standards](engineering-standards.md) — **mandatory** architecture / code / testing constitution (agents: [../AGENTS.md](../AGENTS.md))
 - [Naming guide](naming.md) — Speculum / Motor / W7S vocabulary
+- [Diagnostics](diagnostics.md) — assertable observability + Act→Assert cookbook
 - [W7S sidecar protocol](w7s-sidecar-protocol.md) — wire format between API and sidecar
 - [Motor reference](motor-reference.md) — protocol bytes, config store algorithm, setup mode
 - [Deploy guide](../deploy/README.md) — dockup commands, VPS workflow

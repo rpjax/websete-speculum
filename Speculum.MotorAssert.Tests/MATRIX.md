@@ -80,18 +80,18 @@ Constitution: [docs/engineering-standards.md](../docs/engineering-standards.md) 
 | Diagnostics governance | `InputResizeProbeGovernanceTests`, `DiagnosticsEdgeDeepTests`, `DiagnosticsGovernance/*` |
 | Bug traps (known-red) | `BugTraps/*` (MsgPack web contract also in Api.Tests + Vitest) |
 
-## Known red (intentional until product green)
+## Known red (policy — asserts stay strict)
 
-Do **not** skip or weaken. MsgPack camelCase Bugs A/B are **fixed** (`MotorHubMessagePack` + `[Key]` DTOs).
+Do **not** skip or weaken matrix asserts. Current **`motor-assertive` is green** (90/90); history and harness checklist: [docs/known-red-ci.md](../docs/known-red-ci.md).
 
 | Item | Layer | Notes |
 |------|-------|-------|
-| E3 history ≥2 | MotorAssert | CDP history / seed weakness |
-| L11 soft-cap `ok:false` | MotorAssert | Soft-cap may still return ok:true |
-| Others (A8/A9/B1/E6/E7/F1/F3/J7/K3/M1) | MotorAssert | Product gaps revealed by strict asserts |
-| Emitter publish units | `Api.Tests/.../Emitters` | Must stay green (bus recorder; not a trap) |
-| E8 / B12 | MotorAssert BugTraps | Re-check on stack after MsgPack deploy |
+| MsgPack camelCase | Api.Tests + Vitest + MotorAssert | Fixed — keep contract tests green |
+| Emitter publish units | `Api.Tests/.../Emitters` | Must stay green (bus recorder) |
+| E8 / B12 rebind + UrlMapped | `BugTraps/*` | Green on CI; traps remain for regressions |
 
 Depth note: each MotorAssert test runs `EnsureBaselineAsync` (clear Diagnostics Degraded via `/recover`, MaxSessions / JsBridge / Assertive BrowserQuery with runtime verify) via `MotorAssertTestBase`, so Diagnostics level mutations and circuit-breaker caps cannot leak into the next test.
+
+Export note: persistence restore tests use `WaitStateExportCompletedAsync(connectionId, since-before-disconnect)` — see [diagnostics.md](../docs/diagnostics.md) §4.
 
 P (unit/contract pyramid) stays in `Speculum.Api.Tests` + sidecar `npm test` + web Vitest under the fast gate. Stress/SLO → `Speculum.MotorPerf.Tests` + `.github/workflows/perf.yml` (not required).

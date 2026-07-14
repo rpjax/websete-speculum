@@ -4,6 +4,8 @@ Phase 2 control plane for telemetry, debug, and Phase 3 Act→Assert contracts.
 
 Schema version: **`diagnosticsSchemaVersion: 1`**.
 
+> Testing pyramid, Act→Assert rules, and CI splits (required vs Perf): **[engineering-standards.md](engineering-standards.md)** §§3–4. Coverage inventory: [../Speculum.MotorAssert.Tests/MATRIX.md](../Speculum.MotorAssert.Tests/MATRIX.md).
+
 ## Concepts
 
 | Type | Meaning |
@@ -38,7 +40,9 @@ Catalog Act→Assert events are **never** randomly sampled away. `StatusMirrorRa
 
 Each recipe: Act → poll events with `?since=` / `namePrefix=` → assert snapshot / errorCode.
 
-**Harness helpers** (`Speculum.MotorAssert.Tests`): prefer `WaitEvaluateContainsAsync`, `WaitCookieAsync`, `WaitLocalStorageAsync`, `WaitFixturePageAsync`, `WaitConfigAppliedAsync`, `ExpectEvaluateAsync` / `ExpectCookieAsync` / `ExpectLocalStorageAsync` (poll), `WaitFrameSequenceAtLeastAsync`, `RequireSessionAsync` / `RequireSnapshot` / `RequireString` — missing JSON properties fail hard (no soft skip). Do **not** insert fixed `Task.Delay` before probes; poll or wait for catalog events instead.
+**Harness helpers** (`Speculum.MotorAssert.Tests`): prefer `WaitEvaluateContainsAsync`, `WaitCookieAsync`, `WaitLocalStorageAsync`, `WaitFixturePageAsync`, `WaitConfigAppliedAsync`, `WaitStateExportCompletedAsync`, `ExpectEvaluateAsync` / `ExpectCookieAsync` / `ExpectLocalStorageAsync` (poll), `WaitFrameSequenceAtLeastAsync`, `RequireSessionAsync` / `RequireSnapshot` / `RequireString` — missing JSON properties fail hard (no soft skip). Do **not** insert fixed `Task.Delay` before probes; poll or wait for catalog events instead.
+
+**Per-test baseline:** every MotorAssertive test inherits `MotorAssertTestBase` → `EnsureBaselineAsync` (MaxSessions, JsBridge, clear Degraded, Assertive Diagnostics when needed). See [engineering-standards.md](engineering-standards.md) §3.6.
 
 ### 1. Session lifecycle
 
@@ -81,7 +85,7 @@ Motor completeness for debug: **identity resolve + URL map + export + probes** (
 
 ### 4. Persistence
 
-1. Act: stop session that exports state → `Motor.StateExportCompleted` (always recorded; not sampled).
+1. Act: stop session that exports state → wait **`Motor.StateExportCompleted` for that `connectionId`** (`WaitStateExportCompletedAsync` — not a global export wait).
 2. Assert: `GET /persisted/{sessionId}` → `{ detail… }` (level ≥ `StateSnapshots`).
 3. Act: start new session with same client token → restore.
 4. Assert: `BrowserQuery` probe `cookies` / `evaluate` sees restored truth.
@@ -94,6 +98,9 @@ Motor completeness for debug: **identity resolve + URL map + export + probes** (
 4. Concurrent probes beyond `maxConcurrentProbesPerSession` → `429` `{ "errorCode": "probe_busy" }`.
 5. Probe response exceeding `maxProbeResponseBytes` → HTTP `413` with `errorCode: response_too_large`, **or** a soft-capped success whose body stays under the budget (never an uncapped multi‑100KB DOM dump). MotorAssert `L11` locks this contract.
 6. PUT elevate → assert `GET /events?namePrefix=Diagnostics.Elevate` includes `ElevateStarted`; TTL/DELETE → `ElevateExpired`.
+7. **Degraded circuit breaker** — sustained sink drops or slow writes trip `Diagnostics.Degraded`; effective levels cap above Metrics to Metrics → probes return `probe_level_insufficient`. Recovery: cleanup cycle or **`POST /recover`** (audited `Diagnostics.Recovered`). Harness baseline calls recover before BrowserQuery asserts.
+
+Admin routes (Bearer): `GET /runtime`, `PUT|DELETE /elevate`, **`POST /recover`**, `GET /events`, session/persisted/probe paths — see `DiagnosticsEndpoints`.
 
 ### 7. Performance SLOs (`perf.yml` / `Speculum.MotorPerf.Tests`)
 
@@ -121,9 +128,9 @@ Notable MotorLive additions for completeness:
 - **`Motor.SessionResolved`** — identity/persist fact before sidecar start (payload above).
 - **`Motor.UrlMapped`** — target→client URL map on change (apex NSO / mirroring).
 
-## Known red (intentional until hotfix plan)
+## CI status and policy
 
-MsgPack camelCase identity + web `SessionStatus` casing traps, and hardened MotorAssert asserts, may fail CI until the follow-up **hotfix** plan. Do not skip or weaken those tests.
+MotorAssert matrix A–O is **required green** on PRs (`motor-assertive` job). Hardened asserts are intentional product traps — when they fail, fix product/harness per [known-red-ci.md](known-red-ci.md); do not skip.
 
 ## Motor snapshot minimum
 

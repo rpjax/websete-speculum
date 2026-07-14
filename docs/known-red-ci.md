@@ -1,45 +1,80 @@
-# Known red CI (diagnostics + bug traps)
+# Known red CI (policy + history)
 
-Hardened asserts and remaining product gaps may still fail. Do not `[Skip]` / `[Ignore]` them — fix the product.
+Hardened asserts exist to **catch product lies**. When they fail, fix the product or harness — do not `[Skip]` / `[Ignore]` / soften.
 
-Policy context: [engineering-standards.md](engineering-standards.md) (§3.7 known-red, anti-patterns). Agents: [../AGENTS.md](../AGENTS.md).
+Policy: [engineering-standards.md](engineering-standards.md) §3.7. Agents: [../AGENTS.md](../AGENTS.md).
 
-## MsgPack camelCase (Bugs A/B) — fixed
+---
 
-| ID | Test | Status |
-|----|------|--------|
-| A′ | `MsgPackHubContractTests.SessionIdentity_deserializes_js_camelCase_clientToken` | Green via `[Key("clientToken")]` + `MotorHubMessagePack` |
-| B′ | `MsgPackHubContractTests.SessionStatus_roundtrip_exposes_camelCase_url_for_js_client` | Green via `[Key("url")]` + camelCase wire |
-| B′ web | `sessionStatusPayload.test.ts` | Green (camelCase required; PascalCase ignored by design) |
-| E8 / B12 | MotorAssert rebind / UrlMapped traps | Re-validate after deploy; C# Act path already camelCase-aligned |
+## Current status
 
-## Hardened asserts (may fail; fix product, not the assert)
+| Gate | Status |
+|------|--------|
+| Fast gate (`dotnet` / `sidecar` / `web` / `compose` / `dockup`) | Green |
+| **`motor-assertive`** (90 tests, MATRIX A–O) | **Green** (verified run `29317794817`) |
 
-A8 SidecarFaulted + session_gone (+ sidecar `/health` wait after restart), A9 viewport dims, B1 probe `/nav/b`, E3 multi-entry history, E6 SidecarFaulted then StateExportFailed (+ `/health` wait), E7 cookie/LS after drain, F1 DELETE SessionPolicy, F3 DELETE→404, J7 mirroring without edgeTls → 400, K3 CORS success status, L11 soft-cap → `response_too_large`, M1 exact `Diagnostics.ConfigApplied`, no StartSession retry, strict FindPersistedSessionId (token-only), camelCase-only detail JSON (`history`/`cookies`/`localStorage`).
+If `motor-assertive` goes red again, use this doc + CI logs to classify **product** vs **harness** before changing asserts.
 
-## Diagnostics emitter publish (unit — must stay green)
+---
 
-`DiagnosticsEmitterPublishTests`: SessionResolved payload fields, restored+counts, UrlMapped once per distinct clientUrl, Off drops publishes, Degraded accepts catalog Motor events.
+## Policy (always)
 
-## Harness isolation (MotorAssert)
+1. **Missing JSON property = fail** — no `TryGetProperty` skip-as-pass.
+2. **Effect assert** — events, snapshots, probes, `errorCode`; not `200` / `ok: true` alone.
+3. **Functional ≠ Perf** — overflow load, frame SLOs, probe storm → `perf.yml` / Api sink units, not weakened MotorAssert.
+4. **Harness flake = bug** — fix wait scope, baseline, or product timing; do not add silent retries.
+5. **MATRIX** must stay accurate when coverage depth changes.
 
-Every MotorAssertive test inherits `MotorAssertTestBase` → `EnsureBaselineAsync` before Act:
+---
 
-- `MaxSessions=4`, `JsBridge.enable=true`
-- Clears **Diagnostics Degraded** via `POST /api/admin/diagnostics/v1/recover` when needed (Degraded caps effective levels at Metrics → `403 probe_level_insufficient`)
-- Diagnostics Assertive (`BrowserQuery`) restored when effective levels are insufficient, with `ConfigApplied` wait + runtime verify
+## Resolved (diagnostics + traps wave)
 
-Do not use `WaitConfigApplied` for non-Diagnostics/Hosting sections (e.g. JsBridge, MaxSessions).
+| Area | Issue | Fix |
+|------|-------|-----|
+| MsgPack A/B | JS `clientToken` / `status.url` not binding (PascalCase wire) | `[Key("camelCase")]` on hub DTOs + `MotorHubMessagePack.Options` |
+| Cascade E6/A8 | API `/ready` green while sidecar dead | Wait sidecar HTTP `/health` after restart |
+| G4 | MaxSessions PUT emitted `ConfigApplied` | Product: no event for MaxSessions |
+| C3 | Wheel assert on missing `#speculum-probe` | Wait `data-clicks` on `/click-target` |
+| J7 | Mirroring without `edgeTls` | **400** aligned with `ConfigValidator` |
+| L11 | Silent `{}` on oversized probe | `response_too_large` + hub `errorCode` map |
+| L10 | Chromium poison after cancelled CDP probe | Drain evaluate before disconnect |
+| Isolation | `BrowserQuery=Metrics` after Assertive PUT | **Degraded** cap — `POST /recover` + faster cleanup + baseline |
+| E1/E8 | Restore with empty cookies | Global `StateExport` wait matched wrong export → `WaitStateExportCompletedAsync(connectionId)` |
 
-## Isolation wave (29316122628) — root cause
+Hardened asserts that drove the above (A8, A9, B1, E3, E6, E7, F1, F3, J7, K3, L11, M1, E8, B12, …) are **green** on current `main` branch merge candidate — they remain strict; do not relax them.
 
-`BrowserQuery=Metrics` after PUT Assertive = **Degraded cap**, not wrong config. Fixed in `b837670`: recover endpoint + faster cleanup + baseline clears Degraded.
+---
 
-## Export wait (E1/E8) — harness
+## Harness checklist (when probes or restore fail)
 
-`WaitForEventsAsync(null, "Motor.StateExport", since-at-test-start)` could match another test's `StateExportCompleted` (e.g. E4/G2/G3 before E1). Use `WaitStateExportCompletedAsync(connectionId, since-before-disconnect)`.
+| Symptom | Likely cause | Action |
+|---------|--------------|--------|
+| `403 probe_level_insufficient` with Assertive seed | `Diagnostics.Degraded` | `POST /api/admin/diagnostics/v1/recover`; verify `GET /runtime` → `degraded: false` |
+| `effectiveLevels.BrowserQuery=Metrics` after restore PUT | Same | Baseline `EnsureBaselineAsync` |
+| Restore cookies empty, export “already done” | Export wait matched another test | `WaitStateExportCompletedAsync(connectionId, since-before-disconnect)` |
+| Timeout on `ConfigApplied` after JsBridge PUT | Wrong event expectation | Remove wait; only Diagnostics/Hosting emit it |
+| Mass 1ms failures after one long test | Baseline throw / degraded cascade | Fix first failing test; check `/recover` + runtime |
 
-## Next
+---
 
-1. Re-run MotorAssert CI after export-scoped wait.
-2. Treat any remaining hard failures as product with independent evidence.
+## Unit contracts (must stay green)
+
+`DiagnosticsEmitterPublishTests`: SessionResolved payload fields, restored+counts, UrlMapped once per distinct clientUrl, Off drops publishes, Degraded still accepts catalog Motor events.
+
+`DiagnosticsEndpointsTests.Recover_clears_degraded_and_audits`: `POST /recover` clears degraded and emits `Diagnostics.Recovered`.
+
+---
+
+## Deferred (intentional)
+
+| ID | Item | Notes |
+|----|------|-------|
+| K4 | ACME/DNS | `deferred-K4` — manual/nightly; not PR required |
+
+---
+
+## Related
+
+- Harness helpers: `DiagnosticsAssertClient`, `MotorAssertFixture`, `MotorAssertTestBase`
+- Cookbook: [diagnostics.md](diagnostics.md)
+- Matrix inventory: [../Speculum.MotorAssert.Tests/MATRIX.md](../Speculum.MotorAssert.Tests/MATRIX.md)

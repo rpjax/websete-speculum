@@ -59,6 +59,7 @@ Cursor: um plano detalhado por fase (não três no mesmo turn).
 
 ## Referências no repo
 
+- **`docs/engineering-standards.md`** + `AGENTS.md` — constituição permanente (arquitectura / código / testes / CI)
 - `docs/naming.md`, `docs/architecture.md`, `docs/diagnostics.md` (Assert Cookbook Fase 2→3), `readme.md`
 - API: `Motor/`, `Edge/`, `BrowserPersistence/`, `Config/Application/`, `Diagnostics/`
 - Web: `web/src/features/motor/`, `web/src/features/admin/DiagnosticsPage.tsx`, `web/src/lib/diagnosticsApi.ts`
@@ -69,5 +70,6 @@ Cursor: um plano detalhado por fase (não três no mesmo turn).
 
 - **Fase 1:** concluída (Motor live refactor + Vitest).
 - **Fase 2:** concluída a 100% (Diagnostics control plane, sidecar diagProbe, Admin UI, cookbook, testes).
-- **Fase 3:** concluída (dual gate + fixture + MotorAssert matrix A–O no job `motor-assertive`; Chrome só GitHub Actions; K4 ACME nightly). Correções finais: clientToken hex, canais SignalR input/frame/status/console, rotas fixture C/N/B6/B9/B10.
+- **Fase 3:** concluída — dual gate + fixture + MotorAssert matrix A–O no job `motor-assertive` (90 testes verdes); K4 ACME nightly/deferred.
+- **Pós-Fase 3:** constituição permanente em `docs/engineering-standards.md` + `AGENTS.md` + `.cursor/rules/`; ondas Degraded/recover + export wait escopado + MsgPack camelCase.
 - **Fase 2b:** hub admin SignalR — fora de scope.

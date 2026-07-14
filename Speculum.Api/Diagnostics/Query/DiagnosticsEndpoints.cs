@@ -74,6 +74,26 @@ public static class DiagnosticsEndpoints
             return Results.Ok(new { elevated = false });
         });
 
+        // Ops/lab: circuit breaker recovery must not wait for the cleanup timer alone.
+        // Degraded caps effective levels at Metrics and blocks BrowserQuery probes.
+        g.MapPost("/recover", (HttpContext http, IDiagnosticsRuntime runtime, IDiagnosticsEventBus bus) =>
+        {
+            var actor = http.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+            var wasDegraded = runtime.IsDegraded;
+            if (wasDegraded)
+            {
+                runtime.SetDegraded(false);
+                bus.Publish(new DiagnosticsEvent
+                {
+                    Domain = DiagnosticsDomain.DiagnosticsSelf,
+                    Name = "Diagnostics.Recovered",
+                    Payload = new { reason = "manual_recover", actorIp = actor, audit = true },
+                });
+            }
+
+            return Results.Ok(new { degraded = false, recovered = wasDegraded });
+        });
+
         g.MapGet("/host", async (
             IEnumerable<IDiagnosticsProbeProvider> providers,
             IDiagnosticsRedactor redactor) =>

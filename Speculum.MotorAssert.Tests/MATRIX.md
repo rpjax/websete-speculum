@@ -2,6 +2,8 @@
 
 Source of truth for Act→Assert coverage. **Depth:** `deep` = effect assert in required CI; `contract` = governance/shape assert in required CI; `perf` = `perf.yml` only; `deferred-K4` = manual/nightly ACME.
 
+Constitution: [docs/engineering-standards.md](../docs/engineering-standards.md) (§3 Testing). Do not weaken asserts — [docs/known-red-ci.md](../docs/known-red-ci.md).
+
 | ID | Depth | Coverage | Test method(s) |
 |----|-------|----------|----------------|
 | A1 | deep | lifecycle + correlation + session_gone | `A1_session_lifecycle_correlation_and_session_gone` |
@@ -90,6 +92,6 @@ Do **not** skip or weaken. MsgPack camelCase Bugs A/B are **fixed** (`MotorHubMe
 | Emitter publish units | `Api.Tests/.../Emitters` | Must stay green (bus recorder; not a trap) |
 | E8 / B12 | MotorAssert BugTraps | Re-check on stack after MsgPack deploy |
 
-Depth note: each MotorAssert test runs `EnsureBaselineAsync` (MaxSessions / JsBridge / Assertive BrowserQuery with runtime verify) via `MotorAssertTestBase`, so Diagnostics level mutations cannot leak into the next test.
+Depth note: each MotorAssert test runs `EnsureBaselineAsync` (clear Diagnostics Degraded via `/recover`, MaxSessions / JsBridge / Assertive BrowserQuery with runtime verify) via `MotorAssertTestBase`, so Diagnostics level mutations and circuit-breaker caps cannot leak into the next test.
 
 P (unit/contract pyramid) stays in `Speculum.Api.Tests` + sidecar `npm test` + web Vitest under the fast gate. Stress/SLO → `Speculum.MotorPerf.Tests` + `.github/workflows/perf.yml` (not required).

@@ -2,6 +2,8 @@
 
 Hardened asserts and remaining product gaps may still fail. Do not `[Skip]` / `[Ignore]` them — fix the product.
 
+Policy context: [engineering-standards.md](engineering-standards.md) (§3.7 known-red, anti-patterns). Agents: [../AGENTS.md](../AGENTS.md).
+
 ## MsgPack camelCase (Bugs A/B) — fixed
 
 | ID | Test | Status |
@@ -24,11 +26,16 @@ A8 SidecarFaulted + session_gone (+ sidecar `/health` wait after restart), A9 vi
 Every MotorAssertive test inherits `MotorAssertTestBase` → `EnsureBaselineAsync` before Act:
 
 - `MaxSessions=4`, `JsBridge.enable=true`
+- Clears **Diagnostics Degraded** via `POST /api/admin/diagnostics/v1/recover` when needed (Degraded caps effective levels at Metrics → `403 probe_level_insufficient`)
 - Diagnostics Assertive (`BrowserQuery`) restored when effective levels are insufficient, with `ConfigApplied` wait + runtime verify
 
 Do not use `WaitConfigApplied` for non-Diagnostics/Hosting sections (e.g. JsBridge, MaxSessions).
 
+## Isolation wave (29316122628) — root cause
+
+`BrowserQuery=Metrics` after PUT Assertive = **Degraded cap**, not wrong config. Cleanup used to recover only every 5 minutes → cascade of 1ms baseline failures. Fixed: recover endpoint + faster cleanup while degraded + less hair-trigger write_latency breaker + baseline clears Degraded.
+
 ## Next
 
-1. Re-run MotorAssert CI after isolation wave.
+1. Re-run MotorAssert CI after Degraded recovery wave.
 2. Treat remaining hard failures (A8 SidecarFaulted, E3 history, …) as product/harness with independent evidence.

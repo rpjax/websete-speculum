@@ -8,7 +8,7 @@ import { JsBridgeSetup }     from './JsBridgeSetup';
 import { UrlSyncBridge, StatusPublisher } from './UrlSyncBridge';
 import { NavigationGuard }   from '../navigation/NavigationGuard';
 import { InputPipeline }     from '../input/InputPipeline';
-import { exportBrowserState, BrowserStatePayload } from '../BrowserState';
+import { exportBrowserState, importLocalStorageAfterNavigation, BrowserStatePayload } from '../BrowserState';
 import { ScriptEntry } from '../protocol/wire-protocol';
 import {
     capProbeData,
@@ -134,6 +134,10 @@ export class RemoteBrowserSession {
 
             if (url) {
                 await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+            }
+
+            if (browserState) {
+                await importLocalStorageAfterNavigation(page, browserState);
             }
 
             const MAX_IN_FLIGHT = 3;

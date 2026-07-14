@@ -42,7 +42,7 @@ export interface BrowserStatePayload {
 
 export async function exportBrowserState(cdp: CDPSession, page: Page): Promise<BrowserStatePayload> {
     const cookies = await exportCookies(cdp);
-    const localStorage = await exportLocalStorage(cdp, page);
+    const localStorage = await exportLocalStorage(page);
     const idbRecords = await exportIndexedDb(cdp);
     const history = await exportHistory(cdp);
 
@@ -69,28 +69,7 @@ export async function importBrowserState(
         });
     }
 
-    for (const item of state.localStorage) {
-        try {
-            const securityOrigin = item.origin;
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const storageId = await (cdp as any).send('DOMStorage.getStorageIdForOrigin', {
-                origin: securityOrigin,
-                isLocalStorage: true,
-            }) as { storageId?: { securityOrigin?: string; isLocalStorage: boolean } };
-
-            if (!storageId.storageId) continue;
-
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            await (cdp as any).send('DOMStorage.setDOMStorageItem', {
-                storageId: storageId.storageId,
-                key:       item.key,
-                value:     item.value,
-            });
-        } catch {
-            // best-effort per origin
-        }
-    }
-
+    // IndexedDB + LS need a live document origin — LS applied after first navigation.
     for (const record of state.idbRecords) {
         try {
             await importIdbRecord(cdp, record);
@@ -101,6 +80,44 @@ export async function importBrowserState(
 
     void page;
     void state.history;
+    void state.localStorage;
+}
+
+function originHostsMatch(a: string, b: string): boolean {
+    try {
+        const ua = new URL(a);
+        const ub = new URL(b);
+        return ua.protocol === ub.protocol && ua.hostname === ub.hostname;
+    } catch {
+        return a === b;
+    }
+}
+
+/** Apply localStorage after the session has navigated to a matching http(s) origin. */
+export async function importLocalStorageAfterNavigation(
+    page: Page,
+    state: BrowserStatePayload,
+): Promise<void> {
+    let pageOrigin: string;
+    try {
+        const url = page.url();
+        if (!url.startsWith('http')) return;
+        pageOrigin = new URL(url).origin;
+    } catch {
+        return;
+    }
+
+    const items = state.localStorage ?? [];
+    for (const item of items) {
+        if (item.origin !== pageOrigin && !originHostsMatch(item.origin, pageOrigin)) continue;
+        try {
+            await page.evaluate(
+                `localStorage.setItem(${JSON.stringify(item.key)}, ${JSON.stringify(item.value)})`,
+            );
+        } catch {
+            // best-effort per key
+        }
+    }
 }
 
 async function exportCookies(cdp: CDPSession): Promise<BrowserCookieState[]> {
@@ -129,44 +146,24 @@ async function exportCookies(cdp: CDPSession): Promise<BrowserCookieState[]> {
     }));
 }
 
-async function exportLocalStorage(cdp: CDPSession, page: Page): Promise<BrowserLocalStorageState[]> {
-    const items: BrowserLocalStorageState[] = [];
-    const origins = new Set<string>();
-
+async function exportLocalStorage(page: Page): Promise<BrowserLocalStorageState[]> {
     try {
-        const frames = page.frames();
-        for (const frame of frames) {
-            const url = frame.url();
-            if (!url.startsWith('http')) continue;
-            try {
-                const origin = new URL(url).origin;
-                origins.add(origin);
-            } catch { /* skip */ }
-        }
-    } catch { /* skip */ }
-
-    for (const origin of origins) {
-        try {
-            const storageId = await (cdp as any).send('DOMStorage.getStorageIdForOrigin', {
-                origin,
-                isLocalStorage: true,
-            }) as { storageId?: { securityOrigin?: string; isLocalStorage: boolean } };
-
-            if (!storageId.storageId) continue;
-
-            const entries = await (cdp as any).send('DOMStorage.getDOMStorageItems', {
-                storageId: storageId.storageId,
-            }) as { entries?: string[][] };
-
-            for (const [key, value] of entries.entries ?? []) {
-                items.push({ origin, key, value });
+        const url = page.url();
+        if (!url.startsWith('http')) return [];
+        const origin = new URL(url).origin;
+        const entries = await page.evaluate(`(() => {
+            const out = [];
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (key == null) continue;
+                out.push([key, localStorage.getItem(key) || '']);
             }
-        } catch {
-            // skip origin
-        }
+            return out;
+        })()`) as Array<[string, string]>;
+        return entries.map(([key, value]) => ({ origin, key, value }));
+    } catch {
+        return [];
     }
-
-    return items;
 }
 
 async function exportIndexedDb(cdp: CDPSession): Promise<BrowserIdbRecordState[]> {

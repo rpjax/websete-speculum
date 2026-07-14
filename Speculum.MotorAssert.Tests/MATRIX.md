@@ -56,7 +56,7 @@ Source of truth for Act→Assert coverage. **Depth:** `deep` = effect assert in 
 | L13 | deep | host probe | `L13_*` |
 | M1 | deep | ConfigApplied / seed Assertive | `M1_*` |
 | M2 / M11 | deep | elevate + catalog | `M2_*` `M11_*` |
-| M overflow | contract | tiny maxBytes → StorageOverflow | `M_storage_overflow_contract` |
+| M overflow | contract | catalog + runtime overflow fields (load in Perf/Api.Tests) | `M_storage_overflow_contract` + Api.Tests/MotorPerf |
 | M redaction | contract | Dev `none` + schema (Prod unit) | `M_redaction_development_none` |
 | N1–N2 | deep | popup / `_blank` single-tab | `N1_N2_*` |
 | O1–O5 | deep | auth / opacity / validation / wipe | `O1_*`…`O5_*` |

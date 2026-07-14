@@ -87,7 +87,7 @@ Informational — **does not** block merge. Documented floors:
 | Frame growth | `frameSequence >= 2` within 8s of `SessionStarted` (idle screencast) |
 | Probe storm | Concurrent probes beyond cap → `429` / `probe_busy` without hang |
 
-Functional overflow correctness (small event set) lives in required MotorAssert `M_storage_overflow_contract`.
+Functional overflow: catalog id + runtime `overflowCount`/`bytesUsed`/`maxBytes` in MotorAssert `M_storage_overflow_contract`; sink emit under tiny `maxBytes` in Api.Tests; load churn in Perf.
 
 ### 6. Redaction
 

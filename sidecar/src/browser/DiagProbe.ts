@@ -103,39 +103,26 @@ async function sampleCookies(cdp: CDPSession): Promise<BrowserCookieState[]> {
 }
 
 async function sampleLocalStorage(cdp: CDPSession, page: Page): Promise<BrowserLocalStorageState[]> {
-    const items: BrowserLocalStorageState[] = [];
-    const origins = new Set<string>();
-
+    void cdp;
     try {
-        for (const frame of page.frames()) {
-            const url = frame.url();
-            if (!url.startsWith('http')) continue;
-            try { origins.add(new URL(url).origin); } catch { /* skip */ }
-        }
-    } catch { /* skip */ }
-
-    for (const origin of origins) {
-        if (items.length >= STORAGE_SAMPLE_LIMIT) break;
-        try {
-            const storageId = await (cdp as any).send('DOMStorage.getStorageIdForOrigin', {
-                origin,
-                isLocalStorage: true,
-            }) as { storageId?: { securityOrigin?: string; isLocalStorage: boolean } };
-
-            if (!storageId.storageId) continue;
-
-            const entries = await (cdp as any).send('DOMStorage.getDOMStorageItems', {
-                storageId: storageId.storageId,
-            }) as { entries?: string[][] };
-
-            for (const [key, value] of entries.entries ?? []) {
-                items.push({ origin, key, value });
-                if (items.length >= STORAGE_SAMPLE_LIMIT) break;
+        const url = page.url();
+        if (!url.startsWith('http')) return [];
+        const origin = new URL(url).origin;
+        const entries = await page.evaluate(`(() => {
+            const out = [];
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (key == null) continue;
+                out.push([key, localStorage.getItem(key) || '']);
             }
-        } catch { /* skip origin */ }
+            return out;
+        })()`) as Array<[string, string]>;
+        return entries
+            .slice(0, STORAGE_SAMPLE_LIMIT)
+            .map(([key, value]) => ({ origin, key, value }));
+    } catch {
+        return [];
     }
-
-    return items;
 }
 
 function resolveChromePid(context: BrowserContext): number | null {

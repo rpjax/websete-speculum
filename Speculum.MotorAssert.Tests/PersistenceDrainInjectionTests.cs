@@ -26,6 +26,7 @@ public sealed class PersistenceDrainInjectionTests(MotorAssertFixture fx)
 
             await Task.Delay(2500);
             await fx.Diagnostics.ExpectCookieAsync(act.ConnectionId!, "sf_marker", "state-cookie");
+            await fx.Diagnostics.ExpectLocalStorageAsync(act.ConnectionId!, "sf_ls", "state-ls");
             await act.DisconnectAsync();
         }
 
@@ -45,7 +46,7 @@ public sealed class PersistenceDrainInjectionTests(MotorAssertFixture fx)
             act2.ConnectionId, "Motor.Session", since2,
             ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId2));
 
-        await Task.Delay(2000);
+        await Task.Delay(2500);
         await fx.Diagnostics.ExpectCookieAsync(act2.ConnectionId!, "sf_marker", "state-cookie");
         await fx.Diagnostics.ExpectLocalStorageAsync(act2.ConnectionId!, "sf_ls", "state-ls");
     }

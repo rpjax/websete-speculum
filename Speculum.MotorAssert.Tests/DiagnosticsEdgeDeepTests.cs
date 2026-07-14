@@ -147,13 +147,15 @@ public sealed class DiagnosticsEdgeDeepTests(MotorAssertFixture fx)
                 act.ConnectionId, "Motor.Session", since,
                 ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
 
+            var probeStarted = DateTime.UtcNow;
             var res = await fx.Host.Http.PostAsJsonAsync(
                 $"api/admin/diagnostics/v1/sessions/{act.ConnectionId}/browser",
                 new
                 {
                     ops = new[] { "evaluate" },
+                    // Keep in-page work just above diagTimeoutMs so leftover CDP work ends quickly.
                     evaluateExpression =
-                        "(async () => { await new Promise(r => setTimeout(r, 2000)); return 'late'; })()",
+                        "(async () => { await new Promise(r => setTimeout(r, 600)); return 'late'; })()",
                     correlationId = Guid.NewGuid().ToString("N"),
                 },
                 MotorAssertHost.Json);
@@ -164,8 +166,17 @@ public sealed class DiagnosticsEdgeDeepTests(MotorAssertFixture fx)
             using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
             Assert.Equal("probe_timeout", doc.RootElement.GetProperty("errorCode").GetString());
 
-            // Confirm the browser remains responsive after the cancelled evaluate.
+            // Browser must stay responsive; also drain the cancelled evaluate so dispose does not
+            // kill Chromium mid-Runtime.evaluate (that poisons subsequent StartSession calls).
             await fx.Diagnostics.WaitFixturePageAsync(act.ConnectionId!, "home");
+            var drainUntil = probeStarted + TimeSpan.FromMilliseconds(900);
+            while (DateTime.UtcNow < drainUntil)
+            {
+                await fx.Diagnostics.WaitEvaluateContainsAsync(
+                    act.ConnectionId!, "1+1", "2", timeout: TimeSpan.FromSeconds(2));
+            }
+
+            await act.DisconnectAsync();
         }
         finally
         {

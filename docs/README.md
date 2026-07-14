@@ -12,8 +12,11 @@ Technical documentation for the **Speculum** remote browser isolation platform (
 | Document | Audience | Contents |
 |----------|----------|----------|
 | **[engineering-standards.md](engineering-standards.md)** | **Agents + contributors (mandatory)** | **Architecture / code / testing / CI constitution** |
-| [../AGENTS.md](../AGENTS.md) | AI agents | Short entry pointing at engineering standards |
+| **[frontend-standards.md](frontend-standards.md)** | **Agents + contributors (mandatory for `web/`)** | **Frontend UX constitution (shadcn, revealing UI, complex viz)** |
+| [frontend-patterns.md](frontend-patterns.md) | Agents / frontend | Approved UX recipes and decision trees |
+| [../AGENTS.md](../AGENTS.md) | AI agents | Short entry pointing at engineering + frontend standards |
 | [../.cursor/rules/speculum-engineering-standards.mdc](../.cursor/rules/speculum-engineering-standards.mdc) | Cursor | Always-on rule summary (`alwaysApply: true`) |
+| [../.cursor/rules/speculum-frontend-standards.mdc](../.cursor/rules/speculum-frontend-standards.mdc) | Cursor | Frontend rule when editing `web/**` |
 | [../readme.md](../readme.md) | Everyone | Project overview, quick start, repository map |
 | [architecture.md](architecture.md) | Architects, operators | System design, data flows, security boundaries |
 | [naming.md](naming.md) | Developers / agents | Speculum / Motor / W7S vocabulary |
@@ -42,6 +45,7 @@ Technical documentation for the **Speculum** remote browser isolation platform (
 ## Conventions
 
 - **Engineering law:** [engineering-standards.md](engineering-standards.md) (agents: [../AGENTS.md](../AGENTS.md)).
+- **Frontend UX law:** [frontend-standards.md](frontend-standards.md) + [frontend-patterns.md](frontend-patterns.md) (shadcn-only; Cursor: [../.cursor/rules/speculum-frontend-standards.mdc](../.cursor/rules/speculum-frontend-standards.mdc)).
 - **Deploy:** always use `deploy/` + dockup. Do not hand-edit `deploy/out/` — it is generated.
 - **Configuration:** infrastructure via environment variables; motor behaviour via SQLite + Admin API.
 - **Domains:** same-origin — SPA, `/api`, and `/vhub` share one motor host; `EdgeSynchronizer` materializes Traefik routes per **Hosting** profile.

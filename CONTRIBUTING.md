@@ -9,9 +9,10 @@ Thank you for improving Speculum. This guide covers local workflow, quality expe
 ## Before you start
 
 1. Read **[docs/engineering-standards.md](docs/engineering-standards.md)** — mandatory quality / architecture / testing constitution (AI agents: [AGENTS.md](AGENTS.md)).
-2. Read [readme.md](readme.md) for repository layout.
-3. Read [docs/architecture.md](docs/architecture.md) if your change crosses API, web, or sidecar boundaries.
-4. Deploy changes should go through [deploy/README.md](deploy/README.md) (dockup manifest), not ad-hoc compose edits in `deploy/out/`.
+2. For UI work under `web/`, also read **[docs/frontend-standards.md](docs/frontend-standards.md)** and [docs/frontend-patterns.md](docs/frontend-patterns.md).
+3. Read [readme.md](readme.md) for repository layout.
+4. Read [docs/architecture.md](docs/architecture.md) if your change crosses API, web, or sidecar boundaries.
+5. Deploy changes should go through [deploy/README.md](deploy/README.md) (dockup manifest), not ad-hoc compose edits in `deploy/out/`.
 
 ---
 
@@ -73,6 +74,7 @@ Full constitution: **[docs/engineering-standards.md](docs/engineering-standards.
 - **Match conventions** — follow [docs/naming.md](docs/naming.md) (Speculum / Motor / W7S vocabulary).
 - **No drive-by refactors** — avoid unrelated formatting or renames.
 - **Tests when behaviour changes** — pyramid: units (Api / sidecar / web) + MotorAssert Act→Assert on CI Chrome; Perf only for SLOs. Extend MATRIX when coverage depth changes. Never weaken asserts to get green ([docs/assert-failure-policy.md](docs/assert-failure-policy.md)).
+- **Frontend** — shadcn-only, revealing UI, enriched visualization of complex data/flows ([docs/frontend-standards.md](docs/frontend-standards.md)).
 ---
 
 ## Project boundaries
@@ -104,6 +106,7 @@ When you change behaviour, update the relevant README in the same PR:
 | Area | Document |
 |------|----------|
 | Engineering standards (agents + humans) | `docs/engineering-standards.md`, `AGENTS.md` |
+| Frontend UX / IA / shadcn patterns | `docs/frontend-standards.md`, `docs/frontend-patterns.md`, `.cursor/rules/speculum-frontend-standards.mdc` |
 | Cross-cutting design | `docs/architecture.md`, `docs/naming.md` |
 | Diagnostics / Act→Assert | `docs/diagnostics.md`, `docs/assert-failure-policy.md`, `Speculum.MotorAssert.Tests/MATRIX.md` |
 | W7S sidecar wire | `docs/w7s-sidecar-protocol.md` |

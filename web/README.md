@@ -1,11 +1,14 @@
 # Speculum Web
 
-React **single-page application** for the Speculum motor, first-run setup, and administration. Built with Vite, TypeScript, Tailwind CSS v4, and Radix-based UI primitives. Communicates with `Speculum.Api` on the same host (REST + SignalR with MessagePack).
+React **single-page application** for the Speculum motor, first-run setup, and administration. Built with Vite, TypeScript, Tailwind CSS v4, and **shadcn-style** Radix UI primitives. Communicates with `Speculum.Api` on the same host (REST + SignalR with MessagePack).
+
+**Standards (mandatory for UI work):** [../docs/frontend-standards.md](../docs/frontend-standards.md) · [../docs/frontend-patterns.md](../docs/frontend-patterns.md) · Cursor rule [../.cursor/rules/speculum-frontend-standards.mdc](../.cursor/rules/speculum-frontend-standards.mdc)
 
 ---
 
 ## Table of contents
 
+- [Standards](#standards)
 - [Routes](#routes)
 - [Architecture](#architecture)
 - [Prerequisites](#prerequisites)
@@ -19,14 +22,27 @@ React **single-page application** for the Speculum motor, first-run setup, and a
 
 ---
 
+## Standards
+
+| Document | Role |
+|----------|------|
+| [../docs/frontend-standards.md](../docs/frontend-standards.md) | Frontend UX constitution (shadcn-only, revealing UI, complex viz, anti-god-page) |
+| [../docs/frontend-patterns.md](../docs/frontend-patterns.md) | Approved recipes and decision trees |
+| [../docs/engineering-standards.md](../docs/engineering-standards.md) | Repo-wide engineering / tests / CI |
+| [../docs/naming.md](../docs/naming.md) | Speculum / Motor / W7S vocabulary |
+
+**UI kit lock:** extend `src/components/ui/` (shadcn). Do not introduce a second component library.
+
+---
+
 ## Routes
 
 | Path | Feature | Auth |
 |------|---------|------|
 | `/` | Virtual browser motor (canvas + SignalR) | — |
 | `/setup` | Configuration status when API is not operational | — |
-| `/admin` | Login | — |
-| `/admin/dashboard` | Overview | Bearer (sessionStorage) |
+| `/admin/login` | Admin login | — |
+| `/admin` | Dashboard overview | Bearer (sessionStorage) |
 | `/admin/forwarding` | Forwarding section | Bearer |
 | `/admin/max-sessions` | MaxSessions section | Bearer |
 | `/admin/js-bridge` | JsBridge section | Bearer |
@@ -34,7 +50,9 @@ React **single-page application** for the Speculum motor, first-run setup, and a
 | `/admin/session-policy` | SessionPolicy section | Bearer |
 | `/admin/script-injection` | ScriptInjection section | Bearer |
 | `/admin/scripts` | Upload / list injected scripts | Bearer |
-| `/admin/sessions` | Browser sessions drill-down | Bearer |
+| `/admin/sessions` | Browser sessions list | Bearer |
+| `/admin/sessions/:sessionId` | Session detail drill-down | Bearer |
+| `/admin/diagnostics` | Diagnostics operator UI | Bearer |
 | `/admin/api-key` | Rotate admin key | Bearer |
 | `/admin/openapi` | Embedded OpenAPI viewer | Bearer |
 
@@ -150,10 +168,11 @@ Protocol details: [../docs/motor-reference.md](../docs/motor-reference.md).
 
 ## Admin panel
 
-- API key entered on `/admin` login → stored in `sessionStorage`
+- API key entered on `/admin/login` → stored in `sessionStorage`
 - Config section paths use exact PascalCase via `ConfigSections` in `lib/api.ts`
 - All config mutations use `Authorization: Bearer <key>`
 - OpenAPI page fetches `/openapi/v1.json` (same origin)
+- UX must follow [../docs/frontend-standards.md](../docs/frontend-standards.md) (revealing UI, enrichment, complex-viz)
 
 ---
 
@@ -183,4 +202,4 @@ docker build -t speculum-web .
 
 `web/Dockerfile` serves the SPA with **nginx**. CSP uses `connect-src 'self'` (same-origin API/SignalR via Traefik).
 
-Parent docs: [../readme.md](../readme.md) · [../deploy/README.md](../deploy/README.md)
+Parent docs: [../readme.md](../readme.md) · [../deploy/README.md](../deploy/README.md) · [../docs/frontend-standards.md](../docs/frontend-standards.md)

@@ -1,0 +1,34 @@
+---
+description: Speculum frontend UX (shadcn-only, revealing UI, complex viz)
+globs: web/**/*.{ts,tsx,css}
+alwaysApply: false
+---
+
+# Speculum — frontend standards
+
+Before UI/UX work under `web/`, read and obey:
+
+1. `docs/frontend-standards.md`
+2. `docs/frontend-patterns.md`
+3. `web/README.md`
+4. `docs/naming.md` (motor feature folders)
+5. `docs/engineering-standards.md` still applies (tests, CI, wire, V1)
+
+## Hard bans
+
+- **shadcn only** — extend `web/src/components/ui/`; never install MUI/Fluent/Ant/Chakra or invent a parallel look.
+- No god pages/components — split into `*Flow` / `*Step` / `*Section` / sub-routes (~350 LOC soft cap; investigate >500).
+- No JSON/text walls as primary UI — complex data/flows need visualization facilitators (table+detail, timeline, overview→tabs, health strip).
+- No information saturation — **revealing UI**: primary path first; Advanced / Sheet / drill-down on progress.
+- No thin CRUD when enrichment (wizard, disclosure, viz) is required.
+- No raw hex in Admin/Setup — use `@theme` tokens (`web/src/index.css`).
+- No silent failures / toast-only errors on config pages — explicit loading/empty/success/error.
+- No W7S in operator-facing labels.
+
+## Enrichment
+
+Prefer value-adding facilitators: wizards, Sheets, Tabs (one job), tables+detail, timelines, status strips, AlertDialog for destructive work. Copy recipes from `docs/frontend-patterns.md` — do not invent competing patterns.
+
+## Diff hygiene
+
+Minimal scope; match local conventions; add missing shadcn primitives on first need rather than one-off custom widgets.

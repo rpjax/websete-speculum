@@ -247,7 +247,9 @@ Full motor assert (fixture + Chromium) runs only in GitHub Actions job `motor-as
 | Document | Description |
 |----------|-------------|
 | [docs/engineering-standards.md](docs/engineering-standards.md) | **Mandatory** engineering constitution (agents + contributors) |
-| [AGENTS.md](AGENTS.md) | AI agent entry (points at engineering standards) |
+| [docs/frontend-standards.md](docs/frontend-standards.md) | **Mandatory for `web/`** frontend UX constitution (shadcn, revealing UI) |
+| [docs/frontend-patterns.md](docs/frontend-patterns.md) | Approved frontend UX recipes |
+| [AGENTS.md](AGENTS.md) | AI agent entry (points at engineering + frontend standards) |
 | [docs/README.md](docs/README.md) | Documentation hub |
 | [docs/architecture.md](docs/architecture.md) | System design and security |
 | [docs/diagnostics.md](docs/diagnostics.md) | Observability + Act→Assert cookbook |

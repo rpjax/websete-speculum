@@ -19,6 +19,7 @@ Read this **before** multi-file or motor/diagnostics/CI changes. Deeper detail l
 | 5 | Before MotorAssert or CI matrix changes: [../Speculum.MotorAssert.Tests/MATRIX.md](../Speculum.MotorAssert.Tests/MATRIX.md) |
 | 6 | Before changing a failing hardened assert: [assert-failure-policy.md](assert-failure-policy.md) |
 | 7 | Cursor injects a short always-on summary: [../.cursor/rules/speculum-engineering-standards.mdc](../.cursor/rules/speculum-engineering-standards.mdc) |
+| 8 | Before UI work under `web/`: [frontend-standards.md](frontend-standards.md) + [frontend-patterns.md](frontend-patterns.md); Cursor: [../.cursor/rules/speculum-frontend-standards.mdc](../.cursor/rules/speculum-frontend-standards.mdc) |
 
 **Hard bans before you type:**
 
@@ -285,9 +286,12 @@ Do **not** treat motor-assertive Docker+Chrome as laptop QA by default — that 
 | Sidecar wire | [w7s-sidecar-protocol.md](w7s-sidecar-protocol.md) |
 | Matrix A–O | [../Speculum.MotorAssert.Tests/MATRIX.md](../Speculum.MotorAssert.Tests/MATRIX.md) |
 | Assert failure / triage | [assert-failure-policy.md](assert-failure-policy.md) |
+| Frontend UX constitution | [frontend-standards.md](frontend-standards.md) |
+| Frontend UX recipes | [frontend-patterns.md](frontend-patterns.md) |
 | Deploy | [../deploy/README.md](../deploy/README.md) |
 | Human contributor workflow | [../CONTRIBUTING.md](../CONTRIBUTING.md) |
 | Agent entry (repo root) | [../AGENTS.md](../AGENTS.md) |
 | Cursor always-apply rule | [../.cursor/rules/speculum-engineering-standards.mdc](../.cursor/rules/speculum-engineering-standards.mdc) |
+| Cursor frontend rule (`web/**`) | [../.cursor/rules/speculum-frontend-standards.mdc](../.cursor/rules/speculum-frontend-standards.mdc) |
 
-This file, [diagnostics.md](diagnostics.md), and MATRIX are the permanent testing law.
+This file, [diagnostics.md](diagnostics.md), and MATRIX are the permanent testing law. Frontend UX law: [frontend-standards.md](frontend-standards.md).

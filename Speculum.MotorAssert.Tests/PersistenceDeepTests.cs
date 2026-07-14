@@ -77,12 +77,12 @@ public sealed class PersistenceDeepTests(MotorAssertFixture fx)
         var actId2 = Guid.NewGuid().ToString("N");
         await using var act2 = new MotorActClient(fx.Host);
         await act2.ConnectAsync();
-        // Resolve via custom indexer alone (plus a fresh token that should not create a new row if tenant hits).
+        // Resolve via custom indexer alone — MessagePack must preserve Dictionary Indexers.
         await act2.StartSessionAsync(
             $"{fx.Host.FixtureClientOrigin}/nav/a",
             actId2,
             clientToken: null,
-            indexers: indexers);
+            indexers: new Dictionary<string, string>(indexers, StringComparer.Ordinal));
         await fx.Diagnostics.WaitForEventsAsync(
             act2.ConnectionId, "Motor.Session", since2,
             ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId2));
@@ -94,6 +94,8 @@ public sealed class PersistenceDeepTests(MotorAssertFixture fx)
         // Same logical session should still be listable under original token metadata path;
         // at least restore truth proves indexer routed to the exported state.
         Assert.False(string.IsNullOrWhiteSpace(sessionId1));
+        var sessionId2 = await FindPersistedSessionIdAsync(token);
+        Assert.Equal(sessionId1, sessionId2);
     }
 
     [MotorAssertFact]

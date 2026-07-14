@@ -5,5 +5,5 @@ public sealed class MotorSessionIdentity
 {
     public string? ClientToken { get; init; }
     public string? CorrelationId { get; init; }
-    public IReadOnlyDictionary<string, string>? Indexers { get; init; }
+    public Dictionary<string, string>? Indexers { get; init; }
 }

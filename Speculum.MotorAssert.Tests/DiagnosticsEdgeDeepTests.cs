@@ -69,6 +69,7 @@ public sealed class DiagnosticsEdgeDeepTests(MotorAssertFixture fx)
 
         try
         {
+            await fx.Host.EnsureReadyAsync();
             var since = DateTimeOffset.UtcNow.AddSeconds(-2);
             var actId = Guid.NewGuid().ToString("N");
             await using var act = new MotorActClient(fx.Host);
@@ -88,7 +89,7 @@ public sealed class DiagnosticsEdgeDeepTests(MotorAssertFixture fx)
 
             var t1 = fx.Host.Http.PostAsJsonAsync(
                 $"api/admin/diagnostics/v1/sessions/{act.ConnectionId}/browser", body, MotorAssertHost.Json);
-            await Task.Delay(100);
+            await Task.Delay(200);
             var t2 = fx.Host.Http.PostAsJsonAsync(
                 $"api/admin/diagnostics/v1/sessions/{act.ConnectionId}/browser", body, MotorAssertHost.Json);
 
@@ -97,6 +98,14 @@ public sealed class DiagnosticsEdgeDeepTests(MotorAssertFixture fx)
             var busy = results.First(r => r.StatusCode == (HttpStatusCode)429);
             using var doc = JsonDocument.Parse(await busy.Content.ReadAsStringAsync());
             Assert.Equal("probe_busy", doc.RootElement.GetProperty("errorCode").GetString());
+
+            // Let the slow probe finish so the next test does not race a hung CDP evaluate.
+            await Task.WhenAll(results.Select(async r =>
+            {
+                if (r.StatusCode == HttpStatusCode.OK)
+                    _ = await r.Content.ReadAsStringAsync();
+            }));
+            await Task.Delay(500);
         }
         finally
         {
@@ -122,7 +131,7 @@ public sealed class DiagnosticsEdgeDeepTests(MotorAssertFixture fx)
             probe = new
             {
                 maxConcurrentProbesPerSession = 2,
-                diagTimeoutMs = 500,
+                diagTimeoutMs = 300,
                 maxProbeResponseBytes = 524288,
             },
         });
@@ -130,6 +139,7 @@ public sealed class DiagnosticsEdgeDeepTests(MotorAssertFixture fx)
 
         try
         {
+            await fx.Host.EnsureReadyAsync();
             var since = DateTimeOffset.UtcNow.AddSeconds(-2);
             var actId = Guid.NewGuid().ToString("N");
             await using var act = new MotorActClient(fx.Host);
@@ -145,7 +155,7 @@ public sealed class DiagnosticsEdgeDeepTests(MotorAssertFixture fx)
                 {
                     ops = new[] { "evaluate" },
                     evaluateExpression =
-                        "(async () => { await new Promise(r => setTimeout(r, 5000)); return 'late'; })()",
+                        "(async () => { await new Promise(r => setTimeout(r, 2000)); return 'late'; })()",
                     correlationId = Guid.NewGuid().ToString("N"),
                 },
                 MotorAssertHost.Json);
@@ -155,10 +165,14 @@ public sealed class DiagnosticsEdgeDeepTests(MotorAssertFixture fx)
                 $"expected 504, got {(int)res.StatusCode}");
             using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
             Assert.Equal("probe_timeout", doc.RootElement.GetProperty("errorCode").GetString());
+
+            // Sidecar may still be awaiting the cancelled evaluate; wait out remaining work.
+            await Task.Delay(2000);
         }
         finally
         {
             await fx.RestoreAssertiveDiagnosticsAsync();
+            await fx.Host.EnsureReadyAsync();
         }
     }
 
@@ -328,9 +342,16 @@ public sealed class DiagnosticsEdgeDeepTests(MotorAssertFixture fx)
         // Empty profiles are accepted by the validator but mark Hosting MissingRequired (A2).
         var hostingEmpty = await fx.Host.PutConfigAsync("Hosting", new { profiles = Array.Empty<object>() });
         hostingEmpty.EnsureSuccessStatusCode();
-        var ready = await fx.Host.Http.GetAsync("/ready");
-        Assert.False(ready.IsSuccessStatusCode);
-        await fx.RestoreHostingApexAsync();
+        try
+        {
+            var ready = await fx.Host.Http.GetAsync("/ready");
+            Assert.False(ready.IsSuccessStatusCode);
+        }
+        finally
+        {
+            await fx.RestoreHostingApexAsync();
+            await fx.Host.EnsureReadyAsync();
+        }
 
         var hostingBadDomain = await fx.Host.PutConfigAsync("Hosting", new
         {
@@ -338,6 +359,7 @@ public sealed class DiagnosticsEdgeDeepTests(MotorAssertFixture fx)
         });
         Assert.Equal(HttpStatusCode.BadRequest, hostingBadDomain.StatusCode);
         await fx.RestoreHostingApexAsync();
+        await fx.Host.EnsureReadyAsync();
     }
 
     [MotorAssertFact]

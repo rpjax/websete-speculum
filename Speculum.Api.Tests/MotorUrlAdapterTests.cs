@@ -175,15 +175,26 @@ public class SessionIdentityStoreTests
 
             var token = "abcdef0123456789abcdef0123456789";
             var (id1, returned) = await store.ResolveOrCreateSessionAsync(
-                new SessionIdentity { ClientToken = token });
+                new SessionIdentity
+                {
+                    ClientToken = token,
+                    Indexers = new Dictionary<string, string> { ["tenant"] = "acme" },
+                });
             var (id2, _) = await store.ResolveOrCreateSessionAsync(
                 new SessionIdentity
                 {
-                    Indexers = new Dictionary<string, string> { ["client_token"] = token },
+                    Indexers = new Dictionary<string, string> { ["tenant"] = "acme" },
                 });
 
             Assert.Equal(id1, id2);
             Assert.Equal(token, returned);
+
+            var (id3, _) = await store.ResolveOrCreateSessionAsync(
+                new SessionIdentity
+                {
+                    Indexers = new Dictionary<string, string> { ["client_token"] = token },
+                });
+            Assert.Equal(id1, id3);
         }
         finally
         {

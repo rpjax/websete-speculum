@@ -100,7 +100,7 @@ Motor completeness for debug: **identity resolve + URL map + export + probes** (
 6. PUT elevate → assert `GET /events?namePrefix=Diagnostics.Elevate` includes `ElevateStarted`; TTL/DELETE → `ElevateExpired`.
 7. **Degraded circuit breaker** — sustained sink drops or slow writes trip `Diagnostics.Degraded`; effective levels above Metrics are capped to Metrics → probes return `probe_level_insufficient`. Recovery: cleanup cycle or **`POST /recover`** (audited `Diagnostics.Recovered`). Harness baseline calls recover before BrowserQuery asserts.
 
-Admin routes (Bearer): `GET /runtime`, `PUT|DELETE /elevate`, **`POST /recover`**, `GET /events`, session/persisted/probe paths — see `DiagnosticsEndpoints`.
+Admin routes (Bearer): `GET /runtime`, **`GET /overview`** (SPA aggregate of runtime + live session counts), `PUT|DELETE /elevate`, **`POST /recover`**, `GET /events`, session/persisted/probe paths — see `DiagnosticsEndpoints`.
 
 ### 6. Redaction
 

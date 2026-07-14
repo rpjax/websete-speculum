@@ -185,8 +185,30 @@ export interface DiagnosticsOptions {
   }
 }
 
+export interface DiagnosticsOverview {
+  diagnosticsSchemaVersion: number
+  enabled: boolean
+  degraded: boolean
+  elevate: DiagnosticsRuntimeSnapshot['elevate']
+  bytesUsed: number
+  eventsStored: number
+  eventsDropped: number
+  overflowCount: number
+  probeInFlight: number
+  lastCleanupUtc: string | null
+  redactionMode: string
+  effectiveLevels: Record<string, string>
+  liveSessions: { activeCount: number; startingCount: number; total: number }
+  needsAttention: string[]
+}
+
 export const diagnosticsApi = {
   getRuntime: () => request<DiagnosticsRuntimeSnapshot>(`${BASE}/runtime`),
+
+  getOverview: () => request<DiagnosticsOverview>(`${BASE}/overview`),
+
+  recover: () =>
+    request<{ degraded: boolean; recovered: boolean }>(`${BASE}/recover`, { method: 'POST' }),
 
   elevate: (body: DiagnosticsElevateRequest) =>
     request<DiagnosticsElevateResponse>(`${BASE}/elevate`, {

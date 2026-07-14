@@ -34,6 +34,36 @@ public static class DiagnosticsEndpoints
             });
         });
 
+        // SPA operator overview — composes existing runtime + session registry (no new motor behaviour).
+        g.MapGet("/overview", (IDiagnosticsRuntime runtime, IDiagnosticsRedactor redactor, IMotorSessionRegistry registry) =>
+        {
+            var snap = runtime.GetSnapshot();
+            return Results.Ok(new
+            {
+                diagnosticsSchemaVersion = snap.DiagnosticsSchemaVersion,
+                enabled = snap.Enabled,
+                degraded = snap.Degraded,
+                elevate = snap.Elevate,
+                bytesUsed = snap.BytesUsed,
+                eventsStored = snap.EventsStored,
+                eventsDropped = snap.EventsDropped,
+                overflowCount = snap.OverflowCount,
+                probeInFlight = snap.ProbeInFlight,
+                lastCleanupUtc = snap.LastCleanupUtc,
+                redactionMode = redactor.Mode,
+                effectiveLevels = snap.EffectiveLevels,
+                liveSessions = new
+                {
+                    activeCount = registry.ActiveCount,
+                    startingCount = registry.StartingCount,
+                    total = registry.ActiveCount + registry.StartingCount,
+                },
+                needsAttention = snap.Degraded
+                    ? new[] { "Diagnostics circuit is degraded — probes may be capped. Use Recover." }
+                    : Array.Empty<string>(),
+            });
+        });
+
         g.MapPut("/elevate", async (HttpContext http, IDiagnosticsRuntime runtime, IDiagnosticsEventBus bus) =>
         {
             using var doc = await JsonDocument.ParseAsync(http.Request.Body);

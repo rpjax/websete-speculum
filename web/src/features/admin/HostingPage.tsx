@@ -4,8 +4,15 @@ import { api, ConfigSections, type ConfigStatus } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Switch } from '@/components/ui/switch'
+import { Badge } from '@/components/ui/badge'
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion'
+import { PageHeader } from '@/components/admin/PageHeader'
+import { HealthStatusStrip } from '@/components/admin/HealthStatusStrip'
+import { SaveFeedbackStrip } from '@/components/admin/SaveFeedbackStrip'
+import { ConfirmDestructive } from '@/components/admin/ConfirmDestructive'
+import { profileBadge } from '@/lib/hostingStatus'
 
 interface HostingProfile {
   domain: string
@@ -28,8 +35,10 @@ export default function HostingPage() {
   const [profiles, setProfiles] = useState<HostingProfile[]>([emptyProfile()])
   const [savedProfiles, setSavedProfiles] = useState<HostingProfile[]>([])
   const [status, setStatus] = useState<ConfigStatus['hosting']>()
+  const [selected, setSelected] = useState(0)
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [pending, setPending] = useState(false)
 
   async function load() {
     const [cfg, st] = await Promise.all([
@@ -41,9 +50,12 @@ export default function HostingPage() {
     setProfiles(loaded)
     setSavedProfiles(loaded)
     setStatus(st.hosting)
+    setSelected(0)
   }
 
-  useEffect(() => { void load().catch(() => {}) }, [])
+  useEffect(() => {
+    void load().catch(() => {})
+  }, [])
 
   function updateProfile(index: number, patch: Partial<HostingProfile>) {
     setProfiles((prev) => prev.map((p, i) => (i === index ? { ...p, ...patch } : p)))
@@ -52,6 +64,7 @@ export default function HostingPage() {
   async function save() {
     setMessage(null)
     setError(null)
+    setPending(true)
     try {
       const body: HostingConfig = {
         acmeEmail: acmeEmail.trim(),
@@ -65,11 +78,11 @@ export default function HostingPage() {
             const useMaskedToken = hadMirroring && (tokenInput === '' || tokenInput === '***')
 
             if (p.subdomainMirroringEnabled && !useMaskedToken && !tokenInput) {
-              throw new Error(`Cloudflare API token required for ${p.domain.trim()}`)
+              throw new Error(`Cloudflare API token required for ${domain}`)
             }
 
             return {
-              domain: p.domain.trim(),
+              domain,
               acmeEmail: p.acmeEmail?.trim() || null,
               subdomainMirroringEnabled: p.subdomainMirroringEnabled,
               edgeTls: p.subdomainMirroringEnabled
@@ -87,20 +100,38 @@ export default function HostingPage() {
       setMessage('Hosting configuration saved')
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Save failed')
+    } finally {
+      setPending(false)
     }
   }
 
+  const profile = profiles[selected] ?? profiles[0]
+
   return (
     <div className="mx-auto max-w-3xl space-y-4">
-      <h1 className="text-2xl font-semibold">Hosting</h1>
-      <p className="text-sm text-muted-foreground">
-        One complete profile per motor domain: TLS, mirroring, and Cloudflare credentials.
-        Forwarding target site is configured separately.
-      </p>
+      <PageHeader
+        title="Hosting"
+        description="Motor domains, TLS, and optional subdomain mirroring. Select a profile to edit — saving terminates active motor sessions."
+      />
+
+      <HealthStatusStrip
+        items={(status?.profiles ?? []).map((p) => {
+          const b = profileBadge(p)
+          const idx = profiles.findIndex((x) => x.domain === p.domain)
+          return {
+            id: p.domain,
+            label: p.domain,
+            value: b.label,
+            tone: b.tone,
+            onClick: idx >= 0 ? () => setSelected(idx) : undefined,
+          }
+        })}
+      />
 
       <Card>
         <CardHeader>
           <CardTitle>Global ACME email</CardTitle>
+          <CardDescription>Used when a profile does not override email.</CardDescription>
         </CardHeader>
         <CardContent>
           <Input
@@ -112,100 +143,124 @@ export default function HostingPage() {
         </CardContent>
       </Card>
 
-      {profiles.map((profile, index) => {
-        const st = status?.profiles[index]?.domain === profile.domain
-          ? status.profiles[index]
-          : status?.profiles.find((p) => p.domain === profile.domain)
-        const badge = !profile.subdomainMirroringEnabled
-          ? 'Apex + NSO'
-          : st?.mirroringOperational
-            ? 'Mirroring OK'
-            : 'Mirroring pending'
-
-        return (
-          <Card key={index}>
-            <CardHeader className="flex flex-row items-center justify-between gap-4">
-              <CardTitle className="text-base">{profile.domain || `Profile ${index + 1}`}</CardTitle>
-              <span className="text-xs text-muted-foreground">{badge}</span>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label>Motor domain</Label>
-                <Input
-                  value={profile.domain}
-                  onChange={(e) => updateProfile(index, { domain: e.target.value })}
-                  placeholder="meu-site.com"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>ACME email override (optional)</Label>
-                <Input
-                  type="email"
-                  value={profile.acmeEmail ?? ''}
-                  onChange={(e) => updateProfile(index, { acmeEmail: e.target.value })}
-                />
-              </div>
-              <div className="flex items-center gap-2">
-                <Switch
-                  checked={profile.subdomainMirroringEnabled}
-                  onCheckedChange={(v) => updateProfile(index, { subdomainMirroringEnabled: v })}
-                />
-                <Label>Subdomain mirroring (wildcard TLS via Cloudflare DNS-01)</Label>
-              </div>
-              {profile.subdomainMirroringEnabled && (
-                <>
-                  <div className="space-y-2">
-                    <Label>Cloudflare ACME email</Label>
-                    <Input
-                      type="email"
-                      value={profile.edgeTls?.email ?? ''}
-                      onChange={(e) => updateProfile(index, {
-                        edgeTls: { provider: 'cloudflare', email: e.target.value, apiToken: profile.edgeTls?.apiToken ?? '' },
-                      })}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Cloudflare API token</Label>
-                    <Input
-                      type="password"
-                      value={profile.edgeTls?.apiToken === '***' ? '' : (profile.edgeTls?.apiToken ?? '')}
-                      onChange={(e) => updateProfile(index, {
-                        edgeTls: { provider: 'cloudflare', email: profile.edgeTls?.email ?? '', apiToken: e.target.value },
-                      })}
-                      placeholder="Required for new profiles; leave blank to keep existing"
-                    />
-                  </div>
-                </>
-              )}
-              {st?.missing && st.missing.length > 0 && (
-                <ul className="list-disc pl-5 text-destructive text-sm">
-                  {st.missing.map((m) => <li key={m}>{m}</li>)}
-                </ul>
-              )}
-              {profiles.length > 1 && (
-                <Button variant="ghost" size="sm" onClick={() => setProfiles((p) => p.filter((_, i) => i !== index))}>
-                  Remove profile
+      {profile && (
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between gap-4">
+            <div>
+              <CardTitle className="text-base">{profile.domain || `Profile ${selected + 1}`}</CardTitle>
+              <CardDescription>Editing profile {selected + 1} of {profiles.length}</CardDescription>
+            </div>
+            <div className="flex gap-1">
+              {profiles.map((_, i) => (
+                <Button key={i} size="sm" variant={i === selected ? 'default' : 'outline'} onClick={() => setSelected(i)}>
+                  {i + 1}
                 </Button>
-              )}
-            </CardContent>
-          </Card>
-        )
-      })}
+              ))}
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label>Motor domain</Label>
+              <Input
+                value={profile.domain}
+                onChange={(e) => updateProfile(selected, { domain: e.target.value })}
+                placeholder="example.com"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>ACME email override (optional)</Label>
+              <Input
+                type="email"
+                value={profile.acmeEmail ?? ''}
+                onChange={(e) => updateProfile(selected, { acmeEmail: e.target.value })}
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <Switch
+                checked={profile.subdomainMirroringEnabled}
+                onCheckedChange={(v) => updateProfile(selected, { subdomainMirroringEnabled: v })}
+              />
+              <Label>Subdomain mirroring</Label>
+            </div>
+            {profile.subdomainMirroringEnabled && (
+              <Accordion type="single" collapsible defaultValue="cf">
+                <AccordionItem value="cf">
+                  <AccordionTrigger>Cloudflare DNS-01</AccordionTrigger>
+                  <AccordionContent className="space-y-3">
+                    <div className="space-y-2">
+                      <Label>Cloudflare ACME email</Label>
+                      <Input
+                        type="email"
+                        value={profile.edgeTls?.email ?? ''}
+                        onChange={(e) =>
+                          updateProfile(selected, {
+                            edgeTls: {
+                              provider: 'cloudflare',
+                              email: e.target.value,
+                              apiToken: profile.edgeTls?.apiToken ?? '',
+                            },
+                          })
+                        }
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Cloudflare API token</Label>
+                      <Input
+                        type="password"
+                        value={profile.edgeTls?.apiToken === '***' ? '' : (profile.edgeTls?.apiToken ?? '')}
+                        onChange={(e) =>
+                          updateProfile(selected, {
+                            edgeTls: {
+                              provider: 'cloudflare',
+                              email: profile.edgeTls?.email ?? '',
+                              apiToken: e.target.value,
+                            },
+                          })
+                        }
+                        placeholder="Leave blank to keep existing token"
+                      />
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
+              </Accordion>
+            )}
+            {status?.profiles.find((p) => p.domain === profile.domain)?.missing?.map((m) => (
+              <Badge key={m} variant="warning">{m}</Badge>
+            ))}
+            {profiles.length > 1 && (
+              <ConfirmDestructive
+                title="Remove profile?"
+                description="This profile will be removed when you save hosting."
+                confirmLabel="Remove"
+                onConfirm={() => {
+                  setProfiles((p) => p.filter((_, i) => i !== selected))
+                  setSelected(0)
+                }}
+                trigger={<Button variant="outline" size="sm">Remove profile</Button>}
+              />
+            )}
+          </CardContent>
+        </Card>
+      )}
 
-      <div className="flex gap-2">
-        <Button variant="outline" onClick={() => setProfiles((p) => [...p, emptyProfile()])}>
+      <div className="flex flex-wrap gap-2">
+        <Button variant="outline" onClick={() => { setProfiles((p) => [...p, emptyProfile()]); setSelected(profiles.length) }}>
           Add domain
         </Button>
-        <Button onClick={() => void save()}>Save hosting</Button>
       </div>
+
+      <SaveFeedbackStrip
+        pending={pending}
+        message={message}
+        error={error}
+        onSave={() => void save()}
+        saveLabel="Save hosting"
+      />
 
       <p className="text-sm text-muted-foreground">
         Wildcard mirroring requires a wildcard entry in{' '}
-        <Link className="text-primary underline" to="/admin/forwarding">Forwarding.domains</Link>.
-        Saving hosting terminates active motor sessions.
+        <Link className="text-primary underline" to="/admin/forwarding">Forwarding</Link>.
       </p>
-      {message && <p className="text-green-400">{message}</p>}
-      {error && <p className="text-destructive">{error}</p>}
     </div>
   )
 }

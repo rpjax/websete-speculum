@@ -2,62 +2,90 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api, type SessionMeta } from '@/lib/api'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { PageHeader } from '@/components/admin/PageHeader'
+import { EmptyState } from '@/components/admin/EmptyState'
+import { ConfirmDestructive } from '@/components/admin/ConfirmDestructive'
 
 export default function SessionsPage() {
   const [sessions, setSessions] = useState<SessionMeta[]>([])
   const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
 
   async function load() {
     setError(null)
+    setLoading(true)
     try {
       setSessions(await api.listSessions())
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Load failed')
+    } finally {
+      setLoading(false)
     }
   }
 
-  useEffect(() => { void load() }, [])
+  useEffect(() => {
+    void load()
+  }, [])
+
+  async function remove(id: string) {
+    await api.deleteSession(id)
+    await load()
+  }
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Browser Sessions</h1>
-        <Button variant="outline" onClick={() => void load()}>Refresh</Button>
-      </div>
-      <Card>
-        <CardHeader><CardTitle>Persisted browser state</CardTitle></CardHeader>
-        <CardContent className="overflow-x-auto">
-          {error && <p className="text-destructive">{error}</p>}
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b text-left text-muted-foreground">
-                <th className="p-2">Session</th>
-                <th className="p-2">Client token</th>
-                <th className="p-2">Counts</th>
-                <th className="p-2">Updated</th>
-                <th className="p-2" />
-              </tr>
-            </thead>
-            <tbody>
-              {sessions.map((s) => (
-                <tr key={s.sessionId} className="border-b border-border/50">
-                  <td className="p-2 font-mono text-xs">{s.sessionId.slice(0, 8)}…</td>
-                  <td className="p-2 font-mono text-xs">{s.clientToken.slice(0, 8)}…</td>
-                  <td className="p-2 text-xs">
-                    c:{s.cookieCount} ls:{s.localStorageCount} idb:{s.idbRecordCount} h:{s.historyCount}
-                  </td>
-                  <td className="p-2 text-xs">{new Date(s.updatedAt).toLocaleString()}</td>
-                  <td className="p-2 space-x-2">
-                    <Link className="text-primary underline" to={`/admin/sessions/${s.sessionId}`}>View</Link>
-                    <button type="button" className="text-destructive" onClick={() => void api.deleteSession(s.sessionId).then(load)}>Delete</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </CardContent>
-      </Card>
+      <PageHeader
+        title="Browser sessions"
+        description="Persisted Chrome state restored across Motor reconnects. Open a row for cookies, storage, and history."
+        actions={<Button variant="outline" onClick={() => void load()}>Refresh</Button>}
+      />
+      {error && <p className="text-destructive">{error}</p>}
+      {!loading && sessions.length === 0 && !error && (
+        <EmptyState
+          title="No persisted sessions"
+          description="Browse in Motor to create persisted state when SessionPolicy and identity cookies are active."
+        />
+      )}
+      {sessions.length > 0 && (
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Session</TableHead>
+              <TableHead>Client token</TableHead>
+              <TableHead>Cookies</TableHead>
+              <TableHead>Storage</TableHead>
+              <TableHead>Updated</TableHead>
+              <TableHead />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {sessions.map((s) => (
+              <TableRow key={s.sessionId}>
+                <TableCell className="font-mono text-xs">{s.sessionId.slice(0, 10)}…</TableCell>
+                <TableCell className="font-mono text-xs">{s.clientToken.slice(0, 10)}…</TableCell>
+                <TableCell>{s.cookieCount}</TableCell>
+                <TableCell className="text-xs text-muted-foreground">
+                  LS {s.localStorageCount} · IDB {s.idbRecordCount} · Hist {s.historyCount}
+                </TableCell>
+                <TableCell className="text-xs">{new Date(s.updatedAt).toLocaleString()}</TableCell>
+                <TableCell className="space-x-2">
+                  <Button asChild size="sm" variant="outline">
+                    <Link to={`/admin/sessions/${s.sessionId}`}>Open</Link>
+                  </Button>
+                  <ConfirmDestructive
+                    title="Delete persisted session?"
+                    description="This removes stored cookies and site state for this identity. The next browse starts fresh."
+                    confirmLabel="Delete"
+                    onConfirm={() => void remove(s.sessionId)}
+                    trigger={<Button size="sm" variant="destructive">Delete</Button>}
+                  />
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      )}
     </div>
   )
 }

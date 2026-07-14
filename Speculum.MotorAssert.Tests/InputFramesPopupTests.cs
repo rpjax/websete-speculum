@@ -9,8 +9,10 @@ namespace Speculum.MotorAssert.Tests;
 /// </summary>
 [Collection(nameof(MotorAssertCollection))]
 [Trait("Category", "MotorAssertive")]
-public sealed class InputFramesPopupTests(MotorAssertFixture fx)
+public sealed class InputFramesPopupTests : MotorAssertTestBase
 {
+    public InputFramesPopupTests(MotorAssertFixture fixture) : base(fixture) { }
+
     [MotorAssertFact]
     public async Task C1_mouse_click_increments_fixture_counter()
     {

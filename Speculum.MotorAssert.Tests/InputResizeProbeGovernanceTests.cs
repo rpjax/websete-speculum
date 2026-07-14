@@ -6,8 +6,10 @@ namespace Speculum.MotorAssert.Tests;
 
 [Collection(nameof(MotorAssertCollection))]
 [Trait("Category", "MotorAssertive")]
-public sealed class InputResizeProbeGovernanceTests(MotorAssertFixture fx)
+public sealed class InputResizeProbeGovernanceTests : MotorAssertTestBase
 {
+    public InputResizeProbeGovernanceTests(MotorAssertFixture fixture) : base(fixture) { }
+
     [MotorAssertFact]
     public async Task D1_resize_emits_requested()
     {
@@ -97,7 +99,7 @@ public sealed class InputResizeProbeGovernanceTests(MotorAssertFixture fx)
         }
         finally
         {
-            await fx.RestoreAssertiveDiagnosticsAsync();
+            await fx.RestoreAssertiveDiagnosticsVerifiedAsync();
         }
     }
 
@@ -229,7 +231,7 @@ public sealed class InputResizeProbeGovernanceTests(MotorAssertFixture fx)
         }
         finally
         {
-            await fx.RestoreAssertiveDiagnosticsAsync();
+            await fx.RestoreAssertiveDiagnosticsVerifiedAsync();
         }
     }
 

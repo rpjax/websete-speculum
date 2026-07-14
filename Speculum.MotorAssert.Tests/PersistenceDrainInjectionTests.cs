@@ -7,8 +7,10 @@ namespace Speculum.MotorAssert.Tests;
 
 [Collection(nameof(MotorAssertCollection))]
 [Trait("Category", "MotorAssertive")]
-public sealed class PersistenceDrainInjectionTests(MotorAssertFixture fx)
+public sealed class PersistenceDrainInjectionTests : MotorAssertTestBase
 {
+    public PersistenceDrainInjectionTests(MotorAssertFixture fixture) : base(fixture) { }
+
     [MotorAssertFact]
     public async Task E1_E2_persistence_export_and_restore_via_client_token()
     {

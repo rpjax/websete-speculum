@@ -6,8 +6,10 @@ namespace Speculum.MotorAssert.Tests;
 
 [Collection(nameof(MotorAssertCollection))]
 [Trait("Category", "MotorAssertive")]
-public sealed class DiagnosticsEdgeDeepTests(MotorAssertFixture fx)
+public sealed class DiagnosticsEdgeDeepTests : MotorAssertTestBase
 {
+    public DiagnosticsEdgeDeepTests(MotorAssertFixture fixture) : base(fixture) { }
+
     [MotorAssertFact]
     public async Task L2_L6_probe_cookies_storage_dom_evaluate_fixture()
     {
@@ -107,7 +109,7 @@ public sealed class DiagnosticsEdgeDeepTests(MotorAssertFixture fx)
         }
         finally
         {
-            await fx.RestoreAssertiveDiagnosticsAsync();
+            await fx.RestoreAssertiveDiagnosticsVerifiedAsync();
         }
     }
 
@@ -180,7 +182,7 @@ public sealed class DiagnosticsEdgeDeepTests(MotorAssertFixture fx)
         }
         finally
         {
-            await fx.RestoreAssertiveDiagnosticsAsync();
+            await fx.RestoreAssertiveDiagnosticsVerifiedAsync();
             await fx.Host.EnsureReadyAsync();
         }
     }
@@ -210,17 +212,12 @@ public sealed class DiagnosticsEdgeDeepTests(MotorAssertFixture fx)
     [MotorAssertFact]
     public async Task M1_assertive_seed_config_applied_events()
     {
-        var since = DateTimeOffset.UtcNow.AddSeconds(-2);
-        var put = await fx.RestoreAssertiveDiagnosticsAsync();
-        put.EnsureSuccessStatusCode();
-
-        await fx.Diagnostics.WaitForEventsAsync(
-            null, "Diagnostics.ConfigApplied", since,
-            ev => DiagnosticsAssertClient.HasEvent(ev, "Diagnostics.ConfigApplied"),
-            timeout: TimeSpan.FromSeconds(30));
+        await fx.RestoreAssertiveDiagnosticsVerifiedAsync();
 
         var runtime = await fx.Diagnostics.GetRuntimeAsync();
         Assert.True(runtime.GetProperty("enabled").GetBoolean());
+        Assert.True(runtime.TryGetProperty("effectiveLevels", out var levels), runtime.ToString());
+        Assert.Equal("BrowserQuery", levels.GetProperty("BrowserQuery").GetString());
     }
 
     [MotorAssertFact]
@@ -380,11 +377,11 @@ public sealed class DiagnosticsEdgeDeepTests(MotorAssertFixture fx)
         var before = await fx.Diagnostics.RequireSessionAsync(act.ConnectionId!);
         Assert.True(fx.Diagnostics.RequireBool(fx.Diagnostics.RequireSnapshot(before), "jsBridgeEnabled"));
 
-        var configSince = DateTimeOffset.UtcNow.AddSeconds(-1);
-        await fx.Host.PutConfigAsync("JsBridge", new { enable = false });
+        var put = await fx.Host.PutConfigAsync("JsBridge", new { enable = false });
+        put.EnsureSuccessStatusCode();
         try
         {
-            await fx.Diagnostics.WaitConfigAppliedAsync(configSince);
+            // JsBridge does not emit Diagnostics.ConfigApplied — assert live vs new session directly.
             var mid = await fx.Diagnostics.RequireSessionAsync(act.ConnectionId!);
             Assert.True(fx.Diagnostics.RequireBool(fx.Diagnostics.RequireSnapshot(mid), "jsBridgeEnabled"),
                 "live session snapshot must keep StartSession JsBridge");
@@ -403,7 +400,8 @@ public sealed class DiagnosticsEdgeDeepTests(MotorAssertFixture fx)
         }
         finally
         {
-            await fx.Host.PutConfigAsync("JsBridge", new { enable = true });
+            var restore = await fx.Host.PutConfigAsync("JsBridge", new { enable = true });
+            restore.EnsureSuccessStatusCode();
         }
     }
 

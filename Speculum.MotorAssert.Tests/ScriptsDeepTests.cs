@@ -6,8 +6,10 @@ namespace Speculum.MotorAssert.Tests;
 
 [Collection(nameof(MotorAssertCollection))]
 [Trait("Category", "MotorAssertive")]
-public sealed class ScriptsDeepTests(MotorAssertFixture fx)
+public sealed class ScriptsDeepTests : MotorAssertTestBase
 {
+    public ScriptsDeepTests(MotorAssertFixture fixture) : base(fixture) { }
+
     [MotorAssertFact]
     public async Task H3_header_top_classic_sets_marker()
     {

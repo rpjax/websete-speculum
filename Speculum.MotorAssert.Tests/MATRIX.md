@@ -90,8 +90,6 @@ Do **not** skip or weaken. MsgPack camelCase Bugs A/B are **fixed** (`MotorHubMe
 | Emitter publish units | `Api.Tests/.../Emitters` | Must stay green (bus recorder; not a trap) |
 | E8 / B12 | MotorAssert BugTraps | Re-check on stack after MsgPack deploy |
 
-Follow-up: treat remaining assert failures as product work.
-
-Residual delay policy: fixed sleeps before probes/export are **gone**. Remaining `Task.Delay` are poll backoffs, intentional race injection (~80ms mid-start disconnect; ~200ms dual-probe 429), or SignalR stream handshake settle (75ms).
+Depth note: each MotorAssert test runs `EnsureBaselineAsync` (MaxSessions / JsBridge / Assertive BrowserQuery with runtime verify) via `MotorAssertTestBase`, so Diagnostics level mutations cannot leak into the next test.
 
 P (unit/contract pyramid) stays in `Speculum.Api.Tests` + sidecar `npm test` + web Vitest under the fast gate. Stress/SLO → `Speculum.MotorPerf.Tests` + `.github/workflows/perf.yml` (not required).

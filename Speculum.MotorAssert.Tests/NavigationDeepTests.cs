@@ -5,8 +5,10 @@ namespace Speculum.MotorAssert.Tests;
 
 [Collection(nameof(MotorAssertCollection))]
 [Trait("Category", "MotorAssertive")]
-public sealed class NavigationDeepTests(MotorAssertFixture fx)
+public sealed class NavigationDeepTests : MotorAssertTestBase
 {
+    public NavigationDeepTests(MotorAssertFixture fixture) : base(fixture) { }
+
     [MotorAssertFact]
     public async Task B4b_goEvil_emits_redirect_wire_and_keeps_tabs()
     {

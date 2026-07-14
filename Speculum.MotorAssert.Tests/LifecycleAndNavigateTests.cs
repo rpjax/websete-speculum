@@ -4,8 +4,10 @@ namespace Speculum.MotorAssert.Tests;
 
 [Collection(nameof(MotorAssertCollection))]
 [Trait("Category", "MotorAssertive")]
-public sealed class LifecycleAndNavigateTests(MotorAssertFixture fx)
+public sealed class LifecycleAndNavigateTests : MotorAssertTestBase
 {
+    public LifecycleAndNavigateTests(MotorAssertFixture fixture) : base(fixture) { }
+
     [MotorAssertFact]
     public async Task A1_session_lifecycle_correlation_and_session_gone()
     {

@@ -6,8 +6,10 @@ namespace Speculum.MotorAssert.Tests;
 
 [Collection(nameof(MotorAssertCollection))]
 [Trait("Category", "MotorAssertive")]
-public sealed class PersistenceDeepTests(MotorAssertFixture fx)
+public sealed class PersistenceDeepTests : MotorAssertTestBase
 {
+    public PersistenceDeepTests(MotorAssertFixture fixture) : base(fixture) { }
+
     [MotorAssertFact]
     public async Task E3_persisted_detail_includes_history()
     {

@@ -4,8 +4,10 @@ namespace Speculum.MotorAssert.Tests;
 
 [Collection(nameof(MotorAssertCollection))]
 [Trait("Category", "MotorAssertive")]
-public sealed class DiagnosticsEmitterRecipesTests(MotorAssertFixture fx)
+public sealed class DiagnosticsEmitterRecipesTests : MotorAssertTestBase
 {
+    public DiagnosticsEmitterRecipesTests(MotorAssertFixture fixture) : base(fixture) { }
+
     [MotorAssertFact]
     public async Task D_Start_emits_SessionResolved_with_required_payload()
     {

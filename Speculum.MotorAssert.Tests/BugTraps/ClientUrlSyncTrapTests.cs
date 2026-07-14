@@ -3,8 +3,10 @@ namespace Speculum.MotorAssert.Tests;
 /// <summary>B12 — client-mapped URL (path + NSO) must appear on status / UrlMapped after nav.</summary>
 [Collection(nameof(MotorAssertCollection))]
 [Trait("Category", "MotorAssertive")]
-public sealed class ClientUrlSyncTrapTests(MotorAssertFixture fx)
+public sealed class ClientUrlSyncTrapTests : MotorAssertTestBase
 {
+    public ClientUrlSyncTrapTests(MotorAssertFixture fixture) : base(fixture) { }
+
     [MotorAssertFact]
     public async Task B12_status_and_UrlMapped_use_motor_client_url_with_nso()
     {

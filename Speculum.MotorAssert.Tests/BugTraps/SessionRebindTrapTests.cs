@@ -9,8 +9,10 @@ namespace Speculum.MotorAssert.Tests;
 /// </summary>
 [Collection(nameof(MotorAssertCollection))]
 [Trait("Category", "MotorAssertive")]
-public sealed class SessionRebindTrapTests(MotorAssertFixture fx)
+public sealed class SessionRebindTrapTests : MotorAssertTestBase
 {
+    public SessionRebindTrapTests(MotorAssertFixture fixture) : base(fixture) { }
+
     [MotorAssertFact]
     public async Task E8_rebind_same_token_must_not_create_second_persisted_row()
     {

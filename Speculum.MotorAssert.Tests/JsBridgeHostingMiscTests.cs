@@ -6,8 +6,10 @@ namespace Speculum.MotorAssert.Tests;
 
 [Collection(nameof(MotorAssertCollection))]
 [Trait("Category", "MotorAssertive")]
-public sealed class JsBridgeHostingMiscTests(MotorAssertFixture fx)
+public sealed class JsBridgeHostingMiscTests : MotorAssertTestBase
 {
+    public JsBridgeHostingMiscTests(MotorAssertFixture fixture) : base(fixture) { }
+
     [MotorAssertFact]
     public async Task I1_js_bridge_enabled_on_snapshot()
     {

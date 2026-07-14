@@ -19,7 +19,16 @@ A8 SidecarFaulted + session_gone (+ sidecar `/health` wait after restart), A9 vi
 
 `DiagnosticsEmitterPublishTests`: SessionResolved payload fields, restored+counts, UrlMapped once per distinct clientUrl, Off drops publishes, Degraded accepts catalog Motor events.
 
+## Harness isolation (MotorAssert)
+
+Every MotorAssertive test inherits `MotorAssertTestBase` → `EnsureBaselineAsync` before Act:
+
+- `MaxSessions=4`, `JsBridge.enable=true`
+- Diagnostics Assertive (`BrowserQuery`) restored when effective levels are insufficient, with `ConfigApplied` wait + runtime verify
+
+Do not use `WaitConfigApplied` for non-Diagnostics/Hosting sections (e.g. JsBridge, MaxSessions).
+
 ## Next
 
-1. Re-run MotorAssert against stack; fix any post-MsgPack assert failures without weakening.
-2. ~~Residual suite polish (`Task.Delay` → event waits)~~ — done: Wait* poll helpers; only backoff/race Delays remain.
+1. Re-run MotorAssert CI after isolation wave.
+2. Treat remaining hard failures (A8 SidecarFaulted, E3 history, …) as product/harness with independent evidence.

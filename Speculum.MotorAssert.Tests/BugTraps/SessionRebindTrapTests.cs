@@ -29,12 +29,11 @@ public sealed class SessionRebindTrapTests : MotorAssertTestBase
                 ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId)
                       && DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionResolved", actId));
             await fx.Diagnostics.ExpectCookieAsync(act.ConnectionId!, "sf_marker", "state-cookie");
+            var exportSince = DateTimeOffset.UtcNow.AddSeconds(-1);
+            var connId = act.ConnectionId!;
             await act.DisconnectAsync();
+            await fx.Diagnostics.WaitStateExportCompletedAsync(connId, exportSince);
         }
-
-        await fx.Diagnostics.WaitForEventsAsync(
-            null, "Motor.StateExport", since,
-            ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.StateExportCompleted"));
 
         var sessionId1 = await FindPersistedByTokenAsync(token);
 

@@ -77,12 +77,11 @@ public sealed class DiagnosticsEmitterRecipesTests : MotorAssertTestBase
                 act.ConnectionId, "Motor.Session", since,
                 ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
             await fx.Diagnostics.WaitCookieAsync(act.ConnectionId!, "sf_marker", "state-cookie");
+            var exportSince = DateTimeOffset.UtcNow.AddSeconds(-1);
+            var connId = act.ConnectionId!;
             await act.DisconnectAsync();
+            await fx.Diagnostics.WaitStateExportCompletedAsync(connId, exportSince);
         }
-
-        await fx.Diagnostics.WaitForEventsAsync(
-            null, "Motor.StateExport", since,
-            ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.StateExportCompleted"));
 
         var since2 = DateTimeOffset.UtcNow.AddSeconds(-1);
         var actId2 = Guid.NewGuid().ToString("N");

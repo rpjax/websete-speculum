@@ -27,12 +27,11 @@ public sealed class PersistenceDeepTests : MotorAssertTestBase
             await act.NavigateAsync($"{fx.Host.FixtureClientOrigin}/nav/b");
             await fx.Diagnostics.WaitEvaluateContainsAsync(
                 act.ConnectionId!, "location.pathname", "/nav/b");
+            var exportSince = DateTimeOffset.UtcNow.AddSeconds(-1);
+            var connId = act.ConnectionId!;
             await act.DisconnectAsync();
+            await fx.Diagnostics.WaitStateExportCompletedAsync(connId, exportSince);
         }
-
-        await fx.Diagnostics.WaitForEventsAsync(
-            null, "Motor.StateExport", since,
-            ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.StateExportCompleted"));
 
         var sessionId = await FindPersistedSessionIdAsync(token);
         var detailRes = await fx.Host.Http.GetAsync($"api/admin/diagnostics/v1/persisted/{sessionId}");
@@ -65,12 +64,11 @@ public sealed class PersistenceDeepTests : MotorAssertTestBase
                 ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
             await fx.Diagnostics.ExpectCookieAsync(act.ConnectionId!, "sf_marker", "state-cookie");
             await fx.Diagnostics.ExpectLocalStorageAsync(act.ConnectionId!, "sf_ls", "state-ls");
+            var exportSince = DateTimeOffset.UtcNow.AddSeconds(-1);
+            var connId = act.ConnectionId!;
             await act.DisconnectAsync();
+            await fx.Diagnostics.WaitStateExportCompletedAsync(connId, exportSince);
         }
-
-        await fx.Diagnostics.WaitForEventsAsync(
-            null, "Motor.StateExport", since,
-            ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.StateExportCompleted"));
 
         var sessionId1 = await FindPersistedSessionIdAsync(token);
 
@@ -160,12 +158,11 @@ public sealed class PersistenceDeepTests : MotorAssertTestBase
                 ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
             await fx.Diagnostics.WaitCookieAsync(act.ConnectionId!, "sf_marker", "state-cookie");
             await fx.Diagnostics.WaitLocalStorageAsync(act.ConnectionId!, "sf_ls", "state-ls");
+            var exportSince = DateTimeOffset.UtcNow.AddSeconds(-1);
+            var connId = act.ConnectionId!;
             await act.DisconnectAsync();
+            await fx.Diagnostics.WaitStateExportCompletedAsync(connId, exportSince);
         }
-
-        await fx.Diagnostics.WaitForEventsAsync(
-            null, "Motor.StateExport", since,
-            ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.StateExportCompleted"));
 
         var sessionId = await FindPersistedSessionIdAsync(token);
         await WaitPersistedCookiesContainAsync(sessionId, "sf_marker");

@@ -33,9 +33,13 @@ Do not use `WaitConfigApplied` for non-Diagnostics/Hosting sections (e.g. JsBrid
 
 ## Isolation wave (29316122628) — root cause
 
-`BrowserQuery=Metrics` after PUT Assertive = **Degraded cap**, not wrong config. Cleanup used to recover only every 5 minutes → cascade of 1ms baseline failures. Fixed: recover endpoint + faster cleanup while degraded + less hair-trigger write_latency breaker + baseline clears Degraded.
+`BrowserQuery=Metrics` after PUT Assertive = **Degraded cap**, not wrong config. Fixed in `b837670`: recover endpoint + faster cleanup + baseline clears Degraded.
+
+## Export wait (E1/E8) — harness
+
+`WaitForEventsAsync(null, "Motor.StateExport", since-at-test-start)` could match another test's `StateExportCompleted` (e.g. E4/G2/G3 before E1). Use `WaitStateExportCompletedAsync(connectionId, since-before-disconnect)`.
 
 ## Next
 
-1. Re-run MotorAssert CI after Degraded recovery wave.
-2. Treat remaining hard failures (A8 SidecarFaulted, E3 history, …) as product/harness with independent evidence.
+1. Re-run MotorAssert CI after export-scoped wait.
+2. Treat any remaining hard failures as product with independent evidence.

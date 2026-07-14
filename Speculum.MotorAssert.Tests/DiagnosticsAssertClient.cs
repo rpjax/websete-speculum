@@ -265,6 +265,23 @@ public sealed class DiagnosticsAssertClient(MotorAssertHost host)
             timeout,
             ct);
 
+    /// <summary>
+    /// Wait until this connection's disconnect export finished. Must be scoped by
+    /// <paramref name="connectionId"/> — a global wait can match another test's export.
+    /// </summary>
+    public Task WaitStateExportCompletedAsync(
+        string connectionId,
+        DateTimeOffset since,
+        TimeSpan? timeout = null,
+        CancellationToken ct = default)
+        => WaitForEventsAsync(
+            connectionId,
+            "Motor.StateExport",
+            since,
+            ev => HasEvent(ev, "Motor.StateExportCompleted"),
+            timeout,
+            ct);
+
     /// <summary>Wait until Diagnostics.ConfigApplied appears after a config mutation.</summary>
     public async Task WaitConfigAppliedAsync(
         DateTimeOffset since,

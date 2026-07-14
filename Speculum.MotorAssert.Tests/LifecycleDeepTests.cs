@@ -82,12 +82,11 @@ public sealed class LifecycleDeepTests : MotorAssertTestBase
                 act.ConnectionId, "Motor.Session", since,
                 ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
             await fx.Diagnostics.WaitCookieAsync(act.ConnectionId!, "sf_marker", "state-cookie");
+            var exportSince = DateTimeOffset.UtcNow.AddSeconds(-1);
+            var connId = act.ConnectionId!;
             await act.DisconnectAsync();
+            await fx.Diagnostics.WaitStateExportCompletedAsync(connId, exportSince);
         }
-
-        await fx.Diagnostics.WaitForEventsAsync(
-            null, "Motor.StateExport", since,
-            ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.StateExportCompleted"));
 
         var list = await fx.Host.Http.GetFromJsonAsync<JsonElement>("api/admin/diagnostics/v1/persisted");
         Assert.True(list.GetArrayLength() >= 1);

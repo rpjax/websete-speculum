@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('@/lib/env', () => ({ API_URL: 'http://test-api' }))
+vi.mock('@/lib/env', () => ({ API_URL: 'http://test-api', MOCK_MODE: false }))
 vi.mock('@/lib/auth', () => ({ getApiKey: () => 'test-key' }))
 
 const fetchMock = vi.fn()

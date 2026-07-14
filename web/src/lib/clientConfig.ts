@@ -1,3 +1,13 @@
+import { MOCK_MODE } from '@/lib/env'
+import {
+  invalidateClientConfigCache as mockInvalidateClientConfigCache,
+  fetchClientConfig as mockFetchClientConfig,
+  loadClientToken as mockLoadClientToken,
+  saveClientToken as mockSaveClientToken,
+  clearClientToken as mockClearClientToken,
+  CLIENT_TOKEN_COOKIE as MOCK_CLIENT_TOKEN_COOKIE,
+} from '@/lib/mock/clientConfig.mock'
+
 const COOKIE_NAME = 'speculum_client_token'
 
 export interface ClientConfig {
@@ -10,11 +20,11 @@ export interface ClientConfig {
 
 let cachedConfig: ClientConfig | null = null
 
-export function invalidateClientConfigCache(): void {
+function realInvalidateClientConfigCache(): void {
   cachedConfig = null
 }
 
-export async function fetchClientConfig(apiUrl: string, force = false): Promise<ClientConfig> {
+async function realFetchClientConfig(apiUrl: string, force = false): Promise<ClientConfig> {
   if (cachedConfig && !force) return cachedConfig
   const base = apiUrl.replace(/\/$/, '')
   const res = await fetch(`${base}/api/public/client-config`)
@@ -31,7 +41,7 @@ function cookieDomain(config: ClientConfig): string | undefined {
   return undefined
 }
 
-export function loadClientToken(): string | null {
+function realLoadClientToken(): string | null {
   const name = COOKIE_NAME + '='
   const parts = document.cookie.split(';')
   for (const part of parts) {
@@ -41,7 +51,7 @@ export function loadClientToken(): string | null {
   return null
 }
 
-export function saveClientToken(id: string, config: ClientConfig): void {
+function realSaveClientToken(id: string, config: ClientConfig): void {
   const domain = cookieDomain(config)
   const secure = window.location.protocol === 'https:'
   let cookie = `${COOKIE_NAME}=${id}; Path=/; SameSite=Lax; Max-Age=31536000`
@@ -50,12 +60,20 @@ export function saveClientToken(id: string, config: ClientConfig): void {
   document.cookie = cookie
 }
 
-export function clearClientToken(config: ClientConfig): void {
+function realClearClientToken(config: ClientConfig): void {
   const domain = cookieDomain(config)
   let cookie = `${COOKIE_NAME}=; Path=/; Max-Age=0`
   if (domain) cookie += `; Domain=${domain}`
   document.cookie = cookie
 }
 
+export const invalidateClientConfigCache = MOCK_MODE
+  ? mockInvalidateClientConfigCache
+  : realInvalidateClientConfigCache
+export const fetchClientConfig = MOCK_MODE ? mockFetchClientConfig : realFetchClientConfig
+export const loadClientToken = MOCK_MODE ? mockLoadClientToken : realLoadClientToken
+export const saveClientToken = MOCK_MODE ? mockSaveClientToken : realSaveClientToken
+export const clearClientToken = MOCK_MODE ? mockClearClientToken : realClearClientToken
+
 /** @internal Exported for tests — cookie name used by client token helpers. */
-export const CLIENT_TOKEN_COOKIE = COOKIE_NAME
+export const CLIENT_TOKEN_COOKIE = MOCK_MODE ? MOCK_CLIENT_TOKEN_COOKIE : COOKIE_NAME

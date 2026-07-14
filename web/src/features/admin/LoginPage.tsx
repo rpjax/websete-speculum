@@ -1,7 +1,7 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { setApiKey, clearApiKey } from '@/lib/auth'
-import { API_URL } from '@/lib/env'
+import { API_URL, MOCK_MODE } from '@/lib/env'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -12,6 +12,10 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const navigate = useNavigate()
+
+  useEffect(() => {
+    if (MOCK_MODE) navigate('/admin', { replace: true })
+  }, [navigate])
 
   async function submit(e: FormEvent) {
     e.preventDefault()

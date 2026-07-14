@@ -271,11 +271,49 @@ Prefer inline strips over toast-only for config pages.
 
 ---
 
-## 7. Where this sits
+## 7. Mock mode (`VITE_MOCK=1`)
+
+### 7.1 Architecture
+
+```text
+env.ts  →  MOCK_MODE constant (static, tree-shakeable in prod)
+
+api.ts            ─┬─ realApi   (fetch → API)
+                   └─ mockApi   (in-memory fixtures + synthetic delay)
+diagnosticsApi.ts ─┬─ realDiagnosticsApi
+                   └─ mockDiagnosticsApi
+auth.ts           ─┬─ real functions (sessionStorage)
+                   └─ mock stubs (always authenticated)
+clientConfig.ts   ─┬─ real (fetch /api/public/client-config)
+                   └─ mock (static ClientConfig)
+```
+
+The swap is a **static ternary at module scope** — the mock branch is dead-code-eliminated when `VITE_MOCK` is unset.
+
+### 7.2 Fixture rules
+
+- Fixtures in `src/lib/mock/fixtures/` — typed, structured, realistic.
+- Each mock API method returns `delay(data)` to simulate real latency.
+- Mutations (PUT, DELETE, upload) update in-memory state so the SPA reflects changes within the session.
+- Fixture files are **not imported in production** (dead-code elimination via the static ternary).
+
+### 7.3 Motor in mock mode
+
+Motor depends on SignalR streaming, which cannot be meaningfully mocked in V1. `MotorPage` renders a placeholder that directs the developer to Admin/Setup surfaces.
+
+### 7.4 When to update fixtures
+
+- Adding a new API method → add the mock counterpart + fixture data.
+- Changing a DTO shape → update the matching fixture to stay in sync.
+- Run `npm run build` to verify dead-code elimination and type safety.
+
+---
+
+## 8. Where this sits
 
 | Doc | Role |
 |-----|------|
 | [frontend-standards.md](frontend-standards.md) | Constitution (must / never) |
-| **This file** | Recipes and decision trees |
-| [../web/README.md](../web/README.md) | Routes and package map |
+| **This file** | Recipes, decision trees, mock mode |
+| [../web/README.md](../web/README.md) | Routes, package map, mock dev instructions |
 | [engineering-standards.md](engineering-standards.md) | Repo-wide engineering / tests / CI |

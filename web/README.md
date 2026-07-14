@@ -96,6 +96,7 @@ cp .env.example .env
 | Variable | Description |
 |----------|-------------|
 | `VITE_API_URL` | Optional — omit for same-origin (dockup/prod). Set for cross-origin local dev only. |
+| `VITE_MOCK` | Set to `1` to activate **mock mode** — the SPA runs with simulated API data, no backend needed. Admin and Setup work fully; Motor shows a placeholder. |
 
 ---
 
@@ -107,6 +108,25 @@ npm run dev
 ```
 
 Default dev server: `http://localhost:5173`.
+
+### Mock mode (standalone frontend)
+
+Run the SPA **without a backend** — perfect for UI-only development:
+
+```bash
+VITE_MOCK=1 npm run dev      # Linux / macOS
+$env:VITE_MOCK='1'; npm run dev   # PowerShell
+```
+
+What works in mock mode:
+
+- **Admin** — all pages, config sections, sessions, scripts, diagnostics. Data is in-memory fixtures with synthetic latency.
+- **Setup** — wizard and status with simulated profiles.
+- **Motor** — shows a placeholder; live browsing requires SignalR + sidecar.
+
+Auth is bypassed (`isAuthenticated()` → `true`), so `/admin/login` auto-redirects.
+
+Fixtures live in `src/lib/mock/fixtures/`. To adjust mock data, edit fixtures and refresh.
 
 ```bash
 npm test
@@ -129,7 +149,10 @@ web/src/
 ├── components/
 │   ├── ui/                 shadcn primitives
 │   └── admin/              facilitators (Save strip, EmptyState, Timeline, …)
-├── lib/                    api, auth, diagnosticsApi, hooks
+├── lib/
+│   ├── mock/              Mock mode fixtures + API implementations
+│   ├── hooks/             Custom React hooks
+│   └── …                  api, auth, diagnosticsApi, env, clientConfig
 ├── App.tsx
 └── main.tsx
 ```

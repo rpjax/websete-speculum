@@ -1,17 +1,9 @@
 import { getApiKey } from '@/lib/auth'
-import { API_URL } from '@/lib/env'
+import { API_URL, MOCK_MODE } from '@/lib/env'
+import { ApiError } from '@/lib/errors'
+import { mockApi } from '@/lib/mock/api.mock'
 
-export class ApiError extends Error {
-  status: number
-  body?: unknown
-
-  constructor(message: string, status: number, body?: unknown) {
-    super(message)
-    this.name = 'ApiError'
-    this.status = status
-    this.body = body
-  }
-}
+export { ApiError }
 
 export interface ConfigStatus {
   operational: boolean
@@ -108,7 +100,7 @@ export const ConfigSections = {
 
 export type ConfigSectionName = (typeof ConfigSections)[keyof typeof ConfigSections]
 
-export const api = {
+const realApi = {
   getStatus: () => request<ConfigStatus>('/api/admin/config/status', { auth: false }),
   getReady: async () => {
     const res = await fetch(`${API_URL}/ready`, { credentials: 'include' })
@@ -137,3 +129,5 @@ export const api = {
     request(`/api/admin/scripts/${id}`, { method: 'DELETE' }),
   getOpenApi: () => request<unknown>('/openapi/v1.json'),
 }
+
+export const api: typeof realApi = MOCK_MODE ? mockApi : realApi

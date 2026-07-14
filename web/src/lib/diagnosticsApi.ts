@@ -1,6 +1,7 @@
 import { getApiKey } from '@/lib/auth'
-import { API_URL } from '@/lib/env'
-import { ApiError } from '@/lib/api'
+import { API_URL, MOCK_MODE } from '@/lib/env'
+import { ApiError } from '@/lib/errors'
+import { mockDiagnosticsApi } from '@/lib/mock/diagnosticsApi.mock'
 
 type RequestInitEx = RequestInit & { auth?: boolean }
 
@@ -90,6 +91,8 @@ export interface MotorSessionListItem {
   phase: string
   currentUrl: string
   starting: boolean
+  fps?: number
+  uptimeMs?: number
 }
 
 export interface MotorSessionDiagnosticsSnapshot {
@@ -202,7 +205,7 @@ export interface DiagnosticsOverview {
   needsAttention: string[]
 }
 
-export const diagnosticsApi = {
+const realDiagnosticsApi = {
   getRuntime: () => request<DiagnosticsRuntimeSnapshot>(`${BASE}/runtime`),
 
   getOverview: () => request<DiagnosticsOverview>(`${BASE}/overview`),
@@ -283,5 +286,9 @@ export const diagnosticsApi = {
     return res.detail
   },
 }
+
+export const diagnosticsApi: typeof realDiagnosticsApi = MOCK_MODE
+  ? mockDiagnosticsApi
+  : realDiagnosticsApi
 
 export type { ApiError }

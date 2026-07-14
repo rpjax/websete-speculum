@@ -5,6 +5,7 @@ import { isAuthenticated, clearApiKey } from '@/lib/auth'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 
 interface NavItem {
@@ -28,7 +29,7 @@ const NAV_GROUPS: NavGroup[] = [
   },
   {
     title: 'Sessions',
-    items: [{ to: '/admin/sessions', label: 'Browser sessions' }],
+    items: [{ to: '/admin/sessions', label: 'Sessions' }],
   },
   {
     title: 'Edge & site',
@@ -120,31 +121,33 @@ export default function AdminLayout() {
   }
 
   return (
-    <div className="min-h-screen md:flex">
-      <aside className="hidden w-60 shrink-0 border-r border-border bg-sidebar md:block">
-        <NavBody />
-      </aside>
+    <TooltipProvider delayDuration={200}>
+      <div className="min-h-screen md:flex">
+        <aside className="hidden w-60 shrink-0 border-r border-border bg-sidebar md:block">
+          <NavBody />
+        </aside>
 
-      <div className="flex items-center justify-between border-b border-border bg-card p-3 md:hidden">
-        <p className="text-xs tracking-widest text-muted-foreground">SPECULUM ADMIN</p>
-        <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-          <SheetTrigger asChild>
-            <Button variant="outline" size="icon" aria-label="Open navigation">
-              <Menu className="h-4 w-4" />
-            </Button>
-          </SheetTrigger>
-          <SheetContent side="left" className="w-72 p-0">
-            <SheetHeader className="sr-only">
-              <SheetTitle>Admin navigation</SheetTitle>
-            </SheetHeader>
-            <NavBody onNavigate={() => setMobileOpen(false)} />
-          </SheetContent>
-        </Sheet>
+        <div className="flex items-center justify-between border-b border-border bg-card p-3 md:hidden">
+          <p className="text-xs tracking-widest text-muted-foreground">SPECULUM ADMIN</p>
+          <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+            <SheetTrigger asChild>
+              <Button variant="outline" size="icon" aria-label="Open navigation">
+                <Menu className="h-4 w-4" />
+              </Button>
+            </SheetTrigger>
+            <SheetContent side="left" className="w-72 p-0">
+              <SheetHeader className="sr-only">
+                <SheetTitle>Admin navigation</SheetTitle>
+              </SheetHeader>
+              <NavBody onNavigate={() => setMobileOpen(false)} />
+            </SheetContent>
+          </Sheet>
+        </div>
+
+        <main className="min-w-0 flex-1 p-6">
+          <Outlet />
+        </main>
       </div>
-
-      <main className="min-w-0 flex-1 p-6">
-        <Outlet />
-      </main>
-    </div>
+    </TooltipProvider>
   )
 }

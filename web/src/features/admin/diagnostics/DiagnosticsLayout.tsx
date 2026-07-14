@@ -3,11 +3,11 @@ import { PageHeader } from '@/components/admin/PageHeader'
 import { cn } from '@/lib/utils'
 
 const TABS = [
-  { to: '/admin/diagnostics', label: 'Overview', end: true },
-  { to: '/admin/diagnostics/events', label: 'Events' },
-  { to: '/admin/diagnostics/live', label: 'Live sessions' },
-  { to: '/admin/diagnostics/probes', label: 'Probes' },
-  { to: '/admin/diagnostics/config', label: 'Config' },
+  { to: '/admin/diagnostics', label: 'Health', end: true },
+  { to: '/admin/diagnostics/activity', label: 'Activity' },
+  { to: '/admin/sessions', label: 'Sessions' },
+  { to: '/admin/diagnostics/investigate', label: 'Investigate' },
+  { to: '/admin/diagnostics/governance', label: 'Governance' },
 ]
 
 export default function DiagnosticsLayout() {
@@ -15,7 +15,7 @@ export default function DiagnosticsLayout() {
     <div className="space-y-6">
       <PageHeader
         title="Diagnostics"
-        description="Observe motor health, timelines, live sessions, and browser probes. Detail reveals as you drill in."
+        description="Observe motor health, session activity, correlation stories, browser probes, and diagnostics governance."
       />
       <nav className="flex flex-wrap gap-1 rounded-md border border-border bg-muted/40 p-1">
         {TABS.map((t) => (

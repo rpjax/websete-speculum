@@ -1,5 +1,6 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { useMotorHub } from './useMotorHub'
+import { MOCK_MODE } from '@/lib/env'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -13,7 +14,39 @@ function statusTone(status: string): 'success' | 'warning' | 'destructive' | 'mu
   return 'muted'
 }
 
-export default function MotorPage() {
+function MockMotorPage() {
+  return (
+    <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
+      <div className="flex shrink-0 items-center gap-2 border-b border-border bg-card px-3 py-2">
+        <span className="text-xs font-semibold tracking-widest text-muted-foreground">SPECULUM</span>
+        <Button variant="outline" size="icon" disabled aria-label="Back">
+          <ChevronLeft className="h-4 w-4" />
+        </Button>
+        <Button variant="outline" size="icon" disabled aria-label="Forward">
+          <ChevronRight className="h-4 w-4" />
+        </Button>
+        <Input className="flex-1" placeholder="https://www.example.com/" spellCheck={false} disabled aria-label="Address bar" />
+        <Badge variant="muted">Mock</Badge>
+      </div>
+      <div className="relative min-h-0 flex-1">
+        <div className={cn('absolute inset-0 flex flex-col items-center justify-center gap-4 bg-background/85')}>
+          <div className="max-w-sm space-y-2 px-6 text-center">
+            <p className="text-base font-medium">Mock mode active</p>
+            <p className="text-sm text-muted-foreground">
+              Motor live browsing requires a running backend with SignalR.
+              Use the Admin and Setup surfaces to develop UI with mocked data.
+            </p>
+          </div>
+          <Button variant="outline" onClick={() => { window.location.href = '/admin' }}>
+            Go to Admin
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function RealMotorPage() {
   const { canvasRef, viewportRef, urlBarRef, ui, connect, goBack, goForward } = useMotorHub()
   const showFps =
     location.hostname === 'localhost' ||
@@ -114,4 +147,8 @@ export default function MotorPage() {
       </div>
     </TooltipProvider>
   )
+}
+
+export default function MotorPage() {
+  return MOCK_MODE ? <MockMotorPage /> : <RealMotorPage />
 }

@@ -57,6 +57,10 @@ public sealed class LifecycleAndNavigateTests(MotorAssertFixture fx)
 
         var connId = act.ConnectionId!;
         await act.DisconnectAsync();
+
+        await fx.Diagnostics.WaitForEventsAsync(
+            connId, "Motor.Session", since,
+            ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStopped"));
         await fx.Diagnostics.AssertSessionGoneAsync(connId);
     }
 

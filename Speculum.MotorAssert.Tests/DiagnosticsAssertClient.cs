@@ -27,10 +27,24 @@ public sealed class DiagnosticsAssertClient(MotorAssertHost host)
 
     public async Task AssertSessionGoneAsync(string connectionId, CancellationToken ct = default)
     {
-        var res = await host.Http.GetAsync($"api/admin/diagnostics/v1/sessions/{connectionId}", ct);
-        Assert.Equal(HttpStatusCode.NotFound, res.StatusCode);
-        using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync(ct));
-        Assert.Equal("session_gone", doc.RootElement.GetProperty("errorCode").GetString());
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(30);
+        HttpResponseMessage? last = null;
+        while (DateTime.UtcNow < deadline)
+        {
+            ct.ThrowIfCancellationRequested();
+            last = await host.Http.GetAsync($"api/admin/diagnostics/v1/sessions/{connectionId}", ct);
+            if (last.StatusCode == HttpStatusCode.NotFound)
+            {
+                using var doc = JsonDocument.Parse(await last.Content.ReadAsStringAsync(ct));
+                Assert.Equal("session_gone", doc.RootElement.GetProperty("errorCode").GetString());
+                return;
+            }
+
+            await Task.Delay(200, ct);
+        }
+
+        throw new TimeoutException(
+            $"Session {connectionId} still present after disconnect (last={(int?)last?.StatusCode}).");
     }
 
     public async Task<IReadOnlyList<JsonElement>> WaitForEventsAsync(

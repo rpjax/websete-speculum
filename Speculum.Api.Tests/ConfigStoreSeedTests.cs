@@ -31,10 +31,6 @@ public class ConfigStoreSeedTests : IDisposable
 
     public void Dispose()
     {
-        Environment.SetEnvironmentVariable("HttpAddress", null);
-        Environment.SetEnvironmentVariable("Database__Path", null);
-        Environment.SetEnvironmentVariable("Sidecar__BaseUrl", null);
-        Environment.SetEnvironmentVariable(ConfigService.BootstrapKeyEnvVar, null);
         Environment.SetEnvironmentVariable("SPECULUM_DIAGNOSTICS_PROFILE", null);
         try { Directory.Delete(_tempDir, recursive: true); }
         catch { /* best-effort */ }
@@ -139,11 +135,15 @@ public class ConfigStoreSeedTests : IDisposable
 
     private ConfigService CreateStore()
     {
-        Environment.SetEnvironmentVariable("HttpAddress", "127.0.0.1:8080");
-        Environment.SetEnvironmentVariable("Database__Path", _dbPath);
-        Environment.SetEnvironmentVariable("Sidecar__BaseUrl", "ws://127.0.0.1:3000");
-
-        var config = new ConfigurationBuilder().AddEnvironmentVariables().Build();
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["HttpAddress"] = "127.0.0.1:8080",
+                ["Database:Path"] = _dbPath,
+                ["Sidecar:BaseUrl"] = "ws://127.0.0.1:3000",
+                ["ASPNETCORE_ENVIRONMENT"] = "Development",
+            })
+            .Build();
         var bootstrap = BootstrapConfig.Load(config);
         var env = new FakeWebHostEnvironment { WebRootPath = _tempDir };
         var registry = new MotorSessionRegistry();

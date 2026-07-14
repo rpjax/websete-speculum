@@ -8,9 +8,10 @@ Thank you for improving Speculum. This guide covers local workflow, quality expe
 
 ## Before you start
 
-1. Read [readme.md](readme.md) for repository layout.
-2. Read [docs/architecture.md](docs/architecture.md) if your change crosses API, web, or sidecar boundaries.
-3. Deploy changes should go through [deploy/README.md](deploy/README.md) (dockup manifest), not ad-hoc compose edits in `deploy/out/`.
+1. Read **[docs/engineering-standards.md](docs/engineering-standards.md)** — mandatory quality / architecture / testing constitution (AI agents: [AGENTS.md](AGENTS.md)).
+2. Read [readme.md](readme.md) for repository layout.
+3. Read [docs/architecture.md](docs/architecture.md) if your change crosses API, web, or sidecar boundaries.
+4. Deploy changes should go through [deploy/README.md](deploy/README.md) (dockup manifest), not ad-hoc compose edits in `deploy/out/`.
 
 ---
 
@@ -42,7 +43,7 @@ Run sidecar, API, and web separately — see component READMEs:
 ### Local (fast gate — no Chrome)
 
 ```bash
-dotnet test Speculum.sln -c Release --filter "Category!=MotorAssertive"
+dotnet test Speculum.sln -c Release --filter "Category!=MotorAssertive&Category!=MotorPerf"
 cd sidecar && npm ci && npm test
 cd web && npm ci && npm test && npm run lint && npm run build
 cd deploy && dockup validate -c speculum.dockup.example.json --root ..
@@ -66,10 +67,12 @@ MotorAssert sources: `Speculum.MotorAssert.Tests/` + fixture `tests/motor-fixtur
 
 ### Code principles
 
+Full constitution: **[docs/engineering-standards.md](docs/engineering-standards.md)**.
+
 - **Minimal scope** — one logical change per commit/PR when possible.
 - **Match conventions** — follow [docs/naming.md](docs/naming.md) (Speculum / Motor / W7S vocabulary).
 - **No drive-by refactors** — avoid unrelated formatting or renames.
-- **Tests when behaviour changes** — extend `Speculum.Api.Tests`, `Speculum.MotorAssert.Tests` (CI Chrome), sidecar tests, or `web` Vitest.
+- **Tests when behaviour changes** — pyramid: units (Api / sidecar / web) + MotorAssert Act→Assert on CI Chrome; Perf only for SLOs. Extend MATRIX when coverage depth changes. Never weaken asserts to get green ([docs/known-red-ci.md](docs/known-red-ci.md)).
 ---
 
 ## Project boundaries
@@ -100,7 +103,9 @@ When you change behaviour, update the relevant README in the same PR:
 
 | Area | Document |
 |------|----------|
+| Engineering standards (agents + humans) | `docs/engineering-standards.md`, `AGENTS.md` |
 | Cross-cutting design | `docs/architecture.md`, `docs/naming.md` |
+| Diagnostics / Act→Assert | `docs/diagnostics.md`, `Speculum.MotorAssert.Tests/MATRIX.md` |
 | W7S sidecar wire | `docs/w7s-sidecar-protocol.md` |
 | Motor / protocol | `docs/motor-reference.md` |
 | Deploy | `deploy/README.md` |

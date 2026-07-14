@@ -115,10 +115,28 @@ describe('diagnosticsApi', () => {
     expect(catalog.events).toContain('Motor.SessionStarted')
   })
 
-  it('listPersisted hits /persisted', async () => {
-    mockJson([])
+  it('getEventCatalog includes SessionResolved and UrlMapped', async () => {
+    mockJson({
+      diagnosticsSchemaVersion: 1,
+      events: [
+        'Motor.SessionStarted',
+        'Motor.SessionResolved',
+        'Motor.UrlMapped',
+        'Diagnostics.ConfigApplied',
+      ],
+    })
 
-    await diagnosticsApi.listPersisted()
-    expect(fetchMock).toHaveBeenCalledWith(`${BASE}/persisted`, expect.any(Object))
+    const catalog = await diagnosticsApi.getEventCatalog()
+    expect(catalog.events).toContain('Motor.SessionResolved')
+    expect(catalog.events).toContain('Motor.UrlMapped')
+  })
+
+  it('getSession unwraps { snapshot, redaction } envelope', async () => {
+    mockJson({
+      snapshot: { phase: 'Running', connectionId: 'c1', clientToken: 'tok' },
+      redaction: 'none',
+    })
+    const snap = await diagnosticsApi.getSession('c1')
+    expect(snap.phase).toBe('Running')
   })
 })

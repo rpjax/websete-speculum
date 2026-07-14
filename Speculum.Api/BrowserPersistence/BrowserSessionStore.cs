@@ -28,7 +28,7 @@ public sealed class BrowserSessionStore : IBrowserSessionStore
     public Task<string> ResolveOrCreateSessionAsync(string clientToken, CancellationToken ct = default)
         => _registry.ResolveOrCreateSessionAsync(clientToken, ct);
 
-    public Task<(string SessionId, string ClientToken)> ResolveOrCreateSessionAsync(
+    public Task<SessionResolveResult> ResolveOrCreateSessionAsync(
         SessionIdentity identity,
         CancellationToken ct = default)
         => _registry.ResolveOrCreateSessionAsync(identity, ct);

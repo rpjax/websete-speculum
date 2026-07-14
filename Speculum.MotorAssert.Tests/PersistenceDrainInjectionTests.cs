@@ -7,8 +7,10 @@ namespace Speculum.MotorAssert.Tests;
 
 [Collection(nameof(MotorAssertCollection))]
 [Trait("Category", "MotorAssertive")]
-public sealed class PersistenceDrainInjectionTests(MotorAssertFixture fx)
+public sealed class PersistenceDrainInjectionTests : MotorAssertTestBase
 {
+    public PersistenceDrainInjectionTests(MotorAssertFixture fixture) : base(fixture) { }
+
     [MotorAssertFact]
     public async Task E1_E2_persistence_export_and_restore_via_client_token()
     {
@@ -24,15 +26,13 @@ public sealed class PersistenceDrainInjectionTests(MotorAssertFixture fx)
                 act.ConnectionId, "Motor.Session", since,
                 ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
 
-            await Task.Delay(2500);
             await fx.Diagnostics.ExpectCookieAsync(act.ConnectionId!, "sf_marker", "state-cookie");
             await fx.Diagnostics.ExpectLocalStorageAsync(act.ConnectionId!, "sf_ls", "state-ls");
+            var exportSince = DateTimeOffset.UtcNow.AddSeconds(-1);
+            var connId = act.ConnectionId!;
             await act.DisconnectAsync();
+            await fx.Diagnostics.WaitStateExportCompletedAsync(connId, exportSince);
         }
-
-        await fx.Diagnostics.WaitForEventsAsync(
-            null, "Motor.StateExport", since,
-            ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.StateExportCompleted"));
 
         var list = await fx.Host.Http.GetFromJsonAsync<JsonElement>("api/admin/diagnostics/v1/persisted");
         Assert.True(list.GetArrayLength() >= 1);
@@ -46,7 +46,6 @@ public sealed class PersistenceDrainInjectionTests(MotorAssertFixture fx)
             act2.ConnectionId, "Motor.Session", since2,
             ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId2));
 
-        await Task.Delay(2500);
         await fx.Diagnostics.ExpectCookieAsync(act2.ConnectionId!, "sf_marker", "state-cookie");
         await fx.Diagnostics.ExpectLocalStorageAsync(act2.ConnectionId!, "sf_ls", "state-ls");
     }
@@ -107,14 +106,8 @@ public sealed class PersistenceDrainInjectionTests(MotorAssertFixture fx)
                 act.ConnectionId, "Motor.Session", since,
                 ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
 
-            await Task.Delay(2000);
-            var probe = await fx.Diagnostics.PostBrowserProbeAsync(
-                act.ConnectionId!,
-                ["evaluate"],
-                evaluateExpression: "window.__SPECULUM_INJECTED__");
-            Assert.True(probe.GetProperty("ok").GetBoolean());
-            var data = probe.GetProperty("data");
-            Assert.Contains("motor-assert-ok", data.ToString(), StringComparison.Ordinal);
+            await fx.Diagnostics.WaitEvaluateContainsAsync(
+                act.ConnectionId!, "window.__SPECULUM_INJECTED__", "motor-assert-ok");
         }
         finally
         {
@@ -176,11 +169,13 @@ public sealed class PersistenceDrainInjectionTests(MotorAssertFixture fx)
             await fx.Diagnostics.WaitForEventsAsync(
                 act.ConnectionId, "Motor.Session", since,
                 ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
-            await Task.Delay(1200);
+            await fx.Diagnostics.WaitCookieAsync(act.ConnectionId!, "sf_marker", "state-cookie");
+            var exportSince = DateTimeOffset.UtcNow.AddSeconds(-1);
+            var connId = act.ConnectionId!;
             await act.DisconnectAsync();
+            await fx.Diagnostics.WaitStateExportCompletedAsync(connId, exportSince);
         }
 
-        await Task.Delay(800);
         var listRes = await fx.Host.Http.GetAsync("api/admin/diagnostics/v1/persisted");
         listRes.EnsureSuccessStatusCode();
         using var listDoc = JsonDocument.Parse(await listRes.Content.ReadAsStringAsync());
@@ -191,17 +186,15 @@ public sealed class PersistenceDrainInjectionTests(MotorAssertFixture fx)
         {
             if (item.TryGetProperty("clientToken", out var ct)
                 && string.Equals(ct.GetString(), token, StringComparison.Ordinal)
-                && item.TryGetProperty("sessionId", out var sid))
+                && item.TryGetProperty("sessionId", out var sid)
+                && sid.GetString() is { } id)
             {
-                sessionId = sid.GetString();
+                sessionId = id;
                 break;
             }
-
-            if (item.TryGetProperty("id", out var id))
-                sessionId ??= id.GetString();
         }
 
-        Assert.False(string.IsNullOrWhiteSpace(sessionId));
+        Assert.False(string.IsNullOrWhiteSpace(sessionId), $"no persisted row for token {token}");
         var detail = await fx.Host.Http.GetAsync($"api/admin/diagnostics/v1/persisted/{sessionId}");
         detail.EnsureSuccessStatusCode();
     }
@@ -212,7 +205,10 @@ public sealed class PersistenceDrainInjectionTests(MotorAssertFixture fx)
         var put = await fx.Host.PutConfigAsync("SessionPolicy", new { ttlDays = 7 });
         put.EnsureSuccessStatusCode();
         var del = await fx.Host.DeleteConfigAsync("SessionPolicy");
-        Assert.True(del.IsSuccessStatusCode || del.StatusCode is HttpStatusCode.BadRequest);
+        Assert.True(del.IsSuccessStatusCode, $"DELETE SessionPolicy => {(int)del.StatusCode}");
+        var get = await fx.Host.Http.GetAsync("api/admin/config/SessionPolicy");
+        Assert.Equal(HttpStatusCode.NotFound, get.StatusCode);
+        await fx.Host.PutConfigAsync("SessionPolicy", new { ttlDays = 30 });
     }
 
     [MotorAssertFact]
@@ -229,7 +225,7 @@ public sealed class PersistenceDrainInjectionTests(MotorAssertFixture fx)
 
         var put = await fx.Host.PutConfigAsync("MaxSessions", 4);
         put.EnsureSuccessStatusCode();
-        await Task.Delay(800);
+        // MaxSessions does not emit Diagnostics.ConfigApplied — assert live session survives immediately.
 
         var still = await fx.Diagnostics.TryGetSessionAsync(act.ConnectionId!);
         Assert.NotNull(still);

@@ -143,7 +143,11 @@ export class WsSessionHost {
                             type:      'diagResult',
                             requestId: probe.requestId,
                             ok:        false,
-                            errorCode: message.includes('disposed') ? 'session_gone' : 'probe_failed',
+                            errorCode: message.includes('response_too_large')
+                                ? 'response_too_large'
+                                : message.includes('disposed')
+                                    ? 'session_gone'
+                                    : 'probe_failed',
                             data:      { message },
                         }));
                     }

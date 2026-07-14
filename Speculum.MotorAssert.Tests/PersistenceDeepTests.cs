@@ -6,8 +6,10 @@ namespace Speculum.MotorAssert.Tests;
 
 [Collection(nameof(MotorAssertCollection))]
 [Trait("Category", "MotorAssertive")]
-public sealed class PersistenceDeepTests(MotorAssertFixture fx)
+public sealed class PersistenceDeepTests : MotorAssertTestBase
 {
+    public PersistenceDeepTests(MotorAssertFixture fixture) : base(fixture) { }
+
     [MotorAssertFact]
     public async Task E3_persisted_detail_includes_history()
     {
@@ -23,23 +25,24 @@ public sealed class PersistenceDeepTests(MotorAssertFixture fx)
                 act.ConnectionId, "Motor.Session", since,
                 ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
             await act.NavigateAsync($"{fx.Host.FixtureClientOrigin}/nav/b");
-            await Task.Delay(2500);
+            await fx.Diagnostics.WaitEvaluateContainsAsync(
+                act.ConnectionId!, "location.pathname", "/nav/b");
+            var exportSince = DateTimeOffset.UtcNow.AddSeconds(-1);
+            var connId = act.ConnectionId!;
             await act.DisconnectAsync();
+            await fx.Diagnostics.WaitStateExportCompletedAsync(connId, exportSince);
         }
-
-        await fx.Diagnostics.WaitForEventsAsync(
-            null, "Motor.StateExport", since,
-            ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.StateExportCompleted"));
 
         var sessionId = await FindPersistedSessionIdAsync(token);
         var detailRes = await fx.Host.Http.GetAsync($"api/admin/diagnostics/v1/persisted/{sessionId}");
         detailRes.EnsureSuccessStatusCode();
         using var doc = JsonDocument.Parse(await detailRes.Content.ReadAsStringAsync());
         Assert.True(doc.RootElement.TryGetProperty("detail", out var detail), doc.RootElement.ToString());
-        Assert.True(detail.TryGetProperty("history", out var history) || detail.TryGetProperty("History", out history),
-            detail.ToString());
-        Assert.True(history.GetArrayLength() >= 1, $"expected history rows, got {history}");
-        Assert.Contains("/nav/", history.ToString(), StringComparison.Ordinal);
+        Assert.True(detail.TryGetProperty("history", out var history), detail.ToString());
+        Assert.True(history.GetArrayLength() >= 2, $"expected >=2 history rows after nav a→b, got {history}");
+        var histText = history.ToString();
+        Assert.Contains("/nav/a", histText, StringComparison.Ordinal);
+        Assert.Contains("/nav/b", histText, StringComparison.Ordinal);
     }
 
     [MotorAssertFact]
@@ -59,15 +62,13 @@ public sealed class PersistenceDeepTests(MotorAssertFixture fx)
             await fx.Diagnostics.WaitForEventsAsync(
                 act.ConnectionId, "Motor.Session", since,
                 ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
-            await Task.Delay(2500);
             await fx.Diagnostics.ExpectCookieAsync(act.ConnectionId!, "sf_marker", "state-cookie");
             await fx.Diagnostics.ExpectLocalStorageAsync(act.ConnectionId!, "sf_ls", "state-ls");
+            var exportSince = DateTimeOffset.UtcNow.AddSeconds(-1);
+            var connId = act.ConnectionId!;
             await act.DisconnectAsync();
+            await fx.Diagnostics.WaitStateExportCompletedAsync(connId, exportSince);
         }
-
-        await fx.Diagnostics.WaitForEventsAsync(
-            null, "Motor.StateExport", since,
-            ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.StateExportCompleted"));
 
         var sessionId1 = await FindPersistedSessionIdAsync(token);
 
@@ -85,7 +86,6 @@ public sealed class PersistenceDeepTests(MotorAssertFixture fx)
             act2.ConnectionId, "Motor.Session", since2,
             ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId2));
 
-        await Task.Delay(2500);
         await fx.Diagnostics.ExpectCookieAsync(act2.ConnectionId!, "sf_marker", "state-cookie");
         await fx.Diagnostics.ExpectLocalStorageAsync(act2.ConnectionId!, "sf_ls", "state-ls");
 
@@ -123,20 +123,21 @@ public sealed class PersistenceDeepTests(MotorAssertFixture fx)
         try
         {
             RunCompose(composeFile, "stop", "sidecar");
-            // Fault may land before disconnect; after disconnect expect export Failed.
-            await Task.Delay(1500);
-            await act.DisconnectAsync();
-
             await fx.Diagnostics.WaitForEventsAsync(
-                null, "Motor.", since,
-                ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.StateExportFailed")
-                      || DiagnosticsAssertClient.HasEvent(ev, "Motor.SidecarFaulted"),
+                act.ConnectionId, "Motor.", since,
+                ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SidecarFaulted"),
                 timeout: TimeSpan.FromSeconds(90));
+
+            await act.DisconnectAsync();
+            await fx.Diagnostics.WaitForEventsAsync(
+                null, "Motor.StateExport", since,
+                ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.StateExportFailed"),
+                timeout: TimeSpan.FromSeconds(60));
         }
         finally
         {
             RunCompose(composeFile, "start", "sidecar");
-            await Task.Delay(8000);
+            await MotorAssertCompose.WaitSidecarHttpHealthyAsync(composeFile);
             await fx.Host.EnsureReadyAsync();
         }
     }
@@ -155,15 +156,16 @@ public sealed class PersistenceDeepTests(MotorAssertFixture fx)
             await fx.Diagnostics.WaitForEventsAsync(
                 act.ConnectionId, "Motor.Session", since,
                 ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
-            await Task.Delay(1200);
+            await fx.Diagnostics.WaitCookieAsync(act.ConnectionId!, "sf_marker", "state-cookie");
+            await fx.Diagnostics.WaitLocalStorageAsync(act.ConnectionId!, "sf_ls", "state-ls");
+            var exportSince = DateTimeOffset.UtcNow.AddSeconds(-1);
+            var connId = act.ConnectionId!;
             await act.DisconnectAsync();
+            await fx.Diagnostics.WaitStateExportCompletedAsync(connId, exportSince);
         }
 
-        await fx.Diagnostics.WaitForEventsAsync(
-            null, "Motor.StateExport", since,
-            ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.StateExportCompleted"));
-
         var sessionId = await FindPersistedSessionIdAsync(token);
+        await WaitPersistedCookiesContainAsync(sessionId, "sf_marker");
 
         var drainSince = DateTimeOffset.UtcNow.AddSeconds(-1);
         var put = await fx.Host.PutConfigAsync("Forwarding", new
@@ -176,8 +178,39 @@ public sealed class PersistenceDeepTests(MotorAssertFixture fx)
             null, "Motor.Drain", drainSince,
             ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.DrainCompleted"));
 
+        await WaitPersistedCookiesContainAsync(sessionId, "sf_marker");
         var detail = await fx.Host.Http.GetAsync($"api/admin/diagnostics/v1/persisted/{sessionId}");
         detail.EnsureSuccessStatusCode();
+        using var detailDoc = JsonDocument.Parse(await detail.Content.ReadAsStringAsync());
+        Assert.True(detailDoc.RootElement.TryGetProperty("detail", out var detailEl), detailDoc.RootElement.ToString());
+        Assert.True(detailEl.TryGetProperty("cookies", out var cookies), detailEl.ToString());
+        Assert.Contains("sf_marker", cookies.ToString(), StringComparison.Ordinal);
+        Assert.True(detailEl.TryGetProperty("localStorage", out var ls), detailEl.ToString());
+        Assert.Contains("sf_ls", ls.ToString(), StringComparison.Ordinal);
+    }
+
+    private async Task WaitPersistedCookiesContainAsync(string sessionId, string marker)
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(30);
+        string? last = null;
+        while (DateTime.UtcNow < deadline)
+        {
+            var detail = await fx.Host.Http.GetAsync($"api/admin/diagnostics/v1/persisted/{sessionId}");
+            if (detail.IsSuccessStatusCode)
+            {
+                var text = await detail.Content.ReadAsStringAsync();
+                last = text;
+                using var doc = JsonDocument.Parse(text);
+                if (doc.RootElement.TryGetProperty("detail", out var d)
+                    && d.TryGetProperty("cookies", out var cookies)
+                    && cookies.ToString().Contains(marker, StringComparison.Ordinal))
+                    return;
+            }
+
+            await Task.Delay(250);
+        }
+
+        Assert.Fail($"persisted session {sessionId} never showed cookie '{marker}'. last={last}");
     }
 
     [MotorAssertFact]
@@ -199,15 +232,13 @@ public sealed class PersistenceDeepTests(MotorAssertFixture fx)
     }
 
     [MotorAssertFact]
-    public async Task F3_delete_session_policy_restores_default_or_accepts()
+    public async Task F3_delete_session_policy_clears_section()
     {
         await fx.Host.PutConfigAsync("SessionPolicy", new { ttlDays = 9 });
         var del = await fx.Host.DeleteConfigAsync("SessionPolicy");
-        Assert.True(del.IsSuccessStatusCode || del.StatusCode is HttpStatusCode.BadRequest
-                    || del.StatusCode is HttpStatusCode.NoContent);
+        Assert.True(del.IsSuccessStatusCode, $"DELETE SessionPolicy failed: {(int)del.StatusCode}");
         var get = await fx.Host.Http.GetAsync("api/admin/config/SessionPolicy");
-        // After delete, section may be missing (404) or default payload.
-        Assert.True(get.IsSuccessStatusCode || get.StatusCode == HttpStatusCode.NotFound);
+        Assert.Equal(HttpStatusCode.NotFound, get.StatusCode);
         await fx.Host.PutConfigAsync("SessionPolicy", new { ttlDays = 30 });
     }
 
@@ -220,10 +251,11 @@ public sealed class PersistenceDeepTests(MotorAssertFixture fx)
         {
             if (item.TryGetProperty("clientToken", out var ct)
                 && string.Equals(ct.GetString(), token, StringComparison.Ordinal)
-                && item.TryGetProperty("sessionId", out var sid))
-                return sid.GetString()!;
-            if (item.TryGetProperty("id", out var id) && id.GetString() is { } fallback)
-                return fallback;
+                && item.TryGetProperty("sessionId", out var sid)
+                && sid.GetString() is { } sessionId)
+            {
+                return sessionId;
+            }
         }
 
         throw new InvalidOperationException($"No persisted session for token {token}");

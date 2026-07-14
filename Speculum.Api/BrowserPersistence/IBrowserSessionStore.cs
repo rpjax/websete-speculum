@@ -6,7 +6,7 @@ public interface IBrowserSessionStore
 {
     Task InitializeAsync(CancellationToken ct = default);
     Task<string> ResolveOrCreateSessionAsync(string clientToken, CancellationToken ct = default);
-    Task<(string SessionId, string ClientToken)> ResolveOrCreateSessionAsync(
+    Task<SessionResolveResult> ResolveOrCreateSessionAsync(
         SessionIdentity identity,
         CancellationToken ct = default);
     Task<BrowserStatePayload?> LoadStateAsync(string sessionId, CancellationToken ct = default);

@@ -49,15 +49,29 @@ test('isProcessAlive returns false for invalid pid', () => {
     assert.equal(isProcessAlive(-1), false);
 });
 
-test('capProbeData trims oversized payloads', () => {
-    const huge = 'x'.repeat(600_000);
+test('capProbeData trims oversized payloads within budget', () => {
+    const huge = 'x'.repeat(8_000);
     const capped = capProbeData({
         cookies: [{ name: 'a', value: huge, domain: 'x', path: '/', httpOnly: false, secure: false }],
         storage: Array.from({ length: 100 }, (_, i) => ({ origin: 'https://a', key: `k${i}`, value: 'v' })),
         dom:     { outerHTML: huge, text: 't' },
         process: { display: ':100', xvfbPid: 1, wmPid: 2, chromePid: 3, userDataDirExists: true },
-    }, 4096);
+    }, 16_384);
 
-    assert.ok(JSON.stringify(capped).length < 600_000);
+    assert.ok(Buffer.byteLength(JSON.stringify(capped), 'utf8') <= 16_384);
     assert.ok(capped.process);
+    assert.ok(capped.dom?.outerHTML && capped.dom.outerHTML.length < huge.length);
+});
+
+test('capProbeData throws response_too_large when evidence cannot fit', () => {
+    const huge = 'x'.repeat(600_000);
+    assert.throws(
+        () => capProbeData({
+            cookies: [{ name: 'a', value: huge, domain: 'x', path: '/', httpOnly: false, secure: false }],
+            storage: Array.from({ length: 100 }, (_, i) => ({ origin: 'https://a', key: `k${i}`, value: 'v' })),
+            dom:     { outerHTML: huge, text: 't' },
+            process: { display: ':100', xvfbPid: 1, wmPid: 2, chromePid: 3, userDataDirExists: true },
+        }, 256),
+        (err: Error) => err.message.includes('response_too_large'),
+    );
 });

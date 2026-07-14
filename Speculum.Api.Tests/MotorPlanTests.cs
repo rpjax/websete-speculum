@@ -279,9 +279,12 @@ public class MotorSessionRegistryTests
         public Task InitializeAsync(CancellationToken ct = default) => Task.CompletedTask;
         public Task<string> ResolveOrCreateSessionAsync(string clientToken, CancellationToken ct = default)
             => Task.FromResult(Guid.NewGuid().ToString("N"));
-        public Task<(string SessionId, string ClientToken)> ResolveOrCreateSessionAsync(
+        public Task<SessionResolveResult> ResolveOrCreateSessionAsync(
             SessionIdentity identity, CancellationToken ct = default)
-            => Task.FromResult((Guid.NewGuid().ToString("N"), identity.ClientToken ?? Guid.NewGuid().ToString("N")));
+            => Task.FromResult(new SessionResolveResult(
+                Guid.NewGuid().ToString("N"),
+                identity.ClientToken ?? Guid.NewGuid().ToString("N"),
+                Restored: false));
         public Task<BrowserStatePayload?> LoadStateAsync(string sessionId, CancellationToken ct = default)
             => Task.FromResult<BrowserStatePayload?>(null);
         public Task SaveStateAsync(string sessionId, BrowserStatePayload state, CancellationToken ct = default)

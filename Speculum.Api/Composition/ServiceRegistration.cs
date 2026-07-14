@@ -131,7 +131,10 @@ public static class ServiceRegistration
         {
             options.MaximumReceiveMessageSize = 512 * 1024;
             options.StreamBufferCapacity      = 16;
-        }).AddMessagePackProtocol();
+        }).AddMessagePackProtocol(options =>
+        {
+            options.SerializerOptions = MotorHubMessagePack.Options;
+        });
         builder.Services.AddOpenApi();
     }
 

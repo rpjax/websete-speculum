@@ -334,9 +334,9 @@ public sealed class MotorSessionCoordinatorTests
         public Task<string> ResolveOrCreateSessionAsync(string clientToken, CancellationToken ct = default)
             => Task.FromResult("session-id");
 
-        public Task<(string SessionId, string ClientToken)> ResolveOrCreateSessionAsync(
+        public Task<SessionResolveResult> ResolveOrCreateSessionAsync(
             SessionIdentity identity, CancellationToken ct = default)
-            => Task.FromResult(("session-id", _clientToken));
+            => Task.FromResult(new SessionResolveResult("session-id", _clientToken, Restored: false));
 
         public Task<BrowserStatePayload?> LoadStateAsync(string sessionId, CancellationToken ct = default)
             => Task.FromResult<BrowserStatePayload?>(null);

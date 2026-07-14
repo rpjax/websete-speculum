@@ -55,25 +55,37 @@ export function capProbeData(data: DiagProbeEvidence, maxBytes: number): DiagPro
     let json = JSON.stringify(data);
     if (Buffer.byteLength(json, 'utf8') <= maxBytes) return data;
 
+    const truncate = (value: string, max: number) =>
+        value.length > max ? value.slice(0, max) + '…' : value;
+
     const trimmed: DiagProbeEvidence = { ...data };
-    if (trimmed.cookies) trimmed.cookies = trimmed.cookies.slice(0, 10);
-    if (trimmed.storage) trimmed.storage = trimmed.storage.slice(0, 10);
+    if (trimmed.cookies) {
+        trimmed.cookies = trimmed.cookies.slice(0, 10).map(c => ({
+            ...c,
+            value: truncate(c.value, 256),
+        }));
+    }
+    if (trimmed.storage) {
+        trimmed.storage = trimmed.storage.slice(0, 10).map(s => ({
+            ...s,
+            value: truncate(s.value, 256),
+        }));
+    }
     if (trimmed.dom?.outerHTML && trimmed.dom.outerHTML.length > 4096) {
         trimmed.dom = {
             ...trimmed.dom,
-            outerHTML: trimmed.dom.outerHTML.slice(0, 4096) + '…',
+            outerHTML: truncate(trimmed.dom.outerHTML, 4096),
         };
+    }
+    if (typeof trimmed.evaluate === 'string' && trimmed.evaluate.length > 1024) {
+        trimmed.evaluate = truncate(trimmed.evaluate, 1024);
     }
 
     json = JSON.stringify(trimmed);
     if (Buffer.byteLength(json, 'utf8') <= maxBytes) return trimmed;
 
-    return {
-        process: trimmed.process,
-        tabs: trimmed.tabs,
-        export: trimmed.export,
-        resources: trimmed.resources,
-    };
+    // Soft trim cannot fit requested evidence — surface explicit overflow instead of {}.
+    throw new Error('response_too_large');
 }
 
 async function sampleCookies(cdp: CDPSession): Promise<BrowserCookieState[]> {

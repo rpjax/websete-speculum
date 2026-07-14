@@ -6,8 +6,10 @@ namespace Speculum.MotorAssert.Tests;
 
 [Collection(nameof(MotorAssertCollection))]
 [Trait("Category", "MotorAssertive")]
-public sealed class ScriptsDeepTests(MotorAssertFixture fx)
+public sealed class ScriptsDeepTests : MotorAssertTestBase
 {
+    public ScriptsDeepTests(MotorAssertFixture fixture) : base(fixture) { }
+
     [MotorAssertFact]
     public async Task H3_header_top_classic_sets_marker()
     {
@@ -111,7 +113,6 @@ public sealed class ScriptsDeepTests(MotorAssertFixture fx)
                 act.ConnectionId, "Motor.Session", since,
                 ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
 
-            await Task.Delay(2500);
             await fx.Diagnostics.ExpectEvaluateAsync(act.ConnectionId!, evaluate, expected);
         }
         finally

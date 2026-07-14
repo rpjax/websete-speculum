@@ -6,8 +6,10 @@ namespace Speculum.MotorAssert.Tests;
 
 [Collection(nameof(MotorAssertCollection))]
 [Trait("Category", "MotorAssertive")]
-public sealed class DiagnosticsEdgeDeepTests(MotorAssertFixture fx)
+public sealed class DiagnosticsEdgeDeepTests : MotorAssertTestBase
 {
+    public DiagnosticsEdgeDeepTests(MotorAssertFixture fixture) : base(fixture) { }
+
     [MotorAssertFact]
     public async Task L2_L6_probe_cookies_storage_dom_evaluate_fixture()
     {
@@ -20,7 +22,6 @@ public sealed class DiagnosticsEdgeDeepTests(MotorAssertFixture fx)
             act.ConnectionId, "Motor.Session", since,
             ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
 
-        await Task.Delay(1000);
         await fx.Diagnostics.ExpectCookieAsync(act.ConnectionId!, "sf_marker", "state-cookie");
         await fx.Diagnostics.ExpectLocalStorageAsync(act.ConnectionId!, "sf_ls", "state-ls");
 
@@ -105,11 +106,10 @@ public sealed class DiagnosticsEdgeDeepTests(MotorAssertFixture fx)
                 if (r.StatusCode == HttpStatusCode.OK)
                     _ = await r.Content.ReadAsStringAsync();
             }));
-            await Task.Delay(500);
         }
         finally
         {
-            await fx.RestoreAssertiveDiagnosticsAsync();
+            await fx.RestoreAssertiveDiagnosticsVerifiedAsync();
         }
     }
 
@@ -149,13 +149,15 @@ public sealed class DiagnosticsEdgeDeepTests(MotorAssertFixture fx)
                 act.ConnectionId, "Motor.Session", since,
                 ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
 
+            var probeStarted = DateTime.UtcNow;
             var res = await fx.Host.Http.PostAsJsonAsync(
                 $"api/admin/diagnostics/v1/sessions/{act.ConnectionId}/browser",
                 new
                 {
                     ops = new[] { "evaluate" },
+                    // Keep in-page work just above diagTimeoutMs so leftover CDP work ends quickly.
                     evaluateExpression =
-                        "(async () => { await new Promise(r => setTimeout(r, 2000)); return 'late'; })()",
+                        "(async () => { await new Promise(r => setTimeout(r, 600)); return 'late'; })()",
                     correlationId = Guid.NewGuid().ToString("N"),
                 },
                 MotorAssertHost.Json);
@@ -166,12 +168,21 @@ public sealed class DiagnosticsEdgeDeepTests(MotorAssertFixture fx)
             using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
             Assert.Equal("probe_timeout", doc.RootElement.GetProperty("errorCode").GetString());
 
-            // Sidecar may still be awaiting the cancelled evaluate; wait out remaining work.
-            await Task.Delay(2000);
+            // Browser must stay responsive; also drain the cancelled evaluate so dispose does not
+            // kill Chromium mid-Runtime.evaluate (that poisons subsequent StartSession calls).
+            await fx.Diagnostics.WaitFixturePageAsync(act.ConnectionId!, "home");
+            var drainUntil = probeStarted + TimeSpan.FromMilliseconds(900);
+            while (DateTime.UtcNow < drainUntil)
+            {
+                await fx.Diagnostics.WaitEvaluateContainsAsync(
+                    act.ConnectionId!, "1+1", "2", timeout: TimeSpan.FromSeconds(2));
+            }
+
+            await act.DisconnectAsync();
         }
         finally
         {
-            await fx.RestoreAssertiveDiagnosticsAsync();
+            await fx.RestoreAssertiveDiagnosticsVerifiedAsync();
             await fx.Host.EnsureReadyAsync();
         }
     }
@@ -192,31 +203,21 @@ public sealed class DiagnosticsEdgeDeepTests(MotorAssertFixture fx)
             $"api/admin/diagnostics/v1/resolve?connectionId={Uri.EscapeDataString(act.ConnectionId!)}");
         res.EnsureSuccessStatusCode();
         using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
-        Assert.True(
-            doc.RootElement.TryGetProperty("snapshot", out _)
-            || doc.RootElement.TryGetProperty("connectionId", out _),
-            doc.RootElement.ToString());
+        Assert.True(doc.RootElement.TryGetProperty("connectionId", out var cid), doc.RootElement.ToString());
+        Assert.Equal(act.ConnectionId, cid.GetString());
+        Assert.True(doc.RootElement.TryGetProperty("snapshot", out var snap), doc.RootElement.ToString());
+        Assert.True(snap.TryGetProperty("phase", out _), snap.ToString());
     }
 
     [MotorAssertFact]
     public async Task M1_assertive_seed_config_applied_events()
     {
-        var since = DateTimeOffset.UtcNow.AddSeconds(-30);
-        var put = await fx.RestoreAssertiveDiagnosticsAsync();
-        put.EnsureSuccessStatusCode();
-
-        await fx.Diagnostics.WaitForEventsAsync(
-            null, "Diagnostics.", since,
-            ev => ev.Any(e =>
-                e.GetProperty("name").GetString() is { } n
-                && (n.Contains("Config", StringComparison.OrdinalIgnoreCase)
-                    || n.Contains("Applied", StringComparison.OrdinalIgnoreCase)
-                    || n.Contains("Elevate", StringComparison.OrdinalIgnoreCase)
-                    || n.StartsWith("Diagnostics.", StringComparison.Ordinal))),
-            timeout: TimeSpan.FromSeconds(30));
+        await fx.RestoreAssertiveDiagnosticsVerifiedAsync();
 
         var runtime = await fx.Diagnostics.GetRuntimeAsync();
         Assert.True(runtime.GetProperty("enabled").GetBoolean());
+        Assert.True(runtime.TryGetProperty("effectiveLevels", out var levels), runtime.ToString());
+        Assert.Equal("BrowserQuery", levels.GetProperty("BrowserQuery").GetString());
     }
 
     [MotorAssertFact]
@@ -279,9 +280,10 @@ public sealed class DiagnosticsEdgeDeepTests(MotorAssertFixture fx)
         var composeFile = ResolveComposeFile();
         Assert.NotNull(composeFile);
 
+        var configSince = DateTimeOffset.UtcNow.AddSeconds(-1);
         var put = await fx.RestoreHostingApexAsync();
         put.EnsureSuccessStatusCode();
-        await Task.Delay(1500);
+        await fx.Diagnostics.WaitConfigAppliedAsync(configSince);
 
         var psi = new System.Diagnostics.ProcessStartInfo
         {
@@ -313,9 +315,7 @@ public sealed class DiagnosticsEdgeDeepTests(MotorAssertFixture fx)
         req.Headers.TryAddWithoutValidation("Origin", "http://127.0.0.1");
         req.Headers.TryAddWithoutValidation("Access-Control-Request-Method", "GET");
         var allowed = await http.SendAsync(req);
-        Assert.True(
-            allowed.IsSuccessStatusCode || allowed.StatusCode == HttpStatusCode.NoContent,
-            $"allowed preflight {(int)allowed.StatusCode}");
+        Assert.True(allowed.IsSuccessStatusCode, $"allowed preflight {(int)allowed.StatusCode}");
 
         using var deniedReq = new HttpRequestMessage(HttpMethod.Options, $"{traefik.TrimEnd('/')}/api/public/client-config");
         deniedReq.Headers.TryAddWithoutValidation("Origin", "https://evil-not-allowed.example");
@@ -377,10 +377,11 @@ public sealed class DiagnosticsEdgeDeepTests(MotorAssertFixture fx)
         var before = await fx.Diagnostics.RequireSessionAsync(act.ConnectionId!);
         Assert.True(fx.Diagnostics.RequireBool(fx.Diagnostics.RequireSnapshot(before), "jsBridgeEnabled"));
 
-        await fx.Host.PutConfigAsync("JsBridge", new { enable = false });
+        var put = await fx.Host.PutConfigAsync("JsBridge", new { enable = false });
+        put.EnsureSuccessStatusCode();
         try
         {
-            await Task.Delay(500);
+            // JsBridge does not emit Diagnostics.ConfigApplied — assert live vs new session directly.
             var mid = await fx.Diagnostics.RequireSessionAsync(act.ConnectionId!);
             Assert.True(fx.Diagnostics.RequireBool(fx.Diagnostics.RequireSnapshot(mid), "jsBridgeEnabled"),
                 "live session snapshot must keep StartSession JsBridge");
@@ -399,7 +400,8 @@ public sealed class DiagnosticsEdgeDeepTests(MotorAssertFixture fx)
         }
         finally
         {
-            await fx.Host.PutConfigAsync("JsBridge", new { enable = true });
+            var restore = await fx.Host.PutConfigAsync("JsBridge", new { enable = true });
+            restore.EnsureSuccessStatusCode();
         }
     }
 

@@ -62,7 +62,7 @@ public sealed class DiagnosticsEventBus : IDiagnosticsEventBus
     private long _recentDrops;
     private long _recentSlowWrites;
     private DateTimeOffset _windowStart = DateTimeOffset.UtcNow;
-    private static readonly TimeSpan SlowWriteThreshold = TimeSpan.FromMilliseconds(100);
+    private static readonly TimeSpan SlowWriteThreshold = TimeSpan.FromMilliseconds(250);
 
     public DiagnosticsEventBus(
         IDiagnosticsRuntime runtime,
@@ -132,14 +132,17 @@ public sealed class DiagnosticsEventBus : IDiagnosticsEventBus
     private void NoteDrop()
     {
         RollWindow();
-        if (Interlocked.Increment(ref _recentDrops) > 50)
+        // Sustained sink failure / backpressure — not a single flaky write under Assertive load.
+        if (Interlocked.Increment(ref _recentDrops) > 200)
             TripBreaker("drop_rate");
     }
 
     private void NoteSlowWrite()
     {
         RollWindow();
-        if (Interlocked.Increment(ref _recentSlowWrites) > 10)
+        // Sync SQLite under BrowserQuery Assertive is routinely >100ms on CI disks;
+        // trip only on sustained latency, not a brief spike wave.
+        if (Interlocked.Increment(ref _recentSlowWrites) > 40)
             TripBreaker("write_latency");
     }
 

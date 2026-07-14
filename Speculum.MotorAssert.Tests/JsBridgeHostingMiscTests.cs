@@ -6,8 +6,10 @@ namespace Speculum.MotorAssert.Tests;
 
 [Collection(nameof(MotorAssertCollection))]
 [Trait("Category", "MotorAssertive")]
-public sealed class JsBridgeHostingMiscTests(MotorAssertFixture fx)
+public sealed class JsBridgeHostingMiscTests : MotorAssertTestBase
 {
+    public JsBridgeHostingMiscTests(MotorAssertFixture fixture) : base(fixture) { }
+
     [MotorAssertFact]
     public async Task I1_js_bridge_enabled_on_snapshot()
     {
@@ -52,7 +54,7 @@ public sealed class JsBridgeHostingMiscTests(MotorAssertFixture fx)
     }
 
     [MotorAssertFact]
-    public async Task J7_mirroring_misconfigured_status()
+    public async Task J7_mirroring_without_edge_tls_is_rejected()
     {
         var put = await fx.Host.PutConfigAsync("Hosting", new
         {
@@ -65,32 +67,9 @@ public sealed class JsBridgeHostingMiscTests(MotorAssertFixture fx)
                 },
             },
         });
-
-        if (!put.IsSuccessStatusCode)
-        {
-            Assert.Equal(HttpStatusCode.BadRequest, put.StatusCode);
-        }
-        else
-        {
-            var status = await fx.Host.Http.GetAsync("api/admin/config/status");
-            status.EnsureSuccessStatusCode();
-            using var doc = JsonDocument.Parse(await status.Content.ReadAsStringAsync());
-            Assert.True(doc.RootElement.TryGetProperty("hosting", out var hosting)
-                        || doc.RootElement.TryGetProperty("Hosting", out hosting)
-                        || doc.RootElement.TryGetProperty("profiles", out hosting)
-                        || doc.RootElement.TryGetProperty("isOperational", out _),
-                $"status JSON must expose hosting/operational shape: {doc.RootElement}");
-            var text = doc.RootElement.ToString();
-            Assert.True(
-                text.Contains("mirroring", StringComparison.OrdinalIgnoreCase)
-                || text.Contains("MirroringOperational", StringComparison.OrdinalIgnoreCase)
-                || text.Contains("edgeTls", StringComparison.OrdinalIgnoreCase)
-                || !put.IsSuccessStatusCode,
-                "expected mirroring / TLS signal when mirroring enabled without TLS");
-        }
-
-        var restore = await fx.RestoreHostingApexAsync();
-        restore.EnsureSuccessStatusCode();
+        Assert.Equal(HttpStatusCode.BadRequest, put.StatusCode);
+        var body = await put.Content.ReadAsStringAsync();
+        Assert.Contains("edgeTls", body, StringComparison.OrdinalIgnoreCase);
     }
 
     [MotorAssertFact]

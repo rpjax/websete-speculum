@@ -1,3 +1,5 @@
+using MessagePack;
+
 namespace Speculum.Api.Motor.Live.Models;
 
 /// <summary>
@@ -9,10 +11,11 @@ namespace Speculum.Api.Motor.Live.Models;
 /// .NET-side fields (fps, uptimeMs, sessionId, jsBridgeEnabled) are added
 /// by <c>MotorSession</c> before the snapshot is placed in the status channel.
 ///
-/// SignalR serialises this as a camelCase JSON object:
+/// MessagePack (and JSON) wire keys are camelCase to match the React client:
 ///   { tabCount, url, resizing, width, height, fps, uptimeMs,
 ///     sessionId, jsBridgeEnabled }
 /// </summary>
+[MessagePackObject]
 public sealed class SessionStatus
 {
     // ── Sidecar-side ──────────────────────────────────────────────────────────
@@ -21,33 +24,42 @@ public sealed class SessionStatus
     /// Number of open browser tabs. Must always be exactly 1.
     /// Any other value indicates a tab-enforcement anomaly.
     /// </summary>
-    public int    TabCount  { get; init; }
+    [Key("tabCount")]
+    public int TabCount { get; init; }
 
     /// <summary>Current page URL inside the virtual browser.</summary>
-    public string Url       { get; init; } = "";
+    [Key("url")]
+    public string Url { get; init; } = "";
 
     /// <summary>Whether a resize operation is currently in progress.</summary>
-    public bool   Resizing  { get; init; }
+    [Key("resizing")]
+    public bool Resizing { get; init; }
 
     /// <summary>Active virtual viewport width (px).</summary>
-    public int    Width     { get; init; }
+    [Key("width")]
+    public int Width { get; init; }
 
     /// <summary>Active virtual viewport height (px).</summary>
-    public int    Height    { get; init; }
+    [Key("height")]
+    public int Height { get; init; }
 
     // ── .NET relay-side ───────────────────────────────────────────────────────
 
     /// <summary>
     /// Screencast frames received per second, measured by the .NET relay.
     /// </summary>
-    public double Fps             { get; init; }
+    [Key("fps")]
+    public double Fps { get; init; }
 
     /// <summary>Session age in milliseconds since <c>StartAsync</c>.</summary>
-    public long   UptimeMs        { get; init; }
+    [Key("uptimeMs")]
+    public long UptimeMs { get; init; }
 
     /// <summary>Sidecar session identifier (first 8 hex chars shown in logs).</summary>
-    public string SessionId       { get; init; } = "";
+    [Key("sessionId")]
+    public string SessionId { get; init; } = "";
 
     /// <summary>Whether the JsBridge (vcon / console forwarding) is enabled.</summary>
-    public bool   JsBridgeEnabled { get; init; }
+    [Key("jsBridgeEnabled")]
+    public bool JsBridgeEnabled { get; init; }
 }

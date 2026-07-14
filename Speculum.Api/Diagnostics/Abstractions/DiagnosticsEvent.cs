@@ -7,6 +7,7 @@ public static class DiagnosticsEventCatalog
         // MotorLive
         "Motor.SessionStarting",
         "Motor.SessionStarted",
+        "Motor.SessionResolved",
         "Motor.SessionPromoted",
         "Motor.SessionStopping",
         "Motor.SessionStopped",
@@ -14,6 +15,7 @@ public static class DiagnosticsEventCatalog
         "Motor.NavigateRequested",
         "Motor.NavigateCompleted",
         "Motor.NavigateRejected",
+        "Motor.UrlMapped",
         "Motor.ResizeRequested",
         "Motor.DrainStarted",
         "Motor.DrainCompleted",

@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Channels;
+using MessagePack;
 using Microsoft.AspNetCore.Http.Connections;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.DependencyInjection;
@@ -49,7 +50,15 @@ public sealed class MotorActClient : IAsyncDisposable
                 o.SkipNegotiation = false;
                 o.HttpMessageHandlerFactory = _ => new HostHeaderHandler(motorHost);
             })
-            .AddMessagePackProtocol()
+            .AddMessagePackProtocol(options =>
+            {
+                // Keep Act client wire keys in lockstep with Speculum.Api MotorHubMessagePack.
+                options.SerializerOptions = MessagePackSerializerOptions.Standard
+                    .WithResolver(MessagePack.Resolvers.CompositeResolver.Create(
+                        MessagePack.Resolvers.StandardResolver.Instance,
+                        MessagePack.Resolvers.ContractlessStandardResolver.Instance))
+                    .WithSecurity(MessagePackSecurity.UntrustedData);
+            })
             .WithAutomaticReconnect()
             .Build();
 
@@ -75,31 +84,10 @@ public sealed class MotorActClient : IAsyncDisposable
             ClientToken = clientToken,
             Indexers = indexerCopy,
         };
-        var token = await InvokeStartWithRetryAsync(clientUrl, width, height, identity, ct);
+        var token = await _connection!.InvokeAsync<string>(
+            "StartSessionAsync", clientUrl, width, height, identity, ct);
         StartSessionPumps();
         return token;
-    }
-
-    private async Task<string> InvokeStartWithRetryAsync(
-        string clientUrl,
-        int width,
-        int height,
-        MotorSessionIdentity identity,
-        CancellationToken ct)
-    {
-        try
-        {
-            return await _connection!.InvokeAsync<string>(
-                "StartSessionAsync", clientUrl, width, height, identity, ct);
-        }
-        catch (Exception ex) when (
-            ex.Message.Contains("Falha ao iniciar", StringComparison.OrdinalIgnoreCase))
-        {
-            // One retry after sidecar create flakes (display reuse / prior probe hang).
-            await Task.Delay(1500, ct);
-            return await _connection!.InvokeAsync<string>(
-                "StartSessionAsync", clientUrl, width, height, identity, ct);
-        }
     }
 
     private void StartSessionPumps()
@@ -152,7 +140,7 @@ public sealed class MotorActClient : IAsyncDisposable
 
         var channel = Channel.CreateUnbounded<string>();
         _userInputWriter = channel.Writer;
-        // Hub method runs until the channel completes — fire-and-forget the SendAsync task.
+        // Hub stream subscription is fire-and-forget; brief settle before writers are used.
         _ = _connection!.SendAsync("OpenUserInputChannel", channel.Reader, ct);
         await Task.Delay(75, ct);
     }
@@ -314,36 +302,66 @@ public sealed class MotorActClient : IAsyncDisposable
 }
 
 /// <summary>MessagePack mirror of Speculum.Api Frame.</summary>
+[MessagePackObject]
 public sealed class MotorFrame
 {
+    [Key("jpeg")]
     public byte[] Jpeg { get; set; } = [];
+
+    [Key("sequence")]
     public long Sequence { get; set; }
+
+    [Key("timestamp")]
     public long Timestamp { get; set; }
 }
 
 /// <summary>MessagePack mirror of SessionStatus.</summary>
+[MessagePackObject]
 public sealed class MotorSessionStatus
 {
+    [Key("tabCount")]
     public int TabCount { get; set; }
+
+    [Key("url")]
     public string Url { get; set; } = "";
+
+    [Key("resizing")]
     public bool Resizing { get; set; }
+
+    [Key("width")]
     public int Width { get; set; }
+
+    [Key("height")]
     public int Height { get; set; }
+
+    [Key("fps")]
     public double Fps { get; set; }
+
+    [Key("uptimeMs")]
     public long UptimeMs { get; set; }
+
+    [Key("sessionId")]
     public string SessionId { get; set; } = "";
+
+    [Key("jsBridgeEnabled")]
     public bool JsBridgeEnabled { get; set; }
 }
 
 /// <summary>MessagePack mirror of ConsoleOutput (binary payload).</summary>
+[MessagePackObject]
 public sealed class MotorConsoleOutput
 {
+    [Key("data")]
     public byte[] Data { get; set; } = [];
 }
 
 /// <summary>MessagePack mirror of ConsoleInput.</summary>
+[MessagePackObject]
 public sealed class MotorConsoleInput
 {
+    [Key("id")]
     public int Id { get; set; }
+
+    [Key("code")]
     public required string Code { get; set; }
 }

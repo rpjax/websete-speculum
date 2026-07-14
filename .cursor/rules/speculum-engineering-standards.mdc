@@ -1,0 +1,41 @@
+---
+description: Speculum mandatory engineering standards (architecture, tests, CI)
+alwaysApply: true
+---
+
+# Speculum — mandatory standards
+
+Before multi-file, motor, diagnostics, or CI work, read and obey:
+
+1. `AGENTS.md`
+2. `docs/engineering-standards.md`
+3. `docs/naming.md`
+
+Vocabulary: **Speculum** = platform; **Motor** = live browsing; **W7S** = wire/client boundary only (`_w7s_nso`).  
+`MotorSession` (live) ≠ `BrowserSessionStore` (persisted). Domain types must not depend on ASP.NET/SignalR/`IServiceProvider`.
+
+## Hard bans
+
+- Never skip/ignore/soften MotorAssert asserts to get green — fix the product (`docs/known-red-ci.md`).
+- Never use missing-property soft skips (`if (TryGetProperty) continue`) as pass conditions.
+- Never prove motor truth with `200` / `ok: true` alone — Act→Assert via events, snapshots, probes.
+- Never treat Perf SLOs as required correctness; functional ≠ capacity.
+- No config aliases / migration shims during V1 unless explicitly requested post-launch.
+- No W7S in C# namespaces or API folder names; no hand-edits to `deploy/out/`.
+
+## Tests
+
+- Pyramid: fast units (Api/sidecar/web) → required `motor-assertive` → informational `perf.yml`.
+- MATRIX (`Speculum.MotorAssert.Tests/MATRIX.md`) is coverage truth; update depth when coverage changes.
+- Prefer catalogued events + probes; `Task.Delay` only as a short beat after Act is confirmed.
+- MotorAssert: `MotorAssertTestBase` → `EnsureBaselineAsync` (MaxSessions, JsBridge, clear Degraded via `POST …/recover`, Assertive Diagnostics verify).
+- Export wait: `WaitStateExportCompletedAsync(connectionId, since-before-disconnect)` — not global `StateExport` on `since-at-test-start`.
+- `WaitConfigApplied` only after Diagnostics/Hosting PUT — not JsBridge/MaxSessions.
+
+## Wire
+
+- Hub DTOs: `[MessagePackObject]` + `[Key("camelCase")]` for JS-bound fields; shared `MotorHubMessagePack.Options`.
+
+## Diff hygiene
+
+Minimal scope, match local conventions, no drive-by renames. Prefer concrete MessagePack-safe hub DTOs (`Dictionary<>` over fragile `IReadOnlyDictionary` when wire round-trips fail).

@@ -23,12 +23,12 @@ internal sealed class BrowserSessionRegistry
 
     public async Task<string> ResolveOrCreateSessionAsync(string clientToken, CancellationToken ct = default)
     {
-        var (sessionId, _) = await ResolveOrCreateSessionAsync(
+        var result = await ResolveOrCreateSessionAsync(
             new SessionIdentity { ClientToken = clientToken }, ct);
-        return sessionId;
+        return result.SessionId;
     }
 
-    public async Task<(string SessionId, string ClientToken)> ResolveOrCreateSessionAsync(
+    public async Task<SessionResolveResult> ResolveOrCreateSessionAsync(
         SessionIdentity identity,
         CancellationToken ct = default)
     {
@@ -67,7 +67,7 @@ internal sealed class BrowserSessionRegistry
                 var token = indexers.GetValueOrDefault(BrowserSessionDatabase.ClientTokenIndexer)
                             ?? await GetClientTokenForSessionAsync(conn, sessionId, ct)
                             ?? ClientTokenNormalizer.Resolve(null);
-                return (sessionId, token);
+                return new SessionResolveResult(sessionId, token, Restored: true);
             }
         }
 
@@ -105,7 +105,7 @@ internal sealed class BrowserSessionRegistry
             await insertIndexer.ExecuteNonQueryAsync(ct);
         }
 
-        return (newSessionId, resolvedToken);
+        return new SessionResolveResult(newSessionId, resolvedToken, Restored: false);
     }
 
     internal async Task RefreshTtlFromConfigAsync(SpeculumDbContext db, CancellationToken ct)

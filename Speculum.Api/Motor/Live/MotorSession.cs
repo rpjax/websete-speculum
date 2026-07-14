@@ -56,6 +56,7 @@ public sealed class MotorSession : IMotorSession
     private string? _clientToken;
     private int _inputAcceptedApprox;
     private int _inputForwardedApprox;
+    private string _lastMappedClientUrl = "";
 
     public string? PersistedSessionId
     {
@@ -448,21 +449,47 @@ public sealed class MotorSession : IMotorSession
         return result;
     }
 
-    private string MapTargetUrlForClient(string targetUrl)
+    internal string MapTargetUrlForClient(string targetUrl)
     {
         var forwarding = _snapshot.Forwarding;
+        string clientUrl;
         if (forwarding is null)
-            return targetUrl;
-
-        var profile = _snapshot.HostingProfile;
-        if (profile is null)
         {
-            return _urlAdapter.EncodeTargetToClientBootstrap(
-                targetUrl, forwarding, _snapshot.MotorRequestHost);
+            clientUrl = targetUrl;
+        }
+        else
+        {
+            var profile = _snapshot.HostingProfile;
+            clientUrl = profile is null
+                ? _urlAdapter.EncodeTargetToClientBootstrap(
+                    targetUrl, forwarding, _snapshot.MotorRequestHost)
+                : _urlAdapter.EncodeTargetToClient(
+                    targetUrl, profile, forwarding, _snapshot.MotorRequestHost);
         }
 
-        return _urlAdapter.EncodeTargetToClient(
-            targetUrl, profile, forwarding, _snapshot.MotorRequestHost);
+        MaybePublishUrlMapped(targetUrl, clientUrl);
+        return clientUrl;
+    }
+
+    private void MaybePublishUrlMapped(string targetUrl, string clientUrl)
+    {
+        if (string.IsNullOrWhiteSpace(clientUrl))
+            return;
+        if (string.Equals(clientUrl, _lastMappedClientUrl, StringComparison.Ordinal))
+            return;
+
+        _lastMappedClientUrl = clientUrl;
+        _diagnostics.Publish(new DiagnosticsEvent
+        {
+            Domain = DiagnosticsDomain.MotorLive,
+            Name = "Motor.UrlMapped",
+            Severity = DiagnosticsSeverity.Information,
+            CorrelationId = _correlationId,
+            ConnectionId = _connectionId,
+            PersistedSessionId = _persistedSessionId,
+            SidecarSessionId = _sidecarSessionId,
+            Payload = new { targetUrl, clientUrl },
+        });
     }
 
     private async Task PumpUserInputAsync(ChannelReader<string> reader, CancellationToken ct)

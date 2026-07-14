@@ -95,6 +95,29 @@ public sealed class DiagnosticsEndpointsTests : IDisposable
     }
 
     [Fact]
+    public async Task Recover_clears_degraded_and_audits()
+    {
+        await AuthenticateAsync();
+        var runtime = _factory.Services.GetRequiredService<IDiagnosticsRuntime>();
+        runtime.SetDegraded(true);
+        Assert.True(runtime.IsDegraded);
+
+        var recover = await _client.PostAsync("/api/admin/diagnostics/v1/recover", content: null);
+        recover.EnsureSuccessStatusCode();
+        using var body = JsonDocument.Parse(await recover.Content.ReadAsStringAsync());
+        Assert.False(body.RootElement.GetProperty("degraded").GetBoolean());
+        Assert.True(body.RootElement.GetProperty("recovered").GetBoolean());
+        Assert.False(runtime.IsDegraded);
+
+        var events = await _client.GetAsync("/api/admin/diagnostics/v1/events?namePrefix=Diagnostics.Recovered");
+        events.EnsureSuccessStatusCode();
+        using var doc = JsonDocument.Parse(await events.Content.ReadAsStringAsync());
+        Assert.Contains(
+            doc.RootElement.EnumerateArray(),
+            e => e.GetProperty("name").GetString() == "Diagnostics.Recovered");
+    }
+
+    [Fact]
     public async Task Host_returns_data_envelope_with_redaction()
     {
         await AuthenticateAsync();

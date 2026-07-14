@@ -5,6 +5,15 @@ namespace Speculum.Api.Diagnostics.Pipeline;
 
 public sealed class DiagnosticsCleanupHostedService : BackgroundService
 {
+    /// <summary>Normal purge / elevate-expiry cadence.</summary>
+    private static readonly TimeSpan HealthyInterval = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// While the publish circuit is open, poll quickly so BrowserQuery probes are not
+    /// stuck at Metrics for an entire MotorAssert suite (or ops incident window).
+    /// </summary>
+    private static readonly TimeSpan DegradedInterval = TimeSpan.FromSeconds(5);
+
     private readonly SqliteDiagnosticsEventSink _sink;
     private readonly IDiagnosticsRuntime _runtime;
     private readonly IDiagnosticsEventBus _bus;
@@ -26,6 +35,7 @@ public sealed class DiagnosticsCleanupHostedService : BackgroundService
     {
         while (!stoppingToken.IsCancellationRequested)
         {
+            var enteredDegraded = _runtime.IsDegraded;
             try
             {
                 if (_runtime is DiagnosticsRuntime concreteRuntime
@@ -53,7 +63,6 @@ public sealed class DiagnosticsCleanupHostedService : BackgroundService
 
                 if (_runtime.IsDegraded)
                 {
-                    // Recover only when the cleanup cycle itself succeeds and drops are calm.
                     _runtime.SetDegraded(false);
                     _bus.Publish(new DiagnosticsEvent
                     {
@@ -68,7 +77,10 @@ public sealed class DiagnosticsCleanupHostedService : BackgroundService
                 _logger.LogWarning(ex, "Diagnostics cleanup failed.");
             }
 
-            await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken);
+            var delay = enteredDegraded || _runtime.IsDegraded
+                ? DegradedInterval
+                : HealthyInterval;
+            await Task.Delay(delay, stoppingToken);
         }
     }
 }

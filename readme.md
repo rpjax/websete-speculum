@@ -192,12 +192,14 @@ Example requests: `Speculum.Api/Speculum.Api.http`
 
 ```bash
 # Fast gate (no Chrome / no sidecar Docker)
-dotnet test Speculum.sln -c Release --filter "Category!=MotorAssertive"
+dotnet test Speculum.sln -c Release --filter "Category!=MotorAssertive&Category!=MotorPerf"
 cd sidecar && npm ci && npm test
 cd web && npm ci && npm test && npm run lint && npm run build
 ```
 
 CI also runs the required **`motor-assertive`** job (fixture + sidecar Chromium) on GitHub Actions only — see [docs/diagnostics.md](docs/diagnostics.md) and [CONTRIBUTING.md](CONTRIBUTING.md). Do not treat that stack as day-to-day local QA.
+
+Intentional failing traps (MsgPack camelCase / hardened asserts) until the hotfix plan: [docs/known-red-ci.md](docs/known-red-ci.md).
 
 ### Component READMEs
 
@@ -230,7 +232,7 @@ CI-only motor assert stack (Chrome): [deploy/compose/docker-compose.motor-assert
 After changes, run the **fast gate** (no Chrome):
 
 ```bash
-dotnet test Speculum.sln -c Release --filter "Category!=MotorAssertive"
+dotnet test Speculum.sln -c Release --filter "Category!=MotorAssertive&Category!=MotorPerf"
 cd sidecar && npm test
 cd web && npm run lint && npm test && npm run build
 ```
@@ -244,6 +246,8 @@ Full motor assert (fixture + Chromium) runs only in GitHub Actions job `motor-as
 
 | Document | Description |
 |----------|-------------|
+| [docs/engineering-standards.md](docs/engineering-standards.md) | **Mandatory** engineering constitution (agents + contributors) |
+| [AGENTS.md](AGENTS.md) | AI agent entry (points at engineering standards) |
 | [docs/README.md](docs/README.md) | Documentation hub |
 | [docs/architecture.md](docs/architecture.md) | System design and security |
 | [docs/motor-reference.md](docs/motor-reference.md) | Protocol, forwarding, sessions |

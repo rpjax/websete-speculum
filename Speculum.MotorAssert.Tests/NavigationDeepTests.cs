@@ -5,8 +5,10 @@ namespace Speculum.MotorAssert.Tests;
 
 [Collection(nameof(MotorAssertCollection))]
 [Trait("Category", "MotorAssertive")]
-public sealed class NavigationDeepTests(MotorAssertFixture fx)
+public sealed class NavigationDeepTests : MotorAssertTestBase
 {
+    public NavigationDeepTests(MotorAssertFixture fixture) : base(fixture) { }
+
     [MotorAssertFact]
     public async Task B4b_goEvil_emits_redirect_wire_and_keeps_tabs()
     {
@@ -19,7 +21,7 @@ public sealed class NavigationDeepTests(MotorAssertFixture fx)
             act.ConnectionId, "Motor.Session", since,
             ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
 
-        await Task.Delay(800);
+        await fx.Diagnostics.WaitFixturePageAsync(act.ConnectionId!, "external-link");
         await act.EvalJsAsync(11, "window.goEvil && window.goEvil()");
         await act.WaitForRedirectAsync(TimeSpan.FromSeconds(30));
 
@@ -53,7 +55,6 @@ public sealed class NavigationDeepTests(MotorAssertFixture fx)
             act.ConnectionId, "Motor.Navigate", navSince,
             ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.NavigateCompleted"));
 
-        await Task.Delay(1200);
         await fx.Diagnostics.ExpectEvaluateAsync(
             act.ConnectionId!,
             "location.hostname",
@@ -75,7 +76,6 @@ public sealed class NavigationDeepTests(MotorAssertFixture fx)
             act.ConnectionId, "Motor.Session", since,
             ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
 
-        await Task.Delay(1200);
         await fx.Diagnostics.ExpectEvaluateAsync(
             act.ConnectionId!,
             "location.hostname + location.pathname",
@@ -128,7 +128,6 @@ public sealed class NavigationDeepTests(MotorAssertFixture fx)
                 act.ConnectionId, "Motor.Session", since,
                 ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
 
-            await Task.Delay(1500);
             await fx.Diagnostics.ExpectEvaluateAsync(
                 act.ConnectionId!,
                 "location.hostname",
@@ -155,21 +154,18 @@ public sealed class NavigationDeepTests(MotorAssertFixture fx)
             ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
 
         await act.NavigateAsync($"{fx.Host.FixtureClientOrigin}/nav/b");
-        await Task.Delay(1200);
         await fx.Diagnostics.ExpectEvaluateAsync(
             act.ConnectionId!,
             "document.getElementById('speculum-probe')?.dataset?.page",
             "nav-b");
 
         await act.SendGoBackAsync();
-        await Task.Delay(1200);
         await fx.Diagnostics.ExpectEvaluateAsync(
             act.ConnectionId!,
             "document.getElementById('speculum-probe')?.dataset?.page",
             "nav-a");
 
         await act.SendGoForwardAsync();
-        await Task.Delay(1200);
         await fx.Diagnostics.ExpectEvaluateAsync(
             act.ConnectionId!,
             "document.getElementById('speculum-probe')?.dataset?.page",
@@ -190,7 +186,6 @@ public sealed class NavigationDeepTests(MotorAssertFixture fx)
 
         await act.WaitForStatusAsync(s => s.Width == 1280 && s.Height == 720, TimeSpan.FromSeconds(30));
         await act.ResizeAsync(50, 50);
-        await Task.Delay(800);
         var status = await act.WaitForStatusAsync(s => true, TimeSpan.FromSeconds(10));
         Assert.Equal(1280, status.Width);
         Assert.Equal(720, status.Height);

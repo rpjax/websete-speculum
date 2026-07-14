@@ -11,9 +11,14 @@ Technical documentation for the **Speculum** remote browser isolation platform (
 
 | Document | Audience | Contents |
 |----------|----------|----------|
+| **[engineering-standards.md](engineering-standards.md)** | **Agents + contributors (mandatory)** | **Architecture / code / testing / CI constitution** |
+| [../AGENTS.md](../AGENTS.md) | AI agents | Short entry pointing at engineering standards |
+| [../.cursor/rules/speculum-engineering-standards.mdc](../.cursor/rules/speculum-engineering-standards.mdc) | Cursor | Always-on rule summary (`alwaysApply: true`) |
 | [../readme.md](../readme.md) | Everyone | Project overview, quick start, repository map |
 | [architecture.md](architecture.md) | Architects, operators | System design, data flows, security boundaries |
-| [diagnostics.md](diagnostics.md) | Backend / QA / Phase 3 | Assertable observability contracts + Assert Cookbook |
+| [naming.md](naming.md) | Developers / agents | Speculum / Motor / W7S vocabulary |
+| [diagnostics.md](diagnostics.md) | Backend / QA | Assertable observability contracts + Assert Cookbook |
+| [known-red-ci.md](known-red-ci.md) | CI / hotfix sequencing | Do not weaken hardened asserts — fix the product |
 | [motor-reference.md](motor-reference.md) | Backend / motor developers | Session lifecycle, forwarding model, binary protocol |
 | [../deploy/README.md](../deploy/README.md) | DevOps | **Canonical deploy** via [dockup](https://github.com/rpjax/npm-dockup) |
 
@@ -36,7 +41,9 @@ Technical documentation for the **Speculum** remote browser isolation platform (
 
 ## Conventions
 
+- **Engineering law:** [engineering-standards.md](engineering-standards.md) (agents: [../AGENTS.md](../AGENTS.md)).
 - **Deploy:** always use `deploy/` + dockup. Do not hand-edit `deploy/out/` — it is generated.
 - **Configuration:** infrastructure via environment variables; motor behaviour via SQLite + Admin API.
 - **Domains:** same-origin — SPA, `/api`, and `/vhub` share one motor host; `EdgeSynchronizer` materializes Traefik routes per **Hosting** profile.
 - **Naming:** see [naming.md](naming.md) (Speculum / Motor / W7S vocabulary).
+- **MotorAssert matrix:** [../Speculum.MotorAssert.Tests/MATRIX.md](../Speculum.MotorAssert.Tests/MATRIX.md).

@@ -141,9 +141,9 @@ public sealed class NavigateRejectHubExceptionTests
     private sealed class NoOpBrowserStore : IBrowserSessionStore
     {
         public Task InitializeAsync(CancellationToken ct = default) => Task.CompletedTask;
-        public Task<(string SessionId, string ClientToken)> ResolveOrCreateSessionAsync(
+        public Task<SessionResolveResult> ResolveOrCreateSessionAsync(
             SessionIdentity identity, CancellationToken ct = default)
-            => Task.FromResult(("s", "t"));
+            => Task.FromResult(new SessionResolveResult("s", "t", Restored: false));
         public Task<string> ResolveOrCreateSessionAsync(string clientToken, CancellationToken ct = default)
             => Task.FromResult("s");
         public Task<BrowserStatePayload?> LoadStateAsync(string sessionId, CancellationToken ct = default)

@@ -6,8 +6,10 @@ namespace Speculum.MotorAssert.Tests;
 
 [Collection(nameof(MotorAssertCollection))]
 [Trait("Category", "MotorAssertive")]
-public sealed class InputResizeProbeGovernanceTests(MotorAssertFixture fx)
+public sealed class InputResizeProbeGovernanceTests : MotorAssertTestBase
 {
+    public InputResizeProbeGovernanceTests(MotorAssertFixture fixture) : base(fixture) { }
+
     [MotorAssertFact]
     public async Task D1_resize_emits_requested()
     {
@@ -45,7 +47,7 @@ public sealed class InputResizeProbeGovernanceTests(MotorAssertFixture fx)
             act.ConnectionId, "Motor.Session", since,
             ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
 
-        await Task.Delay(1500);
+        await fx.Diagnostics.WaitFixturePageAsync(act.ConnectionId!, "home");
         var probe = await fx.Diagnostics.PostBrowserProbeAsync(
             act.ConnectionId!,
             ["process", "tabs", "evaluate", "dom"],
@@ -67,6 +69,7 @@ public sealed class InputResizeProbeGovernanceTests(MotorAssertFixture fx)
             act.ConnectionId, "Motor.Session", since,
             ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
 
+        var configSince = DateTimeOffset.UtcNow.AddSeconds(-1);
         var put = await fx.Host.PutConfigAsync("Diagnostics", new
         {
             enabled = true,
@@ -82,6 +85,7 @@ public sealed class InputResizeProbeGovernanceTests(MotorAssertFixture fx)
             probe = new { maxConcurrentProbesPerSession = 2, diagTimeoutMs = 10000, maxProbeResponseBytes = 524288 },
         });
         put.EnsureSuccessStatusCode();
+        await fx.Diagnostics.WaitConfigAppliedAsync(configSince);
 
         try
         {
@@ -95,7 +99,7 @@ public sealed class InputResizeProbeGovernanceTests(MotorAssertFixture fx)
         }
         finally
         {
-            await fx.RestoreAssertiveDiagnosticsAsync();
+            await fx.RestoreAssertiveDiagnosticsVerifiedAsync();
         }
     }
 
@@ -147,8 +151,8 @@ public sealed class InputResizeProbeGovernanceTests(MotorAssertFixture fx)
         var cfg = await fx.Host.Http.GetAsync("/api/public/client-config");
         cfg.EnsureSuccessStatusCode();
         using var doc = JsonDocument.Parse(await cfg.Content.ReadAsStringAsync());
-        Assert.True(doc.RootElement.TryGetProperty("nsoParamName", out _)
-                    || doc.RootElement.TryGetProperty("NsoParamName", out _));
+        Assert.True(doc.RootElement.TryGetProperty("nsoParamName", out _),
+            $"client-config missing nsoParamName: {doc.RootElement}");
     }
 
     [MotorAssertFact]
@@ -176,16 +180,20 @@ public sealed class InputResizeProbeGovernanceTests(MotorAssertFixture fx)
         using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
         var events = doc.RootElement.GetProperty("events").EnumerateArray().Select(e => e.GetString()).ToHashSet();
         Assert.Contains("Motor.SessionStarted", events);
+        Assert.Contains("Motor.SessionResolved", events);
+        Assert.Contains("Motor.UrlMapped", events);
         Assert.Contains("Diagnostics.StorageOverflow", events);
     }
 
     [MotorAssertFact]
     public async Task L11_probe_response_too_large()
     {
+        var configSince = DateTimeOffset.UtcNow.AddSeconds(-1);
         var put = await fx.Host.PutConfigAsync(
             "Diagnostics",
             MotorAssertFixture.AssertiveDiagnosticsConfig(maxProbeResponseBytes: 2048));
         put.EnsureSuccessStatusCode();
+        await fx.Diagnostics.WaitConfigAppliedAsync(configSince);
 
         try
         {
@@ -198,7 +206,7 @@ public sealed class InputResizeProbeGovernanceTests(MotorAssertFixture fx)
                 act.ConnectionId, "Motor.Session", since,
                 ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
 
-            await Task.Delay(1000);
+            await fx.Diagnostics.WaitFixturePageAsync(act.ConnectionId!, "fat-dom");
             var res = await fx.Host.Http.PostAsJsonAsync(
                 $"api/admin/diagnostics/v1/sessions/{act.ConnectionId}/browser",
                 new { ops = new[] { "dom" }, domSelector = "#speculum-probe" },
@@ -216,15 +224,14 @@ public sealed class InputResizeProbeGovernanceTests(MotorAssertFixture fx)
             {
                 res.EnsureSuccessStatusCode();
                 using var ok = JsonDocument.Parse(text);
-                Assert.True(ok.RootElement.TryGetProperty("ok", out var okEl));
-                // Soft-cap path trims; payload must stay under the configured budget roughly.
+                Assert.True(ok.RootElement.TryGetProperty("ok", out var okEl), text);
+                Assert.False(okEl.GetBoolean(), $"soft-cap must set ok:false, got: {text}");
                 Assert.True(text.Length <= 8192, $"soft-cap payload still huge: {text.Length}");
-                _ = okEl;
             }
         }
         finally
         {
-            await fx.RestoreAssertiveDiagnosticsAsync();
+            await fx.RestoreAssertiveDiagnosticsVerifiedAsync();
         }
     }
 

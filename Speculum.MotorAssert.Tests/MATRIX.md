@@ -2,6 +2,8 @@
 
 Source of truth for Act→Assert coverage. **Depth:** `deep` = effect assert in required CI; `contract` = governance/shape assert in required CI; `perf` = `perf.yml` only; `deferred-K4` = manual/nightly ACME.
 
+Constitution: [docs/engineering-standards.md](../docs/engineering-standards.md) (§3 Testing). Do not weaken asserts — [docs/known-red-ci.md](../docs/known-red-ci.md).
+
 | ID | Depth | Coverage | Test method(s) |
 |----|-------|----------|----------------|
 | A1 | deep | lifecycle + correlation + session_gone | `A1_session_lifecycle_correlation_and_session_gone` |
@@ -11,10 +13,10 @@ Source of truth for Act→Assert coverage. **Depth:** `deep` = effect assert in 
 | A5 | deep | cancel Starting → slot released | `A5_cancel_starting_releases_slot` |
 | A6 | deep | disconnect → StateExportCompleted + persisted | `A6_disconnect_exports_and_persists` |
 | A7 | deep | resource probe + gone | `A7_resource_probe_while_running_then_gone` |
-| A8 | deep | sidecar stop → fault / session cleanup | `A8_sidecar_stop_faults_and_cleans_session` |
-| A9 | deep | viewport defaults | `A9_viewport_defaults_when_zero` |
+| A8 | deep | sidecar stop → SidecarFaulted **and** session_gone | `A8_sidecar_stop_faults_and_cleans_session` |
+| A9 | deep | viewport defaults **1280×720** when 0×0 | `A9_viewport_defaults_when_zero` |
 | A10 | deep | clientToken hex round-trip + reject | `A10_*` / `A10b_*` |
-| B1–B3 | deep | navigate allowlist / reject / scheme | `B1_*` `B2_*` `B3_*` |
+| B1–B3 | deep | navigate allowlist (**B1 probe `/nav/b`**) / reject / scheme | `B1_*` `B2_*` `B3_*` |
 | B4 | deep | goEvil → redirect wire + alive + tabs | `B4_*` / `B4b_*` |
 | B5 | deep | domain wildcard allowlist E2E | `B5_wildcard_subdomain_allowed` |
 | B6 | deep | asset-escape page stays alive | `B6_*` |
@@ -23,18 +25,21 @@ Source of truth for Act→Assert coverage. **Depth:** `deep` = effect assert in 
 | B9 | deep | path/query preserve | `B9_*` |
 | B10 | deep | redirect chain + history goback/forward | `B10_*` / `B10b_*` |
 | B11 | deep | SPA path | `B11_*` |
+| B12 | deep | status + `Motor.UrlMapped` client URL path+NSO | `B12_*` (`BugTraps/ClientUrlSyncTrapTests`) |
 | C1–C5 | deep | mouse / key / wheel / guard / bad JSON | `InputFramesPopupTests` |
 | D1 | deep | resize dims on status | `D1_*` |
 | D2 | deep | resize &lt;100 noop | `D2_resize_below_100_is_noop` |
 | D3–D4 | deep | frames + status/tabCount | `D3_*` `D4_*` |
+| D-Start / D-Create / D-Restore / D-UrlMap | deep | SessionResolved + UrlMapped recipes | `DiagnosticsEmitterRecipesTests` |
 | E1–E2 | deep | persist export/restore cookie+LS | `E1_E2_*` |
-| E3 | deep | history rows in persisted detail | `E3_persisted_detail_includes_history` |
+| E3 | deep | history ≥2 `/nav/a`+`/nav/b` | `E3_persisted_detail_includes_history` |
 | E4 | deep | persisted list/get | `E4_*` |
 | E5 | deep | identity indexers resolve same session | `E5_indexers_resolve_same_persisted_session` |
-| E6 | deep | export fail path event | `E6_state_export_failed_on_sidecar_kill` |
-| E7 | deep | drain keeps prior persisted state | `E7_drain_preserves_persisted_state` |
+| E6 | deep | sidecar kill → SidecarFaulted then StateExportFailed | `E6_state_export_failed_on_sidecar_kill` |
+| E7 | deep | drain keeps cookie+LS in persisted | `E7_drain_preserves_persisted_state` |
+| E8 | deep | rebind same token → one persisted row | `E8_*` (`BugTraps/SessionRebindTrapTests`) |
 | F1 | deep | SessionPolicy PUT | `F1_*` |
-| F2–F3 | deep | TTL + delete policy → default | `F2_*` `F3_*` |
+| F2–F3 | deep | TTL; DELETE → 404 not configured | `F2_*` `F3_*` |
 | G2–G4 | deep | drain Forwarding/Hosting; MaxSessions no-drain | `G2_*` `G3_*` `G4_*` |
 | H1–H2 | deep | script upload + inject marker | `H1_*` `H2_*` |
 | H3–H4 | deep | HeaderTop/BodyBottom Classic vs Module | `H3_*` `H4_*` |
@@ -44,7 +49,7 @@ Source of truth for Act→Assert coverage. **Depth:** `deep` = effect assert in 
 | I5 | deep | JsBridge flip mid-session snapshot immutable | `I5_*` |
 | J1–J3 | deep | public config / ready / status | `J1_J2_*` `J3_*` |
 | J4–J6 | deep | mirroring status fields (with B8) | `B8_*` / `J7_*` |
-| J7 | deep | mirroring misconfigured status | `J7_*` |
+| J7 | deep | mirroring ON without edgeTls → **400** | `J7_mirroring_without_edge_tls_is_rejected` |
 | K1 | deep | Hosting PUT → Traefik dynamic files | `K1_hosting_put_writes_bootstrap_yml` |
 | K2 | deep | Traefik health/ready/client-config/negotiate | `K2_*` |
 | K3 | deep | CORS preflight via Traefik | `K3_cors_preflight_via_traefik` |
@@ -72,6 +77,21 @@ Source of truth for Act→Assert coverage. **Depth:** `deep` = effect assert in 
 | Input / frames | `InputFramesPopupTests`, `InputResizeProbeGovernanceTests` |
 | Persistence / scripts | `PersistenceDrainInjectionTests`, `PersistenceDeepTests`, `ScriptsDeepTests` |
 | Hosting / edge | `JsBridgeHostingMiscTests`, `DiagnosticsEdgeDeepTests` |
-| Diagnostics governance | `InputResizeProbeGovernanceTests`, `DiagnosticsEdgeDeepTests` |
+| Diagnostics governance | `InputResizeProbeGovernanceTests`, `DiagnosticsEdgeDeepTests`, `DiagnosticsGovernance/*` |
+| Bug traps (known-red) | `BugTraps/*` (MsgPack web contract also in Api.Tests + Vitest) |
+
+## Known red (policy — asserts stay strict)
+
+Do **not** skip or weaken matrix asserts. Current **`motor-assertive` is green** (90/90); history and harness checklist: [docs/known-red-ci.md](../docs/known-red-ci.md).
+
+| Item | Layer | Notes |
+|------|-------|-------|
+| MsgPack camelCase | Api.Tests + Vitest + MotorAssert | Fixed — keep contract tests green |
+| Emitter publish units | `Api.Tests/.../Emitters` | Must stay green (bus recorder) |
+| E8 / B12 rebind + UrlMapped | `BugTraps/*` | Green on CI; traps remain for regressions |
+
+Depth note: each MotorAssert test runs `EnsureBaselineAsync` (clear Diagnostics Degraded via `/recover`, MaxSessions / JsBridge / Assertive BrowserQuery with runtime verify) via `MotorAssertTestBase`, so Diagnostics level mutations and circuit-breaker caps cannot leak into the next test.
+
+Export note: persistence restore tests use `WaitStateExportCompletedAsync(connectionId, since-before-disconnect)` — see [diagnostics.md](../docs/diagnostics.md) §4.
 
 P (unit/contract pyramid) stays in `Speculum.Api.Tests` + sidecar `npm test` + web Vitest under the fast gate. Stress/SLO → `Speculum.MotorPerf.Tests` + `.github/workflows/perf.yml` (not required).

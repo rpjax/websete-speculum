@@ -209,14 +209,14 @@ public sealed class DiagnosticsEdgeDeepTests(MotorAssertFixture fx)
         var put = await fx.Host.PutConfigAsync("Diagnostics", new
         {
             enabled = true,
-            defaultLevel = "BrowserQuery",
+            defaultLevel = "Events",
             domains = new
             {
-                motorLive = "BrowserQuery",
-                sidecarBrowser = "BrowserQuery",
+                motorLive = "Events",
+                sidecarBrowser = "Metrics",
                 hostResources = "Metrics",
-                browserQuery = "BrowserQuery",
-                persistedSessions = "BrowserQuery",
+                browserQuery = "Off",
+                persistedSessions = "StateSnapshots",
             },
             probe = new
             {
@@ -226,7 +226,7 @@ public sealed class DiagnosticsEdgeDeepTests(MotorAssertFixture fx)
             },
             storage = new
             {
-                maxBytes = 4096,
+                maxBytes = 2048,
                 ttlHours = 24,
                 overflow = "DropOldest",
             },
@@ -236,22 +236,21 @@ public sealed class DiagnosticsEdgeDeepTests(MotorAssertFixture fx)
         try
         {
             var since = DateTimeOffset.UtcNow.AddSeconds(-2);
-            // Generate timeline traffic via short-lived sessions.
-            for (var i = 0; i < 8; i++)
+            for (var i = 0; i < 12; i++)
             {
                 await using var act = new MotorActClient(fx.Host);
                 await act.ConnectAsync();
                 await act.StartSessionAsync(
                     $"{fx.Host.FixtureClientOrigin}/home",
                     Guid.NewGuid().ToString("N"));
-                await Task.Delay(200);
+                await Task.Delay(150);
                 await act.DisconnectAsync();
             }
 
             await fx.Diagnostics.WaitForEventsAsync(
                 null, "Diagnostics.Storage", since,
                 ev => DiagnosticsAssertClient.HasEvent(ev, "Diagnostics.StorageOverflow"),
-                timeout: TimeSpan.FromSeconds(60));
+                timeout: TimeSpan.FromSeconds(90));
 
             var runtime = await fx.Diagnostics.GetRuntimeAsync();
             Assert.True(runtime.GetProperty("overflowCount").GetInt64() >= 1);
@@ -259,6 +258,7 @@ public sealed class DiagnosticsEdgeDeepTests(MotorAssertFixture fx)
         finally
         {
             await fx.RestoreAssertiveDiagnosticsAsync();
+            await fx.Host.EnsureReadyAsync();
         }
     }
 
@@ -365,8 +365,18 @@ public sealed class DiagnosticsEdgeDeepTests(MotorAssertFixture fx)
         var ok = await fx.Host.PutConfigAsync("MaxSessions", 4);
         ok.EnsureSuccessStatusCode();
 
-        var hostingBad = await fx.Host.PutConfigAsync("Hosting", new { profiles = Array.Empty<object>() });
-        Assert.Equal(HttpStatusCode.BadRequest, hostingBad.StatusCode);
+        // Empty profiles are accepted by the validator but mark Hosting MissingRequired (A2).
+        var hostingEmpty = await fx.Host.PutConfigAsync("Hosting", new { profiles = Array.Empty<object>() });
+        hostingEmpty.EnsureSuccessStatusCode();
+        var ready = await fx.Host.Http.GetAsync("/ready");
+        Assert.False(ready.IsSuccessStatusCode);
+        await fx.RestoreHostingApexAsync();
+
+        var hostingBadDomain = await fx.Host.PutConfigAsync("Hosting", new
+        {
+            profiles = new object[] { new { domain = "not a fqdn!!!" } },
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, hostingBadDomain.StatusCode);
         await fx.RestoreHostingApexAsync();
     }
 

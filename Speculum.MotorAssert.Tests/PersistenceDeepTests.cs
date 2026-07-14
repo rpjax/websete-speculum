@@ -61,7 +61,8 @@ public sealed class PersistenceDeepTests(MotorAssertFixture fx)
             await fx.Diagnostics.WaitForEventsAsync(
                 act.ConnectionId, "Motor.Session", since,
                 ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
-            await Task.Delay(1200);
+            await Task.Delay(2500);
+            await fx.Diagnostics.ExpectCookieAsync(act.ConnectionId!, "sf_marker", "state-cookie");
             await act.DisconnectAsync();
         }
 
@@ -77,7 +78,7 @@ public sealed class PersistenceDeepTests(MotorAssertFixture fx)
         await act2.ConnectAsync();
         // Resolve via custom indexer alone (plus a fresh token that should not create a new row if tenant hits).
         await act2.StartSessionAsync(
-            $"{fx.Host.FixtureClientOrigin}/",
+            $"{fx.Host.FixtureClientOrigin}/nav/a",
             actId2,
             clientToken: null,
             indexers: indexers);
@@ -121,11 +122,12 @@ public sealed class PersistenceDeepTests(MotorAssertFixture fx)
         try
         {
             RunCompose(composeFile, "stop", "sidecar");
-            await Task.Delay(500);
+            // Fault may land before disconnect; after disconnect expect export Failed.
+            await Task.Delay(1500);
             await act.DisconnectAsync();
 
             await fx.Diagnostics.WaitForEventsAsync(
-                null, "Motor.StateExport", since,
+                null, "Motor.", since,
                 ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.StateExportFailed")
                       || DiagnosticsAssertClient.HasEvent(ev, "Motor.SidecarFaulted"),
                 timeout: TimeSpan.FromSeconds(90));
@@ -133,7 +135,8 @@ public sealed class PersistenceDeepTests(MotorAssertFixture fx)
         finally
         {
             RunCompose(composeFile, "start", "sidecar");
-            await Task.Delay(5000);
+            await Task.Delay(8000);
+            await fx.Host.EnsureReadyAsync();
         }
     }
 

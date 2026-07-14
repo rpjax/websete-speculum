@@ -233,6 +233,7 @@ public sealed class MotorSession : IMotorSession
             _lastFault = ex.Message;
             _logger.LogWarning(ex, "State capture failed for session {SessionPrefix}… — continuing teardown.",
                 sessionId[..Math.Min(8, sessionId.Length)]);
+            throw;
         }
         finally
         {
@@ -358,27 +359,36 @@ public sealed class MotorSession : IMotorSession
                     Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                 });
             }
+
+            // Clean channel completion while still Running ⇒ remote sidecar death / WS drop.
+            if (Volatile.Read(ref _sessionState) == StateRunning)
+                PublishSidecarFault("sidecar_channel_closed");
         }
         catch (OperationCanceledException) { }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            _lastFault = ex.Message;
-            if (_runtime.IsEnabled(DiagnosticsDomain.MotorLive, DiagnosticsLevel.Events))
-            {
-                _diagnostics.Publish(new DiagnosticsEvent
-                {
-                    Domain = DiagnosticsDomain.MotorLive,
-                    Name = "Motor.SidecarFaulted",
-                    Severity = DiagnosticsSeverity.Error,
-                    CorrelationId = _correlationId,
-                    ConnectionId = _connectionId,
-                    PersistedSessionId = _persistedSessionId,
-                    SidecarSessionId = _sidecarSessionId,
-                    Payload = new { fault = ex.Message },
-                });
-            }
+            PublishSidecarFault(ex.Message);
         }
         finally { _frameChannel.Writer.TryComplete(); }
+    }
+
+    private void PublishSidecarFault(string fault)
+    {
+        _lastFault = fault;
+        if (!_runtime.IsEnabled(DiagnosticsDomain.MotorLive, DiagnosticsLevel.Events))
+            return;
+
+        _diagnostics.Publish(new DiagnosticsEvent
+        {
+            Domain = DiagnosticsDomain.MotorLive,
+            Name = "Motor.SidecarFaulted",
+            Severity = DiagnosticsSeverity.Error,
+            CorrelationId = _correlationId,
+            ConnectionId = _connectionId,
+            PersistedSessionId = _persistedSessionId,
+            SidecarSessionId = _sidecarSessionId,
+            Payload = new { fault },
+        });
     }
 
     private async Task PumpConsoleOutputAsync(CancellationToken ct)

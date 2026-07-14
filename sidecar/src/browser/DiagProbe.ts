@@ -194,9 +194,11 @@ export async function collectDiagProbeEvidence(
     }
 
     if (opSet.has('evaluate') && options.evaluateExpression) {
+        // awaitPromise lets top-level await / Promise returns block until settled (probe timeout gate).
         const result = await ctx.cdp.send('Runtime.evaluate', {
             expression:    options.evaluateExpression,
             returnByValue: true,
+            awaitPromise:  true,
         }) as { result?: { value?: unknown } };
         data.evaluate = result.result?.value ?? null;
     }

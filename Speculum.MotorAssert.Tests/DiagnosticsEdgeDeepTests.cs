@@ -81,7 +81,8 @@ public sealed class DiagnosticsEdgeDeepTests(MotorAssertFixture fx)
             var body = new
             {
                 ops = new[] { "evaluate" },
-                evaluateExpression = "await new Promise(r => setTimeout(r, 2500)); 'slow'",
+                evaluateExpression =
+                    "(async () => { await new Promise(r => setTimeout(r, 2500)); return 'slow'; })()",
                 correlationId = Guid.NewGuid().ToString("N"),
             };
 
@@ -143,7 +144,8 @@ public sealed class DiagnosticsEdgeDeepTests(MotorAssertFixture fx)
                 new
                 {
                     ops = new[] { "evaluate" },
-                    evaluateExpression = "await new Promise(r => setTimeout(r, 5000)); 'late'",
+                    evaluateExpression =
+                        "(async () => { await new Promise(r => setTimeout(r, 5000)); return 'late'; })()",
                     correlationId = Guid.NewGuid().ToString("N"),
                 },
                 MotorAssertHost.Json);
@@ -217,7 +219,7 @@ public sealed class DiagnosticsEdgeDeepTests(MotorAssertFixture fx)
         var runtime = await fx.Diagnostics.GetRuntimeAsync();
         Assert.True(runtime.TryGetProperty("overflowCount", out _), "runtime missing overflowCount");
         Assert.True(runtime.TryGetProperty("bytesUsed", out _), "runtime missing bytesUsed");
-        Assert.True(runtime.TryGetProperty("maxBytes", out _), "runtime missing maxBytes");
+        Assert.True(runtime.TryGetProperty("eventsStored", out _), "runtime missing eventsStored");
     }
 
     [MotorAssertFact]

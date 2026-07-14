@@ -5,7 +5,8 @@ using Speculum.Api.Config.Store;
 
 namespace Speculum.Api.Tests;
 
-public sealed class AdminScriptUploadTests : IClassFixture<SpeculumWebApplicationFactory>
+[Collection(nameof(SpeculumIntegrationTestCollection))]
+public sealed class AdminScriptUploadTests
 {
     private readonly HttpClient _client;
     private readonly SpeculumWebApplicationFactory _factory;

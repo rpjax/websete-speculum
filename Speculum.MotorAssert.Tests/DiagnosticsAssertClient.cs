@@ -154,47 +154,143 @@ public sealed class DiagnosticsAssertClient(MotorAssertHost host)
         return doc.RootElement.Clone();
     }
 
-    public async Task<string> ExpectEvaluateAsync(
+    public Task<string> ExpectEvaluateAsync(
         string connectionId,
         string expression,
         string expectedSubstring,
         CancellationToken ct = default)
-    {
-        var probe = await PostBrowserProbeAsync(connectionId, ["evaluate"], evaluateExpression: expression, ct: ct);
-        Assert.True(probe.GetProperty("ok").GetBoolean(), probe.ToString());
-        Assert.True(probe.TryGetProperty("data", out var data), "probe missing data");
-        var text = data.ToString();
-        Assert.Contains(expectedSubstring, text, StringComparison.Ordinal);
-        return text;
-    }
+        => WaitEvaluateContainsAsync(connectionId, expression, expectedSubstring, ct: ct);
 
-    public async Task ExpectCookieAsync(
+    public Task ExpectCookieAsync(
         string connectionId,
         string name,
         string? valueContains = null,
         CancellationToken ct = default)
-    {
-        var probe = await PostBrowserProbeAsync(connectionId, ["cookies"], ct: ct);
-        Assert.True(probe.GetProperty("ok").GetBoolean(), probe.ToString());
-        var blob = probe.GetProperty("data").ToString();
-        Assert.Contains(name, blob, StringComparison.Ordinal);
-        if (valueContains is not null)
-            Assert.Contains(valueContains, blob, StringComparison.Ordinal);
-    }
+        => WaitCookieAsync(connectionId, name, valueContains, ct: ct);
 
-    public async Task ExpectLocalStorageAsync(
+    public Task ExpectLocalStorageAsync(
         string connectionId,
         string key,
         string valueContains,
         CancellationToken ct = default)
+        => WaitLocalStorageAsync(connectionId, key, valueContains, ct: ct);
+
+    /// <summary>Poll evaluate until the result text contains <paramref name="expectedSubstring"/>.</summary>
+    public async Task<string> WaitEvaluateContainsAsync(
+        string connectionId,
+        string expression,
+        string expectedSubstring,
+        TimeSpan? timeout = null,
+        CancellationToken ct = default)
     {
-        var probe = await PostBrowserProbeAsync(
+        var deadline = DateTime.UtcNow + (timeout ?? TimeSpan.FromSeconds(30));
+        Exception? last = null;
+        string? lastText = null;
+        while (DateTime.UtcNow < deadline)
+        {
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                var probe = await PostBrowserProbeAsync(
+                    connectionId, ["evaluate"], evaluateExpression: expression, ct: ct);
+                if (probe.GetProperty("ok").GetBoolean()
+                    && probe.TryGetProperty("data", out var data))
+                {
+                    lastText = data.ToString();
+                    if (lastText.Contains(expectedSubstring, StringComparison.Ordinal))
+                        return lastText;
+                }
+            }
+            catch (Exception ex)
+            {
+                last = ex;
+            }
+
+            await Task.Delay(250, ct);
+        }
+
+        throw new TimeoutException(
+            $"evaluate never contained '{expectedSubstring}' (last={lastText}). {last?.Message}");
+    }
+
+    /// <summary>Poll cookies probe until <paramref name="name"/> (and optional value) appears.</summary>
+    public async Task WaitCookieAsync(
+        string connectionId,
+        string name,
+        string? valueContains = null,
+        TimeSpan? timeout = null,
+        CancellationToken ct = default)
+    {
+        var deadline = DateTime.UtcNow + (timeout ?? TimeSpan.FromSeconds(30));
+        Exception? last = null;
+        string? lastBlob = null;
+        while (DateTime.UtcNow < deadline)
+        {
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                var probe = await PostBrowserProbeAsync(connectionId, ["cookies"], ct: ct);
+                if (probe.GetProperty("ok").GetBoolean())
+                {
+                    lastBlob = probe.GetProperty("data").ToString();
+                    if (lastBlob.Contains(name, StringComparison.Ordinal)
+                        && (valueContains is null
+                            || lastBlob.Contains(valueContains, StringComparison.Ordinal)))
+                        return;
+                }
+            }
+            catch (Exception ex)
+            {
+                last = ex;
+            }
+
+            await Task.Delay(250, ct);
+        }
+
+        throw new TimeoutException(
+            $"cookie '{name}' not observed (last={lastBlob}). {last?.Message}");
+    }
+
+    /// <summary>Poll localStorage until key's value contains <paramref name="valueContains"/>.</summary>
+    public Task WaitLocalStorageAsync(
+        string connectionId,
+        string key,
+        string valueContains,
+        TimeSpan? timeout = null,
+        CancellationToken ct = default)
+        => WaitEvaluateContainsAsync(
             connectionId,
-            ["evaluate"],
-            evaluateExpression: $"localStorage.getItem({JsonSerializer.Serialize(key)})",
-            ct: ct);
-        Assert.True(probe.GetProperty("ok").GetBoolean(), probe.ToString());
-        Assert.Contains(valueContains, probe.GetProperty("data").ToString(), StringComparison.Ordinal);
+            $"localStorage.getItem({JsonSerializer.Serialize(key)})",
+            valueContains,
+            timeout,
+            ct);
+
+    /// <summary>Wait until Diagnostics.ConfigApplied appears after a config mutation.</summary>
+    public async Task WaitConfigAppliedAsync(
+        DateTimeOffset since,
+        TimeSpan? timeout = null,
+        CancellationToken ct = default)
+    {
+        await WaitForEventsAsync(
+            null, "Diagnostics.ConfigApplied", since,
+            ev => HasEvent(ev, "Diagnostics.ConfigApplied"),
+            timeout ?? TimeSpan.FromSeconds(30),
+            ct);
+    }
+
+    /// <summary>Wait until the fixture probe marker reports the given page id.</summary>
+    public async Task WaitFixturePageAsync(
+        string connectionId,
+        string pageId,
+        TimeSpan? timeout = null,
+        CancellationToken ct = default)
+    {
+        await WaitEvaluateContainsAsync(
+            connectionId,
+            "document.getElementById('speculum-probe')?.dataset?.page",
+            pageId,
+            timeout,
+            ct);
     }
 
     public async Task WaitFrameSequenceAtLeastAsync(

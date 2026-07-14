@@ -200,13 +200,10 @@ public sealed class LifecycleAndNavigateTests(MotorAssertFixture fx)
             act.ConnectionId, "Motor.Navigate", navSince,
             ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.NavigateCompleted"));
 
-        await Task.Delay(800);
-        var probe = await fx.Diagnostics.PostBrowserProbeAsync(
+        await fx.Diagnostics.WaitEvaluateContainsAsync(
             act.ConnectionId!,
-            ["evaluate"],
-            evaluateExpression: "location.pathname + location.search");
-        Assert.Contains("/nav/b", probe.GetProperty("data").ToString(), StringComparison.Ordinal);
-        Assert.Contains("q=1", probe.GetProperty("data").ToString(), StringComparison.Ordinal);
+            "location.pathname + location.search",
+            "/nav/b?q=1");
     }
 
     [MotorAssertFact]
@@ -221,13 +218,7 @@ public sealed class LifecycleAndNavigateTests(MotorAssertFixture fx)
             act.ConnectionId, "Motor.Session", since,
             ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
 
-        await Task.Delay(1500);
-        var probe = await fx.Diagnostics.PostBrowserProbeAsync(
-            act.ConnectionId!,
-            ["evaluate", "dom"],
-            evaluateExpression: "document.getElementById('speculum-probe')?.dataset?.page",
-            domSelector: "#speculum-probe");
-        Assert.Contains("redirect-end", probe.GetProperty("data").ToString(), StringComparison.Ordinal);
+        await fx.Diagnostics.WaitFixturePageAsync(act.ConnectionId!, "redirect-end");
     }
 
     [MotorAssertFact]
@@ -242,15 +233,14 @@ public sealed class LifecycleAndNavigateTests(MotorAssertFixture fx)
             act.ConnectionId, "Motor.Session", since,
             ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
 
-        await Task.Delay(2000);
+        await fx.Diagnostics.WaitFixturePageAsync(act.ConnectionId!, "asset-escape");
         var session = await fx.Diagnostics.TryGetSessionAsync(act.ConnectionId!);
         Assert.Equal("Running", session!.Value.GetProperty("snapshot").GetProperty("phase").GetString());
 
-        var probe = await fx.Diagnostics.PostBrowserProbeAsync(
+        await fx.Diagnostics.ExpectEvaluateAsync(
             act.ConnectionId!,
-            ["evaluate"],
-            evaluateExpression: "document.getElementById('speculum-probe')?.dataset?.page");
-        Assert.Contains("asset-escape", probe.GetProperty("data").ToString(), StringComparison.Ordinal);
+            "document.getElementById('speculum-probe')?.dataset?.page",
+            "asset-escape");
     }
 
     [MotorAssertFact]

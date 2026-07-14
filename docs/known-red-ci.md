@@ -22,4 +22,4 @@ A8 SidecarFaulted + session_gone, A9 viewport dims, B1 probe `/nav/b`, E3 multi-
 ## Next
 
 1. Re-run MotorAssert against stack; fix any post-MsgPack assert failures without weakening.
-2. Residual suite polish (`Task.Delay` → event waits) in a later wave.
+2. ~~Residual suite polish (`Task.Delay` → event waits)~~ — done: Wait* poll helpers; only backoff/race Delays remain.

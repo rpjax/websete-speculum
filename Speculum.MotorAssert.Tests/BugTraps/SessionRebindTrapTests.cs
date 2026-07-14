@@ -26,7 +26,6 @@ public sealed class SessionRebindTrapTests(MotorAssertFixture fx)
                 act.ConnectionId, "Motor.Session", since,
                 ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId)
                       && DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionResolved", actId));
-            await Task.Delay(2000);
             await fx.Diagnostics.ExpectCookieAsync(act.ConnectionId!, "sf_marker", "state-cookie");
             await act.DisconnectAsync();
         }
@@ -55,7 +54,6 @@ public sealed class SessionRebindTrapTests(MotorAssertFixture fx)
         Assert.True(payload.GetProperty("restored").GetBoolean(), payload.ToString());
         Assert.Equal(sessionId1, payload.GetProperty("persistedSessionId").GetString());
 
-        await Task.Delay(2000);
         await fx.Diagnostics.ExpectCookieAsync(act2.ConnectionId!, "sf_marker", "state-cookie");
         await fx.Diagnostics.ExpectLocalStorageAsync(act2.ConnectionId!, "sf_ls", "state-ls");
 

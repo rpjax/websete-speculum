@@ -140,7 +140,7 @@ public sealed class MotorActClient : IAsyncDisposable
 
         var channel = Channel.CreateUnbounded<string>();
         _userInputWriter = channel.Writer;
-        // Hub method runs until the channel completes — fire-and-forget the SendAsync task.
+        // Hub stream subscription is fire-and-forget; brief settle before writers are used.
         _ = _connection!.SendAsync("OpenUserInputChannel", channel.Reader, ct);
         await Task.Delay(75, ct);
     }

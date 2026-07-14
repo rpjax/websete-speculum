@@ -111,7 +111,6 @@ public sealed class ScriptsDeepTests(MotorAssertFixture fx)
                 act.ConnectionId, "Motor.Session", since,
                 ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
 
-            await Task.Delay(2500);
             await fx.Diagnostics.ExpectEvaluateAsync(act.ConnectionId!, evaluate, expected);
         }
         finally

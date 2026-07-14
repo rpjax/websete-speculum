@@ -23,7 +23,8 @@ public sealed class PersistenceDeepTests(MotorAssertFixture fx)
                 act.ConnectionId, "Motor.Session", since,
                 ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
             await act.NavigateAsync($"{fx.Host.FixtureClientOrigin}/nav/b");
-            await Task.Delay(2500);
+            await fx.Diagnostics.WaitEvaluateContainsAsync(
+                act.ConnectionId!, "location.pathname", "/nav/b");
             await act.DisconnectAsync();
         }
 
@@ -60,7 +61,6 @@ public sealed class PersistenceDeepTests(MotorAssertFixture fx)
             await fx.Diagnostics.WaitForEventsAsync(
                 act.ConnectionId, "Motor.Session", since,
                 ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
-            await Task.Delay(2500);
             await fx.Diagnostics.ExpectCookieAsync(act.ConnectionId!, "sf_marker", "state-cookie");
             await fx.Diagnostics.ExpectLocalStorageAsync(act.ConnectionId!, "sf_ls", "state-ls");
             await act.DisconnectAsync();
@@ -86,7 +86,6 @@ public sealed class PersistenceDeepTests(MotorAssertFixture fx)
             act2.ConnectionId, "Motor.Session", since2,
             ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId2));
 
-        await Task.Delay(2500);
         await fx.Diagnostics.ExpectCookieAsync(act2.ConnectionId!, "sf_marker", "state-cookie");
         await fx.Diagnostics.ExpectLocalStorageAsync(act2.ConnectionId!, "sf_ls", "state-ls");
 
@@ -138,7 +137,6 @@ public sealed class PersistenceDeepTests(MotorAssertFixture fx)
         finally
         {
             RunCompose(composeFile, "start", "sidecar");
-            await Task.Delay(8000);
             await fx.Host.EnsureReadyAsync();
         }
     }
@@ -157,7 +155,7 @@ public sealed class PersistenceDeepTests(MotorAssertFixture fx)
             await fx.Diagnostics.WaitForEventsAsync(
                 act.ConnectionId, "Motor.Session", since,
                 ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
-            await Task.Delay(1200);
+            await fx.Diagnostics.WaitCookieAsync(act.ConnectionId!, "sf_marker", "state-cookie");
             await act.DisconnectAsync();
         }
 

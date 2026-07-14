@@ -45,7 +45,7 @@ public sealed class InputResizeProbeGovernanceTests(MotorAssertFixture fx)
             act.ConnectionId, "Motor.Session", since,
             ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
 
-        await Task.Delay(1500);
+        await fx.Diagnostics.WaitFixturePageAsync(act.ConnectionId!, "home");
         var probe = await fx.Diagnostics.PostBrowserProbeAsync(
             act.ConnectionId!,
             ["process", "tabs", "evaluate", "dom"],
@@ -67,6 +67,7 @@ public sealed class InputResizeProbeGovernanceTests(MotorAssertFixture fx)
             act.ConnectionId, "Motor.Session", since,
             ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
 
+        var configSince = DateTimeOffset.UtcNow.AddSeconds(-1);
         var put = await fx.Host.PutConfigAsync("Diagnostics", new
         {
             enabled = true,
@@ -82,6 +83,7 @@ public sealed class InputResizeProbeGovernanceTests(MotorAssertFixture fx)
             probe = new { maxConcurrentProbesPerSession = 2, diagTimeoutMs = 10000, maxProbeResponseBytes = 524288 },
         });
         put.EnsureSuccessStatusCode();
+        await fx.Diagnostics.WaitConfigAppliedAsync(configSince);
 
         try
         {
@@ -184,10 +186,12 @@ public sealed class InputResizeProbeGovernanceTests(MotorAssertFixture fx)
     [MotorAssertFact]
     public async Task L11_probe_response_too_large()
     {
+        var configSince = DateTimeOffset.UtcNow.AddSeconds(-1);
         var put = await fx.Host.PutConfigAsync(
             "Diagnostics",
             MotorAssertFixture.AssertiveDiagnosticsConfig(maxProbeResponseBytes: 2048));
         put.EnsureSuccessStatusCode();
+        await fx.Diagnostics.WaitConfigAppliedAsync(configSince);
 
         try
         {
@@ -200,7 +204,7 @@ public sealed class InputResizeProbeGovernanceTests(MotorAssertFixture fx)
                 act.ConnectionId, "Motor.Session", since,
                 ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
 
-            await Task.Delay(1000);
+            await fx.Diagnostics.WaitFixturePageAsync(act.ConnectionId!, "fat-dom");
             var res = await fx.Host.Http.PostAsJsonAsync(
                 $"api/admin/diagnostics/v1/sessions/{act.ConnectionId}/browser",
                 new { ops = new[] { "dom" }, domSelector = "#speculum-probe" },

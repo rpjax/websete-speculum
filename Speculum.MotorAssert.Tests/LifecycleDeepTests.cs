@@ -28,7 +28,6 @@ public sealed class LifecycleDeepTests(MotorAssertFixture fx)
             act.ConnectionId, "Motor.Session", replaceSince,
             ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId2));
 
-        await Task.Delay(800);
         await fx.Diagnostics.ExpectEvaluateAsync(
             act.ConnectionId!,
             "document.getElementById('speculum-probe')?.dataset?.page",
@@ -81,7 +80,7 @@ public sealed class LifecycleDeepTests(MotorAssertFixture fx)
             await fx.Diagnostics.WaitForEventsAsync(
                 act.ConnectionId, "Motor.Session", since,
                 ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
-            await Task.Delay(1200);
+            await fx.Diagnostics.WaitCookieAsync(act.ConnectionId!, "sf_marker", "state-cookie");
             await act.DisconnectAsync();
         }
 
@@ -191,12 +190,9 @@ public sealed class LifecycleDeepTests(MotorAssertFixture fx)
             var stdout = await p.StandardOutput.ReadToEndAsync();
             await p.WaitForExitAsync();
             if (stdout.Contains("sidecar", StringComparison.OrdinalIgnoreCase))
-            {
-                await Task.Delay(2000);
                 return;
-            }
 
-            await Task.Delay(2000);
+            await Task.Delay(1000);
         }
 
         Assert.Fail("sidecar did not return to running after A8 restart");

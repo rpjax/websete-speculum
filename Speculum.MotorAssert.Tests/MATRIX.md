@@ -90,8 +90,8 @@ Do **not** skip or weaken. MsgPack camelCase Bugs A/B are **fixed** (`MotorHubMe
 | Emitter publish units | `Api.Tests/.../Emitters` | Must stay green (bus recorder; not a trap) |
 | E8 / B12 | MotorAssert BugTraps | Re-check on stack after MsgPack deploy |
 
-Follow-up: treat remaining assert failures as product work. Prefer event waits over `Task.Delay` when extending.
+Follow-up: treat remaining assert failures as product work.
 
-Depth note: MotorAssert + emitter units are hardened for Act→Assert completeness (SessionResolved / UrlMapped / export / probes). Remaining `Task.Delay` waits are still present where no event exists yet — prefer event waits over delays when extending.
+Residual delay policy: fixed sleeps before probes/export are **gone**. Remaining `Task.Delay` are poll backoffs, intentional race injection (~80ms mid-start disconnect; ~200ms dual-probe 429), or SignalR stream handshake settle (75ms).
 
 P (unit/contract pyramid) stays in `Speculum.Api.Tests` + sidecar `npm test` + web Vitest under the fast gate. Stress/SLO → `Speculum.MotorPerf.Tests` + `.github/workflows/perf.yml` (not required).

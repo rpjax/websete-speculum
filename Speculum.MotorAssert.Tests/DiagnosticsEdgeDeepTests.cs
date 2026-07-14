@@ -20,7 +20,6 @@ public sealed class DiagnosticsEdgeDeepTests(MotorAssertFixture fx)
             act.ConnectionId, "Motor.Session", since,
             ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
 
-        await Task.Delay(1000);
         await fx.Diagnostics.ExpectCookieAsync(act.ConnectionId!, "sf_marker", "state-cookie");
         await fx.Diagnostics.ExpectLocalStorageAsync(act.ConnectionId!, "sf_ls", "state-ls");
 
@@ -105,7 +104,6 @@ public sealed class DiagnosticsEdgeDeepTests(MotorAssertFixture fx)
                 if (r.StatusCode == HttpStatusCode.OK)
                     _ = await r.Content.ReadAsStringAsync();
             }));
-            await Task.Delay(500);
         }
         finally
         {
@@ -166,8 +164,8 @@ public sealed class DiagnosticsEdgeDeepTests(MotorAssertFixture fx)
             using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
             Assert.Equal("probe_timeout", doc.RootElement.GetProperty("errorCode").GetString());
 
-            // Sidecar may still be awaiting the cancelled evaluate; wait out remaining work.
-            await Task.Delay(2000);
+            // Confirm the browser remains responsive after the cancelled evaluate.
+            await fx.Diagnostics.WaitFixturePageAsync(act.ConnectionId!, "home");
         }
         finally
         {
@@ -274,9 +272,10 @@ public sealed class DiagnosticsEdgeDeepTests(MotorAssertFixture fx)
         var composeFile = ResolveComposeFile();
         Assert.NotNull(composeFile);
 
+        var configSince = DateTimeOffset.UtcNow.AddSeconds(-1);
         var put = await fx.RestoreHostingApexAsync();
         put.EnsureSuccessStatusCode();
-        await Task.Delay(1500);
+        await fx.Diagnostics.WaitConfigAppliedAsync(configSince);
 
         var psi = new System.Diagnostics.ProcessStartInfo
         {
@@ -370,10 +369,11 @@ public sealed class DiagnosticsEdgeDeepTests(MotorAssertFixture fx)
         var before = await fx.Diagnostics.RequireSessionAsync(act.ConnectionId!);
         Assert.True(fx.Diagnostics.RequireBool(fx.Diagnostics.RequireSnapshot(before), "jsBridgeEnabled"));
 
+        var configSince = DateTimeOffset.UtcNow.AddSeconds(-1);
         await fx.Host.PutConfigAsync("JsBridge", new { enable = false });
         try
         {
-            await Task.Delay(500);
+            await fx.Diagnostics.WaitConfigAppliedAsync(configSince);
             var mid = await fx.Diagnostics.RequireSessionAsync(act.ConnectionId!);
             Assert.True(fx.Diagnostics.RequireBool(fx.Diagnostics.RequireSnapshot(mid), "jsBridgeEnabled"),
                 "live session snapshot must keep StartSession JsBridge");

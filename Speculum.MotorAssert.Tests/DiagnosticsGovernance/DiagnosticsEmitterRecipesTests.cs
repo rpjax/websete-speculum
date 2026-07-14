@@ -74,7 +74,7 @@ public sealed class DiagnosticsEmitterRecipesTests(MotorAssertFixture fx)
             await fx.Diagnostics.WaitForEventsAsync(
                 act.ConnectionId, "Motor.Session", since,
                 ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
-            await Task.Delay(2000);
+            await fx.Diagnostics.WaitCookieAsync(act.ConnectionId!, "sf_marker", "state-cookie");
             await act.DisconnectAsync();
         }
 

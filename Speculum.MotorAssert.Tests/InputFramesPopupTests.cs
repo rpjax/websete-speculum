@@ -23,16 +23,11 @@ public sealed class InputFramesPopupTests(MotorAssertFixture fx)
             act.ConnectionId, "Motor.Session", since,
             ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
 
-        await Task.Delay(1200);
+        await fx.Diagnostics.WaitEvaluateContainsAsync(
+            act.ConnectionId!, "document.getElementById('out')?.getAttribute('data-clicks')", "0");
         await act.SendClickAsync(200, 140);
-        await Task.Delay(800);
-
-        var probe = await fx.Diagnostics.PostBrowserProbeAsync(
-            act.ConnectionId!,
-            ["evaluate"],
-            evaluateExpression: "document.getElementById('out')?.getAttribute('data-clicks')");
-        Assert.True(probe.GetProperty("ok").GetBoolean());
-        Assert.Contains("1", probe.GetProperty("data").ToString(), StringComparison.Ordinal);
+        await fx.Diagnostics.WaitEvaluateContainsAsync(
+            act.ConnectionId!, "document.getElementById('out')?.getAttribute('data-clicks')", "1");
     }
 
     [MotorAssertFact]
@@ -47,17 +42,13 @@ public sealed class InputFramesPopupTests(MotorAssertFixture fx)
             act.ConnectionId, "Motor.Session", since,
             ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
 
-        await Task.Delay(1000);
+        await fx.Diagnostics.WaitEvaluateContainsAsync(
+            act.ConnectionId!, "document.getElementById('out')?.getAttribute('data-clicks')", "0");
         // Focus input then press a key.
         await act.SendClickAsync(200, 216);
         await act.SendKeyAsync("a");
-        await Task.Delay(600);
-
-        var probe = await fx.Diagnostics.PostBrowserProbeAsync(
-            act.ConnectionId!,
-            ["evaluate"],
-            evaluateExpression: "window.__SPECULUM_LAST_KEY__ || ''");
-        Assert.Contains("a", probe.GetProperty("data").ToString(), StringComparison.OrdinalIgnoreCase);
+        await fx.Diagnostics.WaitEvaluateContainsAsync(
+            act.ConnectionId!, "window.__SPECULUM_LAST_KEY__ || ''", "a");
     }
 
     [MotorAssertFact]
@@ -72,15 +63,10 @@ public sealed class InputFramesPopupTests(MotorAssertFixture fx)
             act.ConnectionId, "Motor.Session", since,
             ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
 
-        await Task.Delay(1000);
+        await fx.Diagnostics.WaitFixturePageAsync(act.ConnectionId!, "click-target");
         await act.SendWheelAsync(400, 300, 160);
-        await Task.Delay(600);
-
-        var probe = await fx.Diagnostics.PostBrowserProbeAsync(
-            act.ConnectionId!,
-            ["evaluate"],
-            evaluateExpression: "window.__SPECULUM_WHEEL__ === true");
-        Assert.Contains("true", probe.GetProperty("data").ToString(), StringComparison.OrdinalIgnoreCase);
+        await fx.Diagnostics.WaitEvaluateContainsAsync(
+            act.ConnectionId!, "window.__SPECULUM_WHEEL__ === true", "true");
     }
 
     [MotorAssertFact]
@@ -95,9 +81,9 @@ public sealed class InputFramesPopupTests(MotorAssertFixture fx)
             act.ConnectionId, "Motor.Session", since,
             ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
 
-        await Task.Delay(800);
+        await fx.Diagnostics.WaitEvaluateContainsAsync(
+            act.ConnectionId!, "document.getElementById('out')?.getAttribute('data-clicks')", "0");
         await act.SendUserInputJsonAsync("""{"type":"paste","text":"nope"}""");
-        await Task.Delay(400);
 
         var before = await fx.Diagnostics.PostBrowserProbeAsync(
             act.ConnectionId!,
@@ -106,12 +92,8 @@ public sealed class InputFramesPopupTests(MotorAssertFixture fx)
         Assert.Contains("0", before.GetProperty("data").ToString(), StringComparison.Ordinal);
 
         await act.SendClickAsync(200, 140);
-        await Task.Delay(700);
-        var after = await fx.Diagnostics.PostBrowserProbeAsync(
-            act.ConnectionId!,
-            ["evaluate"],
-            evaluateExpression: "document.getElementById('out')?.getAttribute('data-clicks')");
-        Assert.Contains("1", after.GetProperty("data").ToString(), StringComparison.Ordinal);
+        await fx.Diagnostics.WaitEvaluateContainsAsync(
+            act.ConnectionId!, "document.getElementById('out')?.getAttribute('data-clicks')", "1");
     }
 
     [MotorAssertFact]
@@ -127,7 +109,6 @@ public sealed class InputFramesPopupTests(MotorAssertFixture fx)
             ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
 
         await act.SendUserInputJsonAsync("{not-json");
-        await Task.Delay(300);
         var session = await fx.Diagnostics.TryGetSessionAsync(act.ConnectionId!);
         Assert.Equal("Running", session!.Value.GetProperty("snapshot").GetProperty("phase").GetString());
     }
@@ -184,10 +165,9 @@ public sealed class InputFramesPopupTests(MotorAssertFixture fx)
             act.ConnectionId, "Motor.Session", since,
             ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
 
-        await Task.Delay(1000);
+        await fx.Diagnostics.WaitFixturePageAsync(act.ConnectionId!, "popup");
         // Open button is naturally near top-left of content; click generous hit box via eval fallback if needed.
         await act.EvalJsAsync(42, "document.getElementById('open')?.click(); document.getElementById('blank')?.click();");
-        await Task.Delay(1500);
 
         var status = await act.WaitForStatusAsync(s => s.TabCount == 1, TimeSpan.FromSeconds(20));
         Assert.Equal(1, status.TabCount);
@@ -218,15 +198,10 @@ public sealed class InputFramesPopupTests(MotorAssertFixture fx)
             act.ConnectionId, "Motor.Session", since,
             ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
 
-        await Task.Delay(800);
+        await fx.Diagnostics.WaitFixturePageAsync(act.ConnectionId!, "home");
         await act.EvalJsAsync(7, "window.__SPECULUM_EVAL__ = 'via-console-input';");
-        await Task.Delay(800);
-
-        var probe = await fx.Diagnostics.PostBrowserProbeAsync(
-            act.ConnectionId!,
-            ["evaluate"],
-            evaluateExpression: "window.__SPECULUM_EVAL__");
-        Assert.Contains("via-console-input", probe.GetProperty("data").ToString(), StringComparison.Ordinal);
+        await fx.Diagnostics.WaitEvaluateContainsAsync(
+            act.ConnectionId!, "window.__SPECULUM_EVAL__", "via-console-input");
     }
 
     [MotorAssertFact]
@@ -260,9 +235,8 @@ public sealed class InputFramesPopupTests(MotorAssertFixture fx)
             act.ConnectionId, "Motor.Session", since,
             ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
 
-        await Task.Delay(800);
+        await fx.Diagnostics.WaitFixturePageAsync(act.ConnectionId!, "external-link");
         await act.EvalJsAsync(9, "window.goEvil && window.goEvil()");
-        await Task.Delay(1500);
 
         var session = await fx.Diagnostics.TryGetSessionAsync(act.ConnectionId!);
         Assert.Equal("Running", session!.Value.GetProperty("snapshot").GetProperty("phase").GetString());

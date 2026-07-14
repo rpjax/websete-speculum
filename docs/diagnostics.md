@@ -38,7 +38,7 @@ Catalog Act→Assert events are **never** randomly sampled away. `StatusMirrorRa
 
 Each recipe: Act → poll events with `?since=` / `namePrefix=` → assert snapshot / errorCode.
 
-**Harness helpers** (`Speculum.MotorAssert.Tests`): prefer `ExpectEvaluateAsync`, `ExpectCookieAsync`, `ExpectLocalStorageAsync`, `WaitFrameSequenceAtLeastAsync`, `RequireSessionAsync` / `RequireSnapshot` / `RequireString` — missing JSON properties fail hard (no soft skip).
+**Harness helpers** (`Speculum.MotorAssert.Tests`): prefer `WaitEvaluateContainsAsync`, `WaitCookieAsync`, `WaitLocalStorageAsync`, `WaitFixturePageAsync`, `WaitConfigAppliedAsync`, `ExpectEvaluateAsync` / `ExpectCookieAsync` / `ExpectLocalStorageAsync` (poll), `WaitFrameSequenceAtLeastAsync`, `RequireSessionAsync` / `RequireSnapshot` / `RequireString` — missing JSON properties fail hard (no soft skip). Do **not** insert fixed `Task.Delay` before probes; poll or wait for catalog events instead.
 
 ### 1. Session lifecycle
 

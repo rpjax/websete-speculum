@@ -8,7 +8,9 @@ public interface IMotorSession
 {
     Task StartAsync(CancellationToken ct = default);
     Task StopAsync(CancellationToken ct = default);
-    Task CaptureAndPersistAsync(string sessionId, IBrowserSessionStore store, CancellationToken ct = default);
+    /// <summary>Exports sidecar state and persists it. Returns the exported payload when export ran.</summary>
+    Task<BrowserStatePayload?> CaptureAndPersistAsync(
+        string sessionId, IBrowserSessionStore store, CancellationToken ct = default);
 
     string? PersistedSessionId { get; set; }
     string SidecarSessionId { get; }

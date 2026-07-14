@@ -213,12 +213,12 @@ public sealed class MotorSession : IMotorSession
         }
     }
 
-    public async Task CaptureAndPersistAsync(
+    public async Task<BrowserStatePayload?> CaptureAndPersistAsync(
         string sessionId,
         IBrowserSessionStore store,
         CancellationToken ct = default)
     {
-        if (_client is null || string.IsNullOrWhiteSpace(sessionId)) return;
+        if (_client is null || string.IsNullOrWhiteSpace(sessionId)) return null;
 
         Interlocked.Exchange(ref _exportingState, 1);
         try
@@ -228,6 +228,7 @@ public sealed class MotorSession : IMotorSession
 
             var state = await _client.RequestStateExportAsync(timeoutCts.Token);
             await store.SaveStateAsync(sessionId, state, timeoutCts.Token);
+            return state;
         }
         catch (Exception ex)
         {
@@ -388,7 +389,7 @@ public sealed class MotorSession : IMotorSession
             ConnectionId = _connectionId,
             PersistedSessionId = _persistedSessionId,
             SidecarSessionId = _sidecarSessionId,
-            Payload = new { fault },
+            Payload = MotorDiagnosticsPayloads.SidecarFault(fault),
         });
     }
 

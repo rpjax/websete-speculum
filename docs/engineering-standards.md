@@ -127,6 +127,7 @@ Pipeline: **Observe → Govern → Record → Query → Present**.
 
 - Same **schema** in Development and Production; environment differs by **redaction / budgets**, not by deleting taxonomies.
 - Catalog Act→Assert events must not be randomly sampled away.
+- Catalogued **failures** (and decisive lifecycle emits) must include stable payload fields — at minimum `errorCode` + `phase` on failures. An incomplete emit is a product defect, not an acceptable soft-pass — see [diagnostics.md](diagnostics.md) (Failure & lifecycle payload contract).
 - Control plane: levels per domain, budgets, overflow, elevate, soft-caps — see [diagnostics.md](diagnostics.md).
 
 ---

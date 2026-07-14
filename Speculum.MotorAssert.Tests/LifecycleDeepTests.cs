@@ -123,10 +123,17 @@ public sealed class LifecycleDeepTests : MotorAssertTestBase
             RunCompose(composeFile, "stop", "sidecar");
 
             // Prefer fault signal while session is still live; export-fail is also correct if disconnect races.
-            await fx.Diagnostics.WaitForEventsAsync(
+            var faultEvents = await fx.Diagnostics.WaitForEventsAsync(
                 connId, "Motor.", since,
                 ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SidecarFaulted"),
                 timeout: TimeSpan.FromSeconds(90));
+            var faulted = faultEvents.First(e =>
+                string.Equals(e.GetProperty("name").GetString(), "Motor.SidecarFaulted", StringComparison.Ordinal));
+            var payload = DiagnosticsAssertClient.RequireProperty(faulted, "payload");
+            Assert.False(string.IsNullOrWhiteSpace(
+                DiagnosticsAssertClient.RequireProperty(payload, "errorCode").GetString()));
+            Assert.False(string.IsNullOrWhiteSpace(
+                DiagnosticsAssertClient.RequireProperty(payload, "fault").GetString()));
         }
         finally
         {

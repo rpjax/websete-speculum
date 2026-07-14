@@ -196,8 +196,7 @@ public sealed class MotorSessionCoordinatorTests
             return Task.CompletedTask;
         }
         public Task StopAsync(CancellationToken ct = default) => Task.CompletedTask;
-        public Task CaptureAndPersistAsync(string sessionId, IBrowserSessionStore store, CancellationToken ct = default)
-            => Task.CompletedTask;
+        public Task<BrowserStatePayload?> CaptureAndPersistAsync(string sessionId, IBrowserSessionStore store, CancellationToken ct = default) => Task.FromResult<BrowserStatePayload?>(null);
 
         public ChannelReader<Frame> GetFrameReader()
             => Channel.CreateUnbounded<Frame>().Reader;
@@ -316,7 +315,11 @@ public sealed class MotorSessionCoordinatorTests
             return false;
         }
 
-        public Task StopAllAsync(IBrowserSessionStore store, CancellationToken ct = default)
+        public Task StopAllAsync(
+            IBrowserSessionStore store,
+            CancellationToken ct = default,
+            Speculum.Api.Diagnostics.Abstractions.IDiagnosticsEventBus? diagnostics = null,
+            string? correlationId = null)
             => Task.CompletedTask;
     }
 
@@ -385,8 +388,7 @@ public sealed class MotorSessionCoordinatorTests
 
         public Task StartAsync(CancellationToken ct = default) => Task.CompletedTask;
         public Task StopAsync(CancellationToken ct = default) => Task.CompletedTask;
-        public Task CaptureAndPersistAsync(string sessionId, IBrowserSessionStore store, CancellationToken ct = default)
-            => Task.CompletedTask;
+        public Task<BrowserStatePayload?> CaptureAndPersistAsync(string sessionId, IBrowserSessionStore store, CancellationToken ct = default) => Task.FromResult<BrowserStatePayload?>(null);
 
         public ChannelReader<Frame> GetFrameReader()
             => Channel.CreateUnbounded<Frame>().Reader;

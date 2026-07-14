@@ -53,7 +53,13 @@ Status JSON shape:
 }
 ```
 
-Sidecar replies with `{"type":"ready","sessionId":"…"}` or `{"type":"error","sessionId":"…","message":"…"}`.
+Sidecar replies with `{"type":"ready","sessionId":"…"}` or:
+
+```json
+{ "type": "error", "sessionId": "…", "message": "…", "errorCode": "cookie_import_invalid|sidecar_session_create_failed" }
+```
+
+`errorCode` is stable for API diagnostics (`Network.setCookies` / invalid cookie params → `cookie_import_invalid`).
 
 ### Input events (after create)
 
@@ -61,7 +67,11 @@ Sidecar replies with `{"type":"ready","sessionId":"…"}` or `{"type":"error","s
 
 ### Export state
 
-`{"type":"exportState"}` — sidecar responds with browser state payload (see sidecar `BrowserState.ts`).
+`{"type":"exportState"}` — sidecar responds with browser state payload (see sidecar `BrowserState.ts`), or:
+
+```json
+{ "type": "stateExportError", "message": "…", "errorCode": "export_failed|export_session_gone" }
+```
 
 ### Diagnostics probe
 

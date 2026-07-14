@@ -19,6 +19,7 @@ Vocabulary: **Speculum** = platform; **Motor** = live browsing; **W7S** = wire/c
 - Never skip/ignore/soften MotorAssert asserts to get green — fix the product (`docs/assert-failure-policy.md`).
 - Never use missing-property soft skips (`if (TryGetProperty) continue`) as pass conditions.
 - Never prove motor truth with `200` / `ok: true` alone — Act→Assert via events, snapshots, probes.
+- Never publish catalog Motor/Sidecar.DiagProbe failure without `errorCode`+`phase` (`docs/diagnostics.md`).
 - Never treat Perf SLOs as required correctness; functional ≠ capacity.
 - No config aliases / migration shims during V1 unless explicitly requested post-launch.
 - No W7S in C# namespaces or API folder names; no hand-edits to `deploy/out/`.

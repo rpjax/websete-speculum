@@ -1,5 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using Speculum.Api.BrowserPersistence;
+using Speculum.Api.Diagnostics.Abstractions;
 
 namespace Speculum.Api.Motor.Live;
 
@@ -61,5 +62,11 @@ public interface IMotorSessionRegistry
         [NotNullWhen(true)] out string? connectionId);
 
     /// <summary>Captures browser state, stops and removes all active and starting sessions.</summary>
-    Task StopAllAsync(IBrowserSessionStore store, CancellationToken ct = default);
+    /// <param name="diagnostics">When set, emits per-session StateExport*/SessionStopped with reason drain.</param>
+    /// <param name="correlationId">Correlation shared with DrainStarted/Completed when draining.</param>
+    Task StopAllAsync(
+        IBrowserSessionStore store,
+        CancellationToken ct = default,
+        IDiagnosticsEventBus? diagnostics = null,
+        string? correlationId = null);
 }

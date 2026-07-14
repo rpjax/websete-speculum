@@ -123,16 +123,30 @@ public sealed class PersistenceDeepTests : MotorAssertTestBase
         try
         {
             RunCompose(composeFile, "stop", "sidecar");
-            await fx.Diagnostics.WaitForEventsAsync(
+            var faultEvents = await fx.Diagnostics.WaitForEventsAsync(
                 act.ConnectionId, "Motor.", since,
                 ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SidecarFaulted"),
                 timeout: TimeSpan.FromSeconds(90));
+            var faulted = faultEvents.First(e =>
+                string.Equals(e.GetProperty("name").GetString(), "Motor.SidecarFaulted", StringComparison.Ordinal));
+            var faultPayload = DiagnosticsAssertClient.RequireProperty(faulted, "payload");
+            Assert.False(string.IsNullOrWhiteSpace(
+                DiagnosticsAssertClient.RequireProperty(faultPayload, "errorCode").GetString()));
+            Assert.False(string.IsNullOrWhiteSpace(
+                DiagnosticsAssertClient.RequireProperty(faultPayload, "fault").GetString()));
 
             await act.DisconnectAsync();
-            await fx.Diagnostics.WaitForEventsAsync(
+            var exportEvents = await fx.Diagnostics.WaitForEventsAsync(
                 null, "Motor.StateExport", since,
                 ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.StateExportFailed"),
                 timeout: TimeSpan.FromSeconds(60));
+            var exportFailed = exportEvents.First(e =>
+                string.Equals(e.GetProperty("name").GetString(), "Motor.StateExportFailed", StringComparison.Ordinal));
+            var exportPayload = DiagnosticsAssertClient.RequireProperty(exportFailed, "payload");
+            Assert.False(string.IsNullOrWhiteSpace(
+                DiagnosticsAssertClient.RequireProperty(exportPayload, "errorCode").GetString()));
+            Assert.Equal("export",
+                DiagnosticsAssertClient.RequireProperty(exportPayload, "phase").GetString());
         }
         finally
         {

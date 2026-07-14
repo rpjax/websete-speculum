@@ -42,6 +42,7 @@ Shared compose is serial. Prefer these checks when BrowserQuery probes or restor
 | Restore sees empty cookies; export “already happened” | Global `StateExport` wait matched another test | `WaitStateExportCompletedAsync(connectionId, since-before-disconnect)` |
 | Timeout on `ConfigApplied` after JsBridge / MaxSessions PUT | Those sections do not emit `ConfigApplied` | Wait only after Diagnostics or Hosting PUT |
 | Cascade of sub-second Init failures | Prior test left Degraded or baseline threw | Fix the first red case; verify recover + Assertive runtime |
+| `SessionStartFailed` / export / probe fail opaque | Missing `errorCode`/`phase`/`message` on timeline | Read event payload first (admin dump); fix emit or product; do not rely on Docker logs alone |
 
 Helpers: `DiagnosticsAssertClient`, `MotorAssertFixture`, `MotorAssertTestBase`. Cookbook: [diagnostics.md](diagnostics.md).
 
@@ -51,7 +52,7 @@ Helpers: `DiagnosticsAssertClient`, `MotorAssertFixture`, `MotorAssertTestBase`.
 
 These unit / contract suites must remain green and strict:
 
-- `DiagnosticsEmitterPublishTests` — SessionResolved payload, restore counts, UrlMapped uniqueness, Off drop, Degraded still accepts catalog Motor events.
+- `DiagnosticsEmitterPublishTests` — SessionResolved payload, restore counts, UrlMapped uniqueness, Off drop, Degraded still accepts catalog Motor events; failure/success payloads (`SessionStartFailed`, `StateExportFailed`, `SidecarFaulted`, NavigateRejected) require `errorCode`/`phase` (missing property = fail).
 - `DiagnosticsEndpointsTests` — elevate audit; `POST /recover` clears Degraded and emits `Diagnostics.Recovered`.
 - `MsgPackHubContractTests` + Vitest session identity / status payload — camelCase hub wire (`[Key("…")]` + `MotorHubMessagePack.Options`).
 

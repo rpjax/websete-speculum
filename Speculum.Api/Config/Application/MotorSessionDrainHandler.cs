@@ -44,7 +44,8 @@ public sealed class MotorSessionDrainHandler : IConfigChangeHandler
             },
         });
 
-        await _sessionRegistry.StopAllAsync(_sessionStore, CancellationToken.None);
+        await _sessionRegistry.StopAllAsync(
+            _sessionStore, CancellationToken.None, _diagnostics, correlationId);
 
         _diagnostics.Publish(new DiagnosticsEvent
         {

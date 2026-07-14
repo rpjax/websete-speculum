@@ -154,12 +154,18 @@ public sealed class MotorSessionRegistry : IMotorSessionRegistry
         return false;
     }
 
-    public async Task StopAllAsync(IBrowserSessionStore store, CancellationToken ct = default)
+    public async Task StopAllAsync(
+        IBrowserSessionStore store,
+        CancellationToken ct = default,
+        IDiagnosticsEventBus? diagnostics = null,
+        string? correlationId = null)
     {
         var connectionIds = _sessions.Keys
             .Concat(_starting.Keys)
             .Distinct()
             .ToArray();
+
+        var corr = correlationId ?? Guid.NewGuid().ToString("N");
 
         foreach (var connectionId in connectionIds)
         {
@@ -176,20 +182,73 @@ public sealed class MotorSessionRegistry : IMotorSessionRegistry
             if (session is null) continue;
 
             session.MarkPhase(MotorSessionPhase.Stopping);
+            PublishDrain(diagnostics, "Motor.SessionStopping", corr, connectionId, session,
+                payload: new { reason = "drain" });
 
             if (!string.IsNullOrWhiteSpace(session.PersistedSessionId))
             {
-                try { await session.CaptureAndPersistAsync(session.PersistedSessionId!, store, ct); }
-                catch { /* best-effort */ }
+                PublishDrain(diagnostics, "Motor.StateExportRequested", corr, connectionId, session,
+                    payload: new { persistedSessionId = session.PersistedSessionId });
+                try
+                {
+                    var state = await session.CaptureAndPersistAsync(session.PersistedSessionId!, store, ct);
+                    PublishDrain(diagnostics, "Motor.StateExportCompleted", corr, connectionId, session,
+                        payload: MotorDiagnosticsPayloads.ExportCompleted(
+                            session.PersistedSessionId,
+                            state?.Cookies.Count,
+                            state?.LocalStorage.Count,
+                            state?.History.Count));
+                }
+                catch (Exception ex)
+                {
+                    PublishDrain(diagnostics, "Motor.StateExportFailed", corr, connectionId, session,
+                        severity: DiagnosticsSeverity.Warning,
+                        payload: MotorDiagnosticsPayloads.ExportFailed(
+                            ex is Sidecar.SidecarProtocolException spe ? spe.ErrorCode : "export_failed",
+                            ex.Message,
+                            session.PersistedSessionId));
+                }
             }
 
             try { await session.StopAsync(ct); }
             catch { /* best-effort */ }
 
             session.MarkPhase(MotorSessionPhase.Stopped);
+            PublishDrain(diagnostics, "Motor.SessionStopped", corr, connectionId, session,
+                payload: new { reason = "drain" });
+            PublishDrain(diagnostics, "Motor.SlotReleased", corr, connectionId, session,
+                payload: new
+                {
+                    activeCount = ActiveCount,
+                    startingCount = StartingCount,
+                });
+            PublishDrain(diagnostics, "Motor.SidecarDisconnected", corr, connectionId, session,
+                payload: new { sidecarSessionId = session.SidecarSessionId });
         }
 
         if (Volatile.Read(ref _activeSlots) < 0)
             Interlocked.Exchange(ref _activeSlots, 0);
+    }
+
+    private static void PublishDrain(
+        IDiagnosticsEventBus? diagnostics,
+        string name,
+        string correlationId,
+        string connectionId,
+        IMotorSession session,
+        DiagnosticsSeverity severity = DiagnosticsSeverity.Information,
+        object? payload = null)
+    {
+        diagnostics?.Publish(new DiagnosticsEvent
+        {
+            Domain = DiagnosticsDomain.MotorLive,
+            Name = name,
+            Severity = severity,
+            CorrelationId = correlationId,
+            ConnectionId = connectionId,
+            PersistedSessionId = session.PersistedSessionId,
+            SidecarSessionId = session.SidecarSessionId,
+            Payload = payload,
+        });
     }
 }

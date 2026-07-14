@@ -259,8 +259,7 @@ public sealed class DiagnosticsEndpointsTests : IDisposable
             => Task.FromResult<object>(new { process = new { ok = true } });
         public Task StartAsync(CancellationToken ct = default) => Task.CompletedTask;
         public Task StopAsync(CancellationToken ct = default) => Task.CompletedTask;
-        public Task CaptureAndPersistAsync(string sessionId, IBrowserSessionStore store, CancellationToken ct = default)
-            => Task.CompletedTask;
+        public Task<BrowserStatePayload?> CaptureAndPersistAsync(string sessionId, IBrowserSessionStore store, CancellationToken ct = default) => Task.FromResult<BrowserStatePayload?>(null);
         public ChannelReader<Frame> GetFrameReader() => Channel.CreateUnbounded<Frame>().Reader;
         public ChannelReader<ConsoleOutput> GetConsoleOutputReader() => Channel.CreateUnbounded<ConsoleOutput>().Reader;
         public ChannelReader<SessionStatus> GetStatusReader() => Channel.CreateUnbounded<SessionStatus>().Reader;
@@ -290,8 +289,7 @@ public sealed class DiagnosticsEndpointsTests : IDisposable
         }
         public Task StartAsync(CancellationToken ct = default) => Task.CompletedTask;
         public Task StopAsync(CancellationToken ct = default) => Task.CompletedTask;
-        public Task CaptureAndPersistAsync(string sessionId, IBrowserSessionStore store, CancellationToken ct = default)
-            => Task.CompletedTask;
+        public Task<BrowserStatePayload?> CaptureAndPersistAsync(string sessionId, IBrowserSessionStore store, CancellationToken ct = default) => Task.FromResult<BrowserStatePayload?>(null);
         public ChannelReader<Frame> GetFrameReader() => Channel.CreateUnbounded<Frame>().Reader;
         public ChannelReader<ConsoleOutput> GetConsoleOutputReader() => Channel.CreateUnbounded<ConsoleOutput>().Reader;
         public ChannelReader<SessionStatus> GetStatusReader() => Channel.CreateUnbounded<SessionStatus>().Reader;

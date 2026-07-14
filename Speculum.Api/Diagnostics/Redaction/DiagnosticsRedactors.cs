@@ -86,15 +86,17 @@ public sealed class ProductionMarketRedactor : IDiagnosticsRedactor
     }
 
     private static bool IsSecretField(string name)
-        => name.Contains("password", StringComparison.OrdinalIgnoreCase)
-           || name.Contains("secret", StringComparison.OrdinalIgnoreCase)
-           || name.Contains("apiKey", StringComparison.OrdinalIgnoreCase)
-           || name.Contains("token", StringComparison.OrdinalIgnoreCase)
+        => name.Equals("password", StringComparison.OrdinalIgnoreCase)
+           || name.Equals("secret", StringComparison.OrdinalIgnoreCase)
+           || name.Equals("apiKey", StringComparison.OrdinalIgnoreCase)
+           || name.Equals("token", StringComparison.OrdinalIgnoreCase)
+           || name.Equals("authorization", StringComparison.OrdinalIgnoreCase)
            || name.Equals("value", StringComparison.OrdinalIgnoreCase)
            || name.Equals("cookieValue", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsIdentityField(string name)
         => name.Equals("clientToken", StringComparison.OrdinalIgnoreCase)
+           || name.Equals("clientTokenEffective", StringComparison.OrdinalIgnoreCase)
            || name.Equals("connectionId", StringComparison.OrdinalIgnoreCase)
            || name.Equals("persistedSessionId", StringComparison.OrdinalIgnoreCase)
            || name.Equals("sidecarSessionId", StringComparison.OrdinalIgnoreCase)

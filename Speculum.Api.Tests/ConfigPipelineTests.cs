@@ -144,7 +144,7 @@ public sealed class ConfigPipelineTests
             return false;
         }
 
-        public Task StopAllAsync(IBrowserSessionStore sessionStore, CancellationToken ct = default)
+        public Task StopAllAsync(IBrowserSessionStore sessionStore, CancellationToken ct = default, Speculum.Api.Diagnostics.Abstractions.IDiagnosticsEventBus? diagnostics = null, string? correlationId = null)
         {
             StopAllCount++;
             return Task.CompletedTask;

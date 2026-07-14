@@ -13,7 +13,7 @@ Constitution: [docs/engineering-standards.md](../docs/engineering-standards.md) 
 | A5 | deep | cancel Starting → slot released | `A5_cancel_starting_releases_slot` |
 | A6 | deep | disconnect → StateExportCompleted + persisted | `A6_disconnect_exports_and_persists` |
 | A7 | deep | resource probe + gone | `A7_resource_probe_while_running_then_gone` |
-| A8 | deep | sidecar stop → SidecarFaulted **and** session_gone | `A8_sidecar_stop_faults_and_cleans_session` |
+| A8 | deep | sidecar stop → SidecarFaulted **payload errorCode+fault** and session_gone | `A8_sidecar_stop_faults_and_cleans_session` |
 | A9 | deep | viewport defaults **1280×720** when 0×0 | `A9_viewport_defaults_when_zero` |
 | A10 | deep | clientToken hex round-trip + reject | `A10_*` / `A10b_*` |
 | B1–B3 | deep | navigate allowlist (**B1 probe `/nav/b`**) / reject / scheme | `B1_*` `B2_*` `B3_*` |
@@ -35,9 +35,10 @@ Constitution: [docs/engineering-standards.md](../docs/engineering-standards.md) 
 | E3 | deep | history ≥2 `/nav/a`+`/nav/b` | `E3_persisted_detail_includes_history` |
 | E4 | deep | persisted list/get | `E4_*` |
 | E5 | deep | identity indexers resolve same session | `E5_indexers_resolve_same_persisted_session` |
-| E6 | deep | sidecar kill → SidecarFaulted then StateExportFailed | `E6_state_export_failed_on_sidecar_kill` |
+| E6 | deep | sidecar kill → SidecarFaulted+StateExportFailed **payloads** | `E6_state_export_failed_on_sidecar_kill` |
 | E7 | deep | drain keeps cookie+LS in persisted | `E7_drain_preserves_persisted_state` |
 | E8 | deep | rebind same token → one persisted row | `E8_*` (`BugTraps/SessionRebindTrapTests`) |
+| E8b | deep | dirty cookie sameSite/expires restore still SessionStarted + marker cookie | `E8b_rebind_with_dirty_cookie_fields_still_starts` |
 | F1 | deep | SessionPolicy PUT | `F1_*` |
 | F2–F3 | deep | TTL; DELETE → 404 not configured | `F2_*` `F3_*` |
 | G2–G4 | deep | drain Forwarding/Hosting; MaxSessions no-drain | `G2_*` `G3_*` `G4_*` |

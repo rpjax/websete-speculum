@@ -128,6 +128,35 @@ Notable MotorLive events for completeness:
 - **`Motor.SessionResolved`** — identity/persist fact before sidecar start (payload above).
 - **`Motor.UrlMapped`** — target→client URL map on change (apex NSO / mirroring).
 
+## Failure & lifecycle payload contract
+
+Catalog **failures** and decisive lifecycle emits must carry a JSON payload (never `null` when failure/decision context exists). Hub client messages may stay generic PT; **detail lives in the event** for Act→Assert / admin timeline.
+
+Stable fields (camelCase):
+
+| Field | Use |
+|-------|-----|
+| `errorCode` | Stable enum string (`sidecar_start_failed`, `cookie_import_invalid`, `session_cancelled`, `export_failed`, `navigate_rejected`, `probe_timeout`, `probe_busy`, `sidecar_channel_closed`, …) |
+| `phase` | Where it failed (`resolve`, `sidecar_create`, `import_browser_state`, `promote`, `export`, `navigate`, `probe`) |
+| `message` | Technical text truncated (~512 chars). Prod redactor does **not** wipe `message` / `errorCode` / `fault`. |
+| Context | Reuse SessionResolved facts when already known: `restored`, `stateLoaded`, `cookieCount`, `persistedSessionId`, `ops`, `sectionKey`, … |
+
+**Rule:** publishing a catalogued failure without `errorCode` + `phase` (where applicable) is a product bug — fix the emit site, do not soften asserts.
+
+Lifecycle payload minimums (opaque but decisive — no stacks):
+
+| Event | Payload |
+|-------|---------|
+| `SessionStarting` | `clientUrl`, viewport `width`/`height`, `clientTokenProvided` |
+| `SlotAcquired` / `SlotReleased` | `maxSessions`, `activeCount`, `startingCount` when cheap |
+| `SessionStarted` / `SessionPromoted` | `persistedSessionId`, `restored` |
+| `SessionStopping` / `SessionStopped` | `reason` (`disconnect` / `replace` / `drain` / `cancel`) when known |
+| `StateExportRequested` / `Completed` | `persistedSessionId`; Completed ideally cookie/LS/history counts |
+| `StateExportFailed` | `errorCode`, `phase:"export"`, `message` |
+| `NavigateRequested` / `Completed` | `targetUrl`; Requested may include `clientUrl` |
+| `SidecarFaulted` | `fault`, `errorCode` |
+| `Sidecar.DiagProbe*` | `ops`; TimedOut/Rejected also `errorCode` |
+
 ## Motor snapshot minimum
 
 Ids, FSM phase, timing, fps/frames, navigation result, sidecar connected/fault, export flag, config fingerprint, channel depths / inputQueueApprox.

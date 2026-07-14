@@ -216,7 +216,11 @@ public sealed class SidecarClient : ISidecarClient
                 {
                     var msg = doc.RootElement.TryGetProperty("message", out var m)
                         ? m.GetString() : "unknown error";
-                    throw new InvalidOperationException(
+                    var errorCode = doc.RootElement.TryGetProperty("errorCode", out var ec)
+                        ? ec.GetString() ?? "sidecar_session_create_failed"
+                        : "sidecar_session_create_failed";
+                    throw new SidecarProtocolException(
+                        errorCode,
                         $"Sidecar reported error for session {SessionId}: {msg}");
                 }
             }
@@ -341,7 +345,10 @@ public sealed class SidecarClient : ISidecarClient
                 var msg = doc.RootElement.TryGetProperty("message", out var m)
                     ? m.GetString() ?? "state export failed"
                     : "state export failed";
-                FailStateExport(new InvalidOperationException(msg));
+                var errorCode = doc.RootElement.TryGetProperty("errorCode", out var ec)
+                    ? ec.GetString() ?? "export_failed"
+                    : "export_failed";
+                FailStateExport(new SidecarProtocolException(errorCode, msg));
             }
         }
         catch (Exception ex)

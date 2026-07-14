@@ -49,24 +49,145 @@ export async function exportBrowserState(cdp: CDPSession, page: Page): Promise<B
     return { cookies, localStorage, idbRecords, history };
 }
 
+/** CDP Network.CookieParam — only fields Chromium accepts. */
+export type CdpCookieParam = {
+    name: string;
+    value: string;
+    domain?: string;
+    path?: string;
+    expires?: number;
+    httpOnly?: boolean;
+    secure?: boolean;
+    sameSite?: 'Strict' | 'Lax' | 'None';
+};
+
+const CDP_SAME_SITE_MAP: Record<string, 'Strict' | 'Lax' | 'None'> = {
+    strict: 'Strict',
+    lax:    'Lax',
+    none:   'None',
+};
+
+/** Heuristic: timestamps above this are likely milliseconds, not seconds. Year ~2255 in seconds. */
+const EPOCH_MS_THRESHOLD = 9_999_999_999;
+
+export interface CookieSanitizeResult {
+    cookie: CdpCookieParam | null;
+    skipped: boolean;
+    reason?: string;
+}
+
+/**
+ * Full CDP-safe sanitization for a persisted cookie:
+ * - Omit if name is empty/whitespace (CDP rejects nameless cookies)
+ * - Normalize sameSite case-insensitively; omit unrecognized values
+ * - Enforce secure=true when sameSite=None (Chrome requirement)
+ * - Omit expires <= 0 (treat as session cookie)
+ * - Detect millisecond timestamps and convert to seconds
+ * - Omit domain if empty (let CDP infer from URL)
+ */
+export function sanitizeCookieForCdp(c: BrowserCookieState): CdpCookieParam | null {
+    if (!c.name || !c.name.trim()) return null;
+
+    const cookie: CdpCookieParam = {
+        name:     c.name.trim(),
+        value:    c.value ?? '',
+        httpOnly: !!c.httpOnly,
+        secure:   !!c.secure,
+    };
+
+    if (typeof c.domain === 'string' && c.domain.trim()) {
+        cookie.domain = c.domain.trim();
+    }
+    if (typeof c.path === 'string' && c.path.trim()) {
+        cookie.path = c.path;
+    }
+
+    if (typeof c.expires === 'number' && c.expires > 0) {
+        cookie.expires = c.expires > EPOCH_MS_THRESHOLD
+            ? Math.round(c.expires / 1000)
+            : c.expires;
+    }
+
+    if (typeof c.sameSite === 'string' && c.sameSite.trim()) {
+        const normalized = CDP_SAME_SITE_MAP[c.sameSite.trim().toLowerCase()];
+        if (normalized) {
+            cookie.sameSite = normalized;
+            if (normalized === 'None') {
+                cookie.secure = true;
+            }
+        }
+    }
+
+    return cookie;
+}
+
+/** Sanitize a batch, returning valid cookies + stats. */
+export function sanitizeCookieBatch(cookies: BrowserCookieState[]): {
+    valid: CdpCookieParam[];
+    skippedCount: number;
+} {
+    const valid: CdpCookieParam[] = [];
+    let skippedCount = 0;
+    for (const c of cookies) {
+        const result = sanitizeCookieForCdp(c);
+        if (result) {
+            valid.push(result);
+        } else {
+            skippedCount++;
+        }
+    }
+    return { valid, skippedCount };
+}
+
+export interface ImportCookieStats {
+    total: number;
+    sanitized: number;
+    skipped: number;
+    applied: number;
+    failedIndividual: number;
+}
+
 export async function importBrowserState(
     cdp: CDPSession,
     page: Page,
     state: BrowserStatePayload,
-): Promise<void> {
+): Promise<ImportCookieStats> {
+    const stats: ImportCookieStats = {
+        total: state.cookies.length,
+        sanitized: 0,
+        skipped: 0,
+        applied: 0,
+        failedIndividual: 0,
+    };
+
     if (state.cookies.length > 0) {
-        await cdp.send('Network.setCookies', {
-            cookies: state.cookies.map(c => ({
-                name:     c.name,
-                value:    c.value,
-                domain:   c.domain,
-                path:     c.path,
-                expires:  c.expires,
-                httpOnly: c.httpOnly,
-                secure:   c.secure,
-                sameSite: c.sameSite as 'Strict' | 'Lax' | 'None' | undefined,
-            })),
-        });
+        const { valid, skippedCount } = sanitizeCookieBatch(state.cookies);
+        stats.sanitized = valid.length;
+        stats.skipped = skippedCount;
+
+        if (valid.length > 0) {
+            try {
+                await cdp.send('Network.setCookies', { cookies: valid });
+                stats.applied = valid.length;
+            } catch {
+                // Batch failed — retry individually for resilience.
+                for (const cookie of valid) {
+                    try {
+                        await cdp.send('Network.setCookies', { cookies: [cookie] });
+                        stats.applied++;
+                    } catch {
+                        stats.failedIndividual++;
+                    }
+                }
+            }
+        }
+
+        if (stats.applied === 0 && stats.total > 0 && stats.skipped < stats.total) {
+            throw new Error(
+                `cookie_import_invalid: 0/${stats.total} cookies applied ` +
+                `(${stats.skipped} skipped by sanitize, ${stats.failedIndividual} rejected by CDP)`,
+            );
+        }
     }
 
     // IndexedDB + LS need a live document origin — LS applied after first navigation.
@@ -81,6 +202,7 @@ export async function importBrowserState(
     void page;
     void state.history;
     void state.localStorage;
+    return stats;
 }
 
 function originHostsMatch(a: string, b: string): boolean {
@@ -120,6 +242,12 @@ export async function importLocalStorageAfterNavigation(
     }
 }
 
+/** Normalize sameSite on export so persisted data is always in canonical form. */
+function normalizeSameSiteForPersist(raw?: string): string | undefined {
+    if (!raw || !raw.trim()) return undefined;
+    return CDP_SAME_SITE_MAP[raw.trim().toLowerCase()];
+}
+
 async function exportCookies(cdp: CDPSession): Promise<BrowserCookieState[]> {
     const result = await cdp.send('Network.getAllCookies') as {
         cookies?: Array<{
@@ -134,16 +262,18 @@ async function exportCookies(cdp: CDPSession): Promise<BrowserCookieState[]> {
         }>;
     };
 
-    return (result.cookies ?? []).map(c => ({
-        name:     c.name,
-        value:    c.value,
-        domain:   c.domain,
-        path:     c.path,
-        expires:  c.expires,
-        httpOnly: !!c.httpOnly,
-        secure:   !!c.secure,
-        sameSite: c.sameSite,
-    }));
+    return (result.cookies ?? [])
+        .filter(c => c.name && c.name.trim())
+        .map(c => ({
+            name:     c.name,
+            value:    c.value,
+            domain:   c.domain,
+            path:     c.path,
+            expires:  (typeof c.expires === 'number' && c.expires > 0) ? c.expires : undefined,
+            httpOnly: !!c.httpOnly,
+            secure:   !!c.secure,
+            sameSite: normalizeSameSiteForPersist(c.sameSite),
+        }));
 }
 
 async function exportLocalStorage(page: Page): Promise<BrowserLocalStorageState[]> {

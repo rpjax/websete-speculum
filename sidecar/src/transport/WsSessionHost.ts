@@ -8,6 +8,23 @@ const DEFAULT_PROBE_RESPONSE_BYTES = 512 * 1024;
 
 const POINTER_TYPES = new Set(['mousemove', 'mousedown', 'mouseup', 'wheel']);
 
+/** Map CDP / create failures to stable wire errorCode values. */
+export function mapSidecarErrorCode(message: string): string {
+    const m = message.toLowerCase();
+    if (m.includes('network.setcookies') || m.includes('invalid parameters')) {
+        return 'cookie_import_invalid';
+    }
+    return 'sidecar_session_create_failed';
+}
+
+export function mapStateExportErrorCode(message: string): string {
+    const m = message.toLowerCase();
+    if (m.includes('closed') || m.includes('disposed')) {
+        return 'export_session_gone';
+    }
+    return 'export_failed';
+}
+
 /**
  * WebSocket session host — one WS connection maps to at most one browser session.
  */
@@ -46,9 +63,10 @@ export class WsSessionHost {
                 if (session) {
                     console.warn(`[${sessionId}] Duplicate create on existing session — rejecting`);
                     ws.send(JSON.stringify({
-                        type:    'error',
+                        type:      'error',
                         sessionId,
-                        message: 'A session already exists on this connection.',
+                        message:   'A session already exists on this connection.',
+                        errorCode: 'sidecar_session_create_failed',
                     }));
                     return;
                 }
@@ -69,13 +87,14 @@ export class WsSessionHost {
                     ws.send(JSON.stringify({ type: 'ready', sessionId }));
                 } catch (err) {
                     const message = (err as Error).message;
-                    console.error(`[${sessionId}] Failed to create session:`, message);
+                    const errorCode = mapSidecarErrorCode(message);
+                    console.error(`[${sessionId}] Failed to create session:`, message, `(${errorCode})`);
                     if (display) {
                         display.dispose().catch(dispErr =>
                             console.warn(`[${sessionId}] Display dispose after create failure:`, (dispErr as Error).message),
                         );
                     }
-                    ws.send(JSON.stringify({ type: 'error', sessionId, message }));
+                    ws.send(JSON.stringify({ type: 'error', sessionId, message, errorCode }));
                     ws.close();
                 }
                 return;
@@ -88,9 +107,10 @@ export class WsSessionHost {
                     ws.send(JSON.stringify({ type: 'stateExport', state }));
                 } catch (err) {
                     const message = (err as Error).message;
-                    console.warn(`[${session?.sessionId}] State export failed:`, message);
+                    const errorCode = mapStateExportErrorCode(message);
+                    console.warn(`[${session?.sessionId}] State export failed:`, message, `(${errorCode})`);
                     if (ws.readyState === ws.OPEN) {
-                        ws.send(JSON.stringify({ type: 'stateExportError', message }));
+                        ws.send(JSON.stringify({ type: 'stateExportError', message, errorCode }));
                     }
                 }
                 return;

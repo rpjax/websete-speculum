@@ -134,6 +134,21 @@ export type DiagResultMessage = {
     data?:      object;
 };
 
+/** Sidecar → API error on create handshake. */
+export type CreateErrorMessage = {
+    type:      'error';
+    sessionId: string;
+    message:   string;
+    errorCode: string;
+};
+
+/** Sidecar → API error on state export. */
+export type StateExportErrorMessage = {
+    type:      'stateExportError';
+    message:   string;
+    errorCode: string;
+};
+
 export type SidecarInboundMessage =
     | InputEvent
     | CreateMessage

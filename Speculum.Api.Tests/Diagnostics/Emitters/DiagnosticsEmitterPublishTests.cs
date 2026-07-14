@@ -1,6 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using System.Threading.Channels;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging.Abstractions;
 using Speculum.Api.BrowserPersistence;
 using Speculum.Api.Config.Runtime;
@@ -180,9 +181,127 @@ public sealed class DiagnosticsEmitterPublishTests
         Assert.Equal(2, ring.GetSince("c", null, "Motor.").Count);
     }
 
+    [Fact]
+    public async Task StartSession_failed_sidecar_publishes_SessionStartFailed_payload()
+    {
+        var bus = new CapturingBus();
+        var store = new ConfigurableSessionStore(
+            result: new SessionResolveResult("sess-fail", ValidToken, Restored: true),
+            state: new BrowserStatePayload
+            {
+                Cookies = [new BrowserCookieState { Name = "a", Value = "1", Domain = "example.com", Path = "/" }],
+            });
+        var coordinator = CreateCoordinator(
+            store, bus, new ThrowingSessionFactory(
+                new SidecarProtocolException("cookie_import_invalid", "Network.setCookies: Invalid parameters")));
+
+        var ex = await Assert.ThrowsAsync<HubException>(() => coordinator.StartSessionAsync(
+            "conn-fail", "speculum.com", CancellationToken.None,
+            "https://speculum.com/", 800, 600,
+            new SessionIdentity { ClientToken = ValidToken }));
+
+        Assert.Contains("Falha", ex.Message, StringComparison.OrdinalIgnoreCase);
+        var failed = Assert.Single(bus.Events, e => e.Name == "Motor.SessionStartFailed");
+        using var doc = JsonDocument.Parse(JsonSerializer.Serialize(failed.Payload));
+        var p = doc.RootElement;
+        Assert.Equal("cookie_import_invalid", p.GetProperty("errorCode").GetString());
+        Assert.Equal("import_browser_state", p.GetProperty("phase").GetString());
+        Assert.False(string.IsNullOrWhiteSpace(p.GetProperty("message").GetString()));
+        Assert.Equal("sess-fail", p.GetProperty("persistedSessionId").GetString());
+        Assert.True(p.GetProperty("restored").GetBoolean());
+        Assert.True(p.GetProperty("stateLoaded").GetBoolean());
+        Assert.Equal(1, p.GetProperty("cookieCount").GetInt32());
+    }
+
+    [Fact]
+    public async Task Disconnect_export_failure_publishes_StateExportFailed_payload()
+    {
+        var bus = new CapturingBus();
+        var registry = new StubRegistry();
+        var session = new ExportFailingSession
+        {
+            ConnectionId = "conn-x",
+            PersistedSessionId = "sess-x",
+            CorrelationId = "c-x",
+        };
+        registry.Register("conn-x", session);
+        var coordinator = new MotorSessionCoordinator(
+            registry,
+            new StubConfig(),
+            new ConfigurableSessionStore(
+                new SessionResolveResult("sess-x", ValidToken, false), null),
+            new MotorUrlAdapter(new NavigationStateCodec(new byte[32], encrypt: false)),
+            new StubFactory(),
+            bus,
+            NullLogger<MotorSessionCoordinator>.Instance);
+
+        await coordinator.HandleDisconnectedAsync("conn-x");
+
+        var failed = Assert.Single(bus.Events, e => e.Name == "Motor.StateExportFailed");
+        using var doc = JsonDocument.Parse(JsonSerializer.Serialize(failed.Payload));
+        var p = doc.RootElement;
+        Assert.Equal("export_failed", p.GetProperty("errorCode").GetString());
+        Assert.Equal("export", p.GetProperty("phase").GetString());
+        Assert.False(string.IsNullOrWhiteSpace(p.GetProperty("message").GetString()));
+        Assert.Equal("sess-x", p.GetProperty("persistedSessionId").GetString());
+    }
+
+    [Fact]
+    public void SidecarFaulted_payload_includes_errorCode_and_fault()
+    {
+        var bus = new CapturingBus();
+        var session = CreateMotorSession(bus, motorHost: "speculum.com");
+        session.ConnectionId = "conn-f";
+        session.CorrelationId = "cf";
+        session.PersistedSessionId = "ps-f";
+
+        typeof(MotorSession)
+            .GetMethod("PublishSidecarFault", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .Invoke(session, ["sidecar_channel_closed"]);
+
+        var faulted = Assert.Single(bus.Events, e => e.Name == "Motor.SidecarFaulted");
+        using var doc = JsonDocument.Parse(JsonSerializer.Serialize(faulted.Payload));
+        Assert.Equal("sidecar_channel_closed", doc.RootElement.GetProperty("fault").GetString());
+        Assert.Equal("sidecar_channel_closed", doc.RootElement.GetProperty("errorCode").GetString());
+    }
+
+    [Fact]
+    public async Task NavigateRejected_publishes_errorCode_and_urls()
+    {
+        var bus = new CapturingBus();
+        var registry = new StubRegistry();
+        registry.Register("conn-n", new NavigateRejectingSession
+        {
+            ConnectionId = "conn-n",
+            PersistedSessionId = "sess-n",
+        });
+        var coordinator = new MotorSessionCoordinator(
+            registry,
+            new StubConfig(),
+            new ConfigurableSessionStore(
+                new SessionResolveResult("sess-n", ValidToken, false), null),
+            new MotorUrlAdapter(new NavigationStateCodec(new byte[32], encrypt: false)),
+            new StubFactory(),
+            bus,
+            NullLogger<MotorSessionCoordinator>.Instance);
+
+        await Assert.ThrowsAsync<HubException>(() =>
+            coordinator.NavigateMotorSessionAsync("conn-n", "https://speculum.com/nav/a", "speculum.com"));
+
+        var rejected = Assert.Single(bus.Events, e => e.Name == "Motor.NavigateRejected");
+        using var doc = JsonDocument.Parse(JsonSerializer.Serialize(rejected.Payload));
+        var p = doc.RootElement;
+        Assert.Equal("navigate_rejected", p.GetProperty("errorCode").GetString());
+        Assert.Equal("navigate", p.GetProperty("phase").GetString());
+        Assert.False(string.IsNullOrWhiteSpace(p.GetProperty("message").GetString()));
+        Assert.False(string.IsNullOrWhiteSpace(p.GetProperty("clientUrl").GetString()));
+        Assert.False(string.IsNullOrWhiteSpace(p.GetProperty("targetUrl").GetString()));
+    }
+
     private static MotorSessionCoordinator CreateCoordinator(
         IBrowserSessionStore store,
-        IDiagnosticsEventBus bus)
+        IDiagnosticsEventBus bus,
+        IMotorSessionFactory? factory = null)
     {
         var urlAdapter = new MotorUrlAdapter(new NavigationStateCodec(new byte[32], encrypt: false));
         return new MotorSessionCoordinator(
@@ -190,7 +309,7 @@ public sealed class DiagnosticsEmitterPublishTests
             new StubConfig(),
             store,
             urlAdapter,
-            new StubFactory(),
+            factory ?? new StubFactory(),
             bus,
             NullLogger<MotorSessionCoordinator>.Instance);
     }
@@ -307,29 +426,31 @@ public sealed class DiagnosticsEmitterPublishTests
 
     private sealed class StubRegistry : IMotorSessionRegistry
     {
-        private IMotorSession? _session;
-        public int ActiveCount => _session is null ? 0 : 1;
-        public int StartingCount => 0;
-        public void Register(string connectionId, IMotorSession session) => _session = session;
-        public IMotorSession? Get(string connectionId) => _session;
+        private IMotorSession? _active;
+        private IMotorSession? _starting;
+        public int ActiveCount => _active is null ? 0 : 1;
+        public int StartingCount => _starting is null ? 0 : 1;
+        public void Register(string connectionId, IMotorSession session) => _active = session;
+        public IMotorSession? Get(string connectionId) => _active ?? _starting;
         public bool TryRemove(string connectionId, [NotNullWhen(true)] out IMotorSession? session)
         {
-            session = _session;
-            _session = null;
+            session = _active;
+            _active = null;
             return session is not null;
         }
         public bool TryAcquireSlot(int max) => true;
         public void ReleaseSlot() { }
-        public void TrackStarting(string connectionId, IMotorSession session) => _session = session;
+        public void TrackStarting(string connectionId, IMotorSession session) => _starting = session;
         public bool TryPromoteStarting(string connectionId, IMotorSession session)
         {
-            _session = session;
+            _starting = null;
+            _active = session;
             return true;
         }
         public bool TryCancelStarting(string connectionId, [NotNullWhen(true)] out IMotorSession? session)
         {
-            session = _session;
-            _session = null;
+            session = _starting;
+            _starting = null;
             return session is not null;
         }
         public IReadOnlyList<MotorSessionListItem> ListSessions() => [];
@@ -347,7 +468,7 @@ public sealed class DiagnosticsEmitterPublishTests
         {
             session = null; connectionId = null; return false;
         }
-        public Task StopAllAsync(IBrowserSessionStore store, CancellationToken ct = default) => Task.CompletedTask;
+        public Task StopAllAsync(IBrowserSessionStore store, CancellationToken ct = default, Speculum.Api.Diagnostics.Abstractions.IDiagnosticsEventBus? diagnostics = null, string? correlationId = null) => Task.CompletedTask;
     }
 
     private sealed class StubFactory : IMotorSessionFactory
@@ -355,7 +476,30 @@ public sealed class DiagnosticsEmitterPublishTests
         public IMotorSession Create(SessionConfigSnapshot snapshot) => new StubSession();
     }
 
-    private sealed class StubSession : IMotorSession
+    private sealed class ThrowingSessionFactory(Exception fail) : IMotorSessionFactory
+    {
+        public IMotorSession Create(SessionConfigSnapshot snapshot) => new ThrowingStartSession(fail);
+    }
+
+    private sealed class ThrowingStartSession(Exception fail) : StubSession
+    {
+        public override Task StartAsync(CancellationToken ct = default) => Task.FromException(fail);
+    }
+
+    private sealed class ExportFailingSession : StubSession
+    {
+        public override Task<BrowserStatePayload?> CaptureAndPersistAsync(
+            string sessionId, IBrowserSessionStore store, CancellationToken ct = default)
+            => Task.FromException<BrowserStatePayload?>(new InvalidOperationException("export boom"));
+    }
+
+    private sealed class NavigateRejectingSession : StubSession
+    {
+        public override Task NavigateAsync(string url, CancellationToken ct = default)
+            => throw new ArgumentException("domínio não permitido");
+    }
+
+    private class StubSession : IMotorSession
     {
         public string? PersistedSessionId { get; set; }
         public string SidecarSessionId { get; init; } = "sc";
@@ -368,10 +512,11 @@ public sealed class DiagnosticsEmitterPublishTests
             IReadOnlyList<string> ops, string? evaluateExpression, string? domSelector,
             int? maxProbeResponseBytes = null, CancellationToken ct = default)
             => Task.FromResult<object>(new { });
-        public Task StartAsync(CancellationToken ct = default) => Task.CompletedTask;
+        public virtual Task StartAsync(CancellationToken ct = default) => Task.CompletedTask;
         public Task StopAsync(CancellationToken ct = default) => Task.CompletedTask;
-        public Task CaptureAndPersistAsync(string sessionId, IBrowserSessionStore store, CancellationToken ct = default)
-            => Task.CompletedTask;
+        public virtual Task<BrowserStatePayload?> CaptureAndPersistAsync(
+            string sessionId, IBrowserSessionStore store, CancellationToken ct = default)
+            => Task.FromResult<BrowserStatePayload?>(null);
         public ChannelReader<Frame> GetFrameReader() => Channel.CreateUnbounded<Frame>().Reader;
         public ChannelReader<ConsoleOutput> GetConsoleOutputReader()
             => Channel.CreateUnbounded<ConsoleOutput>().Reader;
@@ -379,7 +524,7 @@ public sealed class DiagnosticsEmitterPublishTests
             => Channel.CreateUnbounded<SessionStatus>().Reader;
         public Task ConsumeUserInputAsync(ChannelReader<string> channelReader) => Task.CompletedTask;
         public Task ConsumeConsoleInputAsync(ChannelReader<ConsoleInput> channelReader) => Task.CompletedTask;
-        public Task NavigateAsync(string url, CancellationToken ct = default) => Task.CompletedTask;
+        public virtual Task NavigateAsync(string url, CancellationToken ct = default) => Task.CompletedTask;
         public Task ResizeAsync(int width, int height, CancellationToken ct = default) => Task.CompletedTask;
     }
 

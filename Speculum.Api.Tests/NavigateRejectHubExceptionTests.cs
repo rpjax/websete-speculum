@@ -63,8 +63,7 @@ public sealed class NavigateRejectHubExceptionTests
             => Task.FromResult<object>(new { });
         public Task StartAsync(CancellationToken ct = default) => Task.CompletedTask;
         public Task StopAsync(CancellationToken ct = default) => Task.CompletedTask;
-        public Task CaptureAndPersistAsync(string sessionId, IBrowserSessionStore store, CancellationToken ct = default)
-            => Task.CompletedTask;
+        public Task<BrowserStatePayload?> CaptureAndPersistAsync(string sessionId, IBrowserSessionStore store, CancellationToken ct = default) => Task.FromResult<BrowserStatePayload?>(null);
         public ChannelReader<Frame> GetFrameReader() => Channel.CreateUnbounded<Frame>().Reader;
         public ChannelReader<ConsoleOutput> GetConsoleOutputReader() => Channel.CreateUnbounded<ConsoleOutput>().Reader;
         public ChannelReader<SessionStatus> GetStatusReader() => Channel.CreateUnbounded<SessionStatus>().Reader;
@@ -104,7 +103,7 @@ public sealed class NavigateRejectHubExceptionTests
         { s = null; c = null; return false; }
         public bool TryFindBySidecarSessionId(string id, [NotNullWhen(true)] out IMotorSession? s, [NotNullWhen(true)] out string? c)
         { s = null; c = null; return false; }
-        public Task StopAllAsync(IBrowserSessionStore store, CancellationToken ct = default) => Task.CompletedTask;
+        public Task StopAllAsync(IBrowserSessionStore store, CancellationToken ct = default, Speculum.Api.Diagnostics.Abstractions.IDiagnosticsEventBus? diagnostics = null, string? correlationId = null) => Task.CompletedTask;
     }
 
     private sealed class OperationalConfigStore : ISpeculumConfigStore

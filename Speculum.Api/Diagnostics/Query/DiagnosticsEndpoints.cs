@@ -242,6 +242,15 @@ public static class DiagnosticsEndpoints
 
             if (!probeGate.TryEnter(connectionId, out var lease) || lease is null)
             {
+                bus.Publish(new DiagnosticsEvent
+                {
+                    Domain = DiagnosticsDomain.SidecarBrowser,
+                    Name = "Sidecar.DiagProbeRejected",
+                    Severity = DiagnosticsSeverity.Warning,
+                    CorrelationId = Guid.NewGuid().ToString("N"),
+                    ConnectionId = connectionId,
+                    Payload = new { errorCode = "probe_busy" },
+                });
                 return Results.Json(new { errorCode = "probe_busy" },
                     statusCode: StatusCodes.Status429TooManyRequests);
             }
@@ -324,6 +333,8 @@ public static class DiagnosticsEndpoints
                             Severity = DiagnosticsSeverity.Warning,
                             CorrelationId = correlationId,
                             ConnectionId = connectionId,
+                            Payload = MotorDiagnosticsPayloads.Probe(
+                                ops, result.ErrorCode ?? "probe_failed"),
                         });
                         return Results.Json(new { errorCode = result.ErrorCode }, statusCode: status);
                     }
@@ -335,6 +346,7 @@ public static class DiagnosticsEndpoints
                         CorrelationId = correlationId,
                         ConnectionId = connectionId,
                         PersistedSessionId = session.PersistedSessionId,
+                        Payload = MotorDiagnosticsPayloads.Probe(ops),
                     });
 
                     return Results.Ok(new
@@ -354,6 +366,7 @@ public static class DiagnosticsEndpoints
                         Severity = DiagnosticsSeverity.Warning,
                         CorrelationId = correlationId,
                         ConnectionId = connectionId,
+                        Payload = MotorDiagnosticsPayloads.Probe(ops, "probe_timeout"),
                     });
                     return Results.Json(new { errorCode = "probe_timeout" }, statusCode: StatusCodes.Status504GatewayTimeout);
                 }
@@ -388,6 +401,38 @@ public static class DiagnosticsEndpoints
                 detail = redactor.RedactPersistedDetail(detail),
                 redaction = redactor.Mode,
             });
+        });
+
+        g.MapPut("/persisted/{sessionId}/state", async (
+            string sessionId,
+            HttpContext http,
+            IBrowserSessionStore sessions,
+            IDiagnosticsRuntime runtime) =>
+        {
+            if (!runtime.IsEnabled(DiagnosticsDomain.PersistedSessions, DiagnosticsLevel.StateSnapshots))
+                return Results.Json(new { errorCode = "probe_level_insufficient" }, statusCode: StatusCodes.Status403Forbidden);
+
+            BrowserStatePayload? state;
+            try
+            {
+                state = await JsonSerializer.DeserializeAsync<BrowserStatePayload>(
+                    http.Request.Body,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            }
+            catch (JsonException)
+            {
+                return Results.Json(new { errorCode = "invalid_state" }, statusCode: StatusCodes.Status400BadRequest);
+            }
+
+            if (state is null)
+                return Results.Json(new { errorCode = "invalid_state" }, statusCode: StatusCodes.Status400BadRequest);
+
+            var detail = await sessions.GetSessionDetailAsync(sessionId);
+            if (detail is null)
+                return Results.NotFound(new { errorCode = "session_gone" });
+
+            await sessions.SaveStateAsync(sessionId, state);
+            return Results.Ok(new { ok = true, sessionId });
         });
     }
 

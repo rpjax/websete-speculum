@@ -16,6 +16,7 @@ You are working in the **Speculum** remote browser isolation repository.
 
 - **Effect asserts**, not smoke (`200` / `ok: true` alone).
 - Missing JSON properties **fail** — never skip-if-absent.
+- Never publish a catalogued Motor/Sidecar DiagProbe **failure** without `errorCode` + `phase` (see [docs/diagnostics.md](docs/diagnostics.md)).
 - **Functional ≠ Perf** — capacity/SLO belongs in `perf.yml`, not as a substitute for correctness.
 - **V1 development** — no backward-compat shims or config aliases unless explicitly requested post-launch.
 - Minimal, convention-matched diffs; no drive-by renames.

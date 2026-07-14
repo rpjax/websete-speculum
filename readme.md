@@ -199,6 +199,8 @@ cd web && npm ci && npm test && npm run lint && npm run build
 
 CI also runs the required **`motor-assertive`** job (fixture + sidecar Chromium) on GitHub Actions only — see [docs/diagnostics.md](docs/diagnostics.md) and [CONTRIBUTING.md](CONTRIBUTING.md). Do not treat that stack as day-to-day local QA.
 
+Intentional failing traps (MsgPack camelCase / hardened asserts) until the hotfix plan: [docs/known-red-ci.md](docs/known-red-ci.md).
+
 ### Component READMEs
 
 - [Speculum.Api/README.md](Speculum.Api/README.md)

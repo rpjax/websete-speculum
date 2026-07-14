@@ -9,6 +9,8 @@ public sealed class DiagnosticsCatalogTests
     {
         Assert.NotEmpty(DiagnosticsEventCatalog.All);
         Assert.Contains("Motor.SessionStarted", DiagnosticsEventCatalog.All);
+        Assert.Contains("Motor.SessionResolved", DiagnosticsEventCatalog.All);
+        Assert.Contains("Motor.UrlMapped", DiagnosticsEventCatalog.All);
         Assert.Contains("Diagnostics.Degraded", DiagnosticsEventCatalog.All);
     }
 }

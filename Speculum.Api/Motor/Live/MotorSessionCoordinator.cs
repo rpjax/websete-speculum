@@ -56,6 +56,7 @@ public sealed class MotorSessionCoordinator
         }
 
         SessionIdentity resolvedIdentity;
+        var clientTokenProvided = !string.IsNullOrWhiteSpace(identity?.ClientToken);
         try
         {
             resolvedIdentity = ResolveIdentity(identity);
@@ -118,8 +119,10 @@ public sealed class MotorSessionCoordinator
         var promoted           = false;
         try
         {
-            var (browserSessionId, clientToken) = await _sessionStore.ResolveOrCreateSessionAsync(
+            var resolve = await _sessionStore.ResolveOrCreateSessionAsync(
                 resolvedIdentity, connectionAborted);
+            var browserSessionId = resolve.SessionId;
+            var clientToken = resolve.ClientToken;
 
             var browserState = await _sessionStore.LoadStateAsync(browserSessionId, connectionAborted);
 
@@ -132,6 +135,19 @@ public sealed class MotorSessionCoordinator
                 clientUrl,
                 profile,
                 motorHost);
+
+            Publish(connectionId, "Motor.SessionResolved", correlationId, payload: new
+            {
+                clientTokenProvided,
+                clientTokenEffective = clientToken,
+                persistedSessionId = browserSessionId,
+                restored = resolve.Restored,
+                stateLoaded = browserState is not null,
+                cookieCount = browserState?.Cookies.Count ?? 0,
+                localStorageCount = browserState?.LocalStorage.Count ?? 0,
+                historyCount = browserState?.History.Count ?? 0,
+                initialUrl,
+            }, persistedSessionId: browserSessionId);
 
             _logger.LogInformation(
                 "Conexão {ConnectionId}: iniciando sessão em {InitialUrl} (sessionId={SessionPrefix}…)",
@@ -328,7 +344,8 @@ public sealed class MotorSessionCoordinator
         string correlationId,
         IMotorSession? session = null,
         DiagnosticsSeverity severity = DiagnosticsSeverity.Information,
-        object? payload = null)
+        object? payload = null,
+        string? persistedSessionId = null)
     {
         _diagnostics.Publish(new DiagnosticsEvent
         {
@@ -337,7 +354,7 @@ public sealed class MotorSessionCoordinator
             Severity = severity,
             CorrelationId = correlationId,
             ConnectionId = connectionId,
-            PersistedSessionId = session?.PersistedSessionId,
+            PersistedSessionId = persistedSessionId ?? session?.PersistedSessionId,
             SidecarSessionId = session?.SidecarSessionId,
             Payload = payload,
         });

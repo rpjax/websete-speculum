@@ -156,9 +156,9 @@ public sealed class ConfigPipelineTests
         public Task InitializeAsync(CancellationToken ct = default) => Task.CompletedTask;
         public Task<string> ResolveOrCreateSessionAsync(string clientToken, CancellationToken ct = default)
             => Task.FromResult("id");
-        public Task<(string SessionId, string ClientToken)> ResolveOrCreateSessionAsync(
+        public Task<SessionResolveResult> ResolveOrCreateSessionAsync(
             SessionIdentity identity, CancellationToken ct = default)
-            => Task.FromResult(("id", "token"));
+            => Task.FromResult(new SessionResolveResult("id", "token", Restored: false));
         public Task<BrowserStatePayload?> LoadStateAsync(string sessionId, CancellationToken ct = default)
             => Task.FromResult<BrowserStatePayload?>(null);
         public Task SaveStateAsync(string sessionId, BrowserStatePayload state, CancellationToken ct = default)

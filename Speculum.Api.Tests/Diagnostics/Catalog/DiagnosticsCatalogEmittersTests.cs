@@ -21,7 +21,8 @@ public sealed class DiagnosticsCatalogEmittersTests
 
         string[] required =
         [
-            "Motor.SessionStarted", "Motor.SessionStopped", "Motor.NavigateRejected",
+            "Motor.SessionStarted", "Motor.SessionResolved", "Motor.UrlMapped",
+            "Motor.SessionStopped", "Motor.NavigateRejected",
             "Motor.DrainStarted", "Motor.DrainCompleted", "Motor.ResizeRequested",
             "Motor.SidecarFaulted", "Diagnostics.StorageOverflow",
             "Diagnostics.ElevateStarted", "Diagnostics.ElevateExpired",

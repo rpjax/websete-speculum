@@ -43,10 +43,20 @@ Each recipe: Act → poll events with `?since=` / `namePrefix=` → assert snaps
 ### 1. Session lifecycle
 
 1. Act: SignalR `StartSessionAsync` with `identity.correlationId` (client Act id) — same id is stored on the session and emitted on `Motor.SessionStarted`.
-2. Assert: `GET /sessions/{connectionId}/events?namePrefix=Motor.Session` contains `Motor.SessionStarted` with that `correlationId`.
-3. Assert: `GET /sessions/{connectionId}` → `{ snapshot.phase: "Running", ... }`.
-4. Act: disconnect / stop (Stop Act generates a **new** `correlationId` on `Motor.SessionStopping` / `Motor.SessionStopped`).
-5. Assert: `Motor.SessionStopped` with the Stop Act `correlationId`; `GET /sessions/{connectionId}` → `404` `{ "errorCode": "session_gone" }`; `POST .../browser` → `session_gone`.
+2. Assert: `GET /events?namePrefix=Motor.Session` (or session events) contains **`Motor.SessionResolved`** then `Motor.SessionStarted` with that `correlationId`.
+3. Assert SessionResolved payload: `clientTokenProvided`, `clientTokenEffective`, `persistedSessionId`, `restored`, `stateLoaded`, `cookieCount`, `localStorageCount`, `historyCount`, `initialUrl` (all present).
+4. Assert: `GET /sessions/{connectionId}` → `{ snapshot.phase: "Running", ... }`.
+5. Act: disconnect / stop (Stop Act generates a **new** `correlationId` on `Motor.SessionStopping` / `Motor.SessionStopped`).
+6. Assert: `Motor.SessionStopped` with the Stop Act `correlationId`; `GET /sessions/{connectionId}` → `404` `{ "errorCode": "session_gone" }`; `POST .../browser` → `session_gone`.
+
+### 1b. Session identity resolve (completeness)
+
+| Case | Assert on `Motor.SessionResolved` |
+|------|-----------------------------------|
+| New session (no token) | `clientTokenProvided: false`, `restored: false` |
+| Restore (same token after export) | `clientTokenProvided: true`, `restored: true`, `stateLoaded: true`, counts reflect prior export |
+
+Motor completeness for debug: **identity resolve + URL map + export + probes** (not infinite telemetry).
 
 ### 2. Resource release
 
@@ -60,6 +70,14 @@ Each recipe: Act → poll events with `?since=` / `namePrefix=` → assert snaps
 2. Assert: `Motor.NavigateRejected`; snapshot `lastNavigateResult: rejected`; `currentUrl` unchanged from prior.
 
 > `Motor.NavigateCompleted` means the navigate **command** was accepted by the motor/sidecar path (allowlist + wire send), not that the remote document finished loading.
+
+### 3b. URL map (apex + NSO / mirroring)
+
+1. Act: in-page or hub navigate so the Chromium main-frame URL changes.
+2. Assert: `Motor.UrlMapped` with `{ targetUrl, clientUrl }` — emitted **once per distinct `clientUrl`** (not 1 Hz).
+3. Apex mode: `clientUrl` contains motor host path + `_w7s_nso` query param (not raw target host alone as the client-facing contract).
+
+`Motor.StatusMirrored` remains ring-only metrics (fps/dims) and is **not** the Act→Assert source for URL sync.
 
 ### 4. Persistence
 
@@ -97,6 +115,15 @@ Functional overflow: catalog id + runtime `overflowCount`/`bytesUsed`/`maxBytes`
 ## Stable event catalog
 
 See `GET /catalog/events` and `DiagnosticsEventCatalog` (Motor.*, Sidecar.Diag*, Diagnostics.*).
+
+Notable MotorLive additions for completeness:
+
+- **`Motor.SessionResolved`** — identity/persist fact before sidecar start (payload above).
+- **`Motor.UrlMapped`** — target→client URL map on change (apex NSO / mirroring).
+
+## Known red (intentional until hotfix plan)
+
+MsgPack camelCase identity + web `SessionStatus` casing traps, and hardened MotorAssert asserts, may fail CI until the follow-up **hotfix** plan. Do not skip or weaken those tests.
 
 ## Motor snapshot minimum
 

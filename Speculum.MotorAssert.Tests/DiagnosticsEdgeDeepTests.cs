@@ -201,18 +201,13 @@ public sealed class DiagnosticsEdgeDeepTests(MotorAssertFixture fx)
     [MotorAssertFact]
     public async Task M1_assertive_seed_config_applied_events()
     {
-        var since = DateTimeOffset.UtcNow.AddSeconds(-30);
+        var since = DateTimeOffset.UtcNow.AddSeconds(-2);
         var put = await fx.RestoreAssertiveDiagnosticsAsync();
         put.EnsureSuccessStatusCode();
 
         await fx.Diagnostics.WaitForEventsAsync(
-            null, "Diagnostics.", since,
-            ev => ev.Any(e =>
-                e.GetProperty("name").GetString() is { } n
-                && (n.Contains("Config", StringComparison.OrdinalIgnoreCase)
-                    || n.Contains("Applied", StringComparison.OrdinalIgnoreCase)
-                    || n.Contains("Elevate", StringComparison.OrdinalIgnoreCase)
-                    || n.StartsWith("Diagnostics.", StringComparison.Ordinal))),
+            null, "Diagnostics.ConfigApplied", since,
+            ev => DiagnosticsAssertClient.HasEvent(ev, "Diagnostics.ConfigApplied"),
             timeout: TimeSpan.FromSeconds(30));
 
         var runtime = await fx.Diagnostics.GetRuntimeAsync();

@@ -65,32 +65,27 @@ public sealed class JsBridgeHostingMiscTests(MotorAssertFixture fx)
                 },
             },
         });
+        put.EnsureSuccessStatusCode();
 
-        if (!put.IsSuccessStatusCode)
-        {
-            Assert.Equal(HttpStatusCode.BadRequest, put.StatusCode);
-        }
-        else
+        try
         {
             var status = await fx.Host.Http.GetAsync("api/admin/config/status");
             status.EnsureSuccessStatusCode();
             using var doc = JsonDocument.Parse(await status.Content.ReadAsStringAsync());
-            Assert.True(doc.RootElement.TryGetProperty("hosting", out var hosting)
-                        || doc.RootElement.TryGetProperty("Hosting", out hosting)
-                        || doc.RootElement.TryGetProperty("profiles", out hosting)
-                        || doc.RootElement.TryGetProperty("isOperational", out _),
-                $"status JSON must expose hosting/operational shape: {doc.RootElement}");
-            var text = doc.RootElement.ToString();
-            Assert.True(
-                text.Contains("mirroring", StringComparison.OrdinalIgnoreCase)
-                || text.Contains("MirroringOperational", StringComparison.OrdinalIgnoreCase)
-                || text.Contains("edgeTls", StringComparison.OrdinalIgnoreCase)
-                || !put.IsSuccessStatusCode,
-                "expected mirroring / TLS signal when mirroring enabled without TLS");
+            Assert.True(doc.RootElement.TryGetProperty("hosting", out var hosting), doc.RootElement.ToString());
+            Assert.True(hosting.TryGetProperty("profiles", out var profiles), hosting.ToString());
+            Assert.True(profiles.GetArrayLength() >= 1, profiles.ToString());
+            var profile = profiles[0];
+            Assert.True(profile.GetProperty("subdomainMirroringEnabled").GetBoolean());
+            Assert.False(profile.GetProperty("mirroringOperational").GetBoolean());
+            Assert.True(profile.TryGetProperty("missing", out var missing), profile.ToString());
+            Assert.True(missing.GetArrayLength() >= 1, $"expected missing[] when mirroring ON without TLS: {profile}");
         }
-
-        var restore = await fx.RestoreHostingApexAsync();
-        restore.EnsureSuccessStatusCode();
+        finally
+        {
+            var restore = await fx.RestoreHostingApexAsync();
+            restore.EnsureSuccessStatusCode();
+        }
     }
 
     [MotorAssertFact]

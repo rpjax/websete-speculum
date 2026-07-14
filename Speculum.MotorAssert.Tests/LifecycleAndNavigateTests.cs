@@ -281,6 +281,11 @@ public sealed class LifecycleAndNavigateTests(MotorAssertFixture fx)
         await fx.Diagnostics.WaitForEventsAsync(
             act.ConnectionId, "Motor.Session", since,
             ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
+        var status = await act.WaitForStatusAsync(
+            s => s.Width == 1280 && s.Height == 720,
+            TimeSpan.FromSeconds(30));
+        Assert.Equal(1280, status.Width);
+        Assert.Equal(720, status.Height);
         var session = await fx.Diagnostics.TryGetSessionAsync(act.ConnectionId!);
         Assert.Equal("Running", session!.Value.GetProperty("snapshot").GetProperty("phase").GetString());
     }

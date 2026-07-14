@@ -176,6 +176,8 @@ public sealed class InputResizeProbeGovernanceTests(MotorAssertFixture fx)
         using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
         var events = doc.RootElement.GetProperty("events").EnumerateArray().Select(e => e.GetString()).ToHashSet();
         Assert.Contains("Motor.SessionStarted", events);
+        Assert.Contains("Motor.SessionResolved", events);
+        Assert.Contains("Motor.UrlMapped", events);
         Assert.Contains("Diagnostics.StorageOverflow", events);
     }
 
@@ -216,10 +218,9 @@ public sealed class InputResizeProbeGovernanceTests(MotorAssertFixture fx)
             {
                 res.EnsureSuccessStatusCode();
                 using var ok = JsonDocument.Parse(text);
-                Assert.True(ok.RootElement.TryGetProperty("ok", out var okEl));
-                // Soft-cap path trims; payload must stay under the configured budget roughly.
+                Assert.True(ok.RootElement.TryGetProperty("ok", out var okEl), text);
+                Assert.False(okEl.GetBoolean(), $"soft-cap must set ok:false, got: {text}");
                 Assert.True(text.Length <= 8192, $"soft-cap payload still huge: {text.Length}");
-                _ = okEl;
             }
         }
         finally

@@ -75,31 +75,10 @@ public sealed class MotorActClient : IAsyncDisposable
             ClientToken = clientToken,
             Indexers = indexerCopy,
         };
-        var token = await InvokeStartWithRetryAsync(clientUrl, width, height, identity, ct);
+        var token = await _connection!.InvokeAsync<string>(
+            "StartSessionAsync", clientUrl, width, height, identity, ct);
         StartSessionPumps();
         return token;
-    }
-
-    private async Task<string> InvokeStartWithRetryAsync(
-        string clientUrl,
-        int width,
-        int height,
-        MotorSessionIdentity identity,
-        CancellationToken ct)
-    {
-        try
-        {
-            return await _connection!.InvokeAsync<string>(
-                "StartSessionAsync", clientUrl, width, height, identity, ct);
-        }
-        catch (Exception ex) when (
-            ex.Message.Contains("Falha ao iniciar", StringComparison.OrdinalIgnoreCase))
-        {
-            // One retry after sidecar create flakes (display reuse / prior probe hang).
-            await Task.Delay(1500, ct);
-            return await _connection!.InvokeAsync<string>(
-                "StartSessionAsync", clientUrl, width, height, identity, ct);
-        }
     }
 
     private void StartSessionPumps()

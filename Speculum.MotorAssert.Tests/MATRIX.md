@@ -12,7 +12,7 @@ Source of truth for Act→Assert coverage. **Depth:** `deep` = effect assert in 
 | A6 | deep | disconnect → StateExportCompleted + persisted | `A6_disconnect_exports_and_persists` |
 | A7 | deep | resource probe + gone | `A7_resource_probe_while_running_then_gone` |
 | A8 | deep | sidecar stop → fault / session cleanup | `A8_sidecar_stop_faults_and_cleans_session` |
-| A9 | deep | viewport defaults | `A9_viewport_defaults_when_zero` |
+| A9 | deep | viewport defaults **1280×720** when 0×0 | `A9_viewport_defaults_when_zero` |
 | A10 | deep | clientToken hex round-trip + reject | `A10_*` / `A10b_*` |
 | B1–B3 | deep | navigate allowlist / reject / scheme | `B1_*` `B2_*` `B3_*` |
 | B4 | deep | goEvil → redirect wire + alive + tabs | `B4_*` / `B4b_*` |
@@ -23,18 +23,21 @@ Source of truth for Act→Assert coverage. **Depth:** `deep` = effect assert in 
 | B9 | deep | path/query preserve | `B9_*` |
 | B10 | deep | redirect chain + history goback/forward | `B10_*` / `B10b_*` |
 | B11 | deep | SPA path | `B11_*` |
+| B12 | deep | status + `Motor.UrlMapped` client URL path+NSO | `B12_*` (`BugTraps/ClientUrlSyncTrapTests`) |
 | C1–C5 | deep | mouse / key / wheel / guard / bad JSON | `InputFramesPopupTests` |
 | D1 | deep | resize dims on status | `D1_*` |
 | D2 | deep | resize &lt;100 noop | `D2_resize_below_100_is_noop` |
 | D3–D4 | deep | frames + status/tabCount | `D3_*` `D4_*` |
+| D-Start / D-Create / D-Restore / D-UrlMap | deep | SessionResolved + UrlMapped recipes | `DiagnosticsEmitterRecipesTests` |
 | E1–E2 | deep | persist export/restore cookie+LS | `E1_E2_*` |
-| E3 | deep | history rows in persisted detail | `E3_persisted_detail_includes_history` |
+| E3 | deep | history ≥2 `/nav/a`+`/nav/b` | `E3_persisted_detail_includes_history` |
 | E4 | deep | persisted list/get | `E4_*` |
 | E5 | deep | identity indexers resolve same session | `E5_indexers_resolve_same_persisted_session` |
 | E6 | deep | export fail path event | `E6_state_export_failed_on_sidecar_kill` |
-| E7 | deep | drain keeps prior persisted state | `E7_drain_preserves_persisted_state` |
+| E7 | deep | drain keeps cookie+LS in persisted | `E7_drain_preserves_persisted_state` |
+| E8 | deep | rebind same token → one persisted row | `E8_*` (`BugTraps/SessionRebindTrapTests`) |
 | F1 | deep | SessionPolicy PUT | `F1_*` |
-| F2–F3 | deep | TTL + delete policy → default | `F2_*` `F3_*` |
+| F2–F3 | deep | TTL; DELETE → 404 not configured | `F2_*` `F3_*` |
 | G2–G4 | deep | drain Forwarding/Hosting; MaxSessions no-drain | `G2_*` `G3_*` `G4_*` |
 | H1–H2 | deep | script upload + inject marker | `H1_*` `H2_*` |
 | H3–H4 | deep | HeaderTop/BodyBottom Classic vs Module | `H3_*` `H4_*` |
@@ -72,6 +75,21 @@ Source of truth for Act→Assert coverage. **Depth:** `deep` = effect assert in 
 | Input / frames | `InputFramesPopupTests`, `InputResizeProbeGovernanceTests` |
 | Persistence / scripts | `PersistenceDrainInjectionTests`, `PersistenceDeepTests`, `ScriptsDeepTests` |
 | Hosting / edge | `JsBridgeHostingMiscTests`, `DiagnosticsEdgeDeepTests` |
-| Diagnostics governance | `InputResizeProbeGovernanceTests`, `DiagnosticsEdgeDeepTests` |
+| Diagnostics governance | `InputResizeProbeGovernanceTests`, `DiagnosticsEdgeDeepTests`, `DiagnosticsGovernance/*` |
+| Bug traps (known-red) | `BugTraps/*` (MsgPack web contract also in Api.Tests + Vitest) |
+
+## Known red (intentional until hotfix plan)
+
+CI **required** may fail intentionally. Do **not** skip or weaken:
+
+| Trap / harden | Layer | Symptom until hotfix |
+|---------------|-------|----------------------|
+| MsgPack `clientToken` camelCase | `Api.Tests/Diagnostics/Contracts` | Identity bind drop → new session every tab |
+| MsgPack `SessionStatus.url` camelCase | same + Vitest `sessionStatusPayload.test` | Client URL never syncs |
+| E3 history ≥2 | MotorAssert | CDP history / seed weakness |
+| L11 soft-cap `ok:false` | MotorAssert | Soft-cap may still return ok:true |
+| Others (A9/E7/F3/J7/M1) | MotorAssert | Product gaps revealed by strict asserts |
+
+Follow-up plan: **hotfixes only** (MsgPack naming, URL sync, revealed assert failures). Do not greenwash traps.
 
 P (unit/contract pyramid) stays in `Speculum.Api.Tests` + sidecar `npm test` + web Vitest under the fast gate. Stress/SLO → `Speculum.MotorPerf.Tests` + `.github/workflows/perf.yml` (not required).

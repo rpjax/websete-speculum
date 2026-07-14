@@ -38,8 +38,10 @@ public sealed class PersistenceDeepTests(MotorAssertFixture fx)
         Assert.True(doc.RootElement.TryGetProperty("detail", out var detail), doc.RootElement.ToString());
         Assert.True(detail.TryGetProperty("history", out var history) || detail.TryGetProperty("History", out history),
             detail.ToString());
-        Assert.True(history.GetArrayLength() >= 1, $"expected history rows, got {history}");
-        Assert.Contains("/nav/", history.ToString(), StringComparison.Ordinal);
+        Assert.True(history.GetArrayLength() >= 2, $"expected >=2 history rows after nav a→b, got {history}");
+        var histText = history.ToString();
+        Assert.Contains("/nav/a", histText, StringComparison.Ordinal);
+        Assert.Contains("/nav/b", histText, StringComparison.Ordinal);
     }
 
     [MotorAssertFact]
@@ -178,6 +180,15 @@ public sealed class PersistenceDeepTests(MotorAssertFixture fx)
 
         var detail = await fx.Host.Http.GetAsync($"api/admin/diagnostics/v1/persisted/{sessionId}");
         detail.EnsureSuccessStatusCode();
+        using var detailDoc = JsonDocument.Parse(await detail.Content.ReadAsStringAsync());
+        Assert.True(detailDoc.RootElement.TryGetProperty("detail", out var detailEl), detailDoc.RootElement.ToString());
+        Assert.True(detailEl.TryGetProperty("cookies", out var cookies) || detailEl.TryGetProperty("Cookies", out cookies),
+            detailEl.ToString());
+        Assert.Contains("sf_marker", cookies.ToString(), StringComparison.Ordinal);
+        Assert.True(
+            detailEl.TryGetProperty("localStorage", out var ls) || detailEl.TryGetProperty("LocalStorage", out ls),
+            detailEl.ToString());
+        Assert.Contains("sf_ls", ls.ToString(), StringComparison.Ordinal);
     }
 
     [MotorAssertFact]
@@ -199,15 +210,13 @@ public sealed class PersistenceDeepTests(MotorAssertFixture fx)
     }
 
     [MotorAssertFact]
-    public async Task F3_delete_session_policy_restores_default_or_accepts()
+    public async Task F3_delete_session_policy_clears_section()
     {
         await fx.Host.PutConfigAsync("SessionPolicy", new { ttlDays = 9 });
         var del = await fx.Host.DeleteConfigAsync("SessionPolicy");
-        Assert.True(del.IsSuccessStatusCode || del.StatusCode is HttpStatusCode.BadRequest
-                    || del.StatusCode is HttpStatusCode.NoContent);
+        Assert.True(del.IsSuccessStatusCode, $"DELETE SessionPolicy failed: {(int)del.StatusCode}");
         var get = await fx.Host.Http.GetAsync("api/admin/config/SessionPolicy");
-        // After delete, section may be missing (404) or default payload.
-        Assert.True(get.IsSuccessStatusCode || get.StatusCode == HttpStatusCode.NotFound);
+        Assert.Equal(HttpStatusCode.NotFound, get.StatusCode);
         await fx.Host.PutConfigAsync("SessionPolicy", new { ttlDays = 30 });
     }
 
@@ -220,10 +229,11 @@ public sealed class PersistenceDeepTests(MotorAssertFixture fx)
         {
             if (item.TryGetProperty("clientToken", out var ct)
                 && string.Equals(ct.GetString(), token, StringComparison.Ordinal)
-                && item.TryGetProperty("sessionId", out var sid))
-                return sid.GetString()!;
-            if (item.TryGetProperty("id", out var id) && id.GetString() is { } fallback)
-                return fallback;
+                && item.TryGetProperty("sessionId", out var sid)
+                && sid.GetString() is { } sessionId)
+            {
+                return sessionId;
+            }
         }
 
         throw new InvalidOperationException($"No persisted session for token {token}");

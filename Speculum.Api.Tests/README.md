@@ -16,23 +16,17 @@ dotnet test Speculum.sln -c Release
 
 ## Structure
 
-| Test file | Focus |
-|-----------|-------|
-| `SmokeTests.cs` | Health, readiness, CORS, public client-config (`SpeculumIntegrationTestCollection`, shared `WebApplicationFactory`) |
-| `ConfigStoreTests.cs` | Validators, HostMapper modes, EdgeWriter boot wrapper, hosting evaluator |
-| `ConfigSectionRepositoryTests.cs` | Atomic config section upsert |
-| `ConfigServicePipelineTests.cs` | ConfigService PUT pipeline (drain/sync ordering) |
-| `ConfigPipelineTests.cs` | PreReload drain / PostReload edge sync handlers |
-| `MotorSessionCoordinatorTests.cs` | Session start, slot limits, navigation |
-| `MotorUrlAdapterTests.cs` | URL mapping, mirroring modes, navigation state |
-| `DynamicCorsPolicyProviderTests.cs` | CORS apex vs subdomain mirroring modes |
-| `ConfigStoreSeedTests.cs` | Admin bootstrap seeding |
-| `SsrfGuardTests.cs` | Private IP blocking for script URLs |
-| `SidecarInputGuardTests.cs` | Sidecar input validation |
-| `SidecarWireProtocolTests.cs` | Binary frame encode/decode layout |
-| `MotorPlanTests.cs` | BrowserSessionStore, ClientTokenNormalizer, HostMapper |
-| `ViewportDimensionsTests.cs` | Viewport parsing |
+| Area | Focus |
+|------|-------|
+| `Diagnostics/Catalog/` | Event catalog stability (`SessionResolved`, `UrlMapped`, …) |
+| `Diagnostics/Runtime/` | Levels, elevate floors, Off cost |
+| `Diagnostics/Pipeline/` | Sink overflow / budgets |
+| `Diagnostics/Redaction/` | Dev vs Prod redaction |
+| `Diagnostics/Endpoints/` | REST v1 diagnostics API |
+| `Diagnostics/Emitters/` | Payload shape contracts for new events |
+| `Diagnostics/Contracts/` | **MsgPack hub traps** (known-red until hotfix) — see [docs/known-red-ci.md](../docs/known-red-ci.md) |
+| Root `*Tests.cs` | Config, motor coordinator, URL adapter, smoke, wire protocol |
 
 Integration host entry point: `Speculum.Api/Program.Integration.cs` (partial `Program` for test visibility).
 
-See [../Speculum.Api/README.md](../Speculum.Api/README.md) and [../CONTRIBUTING.md](../CONTRIBUTING.md).
+See [../Speculum.Api/README.md](../Speculum.Api/README.md), [../docs/diagnostics.md](../docs/diagnostics.md), and [../CONTRIBUTING.md](../CONTRIBUTING.md).

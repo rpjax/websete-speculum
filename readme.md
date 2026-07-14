@@ -199,7 +199,7 @@ cd web && npm ci && npm test && npm run lint && npm run build
 
 CI also runs the required **`motor-assertive`** job (fixture + sidecar Chromium) on GitHub Actions only — see [docs/diagnostics.md](docs/diagnostics.md) and [CONTRIBUTING.md](CONTRIBUTING.md). Do not treat that stack as day-to-day local QA.
 
-Intentional failing traps (MsgPack camelCase / hardened asserts) until the hotfix plan: [docs/known-red-ci.md](docs/known-red-ci.md).
+If MotorAssert fails, triage with [docs/assert-failure-policy.md](docs/assert-failure-policy.md) — never soften asserts to force green.
 
 ### Component READMEs
 
@@ -250,6 +250,8 @@ Full motor assert (fixture + Chromium) runs only in GitHub Actions job `motor-as
 | [AGENTS.md](AGENTS.md) | AI agent entry (points at engineering standards) |
 | [docs/README.md](docs/README.md) | Documentation hub |
 | [docs/architecture.md](docs/architecture.md) | System design and security |
+| [docs/diagnostics.md](docs/diagnostics.md) | Observability + Act→Assert cookbook |
+| [docs/assert-failure-policy.md](docs/assert-failure-policy.md) | CI assert failure triage — never weaken |
 | [docs/motor-reference.md](docs/motor-reference.md) | Protocol, forwarding, sessions |
 | [deploy/README.md](deploy/README.md) | dockup workflow (dev + prod) |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute and code standards |

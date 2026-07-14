@@ -24,7 +24,7 @@ dotnet test Speculum.sln -c Release
 | `Diagnostics/Redaction/` | Dev vs Prod redaction |
 | `Diagnostics/Endpoints/` | REST v1 diagnostics API |
 | `Diagnostics/Emitters/` | Payload shape contracts for new events |
-| `Diagnostics/Contracts/` | **MsgPack hub traps** (known-red until hotfix) — see [docs/known-red-ci.md](../docs/known-red-ci.md) |
+| `Diagnostics/Contracts/` | MessagePack hub camelCase wire contracts — see [docs/assert-failure-policy.md](../docs/assert-failure-policy.md) |
 | Root `*Tests.cs` | Config, motor coordinator, URL adapter, smoke, wire protocol |
 
 Integration host entry point: `Speculum.Api/Program.Integration.cs` (partial `Program` for test visibility).

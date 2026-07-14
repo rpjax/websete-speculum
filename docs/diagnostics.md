@@ -1,10 +1,10 @@
 # Diagnostics (assertable observability)
 
-Phase 2 control plane for telemetry, debug, and Phase 3 Act→Assert contracts.
+Control plane for telemetry, operator debug, and Act→Assert contracts used by MotorAssert / MotorPerf.
 
 Schema version: **`diagnosticsSchemaVersion: 1`**.
 
-> Testing pyramid, Act→Assert rules, and CI splits (required vs Perf): **[engineering-standards.md](engineering-standards.md)** §§3–4. Coverage inventory: [../Speculum.MotorAssert.Tests/MATRIX.md](../Speculum.MotorAssert.Tests/MATRIX.md).
+> Testing pyramid, Act→Assert rules, and CI splits: **[engineering-standards.md](engineering-standards.md)** §§3–4. Coverage inventory: [../Speculum.MotorAssert.Tests/MATRIX.md](../Speculum.MotorAssert.Tests/MATRIX.md). Assert failures: [assert-failure-policy.md](assert-failure-policy.md).
 
 ## Concepts
 
@@ -36,9 +36,9 @@ Response wrappers (raw HTTP — client `diagnosticsApi` unwraps where noted):
 
 Catalog Act→Assert events are **never** randomly sampled away. `StatusMirrorRatio` / `expensiveEventRatio` only throttle noisy `Motor.StatusMirrored` (ring-only). Catalog Motor/Sidecar/Diagnostics events also use a Metrics publish floor so Prod (`SidecarBrowser=Metrics`) and `DiagnosticsDegraded` caps do not erase Act→Assert timelines.
 
-## Assert Cookbook (Phase 3 input)
+## Assert Cookbook
 
-Each recipe: Act → poll events with `?since=` / `namePrefix=` → assert snapshot / errorCode.
+Each recipe: Act → poll events with `?since=` / `namePrefix=` → assert snapshot / `errorCode`.
 
 **Harness helpers** (`Speculum.MotorAssert.Tests`): prefer `WaitEvaluateContainsAsync`, `WaitCookieAsync`, `WaitLocalStorageAsync`, `WaitFixturePageAsync`, `WaitConfigAppliedAsync`, `WaitStateExportCompletedAsync`, `ExpectEvaluateAsync` / `ExpectCookieAsync` / `ExpectLocalStorageAsync` (poll), `WaitFrameSequenceAtLeastAsync`, `RequireSessionAsync` / `RequireSnapshot` / `RequireString` — missing JSON properties fail hard (no soft skip). Do **not** insert fixed `Task.Delay` before probes; poll or wait for catalog events instead.
 
@@ -98,9 +98,14 @@ Motor completeness for debug: **identity resolve + URL map + export + probes** (
 4. Concurrent probes beyond `maxConcurrentProbesPerSession` → `429` `{ "errorCode": "probe_busy" }`.
 5. Probe response exceeding `maxProbeResponseBytes` → HTTP `413` with `errorCode: response_too_large`, **or** a soft-capped success whose body stays under the budget (never an uncapped multi‑100KB DOM dump). MotorAssert `L11` locks this contract.
 6. PUT elevate → assert `GET /events?namePrefix=Diagnostics.Elevate` includes `ElevateStarted`; TTL/DELETE → `ElevateExpired`.
-7. **Degraded circuit breaker** — sustained sink drops or slow writes trip `Diagnostics.Degraded`; effective levels cap above Metrics to Metrics → probes return `probe_level_insufficient`. Recovery: cleanup cycle or **`POST /recover`** (audited `Diagnostics.Recovered`). Harness baseline calls recover before BrowserQuery asserts.
+7. **Degraded circuit breaker** — sustained sink drops or slow writes trip `Diagnostics.Degraded`; effective levels above Metrics are capped to Metrics → probes return `probe_level_insufficient`. Recovery: cleanup cycle or **`POST /recover`** (audited `Diagnostics.Recovered`). Harness baseline calls recover before BrowserQuery asserts.
 
 Admin routes (Bearer): `GET /runtime`, `PUT|DELETE /elevate`, **`POST /recover`**, `GET /events`, session/persisted/probe paths — see `DiagnosticsEndpoints`.
+
+### 6. Redaction
+
+1. Same GET session/persisted/probe on Development host → plain identity (`redaction: none`).
+2. Production host → masked identities/secrets (`redaction: production`); metrics/PIDs remain readable.
 
 ### 7. Performance SLOs (`perf.yml` / `Speculum.MotorPerf.Tests`)
 
@@ -114,23 +119,14 @@ Informational — **does not** block merge. Documented floors:
 
 Functional overflow: catalog id + runtime `overflowCount`/`bytesUsed`/`maxBytes` in MotorAssert `M_storage_overflow_contract`; sink emit under tiny `maxBytes` in Api.Tests; load churn in Perf.
 
-### 6. Redaction
-
-1. Same GET session/persisted/probe on Development host → plain identity (`redaction: none`).
-2. Production host → masked identities/secrets (`redaction: production`); metrics/PIDs remain readable.
-
 ## Stable event catalog
 
 See `GET /catalog/events` and `DiagnosticsEventCatalog` (Motor.*, Sidecar.Diag*, Diagnostics.*).
 
-Notable MotorLive additions for completeness:
+Notable MotorLive events for completeness:
 
 - **`Motor.SessionResolved`** — identity/persist fact before sidecar start (payload above).
 - **`Motor.UrlMapped`** — target→client URL map on change (apex NSO / mirroring).
-
-## CI status and policy
-
-MotorAssert matrix A–O is **required green** on PRs (`motor-assertive` job). Hardened asserts are intentional product traps — when they fail, fix product/harness per [known-red-ci.md](known-red-ci.md); do not skip.
 
 ## Motor snapshot minimum
 
@@ -140,12 +136,14 @@ Ids, FSM phase, timing, fps/frames, navigation result, sidecar connected/fault, 
 
 Wire: `diagProbe` / `diagResult`. Ops: `process`, `tabs`, `export`, `cookies`, `storage`, `dom`, `evaluate`, `resources`. Soft-cap via `maxProbeResponseBytes` (default 512 KiB, absolute wire ceiling 8 MiB).
 
-## Phase 3 CI (motor-assertive)
+## CI: motor-assertive
 
-- **Fast gate (local + Actions):** unit/contract tests — no Chromium. Filter: `Category!=MotorAssertive`.
-- **Full gate (GitHub Actions only):** job `motor-assertive` boots [`deploy/compose/docker-compose.motor-assert.yml`](../deploy/compose/docker-compose.motor-assert.yml) (fixture + evil-fixture + sidecar + API + Traefik), seeds Forwarding→`fixture.test`, then runs [`Speculum.MotorAssert.Tests`](../Speculum.MotorAssert.Tests/) with `MOTOR_ASSERT_API_BASE` set.
+- **Fast gate (local + Actions):** unit/contract tests — no Chromium. Filter: `Category!=MotorAssertive&Category!=MotorPerf`.
+- **Required full gate (GitHub Actions):** job `motor-assertive` boots [`deploy/compose/docker-compose.motor-assert.yml`](../deploy/compose/docker-compose.motor-assert.yml) (fixture + evil-fixture + sidecar + API + Traefik), seeds Forwarding→`fixture.test`, then runs [`Speculum.MotorAssert.Tests`](../Speculum.MotorAssert.Tests/) with `MOTOR_ASSERT_API_BASE` set.
 - Fixture contract: [`tests/motor-fixture/README.md`](../tests/motor-fixture/README.md).
 - Matrix inventory: [`Speculum.MotorAssert.Tests/MATRIX.md`](../Speculum.MotorAssert.Tests/MATRIX.md).
-- On failure Actions uploads compose logs + diagnostics dumps under the runner temp dir.
+- Failure artifacts: compose logs + diagnostics dumps under the runner temp directory.
+
+MotorAssert matrix A–O is **required green** on PRs. When an assert fails, follow [assert-failure-policy.md](assert-failure-policy.md) — do not skip or soften.
 
 Do not run the Chrome stack as day-to-day local verification.

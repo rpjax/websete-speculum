@@ -4,7 +4,7 @@ Deterministic HTTPS site that Chromium inside the Speculum sidecar opens during 
 
 ## Not for local day-to-day
 
-Do **not** routinely run sidecar+Chrome+fixture on a laptop. That stack is intentionally cloud-CI-only (see CONTRIBUTING / Phase 3 plan). This folder is pulled by `deploy/compose/docker-compose.motor-assert.yml`.
+Do **not** routinely run sidecar+Chrome+fixture on a laptop. That stack is GitHub Actions–only (`motor-assertive`). See [CONTRIBUTING.md](../../CONTRIBUTING.md). This folder is consumed by `deploy/compose/docker-compose.motor-assert.yml`.
 
 ## Roles
 

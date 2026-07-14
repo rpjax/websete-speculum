@@ -2,7 +2,7 @@
 
 Act→Assert harness for the **motor-assertive** GitHub Actions job (real sidecar + Chromium).
 
-Standards: [docs/engineering-standards.md](../docs/engineering-standards.md) §§3–4 · agents: [../AGENTS.md](../AGENTS.md) · inventory: [MATRIX.md](MATRIX.md) · red policy: [docs/known-red-ci.md](../docs/known-red-ci.md).
+Standards: [docs/engineering-standards.md](../docs/engineering-standards.md) §§3–4 · agents: [../AGENTS.md](../AGENTS.md) · inventory: [MATRIX.md](MATRIX.md) · failures: [docs/assert-failure-policy.md](../docs/assert-failure-policy.md).
 
 ## Local behaviour
 

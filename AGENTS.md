@@ -9,7 +9,7 @@ You are working in the **Speculum** remote browser isolation repository.
 3. [docs/architecture.md](docs/architecture.md) — domains and flows (if the change crosses boundaries).
 4. [docs/diagnostics.md](docs/diagnostics.md) — Act→Assert contracts (if the change touches observability or MotorAssert).
 5. [Speculum.MotorAssert.Tests/MATRIX.md](Speculum.MotorAssert.Tests/MATRIX.md) — coverage truth for motor CI.
-6. [docs/known-red-ci.md](docs/known-red-ci.md) — policy when asserts fail; do **not** weaken to get green.
+6. [docs/assert-failure-policy.md](docs/assert-failure-policy.md) — when asserts fail; do **not** weaken to get green.
 
 ## Non-negotiable
 

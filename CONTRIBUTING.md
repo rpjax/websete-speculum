@@ -72,7 +72,7 @@ Full constitution: **[docs/engineering-standards.md](docs/engineering-standards.
 - **Minimal scope** — one logical change per commit/PR when possible.
 - **Match conventions** — follow [docs/naming.md](docs/naming.md) (Speculum / Motor / W7S vocabulary).
 - **No drive-by refactors** — avoid unrelated formatting or renames.
-- **Tests when behaviour changes** — pyramid: units (Api / sidecar / web) + MotorAssert Act→Assert on CI Chrome; Perf only for SLOs. Extend MATRIX when coverage depth changes. Never weaken asserts to get green ([docs/known-red-ci.md](docs/known-red-ci.md)).
+- **Tests when behaviour changes** — pyramid: units (Api / sidecar / web) + MotorAssert Act→Assert on CI Chrome; Perf only for SLOs. Extend MATRIX when coverage depth changes. Never weaken asserts to get green ([docs/assert-failure-policy.md](docs/assert-failure-policy.md)).
 ---
 
 ## Project boundaries
@@ -105,7 +105,7 @@ When you change behaviour, update the relevant README in the same PR:
 |------|----------|
 | Engineering standards (agents + humans) | `docs/engineering-standards.md`, `AGENTS.md` |
 | Cross-cutting design | `docs/architecture.md`, `docs/naming.md` |
-| Diagnostics / Act→Assert | `docs/diagnostics.md`, `Speculum.MotorAssert.Tests/MATRIX.md` |
+| Diagnostics / Act→Assert | `docs/diagnostics.md`, `docs/assert-failure-policy.md`, `Speculum.MotorAssert.Tests/MATRIX.md` |
 | W7S sidecar wire | `docs/w7s-sidecar-protocol.md` |
 | Motor / protocol | `docs/motor-reference.md` |
 | Deploy | `deploy/README.md` |

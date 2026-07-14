@@ -2,7 +2,7 @@
 
 Source of truth for Act→Assert coverage. **Depth:** `deep` = effect assert in required CI; `contract` = governance/shape assert in required CI; `perf` = `perf.yml` only; `deferred-K4` = manual/nightly ACME.
 
-Constitution: [docs/engineering-standards.md](../docs/engineering-standards.md) (§3 Testing). Do not weaken asserts — [docs/known-red-ci.md](../docs/known-red-ci.md).
+Constitution: [docs/engineering-standards.md](../docs/engineering-standards.md) (§3 Testing). Assert failures: [docs/assert-failure-policy.md](../docs/assert-failure-policy.md).
 
 | ID | Depth | Coverage | Test method(s) |
 |----|-------|----------|----------------|
@@ -78,17 +78,17 @@ Constitution: [docs/engineering-standards.md](../docs/engineering-standards.md) 
 | Persistence / scripts | `PersistenceDrainInjectionTests`, `PersistenceDeepTests`, `ScriptsDeepTests` |
 | Hosting / edge | `JsBridgeHostingMiscTests`, `DiagnosticsEdgeDeepTests` |
 | Diagnostics governance | `InputResizeProbeGovernanceTests`, `DiagnosticsEdgeDeepTests`, `DiagnosticsGovernance/*` |
-| Bug traps (known-red) | `BugTraps/*` (MsgPack web contract also in Api.Tests + Vitest) |
+| Regression traps | `BugTraps/*` (MsgPack web contract also in Api.Tests + Vitest) |
 
-## Known red (policy — asserts stay strict)
+## Assert policy
 
-Do **not** skip or weaken matrix asserts. Current **`motor-assertive` is green** (90/90); history and harness checklist: [docs/known-red-ci.md](../docs/known-red-ci.md).
+Do **not** skip or soften matrix asserts. Triage product vs harness with [docs/assert-failure-policy.md](../docs/assert-failure-policy.md).
 
 | Item | Layer | Notes |
 |------|-------|-------|
-| MsgPack camelCase | Api.Tests + Vitest + MotorAssert | Fixed — keep contract tests green |
-| Emitter publish units | `Api.Tests/.../Emitters` | Must stay green (bus recorder) |
-| E8 / B12 rebind + UrlMapped | `BugTraps/*` | Green on CI; traps remain for regressions |
+| MessagePack camelCase | Api.Tests + Vitest + MotorAssert | Contract suites must stay green |
+| Emitter publish units | `Api.Tests/.../Emitters` | Bus recorder contracts — required |
+| E8 / B12 rebind + UrlMapped | `BugTraps/*` | Regression guards for identity / URL map |
 
 Depth note: each MotorAssert test runs `EnsureBaselineAsync` (clear Diagnostics Degraded via `/recover`, MaxSessions / JsBridge / Assertive BrowserQuery with runtime verify) via `MotorAssertTestBase`, so Diagnostics level mutations and circuit-breaker caps cannot leak into the next test.
 

@@ -11,12 +11,12 @@ interface EventFrequencyChartProps {
 }
 
 const DOMAIN_BAR: Record<string, string> = {
-  'Motor.Live': 'bg-sky-500',
-  'Sidecar.Browser': 'bg-violet-500',
-  'HostResources': 'bg-emerald-500',
-  'BrowserQuery': 'bg-purple-500',
-  'Persistence': 'bg-amber-500',
-  'Diagnostics.Self': 'bg-slate-400',
+  MotorLive: 'bg-sky-500',
+  SidecarBrowser: 'bg-violet-500',
+  Telemetry: 'bg-emerald-500',
+  BrowserQuery: 'bg-purple-500',
+  PersistedSessions: 'bg-amber-500',
+  DiagnosticsSelf: 'bg-slate-400',
 }
 
 const SEVERITY_BAR: Record<string, string> = {

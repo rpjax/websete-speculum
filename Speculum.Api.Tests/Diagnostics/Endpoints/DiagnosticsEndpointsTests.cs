@@ -118,14 +118,41 @@ public sealed class DiagnosticsEndpointsTests : IDisposable
     }
 
     [Fact]
-    public async Task Host_returns_data_envelope_with_redaction()
+    public async Task Host_returns_enriched_telemetry_envelope_with_redaction()
     {
         await AuthenticateAsync();
         var response = await _client.GetAsync("/api/admin/diagnostics/v1/host");
         response.EnsureSuccessStatusCode();
         using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        Assert.True(doc.RootElement.TryGetProperty("data", out _));
         Assert.True(doc.RootElement.TryGetProperty("redaction", out _));
+
+        var data = doc.RootElement.GetProperty("data");
+        // Enriched Telemetry host fields (shared HostTelemetry contract).
+        Assert.False(string.IsNullOrWhiteSpace(data.GetProperty("hostname").GetString()));
+        Assert.True(data.GetProperty("memoryUsed").GetInt64() > 0);
+        Assert.True(data.GetProperty("memoryTotal").GetInt64() > 0);
+        Assert.True(data.TryGetProperty("cpuUsage", out _));
+        Assert.True(data.TryGetProperty("threadPoolQueued", out _));
+        Assert.True(data.TryGetProperty("diskFreeBytes", out _));
+    }
+
+    [Fact]
+    public async Task Overview_exposes_effective_capabilities_and_storage_ceiling()
+    {
+        await AuthenticateAsync();
+        var response = await _client.GetAsync("/api/admin/diagnostics/v1/overview");
+        response.EnsureSuccessStatusCode();
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("storageMaxBytes").GetInt64() > 0);
+        Assert.True(root.TryGetProperty("elevate", out var elevate));
+        Assert.True(elevate.TryGetProperty("active", out _));
+
+        var caps = root.GetProperty("effectiveCapabilities");
+        Assert.True(caps.TryGetProperty("MotorLive", out var motorCaps));
+        Assert.True(motorCaps.TryGetProperty("Metric", out _));
+        Assert.True(caps.TryGetProperty("Telemetry", out _));
     }
 
     [Fact]
@@ -135,13 +162,12 @@ public sealed class DiagnosticsEndpointsTests : IDisposable
         await PutDiagnosticsAsync("""
         {
           "enabled": true,
-          "defaultLevel": "Events",
+          "profile": "Production",
           "domains": {
-            "motorLive": "Events",
-            "sidecarBrowser": "Metrics",
-            "hostResources": "Metrics",
-            "browserQuery": "Off",
-            "persistedSessions": "StateSnapshots"
+            "motor": { "metrics": true, "events": true, "snapshots": true },
+            "sidecar": { "metrics": true, "events": false },
+            "browserQuery": { "probe": false },
+            "persisted": { "snapshots": true }
           },
           "probe": { "maxConcurrentProbesPerSession": 2, "diagTimeoutMs": 5000, "maxProbeResponseBytes": 524288 }
         }
@@ -174,13 +200,12 @@ public sealed class DiagnosticsEndpointsTests : IDisposable
         await PutDiagnosticsAsync("""
         {
           "enabled": true,
-          "defaultLevel": "Events",
+          "profile": "Production",
           "domains": {
-            "motorLive": "Events",
-            "sidecarBrowser": "Metrics",
-            "hostResources": "Metrics",
-            "browserQuery": "Off",
-            "persistedSessions": "StateSnapshots"
+            "motor": { "metrics": true, "events": true, "snapshots": true },
+            "sidecar": { "metrics": true, "events": false },
+            "browserQuery": { "probe": false },
+            "persisted": { "snapshots": true }
           },
           "probe": { "maxConcurrentProbesPerSession": 1, "diagTimeoutMs": 15000, "maxProbeResponseBytes": 524288 }
         }

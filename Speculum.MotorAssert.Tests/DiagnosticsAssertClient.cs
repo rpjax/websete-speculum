@@ -282,6 +282,35 @@ public sealed class DiagnosticsAssertClient(MotorAssertHost host)
             timeout,
             ct);
 
+    /// <summary>
+    /// Wait for a composite <c>Telemetry.SampleCollected</c> event after <paramref name="since"/>
+    /// and return its (redacted) payload. Missing sections/fields fail hard downstream.
+    /// </summary>
+    public async Task<JsonElement> WaitTelemetrySampleAsync(
+        DateTimeOffset since,
+        Func<JsonElement, bool>? payloadPredicate = null,
+        TimeSpan? timeout = null,
+        CancellationToken ct = default)
+    {
+        var events = await WaitForEventsAsync(
+            null,
+            "Telemetry.SampleCollected",
+            since,
+            ev => ev.Any(e =>
+                string.Equals(e.GetProperty("name").GetString(), "Telemetry.SampleCollected", StringComparison.Ordinal)
+                && e.TryGetProperty("payload", out var p)
+                && (payloadPredicate is null || payloadPredicate(p))),
+            timeout ?? TimeSpan.FromSeconds(45),
+            ct);
+
+        var sample = events
+            .Where(e => string.Equals(e.GetProperty("name").GetString(), "Telemetry.SampleCollected", StringComparison.Ordinal))
+            .Select(e => e.GetProperty("payload"))
+            .Where(p => payloadPredicate is null || payloadPredicate(p))
+            .Last();
+        return sample.Clone();
+    }
+
     /// <summary>Wait until Diagnostics.ConfigApplied appears after a config mutation.</summary>
     public async Task WaitConfigAppliedAsync(
         DateTimeOffset since,

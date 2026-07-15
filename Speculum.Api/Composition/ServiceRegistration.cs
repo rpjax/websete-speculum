@@ -6,10 +6,13 @@ using Speculum.Api.Config.Persistence;
 using Speculum.Api.Config.Store;
 using Speculum.Api.Diagnostics.Abstractions;
 using Speculum.Api.Diagnostics.Configuration;
+using Speculum.Api.Diagnostics.Emitters;
 using Speculum.Api.Diagnostics.Pipeline;
 using Speculum.Api.Diagnostics.Probes;
 using Speculum.Api.Diagnostics.Query;
 using Speculum.Api.Diagnostics.Redaction;
+using Speculum.Api.Diagnostics.Telemetry;
+using Speculum.Api.Motor.Diagnostics;
 using Speculum.Api.Edge;
 using Speculum.Api.Edge.Cors;
 using Speculum.Api.Infrastructure;
@@ -89,11 +92,27 @@ public static class ServiceRegistration
             new SqliteDiagnosticsEventSink(
                 bootstrap.DatabasePath,
                 sp.GetRequiredService<IDiagnosticsRuntime>(),
-                new Lazy<IDiagnosticsEventBus>(() => sp.GetRequiredService<IDiagnosticsEventBus>())));
+                new Lazy<IDiagnosticsSelfEmitter>(() => sp.GetRequiredService<IDiagnosticsSelfEmitter>())));
         builder.Services.AddSingleton<IDiagnosticsSink>(sp => sp.GetRequiredService<SqliteDiagnosticsEventSink>());
         builder.Services.AddSingleton<IDiagnosticsEventBus, DiagnosticsEventBus>();
-        builder.Services.AddSingleton<Lazy<IDiagnosticsEventBus>>(sp =>
-            new Lazy<IDiagnosticsEventBus>(() => sp.GetRequiredService<IDiagnosticsEventBus>()));
+        builder.Services.AddSingleton<Lazy<IDiagnosticsSelfEmitter>>(sp =>
+            new Lazy<IDiagnosticsSelfEmitter>(() => sp.GetRequiredService<IDiagnosticsSelfEmitter>()));
+
+        // Domain emitters — payload owners over the domain-agnostic transport.
+        builder.Services.AddSingleton<IDiagnosticsSelfEmitter, DiagnosticsSelfEmitter>();
+        builder.Services.AddSingleton<ISidecarDiagnosticsEmitter, SidecarDiagnosticsEmitter>();
+        builder.Services.AddSingleton<IMotorDiagnosticsEmitter, MotorDiagnosticsEmitter>();
+
+        // Telemetry — composite sample: per-section sources + composer + emitter + sampler.
+        builder.Services.AddSingleton<IHostTelemetrySource, HostTelemetrySource>();
+        builder.Services.AddSingleton<IMotorTelemetrySource, MotorTelemetrySource>();
+        builder.Services.AddSingleton<ISidecarTelemetrySource, SidecarTelemetrySource>();
+        builder.Services.AddSingleton<IPersistenceTelemetrySource, PersistenceTelemetrySource>();
+        builder.Services.AddSingleton<IPipelineTelemetrySource, PipelineTelemetrySource>();
+        builder.Services.AddSingleton<ITelemetrySampleComposer, TelemetrySampleComposer>();
+        builder.Services.AddSingleton<ITelemetryEmitter, TelemetryEmitter>();
+        builder.Services.AddHostedService<TelemetrySamplerHostedService>();
+
         builder.Services.AddSingleton<DiagnosticsProbeGate>();
         builder.Services.AddSingleton<HostResourceProbe>();
         builder.Services.AddSingleton<IDiagnosticsProbeProvider, HostResourceProbeProvider>();

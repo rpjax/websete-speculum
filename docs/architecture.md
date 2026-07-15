@@ -47,7 +47,7 @@ Speculum is a **remote browser isolation** platform. A real Chromium instance ru
 | **Admin** | `Admin/` | HTTP surface for operators |
 | **Scripts** | `Scripts/` | Injected script storage and SSRF-safe resolution |
 
-The **Diagnostics** pipeline follows **Observe → Govern → Record → Query → Present**: motor and sidecar signals are observed at configured levels, governed by budgets/elevate/redaction, recorded in SQLite and in-memory rings, queried through **`/api/admin/diagnostics/v1`** (Admin diagnostics REST), and presented in the admin Diagnostics page. See [diagnostics.md](diagnostics.md).
+The **Diagnostics** pipeline follows **Observe → Govern → Record → Query → Present**: motor, sidecar, and periodic `Telemetry` signals are observed at configured **capability toggles per domain** (emitted by domain emitters over a domain-agnostic transport), governed by budgets/elevate/redaction, recorded in SQLite and in-memory rings, queried through **`/api/admin/diagnostics/v1`** (Admin diagnostics REST), and presented in the admin Diagnostics page. See [diagnostics.md](diagnostics.md).
 
 **Vocabulary:** Speculum = platform; Motor = live browsing; W7S = wire/client boundary only (`_w7s_nso`, [w7s-sidecar-protocol.md](w7s-sidecar-protocol.md)). See also [diagnostics.md](diagnostics.md).
 

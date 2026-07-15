@@ -20,8 +20,8 @@ export function computeHealthScore(metrics: {
   overflowCount: number
   liveSessions: number
   storagePercent: number
-  levelsOff: number
-  totalLevels: number
+  capabilitiesOff: number
+  totalCapabilities: number
 }): number {
   let score = 100
   if (metrics.degraded) score -= 40
@@ -29,7 +29,7 @@ export function computeHealthScore(metrics: {
   if (metrics.overflowCount > 0) score -= Math.min(15, metrics.overflowCount * 5)
   if (metrics.storagePercent > 90) score -= 15
   else if (metrics.storagePercent > 70) score -= 5
-  if (metrics.levelsOff > 0) score -= metrics.levelsOff * 3
+  if (metrics.capabilitiesOff > 0) score -= Math.min(15, metrics.capabilitiesOff * 3)
   return Math.max(0, Math.min(100, Math.round(score)))
 }
 

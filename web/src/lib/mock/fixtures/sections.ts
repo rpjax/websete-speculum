@@ -27,13 +27,21 @@ export const sectionData: Record<string, unknown> = {
   },
   Diagnostics: {
     enabled: true,
-    defaultLevel: 'Events',
+    profile: 'Production',
     domains: {
-      motorLive: 'Events',
-      sidecarBrowser: 'Metrics',
-      hostResources: 'Metrics',
-      browserQuery: 'Off',
-      persistedSessions: 'StateSnapshots',
+      motor: { metrics: true, events: true, snapshots: true },
+      sidecar: { metrics: true, events: false },
+      browserQuery: { probe: false },
+      persisted: { snapshots: true },
+    },
+    telemetry: {
+      enabled: true,
+      intervalSeconds: 30,
+      host: { enabled: true },
+      motor: { enabled: true, includeSessionIds: false, includePerSession: false, includeUrlHost: false },
+      sidecar: { enabled: true, includeFaultedIds: false },
+      persistence: { enabled: true, includeBytes: false },
+      pipeline: { enabled: true, includeBreakerPressure: false },
     },
     storage: {
       maxBytes: 64 * 1024 * 1024,

@@ -23,7 +23,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     title: 'Overview',
     items: [
-      { to: '/admin', label: 'Dashboard', end: true },
+      { to: '/admin', label: 'Overview', end: true },
       { to: '/admin/diagnostics', label: 'Diagnostics' },
     ],
   },

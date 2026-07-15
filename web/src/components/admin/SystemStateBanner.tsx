@@ -1,10 +1,11 @@
 import { Button } from '@/components/ui/button'
 import { formatRelativeTime } from '@/lib/diagnosticsConstants'
+import type { DiagnosticsElevate } from '@/lib/diagnosticsApi'
 import { ShieldCheck, ShieldAlert, Clock, Zap } from 'lucide-react'
 
 interface SystemStateBannerProps {
   degraded: boolean
-  elevate: { active?: boolean; browserQueryFloor?: string; expiresUtc?: string } | null
+  elevate: DiagnosticsElevate | null
   onRecover?: () => void
   onClearElevate?: () => void
   recovering?: boolean
@@ -28,8 +29,8 @@ export function SystemStateBanner({ degraded, elevate, onRecover, onClearElevate
                 </span>
               </div>
               <p className="mt-1 text-sm text-destructive/80 leading-relaxed">
-                The diagnostics circuit breaker has tripped. All effective levels are capped at <strong>Metrics</strong>. 
-                Event recording and browser probes are unavailable until recovery.
+                The diagnostics circuit breaker has tripped. Every domain is capped at the <strong>Metrics</strong> capability. 
+                Event recording, snapshots, and browser probes are unavailable until recovery.
               </p>
               <p className="mt-1.5 text-xs text-destructive/60">
                 Probes will return <code className="rounded bg-destructive/10 px-1 py-0.5">probe_level_insufficient</code>
@@ -67,8 +68,8 @@ export function SystemStateBanner({ degraded, elevate, onRecover, onClearElevate
                 </span>
               </div>
               <p className="mt-1 text-sm text-primary/80 leading-relaxed">
-                BrowserQuery floor raised to <strong>{elevate.browserQueryFloor ?? 'BrowserQuery'}</strong>. 
-                Browser probes, cookie queries, DOM snapshots, and JS evaluation are temporarily enabled for all sessions.
+                The <strong>Browser Query</strong> capability is temporarily unlocked. 
+                Browser probes, cookie queries, DOM snapshots, and JS evaluation are enabled for all sessions.
               </p>
             </div>
           </div>
@@ -91,7 +92,7 @@ export function SystemStateBanner({ degraded, elevate, onRecover, onClearElevate
         <div>
           <h3 className="text-base font-bold text-success">Normal</h3>
           <p className="mt-0.5 text-sm text-success/80">
-            Diagnostics pipeline is healthy. All configured domain levels are active and events are being recorded.
+            Diagnostics pipeline is healthy. All configured domain capabilities are active and events are being recorded.
           </p>
         </div>
       </div>

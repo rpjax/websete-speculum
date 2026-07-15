@@ -15,6 +15,8 @@ import AdminKeyPage from '@/features/admin/AdminKeyPage'
 import OpenApiPage from '@/features/admin/OpenApiPage'
 import DiagnosticsLayout from '@/features/admin/diagnostics/DiagnosticsLayout'
 import DiagnosticsHealthPage from '@/features/admin/diagnostics/DiagnosticsHealthPage'
+import DiagnosticsSystemHealthPage from '@/features/admin/diagnostics/DiagnosticsSystemHealthPage'
+import DiagnosticsResourcesPage from '@/features/admin/diagnostics/DiagnosticsResourcesPage'
 import DiagnosticsActivityPage from '@/features/admin/diagnostics/DiagnosticsActivityPage'
 import DiagnosticsInvestigatePage from '@/features/admin/diagnostics/DiagnosticsInvestigatePage'
 import DiagnosticsGovernancePage from '@/features/admin/diagnostics/DiagnosticsGovernancePage'
@@ -53,6 +55,8 @@ export default function App() {
             <Route path="sessions/:id" element={<SessionDetailPage />} />
             <Route path="diagnostics" element={<DiagnosticsLayout />}>
               <Route index element={<DiagnosticsHealthPage />} />
+              <Route path="health" element={<DiagnosticsSystemHealthPage />} />
+              <Route path="resources" element={<DiagnosticsResourcesPage />} />
               <Route path="activity" element={<DiagnosticsActivityPage />} />
               <Route path="sessions" element={<Navigate to="/admin/sessions" replace />} />
               <Route path="investigate" element={<DiagnosticsInvestigatePage />} />

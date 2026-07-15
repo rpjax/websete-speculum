@@ -5,13 +5,17 @@ public static class DiagnosticsSchema
     public const int Version = 1;
 }
 
-public enum DiagnosticsLevel
+/// <summary>
+/// The kind of signal an event carries. Metadata per event (via the catalog descriptor),
+/// NOT an operator control — operators toggle capabilities per domain in config.
+/// Mirrors the Signal vocabulary in docs/diagnostics.md.
+/// </summary>
+public enum DiagnosticsCapability
 {
-    Off = 0,
-    Metrics = 1,
-    Events = 2,
-    StateSnapshots = 3,
-    BrowserQuery = 4,
+    Metric,
+    Event,
+    Snapshot,
+    Probe,
 }
 
 public enum DiagnosticsDomain
@@ -20,7 +24,7 @@ public enum DiagnosticsDomain
     SidecarBrowser,
     BrowserQuery,
     PersistedSessions,
-    HostResources,
+    Telemetry,
     DiagnosticsSelf,
 }
 

@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.SignalR;
 using Speculum.Api.Config.Runtime;
 using Speculum.Api.Config.Store;
 using Speculum.Api.Diagnostics.Abstractions;
+using Speculum.Api.Motor.Diagnostics;
 using Speculum.Api.Motor.Mapping;
 using Speculum.Api.Motor.Sidecar;
 using Speculum.Api.BrowserPersistence;
@@ -15,7 +16,7 @@ public sealed class MotorSessionCoordinator
     private readonly IBrowserSessionStore       _sessionStore;
     private readonly MotorUrlAdapter            _urlAdapter;
     private readonly IMotorSessionFactory       _sessionFactory;
-    private readonly IDiagnosticsEventBus       _diagnostics;
+    private readonly IMotorDiagnosticsEmitter   _diagnostics;
     private readonly ILogger<MotorSessionCoordinator> _logger;
 
     public MotorSessionCoordinator(
@@ -24,7 +25,7 @@ public sealed class MotorSessionCoordinator
         IBrowserSessionStore       sessionStore,
         MotorUrlAdapter            urlAdapter,
         IMotorSessionFactory       sessionFactory,
-        IDiagnosticsEventBus       diagnostics,
+        IMotorDiagnosticsEmitter   diagnostics,
         ILogger<MotorSessionCoordinator> logger)
     {
         _registry       = registry;
@@ -95,19 +96,16 @@ public sealed class MotorSessionCoordinator
                         payload: new { persistedSessionId = oldActive.PersistedSessionId });
                     var replaced = await oldActive.CaptureAndPersistAsync(
                         oldActive.PersistedSessionId!, _sessionStore);
-                    Publish(connectionId, "Motor.StateExportCompleted", correlationId, oldActive,
-                        payload: MotorDiagnosticsPayloads.ExportCompleted(
-                            oldActive.PersistedSessionId,
-                            replaced?.Cookies.Count,
-                            replaced?.LocalStorage.Count,
-                            replaced?.History.Count));
+                    _diagnostics.StateExportCompleted(
+                        MotorDiagnosticsContext.For(connectionId, correlationId, oldActive),
+                        replaced?.Cookies.Count,
+                        replaced?.LocalStorage.Count,
+                        replaced?.History.Count);
                 }
                 catch (Exception ex)
                 {
-                    Publish(connectionId, "Motor.StateExportFailed", correlationId, oldActive,
-                        DiagnosticsSeverity.Warning,
-                        MotorDiagnosticsPayloads.ExportFailed(
-                            ClassifyExportError(ex), ex.Message, oldActive.PersistedSessionId));
+                    _diagnostics.StateExportFailed(
+                        MotorDiagnosticsContext.For(connectionId, correlationId, oldActive), ex);
                     _logger.LogWarning(ex, "Erro ao persistir estado da sessão anterior.");
                 }
             }
@@ -336,19 +334,16 @@ public sealed class MotorSessionCoordinator
                 {
                     var state = await session.CaptureAndPersistAsync(
                         session.PersistedSessionId!, _sessionStore);
-                    Publish(connectionId, "Motor.StateExportCompleted", correlationId, session,
-                        payload: MotorDiagnosticsPayloads.ExportCompleted(
-                            session.PersistedSessionId,
-                            state?.Cookies.Count,
-                            state?.LocalStorage.Count,
-                            state?.History.Count));
+                    _diagnostics.StateExportCompleted(
+                        MotorDiagnosticsContext.For(connectionId, correlationId, session),
+                        state?.Cookies.Count,
+                        state?.LocalStorage.Count,
+                        state?.History.Count);
                 }
                 catch (Exception ex)
                 {
-                    Publish(connectionId, "Motor.StateExportFailed", correlationId, session,
-                        DiagnosticsSeverity.Warning,
-                        MotorDiagnosticsPayloads.ExportFailed(
-                            ClassifyExportError(ex), ex.Message, session.PersistedSessionId));
+                    _diagnostics.StateExportFailed(
+                        MotorDiagnosticsContext.For(connectionId, correlationId, session), ex);
                     _logger.LogWarning(ex,
                         "Erro ao persistir estado (ConnectionId={ConnectionId}).",
                         connectionId);
@@ -412,9 +407,9 @@ public sealed class MotorSessionCoordinator
         }
         catch (ArgumentException ex)
         {
-            Publish(connectionId, "Motor.NavigateRejected", correlationId, session,
-                DiagnosticsSeverity.Warning,
-                MotorDiagnosticsPayloads.NavigateRejected(ex.Message, clientUrl, targetUrl));
+            _diagnostics.NavigateRejected(
+                MotorDiagnosticsContext.For(connectionId, correlationId, session),
+                ex.Message, clientUrl, targetUrl);
             throw new HubException(ex.Message);
         }
     }
@@ -430,19 +425,9 @@ public sealed class MotorSessionCoordinator
         bool? restored,
         bool? stateLoaded,
         int? cookieCount)
-    {
-        var safePhase = phase ?? "sidecar_create";
-        var errorCode = MotorDiagnosticsPayloads.ClassifyStartFailure(ex, safePhase);
-        if (ex is SidecarProtocolException spe)
-            errorCode = spe.ErrorCode;
-
-        Publish(connectionId, "Motor.SessionStartFailed", correlationId, session, severity,
-            MotorDiagnosticsPayloads.StartFailed(
-                errorCode, safePhase, ex.Message,
-                persistedSessionId ?? session?.PersistedSessionId,
-                restored, stateLoaded, cookieCount),
-            persistedSessionId: persistedSessionId ?? session?.PersistedSessionId);
-    }
+        => _diagnostics.SessionStartFailed(
+            MotorDiagnosticsContext.For(connectionId, correlationId, session, persistedSessionId),
+            phase, ex, severity, restored, stateLoaded, cookieCount);
 
     private object SlotPayload(int? maxSessions = null)
         => new
@@ -452,9 +437,6 @@ public sealed class MotorSessionCoordinator
             startingCount = _registry.StartingCount,
         };
 
-    private static string ClassifyExportError(Exception ex)
-        => ex is SidecarProtocolException spe ? spe.ErrorCode : "export_failed";
-
     private void Publish(
         string connectionId,
         string name,
@@ -463,19 +445,9 @@ public sealed class MotorSessionCoordinator
         DiagnosticsSeverity severity = DiagnosticsSeverity.Information,
         object? payload = null,
         string? persistedSessionId = null)
-    {
-        _diagnostics.Publish(new DiagnosticsEvent
-        {
-            Domain = DiagnosticsDomain.MotorLive,
-            Name = name,
-            Severity = severity,
-            CorrelationId = correlationId,
-            ConnectionId = connectionId,
-            PersistedSessionId = persistedSessionId ?? session?.PersistedSessionId,
-            SidecarSessionId = session?.SidecarSessionId,
-            Payload = payload,
-        });
-    }
+        => _diagnostics.Emit(
+            MotorDiagnosticsContext.For(connectionId, correlationId, session, persistedSessionId),
+            name, payload, severity);
 
     private static SessionIdentity ResolveIdentity(SessionIdentity? identity)
     {

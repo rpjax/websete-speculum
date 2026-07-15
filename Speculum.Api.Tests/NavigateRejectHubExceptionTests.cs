@@ -2,6 +2,7 @@ using Speculum.Api.Motor.Live.Models;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging.Abstractions;
 using Speculum.Api.Diagnostics.Abstractions;
+using Speculum.Api.Motor.Diagnostics;
 using Speculum.Api.Motor.Live;
 using Speculum.Api.Motor.Mapping;
 using Speculum.Api.Config.Runtime;
@@ -27,7 +28,7 @@ public sealed class NavigateRejectHubExceptionTests
             new NoOpBrowserStore(),
             new MotorUrlAdapter(new NavigationStateCodec(new byte[32], encrypt: false)),
             new FixedFactory(session),
-            new NullDiagnosticsEventBus(),
+            TestMotorDiagnostics.Emitter(new NullDiagnosticsEventBus()),
             NullLogger<MotorSessionCoordinator>.Instance);
 
         registry.Register("conn-1", session);
@@ -99,11 +100,13 @@ public sealed class NavigateRejectHubExceptionTests
         public bool TryCancelStarting(string connectionId, [NotNullWhen(true)] out IMotorSession? s)
         { s = null; return false; }
         public IReadOnlyList<MotorSessionListItem> ListSessions() => [];
+
+        public IReadOnlyList<MotorSessionDiagnosticsSnapshot> ListSnapshots() => [];
         public bool TryFindByPersistedSessionId(string id, [NotNullWhen(true)] out IMotorSession? s, [NotNullWhen(true)] out string? c)
         { s = null; c = null; return false; }
         public bool TryFindBySidecarSessionId(string id, [NotNullWhen(true)] out IMotorSession? s, [NotNullWhen(true)] out string? c)
         { s = null; c = null; return false; }
-        public Task StopAllAsync(IBrowserSessionStore store, CancellationToken ct = default, Speculum.Api.Diagnostics.Abstractions.IDiagnosticsEventBus? diagnostics = null, string? correlationId = null) => Task.CompletedTask;
+        public Task StopAllAsync(IBrowserSessionStore store, CancellationToken ct = default, IMotorDiagnosticsEmitter? diagnostics = null, string? correlationId = null) => Task.CompletedTask;
     }
 
     private sealed class OperationalConfigStore : ISpeculumConfigStore

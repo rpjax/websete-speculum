@@ -7,7 +7,6 @@ public sealed class DiagnosticsRuntime : IDiagnosticsRuntime
 {
     private readonly object _gate = new();
     private DiagnosticsOptions _options = DiagnosticsSeedProfiles.Production();
-    private DiagnosticsLevel? _elevateBrowserQueryFloor;
     private DateTimeOffset? _elevateExpiresUtc;
     private bool _elevateExpiredPending;
     private bool _degraded;
@@ -43,47 +42,20 @@ public sealed class DiagnosticsRuntime : IDiagnosticsRuntime
         }
     }
 
-    public DiagnosticsLevel GetEffectiveLevel(DiagnosticsDomain domain)
+    public bool IsCapabilityEnabled(DiagnosticsDomain domain, DiagnosticsCapability capability)
     {
         lock (_gate)
         {
-            if (!_options.Enabled)
-                return DiagnosticsLevel.Off;
-
-            var configured = ResolveConfiguredLevel(domain);
-            if (_degraded && configured > DiagnosticsLevel.Metrics)
-                configured = DiagnosticsLevel.Metrics;
-
-            if (_elevateExpiresUtc is { } expiry && DateTimeOffset.UtcNow >= expiry)
-            {
-                if (_elevateBrowserQueryFloor is not null)
-                    _elevateExpiredPending = true;
-                _elevateBrowserQueryFloor = null;
-                _elevateExpiresUtc = null;
-            }
-
-            if (_elevateBrowserQueryFloor is { } floor
-                && domain is DiagnosticsDomain.BrowserQuery or DiagnosticsDomain.SidecarBrowser
-                && configured < floor)
-            {
-                configured = floor;
-            }
-
-            return configured;
+            ExpireElevateIfDue();
+            return IsCapabilityEnabledUnlocked(domain, capability);
         }
     }
 
-    public bool IsEnabled(DiagnosticsDomain domain, DiagnosticsLevel minimum)
-        => GetEffectiveLevel(domain) >= minimum;
-
-    public void SetElevate(DiagnosticsLevel? browserQueryFloor, TimeSpan? ttl)
+    public void SetElevate(TimeSpan? ttl)
     {
         lock (_gate)
         {
-            _elevateBrowserQueryFloor = browserQueryFloor;
-            _elevateExpiresUtc = browserQueryFloor is null || ttl is null
-                ? null
-                : DateTimeOffset.UtcNow.Add(ttl.Value);
+            _elevateExpiresUtc = ttl is null ? null : DateTimeOffset.UtcNow.Add(ttl.Value);
         }
     }
 
@@ -91,7 +63,6 @@ public sealed class DiagnosticsRuntime : IDiagnosticsRuntime
     {
         lock (_gate)
         {
-            _elevateBrowserQueryFloor = null;
             _elevateExpiresUtc = null;
         }
     }
@@ -100,6 +71,7 @@ public sealed class DiagnosticsRuntime : IDiagnosticsRuntime
     {
         lock (_gate)
         {
+            ExpireElevateIfDue();
             if (!_elevateExpiredPending)
                 return false;
             _elevateExpiredPending = false;
@@ -136,29 +108,23 @@ public sealed class DiagnosticsRuntime : IDiagnosticsRuntime
     {
         lock (_gate)
         {
-            var elevate = _elevateBrowserQueryFloor is null
-                ? null
-                : (object)new
-                {
-                    browserQueryFloor = _elevateBrowserQueryFloor.ToString(),
-                    expiresUtc = _elevateExpiresUtc,
-                };
+            ExpireElevateIfDue();
+            var active = ElevateActiveUnlocked();
+            var elevate = (object)new
+            {
+                active,
+                expiresUtc = active ? _elevateExpiresUtc : null,
+            };
 
             return new DiagnosticsRuntimeSnapshot
             {
                 Enabled = _options.Enabled,
                 Degraded = _degraded,
-                EffectiveLevels = new Dictionary<string, string>
-                {
-                    [nameof(DiagnosticsDomain.MotorLive)] = GetEffectiveLevelUnlocked(DiagnosticsDomain.MotorLive).ToString(),
-                    [nameof(DiagnosticsDomain.SidecarBrowser)] = GetEffectiveLevelUnlocked(DiagnosticsDomain.SidecarBrowser).ToString(),
-                    [nameof(DiagnosticsDomain.BrowserQuery)] = GetEffectiveLevelUnlocked(DiagnosticsDomain.BrowserQuery).ToString(),
-                    [nameof(DiagnosticsDomain.PersistedSessions)] = GetEffectiveLevelUnlocked(DiagnosticsDomain.PersistedSessions).ToString(),
-                    [nameof(DiagnosticsDomain.HostResources)] = GetEffectiveLevelUnlocked(DiagnosticsDomain.HostResources).ToString(),
-                    [nameof(DiagnosticsDomain.DiagnosticsSelf)] = GetEffectiveLevelUnlocked(DiagnosticsDomain.DiagnosticsSelf).ToString(),
-                },
+                EffectiveCapabilities = BuildEffectiveCapabilitiesUnlocked(),
                 Elevate = elevate,
+                ElevateActive = active,
                 BytesUsed = Volatile.Read(ref _bytesUsed),
+                StorageMaxBytes = _options.Storage.MaxBytes,
                 EventsStored = Volatile.Read(ref _eventsStored),
                 EventsDropped = Volatile.Read(ref _eventsDropped),
                 OverflowCount = Volatile.Read(ref _overflowCount),
@@ -171,56 +137,90 @@ public sealed class DiagnosticsRuntime : IDiagnosticsRuntime
         }
     }
 
-    private DiagnosticsLevel GetEffectiveLevelUnlocked(DiagnosticsDomain domain)
+    private IReadOnlyDictionary<string, IReadOnlyDictionary<string, bool>> BuildEffectiveCapabilitiesUnlocked()
+    {
+        var result = new Dictionary<string, IReadOnlyDictionary<string, bool>>();
+
+        void Add(DiagnosticsDomain domain, params DiagnosticsCapability[] caps)
+        {
+            var map = new Dictionary<string, bool>();
+            foreach (var cap in caps)
+                map[cap.ToString()] = IsCapabilityEnabledUnlocked(domain, cap);
+            result[domain.ToString()] = map;
+        }
+
+        Add(DiagnosticsDomain.MotorLive, DiagnosticsCapability.Metric, DiagnosticsCapability.Event, DiagnosticsCapability.Snapshot);
+        Add(DiagnosticsDomain.SidecarBrowser, DiagnosticsCapability.Metric, DiagnosticsCapability.Event);
+        Add(DiagnosticsDomain.BrowserQuery, DiagnosticsCapability.Probe);
+        Add(DiagnosticsDomain.PersistedSessions, DiagnosticsCapability.Snapshot);
+        Add(DiagnosticsDomain.Telemetry, DiagnosticsCapability.Metric);
+        Add(DiagnosticsDomain.DiagnosticsSelf, DiagnosticsCapability.Metric);
+        return result;
+    }
+
+    private bool IsCapabilityEnabledUnlocked(DiagnosticsDomain domain, DiagnosticsCapability capability)
     {
         if (!_options.Enabled)
-            return DiagnosticsLevel.Off;
+            return false;
 
-        var configured = ResolveConfiguredLevel(domain);
-        if (_degraded && configured > DiagnosticsLevel.Metrics)
-            configured = DiagnosticsLevel.Metrics;
+        // Self is always on when diagnostics is enabled (ops evidence / audit).
+        if (domain == DiagnosticsDomain.DiagnosticsSelf)
+            return true;
 
+        var enabled = ResolveToggleUnlocked(domain, capability);
+
+        // Degraded caps everything except Metric (circuit breaker back-pressure).
+        if (_degraded && capability != DiagnosticsCapability.Metric)
+            enabled = false;
+
+        // Elevate (TTL) forces BrowserQuery.Probe + Sidecar on — overrides Degraded for those.
+        if (ElevateActiveUnlocked())
+        {
+            if (domain == DiagnosticsDomain.BrowserQuery && capability == DiagnosticsCapability.Probe)
+                enabled = true;
+            if (domain == DiagnosticsDomain.SidecarBrowser
+                && capability is DiagnosticsCapability.Metric or DiagnosticsCapability.Event)
+                enabled = true;
+        }
+
+        return enabled;
+    }
+
+    private bool ResolveToggleUnlocked(DiagnosticsDomain domain, DiagnosticsCapability capability)
+    {
+        var d = _options.Domains;
+        return domain switch
+        {
+            DiagnosticsDomain.MotorLive => capability switch
+            {
+                DiagnosticsCapability.Metric => d.Motor.Metrics,
+                DiagnosticsCapability.Event => d.Motor.Events,
+                DiagnosticsCapability.Snapshot => d.Motor.Snapshots,
+                _ => false,
+            },
+            DiagnosticsDomain.SidecarBrowser => capability switch
+            {
+                DiagnosticsCapability.Metric => d.Sidecar.Metrics,
+                DiagnosticsCapability.Event => d.Sidecar.Events,
+                _ => false,
+            },
+            DiagnosticsDomain.BrowserQuery => capability == DiagnosticsCapability.Probe && d.BrowserQuery.Probe,
+            DiagnosticsDomain.PersistedSessions => capability == DiagnosticsCapability.Snapshot && d.Persisted.Snapshots,
+            DiagnosticsDomain.Telemetry => capability == DiagnosticsCapability.Metric && _options.Telemetry.Enabled,
+            _ => false,
+        };
+    }
+
+    private bool ElevateActiveUnlocked()
+        => _elevateExpiresUtc is { } expiry && DateTimeOffset.UtcNow < expiry;
+
+    private void ExpireElevateIfDue()
+    {
         if (_elevateExpiresUtc is { } expiry && DateTimeOffset.UtcNow >= expiry)
         {
-            if (_elevateBrowserQueryFloor is not null)
-                _elevateExpiredPending = true;
-            _elevateBrowserQueryFloor = null;
+            _elevateExpiredPending = true;
             _elevateExpiresUtc = null;
         }
-
-        if (_elevateBrowserQueryFloor is { } floor
-            && domain is DiagnosticsDomain.BrowserQuery or DiagnosticsDomain.SidecarBrowser
-            && configured < floor)
-        {
-            configured = floor;
-        }
-
-        return configured;
-    }
-
-    private DiagnosticsLevel ResolveConfiguredLevel(DiagnosticsDomain domain)
-    {
-        var raw = domain switch
-        {
-            DiagnosticsDomain.MotorLive => _options.Domains.MotorLive,
-            DiagnosticsDomain.SidecarBrowser => _options.Domains.SidecarBrowser,
-            DiagnosticsDomain.BrowserQuery => _options.Domains.BrowserQuery,
-            DiagnosticsDomain.PersistedSessions => _options.Domains.PersistedSessions,
-            DiagnosticsDomain.HostResources => _options.Domains.HostResources,
-            DiagnosticsDomain.DiagnosticsSelf => "Metrics",
-            _ => _options.DefaultLevel,
-        };
-
-        return ParseLevel(raw, ParseLevel(_options.DefaultLevel, DiagnosticsLevel.Events));
-    }
-
-    internal static DiagnosticsLevel ParseLevel(string? value, DiagnosticsLevel fallback)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-            return fallback;
-        return Enum.TryParse<DiagnosticsLevel>(value.Trim(), ignoreCase: true, out var level)
-            ? level
-            : fallback;
     }
 
     private void EndProbe() => Interlocked.Decrement(ref _probeInFlight);

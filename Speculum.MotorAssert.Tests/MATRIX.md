@@ -67,6 +67,8 @@ Constitution: [docs/engineering-standards.md](../docs/engineering-standards.md) 
 | N1–N2 | deep | popup / `_blank` single-tab | `N1_N2_*` |
 | O1–O5 | deep | auth / opacity / validation / wipe | `O1_*`…`O5_*` |
 | O4 | deep | casing/validation matrix | `O4_section_casing_validation` |
+| T1 | deep | composite `Telemetry.SampleCollected` carries all sections (host/motor/sidecar/persistence/pipeline) + story fields | `T1_composite_sample_has_all_sections` |
+| T2 | deep | live session reflected in `motor.total`/`liveSessionIds`/`sessions` + `sidecar.connected` | `T2_live_session_reflected_in_motor_and_sidecar_aggregates` |
 
 ## Organization
 
@@ -79,6 +81,7 @@ Constitution: [docs/engineering-standards.md](../docs/engineering-standards.md) 
 | Persistence / scripts | `PersistenceDrainInjectionTests`, `PersistenceDeepTests`, `ScriptsDeepTests` |
 | Hosting / edge | `JsBridgeHostingMiscTests`, `DiagnosticsEdgeDeepTests` |
 | Diagnostics governance | `InputResizeProbeGovernanceTests`, `DiagnosticsEdgeDeepTests`, `DiagnosticsGovernance/*` |
+| Telemetry (composite sample) | `TelemetrySampleDeepTests` |
 | Regression traps | `BugTraps/*` (MsgPack web contract also in Api.Tests + Vitest) |
 
 ## Assert policy

@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
 using Speculum.Api.BrowserPersistence;
 using Speculum.Api.Diagnostics.Abstractions;
+using Speculum.Api.Motor.Diagnostics;
 
 namespace Speculum.Api.Motor.Live;
 
@@ -114,6 +115,16 @@ public sealed class MotorSessionRegistry : IMotorSessionRegistry
         return items;
     }
 
+    public IReadOnlyList<MotorSessionDiagnosticsSnapshot> ListSnapshots()
+    {
+        var snapshots = new List<MotorSessionDiagnosticsSnapshot>(_sessions.Count + _starting.Count);
+        foreach (var (_, session) in _sessions)
+            snapshots.Add(session.GetDiagnosticsSnapshot());
+        foreach (var (_, session) in _starting)
+            snapshots.Add(session.GetDiagnosticsSnapshot());
+        return snapshots;
+    }
+
     public bool TryFindByPersistedSessionId(
         string persistedSessionId,
         [NotNullWhen(true)] out IMotorSession? session,
@@ -157,7 +168,7 @@ public sealed class MotorSessionRegistry : IMotorSessionRegistry
     public async Task StopAllAsync(
         IBrowserSessionStore store,
         CancellationToken ct = default,
-        IDiagnosticsEventBus? diagnostics = null,
+        IMotorDiagnosticsEmitter? diagnostics = null,
         string? correlationId = null)
     {
         var connectionIds = _sessions.Keys
@@ -182,31 +193,24 @@ public sealed class MotorSessionRegistry : IMotorSessionRegistry
             if (session is null) continue;
 
             session.MarkPhase(MotorSessionPhase.Stopping);
-            PublishDrain(diagnostics, "Motor.SessionStopping", corr, connectionId, session,
-                payload: new { reason = "drain" });
+            var ctx = MotorDiagnosticsContext.For(connectionId, corr, session);
+            diagnostics?.Emit(ctx, "Motor.SessionStopping", new { reason = "drain" });
 
             if (!string.IsNullOrWhiteSpace(session.PersistedSessionId))
             {
-                PublishDrain(diagnostics, "Motor.StateExportRequested", corr, connectionId, session,
-                    payload: new { persistedSessionId = session.PersistedSessionId });
+                diagnostics?.Emit(ctx, "Motor.StateExportRequested",
+                    new { persistedSessionId = session.PersistedSessionId });
                 try
                 {
                     var state = await session.CaptureAndPersistAsync(session.PersistedSessionId!, store, ct);
-                    PublishDrain(diagnostics, "Motor.StateExportCompleted", corr, connectionId, session,
-                        payload: MotorDiagnosticsPayloads.ExportCompleted(
-                            session.PersistedSessionId,
-                            state?.Cookies.Count,
-                            state?.LocalStorage.Count,
-                            state?.History.Count));
+                    diagnostics?.StateExportCompleted(ctx,
+                        state?.Cookies.Count,
+                        state?.LocalStorage.Count,
+                        state?.History.Count);
                 }
                 catch (Exception ex)
                 {
-                    PublishDrain(diagnostics, "Motor.StateExportFailed", corr, connectionId, session,
-                        severity: DiagnosticsSeverity.Warning,
-                        payload: MotorDiagnosticsPayloads.ExportFailed(
-                            ex is Sidecar.SidecarProtocolException spe ? spe.ErrorCode : "export_failed",
-                            ex.Message,
-                            session.PersistedSessionId));
+                    diagnostics?.StateExportFailed(ctx, ex);
                 }
             }
 
@@ -214,41 +218,17 @@ public sealed class MotorSessionRegistry : IMotorSessionRegistry
             catch { /* best-effort */ }
 
             session.MarkPhase(MotorSessionPhase.Stopped);
-            PublishDrain(diagnostics, "Motor.SessionStopped", corr, connectionId, session,
-                payload: new { reason = "drain" });
-            PublishDrain(diagnostics, "Motor.SlotReleased", corr, connectionId, session,
-                payload: new
-                {
-                    activeCount = ActiveCount,
-                    startingCount = StartingCount,
-                });
-            PublishDrain(diagnostics, "Motor.SidecarDisconnected", corr, connectionId, session,
-                payload: new { sidecarSessionId = session.SidecarSessionId });
+            diagnostics?.Emit(ctx, "Motor.SessionStopped", new { reason = "drain" });
+            diagnostics?.Emit(ctx, "Motor.SlotReleased", new
+            {
+                activeCount = ActiveCount,
+                startingCount = StartingCount,
+            });
+            diagnostics?.Emit(ctx, "Motor.SidecarDisconnected",
+                new { sidecarSessionId = session.SidecarSessionId });
         }
 
         if (Volatile.Read(ref _activeSlots) < 0)
             Interlocked.Exchange(ref _activeSlots, 0);
-    }
-
-    private static void PublishDrain(
-        IDiagnosticsEventBus? diagnostics,
-        string name,
-        string correlationId,
-        string connectionId,
-        IMotorSession session,
-        DiagnosticsSeverity severity = DiagnosticsSeverity.Information,
-        object? payload = null)
-    {
-        diagnostics?.Publish(new DiagnosticsEvent
-        {
-            Domain = DiagnosticsDomain.MotorLive,
-            Name = name,
-            Severity = severity,
-            CorrelationId = correlationId,
-            ConnectionId = connectionId,
-            PersistedSessionId = session.PersistedSessionId,
-            SidecarSessionId = session.SidecarSessionId,
-            Payload = payload,
-        });
     }
 }

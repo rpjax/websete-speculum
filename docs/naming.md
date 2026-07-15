@@ -35,6 +35,25 @@ This document defines vocabulary and naming rules for the API and sidecar codeba
 | Chrome instance on server | — | `RemoteBrowserSession` |
 | Persisted browser state (SQLite) | `BrowserSessionStore` | — |
 
+## Diagnostics vocabulary (config vs runtime)
+
+Split the operator input from the resolved state:
+
+| Concept | Name | Where |
+|---------|------|-------|
+| Operator input (what you turn on) | **toggles**, named by capability (`metrics`/`events`/`snapshots`/`probe`) | `DiagnosticsDomainsOptions` + `DiagnosticsTelemetryOptions` config |
+| Resolved state (after degraded/elevate) | **capabilities** → `IsCapabilityEnabled(...)`, `EffectiveCapabilities` | `IDiagnosticsRuntime` |
+| Event metadata (kind of signal) | `DiagnosticsCapability { Metric, Event, Snapshot, Probe }` | catalog descriptor |
+
+Type families:
+
+- Transport (no rename): `IDiagnosticsEventBus` / `DiagnosticsEventBus` — **domain-agnostic**; gates only by descriptor + settings.
+- Catalog: `DiagnosticsEventDescriptor { Name, Domain, Capability, Persist }` + `DiagnosticsEventCatalog`.
+- Emitters (one per domain, suffix `Emitter`): `IMotorDiagnosticsEmitter`, `ISidecarDiagnosticsEmitter`, `IDiagnosticsSelfEmitter`, `ITelemetryEmitter`. The `Diagnostics` token appears only when the type lives **outside** the `Diagnostics.*` namespace (Motor).
+- Telemetry pull: `ITelemetrySource` (+ `Host`/`Motor`/`Sidecar`/`Persistence`/`Pipeline` sources), composed by `ITelemetrySampleComposer`; sampled by `TelemetrySamplerHostedService`; shared host collector stays `HostResourceProbe`.
+- Payload DTOs (camelCase records): `TelemetrySample` (root) + `HostTelemetry`/`MotorTelemetry`/`SidecarTelemetry`/`PersistenceTelemetry`/`PipelineTelemetry`.
+- Options family: `DiagnosticsDomainsOptions`, `DiagnosticsTelemetryOptions`, presets in `DiagnosticsSeedProfiles`; `Profile` (not `DefaultLevel`) names the seed preset.
+
 ## Web client folders
 
 The React app mirrors the same Motor domains:

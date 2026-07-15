@@ -1,60 +1,166 @@
+import type {
+  DiagnosticsCapability,
+  DiagnosticsOptions,
+  DiagnosticsProfile,
+  EffectiveCapabilities,
+} from '@/lib/diagnosticsApi'
+
+/**
+ * Canonical event/effective-capability domain keys (DiagnosticsDomain.ToString() on the wire).
+ * These are the strings the API emits for event `domain` and effectiveCapabilities keys.
+ */
+export const EVENT_DOMAINS = [
+  'MotorLive',
+  'SidecarBrowser',
+  'BrowserQuery',
+  'PersistedSessions',
+  'Telemetry',
+  'DiagnosticsSelf',
+] as const
+
 export const DOMAIN_COLORS: Record<string, string> = {
-  'Motor.Live': 'text-blue-400',
-  'Sidecar.Browser': 'text-purple-400',
-  'BrowserQuery': 'text-violet-400',
-  'Persistence': 'text-teal-400',
-  'HostResources': 'text-amber-400',
-  'Diagnostics.Self': 'text-orange-400',
+  MotorLive: 'text-blue-400',
+  SidecarBrowser: 'text-purple-400',
+  BrowserQuery: 'text-violet-400',
+  PersistedSessions: 'text-teal-400',
+  Telemetry: 'text-amber-400',
+  DiagnosticsSelf: 'text-orange-400',
 }
 
 export const DOMAIN_BG: Record<string, string> = {
-  'Motor.Live': 'bg-blue-500/15 text-blue-400 border-blue-500/30',
-  'Sidecar.Browser': 'bg-purple-500/15 text-purple-400 border-purple-500/30',
-  'BrowserQuery': 'bg-violet-500/15 text-violet-400 border-violet-500/30',
-  'Persistence': 'bg-teal-500/15 text-teal-400 border-teal-500/30',
-  'HostResources': 'bg-amber-500/15 text-amber-400 border-amber-500/30',
-  'Diagnostics.Self': 'bg-orange-500/15 text-orange-400 border-orange-500/30',
+  MotorLive: 'bg-blue-500/15 text-blue-400 border-blue-500/30',
+  SidecarBrowser: 'bg-purple-500/15 text-purple-400 border-purple-500/30',
+  BrowserQuery: 'bg-violet-500/15 text-violet-400 border-violet-500/30',
+  PersistedSessions: 'bg-teal-500/15 text-teal-400 border-teal-500/30',
+  Telemetry: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
+  DiagnosticsSelf: 'bg-orange-500/15 text-orange-400 border-orange-500/30',
 }
 
 export const DOMAIN_LABELS: Record<string, string> = {
-  motorLive: 'Motor (sessions)',
-  sidecarBrowser: 'Sidecar (browser)',
-  browserQuery: 'Browser Query',
-  persistedSessions: 'Persisted Sessions',
-  hostResources: 'Host Resources',
-  'Motor.Live': 'Motor (sessions)',
-  'Sidecar.Browser': 'Sidecar (browser)',
-  'BrowserQuery': 'Browser Query',
-  'Persistence': 'Persisted Sessions',
-  'HostResources': 'Host Resources',
-  'Diagnostics.Self': 'Diagnostics',
+  MotorLive: 'Motor (sessions)',
+  SidecarBrowser: 'Sidecar (browser)',
+  BrowserQuery: 'Browser Query',
+  PersistedSessions: 'Persisted Sessions',
+  Telemetry: 'Telemetry',
+  DiagnosticsSelf: 'Diagnostics',
 }
 
 export const DOMAIN_DESCRIPTIONS: Record<string, string> = {
-  'Motor.Live': 'Session lifecycle, navigation, slot management, sidecar connect/fault, state export',
-  'Sidecar.Browser': 'Browser probe requests, completions, timeouts, rejections',
-  'BrowserQuery': 'Cookie, storage, DOM, and JS evaluation operations',
-  'Persistence': 'Persisted session detail queries and state exports',
-  'HostResources': '.NET process metrics (memory, GC, threads)',
-  'Diagnostics.Self': 'Config changes, elevate, degrade, recover, storage overflow, cleanup',
+  MotorLive: 'Session lifecycle, navigation, slot management, sidecar connect/fault, state export',
+  SidecarBrowser: 'Browser probe requests, completions, timeouts, rejections',
+  BrowserQuery: 'Cookie, storage, DOM, and JS evaluation operations',
+  PersistedSessions: 'Persisted session detail queries and state exports',
+  Telemetry: 'Composite periodic snapshot — host, motor, sidecar, persistence, pipeline',
+  DiagnosticsSelf: 'Config changes, elevate, degrade, recover, storage overflow, cleanup',
 }
 
-export const LEVEL_ORDER = ['Off', 'Metrics', 'Events', 'StateSnapshots', 'BrowserQuery'] as const
-
-export const LEVEL_LABELS: Record<string, string> = {
-  Off: 'Off',
-  Metrics: 'Metrics',
-  Events: 'Events',
-  StateSnapshots: 'Snapshots',
-  BrowserQuery: 'Browser Query',
+/** Config toggle-group labels (DiagnosticsDomainToggles keys). */
+export const CONFIG_DOMAIN_LABELS: Record<string, string> = {
+  motor: 'Motor (sessions)',
+  sidecar: 'Sidecar (browser)',
+  browserQuery: 'Browser Query',
+  persisted: 'Persisted Sessions',
 }
 
-export const LEVEL_DESCRIPTIONS: Record<string, string> = {
-  Off: 'No signals collected for this domain',
-  Metrics: 'Gauges and counters only (FPS, frame count, memory)',
-  Events: 'Lifecycle events recorded to the timeline',
-  StateSnapshots: 'Full state snapshots persisted on export',
-  BrowserQuery: 'Browser interrogation enabled (cookies, DOM, evaluate)',
+export const CAPABILITY_ORDER: DiagnosticsCapability[] = ['Metric', 'Event', 'Snapshot', 'Probe']
+
+export const CAPABILITY_LABELS: Record<string, string> = {
+  Metric: 'Metrics',
+  Event: 'Events',
+  Snapshot: 'Snapshots',
+  Probe: 'Browser Query',
+}
+
+export const CAPABILITY_DESCRIPTIONS: Record<string, string> = {
+  Metric: 'Gauges and counters (FPS, capacity, back-pressure) — survives degraded mode',
+  Event: 'Lifecycle events recorded to the timeline',
+  Snapshot: 'Full state snapshots persisted on export',
+  Probe: 'Browser interrogation (cookies, DOM, evaluate) — deep inspection',
+}
+
+/**
+ * Diagnostics presets = pre-applied toggle bundles. Mirrors DiagnosticsSeedProfiles on the API
+ * (docs/diagnostics.md). Selecting a profile applies these toggles; individual toggles override.
+ */
+export const DIAGNOSTICS_PRESETS: Record<DiagnosticsProfile, Pick<DiagnosticsOptions, 'domains' | 'telemetry'>> = {
+  Development: {
+    domains: {
+      motor: { metrics: true, events: true, snapshots: true },
+      sidecar: { metrics: true, events: true },
+      browserQuery: { probe: true },
+      persisted: { snapshots: true },
+    },
+    telemetry: {
+      enabled: true,
+      intervalSeconds: 15,
+      host: { enabled: true },
+      motor: { enabled: true, includeSessionIds: true, includePerSession: true, includeUrlHost: true },
+      sidecar: { enabled: true, includeFaultedIds: true },
+      persistence: { enabled: true, includeBytes: true },
+      pipeline: { enabled: true, includeBreakerPressure: true },
+    },
+  },
+  Production: {
+    domains: {
+      motor: { metrics: true, events: true, snapshots: true },
+      sidecar: { metrics: true, events: false },
+      browserQuery: { probe: false },
+      persisted: { snapshots: true },
+    },
+    telemetry: {
+      enabled: true,
+      intervalSeconds: 30,
+      host: { enabled: true },
+      motor: { enabled: true, includeSessionIds: false, includePerSession: false, includeUrlHost: false },
+      sidecar: { enabled: true, includeFaultedIds: false },
+      persistence: { enabled: true, includeBytes: false },
+      pipeline: { enabled: true, includeBreakerPressure: false },
+    },
+  },
+  Assertive: {
+    domains: {
+      motor: { metrics: true, events: true, snapshots: true },
+      sidecar: { metrics: true, events: true },
+      browserQuery: { probe: true },
+      persisted: { snapshots: true },
+    },
+    telemetry: {
+      enabled: true,
+      intervalSeconds: 10,
+      host: { enabled: true },
+      motor: { enabled: true, includeSessionIds: true, includePerSession: true, includeUrlHost: true },
+      sidecar: { enabled: true, includeFaultedIds: true },
+      persistence: { enabled: true, includeBytes: true },
+      pipeline: { enabled: true, includeBreakerPressure: true },
+    },
+  },
+}
+
+/** Enabled capability names for a domain's effective map, plus an "off" (nothing enabled) flag. */
+export function summarizeCapabilities(
+  caps: Partial<Record<string, boolean>> | undefined,
+): { enabled: string[]; off: boolean } {
+  const enabled = Object.entries(caps ?? {})
+    .filter(([, v]) => v)
+    .map(([k]) => k)
+  return { enabled, off: enabled.length === 0 }
+}
+
+/** Count individual capability toggles across all domains (for the health heuristic). */
+export function countCapabilities(effective: EffectiveCapabilities | undefined): {
+  off: number
+  total: number
+  enabled: number
+} {
+  let off = 0
+  let total = 0
+  for (const caps of Object.values(effective ?? {})) {
+    for (const v of Object.values(caps)) {
+      total++
+      if (!v) off++
+    }
+  }
+  return { off, total, enabled: total - off }
 }
 
 export const SEVERITY_COLORS: Record<string, string> = {
@@ -86,21 +192,21 @@ export const STORY_TYPES: Record<StoryType, { label: string; patterns: string[] 
 }
 
 export const PROBE_OPS = [
-  { id: 'process', label: 'Process info', level: 'Metrics', description: 'Browser PID and process type' },
-  { id: 'tabs', label: 'Open tabs', level: 'Metrics', description: 'List of open browser tabs' },
-  { id: 'resources', label: 'Resources', level: 'Metrics', description: 'JS heap usage and memory' },
-  { id: 'export', label: 'State export', level: 'Metrics', description: 'Trigger browser state export' },
-  { id: 'cookies', label: 'Cookies', level: 'BrowserQuery', description: 'All cookies from browser context' },
-  { id: 'storage', label: 'Local storage', level: 'BrowserQuery', description: 'localStorage entries' },
-  { id: 'dom', label: 'DOM query', level: 'BrowserQuery', description: 'DOM snapshot via selector' },
-  { id: 'evaluate', label: 'JS evaluate', level: 'BrowserQuery', description: 'JavaScript expression evaluation' },
+  { id: 'process', label: 'Process info', capability: 'Metric', description: 'Browser PID and process type' },
+  { id: 'tabs', label: 'Open tabs', capability: 'Metric', description: 'List of open browser tabs' },
+  { id: 'resources', label: 'Resources', capability: 'Metric', description: 'JS heap usage and memory' },
+  { id: 'export', label: 'State export', capability: 'Metric', description: 'Trigger browser state export' },
+  { id: 'cookies', label: 'Cookies', capability: 'Probe', description: 'All cookies from browser context' },
+  { id: 'storage', label: 'Local storage', capability: 'Probe', description: 'localStorage entries' },
+  { id: 'dom', label: 'DOM query', capability: 'Probe', description: 'DOM snapshot via selector' },
+  { id: 'evaluate', label: 'JS evaluate', capability: 'Probe', description: 'JavaScript expression evaluation' },
 ] as const
 
 export const PROBE_QUICK_PICKS = [
-  { id: 'health', label: 'Session health', ops: ['process', 'tabs', 'resources'], level: 'Metrics', description: 'Quick health check: process, tabs, resources' },
-  { id: 'browser-state', label: 'Browser state', ops: ['cookies', 'storage'], level: 'BrowserQuery', description: 'Cookies and localStorage (requires BrowserQuery level)' },
-  { id: 'performance', label: 'Performance', ops: ['resources', 'process'], level: 'Metrics', description: 'CPU and memory metrics' },
-  { id: 'full', label: 'Full inspection', ops: ['process', 'tabs', 'resources', 'cookies', 'storage'], level: 'BrowserQuery', description: 'Complete session inspection' },
+  { id: 'health', label: 'Session health', ops: ['process', 'tabs', 'resources'], capability: 'Metric', description: 'Quick health check: process, tabs, resources' },
+  { id: 'browser-state', label: 'Browser state', ops: ['cookies', 'storage'], capability: 'Probe', description: 'Cookies and localStorage (requires Browser Query)' },
+  { id: 'performance', label: 'Performance', ops: ['resources', 'process'], capability: 'Metric', description: 'CPU and memory metrics' },
+  { id: 'full', label: 'Full inspection', ops: ['process', 'tabs', 'resources', 'cookies', 'storage'], capability: 'Probe', description: 'Complete session inspection' },
 ] as const
 
 export function detectStoryType(eventNames: string[]): StoryType {

@@ -2,6 +2,7 @@ using Speculum.Api.Config.Application;
 using Speculum.Api.Config.Runtime;
 using Speculum.Api.Config.Store;
 using Speculum.Api.Diagnostics.Abstractions;
+using Speculum.Api.Diagnostics.Emitters;
 
 namespace Speculum.Api.Diagnostics.Configuration;
 
@@ -9,16 +10,16 @@ public sealed class DiagnosticsConfigHandler : IConfigChangeHandler
 {
     private readonly Lazy<ISpeculumConfigStore> _store;
     private readonly IDiagnosticsRuntime _runtime;
-    private readonly IDiagnosticsEventBus _bus;
+    private readonly IDiagnosticsSelfEmitter _self;
 
     public DiagnosticsConfigHandler(
         Lazy<ISpeculumConfigStore> store,
         IDiagnosticsRuntime runtime,
-        IDiagnosticsEventBus bus)
+        IDiagnosticsSelfEmitter self)
     {
         _store = store;
         _runtime = runtime;
-        _bus = bus;
+        _self = self;
     }
 
     public Task HandleAsync(ConfigChangeContext context, CancellationToken ct = default)
@@ -32,16 +33,7 @@ public sealed class DiagnosticsConfigHandler : IConfigChangeHandler
 
         var options = _store.Value.Current.Diagnostics;
         _runtime.ApplyOptions(options);
-        _bus.Publish(new DiagnosticsEvent
-        {
-            Domain = DiagnosticsDomain.DiagnosticsSelf,
-            Name = "Diagnostics.ConfigApplied",
-            Payload = new
-            {
-                enabled = options.Enabled,
-                defaultLevel = options.DefaultLevel,
-            },
-        });
+        _self.ConfigApplied(options.Enabled, options.Profile);
 
         return Task.CompletedTask;
     }

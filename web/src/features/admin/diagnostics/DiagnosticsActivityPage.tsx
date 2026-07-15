@@ -22,7 +22,7 @@ import {
   type SessionGroup,
 } from '@/lib/hooks/useCorrelationStories'
 import {
-  DOMAIN_LABELS, STORY_TYPES, formatRelativeTime,
+  DOMAIN_LABELS, EVENT_DOMAINS, STORY_TYPES, formatRelativeTime,
 } from '@/lib/diagnosticsConstants'
 import {
   narrateStory, describeEvent, describeErrorCode,
@@ -43,9 +43,8 @@ import { useBookmarks } from '@/lib/hooks/useBookmarks'
 
 type ViewMode = 'sessions' | 'stories' | 'feed'
 
-const DOMAIN_OPTIONS = Object.entries(DOMAIN_LABELS)
-  .filter(([k]) => k.includes('.') || k === 'Persistence' || k === 'HostResources' || k === 'BrowserQuery')
-  .map(([value, label]) => ({ value, label }))
+const DOMAIN_OPTIONS = (EVENT_DOMAINS as readonly string[])
+  .map((value) => ({ value, label: DOMAIN_LABELS[value] ?? value }))
 
 const SEVERITY_OPTIONS = [
   { value: 'Info', label: 'Info' },

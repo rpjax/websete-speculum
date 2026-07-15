@@ -11,6 +11,7 @@ using Speculum.Api.Config.Runtime;
 using Speculum.Api.Config.Store;
 using Speculum.Api.Diagnostics.Abstractions;
 using Speculum.Api.Edge;
+using Speculum.Api.Motor.Diagnostics;
 using Speculum.Api.Motor.Live;
 using Speculum.Api.Scripts;
 using Speculum.Api.BrowserPersistence;
@@ -130,7 +131,7 @@ public sealed class ConfigServicePipelineTests : IDisposable
 
         IConfigChangeHandler[] handlers =
         [
-            new MotorSessionDrainHandler(registry, sessionStore, new NullDiagnosticsEventBus()),
+            new MotorSessionDrainHandler(registry, sessionStore, TestMotorDiagnostics.Emitter(new NullDiagnosticsEventBus())),
             new EdgeSyncConfigHandler(sync),
         ];
 
@@ -198,6 +199,8 @@ public sealed class ConfigServicePipelineTests : IDisposable
 
         public IReadOnlyList<MotorSessionListItem> ListSessions() => [];
 
+        public IReadOnlyList<MotorSessionDiagnosticsSnapshot> ListSnapshots() => [];
+
         public bool TryFindByPersistedSessionId(
             string persistedSessionId,
             [NotNullWhen(true)] out IMotorSession? session,
@@ -218,7 +221,7 @@ public sealed class ConfigServicePipelineTests : IDisposable
             return false;
         }
 
-        public Task StopAllAsync(IBrowserSessionStore sessionStore, CancellationToken ct = default, Speculum.Api.Diagnostics.Abstractions.IDiagnosticsEventBus? diagnostics = null, string? correlationId = null)
+        public Task StopAllAsync(IBrowserSessionStore sessionStore, CancellationToken ct = default, IMotorDiagnosticsEmitter? diagnostics = null, string? correlationId = null)
         {
             StopAllCount++;
             return Task.CompletedTask;

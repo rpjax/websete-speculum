@@ -4,11 +4,10 @@ public interface IDiagnosticsRuntime
 {
     bool Enabled { get; }
     bool IsDegraded { get; }
-    DiagnosticsLevel GetEffectiveLevel(DiagnosticsDomain domain);
-    bool IsEnabled(DiagnosticsDomain domain, DiagnosticsLevel minimum);
+    bool IsCapabilityEnabled(DiagnosticsDomain domain, DiagnosticsCapability capability);
     DiagnosticsRuntimeSnapshot GetSnapshot();
     void ApplyOptions(Diagnostics.Configuration.DiagnosticsOptions options);
-    void SetElevate(DiagnosticsLevel? browserQueryFloor, TimeSpan? ttl);
+    void SetElevate(TimeSpan? ttl);
     void ClearElevate();
     void ReportPublishDropped();
     void ReportOverflow();
@@ -19,10 +18,18 @@ public sealed class DiagnosticsRuntimeSnapshot
 {
     public bool Enabled { get; init; }
     public bool Degraded { get; init; }
-    public IReadOnlyDictionary<string, string> EffectiveLevels { get; init; }
-        = new Dictionary<string, string>();
+
+    /// <summary>Resolved capabilities (post degraded/elevate) per domain: domain -> {capability -> enabled}.</summary>
+    public IReadOnlyDictionary<string, IReadOnlyDictionary<string, bool>> EffectiveCapabilities { get; init; }
+        = new Dictionary<string, IReadOnlyDictionary<string, bool>>();
+
+    /// <summary>Always-present elevate projection: { active, expiresUtc }.</summary>
     public object? Elevate { get; init; }
+
+    /// <summary>Strongly-typed elevate-active flag (same truth as <see cref="Elevate"/>.active) for internal consumers.</summary>
+    public bool ElevateActive { get; init; }
     public long BytesUsed { get; init; }
+    public long StorageMaxBytes { get; init; }
     public long EventsStored { get; init; }
     public long EventsDropped { get; init; }
     public long OverflowCount { get; init; }

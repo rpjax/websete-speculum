@@ -42,14 +42,12 @@ export const mockDiagnosticsApi = {
   elevate: (body: DiagnosticsElevateRequest) => {
     const resp: DiagnosticsElevateResponse = {
       elevated: true,
-      browserQueryFloor: body.browserQueryFloor ?? 'BrowserQuery',
       minutes: body.minutes ?? 10,
     }
     overviewState = {
       ...overviewState,
       elevate: {
         active: true,
-        browserQueryFloor: resp.browserQueryFloor,
         expiresUtc: new Date(Date.now() + (resp.minutes ?? 10) * 60_000).toISOString(),
       },
     }

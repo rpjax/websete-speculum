@@ -4,6 +4,7 @@ using Speculum.Api.Config.Runtime;
 using Speculum.Api.Config.Store;
 using Speculum.Api.Diagnostics.Abstractions;
 using Speculum.Api.Edge;
+using Speculum.Api.Motor.Diagnostics;
 using Speculum.Api.Motor.Live;
 using Speculum.Api.BrowserPersistence;
 
@@ -48,7 +49,7 @@ public sealed class ConfigPipelineTests
     public async Task Forwarding_pre_reload_drains_motor_sessions()
     {
         var registry = new RecordingMotorSessionRegistry();
-        var handler = new MotorSessionDrainHandler(registry, new NoOpBrowserSessionStore(), new NullDiagnosticsEventBus());
+        var handler = new MotorSessionDrainHandler(registry, new NoOpBrowserSessionStore(), TestMotorDiagnostics.Emitter(new NullDiagnosticsEventBus()));
 
         await handler.HandleAsync(Context(ConfigSectionKeys.Forwarding, ConfigChangePhase.PreReload));
 
@@ -59,7 +60,7 @@ public sealed class ConfigPipelineTests
     public async Task Hosting_pre_reload_drains_motor_sessions()
     {
         var registry = new RecordingMotorSessionRegistry();
-        var handler = new MotorSessionDrainHandler(registry, new NoOpBrowserSessionStore(), new NullDiagnosticsEventBus());
+        var handler = new MotorSessionDrainHandler(registry, new NoOpBrowserSessionStore(), TestMotorDiagnostics.Emitter(new NullDiagnosticsEventBus()));
 
         await handler.HandleAsync(Context(ConfigSectionKeys.Hosting, ConfigChangePhase.PreReload));
 
@@ -71,7 +72,7 @@ public sealed class ConfigPipelineTests
     {
         var registry = new RecordingMotorSessionRegistry();
         var sync = new RecordingEdgeSynchronizer();
-        var drainHandler = new MotorSessionDrainHandler(registry, new NoOpBrowserSessionStore(), new NullDiagnosticsEventBus());
+        var drainHandler = new MotorSessionDrainHandler(registry, new NoOpBrowserSessionStore(), TestMotorDiagnostics.Emitter(new NullDiagnosticsEventBus()));
         var syncHandler = new EdgeSyncConfigHandler(sync);
 
         await drainHandler.HandleAsync(Context(ConfigSectionKeys.MaxSessions, ConfigChangePhase.PreReload));
@@ -124,6 +125,8 @@ public sealed class ConfigPipelineTests
 
         public IReadOnlyList<MotorSessionListItem> ListSessions() => [];
 
+        public IReadOnlyList<MotorSessionDiagnosticsSnapshot> ListSnapshots() => [];
+
         public bool TryFindByPersistedSessionId(
             string persistedSessionId,
             [NotNullWhen(true)] out IMotorSession? session,
@@ -144,7 +147,7 @@ public sealed class ConfigPipelineTests
             return false;
         }
 
-        public Task StopAllAsync(IBrowserSessionStore sessionStore, CancellationToken ct = default, Speculum.Api.Diagnostics.Abstractions.IDiagnosticsEventBus? diagnostics = null, string? correlationId = null)
+        public Task StopAllAsync(IBrowserSessionStore sessionStore, CancellationToken ct = default, IMotorDiagnosticsEmitter? diagnostics = null, string? correlationId = null)
         {
             StopAllCount++;
             return Task.CompletedTask;

@@ -14,7 +14,7 @@ import { Badge } from '@/components/ui/badge'
 import { ResourceGauge } from '@/components/admin/ResourceGauge'
 import { ExportButton } from '@/components/admin/ExportButton'
 import { Skeleton } from '@/components/ui/skeleton'
-import { PROBE_OPS, PROBE_QUICK_PICKS, LEVEL_LABELS, formatBytes } from '@/lib/diagnosticsConstants'
+import { PROBE_OPS, PROBE_QUICK_PICKS, CAPABILITY_LABELS, formatBytes } from '@/lib/diagnosticsConstants'
 import { describeErrorCode, humanizeConnectionId } from '@/lib/diagnosticsDescriptions'
 import { useProbeHistory, useProbeTemplates, type ProbeHistoryEntry } from '@/lib/hooks/useProbeHistory'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -121,7 +121,7 @@ export default function DiagnosticsInvestigatePage() {
         <div className="text-sm leading-relaxed text-primary/90">
           <p>
             <strong>Browser probes</strong> inspect a live browser's internal state. Select a session, choose operations, and run.
-            Some operations need <strong>BrowserQuery</strong> level (purple badge) — use <strong>Elevate</strong> on the Health tab first.
+            Some operations need the <strong>Browser Query</strong> capability (purple badge) — use <strong>Elevate</strong> on the Health tab first.
           </p>
         </div>
       </div>
@@ -259,7 +259,7 @@ export default function DiagnosticsInvestigatePage() {
                   )}>
                     <div className="flex items-center justify-between">
                       <span className="text-sm font-semibold">{qp.label}</span>
-                      <LevelBadge level={qp.level} />
+                      <CapabilityBadge capability={qp.capability} />
                     </div>
                     <p className="mt-1 text-xs text-muted-foreground leading-relaxed">{qp.description}</p>
                     <p className="mt-1.5 font-mono text-[10px] text-muted-foreground/60">{qp.ops.join(' · ')}</p>
@@ -284,7 +284,7 @@ export default function DiagnosticsInvestigatePage() {
                       <p className="text-sm font-medium">{op.label}</p>
                       <p className="text-[11px] text-muted-foreground">{op.description}</p>
                     </div>
-                    <LevelBadge level={op.level} />
+                    <CapabilityBadge capability={op.capability} />
                   </label>
                 )
               })}
@@ -374,19 +374,19 @@ function ProbeHistoryRow({ entry, onRerun }: { entry: ProbeHistoryEntry; onRerun
   )
 }
 
-function LevelBadge({ level }: { level: string }) {
-  const isBQ = level === 'BrowserQuery'
+function CapabilityBadge({ capability }: { capability: string }) {
+  const isBQ = capability === 'Probe'
   return (
     <Tooltip>
       <TooltipTrigger asChild>
         <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold',
           isBQ ? 'bg-violet-500/15 text-violet-400 ring-1 ring-violet-500/20' : 'bg-muted text-muted-foreground',
         )}>
-          {LEVEL_LABELS[level] ?? level}
+          {CAPABILITY_LABELS[capability] ?? capability}
         </span>
       </TooltipTrigger>
       <TooltipContent side="top" className="max-w-xs text-xs">
-        {isBQ ? 'Requires BrowserQuery — enable via Elevate on Health tab.' : 'Works at basic Events/Metrics level.'}
+        {isBQ ? 'Requires the Browser Query capability — enable via Elevate on the Health tab.' : 'Works at the basic Metrics capability.'}
       </TooltipContent>
     </Tooltip>
   )
@@ -487,23 +487,29 @@ function HostResourcesDisplay({ host }: { host: Record<string, unknown> }) {
   const memUsed = host.memoryUsed as number | undefined
   const memTotal = host.memoryTotal as number | undefined
   const cpuUsage = host.cpuUsage as number | undefined
+  const uptimeSec = host.uptimeSec as number | undefined
+  const gc: [string, number][] = [
+    ['0', host.gcGen0 as number],
+    ['1', host.gcGen1 as number],
+    ['2', host.gcGen2 as number],
+  ].filter(([, v]) => typeof v === 'number') as [string, number][]
   return (
     <div className="space-y-4">
       {host.hostname != null && (
         <div className="flex items-center gap-2">
           <Server className="h-4 w-4 text-muted-foreground" />
           <span className="text-sm font-medium">{String(host.hostname)}</span>
-          {host.uptime != null && <span className="text-xs text-muted-foreground">· uptime {Math.round((host.uptime as number) / 3600)}h</span>}
+          {uptimeSec != null && <span className="text-xs text-muted-foreground">· uptime {Math.round(uptimeSec / 3600)}h</span>}
         </div>
       )}
       <div className="grid gap-4 sm:grid-cols-2">
         {memUsed != null && memTotal != null && <ResourceGauge label="Memory" used={memUsed} total={memTotal} formatValue={formatBytes} />}
-        {cpuUsage != null && <ResourceGauge label="CPU" used={Math.round(cpuUsage * 100)} total={100} formatValue={(n) => `${n}%`} />}
+        {cpuUsage != null && <ResourceGauge label="CPU" used={Math.round(cpuUsage)} total={100} formatValue={(n) => `${n}%`} />}
       </div>
-      {host.gcCollections != null && (
+      {gc.length > 0 && (
         <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
           <span className="flex items-center gap-1"><Info className="h-3 w-3" />GC:</span>
-          {Object.entries(host.gcCollections as Record<string, number>).map(([gen, count]) => (
+          {gc.map(([gen, count]) => (
             <span key={gen}>Gen {gen}: <span className="font-medium text-foreground">{count}</span></span>
           ))}
         </div>

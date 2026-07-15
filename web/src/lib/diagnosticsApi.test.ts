@@ -27,10 +27,11 @@ describe('diagnosticsApi', () => {
     mockJson({
       diagnosticsSchemaVersion: 1,
       enabled: true,
-      effectiveLevels: { motorLive: 'Events' },
+      effectiveCapabilities: { MotorLive: { Metric: true, Event: true } },
       elevate: null,
       degraded: false,
       bytesUsed: 0,
+      storageMaxBytes: 64 * 1024 * 1024,
       eventsStored: 0,
       eventsDropped: 0,
       overflowCount: 0,
@@ -52,12 +53,12 @@ describe('diagnosticsApi', () => {
   })
 
   it('elevate PUTs /elevate', async () => {
-    mockJson({ elevated: true, browserQueryFloor: 'BrowserQuery', minutes: 15 })
+    mockJson({ elevated: true, minutes: 15 })
 
-    await diagnosticsApi.elevate({ browserQueryFloor: 'BrowserQuery', minutes: 15 })
+    await diagnosticsApi.elevate({ minutes: 15 })
     expect(fetchMock).toHaveBeenCalledWith(
       `${BASE}/elevate`,
-      expect.objectContaining({ method: 'PUT', body: JSON.stringify({ browserQueryFloor: 'BrowserQuery', minutes: 15 }) }),
+      expect.objectContaining({ method: 'PUT', body: JSON.stringify({ minutes: 15 }) }),
     )
   })
 

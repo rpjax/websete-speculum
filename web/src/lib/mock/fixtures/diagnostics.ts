@@ -11,25 +11,31 @@ import type {
 const now = new Date().toISOString()
 const fiveMinAgo = new Date(Date.now() - 5 * 60_000).toISOString()
 
+const STORAGE_MAX_BYTES = 64 * 1024 * 1024
+
+const effectiveCapabilities = {
+  MotorLive: { Metric: true, Event: true, Snapshot: true },
+  SidecarBrowser: { Metric: true, Event: false },
+  BrowserQuery: { Probe: false },
+  PersistedSessions: { Snapshot: true },
+  Telemetry: { Metric: true },
+  DiagnosticsSelf: { Metric: true },
+}
+
 export const overview: DiagnosticsOverview = {
   diagnosticsSchemaVersion: 1,
   enabled: true,
   degraded: false,
   elevate: null,
   bytesUsed: 12_582_912,
+  storageMaxBytes: STORAGE_MAX_BYTES,
   eventsStored: 347,
   eventsDropped: 0,
   overflowCount: 0,
   probeInFlight: 0,
   lastCleanupUtc: fiveMinAgo,
   redactionMode: 'none',
-  effectiveLevels: {
-    motorLive: 'Events',
-    sidecarBrowser: 'Metrics',
-    hostResources: 'Metrics',
-    browserQuery: 'Off',
-    persistedSessions: 'StateSnapshots',
-  },
+  effectiveCapabilities,
   liveSessions: { activeCount: 2, startingCount: 0, total: 2 },
   needsAttention: [],
 }
@@ -45,10 +51,11 @@ export const degradedOverview: DiagnosticsOverview = {
 export const runtime: DiagnosticsRuntimeSnapshot = {
   diagnosticsSchemaVersion: 1,
   enabled: true,
-  effectiveLevels: overview.effectiveLevels,
+  effectiveCapabilities,
   elevate: null,
   degraded: false,
   bytesUsed: overview.bytesUsed,
+  storageMaxBytes: STORAGE_MAX_BYTES,
   eventsStored: overview.eventsStored,
   eventsDropped: 0,
   overflowCount: 0,
@@ -145,54 +152,54 @@ function ago(minutes: number): string {
 export function eventsList(): DiagnosticsEventRecord[] {
   const events: DiagnosticsEventRecord[] = [
     // --- Session lifecycle story for conn1 (6 events, correlated) ---
-    { diagnosticsSchemaVersion: 1, id: eid(), utc: ago(12), domain: 'Motor.Live', name: 'Motor.SessionStarting', severity: 'Info', correlationId: corrSessionLifecycle1, connectionId: conn1, persistedSessionId: 'sess-a1b2c3d4-e5f6-7890-abcd-ef1234567890', sidecarSessionId: 'sc-111-222', payload: { restored: false }, redaction: 'none' },
-    { diagnosticsSchemaVersion: 1, id: eid(), utc: ago(11.8), domain: 'Motor.Live', name: 'Motor.SessionResolved', severity: 'Info', correlationId: corrSessionLifecycle1, connectionId: conn1, persistedSessionId: 'sess-a1b2c3d4-e5f6-7890-abcd-ef1234567890', sidecarSessionId: 'sc-111-222', payload: { slotIndex: 0 }, redaction: 'none' },
-    { diagnosticsSchemaVersion: 1, id: eid(), utc: ago(11.5), domain: 'Motor.Live', name: 'Motor.SlotAcquired', severity: 'Info', correlationId: corrSessionLifecycle1, connectionId: conn1, persistedSessionId: null, sidecarSessionId: 'sc-111-222', payload: { slotIndex: 0, totalSlots: 5 }, redaction: 'none' },
-    { diagnosticsSchemaVersion: 1, id: eid(), utc: ago(11.2), domain: 'Motor.Live', name: 'Motor.SidecarConnected', severity: 'Info', correlationId: corrSessionLifecycle1, connectionId: conn1, persistedSessionId: null, sidecarSessionId: 'sc-111-222', payload: { sidecarSessionId: 'sc-111-222' }, redaction: 'none' },
-    { diagnosticsSchemaVersion: 1, id: eid(), utc: ago(11), domain: 'Motor.Live', name: 'Motor.SessionPromoted', severity: 'Info', correlationId: corrSessionLifecycle1, connectionId: conn1, persistedSessionId: null, sidecarSessionId: 'sc-111-222', payload: { fps: 24 }, redaction: 'none' },
-    { diagnosticsSchemaVersion: 1, id: eid(), utc: ago(10.8), domain: 'Motor.Live', name: 'Motor.SessionStarted', severity: 'Info', correlationId: corrSessionLifecycle1, connectionId: conn1, persistedSessionId: 'sess-a1b2c3d4-e5f6-7890-abcd-ef1234567890', sidecarSessionId: 'sc-111-222', payload: { restored: true, cookieCount: 12, persistedSessionId: 'sess-a1b2c3d4-e5f6-7890-abcd-ef1234567890' }, redaction: 'none' },
+    { diagnosticsSchemaVersion: 1, id: eid(), utc: ago(12), domain: 'MotorLive', name: 'Motor.SessionStarting', severity: 'Info', correlationId: corrSessionLifecycle1, connectionId: conn1, persistedSessionId: 'sess-a1b2c3d4-e5f6-7890-abcd-ef1234567890', sidecarSessionId: 'sc-111-222', payload: { restored: false }, redaction: 'none' },
+    { diagnosticsSchemaVersion: 1, id: eid(), utc: ago(11.8), domain: 'MotorLive', name: 'Motor.SessionResolved', severity: 'Info', correlationId: corrSessionLifecycle1, connectionId: conn1, persistedSessionId: 'sess-a1b2c3d4-e5f6-7890-abcd-ef1234567890', sidecarSessionId: 'sc-111-222', payload: { slotIndex: 0 }, redaction: 'none' },
+    { diagnosticsSchemaVersion: 1, id: eid(), utc: ago(11.5), domain: 'MotorLive', name: 'Motor.SlotAcquired', severity: 'Info', correlationId: corrSessionLifecycle1, connectionId: conn1, persistedSessionId: null, sidecarSessionId: 'sc-111-222', payload: { slotIndex: 0, totalSlots: 5 }, redaction: 'none' },
+    { diagnosticsSchemaVersion: 1, id: eid(), utc: ago(11.2), domain: 'MotorLive', name: 'Motor.SidecarConnected', severity: 'Info', correlationId: corrSessionLifecycle1, connectionId: conn1, persistedSessionId: null, sidecarSessionId: 'sc-111-222', payload: { sidecarSessionId: 'sc-111-222' }, redaction: 'none' },
+    { diagnosticsSchemaVersion: 1, id: eid(), utc: ago(11), domain: 'MotorLive', name: 'Motor.SessionPromoted', severity: 'Info', correlationId: corrSessionLifecycle1, connectionId: conn1, persistedSessionId: null, sidecarSessionId: 'sc-111-222', payload: { fps: 24 }, redaction: 'none' },
+    { diagnosticsSchemaVersion: 1, id: eid(), utc: ago(10.8), domain: 'MotorLive', name: 'Motor.SessionStarted', severity: 'Info', correlationId: corrSessionLifecycle1, connectionId: conn1, persistedSessionId: 'sess-a1b2c3d4-e5f6-7890-abcd-ef1234567890', sidecarSessionId: 'sc-111-222', payload: { restored: true, cookieCount: 12, persistedSessionId: 'sess-a1b2c3d4-e5f6-7890-abcd-ef1234567890' }, redaction: 'none' },
 
     // --- Session lifecycle story for conn2 (3 events) ---
-    { diagnosticsSchemaVersion: 1, id: eid(), utc: ago(8), domain: 'Motor.Live', name: 'Motor.SessionStarting', severity: 'Info', correlationId: corrSessionLifecycle2, connectionId: conn2, persistedSessionId: null, sidecarSessionId: 'sc-333-444', payload: { restored: false }, redaction: 'none' },
-    { diagnosticsSchemaVersion: 1, id: eid(), utc: ago(7.5), domain: 'Motor.Live', name: 'Motor.SidecarConnected', severity: 'Info', correlationId: corrSessionLifecycle2, connectionId: conn2, persistedSessionId: null, sidecarSessionId: 'sc-333-444', payload: { sidecarSessionId: 'sc-333-444' }, redaction: 'none' },
-    { diagnosticsSchemaVersion: 1, id: eid(), utc: ago(7), domain: 'Motor.Live', name: 'Motor.SessionStarted', severity: 'Info', correlationId: corrSessionLifecycle2, connectionId: conn2, persistedSessionId: null, sidecarSessionId: 'sc-333-444', payload: { restored: false, cookieCount: 0 }, redaction: 'none' },
+    { diagnosticsSchemaVersion: 1, id: eid(), utc: ago(8), domain: 'MotorLive', name: 'Motor.SessionStarting', severity: 'Info', correlationId: corrSessionLifecycle2, connectionId: conn2, persistedSessionId: null, sidecarSessionId: 'sc-333-444', payload: { restored: false }, redaction: 'none' },
+    { diagnosticsSchemaVersion: 1, id: eid(), utc: ago(7.5), domain: 'MotorLive', name: 'Motor.SidecarConnected', severity: 'Info', correlationId: corrSessionLifecycle2, connectionId: conn2, persistedSessionId: null, sidecarSessionId: 'sc-333-444', payload: { sidecarSessionId: 'sc-333-444' }, redaction: 'none' },
+    { diagnosticsSchemaVersion: 1, id: eid(), utc: ago(7), domain: 'MotorLive', name: 'Motor.SessionStarted', severity: 'Info', correlationId: corrSessionLifecycle2, connectionId: conn2, persistedSessionId: null, sidecarSessionId: 'sc-333-444', payload: { restored: false, cookieCount: 0 }, redaction: 'none' },
 
     // --- Navigation story for conn1 (3 events) ---
-    { diagnosticsSchemaVersion: 1, id: eid(), utc: ago(6), domain: 'Motor.Live', name: 'Motor.NavigateRequested', severity: 'Info', correlationId: corrNavigate1, connectionId: conn1, persistedSessionId: null, sidecarSessionId: null, payload: { targetUrl: 'https://www.example.com/products' }, redaction: 'none' },
-    { diagnosticsSchemaVersion: 1, id: eid(), utc: ago(5.8), domain: 'Motor.Live', name: 'Motor.UrlMapped', severity: 'Info', correlationId: corrNavigate1, connectionId: conn1, persistedSessionId: null, sidecarSessionId: null, payload: { originalUrl: 'https://www.example.com/products', mappedUrl: 'https://www.example.com/products' }, redaction: 'none' },
-    { diagnosticsSchemaVersion: 1, id: eid(), utc: ago(5.5), domain: 'Motor.Live', name: 'Motor.NavigateCompleted', severity: 'Info', correlationId: corrNavigate1, connectionId: conn1, persistedSessionId: null, sidecarSessionId: null, payload: { url: 'https://www.example.com/products', durationMs: 340 }, redaction: 'none' },
+    { diagnosticsSchemaVersion: 1, id: eid(), utc: ago(6), domain: 'MotorLive', name: 'Motor.NavigateRequested', severity: 'Info', correlationId: corrNavigate1, connectionId: conn1, persistedSessionId: null, sidecarSessionId: null, payload: { targetUrl: 'https://www.example.com/products' }, redaction: 'none' },
+    { diagnosticsSchemaVersion: 1, id: eid(), utc: ago(5.8), domain: 'MotorLive', name: 'Motor.UrlMapped', severity: 'Info', correlationId: corrNavigate1, connectionId: conn1, persistedSessionId: null, sidecarSessionId: null, payload: { originalUrl: 'https://www.example.com/products', mappedUrl: 'https://www.example.com/products' }, redaction: 'none' },
+    { diagnosticsSchemaVersion: 1, id: eid(), utc: ago(5.5), domain: 'MotorLive', name: 'Motor.NavigateCompleted', severity: 'Info', correlationId: corrNavigate1, connectionId: conn1, persistedSessionId: null, sidecarSessionId: null, payload: { url: 'https://www.example.com/products', durationMs: 340 }, redaction: 'none' },
 
     // --- Failed navigation story for conn2 (2 events) ---
-    { diagnosticsSchemaVersion: 1, id: eid(), utc: ago(4), domain: 'Motor.Live', name: 'Motor.NavigateRequested', severity: 'Info', correlationId: corrNavigate2, connectionId: conn2, persistedSessionId: null, sidecarSessionId: null, payload: { targetUrl: 'https://blocked.example.com/' }, redaction: 'none' },
-    { diagnosticsSchemaVersion: 1, id: eid(), utc: ago(3.8), domain: 'Motor.Live', name: 'Motor.NavigateRejected', severity: 'Warning', correlationId: corrNavigate2, connectionId: conn2, persistedSessionId: null, sidecarSessionId: null, payload: { targetUrl: 'https://blocked.example.com/', errorCode: 'navigate_blocked_by_allowlist', phase: 'UrlMapping' }, redaction: 'none' },
+    { diagnosticsSchemaVersion: 1, id: eid(), utc: ago(4), domain: 'MotorLive', name: 'Motor.NavigateRequested', severity: 'Info', correlationId: corrNavigate2, connectionId: conn2, persistedSessionId: null, sidecarSessionId: null, payload: { targetUrl: 'https://blocked.example.com/' }, redaction: 'none' },
+    { diagnosticsSchemaVersion: 1, id: eid(), utc: ago(3.8), domain: 'MotorLive', name: 'Motor.NavigateRejected', severity: 'Warning', correlationId: corrNavigate2, connectionId: conn2, persistedSessionId: null, sidecarSessionId: null, payload: { targetUrl: 'https://blocked.example.com/', errorCode: 'navigate_blocked_by_allowlist', phase: 'UrlMapping' }, redaction: 'none' },
 
     // --- Probe story for conn1 (2 events, sidecar domain) ---
-    { diagnosticsSchemaVersion: 1, id: eid(), utc: ago(3), domain: 'Sidecar.Browser', name: 'Sidecar.DiagProbeRequested', severity: 'Info', correlationId: corrProbe1, connectionId: conn1, persistedSessionId: null, sidecarSessionId: 'sc-111-222', payload: { ops: ['process', 'tabs', 'resources'] }, redaction: 'none' },
-    { diagnosticsSchemaVersion: 1, id: eid(), utc: ago(2.8), domain: 'Sidecar.Browser', name: 'Sidecar.DiagProbeCompleted', severity: 'Info', correlationId: corrProbe1, connectionId: conn1, persistedSessionId: null, sidecarSessionId: 'sc-111-222', payload: { ops: ['process', 'tabs', 'resources'], durationMs: 120 }, redaction: 'none' },
+    { diagnosticsSchemaVersion: 1, id: eid(), utc: ago(3), domain: 'SidecarBrowser', name: 'Sidecar.DiagProbeRequested', severity: 'Info', correlationId: corrProbe1, connectionId: conn1, persistedSessionId: null, sidecarSessionId: 'sc-111-222', payload: { ops: ['process', 'tabs', 'resources'] }, redaction: 'none' },
+    { diagnosticsSchemaVersion: 1, id: eid(), utc: ago(2.8), domain: 'SidecarBrowser', name: 'Sidecar.DiagProbeCompleted', severity: 'Info', correlationId: corrProbe1, connectionId: conn1, persistedSessionId: null, sidecarSessionId: 'sc-111-222', payload: { ops: ['process', 'tabs', 'resources'], durationMs: 120 }, redaction: 'none' },
 
     // --- Admin action: elevate (2 events, diagnostics domain) ---
-    { diagnosticsSchemaVersion: 1, id: eid(), utc: ago(2.5), domain: 'Diagnostics.Self', name: 'Diagnostics.ElevateStarted', severity: 'Info', correlationId: corrAdmin1, connectionId: null, persistedSessionId: null, sidecarSessionId: null, payload: { browserQueryFloor: 'BrowserQuery', minutes: 15 }, redaction: 'none' },
-    { diagnosticsSchemaVersion: 1, id: eid(), utc: ago(2.3), domain: 'Diagnostics.Self', name: 'Diagnostics.ConfigApplied', severity: 'Info', correlationId: corrAdmin1, connectionId: null, persistedSessionId: null, sidecarSessionId: null, payload: { section: 'Diagnostics', source: 'ElevateAction' }, redaction: 'none' },
+    { diagnosticsSchemaVersion: 1, id: eid(), utc: ago(2.5), domain: 'DiagnosticsSelf', name: 'Diagnostics.ElevateStarted', severity: 'Info', correlationId: corrAdmin1, connectionId: null, persistedSessionId: null, sidecarSessionId: null, payload: { minutes: 15 }, redaction: 'none' },
+    { diagnosticsSchemaVersion: 1, id: eid(), utc: ago(2.3), domain: 'DiagnosticsSelf', name: 'Diagnostics.ConfigApplied', severity: 'Info', correlationId: corrAdmin1, connectionId: null, persistedSessionId: null, sidecarSessionId: null, payload: { section: 'Diagnostics', source: 'ElevateAction' }, redaction: 'none' },
 
     // --- State export story (2 events) ---
-    { diagnosticsSchemaVersion: 1, id: eid(), utc: ago(2), domain: 'Motor.Live', name: 'Motor.StateExportStarted', severity: 'Info', correlationId: corrExport1, connectionId: conn1, persistedSessionId: 'sess-a1b2c3d4-e5f6-7890-abcd-ef1234567890', sidecarSessionId: 'sc-111-222', payload: {}, redaction: 'none' },
-    { diagnosticsSchemaVersion: 1, id: eid(), utc: ago(1.8), domain: 'Persistence', name: 'Persistence.StateExportCompleted', severity: 'Info', correlationId: corrExport1, connectionId: conn1, persistedSessionId: 'sess-a1b2c3d4-e5f6-7890-abcd-ef1234567890', sidecarSessionId: 'sc-111-222', payload: { cookieCount: 12, localStorageCount: 4 }, redaction: 'none' },
+    { diagnosticsSchemaVersion: 1, id: eid(), utc: ago(2), domain: 'MotorLive', name: 'Motor.StateExportStarted', severity: 'Info', correlationId: corrExport1, connectionId: conn1, persistedSessionId: 'sess-a1b2c3d4-e5f6-7890-abcd-ef1234567890', sidecarSessionId: 'sc-111-222', payload: {}, redaction: 'none' },
+    { diagnosticsSchemaVersion: 1, id: eid(), utc: ago(1.8), domain: 'PersistedSessions', name: 'Persistence.StateExportCompleted', severity: 'Info', correlationId: corrExport1, connectionId: conn1, persistedSessionId: 'sess-a1b2c3d4-e5f6-7890-abcd-ef1234567890', sidecarSessionId: 'sc-111-222', payload: { cookieCount: 12, localStorageCount: 4 }, redaction: 'none' },
 
     // --- Cleanup event (system, no correlation) ---
-    { diagnosticsSchemaVersion: 1, id: eid(), utc: ago(1.5), domain: 'Diagnostics.Self', name: 'Diagnostics.CleanupCompleted', severity: 'Info', correlationId: null, connectionId: null, persistedSessionId: null, sidecarSessionId: null, payload: { purgedCount: 12, bytesFreed: 1_048_576 }, redaction: 'none' },
+    { diagnosticsSchemaVersion: 1, id: eid(), utc: ago(1.5), domain: 'DiagnosticsSelf', name: 'Diagnostics.CleanupCompleted', severity: 'Info', correlationId: null, connectionId: null, persistedSessionId: null, sidecarSessionId: null, payload: { purgedCount: 12, bytesFreed: 1_048_576 }, redaction: 'none' },
 
-    // --- Host resource metric (uncorrelated) ---
-    { diagnosticsSchemaVersion: 1, id: eid(), utc: ago(1), domain: 'HostResources', name: 'HostResources.SampleCollected', severity: 'Metric', correlationId: null, connectionId: null, persistedSessionId: null, sidecarSessionId: null, payload: { cpuUsage: 0.12, memoryUsedMb: 512, gcGen0: 150, gcGen1: 30, gcGen2: 5 }, redaction: 'none' },
+    // --- Host resource metrics (time series, every ~3 minutes for the last hour) ---
+    ...generateHostSamples(),
 
     // --- Sidecar screencast metric (uncorrelated, for conn1) ---
-    { diagnosticsSchemaVersion: 1, id: eid(), utc: ago(0.5), domain: 'Sidecar.Browser', name: 'Sidecar.ScreencastFrame', severity: 'Metric', correlationId: null, connectionId: conn1, persistedSessionId: null, sidecarSessionId: 'sc-111-222', payload: { fps: 24, frameSequence: 7200 }, redaction: 'none' },
+    { diagnosticsSchemaVersion: 1, id: eid(), utc: ago(0.5), domain: 'SidecarBrowser', name: 'Sidecar.ScreencastFrame', severity: 'Metric', correlationId: null, connectionId: conn1, persistedSessionId: null, sidecarSessionId: 'sc-111-222', payload: { fps: 24, frameSequence: 7200 }, redaction: 'none' },
 
     // --- Admin recovery action (2 events) ---
-    { diagnosticsSchemaVersion: 1, id: eid(), utc: ago(0.3), domain: 'Diagnostics.Self', name: 'Diagnostics.RecoverRequested', severity: 'Warning', correlationId: corrAdmin2, connectionId: null, persistedSessionId: null, sidecarSessionId: null, payload: { reason: 'Manual admin action' }, redaction: 'none' },
-    { diagnosticsSchemaVersion: 1, id: eid(), utc: ago(0.2), domain: 'Diagnostics.Self', name: 'Diagnostics.Recovered', severity: 'Info', correlationId: corrAdmin2, connectionId: null, persistedSessionId: null, sidecarSessionId: null, payload: { degradedDurationMs: 120_000 }, redaction: 'none' },
+    { diagnosticsSchemaVersion: 1, id: eid(), utc: ago(0.3), domain: 'DiagnosticsSelf', name: 'Diagnostics.RecoverRequested', severity: 'Warning', correlationId: corrAdmin2, connectionId: null, persistedSessionId: null, sidecarSessionId: null, payload: { reason: 'Manual admin action' }, redaction: 'none' },
+    { diagnosticsSchemaVersion: 1, id: eid(), utc: ago(0.2), domain: 'DiagnosticsSelf', name: 'Diagnostics.Recovered', severity: 'Info', correlationId: corrAdmin2, connectionId: null, persistedSessionId: null, sidecarSessionId: null, payload: { degradedDurationMs: 120_000 }, redaction: 'none' },
 
     // --- Error event: probe timeout (uncorrelated) ---
-    { diagnosticsSchemaVersion: 1, id: eid(), utc: ago(0.1), domain: 'Sidecar.Browser', name: 'Sidecar.DiagProbeTimedOut', severity: 'Error', correlationId: null, connectionId: conn2, persistedSessionId: null, sidecarSessionId: 'sc-333-444', payload: { errorCode: 'probe_timeout', phase: 'Execution', ops: ['cookies'], diagTimeoutMs: 10_000 }, redaction: 'none' },
+    { diagnosticsSchemaVersion: 1, id: eid(), utc: ago(0.1), domain: 'SidecarBrowser', name: 'Sidecar.DiagProbeTimedOut', severity: 'Error', correlationId: null, connectionId: conn2, persistedSessionId: null, sidecarSessionId: 'sc-333-444', payload: { errorCode: 'probe_timeout', phase: 'Execution', ops: ['cookies'], diagTimeoutMs: 10_000 }, redaction: 'none' },
   ]
 
   return events.sort((a, b) => b.utc.localeCompare(a.utc))
@@ -237,7 +244,7 @@ export const catalog: DiagnosticsCatalogResponse = {
     'Diagnostics.StorageOverflow',
     'Persistence.StateExportCompleted',
     'Persistence.SessionQueried',
-    'HostResources.SampleCollected',
+    'Telemetry.SampleCollected',
   ],
 }
 
@@ -265,13 +272,19 @@ export function probeResult(ops: string[]): BrowserProbeResponse {
 
 export const hostSample: Record<string, unknown> = {
   hostname: 'speculum-motor-01',
-  uptime: 86400,
-  cpuUsage: 0.12,
+  uptimeSec: 86_400,
+  cpuUsage: 12.4,
   memoryUsed: 512_000_000,
+  memoryPrivate: 480_000_000,
   memoryTotal: 2_048_000_000,
-  diskFree: 10_000_000_000,
-  gcCollections: { gen0: 150, gen1: 30, gen2: 5 },
+  gcHeap: 180_000_000,
+  gcGen0: 150,
+  gcGen1: 30,
+  gcGen2: 5,
   threadCount: 24,
+  threadPoolBusy: 3,
+  threadPoolQueued: 0,
+  diskFreeBytes: 10_000_000_000,
 }
 
 export const persistedList = [
@@ -298,3 +311,74 @@ export const persistedList = [
     historyCount: 3,
   },
 ]
+
+function generateHostSamples(): DiagnosticsEventRecord[] {
+  const samples: DiagnosticsEventRecord[] = []
+  const intervalMin = 2
+  const count = 180 // ~6 hours at 2min intervals
+
+  let baseCpu = 0.12 + Math.random() * 0.08
+  let baseMem = 480 + Math.random() * 80
+
+  for (let i = count; i >= 0; i--) {
+    // Inject divergence scenarios every ~40 samples
+    const phase = i % 40
+    if (phase === 15) baseCpu = Math.max(0.02, baseCpu - 0.12) // CPU drop
+    else if (phase === 16) baseMem = baseMem + 35 // memory rises without CPU
+    else if (phase === 30) baseCpu = Math.min(0.85, baseCpu + 0.15) // CPU spike
+    else if (phase === 31) baseMem = Math.max(300, baseMem - 5) // memory barely moves
+    else {
+      baseCpu = Math.max(0.02, Math.min(0.95, baseCpu + (Math.random() - 0.48) * 0.04))
+      baseMem = Math.max(300, Math.min(1800, baseMem + (Math.random() - 0.47) * 18))
+    }
+
+    const threadBase = 22 + Math.floor(Math.random() * 6) + (baseCpu > 0.4 ? 4 : 0)
+    const memBytes = Math.round(baseMem) * 1024 * 1024
+
+    samples.push({
+      diagnosticsSchemaVersion: 1,
+      id: eid(),
+      utc: ago(i * intervalMin),
+      domain: 'Telemetry',
+      name: 'Telemetry.SampleCollected',
+      severity: 'Metric',
+      correlationId: null,
+      connectionId: null,
+      persistedSessionId: null,
+      sidecarSessionId: null,
+      payload: {
+        host: {
+          hostname: 'speculum-motor-01',
+          uptimeSec: 86_400,
+          cpuUsage: Math.round(baseCpu * 100 * 10) / 10,
+          memoryUsed: memBytes,
+          memoryPrivate: Math.round(memBytes * 0.94),
+          memoryTotal: 2_048_000_000,
+          gcHeap: Math.round(memBytes * 0.35),
+          gcGen0: 120 + (count - i),
+          gcGen1: 24,
+          gcGen2: 4,
+          threadCount: threadBase,
+          threadPoolBusy: baseCpu > 0.4 ? 4 : 2,
+          threadPoolQueued: baseCpu > 0.6 ? 1 : 0,
+          diskFreeBytes: 10_000_000_000,
+        },
+        pipeline: {
+          bytesUsed: 12_000_000 + (count - i) * 1000,
+          storageMaxBytes: STORAGE_MAX_BYTES,
+          usedPct: 18.3,
+          eventsStored: 300 + (count - i),
+          eventsDropped: 0,
+          overflowCount: 0,
+          probeInFlight: 0,
+          degraded: false,
+          elevateActive: false,
+          recentDrops: null,
+          recentSlowWrites: null,
+        },
+      },
+      redaction: 'none',
+    })
+  }
+  return samples
+}

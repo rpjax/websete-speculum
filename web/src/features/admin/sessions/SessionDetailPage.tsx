@@ -30,7 +30,7 @@ import {
   type CorrelationStory,
 } from '@/lib/hooks/useCorrelationStories'
 import {
-  DOMAIN_LABELS, PROBE_OPS, PROBE_QUICK_PICKS,
+  DOMAIN_LABELS, EVENT_DOMAINS, CAPABILITY_LABELS, PROBE_OPS, PROBE_QUICK_PICKS,
   formatDuration, formatRelativeTime,
 } from '@/lib/diagnosticsConstants'
 import {
@@ -623,9 +623,8 @@ function SummaryCard({ label, value, tone }: { label: string; value: number; ton
    Events tab
    ═══════════════════════════════════════════════════════════════════ */
 
-const DOMAIN_FILTER_OPTIONS = Object.entries(DOMAIN_LABELS)
-  .filter(([k]) => k.includes('.') || ['Persistence', 'HostResources', 'BrowserQuery'].includes(k))
-  .map(([value, label]) => ({ value, label }))
+const DOMAIN_FILTER_OPTIONS = (EVENT_DOMAINS as readonly string[])
+  .map((value) => ({ value, label: DOMAIN_LABELS[value] ?? value }))
 
 const SEV_FILTER_OPTIONS = [
   { value: 'Info', label: 'Info' },
@@ -1269,7 +1268,7 @@ function ProbeTab({ connectionId }: { connectionId: string }) {
                 <button onClick={() => setSelectedOps(qp.ops.slice())} className={cn('rounded-lg border px-3 py-2 text-sm font-medium transition-colors', on ? 'border-primary/50 bg-primary/15 text-primary' : 'border-border text-muted-foreground hover:text-foreground')}>
                   <Zap className="mr-1.5 inline h-3.5 w-3.5" /> {qp.label}
                 </button>
-              </TooltipTrigger><TooltipContent className="max-w-xs text-sm">{qp.description}<br /><span className="text-muted-foreground">Level: {qp.level}</span></TooltipContent></Tooltip>
+              </TooltipTrigger><TooltipContent className="max-w-xs text-sm">{qp.description}<br /><span className="text-muted-foreground">Capability: {CAPABILITY_LABELS[qp.capability] ?? qp.capability}</span></TooltipContent></Tooltip>
             )
           })}
         </div>
@@ -1285,7 +1284,7 @@ function ProbeTab({ connectionId }: { connectionId: string }) {
                   </div>
                   {op.label}
                 </button>
-              </TooltipTrigger><TooltipContent className="max-w-xs text-sm">{op.description}<br />Level: {op.level}</TooltipContent></Tooltip>
+              </TooltipTrigger><TooltipContent className="max-w-xs text-sm">{op.description}<br />Capability: {CAPABILITY_LABELS[op.capability] ?? op.capability}</TooltipContent></Tooltip>
             )
           })}
         </div>
@@ -1652,8 +1651,8 @@ function KVRowComponent({ k, v, copy, tip, tone, pill, on }: KVRow) {
 function getDomainColor(domain: string): string {
   if (domain.startsWith('Motor')) return 'bg-violet-500'
   if (domain.startsWith('Sidecar')) return 'bg-cyan-500'
-  if (domain.startsWith('Persistence')) return 'bg-amber-500'
-  if (domain.startsWith('HostResources')) return 'bg-emerald-500'
+  if (domain.startsWith('Persisted')) return 'bg-amber-500'
+  if (domain.startsWith('Telemetry')) return 'bg-emerald-500'
   if (domain.startsWith('BrowserQuery')) return 'bg-rose-500'
   return 'bg-slate-500'
 }

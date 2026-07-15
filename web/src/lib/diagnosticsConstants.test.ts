@@ -7,8 +7,13 @@ import {
   DOMAIN_COLORS,
   DOMAIN_BG,
   DOMAIN_LABELS,
-  LEVEL_DESCRIPTIONS,
+  CAPABILITY_DESCRIPTIONS,
+  CAPABILITY_ORDER,
+  EVENT_DOMAINS,
   STORY_TYPES,
+  DIAGNOSTICS_PRESETS,
+  summarizeCapabilities,
+  countCapabilities,
 } from './diagnosticsConstants'
 
 describe('detectStoryType', () => {
@@ -104,23 +109,55 @@ describe('formatRelativeTime', () => {
 
 describe('constants completeness', () => {
   it('has colors for all domains', () => {
-    const domains = ['Motor.Live', 'Sidecar.Browser', 'BrowserQuery', 'Persistence', 'HostResources', 'Diagnostics.Self']
-    for (const d of domains) {
+    for (const d of EVENT_DOMAINS) {
       expect(DOMAIN_COLORS[d]).toBeDefined()
       expect(DOMAIN_BG[d]).toBeDefined()
       expect(DOMAIN_LABELS[d]).toBeDefined()
     }
   })
 
-  it('has descriptions for all levels', () => {
-    const levels = ['Off', 'Metrics', 'Events', 'StateSnapshots', 'BrowserQuery']
-    for (const l of levels) {
-      expect(LEVEL_DESCRIPTIONS[l]).toBeDefined()
+  it('has descriptions for all capabilities', () => {
+    for (const c of CAPABILITY_ORDER) {
+      expect(CAPABILITY_DESCRIPTIONS[c]).toBeDefined()
     }
   })
 
   it('story types cover expected categories', () => {
     const expected = ['session-lifecycle', 'navigation', 'probe', 'drain', 'state-export', 'admin', 'unknown']
     expect(Object.keys(STORY_TYPES)).toEqual(expect.arrayContaining(expected))
+  })
+})
+
+describe('capability helpers', () => {
+  it('summarizeCapabilities lists enabled capabilities and flags off', () => {
+    expect(summarizeCapabilities({ Metric: true, Event: false })).toEqual({ enabled: ['Metric'], off: false })
+    expect(summarizeCapabilities({ Probe: false })).toEqual({ enabled: [], off: true })
+    expect(summarizeCapabilities(undefined)).toEqual({ enabled: [], off: true })
+  })
+
+  it('countCapabilities tallies on/off across domains', () => {
+    const eff = {
+      MotorLive: { Metric: true, Event: true, Snapshot: false },
+      BrowserQuery: { Probe: false },
+    }
+    expect(countCapabilities(eff)).toEqual({ off: 2, total: 4, enabled: 2 })
+    expect(countCapabilities(undefined)).toEqual({ off: 0, total: 0, enabled: 0 })
+  })
+})
+
+describe('diagnostics presets', () => {
+  it('define domain + telemetry toggle bundles for every profile', () => {
+    for (const profile of ['Development', 'Production', 'Assertive'] as const) {
+      const preset = DIAGNOSTICS_PRESETS[profile]
+      expect(preset.domains.motor).toBeDefined()
+      expect(preset.domains.browserQuery).toBeDefined()
+      expect(preset.telemetry.enabled).toBe(true)
+      expect(typeof preset.telemetry.intervalSeconds).toBe('number')
+    }
+  })
+
+  it('keeps Browser Query probe off in Production but on in Development', () => {
+    expect(DIAGNOSTICS_PRESETS.Production.domains.browserQuery.probe).toBe(false)
+    expect(DIAGNOSTICS_PRESETS.Development.domains.browserQuery.probe).toBe(true)
   })
 })

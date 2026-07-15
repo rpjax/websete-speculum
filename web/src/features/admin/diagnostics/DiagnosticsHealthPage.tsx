@@ -12,32 +12,48 @@ import { QuickActions } from '@/components/admin/QuickActions'
 import { ExportButton } from '@/components/admin/ExportButton'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useEventStats } from '@/lib/hooks/useEventStats'
-import { formatBytes, formatRelativeTime, DOMAIN_LABELS, LEVEL_LABELS } from '@/lib/diagnosticsConstants'
+import {
+  formatBytes, formatRelativeTime, DOMAIN_LABELS,
+  CAPABILITY_LABELS, countCapabilities, summarizeCapabilities,
+} from '@/lib/diagnosticsConstants'
 import { describeEvent, humanizeDomain } from '@/lib/diagnosticsDescriptions'
 import {
   ArrowRight, RefreshCw, Database, HardDrive, Monitor,
   AlertTriangle, Layers, Eye, EyeOff, Activity,
   Clock, TrendingUp, BookOpen, HelpCircle, Zap,
   BarChart3, GitBranch, Users, Hash,
-  ShieldCheck, ShieldAlert, Maximize2,
+  ShieldCheck, ShieldAlert, Maximize2, Cpu, MemoryStick, Server,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+
+interface HostData {
+  hostname?: string
+  cpuUsage?: number
+  memoryUsed?: number
+  memoryTotal?: number
+  diskFreeBytes?: number
+  threadCount?: number
+  uptimeSec?: number
+}
 
 export default function DiagnosticsHealthPage() {
   const [overview, setOverview] = useState<DiagnosticsOverview | null>(null)
   const [recentEvents, setRecentEvents] = useState<DiagnosticsEventRecord[]>([])
+  const [hostData, setHostData] = useState<HostData | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [recovering, setRecovering] = useState(false)
 
   const refresh = useCallback(async () => {
     setError(null)
     try {
-      const [ov, events] = await Promise.all([
+      const [ov, events, host] = await Promise.all([
         diagnosticsApi.getOverview(),
         diagnosticsApi.listEvents({ since: new Date(Date.now() - 60 * 60_000).toISOString() }),
+        diagnosticsApi.getHost().catch(() => null),
       ])
       setOverview(ov)
       setRecentEvents(events)
+      if (host) setHostData(host as unknown as HostData)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to load health data')
     }
@@ -81,10 +97,9 @@ export default function DiagnosticsHealthPage() {
   }
 
   const ov = overview!
-  const storageMaxBytes = 64 * 1024 * 1024
-  const storagePercent = Math.round((ov.bytesUsed / storageMaxBytes) * 100)
-  const levelsOff = Object.values(ov.effectiveLevels).filter((l) => l === 'Off').length
-  const totalLevels = Object.keys(ov.effectiveLevels).length
+  const storageMaxBytes = ov.storageMaxBytes
+  const storagePercent = storageMaxBytes > 0 ? Math.round((ov.bytesUsed / storageMaxBytes) * 100) : 0
+  const caps = countCapabilities(ov.effectiveCapabilities)
 
   const healthScore = computeHealthScore({
     degraded: ov.degraded,
@@ -92,8 +107,8 @@ export default function DiagnosticsHealthPage() {
     overflowCount: ov.overflowCount,
     liveSessions: ov.liveSessions.activeCount,
     storagePercent,
-    levelsOff,
-    totalLevels,
+    capabilitiesOff: caps.off,
+    totalCapabilities: caps.total,
   })
 
   const displayEvents = recentEvents.slice(0, 8)
@@ -195,6 +210,9 @@ export default function DiagnosticsHealthPage() {
         </div>
       )}
 
+      {/* Resource usage widget */}
+      {hostData && <ResourceSummaryWidget host={hostData} />}
+
       {/* Needs attention */}
       {ov.needsAttention.length > 0 && (
         <div className="rounded-xl border border-warning/30 bg-gradient-to-r from-warning/10 to-transparent p-5">
@@ -218,20 +236,18 @@ export default function DiagnosticsHealthPage() {
         </div>
       )}
 
-      {/* Observation levels — compact table-like rows */}
+      {/* Observation coverage — per-domain capability toggles */}
       <div>
         <SectionHeading
           icon={<Layers className="h-4 w-4" />}
-          title="Observation levels"
-          description="Each domain's current data collection depth — controls how much data is captured"
+          title="Observation coverage"
+          description="Each domain's enabled capabilities — controls how much data is captured"
         />
         <div className="mt-3 rounded-xl border border-border bg-card overflow-hidden">
-          {Object.entries(ov.effectiveLevels).map(([domain, level], i, arr) => {
+          {Object.entries(ov.effectiveCapabilities).map(([domain, capMap], i, arr) => {
             const domainLabel = DOMAIN_LABELS[domain] ?? domain
-            const levelLabel = LEVEL_LABELS[level] ?? level
             const humanDesc = humanizeDomain(domain)
-            const isOff = level === 'Off'
-            const isBQ = level === 'BrowserQuery'
+            const { enabled, off } = summarizeCapabilities(capMap)
             const isLast = i === arr.length - 1
 
             return (
@@ -240,24 +256,30 @@ export default function DiagnosticsHealthPage() {
                 className={cn(
                   'flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-muted/10',
                   !isLast && 'border-b border-border/40',
-                  isOff && 'opacity-50',
+                  off && 'opacity-50',
                 )}
               >
-                <div className={cn('shrink-0', isOff ? 'text-muted-foreground' : 'text-blue-400')}>
-                  {isOff ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                <div className={cn('shrink-0', off ? 'text-muted-foreground' : 'text-blue-400')}>
+                  {off ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                 </div>
                 <div className="min-w-0 flex-1">
                   <span className="text-sm font-medium">{domainLabel}</span>
                   <p className="truncate text-[11px] text-muted-foreground">{humanDesc}</p>
                 </div>
-                <span className={cn(
-                  'shrink-0 rounded-full px-2.5 py-0.5 text-[10px] font-bold',
-                  isBQ ? 'bg-violet-500/15 text-violet-400'
-                    : isOff ? 'bg-muted text-muted-foreground'
-                    : 'bg-blue-500/10 text-blue-400',
-                )}>
-                  {levelLabel}
-                </span>
+                <div className="flex shrink-0 flex-wrap justify-end gap-1">
+                  {off ? (
+                    <span className="rounded-full bg-muted px-2.5 py-0.5 text-[10px] font-bold text-muted-foreground">Off</span>
+                  ) : (
+                    enabled.map((cap) => (
+                      <span key={cap} className={cn(
+                        'rounded-full px-2.5 py-0.5 text-[10px] font-bold',
+                        cap === 'Probe' ? 'bg-violet-500/15 text-violet-400' : 'bg-blue-500/10 text-blue-400',
+                      )}>
+                        {CAPABILITY_LABELS[cap] ?? cap}
+                      </span>
+                    ))
+                  )}
+                </div>
               </div>
             )
           })}
@@ -390,10 +412,67 @@ function MiniStat({ icon, label, value }: { icon: React.ReactNode; label: string
   )
 }
 
+function ResourceSummaryWidget({ host }: { host: HostData }) {
+  const cpuPct = Math.round(host.cpuUsage ?? 0)
+  const memPct = host.memoryTotal ? Math.round(((host.memoryUsed ?? 0) / host.memoryTotal) * 100) : 0
+
+  return (
+    <div className="rounded-xl border border-border bg-card overflow-hidden">
+      <div className="flex items-center justify-between border-b border-border/40 px-4 py-2">
+        <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <Server className="h-3 w-3" /> Host resources
+        </p>
+        <Link
+          to="/admin/diagnostics/resources"
+          className="flex items-center gap-1 text-[11px] font-medium text-primary hover:text-primary/80"
+        >
+          Full details <ArrowRight className="h-3 w-3" />
+        </Link>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-border/40">
+        <ResourceMini icon={<Cpu className="h-3.5 w-3.5" />} label="CPU" value={`${cpuPct}%`} percent={cpuPct}
+          tone={cpuPct > 80 ? 'danger' : cpuPct > 50 ? 'warn' : 'ok'} />
+        <ResourceMini icon={<MemoryStick className="h-3.5 w-3.5" />} label="Memory" value={formatBytes(host.memoryUsed ?? 0)} percent={memPct}
+          tone={memPct > 85 ? 'danger' : memPct > 60 ? 'warn' : 'ok'} />
+        <ResourceMini icon={<HardDrive className="h-3.5 w-3.5" />} label="Disk free" value={host.diskFreeBytes != null ? formatBytes(host.diskFreeBytes) : '—'}
+          tone={host.diskFreeBytes != null && host.diskFreeBytes < 1_000_000_000 ? 'danger' : 'ok'} />
+        <ResourceMini icon={<Layers className="h-3.5 w-3.5" />} label="Threads" value={String(host.threadCount ?? '—')} tone="ok" />
+      </div>
+    </div>
+  )
+}
+
+function ResourceMini({ icon, label, value, percent, tone }: {
+  icon: React.ReactNode; label: string; value: string; percent?: number
+  tone: 'ok' | 'warn' | 'danger'
+}) {
+  const accentClass = tone === 'danger' ? 'text-red-400' : tone === 'warn' ? 'text-amber-400' : 'text-emerald-400'
+  return (
+    <div className="px-3 py-2.5">
+      <div className="flex items-center gap-1.5 text-muted-foreground/60">
+        {icon}
+        <span className="text-[10px] font-medium uppercase tracking-wider">{label}</span>
+      </div>
+      <p className={cn('mt-1 text-base font-bold tabular-nums', accentClass)}>{value}</p>
+      {percent != null && (
+        <div className="mt-1.5 h-1 w-full rounded-full bg-muted/25 overflow-hidden">
+          <div
+            className={cn(
+              'h-full rounded-full transition-all',
+              tone === 'danger' ? 'bg-red-500' : tone === 'warn' ? 'bg-amber-500' : 'bg-emerald-500',
+            )}
+            style={{ width: `${Math.max(percent, 1)}%` }}
+          />
+        </div>
+      )}
+    </div>
+  )
+}
+
 function HealthHero({ score, degraded, elevate, onRecover, onClearElevate, recovering }: {
   score: number
   degraded: boolean
-  elevate: { active?: boolean; browserQueryFloor?: string; expiresUtc?: string } | null
+  elevate: { active?: boolean; expiresUtc?: string | null } | null
   onRecover: () => void
   onClearElevate: () => void
   recovering: boolean
@@ -412,13 +491,13 @@ function HealthHero({ score, degraded, elevate, onRecover, onClearElevate, recov
   const stateLabelClass = isDegraded ? 'text-red-400' : isElevated ? 'text-blue-400' : 'text-emerald-400'
   const StateIcon = isDegraded ? ShieldAlert : isElevated ? Zap : ShieldCheck
 
-  let description = 'Diagnostics pipeline is healthy. All configured domain levels are active and events are being recorded.'
+  let description = 'Diagnostics pipeline is healthy. All configured capabilities are active and events are being recorded.'
   if (isDegraded) {
-    description = 'The diagnostics circuit breaker has tripped. Effective levels are capped at Metrics — event recording and browser probes are unavailable until recovery.'
+    description = 'The diagnostics circuit breaker has tripped. Effective capabilities are capped at Metric — events, snapshots, and browser probes are unavailable until recovery.'
   } else if (isElevated && elevate?.expiresUtc) {
     const expiresMs = new Date(elevate.expiresUtc).getTime() - Date.now()
     const mins = Math.max(1, Math.round(expiresMs / 60_000))
-    description = `BrowserQuery floor raised to ${elevate.browserQueryFloor ?? 'BrowserQuery'}. Deep browser inspection enabled for all sessions — expires in ~${mins} min.`
+    description = `Browser Query temporarily unlocked. Deep browser inspection enabled for all sessions — expires in ~${mins} min.`
   }
 
   return (

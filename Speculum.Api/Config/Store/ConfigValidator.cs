@@ -394,6 +394,8 @@ public static class ConfigValidator
         }
     }
 
+    private static readonly string[] DiagnosticsProfiles = ["Development", "Production", "Assertive"];
+
     private static void ValidateDiagnostics(JsonElement body, List<(string, string)> errors)
     {
         if (body.ValueKind != JsonValueKind.Object)
@@ -402,28 +404,56 @@ public static class ConfigValidator
             return;
         }
 
-        if (body.TryGetProperty("enabled", out var enabledEl)
-            && enabledEl.ValueKind is not JsonValueKind.True and not JsonValueKind.False)
+        ValidateBool(body, "enabled", "$.Diagnostics.enabled", errors);
+
+        if (body.TryGetProperty("profile", out var profile)
+            && profile.ValueKind == JsonValueKind.String
+            && !DiagnosticsProfiles.Contains(profile.GetString(), StringComparer.OrdinalIgnoreCase))
         {
-            errors.Add(("$.Diagnostics.enabled", "Must be a boolean."));
+            errors.Add(("$.Diagnostics.profile", "Must be Development, Production, or Assertive."));
         }
 
-        if (body.TryGetProperty("defaultLevel", out var defaultLevel)
-            && defaultLevel.ValueKind == JsonValueKind.String
-            && !Enum.TryParse<DiagnosticsLevel>(defaultLevel.GetString(), true, out _))
+        if (body.TryGetProperty("domains", out var domains))
         {
-            errors.Add(("$.Diagnostics.defaultLevel", "Invalid diagnostics level."));
-        }
-
-        if (body.TryGetProperty("domains", out var domains) && domains.ValueKind == JsonValueKind.Object)
-        {
-            foreach (var prop in domains.EnumerateObject())
+            if (domains.ValueKind != JsonValueKind.Object)
             {
-                if (prop.Value.ValueKind != JsonValueKind.String
-                    || !Enum.TryParse<DiagnosticsLevel>(prop.Value.GetString(), true, out _))
-                {
-                    errors.Add(($"$.Diagnostics.domains.{prop.Name}", "Invalid diagnostics level."));
-                }
+                errors.Add(("$.Diagnostics.domains", "Must be a JSON object."));
+            }
+            else
+            {
+                ValidateToggleGroup(domains, "motor", "$.Diagnostics.domains.motor",
+                    ["metrics", "events", "snapshots"], errors);
+                ValidateToggleGroup(domains, "sidecar", "$.Diagnostics.domains.sidecar",
+                    ["metrics", "events"], errors);
+                ValidateToggleGroup(domains, "browserQuery", "$.Diagnostics.domains.browserQuery",
+                    ["probe"], errors);
+                ValidateToggleGroup(domains, "persisted", "$.Diagnostics.domains.persisted",
+                    ["snapshots"], errors);
+            }
+        }
+
+        if (body.TryGetProperty("telemetry", out var telemetry))
+        {
+            if (telemetry.ValueKind != JsonValueKind.Object)
+            {
+                errors.Add(("$.Diagnostics.telemetry", "Must be a JSON object."));
+            }
+            else
+            {
+                ValidateBool(telemetry, "enabled", "$.Diagnostics.telemetry.enabled", errors);
+                if (telemetry.TryGetProperty("intervalSeconds", out var iv)
+                    && (!iv.TryGetInt32(out var ivv) || ivv < 1 || ivv > 3600))
+                    errors.Add(("$.Diagnostics.telemetry.intervalSeconds", "Must be 1..3600."));
+                ValidateToggleGroup(telemetry, "host", "$.Diagnostics.telemetry.host",
+                    ["enabled"], errors);
+                ValidateToggleGroup(telemetry, "motor", "$.Diagnostics.telemetry.motor",
+                    ["enabled", "includeSessionIds", "includePerSession", "includeUrlHost"], errors);
+                ValidateToggleGroup(telemetry, "sidecar", "$.Diagnostics.telemetry.sidecar",
+                    ["enabled", "includeFaultedIds"], errors);
+                ValidateToggleGroup(telemetry, "persistence", "$.Diagnostics.telemetry.persistence",
+                    ["enabled", "includeBytes"], errors);
+                ValidateToggleGroup(telemetry, "pipeline", "$.Diagnostics.telemetry.pipeline",
+                    ["enabled", "includeBreakerPressure"], errors);
             }
         }
 
@@ -486,6 +516,33 @@ public static class ConfigValidator
             return;
         if (!el.TryGetDouble(out var ratio) || ratio < 0 || ratio > 1)
             errors.Add((path, "Must be a number between 0 and 1."));
+    }
+
+    private static void ValidateBool(JsonElement parent, string name, string path, List<(string, string)> errors)
+    {
+        if (parent.TryGetProperty(name, out var el)
+            && el.ValueKind is not JsonValueKind.True and not JsonValueKind.False)
+            errors.Add((path, "Must be a boolean."));
+    }
+
+    private static void ValidateToggleGroup(
+        JsonElement parent, string name, string path, string[] allowed, List<(string, string)> errors)
+    {
+        if (!parent.TryGetProperty(name, out var group))
+            return;
+        if (group.ValueKind != JsonValueKind.Object)
+        {
+            errors.Add((path, "Must be a JSON object."));
+            return;
+        }
+
+        foreach (var prop in group.EnumerateObject())
+        {
+            if (!allowed.Contains(prop.Name, StringComparer.OrdinalIgnoreCase))
+                errors.Add(($"{path}.{prop.Name}", "Unknown toggle."));
+            else if (prop.Value.ValueKind is not JsonValueKind.True and not JsonValueKind.False)
+                errors.Add(($"{path}.{prop.Name}", "Must be a boolean."));
+        }
     }
 
     private static bool IsValidEmail(string value)

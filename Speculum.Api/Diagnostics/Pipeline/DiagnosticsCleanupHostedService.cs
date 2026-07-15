@@ -1,5 +1,6 @@
 using Speculum.Api.Diagnostics.Abstractions;
 using Speculum.Api.Diagnostics.Configuration;
+using Speculum.Api.Diagnostics.Emitters;
 
 namespace Speculum.Api.Diagnostics.Pipeline;
 
@@ -16,18 +17,18 @@ public sealed class DiagnosticsCleanupHostedService : BackgroundService
 
     private readonly SqliteDiagnosticsEventSink _sink;
     private readonly IDiagnosticsRuntime _runtime;
-    private readonly IDiagnosticsEventBus _bus;
+    private readonly IDiagnosticsSelfEmitter _self;
     private readonly ILogger<DiagnosticsCleanupHostedService> _logger;
 
     public DiagnosticsCleanupHostedService(
         SqliteDiagnosticsEventSink sink,
         IDiagnosticsRuntime runtime,
-        IDiagnosticsEventBus bus,
+        IDiagnosticsSelfEmitter self,
         ILogger<DiagnosticsCleanupHostedService> logger)
     {
         _sink = sink;
         _runtime = runtime;
-        _bus = bus;
+        _self = self;
         _logger = logger;
     }
 
@@ -41,35 +42,18 @@ public sealed class DiagnosticsCleanupHostedService : BackgroundService
                 if (_runtime is DiagnosticsRuntime concreteRuntime
                     && concreteRuntime.TryConsumeElevateExpired())
                 {
-                    _bus.Publish(new DiagnosticsEvent
-                    {
-                        Domain = DiagnosticsDomain.DiagnosticsSelf,
-                        Name = "Diagnostics.ElevateExpired",
-                        Payload = new { reason = "ttl" },
-                    });
+                    _self.ElevateExpired("ttl");
                 }
 
                 var options = _runtime.GetSnapshot().Options;
                 var purged = _sink.PurgeExpired(options);
                 if (purged > 0)
-                {
-                    _bus.Publish(new DiagnosticsEvent
-                    {
-                        Domain = DiagnosticsDomain.DiagnosticsSelf,
-                        Name = "Diagnostics.CleanupPurged",
-                        Payload = new { purged },
-                    });
-                }
+                    _self.CleanupPurged(purged);
 
                 if (_runtime.IsDegraded)
                 {
                     _runtime.SetDegraded(false);
-                    _bus.Publish(new DiagnosticsEvent
-                    {
-                        Domain = DiagnosticsDomain.DiagnosticsSelf,
-                        Name = "Diagnostics.Recovered",
-                        Payload = new { reason = "cleanup_cycle" },
-                    });
+                    _self.Recovered("cleanup_cycle");
                 }
             }
             catch (Exception ex)

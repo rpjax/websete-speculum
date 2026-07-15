@@ -1,5 +1,6 @@
 using System.Threading.Channels;
 using Speculum.Api.BrowserPersistence;
+using Speculum.Api.Diagnostics.Abstractions;
 using Speculum.Api.Motor.Live.Models;
 
 namespace Speculum.Api.Motor.Live;
@@ -18,7 +19,7 @@ public interface IMotorSession
     string? ClientToken { get; set; }
     string ConnectionId { get; set; }
 
-    void MarkPhase(Diagnostics.Abstractions.MotorSessionPhase phase);
+    void MarkPhase(MotorSessionPhase phase);
     MotorSessionDiagnosticsSnapshot GetDiagnosticsSnapshot();
     Task<object> RequestDiagnosticsProbeAsync(
         IReadOnlyList<string> ops,

@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using Speculum.Api.Diagnostics.Abstractions;
+using Speculum.Api.Diagnostics.Emitters;
 
 namespace Speculum.Api.Diagnostics.Pipeline;
 
@@ -53,11 +54,15 @@ public sealed class NullDiagnosticsSink : IDiagnosticsSink
         => ValueTask.CompletedTask;
 }
 
+/// <summary>Current circuit-breaker window counters (drops / slow sink writes in the last window).</summary>
+public readonly record struct DiagnosticsBreakerPressure(long RecentDrops, long RecentSlowWrites);
+
 public sealed class DiagnosticsEventBus : IDiagnosticsEventBus
 {
     private readonly IDiagnosticsRuntime _runtime;
     private readonly IEnumerable<IDiagnosticsSink> _sinks;
     private readonly SessionEventRing _ring;
+    private readonly Lazy<IDiagnosticsSelfEmitter> _self;
     private readonly ILogger<DiagnosticsEventBus> _logger;
     private long _recentDrops;
     private long _recentSlowWrites;
@@ -68,43 +73,40 @@ public sealed class DiagnosticsEventBus : IDiagnosticsEventBus
         IDiagnosticsRuntime runtime,
         IEnumerable<IDiagnosticsSink> sinks,
         SessionEventRing ring,
+        Lazy<IDiagnosticsSelfEmitter> self,
         ILogger<DiagnosticsEventBus> logger)
     {
         _runtime = runtime;
         _sinks = sinks;
         _ring = ring;
+        _self = self;
         _logger = logger;
     }
+
+    /// <summary>Breaker-window pressure for Telemetry (pipeline section, behind IncludeBreakerPressure).</summary>
+    public DiagnosticsBreakerPressure GetBreakerPressure()
+        => new(Volatile.Read(ref _recentDrops), Volatile.Read(ref _recentSlowWrites));
 
     public void Publish(DiagnosticsEvent diagnosticsEvent, bool persist = true)
     {
         if (!_runtime.Enabled)
             return;
 
-        var minLevel = diagnosticsEvent.Domain == DiagnosticsDomain.DiagnosticsSelf
-            ? DiagnosticsLevel.Metrics
-            : DiagnosticsLevel.Events;
-
-        // Catalog Act→Assert + ops evidence must survive Metrics-only domains / Degraded cap.
-        if (diagnosticsEvent.Name == "Motor.StatusMirrored"
-            || DiagnosticsEventCatalog.All.Contains(diagnosticsEvent.Name)
-            || diagnosticsEvent.Name.StartsWith("Sidecar.DiagProbe", StringComparison.Ordinal)
-            || diagnosticsEvent.Name.StartsWith("Motor.StateExport", StringComparison.Ordinal)
-            || diagnosticsEvent.Name.StartsWith("Motor.Drain", StringComparison.Ordinal))
+        // Transport is domain-agnostic: gating comes purely from the catalog descriptor
+        // + settings. Every emitted event MUST be catalogued.
+        if (!DiagnosticsEventCatalog.TryGet(diagnosticsEvent.Name, out var descriptor))
         {
-            minLevel = DiagnosticsLevel.Metrics;
+            _logger.LogWarning(
+                "Dropping uncatalogued diagnostics event {EventName}", diagnosticsEvent.Name);
+            return;
         }
 
-        if (!_runtime.IsEnabled(diagnosticsEvent.Domain, minLevel)
-            && diagnosticsEvent.Domain != DiagnosticsDomain.DiagnosticsSelf)
+        if (descriptor.Domain != DiagnosticsDomain.DiagnosticsSelf
+            && !_runtime.IsCapabilityEnabled(descriptor.Domain, descriptor.Capability))
             return;
 
-        // Act→Assert catalog events are never randomly dropped.
-        // Sampling for noisy mirrors is handled at the StatusMirror emission site
-        // via StatusMirrorRatio / ExpensiveEventRatio — not here.
-
         _ring.Add(diagnosticsEvent);
-        if (!persist)
+        if (!persist || !descriptor.Persist)
             return;
 
         foreach (var sink in _sinks)
@@ -161,12 +163,6 @@ public sealed class DiagnosticsEventBus : IDiagnosticsEventBus
         if (_runtime.IsDegraded)
             return;
         _runtime.SetDegraded(true);
-        Publish(new DiagnosticsEvent
-        {
-            Domain = DiagnosticsDomain.DiagnosticsSelf,
-            Name = "Diagnostics.Degraded",
-            Severity = DiagnosticsSeverity.Warning,
-            Payload = new { reason },
-        });
+        _self.Value.Degraded(reason);
     }
 }

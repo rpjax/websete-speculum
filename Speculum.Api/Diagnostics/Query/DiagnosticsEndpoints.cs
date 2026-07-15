@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Speculum.Api.Diagnostics.Abstractions;
+using Speculum.Api.Diagnostics.Emitters;
 using Speculum.Api.Diagnostics.Pipeline;
 using Speculum.Api.Diagnostics.Probes;
 using Speculum.Api.Motor.Live;
@@ -20,10 +21,11 @@ public static class DiagnosticsEndpoints
             {
                 diagnosticsSchemaVersion = snap.DiagnosticsSchemaVersion,
                 enabled = snap.Enabled,
-                effectiveLevels = snap.EffectiveLevels,
+                effectiveCapabilities = snap.EffectiveCapabilities,
                 elevate = snap.Elevate,
                 degraded = snap.Degraded,
                 bytesUsed = snap.BytesUsed,
+                storageMaxBytes = snap.StorageMaxBytes,
                 eventsStored = snap.EventsStored,
                 eventsDropped = snap.EventsDropped,
                 overflowCount = snap.OverflowCount,
@@ -51,7 +53,8 @@ public static class DiagnosticsEndpoints
                 probeInFlight = snap.ProbeInFlight,
                 lastCleanupUtc = snap.LastCleanupUtc,
                 redactionMode = redactor.Mode,
-                effectiveLevels = snap.EffectiveLevels,
+                storageMaxBytes = snap.StorageMaxBytes,
+                effectiveCapabilities = snap.EffectiveCapabilities,
                 liveSessions = new
                 {
                     activeCount = registry.ActiveCount,
@@ -64,61 +67,37 @@ public static class DiagnosticsEndpoints
             });
         });
 
-        g.MapPut("/elevate", async (HttpContext http, IDiagnosticsRuntime runtime, IDiagnosticsEventBus bus) =>
+        g.MapPut("/elevate", async (HttpContext http, IDiagnosticsRuntime runtime, IDiagnosticsSelfEmitter self) =>
         {
             using var doc = await JsonDocument.ParseAsync(http.Request.Body);
             var root = doc.RootElement;
-            var floorName = root.TryGetProperty("browserQueryFloor", out var f) ? f.GetString() : "BrowserQuery";
             var minutes = root.TryGetProperty("minutes", out var m) && m.TryGetInt32(out var mins) ? mins : 15;
-            if (!Enum.TryParse<DiagnosticsLevel>(floorName, true, out var floor))
-                return Results.BadRequest(new { errorCode = "invalid_level", error = "Invalid browserQueryFloor." });
 
             minutes = Math.Clamp(minutes, 1, runtime.GetSnapshot().Options.Elevate.BrowserQueryMaxMinutes);
             var actor = http.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-            runtime.SetElevate(floor, TimeSpan.FromMinutes(minutes));
-            bus.Publish(new DiagnosticsEvent
-            {
-                Domain = DiagnosticsDomain.DiagnosticsSelf,
-                Name = "Diagnostics.ElevateStarted",
-                Payload = new
-                {
-                    browserQueryFloor = floor.ToString(),
-                    minutes,
-                    actorIp = actor,
-                    audit = true,
-                },
-            });
-            return Results.Ok(new { elevated = true, browserQueryFloor = floor.ToString(), minutes, redaction = "none" });
+            runtime.SetElevate(TimeSpan.FromMinutes(minutes));
+            self.ElevateStarted(minutes, actor);
+            return Results.Ok(new { elevated = true, minutes, redaction = "none" });
         });
 
-        g.MapDelete("/elevate", (HttpContext http, IDiagnosticsRuntime runtime, IDiagnosticsEventBus bus) =>
+        g.MapDelete("/elevate", (HttpContext http, IDiagnosticsRuntime runtime, IDiagnosticsSelfEmitter self) =>
         {
             var actor = http.Connection.RemoteIpAddress?.ToString() ?? "unknown";
             runtime.ClearElevate();
-            bus.Publish(new DiagnosticsEvent
-            {
-                Domain = DiagnosticsDomain.DiagnosticsSelf,
-                Name = "Diagnostics.ElevateExpired",
-                Payload = new { reason = "manual_clear", actorIp = actor, audit = true },
-            });
+            self.ElevateExpired("manual_clear", actor);
             return Results.Ok(new { elevated = false });
         });
 
         // Ops/lab: circuit breaker recovery must not wait for the cleanup timer alone.
-        // Degraded caps effective levels at Metrics and blocks BrowserQuery probes.
-        g.MapPost("/recover", (HttpContext http, IDiagnosticsRuntime runtime, IDiagnosticsEventBus bus) =>
+        // Degraded caps effective capabilities at Metric and blocks BrowserQuery probes.
+        g.MapPost("/recover", (HttpContext http, IDiagnosticsRuntime runtime, IDiagnosticsSelfEmitter self) =>
         {
             var actor = http.Connection.RemoteIpAddress?.ToString() ?? "unknown";
             var wasDegraded = runtime.IsDegraded;
             if (wasDegraded)
             {
                 runtime.SetDegraded(false);
-                bus.Publish(new DiagnosticsEvent
-                {
-                    Domain = DiagnosticsDomain.DiagnosticsSelf,
-                    Name = "Diagnostics.Recovered",
-                    Payload = new { reason = "manual_recover", actorIp = actor, audit = true },
-                });
+                self.Recovered("manual_recover", actor);
             }
 
             return Results.Ok(new { degraded = false, recovered = wasDegraded });
@@ -231,7 +210,7 @@ public static class DiagnosticsEndpoints
             HttpContext http,
             IMotorSessionRegistry registry,
             IDiagnosticsRuntime runtime,
-            IDiagnosticsEventBus bus,
+            ISidecarDiagnosticsEmitter sidecarDiag,
             IDiagnosticsRedactor redactor,
             DiagnosticsProbeGate probeGate,
             IEnumerable<IDiagnosticsProbeProvider> providers) =>
@@ -242,15 +221,7 @@ public static class DiagnosticsEndpoints
 
             if (!probeGate.TryEnter(connectionId, out var lease) || lease is null)
             {
-                bus.Publish(new DiagnosticsEvent
-                {
-                    Domain = DiagnosticsDomain.SidecarBrowser,
-                    Name = "Sidecar.DiagProbeRejected",
-                    Severity = DiagnosticsSeverity.Warning,
-                    CorrelationId = Guid.NewGuid().ToString("N"),
-                    ConnectionId = connectionId,
-                    Payload = new { errorCode = "probe_busy" },
-                });
+                sidecarDiag.ProbeBusyRejected(connectionId);
                 return Results.Json(new { errorCode = "probe_busy" },
                     statusCode: StatusCodes.Status429TooManyRequests);
             }
@@ -271,27 +242,19 @@ public static class DiagnosticsEndpoints
                 var needsBrowserQuery = ops.Any(o =>
                     o is "cookies" or "storage" or "dom" or "evaluate");
                 if (needsBrowserQuery
-                    && !runtime.IsEnabled(DiagnosticsDomain.BrowserQuery, DiagnosticsLevel.BrowserQuery))
+                    && !runtime.IsCapabilityEnabled(DiagnosticsDomain.BrowserQuery, DiagnosticsCapability.Probe))
                 {
                     return Results.Json(new { errorCode = "probe_level_insufficient" },
                         statusCode: StatusCodes.Status403Forbidden);
                 }
 
-                if (!runtime.IsEnabled(DiagnosticsDomain.SidecarBrowser, DiagnosticsLevel.Metrics))
+                if (!runtime.IsCapabilityEnabled(DiagnosticsDomain.SidecarBrowser, DiagnosticsCapability.Metric))
                 {
                     return Results.Json(new { errorCode = "probe_level_insufficient" },
                         statusCode: StatusCodes.Status403Forbidden);
                 }
 
-                bus.Publish(new DiagnosticsEvent
-                {
-                    Domain = DiagnosticsDomain.SidecarBrowser,
-                    Name = "Sidecar.DiagProbeRequested",
-                    CorrelationId = correlationId,
-                    ConnectionId = connectionId,
-                    PersistedSessionId = session.PersistedSessionId,
-                    Payload = new { ops },
-                });
+                sidecarDiag.ProbeRequested(connectionId, correlationId, session.PersistedSessionId, ops);
 
                 var sidecar = providers.FirstOrDefault(p => p.Name == "sidecar-diag");
                 if (sidecar is null)
@@ -323,31 +286,15 @@ public static class DiagnosticsEndpoints
                             "probe_level_insufficient" => StatusCodes.Status403Forbidden,
                             _ => StatusCodes.Status404NotFound,
                         };
-                        var eventName = result.ErrorCode == "probe_timeout"
-                            ? "Sidecar.DiagProbeTimedOut"
-                            : "Sidecar.DiagProbeRejected";
-                        bus.Publish(new DiagnosticsEvent
-                        {
-                            Domain = DiagnosticsDomain.SidecarBrowser,
-                            Name = eventName,
-                            Severity = DiagnosticsSeverity.Warning,
-                            CorrelationId = correlationId,
-                            ConnectionId = connectionId,
-                            Payload = MotorDiagnosticsPayloads.Probe(
-                                ops, result.ErrorCode ?? "probe_failed"),
-                        });
+                        var errorCode = result.ErrorCode ?? "probe_failed";
+                        if (result.ErrorCode == "probe_timeout")
+                            sidecarDiag.ProbeTimedOut(connectionId, correlationId, ops, errorCode);
+                        else
+                            sidecarDiag.ProbeRejected(connectionId, correlationId, ops, errorCode);
                         return Results.Json(new { errorCode = result.ErrorCode }, statusCode: status);
                     }
 
-                    bus.Publish(new DiagnosticsEvent
-                    {
-                        Domain = DiagnosticsDomain.SidecarBrowser,
-                        Name = "Sidecar.DiagProbeCompleted",
-                        CorrelationId = correlationId,
-                        ConnectionId = connectionId,
-                        PersistedSessionId = session.PersistedSessionId,
-                        Payload = MotorDiagnosticsPayloads.Probe(ops),
-                    });
+                    sidecarDiag.ProbeCompleted(connectionId, correlationId, session.PersistedSessionId, ops);
 
                     return Results.Ok(new
                     {
@@ -359,15 +306,7 @@ public static class DiagnosticsEndpoints
                 }
                 catch (OperationCanceledException)
                 {
-                    bus.Publish(new DiagnosticsEvent
-                    {
-                        Domain = DiagnosticsDomain.SidecarBrowser,
-                        Name = "Sidecar.DiagProbeTimedOut",
-                        Severity = DiagnosticsSeverity.Warning,
-                        CorrelationId = correlationId,
-                        ConnectionId = connectionId,
-                        Payload = MotorDiagnosticsPayloads.Probe(ops, "probe_timeout"),
-                    });
+                    sidecarDiag.ProbeTimedOut(connectionId, correlationId, ops);
                     return Results.Json(new { errorCode = "probe_timeout" }, statusCode: StatusCodes.Status504GatewayTimeout);
                 }
             }
@@ -389,7 +328,7 @@ public static class DiagnosticsEndpoints
             IDiagnosticsRuntime runtime,
             IDiagnosticsRedactor redactor) =>
         {
-            if (!runtime.IsEnabled(DiagnosticsDomain.PersistedSessions, DiagnosticsLevel.StateSnapshots))
+            if (!runtime.IsCapabilityEnabled(DiagnosticsDomain.PersistedSessions, DiagnosticsCapability.Snapshot))
                 return Results.Json(new { errorCode = "probe_level_insufficient" }, statusCode: StatusCodes.Status403Forbidden);
 
             var detail = await sessions.GetSessionDetailAsync(sessionId);
@@ -409,7 +348,7 @@ public static class DiagnosticsEndpoints
             IBrowserSessionStore sessions,
             IDiagnosticsRuntime runtime) =>
         {
-            if (!runtime.IsEnabled(DiagnosticsDomain.PersistedSessions, DiagnosticsLevel.StateSnapshots))
+            if (!runtime.IsCapabilityEnabled(DiagnosticsDomain.PersistedSessions, DiagnosticsCapability.Snapshot))
                 return Results.Json(new { errorCode = "probe_level_insufficient" }, statusCode: StatusCodes.Status403Forbidden);
 
             BrowserStatePayload? state;
@@ -438,9 +377,9 @@ public static class DiagnosticsEndpoints
 
     private static object ShapeSnapshot(MotorSessionDiagnosticsSnapshot snap, IDiagnosticsRuntime runtime)
     {
-        var level = runtime.GetEffectiveLevel(DiagnosticsDomain.MotorLive);
+        // Full session snapshot is gated by Motor.Snapshots; otherwise a Metric-tier subset.
         // Always emit Phase as a stable string for Act→Assert (cookbook / MotorAssert).
-        if (level <= DiagnosticsLevel.Metrics)
+        if (!runtime.IsCapabilityEnabled(DiagnosticsDomain.MotorLive, DiagnosticsCapability.Snapshot))
         {
             return new
             {

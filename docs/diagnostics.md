@@ -16,11 +16,13 @@ Schema version: **`diagnosticsSchemaVersion: 1`**.
 | Probe | On-demand interrogation (`diagProbe`) |
 | Signal | Metric \| Event \| Snapshot \| Probe |
 
-Domains: `MotorLive`, `SidecarBrowser`, `BrowserQuery`, `PersistedSessions`, `HostResources`, `DiagnosticsSelf`.
+Domains: `MotorLive`, `SidecarBrowser`, `BrowserQuery`, `PersistedSessions`, `Telemetry`, `DiagnosticsSelf`.
 
-Levels (totally ordered): `Off < Metrics < Events < StateSnapshots < BrowserQuery`.
+Each catalog event carries a **capability** (`Metric` \| `Event` \| `Snapshot` \| `Probe`) as metadata — the *Signal* vocabulary above, not an operator control. Operators enable **capability toggles per domain** in config: `domains.motor.{metrics,events,snapshots}`, `domains.sidecar.{metrics,events}`, `domains.browserQuery.probe`, `domains.persisted.snapshots`. `DiagnosticsSelf` is always on while `enabled`. The transport gates each publish purely by *descriptor → `IsCapabilityEnabled(domain, capability)`* — no domain/event names are hardcoded in the bus, and an uncatalogued event is dropped.
 
-Config section: **`Diagnostics`** (dynamic SQLite; first-boot seed Development / Production / `SPECULUM_DIAGNOSTICS_PROFILE=Assertive`). Elevate is a TTL overlay and does not rewrite the section.
+Two runtime modifiers overlay the toggles (centralised in `IDiagnosticsRuntime`, never rewritten into config): **Degraded** forces every domain down to the `Metric` capability, and **Elevate** (TTL) forces `BrowserQuery.Probe` + `SidecarBrowser` on. `GET /runtime` and `/overview` project the resolved state as `effectiveCapabilities` (domain → {capability → bool}) plus `storageMaxBytes` and `elevate.active`.
+
+Config section: **`Diagnostics`** (dynamic SQLite; first-boot seed Development / Production / `SPECULUM_DIAGNOSTICS_PROFILE=Assertive`). `Profile` names the preset that seeded the toggles; an explicit toggle overrides the preset. Elevate is a TTL overlay and does not rewrite the section.
 
 REST base: **`/api/admin/diagnostics/v1`** (Bearer admin).
 
@@ -34,7 +36,7 @@ Response wrappers (raw HTTP — client `diagnosticsApi` unwraps where noted):
 | `GET /sessions/{id}/events` | event array (each item includes `redaction`) |
 | `GET /events?since=&namePrefix=&connectionId=` | global timeline (Drain / DiagnosticsSelf; optional `connectionId` filter) |
 
-Catalog Act→Assert events are **never** randomly sampled away. `StatusMirrorRatio` / `expensiveEventRatio` only throttle noisy `Motor.StatusMirrored` (ring-only). Catalog Motor/Sidecar/Diagnostics events also use a Metrics publish floor so Prod (`SidecarBrowser=Metrics`) and `DiagnosticsDegraded` caps do not erase Act→Assert timelines.
+Catalog Act→Assert events are **never** randomly sampled away. `StatusMirrorRatio` / `expensiveEventRatio` only throttle noisy `Motor.StatusMirrored` (ring-only). Catalog Motor/Sidecar lifecycle events are tagged with the `Metric` capability (not `Event`) so Production (`sidecar.events` off) and Degraded caps do not erase Act→Assert timelines; only `Motor.ResizeRequested` and `Motor.SidecarFaulted` require the `events` toggle.
 
 ## Assert Cookbook
 
@@ -86,19 +88,19 @@ Motor completeness for debug: **identity resolve + URL map + export + probes** (
 ### 4. Persistence
 
 1. Act: stop session that exports state → wait **`Motor.StateExportCompleted` for that `connectionId`** (`WaitStateExportCompletedAsync` — not a global export wait).
-2. Assert: `GET /persisted/{sessionId}` → `{ detail… }` (level ≥ `StateSnapshots`).
+2. Assert: `GET /persisted/{sessionId}` → `{ detail… }` (`domains.persisted.snapshots` on).
 3. Act: start new session with same client token → restore.
 4. Assert: `BrowserQuery` probe `cookies` / `evaluate` sees restored truth.
 
 ### 5. Governance
 
 1. PUT tiny `storage.maxBytes` → force overflow → assert `Diagnostics.StorageOverflow` via `GET /events?namePrefix=Diagnostics.Storage` **and/or** `GET /runtime` → `overflowCount`.
-2. Enable `domains.browserQuery: BrowserQuery` → probe ops `cookies` OK.
-3. Set BrowserQuery `Off` → probe returns `403` `{ "errorCode": "probe_level_insufficient" }`.
+2. Enable `domains.browserQuery.probe` → probe ops `cookies` OK.
+3. Set `domains.browserQuery.probe: false` → probe returns `403` `{ "errorCode": "probe_level_insufficient" }`.
 4. Concurrent probes beyond `maxConcurrentProbesPerSession` → `429` `{ "errorCode": "probe_busy" }`.
 5. Probe response exceeding `maxProbeResponseBytes` → HTTP `413` with `errorCode: response_too_large`, **or** a soft-capped success whose body stays under the budget (never an uncapped multi‑100KB DOM dump). MotorAssert `L11` locks this contract.
 6. PUT elevate → assert `GET /events?namePrefix=Diagnostics.Elevate` includes `ElevateStarted`; TTL/DELETE → `ElevateExpired`.
-7. **Degraded circuit breaker** — sustained sink drops or slow writes trip `Diagnostics.Degraded`; effective levels above Metrics are capped to Metrics → probes return `probe_level_insufficient`. Recovery: cleanup cycle or **`POST /recover`** (audited `Diagnostics.Recovered`). Harness baseline calls recover before BrowserQuery asserts.
+7. **Degraded circuit breaker** — sustained sink drops or slow writes trip `Diagnostics.Degraded`; every domain is capped to the `Metric` capability → BrowserQuery probes return `probe_level_insufficient`. Recovery: cleanup cycle or **`POST /recover`** (audited `Diagnostics.Recovered`). Harness baseline calls recover before BrowserQuery asserts.
 
 Admin routes (Bearer): `GET /runtime`, **`GET /overview`** (SPA aggregate of runtime + live session counts), `PUT|DELETE /elevate`, **`POST /recover`**, `GET /events`, session/persisted/probe paths — see `DiagnosticsEndpoints`.
 
@@ -121,7 +123,7 @@ Functional overflow: catalog id + runtime `overflowCount`/`bytesUsed`/`maxBytes`
 
 ## Stable event catalog
 
-See `GET /catalog/events` and `DiagnosticsEventCatalog` (Motor.*, Sidecar.Diag*, Diagnostics.*).
+See `GET /catalog/events` and `DiagnosticsEventCatalog` — a registry of `DiagnosticsEventDescriptor { Name, Domain, Capability, Persist }` (Motor.*, Sidecar.Diag*, Diagnostics.*, `Telemetry.SampleCollected`). Every emitted event **must** have a descriptor; the transport drops uncatalogued names (guarded by `DiagnosticsCatalogEmittersTests`).
 
 Notable MotorLive events for completeness:
 
@@ -164,6 +166,24 @@ Ids, FSM phase, timing, fps/frames, navigation result, sidecar connected/fault, 
 ## Sidecar probes
 
 Wire: `diagProbe` / `diagResult`. Ops: `process`, `tabs`, `export`, `cookies`, `storage`, `dom`, `evaluate`, `resources`. Soft-cap via `maxProbeResponseBytes` (default 512 KiB, absolute wire ceiling 8 MiB).
+
+## Telemetry (composite sample)
+
+The `Telemetry` domain publishes one periodic composite event, **`Telemetry.SampleCollected`** (capability `Metric`, persisted), on a single global interval (`telemetry.intervalSeconds`). Overlaying host × motor × sidecar × persistence × pipeline on one time axis is how the sample *tells a story* (symptom → signal). Each section is emitted only when its toggle is on; a missing section means "not collected".
+
+Payload (`TelemetrySample`, camelCase):
+
+| Section | Toggle | Fields |
+|---------|--------|--------|
+| `host` | `telemetry.host.enabled` | `hostname`, `uptimeSec`, `cpuUsage`, `memoryUsed`, `memoryPrivate`, `memoryTotal`, `gcHeap`, `gcGen0/1/2`, `threadCount`, `threadPoolBusy`, `threadPoolQueued`, `diskFreeBytes` |
+| `motor` | `telemetry.motor.enabled` | `total`, `live`, `starting`, `stopping`, `byPhase`, `avgFps`/`minFps`/`maxFps`, `inputQueueTotal`, `frameChannelDepthTotal`, `statusChannelDepthTotal`, `capacityMax`, `capacityUsedPct`; `liveSessionIds[]?` (`includeSessionIds`), `sessions[]?` (`includePerSession`; each `urlHost?` needs `includeUrlHost`) |
+| `sidecar` | `telemetry.sidecar.enabled` | `connected`, `faulted`; `faultedSessionIds[]?` (`includeFaultedIds`) |
+| `persistence` | `telemetry.persistence.enabled` | `storedSessions`, `totalCookies`, `totalHistory`, `expiringSoon`; `storeBytes?` (`includeBytes`) |
+| `pipeline` | `telemetry.pipeline.enabled` | `bytesUsed`, `storageMaxBytes`, `usedPct`, `eventsStored`, `eventsDropped`, `overflowCount`, `probeInFlight`, `degraded`, `elevateActive`; `recentDrops?`/`recentSlowWrites?` (`includeBreakerPressure`) |
+
+Symptom → signal coverage (asserted by composer tests + MotorAssert `T1`/`T2`): memory leak (`host.memoryUsed`/`gcGen2`/`gcHeap` rise vs flat `motor.live`); render regression (`motor.avgFps`/`minFps` fall vs `host.cpuUsage`; when CPU is flat, `motor.inputQueueTotal`/`frameChannelDepthTotal` + `sidecar`); thread starvation (`host.threadPoolQueued` up, `threadPoolBusy` at ceiling); saturation (`motor.capacityUsedPct` → 100 + `motor.starting` piling up); sidecar instability (`sidecar.faulted` up, correlates with `Motor.SidecarFaulted`); diagnostics overhead (`pipeline.recentSlowWrites`/`bytesUsed`). Aggregate-only by default; identity (`liveSessionIds`/`sessions`/`faultedSessionIds`/`urlHost`) is opt-in and still governed by read-time redaction.
+
+`GET /host` returns the shared host collector (the `Telemetry.Host` shape), gated by `telemetry.enabled` **and** `telemetry.host.enabled` (otherwise `probe_level_insufficient`).
 
 ## CI: motor-assertive
 

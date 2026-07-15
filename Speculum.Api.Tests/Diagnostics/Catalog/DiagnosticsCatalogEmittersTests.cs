@@ -27,8 +27,20 @@ public sealed class DiagnosticsCatalogEmittersTests
             "Motor.SidecarFaulted", "Diagnostics.StorageOverflow",
             "Diagnostics.ElevateStarted", "Diagnostics.ElevateExpired",
             "Sidecar.DiagProbeRequested", "Sidecar.DiagProbeCompleted",
+            "Telemetry.SampleCollected",
         ];
         foreach (var name in required)
             Assert.Contains(name, DiagnosticsEventCatalog.All);
+    }
+
+    [Fact]
+    public void Telemetry_emit_type_exists_and_descriptor_is_catalogued()
+    {
+        var assembly = typeof(DiagnosticsEventCatalog).Assembly;
+        var typeNames = assembly.GetTypes().Select(t => t.FullName).ToHashSet();
+
+        Assert.Contains(typeof(Speculum.Api.Diagnostics.Telemetry.TelemetryEmitter).FullName, typeNames);
+        Assert.Contains(typeof(Speculum.Api.Diagnostics.Telemetry.TelemetrySampleComposer).FullName, typeNames);
+        Assert.True(DiagnosticsEventCatalog.TryGet("Telemetry.SampleCollected", out _));
     }
 }

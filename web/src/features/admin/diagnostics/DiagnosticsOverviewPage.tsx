@@ -6,9 +6,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { HealthStatusStrip } from '@/components/admin/HealthStatusStrip'
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion'
+import { CAPABILITY_LABELS, summarizeCapabilities } from '@/lib/diagnosticsConstants'
 
 function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`
@@ -21,7 +21,6 @@ export default function DiagnosticsOverviewPage() {
   const [error, setError] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
-  const [elevateFloor, setElevateFloor] = useState('BrowserQuery')
   const [elevateMinutes, setElevateMinutes] = useState('15')
 
   const refresh = useCallback(async () => {
@@ -55,10 +54,7 @@ export default function DiagnosticsOverviewPage() {
     setPending(true)
     setMessage(null)
     try {
-      await diagnosticsApi.elevate({
-        browserQueryFloor: elevateFloor as 'BrowserQuery',
-        minutes: Number(elevateMinutes),
-      })
+      await diagnosticsApi.elevate({ minutes: Number(elevateMinutes) })
       setMessage('Elevate applied')
       await refresh()
     } catch (e: unknown) {
@@ -139,21 +135,10 @@ export default function DiagnosticsOverviewPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Elevate BrowserQuery</CardTitle>
-              <CardDescription>Temporarily raise browser-query floor for deep probes (ops/lab).</CardDescription>
+              <CardTitle>Elevate Browser Query</CardTitle>
+              <CardDescription>Temporarily unlock deep browser probes (cookies, DOM, evaluate) for ops/lab.</CardDescription>
             </CardHeader>
             <CardContent className="flex flex-wrap items-end gap-3">
-              <div className="space-y-1">
-                <Label>Floor</Label>
-                <Select value={elevateFloor} onValueChange={setElevateFloor}>
-                  <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {['Metrics', 'Events', 'StateSnapshots', 'BrowserQuery'].map((l) => (
-                      <SelectItem key={l} value={l}>{l}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
               <div className="space-y-1">
                 <Label htmlFor="mins">Minutes</Label>
                 <Input id="mins" className="w-24" value={elevateMinutes} onChange={(e) => setElevateMinutes(e.target.value)} />
@@ -166,14 +151,14 @@ export default function DiagnosticsOverviewPage() {
           </Card>
 
           <Accordion type="single" collapsible>
-            <AccordionItem value="levels">
-              <AccordionTrigger>Effective levels</AccordionTrigger>
+            <AccordionItem value="capabilities">
+              <AccordionTrigger>Effective capabilities</AccordionTrigger>
               <AccordionContent>
                 <ul className="space-y-1 text-sm">
-                  {Object.entries(overview.effectiveLevels).map(([k, v]) => (
-                    <li key={k} className="flex justify-between gap-4 border-b border-border/40 py-1">
-                      <span className="text-muted-foreground">{k}</span>
-                      <span>{v}</span>
+                  {Object.entries(overview.effectiveCapabilities).map(([domain, capMap]) => (
+                    <li key={domain} className="flex justify-between gap-4 border-b border-border/40 py-1">
+                      <span className="text-muted-foreground">{domain}</span>
+                      <span>{summarizeCapabilities(capMap).enabled.map((c) => CAPABILITY_LABELS[c] ?? c).join(', ') || 'Off'}</span>
                     </li>
                   ))}
                 </ul>

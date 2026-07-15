@@ -128,7 +128,8 @@ Pipeline: **Observe → Govern → Record → Query → Present**.
 - Same **schema** in Development and Production; environment differs by **redaction / budgets**, not by deleting taxonomies.
 - Catalog Act→Assert events must not be randomly sampled away.
 - Catalogued **failures** (and decisive lifecycle emits) must include stable payload fields — at minimum `errorCode` + `phase` on failures. An incomplete emit is a product defect, not an acceptable soft-pass — see [diagnostics.md](diagnostics.md) (Failure & lifecycle payload contract).
-- Control plane: levels per domain, budgets, overflow, elevate, soft-caps — see [diagnostics.md](diagnostics.md).
+- Control plane: **capability toggles per domain** (`metrics`/`events`/`snapshots`/`probe`), budgets, overflow, elevate, soft-caps. The transport is domain-agnostic — it gates only by catalog `descriptor` + `IsCapabilityEnabled`, never by hardcoded event/domain names — see [diagnostics.md](diagnostics.md).
+- `Telemetry` domain: one composite `Telemetry.SampleCollected` sample (host/motor/sidecar/persistence/pipeline) on a global interval; sections and identity are opt-in per toggle, redaction stays read-time.
 
 ---
 
@@ -198,8 +199,8 @@ MotorAssert runs **one** API + sidecar + Chromium stack **serially** (`DisablePa
 |---------|-----|
 | `MaxSessions = 4` | Prior tests may cap at 1 for slot asserts |
 | `JsBridge.enable = true` | I3/I5 flip isolation |
-| Clear **Diagnostics Degraded** via `POST /api/admin/diagnostics/v1/recover` | Circuit breaker caps effective levels at **Metrics** → `403 probe_level_insufficient` even when config says Assertive |
-| PUT Assertive Diagnostics + `WaitConfigApplied` + runtime verify | L8 and governance tests lower `browserQuery`; must not leak |
+| Clear **Diagnostics Degraded** via `POST /api/admin/diagnostics/v1/recover` | Circuit breaker caps every domain to the **Metric** capability → `403 probe_level_insufficient` even when config says Assertive |
+| PUT Assertive Diagnostics + `WaitConfigApplied` + runtime verify | L8 and governance tests turn `browserQuery.probe` off; must not leak |
 
 **Rules:**
 
@@ -211,7 +212,7 @@ MotorAssert runs **one** API + sidecar + Chromium stack **serially** (`DisablePa
 **Diagnostics Degraded (product behaviour tests must understand):**
 
 - Publish circuit breaker trips on sustained sink drops / slow writes → `Diagnostics.Degraded` event.
-- While degraded, `GetEffectiveLevel` caps domains above Metrics to Metrics — BrowserQuery probes return `probe_level_insufficient`.
+- While degraded, `IsCapabilityEnabled` caps every domain to the `Metric` capability — BrowserQuery probes return `probe_level_insufficient`.
 - Recovery: successful cleanup cycle (hosted service) or **`POST /api/admin/diagnostics/v1/recover`** (ops/lab/harness). PUT Diagnostics alone does **not** clear degraded.
 
 Do not invent parallel MotorAssert collections that fight over one compose stack.

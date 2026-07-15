@@ -8,7 +8,9 @@ using Speculum.Api.Config.Runtime;
 using Speculum.Api.Config.Store;
 using Speculum.Api.Diagnostics.Abstractions;
 using Speculum.Api.Diagnostics.Configuration;
+using Speculum.Api.Diagnostics.Emitters;
 using Speculum.Api.Diagnostics.Pipeline;
+using Speculum.Api.Motor.Diagnostics;
 using Speculum.Api.Motor.Live;
 using Speculum.Api.Motor.Live.Models;
 using Speculum.Api.Motor.Mapping;
@@ -129,8 +131,7 @@ public sealed class DiagnosticsEmitterPublishTests
         runtime.ApplyOptions(new DiagnosticsOptions { Enabled = false });
         var sink = new RecordingSink();
         var ring = new SessionEventRing();
-        var bus = new DiagnosticsEventBus(
-            runtime, [sink], ring, NullLogger<DiagnosticsEventBus>.Instance);
+        var bus = BuildBus(runtime, sink, ring);
 
         bus.Publish(new DiagnosticsEvent
         {
@@ -155,12 +156,11 @@ public sealed class DiagnosticsEmitterPublishTests
         var runtime = new DiagnosticsRuntime();
         runtime.ApplyOptions(DiagnosticsSeedProfiles.Development());
         runtime.SetDegraded(true);
-        Assert.False(runtime.IsEnabled(DiagnosticsDomain.MotorLive, DiagnosticsLevel.Events));
+        Assert.False(runtime.IsCapabilityEnabled(DiagnosticsDomain.MotorLive, DiagnosticsCapability.Event));
 
         var sink = new RecordingSink();
         var ring = new SessionEventRing();
-        var bus = new DiagnosticsEventBus(
-            runtime, [sink], ring, NullLogger<DiagnosticsEventBus>.Instance);
+        var bus = BuildBus(runtime, sink, ring);
 
         bus.Publish(new DiagnosticsEvent
         {
@@ -232,7 +232,7 @@ public sealed class DiagnosticsEmitterPublishTests
                 new SessionResolveResult("sess-x", ValidToken, false), null),
             new MotorUrlAdapter(new NavigationStateCodec(new byte[32], encrypt: false)),
             new StubFactory(),
-            bus,
+            Emitter(bus),
             NullLogger<MotorSessionCoordinator>.Instance);
 
         await coordinator.HandleDisconnectedAsync("conn-x");
@@ -282,7 +282,7 @@ public sealed class DiagnosticsEmitterPublishTests
                 new SessionResolveResult("sess-n", ValidToken, false), null),
             new MotorUrlAdapter(new NavigationStateCodec(new byte[32], encrypt: false)),
             new StubFactory(),
-            bus,
+            Emitter(bus),
             NullLogger<MotorSessionCoordinator>.Instance);
 
         await Assert.ThrowsAsync<HubException>(() =>
@@ -310,8 +310,26 @@ public sealed class DiagnosticsEmitterPublishTests
             store,
             urlAdapter,
             factory ?? new StubFactory(),
-            bus,
+            Emitter(bus),
             NullLogger<MotorSessionCoordinator>.Instance);
+    }
+
+    // Wrap the fake transport (CapturingBus) in a real Motor emitter so tests still assert
+    // against the emitted DiagnosticsEvent payloads while exercising the emitter gating.
+    private static IMotorDiagnosticsEmitter Emitter(IDiagnosticsEventBus bus)
+    {
+        var runtime = new DiagnosticsRuntime();
+        runtime.ApplyOptions(DiagnosticsSeedProfiles.Development());
+        return new MotorDiagnosticsEmitter(bus, runtime);
+    }
+
+    private static DiagnosticsEventBus BuildBus(
+        DiagnosticsRuntime runtime, IDiagnosticsSink sink, SessionEventRing ring)
+    {
+        DiagnosticsEventBus? bus = null;
+        var self = new Lazy<IDiagnosticsSelfEmitter>(() => new DiagnosticsSelfEmitter(bus!));
+        bus = new DiagnosticsEventBus(runtime, [sink], ring, self, NullLogger<DiagnosticsEventBus>.Instance);
+        return bus;
     }
 
     private static MotorSession CreateMotorSession(IDiagnosticsEventBus bus, string motorHost)
@@ -338,15 +356,12 @@ public sealed class DiagnosticsEmitterPublishTests
             MotorRequestHost = motorHost,
             AllowedNavigationDomains = forwarding.Domains,
         };
-        var runtime = new DiagnosticsRuntime();
-        runtime.ApplyOptions(DiagnosticsSeedProfiles.Development());
         return new MotorSession(
             new SidecarBrowserClientOptions { SidecarBaseUrl = "ws://127.0.0.1:9" },
             snapshot,
             adapter,
             new ThrowingSidecarFactory(),
-            bus,
-            runtime,
+            Emitter(bus),
             NullLogger.Instance);
     }
 
@@ -454,6 +469,8 @@ public sealed class DiagnosticsEmitterPublishTests
             return session is not null;
         }
         public IReadOnlyList<MotorSessionListItem> ListSessions() => [];
+
+        public IReadOnlyList<MotorSessionDiagnosticsSnapshot> ListSnapshots() => [];
         public bool TryFindByPersistedSessionId(
             string id,
             [NotNullWhen(true)] out IMotorSession? session,
@@ -468,7 +485,7 @@ public sealed class DiagnosticsEmitterPublishTests
         {
             session = null; connectionId = null; return false;
         }
-        public Task StopAllAsync(IBrowserSessionStore store, CancellationToken ct = default, Speculum.Api.Diagnostics.Abstractions.IDiagnosticsEventBus? diagnostics = null, string? correlationId = null) => Task.CompletedTask;
+        public Task StopAllAsync(IBrowserSessionStore store, CancellationToken ct = default, IMotorDiagnosticsEmitter? diagnostics = null, string? correlationId = null) => Task.CompletedTask;
     }
 
     private sealed class StubFactory : IMotorSessionFactory

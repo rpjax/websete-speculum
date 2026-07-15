@@ -25,6 +25,8 @@ const ROUTE_MAP: Record<string, RouteEntry> = {
   '/admin/sessions':                { label: 'Sessions' },
   '/admin/sessions/:id':            { label: ':id', parent: '/admin/sessions' },
   '/admin/diagnostics':             { label: 'Diagnostics' },
+  '/admin/diagnostics/health':      { label: 'Health', parent: '/admin/diagnostics' },
+  '/admin/diagnostics/resources':   { label: 'Resources', parent: '/admin/diagnostics' },
   '/admin/diagnostics/activity':    { label: 'Activity', parent: '/admin/diagnostics' },
   '/admin/diagnostics/investigate': { label: 'Investigate', parent: '/admin/diagnostics' },
   '/admin/diagnostics/governance':  { label: 'Governance', parent: '/admin/diagnostics' },

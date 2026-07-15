@@ -1,6 +1,7 @@
 using Microsoft.Data.Sqlite;
 using Speculum.Api.Diagnostics.Abstractions;
 using Speculum.Api.Diagnostics.Configuration;
+using Speculum.Api.Diagnostics.Emitters;
 using System.Text.Json;
 
 namespace Speculum.Api.Diagnostics.Pipeline;
@@ -14,13 +15,13 @@ public sealed class SqliteDiagnosticsEventSink : IDiagnosticsSink
 
     private readonly string _connectionString;
     private readonly IDiagnosticsRuntime _runtime;
-    private readonly Lazy<IDiagnosticsEventBus> _bus;
+    private readonly Lazy<IDiagnosticsSelfEmitter> _self;
     private readonly object _writeLock = new();
 
     public SqliteDiagnosticsEventSink(
         string databasePath,
         IDiagnosticsRuntime runtime,
-        Lazy<IDiagnosticsEventBus> bus)
+        Lazy<IDiagnosticsSelfEmitter> self)
     {
         var dir = Path.GetDirectoryName(databasePath);
         if (!string.IsNullOrEmpty(dir))
@@ -32,7 +33,7 @@ public sealed class SqliteDiagnosticsEventSink : IDiagnosticsSink
 
         _connectionString = new SqliteConnectionStringBuilder { DataSource = path }.ToString();
         _runtime = runtime;
-        _bus = bus;
+        _self = self;
         EnsureSchema();
     }
 
@@ -184,18 +185,7 @@ public sealed class SqliteDiagnosticsEventSink : IDiagnosticsSink
                 _runtime.ReportOverflow();
                 try
                 {
-                    _bus.Value.Publish(new DiagnosticsEvent
-                    {
-                        Domain = DiagnosticsDomain.DiagnosticsSelf,
-                        Name = "Diagnostics.StorageOverflow",
-                        Severity = DiagnosticsSeverity.Warning,
-                        Payload = new
-                        {
-                            maxBytes = options.Storage.MaxBytes,
-                            dropped,
-                            overflow = options.Storage.Overflow,
-                        },
-                    });
+                    _self.Value.StorageOverflow(options.Storage.MaxBytes, dropped, options.Storage.Overflow);
                 }
                 catch
                 {

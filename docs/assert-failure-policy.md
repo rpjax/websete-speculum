@@ -38,7 +38,7 @@ Shared compose is serial. Prefer these checks when BrowserQuery probes or restor
 | Symptom | Likely cause | Action |
 |---------|--------------|--------|
 | `403 probe_level_insufficient` with Assertive seed | `Diagnostics.Degraded` | `POST /api/admin/diagnostics/v1/recover`; confirm `GET /runtime` → `degraded: false` |
-| `effectiveLevels.BrowserQuery=Metrics` after Diagnostics PUT | Degraded cap (config is ignored for levels above Metrics) | Baseline must clear Degraded before level verify |
+| `effectiveCapabilities.BrowserQuery.Probe=false` after Diagnostics PUT | Degraded cap (every domain forced to `Metric`) | Baseline must clear Degraded before capability verify |
 | Restore sees empty cookies; export “already happened” | Global `StateExport` wait matched another test | `WaitStateExportCompletedAsync(connectionId, since-before-disconnect)` |
 | Timeout on `ConfigApplied` after JsBridge / MaxSessions PUT | Those sections do not emit `ConfigApplied` | Wait only after Diagnostics or Hosting PUT |
 | Cascade of sub-second Init failures | Prior test left Degraded or baseline threw | Fix the first red case; verify recover + Assertive runtime |

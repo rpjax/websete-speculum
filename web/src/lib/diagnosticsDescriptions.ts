@@ -25,19 +25,20 @@ export const EVENT_DESCRIPTIONS: Record<string, string> = {
   'Sidecar.DiagProbeRequested': 'An administrator requested a diagnostic probe — inspecting the browser\'s internal state.',
   'Sidecar.DiagProbeCompleted': 'The diagnostic probe finished successfully — results are available for inspection.',
   'Sidecar.DiagProbeTimedOut': 'The diagnostic probe did not respond within the timeout — the browser may be busy or unresponsive.',
-  'Sidecar.DiagProbeRejected': 'The diagnostic probe was rejected — the current diagnostics level does not permit this operation.',
+  'Sidecar.DiagProbeRejected': 'The diagnostic probe was rejected — the Browser Query capability is not enabled for this operation.',
   'Sidecar.Ready': 'The sidecar browser process started and is ready to accept connections.',
-  'Diagnostics.ConfigApplied': 'Diagnostics configuration was updated — new levels, storage settings, or probe limits are now active.',
+  'Diagnostics.ConfigApplied': 'Diagnostics configuration was updated — new capability toggles, storage settings, or probe limits are now active.',
+  'Diagnostics.CleanupPurged': 'Old diagnostic events were purged from the ring buffer to free storage space.',
   'Diagnostics.CleanupCompleted': 'Old diagnostic events were purged from the ring buffer to free storage space.',
-  'Diagnostics.Degraded': 'The diagnostics circuit breaker tripped — too many errors forced the system into a limited mode.',
-  'Diagnostics.Recovered': 'The diagnostics circuit breaker was reset — full diagnostics functionality is restored.',
+  'Diagnostics.Degraded': 'The diagnostics circuit breaker tripped — too many errors capped every domain at the Metrics capability.',
+  'Diagnostics.Recovered': 'The diagnostics circuit breaker was reset — full diagnostics capability is restored.',
   'Diagnostics.RecoverRequested': 'An administrator manually requested diagnostics recovery.',
-  'Diagnostics.ElevateStarted': 'BrowserQuery level was temporarily elevated — deeper browser inspection (cookies, DOM, JS) is now available.',
-  'Diagnostics.ElevateExpired': 'The temporary BrowserQuery elevation expired — browser inspection is back to the configured level.',
+  'Diagnostics.ElevateStarted': 'The Browser Query capability was temporarily unlocked — deeper browser inspection (cookies, DOM, JS) is now available.',
+  'Diagnostics.ElevateExpired': 'The temporary Browser Query elevation expired — browser inspection is back to the configured toggles.',
   'Diagnostics.StorageOverflow': 'The diagnostics event buffer is full — oldest events are being dropped to make room.',
   'Persistence.StateExportCompleted': 'Browser state (cookies, localStorage, IndexedDB) was persisted to the session store.',
   'Persistence.SessionQueried': 'A persisted session record was queried from the store.',
-  'HostResources.SampleCollected': 'Host machine metrics were sampled — CPU, memory, and GC statistics captured.',
+  'Telemetry.SampleCollected': 'A composite telemetry sample was collected — host, motor, sidecar, persistence, and pipeline sections captured on one time axis.',
 }
 
 export const ERROR_EXPLANATIONS: Record<string, { summary: string; detail: string; action?: string }> = {
@@ -57,9 +58,9 @@ export const ERROR_EXPLANATIONS: Record<string, { summary: string; detail: strin
     action: 'Try again, or increase diagTimeoutMs in Governance → Advanced settings.',
   },
   probe_level_insufficient: {
-    summary: 'Insufficient diagnostics level',
-    detail: 'The requested probe operation requires a higher diagnostics level than currently configured. Operations like cookie or DOM inspection need BrowserQuery level.',
-    action: 'Use the Elevate feature on the Health tab to temporarily enable BrowserQuery, or change the configured level in Governance.',
+    summary: 'Browser Query capability disabled',
+    detail: 'The requested probe operation needs the Browser Query capability, which is currently off. Operations like cookie or DOM inspection require it.',
+    action: 'Use the Elevate feature on the Health tab to temporarily unlock Browser Query, or enable the toggle in Governance.',
   },
   probe_rejected_degraded: {
     summary: 'Probe rejected (degraded)',
@@ -167,11 +168,10 @@ export function narrateStory(story: CorrelationStory): string {
     }
 
     case 'admin': {
-      const admin = payloads.find((p) => p?.browserQueryFloor || p?.reason || p?.section)
+      const admin = payloads.find((p) => p?.minutes !== undefined || p?.reason || p?.section)
       if (events.some((e) => e.name.includes('Elevate'))) {
-        const floor = admin?.browserQueryFloor ? String(admin.browserQueryFloor) : 'BrowserQuery'
         const minutes = admin?.minutes
-        return `An administrator temporarily elevated the diagnostics level to ${floor}${minutes ? ` for ${minutes} minutes` : ''}. Deep browser inspection (cookies, DOM, JS evaluation) is now available.`
+        return `An administrator temporarily unlocked the Browser Query capability${minutes ? ` for ${minutes} minutes` : ''}. Deep browser inspection (cookies, DOM, JS evaluation) is now available.`
       }
       if (events.some((e) => e.name.includes('Recover'))) {
         return `An administrator manually recovered the diagnostics circuit. The system was in a degraded state and is now restored to full functionality.`
@@ -199,17 +199,12 @@ export function humanizeConnectionId(connectionId: string | null): string {
 
 export function humanizeDomain(domain: string): string {
   const DOMAIN_HUMAN: Record<string, string> = {
-    'Motor.Live': 'Session lifecycle, navigation, and streaming',
-    'Sidecar.Browser': 'Browser process, probes, and screencast',
-    'BrowserQuery': 'Cookies, DOM, localStorage, JS evaluation',
-    'Persistence': 'State export, restore, and stored sessions',
-    'HostResources': 'CPU, memory, disk, and GC metrics',
-    'Diagnostics.Self': 'Pipeline config, elevation, and cleanup',
-    'motorLive': 'Session lifecycle, navigation, and streaming',
-    'sidecarBrowser': 'Browser process, probes, and screencast',
-    'browserQuery': 'Cookies, DOM, localStorage, JS evaluation',
-    'persistedSessions': 'State export, restore, and stored sessions',
-    'hostResources': 'CPU, memory, disk, and GC metrics',
+    MotorLive: 'Session lifecycle, navigation, and streaming',
+    SidecarBrowser: 'Browser process, probes, and screencast',
+    BrowserQuery: 'Cookies, DOM, localStorage, JS evaluation',
+    PersistedSessions: 'State export, restore, and stored sessions',
+    Telemetry: 'Composite host, motor, sidecar, persistence, and pipeline sample',
+    DiagnosticsSelf: 'Pipeline config, elevation, and cleanup',
   }
   return DOMAIN_HUMAN[domain] ?? domain
 }

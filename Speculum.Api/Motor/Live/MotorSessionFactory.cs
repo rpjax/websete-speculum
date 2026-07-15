@@ -1,5 +1,5 @@
 using Speculum.Api.Config.Runtime;
-using Speculum.Api.Diagnostics.Abstractions;
+using Speculum.Api.Motor.Diagnostics;
 using Speculum.Api.Motor.Mapping;
 using Speculum.Api.Motor.Sidecar;
 
@@ -15,23 +15,20 @@ public sealed class MotorSessionFactory : IMotorSessionFactory
     private readonly SidecarBrowserClientOptions _sidecarOptions;
     private readonly MotorUrlAdapter             _urlAdapter;
     private readonly ISidecarClientFactory       _sidecarClientFactory;
-    private readonly IDiagnosticsEventBus        _diagnostics;
-    private readonly IDiagnosticsRuntime         _runtime;
+    private readonly IMotorDiagnosticsEmitter    _diagnostics;
     private readonly ILogger<MotorSession>       _logger;
 
     public MotorSessionFactory(
         SidecarBrowserClientOptions sidecarOptions,
         MotorUrlAdapter             urlAdapter,
         ISidecarClientFactory       sidecarClientFactory,
-        IDiagnosticsEventBus        diagnostics,
-        IDiagnosticsRuntime         runtime,
+        IMotorDiagnosticsEmitter    diagnostics,
         ILogger<MotorSession>       logger)
     {
         _sidecarOptions       = sidecarOptions;
         _urlAdapter           = urlAdapter;
         _sidecarClientFactory = sidecarClientFactory;
         _diagnostics          = diagnostics;
-        _runtime              = runtime;
         _logger               = logger;
     }
 
@@ -42,6 +39,5 @@ public sealed class MotorSessionFactory : IMotorSessionFactory
             _urlAdapter,
             _sidecarClientFactory,
             _diagnostics,
-            _runtime,
             _logger);
 }

@@ -98,7 +98,9 @@ public sealed class HostResourceProbeProvider : IDiagnosticsProbeProvider
 
     public Task<ProbeResult> ExecuteAsync(ProbeRequest request, CancellationToken ct = default)
     {
-        if (!_runtime.IsEnabled(DiagnosticsDomain.HostResources, DiagnosticsLevel.Metrics))
+        var snapshot = _runtime.GetSnapshot();
+        if (!_runtime.IsCapabilityEnabled(DiagnosticsDomain.Telemetry, DiagnosticsCapability.Metric)
+            || !snapshot.Options.Telemetry.Host.Enabled)
         {
             return Task.FromResult(new ProbeResult
             {
@@ -107,11 +109,10 @@ public sealed class HostResourceProbeProvider : IDiagnosticsProbeProvider
             });
         }
 
-        var interval = _runtime.GetSnapshot().Options.Probe.HostSampleIntervalMs;
         return Task.FromResult(new ProbeResult
         {
             Ok = true,
-            Data = _host.Sample(interval),
+            Data = _host.Sample(snapshot.Options.Probe.HostSampleIntervalMs),
         });
     }
 }

@@ -152,8 +152,7 @@ export function extractStorySummary(story: CorrelationStory): Record<string, str
       break
     }
     case 'admin': {
-      const admin = payloads.find((p) => p?.browserQueryFloor || p?.reason || p?.enabled !== undefined)
-      if (admin?.browserQueryFloor) summary['Floor'] = String(admin.browserQueryFloor)
+      const admin = payloads.find((p) => p?.minutes !== undefined || p?.reason || p?.enabled !== undefined)
       if (admin?.minutes) summary['Duration'] = `${admin.minutes}m`
       if (admin?.reason) summary['Reason'] = String(admin.reason)
       break

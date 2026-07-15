@@ -1,31 +1,52 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import {
+  Activity,
+  AlertTriangle,
+  BarChart3,
+  GitBranch,
+  Grid3X3,
+  Hash,
+  Layers,
+  RefreshCw,
+  TrendingUp,
+  Users,
+  X,
+  ZoomIn,
+  ZoomOut,
+} from 'lucide-react'
 import { diagnosticsApi, type DiagnosticsEventRecord } from '@/lib/diagnosticsApi'
-import { PageBreadcrumbs } from '@/components/admin/PageBreadcrumbs'
-import { buildBreadcrumbs, type BreadcrumbSegment } from '@/lib/routeMap'
+import { DOMAIN_LABELS, EVENT_DOMAINS } from '@/lib/diagnosticsConstants'
+import { describeEvent } from '@/lib/diagnosticsDescriptions'
+import { useEventStats } from '@/lib/hooks/useEventStats'
+import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { ExportButton } from '@/components/admin/ExportButton'
+import { PageBreadcrumbs } from '@/components/admin/PageBreadcrumbs'
 import { DomainBadge } from '@/components/admin/DomainBadge'
+import { ExportButton } from '@/components/admin/ExportButton'
 import { MultiSelectFilter } from '@/components/admin/MultiSelectFilter'
-import { useEventStats } from '@/lib/hooks/useEventStats'
+import { buildBreadcrumbs, type BreadcrumbSegment } from '@/lib/routeMap'
 import {
-  DOMAIN_LABELS,
-} from '@/lib/diagnosticsConstants'
-import { describeEvent } from '@/lib/diagnosticsDescriptions'
-import { cn } from '@/lib/utils'
+  type ChartMode,
+  type TimeRange,
+  type BucketSize,
+  parseTimeRange,
+  computeBucketCount,
+  computeBuckets,
+  computeDomainBuckets,
+  computeCumulative,
+} from './timeline/timelineCompute'
 import {
-  RefreshCw, BarChart3, Activity,
-  TrendingUp, Layers, AlertTriangle, ZoomIn, ZoomOut,
-  Grid3X3,
-  Users, Hash, GitBranch,
-} from 'lucide-react'
-
-type ChartMode = 'histogram' | 'heatmap' | 'stacked' | 'cumulative'
-type TimeRange = '15m' | '1h' | '6h' | '24h' | 'all'
-type BucketSize = 'auto' | '1m' | '5m' | '15m' | '1h'
+  HistogramChart,
+  HeatmapChart,
+  StackedChart,
+  CumulativeChart,
+  DOMAIN_BAR_COLORS,
+} from './timeline/TimelineCharts'
 
 const TIME_OPTIONS: { value: TimeRange; label: string }[] = [
   { value: '15m', label: '15 min' },
@@ -43,34 +64,15 @@ const BUCKET_OPTIONS: { value: BucketSize; label: string }[] = [
   { value: '1h', label: '1 hour' },
 ]
 
-const CHART_MODES: { value: ChartMode; label: string; icon: typeof BarChart3; description: string }[] = [
-  { value: 'histogram', label: 'Histogram', icon: BarChart3, description: 'Event count per time bucket' },
-  { value: 'heatmap', label: 'Heatmap', icon: Grid3X3, description: 'Domain × time density grid' },
-  { value: 'stacked', label: 'Stacked', icon: Layers, description: 'Stacked bars by domain' },
-  { value: 'cumulative', label: 'Cumulative', icon: TrendingUp, description: 'Running total over time' },
+const CHART_MODES: { value: ChartMode; label: string; icon: typeof BarChart3; tip: string }[] = [
+  { value: 'histogram', label: 'Histogram', icon: BarChart3, tip: 'Count per time bucket' },
+  { value: 'heatmap', label: 'Heatmap', icon: Grid3X3, tip: 'Domain × time density' },
+  { value: 'stacked', label: 'Stacked', icon: Layers, tip: 'Stacked bars by domain' },
+  { value: 'cumulative', label: 'Cumulative', icon: TrendingUp, tip: 'Running total' },
 ]
 
-const DOMAIN_BAR_COLORS: Record<string, string> = {
-  'Motor.Live': 'bg-sky-500',
-  'Sidecar.Browser': 'bg-violet-500',
-  'HostResources': 'bg-emerald-500',
-  'BrowserQuery': 'bg-purple-500',
-  'Persistence': 'bg-amber-500',
-  'Diagnostics.Self': 'bg-slate-400',
-}
-
-const DOMAIN_HEX: Record<string, string> = {
-  'Motor.Live': '#0ea5e9',
-  'Sidecar.Browser': '#8b5cf6',
-  'HostResources': '#10b981',
-  'BrowserQuery': '#a855f7',
-  'Persistence': '#f59e0b',
-  'Diagnostics.Self': '#94a3b8',
-}
-
-const DOMAIN_FILTER_OPTIONS = Object.entries(DOMAIN_LABELS)
-  .filter(([k]) => k.includes('.') || ['Persistence', 'HostResources', 'BrowserQuery'].includes(k))
-  .map(([value, label]) => ({ value, label }))
+const DOMAIN_FILTER_OPTIONS = (EVENT_DOMAINS as readonly string[])
+  .map((value) => ({ value, label: DOMAIN_LABELS[value] ?? value }))
 
 export default function DiagnosticsTimelinePage() {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -90,12 +92,10 @@ export default function DiagnosticsTimelinePage() {
     setError(null)
     try {
       if (sessionConnectionId) {
-        const data = await diagnosticsApi.getSessionEvents(sessionConnectionId)
-        setEvents(data)
+        setEvents(await diagnosticsApi.getSessionEvents(sessionConnectionId))
       } else {
         const since = timeRange === 'all' ? undefined : new Date(Date.now() - parseTimeRange(timeRange)).toISOString()
-        const data = await diagnosticsApi.listEvents({ since })
-        setEvents(data)
+        setEvents(await diagnosticsApi.listEvents({ since }))
       }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to load events')
@@ -116,19 +116,12 @@ export default function DiagnosticsTimelinePage() {
   }, [events, domainFilter])
 
   const stats = useEventStats(filtered)
+  const bucketCount = useMemo(() => computeBucketCount(filtered, bucketSize), [filtered, bucketSize])
+  const effectiveBuckets = Math.round(bucketCount * zoom)
 
-  const bucketCount = useMemo(() => {
-    if (bucketSize === 'auto') return Math.min(Math.max(Math.round(filtered.length / 3), 15), 60)
-    const ms = parseBucketSize(bucketSize)
-    if (filtered.length < 2) return 20
-    const times = filtered.map((e) => new Date(e.utc).getTime())
-    const range = Math.max(...times) - Math.min(...times)
-    return Math.max(5, Math.min(100, Math.round(range / ms)))
-  }, [filtered, bucketSize])
-
-  const bucketData = useMemo(() => computeBuckets(filtered, Math.round(bucketCount * zoom)), [filtered, bucketCount, zoom])
-  const domainBucketData = useMemo(() => computeDomainBuckets(filtered, Math.round(bucketCount * zoom)), [filtered, bucketCount, zoom])
-  const cumulativeData = useMemo(() => computeCumulative(filtered, Math.round(bucketCount * zoom)), [filtered, bucketCount, zoom])
+  const bucketData = useMemo(() => computeBuckets(filtered, effectiveBuckets), [filtered, effectiveBuckets])
+  const domainBucketData = useMemo(() => computeDomainBuckets(filtered, effectiveBuckets), [filtered, effectiveBuckets])
+  const cumulativeData = useMemo(() => computeCumulative(filtered, effectiveBuckets), [filtered, effectiveBuckets])
 
   const selectedEvents = useMemo(() => {
     if (selectedBucket === null || !bucketData.buckets[selectedBucket]) return []
@@ -142,15 +135,15 @@ export default function DiagnosticsTimelinePage() {
   if (loading) {
     return (
       <div className="space-y-4">
-        <Skeleton className="h-10 w-full rounded-xl" />
-        <Skeleton className="h-[300px] w-full rounded-xl" />
+        <Skeleton className="h-10 w-full" />
+        <Skeleton className="h-[280px] w-full" />
       </div>
     )
   }
 
   return (
     <div className="space-y-5">
-      {/* Header */}
+      {/* Header row */}
       <div className="flex items-center gap-3">
         <PageBreadcrumbs items={
           sessionConnectionId
@@ -162,19 +155,26 @@ export default function DiagnosticsTimelinePage() {
             : buildBreadcrumbs('/admin/diagnostics/timeline')
         } />
         {sessionConnectionId && (
-          <button onClick={clearSessionFilter} className="flex items-center gap-1 rounded-md border border-primary/30 bg-primary/10 px-2 py-0.5 text-xs text-primary hover:bg-primary/20 transition-colors">
-            <Activity className="h-3 w-3" /> Filtered
-            <span className="ml-0.5 opacity-60">&times;</span>
+          <button
+            onClick={clearSessionFilter}
+            className="flex items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/20"
+          >
+            <Activity className="h-3 w-3" />
+            Filtered
+            <X className="ml-0.5 h-3 w-3 opacity-60" />
           </button>
         )}
-        <span className="ml-auto text-xs text-muted-foreground">{filtered.length} events</span>
+        <span className="ml-auto text-xs tabular-nums text-muted-foreground">
+          {filtered.length} event{filtered.length !== 1 ? 's' : ''}
+        </span>
       </div>
 
       {/* Toolbar */}
-      <div className="rounded-xl border border-border bg-card p-4 space-y-3">
+      <div className="rounded-lg border border-border bg-card p-4 space-y-3">
+        {/* Row 1: chart mode + controls */}
         <div className="flex flex-wrap items-center gap-2">
-          {/* Chart mode selector */}
-          <div className="flex rounded-md border border-border">
+          {/* Chart mode tabs */}
+          <div className="flex rounded-lg border border-border bg-muted/30">
             {CHART_MODES.map((mode) => {
               const MIcon = mode.icon
               return (
@@ -183,89 +183,109 @@ export default function DiagnosticsTimelinePage() {
                     <button
                       onClick={() => setChartMode(mode.value)}
                       className={cn(
-                        'flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors first:rounded-l-md last:rounded-r-md',
-                        chartMode === mode.value ? 'bg-primary/15 text-primary' : 'text-muted-foreground hover:text-foreground',
-                        mode.value !== 'histogram' && 'border-l border-border',
+                        'flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors',
+                        'first:rounded-l-[calc(theme(borderRadius.lg)-1px)] last:rounded-r-[calc(theme(borderRadius.lg)-1px)]',
+                        chartMode === mode.value
+                          ? 'bg-card text-primary shadow-sm'
+                          : 'text-muted-foreground hover:text-foreground',
                       )}
                     >
                       <MIcon className="h-3 w-3" /> {mode.label}
                     </button>
                   </TooltipTrigger>
-                  <TooltipContent className="text-xs">{mode.description}</TooltipContent>
+                  <TooltipContent className="text-xs">{mode.tip}</TooltipContent>
                 </Tooltip>
               )
             })}
           </div>
 
-          <div className="h-5 w-px bg-border" />
+          <div className="hidden sm:block h-5 w-px bg-border" />
 
-          {/* Time range */}
+          {/* Time & bucket */}
           <Select value={timeRange} onValueChange={(v) => setTimeRange(v as TimeRange)}>
-            <SelectTrigger className="h-8 w-[100px] text-xs"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="h-8 w-24 text-xs"><SelectValue /></SelectTrigger>
             <SelectContent>
               {TIME_OPTIONS.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
             </SelectContent>
           </Select>
 
-          {/* Bucket size */}
           <Select value={bucketSize} onValueChange={(v) => setBucketSize(v as BucketSize)}>
-            <SelectTrigger className="h-8 w-[100px] text-xs"><SelectValue placeholder="Bucket" /></SelectTrigger>
+            <SelectTrigger className="h-8 w-24 text-xs">
+              <span className="text-muted-foreground mr-1">Bucket:</span>
+              <SelectValue />
+            </SelectTrigger>
             <SelectContent>
-              <SelectItem value="auto" disabled>Bucket size</SelectItem>
               {BUCKET_OPTIONS.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
             </SelectContent>
           </Select>
 
           <MultiSelectFilter label="Domain" options={DOMAIN_FILTER_OPTIONS} selected={domainFilter} onChange={setDomainFilter} />
 
-          <div className="ml-auto flex items-center gap-1">
-            {/* Zoom controls */}
+          {/* Right-side actions */}
+          <div className="ml-auto flex items-center gap-1.5">
             <Tooltip><TooltipTrigger asChild>
-              <Button variant="outline" size="sm" className="h-8 w-8 p-0" onClick={() => setZoom((z) => Math.max(0.5, z - 0.25))} disabled={zoom <= 0.5}>
-                <ZoomOut className="h-3 w-3" />
+              <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setZoom((z) => Math.max(0.5, z - 0.25))} disabled={zoom <= 0.5}>
+                <ZoomOut className="h-3.5 w-3.5" />
               </Button>
             </TooltipTrigger><TooltipContent className="text-xs">Fewer buckets</TooltipContent></Tooltip>
-            <span className="w-10 text-center text-[10px] tabular-nums text-muted-foreground">{Math.round(zoom * 100)}%</span>
+
+            <span className="w-9 text-center text-[10px] tabular-nums text-muted-foreground">{Math.round(zoom * 100)}%</span>
+
             <Tooltip><TooltipTrigger asChild>
-              <Button variant="outline" size="sm" className="h-8 w-8 p-0" onClick={() => setZoom((z) => Math.min(3, z + 0.25))} disabled={zoom >= 3}>
-                <ZoomIn className="h-3 w-3" />
+              <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setZoom((z) => Math.min(3, z + 0.25))} disabled={zoom >= 3}>
+                <ZoomIn className="h-3.5 w-3.5" />
               </Button>
             </TooltipTrigger><TooltipContent className="text-xs">More buckets</TooltipContent></Tooltip>
 
-            <div className="h-5 w-px bg-border mx-1" />
+            <div className="h-4 w-px bg-border" />
+
             <ExportButton data={filtered} filename="timeline-events" />
-            <Button variant="outline" size="sm" className="h-8 gap-1 text-xs" onClick={() => void loadEvents()}>
+            <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs" onClick={() => void loadEvents()}>
               <RefreshCw className="h-3 w-3" /> Refresh
             </Button>
           </div>
         </div>
 
-        {/* Stats strip */}
-        <div className="flex flex-wrap items-center gap-4 text-[11px] text-muted-foreground">
-          <span className="flex items-center gap-1"><BarChart3 className="h-3 w-3" /><strong className="text-foreground">{stats.eventRate}</strong>/min</span>
-          <span className="text-border">·</span>
-          <span className="flex items-center gap-1"><Users className="h-3 w-3" /><strong className="text-foreground">{stats.uniqueConnections}</strong> sessions</span>
-          <span className="text-border">·</span>
-          <span className="flex items-center gap-1"><GitBranch className="h-3 w-3" /><strong className="text-foreground">{stats.uniqueCorrelations}</strong> stories</span>
-          <span className="text-border">·</span>
-          <span className="flex items-center gap-1"><Hash className="h-3 w-3" /><strong className="text-foreground">{Object.keys(stats.byName).length}</strong> types</span>
+        {/* Row 2: stats */}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
+          <span className="flex items-center gap-1">
+            <BarChart3 className="h-3 w-3" />
+            <strong className="text-foreground tabular-nums">{stats.eventRate}</strong>/min
+          </span>
+          <span className="flex items-center gap-1">
+            <Users className="h-3 w-3" />
+            <strong className="text-foreground tabular-nums">{stats.uniqueConnections}</strong> session{stats.uniqueConnections !== 1 ? 's' : ''}
+          </span>
+          <span className="flex items-center gap-1">
+            <GitBranch className="h-3 w-3" />
+            <strong className="text-foreground tabular-nums">{stats.uniqueCorrelations}</strong> stor{stats.uniqueCorrelations !== 1 ? 'ies' : 'y'}
+          </span>
+          <span className="flex items-center gap-1">
+            <Hash className="h-3 w-3" />
+            <strong className="text-foreground tabular-nums">{Object.keys(stats.byName).length}</strong> types
+          </span>
           {stats.errorCount > 0 && (
-            <>
-              <span className="text-border">·</span>
-              <span className="flex items-center gap-1 text-red-400"><AlertTriangle className="h-3 w-3" /><strong>{stats.errorCount}</strong> errors</span>
-            </>
+            <span className="flex items-center gap-1 text-destructive">
+              <AlertTriangle className="h-3 w-3" />
+              <strong className="tabular-nums">{stats.errorCount}</strong> error{stats.errorCount !== 1 ? 's' : ''}
+            </span>
           )}
         </div>
       </div>
 
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      {error && (
+        <div className="rounded-md border border-destructive/30 bg-destructive/5 px-4 py-2">
+          <p className="text-sm text-destructive">{error}</p>
+        </div>
+      )}
 
-      {/* Main chart area */}
-      <div className="rounded-xl border border-border bg-card overflow-hidden">
+      {/* Chart */}
+      <div className="rounded-lg border border-border bg-card overflow-hidden">
         {filtered.length === 0 ? (
-          <div className="flex flex-col items-center py-16 text-center">
-            <Activity className="h-10 w-10 text-muted-foreground/30" />
+          <div className="flex flex-col items-center py-20 text-center">
+            <Activity className="h-10 w-10 text-muted-foreground/20" />
             <p className="mt-3 text-sm text-muted-foreground">No events in this time range</p>
+            <p className="mt-1 text-xs text-muted-foreground/60">Try expanding the time window or clearing filters</p>
           </div>
         ) : chartMode === 'histogram' ? (
           <HistogramChart data={bucketData} selectedBucket={selectedBucket} onSelectBucket={setSelectedBucket} />
@@ -279,65 +299,78 @@ export default function DiagnosticsTimelinePage() {
       </div>
 
       {/* Domain legend */}
-      <div className="flex flex-wrap items-center gap-3">
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Domains</span>
-        {Object.entries(DOMAIN_LABELS).filter(([k]) => stats.byDomain[k]).map(([key, label]) => (
-          <button
-            key={key}
-            onClick={() => setDomainFilter((f) => f.includes(key) ? f.filter((d) => d !== key) : [...f, key])}
-            className={cn(
-              'flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] transition-colors',
-              domainFilter.includes(key) ? 'border-primary/40 bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:text-foreground',
-            )}
-          >
-            <div className={cn('h-2 w-2 rounded-full', DOMAIN_BAR_COLORS[key] ?? 'bg-slate-400')} />
-            {label} <span className="font-mono text-[10px] opacity-50">{stats.byDomain[key] ?? 0}</span>
-          </button>
-        ))}
-      </div>
+      {Object.keys(stats.byDomain).length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Domains</span>
+          {Object.entries(DOMAIN_LABELS).filter(([k]) => stats.byDomain[k]).map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => setDomainFilter((f) => f.includes(key) ? f.filter((d) => d !== key) : [...f, key])}
+              className={cn(
+                'flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors',
+                domainFilter.includes(key)
+                  ? 'border-primary/40 bg-primary/10 text-primary'
+                  : 'border-border text-muted-foreground hover:border-foreground/20 hover:text-foreground',
+              )}
+            >
+              <div className={cn('h-2 w-2 rounded-full', DOMAIN_BAR_COLORS[key] ?? 'bg-slate-400')} />
+              {label}
+              <Badge variant="muted" className="ml-0.5 px-1 py-0 text-[9px] tabular-nums">{stats.byDomain[key]}</Badge>
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Drill-down panel */}
       {selectedBucket !== null && selectedEvents.length > 0 && (
-        <div className="rounded-xl border border-primary/20 bg-card overflow-hidden">
-          <div className="flex items-center justify-between border-b border-border/40 px-4 py-2.5">
-            <p className="flex items-center gap-2 text-xs font-semibold text-primary">
+        <div className="rounded-lg border border-primary/20 bg-card overflow-hidden">
+          <div className="flex items-center justify-between border-b border-border/40 px-4 py-2.5 bg-primary/5">
+            <p className="flex items-center gap-2 text-xs font-medium text-primary">
               <ZoomIn className="h-3.5 w-3.5" />
-              Bucket drill-down — {selectedEvents.length} event{selectedEvents.length !== 1 ? 's' : ''}
-              <span className="font-normal text-muted-foreground">
+              Bucket drill-down
+              <Badge variant="muted" className="text-[10px] tabular-nums">{selectedEvents.length}</Badge>
+              <span className="font-normal text-muted-foreground tabular-nums">
                 {new Date(bucketData.buckets[selectedBucket].start).toLocaleTimeString()}
                 {' → '}
                 {new Date(bucketData.buckets[selectedBucket].end).toLocaleTimeString()}
               </span>
             </p>
-            <button onClick={() => setSelectedBucket(null)} className="text-xs text-muted-foreground hover:text-foreground">Close</button>
+            <Button variant="ghost" size="sm" className="h-6 text-xs text-muted-foreground" onClick={() => setSelectedBucket(null)}>
+              Close
+            </Button>
           </div>
 
-          {/* Severity breakdown for this bucket */}
-          <div className="flex items-center gap-4 px-4 py-2 border-b border-border/20 bg-muted/10">
-            {['Info', 'Warning', 'Error', 'Metric'].map((sev) => {
+          {/* Severity pills */}
+          <div className="flex items-center gap-3 px-4 py-2 border-b border-border/20 bg-muted/5">
+            {(['Info', 'Warning', 'Error', 'Metric'] as const).map((sev) => {
               const count = selectedEvents.filter((e) => e.severity === sev).length
               if (count === 0) return null
-              const color = sev === 'Error' ? 'text-red-400' : sev === 'Warning' ? 'text-amber-400' : sev === 'Metric' ? 'text-slate-400' : 'text-sky-400'
               return (
-                <span key={sev} className={cn('text-[11px] font-medium', color)}>
+                <span key={sev} className={cn(
+                  'flex items-center gap-1 text-[11px] font-medium',
+                  sev === 'Error' ? 'text-destructive' : sev === 'Warning' ? 'text-warning' : 'text-muted-foreground',
+                )}>
+                  <div className={cn(
+                    'h-1.5 w-1.5 rounded-full',
+                    sev === 'Error' ? 'bg-destructive' : sev === 'Warning' ? 'bg-warning' : sev === 'Metric' ? 'bg-muted-foreground' : 'bg-sky-500',
+                  )} />
                   {sev}: {count}
                 </span>
               )
             })}
           </div>
 
-          <div className="max-h-64 overflow-y-auto">
-            {selectedEvents.map((evt, i) => {
-              const dotColor = evt.severity === 'Error' ? 'bg-red-500' : evt.severity === 'Warning' ? 'bg-amber-500' : evt.severity === 'Metric' ? 'bg-slate-400' : 'bg-sky-500'
+          <div className="max-h-64 overflow-y-auto divide-y divide-border/10">
+            {selectedEvents.map((evt) => {
+              const dotColor = evt.severity === 'Error' ? 'bg-destructive' : evt.severity === 'Warning' ? 'bg-warning' : evt.severity === 'Metric' ? 'bg-muted-foreground' : 'bg-sky-500'
               return (
                 <Tooltip key={evt.id}>
                   <TooltipTrigger asChild>
-                    <div className={cn(
-                      'flex items-center gap-3 px-4 py-1.5 text-xs hover:bg-muted/20',
-                      i < selectedEvents.length - 1 && 'border-b border-border/10',
-                    )}>
+                    <div className="flex items-center gap-3 px-4 py-2 text-xs hover:bg-muted/20 transition-colors">
                       <div className={cn('h-1.5 w-1.5 shrink-0 rounded-full', dotColor)} />
-                      <span className="w-16 shrink-0 tabular-nums text-muted-foreground/60">{new Date(evt.utc).toLocaleTimeString()}</span>
+                      <span className="w-16 shrink-0 tabular-nums text-muted-foreground/60">
+                        {new Date(evt.utc).toLocaleTimeString()}
+                      </span>
                       <span className="min-w-0 flex-1 truncate font-medium">{evt.name.split('.').pop()}</span>
                       <DomainBadge domain={evt.domain} showTooltip={false} />
                     </div>
@@ -353,294 +386,28 @@ export default function DiagnosticsTimelinePage() {
         </div>
       )}
 
-      {/* Top events table */}
-      <div className="rounded-xl border border-border bg-card overflow-hidden">
-        <div className="px-4 py-2.5 border-b border-border/40">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Top event types</p>
-        </div>
-        <div className="divide-y divide-border/20">
-          {stats.topEvents.slice(0, 8).map(({ name, count }) => (
-            <div key={name} className="flex items-center gap-3 px-4 py-2">
-              <span className="min-w-0 flex-1 truncate text-sm">{name}</span>
-              <div className="w-32 rounded-full bg-muted/20" style={{ height: 5 }}>
-                <div className="h-full rounded-full bg-sky-500" style={{ width: `${(count / stats.topEvents[0].count) * 100}%` }} />
-              </div>
-              <span className="w-8 shrink-0 text-right text-xs font-medium tabular-nums text-muted-foreground">{count}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-/* ── Chart components ──────────────────────────────────────────────── */
-
-interface BucketInfo { start: number; end: number; count: number; errors: number; warnings: number }
-interface BucketData { buckets: BucketInfo[]; max: number; minTime: number; maxTime: number }
-
-function HistogramChart({ data, selectedBucket, onSelectBucket }: {
-  data: BucketData; selectedBucket: number | null; onSelectBucket: (i: number | null) => void
-}) {
-  const chartH = 180
-  return (
-    <div className="px-4 py-3">
-      <div className="mb-1 flex items-center justify-between text-[10px] text-muted-foreground">
-        <span>{new Date(data.minTime).toLocaleTimeString()}</span>
-        <span>{data.buckets.length} buckets · peak {data.max}</span>
-        <span>{new Date(data.maxTime).toLocaleTimeString()}</span>
-      </div>
-      <div className="flex items-end gap-px" style={{ height: chartH }}>
-        {data.buckets.map((b, i) => {
-          const pct = data.max > 0 ? (b.count / data.max) * 100 : 0
-          const isSelected = i === selectedBucket
-          const hasError = b.errors > 0
-          const hasWarning = b.warnings > 0
-          return (
-            <Tooltip key={i}>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={() => onSelectBucket(isSelected ? null : i)}
-                  className={cn(
-                    'flex-1 rounded-t-sm transition-all',
-                    isSelected ? 'ring-1 ring-primary' : 'hover:opacity-70',
-                    b.count === 0 ? 'bg-muted/10' : hasError ? 'bg-red-500' : hasWarning ? 'bg-amber-500' : 'bg-sky-500',
-                  )}
-                  style={{
-                    height: `${Math.max(pct, b.count > 0 ? 3 : 0)}%`,
-                    opacity: b.count > 0 ? (isSelected ? 1 : 0.75) : 0.05,
-                  }}
-                />
-              </TooltipTrigger>
-              <TooltipContent side="top" className="text-xs">
-                <p className="font-medium">{b.count} event{b.count !== 1 ? 's' : ''}</p>
-                <p className="text-muted-foreground">
-                  {new Date(b.start).toLocaleTimeString()} → {new Date(b.end).toLocaleTimeString()}
-                </p>
-                {b.errors > 0 && <p className="text-red-400">{b.errors} error{b.errors !== 1 ? 's' : ''}</p>}
-                {b.warnings > 0 && <p className="text-amber-400">{b.warnings} warning{b.warnings !== 1 ? 's' : ''}</p>}
-                <p className="mt-1 text-[10px] text-muted-foreground/60">Click to drill down</p>
-              </TooltipContent>
-            </Tooltip>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
-interface DomainBucket { domain: string; counts: number[] }
-interface DomainBucketData { domains: DomainBucket[]; bucketStarts: number[]; bucketEnds: number[]; max: number; maxStacked: number }
-
-function HeatmapChart({ data }: { data: DomainBucketData }) {
-  const maxVal = Math.max(...data.domains.flatMap((d) => d.counts), 1)
-  return (
-    <div className="px-4 py-3">
-      <div className="mb-2 flex items-center justify-between text-[10px] text-muted-foreground">
-        <span>{data.bucketStarts.length > 0 && new Date(data.bucketStarts[0]).toLocaleTimeString()}</span>
-        <span>Density: darker = more events</span>
-        <span>{data.bucketEnds.length > 0 && new Date(data.bucketEnds[data.bucketEnds.length - 1]).toLocaleTimeString()}</span>
-      </div>
-      <div className="space-y-1">
-        {data.domains.map((d) => (
-          <div key={d.domain} className="flex items-center gap-2">
-            <span className="w-28 shrink-0 truncate text-right text-[11px] text-muted-foreground">{DOMAIN_LABELS[d.domain] ?? d.domain}</span>
-            <div className="flex flex-1 gap-px">
-              {d.counts.map((count, i) => {
-                const intensity = count / maxVal
-                const hex = DOMAIN_HEX[d.domain] ?? '#94a3b8'
-                return (
-                  <Tooltip key={i}>
-                    <TooltipTrigger asChild>
-                      <div
-                        className="flex-1 rounded-sm transition-all hover:ring-1 hover:ring-foreground/20"
-                        style={{
-                          height: 20,
-                          backgroundColor: hex,
-                          opacity: count > 0 ? 0.15 + intensity * 0.85 : 0.03,
-                        }}
-                      />
-                    </TooltipTrigger>
-                    <TooltipContent side="top" className="text-xs">
-                      {DOMAIN_LABELS[d.domain] ?? d.domain}: {count} event{count !== 1 ? 's' : ''}
-                    </TooltipContent>
-                  </Tooltip>
-                )
-              })}
-            </div>
+      {/* Top event types */}
+      {stats.topEvents.length > 0 && (
+        <div className="rounded-lg border border-border bg-card overflow-hidden">
+          <div className="px-4 py-2.5 border-b border-border/40">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Top event types</p>
           </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function StackedChart({ data }: { data: DomainBucketData }) {
-  const chartH = 180
-  const stackedMaxes = data.bucketStarts.map((_, i) =>
-    data.domains.reduce((sum, d) => sum + d.counts[i], 0),
-  )
-  const max = Math.max(...stackedMaxes, 1)
-
-  return (
-    <div className="px-4 py-3">
-      <div className="mb-1 flex items-center justify-between text-[10px] text-muted-foreground">
-        <span>{data.bucketStarts.length > 0 && new Date(data.bucketStarts[0]).toLocaleTimeString()}</span>
-        <span>Stacked by domain · peak {max}</span>
-        <span>{data.bucketEnds.length > 0 && new Date(data.bucketEnds[data.bucketEnds.length - 1]).toLocaleTimeString()}</span>
-      </div>
-      <div className="flex items-end gap-px" style={{ height: chartH }}>
-        {data.bucketStarts.map((_, i) => {
-          const total = stackedMaxes[i]
-          const totalPct = (total / max) * 100
-          return (
-            <Tooltip key={i}>
-              <TooltipTrigger asChild>
-                <div className="flex flex-1 flex-col-reverse gap-0" style={{ height: `${Math.max(totalPct, total > 0 ? 3 : 0)}%` }}>
-                  {data.domains.map((d) => {
-                    if (d.counts[i] === 0) return null
-                    const segH = total > 0 ? (d.counts[i] / total) * 100 : 0
-                    return (
-                      <div
-                        key={d.domain}
-                        className={cn('w-full first:rounded-t-sm', DOMAIN_BAR_COLORS[d.domain] ?? 'bg-slate-400')}
-                        style={{ height: `${segH}%`, opacity: 0.8 }}
-                      />
-                    )
-                  })}
+          <div className="divide-y divide-border/10">
+            {stats.topEvents.slice(0, 8).map(({ name, count }) => (
+              <div key={name} className="flex items-center gap-3 px-4 py-2.5">
+                <span className="min-w-0 flex-1 truncate text-sm">{name}</span>
+                <div className="w-28 rounded-full bg-muted/20" style={{ height: 5 }}>
+                  <div
+                    className="h-full rounded-full bg-sky-500/70 transition-all"
+                    style={{ width: `${(count / stats.topEvents[0].count) * 100}%` }}
+                  />
                 </div>
-              </TooltipTrigger>
-              <TooltipContent side="top" className="text-xs">
-                <p className="font-medium">{total} total</p>
-                {data.domains.filter((d) => d.counts[i] > 0).map((d) => (
-                  <p key={d.domain} className="text-muted-foreground">{DOMAIN_LABELS[d.domain] ?? d.domain}: {d.counts[i]}</p>
-                ))}
-              </TooltipContent>
-            </Tooltip>
-          )
-        })}
-      </div>
+                <span className="w-8 shrink-0 text-right text-xs font-medium tabular-nums text-muted-foreground">{count}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
-}
-
-function CumulativeChart({ data }: { data: { times: number[]; totals: number[] } }) {
-  if (data.totals.length < 2) return <div className="p-8 text-center text-sm text-muted-foreground">Not enough data</div>
-  const max = data.totals[data.totals.length - 1]
-  const chartW = 600
-  const chartH = 160
-  const pad = 2
-
-  const points = data.totals.map((v, i) => ({
-    x: pad + (i / (data.totals.length - 1)) * (chartW - pad * 2),
-    y: pad + (chartH - pad * 2) - (v / max) * (chartH - pad * 2),
-  }))
-
-  const pathD = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ')
-  const fillD = `${pathD} L ${points[points.length - 1].x.toFixed(1)} ${chartH - pad} L ${points[0].x.toFixed(1)} ${chartH - pad} Z`
-
-  return (
-    <div className="px-4 py-3">
-      <div className="mb-1 flex items-center justify-between text-[10px] text-muted-foreground">
-        <span>{new Date(data.times[0]).toLocaleTimeString()}</span>
-        <span>Cumulative total: {max}</span>
-        <span>{new Date(data.times[data.times.length - 1]).toLocaleTimeString()}</span>
-      </div>
-      <svg viewBox={`0 0 ${chartW} ${chartH}`} className="w-full text-sky-500" style={{ height: chartH }}>
-        <path d={fillD} fill="currentColor" opacity={0.1} />
-        <path d={pathD} fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
-        <circle cx={points[points.length - 1].x} cy={points[points.length - 1].y} r={3} fill="currentColor" />
-      </svg>
-    </div>
-  )
-}
-
-/* ── Computation helpers ────────────────────────────────────────────── */
-
-function parseTimeRange(range: TimeRange): number {
-  const map: Record<string, number> = { '15m': 15 * 60_000, '1h': 3600_000, '6h': 6 * 3600_000, '24h': 86400_000 }
-  return map[range] ?? 3600_000
-}
-
-function parseBucketSize(size: BucketSize): number {
-  const map: Record<string, number> = { '1m': 60_000, '5m': 300_000, '15m': 900_000, '1h': 3600_000 }
-  return map[size] ?? 300_000
-}
-
-function computeBuckets(events: DiagnosticsEventRecord[], buckets: number): BucketData {
-  if (events.length === 0) return { buckets: [], max: 0, minTime: Date.now(), maxTime: Date.now() }
-  const times = events.map((e) => new Date(e.utc).getTime())
-  const minTime = Math.min(...times)
-  const maxTime = Math.max(...times)
-  const range = maxTime - minTime || 1
-  const step = range / buckets
-
-  const result: BucketInfo[] = Array.from({ length: buckets }, (_, i) => ({
-    start: minTime + i * step,
-    end: minTime + (i + 1) * step,
-    count: 0, errors: 0, warnings: 0,
-  }))
-
-  for (const evt of events) {
-    const t = new Date(evt.utc).getTime()
-    const idx = Math.min(Math.floor(((t - minTime) / range) * buckets), buckets - 1)
-    result[idx].count++
-    if (evt.severity === 'Error') result[idx].errors++
-    if (evt.severity === 'Warning') result[idx].warnings++
-  }
-
-  return { buckets: result, max: Math.max(...result.map((b) => b.count)), minTime, maxTime }
-}
-
-function computeDomainBuckets(events: DiagnosticsEventRecord[], bucketCount: number): DomainBucketData {
-  if (events.length === 0) return { domains: [], bucketStarts: [], bucketEnds: [], max: 0, maxStacked: 0 }
-  const times = events.map((e) => new Date(e.utc).getTime())
-  const minTime = Math.min(...times)
-  const maxTime = Math.max(...times)
-  const range = maxTime - minTime || 1
-  const step = range / bucketCount
-
-  const domainSet = [...new Set(events.map((e) => e.domain))]
-  const domainCounts = Object.fromEntries(domainSet.map((d) => [d, new Array(bucketCount).fill(0) as number[]]))
-
-  for (const evt of events) {
-    const t = new Date(evt.utc).getTime()
-    const idx = Math.min(Math.floor(((t - minTime) / range) * bucketCount), bucketCount - 1)
-    domainCounts[evt.domain][idx]++
-  }
-
-  const domains = domainSet.map((domain) => ({ domain, counts: domainCounts[domain] }))
-  const bucketStarts = Array.from({ length: bucketCount }, (_, i) => minTime + i * step)
-  const bucketEnds = Array.from({ length: bucketCount }, (_, i) => minTime + (i + 1) * step)
-  const max = Math.max(...domains.flatMap((d) => d.counts), 1)
-  const maxStacked = Math.max(...bucketStarts.map((_, i) => domains.reduce((sum, d) => sum + d.counts[i], 0)), 1)
-
-  return { domains, bucketStarts, bucketEnds, max, maxStacked }
-}
-
-function computeCumulative(events: DiagnosticsEventRecord[], points: number): { times: number[]; totals: number[] } {
-  if (events.length === 0) return { times: [], totals: [] }
-  const sorted = [...events].sort((a, b) => new Date(a.utc).getTime() - new Date(b.utc).getTime())
-  const times = sorted.map((e) => new Date(e.utc).getTime())
-  const minTime = times[0]
-  const maxTime = times[times.length - 1]
-  const range = maxTime - minTime || 1
-  const step = range / points
-
-  const result: number[] = []
-  const resultTimes: number[] = []
-  let cumulative = 0
-  let eventIdx = 0
-
-  for (let i = 0; i < points; i++) {
-    const bucketEnd = minTime + (i + 1) * step
-    while (eventIdx < times.length && times[eventIdx] <= bucketEnd) {
-      cumulative++
-      eventIdx++
-    }
-    resultTimes.push(minTime + (i + 0.5) * step)
-    result.push(cumulative)
-  }
-
-  return { times: resultTimes, totals: result }
 }

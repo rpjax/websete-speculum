@@ -1,5 +1,6 @@
 using Speculum.Api.Diagnostics.Abstractions;
 using Speculum.Api.Diagnostics.Configuration;
+using Speculum.Api.Diagnostics.Emitters;
 using Speculum.Api.Diagnostics.Pipeline;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -43,7 +44,7 @@ public sealed class DiagnosticsSinkOverflowTests : IDisposable
         var sink = new SqliteDiagnosticsEventSink(
             _dbPath,
             runtime,
-            new Lazy<IDiagnosticsEventBus>(() => recorder));
+            new Lazy<IDiagnosticsSelfEmitter>(() => new DiagnosticsSelfEmitter(recorder)));
 
         for (var i = 0; i < 80; i++)
         {
@@ -67,11 +68,7 @@ public sealed class DiagnosticsSinkOverflowTests : IDisposable
         runtime.ApplyOptions(new DiagnosticsOptions { Enabled = false });
         var sink = new RecordingSink();
         var ring = new SessionEventRing();
-        var bus = new DiagnosticsEventBus(
-            runtime,
-            new IDiagnosticsSink[] { sink },
-            ring,
-            NullLogger<DiagnosticsEventBus>.Instance);
+        var bus = BuildBus(runtime, sink, ring);
 
         bus.Publish(new DiagnosticsEvent
         {
@@ -99,11 +96,7 @@ public sealed class DiagnosticsSinkOverflowTests : IDisposable
         });
         var sink = new RecordingSink();
         var ring = new SessionEventRing();
-        var bus = new DiagnosticsEventBus(
-            runtime,
-            new IDiagnosticsSink[] { sink },
-            ring,
-            NullLogger<DiagnosticsEventBus>.Instance);
+        var bus = BuildBus(runtime, sink, ring);
 
         bus.Publish(new DiagnosticsEvent
         {
@@ -120,6 +113,16 @@ public sealed class DiagnosticsSinkOverflowTests : IDisposable
 
         Assert.Equal(2, sink.Events.Count);
         Assert.Equal(2, ring.GetSince("conn-1", null, null).Count);
+    }
+
+    private static DiagnosticsEventBus BuildBus(
+        DiagnosticsRuntime runtime, IDiagnosticsSink sink, SessionEventRing ring)
+    {
+        DiagnosticsEventBus? bus = null;
+        var self = new Lazy<IDiagnosticsSelfEmitter>(() => new DiagnosticsSelfEmitter(bus!));
+        bus = new DiagnosticsEventBus(
+            runtime, new[] { sink }, ring, self, NullLogger<DiagnosticsEventBus>.Instance);
+        return bus;
     }
 
     private sealed class RecordingSink : IDiagnosticsSink

@@ -6,20 +6,16 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/
 import { ConfigSectionCard } from '@/components/admin/ConfigSectionCard'
 import { useConfigSection } from '@/lib/hooks/useConfigSection'
 import { ConfigSections } from '@/lib/api'
-import type { DiagnosticsLevel, DiagnosticsOptions } from '@/lib/diagnosticsApi'
+import type { DiagnosticsOptions, DiagnosticsProfile } from '@/lib/diagnosticsApi'
+import { DIAGNOSTICS_PRESETS } from '@/lib/diagnosticsConstants'
 
-const LEVELS: DiagnosticsLevel[] = ['Off', 'Metrics', 'Events', 'StateSnapshots', 'BrowserQuery']
+const PROFILES: DiagnosticsProfile[] = ['Development', 'Production', 'Assertive']
 
 const DEFAULT_CONFIG: DiagnosticsOptions = {
   enabled: true,
-  defaultLevel: 'Events',
-  domains: {
-    motorLive: 'Events',
-    sidecarBrowser: 'Metrics',
-    hostResources: 'Metrics',
-    browserQuery: 'Off',
-    persistedSessions: 'StateSnapshots',
-  },
+  profile: 'Production',
+  domains: DIAGNOSTICS_PRESETS.Production.domains,
+  telemetry: DIAGNOSTICS_PRESETS.Production.telemetry,
   storage: {
     maxBytes: 64 * 1024 * 1024,
     maxEventsPerSession: 5000,
@@ -41,24 +37,14 @@ const DEFAULT_CONFIG: DiagnosticsOptions = {
   },
 }
 
-function LevelSelect({
-  value,
-  onChange,
-  id,
-}: {
-  value: DiagnosticsLevel
-  onChange: (v: DiagnosticsLevel) => void
-  id: string
+function ToggleRow({ id, label, checked, onChange }: {
+  id: string; label: string; checked: boolean; onChange: (v: boolean) => void
 }) {
   return (
-    <Select value={value} onValueChange={(v) => onChange(v as DiagnosticsLevel)}>
-      <SelectTrigger id={id}><SelectValue /></SelectTrigger>
-      <SelectContent>
-        {LEVELS.map((l) => (
-          <SelectItem key={l} value={l}>{l}</SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+    <div className="flex items-center gap-3">
+      <Switch id={id} checked={checked} onCheckedChange={onChange} />
+      <Label htmlFor={id}>{label}</Label>
+    </div>
   )
 }
 
@@ -71,11 +57,12 @@ export default function DiagnosticsConfigPage() {
   })
 
   const v = cfg.value
+  const d = v.domains
 
   return (
     <ConfigSectionCard
       title="Diagnostics configuration"
-      description="Primary path controls enablement and default level. Domain budgets and probe limits stay under Advanced."
+      description="Primary path controls enablement and profile. Per-domain capabilities and probe limits stay under Advanced."
       loading={cfg.loading}
       pending={cfg.pending}
       message={cfg.message}
@@ -91,30 +78,70 @@ export default function DiagnosticsConfigPage() {
         <Label htmlFor="enabled">Diagnostics enabled</Label>
       </div>
       <div className="space-y-1">
-        <Label>Default level</Label>
-        <LevelSelect
-          id="defaultLevel"
-          value={v.defaultLevel}
-          onChange={(defaultLevel) => cfg.setValue({ ...v, defaultLevel })}
-        />
+        <Label>Profile</Label>
+        <Select
+          value={v.profile}
+          onValueChange={(profile) => {
+            const preset = DIAGNOSTICS_PRESETS[profile as DiagnosticsProfile]
+            cfg.setValue({ ...v, profile: profile as DiagnosticsProfile, domains: preset.domains, telemetry: preset.telemetry })
+          }}
+        >
+          <SelectTrigger id="profile"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {PROFILES.map((p) => (
+              <SelectItem key={p} value={p}>{p}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <p className="text-xs text-muted-foreground">Applies a baseline of capability + telemetry toggles. Tune individual toggles under Advanced.</p>
       </div>
 
       <Accordion type="single" collapsible>
         <AccordionItem value="domains">
-          <AccordionTrigger>Advanced — per-domain levels</AccordionTrigger>
+          <AccordionTrigger>Advanced — per-domain capabilities</AccordionTrigger>
+          <AccordionContent className="space-y-4">
+            <div className="space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Motor (sessions)</p>
+              <ToggleRow id="motor-metrics" label="Metrics" checked={d.motor.metrics} onChange={(x) => cfg.setValue({ ...v, domains: { ...d, motor: { ...d.motor, metrics: x } } })} />
+              <ToggleRow id="motor-events" label="Events" checked={d.motor.events} onChange={(x) => cfg.setValue({ ...v, domains: { ...d, motor: { ...d.motor, events: x } } })} />
+              <ToggleRow id="motor-snapshots" label="Snapshots" checked={d.motor.snapshots} onChange={(x) => cfg.setValue({ ...v, domains: { ...d, motor: { ...d.motor, snapshots: x } } })} />
+            </div>
+            <div className="space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Sidecar (browser)</p>
+              <ToggleRow id="sidecar-metrics" label="Metrics" checked={d.sidecar.metrics} onChange={(x) => cfg.setValue({ ...v, domains: { ...d, sidecar: { ...d.sidecar, metrics: x } } })} />
+              <ToggleRow id="sidecar-events" label="Events" checked={d.sidecar.events} onChange={(x) => cfg.setValue({ ...v, domains: { ...d, sidecar: { ...d.sidecar, events: x } } })} />
+            </div>
+            <div className="space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Browser Query</p>
+              <ToggleRow id="bq-probe" label="Probe" checked={d.browserQuery.probe} onChange={(x) => cfg.setValue({ ...v, domains: { ...d, browserQuery: { probe: x } } })} />
+            </div>
+            <div className="space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Persisted Sessions</p>
+              <ToggleRow id="persisted-snapshots" label="Snapshots" checked={d.persisted.snapshots} onChange={(x) => cfg.setValue({ ...v, domains: { ...d, persisted: { snapshots: x } } })} />
+            </div>
+          </AccordionContent>
+        </AccordionItem>
+        <AccordionItem value="telemetry">
+          <AccordionTrigger>Advanced — telemetry sections</AccordionTrigger>
           <AccordionContent className="space-y-3">
-            {(Object.keys(v.domains) as (keyof DiagnosticsOptions['domains'])[]).map((key) => (
-              <div key={key} className="space-y-1">
-                <Label>{key}</Label>
-                <LevelSelect
-                  id={key}
-                  value={v.domains[key]}
-                  onChange={(level) =>
-                    cfg.setValue({ ...v, domains: { ...v.domains, [key]: level } })
-                  }
-                />
-              </div>
-            ))}
+            <div className="flex items-center gap-3">
+              <Switch id="tel-enabled" checked={v.telemetry.enabled} onCheckedChange={(x) => cfg.setValue({ ...v, telemetry: { ...v.telemetry, enabled: x } })} />
+              <Label htmlFor="tel-enabled">Telemetry sampler enabled</Label>
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="tel-interval">Interval (seconds)</Label>
+              <Input
+                id="tel-interval"
+                type="number"
+                value={v.telemetry.intervalSeconds}
+                onChange={(e) => cfg.setValue({ ...v, telemetry: { ...v.telemetry, intervalSeconds: Number(e.target.value) } })}
+              />
+            </div>
+            <ToggleRow id="tel-host" label="Host section" checked={v.telemetry.host.enabled} onChange={(x) => cfg.setValue({ ...v, telemetry: { ...v.telemetry, host: { enabled: x } } })} />
+            <ToggleRow id="tel-motor" label="Motor section" checked={v.telemetry.motor.enabled} onChange={(x) => cfg.setValue({ ...v, telemetry: { ...v.telemetry, motor: { ...v.telemetry.motor, enabled: x } } })} />
+            <ToggleRow id="tel-sidecar" label="Sidecar section" checked={v.telemetry.sidecar.enabled} onChange={(x) => cfg.setValue({ ...v, telemetry: { ...v.telemetry, sidecar: { ...v.telemetry.sidecar, enabled: x } } })} />
+            <ToggleRow id="tel-persistence" label="Persistence section" checked={v.telemetry.persistence.enabled} onChange={(x) => cfg.setValue({ ...v, telemetry: { ...v.telemetry, persistence: { ...v.telemetry.persistence, enabled: x } } })} />
+            <ToggleRow id="tel-pipeline" label="Pipeline section" checked={v.telemetry.pipeline.enabled} onChange={(x) => cfg.setValue({ ...v, telemetry: { ...v.telemetry, pipeline: { ...v.telemetry.pipeline, enabled: x } } })} />
           </AccordionContent>
         </AccordionItem>
         <AccordionItem value="storage">

@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Speculum.Api.Config.Runtime;
 using Speculum.Api.Config.Store;
 using Speculum.Api.Diagnostics.Abstractions;
+using Speculum.Api.Motor.Diagnostics;
 using Speculum.Api.Motor.Live;
 using Speculum.Api.Motor.Live.Models;
 using Speculum.Api.Motor.Mapping;
@@ -29,7 +30,7 @@ public sealed class MotorSessionCoordinatorTests
             sessionStore,
             urlAdapter,
             sessionFactory ?? new StubMotorSessionFactory(),
-            diagnostics ?? new NullDiagnosticsEventBus(),
+            TestMotorDiagnostics.Emitter(diagnostics ?? new NullDiagnosticsEventBus()),
             NullLogger<MotorSessionCoordinator>.Instance);
     }
 
@@ -295,6 +296,8 @@ public sealed class MotorSessionCoordinatorTests
 
         public IReadOnlyList<MotorSessionListItem> ListSessions() => [];
 
+        public IReadOnlyList<MotorSessionDiagnosticsSnapshot> ListSnapshots() => [];
+
         public bool TryFindByPersistedSessionId(
             string persistedSessionId,
             [NotNullWhen(true)] out IMotorSession? session,
@@ -318,7 +321,7 @@ public sealed class MotorSessionCoordinatorTests
         public Task StopAllAsync(
             IBrowserSessionStore store,
             CancellationToken ct = default,
-            Speculum.Api.Diagnostics.Abstractions.IDiagnosticsEventBus? diagnostics = null,
+            IMotorDiagnosticsEmitter? diagnostics = null,
             string? correlationId = null)
             => Task.CompletedTask;
     }

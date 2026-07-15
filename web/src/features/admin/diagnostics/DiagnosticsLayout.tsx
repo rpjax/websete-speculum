@@ -3,9 +3,10 @@ import { PageHeader } from '@/components/admin/PageHeader'
 import { cn } from '@/lib/utils'
 
 const TABS = [
-  { to: '/admin/diagnostics', label: 'Health', end: true },
+  { to: '/admin/diagnostics', label: 'Overview', end: true },
+  { to: '/admin/diagnostics/health', label: 'Health' },
+  { to: '/admin/diagnostics/resources', label: 'Resources' },
   { to: '/admin/diagnostics/activity', label: 'Activity' },
-  { to: '/admin/sessions', label: 'Sessions' },
   { to: '/admin/diagnostics/investigate', label: 'Investigate' },
   { to: '/admin/diagnostics/governance', label: 'Governance' },
 ]

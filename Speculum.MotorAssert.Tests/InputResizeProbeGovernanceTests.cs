@@ -73,14 +73,13 @@ public sealed class InputResizeProbeGovernanceTests : MotorAssertTestBase
         var put = await fx.Host.PutConfigAsync("Diagnostics", new
         {
             enabled = true,
-            defaultLevel = "Events",
+            profile = "Production",
             domains = new
             {
-                motorLive = "Events",
-                sidecarBrowser = "Metrics",
-                hostResources = "Metrics",
-                browserQuery = "Off",
-                persistedSessions = "StateSnapshots",
+                motor = new { metrics = true, events = true, snapshots = true },
+                sidecar = new { metrics = true, events = false },
+                browserQuery = new { probe = false },
+                persisted = new { snapshots = true },
             },
             probe = new { maxConcurrentProbesPerSession = 2, diagTimeoutMs = 10000, maxProbeResponseBytes = 524288 },
         });
@@ -109,7 +108,7 @@ public sealed class InputResizeProbeGovernanceTests : MotorAssertTestBase
         var since = DateTimeOffset.UtcNow.AddSeconds(-1);
         var put = await fx.Host.Http.PutAsJsonAsync(
             "api/admin/diagnostics/v1/elevate",
-            new { browserQueryFloor = "BrowserQuery", minutes = 5 },
+            new { minutes = 5 },
             MotorAssertHost.Json);
         put.EnsureSuccessStatusCode();
 

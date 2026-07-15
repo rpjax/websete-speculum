@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading.Channels;
 using Speculum.Api.Diagnostics.Abstractions;
+using Speculum.Api.Motor.Diagnostics;
 using Speculum.Api.Motor.Mapping;
 using Speculum.Api.Motor.Sidecar;
 using Speculum.Api.BrowserPersistence;
@@ -19,8 +20,7 @@ public sealed class MotorSession : IMotorSession
     private readonly SessionConfigSnapshot       _snapshot;
     private readonly MotorUrlAdapter             _urlAdapter;
     private readonly ISidecarClientFactory       _sidecarClientFactory;
-    private readonly IDiagnosticsEventBus        _diagnostics;
-    private readonly IDiagnosticsRuntime         _runtime;
+    private readonly IMotorDiagnosticsEmitter    _diagnostics;
     private readonly ILogger                   _logger;
 
     private int _sessionState;
@@ -89,8 +89,7 @@ public sealed class MotorSession : IMotorSession
         SessionConfigSnapshot       snapshot,
         MotorUrlAdapter             urlAdapter,
         ISidecarClientFactory       sidecarClientFactory,
-        IDiagnosticsEventBus        diagnostics,
-        IDiagnosticsRuntime         runtime,
+        IMotorDiagnosticsEmitter    diagnostics,
         ILogger                     logger)
     {
         _sidecarOptions       = sidecarOptions;
@@ -98,7 +97,6 @@ public sealed class MotorSession : IMotorSession
         _urlAdapter           = urlAdapter;
         _sidecarClientFactory = sidecarClientFactory;
         _diagnostics          = diagnostics;
-        _runtime              = runtime;
         _logger               = logger;
         _currentUrl           = snapshot.InitialUrl;
 
@@ -320,19 +318,7 @@ public sealed class MotorSession : IMotorSession
 
     public Task ResizeAsync(int width, int height, CancellationToken ct = default)
     {
-        if (_runtime.IsEnabled(DiagnosticsDomain.MotorLive, DiagnosticsLevel.Events))
-        {
-            _diagnostics.Publish(new DiagnosticsEvent
-            {
-                Domain = DiagnosticsDomain.MotorLive,
-                Name = "Motor.ResizeRequested",
-                CorrelationId = _correlationId,
-                ConnectionId = _connectionId,
-                PersistedSessionId = _persistedSessionId,
-                SidecarSessionId = _sidecarSessionId,
-                Payload = new { width, height },
-            });
-        }
+        _diagnostics.ResizeRequested(DiagnosticsContext(), width, height);
 
         return _client!.SendInputAsync(
             JsonSerializer.SerializeToUtf8Bytes(new { type = "resize", width, height }).AsMemory(), ct);
@@ -377,20 +363,7 @@ public sealed class MotorSession : IMotorSession
     private void PublishSidecarFault(string fault)
     {
         _lastFault = fault;
-        if (!_runtime.IsEnabled(DiagnosticsDomain.MotorLive, DiagnosticsLevel.Events))
-            return;
-
-        _diagnostics.Publish(new DiagnosticsEvent
-        {
-            Domain = DiagnosticsDomain.MotorLive,
-            Name = "Motor.SidecarFaulted",
-            Severity = DiagnosticsSeverity.Error,
-            CorrelationId = _correlationId,
-            ConnectionId = _connectionId,
-            PersistedSessionId = _persistedSessionId,
-            SidecarSessionId = _sidecarSessionId,
-            Payload = MotorDiagnosticsPayloads.SidecarFault(fault),
-        });
+        _diagnostics.SidecarFaulted(DiagnosticsContext(), fault);
     }
 
     private async Task PumpConsoleOutputAsync(CancellationToken ct)
@@ -480,17 +453,7 @@ public sealed class MotorSession : IMotorSession
             return;
 
         _lastMappedClientUrl = clientUrl;
-        _diagnostics.Publish(new DiagnosticsEvent
-        {
-            Domain = DiagnosticsDomain.MotorLive,
-            Name = "Motor.UrlMapped",
-            Severity = DiagnosticsSeverity.Information,
-            CorrelationId = _correlationId,
-            ConnectionId = _connectionId,
-            PersistedSessionId = _persistedSessionId,
-            SidecarSessionId = _sidecarSessionId,
-            Payload = new { targetUrl, clientUrl },
-        });
+        _diagnostics.UrlMapped(DiagnosticsContext(), targetUrl, clientUrl);
     }
 
     private async Task PumpUserInputAsync(ChannelReader<string> reader, CancellationToken ct)
@@ -595,34 +558,14 @@ public sealed class MotorSession : IMotorSession
     }
 
     private void MaybeMirrorStatus(SessionStatus status)
-    {
-        if (!_runtime.IsEnabled(DiagnosticsDomain.MotorLive, DiagnosticsLevel.Metrics))
-            return;
+        => _diagnostics.StatusMirrored(
+            DiagnosticsContext(),
+            status.Fps,
+            status.UptimeMs,
+            status.TabCount,
+            status.Width,
+            status.Height);
 
-        var sampling = _runtime.GetSnapshot().Options.Sampling;
-        var mirrorRatio = Math.Min(sampling.StatusMirrorRatio, sampling.ExpensiveEventRatio);
-        if (mirrorRatio <= 0)
-            return;
-        if (mirrorRatio < 1.0 && Random.Shared.NextDouble() > mirrorRatio)
-            return;
-
-        _diagnostics.Publish(new DiagnosticsEvent
-        {
-            Domain = DiagnosticsDomain.MotorLive,
-            Name = "Motor.StatusMirrored",
-            Severity = DiagnosticsSeverity.Information,
-            CorrelationId = _correlationId,
-            ConnectionId = _connectionId,
-            PersistedSessionId = _persistedSessionId,
-            SidecarSessionId = _sidecarSessionId,
-            Payload = new
-            {
-                fps = status.Fps,
-                uptimeMs = status.UptimeMs,
-                tabCount = status.TabCount,
-                width = status.Width,
-                height = status.Height,
-            },
-        }, persist: false);
-    }
+    private MotorDiagnosticsContext DiagnosticsContext()
+        => new(_connectionId, _correlationId, _persistedSessionId, _sidecarSessionId);
 }

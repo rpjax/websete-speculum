@@ -29,18 +29,33 @@ public sealed class MotorAssertFixture : IAsyncLifetime
     public static bool IsMotorAssertEnvironment =>
         !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("MOTOR_ASSERT_API_BASE"));
 
-    /// <summary>Baseline Diagnostics config used by seed + restores.</summary>
+    /// <summary>Baseline Diagnostics config used by seed + restores (full toggles-on for probes/snapshots).</summary>
     public static object AssertiveDiagnosticsConfig(int maxProbeResponseBytes = 524288) => new
     {
         enabled = true,
-        defaultLevel = "BrowserQuery",
+        profile = "Assertive",
         domains = new
         {
-            motorLive = "BrowserQuery",
-            sidecarBrowser = "BrowserQuery",
-            hostResources = "Metrics",
-            browserQuery = "BrowserQuery",
-            persistedSessions = "BrowserQuery",
+            motor = new { metrics = true, events = true, snapshots = true },
+            sidecar = new { metrics = true, events = true },
+            browserQuery = new { probe = true },
+            persisted = new { snapshots = true },
+        },
+        telemetry = new
+        {
+            enabled = true,
+            intervalSeconds = 5,
+            host = new { enabled = true },
+            motor = new
+            {
+                enabled = true,
+                includeSessionIds = true,
+                includePerSession = true,
+                includeUrlHost = true,
+            },
+            sidecar = new { enabled = true, includeFaultedIds = true },
+            persistence = new { enabled = true, includeBytes = true },
+            pipeline = new { enabled = true, includeBreakerPressure = true },
         },
         probe = new
         {
@@ -141,17 +156,17 @@ public sealed class MotorAssertFixture : IAsyncLifetime
         if (runtime.TryGetProperty("degraded", out var deg) && deg.GetBoolean())
         {
             Assert.Fail(
-                "Diagnostics is degraded (effective levels capped at Metrics). " +
+                "Diagnostics is degraded (effective capabilities capped at Metric). " +
                 "Clear via POST /api/admin/diagnostics/v1/recover before BrowserQuery probes. " +
                 $"runtime={runtime}");
         }
 
         Assert.True(
-            runtime.TryGetProperty("effectiveLevels", out var levels),
-            $"runtime missing effectiveLevels: {runtime}");
+            runtime.TryGetProperty("effectiveCapabilities", out var caps),
+            $"runtime missing effectiveCapabilities: {runtime}");
 
-        RequireLevelAtLeast(levels, "BrowserQuery", "BrowserQuery");
-        RequireLevelAtLeast(levels, "SidecarBrowser", "Metrics");
+        RequireCapability(caps, "BrowserQuery", "Probe");
+        RequireCapability(caps, "SidecarBrowser", "Metric");
     }
 
     public async Task<bool> TryIsAssertiveProbeReadyAsync(CancellationToken ct = default)
@@ -167,50 +182,38 @@ public sealed class MotorAssertFixture : IAsyncLifetime
         }
     }
 
-    private static void RequireLevelAtLeast(JsonElement levels, string domainKey, string minimumName)
+    private static void RequireCapability(JsonElement caps, string domainKey, string capabilityKey)
     {
-        if (!TryGetLevelProperty(levels, domainKey, out var el))
-        {
-            Assert.Fail($"effectiveLevels missing '{domainKey}': {levels}");
-        }
-
-        var actual = el.GetString() ?? "";
         Assert.True(
-            CompareDiagLevel(actual, minimumName) >= 0,
-            $"effectiveLevels.{domainKey}={actual}, need ≥ {minimumName}");
+            TryGetPropertyIgnoreCase(caps, domainKey, out var domainEl),
+            $"effectiveCapabilities missing '{domainKey}': {caps}");
+        Assert.True(
+            TryGetPropertyIgnoreCase(domainEl, capabilityKey, out var capEl)
+            && capEl.ValueKind is JsonValueKind.True or JsonValueKind.False
+            && capEl.GetBoolean(),
+            $"effectiveCapabilities.{domainKey}.{capabilityKey} not enabled: {domainEl}");
     }
 
-    private static bool TryGetLevelProperty(JsonElement levels, string domainKey, out JsonElement el)
+    private static bool TryGetPropertyIgnoreCase(JsonElement obj, string name, out JsonElement el)
     {
-        if (levels.TryGetProperty(domainKey, out el))
+        if (obj.ValueKind == JsonValueKind.Object && obj.TryGetProperty(name, out el))
             return true;
 
-        foreach (var prop in levels.EnumerateObject())
+        if (obj.ValueKind == JsonValueKind.Object)
         {
-            if (string.Equals(prop.Name, domainKey, StringComparison.OrdinalIgnoreCase))
+            foreach (var prop in obj.EnumerateObject())
             {
-                el = prop.Value;
-                return true;
+                if (string.Equals(prop.Name, name, StringComparison.OrdinalIgnoreCase))
+                {
+                    el = prop.Value;
+                    return true;
+                }
             }
         }
 
         el = default;
         return false;
     }
-
-    /// <summary>Off &lt; Metrics &lt; Events &lt; StateSnapshots &lt; BrowserQuery</summary>
-    private static int CompareDiagLevel(string actual, string minimum)
-        => Rank(actual).CompareTo(Rank(minimum));
-
-    private static int Rank(string name) => name.ToUpperInvariant() switch
-    {
-        "OFF" => 0,
-        "METRICS" => 1,
-        "EVENTS" => 2,
-        "STATESNAPSHOTS" => 3,
-        "BROWSERQUERY" => 4,
-        _ => -1,
-    };
 }
 
 /// <summary>

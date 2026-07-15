@@ -17,6 +17,7 @@ You are working in the **Speculum** remote browser isolation repository.
 - **Effect asserts**, not smoke (`200` / `ok: true` alone).
 - Missing JSON properties **fail** — never skip-if-absent.
 - Never publish a catalogued Motor/Sidecar DiagProbe **failure** without `errorCode` + `phase` (see [docs/diagnostics.md](docs/diagnostics.md)).
+- **Diagnostics** — **capability toggles per domain** (not levels); the transport is domain-agnostic (gate only by catalog `descriptor` + `IsCapabilityEnabled`, never hardcode event/domain names, every emitted event has a descriptor). `Telemetry.SampleCollected` is one composite sample; sections and identity are opt-in per toggle, redaction stays read-time.
 - **Functional ≠ Perf** — capacity/SLO belongs in `perf.yml`, not as a substitute for correctness.
 - **V1 development** — no backward-compat shims or config aliases unless explicitly requested post-launch.
 - Minimal, convention-matched diffs; no drive-by renames.

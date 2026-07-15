@@ -96,23 +96,22 @@ public class ConfigStoreSeedTests : IDisposable
             JsonDocument.Parse("""
             {
               "enabled": true,
-              "defaultLevel": "Metrics",
+              "profile": "Production",
               "domains": {
-                "motorLive": "Metrics",
-                "sidecarBrowser": "Metrics",
-                "hostResources": "Metrics",
-                "browserQuery": "Off",
-                "persistedSessions": "Metrics"
+                "motor": { "metrics": true, "events": false, "snapshots": false },
+                "sidecar": { "metrics": true, "events": false },
+                "browserQuery": { "probe": false },
+                "persisted": { "snapshots": false }
               }
             }
             """).RootElement);
 
-        Assert.Equal("Off", store.Current.Diagnostics.Domains.BrowserQuery);
+        Assert.False(store.Current.Diagnostics.Domains.BrowserQuery.Probe);
 
         var result = await store.DeleteSectionAsync(ConfigSectionKeys.Diagnostics);
         Assert.True(result.Success);
-        Assert.Equal("BrowserQuery", store.Current.Diagnostics.Domains.BrowserQuery);
-        Assert.Equal("Events", store.Current.Diagnostics.Domains.MotorLive);
+        Assert.True(store.Current.Diagnostics.Domains.BrowserQuery.Probe);
+        Assert.True(store.Current.Diagnostics.Domains.Motor.Events);
     }
 
     [Fact]
@@ -123,9 +122,9 @@ public class ConfigStoreSeedTests : IDisposable
         {
             var store = CreateStore();
             await store.InitializeAsync();
-            Assert.Equal("BrowserQuery", store.Current.Diagnostics.Domains.BrowserQuery);
-            Assert.Equal("BrowserQuery", store.Current.Diagnostics.Domains.MotorLive);
-            Assert.Equal("BrowserQuery", store.Current.Diagnostics.DefaultLevel);
+            Assert.True(store.Current.Diagnostics.Domains.BrowserQuery.Probe);
+            Assert.True(store.Current.Diagnostics.Domains.Motor.Snapshots);
+            Assert.Equal("Assertive", store.Current.Diagnostics.Profile);
         }
         finally
         {
@@ -168,7 +167,7 @@ public class ConfigStoreSeedTests : IDisposable
             NullLogger<EdgeSynchronizer>.Instance);
         IConfigChangeHandler[] handlers =
         [
-            new MotorSessionDrainHandler(registry, sessionStore, new NullDiagnosticsEventBus()),
+            new MotorSessionDrainHandler(registry, sessionStore, TestMotorDiagnostics.Emitter(new NullDiagnosticsEventBus())),
             new EdgeSyncConfigHandler(edgeSynchronizer),
         ];
 

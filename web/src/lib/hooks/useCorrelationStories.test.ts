@@ -7,7 +7,7 @@ function makeEvent(overrides: Partial<DiagnosticsEventRecord> = {}): Diagnostics
     diagnosticsSchemaVersion: 1,
     id: `evt-${Math.random().toString(36).slice(2, 8)}`,
     utc: new Date().toISOString(),
-    domain: 'Motor.Live',
+    domain: 'MotorLive',
     name: 'Motor.SessionStarted',
     severity: 'Info',
     correlationId: null,

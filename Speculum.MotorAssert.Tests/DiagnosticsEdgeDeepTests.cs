@@ -50,14 +50,13 @@ public sealed class DiagnosticsEdgeDeepTests : MotorAssertTestBase
         put = await fx.Host.PutConfigAsync("Diagnostics", new
         {
             enabled = true,
-            defaultLevel = "BrowserQuery",
+            profile = "Assertive",
             domains = new
             {
-                motorLive = "BrowserQuery",
-                sidecarBrowser = "BrowserQuery",
-                hostResources = "Metrics",
-                browserQuery = "BrowserQuery",
-                persistedSessions = "BrowserQuery",
+                motor = new { metrics = true, events = true, snapshots = true },
+                sidecar = new { metrics = true, events = true },
+                browserQuery = new { probe = true },
+                persisted = new { snapshots = true },
             },
             probe = new
             {
@@ -119,14 +118,13 @@ public sealed class DiagnosticsEdgeDeepTests : MotorAssertTestBase
         var put = await fx.Host.PutConfigAsync("Diagnostics", new
         {
             enabled = true,
-            defaultLevel = "BrowserQuery",
+            profile = "Assertive",
             domains = new
             {
-                motorLive = "BrowserQuery",
-                sidecarBrowser = "BrowserQuery",
-                hostResources = "Metrics",
-                browserQuery = "BrowserQuery",
-                persistedSessions = "BrowserQuery",
+                motor = new { metrics = true, events = true, snapshots = true },
+                sidecar = new { metrics = true, events = true },
+                browserQuery = new { probe = true },
+                persisted = new { snapshots = true },
             },
             probe = new
             {
@@ -216,8 +214,8 @@ public sealed class DiagnosticsEdgeDeepTests : MotorAssertTestBase
 
         var runtime = await fx.Diagnostics.GetRuntimeAsync();
         Assert.True(runtime.GetProperty("enabled").GetBoolean());
-        Assert.True(runtime.TryGetProperty("effectiveLevels", out var levels), runtime.ToString());
-        Assert.Equal("BrowserQuery", levels.GetProperty("BrowserQuery").GetString());
+        Assert.True(runtime.TryGetProperty("effectiveCapabilities", out var caps), runtime.ToString());
+        Assert.True(caps.GetProperty("BrowserQuery").GetProperty("Probe").GetBoolean(), caps.ToString());
     }
 
     [MotorAssertFact]

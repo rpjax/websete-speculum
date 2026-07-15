@@ -47,24 +47,29 @@ async function request<T>(path: string, init: RequestInitEx = {}): Promise<T> {
 
 const BASE = '/api/admin/diagnostics/v1'
 
-export type DiagnosticsLevel =
-  | 'Off'
-  | 'Metrics'
-  | 'Events'
-  | 'StateSnapshots'
-  | 'BrowserQuery'
+/** Diagnostics preset — a pre-applied bundle of domain/telemetry toggles (server-seeded). */
+export type DiagnosticsProfile = 'Development' | 'Production' | 'Assertive'
+
+/** Signal kind an event carries; the operator control unit per domain. Mirrors DiagnosticsCapability. */
+export type DiagnosticsCapability = 'Metric' | 'Event' | 'Snapshot' | 'Probe'
+
+/** Resolved capabilities (post degraded/elevate) per domain: domain -> {capability -> enabled}. */
+export type EffectiveCapabilities = Record<string, Partial<Record<DiagnosticsCapability, boolean>>>
+
+/** Always-present elevate projection from the runtime. */
+export interface DiagnosticsElevate {
+  active?: boolean
+  expiresUtc?: string | null
+}
 
 export interface DiagnosticsRuntimeSnapshot {
   diagnosticsSchemaVersion: number
   enabled: boolean
-  effectiveLevels: Record<string, string>
-  elevate: {
-    active?: boolean
-    browserQueryFloor?: string
-    expiresUtc?: string
-  } | null
+  effectiveCapabilities: EffectiveCapabilities
+  elevate: DiagnosticsElevate | null
   degraded: boolean
   bytesUsed: number
+  storageMaxBytes: number
   eventsStored: number
   eventsDropped: number
   overflowCount: number
@@ -74,13 +79,11 @@ export interface DiagnosticsRuntimeSnapshot {
 }
 
 export interface DiagnosticsElevateRequest {
-  browserQueryFloor?: DiagnosticsLevel
   minutes?: number
 }
 
 export interface DiagnosticsElevateResponse {
   elevated: boolean
-  browserQueryFloor?: string
   minutes?: number
 }
 
@@ -157,16 +160,30 @@ export interface DiagnosticsCatalogResponse {
   events: string[]
 }
 
+/** Per-domain capability toggles (the operator control model). */
+export interface DiagnosticsDomainToggles {
+  motor: { metrics: boolean; events: boolean; snapshots: boolean }
+  sidecar: { metrics: boolean; events: boolean }
+  browserQuery: { probe: boolean }
+  persisted: { snapshots: boolean }
+}
+
+/** Composite telemetry sampler toggles + per-section opt-ins. */
+export interface DiagnosticsTelemetryOptions {
+  enabled: boolean
+  intervalSeconds: number
+  host: { enabled: boolean }
+  motor: { enabled: boolean; includeSessionIds: boolean; includePerSession: boolean; includeUrlHost: boolean }
+  sidecar: { enabled: boolean; includeFaultedIds: boolean }
+  persistence: { enabled: boolean; includeBytes: boolean }
+  pipeline: { enabled: boolean; includeBreakerPressure: boolean }
+}
+
 export interface DiagnosticsOptions {
   enabled: boolean
-  defaultLevel: DiagnosticsLevel
-  domains: {
-    motorLive: DiagnosticsLevel
-    sidecarBrowser: DiagnosticsLevel
-    hostResources: DiagnosticsLevel
-    browserQuery: DiagnosticsLevel
-    persistedSessions: DiagnosticsLevel
-  }
+  profile: DiagnosticsProfile
+  domains: DiagnosticsDomainToggles
+  telemetry: DiagnosticsTelemetryOptions
   storage: {
     maxBytes: number
     maxEventsPerSession: number
@@ -194,13 +211,14 @@ export interface DiagnosticsOverview {
   degraded: boolean
   elevate: DiagnosticsRuntimeSnapshot['elevate']
   bytesUsed: number
+  storageMaxBytes: number
   eventsStored: number
   eventsDropped: number
   overflowCount: number
   probeInFlight: number
   lastCleanupUtc: string | null
   redactionMode: string
-  effectiveLevels: Record<string, string>
+  effectiveCapabilities: EffectiveCapabilities
   liveSessions: { activeCount: number; startingCount: number; total: number }
   needsAttention: string[]
 }

@@ -1,6 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using Speculum.Api.BrowserPersistence;
-using Speculum.Api.Diagnostics.Abstractions;
+using Speculum.Api.Motor.Diagnostics;
 
 namespace Speculum.Api.Motor.Live;
 
@@ -51,6 +51,13 @@ public interface IMotorSessionRegistry
 
     IReadOnlyList<MotorSessionListItem> ListSessions();
 
+    /// <summary>
+    /// Full per-session diagnostics snapshots for active + starting sessions, in a single
+    /// in-memory pass. Shared by the Telemetry motor + sidecar sources so a sample tick
+    /// iterates the registry once.
+    /// </summary>
+    IReadOnlyList<MotorSessionDiagnosticsSnapshot> ListSnapshots();
+
     bool TryFindByPersistedSessionId(
         string persistedSessionId,
         [NotNullWhen(true)] out IMotorSession? session,
@@ -67,6 +74,6 @@ public interface IMotorSessionRegistry
     Task StopAllAsync(
         IBrowserSessionStore store,
         CancellationToken ct = default,
-        IDiagnosticsEventBus? diagnostics = null,
+        IMotorDiagnosticsEmitter? diagnostics = null,
         string? correlationId = null);
 }

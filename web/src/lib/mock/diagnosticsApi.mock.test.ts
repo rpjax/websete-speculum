@@ -14,7 +14,9 @@ describe('mockDiagnosticsApi', () => {
     expect(overview.liveSessions.total).toBeGreaterThan(0)
     expect(overview.needsAttention).toEqual([])
     expect(typeof overview.bytesUsed).toBe('number')
-    expect(overview.effectiveLevels).toBeTruthy()
+    expect(typeof overview.storageMaxBytes).toBe('number')
+    expect(overview.effectiveCapabilities).toBeTruthy()
+    expect(overview.effectiveCapabilities.MotorLive).toBeTruthy()
   })
 
   it('getRuntime returns typed snapshot', async () => {
@@ -33,11 +35,11 @@ describe('mockDiagnosticsApi', () => {
   })
 
   it('elevate sets and clearElevate removes elevation', async () => {
-    await mockDiagnosticsApi.elevate({ browserQueryFloor: 'BrowserQuery', minutes: 15 })
+    await mockDiagnosticsApi.elevate({ minutes: 15 })
     const after = await mockDiagnosticsApi.getOverview()
     expect(after.elevate).not.toBeNull()
     expect(after.elevate?.active).toBe(true)
-    expect(after.elevate?.browserQueryFloor).toBe('BrowserQuery')
+    expect(after.elevate?.expiresUtc).toBeTruthy()
 
     await mockDiagnosticsApi.clearElevate()
     const cleared = await mockDiagnosticsApi.getOverview()
@@ -114,7 +116,7 @@ describe('mockDiagnosticsApi', () => {
   })
 
   it('_resetMockDiagnosticsApi restores initial state', async () => {
-    await mockDiagnosticsApi.elevate({ browserQueryFloor: 'BrowserQuery', minutes: 5 })
+    await mockDiagnosticsApi.elevate({ minutes: 5 })
     _resetMockDiagnosticsApi()
     const overview = await mockDiagnosticsApi.getOverview()
     expect(overview.elevate).toBeNull()

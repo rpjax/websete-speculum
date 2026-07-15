@@ -243,8 +243,7 @@ public class MotorSessionRegistryTests
             new SessionConfigSnapshot { InitialUrl = "https://example.com" },
             TestAdapter(),
             new SidecarClientFactory(),
-            new NullDiagnosticsEventBus(),
-            new DiagnosticsRuntime(),
+            TestMotorDiagnostics.Emitter(new NullDiagnosticsEventBus()),
             NullLogger<MotorSession>.Instance);
 
         registry.TrackStarting("conn-1", session);
@@ -261,8 +260,7 @@ public class MotorSessionRegistryTests
             new SessionConfigSnapshot { InitialUrl = "https://example.com" },
             TestAdapter(),
             new SidecarClientFactory(),
-            new NullDiagnosticsEventBus(),
-            new DiagnosticsRuntime(),
+            TestMotorDiagnostics.Emitter(new NullDiagnosticsEventBus()),
             NullLogger<MotorSession>.Instance);
 
         Assert.True(registry.TryAcquireSlot(10));

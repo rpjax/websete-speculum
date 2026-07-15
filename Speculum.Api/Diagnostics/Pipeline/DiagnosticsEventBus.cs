@@ -64,9 +64,10 @@ public sealed class DiagnosticsEventBus : IDiagnosticsEventBus
     private readonly SessionEventRing _ring;
     private readonly Lazy<IDiagnosticsSelfEmitter> _self;
     private readonly ILogger<DiagnosticsEventBus> _logger;
+    private readonly TimeProvider _timeProvider;
     private long _recentDrops;
     private long _recentSlowWrites;
-    private DateTimeOffset _windowStart = DateTimeOffset.UtcNow;
+    private DateTimeOffset _windowStart;
     private static readonly TimeSpan SlowWriteThreshold = TimeSpan.FromMilliseconds(250);
 
     public DiagnosticsEventBus(
@@ -74,13 +75,16 @@ public sealed class DiagnosticsEventBus : IDiagnosticsEventBus
         IEnumerable<IDiagnosticsSink> sinks,
         SessionEventRing ring,
         Lazy<IDiagnosticsSelfEmitter> self,
-        ILogger<DiagnosticsEventBus> logger)
+        ILogger<DiagnosticsEventBus> logger,
+        TimeProvider? timeProvider = null)
     {
         _runtime = runtime;
         _sinks = sinks;
         _ring = ring;
         _self = self;
         _logger = logger;
+        _timeProvider = timeProvider ?? TimeProvider.System;
+        _windowStart = _timeProvider.GetUtcNow();
     }
 
     /// <summary>Breaker-window pressure for Telemetry (pipeline section, behind IncludeBreakerPressure).</summary>
@@ -150,7 +154,7 @@ public sealed class DiagnosticsEventBus : IDiagnosticsEventBus
 
     private void RollWindow()
     {
-        var now = DateTimeOffset.UtcNow;
+        var now = _timeProvider.GetUtcNow();
         if (now - _windowStart <= TimeSpan.FromSeconds(10))
             return;
         Interlocked.Exchange(ref _recentDrops, 0);

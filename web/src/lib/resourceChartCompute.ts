@@ -1,9 +1,20 @@
+import type { DiagnosticsEventRecord } from '@/lib/diagnosticsApi'
+
 export interface ResourceSample {
   utc: string
   timestamp: number
   cpu: number
   memoryMb: number
   threads: number | null
+}
+
+export interface MetricDef {
+  key: string
+  label: string
+  unit: string
+  color: string
+  fill: string
+  extract: (s: ResourceSample) => number
 }
 
 export type TimePreset = '5m' | '15m' | '1h' | '6h' | '24h' | 'all' | 'custom'
@@ -213,4 +224,36 @@ export function parseDatetimeLocalValue(value: string): number | null {
   if (!value) return null
   const ts = new Date(value).getTime()
   return Number.isNaN(ts) ? null : ts
+}
+
+/** Chart series backed by the composite telemetry sample's `host` section. */
+export const METRICS: MetricDef[] = [
+  { key: 'cpu', label: 'CPU', unit: '%', color: 'rgb(59,130,246)', fill: 'rgba(59,130,246,0.1)', extract: (s) => s.cpu },
+  { key: 'memory', label: 'Memory', unit: ' MB', color: 'rgb(168,85,247)', fill: 'rgba(168,85,247,0.1)', extract: (s) => s.memoryMb },
+  { key: 'threads', label: 'Threads', unit: '', color: 'rgb(34,197,94)', fill: 'rgba(34,197,94,0.1)', extract: (s) => s.threads ?? 0 },
+]
+
+/**
+ * Projects `Telemetry.SampleCollected` events onto {@link ResourceSample}s from their `host`
+ * section: bytes→MB, cpuUsage rounded to .1, thread count passed through. Events that are not
+ * telemetry samples or that carry no `host` section are dropped; the result is ascending by time.
+ */
+export function telemetryToResourceSamples(events: DiagnosticsEventRecord[]): ResourceSample[] {
+  return events
+    .filter((e) => e.name === 'Telemetry.SampleCollected')
+    .map((evt): ResourceSample | null => {
+      const payload = evt.payload as Record<string, unknown> | null
+      const host = (payload?.host ?? null) as Record<string, unknown> | null
+      if (!host) return null
+      const memBytes = typeof host.memoryUsed === 'number' ? (host.memoryUsed as number) : 0
+      return {
+        utc: evt.utc,
+        timestamp: new Date(evt.utc).getTime(),
+        cpu: typeof host.cpuUsage === 'number' ? Math.round((host.cpuUsage as number) * 10) / 10 : 0,
+        memoryMb: memBytes > 0 ? Math.round(memBytes / (1024 * 1024)) : 0,
+        threads: typeof host.threadCount === 'number' ? (host.threadCount as number) : null,
+      }
+    })
+    .filter((s): s is ResourceSample => s !== null)
+    .sort((a, b) => a.timestamp - b.timestamp)
 }

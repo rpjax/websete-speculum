@@ -7,14 +7,15 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { SearchInput } from '@/components/admin/SearchInput'
 import { PaginationBar } from '@/components/admin/PaginationBar'
 import { ExportButton } from '@/components/admin/ExportButton'
-import { ResourceChartExplorer, ResourceTimeRangeControls, type MetricDef } from '@/components/admin/ResourceChartExplorer'
+import { ResourceChartExplorer, ResourceTimeRangeControls } from '@/components/admin/ResourceChartExplorer'
 import { usePagination } from '@/lib/hooks/usePagination'
 import { usePolling } from '@/lib/hooks/usePolling'
 import { formatBytes } from '@/lib/diagnosticsConstants'
 import {
   filterByTimeRange,
   computeStats,
-  type ResourceSample,
+  telemetryToResourceSamples,
+  METRICS,
   type TimePreset,
 } from '@/lib/resourceChartCompute'
 import { cn } from '@/lib/utils'
@@ -34,12 +35,6 @@ interface HostData {
   diskFreeBytes?: number
   threadCount?: number
 }
-
-const METRICS: MetricDef[] = [
-  { key: 'cpu', label: 'CPU', unit: '%', color: 'rgb(59,130,246)', fill: 'rgba(59,130,246,0.1)', extract: (s) => s.cpu },
-  { key: 'memory', label: 'Memory', unit: ' MB', color: 'rgb(168,85,247)', fill: 'rgba(168,85,247,0.1)', extract: (s) => s.memoryMb },
-  { key: 'threads', label: 'Threads', unit: '', color: 'rgb(34,197,94)', fill: 'rgba(34,197,94,0.1)', extract: (s) => s.threads ?? 0 },
-]
 
 type SortField = 'utc' | 'cpu' | 'memoryMb' | 'threads'
 type SortDir = 'asc' | 'desc'
@@ -74,25 +69,7 @@ export default function DiagnosticsResourcesPage() {
   useEffect(() => { void refresh() }, [refresh])
   usePolling(refresh, 5_000, autoRefresh)
 
-  const allSamples = useMemo((): ResourceSample[] => {
-    return hostEvents
-      .filter((e) => e.name === 'Telemetry.SampleCollected')
-      .map((evt) => {
-        const payload = evt.payload as Record<string, unknown> | null
-        const host = (payload?.host ?? null) as Record<string, unknown> | null
-        if (!host) return null
-        const memBytes = typeof host.memoryUsed === 'number' ? (host.memoryUsed as number) : 0
-        return {
-          utc: evt.utc,
-          timestamp: new Date(evt.utc).getTime(),
-          cpu: typeof host.cpuUsage === 'number' ? Math.round((host.cpuUsage as number) * 10) / 10 : 0,
-          memoryMb: memBytes > 0 ? Math.round(memBytes / (1024 * 1024)) : 0,
-          threads: typeof host.threadCount === 'number' ? (host.threadCount as number) : null,
-        } satisfies ResourceSample
-      })
-      .filter((s): s is ResourceSample => s !== null)
-      .sort((a, b) => a.timestamp - b.timestamp)
-  }, [hostEvents])
+  const allSamples = useMemo(() => telemetryToResourceSamples(hostEvents), [hostEvents])
 
   const rangeSamples = useMemo(
     () => filterByTimeRange(allSamples, timePreset, customFrom, customTo),

@@ -14,19 +14,13 @@ import {
   parseDatetimeLocalValue,
   type AggFn,
   type Granularity,
+  type MetricDef,
   type ResourceSample,
   type ScaleMode,
 } from '@/lib/resourceChartCompute'
 import { AlertTriangle, CalendarRange, Crosshair as CrosshairIcon, ZoomIn } from 'lucide-react'
 
-export interface MetricDef {
-  key: string
-  label: string
-  unit: string
-  color: string
-  fill: string
-  extract: (s: ResourceSample) => number
-}
+export type { MetricDef } from '@/lib/resourceChartCompute'
 
 interface ResourceChartExplorerProps {
   samples: ResourceSample[]

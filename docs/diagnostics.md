@@ -36,6 +36,26 @@ Response wrappers (raw HTTP — client `diagnosticsApi` unwraps where noted):
 | `GET /sessions/{id}/events` | event array (each item includes `redaction`) |
 | `GET /events?since=&namePrefix=&connectionId=` | global timeline (Drain / DiagnosticsSelf; optional `connectionId` filter) |
 
+### Admin endpoints (all Bearer)
+
+| Method + path | Purpose | Notable results |
+|---------------|---------|-----------------|
+| `GET /runtime` | Full runtime snapshot | `effectiveCapabilities`, `elevate`, `degraded`, `storageMaxBytes`, `bytesUsed`, `eventsStored`/`eventsDropped`, `overflowCount`, `probeInFlight`, `redactionMode` |
+| `GET /overview` | SPA aggregate (runtime + live counts) | adds `liveSessions{activeCount,startingCount,total}`, `needsAttention[]` |
+| `PUT /elevate` | Start BrowserQuery elevate (TTL) | body `{ minutes }` clamped to `elevate.browserQueryMaxMinutes`; emits `Diagnostics.ElevateStarted` |
+| `DELETE /elevate` | Clear elevate | emits `Diagnostics.ElevateExpired` (`manual_clear`) |
+| `POST /recover` | Clear Degraded circuit breaker | `{ recovered }`; emits `Diagnostics.Recovered` when it was degraded |
+| `GET /host` | Shared host telemetry sample | `{ data, redaction }`; `403 probe_level_insufficient` unless `telemetry.enabled` + `telemetry.host.enabled` |
+| `GET /resolve?connectionId=&persistedSessionId=&sidecarSessionId=` | Resolve a live session by any identity indexer | `{ connectionId, snapshot, redaction }` or `404 motor_not_found` (MATRIX `L12`) |
+| `GET /sessions` | Live registry list | `{ activeCount, startingCount, sessions[] }` |
+| `GET /sessions/{connectionId}` | Live session snapshot | `{ snapshot, redaction }` or `404 session_gone` |
+| `GET /sessions/{connectionId}/events` | Per-session timeline | event array (each with `redaction`) |
+| `POST /sessions/{connectionId}/browser` | BrowserQuery probe (`diagProbe`) | `ops[]`; `403 probe_level_insufficient`, `429 probe_busy`, `413 response_too_large`, `504 probe_timeout`, `404 session_gone` |
+| `GET /catalog/events` | Stable event catalog | `{ diagnosticsSchemaVersion, events[] }` |
+| `GET /persisted` | Persisted session list | store rows (counts) |
+| `GET /persisted/{sessionId}` | Persisted detail | `{ detail, redaction }`; needs `persisted.snapshots`; `404 session_gone` |
+| `PUT /persisted/{sessionId}/state` | Operator edit of persisted browser state | needs `persisted.snapshots`; `400 invalid_state`, `404 session_gone` |
+
 Catalog Act→Assert events are **never** randomly sampled away. `StatusMirrorRatio` / `expensiveEventRatio` only throttle noisy `Motor.StatusMirrored` (ring-only). Catalog Motor/Sidecar lifecycle events are tagged with the `Metric` capability (not `Event`) so Production (`sidecar.events` off) and Degraded caps do not erase Act→Assert timelines; only `Motor.ResizeRequested` and `Motor.SidecarFaulted` require the `events` toggle.
 
 ## Assert Cookbook
@@ -102,7 +122,7 @@ Motor completeness for debug: **identity resolve + URL map + export + probes** (
 6. PUT elevate → assert `GET /events?namePrefix=Diagnostics.Elevate` includes `ElevateStarted`; TTL/DELETE → `ElevateExpired`.
 7. **Degraded circuit breaker** — sustained sink drops or slow writes trip `Diagnostics.Degraded`; every domain is capped to the `Metric` capability → BrowserQuery probes return `probe_level_insufficient`. Recovery: cleanup cycle or **`POST /recover`** (audited `Diagnostics.Recovered`). Harness baseline calls recover before BrowserQuery asserts.
 
-Admin routes (Bearer): `GET /runtime`, **`GET /overview`** (SPA aggregate of runtime + live session counts), `PUT|DELETE /elevate`, **`POST /recover`**, `GET /events`, session/persisted/probe paths — see `DiagnosticsEndpoints`.
+Recovery/elevate/overview and the full route set are in the **Admin endpoints** table above (`GET /runtime`, `GET /overview`, `PUT|DELETE /elevate`, `POST /recover`, …) — implemented in `DiagnosticsEndpoints`.
 
 ### 6. Redaction
 
@@ -166,6 +186,44 @@ Ids, FSM phase, timing, fps/frames, navigation result, sidecar connected/fault, 
 ## Sidecar probes
 
 Wire: `diagProbe` / `diagResult`. Ops: `process`, `tabs`, `export`, `cookies`, `storage`, `dom`, `evaluate`, `resources`. Soft-cap via `maxProbeResponseBytes` (default 512 KiB, absolute wire ceiling 8 MiB).
+
+## Config reference (`Diagnostics` section)
+
+Dynamic SQLite section; `PUT /api/admin/config/Diagnostics` validated by `ConfigValidator`. Every sub-section is optional — omitted keys keep the defaults below (bounds are enforced; out-of-range values are rejected).
+
+| Key | Default | Notes / bounds |
+|-----|---------|----------------|
+| `enabled` | `true` | Master switch; when off, nothing publishes |
+| `profile` | `"Production"` | Preset that seeded the toggles (`Development`/`Production`/`Assertive`); explicit toggles override the preset |
+| `domains.motor` | `{ metrics, events, snapshots }` all `true` | MotorLive capabilities |
+| `domains.sidecar` | `{ metrics: true, events: false }` | SidecarBrowser (probe/diag) |
+| `domains.browserQuery` | `{ probe: false }` | live cookie/DOM probe |
+| `domains.persisted` | `{ snapshots: true }` | persisted-state reads/edits |
+| `telemetry.*` | see [Telemetry](#telemetry-composite-sample) | section toggles + `intervalSeconds` (1..3600) |
+| `storage.maxBytes` | `67108864` (64 MiB) | ring/sink budget (≥ 1024) |
+| `storage.maxEventsPerSession` | `5000` | per-session cap (≥ 1) |
+| `storage.ttlHours` | `24` | event retention (≥ 1) |
+| `storage.overflow` | `"DropOldest"` | only accepted value |
+| `sampling.statusMirrorRatio` | `1.0` | throttle for ring-only `Motor.StatusMirrored` (0..1) |
+| `sampling.expensiveEventRatio` | `0.25` | throttle for noisy expensive events (0..1) |
+| `elevate.browserQueryMaxMinutes` | `30` | `PUT /elevate` clamps `minutes` to this (1..1440) |
+| `probe.diagTimeoutMs` | `10000` | sidecar probe timeout (100..120000) |
+| `probe.maxConcurrentProbesPerSession` | `2` | beyond → `429 probe_busy` (1..32) |
+| `probe.maxProbeResponseBytes` | `524288` (512 KiB) | soft-cap; wire ceiling 8 MiB (1024..8388608) |
+| `probe.hostSampleIntervalMs` | `1000` | host-probe cache window (100..60000) |
+
+### Seed presets (`DiagnosticsSeedProfiles`)
+
+| Aspect | Development | Production | Assertive |
+|--------|-------------|------------|-----------|
+| `sidecar.events` | on | off | on |
+| `browserQuery.probe` | on | off | on |
+| `telemetry.intervalSeconds` | 15 | 30 | 10 |
+| telemetry identity opt-ins (`includeSessionIds`/`PerSession`/`UrlHost`/`FaultedIds`/`Bytes`/`BreakerPressure`) | on | off | on |
+| `storage` `maxBytes` / `ttlHours` | 128 MiB / 48h | 64 MiB / 6h | 256 MiB / 72h |
+| `sampling` (`statusMirrorRatio`/`expensiveEventRatio`) | 1.0 / 1.0 | 0.25 / 0.25 | 1.0 / 1.0 |
+
+First boot seeds `Production` unless `SPECULUM_DIAGNOSTICS_PROFILE` overrides; MotorAssert / MotorPerf CI uses `Assertive`. Redaction is keyed off the **host** environment (`Development` → `none`, `Production` → `production`), independent of the diagnostics profile.
 
 ## Telemetry (composite sample)
 

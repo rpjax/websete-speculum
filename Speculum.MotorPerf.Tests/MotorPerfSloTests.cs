@@ -21,14 +21,13 @@ public sealed class MotorPerfSloTests
         var put = await _host.PutConfigAsync("Diagnostics", new
         {
             enabled = true,
-            defaultLevel = "BrowserQuery",
+            profile = "Assertive",
             domains = new
             {
-                motorLive = "BrowserQuery",
-                sidecarBrowser = "BrowserQuery",
-                hostResources = "Metrics",
-                browserQuery = "BrowserQuery",
-                persistedSessions = "BrowserQuery",
+                motor = new { metrics = true, events = true, snapshots = true },
+                sidecar = new { metrics = true, events = true },
+                browserQuery = new { probe = true },
+                persisted = new { snapshots = true },
             },
             probe = new
             {
@@ -89,14 +88,13 @@ public sealed class MotorPerfSloTests
         await _host.PutConfigAsync("Diagnostics", new
         {
             enabled = true,
-            defaultLevel = "BrowserQuery",
+            profile = "Assertive",
             domains = new
             {
-                motorLive = "BrowserQuery",
-                sidecarBrowser = "BrowserQuery",
-                hostResources = "Metrics",
-                browserQuery = "BrowserQuery",
-                persistedSessions = "BrowserQuery",
+                motor = new { metrics = true, events = true, snapshots = true },
+                sidecar = new { metrics = true, events = true },
+                browserQuery = new { probe = true },
+                persisted = new { snapshots = true },
             },
             probe = new
             {

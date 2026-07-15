@@ -185,7 +185,7 @@ export default function SessionsPage() {
             </Badge>
           )}
           {persistedSessions.length > 0 && (
-            <Badge variant="secondary" className="gap-1.5 text-xs px-2.5 py-1">
+            <Badge variant="muted" className="gap-1.5 text-xs px-2.5 py-1">
               <Shield className="h-3 w-3" /> {persistedSessions.length} persisted
             </Badge>
           )}
@@ -259,7 +259,7 @@ function SessionRow({ row, onDelete }: { row: UnifiedRow; onDelete?: () => void 
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <span className="text-base font-semibold">{row.label}</span>
-          <Badge variant={isRunning ? 'success' : isStarting ? 'warning' : 'secondary'} className="text-xs">{row.phase}</Badge>
+          <Badge variant={isRunning ? 'success' : isStarting ? 'warning' : 'muted'} className="text-xs">{row.phase}</Badge>
           {row.hasPersistence && row.isLive && (
             <Tooltip>
               <TooltipTrigger asChild>

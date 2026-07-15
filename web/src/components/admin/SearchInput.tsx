@@ -13,7 +13,7 @@ interface SearchInputProps {
 
 export function SearchInput({ value, onChange, placeholder = 'Search…', debounceMs = 300, className }: SearchInputProps) {
   const [local, setLocal] = useState(value)
-  const timer = useRef<ReturnType<typeof setTimeout>>()
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   useEffect(() => { setLocal(value) }, [value])
 

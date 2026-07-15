@@ -10,17 +10,16 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { ExportButton } from '@/components/admin/ExportButton'
 import { DomainBadge } from '@/components/admin/DomainBadge'
 import { MultiSelectFilter } from '@/components/admin/MultiSelectFilter'
-import { Sparkline } from '@/components/admin/Sparkline'
 import { useEventStats } from '@/lib/hooks/useEventStats'
 import {
-  DOMAIN_LABELS, DOMAIN_COLORS, formatRelativeTime,
+  DOMAIN_LABELS,
 } from '@/lib/diagnosticsConstants'
 import { describeEvent } from '@/lib/diagnosticsDescriptions'
 import { cn } from '@/lib/utils'
 import {
-  RefreshCw, BarChart3, Clock, Activity,
+  RefreshCw, BarChart3, Activity,
   TrendingUp, Layers, AlertTriangle, ZoomIn, ZoomOut,
-  ChevronLeft, ChevronRight, Maximize2, Grid3X3,
+  Grid3X3,
   Users, Hash, GitBranch,
 } from 'lucide-react'
 
@@ -67,13 +66,6 @@ const DOMAIN_HEX: Record<string, string> = {
   'BrowserQuery': '#a855f7',
   'Persistence': '#f59e0b',
   'Diagnostics.Self': '#94a3b8',
-}
-
-const SEVERITY_HEX: Record<string, string> = {
-  Info: '#0ea5e9',
-  Warning: '#f59e0b',
-  Error: '#ef4444',
-  Metric: '#94a3b8',
 }
 
 const DOMAIN_FILTER_OPTIONS = Object.entries(DOMAIN_LABELS)
@@ -276,9 +268,9 @@ export default function DiagnosticsTimelinePage() {
             <p className="mt-3 text-sm text-muted-foreground">No events in this time range</p>
           </div>
         ) : chartMode === 'histogram' ? (
-          <HistogramChart data={bucketData} zoom={zoom} selectedBucket={selectedBucket} onSelectBucket={setSelectedBucket} />
+          <HistogramChart data={bucketData} selectedBucket={selectedBucket} onSelectBucket={setSelectedBucket} />
         ) : chartMode === 'heatmap' ? (
-          <HeatmapChart data={domainBucketData} events={filtered} />
+          <HeatmapChart data={domainBucketData} />
         ) : chartMode === 'stacked' ? (
           <StackedChart data={domainBucketData} />
         ) : (
@@ -387,8 +379,8 @@ export default function DiagnosticsTimelinePage() {
 interface BucketInfo { start: number; end: number; count: number; errors: number; warnings: number }
 interface BucketData { buckets: BucketInfo[]; max: number; minTime: number; maxTime: number }
 
-function HistogramChart({ data, zoom, selectedBucket, onSelectBucket }: {
-  data: BucketData; zoom: number; selectedBucket: number | null; onSelectBucket: (i: number | null) => void
+function HistogramChart({ data, selectedBucket, onSelectBucket }: {
+  data: BucketData; selectedBucket: number | null; onSelectBucket: (i: number | null) => void
 }) {
   const chartH = 180
   return (
@@ -440,7 +432,7 @@ function HistogramChart({ data, zoom, selectedBucket, onSelectBucket }: {
 interface DomainBucket { domain: string; counts: number[] }
 interface DomainBucketData { domains: DomainBucket[]; bucketStarts: number[]; bucketEnds: number[]; max: number; maxStacked: number }
 
-function HeatmapChart({ data, events }: { data: DomainBucketData; events: DiagnosticsEventRecord[] }) {
+function HeatmapChart({ data }: { data: DomainBucketData }) {
   const maxVal = Math.max(...data.domains.flatMap((d) => d.counts), 1)
   return (
     <div className="px-4 py-3">

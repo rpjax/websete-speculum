@@ -5,7 +5,6 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { StatCard } from '@/components/admin/StatCard'
 import { DomainBadge } from '@/components/admin/DomainBadge'
-import { SeverityBadge } from '@/components/admin/SeverityBadge'
 import { HealthScoreGauge, computeHealthScore } from '@/components/admin/HealthScoreGauge'
 import { Sparkline } from '@/components/admin/Sparkline'
 import { EventFrequencyChart, TimeDistributionChart } from '@/components/admin/EventFrequencyChart'
@@ -13,7 +12,7 @@ import { QuickActions } from '@/components/admin/QuickActions'
 import { ExportButton } from '@/components/admin/ExportButton'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useEventStats } from '@/lib/hooks/useEventStats'
-import { formatBytes, formatRelativeTime, DOMAIN_LABELS, LEVEL_LABELS, LEVEL_DESCRIPTIONS, DOMAIN_COLORS } from '@/lib/diagnosticsConstants'
+import { formatBytes, formatRelativeTime, DOMAIN_LABELS, LEVEL_LABELS } from '@/lib/diagnosticsConstants'
 import { describeEvent, humanizeDomain } from '@/lib/diagnosticsDescriptions'
 import {
   ArrowRight, RefreshCw, Database, HardDrive, Monitor,
@@ -401,7 +400,6 @@ function HealthHero({ score, degraded, elevate, onRecover, onClearElevate, recov
 }) {
   const isDegraded = degraded
   const isElevated = !isDegraded && elevate?.active
-  const isNormal = !isDegraded && !isElevated
 
   const borderClass = isDegraded ? 'border-red-500/30' : isElevated ? 'border-blue-500/30' : 'border-emerald-500/30'
   const bgClass = isDegraded

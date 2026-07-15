@@ -187,7 +187,7 @@ export default function SessionDetailPage() {
           {snapshot && (
             <TabsTrigger value="events" className="gap-1.5 text-sm data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-5 h-10">
               <Activity className="h-4 w-4" /> Events
-              {events.length > 0 && <Badge variant="secondary" className="ml-1.5 text-xs">{events.length}</Badge>}
+              {events.length > 0 && <Badge variant="muted" className="ml-1.5 text-xs">{events.length}</Badge>}
             </TabsTrigger>
           )}
           {isLive && (
@@ -196,7 +196,7 @@ export default function SessionDetailPage() {
           {hasPersistence && (
             <TabsTrigger value="storage" className="gap-1.5 text-sm data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-5 h-10">
               <HardDrive className="h-4 w-4" /> Storage
-              {persisted && <Badge variant="secondary" className="ml-1.5 text-xs">{persisted.cookies.length + persisted.localStorage.length + persisted.idbRecords.length + persisted.history.length}</Badge>}
+              {persisted && <Badge variant="muted" className="ml-1.5 text-xs">{persisted.cookies.length + persisted.localStorage.length + persisted.idbRecords.length + persisted.history.length}</Badge>}
             </TabsTrigger>
           )}
         </TabsList>
@@ -323,7 +323,7 @@ function InactiveHero({ id, hasPersistence }: { id: string; hasPersistence: bool
               : 'Session is no longer active. Viewing historical data.'}
           </p>
         </div>
-        <Badge variant="secondary" className="ml-auto">{hasPersistence ? 'Persisted' : 'Inactive'}</Badge>
+        <Badge variant="muted" className="ml-auto">{hasPersistence ? 'Persisted' : 'Inactive'}</Badge>
       </div>
     </div>
   )
@@ -695,7 +695,9 @@ function EventsTab({ events, loading, connectionId }: { events: DiagnosticsEvent
     return { sev, dom, domEntries, correlations: correlations.size, rate, topNames, span }
   }, [filtered])
 
-  const pagination = usePagination(view === 'stories' ? (stories?.stories ?? []) : filtered, 25)
+  const paginationEvents = usePagination(filtered, 25)
+  const paginationStories = usePagination(stories?.stories ?? [], 25)
+  const pagination = view === 'stories' ? paginationStories : paginationEvents
   const selectedEvent = selectedEventId ? filtered.find((e) => e.id === selectedEventId) ?? null : null
 
   if (loading) return <Skeleton className="h-48 w-full rounded-xl" />
@@ -710,7 +712,7 @@ function EventsTab({ events, loading, connectionId }: { events: DiagnosticsEvent
     )
   }
 
-  const hasFilters = domainFilter.length > 0 || sevFilter.length > 0 || search || timeWindow > 0
+  const hasFilters = domainFilter.length > 0 || sevFilter.length > 0 || search.length > 0 || timeWindow > 0
 
   return (
     <div className="space-y-4">
@@ -833,7 +835,7 @@ function EventsTab({ events, loading, connectionId }: { events: DiagnosticsEvent
               <span className="text-xs text-muted-foreground">{filtered.length} of {events.length} events</span>
               {(stats.sev['Error'] ?? 0) > 0 && <Badge variant="destructive" className="text-xs">{stats.sev['Error']} errors</Badge>}
               {(stats.sev['Warning'] ?? 0) > 0 && <Badge variant="warning" className="text-xs">{stats.sev['Warning']} warnings</Badge>}
-              {domainFilter.length > 0 && domainFilter.map((d) => <Badge key={d} variant="secondary" className="text-xs gap-1">{DOMAIN_LABELS[d] ?? d} <button onClick={() => setDomainFilter(domainFilter.filter((x) => x !== d))} className="ml-0.5 opacity-60 hover:opacity-100">&times;</button></Badge>)}
+              {domainFilter.length > 0 && domainFilter.map((d) => <Badge key={d} variant="muted" className="text-xs gap-1">{DOMAIN_LABELS[d] ?? d} <button onClick={() => setDomainFilter(domainFilter.filter((x) => x !== d))} className="ml-0.5 opacity-60 hover:opacity-100">&times;</button></Badge>)}
               <button onClick={() => { setDomainFilter([]); setSevFilter([]); setSearch(''); setTimeWindow(0) }} className="text-xs text-primary hover:underline">Clear all</button>
             </div>
           )}
@@ -847,13 +849,13 @@ function EventsTab({ events, loading, connectionId }: { events: DiagnosticsEvent
           </div>
         ) : view === 'timeline' ? (
           <div className="divide-y divide-border/50">
-            {(pagination.items as DiagnosticsEventRecord[]).map((evt) => (
+            {paginationEvents.items.map((evt) => (
               <EventRow key={evt.id} event={evt} isSelected={selectedEventId === evt.id} onSelect={setSelectedEventId} onFilterCorrelation={evt.correlationId ? () => setSearch(evt.correlationId!) : undefined} />
             ))}
           </div>
         ) : (
           <div className="divide-y divide-border/50">
-            {(pagination.items as CorrelationStory[]).map((s) => <StoryRow key={s.correlationId} story={s} onSelectEvent={setSelectedEventId} />)}
+            {paginationStories.items.map((s) => <StoryRow key={s.correlationId} story={s} onSelectEvent={setSelectedEventId} />)}
             {stories && stories.uncorrelated.length > 0 && (
               <div className="px-4 py-3">
                 <p className="mb-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">Standalone ({stories.uncorrelated.length})</p>
@@ -1089,7 +1091,7 @@ function EventRow({ event, isSelected, onSelect, onFilterCorrelation }: {
   const isErr = event.severity === 'Error'
   const isWarn = event.severity === 'Warning'
   const sevIcon = isErr ? <AlertTriangle className="h-3.5 w-3.5 text-red-400" /> : isWarn ? <AlertTriangle className="h-3.5 w-3.5 text-amber-400" /> : event.severity === 'Metric' ? <Activity className="h-3.5 w-3.5 text-slate-400" /> : <CheckCircle2 className="h-3.5 w-3.5 text-sky-400" />
-  const hasPayload = event.payload && typeof event.payload === 'object' && Object.keys(event.payload as object).length > 0
+  const hasPayload = !!(event.payload && typeof event.payload === 'object' && Object.keys(event.payload as object).length > 0)
 
   return (
     <div className={cn(isErr && 'bg-red-500/[0.03]', isSelected && 'ring-1 ring-inset ring-primary/40 bg-primary/[0.03]')}>
@@ -1117,7 +1119,7 @@ function EventRow({ event, isSelected, onSelect, onFilterCorrelation }: {
           </button>
         )}
       </div>
-      {payloadOpen && event.payload && (
+      {payloadOpen && event.payload != null && (
         <div className="px-4 pb-2"><div className="ml-20 rounded-lg border border-border bg-muted/10 p-3">
           {Object.entries(event.payload as Record<string, unknown>).map(([k, v]) => (
             <div key={k} className="flex justify-between gap-3 py-1 text-sm"><span className="text-muted-foreground">{k}</span><span className="truncate font-mono text-foreground">{v == null ? '—' : typeof v === 'object' ? JSON.stringify(v) : String(v)}</span></div>
@@ -1188,7 +1190,7 @@ function EventDetailSheet({ event, onClose, onFilterCorrelation }: { event: Diag
 
           <div className="rounded-lg border border-border divide-y divide-border/50">
             <div className="flex justify-between px-4 py-2.5 text-sm"><span className="text-muted-foreground">Time</span><span className="tabular-nums">{new Date(event.utc).toLocaleString()}</span></div>
-            <div className="flex justify-between px-4 py-2.5 text-sm"><span className="text-muted-foreground">Severity</span><Badge variant={isErr ? 'destructive' : isWarn ? 'warning' : 'secondary'} className="text-xs">{event.severity}</Badge></div>
+            <div className="flex justify-between px-4 py-2.5 text-sm"><span className="text-muted-foreground">Severity</span><Badge variant={isErr ? 'destructive' : isWarn ? 'warning' : 'default'} className="text-xs">{event.severity}</Badge></div>
             <div className="flex justify-between px-4 py-2.5 text-sm"><span className="text-muted-foreground">Domain</span><DomainBadge domain={event.domain} /></div>
             <div className="flex justify-between px-4 py-2.5 text-sm"><span className="text-muted-foreground">Redaction</span><span>{event.redaction}</span></div>
             {event.correlationId && (
@@ -1312,7 +1314,7 @@ function ProbeTab({ connectionId }: { connectionId: string }) {
             <div className="flex-1" />
             <span className="text-xs text-muted-foreground">{new Date(run.time).toLocaleTimeString()}</span>
           </div>
-          {run.result.data && (
+          {run.result.data != null && (
             <div className="border-t border-border p-5">
               {typeof run.result.data === 'object' && run.result.data !== null ? (
                 <div className="space-y-4">
@@ -1375,7 +1377,7 @@ function StorageTab({ persisted, loading }: { persisted: SessionDetail; loading:
               )}
             >
               <tab.icon className="h-3.5 w-3.5" /> {tab.label}
-              <Badge variant="secondary" className="text-xs ml-1">{tab.count}</Badge>
+              <Badge variant="muted" className="text-xs ml-1">{tab.count}</Badge>
             </button>
           ))}
         </div>

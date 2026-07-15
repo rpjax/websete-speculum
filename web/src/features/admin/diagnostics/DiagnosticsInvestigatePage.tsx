@@ -22,7 +22,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { cn } from '@/lib/utils'
 import {
   ChevronDown, ChevronRight, Monitor, Cpu, Zap,
-  Globe, Radio, Server, CheckCircle2, XCircle, Clock,
+  Globe, Radio, Server, CheckCircle2, XCircle,
   Braces, Cookie, HardDrive, Terminal, FileCode,
   BookOpen, HelpCircle, AlertTriangle, Info,
   History, Save, Trash2, Play, BookTemplate,
@@ -131,7 +131,7 @@ export default function DiagnosticsInvestigatePage() {
         <Button variant="outline" size="sm" className="h-8 gap-1 text-xs" onClick={() => void autoHealthCheck()} disabled={pending || sessions.length === 0}>
           <Zap className="h-3 w-3" /> Auto health check
         </Button>
-        <Button variant={showHistory ? 'secondary' : 'outline'} size="sm" className="h-8 gap-1 text-xs" onClick={() => setShowHistory(!showHistory)}>
+        <Button variant={showHistory ? 'default' : 'outline'} size="sm" className="h-8 gap-1 text-xs" onClick={() => setShowHistory(!showHistory)}>
           <History className="h-3 w-3" /> History ({history.length})
         </Button>
         <Dialog open={saveTemplateOpen} onOpenChange={setSaveTemplateOpen}>
@@ -415,11 +415,11 @@ function ProbeResults({ result }: { result: BrowserProbeResponse }) {
         )}
         {data && (
           <div className="grid gap-4 md:grid-cols-2">
-            {data.process && <ProbeCard title="Process" description="Browser process info" icon={<Cpu className="h-3.5 w-3.5" />} data={data.process as Record<string, unknown>} />}
-            {data.resources && <ProbeResourceCard data={data.resources as Record<string, unknown>} />}
-            {data.tabs && <ProbeCard title={`Open tabs (${Array.isArray(data.tabs) ? (data.tabs as unknown[]).length : 0})`} description="Tabs in remote browser" icon={<Globe className="h-3.5 w-3.5" />} data={data.tabs} />}
-            {data.cookies && <ProbeCookiesCard cookies={data.cookies as Record<string, string>[]} />}
-            {data.localStorage && <ProbeCard title="Local storage" description="Website key-value data" icon={<Server className="h-3.5 w-3.5" />} data={data.localStorage} />}
+            {data.process != null && <ProbeCard title="Process" description="Browser process info" icon={<Cpu className="h-3.5 w-3.5" />} data={data.process as Record<string, unknown>} />}
+            {data.resources != null && <ProbeResourceCard data={data.resources as Record<string, unknown>} />}
+            {data.tabs != null && <ProbeCard title={`Open tabs (${Array.isArray(data.tabs) ? (data.tabs as unknown[]).length : 0})`} description="Tabs in remote browser" icon={<Globe className="h-3.5 w-3.5" />} data={data.tabs} />}
+            {data.cookies != null && <ProbeCookiesCard cookies={data.cookies as Record<string, string>[]} />}
+            {data.localStorage != null && <ProbeCard title="Local storage" description="Website key-value data" icon={<Server className="h-3.5 w-3.5" />} data={data.localStorage} />}
             {data.evaluate != null && (
               <div className="rounded-lg border border-border bg-muted/20 p-4">
                 <p className="mb-0.5 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-muted-foreground"><Terminal className="h-3.5 w-3.5" /> Evaluate result</p>
@@ -427,8 +427,8 @@ function ProbeResults({ result }: { result: BrowserProbeResponse }) {
                 <code className="block rounded-md bg-muted/50 p-2 font-mono text-sm">{JSON.stringify(data.evaluate)}</code>
               </div>
             )}
-            {data.dom && <ProbeCard title="DOM snapshot" description="HTML from CSS selector" icon={<FileCode className="h-3.5 w-3.5" />} data={data.dom} />}
-            {data.export && <ProbeCard title="Export" description="State export data" icon={<Zap className="h-3.5 w-3.5" />} data={data.export} />}
+            {data.dom != null && <ProbeCard title="DOM snapshot" description="HTML from CSS selector" icon={<FileCode className="h-3.5 w-3.5" />} data={data.dom} />}
+            {data.export != null && <ProbeCard title="Export" description="State export data" icon={<Zap className="h-3.5 w-3.5" />} data={data.export} />}
           </div>
         )}
         <button onClick={() => setShowRaw(!showRaw)} className="mt-4 flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground">
@@ -489,7 +489,7 @@ function HostResourcesDisplay({ host }: { host: Record<string, unknown> }) {
   const cpuUsage = host.cpuUsage as number | undefined
   return (
     <div className="space-y-4">
-      {host.hostname && (
+      {host.hostname != null && (
         <div className="flex items-center gap-2">
           <Server className="h-4 w-4 text-muted-foreground" />
           <span className="text-sm font-medium">{String(host.hostname)}</span>
@@ -500,7 +500,7 @@ function HostResourcesDisplay({ host }: { host: Record<string, unknown> }) {
         {memUsed != null && memTotal != null && <ResourceGauge label="Memory" used={memUsed} total={memTotal} formatValue={formatBytes} />}
         {cpuUsage != null && <ResourceGauge label="CPU" used={Math.round(cpuUsage * 100)} total={100} formatValue={(n) => `${n}%`} />}
       </div>
-      {host.gcCollections && (
+      {host.gcCollections != null && (
         <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
           <span className="flex items-center gap-1"><Info className="h-3 w-3" />GC:</span>
           {Object.entries(host.gcCollections as Record<string, number>).map(([gen, count]) => (

@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -35,7 +35,7 @@ import {
   AlertTriangle, CheckCircle2, XCircle,
   HelpCircle, Bookmark, BookmarkCheck,
   Users, X,
-  Activity, Layers, ArrowRight,
+  Activity, ArrowRight,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { DiagnosticsEventRecord } from '@/lib/diagnosticsApi'
@@ -532,7 +532,7 @@ function FeedRow({ event }: { event: DiagnosticsEventRecord }) {
   const isErr = event.severity === 'Error'
   const isWarn = event.severity === 'Warning'
   const dot = isErr ? 'bg-red-500' : isWarn ? 'bg-amber-500' : event.severity === 'Metric' ? 'bg-slate-400' : 'bg-sky-500'
-  const hasPayload = event.payload && typeof event.payload === 'object' && Object.keys(event.payload as object).length > 0
+  const hasPayload = !!(event.payload && typeof event.payload === 'object' && Object.keys(event.payload as object).length > 0)
   const shortName = event.name.split('.').pop() ?? event.name
   const domainShort = DOMAIN_LABELS[event.domain] ?? event.domain
 
@@ -579,7 +579,7 @@ function TimelineEventRow({ event }: { event: DiagnosticsEventRecord }) {
   const isErr = event.severity === 'Error' || event.name.includes('Rejected') || event.name.includes('Failed')
   const isWarn = event.severity === 'Warning'
   const dot = isErr ? 'bg-red-500' : isWarn ? 'bg-amber-500' : event.severity === 'Metric' ? 'bg-slate-400' : 'bg-sky-500'
-  const hasPayload = event.payload && typeof event.payload === 'object' && Object.keys(event.payload as object).length > 0
+  const hasPayload = !!(event.payload && typeof event.payload === 'object' && Object.keys(event.payload as object).length > 0)
   const errorCode = hasPayload ? (event.payload as Record<string, unknown>).errorCode as string | undefined : undefined
 
   return (
@@ -604,7 +604,7 @@ function TimelineEventRow({ event }: { event: DiagnosticsEventRecord }) {
           )}
         </div>
       </div>
-      {showPayload && event.payload && (
+      {showPayload && event.payload != null && (
         <div className="mt-2 rounded-lg border border-border bg-muted/10 p-3">
           {Object.entries(event.payload as Record<string, unknown>).map(([k, v]) => (
             <div key={k} className="flex items-baseline justify-between gap-4 py-0.5 text-sm">

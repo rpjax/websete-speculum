@@ -1,5 +1,4 @@
 import type { CorrelationStory } from '@/lib/hooks/useCorrelationStories'
-import type { DiagnosticsEventRecord } from '@/lib/diagnosticsApi'
 
 export const EVENT_DESCRIPTIONS: Record<string, string> = {
   'Motor.SessionStarting': 'A user connected and the motor is preparing a remote browser session — acquiring a slot, launching the sidecar process.',
@@ -101,8 +100,6 @@ export function describeErrorCode(code: string): { summary: string; detail: stri
 export function narrateStory(story: CorrelationStory): string {
   const events = story.events
   const payloads = events.map((e) => e.payload as Record<string, unknown> | null).filter(Boolean)
-  const firstEvent = events[0]
-  const lastEvent = events[events.length - 1]
   const failed = events.find((e) => e.severity === 'Error' || e.name.includes('Rejected') || e.name.includes('Failed') || e.name.includes('TimedOut'))
 
   switch (story.type) {

@@ -4,7 +4,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { Zap, ShieldCheck, Download, Cpu, AlertTriangle } from 'lucide-react'
+import { Zap, Download, Cpu, AlertTriangle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { diagnosticsApi } from '@/lib/diagnosticsApi'
 
@@ -22,7 +22,7 @@ export function QuickActions({ onRefresh, className }: QuickActionsProps) {
   async function handleElevate() {
     setElevating(true)
     try {
-      await diagnosticsApi.elevate(elevateMinutes)
+      await diagnosticsApi.elevate({ minutes: elevateMinutes })
       setResult('BrowserQuery level elevated successfully')
       setElevateOpen(false)
       onRefresh()

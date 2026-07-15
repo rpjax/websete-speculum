@@ -23,7 +23,7 @@ import {
   Info, Save, RotateCcw, Layers, Eye, EyeOff, ShieldCheck,
   ShieldAlert, Zap, ArrowRight, HardDrive, Clock, Settings,
   Gauge, FlaskConical, Activity, BookOpen, HelpCircle,
-  Upload, Download, FileJson, AlertTriangle, CheckCircle2,
+  Upload, FileJson, AlertTriangle,
   ArrowUpRight, ArrowDownRight, Minus,
 } from 'lucide-react'
 

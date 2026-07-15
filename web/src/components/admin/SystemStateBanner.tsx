@@ -1,6 +1,6 @@
 import { Button } from '@/components/ui/button'
 import { formatRelativeTime } from '@/lib/diagnosticsConstants'
-import { ShieldCheck, ShieldAlert, Shield, Clock, Zap } from 'lucide-react'
+import { ShieldCheck, ShieldAlert, Clock, Zap } from 'lucide-react'
 
 interface SystemStateBannerProps {
   degraded: boolean

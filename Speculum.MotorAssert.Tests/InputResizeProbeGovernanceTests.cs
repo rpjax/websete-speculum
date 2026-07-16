@@ -177,11 +177,20 @@ public sealed class InputResizeProbeGovernanceTests : MotorAssertTestBase
         var res = await fx.Host.Http.GetAsync("api/admin/diagnostics/v1/catalog/events");
         res.EnsureSuccessStatusCode();
         using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
-        var events = doc.RootElement.GetProperty("events").EnumerateArray().Select(e => e.GetString()).ToHashSet();
+        var events = doc.RootElement.GetProperty("events").EnumerateArray()
+            .Select(e => e.ValueKind == JsonValueKind.String
+                ? e.GetString()
+                : e.GetProperty("name").GetString())
+            .ToHashSet();
         Assert.Contains("Motor.SessionStarted", events);
         Assert.Contains("Motor.SessionResolved", events);
         Assert.Contains("Motor.UrlMapped", events);
         Assert.Contains("Diagnostics.StorageOverflow", events);
+
+        var navigate = doc.RootElement.GetProperty("events").EnumerateArray()
+            .First(e => e.ValueKind == JsonValueKind.Object && e.GetProperty("name").GetString() == "Motor.NavigateRequested");
+        Assert.Equal("motor.navigate", navigate.GetProperty("spanKey").GetString());
+        Assert.Equal("Open", navigate.GetProperty("spanRole").GetString());
     }
 
     [MotorAssertFact]

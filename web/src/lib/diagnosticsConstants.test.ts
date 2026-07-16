@@ -105,6 +105,13 @@ describe('formatRelativeTime', () => {
     const fiveMinAgo = new Date(Date.now() - 300_000).toISOString()
     expect(formatRelativeTime(fiveMinAgo)).toBe('5m ago')
   })
+
+  it('returns em dash for missing or invalid timestamps', () => {
+    expect(formatRelativeTime(undefined)).toBe('—')
+    expect(formatRelativeTime(null)).toBe('—')
+    expect(formatRelativeTime('')).toBe('—')
+    expect(formatRelativeTime('not-a-date')).toBe('—')
+  })
 })
 
 describe('constants completeness', () => {
@@ -159,5 +166,19 @@ describe('diagnostics presets', () => {
   it('keeps Browser Query probe off in Production but on in Development', () => {
     expect(DIAGNOSTICS_PRESETS.Production.domains.browserQuery.probe).toBe(false)
     expect(DIAGNOSTICS_PRESETS.Development.domains.browserQuery.probe).toBe(true)
+  })
+
+  it('Production keeps operable evidence without per-session telemetry fan-out', () => {
+    const p = DIAGNOSTICS_PRESETS.Production
+    expect(p.domains.sidecar.events).toBe(true)
+    expect(p.telemetry.motor.includeSessionIds).toBe(true)
+    expect(p.telemetry.motor.includeUrlHost).toBe(true)
+    expect(p.telemetry.motor.includePerSession).toBe(false)
+    expect(p.telemetry.pipeline.includeBreakerPressure).toBe(true)
+    expect(p.telemetry.sidecar.includeFaultedIds).toBe(true)
+    expect(p.storage.maxBytes).toBe(16 * 1024 * 1024 * 1024)
+    expect(p.storage.ttlHours).toBe(30 * 24)
+    expect(p.storage.maxEventsPerSession).toBe(50_000)
+    expect(p.sampling.statusMirrorRatio).toBe(0.5)
   })
 })

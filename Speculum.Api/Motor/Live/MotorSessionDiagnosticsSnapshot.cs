@@ -40,4 +40,8 @@ public sealed class MotorSessionListItem
     public MotorSessionPhase Phase { get; init; }
     public string CurrentUrl { get; init; } = "";
     public bool Starting { get; init; }
+    /// <summary>Live FPS from the metric-tier snapshot (always available when the session exists).</summary>
+    public double Fps { get; init; }
+    /// <summary>Session uptime in milliseconds from the metric-tier snapshot.</summary>
+    public long UptimeMs { get; init; }
 }

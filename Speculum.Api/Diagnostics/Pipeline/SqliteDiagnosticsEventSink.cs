@@ -118,6 +118,14 @@ public sealed class SqliteDiagnosticsEventSink : IDiagnosticsSink
         DateTimeOffset? since,
         string? namePrefix,
         int limit = 500)
+        => QueryEvents(connectionId, since, until: null, namePrefix, limit);
+
+    public IReadOnlyList<DiagnosticsEvent> QueryEvents(
+        string? connectionId,
+        DateTimeOffset? since,
+        DateTimeOffset? until,
+        string? namePrefix,
+        int limit = 500)
     {
         using var conn = Open();
         using var cmd = conn.CreateCommand();
@@ -132,6 +140,12 @@ public sealed class SqliteDiagnosticsEventSink : IDiagnosticsSink
         {
             clauses.Add("utc >= $since");
             cmd.Parameters.AddWithValue("$since", since.Value.ToString("O"));
+        }
+
+        if (until is not null)
+        {
+            clauses.Add("utc <= $until");
+            cmd.Parameters.AddWithValue("$until", until.Value.ToString("O"));
         }
 
         if (!string.IsNullOrWhiteSpace(namePrefix))

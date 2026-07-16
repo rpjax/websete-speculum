@@ -14,6 +14,9 @@ import {
   detectAnomalies,
   metricsBySection,
   pearson,
+  extractStateWindows,
+  seriesStats,
+  sparklinePath,
   TELEMETRY_METRICS,
   METRIC_BY_KEY,
   METRICS,
@@ -341,5 +344,78 @@ describe('datetime-local conversion', () => {
   it('returns null for empty or invalid input', () => {
     expect(parseDatetimeLocalValue('')).toBeNull()
     expect(parseDatetimeLocalValue('not-a-date')).toBeNull()
+  })
+})
+
+describe('extractStateWindows', () => {
+  it('merges consecutive degraded / elevate flags', () => {
+    const samples = Array.from({ length: 8 }, (_, i) => ({
+      ...richSample(i * 60_000, 20, 5),
+      values: {
+        'host.cpu': 20,
+        'motor.live': 5,
+        'pipeline.degraded': i >= 2 && i <= 4 ? 1 : 0,
+        'pipeline.elevateActive': i >= 5 && i <= 6 ? 1 : 0,
+      },
+    }))
+    const windows = extractStateWindows(samples)
+    expect(windows).toHaveLength(2)
+    expect(windows[0]).toMatchObject({ kind: 'degraded', startIndex: 2, endIndex: 4 })
+    expect(windows[1]).toMatchObject({ kind: 'elevate', startIndex: 5, endIndex: 6 })
+  })
+
+  it('returns empty for short or flag-less series', () => {
+    expect(extractStateWindows([])).toEqual([])
+    expect(extractStateWindows([richSample(0, 10, 1)])).toEqual([])
+  })
+})
+
+describe('seriesStats + sparklinePath', () => {
+  it('computes min/avg/max/last/p95/trend for a metric', () => {
+    const samples = [10, 20, 30, 40, 50].map((cpu, i) => richSample(i * 60_000, cpu, 2))
+    const stats = seriesStats(samples, METRIC_BY_KEY['host.cpu'])
+    expect(stats).not.toBeNull()
+    expect(stats!.min).toBe(10)
+    expect(stats!.max).toBe(50)
+    expect(stats!.last).toBe(50)
+    expect(stats!.avg).toBe(30)
+    expect(stats!.trend).toBeGreaterThan(0)
+  })
+
+  it('builds a sparkline path', () => {
+    const path = sparklinePath([1, 3, 2, 5], 40, 12)
+    expect(path.startsWith('M')).toBe(true)
+    expect(path.includes('L')).toBe(true)
+  })
+})
+
+describe('catalog — expanded fields', () => {
+  it('includes motor/persistence/pipeline extensions and state flags', () => {
+    const keys = TELEMETRY_METRICS.map((m) => m.key)
+    for (const k of [
+      'host.memoryPct', 'motor.maxFps', 'motor.stopping', 'motor.statusDepth',
+      'persistence.history', 'persistence.expiringSoon',
+      'pipeline.overflow', 'pipeline.recentDrops', 'pipeline.recentSlowWrites',
+      'pipeline.degraded', 'pipeline.elevateActive',
+    ]) {
+      expect(keys).toContain(k)
+    }
+  })
+
+  it('flattens new fields from composite samples', () => {
+    const evt = telemetryEvent(new Date().toISOString(), 'Telemetry.SampleCollected', {
+      host: { cpuUsage: 40, memoryUsed: 512 * 1024 * 1024, memoryTotal: 1024 * 1024 * 1024, threadCount: 20 },
+      motor: { live: 4, total: 4, starting: 0, stopping: 1, maxFps: 28, statusChannelDepthTotal: 3, avgFps: 20, minFps: 10, inputQueueTotal: 0, frameChannelDepthTotal: 1, capacityUsedPct: 20 },
+      persistence: { storedSessions: 2, totalCookies: 10, totalHistory: 99, expiringSoon: 1 },
+      pipeline: { bytesUsed: 1e6, usedPct: 10, eventsStored: 100, eventsDropped: 2, overflowCount: 1, probeInFlight: 0, recentDrops: 3, recentSlowWrites: 1, degraded: true, elevateActive: false },
+    })
+    const [s] = telemetryToResourceSamples([evt])
+    expect(s.values?.['host.memoryPct']).toBe(50)
+    expect(s.values?.['motor.maxFps']).toBe(28)
+    expect(s.values?.['motor.stopping']).toBe(1)
+    expect(s.values?.['persistence.history']).toBe(99)
+    expect(s.values?.['pipeline.degraded']).toBe(1)
+    expect(s.values?.['pipeline.elevateActive']).toBe(0)
+    expect(s.values?.['pipeline.overflow']).toBe(1)
   })
 })

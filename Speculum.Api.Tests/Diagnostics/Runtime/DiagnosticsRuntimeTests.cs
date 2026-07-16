@@ -100,7 +100,7 @@ public sealed class DiagnosticsRuntimeTests
         runtime.ApplyOptions(DiagnosticsSeedProfiles.Development());
 
         var snap = runtime.GetSnapshot();
-        Assert.Equal(128L * 1024 * 1024, snap.StorageMaxBytes);
+        Assert.Equal(16L * 1024 * 1024 * 1024, snap.StorageMaxBytes);
         Assert.True(snap.EffectiveCapabilities[nameof(DiagnosticsDomain.MotorLive)][nameof(DiagnosticsCapability.Metric)]);
         Assert.True(snap.EffectiveCapabilities[nameof(DiagnosticsDomain.BrowserQuery)][nameof(DiagnosticsCapability.Probe)]);
 

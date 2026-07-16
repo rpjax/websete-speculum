@@ -81,8 +81,14 @@ export const CAPABILITY_DESCRIPTIONS: Record<string, string> = {
 /**
  * Diagnostics presets = pre-applied toggle bundles. Mirrors DiagnosticsSeedProfiles on the API
  * (docs/diagnostics.md). Selecting a profile applies these toggles; individual toggles override.
+ *
+ * Production aims for *operable* evidence (enough to diagnose incidents) without expensive probes
+ * or identity-heavy telemetry — not a minimal/conservative silent mode.
  */
-export const DIAGNOSTICS_PRESETS: Record<DiagnosticsProfile, Pick<DiagnosticsOptions, 'domains' | 'telemetry'>> = {
+export const DIAGNOSTICS_PRESETS: Record<
+  DiagnosticsProfile,
+  Pick<DiagnosticsOptions, 'domains' | 'telemetry' | 'storage' | 'sampling'>
+> = {
   Development: {
     domains: {
       motor: { metrics: true, events: true, snapshots: true },
@@ -99,11 +105,18 @@ export const DIAGNOSTICS_PRESETS: Record<DiagnosticsProfile, Pick<DiagnosticsOpt
       persistence: { enabled: true, includeBytes: true },
       pipeline: { enabled: true, includeBreakerPressure: true },
     },
+    storage: {
+      maxBytes: 16 * 1024 * 1024 * 1024,
+      maxEventsPerSession: 50_000,
+      ttlHours: 30 * 24,
+      overflow: 'DropOldest',
+    },
+    sampling: { statusMirrorRatio: 1, expensiveEventRatio: 1 },
   },
   Production: {
     domains: {
       motor: { metrics: true, events: true, snapshots: true },
-      sidecar: { metrics: true, events: false },
+      sidecar: { metrics: true, events: true },
       browserQuery: { probe: false },
       persisted: { snapshots: true },
     },
@@ -111,11 +124,18 @@ export const DIAGNOSTICS_PRESETS: Record<DiagnosticsProfile, Pick<DiagnosticsOpt
       enabled: true,
       intervalSeconds: 30,
       host: { enabled: true },
-      motor: { enabled: true, includeSessionIds: false, includePerSession: false, includeUrlHost: false },
-      sidecar: { enabled: true, includeFaultedIds: false },
-      persistence: { enabled: true, includeBytes: false },
-      pipeline: { enabled: true, includeBreakerPressure: false },
+      motor: { enabled: true, includeSessionIds: true, includePerSession: false, includeUrlHost: true },
+      sidecar: { enabled: true, includeFaultedIds: true },
+      persistence: { enabled: true, includeBytes: true },
+      pipeline: { enabled: true, includeBreakerPressure: true },
     },
+    storage: {
+      maxBytes: 16 * 1024 * 1024 * 1024,
+      maxEventsPerSession: 50_000,
+      ttlHours: 30 * 24,
+      overflow: 'DropOldest',
+    },
+    sampling: { statusMirrorRatio: 0.5, expensiveEventRatio: 0.25 },
   },
   Assertive: {
     domains: {
@@ -133,6 +153,13 @@ export const DIAGNOSTICS_PRESETS: Record<DiagnosticsProfile, Pick<DiagnosticsOpt
       persistence: { enabled: true, includeBytes: true },
       pipeline: { enabled: true, includeBreakerPressure: true },
     },
+    storage: {
+      maxBytes: 32 * 1024 * 1024 * 1024,
+      maxEventsPerSession: 100_000,
+      ttlHours: 90 * 24,
+      overflow: 'DropOldest',
+    },
+    sampling: { statusMirrorRatio: 1, expensiveEventRatio: 1 },
   },
 }
 
@@ -237,8 +264,11 @@ export function formatDuration(ms: number): string {
   return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`
 }
 
-export function formatRelativeTime(utc: string): string {
-  const diff = Date.now() - new Date(utc).getTime()
+export function formatRelativeTime(utc: string | null | undefined): string {
+  if (!utc) return '—'
+  const ms = new Date(utc).getTime()
+  if (Number.isNaN(ms)) return '—'
+  const diff = Date.now() - ms
   if (diff < 0) return 'just now'
   if (diff < 60_000) return `${Math.floor(diff / 1000)}s ago`
   if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`

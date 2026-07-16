@@ -90,9 +90,9 @@ public sealed class TelemetryPipelineOptions
 
 public sealed class DiagnosticsStorageOptions
 {
-    public long MaxBytes { get; init; } = 64 * 1024 * 1024;
-    public int MaxEventsPerSession { get; init; } = 5000;
-    public int TtlHours { get; init; } = 24;
+    public long MaxBytes { get; init; } = 16L * 1024 * 1024 * 1024;
+    public int MaxEventsPerSession { get; init; } = 50_000;
+    public int TtlHours { get; init; } = 30 * 24;
     public string Overflow { get; init; } = "DropOldest";
 }
 
@@ -143,7 +143,12 @@ public static class DiagnosticsSeedProfiles
             Persistence = new TelemetryPersistenceOptions { Enabled = true, IncludeBytes = true },
             Pipeline = new TelemetryPipelineOptions { Enabled = true, IncludeBreakerPressure = true },
         },
-        Storage = new DiagnosticsStorageOptions { TtlHours = 48, MaxBytes = 128 * 1024 * 1024 },
+        Storage = new DiagnosticsStorageOptions
+        {
+            TtlHours = 30 * 24,
+            MaxBytes = 16L * 1024 * 1024 * 1024,
+            MaxEventsPerSession = 50_000,
+        },
         Sampling = new DiagnosticsSamplingOptions { StatusMirrorRatio = 1.0, ExpensiveEventRatio = 1.0 },
     };
 
@@ -154,7 +159,8 @@ public static class DiagnosticsSeedProfiles
         Domains = new DiagnosticsDomainsOptions
         {
             Motor = new DiagnosticsMotorOptions { Metrics = true, Events = true, Snapshots = true },
-            Sidecar = new DiagnosticsSidecarOptions { Metrics = true, Events = false },
+            // Events on: probe/lifecycle sidecar beats are cheap to record; probes themselves stay off until Elevate.
+            Sidecar = new DiagnosticsSidecarOptions { Metrics = true, Events = true },
             BrowserQuery = new DiagnosticsBrowserQueryOptions { Probe = false },
             Persisted = new DiagnosticsPersistedOptions { Snapshots = true },
         },
@@ -162,9 +168,26 @@ public static class DiagnosticsSeedProfiles
         {
             Enabled = true,
             IntervalSeconds = 30,
+            // IDs + URL host are cheap; IncludePerSession stays off (N SessionSampleCollected per tick).
+            Motor = new TelemetryMotorOptions
+            {
+                Enabled = true,
+                IncludeSessionIds = true,
+                IncludePerSession = false,
+                IncludeUrlHost = true,
+            },
+            Sidecar = new TelemetrySidecarOptions { Enabled = true, IncludeFaultedIds = true },
+            Persistence = new TelemetryPersistenceOptions { Enabled = true, IncludeBytes = true },
+            Pipeline = new TelemetryPipelineOptions { Enabled = true, IncludeBreakerPressure = true },
         },
-        Storage = new DiagnosticsStorageOptions { TtlHours = 6, MaxBytes = 64 * 1024 * 1024 },
-        Sampling = new DiagnosticsSamplingOptions { StatusMirrorRatio = 0.25, ExpensiveEventRatio = 0.25 },
+        // Sized for ≥50 GiB VPS disks — keep multi-week incident windows without starving the host.
+        Storage = new DiagnosticsStorageOptions
+        {
+            TtlHours = 30 * 24,
+            MaxBytes = 16L * 1024 * 1024 * 1024,
+            MaxEventsPerSession = 50_000,
+        },
+        Sampling = new DiagnosticsSamplingOptions { StatusMirrorRatio = 0.5, ExpensiveEventRatio = 0.25 },
     };
 
     public static DiagnosticsOptions Assertive() => new()
@@ -193,7 +216,12 @@ public static class DiagnosticsSeedProfiles
             Persistence = new TelemetryPersistenceOptions { Enabled = true, IncludeBytes = true },
             Pipeline = new TelemetryPipelineOptions { Enabled = true, IncludeBreakerPressure = true },
         },
-        Storage = new DiagnosticsStorageOptions { TtlHours = 72, MaxBytes = 256 * 1024 * 1024 },
+        Storage = new DiagnosticsStorageOptions
+        {
+            TtlHours = 90 * 24,
+            MaxBytes = 32L * 1024 * 1024 * 1024,
+            MaxEventsPerSession = 100_000,
+        },
         Sampling = new DiagnosticsSamplingOptions { StatusMirrorRatio = 1.0, ExpensiveEventRatio = 1.0 },
     };
 }

@@ -326,10 +326,10 @@ export default function DiagnosticsHealthPage() {
       <div className="rounded-xl border border-border bg-card overflow-hidden">
         <div className="flex items-center justify-between px-4 py-2.5 border-b border-border/40">
           <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-            <Activity className="h-3 w-3" /> Recent activity
+            <Activity className="h-3 w-3" /> Recent narrative
           </p>
-          <Link to="/admin/diagnostics/activity" className="flex items-center gap-1 text-[11px] font-medium text-primary hover:text-primary/80">
-            View all <ArrowRight className="h-3 w-3" />
+          <Link to="/admin/diagnostics/timeline" className="flex items-center gap-1 text-[11px] font-medium text-primary hover:text-primary/80">
+            Open Timeline <ArrowRight className="h-3 w-3" />
           </Link>
         </div>
         {displayEvents.length === 0 ? (

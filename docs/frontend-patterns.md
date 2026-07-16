@@ -181,17 +181,45 @@ Technical details (last, collapsed): raw payload only if required
 
 Do not ship one endless scroll of every probe and blob.
 
-### 3.2 Event / activity timeline
+### 3.1b Diagnostics Governance (command bar → tabs → apply proof)
+
+Canonical path: `/admin/diagnostics/governance` under `features/admin/diagnostics/governance/`.
 
 ```text
-[severity Badge]  time  short title
-                 helper / entity id
-                 ▸ details
+Sticky command bar: state chip (Normal|Elevated|Degraded) · Elevate / Recover · Profile · dirty count · Save/Discard
+Tabs (one job — govern observability):
+  Control · Coverage · Telemetry · Budgets · Catalog & Audit
+Draft shared across tabs; ConfigChangePreview lists every pending field
+Save → PUT /api/admin/config/Diagnostics → poll Diagnostics.ConfigApplied (since=) before success copy
+ElevateSheet shared with Health QuickActions (runtime overlay; does not rewrite config)
 ```
 
-- Newest first unless the operator explicitly chooses chronological.
-- Severity via Badge + text, not color alone.
+- Coverage shows **configured** switches vs **effective** badges (Degraded / Elevate mismatch tooltips).
+- Catalog & Audit loads `GET /catalog/events` and a Diagnostics.* audit feed — do not hardcode the catalog.
+- Prefer `DELETE /api/admin/config/Diagnostics` for reset-to-server-seed over local factory PUT.
 
+### 3.2 Narrative timeline + Analysis (Diagnostics)
+
+**Contracts:** [diagnostics-timeline-ux.md](diagnostics-timeline-ux.md), [diagnostics-analysis-ux.md](diagnostics-analysis-ux.md).
+
+```text
+Timeline (narrative reader)
+  Compact strip: Scope | Period | Detail | Zoom± Fit | Reading options ▸ | Refresh | ⋯
+  Canvas ≥60% viewport: sticky TimeRail · labeled chapters · empty-lane Jump · beat •(N)
+  Sheet: prose first, Technical details last
+  Analysis link only under ⋯ (“Analyze this period…”) — query prefill, no shared state
+
+Analysis (separate didactic report)
+  Mandate: period + scope + profile + Run; Advanced = depth + evidence
+  Report: cover → section leads → typed callouts (info/notable/attention) → glossary
+  TOC sticky; Markdown export human-readable; Timeline deep-link discrete in TOC footer
+```
+
+- Primary job of Timeline is **reading a story**, not plotting charts.
+- Charts/telemetries are optional overlays only (Reading options).
+- Do not ship Sessions/Stories/Feed list views as the Timeline primary UX.
+- Do not put a prominent Analysis CTA in Timeline chrome.
+- PR merge: run [frontend-standards.md](frontend-standards.md) §13 checklist against both screens.
 ### 3.3 Filterable table + row detail
 
 ```text

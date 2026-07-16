@@ -98,6 +98,8 @@ public sealed class MotorSessionRegistry : IMotorSessionRegistry
                 Phase = snap.Phase,
                 CurrentUrl = snap.CurrentUrl,
                 Starting = false,
+                Fps = snap.Fps,
+                UptimeMs = snap.UptimeMs,
             });
         }
 
@@ -112,6 +114,8 @@ public sealed class MotorSessionRegistry : IMotorSessionRegistry
                 Phase = snap.Phase,
                 CurrentUrl = snap.CurrentUrl,
                 Starting = true,
+                Fps = snap.Fps,
+                UptimeMs = snap.UptimeMs,
             });
         }
 

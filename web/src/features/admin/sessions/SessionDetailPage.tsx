@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import {
   diagnosticsApi,
+  isFullSessionSnapshot,
   type MotorSessionDiagnosticsSnapshot,
   type DiagnosticsEventRecord,
   type BrowserProbeResponse,
@@ -155,7 +156,7 @@ export default function SessionDetailPage() {
         <div className="flex items-center gap-2">
           {isLive && (
             <>
-              <Link to={`/admin/diagnostics/activity?connectionId=${connId}`} className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs text-muted-foreground hover:text-primary hover:border-primary/40 transition-colors">
+              <Link to={`/admin/diagnostics/timeline?connectionId=${connId}`} className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs text-muted-foreground hover:text-primary hover:border-primary/40 transition-colors">
                 <Activity className="h-3.5 w-3.5" /> Events
               </Link>
               <Link to={`/admin/diagnostics/investigate?connectionId=${connId}`} className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs text-muted-foreground hover:text-primary hover:border-primary/40 transition-colors">
@@ -229,7 +230,7 @@ export default function SessionDetailPage() {
       {/* Related links */}
       <div className="flex flex-wrap items-center gap-2 pt-2">
         <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mr-1">Related</span>
-        {snapshot && <NavChip to={`/admin/diagnostics/activity?connectionId=${connId}`} label="Session events" />}
+        {snapshot && <NavChip to={`/admin/diagnostics/timeline?connectionId=${connId}`} label="Session events" />}
         {isLive && <NavChip to={`/admin/diagnostics/investigate?connectionId=${connId}`} label="Full investigation" />}
         <NavChip to="/admin/diagnostics/timeline" label="Global timeline" />
         <NavChip to="/admin/sessions" label="All sessions" />
@@ -245,9 +246,10 @@ export default function SessionDetailPage() {
 function SessionHero({ snapshot, fpsHistory, hasPersistence }: { snapshot: MotorSessionDiagnosticsSnapshot; fpsHistory: number[]; hasPersistence: boolean }) {
   const isRunning = snapshot.phase === 'Running'
   const isDegraded = !snapshot.sidecarConnected || snapshot.fps < 10
+  const full = isFullSessionSnapshot(snapshot)
   const phaseDesc = describePhase(snapshot.phase)
   let hostname = ''
-  try { hostname = snapshot.currentUrl ? new URL(snapshot.currentUrl).hostname : '' } catch { hostname = snapshot.currentUrl }
+  try { hostname = snapshot.currentUrl ? new URL(snapshot.currentUrl).hostname : '' } catch { hostname = snapshot.currentUrl ?? '' }
 
   return (
     <div className={cn('rounded-xl border bg-card overflow-hidden', isDegraded ? 'border-amber-500/40' : 'border-border')}>
@@ -269,6 +271,16 @@ function SessionHero({ snapshot, fpsHistory, hasPersistence }: { snapshot: Motor
               {snapshot.sidecarConnected ? <Wifi className="h-3.5 w-3.5" /> : <WifiOff className="h-3.5 w-3.5" />}
               {snapshot.sidecarConnected ? 'Connected' : 'Disconnected'}
             </span>
+            {!full && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Badge variant="muted" className="gap-1 text-xs"><Eye className="h-3 w-3" /> Limited snapshot</Badge>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs text-sm">
+                  Motor.Snapshots is off — only metric-tier fields are available. Enable snapshots in Diagnostics governance for full identity and navigation detail.
+                </TooltipContent>
+              </Tooltip>
+            )}
             {hasPersistence && (
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -280,7 +292,7 @@ function SessionHero({ snapshot, fpsHistory, hasPersistence }: { snapshot: Motor
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-x-4 text-sm text-muted-foreground">
             {hostname && <span className="flex items-center gap-1.5"><Globe className="h-3.5 w-3.5" /> {hostname}</span>}
-            <span className="flex items-center gap-1.5"><Clock className="h-3.5 w-3.5" /> {formatRelativeTime(snapshot.lastEventUtc)}</span>
+            {full && <span className="flex items-center gap-1.5"><Clock className="h-3.5 w-3.5" /> {formatRelativeTime(snapshot.lastEventUtc)}</span>}
             {snapshot.startedAt && <span className="flex items-center gap-1.5"><Timer className="h-3.5 w-3.5" /> {new Date(snapshot.startedAt).toLocaleTimeString()}</span>}
           </div>
         </div>
@@ -359,20 +371,24 @@ function SessionStateStrip({ snapshot, hasPersistence }: { snapshot: MotorSessio
       tone: snapshot.sidecarConnected ? 'active' : 'warn',
       tip: snapshot.sidecarConnected ? 'Sidecar browser process is linked and streaming.' : 'Sidecar lost connection — session may be faulted.',
     })
-    facets.push({
-      label: 'Page',
-      value: snapshot.currentUrl ? 'Loaded' : 'Idle',
-      icon: Globe,
-      tone: snapshot.currentUrl ? 'active' : 'idle',
-      tip: snapshot.currentUrl || 'No page loaded yet.',
-    })
-    facets.push({
-      label: 'Bridge',
-      value: snapshot.jsBridgeEnabled ? 'On' : 'Off',
-      icon: Layers,
-      tone: snapshot.jsBridgeEnabled ? 'active' : 'off',
-      tip: snapshot.jsBridgeEnabled ? 'JS Bridge active — scripts can communicate with the host.' : 'JS Bridge is not enabled for this session.',
-    })
+    if (snapshot.currentUrl !== undefined) {
+      facets.push({
+        label: 'Page',
+        value: snapshot.currentUrl ? 'Loaded' : 'Idle',
+        icon: Globe,
+        tone: snapshot.currentUrl ? 'active' : 'idle',
+        tip: snapshot.currentUrl || 'No page loaded yet.',
+      })
+    }
+    if (snapshot.jsBridgeEnabled !== undefined) {
+      facets.push({
+        label: 'Bridge',
+        value: snapshot.jsBridgeEnabled ? 'On' : 'Off',
+        icon: Layers,
+        tone: snapshot.jsBridgeEnabled ? 'active' : 'off',
+        tip: snapshot.jsBridgeEnabled ? 'JS Bridge active — scripts can communicate with the host.' : 'JS Bridge is not enabled for this session.',
+      })
+    }
     if (snapshot.exportingState) {
       facets.push({
         label: 'Export',
@@ -442,33 +458,42 @@ function SessionStateStrip({ snapshot, hasPersistence }: { snapshot: MotorSessio
    ═══════════════════════════════════════════════════════════════════ */
 
 function OverviewTab({ snapshot, events, persisted }: { snapshot: MotorSessionDiagnosticsSnapshot; events: DiagnosticsEventRecord[]; connectionId: string; persisted: SessionDetail | null }) {
+  const full = isFullSessionSnapshot(snapshot)
   const navOk = snapshot.lastNavigateResult === 'ok'
 
   const sections: { title: string; icon: typeof Link2; rows: KVRow[] }[] = [
     {
       title: 'Identity', icon: Link2, rows: [
         { k: 'Connection ID', v: snapshot.connectionId, copy: true, tip: 'Real-time SignalR connection.' },
-        { k: 'Persisted session', v: snapshot.persistedSessionId, copy: true, tip: 'Durable session for state restore.' },
-        { k: 'Sidecar session', v: snapshot.sidecarSessionId, copy: true, tip: 'Browser process ID on sidecar.' },
-        { k: 'Client token', v: snapshot.clientToken, tip: 'Auth token for this client.' },
-        { k: 'Correlation', v: snapshot.correlationId, copy: true, tip: 'Causal chain grouping events.' },
+        ...(full ? [
+          { k: 'Persisted session', v: snapshot.persistedSessionId, copy: true, tip: 'Durable session for state restore.' },
+          { k: 'Sidecar session', v: snapshot.sidecarSessionId, copy: true, tip: 'Browser process ID on sidecar.' },
+          { k: 'Client token', v: snapshot.clientToken, tip: 'Auth token for this client.' },
+          { k: 'Correlation', v: snapshot.correlationId, copy: true, tip: 'Causal chain grouping events.' },
+        ] satisfies KVRow[] : [
+          { k: 'Detail', v: 'Limited — enable Motor.Snapshots', tip: 'Identity fields require the Motor.Snapshots capability.' },
+        ]),
       ],
     },
     {
-      title: 'Configuration', icon: Layers, rows: [
+      title: 'Configuration', icon: Layers, rows: full ? [
         { k: 'Forwarding', v: snapshot.forwardingHost || '—', tip: 'Target site URL.' },
         { k: 'JS Bridge', v: snapshot.jsBridgeEnabled ? 'Enabled' : 'Disabled', pill: true, on: snapshot.jsBridgeEnabled },
         { k: 'Scripts', v: snapshot.scriptCount },
         { k: 'Allowlist', v: snapshot.allowlistCount },
         { k: 'Profile', v: snapshot.profileDomain || '—' },
+      ] : [
+        { k: 'Detail', v: 'Limited — enable Motor.Snapshots', tip: 'Configuration fields require the Motor.Snapshots capability.' },
       ],
     },
     {
-      title: 'Navigation', icon: Globe, rows: [
+      title: 'Navigation', icon: Globe, rows: full ? [
         { k: 'Current URL', v: snapshot.currentUrl || '—' },
         { k: 'Last result', v: snapshot.lastNavigateResult || '—', tone: navOk ? 'success' : snapshot.lastNavigateResult ? 'warning' : undefined },
         { k: 'Navigate at', v: snapshot.lastNavigateUtc ? formatRelativeTime(snapshot.lastNavigateUtc) : '—' },
-        { k: 'Exporting', v: snapshot.exportingState ? 'Yes' : 'No', pill: true, on: snapshot.exportingState },
+        { k: 'Exporting', v: snapshot.exportingState ? 'Yes' : 'No', pill: true, on: !!snapshot.exportingState },
+      ] : [
+        { k: 'Detail', v: 'Limited — enable Motor.Snapshots', tip: 'Navigation fields require the Motor.Snapshots capability.' },
       ],
     },
   ]

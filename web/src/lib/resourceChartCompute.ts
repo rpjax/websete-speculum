@@ -384,24 +384,35 @@ export const TELEMETRY_METRICS: MetricDef[] = [
   m('motor.live', 'Active sessions', '', C.amber, 'motor', 'Live browsing sessions — the load driver.', 'max'),
   m('motor.total', 'Total sessions', '', C.indigo, 'motor', 'Live + starting + stopping sessions.', 'max'),
   m('motor.starting', 'Starting', '', C.cyan, 'motor', 'Sessions still spinning up.', 'max'),
+  m('host.memoryPct', 'Memory used %', '%', C.pink, 'host', 'Working set as a share of total available memory.'),
   m('motor.avgFps', 'Avg FPS', '', C.lime, 'motor', 'Mean frame rate across live sessions.'),
   m('motor.minFps', 'Min FPS', '', C.slate, 'motor', 'Slowest live session frame rate.'),
+  m('motor.maxFps', 'Max FPS', '', C.lime, 'motor', 'Fastest live session frame rate.'),
+  m('motor.stopping', 'Stopping', '', C.slate, 'motor', 'Sessions draining / shutting down.', 'max'),
   m('motor.inputQueue', 'Input queue', '', C.rose, 'motor', 'Pending input events across sessions.', 'max'),
   m('motor.capacityPct', 'Capacity used', '%', C.orange, 'motor', 'Live sessions ÷ max capacity.', 'max'),
   m('motor.frameDepth', 'Frame depth', '', C.pink, 'motor', 'Aggregate frame channel backlog.', 'max'),
+  m('motor.statusDepth', 'Status depth', '', C.indigo, 'motor', 'Aggregate status channel backlog.', 'max'),
   // Sidecar
   m('sidecar.connected', 'Sidecar connected', '', C.teal, 'sidecar', 'Remote browsers with a healthy channel.', 'max'),
   m('sidecar.faulted', 'Sidecar faulted', '', C.rose, 'sidecar', 'Remote browsers in a faulted state.', 'max'),
   // Persistence
   m('persistence.stored', 'Stored sessions', '', C.indigo, 'persistence', 'Persisted browser-state records.', 'max'),
   m('persistence.cookies', 'Cookies', '', C.violet, 'persistence', 'Total cookies across stored sessions.'),
+  m('persistence.history', 'History entries', '', C.cyan, 'persistence', 'Total history records across stored sessions.'),
+  m('persistence.expiringSoon', 'Expiring soon', '', C.amber, 'persistence', 'Persisted sessions expiring within ~1 hour.', 'max'),
   m('persistence.storeBytes', 'Store size', ' MB', C.cyan, 'persistence', 'On-disk browser-state footprint.'),
   // Pipeline
   m('pipeline.bytes', 'Pipeline bytes', ' MB', C.blue, 'pipeline', 'Diagnostics events on disk.'),
   m('pipeline.usedPct', 'Pipeline used', '%', C.amber, 'pipeline', 'Diagnostics storage vs. budget.'),
   m('pipeline.eventsStored', 'Events stored', '', C.green, 'pipeline', 'Total diagnostics events retained.', 'max'),
   m('pipeline.eventsDropped', 'Events dropped', '', C.rose, 'pipeline', 'Events shed under back-pressure.', 'max'),
+  m('pipeline.overflow', 'Overflow count', '', C.rose, 'pipeline', 'Storage overflow events.', 'max'),
   m('pipeline.probeInFlight', 'Probes in flight', '', C.orange, 'pipeline', 'Concurrent browser-query probes.', 'max'),
+  m('pipeline.recentDrops', 'Recent drops', '', C.rose, 'pipeline', 'Events dropped in the current breaker window.', 'max'),
+  m('pipeline.recentSlowWrites', 'Slow writes', '', C.amber, 'pipeline', 'Slow sink writes in the breaker window.', 'max'),
+  m('pipeline.degraded', 'Degraded', '', C.rose, 'pipeline', 'Diagnostics circuit breaker tripped (0/1).', 'max'),
+  m('pipeline.elevateActive', 'Elevate active', '', C.amber, 'pipeline', 'Temporary Browser Query elevation (0/1).', 'max'),
   // Derived
   m('derived.cpuPerSession', 'CPU / session', '%', C.rose, 'derived', 'CPU% divided by live sessions — efficiency.'),
   m('derived.memPerSession', 'Mem / session', ' MB', C.pink, 'derived', 'Memory (MB) per live session — efficiency.'),
@@ -421,6 +432,11 @@ export function metricsBySection(): { section: MetricSection; metrics: MetricDef
 function num(o: Record<string, unknown> | null | undefined, key: string): number | null {
   const x = o?.[key]
   return typeof x === 'number' ? x : null
+}
+function bool01(o: Record<string, unknown> | null | undefined, key: string): number | null {
+  const x = o?.[key]
+  if (typeof x !== 'boolean') return null
+  return x ? 1 : 0
 }
 const toMb = (bytes: number | null) => (bytes != null ? Math.round(bytes / (1024 * 1024)) : null)
 const toGb = (bytes: number | null) => (bytes != null ? Math.round((bytes / 1024 ** 3) * 10) / 10 : null)
@@ -445,13 +461,19 @@ export function telemetryToResourceSamples(events: DiagnosticsEventRecord[]): Re
 
       const cpu = num(host, 'cpuUsage') != null ? Math.round(num(host, 'cpuUsage')! * 10) / 10 : 0
       const memMb = toMb(num(host, 'memoryUsed')) ?? 0
+      const memTotal = num(host, 'memoryTotal')
       const threads = num(host, 'threadCount')
       const live = num(motor, 'live')
+      const memPct =
+        memTotal != null && memTotal > 0 && num(host, 'memoryUsed') != null
+          ? Math.round((num(host, 'memoryUsed')! / memTotal) * 1000) / 10
+          : null
 
       const values: Record<string, number | null> = {
         'host.cpu': cpu,
         'host.memory': memMb,
         'host.memoryPrivate': toMb(num(host, 'memoryPrivate')),
+        'host.memoryPct': memPct,
         'host.threads': threads,
         'host.threadPoolBusy': num(host, 'threadPoolBusy'),
         'host.threadPoolQueued': num(host, 'threadPoolQueued'),
@@ -459,21 +481,31 @@ export function telemetryToResourceSamples(events: DiagnosticsEventRecord[]): Re
         'motor.live': live,
         'motor.total': num(motor, 'total'),
         'motor.starting': num(motor, 'starting'),
+        'motor.stopping': num(motor, 'stopping'),
         'motor.avgFps': num(motor, 'avgFps'),
         'motor.minFps': num(motor, 'minFps'),
+        'motor.maxFps': num(motor, 'maxFps'),
         'motor.inputQueue': num(motor, 'inputQueueTotal'),
         'motor.capacityPct': num(motor, 'capacityUsedPct'),
         'motor.frameDepth': num(motor, 'frameChannelDepthTotal'),
+        'motor.statusDepth': num(motor, 'statusChannelDepthTotal'),
         'sidecar.connected': num(sidecar, 'connected'),
         'sidecar.faulted': num(sidecar, 'faulted'),
         'persistence.stored': num(persistence, 'storedSessions'),
         'persistence.cookies': num(persistence, 'totalCookies'),
+        'persistence.history': num(persistence, 'totalHistory'),
+        'persistence.expiringSoon': num(persistence, 'expiringSoon'),
         'persistence.storeBytes': toMb(num(persistence, 'storeBytes')),
         'pipeline.bytes': toMb(num(pipeline, 'bytesUsed')),
         'pipeline.usedPct': num(pipeline, 'usedPct'),
         'pipeline.eventsStored': num(pipeline, 'eventsStored'),
         'pipeline.eventsDropped': num(pipeline, 'eventsDropped'),
+        'pipeline.overflow': num(pipeline, 'overflowCount'),
         'pipeline.probeInFlight': num(pipeline, 'probeInFlight'),
+        'pipeline.recentDrops': num(pipeline, 'recentDrops'),
+        'pipeline.recentSlowWrites': num(pipeline, 'recentSlowWrites'),
+        'pipeline.degraded': bool01(pipeline, 'degraded'),
+        'pipeline.elevateActive': bool01(pipeline, 'elevateActive'),
         'derived.cpuPerSession': live != null && live > 0 ? Math.round((cpu / live) * 100) / 100 : null,
         'derived.memPerSession': live != null && live > 0 ? Math.round(memMb / live) : null,
       }
@@ -595,4 +627,98 @@ export function detectAnomalies(
     if (i < n && kind && start < 0) start = i
   }
   return out
+}
+
+/* ── State windows (degraded / elevate bands) ─────────────────────────────── */
+
+export type StateWindowKind = 'degraded' | 'elevate'
+
+export interface StateWindow {
+  kind: StateWindowKind
+  startIndex: number
+  endIndex: number
+  startUtc: string
+  endUtc: string
+}
+
+/** Merges consecutive samples where pipeline.degraded / elevateActive is 1 into contiguous windows. */
+export function extractStateWindows(samples: ResourceSample[]): StateWindow[] {
+  const out: StateWindow[] = []
+  let degStart = -1
+  let elevStart = -1
+
+  const close = (kind: StateWindowKind, start: number, end: number) => {
+    if (start < 0 || end < start) return
+    out.push({
+      kind,
+      startIndex: start,
+      endIndex: end,
+      startUtc: samples[start].utc,
+      endUtc: samples[end].utc,
+    })
+  }
+
+  for (let i = 0; i <= samples.length; i++) {
+    const deg = i < samples.length ? samples[i].values?.['pipeline.degraded'] === 1 : false
+    const elev = i < samples.length ? samples[i].values?.['pipeline.elevateActive'] === 1 : false
+
+    if (deg && degStart < 0) degStart = i
+    if (!deg && degStart >= 0) { close('degraded', degStart, i - 1); degStart = -1 }
+
+    if (elev && elevStart < 0) elevStart = i
+    if (!elev && elevStart >= 0) { close('elevate', elevStart, i - 1); elevStart = -1 }
+  }
+  return out
+}
+
+/* ── Per-metric series stats (Monitor inspector / Analysis atlas) ─────────── */
+
+export interface SeriesStats {
+  min: number
+  avg: number
+  max: number
+  last: number
+  p95: number
+  /** Linear slope of value vs index (units per step). */
+  trend: number
+}
+
+export function seriesStats(samples: ResourceSample[], metric: MetricDef): SeriesStats | null {
+  const vals = samples.map(metric.extract).filter((v) => Number.isFinite(v))
+  if (vals.length === 0) return null
+  const base = computeStats(vals)
+  const n = vals.length
+  let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0
+  for (let i = 0; i < n; i++) {
+    sumX += i; sumY += vals[i]; sumXY += i * vals[i]; sumXX += i * i
+  }
+  const denom = n * sumXX - sumX * sumX
+  const trend = denom === 0 ? 0 : (n * sumXY - sumX * sumY) / denom
+  return {
+    min: base.min,
+    avg: base.avg,
+    max: base.max,
+    last: vals[vals.length - 1],
+    p95: base.p95,
+    trend: Math.round(trend * 1000) / 1000,
+  }
+}
+
+/** Tiny SVG path for sparklines (viewBox 0 0 w h). */
+export function sparklinePath(values: number[], w = 48, h = 14): string {
+  if (values.length === 0) return ''
+  if (values.length === 1) {
+    const y = h / 2
+    return `M0,${y.toFixed(1)} L${w},${y.toFixed(1)}`
+  }
+  const min = Math.min(...values)
+  const max = Math.max(...values)
+  const range = max - min || 1
+  return values
+    .map((v, i) => {
+      const x = (i / (values.length - 1)) * w
+      const y = h - ((v - min) / range) * (h - 2) - 1
+      return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`
+    })
+    .join(' ')
 }

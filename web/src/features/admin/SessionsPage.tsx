@@ -316,7 +316,7 @@ function SessionRow({ row, onDelete }: { row: UnifiedRow; onDelete?: () => void 
           <Tooltip>
             <TooltipTrigger asChild>
               <Link
-                to={`/admin/diagnostics/activity?connectionId=${row.connectionId}`}
+                to={`/admin/diagnostics/timeline?connectionId=${row.connectionId}`}
                 className="rounded p-1 text-muted-foreground/50 hover:text-foreground hover:bg-muted/20"
               >
                 <Activity className="h-3.5 w-3.5" />

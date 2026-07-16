@@ -70,7 +70,7 @@ export function OverviewHero({
               sub="stored sessions"
             />
           </Link>
-          <Link to="/admin/diagnostics/activity" className="block transition-opacity hover:opacity-90">
+          <Link to="/admin/diagnostics/timeline" className="block transition-opacity hover:opacity-90">
             <StatCard
               label="Events"
               value={diagnostics?.eventsStored.toLocaleString() ?? '—'}

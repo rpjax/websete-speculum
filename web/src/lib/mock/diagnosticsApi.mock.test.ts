@@ -104,8 +104,11 @@ describe('mockDiagnosticsApi', () => {
     const catalog = await mockDiagnosticsApi.getEventCatalog()
     expect(catalog.diagnosticsSchemaVersion).toBe(2)
     expect(catalog.events.length).toBeGreaterThan(0)
-    expect(catalog.events).toContain('Motor.SessionStarted')
-    expect(catalog.events).toContain('Diagnostics.ConfigApplied')
+    const names = catalog.events.map((e) => (typeof e === 'string' ? e : e.name))
+    expect(names).toContain('Motor.SessionStarted')
+    expect(names).toContain('Diagnostics.ConfigApplied')
+    const started = catalog.events.find((e) => typeof e !== 'string' && e.name === 'Motor.NavigateRequested')
+    expect(started && typeof started !== 'string' && started.spanKey).toBe('motor.navigate')
   })
 
   it('getHost returns host sample data', async () => {

@@ -16,12 +16,13 @@ import OpenApiPage from '@/features/admin/OpenApiPage'
 import DiagnosticsLayout from '@/features/admin/diagnostics/DiagnosticsLayout'
 import DiagnosticsHealthPage from '@/features/admin/diagnostics/DiagnosticsHealthPage'
 import DiagnosticsSystemHealthPage from '@/features/admin/diagnostics/DiagnosticsSystemHealthPage'
-import DiagnosticsTelemetryPage from '@/features/admin/diagnostics/DiagnosticsTelemetryPage'
-import DiagnosticsTelemetryExplorePage from '@/features/admin/diagnostics/DiagnosticsTelemetryExplorePage'
-import DiagnosticsActivityPage from '@/features/admin/diagnostics/DiagnosticsActivityPage'
+import TelemetryMonitorPage from '@/features/admin/diagnostics/TelemetryMonitorPage'
+import TelemetryMonitorExplorePage from '@/features/admin/diagnostics/TelemetryMonitorExplorePage'
+import TelemetryAnalysisPage from '@/features/admin/diagnostics/telemetry/analysis/TelemetryAnalysisPage'
 import DiagnosticsInvestigatePage from '@/features/admin/diagnostics/DiagnosticsInvestigatePage'
-import DiagnosticsGovernancePage from '@/features/admin/diagnostics/DiagnosticsGovernancePage'
-import DiagnosticsTimelinePage from '@/features/admin/diagnostics/DiagnosticsTimelinePage'
+import DiagnosticsGovernancePage from '@/features/admin/diagnostics/governance/DiagnosticsGovernancePage'
+import NarrativeWorkspacePage from '@/features/admin/diagnostics/timeline/NarrativeWorkspacePage'
+import AnalysisWorkspacePage from '@/features/admin/diagnostics/analysis/AnalysisWorkspacePage'
 
 const MotorPage = lazy(() => import('@/features/motor/live/MotorPage'))
 
@@ -57,19 +58,22 @@ export default function App() {
             <Route path="diagnostics" element={<DiagnosticsLayout />}>
               <Route index element={<DiagnosticsHealthPage />} />
               <Route path="health" element={<DiagnosticsSystemHealthPage />} />
-              <Route path="telemetry" element={<DiagnosticsTelemetryPage />} />
+              <Route path="telemetry" element={<TelemetryMonitorPage />} />
+              <Route path="telemetry/analysis" element={<TelemetryAnalysisPage />} />
+              <Route path="telemetry/report" element={<Navigate to="/admin/diagnostics/telemetry/analysis" replace />} />
               <Route path="resources" element={<Navigate to="/admin/diagnostics/telemetry" replace />} />
-              <Route path="activity" element={<DiagnosticsActivityPage />} />
+              <Route path="timeline" element={<NarrativeWorkspacePage />} />
+              <Route path="analysis" element={<AnalysisWorkspacePage />} />
+              <Route path="activity" element={<Navigate to="/admin/diagnostics/timeline" replace />} />
               <Route path="sessions" element={<Navigate to="/admin/sessions" replace />} />
               <Route path="investigate" element={<DiagnosticsInvestigatePage />} />
               <Route path="governance" element={<DiagnosticsGovernancePage />} />
-              <Route path="timeline" element={<DiagnosticsTimelinePage />} />
-              <Route path="events" element={<Navigate to="/admin/diagnostics/activity" replace />} />
+              <Route path="events" element={<Navigate to="/admin/diagnostics/timeline" replace />} />
               <Route path="live" element={<Navigate to="/admin/sessions" replace />} />
               <Route path="probes" element={<Navigate to="/admin/diagnostics/investigate" replace />} />
               <Route path="config" element={<Navigate to="/admin/diagnostics/governance" replace />} />
             </Route>
-            <Route path="diagnostics/telemetry/explore" element={<DiagnosticsTelemetryExplorePage />} />
+            <Route path="diagnostics/telemetry/explore" element={<TelemetryMonitorExplorePage />} />
             <Route path="diagnostics/sessions/:connectionId" element={<DiagnosticsSessionRedirect />} />
             <Route path="api-key" element={<AdminKeyPage />} />
             <Route path="openapi" element={<OpenApiPage />} />

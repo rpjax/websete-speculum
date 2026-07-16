@@ -250,6 +250,8 @@ Every interactive surface must define UI for:
 |---------|----------------|
 | This constitution | This file |
 | UX recipes / decision trees | [frontend-patterns.md](frontend-patterns.md) |
+| Diagnostics Timeline UX | [diagnostics-timeline-ux.md](diagnostics-timeline-ux.md) |
+| Diagnostics Analysis UX | [diagnostics-analysis-ux.md](diagnostics-analysis-ux.md) |
 | Web routes / structure | [../web/README.md](../web/README.md) |
 | Naming / motor folders | [naming.md](naming.md) |
 | System design | [architecture.md](architecture.md) |

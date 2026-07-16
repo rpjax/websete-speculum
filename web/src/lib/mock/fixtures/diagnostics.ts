@@ -14,11 +14,11 @@ import type {
 const now = new Date().toISOString()
 const fiveMinAgo = new Date(Date.now() - 5 * 60_000).toISOString()
 
-const STORAGE_MAX_BYTES = 64 * 1024 * 1024
+const STORAGE_MAX_BYTES = 16 * 1024 * 1024 * 1024
 
 const effectiveCapabilities = {
   MotorLive: { Metric: true, Event: true, Snapshot: true },
-  SidecarBrowser: { Metric: true, Event: false },
+  SidecarBrowser: { Metric: true, Event: true },
   BrowserQuery: { Probe: false },
   PersistedSessions: { Snapshot: true },
   Telemetry: { Metric: true },
@@ -167,6 +167,15 @@ export function eventsList(): DiagnosticsEventRecord[] {
     { diagnosticsSchemaVersion: 2, seq: 8, causationId: 'span-sess-2', id: eid(), utc: ago(7.5), domain: 'MotorLive', name: 'Motor.SidecarConnected', severity: 'Info', correlationId: corrSessionLifecycle2, connectionId: conn2, persistedSessionId: null, sidecarSessionId: 'sc-333-444', payload: { sidecarSessionId: 'sc-333-444' }, redaction: 'none' },
     { diagnosticsSchemaVersion: 2, seq: 9, causationId: 'span-sess-2', id: eid(), utc: ago(7), domain: 'MotorLive', name: 'Motor.SessionStarted', severity: 'Info', correlationId: corrSessionLifecycle2, connectionId: conn2, persistedSessionId: null, sidecarSessionId: 'sc-333-444', payload: { restored: false, cookieCount: 0 }, redaction: 'none' },
 
+    // --- Diagnostics circuit trip aligned with telemetry degraded window (~4.7h ago) ---
+    { diagnosticsSchemaVersion: 1, id: eid(), utc: ago(4.7), domain: 'DiagnosticsSelf', name: 'Diagnostics.Degraded', severity: 'Warning', correlationId: 'corr-degraded-tele', connectionId: null, persistedSessionId: null, sidecarSessionId: null, payload: { reason: 'breaker_pressure', recentDrops: 8 }, redaction: 'none' },
+    { diagnosticsSchemaVersion: 1, id: eid(), utc: ago(4.45), domain: 'DiagnosticsSelf', name: 'Diagnostics.StorageOverflow', severity: 'Warning', correlationId: 'corr-degraded-tele', connectionId: null, persistedSessionId: null, sidecarSessionId: null, payload: { overflowCount: 3 }, redaction: 'none' },
+    { diagnosticsSchemaVersion: 1, id: eid(), utc: ago(4.4), domain: 'DiagnosticsSelf', name: 'Diagnostics.Recovered', severity: 'Info', correlationId: 'corr-degraded-tele', connectionId: null, persistedSessionId: null, sidecarSessionId: null, payload: { degradedDurationMs: 900_000 }, redaction: 'none' },
+
+    // --- Elevate window aligned with telemetry elevateActive (~2.7h ago) ---
+    { diagnosticsSchemaVersion: 1, id: eid(), utc: ago(2.7), domain: 'DiagnosticsSelf', name: 'Diagnostics.ElevateStarted', severity: 'Info', correlationId: 'corr-elevate-tele', connectionId: null, persistedSessionId: null, sidecarSessionId: null, payload: { minutes: 15 }, redaction: 'none' },
+    { diagnosticsSchemaVersion: 1, id: eid(), utc: ago(2.55), domain: 'DiagnosticsSelf', name: 'Diagnostics.ElevateExpired', severity: 'Info', correlationId: 'corr-elevate-tele', connectionId: null, persistedSessionId: null, sidecarSessionId: null, payload: {}, redaction: 'none' },
+
     // --- Navigation story for conn1 (3 events; motor.navigate span closed cleanly) ---
     { diagnosticsSchemaVersion: 2, seq: 10, spanId: 'span-nav-1', spanKey: 'motor.navigate', id: eid(), utc: ago(6), domain: 'MotorLive', name: 'Motor.NavigateRequested', severity: 'Info', correlationId: corrNavigate1, connectionId: conn1, persistedSessionId: null, sidecarSessionId: null, payload: { targetUrl: 'https://www.example.com/products' }, redaction: 'none' },
     { diagnosticsSchemaVersion: 2, seq: 11, causationId: 'span-nav-1', id: eid(), utc: ago(5.8), domain: 'MotorLive', name: 'Motor.UrlMapped', severity: 'Info', correlationId: corrNavigate1, connectionId: conn1, persistedSessionId: null, sidecarSessionId: null, payload: { originalUrl: 'https://www.example.com/products', mappedUrl: 'https://www.example.com/products' }, redaction: 'none' },
@@ -218,47 +227,27 @@ export function eventsList(): DiagnosticsEventRecord[] {
 export const catalog: DiagnosticsCatalogResponse = {
   diagnosticsSchemaVersion: 2,
   events: [
-    'Motor.SessionStarting',
-    'Motor.SessionResolved',
-    'Motor.SlotAcquired',
-    'Motor.SidecarConnected',
-    'Motor.SessionPromoted',
-    'Motor.SessionStarted',
-    'Motor.SessionStopped',
-    'Motor.SessionFailed',
-    'Motor.SessionRefused',
-    'Motor.NavigateRequested',
-    'Motor.NavigateCompleted',
-    'Motor.NavigateRejected',
-    'Motor.NavigateBlocked',
-    'Motor.UrlMapped',
-    'Motor.StateExportStarted',
-    'Motor.StateExportCompleted',
-    'Motor.DrainStarted',
-    'Motor.DrainCompleted',
-    'Motor.SidecarFault',
-    'Motor.SidecarReconnected',
-    'Motor.ResizeRequested',
-    'Motor.StatusMirrored',
-    'Sidecar.ScreencastFrame',
-    'Sidecar.DiagProbeRequested',
-    'Sidecar.DiagProbeCompleted',
-    'Sidecar.DiagProbeTimedOut',
-    'Sidecar.DiagProbeRejected',
-    'Sidecar.Ready',
-    'Diagnostics.ConfigApplied',
-    'Diagnostics.CleanupCompleted',
-    'Diagnostics.Degraded',
-    'Diagnostics.Recovered',
-    'Diagnostics.RecoverRequested',
-    'Diagnostics.ElevateStarted',
-    'Diagnostics.ElevateExpired',
-    'Diagnostics.StorageOverflow',
-    'Diagnostics.SpanAbandoned',
-    'Persistence.StateExportCompleted',
-    'Persistence.SessionQueried',
-    'Telemetry.SampleCollected',
-    'Telemetry.SessionSampleCollected',
+    { name: 'Motor.SessionStarting', domain: 'MotorLive', capability: 'Metric', persist: true, spanRole: 'Open', spanKey: 'motor.session', spanTimeoutSec: 0 },
+    { name: 'Motor.SessionStarted', domain: 'MotorLive', capability: 'Metric', persist: true },
+    { name: 'Motor.SessionResolved', domain: 'MotorLive', capability: 'Metric', persist: true },
+    { name: 'Motor.SessionStopped', domain: 'MotorLive', capability: 'Metric', persist: true, spanRole: 'Close', spanKey: 'motor.session', spanTimeoutSec: 0 },
+    { name: 'Motor.SessionRefused', domain: 'MotorLive', capability: 'Metric', persist: true, spanRole: 'Close', spanKey: 'motor.session', spanTimeoutSec: 0 },
+    { name: 'Motor.NavigateRequested', domain: 'MotorLive', capability: 'Metric', persist: true, spanRole: 'Open', spanKey: 'motor.navigate', spanTimeoutSec: 60 },
+    { name: 'Motor.NavigateCompleted', domain: 'MotorLive', capability: 'Metric', persist: true, spanRole: 'Close', spanKey: 'motor.navigate', spanTimeoutSec: 0 },
+    { name: 'Motor.NavigateRejected', domain: 'MotorLive', capability: 'Metric', persist: true, spanRole: 'Close', spanKey: 'motor.navigate', spanTimeoutSec: 0 },
+    { name: 'Motor.NavigateBlocked', domain: 'MotorLive', capability: 'Metric', persist: true },
+    { name: 'Motor.UrlMapped', domain: 'MotorLive', capability: 'Metric', persist: true },
+    { name: 'Motor.StateExportRequested', domain: 'MotorLive', capability: 'Metric', persist: true, spanRole: 'Open', spanKey: 'motor.export', spanTimeoutSec: 60 },
+    { name: 'Motor.StateExportCompleted', domain: 'MotorLive', capability: 'Metric', persist: true, spanRole: 'Close', spanKey: 'motor.export', spanTimeoutSec: 0 },
+    { name: 'Sidecar.DiagProbeRequested', domain: 'SidecarBrowser', capability: 'Metric', persist: true, spanRole: 'Open', spanKey: 'sidecar.probe', spanTimeoutSec: 30 },
+    { name: 'Sidecar.DiagProbeCompleted', domain: 'SidecarBrowser', capability: 'Metric', persist: true, spanRole: 'Close', spanKey: 'sidecar.probe', spanTimeoutSec: 0 },
+    { name: 'Sidecar.DiagProbeTimedOut', domain: 'SidecarBrowser', capability: 'Metric', persist: true, spanRole: 'Close', spanKey: 'sidecar.probe', spanTimeoutSec: 0 },
+    { name: 'Diagnostics.ConfigApplied', domain: 'DiagnosticsSelf', capability: 'Metric', persist: true },
+    { name: 'Diagnostics.Degraded', domain: 'DiagnosticsSelf', capability: 'Metric', persist: true },
+    { name: 'Diagnostics.Recovered', domain: 'DiagnosticsSelf', capability: 'Metric', persist: true },
+    { name: 'Diagnostics.ElevateStarted', domain: 'DiagnosticsSelf', capability: 'Metric', persist: true },
+    { name: 'Diagnostics.SpanAbandoned', domain: 'DiagnosticsSelf', capability: 'Metric', persist: true, spanRole: 'Close', spanTimeoutSec: 0 },
+    { name: 'Telemetry.SampleCollected', domain: 'Telemetry', capability: 'Metric', persist: true },
   ],
 }
 
@@ -463,13 +452,15 @@ export function telemetrySamples(): TelemetrySampleRecord[] {
         storageMaxBytes: STORAGE_MAX_BYTES,
         usedPct: round1(((12_000_000 + t * 42_000) / STORAGE_MAX_BYTES) * 100),
         eventsStored: 300 + t * 3,
-        eventsDropped: anomaly?.kind === 'leak' ? Math.round((t - 70) * 0.3) : 0,
-        overflowCount: 0,
+        eventsDropped: anomaly?.kind === 'leak' || (t >= 80 && t <= 95)
+          ? Math.max(0, Math.round((t - 70) * 0.4))
+          : 0,
+        overflowCount: t >= 82 && t <= 90 ? Math.round((t - 81) / 2) : 0,
         probeInFlight: 0,
-        degraded: false,
-        elevateActive: false,
-        recentDrops: null,
-        recentSlowWrites: cpu > 80 ? 1 : null,
+        degraded: t >= 80 && t <= 95,
+        elevateActive: t >= 200 && t <= 210,
+        recentDrops: t >= 80 && t <= 95 ? Math.round(2 + (t - 80) * 0.5) : null,
+        recentSlowWrites: cpu > 80 || (t >= 80 && t <= 95) ? 1 + Math.floor((t % 5) / 2) : null,
       },
     }
 

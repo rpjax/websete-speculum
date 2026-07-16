@@ -18,10 +18,16 @@ describe('resolveRoute', () => {
   })
 
   it('matches nested diagnostics routes', () => {
-    const result = resolveRoute('/admin/diagnostics/activity')
+    const result = resolveRoute('/admin/diagnostics/timeline')
     expect(result).not.toBeNull()
-    expect(result!.entry.label).toBe('Activity')
+    expect(result!.entry.label).toBe('Timeline')
     expect(result!.entry.parent).toBe('/admin/diagnostics')
+  })
+
+  it('matches analysis route', () => {
+    const result = resolveRoute('/admin/diagnostics/analysis')
+    expect(result).not.toBeNull()
+    expect(result!.entry.label).toBe('Analysis')
   })
 
   it('returns null for unknown paths', () => {
@@ -47,10 +53,10 @@ describe('buildBreadcrumbs', () => {
   })
 
   it('builds parent → child for a nested page', () => {
-    const crumbs = buildBreadcrumbs('/admin/diagnostics/activity')
+    const crumbs = buildBreadcrumbs('/admin/diagnostics/timeline')
     expect(crumbs).toHaveLength(2)
     expect(crumbs[0]).toEqual({ label: 'Diagnostics', to: '/admin/diagnostics' })
-    expect(crumbs[1]).toEqual({ label: 'Activity' })
+    expect(crumbs[1]).toEqual({ label: 'Timeline' })
   })
 
   it('resolves dynamic param labels from overrides', () => {

@@ -1,4 +1,5 @@
 import type { DiagnosticsOptions } from '@/lib/diagnosticsApi'
+import { DIAGNOSTICS_PRESETS } from '@/lib/diagnosticsConstants'
 
 export const sectionData: Record<string, unknown> = {
   Admin: { configured: true },
@@ -28,28 +29,10 @@ export const sectionData: Record<string, unknown> = {
   Diagnostics: {
     enabled: true,
     profile: 'Production',
-    domains: {
-      motor: { metrics: true, events: true, snapshots: true },
-      sidecar: { metrics: true, events: false },
-      browserQuery: { probe: false },
-      persisted: { snapshots: true },
-    },
-    telemetry: {
-      enabled: true,
-      intervalSeconds: 30,
-      host: { enabled: true },
-      motor: { enabled: true, includeSessionIds: false, includePerSession: false, includeUrlHost: false },
-      sidecar: { enabled: true, includeFaultedIds: false },
-      persistence: { enabled: true, includeBytes: false },
-      pipeline: { enabled: true, includeBreakerPressure: false },
-    },
-    storage: {
-      maxBytes: 64 * 1024 * 1024,
-      maxEventsPerSession: 5000,
-      ttlHours: 24,
-      overflow: 'DropOldest',
-    },
-    sampling: { statusMirrorRatio: 1, expensiveEventRatio: 0.25 },
+    domains: DIAGNOSTICS_PRESETS.Production.domains,
+    telemetry: DIAGNOSTICS_PRESETS.Production.telemetry,
+    storage: DIAGNOSTICS_PRESETS.Production.storage,
+    sampling: DIAGNOSTICS_PRESETS.Production.sampling,
     elevate: { browserQueryMaxMinutes: 30 },
     probe: {
       diagTimeoutMs: 10_000,

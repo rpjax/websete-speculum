@@ -24,7 +24,7 @@ public sealed class DiagnosticsSeedProfileTelemetryTests
     }
 
     [Fact]
-    public void Production_keeps_telemetry_lean()
+    public void Production_keeps_telemetry_operable_without_per_session()
     {
         var options = DiagnosticsSeedProfiles.Production();
         var t = options.Telemetry;
@@ -32,12 +32,13 @@ public sealed class DiagnosticsSeedProfileTelemetryTests
         Assert.Equal("Production", options.Profile);
         Assert.True(t.Enabled);
         Assert.Equal(30, t.IntervalSeconds);
-        Assert.False(t.Motor.IncludeSessionIds);
+        // Cheap identity signals on; expensive per-session slices stay off.
+        Assert.True(t.Motor.IncludeSessionIds);
         Assert.False(t.Motor.IncludePerSession);
-        Assert.False(t.Motor.IncludeUrlHost);
-        Assert.False(t.Sidecar.IncludeFaultedIds);
-        Assert.False(t.Persistence.IncludeBytes);
-        Assert.False(t.Pipeline.IncludeBreakerPressure);
+        Assert.True(t.Motor.IncludeUrlHost);
+        Assert.True(t.Sidecar.IncludeFaultedIds);
+        Assert.True(t.Persistence.IncludeBytes);
+        Assert.True(t.Pipeline.IncludeBreakerPressure);
     }
 
     [Fact]
@@ -63,8 +64,8 @@ public sealed class DiagnosticsSeedProfileTelemetryTests
         Assert.True(dev.Sidecar.Events);
         Assert.True(dev.BrowserQuery.Probe);
 
-        Assert.False(prod.Sidecar.Events);
         Assert.False(prod.BrowserQuery.Probe);
+        Assert.True(prod.Sidecar.Events);
         Assert.True(prod.Motor.Metrics);
         Assert.True(prod.Persisted.Snapshots);
     }

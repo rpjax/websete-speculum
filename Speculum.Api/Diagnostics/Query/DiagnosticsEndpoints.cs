@@ -189,21 +189,23 @@ public static class DiagnosticsEndpoints
         g.MapGet("/sessions/{connectionId}/events", (
             string connectionId,
             DateTimeOffset? since,
+            DateTimeOffset? until,
             string? namePrefix,
             SessionEventRing ring,
             SqliteDiagnosticsEventSink sink,
             IDiagnosticsRedactor redactor) =>
-            Results.Ok(QueryTimeline(connectionId, since, namePrefix, ring, sink, redactor)));
+            Results.Ok(QueryTimeline(connectionId, since, until, namePrefix, ring, sink, redactor)));
 
         // Global timeline (Drain / DiagnosticsSelf / events without connectionId).
         g.MapGet("/events", (
             DateTimeOffset? since,
+            DateTimeOffset? until,
             string? namePrefix,
             string? connectionId,
             SessionEventRing ring,
             SqliteDiagnosticsEventSink sink,
             IDiagnosticsRedactor redactor) =>
-            Results.Ok(QueryTimeline(connectionId, since, namePrefix, ring, sink, redactor)));
+            Results.Ok(QueryTimeline(connectionId, since, until, namePrefix, ring, sink, redactor)));
 
         // Telemetry explorer history — server-side time range + keyset pagination + optional
         // downsampling. Distinct from /events so the shared timeline contract stays untouched.
@@ -358,7 +360,16 @@ public static class DiagnosticsEndpoints
             Results.Ok(new
             {
                 diagnosticsSchemaVersion = DiagnosticsSchema.Version,
-                events = DiagnosticsEventCatalog.All,
+                events = DiagnosticsEventCatalog.Descriptors.Select(d => new
+                {
+                    name = d.Name,
+                    domain = d.Domain.ToString(),
+                    capability = d.Capability.ToString(),
+                    persist = d.Persist,
+                    spanRole = d.SpanRole == SpanRole.None ? null : d.SpanRole.ToString(),
+                    spanKey = d.SpanKey,
+                    spanTimeoutSec = d.SpanTimeoutSec,
+                }),
             }));
 
         g.MapGet("/persisted", async (IBrowserSessionStore sessions) =>
@@ -471,6 +482,7 @@ public static class DiagnosticsEndpoints
     private static IEnumerable<object> QueryTimeline(
         string? connectionId,
         DateTimeOffset? since,
+        DateTimeOffset? until,
         string? namePrefix,
         SessionEventRing ring,
         SqliteDiagnosticsEventSink sink,
@@ -480,9 +492,10 @@ public static class DiagnosticsEndpoints
             ? []
             : ring.GetSince(connectionId, since, namePrefix);
 
-        var stored = sink.QueryEvents(connectionId, since, namePrefix);
+        var stored = sink.QueryEvents(connectionId, since, until, namePrefix);
         return ringEvents
             .Concat(stored)
+            .Where(e => until is null || e.Utc <= until.Value)
             .GroupBy(e => e.Id)
             .Select(g => g.First())
             .OrderBy(e => e.Utc)

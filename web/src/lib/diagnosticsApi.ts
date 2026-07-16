@@ -94,35 +94,52 @@ export interface MotorSessionListItem {
   phase: string
   currentUrl: string
   starting: boolean
+  /** Always present from listSessions (metric-tier). */
   fps?: number
+  /** Always present from listSessions (metric-tier). */
   uptimeMs?: number
 }
 
+/**
+ * Session snapshot from getSession/resolve.
+ * When Motor.Snapshots is off, the API returns a metric-tier subset only
+ * (connectionId, phase, fps, uptimeMs, sidecarConnected, frameSequence,
+ * frameChannelDepth, statusChannelDepth, inputQueueApprox). Snapshot-tier
+ * fields below are then omitted — treat them as optional.
+ */
 export interface MotorSessionDiagnosticsSnapshot {
   connectionId: string
-  persistedSessionId?: string | null
-  sidecarSessionId: string
-  clientToken?: string | null
-  correlationId?: string | null
   phase: string
-  startedAt?: string | null
   uptimeMs: number
-  lastEventUtc: string
   fps: number
   frameSequence: number
-  lastFrameUtc?: string | null
   inputQueueApprox: number
-  currentUrl: string
+  sidecarConnected: boolean
+  frameChannelDepth?: number
+  statusChannelDepth?: number
+  /** Snapshot-tier — omitted when Motor.Snapshots is disabled. */
+  persistedSessionId?: string | null
+  sidecarSessionId?: string
+  clientToken?: string | null
+  correlationId?: string | null
+  startedAt?: string | null
+  lastEventUtc?: string
+  lastFrameUtc?: string | null
+  currentUrl?: string
   lastNavigateResult?: string | null
   lastNavigateUtc?: string | null
-  sidecarConnected: boolean
   lastFault?: string | null
-  exportingState: boolean
+  exportingState?: boolean
   forwardingHost?: string | null
-  jsBridgeEnabled: boolean
-  scriptCount: number
-  allowlistCount: number
+  jsBridgeEnabled?: boolean
+  scriptCount?: number
+  allowlistCount?: number
   profileDomain?: string | null
+}
+
+/** True when the snapshot includes Motor.Snapshots fields (not metric-tier only). */
+export function isFullSessionSnapshot(snap: MotorSessionDiagnosticsSnapshot): boolean {
+  return snap.lastEventUtc !== undefined || snap.sidecarSessionId !== undefined
 }
 
 export interface DiagnosticsEventRecord {
@@ -274,9 +291,20 @@ export interface BrowserProbeResponse {
   errorCode?: string
 }
 
+export interface DiagnosticsEventDescriptor {
+  name: string
+  domain: string
+  capability: string
+  persist: boolean
+  spanRole?: 'Open' | 'Close' | null
+  spanKey?: string | null
+  spanTimeoutSec?: number
+}
+
 export interface DiagnosticsCatalogResponse {
   diagnosticsSchemaVersion: number
-  events: string[]
+  /** Full descriptors (schema v2 admin catalog). Legacy name-only arrays are still accepted by clients. */
+  events: Array<string | DiagnosticsEventDescriptor>
 }
 
 /** Per-domain capability toggles (the operator control model). */
@@ -404,9 +432,10 @@ const realDiagnosticsApi = {
     return res.snapshot
   },
 
-  getSessionEvents: (connectionId: string, since?: string, namePrefix?: string) => {
+  getSessionEvents: (connectionId: string, since?: string, namePrefix?: string, until?: string) => {
     const q = new URLSearchParams()
     if (since) q.set('since', since)
+    if (until) q.set('until', until)
     if (namePrefix) q.set('namePrefix', namePrefix)
     const qs = q.toString()
     return request<DiagnosticsEventRecord[]>(
@@ -414,9 +443,10 @@ const realDiagnosticsApi = {
     )
   },
 
-  listEvents: (params?: { since?: string; namePrefix?: string; connectionId?: string }) => {
+  listEvents: (params?: { since?: string; until?: string; namePrefix?: string; connectionId?: string }) => {
     const q = new URLSearchParams()
     if (params?.since) q.set('since', params.since)
+    if (params?.until) q.set('until', params.until)
     if (params?.namePrefix) q.set('namePrefix', params.namePrefix)
     if (params?.connectionId) q.set('connectionId', params.connectionId)
     const qs = q.toString()

@@ -6,7 +6,8 @@ const TABS = [
   { to: '/admin/diagnostics', label: 'Overview', end: true },
   { to: '/admin/diagnostics/health', label: 'Health' },
   { to: '/admin/diagnostics/telemetry', label: 'Telemetry' },
-  { to: '/admin/diagnostics/activity', label: 'Activity' },
+  { to: '/admin/diagnostics/timeline', label: 'Timeline' },
+  { to: '/admin/diagnostics/analysis', label: 'Analysis' },
   { to: '/admin/diagnostics/investigate', label: 'Investigate' },
   { to: '/admin/diagnostics/governance', label: 'Governance' },
 ]
@@ -16,7 +17,7 @@ export default function DiagnosticsLayout() {
     <div className="space-y-6">
       <PageHeader
         title="Diagnostics"
-        description="Observe motor health, session activity, correlation stories, browser probes, and diagnostics governance."
+        description="Observe motor health, read the motor narrative timeline, run analysis reports, browser probes, and diagnostics governance."
       />
       <nav className="flex flex-wrap gap-1 rounded-md border border-border bg-muted/40 p-1">
         {TABS.map((t) => (

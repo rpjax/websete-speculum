@@ -44,10 +44,11 @@ React **single-page application** for the Speculum motor, first-run setup, and a
 | `/admin/login` | Admin login | — |
 | `/admin` | Dashboard overview (health + needs attention) | Bearer |
 | `/admin/diagnostics` | Diagnostics overview | Bearer |
-| `/admin/diagnostics/events` | Event timeline | Bearer |
-| `/admin/diagnostics/live` | Live sessions | Bearer |
-| `/admin/diagnostics/probes` | Browser probes | Bearer |
-| `/admin/diagnostics/config` | Diagnostics config | Bearer |
+| `/admin/diagnostics/timeline` | Narrative timeline (motor story) | Bearer |
+| `/admin/diagnostics/analysis` | Analysis & report (independent mandate) | Bearer |
+| `/admin/diagnostics/investigate` | Browser probes | Bearer |
+| `/admin/diagnostics/governance` | Diagnostics config / governance | Bearer |
+| `/admin/diagnostics/telemetry` | Telemetry monitor | Bearer |
 | `/admin/sessions` | Persisted sessions list | Bearer |
 | `/admin/sessions/:sessionId` | Session detail (tabs) | Bearer |
 | `/admin/hosting` | Hosting profiles | Bearer |
@@ -58,7 +59,7 @@ React **single-page application** for the Speculum motor, first-run setup, and a
 | `/admin/api-key` | Rotate admin key | Bearer |
 | `/admin/openapi` | OpenAPI (demoted / technical) | Bearer |
 
-Legacy redirects: `/admin/max-sessions`, `/admin/js-bridge`, `/admin/session-policy` → `/admin/capacity`.
+Legacy redirects: `/admin/max-sessions`, `/admin/js-bridge`, `/admin/session-policy` → `/admin/capacity`; `/admin/diagnostics/activity` → `/admin/diagnostics/timeline`.
 
 ---
 

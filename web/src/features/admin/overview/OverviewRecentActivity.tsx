@@ -56,10 +56,10 @@ export function OverviewRecentActivity({ events }: OverviewRecentActivityProps) 
         )}
         <div className="mt-4 pt-2 border-t border-border/50">
           <Link
-            to="/admin/diagnostics/activity"
+            to="/admin/diagnostics/timeline"
             className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
           >
-            View activity
+            View timeline
             <ArrowRight className="h-3 w-3" />
           </Link>
         </div>

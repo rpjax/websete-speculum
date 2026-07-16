@@ -165,16 +165,18 @@ export const mockDiagnosticsApi = {
   getSession: (connectionId: string) =>
     delay<MotorSessionDiagnosticsSnapshot>(sessionSnapshot(connectionId)),
 
-  getSessionEvents: (connectionId: string, since?: string, namePrefix?: string) => {
+  getSessionEvents: (connectionId: string, since?: string, namePrefix?: string, until?: string) => {
     let filtered = events.filter((e) => e.connectionId === connectionId)
     if (since) filtered = filtered.filter((e) => e.utc >= since)
+    if (until) filtered = filtered.filter((e) => e.utc <= until)
     if (namePrefix) filtered = filtered.filter((e) => e.name.startsWith(namePrefix))
     return delay<DiagnosticsEventRecord[]>(structuredClone(filtered))
   },
 
-  listEvents: (params?: { since?: string; namePrefix?: string; connectionId?: string }) => {
+  listEvents: (params?: { since?: string; until?: string; namePrefix?: string; connectionId?: string }) => {
     let filtered = [...events]
     if (params?.since) filtered = filtered.filter((e) => e.utc >= params.since!)
+    if (params?.until) filtered = filtered.filter((e) => e.utc <= params.until!)
     if (params?.namePrefix) filtered = filtered.filter((e) => e.name.startsWith(params.namePrefix!))
     if (params?.connectionId) filtered = filtered.filter((e) => e.connectionId === params.connectionId)
     return delay<DiagnosticsEventRecord[]>(structuredClone(filtered))

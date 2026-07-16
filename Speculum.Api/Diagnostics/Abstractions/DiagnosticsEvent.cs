@@ -80,6 +80,7 @@ public static class DiagnosticsEventCatalog
             SpanRole.Close, SpanKeys.MotorExport),
         // MotorLive detail — Event (emit-gated; dropped under Degraded).
         new("Motor.ResizeRequested", DiagnosticsDomain.MotorLive, DiagnosticsCapability.Event, true),
+        new("Motor.InputRejected", DiagnosticsDomain.MotorLive, DiagnosticsCapability.Event, true),
         new("Motor.SidecarFaulted", DiagnosticsDomain.MotorLive, DiagnosticsCapability.Event, true),
         // Noisy status mirror — Metric, ring-only (never persisted).
         new("Motor.StatusMirrored", DiagnosticsDomain.MotorLive, DiagnosticsCapability.Metric, false),

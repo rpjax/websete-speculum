@@ -62,4 +62,24 @@ public sealed class SessionStatus
     /// <summary>Whether the JsBridge (vcon / console forwarding) is enabled.</summary>
     [Key("jsBridgeEnabled")]
     public bool JsBridgeEnabled { get; init; }
+
+    /// <summary>Remote editable focus state for virtual keyboard / IME.</summary>
+    [Key("editing")]
+    public EditingState? Editing { get; init; }
+}
+
+[MessagePackObject]
+public sealed class EditingState
+{
+    [Key("focused")]
+    public bool Focused { get; init; }
+
+    [Key("inputMode")]
+    public string? InputMode { get; init; }
+
+    [Key("multiline")]
+    public bool Multiline { get; init; }
+
+    [Key("tagName")]
+    public string? TagName { get; init; }
 }

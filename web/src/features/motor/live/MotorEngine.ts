@@ -1,12 +1,15 @@
 import { API_URL } from '@/lib/env'
+import { createCorrelationId } from '@/lib/createUuid'
 import { fetchClientConfig, saveClientToken, type ClientConfig } from '@/lib/clientConfig'
 import { syncClientLocation } from '@/features/motor/mapping/syncClientLocation'
 import { MotorConnection } from './MotorConnection'
 import { MotorScreencast } from './MotorScreencast'
 import { MotorVcon } from './MotorVcon'
 import { MotorInput } from './MotorInput'
+import { detectDeviceProfile, deviceProfilesEqual, normalizeSessionViewport } from './deviceProfile'
 import type {
   ConsoleOutputPayload,
+  DeviceProfilePayload,
   MotorElements,
   MotorUiState,
   SessionStatusPayload,
@@ -22,6 +25,7 @@ export class MotorEngine {
   private currentUrl = ''
   private resizeTimer: ReturnType<typeof setTimeout> | null = null
   private resizeObserver: ResizeObserver | null = null
+  private orientationCleanup: (() => void) | null = null
   private listeners = new Set<StateListener>()
   private elements: MotorElements | null = null
   private mounted = false
@@ -30,6 +34,22 @@ export class MotorEngine {
   private connectionId: string | undefined
   private persistedSessionId: string | undefined
   private sidecarSessionId: string | undefined
+  private deviceProfile: DeviceProfilePayload = detectDeviceProfile()
+  private keyboardShellOpen = false
+  /** User dismissed the IME while remote field still focused — do not auto-reopen until focus ends. */
+  private imeDismissedByUser = false
+  /** True while engine blurs IME because remote editing ended (not a user dismiss). */
+  private softBlurringIme = false
+  /** Autofocus IME at most once per remote editing session. */
+  private imeAutoFocusTried = false
+  /** Consecutive status ticks without editing — absorb probe false-negatives. */
+  private editingMissTicks = 0
+  private editingSessionActive = false
+  /** Viewport size used for remote resize — frozen while local keyboard is open. */
+  private remoteViewportW = 0
+  private remoteViewportH = 0
+  /** True when a sync was skipped because the local keyboard shell was open. */
+  private viewportSyncPending = false
 
   private screencast = new MotorScreencast()
   private vcon = new MotorVcon({
@@ -40,6 +60,8 @@ export class MotorEngine {
     getConnection: () => this.connection.hub,
     getSessionSize: () => ({ w: this.sessionW, h: this.sessionH }),
     getCurrentUrl: () => this.currentUrl,
+    isEditingActive: () => this.input.isImeFocused(),
+    onImeFocusChange: (focused) => this.onImeFocusChange(focused),
   })
   private connection = new MotorConnection({
     onFrame: (frame) => this.screencast.onFrame(frame),
@@ -87,31 +109,37 @@ export class MotorEngine {
   }
 
   private newCorrelationId(): string {
-    return crypto.randomUUID().replace(/-/g, '')
+    return createCorrelationId()
   }
 
   mount(elements: MotorElements) {
     this.mounted = true
     this.elements = elements
+    this.deviceProfile = detectDeviceProfile()
     this.screencast.attach(elements, (fps) => this.emit({ fps }))
+    if (elements.ime) this.input.setImeElement(elements.ime)
     this.input.bind(elements)
     this.resizeObserver = new ResizeObserver((entries) => {
       const entry = entries[0]
       if (!entry) return
-      const w = Math.round(entry.contentRect.width)
-      const h = Math.round(entry.contentRect.height)
-      if (w < 100 || h < 100) return
-      if (w === this.sessionW && h === this.sessionH) return
-      this.input.invalidateRect()
-      if (this.resizeTimer) clearTimeout(this.resizeTimer)
-      this.resizeTimer = setTimeout(async () => {
-        this.syncCanvasSize(w, h)
-        if (this.connection.hub) {
-          try { await this.connection.hub.invoke('ResizeAsync', w, h) } catch { /* ignore */ }
-        }
-      }, 250)
+      this.scheduleRemoteViewportSync(
+        Math.round(entry.contentRect.width),
+        Math.round(entry.contentRect.height),
+      )
     })
     this.resizeObserver.observe(elements.viewport)
+    const onOrientation = () => {
+      const el = this.elements?.viewport
+      if (!el) return
+      this.scheduleRemoteViewportSync(el.clientWidth, el.clientHeight)
+    }
+    window.addEventListener('orientationchange', onOrientation)
+    const orientation = window.screen?.orientation
+    orientation?.addEventListener?.('change', onOrientation)
+    this.orientationCleanup = () => {
+      window.removeEventListener('orientationchange', onOrientation)
+      orientation?.removeEventListener?.('change', onOrientation)
+    }
     void this.connect()
   }
 
@@ -124,9 +152,76 @@ export class MotorEngine {
     }
     this.resizeObserver?.disconnect()
     this.resizeObserver = null
+    this.orientationCleanup?.()
+    this.orientationCleanup = null
     void this.stopSession()
     this.screencast.detach()
     this.elements = null
+  }
+
+  /** Debounced ResizeAsync — size and/or device profile (orientation, DPR, mobile). */
+  private scheduleRemoteViewportSync(rawW: number, rawH: number) {
+    // Do not resize the remote device when the local virtual keyboard shrinks the SPA.
+    if (this.keyboardShellOpen) {
+      this.viewportSyncPending = true
+      return
+    }
+    if (rawW < 100 || rawH < 100) return
+    const { w, h } = normalizeSessionViewport(rawW, rawH)
+    const nextProfile = detectDeviceProfile()
+    if (w === this.remoteViewportW && h === this.remoteViewportH
+      && deviceProfilesEqual(this.deviceProfile, nextProfile)) {
+      return
+    }
+    this.input.invalidateRect()
+    if (this.resizeTimer) clearTimeout(this.resizeTimer)
+    this.resizeTimer = setTimeout(async () => {
+      const profile = detectDeviceProfile()
+      this.syncCanvasSize(w, h)
+      this.remoteViewportW = w
+      this.remoteViewportH = h
+      this.deviceProfile = profile
+      if (this.connection.hub) {
+        try {
+          await this.connection.hub.invoke('ResizeAsync', w, h, profile)
+        } catch { /* ignore */ }
+      }
+    }, 250)
+  }
+
+  /** After IME closes, apply any orientation/size changes deferred while the shell was open. */
+  private flushPendingViewportSync() {
+    if (!this.viewportSyncPending || this.keyboardShellOpen) return
+    this.viewportSyncPending = false
+    const el = this.elements?.viewport
+    if (!el) return
+    this.scheduleRemoteViewportSync(el.clientWidth, el.clientHeight)
+  }
+
+  /**
+   * Freeze remote resize only while the hidden IME actually holds DOM focus
+   * (OS keyboard likely open). Programmatic focus failures must not stall ResizeAsync.
+   */
+  private onImeFocusChange(focused: boolean) {
+    if (focused === this.keyboardShellOpen) return
+    this.keyboardShellOpen = focused
+    if (!focused) {
+      // User dismissed the OS keyboard while the remote field is still focused.
+      if (!this.softBlurringIme && this.state.editing?.focused) {
+        this.imeDismissedByUser = true
+      }
+      this.flushPendingViewportSync()
+    }
+  }
+
+  private softBlurIme() {
+    if (!this.input.isImeFocused()) return
+    this.softBlurringIme = true
+    try {
+      this.input.blurIme()
+    } finally {
+      this.softBlurringIme = false
+    }
   }
 
   private isActive(): boolean {
@@ -181,11 +276,16 @@ export class MotorEngine {
     if (!this.isActive() || !this.connection.hub || !elements) return
     this.connection.teardownChannels()
 
-    const initW = elements.viewport.clientWidth || 1280
-    const initH = elements.viewport.clientHeight || 720
+    const rawW = elements.viewport.clientWidth || 1280
+    const rawH = elements.viewport.clientHeight || 720
+    const { w: initW, h: initH } = normalizeSessionViewport(rawW, rawH)
     this.syncCanvasSize(initW, initH)
+    this.remoteViewportW = initW
+    this.remoteViewportH = initH
+    this.deviceProfile = detectDeviceProfile()
 
-    const clientToken = await this.connection.invokeStartSession(initW, initH, this.correlationId)
+    const clientToken = await this.connection.invokeStartSession(
+      initW, initH, this.correlationId, this.deviceProfile)
     if (!clientToken) {
       await this.stopSession()
       return
@@ -233,10 +333,11 @@ export class MotorEngine {
 
   private syncCanvasSize(w: number, h: number) {
     if (!this.elements) return
-    this.sessionW = w
-    this.sessionH = h
-    this.elements.canvas.width = w
-    this.elements.canvas.height = h
+    const clamped = normalizeSessionViewport(w, h)
+    this.sessionW = clamped.w
+    this.sessionH = clamped.h
+    this.elements.canvas.width = clamped.w
+    this.elements.canvas.height = clamped.h
     this.input.invalidateRect()
   }
 
@@ -268,6 +369,65 @@ export class MotorEngine {
       this.elements.urlBar.value = s.url
       this.emit({ url: s.url })
       syncClientLocation(s.url, !!this.clientConfig?.mirroringEnabled)
+    }
+
+    // Prefer remote-reported dims so input mapping matches a server-side clamp.
+    if (s.width > 0 && s.height > 0
+      && (s.width !== this.sessionW || s.height !== this.sessionH)) {
+      this.syncCanvasSize(s.width, s.height)
+      this.remoteViewportW = this.sessionW
+      this.remoteViewportH = this.sessionH
+    }
+
+    const editing = s.editing?.focused ? s.editing : null
+
+    if (!editing) {
+      this.editingMissTicks++
+      // Require two consecutive misses so a single probe false-negative does not
+      // clear dismiss state or tear down the IME mid-keystroke.
+      if (this.editingSessionActive && this.editingMissTicks < 2) {
+        return
+      }
+      if (this.editingSessionActive) {
+        this.editingSessionActive = false
+        this.imeAutoFocusTried = false
+        this.imeDismissedByUser = false
+        this.softBlurIme()
+      }
+      this.editingMissTicks = 0
+      this.emit({ editing: null, showKeyboard: false })
+      return
+    }
+
+    this.editingMissTicks = 0
+    this.editingSessionActive = true
+    this.emit({
+      editing,
+      showKeyboard: true,
+    })
+
+    // Autofocus once per editing session (may need user gesture / Show keyboard).
+    if (!this.input.isImeFocused() && !this.imeDismissedByUser && !this.imeAutoFocusTried) {
+      this.imeAutoFocusTried = true
+      this.input.focusIme()
+    }
+  }
+
+  openVirtualKeyboard() {
+    this.imeDismissedByUser = false
+    this.imeAutoFocusTried = true
+    this.input.focusIme()
+    this.emit({ showKeyboard: true })
+  }
+
+  closeVirtualKeyboard() {
+    this.imeDismissedByUser = true
+    this.softBlurringIme = false
+    this.input.blurIme()
+    this.elements?.canvas.focus()
+    if (this.keyboardShellOpen) {
+      this.keyboardShellOpen = false
+      this.flushPendingViewportSync()
     }
   }
 

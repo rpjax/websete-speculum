@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect } from 'react'
+import { createUuid } from '@/lib/createUuid'
 
 const STORAGE_KEY = 'speculum-bookmarks'
 
@@ -35,7 +36,7 @@ export function useBookmarks() {
     setBookmarks((prev) => {
       if (prev.some((b) => b.targetId === targetId && b.type === type)) return prev
       const next = [
-        { id: crypto.randomUUID(), type, label, targetId, timestamp: new Date().toISOString(), note },
+        { id: createUuid(), type, label, targetId, timestamp: new Date().toISOString(), note },
         ...prev,
       ]
       persistBookmarks(next)

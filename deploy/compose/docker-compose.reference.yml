@@ -8,15 +8,7 @@ services:
       - >-
         set -a; for f in /data/traefik/cloudflare-*.env; do [ -f "$$f" ] && . "$$f"; done; set +a;
         exec /entrypoint.sh traefik
-        --api.dashboard=false
-        --providers.docker=true
-        --providers.docker.exposedbydefault=false
-        --providers.docker.network=speculum
-        --entrypoints.web.address=:80
-        --entrypoints.websecure.address=:443
-        --entrypoints.websecure.http.tls=true
-        --providers.file.directory=/data/traefik/dynamic
-        --providers.file.watch=true
+        --configfile=/data/traefik/traefik.static.yml
     ports:
       - "80:80"
       - "443:443"
@@ -97,3 +89,4 @@ services:
 volumes:
   speculum-data:
   traefik-letsencrypt:
+

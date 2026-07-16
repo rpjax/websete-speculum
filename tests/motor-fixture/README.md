@@ -20,7 +20,8 @@ Do **not** routinely run sidecar+Chrome+fixture on a laptop. That stack is GitHu
 | `/health` (HTTP on `HEALTH_PORT`) | `{ ok: true }` readiness |
 | `/`, `/home` | cookie `sf_marker`, LS `sf_ls`, IDB, `#speculum-probe` |
 | `/set-state` | persistence markers |
-| `/click-target` | button fixed at (100,100)–(300,180); click `(200,140)`; wheel + key hooks |
+| `/click-target` | button fixed at (100,100)–(300,180); click `(200,140)`; wheel + key + touch hooks |
+| `/touch-scroll` | tall scroller for touch drag / multitouch pinch probes |
 | `/nav/a`, `/nav/b` | history |
 | `/external-link` | link to evil-fixture |
 | `/asset-escape` | img/fetch to evil-fixture (subresource) |

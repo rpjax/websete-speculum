@@ -69,6 +69,19 @@ public class MotorUrlAdapterTests
     }
 
     [Fact]
+    public void EncodeTargetToClient_ProdEncrypt_IsNonDeterministicPerCall()
+    {
+        var adapter = ProdAdapter();
+        var a = adapter.EncodeTargetToClient(
+            "https://www.olx.com.br/", ApexProfile, OlxForwarding, "speculum.com");
+        var b = adapter.EncodeTargetToClient(
+            "https://www.olx.com.br/", ApexProfile, OlxForwarding, "speculum.com");
+        Assert.NotEqual(a, b);
+        Assert.Contains($"{W7sNavigationQueryParam.Name}=", a);
+        Assert.Contains($"{W7sNavigationQueryParam.Name}=", b);
+    }
+
+    [Fact]
     public void RoundTrip_ApexMode_PreservesPathAndQuery()
     {
         var adapter = DevAdapter();

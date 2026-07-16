@@ -117,6 +117,186 @@ public sealed class InputFramesPopupTests : MotorAssertTestBase
     }
 
     [MotorAssertFact]
+    public async Task C6_touch_tap_increments_fixture_counter()
+    {
+        var since = DateTimeOffset.UtcNow.AddSeconds(-2);
+        var actId = Guid.NewGuid().ToString("N");
+        await using var act = new MotorActClient(fx.Host);
+        await act.ConnectAsync();
+        await act.StartSessionAsync(
+            $"{fx.Host.FixtureClientOrigin}/click-target", actId,
+            device: new MotorDeviceProfile
+            {
+                Mobile = true, Touch = true, DeviceScaleFactor = 1, MaxTouchPoints = 5,
+                UserAgentProfile = "mobile",
+            });
+        await fx.Diagnostics.WaitForEventsAsync(
+            act.ConnectionId, "Motor.Session", since,
+            ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
+
+        await fx.Diagnostics.WaitEvaluateContainsAsync(
+            act.ConnectionId!, "document.getElementById('out')?.getAttribute('data-clicks')", "0");
+        await act.SendTouchTapAsync(200, 140);
+        await fx.Diagnostics.WaitEvaluateContainsAsync(
+            act.ConnectionId!, "document.getElementById('out')?.getAttribute('data-clicks')", "1");
+    }
+
+    [MotorAssertFact]
+    public async Task C7_touch_cancel_does_not_click()
+    {
+        var since = DateTimeOffset.UtcNow.AddSeconds(-2);
+        var actId = Guid.NewGuid().ToString("N");
+        await using var act = new MotorActClient(fx.Host);
+        await act.ConnectAsync();
+        await act.StartSessionAsync(
+            $"{fx.Host.FixtureClientOrigin}/click-target", actId,
+            device: new MotorDeviceProfile
+            {
+                Mobile = true, Touch = true, DeviceScaleFactor = 1, MaxTouchPoints = 5,
+                UserAgentProfile = "mobile",
+            });
+        await fx.Diagnostics.WaitForEventsAsync(
+            act.ConnectionId, "Motor.Session", since,
+            ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
+
+        var point = new { id = 1, x = 200.0, y = 140.0, radiusX = 1.0, radiusY = 1.0, force = 0.5 };
+        await act.SendTouchAsync("start", [point], [1]);
+        await act.SendTouchAsync("cancel", [], [1]);
+        await fx.Diagnostics.WaitEvaluateContainsAsync(
+            act.ConnectionId!, "window.__SPECULUM_TOUCH__?.cancels >= 1", "true");
+        await fx.Diagnostics.WaitEvaluateContainsAsync(
+            act.ConnectionId!, "document.getElementById('out')?.getAttribute('data-clicks')", "0");
+    }
+
+    [MotorAssertFact]
+    public async Task C8_multitouch_reports_two_points()
+    {
+        var since = DateTimeOffset.UtcNow.AddSeconds(-2);
+        var actId = Guid.NewGuid().ToString("N");
+        await using var act = new MotorActClient(fx.Host);
+        await act.ConnectAsync();
+        await act.StartSessionAsync(
+            $"{fx.Host.FixtureClientOrigin}/click-target", actId,
+            device: new MotorDeviceProfile
+            {
+                Mobile = true, Touch = true, DeviceScaleFactor = 1, MaxTouchPoints = 5,
+                UserAgentProfile = "mobile",
+            });
+        await fx.Diagnostics.WaitForEventsAsync(
+            act.ConnectionId, "Motor.Session", since,
+            ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
+
+        var p1 = new { id = 1, x = 180.0, y = 130.0, radiusX = 1.0, radiusY = 1.0, force = 0.5 };
+        var p2 = new { id = 2, x = 220.0, y = 150.0, radiusX = 1.0, radiusY = 1.0, force = 0.5 };
+        await act.SendTouchAsync("start", [p1], [1]);
+        await act.SendTouchAsync("start", [p1, p2], [2]);
+        await fx.Diagnostics.WaitEvaluateContainsAsync(
+            act.ConnectionId!, "window.__SPECULUM_TOUCH__?.maxPoints >= 2", "true");
+        await act.SendTouchAsync("end", [], [1, 2]);
+    }
+
+    [MotorAssertFact]
+    public async Task C9_input_rejected_emits_catalog_event()
+    {
+        var since = DateTimeOffset.UtcNow.AddSeconds(-2);
+        var actId = Guid.NewGuid().ToString("N");
+        await using var act = new MotorActClient(fx.Host);
+        await act.ConnectAsync();
+        await act.StartSessionAsync($"{fx.Host.FixtureClientOrigin}/click-target", actId);
+        await fx.Diagnostics.WaitForEventsAsync(
+            act.ConnectionId, "Motor.Session", since,
+            ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
+
+        var rejectSince = DateTimeOffset.UtcNow.AddSeconds(-1);
+        await act.SendUserInputJsonAsync("""{"type":"paste","text":"nope"}""");
+        var rejected = await fx.Diagnostics.WaitForEventsAsync(
+            act.ConnectionId, "Motor.InputRejected", rejectSince,
+            ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.InputRejected"));
+        var payload = rejected.First(e => e.GetProperty("name").GetString() == "Motor.InputRejected")
+            .GetProperty("payload");
+        Assert.Equal("input_blocked", payload.GetProperty("errorCode").GetString());
+        Assert.Equal("validate", payload.GetProperty("phase").GetString());
+        await act.SendClickAsync(200, 140);
+        await fx.Diagnostics.WaitEvaluateContainsAsync(
+            act.ConnectionId!, "document.getElementById('out')?.getAttribute('data-clicks')", "1");
+    }
+
+    [MotorAssertFact]
+    public async Task C10_touch_scroll_moves_scrollTop()
+    {
+        var since = DateTimeOffset.UtcNow.AddSeconds(-2);
+        var actId = Guid.NewGuid().ToString("N");
+        await using var act = new MotorActClient(fx.Host);
+        await act.ConnectAsync();
+        await act.StartSessionAsync(
+            $"{fx.Host.FixtureClientOrigin}/touch-scroll", actId,
+            device: new MotorDeviceProfile
+            {
+                Mobile = true, Touch = true, DeviceScaleFactor = 1, MaxTouchPoints = 5,
+                UserAgentProfile = "mobile",
+            });
+        await fx.Diagnostics.WaitForEventsAsync(
+            act.ConnectionId, "Motor.Session", since,
+            ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
+
+        await fx.Diagnostics.WaitEvaluateContainsAsync(
+            act.ConnectionId!, "document.getElementById('speculum-probe')?.dataset.page", "touch-scroll");
+
+        var id = 1;
+        await act.SendTouchAsync("start", [new { id, x = 200.0, y = 400.0, radiusX = 1.0, radiusY = 1.0, force = 0.5 }], [id]);
+        for (var y = 380; y >= 120; y -= 40)
+        {
+            await act.SendTouchAsync("move", [new { id, x = 200.0, y = (double)y, radiusX = 1.0, radiusY = 1.0, force = 0.5 }], [id]);
+        }
+        await act.SendTouchAsync("end", [], [id]);
+
+        await fx.Diagnostics.WaitEvaluateContainsAsync(
+            act.ConnectionId!, "window.__SPECULUM_SCROLL__ > 20", "true");
+    }
+
+    [MotorAssertFact]
+    public async Task C11_mobile_device_profile_sets_maxTouchPoints()
+    {
+        var since = DateTimeOffset.UtcNow.AddSeconds(-2);
+        var actId = Guid.NewGuid().ToString("N");
+        await using var act = new MotorActClient(fx.Host);
+        await act.ConnectAsync();
+        await act.StartSessionAsync(
+            $"{fx.Host.FixtureClientOrigin}/click-target", actId,
+            device: new MotorDeviceProfile
+            {
+                Mobile = true, Touch = true, DeviceScaleFactor = 2, MaxTouchPoints = 5,
+                UserAgentProfile = "mobile",
+            });
+        await fx.Diagnostics.WaitForEventsAsync(
+            act.ConnectionId, "Motor.Session", since,
+            ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
+
+        await fx.Diagnostics.WaitEvaluateContainsAsync(
+            act.ConnectionId!, "navigator.maxTouchPoints >= 1", "true");
+        await fx.Diagnostics.WaitEvaluateContainsAsync(
+            act.ConnectionId!, "window.devicePixelRatio >= 1", "true");
+    }
+
+    [MotorAssertFact]
+    public async Task C12_text_input_reaches_focused_field()
+    {
+        var since = DateTimeOffset.UtcNow.AddSeconds(-2);
+        var actId = Guid.NewGuid().ToString("N");
+        await using var act = new MotorActClient(fx.Host);
+        await act.ConnectAsync();
+        await act.StartSessionAsync($"{fx.Host.FixtureClientOrigin}/click-target", actId);
+        await fx.Diagnostics.WaitForEventsAsync(
+            act.ConnectionId, "Motor.Session", since,
+            ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
+
+        await act.SendClickAsync(200, 216);
+        await act.SendTextAsync("hello");
+        await fx.Diagnostics.WaitEvaluateContainsAsync(
+            act.ConnectionId!, "window.__SPECULUM_INPUT__ || ''", "hello");
+    }
+
+    [MotorAssertFact]
     public async Task D3_frames_arrive_with_jpeg_and_sequence()
     {
         var since = DateTimeOffset.UtcNow.AddSeconds(-2);

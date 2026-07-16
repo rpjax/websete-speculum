@@ -55,10 +55,24 @@ public sealed class EdgeSynchronizer : IEdgeSynchronizer
                 Forwarding  = forwarding,
             };
 
+            var staticPath = Path.Combine(_traefikRoot, "traefik.static.yml");
+            var staticBefore = File.Exists(staticPath) ? await File.ReadAllTextAsync(staticPath, ct) : null;
+
             var profile = _bootstrap.IsDevelopment ? (IEdgeProfile)_developmentProfile : _productionProfile;
             profile.Materialize(context);
 
-            await _reloader.ReloadAsync(ct);
+            var staticAfter = File.Exists(staticPath) ? await File.ReadAllTextAsync(staticPath, ct) : null;
+            var staticChanged = !string.Equals(staticBefore, staticAfter, StringComparison.Ordinal);
+
+            try
+            {
+                await _reloader.ReloadAsync(restartForStaticConfig: staticChanged && staticAfter is not null, ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Traefik reload/restart signal failed after edge materialization.");
+            }
+
             _logger.LogInformation("Edge configuration materialized under {Root}.", _traefikRoot);
         }
         catch (Exception ex)

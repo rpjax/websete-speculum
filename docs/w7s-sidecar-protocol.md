@@ -63,7 +63,45 @@ Sidecar replies with `{"type":"ready","sessionId":"…"}` or:
 
 ### Input events (after create)
 
-`navigate`, `mousemove`, `mousedown`, `mouseup`, `wheel`, `keydown`, `keyup`, `type`, `resize`, `refresh`, `goback`, `goforward`, `evaljs`.
+`navigate`, `mousemove`, `mousedown`, `mouseup`, `wheel`, `keydown`, `keyup`, `type`, `text`, `touch`, `resize`, `refresh`, `goback`, `goforward`, `evaljs`.
+
+Touch (CDP `Input.dispatchTouchEvent`):
+
+```json
+{
+  "type": "touch",
+  "phase": "start|move|end|cancel",
+  "points": [{ "id": 1, "x": 10, "y": 20, "radiusX": 1, "radiusY": 1, "force": 0.5 }],
+  "changedIds": [1]
+}
+```
+
+CDP requires empty `touchPoints` on `touchEnd`/`touchCancel`. On a partial lift the wire still lists remaining contacts in `points`; the sidecar sends empty end/cancel then re-asserts remaining via `touchStart`.
+
+Text (IME / virtual keyboard — CDP `Input.insertText`):
+
+```json
+{ "type": "text", "text": "こんにちは", "source": "composition" }
+```
+
+Create / resize may include a device profile:
+
+```json
+{
+  "mobile": true,
+  "touch": true,
+  "deviceScaleFactor": 2,
+  "maxTouchPoints": 5,
+  "userAgentProfile": "mobile",
+  "screenOrientation": "portrait-primary"
+}
+```
+
+Status JSON may include optional editing focus for the client virtual keyboard:
+
+```json
+{ "editing": { "focused": true, "inputMode": "text", "multiline": false, "tagName": "input" } }
+```
 
 ### Export state
 

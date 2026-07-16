@@ -6,9 +6,11 @@ public sealed class ProductionEdgeProfile : IEdgeProfile
 {
     public void Materialize(EdgeMaterializationContext context)
     {
-        context.WriteDynamicFile("certificates.yml", TraefikYamlBuilder.BuildCertificatesYaml(context.Hosting));
+        // certificatesResolvers are Traefik *static* config — must not live under the dynamic
+        // file provider (routers reference certResolver: le / le-dns-*).
+        context.WriteTraefikFile("traefik.static.yml", TraefikYamlBuilder.BuildCertificatesYaml(context.Hosting));
+        context.DeleteDynamicFile("certificates.yml");
         context.WriteDynamicFile("bootstrap.yml", TraefikYamlBuilder.BuildBootstrapRoutersYaml());
-        context.DeleteTraefikFile("traefik.static.yml");
 
         var motorYaml = TraefikYamlBuilder.BuildMotorRoutersYaml(context.Hosting);
         if (motorYaml is null)

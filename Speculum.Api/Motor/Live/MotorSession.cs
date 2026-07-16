@@ -57,6 +57,7 @@ public sealed class MotorSession : IMotorSession
     private int _inputAcceptedApprox;
     private int _inputForwardedApprox;
     private string _lastMappedClientUrl = "";
+    private string _lastMappedTargetUrl = "";
 
     public string? PersistedSessionId
     {
@@ -195,6 +196,7 @@ public sealed class MotorSession : IMotorSession
                 scripts:                  _snapshot.Scripts.Count > 0 ? _snapshot.Scripts : null,
                 jsBridgeEnabled:          _snapshot.JsBridgeEnabled,
                 allowedNavigationDomains: _snapshot.AllowedNavigationDomains,
+                device:                   _snapshot.Device,
                 ct:                       ct);
 
             _client = client;
@@ -317,12 +319,25 @@ public sealed class MotorSession : IMotorSession
             JsonSerializer.SerializeToUtf8Bytes(new { type = "navigate", url }).AsMemory(), ct);
     }
 
-    public Task ResizeAsync(int width, int height, CancellationToken ct = default)
+    public Task ResizeAsync(int width, int height, DeviceProfile? device = null, CancellationToken ct = default)
     {
-        _events.Resize(width, height);
+        var (w, h) = ViewportDimensions.Normalize(width, height);
+        var profile = ViewportDimensions.NormalizeDevice(device ?? _snapshot.Device);
+        _events.Resize(w, h);
 
         return _client!.SendInputAsync(
-            JsonSerializer.SerializeToUtf8Bytes(new { type = "resize", width, height }).AsMemory(), ct);
+            JsonSerializer.SerializeToUtf8Bytes(new
+            {
+                type = "resize",
+                width = w,
+                height = h,
+                mobile = profile.Mobile,
+                touch = profile.Touch,
+                deviceScaleFactor = profile.DeviceScaleFactor,
+                maxTouchPoints = profile.MaxTouchPoints,
+                userAgentProfile = profile.UserAgentProfile,
+                screenOrientation = profile.ScreenOrientation,
+            }).AsMemory(), ct);
     }
 
     private async Task PumpFramesAsync(CancellationToken ct)
@@ -426,6 +441,15 @@ public sealed class MotorSession : IMotorSession
 
     internal string MapTargetUrlForClient(string targetUrl)
     {
+        // Production NSO uses AES-GCM with a fresh nonce per Encode — identical targets
+        // would otherwise yield a new query string on every 1s MSG_STATUS and thrash
+        // client history.pushState. Reuse the last mapped client URL for the same target.
+        if (!string.IsNullOrEmpty(_lastMappedClientUrl)
+            && string.Equals(targetUrl, _lastMappedTargetUrl, StringComparison.Ordinal))
+        {
+            return _lastMappedClientUrl;
+        }
+
         var forwarding = _snapshot.Forwarding;
         string clientUrl;
         if (forwarding is null)
@@ -442,6 +466,7 @@ public sealed class MotorSession : IMotorSession
                     targetUrl, profile, forwarding, _snapshot.MotorRequestHost);
         }
 
+        _lastMappedTargetUrl = targetUrl;
         MaybePublishUrlMapped(targetUrl, clientUrl);
         return clientUrl;
     }
@@ -463,15 +488,16 @@ public sealed class MotorSession : IMotorSession
         {
             await foreach (var payload in reader.ReadAllAsync(ct))
             {
-                Interlocked.Increment(ref _inputAcceptedApprox);
                 try
                 {
                     if (!SidecarInputGuard.TryValidateUserInputPayload(payload, out var rejectReason))
                     {
                         _logger.LogWarning("Input de utilizador bloqueado: {Reason}", rejectReason);
+                        _events.InputRejected(rejectReason ?? "blocked", TryPeekInputType(payload));
                         continue;
                     }
 
+                    Interlocked.Increment(ref _inputAcceptedApprox);
                     await _client!.SendInputAsync(Encoding.UTF8.GetBytes(payload).AsMemory(), ct);
                     Interlocked.Increment(ref _inputForwardedApprox);
                 }
@@ -539,6 +565,18 @@ public sealed class MotorSession : IMotorSession
 
             _lastEventUtc = DateTimeOffset.UtcNow;
 
+            EditingState? editing = null;
+            if (root.TryGetProperty("editing", out var ed) && ed.ValueKind == JsonValueKind.Object)
+            {
+                editing = new EditingState
+                {
+                    Focused = ed.TryGetProperty("focused", out var f) && f.GetBoolean(),
+                    InputMode = ed.TryGetProperty("inputMode", out var im) ? im.GetString() : null,
+                    Multiline = ed.TryGetProperty("multiline", out var ml) && ml.GetBoolean(),
+                    TagName = ed.TryGetProperty("tagName", out var tn) ? tn.GetString() : null,
+                };
+            }
+
             var status = new SessionStatus
             {
                 TabCount        = root.TryGetProperty("tabCount", out var tc) ? tc.GetInt32()     : -1,
@@ -550,6 +588,7 @@ public sealed class MotorSession : IMotorSession
                 UptimeMs        = (long)(now - _startTime).TotalMilliseconds,
                 SessionId       = _sidecarSessionId,
                 JsBridgeEnabled = _snapshot.JsBridgeEnabled,
+                Editing         = editing,
             };
 
             MaybeMirrorStatus(status);
@@ -565,4 +604,16 @@ public sealed class MotorSession : IMotorSession
             status.TabCount,
             status.Width,
             status.Height);
+
+    private static string? TryPeekInputType(string payload)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(payload);
+            if (doc.RootElement.TryGetProperty("type", out var t) && t.ValueKind == JsonValueKind.String)
+                return t.GetString();
+        }
+        catch { /* ignore */ }
+        return null;
+    }
 }

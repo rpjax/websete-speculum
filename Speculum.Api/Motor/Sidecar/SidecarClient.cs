@@ -71,6 +71,7 @@ public sealed class SidecarClient : ISidecarClient
         IReadOnlyList<ScriptPayload>? scripts                  = null,
         bool                          jsBridgeEnabled          = false,
         IReadOnlyList<string>?        allowedNavigationDomains = null,
+        Speculum.Api.Motor.Live.DeviceProfile? device          = null,
         CancellationToken             ct                       = default)
     {
         var uri = new Uri(sidecarBaseUrl.TrimEnd('/'));
@@ -91,6 +92,16 @@ public sealed class SidecarClient : ISidecarClient
             ["jsBridgeEnabled"]          = jsBridgeEnabled,
             ["allowedNavigationDomains"] = allowedNavigationDomains,
         };
+
+        if (device is not null)
+        {
+            createPayload["mobile"] = device.Mobile;
+            createPayload["touch"] = device.Touch;
+            createPayload["deviceScaleFactor"] = device.DeviceScaleFactor;
+            createPayload["maxTouchPoints"] = device.MaxTouchPoints;
+            createPayload["userAgentProfile"] = device.UserAgentProfile;
+            createPayload["screenOrientation"] = device.ScreenOrientation;
+        }
 
         if (browserState is not null)
             createPayload["browserState"] = browserState;

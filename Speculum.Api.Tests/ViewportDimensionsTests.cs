@@ -10,6 +10,7 @@ public sealed class ViewportDimensionsTests
     [InlineData(0, 0, 1280, 720)]
     [InlineData(-1, 0, 1280, 720)]
     [InlineData(640, -10, 640, 720)]
+    [InlineData(8000, 4000, 4096, 2160)]
     public void Normalize_uses_client_viewport_or_defaults(
         int inputW, int inputH, int expectedW, int expectedH)
     {
@@ -31,5 +32,29 @@ public sealed class ViewportDimensionsTests
 
         Assert.Equal(1440, snapshot.Width);
         Assert.Equal(900, snapshot.Height);
+    }
+
+    [Fact]
+    public void NormalizeDevice_caps_dpr_and_enables_touch_for_mobile()
+    {
+        var d = ViewportDimensions.NormalizeDevice(new DeviceProfile
+        {
+            Mobile = true,
+            DeviceScaleFactor = 4,
+            MaxTouchPoints = 0,
+        });
+        Assert.True(d.Mobile);
+        Assert.True(d.Touch);
+        Assert.Equal(2, d.DeviceScaleFactor);
+        Assert.Equal(5, d.MaxTouchPoints);
+        Assert.Equal("mobile", d.UserAgentProfile);
+    }
+
+    [Fact]
+    public void Normalize_clamps_oversized_resize_like_start()
+    {
+        var (w, h) = ViewportDimensions.Normalize(9000, 5000);
+        Assert.Equal(ViewportDimensions.MaxWidth, w);
+        Assert.Equal(ViewportDimensions.MaxHeight, h);
     }
 }

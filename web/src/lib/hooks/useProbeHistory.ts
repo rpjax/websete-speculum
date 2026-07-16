@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from 'react'
 import type { BrowserProbeResponse } from '@/lib/diagnosticsApi'
+import { createUuid } from '@/lib/createUuid'
 
 const STORAGE_KEY = 'speculum-probe-history'
 const MAX_ENTRIES = 20
@@ -55,7 +56,7 @@ export function useProbeHistory() {
     }
 
     const entry: ProbeHistoryEntry = {
-      id: crypto.randomUUID(),
+      id: createUuid(),
       connectionId,
       ops,
       timestamp: new Date().toISOString(),
@@ -105,7 +106,7 @@ export function useProbeTemplates() {
 
   const saveTemplate = useCallback((name: string, ops: string[], evaluateExpression?: string, domSelector?: string) => {
     const t: ProbeTemplate = {
-      id: crypto.randomUUID(),
+      id: createUuid(),
       name,
       ops,
       evaluateExpression,

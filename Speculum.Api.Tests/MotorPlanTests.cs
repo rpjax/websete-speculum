@@ -83,6 +83,184 @@ public class BrowserSessionStoreTests : IDisposable
         await store.PurgeExpiredAsync();
         Assert.Null(await store.LoadStateAsync(sessionId));
     }
+
+    [Fact]
+    public async Task SaveState_MergesHistory_AcrossSaves()
+    {
+        var store = new BrowserSessionStore(_dbPath, NullLogger<BrowserSessionStore>.Instance);
+        await store.InitializeAsync();
+        var sessionId = await store.ResolveOrCreateSessionAsync("abcdef0123456789abcdef0123456789");
+
+        await store.SaveStateAsync(sessionId, new BrowserStatePayload
+        {
+            History =
+            [
+                Entry("https://example.com/a", 0, 1000),
+                Entry("https://example.com/b", 1, 1001),
+            ],
+        });
+
+        await store.SaveStateAsync(sessionId, new BrowserStatePayload
+        {
+            History =
+            [
+                Entry("https://example.com/c", 0, 2000),
+            ],
+        });
+
+        var loaded = await store.LoadStateAsync(sessionId);
+        Assert.NotNull(loaded);
+        Assert.Equal(3, loaded!.History.Count);
+        Assert.Equal("https://example.com/a", loaded.History[0].Url);
+        Assert.Equal("https://example.com/b", loaded.History[1].Url);
+        Assert.Equal("https://example.com/c", loaded.History[2].Url);
+        Assert.Equal(new[] { 0, 1, 2 }, loaded.History.Select(h => h.IndexOrder).ToArray());
+        Assert.Equal(1000, loaded.History[0].VisitedAtMs);
+        Assert.Equal(2000, loaded.History[2].VisitedAtMs);
+    }
+
+    [Fact]
+    public async Task SaveState_EmptyHistoryExport_PreservesExisting()
+    {
+        var store = new BrowserSessionStore(_dbPath, NullLogger<BrowserSessionStore>.Instance);
+        await store.InitializeAsync();
+        var sessionId = await store.ResolveOrCreateSessionAsync("abcdef0123456789abcdef0123456789");
+
+        await store.SaveStateAsync(sessionId, new BrowserStatePayload
+        {
+            History = [Entry("https://example.com/a", 0, 1000)],
+            Cookies =
+            [
+                new BrowserCookieState
+                {
+                    Name = "sid", Value = "1", Domain = ".example.com", Path = "/",
+                },
+            ],
+        });
+
+        await store.SaveStateAsync(sessionId, new BrowserStatePayload
+        {
+            History = [],
+            Cookies =
+            [
+                new BrowserCookieState
+                {
+                    Name = "sid", Value = "2", Domain = ".example.com", Path = "/",
+                },
+            ],
+        });
+
+        var loaded = await store.LoadStateAsync(sessionId);
+        Assert.NotNull(loaded);
+        Assert.Single(loaded!.History);
+        Assert.Equal("https://example.com/a", loaded.History[0].Url);
+        Assert.Equal(1000, loaded.History[0].VisitedAtMs);
+        Assert.Equal("2", loaded.Cookies[0].Value);
+    }
+
+    private static BrowserHistoryState Entry(string url, int index, long visitedAtMs)
+        => new()
+        {
+            Url = url,
+            Title = "",
+            VisitedAtMs = visitedAtMs,
+            TransitionType = "typed",
+            IndexOrder = index,
+        };
+}
+
+public class BrowserHistoryMergeTests
+{
+    [Fact]
+    public void Merge_AppendsWithoutOverlap()
+    {
+        var existing = new[] { H("https://a", "typed"), H("https://b", "link") };
+        var exported = new[] { H("https://c", "typed") };
+
+        var merged = BrowserHistoryMerge.Merge(existing, exported);
+
+        Assert.Equal(new[] { "https://a", "https://b", "https://c" }, merged.Select(x => x.Url));
+        Assert.Equal(new[] { 0, 1, 2 }, merged.Select(x => x.IndexOrder));
+    }
+
+    [Fact]
+    public void Merge_OverlapsSuffixPrefix()
+    {
+        var existing = new[] { H("https://a", "typed"), H("https://b", "link") };
+        var exported = new[] { H("https://b", "link"), H("https://c", "typed") };
+
+        var merged = BrowserHistoryMerge.Merge(existing, exported);
+
+        Assert.Equal(3, merged.Count);
+        Assert.Equal(new[] { "https://a", "https://b", "https://c" }, merged.Select(x => x.Url));
+        Assert.Equal(new[] { 0, 1, 2 }, merged.Select(x => x.IndexOrder));
+    }
+
+    [Fact]
+    public void Merge_OverlapsTipUrl_EvenWhenTransitionDiffers()
+    {
+        var existing = new[] { H("https://a", "typed"), H("https://b", "link") };
+        var exported = new[] { H("https://b", "typed"), H("https://c", "typed") };
+
+        var merged = BrowserHistoryMerge.Merge(existing, exported);
+
+        Assert.Equal(new[] { "https://a", "https://b", "https://c" }, merged.Select(x => x.Url));
+        Assert.Equal("link", merged[1].TransitionType);
+    }
+
+    [Fact]
+    public void Merge_EmptyExport_PreservesExisting()
+    {
+        var existing = new[] { H("https://a", "typed") };
+        var merged = BrowserHistoryMerge.Merge(existing, []);
+        Assert.Single(merged);
+        Assert.Equal("https://a", merged[0].Url);
+        Assert.Equal(0, merged[0].IndexOrder);
+    }
+
+    [Fact]
+    public void Merge_CapsKeepingNewest()
+    {
+        var existing = Enumerable.Range(0, 3).Select(i => H($"https://e/{i}", "typed")).ToArray();
+        var exported = Enumerable.Range(0, 3).Select(i => H($"https://x/{i}", "typed")).ToArray();
+
+        var merged = BrowserHistoryMerge.Merge(existing, exported, maxEntries: 4);
+
+        Assert.Equal(4, merged.Count);
+        Assert.Equal(new[] { "https://e/2", "https://x/0", "https://x/1", "https://x/2" },
+            merged.Select(x => x.Url));
+        Assert.Equal(new[] { 0, 1, 2, 3 }, merged.Select(x => x.IndexOrder));
+    }
+
+    [Fact]
+    public void Merge_DropsAboutBlankFromExport()
+    {
+        var existing = new[] { H("https://a", "typed") };
+        var exported = new[] { H("about:blank", ""), H("https://b", "typed") };
+
+        var merged = BrowserHistoryMerge.Merge(existing, exported);
+
+        Assert.Equal(new[] { "https://a", "https://b" }, merged.Select(x => x.Url));
+    }
+
+    [Fact]
+    public void Merge_AboutBlankOnlyExport_PreservesExisting()
+    {
+        var existing = new[] { H("https://a", "typed") };
+        var merged = BrowserHistoryMerge.Merge(existing, [H("about:blank", "")]);
+        Assert.Single(merged);
+        Assert.Equal("https://a", merged[0].Url);
+    }
+
+    private static BrowserHistoryState H(string url, string transition)
+        => new()
+        {
+            Url = url,
+            Title = "t",
+            VisitedAtMs = 1,
+            TransitionType = transition,
+            IndexOrder = 0,
+        };
 }
 
 public class ClientTokenNormalizerTests

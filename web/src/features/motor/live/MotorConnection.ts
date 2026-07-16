@@ -87,7 +87,12 @@ export class MotorConnection {
   /** Set by MotorEngine after construction — used for reconnect bootstrap. */
   rebootstrap: (() => Promise<void>) | null = null
 
-  async invokeStartSession(initW: number, initH: number, correlationId?: string): Promise<string | null> {
+  async invokeStartSession(
+    initW: number,
+    initH: number,
+    correlationId?: string,
+    device?: import('./types').DeviceProfilePayload,
+  ): Promise<string | null> {
     if (!this.connection) return null
     try {
       return await this.connection.invoke<string>(
@@ -96,6 +101,7 @@ export class MotorConnection {
         initW,
         initH,
         { clientToken: loadClientToken(), correlationId },
+        device ?? null,
       )
     } catch (err) {
       if (isSetupRequiredError(err)) {

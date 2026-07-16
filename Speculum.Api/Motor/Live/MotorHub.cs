@@ -21,7 +21,8 @@ public sealed class MotorHub : Hub
         string clientUrl,
         int viewportWidth,
         int viewportHeight,
-        SessionIdentity? identity)
+        SessionIdentity? identity,
+        DeviceProfile? device = null)
         => _coordinator.StartSessionAsync(
             Context.ConnectionId,
             Context.GetHttpContext()?.Request.Host.Value,
@@ -29,7 +30,8 @@ public sealed class MotorHub : Hub
             clientUrl,
             viewportWidth,
             viewportHeight,
-            identity);
+            identity,
+            device);
 
     public override async Task OnDisconnectedAsync(Exception? exception)
     {
@@ -58,8 +60,8 @@ public sealed class MotorHub : Hub
             clientUrl,
             Context.GetHttpContext()?.Request.Host.Value);
 
-    public Task ResizeAsync(int width, int height)
-        => RequireSession().ResizeAsync(width, height);
+    public Task ResizeAsync(int width, int height, DeviceProfile? device = null)
+        => RequireSession().ResizeAsync(width, height, device);
 
     private IMotorSession RequireSession()
     {

@@ -53,6 +53,7 @@ public interface IMotorEvents
 
     void SidecarFaulted(string fault);
     void Resize(int width, int height);
+    void InputRejected(string rejectReason, string? inputType);
     void UrlMapped(string targetUrl, string clientUrl);
     void StatusMirror(double fps, long uptimeMs, int tabCount, int width, int height);
 
@@ -231,6 +232,21 @@ public sealed class MotorEvents : IMotorEvents
             return;
 
         Publish("Motor.ResizeRequested", new MotorResizePayload(width, height));
+    }
+
+    public void InputRejected(string rejectReason, string? inputType)
+    {
+        if (!_runtime.IsCapabilityEnabled(DiagnosticsDomain.MotorLive, DiagnosticsCapability.Event))
+            return;
+
+        var errorCode = string.IsNullOrWhiteSpace(rejectReason)
+            ? "input_blocked"
+            : rejectReason.Contains("JSON", StringComparison.OrdinalIgnoreCase)
+                ? "invalid_json"
+                : "input_blocked";
+        Publish("Motor.InputRejected",
+            new MotorInputRejectedPayload(errorCode, "validate", Truncate(rejectReason), inputType),
+            DiagnosticsSeverity.Warning);
     }
 
     public void UrlMapped(string targetUrl, string clientUrl)

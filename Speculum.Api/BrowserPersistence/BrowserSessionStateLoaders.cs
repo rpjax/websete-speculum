@@ -78,10 +78,14 @@ internal static class BrowserSessionStateLoaders
     }
 
     public static async Task<List<BrowserHistoryState>> LoadHistoryAsync(
-        System.Data.Common.DbConnection conn, string sessionId, CancellationToken ct)
+        System.Data.Common.DbConnection conn,
+        string sessionId,
+        CancellationToken ct,
+        System.Data.Common.DbTransaction? tx = null)
     {
         var list = new List<BrowserHistoryState>();
         await using var cmd = conn.CreateCommand();
+        cmd.Transaction = tx;
         cmd.CommandText = """
             SELECT url, title, visited_at_ms, transition_type, index_order
             FROM browser_history WHERE session_id = $id ORDER BY index_order

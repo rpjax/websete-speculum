@@ -1,5 +1,14 @@
 import type * as signalR from '@microsoft/signalr'
 import type { MotorElements } from './types'
+import {
+  buildTouchPayload,
+  canvasToPageCoords,
+  isLocalBrowserShortcut,
+  normalizeWheelDeltas,
+  shouldThrottleMove,
+  type TouchPhase,
+  type TouchPointWire,
+} from './motorInputCoords'
 
 export type UserInputSubject = signalR.Subject<string>
 
@@ -7,17 +16,40 @@ export interface MotorInputDeps {
   getConnection: () => signalR.HubConnection | null
   getSessionSize: () => { w: number; h: number }
   getCurrentUrl: () => string
+  /** When true, keyboard shell may claim focus without fighting canvas capture. */
+  isEditingActive?: () => boolean
+  /** Fired when the hidden IME field gains/loses DOM focus (OS keyboard may open). */
+  onImeFocusChange?: (focused: boolean) => void
 }
 
+type ActiveTouch = {
+  pointerId: number
+  clientX: number
+  clientY: number
+  radiusX: number
+  radiusY: number
+  force: number
+}
+
+/**
+ * Captures pointer/keyboard/wheel on the Motor canvas and relays JSON to the hub.
+ * Touch uses a dedicated wire family; mouse/pen stay on legacy mouse events.
+ * Mouse buttons are tracked per-button (chord-safe); touch is tracked per pointerId.
+ */
 export class MotorInput {
   private heldKeys = new Set<string>()
-  private pressedBtns = new Set<number>()
+  /** Chord-safe: mouse uses one pointerId for all buttons. */
+  private pressedMouseButtons = new Set<number>()
+  private activeTouches = new Map<number, ActiveTouch>()
+  private lastMousePage = { x: 0, y: 0 }
   private cachedRect: DOMRect | null = null
   private lastMoveTime = 0
   private cleanupFns: Array<() => void> = []
   private userInputSubject: UserInputSubject | null = null
   private elements: MotorElements | null = null
   private deps: MotorInputDeps
+  private imeEl: HTMLTextAreaElement | null = null
+  private composing = false
 
   constructor(deps: MotorInputDeps) {
     this.deps = deps
@@ -29,11 +61,29 @@ export class MotorInput {
 
   clearPointerState() {
     this.heldKeys.clear()
-    this.pressedBtns.clear()
+    this.pressedMouseButtons.clear()
+    this.activeTouches.clear()
   }
 
   invalidateRect() {
     this.cachedRect = null
+  }
+
+  /** Focus the hidden IME field so the OS virtual keyboard can open. */
+  focusIme() {
+    this.imeEl?.focus({ preventScroll: true })
+  }
+
+  blurIme() {
+    this.imeEl?.blur()
+  }
+
+  isImeFocused(): boolean {
+    return !!this.imeEl && document.activeElement === this.imeEl
+  }
+
+  setImeElement(el: HTMLTextAreaElement | null) {
+    this.imeEl = el
   }
 
   bind(elements: MotorElements) {
@@ -46,92 +96,124 @@ export class MotorInput {
       this.cleanupFns.push(() => el.removeEventListener(type, fn, opts))
     }
 
-    on(canvas, 'mousemove', (e) => {
-      const ev = e as MouseEvent
-      const now = performance.now()
-      if (now - this.lastMoveTime < 16) return
-      this.lastMoveTime = now
-      const { x, y } = this.canvasToPage(ev.clientX, ev.clientY)
-      this.sendInput({ type: 'mousemove', x, y })
-    })
-
-    on(canvas, 'mousedown', (e) => {
-      const ev = e as MouseEvent
+    on(canvas, 'pointerdown', (e) => {
+      const ev = e as PointerEvent
+      const pointerType = ev.pointerType || 'mouse'
+      if (pointerType === 'mouse' && ev.button !== 0 && ev.button !== 1 && ev.button !== 2) return
       ev.preventDefault()
       canvas.focus()
-      this.pressedBtns.add(ev.button)
-      const { x, y } = this.canvasToPage(ev.clientX, ev.clientY)
-      this.sendInput({ type: 'mousedown', x, y, button: ev.button })
+      try { canvas.setPointerCapture(ev.pointerId) } catch { /* ignore */ }
+
+      if (pointerType === 'touch') {
+        this.trackTouch(ev)
+        this.emitTouch('start', [ev.pointerId])
+      } else {
+        this.pressedMouseButtons.add(ev.button)
+        const { x, y } = this.pageCoords(ev.clientX, ev.clientY)
+        this.lastMousePage = { x, y }
+        this.sendInput({ type: 'mousedown', x, y, button: ev.button })
+      }
     })
 
-    on(window, 'mouseup', (e) => {
-      const ev = e as MouseEvent
-      if (!this.pressedBtns.has(ev.button)) return
-      this.pressedBtns.delete(ev.button)
-      const { x, y } = this.canvasToPage(ev.clientX, ev.clientY)
-      this.sendInput({ type: 'mouseup', x, y, button: ev.button })
-    })
+    on(canvas, 'pointermove', (e) => {
+      const ev = e as PointerEvent
+      const pointerType = ev.pointerType || 'mouse'
 
-    on(window, 'mousemove', (e) => {
-      if (this.pressedBtns.size === 0) return
-      const ev = e as MouseEvent
+      if (pointerType === 'touch') {
+        if (!this.activeTouches.has(ev.pointerId)) return
+        this.trackTouch(ev)
+        const now = performance.now()
+        if (shouldThrottleMove(now, this.lastMoveTime)) return
+        this.lastMoveTime = now
+        this.emitTouch('move', [ev.pointerId])
+        return
+      }
+
+      // Mouse / pen: hover and drag both emit throttled mousemove.
       const now = performance.now()
-      if (now - this.lastMoveTime < 16) return
+      if (shouldThrottleMove(now, this.lastMoveTime)) return
       this.lastMoveTime = now
-      const { x, y } = this.canvasToPage(ev.clientX, ev.clientY)
+      const { x, y } = this.pageCoords(ev.clientX, ev.clientY)
+      this.lastMousePage = { x, y }
       this.sendInput({ type: 'mousemove', x, y })
+    })
+
+    const endPointer = (phase: 'end' | 'cancel') => (e: Event) => {
+      const ev = e as PointerEvent
+      const pointerType = ev.pointerType || 'mouse'
+
+      if (pointerType === 'touch') {
+        if (!this.activeTouches.has(ev.pointerId)) return
+        ev.preventDefault()
+        this.trackTouch(ev)
+        this.emitTouch(phase, [ev.pointerId])
+        this.activeTouches.delete(ev.pointerId)
+        try { canvas.releasePointerCapture(ev.pointerId) } catch { /* ignore */ }
+        return
+      }
+
+      if (phase === 'cancel') {
+        if (this.pressedMouseButtons.size === 0) return
+        ev.preventDefault()
+        // Release every chorded button so the remote never sticks.
+        const { x, y } = this.pageCoords(ev.clientX, ev.clientY)
+        this.lastMousePage = { x, y }
+        for (const button of [...this.pressedMouseButtons]) {
+          this.sendInput({ type: 'mouseup', x, y, button })
+        }
+        this.pressedMouseButtons.clear()
+        try { canvas.releasePointerCapture(ev.pointerId) } catch { /* ignore */ }
+        return
+      }
+
+      // Mouse: release only the button that went up (chord-safe).
+      if (!this.pressedMouseButtons.has(ev.button)) return
+      ev.preventDefault()
+      this.pressedMouseButtons.delete(ev.button)
+      const { x, y } = this.pageCoords(ev.clientX, ev.clientY)
+      this.lastMousePage = { x, y }
+      this.sendInput({ type: 'mouseup', x, y, button: ev.button })
+      if (this.pressedMouseButtons.size === 0) {
+        try { canvas.releasePointerCapture(ev.pointerId) } catch { /* ignore */ }
+      }
+    }
+    on(canvas, 'pointerup', endPointer('end'))
+    on(canvas, 'pointercancel', endPointer('cancel'))
+    // Capture can be lost (focus steal / OS drag). Window listeners cover release
+    // outside the browser chrome when the canvas never sees pointerup.
+    on(window, 'pointerup', endPointer('end'))
+    on(window, 'pointercancel', endPointer('cancel'))
+    on(canvas, 'lostpointercapture', (e) => {
+      const ev = e as PointerEvent
+      if (this.activeTouches.has(ev.pointerId)) {
+        this.trackTouch(ev)
+        this.emitTouch('cancel', [ev.pointerId])
+        this.activeTouches.delete(ev.pointerId)
+      }
+      if (this.pressedMouseButtons.size === 0) return
+      const { x, y } = this.lastMousePage
+      for (const button of [...this.pressedMouseButtons]) {
+        this.sendInput({ type: 'mouseup', x, y, button })
+      }
+      this.pressedMouseButtons.clear()
     })
 
     on(canvas, 'contextmenu', (e) => (e as Event).preventDefault())
 
-    on(canvas, 'touchstart', (e) => {
-      const ev = e as TouchEvent
-      ev.preventDefault()
-      canvas.focus()
-      const t = ev.changedTouches[0]
-      if (!t) return
-      const { x, y } = this.canvasToPage(t.clientX, t.clientY)
-      this.sendInput({ type: 'mousedown', x, y, button: 0 })
-    }, { passive: false })
-
-    on(canvas, 'touchmove', (e) => {
-      const ev = e as TouchEvent
-      ev.preventDefault()
-      const t = ev.touches[0]
-      if (!t) return
-      const now = performance.now()
-      if (now - this.lastMoveTime < 16) return
-      this.lastMoveTime = now
-      const { x, y } = this.canvasToPage(t.clientX, t.clientY)
-      this.sendInput({ type: 'mousemove', x, y })
-    }, { passive: false })
-
-    const endTouch = (e: Event) => {
-      const ev = e as TouchEvent
-      ev.preventDefault()
-      const t = ev.changedTouches[0]
-      if (!t) return
-      const { x, y } = this.canvasToPage(t.clientX, t.clientY)
-      this.sendInput({ type: 'mouseup', x, y, button: 0 })
-    }
-    on(canvas, 'touchend', endTouch, { passive: false })
-    on(canvas, 'touchcancel', endTouch, { passive: false })
     on(canvas, 'wheel', (e) => {
       const ev = e as WheelEvent
       ev.preventDefault()
-      const { x, y } = this.canvasToPage(ev.clientX, ev.clientY)
-      let dX = ev.deltaX
-      let dY = ev.deltaY
-      if (ev.deltaMode === 1) { dX *= 40; dY *= 40 }
-      else if (ev.deltaMode === 2) { dX *= canvas.clientWidth; dY *= canvas.clientHeight }
-      this.sendInput({ type: 'wheel', x, y, deltaX: dX, deltaY: dY })
+      const { x, y } = this.pageCoords(ev.clientX, ev.clientY)
+      const { deltaX, deltaY } = normalizeWheelDeltas(
+        ev.deltaX, ev.deltaY, ev.deltaMode, canvas.clientWidth, canvas.clientHeight)
+      this.sendInput({ type: 'wheel', x, y, deltaX, deltaY })
     }, { passive: false })
 
     canvas.setAttribute('tabindex', '0')
     on(canvas, 'keydown', (e) => {
       const ev = e as KeyboardEvent
-      if (ev.key === 'F12') return
-      if ((ev.ctrlKey || ev.metaKey) && ['r', 'l', 't', 'w', 'n'].includes(ev.key.toLowerCase())) return
+      if (isLocalBrowserShortcut(ev.key, ev.ctrlKey || ev.metaKey)) return
+      if (this.deps.isEditingActive?.()) return
       ev.preventDefault()
       this.heldKeys.add(ev.key)
       this.sendInput({ type: 'keydown', key: ev.key })
@@ -145,6 +227,12 @@ export class MotorInput {
     on(canvas, 'blur', () => {
       for (const key of this.heldKeys) this.sendInput({ type: 'keyup', key })
       this.heldKeys.clear()
+      if (this.pressedMouseButtons.size === 0) return
+      const { x, y } = this.lastMousePage
+      for (const button of [...this.pressedMouseButtons]) {
+        this.sendInput({ type: 'mouseup', x, y, button })
+      }
+      this.pressedMouseButtons.clear()
     })
 
     on(urlBar, 'keydown', (e) => {
@@ -167,29 +255,121 @@ export class MotorInput {
     })
     on(urlBar, 'blur', () => { urlBar.value = this.deps.getCurrentUrl() })
     on(urlBar, 'focus', () => urlBar.select())
+
+    if (this.imeEl) this.bindIme(this.imeEl, on)
+  }
+
+  bindIme(ime: HTMLTextAreaElement, on = (
+    el: EventTarget, type: string, fn: EventListener, opts?: AddEventListenerOptions,
+  ) => {
+    el.addEventListener(type, fn, opts)
+    this.cleanupFns.push(() => el.removeEventListener(type, fn, opts))
+  }) {
+    on(ime, 'focus', () => this.deps.onImeFocusChange?.(true))
+    on(ime, 'blur', () => this.deps.onImeFocusChange?.(false))
+    on(ime, 'compositionstart', () => { this.composing = true })
+    on(ime, 'compositionend', (e) => {
+      this.composing = false
+      const data = (e as CompositionEvent).data
+      if (data) this.sendInput({ type: 'text', text: data, source: 'composition' })
+      ime.value = ''
+    })
+    on(ime, 'beforeinput', (e) => {
+      const ev = e as InputEvent
+      if (this.composing) return
+      if (ev.inputType === 'insertText' && ev.data) {
+        ev.preventDefault()
+        this.sendInput({ type: 'text', text: ev.data, source: 'insert' })
+        ime.value = ''
+      } else if (ev.inputType === 'insertCompositionText') {
+        // Wait for compositionend
+      } else if (ev.inputType === 'deleteContentBackward') {
+        ev.preventDefault()
+        this.sendInput({ type: 'keydown', key: 'Backspace' })
+        this.sendInput({ type: 'keyup', key: 'Backspace' })
+      } else if (ev.inputType === 'insertLineBreak' || ev.inputType === 'insertParagraph') {
+        ev.preventDefault()
+        this.sendInput({ type: 'keydown', key: 'Enter' })
+        this.sendInput({ type: 'keyup', key: 'Enter' })
+      }
+    })
+    on(ime, 'keydown', (e) => {
+      const ev = e as KeyboardEvent
+      if (this.composing) return
+      if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Tab', 'Escape'].includes(ev.key)) {
+        ev.preventDefault()
+        this.sendInput({ type: 'keydown', key: ev.key })
+      }
+    })
+    on(ime, 'keyup', (e) => {
+      const ev = e as KeyboardEvent
+      if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Tab', 'Escape'].includes(ev.key)) {
+        this.sendInput({ type: 'keyup', key: ev.key })
+      }
+    })
   }
 
   unbind() {
     for (const fn of this.cleanupFns) fn()
     this.cleanupFns = []
     this.elements = null
+    this.pressedMouseButtons.clear()
+    this.activeTouches.clear()
   }
 
   goBack() { this.sendInput({ type: 'goback' }) }
   goForward() { this.sendInput({ type: 'goforward' }) }
+
+  /** Test seam: emit a raw payload. */
+  sendRawForTests(obj: Record<string, unknown>) {
+    this.sendInput(obj)
+  }
+
+  private trackTouch(ev: PointerEvent): ActiveTouch {
+    const touch: ActiveTouch = {
+      pointerId: ev.pointerId,
+      clientX: ev.clientX,
+      clientY: ev.clientY,
+      radiusX: Number.isFinite(ev.width) ? Math.max(1, ev.width / 2) : 1,
+      radiusY: Number.isFinite(ev.height) ? Math.max(1, ev.height / 2) : 1,
+      force: Number.isFinite(ev.pressure) ? ev.pressure : 0.5,
+    }
+    this.activeTouches.set(ev.pointerId, touch)
+    return touch
+  }
+
+  private emitTouch(phase: TouchPhase, changedIds: number[]) {
+    const points: TouchPointWire[] = [...this.activeTouches.values()].map((p) => {
+      const { x, y } = this.pageCoords(p.clientX, p.clientY)
+      return {
+        id: p.pointerId,
+        x,
+        y,
+        radiusX: p.radiusX,
+        radiusY: p.radiusY,
+        force: p.force,
+      }
+    })
+
+    // CDP touchEnd/Cancel require empty touchPoints; remaining contacts are carried
+    // on the wire so the sidecar can re-assert them after the empty end/cancel.
+    let wirePoints = points
+    if (phase === 'end' || phase === 'cancel') {
+      wirePoints = points.filter((p) => !changedIds.includes(p.id))
+    }
+
+    this.sendInput(buildTouchPayload(phase, wirePoints, changedIds))
+  }
 
   private sendInput(obj: Record<string, unknown>) {
     if (!this.userInputSubject) return
     this.userInputSubject.next(JSON.stringify(obj))
   }
 
-  private canvasToPage(clientX: number, clientY: number) {
+  private pageCoords(clientX: number, clientY: number) {
     if (!this.elements) return { x: 0, y: 0 }
     const { w, h } = this.deps.getSessionSize()
     if (!this.cachedRect) this.cachedRect = this.elements.canvas.getBoundingClientRect()
-    return {
-      x: Math.round((clientX - this.cachedRect.left) * (w / this.cachedRect.width)),
-      y: Math.round((clientY - this.cachedRect.top) * (h / this.cachedRect.height)),
-    }
+    return canvasToPageCoords(clientX, clientY, this.cachedRect, w, h)
   }
 }

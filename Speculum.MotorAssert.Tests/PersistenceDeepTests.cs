@@ -46,6 +46,68 @@ public sealed class PersistenceDeepTests : MotorAssertTestBase
     }
 
     [MotorAssertFact]
+    public async Task E3b_reattach_merges_history_across_generations()
+    {
+        var token = MotorAssertTokens.Fixed("persist-e3b-merge");
+        var since = DateTimeOffset.UtcNow.AddSeconds(-2);
+        var actId = Guid.NewGuid().ToString("N");
+
+        await using (var act = new MotorActClient(fx.Host))
+        {
+            await act.ConnectAsync();
+            await act.StartSessionAsync($"{fx.Host.FixtureClientOrigin}/nav/a", actId, clientToken: token);
+            await fx.Diagnostics.WaitForEventsAsync(
+                act.ConnectionId, "Motor.Session", since,
+                ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
+            await act.NavigateAsync($"{fx.Host.FixtureClientOrigin}/nav/b");
+            await fx.Diagnostics.WaitEvaluateContainsAsync(
+                act.ConnectionId!, "location.pathname", "/nav/b");
+            var exportSince = DateTimeOffset.UtcNow.AddSeconds(-1);
+            var connId = act.ConnectionId!;
+            await act.DisconnectAsync();
+            await fx.Diagnostics.WaitStateExportCompletedAsync(connId, exportSince);
+        }
+
+        var sessionId = await FindPersistedSessionIdAsync(token);
+        var gen1Count = await ReadHistoryCountAsync(sessionId);
+        Assert.True(gen1Count >= 2, $"expected >=2 history rows after gen1, got {gen1Count}");
+
+        var since2 = DateTimeOffset.UtcNow.AddSeconds(-1);
+        var actId2 = Guid.NewGuid().ToString("N");
+        await using (var act2 = new MotorActClient(fx.Host))
+        {
+            await act2.ConnectAsync();
+            await act2.StartSessionAsync(
+                $"{fx.Host.FixtureClientOrigin}/set-state", actId2, clientToken: token);
+            await fx.Diagnostics.WaitForEventsAsync(
+                act2.ConnectionId, "Motor.Session", since2,
+                ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId2));
+            await fx.Diagnostics.WaitEvaluateContainsAsync(
+                act2.ConnectionId!, "location.pathname", "/set-state");
+            var exportSince2 = DateTimeOffset.UtcNow.AddSeconds(-1);
+            var connId2 = act2.ConnectionId!;
+            await act2.DisconnectAsync();
+            await fx.Diagnostics.WaitStateExportCompletedAsync(connId2, exportSince2);
+        }
+
+        var sessionId2 = await FindPersistedSessionIdAsync(token);
+        Assert.Equal(sessionId, sessionId2);
+
+        var detailRes = await fx.Host.Http.GetAsync($"api/admin/diagnostics/v1/persisted/{sessionId}");
+        detailRes.EnsureSuccessStatusCode();
+        using var doc = JsonDocument.Parse(await detailRes.Content.ReadAsStringAsync());
+        Assert.True(doc.RootElement.TryGetProperty("detail", out var detail), doc.RootElement.ToString());
+        Assert.True(detail.TryGetProperty("history", out var history), detail.ToString());
+        Assert.True(
+            history.GetArrayLength() > gen1Count,
+            $"expected history to grow across reattach (gen1={gen1Count}, after={history.GetArrayLength()}): {history}");
+        var histText = history.ToString();
+        Assert.Contains("/nav/a", histText, StringComparison.Ordinal);
+        Assert.Contains("/nav/b", histText, StringComparison.Ordinal);
+        Assert.Contains("/set-state", histText, StringComparison.Ordinal);
+    }
+
+    [MotorAssertFact]
     public async Task E5_indexers_resolve_same_persisted_session()
     {
         var token = MotorAssertTokens.Fixed("persist-e5-idx");
@@ -273,6 +335,16 @@ public sealed class PersistenceDeepTests : MotorAssertTestBase
         }
 
         throw new InvalidOperationException($"No persisted session for token {token}");
+    }
+
+    private async Task<int> ReadHistoryCountAsync(string sessionId)
+    {
+        var detailRes = await fx.Host.Http.GetAsync($"api/admin/diagnostics/v1/persisted/{sessionId}");
+        detailRes.EnsureSuccessStatusCode();
+        using var doc = JsonDocument.Parse(await detailRes.Content.ReadAsStringAsync());
+        Assert.True(doc.RootElement.TryGetProperty("detail", out var detail), doc.RootElement.ToString());
+        Assert.True(detail.TryGetProperty("history", out var history), detail.ToString());
+        return history.GetArrayLength();
     }
 
     private static void RunCompose(string composeFile, params string[] args)

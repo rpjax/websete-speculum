@@ -18,6 +18,7 @@ public interface ISidecarClient : IAsyncDisposable
         IReadOnlyList<ScriptPayload>? scripts                  = null,
         bool                          jsBridgeEnabled          = false,
         IReadOnlyList<string>?        allowedNavigationDomains = null,
+        Speculum.Api.Motor.Live.DeviceProfile? device          = null,
         CancellationToken             ct                       = default);
 
     Task<BrowserStatePayload> RequestStateExportAsync(CancellationToken ct = default);

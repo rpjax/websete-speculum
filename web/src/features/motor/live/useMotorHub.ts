@@ -5,6 +5,7 @@ export function useMotorHub() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const viewportRef = useRef<HTMLDivElement>(null)
   const urlBarRef = useRef<HTMLInputElement>(null)
+  const imeRef = useRef<HTMLTextAreaElement>(null)
   const engineRef = useRef<MotorEngine | null>(null)
   const [ui, setUi] = useState<MotorUiState>({
     status: 'idle',
@@ -24,7 +25,7 @@ export function useMotorHub() {
     const engine = new MotorEngine()
     engineRef.current = engine
     const unsub = engine.subscribe(setUi)
-    engine.mount({ canvas, viewport, urlBar })
+    engine.mount({ canvas, viewport, urlBar, ime: imeRef.current })
 
     return () => {
       unsub()
@@ -37,9 +38,12 @@ export function useMotorHub() {
     canvasRef,
     viewportRef,
     urlBarRef,
+    imeRef,
     ui,
     connect: () => engineRef.current?.connect(),
     goBack: () => engineRef.current?.goBack(),
     goForward: () => engineRef.current?.goForward(),
+    openVirtualKeyboard: () => engineRef.current?.openVirtualKeyboard(),
+    closeVirtualKeyboard: () => engineRef.current?.closeVirtualKeyboard(),
   }
 }

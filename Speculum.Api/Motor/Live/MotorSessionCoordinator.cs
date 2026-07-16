@@ -44,7 +44,8 @@ public sealed class MotorSessionCoordinator
         string clientUrl,
         int viewportWidth,
         int viewportHeight,
-        SessionIdentity? identity)
+        SessionIdentity? identity,
+        DeviceProfile? device = null)
     {
         if (string.IsNullOrWhiteSpace(clientUrl))
             throw new HubException("clientUrl é obrigatório.");
@@ -76,6 +77,7 @@ public sealed class MotorSessionCoordinator
         var events = _events.Begin(connectionId, correlationId);
 
         var (w, h) = ViewportDimensions.Normalize(viewportWidth, viewportHeight);
+        var deviceProfile = ViewportDimensions.NormalizeDevice(device);
         events.SessionStarting(clientUrl, w, h, clientTokenProvided);
 
         if (_registry.TryRemove(connectionId, out var oldActive))
@@ -190,6 +192,7 @@ public sealed class MotorSessionCoordinator
                 InitialUrl               = initialUrl,
                 Width                    = w,
                 Height                   = h,
+                Device                   = deviceProfile,
                 BrowserState             = browserState,
                 Scripts                  = config.ResolvedScripts,
                 JsBridgeEnabled          = config.JsBridgeEnabled,

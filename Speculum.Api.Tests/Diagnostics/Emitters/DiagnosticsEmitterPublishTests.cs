@@ -337,7 +337,9 @@ public sealed class DiagnosticsEmitterPublishTests
 
     private static MotorSession CreateMotorSession(IDiagnosticsEventBus bus, string motorHost)
     {
-        var codec = new NavigationStateCodec(new byte[32], encrypt: false);
+        // encrypt:true — AES-GCM nonce is fresh per Encode; session must cache by target
+        // so repeated MSG_STATUS does not churn _w7s_nso / UrlMapped.
+        var codec = new NavigationStateCodec(new byte[32], encrypt: true);
         var adapter = new MotorUrlAdapter(codec);
         var forwarding = new ForwardingOptions
         {
@@ -545,7 +547,7 @@ public sealed class DiagnosticsEmitterPublishTests
         public Task ConsumeUserInputAsync(ChannelReader<string> channelReader) => Task.CompletedTask;
         public Task ConsumeConsoleInputAsync(ChannelReader<ConsoleInput> channelReader) => Task.CompletedTask;
         public virtual Task NavigateAsync(string url, CancellationToken ct = default) => Task.CompletedTask;
-        public Task ResizeAsync(int width, int height, CancellationToken ct = default) => Task.CompletedTask;
+        public Task ResizeAsync(int width, int height, Speculum.Api.Motor.Live.DeviceProfile? device = null, CancellationToken ct = default) => Task.CompletedTask;
     }
 
     private sealed class ThrowingSidecarFactory : ISidecarClientFactory

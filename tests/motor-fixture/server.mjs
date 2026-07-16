@@ -104,6 +104,41 @@ function route(req, res) {
     window.__SPECULUM_LAST_KEY__ = e.key;
   });
   window.addEventListener('wheel', () => { window.__SPECULUM_WHEEL__ = true; }, { once: true });
+  window.__SPECULUM_TOUCH__ = { starts: 0, moves: 0, ends: 0, cancels: 0, maxPoints: 0 };
+  const touchBox = document.getElementById('btn');
+  touchBox.addEventListener('touchstart', (e) => {
+    window.__SPECULUM_TOUCH__.starts += 1;
+    window.__SPECULUM_TOUCH__.maxPoints = Math.max(window.__SPECULUM_TOUCH__.maxPoints, e.touches.length);
+  }, { passive: true });
+  touchBox.addEventListener('touchmove', (e) => {
+    window.__SPECULUM_TOUCH__.moves += 1;
+    window.__SPECULUM_TOUCH__.maxPoints = Math.max(window.__SPECULUM_TOUCH__.maxPoints, e.touches.length);
+  }, { passive: true });
+  touchBox.addEventListener('touchend', () => { window.__SPECULUM_TOUCH__.ends += 1; }, { passive: true });
+  touchBox.addEventListener('touchcancel', () => { window.__SPECULUM_TOUCH__.cancels += 1; }, { passive: true });
+</script>`));
+      return;
+    }
+
+    case '/touch-scroll': {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(html('Touch scroll', `
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<div id="scroller" style="position:fixed;inset:0;overflow:auto;-webkit-overflow-scrolling:touch">
+  <div style="height:3000px;padding:24px">
+    <div id="speculum-probe" data-page="touch-scroll">touch-scroll</div>
+    <p id="marker" style="margin-top:1200px">bottom-marker</p>
+  </div>
+</div>
+<script>
+  window.__SPECULUM_SCROLL__ = 0;
+  document.getElementById('scroller').addEventListener('scroll', () => {
+    window.__SPECULUM_SCROLL__ = document.getElementById('scroller').scrollTop;
+  }, { passive: true });
+  window.__SPECULUM_PINCH__ = 0;
+  window.addEventListener('touchstart', (e) => {
+    if (e.touches.length >= 2) window.__SPECULUM_PINCH__ = e.touches.length;
+  }, { passive: true });
 </script>`));
       return;
     }

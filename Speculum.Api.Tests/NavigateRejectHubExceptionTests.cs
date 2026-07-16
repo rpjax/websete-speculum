@@ -82,7 +82,7 @@ public sealed class NavigateRejectHubExceptionTests
             LastNavigateResult = "ok";
             return Task.CompletedTask;
         }
-        public Task ResizeAsync(int width, int height, CancellationToken ct = default) => Task.CompletedTask;
+        public Task ResizeAsync(int width, int height, Speculum.Api.Motor.Live.DeviceProfile? device = null, CancellationToken ct = default) => Task.CompletedTask;
     }
 
     private sealed class SingleSessionRegistry(IMotorSession session) : IMotorSessionRegistry

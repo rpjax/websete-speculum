@@ -2,11 +2,12 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { VirtualDisplay } from '../browser/VirtualDisplay';
 import { RemoteBrowserSession } from '../browser/RemoteBrowserSession';
 import { CreateMessage, decodeMessage, type DiagProbeMessage } from '../protocol/wire-protocol';
+import { normalizeDeviceProfile } from '../protocol/device-profile';
 
 const MAX_PROBE_RESPONSE_BYTES = 8 * 1024 * 1024; // absolute wire ceiling (matches API validator max)
 const DEFAULT_PROBE_RESPONSE_BYTES = 512 * 1024;
 
-const POINTER_TYPES = new Set(['mousemove', 'mousedown', 'mouseup', 'wheel']);
+/** All input is serialized; mousemove still coalesces inside InputPipeline. */
 
 /** Map CDP / create failures to stable wire errorCode values. */
 export function mapSidecarErrorCode(message: string): string {
@@ -58,7 +59,13 @@ export class WsSessionHost {
                 const {
                     sessionId, width, height, url, scripts = [],
                     jsBridgeEnabled = false, allowedNavigationDomains, browserState,
+                    mobile, touch, deviceScaleFactor, maxTouchPoints,
+                    userAgentProfile, screenOrientation,
                 } = msg as CreateMessage;
+                const device = normalizeDeviceProfile({
+                    mobile, touch, deviceScaleFactor, maxTouchPoints,
+                    userAgentProfile, screenOrientation,
+                });
 
                 if (session) {
                     console.warn(`[${sessionId}] Duplicate create on existing session — rejecting`);
@@ -80,7 +87,7 @@ export class WsSessionHost {
 
                     session = await RemoteBrowserSession.create(
                         sessionId, ws, display, width, height, url, scripts,
-                        jsBridgeEnabled, allowedNavigationDomains, browserState,
+                        jsBridgeEnabled, allowedNavigationDomains, browserState, device,
                     );
                     this.activeSessions.add(session);
 
@@ -176,13 +183,8 @@ export class WsSessionHost {
             }
 
             if (session) {
-                if (POINTER_TYPES.has(msg.type)) {
-                    session.handleMessage(text).catch(err =>
-                        console.warn(`[${session!.sessionId}] Input error:`, (err as Error).message),
-                    );
-                    return;
-                }
-                await session.handleMessage(text);
+                // Ordered queue for all input — avoids mousemove racing mousedown/up/touch.
+                session.enqueueInput(text);
             }
         });
 

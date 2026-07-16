@@ -72,6 +72,7 @@ public sealed class MotorActClient : IAsyncDisposable
         int width = 1280,
         int height = 720,
         IReadOnlyDictionary<string, string>? indexers = null,
+        MotorDeviceProfile? device = null,
         CancellationToken ct = default)
     {
         EnsureConnected();
@@ -85,7 +86,7 @@ public sealed class MotorActClient : IAsyncDisposable
             Indexers = indexerCopy,
         };
         var token = await _connection!.InvokeAsync<string>(
-            "StartSessionAsync", clientUrl, width, height, identity, ct);
+            "StartSessionAsync", clientUrl, width, height, identity, device, ct);
         StartSessionPumps();
         return token;
     }
@@ -184,6 +185,25 @@ public sealed class MotorActClient : IAsyncDisposable
 
     public Task SendGoForwardAsync(CancellationToken ct = default) =>
         SendUserInputJsonAsync("""{"type":"goforward"}""", ct);
+
+    public Task SendTouchAsync(
+        string phase,
+        object[] points,
+        int[] changedIds,
+        CancellationToken ct = default) =>
+        SendUserInputJsonAsync(
+            JsonSerializer.Serialize(new { type = "touch", phase, points, changedIds }),
+            ct);
+
+    public async Task SendTouchTapAsync(double x, double y, int id = 1, CancellationToken ct = default)
+    {
+        var point = new { id, x, y, radiusX = 1.0, radiusY = 1.0, force = 0.5 };
+        await SendTouchAsync("start", [point], [id], ct);
+        await SendTouchAsync("end", [], [id], ct);
+    }
+
+    public Task SendTextAsync(string text, CancellationToken ct = default) =>
+        SendUserInputJsonAsync(JsonSerializer.Serialize(new { type = "text", text }), ct);
 
     public async Task WaitForRedirectAsync(TimeSpan timeout, CancellationToken ct = default)
     {
@@ -345,6 +365,25 @@ public sealed class MotorSessionStatus
 
     [Key("jsBridgeEnabled")]
     public bool JsBridgeEnabled { get; set; }
+
+    [Key("editing")]
+    public MotorEditingState? Editing { get; set; }
+}
+
+[MessagePackObject]
+public sealed class MotorEditingState
+{
+    [Key("focused")]
+    public bool Focused { get; set; }
+
+    [Key("inputMode")]
+    public string? InputMode { get; set; }
+
+    [Key("multiline")]
+    public bool Multiline { get; set; }
+
+    [Key("tagName")]
+    public string? TagName { get; set; }
 }
 
 /// <summary>MessagePack mirror of ConsoleOutput (binary payload).</summary>

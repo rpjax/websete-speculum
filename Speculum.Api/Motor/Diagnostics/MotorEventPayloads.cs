@@ -57,6 +57,9 @@ public sealed record MotorSidecarFaultedPayload(string Fault, string ErrorCode);
 
 public sealed record MotorResizePayload(int Width, int Height);
 
+public sealed record MotorInputRejectedPayload(
+    string ErrorCode, string Phase, string Message, string? InputType);
+
 public sealed record MotorUrlMappedPayload(string TargetUrl, string ClientUrl);
 
 public sealed record MotorStatusMirrorPayload(

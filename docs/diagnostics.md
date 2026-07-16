@@ -58,7 +58,7 @@ Response wrappers (raw HTTP — client `diagnosticsApi` unwraps where noted):
 | `GET /persisted/{sessionId}` | Persisted detail | `{ detail, redaction }`; needs `persisted.snapshots`; `404 session_gone` |
 | `PUT /persisted/{sessionId}/state` | Operator edit of persisted browser state | needs `persisted.snapshots`; `400 invalid_state`, `404 session_gone` |
 
-Catalog Act→Assert events are **never** randomly sampled away. `StatusMirrorRatio` / `expensiveEventRatio` only throttle noisy `Motor.StatusMirrored` (ring-only). Catalog Motor/Sidecar lifecycle events are tagged with the `Metric` capability (not `Event`) so Degraded caps do not erase Act→Assert timelines; only `Motor.ResizeRequested` and `Motor.SidecarFaulted` require the `events` toggle.
+Catalog Act→Assert events are **never** randomly sampled away. `StatusMirrorRatio` / `expensiveEventRatio` only throttle noisy `Motor.StatusMirrored` (ring-only). Catalog Motor/Sidecar lifecycle events are tagged with the `Metric` capability (not `Event`) so Degraded caps do not erase Act→Assert timelines; only `Motor.ResizeRequested`, `Motor.InputRejected`, and `Motor.SidecarFaulted` require the `events` toggle.
 
 ## Assert Cookbook
 

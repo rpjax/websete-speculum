@@ -22,6 +22,7 @@ export const EVENT_DESCRIPTIONS: Record<string, string> = {
   'Motor.SidecarFault': 'The sidecar browser process reported an error — the browser may have crashed or become unresponsive.',
   'Motor.SidecarReconnected': 'The sidecar reconnected after a fault — the browser recovered and the session continues.',
   'Motor.ResizeRequested': 'The user\'s viewport size changed and the remote browser is resizing to match.',
+  'Motor.InputRejected': 'A user input event was blocked by the relay guard before reaching the sidecar.',
   'Motor.StatusMirrored': 'Periodic session status snapshot captured for monitoring (FPS, frame count, queue depth).',
   'Sidecar.ScreencastFrame': 'A video frame was captured from the remote browser and streamed to the user.',
   'Sidecar.DiagProbeRequested': 'An administrator requested a diagnostic probe — inspecting the browser\'s internal state.',

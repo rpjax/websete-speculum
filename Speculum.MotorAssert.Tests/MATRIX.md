@@ -27,12 +27,18 @@ Constitution: [docs/engineering-standards.md](../docs/engineering-standards.md) 
 | B11 | deep | SPA path | `B11_*` |
 | B12 | deep | status + `Motor.UrlMapped` client URL path+NSO | `B12_*` (`BugTraps/ClientUrlSyncTrapTests`) |
 | C1–C5 | deep | mouse / key / wheel / guard / bad JSON | `InputFramesPopupTests` |
+| C6–C8 | deep | touch tap / cancel / multitouch | `InputFramesPopupTests` |
+| C9 | deep | `Motor.InputRejected` on blocked type | `C9_input_rejected_emits_catalog_event` |
+| C10 | deep | touch drag scroll | `C10_touch_scroll_moves_scrollTop` |
+| C11 | deep | mobile DeviceProfile → maxTouchPoints | `C11_mobile_device_profile_sets_maxTouchPoints` |
+| C12 | deep | `text` insertText into focused input | `C12_text_input_reaches_focused_field` |
 | D1 | deep | resize dims on status | `D1_*` |
 | D2 | deep | resize &lt;100 noop | `D2_resize_below_100_is_noop` |
 | D3–D4 | deep | frames + status/tabCount | `D3_*` `D4_*` |
 | D-Start / D-Create / D-Restore / D-UrlMap | deep | SessionResolved + UrlMapped recipes | `DiagnosticsEmitterRecipesTests` |
 | E1–E2 | deep | persist export/restore cookie+LS | `E1_E2_*` |
 | E3 | deep | history ≥2 `/nav/a`+`/nav/b` | `E3_persisted_detail_includes_history` |
+| E3b | deep | reattach same token merges history across generations | `E3b_reattach_merges_history_across_generations` |
 | E4 | deep | persisted list/get | `E4_*` |
 | E5 | deep | identity indexers resolve same session | `E5_indexers_resolve_same_persisted_session` |
 | E6 | deep | sidecar kill → SidecarFaulted+StateExportFailed **payloads** | `E6_state_export_failed_on_sidecar_kill` |

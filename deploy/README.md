@@ -113,9 +113,9 @@ Same-origin: the web image uses **relative** `/api` and `/vhub` paths. No `VITE_
 
 ### Bootstrap (virgin VPS)
 
-1. Deploy stack — Traefik serves HTTP catch-all via `bootstrap.yml` (any Host, including IP).
+1. Deploy stack — Traefik serves HTTP catch-all via `bootstrap.yml` (any Host, including IP). Traefik loads static ACME resolvers from `/data/traefik/traefik.static.yml` (materialized by EdgeSynchronizer; `--configfile` in the Traefik command).
 2. Open `http://<VPS-IP>/admin` — configure **Hosting** (domains, TLS email, mirroring) and **Forwarding** (target site).
-3. EdgeSynchronizer materializes Traefik static/dynamic files; apex HTTPS via HTTP-01; wildcard per profile via DNS-01 when mirroring is ON.
+3. EdgeSynchronizer materializes Traefik static/dynamic files and restarts Traefik when ACME static config changes; apex HTTPS via HTTP-01; wildcard per profile via DNS-01 when mirroring is ON.
 
 ---
 

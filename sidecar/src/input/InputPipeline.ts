@@ -1,10 +1,12 @@
 import { Page, CDPSession } from 'patchright';
-import { decodeMessage } from '../protocol/wire-protocol';
+import { decodeMessage, type TouchPoint } from '../protocol/wire-protocol';
 import { ScreencastPipeline } from '../browser/ScreencastPipeline';
 import { MouseMoveCoalescer } from '../MouseMoveCoalescer';
 import { NavigationGeneration } from '../NavigationGeneration';
 import { ResizeGuard } from '../ResizeGuard';
 import { normalizeWheelDeltas } from './wheel-defaults';
+import { normalizeDeviceProfile, type DeviceProfile } from '../protocol/device-profile';
+import { applyDeviceEmulation } from './device-emulation';
 
 export { normalizeWheelDeltas } from './wheel-defaults';
 
@@ -13,6 +15,28 @@ function domButton(b: number): 'left' | 'middle' | 'right' {
     if (b === 1) return 'middle';
     if (b === 2) return 'right';
     return 'left';
+}
+
+function cdpTouchType(phase: string): 'touchStart' | 'touchMove' | 'touchEnd' | 'touchCancel' {
+    switch (phase) {
+        case 'move': return 'touchMove';
+        case 'end': return 'touchEnd';
+        case 'cancel': return 'touchCancel';
+        default: return 'touchStart';
+    }
+}
+
+function toCdpPoints(points: TouchPoint[]): Array<{
+    x: number; y: number; id: number; radiusX: number; radiusY: number; force: number;
+}> {
+    return points.map((p) => ({
+        x: p.x,
+        y: p.y,
+        id: p.id,
+        radiusX: p.radiusX ?? 1,
+        radiusY: p.radiusY ?? 1,
+        force: p.force ?? 0.5,
+    }));
 }
 
 export type InputPipelineDeps = {
@@ -27,15 +51,18 @@ export type InputPipelineDeps = {
     isDisposed:      () => boolean;
     getDimensions:   () => { width: number; height: number };
     setDimensions:   (width: number, height: number) => void;
+    getDevice:       () => DeviceProfile;
+    setDevice:       (device: DeviceProfile) => void;
 };
 
 /**
- * Decodes wire input messages and dispatches pointer, keyboard, navigation, resize.
+ * Decodes wire input messages and dispatches pointer, touch, keyboard, navigation, resize.
  */
 export class InputPipeline {
     private readonly _resizeGuard = new ResizeGuard();
     private readonly _navigation  = new NavigationGeneration();
     private readonly _mouseMoveCoalescer: MouseMoveCoalescer;
+    private _inputChain: Promise<void> = Promise.resolve();
 
     constructor(private readonly _deps: InputPipelineDeps) {
         this._mouseMoveCoalescer = new MouseMoveCoalescer((x, y) => {
@@ -46,6 +73,15 @@ export class InputPipeline {
 
     get resizeGuard(): ResizeGuard {
         return this._resizeGuard;
+    }
+
+    /** Serialize decisive input; mousemove still coalesces separately. */
+    enqueue(raw: string): void {
+        this._inputChain = this._inputChain
+            .then(() => this.handleMessage(raw))
+            .catch((err) => {
+                console.warn(`[${this._deps.sessionId}] Input queue error:`, (err as Error).message);
+            });
     }
 
     async handleMessage(raw: string): Promise<void> {
@@ -95,6 +131,10 @@ export class InputPipeline {
                     break;
                 }
 
+                case 'touch':
+                    await this._dispatchTouch(msg.phase, msg.points);
+                    break;
+
                 case 'keydown':
                     if (msg.key.length === 1 && msg.key.charCodeAt(0) > 127) {
                         await this._deps.page.keyboard.type(msg.key);
@@ -110,6 +150,10 @@ export class InputPipeline {
 
                 case 'type':
                     await this._deps.page.keyboard.type(msg.text);
+                    break;
+
+                case 'text':
+                    await this._insertText(msg.text);
                     break;
 
                 case 'goback':
@@ -129,11 +173,53 @@ export class InputPipeline {
                     break;
 
                 case 'resize':
-                    await this._handleResize(msg.width, msg.height);
+                    await this._handleResize(msg.width, msg.height, normalizeDeviceProfile({
+                        mobile: msg.mobile,
+                        touch: msg.touch,
+                        deviceScaleFactor: msg.deviceScaleFactor,
+                        maxTouchPoints: msg.maxTouchPoints,
+                        userAgentProfile: msg.userAgentProfile,
+                        screenOrientation: msg.screenOrientation,
+                    }));
                     break;
             }
         } catch (err) {
             console.warn(`[${this._deps.sessionId}] Input error (${msg.type}):`, (err as Error).message);
+        }
+    }
+
+    private async _dispatchTouch(
+        phase: string,
+        points: TouchPoint[],
+    ): Promise<void> {
+        // CDP: TouchEnd/TouchCancel must have zero points; TouchStart/Move need ≥1.
+        // For a partial lift the wire still carries remaining contacts — end with []
+        // then re-assert remaining via touchStart so other fingers stay active.
+        if (phase === 'end' || phase === 'cancel') {
+            await this._deps.cdp.send('Input.dispatchTouchEvent', {
+                type: cdpTouchType(phase),
+                touchPoints: [],
+            });
+            if (points.length > 0) {
+                await this._deps.cdp.send('Input.dispatchTouchEvent', {
+                    type: 'touchStart',
+                    touchPoints: toCdpPoints(points),
+                });
+            }
+            return;
+        }
+
+        await this._deps.cdp.send('Input.dispatchTouchEvent', {
+            type: cdpTouchType(phase),
+            touchPoints: toCdpPoints(points),
+        });
+    }
+
+    private async _insertText(text: string): Promise<void> {
+        try {
+            await this._deps.cdp.send('Input.insertText', { text });
+        } catch {
+            await this._deps.page.keyboard.type(text);
         }
     }
 
@@ -157,10 +243,19 @@ export class InputPipeline {
         }
     }
 
-    private async _handleResize(w: number, h: number): Promise<void> {
+    private async _handleResize(w: number, h: number, device: DeviceProfile): Promise<void> {
         if (!this._resizeGuard.tryBegin()) return;
         const { width, height } = this._deps.getDimensions();
-        if (w === width && h === height) {
+        const current = this._deps.getDevice();
+        const sameSize = w === width && h === height;
+        const sameDevice =
+            current.mobile === device.mobile
+            && current.touch === device.touch
+            && current.deviceScaleFactor === device.deviceScaleFactor
+            && current.maxTouchPoints === device.maxTouchPoints
+            && current.userAgentProfile === device.userAgentProfile
+            && current.screenOrientation === device.screenOrientation;
+        if (sameSize && sameDevice) {
             this._resizeGuard.end();
             return;
         }
@@ -170,19 +265,13 @@ export class InputPipeline {
         }
 
         try {
-            console.log(`[${this._deps.sessionId}] Resize → ${w}×${h}`);
-
-            try {
-                await this._deps.cdp.send('Emulation.setDeviceMetricsOverride', {
-                    width: w, height: h,
-                    deviceScaleFactor: 1,
-                    mobile: false,
-                });
-            } catch { /* CDP session may have been recycled — best-effort */ }
-
-            await this._deps.capture.restart(w, h, this._deps.onFrame);
-
+            console.log(`[${this._deps.sessionId}] Resize → ${w}×${h} mobile=${device.mobile}`);
+            await applyDeviceEmulation(this._deps.cdp, w, h, device);
+            if (!sameSize) {
+                await this._deps.capture.restart(w, h, this._deps.onFrame);
+            }
             this._deps.setDimensions(w, h);
+            this._deps.setDevice(device);
             console.log(`[${this._deps.sessionId}] Resize complete → ${w}×${h}`);
         } catch (err) {
             console.error(`[${this._deps.sessionId}] Resize failed:`, (err as Error).message);

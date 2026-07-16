@@ -54,6 +54,28 @@ export function encodeUrlUpdate(url: string): Buffer {
     return buf;
 }
 
+export type TouchPoint = {
+    id: number;
+    x: number;
+    y: number;
+    radiusX?: number;
+    radiusY?: number;
+    force?: number;
+};
+
+export type TouchEvent = {
+    type: 'touch';
+    phase: 'start' | 'move' | 'end' | 'cancel';
+    points: TouchPoint[];
+    changedIds: number[];
+};
+
+export type TextInputEvent = {
+    type: 'text';
+    text: string;
+    source?: string;
+};
+
 export type InputEvent =
     | { type: 'navigate';   url: string }
     | { type: 'mousemove';  x: number; y: number }
@@ -63,11 +85,30 @@ export type InputEvent =
     | { type: 'keydown';    key: string }
     | { type: 'keyup';      key: string }
     | { type: 'type';       text: string }
-    | { type: 'resize';     width: number; height: number }
+    | TextInputEvent
+    | TouchEvent
+    | {
+        type: 'resize';
+        width: number;
+        height: number;
+        mobile?: boolean;
+        touch?: boolean;
+        deviceScaleFactor?: number;
+        maxTouchPoints?: number;
+        userAgentProfile?: string;
+        screenOrientation?: string;
+      }
     | { type: 'refresh' }
     | { type: 'goback' }
     | { type: 'goforward' }
     | { type: 'evaljs';     id: number; code: string };
+
+export type EditingState = {
+    focused: boolean;
+    inputMode?: string;
+    multiline?: boolean;
+    tagName?: string;
+};
 
 export type StatusPayload = {
     tabCount: number;
@@ -75,6 +116,7 @@ export type StatusPayload = {
     resizing: boolean;
     width:    number;
     height:   number;
+    editing?: EditingState | null;
 };
 
 export function encodeStatusFrame(payload: StatusPayload): Buffer {
@@ -113,6 +155,12 @@ export type CreateMessage = {
     scripts?:  ScriptEntry[];
     jsBridgeEnabled?: boolean;
     allowedNavigationDomains?: string[];
+    mobile?: boolean;
+    touch?: boolean;
+    deviceScaleFactor?: number;
+    maxTouchPoints?: number;
+    userAgentProfile?: string;
+    screenOrientation?: string;
 };
 
 export type ExportStateMessage = { type: 'exportState' };

@@ -1,5 +1,12 @@
 export type MotorStatus = 'idle' | 'connecting' | 'connected' | 'error'
 
+export interface EditingUiState {
+  focused: boolean
+  inputMode?: string
+  multiline?: boolean
+  tagName?: string
+}
+
 export interface MotorUiState {
   status: MotorStatus
   statusText: string
@@ -7,10 +14,21 @@ export interface MotorUiState {
   url: string
   fps: number | null
   navDisabled: boolean
+  editing?: EditingUiState | null
+  showKeyboard?: boolean
   correlationId?: string
   connectionId?: string
   persistedSessionId?: string
   sidecarSessionId?: string
+}
+
+export interface DeviceProfilePayload {
+  mobile: boolean
+  touch: boolean
+  deviceScaleFactor: number
+  maxTouchPoints: number
+  userAgentProfile?: string
+  screenOrientation?: string
 }
 
 export interface FramePayload {
@@ -32,12 +50,14 @@ export interface SessionStatusPayload {
   uptimeMs: number
   sessionId: string
   jsBridgeEnabled: boolean
+  editing?: EditingUiState | null
 }
 
 export interface MotorElements {
   canvas: HTMLCanvasElement
   viewport: HTMLDivElement
   urlBar: HTMLInputElement
+  ime?: HTMLTextAreaElement | null
 }
 
 export type StateListener = (state: MotorUiState) => void

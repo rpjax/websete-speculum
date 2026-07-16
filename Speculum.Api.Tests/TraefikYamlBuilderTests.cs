@@ -31,28 +31,63 @@ public class TraefikYamlBuilderTests
     }
 
     [Fact]
-    public void BuildCertificatesYaml_AddsDnsResolverWhenMirroring()
+    public void BuildCertificatesYaml_EmitsHttpResolverForApex()
     {
         var yaml = TraefikYamlBuilder.BuildCertificatesYaml(new HostingOptions
         {
-            AcmeEmail = "a@b.com",
+            AcmeEmail = "ops@example.com",
             Profiles =
             [
-                new HostingProfileOptions
-                {
-                    Domain = "speculum.test",
-                    SubdomainMirroringEnabled = true,
-                    EdgeTls = new EdgeTlsOptions
-                    {
-                        Provider = "cloudflare",
-                        Email = "a@b.com",
-                        ApiToken = "tok",
-                    },
-                },
+                new HostingProfileOptions { Domain = "speculum.test", SubdomainMirroringEnabled = false },
             ],
         });
-        Assert.Contains("le-dns-", yaml);
-        Assert.Contains("dnsChallenge", yaml);
-        Assert.Contains("cloudflare", yaml);
+        Assert.Contains("certificatesResolvers:", yaml);
+        Assert.Contains("entryPoints:", yaml);
+        Assert.Contains("providers:", yaml);
+        Assert.Contains("network: speculum", yaml);
+        Assert.Contains("le:", yaml);
+        Assert.Contains("httpChallenge:", yaml);
+        Assert.Contains("ops@example.com", yaml);
+        Assert.DoesNotContain("dnsChallenge", yaml);
+    }
+
+    [Fact]
+    public void ProductionEdgeProfile_WritesStaticCertificatesFile()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "speculum-edge-" + Guid.NewGuid().ToString("N"));
+        var dynamic = Path.Combine(root, "dynamic");
+        Directory.CreateDirectory(dynamic);
+
+        try
+        {
+            var context = new EdgeMaterializationContext
+            {
+                TraefikRoot = root,
+                DynamicDir = dynamic,
+                CertsDir = Path.Combine(root, "certs"),
+                Hosting = new HostingOptions
+                {
+                    AcmeEmail = "ops@example.com",
+                    Profiles =
+                    [
+                        new HostingProfileOptions { Domain = "betano.digital", SubdomainMirroringEnabled = false },
+                    ],
+                },
+                Forwarding = new ForwardingOptions { Host = "www.eneba.com", Domains = ["eneba.com"] },
+            };
+
+            new ProductionEdgeProfile().Materialize(context);
+
+            var staticPath = Path.Combine(root, "traefik.static.yml");
+            Assert.True(File.Exists(staticPath));
+            var staticYaml = File.ReadAllText(staticPath);
+            Assert.Contains("certificatesResolvers:", staticYaml);
+            Assert.Contains("certResolver: le", File.ReadAllText(Path.Combine(dynamic, "motor.yml")));
+            Assert.False(File.Exists(Path.Combine(dynamic, "certificates.yml")));
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); } catch { /* ignore */ }
+        }
     }
 }

@@ -69,6 +69,11 @@ internal sealed class BrowserSessionStateStore
                 await update.ExecuteNonQueryAsync(ct);
             }
 
+            // History is an accumulated timeline (Chromium stack is not restored on reattach).
+            // Merge inside the write transaction before replace so empty CDP exports keep prior rows.
+            var existingHistory = await BrowserSessionStateLoaders.LoadHistoryAsync(conn, sessionId, ct, tx);
+            var mergedHistory = BrowserHistoryMerge.Merge(existingHistory, state.History);
+
             await DeleteStateForSessionAsync(conn, tx, sessionId, ct);
 
             foreach (var c in state.Cookies)
@@ -125,7 +130,7 @@ internal sealed class BrowserSessionStateStore
                 await cmd.ExecuteNonQueryAsync(ct);
             }
 
-            foreach (var item in state.History)
+            foreach (var item in mergedHistory)
             {
                 await using var cmd = conn.CreateCommand();
                 cmd.Transaction = tx;
@@ -148,7 +153,7 @@ internal sealed class BrowserSessionStateStore
             _logger.LogInformation(
                 "Browser state saved for session {SessionPrefix}… (cookies={Cookies}, ls={Ls}, idb={Idb}, history={History})",
                 sessionId[..Math.Min(8, sessionId.Length)],
-                state.Cookies.Count, state.LocalStorage.Count, state.IdbRecords.Count, state.History.Count);
+                state.Cookies.Count, state.LocalStorage.Count, state.IdbRecords.Count, mergedHistory.Count);
         }
         catch
         {

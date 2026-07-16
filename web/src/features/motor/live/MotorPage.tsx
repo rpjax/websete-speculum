@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Keyboard } from 'lucide-react'
 import { useMotorHub } from './useMotorHub'
 import { MOCK_MODE } from '@/lib/env'
 import { Button } from '@/components/ui/button'
@@ -47,7 +47,10 @@ function MockMotorPage() {
 }
 
 function RealMotorPage() {
-  const { canvasRef, viewportRef, urlBarRef, ui, connect, goBack, goForward } = useMotorHub()
+  const {
+    canvasRef, viewportRef, urlBarRef, imeRef, ui,
+    connect, goBack, goForward, openVirtualKeyboard,
+  } = useMotorHub()
   const showFps =
     location.hostname === 'localhost' ||
     location.hostname === '127.0.0.1' ||
@@ -96,6 +99,21 @@ function RealMotorPage() {
             disabled={ui.navDisabled}
             aria-label="Address bar"
           />
+          {ui.showKeyboard && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => openVirtualKeyboard()}
+                  aria-label="Show keyboard"
+                >
+                  <Keyboard className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Show keyboard</TooltipContent>
+            </Tooltip>
+          )}
           <Badge variant={statusTone(ui.status)}>{ui.statusText}</Badge>
           {showFps && ui.fps !== null && (
             <span className="min-w-[52px] text-right text-xs tabular-nums text-muted-foreground">
@@ -119,6 +137,15 @@ function RealMotorPage() {
           <canvas
             ref={canvasRef}
             className="absolute inset-0 block h-full w-full cursor-default touch-none"
+          />
+          <textarea
+            ref={imeRef}
+            aria-label="Remote text input"
+            inputMode={ui.editing?.inputMode || 'text'}
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
+            className="pointer-events-none absolute h-px w-px opacity-0"
           />
           {ui.showOverlay && (
             <div

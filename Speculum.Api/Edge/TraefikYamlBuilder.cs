@@ -39,7 +39,25 @@ public static class TraefikYamlBuilder
             resolverLines.Add("          - \"8.8.8.8:53\"");
         }
 
+        // Full static document: Traefik --configfile replaces CLI static flags.
+        // EntryPoints + providers must live here with certificatesResolvers.
         return $"""
+            api:
+              dashboard: false
+            entryPoints:
+              web:
+                address: ":80"
+              websecure:
+                address: ":443"
+                http:
+                  tls: {"{}"}
+            providers:
+              docker:
+                exposedByDefault: false
+                network: speculum
+              file:
+                directory: /data/traefik/dynamic
+                watch: true
             certificatesResolvers:
             {string.Join('\n', resolverLines)}
             """;

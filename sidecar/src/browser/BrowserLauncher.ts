@@ -3,6 +3,8 @@ import * as os from 'os';
 import * as path from 'path';
 import { chromium, BrowserContext, Page, CDPSession } from 'patchright';
 import { BrowserStatePayload, importBrowserState } from '../BrowserState';
+import { applyDeviceEmulation } from '../input/device-emulation';
+import { normalizeDeviceProfile, type DeviceProfile } from '../protocol/device-profile';
 
 const CHROME_EXECUTABLE =
     process.env['CHROME_EXECUTABLE'] ?? '/usr/bin/google-chrome';
@@ -26,7 +28,9 @@ export async function launchBrowser(
     width:        number,
     height:       number,
     browserState?: BrowserStatePayload,
+    device?:      DeviceProfile,
 ): Promise<BrowserHandle> {
+    const profile = normalizeDeviceProfile(device);
     const userDataDir = profileDirForSession(sessionId);
 
     try { fs.rmSync(userDataDir, { recursive: true, force: true }); } catch { /* best-effort */ }
@@ -84,14 +88,9 @@ export async function launchBrowser(
     }
 
     try {
-        await cdp.send('Emulation.setDeviceMetricsOverride', {
-            width,
-            height,
-            deviceScaleFactor: 1,
-            mobile:            false,
-        });
+        await applyDeviceEmulation(cdp, width, height, profile);
     } catch (err) {
-        console.warn('[BrowserManager] setDeviceMetricsOverride failed:', (err as Error).message);
+        console.warn('[BrowserManager] device emulation failed:', (err as Error).message);
     }
 
     if (browserState) {

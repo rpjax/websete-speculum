@@ -10,6 +10,7 @@ import { NavigationGuard }   from '../navigation/NavigationGuard';
 import { InputPipeline }     from '../input/InputPipeline';
 import { exportBrowserState, importLocalStorageAfterNavigation, BrowserStatePayload } from '../BrowserState';
 import { ScriptEntry } from '../protocol/wire-protocol';
+import { normalizeDeviceProfile, type DeviceProfile } from '../protocol/device-profile';
 import {
     capProbeData,
     collectDiagProbeEvidence,
@@ -37,6 +38,7 @@ export class RemoteBrowserSession {
     private _capture:  ScreencastPipeline;
     private _width:    number;
     private _height:   number;
+    private _device:   DeviceProfile;
     private _onFrame:  (buf: Buffer) => void;
     private _input:    InputPipeline;
     private _status:   StatusPublisher;
@@ -56,6 +58,7 @@ export class RemoteBrowserSession {
         capture:         ScreencastPipeline,
         width:           number,
         height:          number,
+        device:          DeviceProfile,
         onFrame:         (buf: Buffer) => void,
         jsBridgeEnabled: boolean,
         userDataDir:     string,
@@ -70,6 +73,7 @@ export class RemoteBrowserSession {
         this._capture     = capture;
         this._width       = width;
         this._height      = height;
+        this._device      = device;
         this._onFrame     = onFrame;
         this._userDataDir = userDataDir;
 
@@ -85,6 +89,8 @@ export class RemoteBrowserSession {
             isDisposed:    () => this._disposed,
             getDimensions: () => ({ width: this._width, height: this._height }),
             setDimensions: (w, h) => { this._width = w; this._height = h; },
+            getDevice:     () => this._device,
+            setDevice:     (d) => { this._device = d; },
         });
 
         this._status = new StatusPublisher(
@@ -104,14 +110,17 @@ export class RemoteBrowserSession {
         jsBridgeEnabled: boolean       = false,
         allowedNavigationDomains?: string[],
         browserState?: BrowserStatePayload,
+        device?: DeviceProfile,
     ): Promise<RemoteBrowserSession> {
+        const profile = normalizeDeviceProfile(device);
         console.log(`[${sessionId}] Launching Chrome on display ${display.displayEnv}`);
 
         let context: BrowserContext | undefined;
         let cdp: CDPSession | undefined;
         let userDataDir = '';
         try {
-            const handle = await launchBrowser(sessionId, display.displayEnv, width, height, browserState);
+            const handle = await launchBrowser(
+                sessionId, display.displayEnv, width, height, browserState, profile);
             context     = handle.context;
             cdp         = handle.cdp;
             userDataDir = handle.userDataDir;
@@ -160,7 +169,7 @@ export class RemoteBrowserSession {
 
             const session = new RemoteBrowserSession(
                 sessionId, ws, display, context, page, cdp,
-                capture, width, height, onFrame, jsBridgeEnabled, userDataDir,
+                capture, width, height, profile, onFrame, jsBridgeEnabled, userDataDir,
                 handleEvalJs,
             );
             session._status.start();
@@ -174,6 +183,10 @@ export class RemoteBrowserSession {
 
     async handleMessage(raw: string): Promise<void> {
         return this._input.handleMessage(raw);
+    }
+
+    enqueueInput(raw: string): void {
+        this._input.enqueue(raw);
     }
 
     async captureState(): Promise<BrowserStatePayload> {

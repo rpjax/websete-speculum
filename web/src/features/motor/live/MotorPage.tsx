@@ -1,4 +1,5 @@
 import { ChevronLeft, ChevronRight, Keyboard } from 'lucide-react'
+import type { ComponentProps } from 'react'
 import { useMotorHub } from './useMotorHub'
 import { MOCK_MODE } from '@/lib/env'
 import { Button } from '@/components/ui/button'
@@ -12,6 +13,15 @@ function statusTone(status: string): 'success' | 'warning' | 'destructive' | 'mu
   if (status === 'connecting') return 'warning'
   if (status === 'error') return 'destructive'
   return 'muted'
+}
+
+type ImeInputMode = NonNullable<ComponentProps<'textarea'>['inputMode']>
+
+function toImeInputMode(raw: string | undefined): ImeInputMode {
+  const allowed: ImeInputMode[] = [
+    'none', 'text', 'tel', 'url', 'email', 'numeric', 'decimal', 'search',
+  ]
+  return (allowed.includes(raw as ImeInputMode) ? raw : 'text') as ImeInputMode
 }
 
 function MockMotorPage() {
@@ -141,7 +151,7 @@ function RealMotorPage() {
           <textarea
             ref={imeRef}
             aria-label="Remote text input"
-            inputMode={ui.editing?.inputMode || 'text'}
+            inputMode={toImeInputMode(ui.editing?.inputMode)}
             autoCapitalize="off"
             autoCorrect="off"
             spellCheck={false}

@@ -60,7 +60,8 @@ export class MotorEngine {
     getConnection: () => this.connection.hub,
     getSessionSize: () => ({ w: this.sessionW, h: this.sessionH }),
     getCurrentUrl: () => this.currentUrl,
-    isEditingActive: () => this.input.isImeFocused(),
+    // Use keyboardShellOpen (set from IME focus) — not this.input — to avoid a circular field init.
+    isEditingActive: (): boolean => this.keyboardShellOpen,
     onImeFocusChange: (focused) => this.onImeFocusChange(focused),
   })
   private connection = new MotorConnection({

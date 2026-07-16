@@ -48,12 +48,13 @@ public sealed class SessionRebindTrapTests : MotorAssertTestBase
         var events = await fx.Diagnostics.WaitForEventsAsync(
             act2.ConnectionId, "Motor.SessionResolved", since2,
             ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionResolved", actId2));
-        var payload = events.First(e =>
-                e.GetProperty("name").GetString() == "Motor.SessionResolved"
-                && e.GetProperty("correlationId").GetString() == actId2)
-            .GetProperty("payload");
+        var resolved = events.First(e =>
+            e.GetProperty("name").GetString() == "Motor.SessionResolved"
+            && e.GetProperty("correlationId").GetString() == actId2);
+        var payload = resolved.GetProperty("payload");
         Assert.True(payload.GetProperty("restored").GetBoolean(), payload.ToString());
-        Assert.Equal(sessionId1, payload.GetProperty("persistedSessionId").GetString());
+        // persistedSessionId moved to the envelope in the event-production refactor.
+        Assert.Equal(sessionId1, resolved.GetProperty("persistedSessionId").GetString());
 
         await fx.Diagnostics.ExpectCookieAsync(act2.ConnectionId!, "sf_marker", "state-cookie");
         await fx.Diagnostics.ExpectLocalStorageAsync(act2.ConnectionId!, "sf_ls", "state-ls");

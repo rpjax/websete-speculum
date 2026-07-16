@@ -26,10 +26,14 @@ public sealed class DiagnosticsEmitterRecipesTests : MotorAssertTestBase
             e.GetProperty("name").GetString() == "Motor.SessionResolved"
             && e.GetProperty("correlationId").GetString() == actId);
 
+        // Session identity lives on the event envelope (single source), not the payload.
+        Assert.False(string.IsNullOrWhiteSpace(resolved.GetProperty("persistedSessionId").GetString()),
+            $"SessionResolved envelope missing persistedSessionId: {resolved}");
+
         Assert.True(resolved.TryGetProperty("payload", out var payload), resolved.ToString());
         foreach (var name in new[]
                  {
-                     "clientTokenProvided", "clientTokenEffective", "persistedSessionId",
+                     "clientTokenProvided", "clientTokenEffective",
                      "restored", "stateLoaded", "cookieCount", "localStorageCount",
                      "historyCount", "initialUrl",
                  })

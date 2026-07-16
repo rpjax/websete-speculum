@@ -93,6 +93,10 @@ Do **not** skip or soften matrix asserts. Triage product vs harness with [docs/a
 | MessagePack camelCase | Api.Tests + Vitest + MotorAssert | Contract suites must stay green |
 | Emitter publish units | `Api.Tests/.../Emitters` | Bus recorder contracts — required |
 | E8 / B12 rebind + UrlMapped | `BugTraps/*` | Regression guards for identity / URL map |
+| Span correlation + abandon (schema v2) | `Api.Tests/.../Pipeline/SpanTrackerTests` | seq / Open↔Close pairing / causation nesting / scope isolation / timeout + teardown + boot-recovery abandon — required |
+| Span catalog invariant | `Api.Tests/.../Catalog/DiagnosticsCatalogTests` | every `SpanKey` has ≥1 Open + ≥1 Close; every Open declares a key; declared constants == used keys — required |
+| Per-session telemetry mirror | `Api.Tests/.../Telemetry/TelemetryEmitterTests` | composite + `Telemetry.SessionSampleCollected` scoped by connectionId (only when `includePerSession`) — required |
+| Frontend story / span reconstruction | web Vitest `timeline/spanCompute.test.ts` | `buildSpans`/`buildStories` ordering + pairing + nesting — required |
 
 Depth note: each MotorAssert test runs `EnsureBaselineAsync` (clear Diagnostics Degraded via `/recover`, MaxSessions / JsBridge / Assertive BrowserQuery with runtime verify) via `MotorAssertTestBase`, so Diagnostics level mutations and circuit-breaker caps cannot leak into the next test.
 

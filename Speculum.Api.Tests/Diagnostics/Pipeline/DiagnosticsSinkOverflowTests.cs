@@ -120,8 +120,9 @@ public sealed class DiagnosticsSinkOverflowTests : IDisposable
     {
         DiagnosticsEventBus? bus = null;
         var self = new Lazy<IDiagnosticsSelfEmitter>(() => new DiagnosticsSelfEmitter(bus!));
+        var spans = new SpanTracker(new Lazy<IDiagnosticsEventBus>(() => bus!));
         bus = new DiagnosticsEventBus(
-            runtime, new[] { sink }, ring, self, NullLogger<DiagnosticsEventBus>.Instance);
+            runtime, new[] { sink }, ring, self, spans, NullLogger<DiagnosticsEventBus>.Instance);
         return bus;
     }
 

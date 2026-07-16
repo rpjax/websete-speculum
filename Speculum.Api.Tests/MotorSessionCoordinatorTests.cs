@@ -30,7 +30,7 @@ public sealed class MotorSessionCoordinatorTests
             sessionStore,
             urlAdapter,
             sessionFactory ?? new StubMotorSessionFactory(),
-            TestMotorDiagnostics.Emitter(diagnostics ?? new NullDiagnosticsEventBus()),
+            TestMotorDiagnostics.Factory(diagnostics ?? new NullDiagnosticsEventBus()),
             NullLogger<MotorSessionCoordinator>.Instance);
     }
 
@@ -166,7 +166,7 @@ public sealed class MotorSessionCoordinatorTests
 
     private sealed class FixedMotorSessionFactory(IMotorSession session) : IMotorSessionFactory
     {
-        public IMotorSession Create(SessionConfigSnapshot snapshot) => session;
+        public IMotorSession Create(SessionConfigSnapshot snapshot, IMotorEvents events) => session;
     }
 
     private sealed class TrackingMotorSession : IMotorSession
@@ -321,7 +321,6 @@ public sealed class MotorSessionCoordinatorTests
         public Task StopAllAsync(
             IBrowserSessionStore store,
             CancellationToken ct = default,
-            IMotorDiagnosticsEmitter? diagnostics = null,
             string? correlationId = null)
             => Task.CompletedTask;
     }
@@ -366,7 +365,7 @@ public sealed class MotorSessionCoordinatorTests
 
     private sealed class StubMotorSessionFactory : IMotorSessionFactory
     {
-        public IMotorSession Create(SessionConfigSnapshot snapshot) => new StubMotorSession();
+        public IMotorSession Create(SessionConfigSnapshot snapshot, IMotorEvents events) => new StubMotorSession();
     }
 
     private sealed class StubMotorSession : IMotorSession

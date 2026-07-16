@@ -38,6 +38,7 @@ internal static class TelemetryTestSupport
             [new NullDiagnosticsSink()],
             new SessionEventRing(),
             new Lazy<IDiagnosticsSelfEmitter>(() => new DiagnosticsSelfEmitter(bus)),
+            new SpanTracker(new Lazy<IDiagnosticsEventBus>(() => bus)),
             NullLogger<DiagnosticsEventBus>.Instance);
         return bus;
     }
@@ -208,7 +209,6 @@ internal static class TelemetryTestSupport
         public Task StopAllAsync(
             IBrowserSessionStore store,
             CancellationToken ct = default,
-            Speculum.Api.Motor.Diagnostics.IMotorDiagnosticsEmitter? diagnostics = null,
             string? correlationId = null) => Task.CompletedTask;
     }
 }

@@ -136,7 +136,126 @@ export interface DiagnosticsEventRecord {
   connectionId?: string | null
   persistedSessionId?: string | null
   sidecarSessionId?: string | null
+  /** Monotonic, process-wide ordering key (schema v2). */
+  seq?: number | null
+  /** Shared by an open beat and its matching close beat (schema v2). */
+  spanId?: string | null
+  /** Logical span type, e.g. `motor.navigate` (schema v2). */
+  spanKey?: string | null
+  /** Span boundary role from the catalog: 'Open' | 'Close' for span beats, absent otherwise (schema v2). */
+  spanRole?: 'Open' | 'Close' | null
+  /** For standalone beats: the spanId of the innermost open span in scope (schema v2). */
+  causationId?: string | null
   payload: unknown
+  redaction: string
+}
+
+/* ── Telemetry composite sample (payload of Telemetry.SampleCollected) ── */
+
+export interface HostTelemetry {
+  hostname: string
+  uptimeSec: number
+  cpuUsage: number
+  memoryUsed: number
+  memoryPrivate: number
+  memoryTotal: number
+  gcHeap: number
+  gcGen0: number
+  gcGen1: number
+  gcGen2: number
+  threadCount: number
+  threadPoolBusy: number
+  threadPoolQueued: number
+  diskFreeBytes: number
+}
+
+export interface MotorSessionTelemetry {
+  connectionId: string
+  phase: string
+  fps: number
+  uptimeMs: number
+  inputQueue: number
+  sidecarConnected: boolean
+  jsBridgeEnabled: boolean
+  lastFault?: string | null
+  urlHost?: string | null
+}
+
+export interface MotorTelemetry {
+  total: number
+  live: number
+  starting: number
+  stopping: number
+  byPhase: Record<string, number>
+  avgFps: number
+  minFps: number
+  maxFps: number
+  inputQueueTotal: number
+  frameChannelDepthTotal: number
+  statusChannelDepthTotal: number
+  capacityMax: number
+  capacityUsedPct: number
+  liveSessionIds?: string[] | null
+  sessions?: MotorSessionTelemetry[] | null
+}
+
+export interface SidecarTelemetry {
+  connected: number
+  faulted: number
+  faultedSessionIds?: string[] | null
+}
+
+export interface PersistenceTelemetry {
+  storedSessions: number
+  totalCookies: number
+  totalHistory: number
+  expiringSoon: number
+  storeBytes?: number | null
+}
+
+export interface PipelineTelemetry {
+  bytesUsed: number
+  storageMaxBytes: number
+  usedPct: number
+  eventsStored: number
+  eventsDropped: number
+  overflowCount: number
+  probeInFlight: number
+  degraded: boolean
+  elevateActive: boolean
+  recentDrops?: number | null
+  recentSlowWrites?: number | null
+}
+
+export interface TelemetrySample {
+  host?: HostTelemetry | null
+  motor?: MotorTelemetry | null
+  sidecar?: SidecarTelemetry | null
+  persistence?: PersistenceTelemetry | null
+  pipeline?: PipelineTelemetry | null
+}
+
+export interface TelemetryHistoryParams {
+  since?: string
+  until?: string
+  connectionId?: string
+  namePrefix?: string
+  limit?: number
+  cursor?: string | null
+  /** When > 0, server returns last-sample-per-bucket over the whole range (chart mode). */
+  bucketSeconds?: number
+}
+
+/** A telemetry history record: a DiagnosticsEventRecord whose payload is a TelemetrySample. */
+export interface TelemetrySampleRecord extends DiagnosticsEventRecord {
+  payload: TelemetrySample
+}
+
+export interface TelemetryHistoryResponse {
+  items: TelemetrySampleRecord[]
+  total: number
+  nextCursor: string | null
+  bucketSeconds: number
   redaction: string
 }
 
@@ -241,8 +360,26 @@ const realDiagnosticsApi = {
     request<DiagnosticsElevateResponse>(`${BASE}/elevate`, { method: 'DELETE' }),
 
   getHost: async () => {
-    const res = await request<{ data: unknown; redaction: string }>(`${BASE}/host`)
-    return (res.data ?? {}) as Record<string, unknown>
+    const res = await request<{ data: HostTelemetry; redaction: string }>(`${BASE}/host`)
+    return (res.data ?? {}) as HostTelemetry
+  },
+
+  /**
+   * Paged telemetry history for the Telemetry explorer.
+   * Raw mode (no bucketSeconds): keyset-paginated via `cursor`, with `total` + `nextCursor`.
+   * Chart mode (bucketSeconds > 0): last-sample-per-bucket across the whole [since, until] range.
+   */
+  getSampleHistory: (params?: TelemetryHistoryParams) => {
+    const q = new URLSearchParams()
+    if (params?.since) q.set('since', params.since)
+    if (params?.until) q.set('until', params.until)
+    if (params?.connectionId) q.set('connectionId', params.connectionId)
+    if (params?.namePrefix) q.set('namePrefix', params.namePrefix)
+    if (params?.limit != null) q.set('limit', String(params.limit))
+    if (params?.cursor) q.set('cursor', params.cursor)
+    if (params?.bucketSeconds != null) q.set('bucketSeconds', String(params.bucketSeconds))
+    const qs = q.toString()
+    return request<TelemetryHistoryResponse>(`${BASE}/telemetry/history${qs ? `?${qs}` : ''}`)
   },
 
   resolve: (params: { connectionId?: string; persistedSessionId?: string; sidecarSessionId?: string }) => {

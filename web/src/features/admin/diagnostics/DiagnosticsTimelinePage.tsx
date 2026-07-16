@@ -47,6 +47,7 @@ import {
   CumulativeChart,
   DOMAIN_BAR_COLORS,
 } from './timeline/TimelineCharts'
+import { SpanTimeline } from './timeline/SpanTimeline'
 
 const TIME_OPTIONS: { value: TimeRange; label: string }[] = [
   { value: '15m', label: '15 min' },
@@ -69,6 +70,7 @@ const CHART_MODES: { value: ChartMode; label: string; icon: typeof BarChart3; ti
   { value: 'heatmap', label: 'Heatmap', icon: Grid3X3, tip: 'Domain × time density' },
   { value: 'stacked', label: 'Stacked', icon: Layers, tip: 'Stacked bars by domain' },
   { value: 'cumulative', label: 'Cumulative', icon: TrendingUp, tip: 'Running total' },
+  { value: 'spans', label: 'Stories', icon: GitBranch, tip: 'Per-session span story lanes' },
 ]
 
 const DOMAIN_FILTER_OPTIONS = (EVENT_DOMAINS as readonly string[])
@@ -293,6 +295,8 @@ export default function DiagnosticsTimelinePage() {
           <HeatmapChart data={domainBucketData} />
         ) : chartMode === 'stacked' ? (
           <StackedChart data={domainBucketData} />
+        ) : chartMode === 'spans' ? (
+          <SpanTimeline events={filtered} />
         ) : (
           <CumulativeChart data={cumulativeData} />
         )}

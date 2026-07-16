@@ -35,7 +35,7 @@ export interface CumulativeData {
 
 export type TimeRange = '15m' | '1h' | '6h' | '24h' | 'all'
 export type BucketSize = 'auto' | '1m' | '5m' | '15m' | '1h'
-export type ChartMode = 'histogram' | 'heatmap' | 'stacked' | 'cumulative'
+export type ChartMode = 'histogram' | 'heatmap' | 'stacked' | 'cumulative' | 'spans'
 
 export function parseTimeRange(range: TimeRange): number {
   const map: Record<string, number> = { '15m': 15 * 60_000, '1h': 3600_000, '6h': 6 * 3600_000, '24h': 86400_000 }

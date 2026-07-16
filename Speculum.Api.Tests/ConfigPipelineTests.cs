@@ -49,7 +49,7 @@ public sealed class ConfigPipelineTests
     public async Task Forwarding_pre_reload_drains_motor_sessions()
     {
         var registry = new RecordingMotorSessionRegistry();
-        var handler = new MotorSessionDrainHandler(registry, new NoOpBrowserSessionStore(), TestMotorDiagnostics.Emitter(new NullDiagnosticsEventBus()));
+        var handler = new MotorSessionDrainHandler(registry, new NoOpBrowserSessionStore(), TestMotorDiagnostics.Factory(new NullDiagnosticsEventBus()));
 
         await handler.HandleAsync(Context(ConfigSectionKeys.Forwarding, ConfigChangePhase.PreReload));
 
@@ -60,7 +60,7 @@ public sealed class ConfigPipelineTests
     public async Task Hosting_pre_reload_drains_motor_sessions()
     {
         var registry = new RecordingMotorSessionRegistry();
-        var handler = new MotorSessionDrainHandler(registry, new NoOpBrowserSessionStore(), TestMotorDiagnostics.Emitter(new NullDiagnosticsEventBus()));
+        var handler = new MotorSessionDrainHandler(registry, new NoOpBrowserSessionStore(), TestMotorDiagnostics.Factory(new NullDiagnosticsEventBus()));
 
         await handler.HandleAsync(Context(ConfigSectionKeys.Hosting, ConfigChangePhase.PreReload));
 
@@ -72,7 +72,7 @@ public sealed class ConfigPipelineTests
     {
         var registry = new RecordingMotorSessionRegistry();
         var sync = new RecordingEdgeSynchronizer();
-        var drainHandler = new MotorSessionDrainHandler(registry, new NoOpBrowserSessionStore(), TestMotorDiagnostics.Emitter(new NullDiagnosticsEventBus()));
+        var drainHandler = new MotorSessionDrainHandler(registry, new NoOpBrowserSessionStore(), TestMotorDiagnostics.Factory(new NullDiagnosticsEventBus()));
         var syncHandler = new EdgeSyncConfigHandler(sync);
 
         await drainHandler.HandleAsync(Context(ConfigSectionKeys.MaxSessions, ConfigChangePhase.PreReload));
@@ -147,7 +147,7 @@ public sealed class ConfigPipelineTests
             return false;
         }
 
-        public Task StopAllAsync(IBrowserSessionStore sessionStore, CancellationToken ct = default, IMotorDiagnosticsEmitter? diagnostics = null, string? correlationId = null)
+        public Task StopAllAsync(IBrowserSessionStore sessionStore, CancellationToken ct = default, string? correlationId = null)
         {
             StopAllCount++;
             return Task.CompletedTask;

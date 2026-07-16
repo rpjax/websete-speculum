@@ -108,8 +108,9 @@ public sealed class DiagnosticsCleanupHostedServiceTests : IDisposable
     private static async Task RunOneCycleAsync(
         SqliteDiagnosticsEventSink sink, IDiagnosticsRuntime runtime, IDiagnosticsSelfEmitter self)
     {
+        var spans = new SpanTracker(new Lazy<IDiagnosticsEventBus>(() => new NullDiagnosticsEventBus()));
         var service = new DiagnosticsCleanupHostedService(
-            sink, runtime, self, NullLogger<DiagnosticsCleanupHostedService>.Instance);
+            sink, runtime, self, spans, NullLogger<DiagnosticsCleanupHostedService>.Instance);
 
         await service.StartAsync(CancellationToken.None);
 

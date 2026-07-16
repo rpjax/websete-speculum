@@ -13,7 +13,10 @@ public interface ISidecarDiagnosticsEmitter
     void ProbeRejected(string connectionId, string? correlationId, string[] ops, string errorCode);
     void ProbeTimedOut(string connectionId, string? correlationId, string[] ops, string errorCode = "probe_timeout");
 
-    /// <summary>Concurrency-gate rejection before a correlation id is assigned.</summary>
+    /// <summary>
+    /// Concurrency-gate refusal before a probe span opens (connection already probing). Emits the
+    /// standalone <c>Sidecar.DiagProbeBusy</c> beat — never a probe-span close.
+    /// </summary>
     void ProbeBusyRejected(string connectionId);
 }
 
@@ -40,9 +43,12 @@ public sealed class SidecarDiagnosticsEmitter : ISidecarDiagnosticsEmitter
             connectionId, correlationId, persistedSessionId: null, ProbePayload(ops, errorCode));
 
     public void ProbeBusyRejected(string connectionId)
-        => Publish("Sidecar.DiagProbeRejected", DiagnosticsSeverity.Warning,
+        // Distinct standalone beat (not DiagProbeRejected, which closes the probe span): the busy
+        // refusal happens while another probe is in flight on this connection, so emitting a close
+        // here would shut that live probe's span. Nests under it via causationId instead.
+        => Publish("Sidecar.DiagProbeBusy", DiagnosticsSeverity.Warning,
             connectionId, Guid.NewGuid().ToString("N"), persistedSessionId: null,
-            new Dictionary<string, object?> { ["errorCode"] = "probe_busy" });
+            new SidecarProbeBusyPayload("probe_busy"));
 
     private void Publish(
         string name,
@@ -62,11 +68,6 @@ public sealed class SidecarDiagnosticsEmitter : ISidecarDiagnosticsEmitter
             Payload = payload,
         });
 
-    private static object ProbePayload(string[] ops, string? errorCode = null)
-    {
-        var map = new Dictionary<string, object?> { ["ops"] = ops };
-        if (!string.IsNullOrWhiteSpace(errorCode))
-            map["errorCode"] = errorCode;
-        return map;
-    }
+    private static SidecarProbePayload ProbePayload(string[] ops, string? errorCode = null)
+        => new(ops, string.IsNullOrWhiteSpace(errorCode) ? null : errorCode);
 }

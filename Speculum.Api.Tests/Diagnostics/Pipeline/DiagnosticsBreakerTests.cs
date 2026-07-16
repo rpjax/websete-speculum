@@ -105,9 +105,12 @@ public sealed class DiagnosticsBreakerTests
         TimeProvider? timeProvider = null)
     {
         var lazySelf = new Lazy<IDiagnosticsSelfEmitter>(() => self);
-        return new DiagnosticsEventBus(
-            runtime, [sink], new SessionEventRing(), lazySelf,
+        DiagnosticsEventBus bus = null!;
+        var spans = new SpanTracker(new Lazy<IDiagnosticsEventBus>(() => bus), timeProvider);
+        bus = new DiagnosticsEventBus(
+            runtime, [sink], new SessionEventRing(), lazySelf, spans,
             NullLogger<DiagnosticsEventBus>.Instance, timeProvider);
+        return bus;
     }
 
     private sealed class ThrowingSink : IDiagnosticsSink

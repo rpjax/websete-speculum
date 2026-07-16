@@ -2,7 +2,7 @@
 
 Control plane for telemetry, operator debug, and Act→Assert contracts used by MotorAssert / MotorPerf.
 
-Schema version: **`diagnosticsSchemaVersion: 1`**.
+Schema version: **`diagnosticsSchemaVersion: 2`** (v2 adds span correlation — `seq`/`spanId`/`spanKey`/`causationId` — stamped by the pipeline; additive, so v1 readers ignore the new fields).
 
 > Testing pyramid, Act→Assert rules, and CI splits: **[engineering-standards.md](engineering-standards.md)** §§3–4. Coverage inventory: [../Speculum.MotorAssert.Tests/MATRIX.md](../Speculum.MotorAssert.Tests/MATRIX.md). Assert failures: [assert-failure-policy.md](assert-failure-policy.md).
 
@@ -95,6 +95,8 @@ Motor completeness for debug: **identity resolve + URL map + export + probes** (
 1. Act: navigate to a URL outside Forwarding allowlist.
 2. Assert: `Motor.NavigateRejected`; snapshot `lastNavigateResult: rejected`; `currentUrl` unchanged from prior.
 
+> Two distinct navigate failure beats: **`Motor.NavigateBlocked`** (`errorCode: url_blocked`, `phase: build_target`) when the URL can't even be mapped to a target (allowlist/forwarding block *before* a target is built), vs **`Motor.NavigateRejected`** when a built target is refused on send. `NavigateRejected` **closes** the open `motor.navigate` span (opened by `Motor.NavigateRequested`). `NavigateBlocked` fires *before* the span is ever opened, so it is a **standalone beat** (no span) that nests under the session via `causationId` — it must never carry a span close, or it would orphan-close / mismatch an unrelated in-flight navigate.
+
 > `Motor.NavigateCompleted` means the navigate **command** was accepted by the motor/sidecar path (allowlist + wire send), not that the remote document finished loading.
 
 ### 3b. URL map (apex + NSO / mirroring)
@@ -143,12 +145,33 @@ Functional overflow: catalog id + runtime `overflowCount`/`bytesUsed`/`maxBytes`
 
 ## Stable event catalog
 
-See `GET /catalog/events` and `DiagnosticsEventCatalog` — a registry of `DiagnosticsEventDescriptor { Name, Domain, Capability, Persist }` (Motor.*, Sidecar.Diag*, Diagnostics.*, `Telemetry.SampleCollected`). Every emitted event **must** have a descriptor; the transport drops uncatalogued names (guarded by `DiagnosticsCatalogEmittersTests`).
+See `GET /catalog/events` and `DiagnosticsEventCatalog` — a registry of `DiagnosticsEventDescriptor { Name, Domain, Capability, Persist, SpanRole, SpanKey, SpanTimeoutSec }` (Motor.*, Sidecar.Diag*, Diagnostics.*, `Telemetry.SampleCollected`/`SessionSampleCollected`). Every emitted event **must** have a descriptor; the transport drops uncatalogued names (guarded by `DiagnosticsCatalogEmittersTests`).
 
 Notable MotorLive events for completeness:
 
 - **`Motor.SessionResolved`** — identity/persist fact before sidecar start (payload above).
 - **`Motor.UrlMapped`** — target→client URL map on change (apex NSO / mirroring).
+- **`Motor.NavigateBlocked`** — navigate refused before a target is built (`errorCode: url_blocked`); standalone beat (fires before the `motor.navigate` span opens), nests under the session via `causationId`.
+- **`Motor.SessionRefused`** — session refused at the capacity gate (`errorCode: session_limit`); closes the `motor.session` span.
+
+## Span correlation (schema v2)
+
+The pipeline stamps every catalogued event (right after the capability gate, in `SpanTracker`) with envelope-level correlation so the admin timeline can reconstruct a per-session **story**:
+
+| Field | Meaning |
+|-------|---------|
+| `seq` | Monotonic, process-wide sequence for deterministic ordering + gap detection (seeded past the persisted max on boot) |
+| `spanId` | Shared by an Open beat and its matching Close beat |
+| `spanKey` | Logical span type (`motor.session`, `motor.navigate`, `motor.export`, `motor.drain`, `sidecar.probe`); echoed onto the Close |
+| `causationId` | Parent link to the innermost still-open span in the same scope — set on standalone (`None`) beats *and* on an `Open` beat (so nested spans render layered); null at the top level |
+
+Span pairing is **descriptor-driven** (never name-matched): a descriptor's `SpanRole` (`Open`/`Close`/`None`) opens/closes a span keyed by `(scope, spanKey)`, where scope = the event's `connectionId` (or `correlationId` for connection-less beats). **Pre-open refusals** — `Motor.NavigateBlocked` (allowlist block before a target is built) and `Sidecar.DiagProbeBusy` (concurrency gate while another probe runs) — are `None` beats, never closes: they fire before their span opens, so tagging them Close would orphan-close or shut an unrelated in-flight span in the same scope. They nest under whatever is open via `causationId`. Spans left open are force-closed with a catalogued **`Diagnostics.SpanAbandoned`** (a dynamic Close carrying `errorCode` + `phase` + `openMs`) via three seams:
+
+- **Timeout** — `SpanTracker.SweepTimeouts` each cleanup cycle (`errorCode: span_timeout`, `phase: timeout`; only descriptors with `SpanTimeoutSec > 0`, e.g. navigate/export/probe/drain).
+- **Teardown** — the Motor events handle calls `CloseScope(connectionId, "disconnect")` on disconnect/drain (`errorCode: disconnect`).
+- **Boot recovery** — `SpanTracker.RecoverFromStore` scans the sink for orphan open spans left by a previous process (`errorCode: span_abandoned`, `phase: recover`).
+
+Catalog invariant (guarded by `DiagnosticsCatalogTests`): every static `SpanKey` has ≥1 Open and ≥1 Close descriptor, and every Open declares a key. Span lifecycle is unit-tested in `SpanTrackerTests` (pairing, causation nesting, scope isolation, timeout/teardown abandon, boot recovery from a temp SQLite store). Frontend reconstruction (`web/.../timeline/spanCompute.ts`, `buildSpans`/`buildStories`) is covered by `spanCompute.test.ts` and rendered by the **Stories** chart mode on the diagnostics timeline.
 
 ## Failure & lifecycle payload contract
 
@@ -158,8 +181,8 @@ Stable fields (camelCase):
 
 | Field | Use |
 |-------|-----|
-| `errorCode` | Stable enum string (`sidecar_start_failed`, `cookie_import_invalid`, `session_cancelled`, `export_failed`, `navigate_rejected`, `probe_timeout`, `probe_busy`, `sidecar_channel_closed`, …) |
-| `phase` | Where it failed (`resolve`, `sidecar_create`, `import_browser_state`, `promote`, `export`, `navigate`, `probe`) |
+| `errorCode` | Stable enum string (`sidecar_start_failed`, `cookie_import_invalid`, `session_cancelled`, `export_failed`, `navigate_rejected`, `url_blocked`, `session_limit`, `probe_timeout`, `probe_busy`, `sidecar_channel_closed`, `span_timeout`, `span_abandoned`, `disconnect`, …) |
+| `phase` | Where it failed (`resolve`, `sidecar_create`, `import_browser_state`, `promote`, `export`, `navigate`, `build_target`, `acquire_slot`, `probe`, `timeout`, `recover`) |
 | `message` | Technical text truncated (~512 chars). Prod redactor does **not** wipe `message` / `errorCode` / `fault`. |
 | Context | Reuse SessionResolved facts when already known: `restored`, `stateLoaded`, `cookieCount`, `persistedSessionId`, `ops`, `sectionKey`, … |
 
@@ -176,8 +199,11 @@ Lifecycle payload minimums (opaque but decisive — no stacks):
 | `StateExportRequested` / `Completed` | `persistedSessionId`; Completed ideally cookie/LS/history counts |
 | `StateExportFailed` | `errorCode`, `phase:"export"`, `message` |
 | `NavigateRequested` / `Completed` | `targetUrl`; Requested may include `clientUrl` |
+| `NavigateBlocked` | `errorCode:"url_blocked"`, `phase:"build_target"`, `message`, `clientUrl` |
+| `SessionRefused` | `errorCode:"session_limit"`, `phase:"acquire_slot"`, `maxSessions`, `activeCount`, `startingCount` |
 | `SidecarFaulted` | `fault`, `errorCode` |
-| `Sidecar.DiagProbe*` | `ops`; TimedOut/Rejected also `errorCode` |
+| `Sidecar.DiagProbe*` | `ops`; TimedOut/Rejected/Busy also `errorCode` (`DiagProbeBusy` = `probe_busy`, standalone beat — not a span close) |
+| `Diagnostics.SpanAbandoned` | `spanKey?`, `errorCode` (`span_timeout`/`span_abandoned`/`disconnect`), `phase`, `openMs` |
 
 ## Motor snapshot minimum
 
@@ -240,6 +266,8 @@ Payload (`TelemetrySample`, camelCase):
 | `pipeline` | `telemetry.pipeline.enabled` | `bytesUsed`, `storageMaxBytes`, `usedPct`, `eventsStored`, `eventsDropped`, `overflowCount`, `probeInFlight`, `degraded`, `elevateActive`; `recentDrops?`/`recentSlowWrites?` (`includeBreakerPressure`) |
 
 Symptom → signal coverage (asserted by composer tests + MotorAssert `T1`/`T2`): memory leak (`host.memoryUsed`/`gcGen2`/`gcHeap` rise vs flat `motor.live`); render regression (`motor.avgFps`/`minFps` fall vs `host.cpuUsage`; when CPU is flat, `motor.inputQueueTotal`/`frameChannelDepthTotal` + `sidecar`); thread starvation (`host.threadPoolQueued` up, `threadPoolBusy` at ceiling); saturation (`motor.capacityUsedPct` → 100 + `motor.starting` piling up); sidecar instability (`sidecar.faulted` up, correlates with `Motor.SidecarFaulted`); diagnostics overhead (`pipeline.recentSlowWrites`/`bytesUsed`). Aggregate-only by default; identity (`liveSessionIds`/`sessions`/`faultedSessionIds`/`urlHost`) is opt-in and still governed by read-time redaction.
+
+When `telemetry.motor.includePerSession` is on, each live session's slice is *also* mirrored as its own **`Telemetry.SessionSampleCollected`** event scoped by `connectionId` (payload = one `sessions[]` entry). Same data as the composite's `motor.sessions[]`, no extra registry pass — it exists so a session's samples plot inside that session's story lane, not only in the global composite. Covered by `TelemetryEmitterTests`.
 
 `GET /host` returns the shared host collector (the `Telemetry.Host` shape), gated by `telemetry.enabled` **and** `telemetry.host.enabled` (otherwise `probe_level_insufficient`).
 

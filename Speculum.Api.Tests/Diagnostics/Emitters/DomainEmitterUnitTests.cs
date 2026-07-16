@@ -133,27 +133,31 @@ public sealed class DomainEmitterUnitTests
     }
 
     [Fact]
-    public void Sidecar_ProbeBusyRejected_has_errorCode_and_generated_correlation()
+    public void Sidecar_ProbeBusyRejected_is_standalone_busy_beat_not_a_probe_span_close()
     {
         var bus = new CapturingBus();
         new SidecarDiagnosticsEmitter(bus).ProbeBusyRejected("conn-1");
 
         var evt = Assert.Single(bus.Events);
-        Assert.Equal("Sidecar.DiagProbeRejected", evt.Name);
+        // Distinct from DiagProbeRejected (a span close) — the busy refusal must not close the
+        // in-flight probe's span on this connection.
+        Assert.Equal("Sidecar.DiagProbeBusy", evt.Name);
+        Assert.True(DiagnosticsEventCatalog.TryGet(evt.Name, out var descriptor));
+        Assert.Equal(SpanRole.None, descriptor.SpanRole);
         Assert.Equal(DiagnosticsSeverity.Warning, evt.Severity);
         Assert.Equal("probe_busy", Payload(evt).GetProperty("errorCode").GetString());
         Assert.False(string.IsNullOrWhiteSpace(evt.CorrelationId));
     }
 
-    // ---- MotorDiagnosticsEmitter gating ----
+    // ---- MotorEvents (context-bound producer) gating + classification ----
 
     [Fact]
     public void Motor_SidecarFaulted_dropped_when_Event_capability_off()
     {
         var bus = new CapturingBus();
-        var emitter = new MotorDiagnosticsEmitter(bus, MetricsOnlyRuntime());
+        var events = new MotorEvents(bus, MetricsOnlyRuntime(), Spans(bus), "conn-1", "corr-1", session: null);
 
-        emitter.SidecarFaulted(Ctx(), "sidecar_channel_closed");
+        events.SidecarFaulted("sidecar_channel_closed");
 
         Assert.Empty(bus.Events);
     }
@@ -162,9 +166,9 @@ public sealed class DomainEmitterUnitTests
     public void Motor_SidecarFaulted_emitted_with_errorCode_when_Event_on()
     {
         var bus = new CapturingBus();
-        var emitter = new MotorDiagnosticsEmitter(bus, DevelopmentRuntime());
+        var events = new MotorEvents(bus, DevelopmentRuntime(), Spans(bus), "conn-1", "corr-1", session: null);
 
-        emitter.SidecarFaulted(Ctx(), "sidecar_channel_closed");
+        events.SidecarFaulted("sidecar_channel_closed");
 
         var evt = Assert.Single(bus.Events);
         Assert.Equal("Motor.SidecarFaulted", evt.Name);
@@ -180,9 +184,9 @@ public sealed class DomainEmitterUnitTests
         var bus = new CapturingBus();
         var runtime = new DiagnosticsRuntime();
         runtime.ApplyOptions(new DiagnosticsOptions { Enabled = false });
-        var emitter = new MotorDiagnosticsEmitter(bus, runtime);
+        var events = new MotorEvents(bus, runtime, Spans(bus), "conn-1", "corr-1", session: null);
 
-        emitter.StatusMirrored(Ctx(), fps: 30, uptimeMs: 1000, tabCount: 1, width: 800, height: 600);
+        events.StatusMirror(fps: 30, uptimeMs: 1000, tabCount: 1, width: 800, height: 600);
 
         Assert.Empty(bus.Events);
     }
@@ -201,9 +205,9 @@ public sealed class DomainEmitterUnitTests
                 ExpensiveEventRatio = 1.0,
             },
         });
-        var emitter = new MotorDiagnosticsEmitter(bus, runtime);
+        var events = new MotorEvents(bus, runtime, Spans(bus), "conn-1", "corr-1", session: null);
 
-        emitter.StatusMirrored(Ctx(), fps: 30, uptimeMs: 1000, tabCount: 1, width: 800, height: 600);
+        events.StatusMirror(fps: 30, uptimeMs: 1000, tabCount: 1, width: 800, height: 600);
 
         var evt = Assert.Single(bus.Events);
         Assert.Equal("Motor.StatusMirrored", evt.Name);
@@ -211,13 +215,13 @@ public sealed class DomainEmitterUnitTests
     }
 
     [Fact]
-    public void Motor_SessionStartFailed_classifies_sidecar_protocol_error()
+    public void Motor_SessionStartFailed_classifies_sidecar_protocol_error_and_stamps_envelope()
     {
         var bus = new CapturingBus();
-        var emitter = new MotorDiagnosticsEmitter(bus, DevelopmentRuntime());
+        var events = new MotorEvents(bus, DevelopmentRuntime(), Spans(bus), "conn-1", "corr-1", session: null);
+        events.SetPersistedSessionId("sess-1");
 
-        emitter.SessionStartFailed(
-            new MotorDiagnosticsContext("conn-1", "corr-1", "sess-1", "sc-1"),
+        events.SessionStartFailed(
             phase: "import_browser_state",
             ex: new SidecarProtocolException("cookie_import_invalid", "bad cookie"),
             severity: DiagnosticsSeverity.Error,
@@ -225,10 +229,14 @@ public sealed class DomainEmitterUnitTests
 
         var evt = Assert.Single(bus.Events);
         Assert.Equal("Motor.SessionStartFailed", evt.Name);
+        // The handle stamps identity on the envelope; the payload no longer duplicates it.
+        Assert.Equal("conn-1", evt.ConnectionId);
+        Assert.Equal("corr-1", evt.CorrelationId);
+        Assert.Equal("sess-1", evt.PersistedSessionId);
         var p = Payload(evt);
         Assert.Equal("cookie_import_invalid", p.GetProperty("errorCode").GetString());
         Assert.Equal("import_browser_state", p.GetProperty("phase").GetString());
-        Assert.Equal("sess-1", p.GetProperty("persistedSessionId").GetString());
+        Assert.False(p.TryGetProperty("persistedSessionId", out _));
         Assert.Equal(3, p.GetProperty("cookieCount").GetInt32());
     }
 
@@ -236,11 +244,9 @@ public sealed class DomainEmitterUnitTests
     public void Motor_StateExportFailed_defaults_errorCode_when_not_protocol()
     {
         var bus = new CapturingBus();
-        var emitter = new MotorDiagnosticsEmitter(bus, DevelopmentRuntime());
+        var events = new MotorEvents(bus, DevelopmentRuntime(), Spans(bus), "conn-1", "corr-1", session: null);
 
-        emitter.StateExportFailed(
-            new MotorDiagnosticsContext("conn-1", "corr-1", "sess-1", "sc-1"),
-            new InvalidOperationException("boom"));
+        events.StateExportFailed(new InvalidOperationException("boom"));
 
         var evt = Assert.Single(bus.Events);
         Assert.Equal("Motor.StateExportFailed", evt.Name);
@@ -249,9 +255,6 @@ public sealed class DomainEmitterUnitTests
         Assert.Equal("export_failed", p.GetProperty("errorCode").GetString());
         Assert.Equal("export", p.GetProperty("phase").GetString());
     }
-
-    private static MotorDiagnosticsContext Ctx()
-        => new("conn-1", "corr-1", "sess-1", "sc-1");
 
     private static DiagnosticsRuntime DevelopmentRuntime()
     {
@@ -274,8 +277,17 @@ public sealed class DomainEmitterUnitTests
         return runtime;
     }
 
+    // Matches the production wire: the sink serializes payloads with the camelCase policy.
+    private static readonly JsonSerializerOptions CamelCase = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+    };
+
     private static JsonElement Payload(DiagnosticsEvent evt)
-        => JsonDocument.Parse(JsonSerializer.Serialize(evt.Payload)).RootElement;
+        => JsonDocument.Parse(JsonSerializer.Serialize(evt.Payload, CamelCase)).RootElement;
+
+    private static SpanTracker Spans(IDiagnosticsEventBus bus)
+        => new(new Lazy<IDiagnosticsEventBus>(() => bus));
 
     private sealed class CapturingBus : IDiagnosticsEventBus
     {

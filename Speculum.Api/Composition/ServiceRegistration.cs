@@ -94,14 +94,19 @@ public static class ServiceRegistration
                 sp.GetRequiredService<IDiagnosticsRuntime>(),
                 new Lazy<IDiagnosticsSelfEmitter>(() => sp.GetRequiredService<IDiagnosticsSelfEmitter>())));
         builder.Services.AddSingleton<IDiagnosticsSink>(sp => sp.GetRequiredService<SqliteDiagnosticsEventSink>());
+        // Span correlation. Depends on the bus only via Lazy to publish synthetic abandon closes
+        // (the bus depends on the tracker directly), breaking the construction cycle.
+        builder.Services.AddSingleton(sp => new SpanTracker(
+            new Lazy<IDiagnosticsEventBus>(() => sp.GetRequiredService<IDiagnosticsEventBus>())));
         builder.Services.AddSingleton<IDiagnosticsEventBus, DiagnosticsEventBus>();
         builder.Services.AddSingleton<Lazy<IDiagnosticsSelfEmitter>>(sp =>
             new Lazy<IDiagnosticsSelfEmitter>(() => sp.GetRequiredService<IDiagnosticsSelfEmitter>()));
 
-        // Domain emitters — payload owners over the domain-agnostic transport.
+        // Domain producers — payload owners over the domain-agnostic transport.
         builder.Services.AddSingleton<IDiagnosticsSelfEmitter, DiagnosticsSelfEmitter>();
         builder.Services.AddSingleton<ISidecarDiagnosticsEmitter, SidecarDiagnosticsEmitter>();
-        builder.Services.AddSingleton<IMotorDiagnosticsEmitter, MotorDiagnosticsEmitter>();
+        // Motor uses a context-bound producer handle created per operation/session via this factory.
+        builder.Services.AddSingleton<IMotorEventsFactory, MotorEventsFactory>();
 
         // Telemetry — composite sample: per-section sources + composer + emitter + sampler.
         builder.Services.AddSingleton<IHostTelemetrySource, HostTelemetrySource>();

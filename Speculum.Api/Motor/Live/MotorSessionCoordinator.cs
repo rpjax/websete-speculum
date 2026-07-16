@@ -16,7 +16,7 @@ public sealed class MotorSessionCoordinator
     private readonly IBrowserSessionStore       _sessionStore;
     private readonly MotorUrlAdapter            _urlAdapter;
     private readonly IMotorSessionFactory       _sessionFactory;
-    private readonly IMotorDiagnosticsEmitter   _diagnostics;
+    private readonly IMotorEventsFactory        _events;
     private readonly ILogger<MotorSessionCoordinator> _logger;
 
     public MotorSessionCoordinator(
@@ -25,7 +25,7 @@ public sealed class MotorSessionCoordinator
         IBrowserSessionStore       sessionStore,
         MotorUrlAdapter            urlAdapter,
         IMotorSessionFactory       sessionFactory,
-        IMotorDiagnosticsEmitter   diagnostics,
+        IMotorEventsFactory        events,
         ILogger<MotorSessionCoordinator> logger)
     {
         _registry       = registry;
@@ -33,7 +33,7 @@ public sealed class MotorSessionCoordinator
         _sessionStore   = sessionStore;
         _urlAdapter     = urlAdapter;
         _sessionFactory = sessionFactory;
-        _diagnostics    = diagnostics;
+        _events         = events;
         _logger         = logger;
     }
 
@@ -73,14 +73,10 @@ public sealed class MotorSessionCoordinator
             ? Guid.NewGuid().ToString("N")
             : resolvedIdentity.CorrelationId!.Trim();
 
+        var events = _events.Begin(connectionId, correlationId);
+
         var (w, h) = ViewportDimensions.Normalize(viewportWidth, viewportHeight);
-        Publish(connectionId, "Motor.SessionStarting", correlationId, payload: new
-        {
-            clientUrl,
-            width = w,
-            height = h,
-            clientTokenProvided,
-        });
+        events.SessionStarting(clientUrl, w, h, clientTokenProvided);
 
         if (_registry.TryRemove(connectionId, out var oldActive))
         {
@@ -88,37 +84,33 @@ public sealed class MotorSessionCoordinator
                 "Conexão {ConnectionId}: sessão anterior não encerrada — capturando e parando.",
                 connectionId);
 
+            var oldEvents = _events.ForSession(connectionId, correlationId, oldActive);
             if (!string.IsNullOrWhiteSpace(oldActive.PersistedSessionId))
             {
                 try
                 {
-                    Publish(connectionId, "Motor.StateExportRequested", correlationId, oldActive,
-                        payload: new { persistedSessionId = oldActive.PersistedSessionId });
+                    oldEvents.StateExportRequested();
                     var replaced = await oldActive.CaptureAndPersistAsync(
                         oldActive.PersistedSessionId!, _sessionStore);
-                    _diagnostics.StateExportCompleted(
-                        MotorDiagnosticsContext.For(connectionId, correlationId, oldActive),
+                    oldEvents.StateExportCompleted(
                         replaced?.Cookies.Count,
                         replaced?.LocalStorage.Count,
                         replaced?.History.Count);
                 }
                 catch (Exception ex)
                 {
-                    _diagnostics.StateExportFailed(
-                        MotorDiagnosticsContext.For(connectionId, correlationId, oldActive), ex);
+                    oldEvents.StateExportFailed(ex);
                     _logger.LogWarning(ex, "Erro ao persistir estado da sessão anterior.");
                 }
             }
 
-            Publish(connectionId, "Motor.SessionStopping", correlationId, oldActive,
-                payload: new { reason = "replace" });
+            oldEvents.SessionStopping("replace");
             try { await oldActive.StopAsync(); }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Erro ao parar sessão anterior.");
             }
-            Publish(connectionId, "Motor.SessionStopped", correlationId, oldActive,
-                payload: new { reason = "replace" });
+            oldEvents.SessionStopped("replace");
         }
         else if (_registry.TryCancelStarting(connectionId, out var oldStarting))
         {
@@ -126,16 +118,15 @@ public sealed class MotorSessionCoordinator
                 "Conexão {ConnectionId}: startup anterior ainda em curso — cancelando.",
                 connectionId);
             _registry.ReleaseSlot();
-            Publish(connectionId, "Motor.SessionStopping", correlationId, oldStarting,
-                payload: new { reason = "cancel" });
+            var oldEvents = _events.ForSession(connectionId, correlationId, oldStarting);
+            oldEvents.SessionStopping("cancel");
             try { await oldStarting.StopAsync(); }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Erro ao parar startup anterior.");
             }
-            Publish(connectionId, "Motor.SessionStopped", correlationId, oldStarting,
-                payload: new { reason = "cancel" });
-            Publish(connectionId, "Motor.SlotReleased", correlationId, payload: SlotPayload());
+            oldEvents.SessionStopped("cancel");
+            events.SlotReleased(_configStore.Current.MaxSessions, _registry.ActiveCount, _registry.StartingCount);
         }
 
         var config     = _configStore.Current;
@@ -143,14 +134,16 @@ public sealed class MotorSessionCoordinator
         var maxSessions = config.MaxSessions!.Value;
 
         if (!_registry.TryAcquireSlot(maxSessions))
+        {
+            events.SessionRefused(maxSessions, _registry.ActiveCount, _registry.StartingCount);
             throw new HubException("Limite de sessões simultâneas atingido.");
+        }
 
-        Publish(connectionId, "Motor.SlotAcquired", correlationId, payload: SlotPayload(maxSessions));
+        events.SlotAcquired(maxSessions, _registry.ActiveCount, _registry.StartingCount);
 
         IMotorSession? session = null;
         var promoted           = false;
         string? phase = "resolve";
-        string? persistedSessionId = null;
         bool? restored = null;
         bool? stateLoaded = null;
         int? cookieCount = null;
@@ -161,7 +154,7 @@ public sealed class MotorSessionCoordinator
                 resolvedIdentity, connectionAborted);
             var browserSessionId = resolve.SessionId;
             var clientToken = resolve.ClientToken;
-            persistedSessionId = browserSessionId;
+            events.SetPersistedSessionId(browserSessionId);
             restored = resolve.Restored;
 
             var browserState = await _sessionStore.LoadStateAsync(browserSessionId, connectionAborted);
@@ -178,18 +171,15 @@ public sealed class MotorSessionCoordinator
                 profile,
                 motorHost);
 
-            Publish(connectionId, "Motor.SessionResolved", correlationId, payload: new
-            {
+            events.SessionResolved(
                 clientTokenProvided,
-                clientTokenEffective = clientToken,
-                persistedSessionId = browserSessionId,
-                restored = resolve.Restored,
-                stateLoaded = browserState is not null,
-                cookieCount = browserState?.Cookies.Count ?? 0,
-                localStorageCount = browserState?.LocalStorage.Count ?? 0,
-                historyCount = browserState?.History.Count ?? 0,
-                initialUrl,
-            }, persistedSessionId: browserSessionId);
+                clientToken,
+                resolve.Restored,
+                browserState is not null,
+                browserState?.Cookies.Count ?? 0,
+                browserState?.LocalStorage.Count ?? 0,
+                browserState?.History.Count ?? 0,
+                initialUrl);
 
             _logger.LogInformation(
                 "Conexão {ConnectionId}: iniciando sessão em {InitialUrl} (sessionId={SessionPrefix}…)",
@@ -210,7 +200,7 @@ public sealed class MotorSessionCoordinator
             };
 
             phase = "sidecar_create";
-            session = _sessionFactory.Create(sessionSnapshot);
+            session = _sessionFactory.Create(sessionSnapshot, events);
             session.PersistedSessionId = browserSessionId;
             session.ClientToken = clientToken;
             session.CorrelationId = correlationId;
@@ -219,8 +209,7 @@ public sealed class MotorSessionCoordinator
 
             await session.StartAsync(connectionAborted);
             // Sidecar Connected only after ConnectAsync succeeds inside StartAsync.
-            Publish(connectionId, "Motor.SidecarConnected", correlationId, session,
-                payload: new { sidecarSessionId = session.SidecarSessionId });
+            events.SidecarConnected();
 
             phase = "promote";
             if (!_registry.TryPromoteStarting(connectionId, session))
@@ -232,30 +221,20 @@ public sealed class MotorSessionCoordinator
             }
 
             promoted = true;
-            Publish(connectionId, "Motor.SessionPromoted", correlationId, session, payload: new
-            {
-                persistedSessionId = browserSessionId,
-                restored = resolve.Restored,
-            });
-            Publish(connectionId, "Motor.SessionStarted", correlationId, session, payload: new
-            {
-                persistedSessionId = browserSessionId,
-                restored = resolve.Restored,
-            });
+            events.SessionPromoted(resolve.Restored);
+            events.SessionStarted(resolve.Restored);
             session  = null;
 
             return clientToken;
         }
         catch (HubException ex)
         {
-            PublishStartFailed(connectionId, correlationId, session, phase, ex,
-                DiagnosticsSeverity.Error, persistedSessionId, restored, stateLoaded, cookieCount);
+            events.SessionStartFailed(phase, ex, DiagnosticsSeverity.Error, restored, stateLoaded, cookieCount);
             throw;
         }
         catch (ArgumentException ex)
         {
-            PublishStartFailed(connectionId, correlationId, session, phase, ex,
-                DiagnosticsSeverity.Error, persistedSessionId, restored, stateLoaded, cookieCount);
+            events.SessionStartFailed(phase, ex, DiagnosticsSeverity.Error, restored, stateLoaded, cookieCount);
             throw new HubException(ex.Message);
         }
         catch (OperationCanceledException) when (connectionAborted.IsCancellationRequested)
@@ -263,9 +242,10 @@ public sealed class MotorSessionCoordinator
             _logger.LogInformation(
                 "Startup cancelado para ConnectionId={ConnectionId}.",
                 connectionId);
-            PublishStartFailed(connectionId, correlationId, session, phase,
+            events.SessionStartFailed(
+                phase,
                 new OperationCanceledException("Sessão cancelada durante startup."),
-                DiagnosticsSeverity.Warning, persistedSessionId, restored, stateLoaded, cookieCount);
+                DiagnosticsSeverity.Warning, restored, stateLoaded, cookieCount);
             throw new HubException("Sessão cancelada durante startup.");
         }
         catch (Exception ex)
@@ -275,8 +255,7 @@ public sealed class MotorSessionCoordinator
                 && spe.ErrorCode == "cookie_import_invalid"
                 ? "import_browser_state"
                 : phase;
-            PublishStartFailed(connectionId, correlationId, session, failPhase, ex,
-                DiagnosticsSeverity.Error, persistedSessionId, restored, stateLoaded, cookieCount);
+            events.SessionStartFailed(failPhase, ex, DiagnosticsSeverity.Error, restored, stateLoaded, cookieCount);
             throw new HubException("Falha ao iniciar sessão virtual.");
         }
         finally
@@ -297,7 +276,7 @@ public sealed class MotorSessionCoordinator
                 if (cancelled)
                 {
                     _registry.ReleaseSlot();
-                    Publish(connectionId, "Motor.SlotReleased", correlationId, payload: SlotPayload(maxSessions));
+                    events.SlotReleased(maxSessions, _registry.ActiveCount, _registry.StartingCount);
                 }
             }
         }
@@ -305,12 +284,15 @@ public sealed class MotorSessionCoordinator
 
     public async Task HandleDisconnectedAsync(string connectionId)
     {
-        var correlationId = Guid.NewGuid().ToString("N");
         if (_registry.TryCancelStarting(connectionId, out var starting))
         {
+            // Continue the session's story: reuse its correlation id so start -> stop share a lineage.
+            var correlationId = string.IsNullOrWhiteSpace(starting.CorrelationId)
+                ? Guid.NewGuid().ToString("N")
+                : starting.CorrelationId!;
             _registry.ReleaseSlot();
-            Publish(connectionId, "Motor.SessionStopping", correlationId, starting,
-                payload: new { reason = "disconnect" });
+            var events = _events.ForSession(connectionId, correlationId, starting);
+            events.SessionStopping("disconnect");
             try { await starting.StopAsync(); }
             catch (Exception ex)
             {
@@ -318,32 +300,32 @@ public sealed class MotorSessionCoordinator
                     "Erro ao parar sessão em startup na desconexão (ConnectionId={ConnectionId}).",
                     connectionId);
             }
-            Publish(connectionId, "Motor.SessionStopped", correlationId, starting,
-                payload: new { reason = "disconnect" });
-            Publish(connectionId, "Motor.SlotReleased", correlationId, payload: SlotPayload());
+            events.SessionStopped("disconnect");
+            events.SlotReleased(_configStore.Current.MaxSessions, _registry.ActiveCount, _registry.StartingCount);
+            events.CloseOpenSpans("disconnect");
         }
         else if (_registry.TryRemove(connectionId, out var session))
         {
-            Publish(connectionId, "Motor.SessionStopping", correlationId, session,
-                payload: new { reason = "disconnect" });
+            var correlationId = string.IsNullOrWhiteSpace(session.CorrelationId)
+                ? Guid.NewGuid().ToString("N")
+                : session.CorrelationId!;
+            var events = _events.ForSession(connectionId, correlationId, session);
+            events.SessionStopping("disconnect");
             if (!string.IsNullOrWhiteSpace(session.PersistedSessionId))
             {
-                Publish(connectionId, "Motor.StateExportRequested", correlationId, session,
-                    payload: new { persistedSessionId = session.PersistedSessionId });
+                events.StateExportRequested();
                 try
                 {
                     var state = await session.CaptureAndPersistAsync(
                         session.PersistedSessionId!, _sessionStore);
-                    _diagnostics.StateExportCompleted(
-                        MotorDiagnosticsContext.For(connectionId, correlationId, session),
+                    events.StateExportCompleted(
                         state?.Cookies.Count,
                         state?.LocalStorage.Count,
                         state?.History.Count);
                 }
                 catch (Exception ex)
                 {
-                    _diagnostics.StateExportFailed(
-                        MotorDiagnosticsContext.For(connectionId, correlationId, session), ex);
+                    events.StateExportFailed(ex);
                     _logger.LogWarning(ex,
                         "Erro ao persistir estado (ConnectionId={ConnectionId}).",
                         connectionId);
@@ -358,11 +340,10 @@ public sealed class MotorSessionCoordinator
                     connectionId);
             }
 
-            Publish(connectionId, "Motor.SessionStopped", correlationId, session,
-                payload: new { reason = "disconnect" });
-            Publish(connectionId, "Motor.SlotReleased", correlationId, payload: SlotPayload());
-            Publish(connectionId, "Motor.SidecarDisconnected", correlationId, session,
-                payload: new { sidecarSessionId = session.SidecarSessionId });
+            events.SessionStopped("disconnect");
+            events.SlotReleased(_configStore.Current.MaxSessions, _registry.ActiveCount, _registry.StartingCount);
+            events.SidecarDisconnected();
+            events.CloseOpenSpans("disconnect");
         }
     }
 
@@ -371,11 +352,19 @@ public sealed class MotorSessionCoordinator
         if (string.IsNullOrWhiteSpace(clientUrl))
             throw new HubException("URL de navegação é obrigatória.");
 
+        var session = _registry.Get(connectionId);
+        if (session is null)
+            throw new HubException("Sessão não iniciada. Chame StartSessionAsync primeiro.");
+
         var config     = _configStore.Current;
         var forwarding = config.Forwarding!;
         motorHost ??= "";
         var profile = HostingProfileResolver.Resolve(motorHost, config.Hosting);
-        var correlationId = Guid.NewGuid().ToString("N");
+        // Continue the session's story so navigate beats plot inside its lane / span lineage.
+        var correlationId = string.IsNullOrWhiteSpace(session.CorrelationId)
+            ? Guid.NewGuid().ToString("N")
+            : session.CorrelationId!;
+        var events = _events.ForSession(connectionId, correlationId, session);
 
         string targetUrl;
         try
@@ -389,65 +378,23 @@ public sealed class MotorSessionCoordinator
         }
         catch (ArgumentException ex)
         {
+            events.NavigateBlocked(ex.Message, clientUrl);
             throw new HubException(ex.Message);
         }
 
-        var session = _registry.Get(connectionId);
-        if (session is null)
-            throw new HubException("Sessão não iniciada. Chame StartSessionAsync primeiro.");
-
-        Publish(connectionId, "Motor.NavigateRequested", correlationId, session,
-            payload: new { targetUrl, clientUrl });
+        events.NavigateRequested(targetUrl, clientUrl);
 
         try
         {
             await session.NavigateAsync(targetUrl);
-            Publish(connectionId, "Motor.NavigateCompleted", correlationId, session,
-                payload: new { targetUrl });
+            events.NavigateCompleted(targetUrl);
         }
         catch (ArgumentException ex)
         {
-            _diagnostics.NavigateRejected(
-                MotorDiagnosticsContext.For(connectionId, correlationId, session),
-                ex.Message, clientUrl, targetUrl);
+            events.NavigateRejected(ex.Message, clientUrl, targetUrl);
             throw new HubException(ex.Message);
         }
     }
-
-    private void PublishStartFailed(
-        string connectionId,
-        string correlationId,
-        IMotorSession? session,
-        string? phase,
-        Exception ex,
-        DiagnosticsSeverity severity,
-        string? persistedSessionId,
-        bool? restored,
-        bool? stateLoaded,
-        int? cookieCount)
-        => _diagnostics.SessionStartFailed(
-            MotorDiagnosticsContext.For(connectionId, correlationId, session, persistedSessionId),
-            phase, ex, severity, restored, stateLoaded, cookieCount);
-
-    private object SlotPayload(int? maxSessions = null)
-        => new
-        {
-            maxSessions = maxSessions ?? _configStore.Current.MaxSessions,
-            activeCount = _registry.ActiveCount,
-            startingCount = _registry.StartingCount,
-        };
-
-    private void Publish(
-        string connectionId,
-        string name,
-        string correlationId,
-        IMotorSession? session = null,
-        DiagnosticsSeverity severity = DiagnosticsSeverity.Information,
-        object? payload = null,
-        string? persistedSessionId = null)
-        => _diagnostics.Emit(
-            MotorDiagnosticsContext.For(connectionId, correlationId, session, persistedSessionId),
-            name, payload, severity);
 
     private static SessionIdentity ResolveIdentity(SessionIdentity? identity)
     {

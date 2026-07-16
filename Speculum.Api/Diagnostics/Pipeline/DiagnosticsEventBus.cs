@@ -63,6 +63,7 @@ public sealed class DiagnosticsEventBus : IDiagnosticsEventBus
     private readonly IEnumerable<IDiagnosticsSink> _sinks;
     private readonly SessionEventRing _ring;
     private readonly Lazy<IDiagnosticsSelfEmitter> _self;
+    private readonly SpanTracker _spans;
     private readonly ILogger<DiagnosticsEventBus> _logger;
     private readonly TimeProvider _timeProvider;
     private long _recentDrops;
@@ -75,6 +76,7 @@ public sealed class DiagnosticsEventBus : IDiagnosticsEventBus
         IEnumerable<IDiagnosticsSink> sinks,
         SessionEventRing ring,
         Lazy<IDiagnosticsSelfEmitter> self,
+        SpanTracker spans,
         ILogger<DiagnosticsEventBus> logger,
         TimeProvider? timeProvider = null)
     {
@@ -82,6 +84,7 @@ public sealed class DiagnosticsEventBus : IDiagnosticsEventBus
         _sinks = sinks;
         _ring = ring;
         _self = self;
+        _spans = spans;
         _logger = logger;
         _timeProvider = timeProvider ?? TimeProvider.System;
         _windowStart = _timeProvider.GetUtcNow();
@@ -108,6 +111,9 @@ public sealed class DiagnosticsEventBus : IDiagnosticsEventBus
         if (descriptor.Domain != DiagnosticsDomain.DiagnosticsSelf
             && !_runtime.IsCapabilityEnabled(descriptor.Domain, descriptor.Capability))
             return;
+
+        // Span correlation + monotonic Seq are stamped once the event has passed the gate.
+        _spans.Stamp(diagnosticsEvent, descriptor);
 
         _ring.Add(diagnosticsEvent);
         if (!persist || !descriptor.Persist)

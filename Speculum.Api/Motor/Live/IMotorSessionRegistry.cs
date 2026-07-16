@@ -69,11 +69,13 @@ public interface IMotorSessionRegistry
         [NotNullWhen(true)] out string? connectionId);
 
     /// <summary>Captures browser state, stops and removes all active and starting sessions.</summary>
-    /// <param name="diagnostics">When set, emits per-session StateExport*/SessionStopped with reason drain.</param>
-    /// <param name="correlationId">Correlation shared with DrainStarted/Completed when draining.</param>
+    /// <param name="correlationId">
+    /// When set, per-session drain beats (StateExport*/SessionStopped/SlotReleased/SidecarDisconnected)
+    /// are emitted through the Motor producer handle under this correlation (shared with
+    /// DrainStarted/Completed). When <c>null</c> the drain is silent (e.g. graceful shutdown).
+    /// </param>
     Task StopAllAsync(
         IBrowserSessionStore store,
         CancellationToken ct = default,
-        IMotorDiagnosticsEmitter? diagnostics = null,
         string? correlationId = null);
 }

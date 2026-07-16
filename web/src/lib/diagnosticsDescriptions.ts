@@ -12,6 +12,8 @@ export const EVENT_DESCRIPTIONS: Record<string, string> = {
   'Motor.NavigateRequested': 'The user (or the system) requested navigation to a new URL.',
   'Motor.NavigateCompleted': 'Navigation finished — the browser loaded the target page successfully.',
   'Motor.NavigateRejected': 'Navigation was blocked — the target URL is not permitted by the current allowlist or forwarding rules.',
+  'Motor.NavigateBlocked': 'Navigation was refused before a target could be built — the requested URL failed allowlist / forwarding mapping.',
+  'Motor.SessionRefused': 'A new session was refused at the capacity gate — the maximum concurrent session limit was already reached.',
   'Motor.UrlMapped': 'The requested URL was processed through the forwarding rules and mapped to a target address.',
   'Motor.StateExportStarted': 'Browser state (cookies, localStorage) is being exported for session persistence.',
   'Motor.StateExportCompleted': 'Browser state was successfully saved — the session can be restored later with these cookies and storage.',
@@ -26,6 +28,7 @@ export const EVENT_DESCRIPTIONS: Record<string, string> = {
   'Sidecar.DiagProbeCompleted': 'The diagnostic probe finished successfully — results are available for inspection.',
   'Sidecar.DiagProbeTimedOut': 'The diagnostic probe did not respond within the timeout — the browser may be busy or unresponsive.',
   'Sidecar.DiagProbeRejected': 'The diagnostic probe was rejected — the Browser Query capability is not enabled for this operation.',
+  'Sidecar.DiagProbeBusy': 'A diagnostic probe was refused because this connection already has one in flight — only one probe runs per session at a time.',
   'Sidecar.Ready': 'The sidecar browser process started and is ready to accept connections.',
   'Diagnostics.ConfigApplied': 'Diagnostics configuration was updated — new capability toggles, storage settings, or probe limits are now active.',
   'Diagnostics.CleanupPurged': 'Old diagnostic events were purged from the ring buffer to free storage space.',
@@ -39,6 +42,8 @@ export const EVENT_DESCRIPTIONS: Record<string, string> = {
   'Persistence.StateExportCompleted': 'Browser state (cookies, localStorage, IndexedDB) was persisted to the session store.',
   'Persistence.SessionQueried': 'A persisted session record was queried from the store.',
   'Telemetry.SampleCollected': 'A composite telemetry sample was collected — host, motor, sidecar, persistence, and pipeline sections captured on one time axis.',
+  'Telemetry.SessionSampleCollected': 'A per-session telemetry slice was captured and scoped to a live session, so it plots inside that session\'s story lane.',
+  'Diagnostics.SpanAbandoned': 'An open span was closed synthetically — it timed out, was torn down on disconnect/drain, or was recovered as orphaned after a restart.',
 }
 
 export const ERROR_EXPLANATIONS: Record<string, { summary: string; detail: string; action?: string }> = {
@@ -71,6 +76,25 @@ export const ERROR_EXPLANATIONS: Record<string, { summary: string; detail: strin
     summary: 'No browser slots available',
     detail: 'All available browser slots are in use. The maximum concurrent session limit has been reached.',
     action: 'Wait for existing sessions to end, or increase MaxSessions in Capacity settings.',
+  },
+  session_limit: {
+    summary: 'Session refused — capacity reached',
+    detail: 'A new session was refused because the maximum concurrent session limit was already reached at the capacity gate.',
+    action: 'Wait for existing sessions to end, or increase MaxSessions in Capacity settings.',
+  },
+  url_blocked: {
+    summary: 'URL blocked before navigation',
+    detail: 'The requested URL could not be mapped to a permitted target — it failed the allowlist / forwarding rules before navigation started.',
+    action: 'Check Forwarding settings or add the domain to the allowlist.',
+  },
+  span_timeout: {
+    summary: 'Span timed out',
+    detail: 'An operation span (e.g. navigate, export, probe) did not close within its timeout window and was abandoned by the span sweeper.',
+    action: 'Inspect the originating session — the operation may have stalled or the connection dropped.',
+  },
+  span_abandoned: {
+    summary: 'Span abandoned',
+    detail: 'An open span was force-closed — typically an orphan recovered after a process restart, or torn down when its connection ended.',
   },
   sidecar_connect_failed: {
     summary: 'Browser process failed to connect',

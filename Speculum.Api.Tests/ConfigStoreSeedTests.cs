@@ -145,7 +145,7 @@ public class ConfigStoreSeedTests : IDisposable
             .Build();
         var bootstrap = BootstrapConfig.Load(config);
         var env = new FakeWebHostEnvironment { WebRootPath = _tempDir };
-        var registry = new MotorSessionRegistry();
+        var registry = new MotorSessionRegistry(TestMotorDiagnostics.Factory(new NullDiagnosticsEventBus()));
         var scriptStore = new InjectedScriptStore(_dbPath);
         var sessionStore = new BrowserSessionStore(_dbPath, NullLogger<BrowserSessionStore>.Instance);
         var resolver = new ScriptResolver(
@@ -167,7 +167,7 @@ public class ConfigStoreSeedTests : IDisposable
             NullLogger<EdgeSynchronizer>.Instance);
         IConfigChangeHandler[] handlers =
         [
-            new MotorSessionDrainHandler(registry, sessionStore, TestMotorDiagnostics.Emitter(new NullDiagnosticsEventBus())),
+            new MotorSessionDrainHandler(registry, sessionStore, TestMotorDiagnostics.Factory(new NullDiagnosticsEventBus())),
             new EdgeSyncConfigHandler(edgeSynchronizer),
         ];
 

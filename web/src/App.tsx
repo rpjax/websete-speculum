@@ -16,7 +16,8 @@ import OpenApiPage from '@/features/admin/OpenApiPage'
 import DiagnosticsLayout from '@/features/admin/diagnostics/DiagnosticsLayout'
 import DiagnosticsHealthPage from '@/features/admin/diagnostics/DiagnosticsHealthPage'
 import DiagnosticsSystemHealthPage from '@/features/admin/diagnostics/DiagnosticsSystemHealthPage'
-import DiagnosticsResourcesPage from '@/features/admin/diagnostics/DiagnosticsResourcesPage'
+import DiagnosticsTelemetryPage from '@/features/admin/diagnostics/DiagnosticsTelemetryPage'
+import DiagnosticsTelemetryExplorePage from '@/features/admin/diagnostics/DiagnosticsTelemetryExplorePage'
 import DiagnosticsActivityPage from '@/features/admin/diagnostics/DiagnosticsActivityPage'
 import DiagnosticsInvestigatePage from '@/features/admin/diagnostics/DiagnosticsInvestigatePage'
 import DiagnosticsGovernancePage from '@/features/admin/diagnostics/DiagnosticsGovernancePage'
@@ -56,7 +57,8 @@ export default function App() {
             <Route path="diagnostics" element={<DiagnosticsLayout />}>
               <Route index element={<DiagnosticsHealthPage />} />
               <Route path="health" element={<DiagnosticsSystemHealthPage />} />
-              <Route path="resources" element={<DiagnosticsResourcesPage />} />
+              <Route path="telemetry" element={<DiagnosticsTelemetryPage />} />
+              <Route path="resources" element={<Navigate to="/admin/diagnostics/telemetry" replace />} />
               <Route path="activity" element={<DiagnosticsActivityPage />} />
               <Route path="sessions" element={<Navigate to="/admin/sessions" replace />} />
               <Route path="investigate" element={<DiagnosticsInvestigatePage />} />
@@ -67,6 +69,7 @@ export default function App() {
               <Route path="probes" element={<Navigate to="/admin/diagnostics/investigate" replace />} />
               <Route path="config" element={<Navigate to="/admin/diagnostics/governance" replace />} />
             </Route>
+            <Route path="diagnostics/telemetry/explore" element={<DiagnosticsTelemetryExplorePage />} />
             <Route path="diagnostics/sessions/:connectionId" element={<DiagnosticsSessionRedirect />} />
             <Route path="api-key" element={<AdminKeyPage />} />
             <Route path="openapi" element={<OpenApiPage />} />

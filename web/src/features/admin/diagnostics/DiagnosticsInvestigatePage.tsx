@@ -57,7 +57,7 @@ export default function DiagnosticsInvestigatePage() {
       })
       .catch(() => {})
     void diagnosticsApi.getHost()
-      .then(setHost)
+      .then((h) => setHost(h as unknown as Record<string, unknown>))
       .catch(() => setHost(null))
       .finally(() => setLoadingHost(false))
   }, [])

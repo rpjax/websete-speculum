@@ -24,33 +24,32 @@ public sealed class DiagnosticsSelfEmitter : IDiagnosticsSelfEmitter
     public DiagnosticsSelfEmitter(IDiagnosticsEventBus bus) => _bus = bus;
 
     public void ConfigApplied(bool enabled, string profile)
-        => Publish("Diagnostics.ConfigApplied", DiagnosticsSeverity.Information, new { enabled, profile });
+        => Publish("Diagnostics.ConfigApplied", DiagnosticsSeverity.Information,
+            new DiagnosticsConfigAppliedPayload(enabled, profile));
 
     public void ElevateStarted(int minutes, string actorIp)
         => Publish("Diagnostics.ElevateStarted", DiagnosticsSeverity.Information,
-            new { minutes, actorIp, audit = true });
+            new DiagnosticsElevateStartedPayload(minutes, actorIp, Audit: true));
 
     public void ElevateExpired(string reason, string? actorIp = null)
         => Publish("Diagnostics.ElevateExpired", DiagnosticsSeverity.Information,
-            actorIp is null
-                ? new { reason }
-                : (object)new { reason, actorIp, audit = true });
+            new DiagnosticsAuditReasonPayload(reason, actorIp, actorIp is null ? null : true));
 
     public void StorageOverflow(long maxBytes, int dropped, string overflow)
         => Publish("Diagnostics.StorageOverflow", DiagnosticsSeverity.Warning,
-            new { maxBytes, dropped, overflow });
+            new DiagnosticsStorageOverflowPayload(maxBytes, dropped, overflow));
 
     public void Degraded(string reason)
-        => Publish("Diagnostics.Degraded", DiagnosticsSeverity.Warning, new { reason });
+        => Publish("Diagnostics.Degraded", DiagnosticsSeverity.Warning,
+            new DiagnosticsReasonPayload(reason));
 
     public void Recovered(string reason, string? actorIp = null)
         => Publish("Diagnostics.Recovered", DiagnosticsSeverity.Information,
-            actorIp is null
-                ? new { reason }
-                : (object)new { reason, actorIp, audit = true });
+            new DiagnosticsAuditReasonPayload(reason, actorIp, actorIp is null ? null : true));
 
     public void CleanupPurged(int purged)
-        => Publish("Diagnostics.CleanupPurged", DiagnosticsSeverity.Information, new { purged });
+        => Publish("Diagnostics.CleanupPurged", DiagnosticsSeverity.Information,
+            new DiagnosticsCleanupPurgedPayload(purged));
 
     private void Publish(string name, DiagnosticsSeverity severity, object payload)
         => _bus.Publish(new DiagnosticsEvent

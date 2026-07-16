@@ -423,10 +423,10 @@ function ResourceSummaryWidget({ host }: { host: HostData }) {
           <Server className="h-3 w-3" /> Host resources
         </p>
         <Link
-          to="/admin/diagnostics/resources"
+          to="/admin/diagnostics/telemetry"
           className="flex items-center gap-1 text-[11px] font-medium text-primary hover:text-primary/80"
         >
-          Full details <ArrowRight className="h-3 w-3" />
+          Full telemetry <ArrowRight className="h-3 w-3" />
         </Link>
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-border/40">

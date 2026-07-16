@@ -20,7 +20,7 @@ public sealed class MotorSession : IMotorSession
     private readonly SessionConfigSnapshot       _snapshot;
     private readonly MotorUrlAdapter             _urlAdapter;
     private readonly ISidecarClientFactory       _sidecarClientFactory;
-    private readonly IMotorDiagnosticsEmitter    _diagnostics;
+    private readonly IMotorEvents                _events;
     private readonly ILogger                   _logger;
 
     private int _sessionState;
@@ -89,14 +89,15 @@ public sealed class MotorSession : IMotorSession
         SessionConfigSnapshot       snapshot,
         MotorUrlAdapter             urlAdapter,
         ISidecarClientFactory       sidecarClientFactory,
-        IMotorDiagnosticsEmitter    diagnostics,
+        IMotorEvents                events,
         ILogger                     logger)
     {
         _sidecarOptions       = sidecarOptions;
         _snapshot             = snapshot;
         _urlAdapter           = urlAdapter;
         _sidecarClientFactory = sidecarClientFactory;
-        _diagnostics          = diagnostics;
+        _events               = events;
+        _events.Attach(this);
         _logger               = logger;
         _currentUrl           = snapshot.InitialUrl;
 
@@ -318,7 +319,7 @@ public sealed class MotorSession : IMotorSession
 
     public Task ResizeAsync(int width, int height, CancellationToken ct = default)
     {
-        _diagnostics.ResizeRequested(DiagnosticsContext(), width, height);
+        _events.Resize(width, height);
 
         return _client!.SendInputAsync(
             JsonSerializer.SerializeToUtf8Bytes(new { type = "resize", width, height }).AsMemory(), ct);
@@ -363,7 +364,7 @@ public sealed class MotorSession : IMotorSession
     private void PublishSidecarFault(string fault)
     {
         _lastFault = fault;
-        _diagnostics.SidecarFaulted(DiagnosticsContext(), fault);
+        _events.SidecarFaulted(fault);
     }
 
     private async Task PumpConsoleOutputAsync(CancellationToken ct)
@@ -453,7 +454,7 @@ public sealed class MotorSession : IMotorSession
             return;
 
         _lastMappedClientUrl = clientUrl;
-        _diagnostics.UrlMapped(DiagnosticsContext(), targetUrl, clientUrl);
+        _events.UrlMapped(targetUrl, clientUrl);
     }
 
     private async Task PumpUserInputAsync(ChannelReader<string> reader, CancellationToken ct)
@@ -558,14 +559,10 @@ public sealed class MotorSession : IMotorSession
     }
 
     private void MaybeMirrorStatus(SessionStatus status)
-        => _diagnostics.StatusMirrored(
-            DiagnosticsContext(),
+        => _events.StatusMirror(
             status.Fps,
             status.UptimeMs,
             status.TabCount,
             status.Width,
             status.Height);
-
-    private MotorDiagnosticsContext DiagnosticsContext()
-        => new(_connectionId, _correlationId, _persistedSessionId, _sidecarSessionId);
 }

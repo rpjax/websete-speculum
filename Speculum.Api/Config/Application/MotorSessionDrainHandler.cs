@@ -9,16 +9,16 @@ public sealed class MotorSessionDrainHandler : IConfigChangeHandler
 {
     private readonly IMotorSessionRegistry _sessionRegistry;
     private readonly IBrowserSessionStore _sessionStore;
-    private readonly IMotorDiagnosticsEmitter _diagnostics;
+    private readonly IMotorEventsFactory _events;
 
     public MotorSessionDrainHandler(
         IMotorSessionRegistry sessionRegistry,
         IBrowserSessionStore sessionStore,
-        IMotorDiagnosticsEmitter diagnostics)
+        IMotorEventsFactory events)
     {
         _sessionRegistry = sessionRegistry;
         _sessionStore    = sessionStore;
-        _diagnostics     = diagnostics;
+        _events          = events;
     }
 
     public async Task HandleAsync(ConfigChangeContext context, CancellationToken ct = default)
@@ -32,26 +32,15 @@ public sealed class MotorSessionDrainHandler : IConfigChangeHandler
         var correlationId = Guid.NewGuid().ToString("N");
         var before = _sessionRegistry.ActiveCount + _sessionRegistry.StartingCount;
 
-        _diagnostics.Emit(
-            MotorDiagnosticsContext.Global(correlationId),
-            "Motor.DrainStarted",
-            new
-            {
-                sectionKey = context.SectionKey,
-                sessionCount = before,
-            });
+        var events = _events.BeginGlobal(correlationId);
+        events.DrainStarted(context.SectionKey, before);
 
         await _sessionRegistry.StopAllAsync(
-            _sessionStore, CancellationToken.None, _diagnostics, correlationId);
+            _sessionStore, CancellationToken.None, correlationId);
 
-        _diagnostics.Emit(
-            MotorDiagnosticsContext.Global(correlationId),
-            "Motor.DrainCompleted",
-            new
-            {
-                sectionKey = context.SectionKey,
-                sessionCountBefore = before,
-                sessionCountAfter = _sessionRegistry.ActiveCount + _sessionRegistry.StartingCount,
-            });
+        events.DrainCompleted(
+            context.SectionKey,
+            before,
+            _sessionRegistry.ActiveCount + _sessionRegistry.StartingCount);
     }
 }

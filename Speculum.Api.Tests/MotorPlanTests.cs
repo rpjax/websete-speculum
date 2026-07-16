@@ -226,7 +226,7 @@ public class MotorSessionRegistryTests
     [Fact]
     public void TryAcquireSlot_IsAtomic()
     {
-        var registry = new MotorSessionRegistry();
+        var registry = new MotorSessionRegistry(TestMotorDiagnostics.Factory(new NullDiagnosticsEventBus()));
         Assert.True(registry.TryAcquireSlot(2));
         Assert.True(registry.TryAcquireSlot(2));
         Assert.False(registry.TryAcquireSlot(2));
@@ -237,13 +237,13 @@ public class MotorSessionRegistryTests
     [Fact]
     public void TryPromoteStarting_FailsAfterCancel()
     {
-        var registry = new MotorSessionRegistry();
+        var registry = new MotorSessionRegistry(TestMotorDiagnostics.Factory(new NullDiagnosticsEventBus()));
         var session  = new MotorSession(
             new SidecarBrowserClientOptions { SidecarBaseUrl = "ws://localhost" },
             new SessionConfigSnapshot { InitialUrl = "https://example.com" },
             TestAdapter(),
             new SidecarClientFactory(),
-            TestMotorDiagnostics.Emitter(new NullDiagnosticsEventBus()),
+            TestMotorDiagnostics.Events(new NullDiagnosticsEventBus()),
             NullLogger<MotorSession>.Instance);
 
         registry.TrackStarting("conn-1", session);
@@ -254,13 +254,13 @@ public class MotorSessionRegistryTests
     [Fact]
     public async Task StopAllAsync_releases_slot_for_starting_session()
     {
-        var registry = new MotorSessionRegistry();
+        var registry = new MotorSessionRegistry(TestMotorDiagnostics.Factory(new NullDiagnosticsEventBus()));
         var session  = new MotorSession(
             new SidecarBrowserClientOptions { SidecarBaseUrl = "ws://localhost" },
             new SessionConfigSnapshot { InitialUrl = "https://example.com" },
             TestAdapter(),
             new SidecarClientFactory(),
-            TestMotorDiagnostics.Emitter(new NullDiagnosticsEventBus()),
+            TestMotorDiagnostics.Events(new NullDiagnosticsEventBus()),
             NullLogger<MotorSession>.Instance);
 
         Assert.True(registry.TryAcquireSlot(10));

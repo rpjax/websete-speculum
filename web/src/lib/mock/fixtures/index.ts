@@ -12,4 +12,5 @@ export {
   probeResult,
   hostSample,
   persistedList,
+  telemetrySamples,
 } from './diagnostics'

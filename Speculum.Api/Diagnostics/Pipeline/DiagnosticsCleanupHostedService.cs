@@ -18,22 +18,35 @@ public sealed class DiagnosticsCleanupHostedService : BackgroundService
     private readonly SqliteDiagnosticsEventSink _sink;
     private readonly IDiagnosticsRuntime _runtime;
     private readonly IDiagnosticsSelfEmitter _self;
+    private readonly SpanTracker _spans;
+    private readonly TimeProvider _time;
     private readonly ILogger<DiagnosticsCleanupHostedService> _logger;
 
     public DiagnosticsCleanupHostedService(
         SqliteDiagnosticsEventSink sink,
         IDiagnosticsRuntime runtime,
         IDiagnosticsSelfEmitter self,
-        ILogger<DiagnosticsCleanupHostedService> logger)
+        SpanTracker spans,
+        ILogger<DiagnosticsCleanupHostedService> logger,
+        TimeProvider? timeProvider = null)
     {
         _sink = sink;
         _runtime = runtime;
         _self = self;
+        _spans = spans;
+        _time = timeProvider ?? TimeProvider.System;
         _logger = logger;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        // Boot recovery: abandon spans a previous process left open, and seed monotonic ordering.
+        if (_runtime.Enabled)
+        {
+            try { _spans.RecoverFromStore(_sink); }
+            catch (Exception ex) { _logger.LogWarning(ex, "Diagnostics span recovery failed."); }
+        }
+
         while (!stoppingToken.IsCancellationRequested)
         {
             var enteredDegraded = _runtime.IsDegraded;
@@ -44,6 +57,8 @@ public sealed class DiagnosticsCleanupHostedService : BackgroundService
                 {
                     _self.ElevateExpired("ttl");
                 }
+
+                _spans.SweepTimeouts(_time.GetUtcNow());
 
                 var options = _runtime.GetSnapshot().Options;
                 var purged = _sink.PurgeExpired(options);

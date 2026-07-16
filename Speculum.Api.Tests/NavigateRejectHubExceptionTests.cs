@@ -28,7 +28,7 @@ public sealed class NavigateRejectHubExceptionTests
             new NoOpBrowserStore(),
             new MotorUrlAdapter(new NavigationStateCodec(new byte[32], encrypt: false)),
             new FixedFactory(session),
-            TestMotorDiagnostics.Emitter(new NullDiagnosticsEventBus()),
+            TestMotorDiagnostics.Factory(new NullDiagnosticsEventBus()),
             NullLogger<MotorSessionCoordinator>.Instance);
 
         registry.Register("conn-1", session);
@@ -106,7 +106,7 @@ public sealed class NavigateRejectHubExceptionTests
         { s = null; c = null; return false; }
         public bool TryFindBySidecarSessionId(string id, [NotNullWhen(true)] out IMotorSession? s, [NotNullWhen(true)] out string? c)
         { s = null; c = null; return false; }
-        public Task StopAllAsync(IBrowserSessionStore store, CancellationToken ct = default, IMotorDiagnosticsEmitter? diagnostics = null, string? correlationId = null) => Task.CompletedTask;
+        public Task StopAllAsync(IBrowserSessionStore store, CancellationToken ct = default, string? correlationId = null) => Task.CompletedTask;
     }
 
     private sealed class OperationalConfigStore : ISpeculumConfigStore
@@ -137,7 +137,7 @@ public sealed class NavigateRejectHubExceptionTests
 
     private sealed class FixedFactory(IMotorSession session) : IMotorSessionFactory
     {
-        public IMotorSession Create(SessionConfigSnapshot snapshot) => session;
+        public IMotorSession Create(SessionConfigSnapshot snapshot, IMotorEvents events) => session;
     }
 
     private sealed class NoOpBrowserStore : IBrowserSessionStore

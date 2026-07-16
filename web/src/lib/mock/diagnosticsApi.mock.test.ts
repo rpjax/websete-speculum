@@ -102,7 +102,7 @@ describe('mockDiagnosticsApi', () => {
 
   it('getEventCatalog returns schema version and event names', async () => {
     const catalog = await mockDiagnosticsApi.getEventCatalog()
-    expect(catalog.diagnosticsSchemaVersion).toBe(1)
+    expect(catalog.diagnosticsSchemaVersion).toBe(2)
     expect(catalog.events.length).toBeGreaterThan(0)
     expect(catalog.events).toContain('Motor.SessionStarted')
     expect(catalog.events).toContain('Diagnostics.ConfigApplied')

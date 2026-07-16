@@ -7,7 +7,11 @@ namespace Speculum.Api.Motor.Live;
 
 public interface IMotorSessionFactory
 {
-    IMotorSession Create(SessionConfigSnapshot snapshot);
+    /// <summary>
+    /// Creates a session bound to the already-context-bound producer handle. The coordinator
+    /// hands in the handle so the whole startup narrative shares one correlation lineage.
+    /// </summary>
+    IMotorSession Create(SessionConfigSnapshot snapshot, IMotorEvents events);
 }
 
 public sealed class MotorSessionFactory : IMotorSessionFactory
@@ -15,29 +19,26 @@ public sealed class MotorSessionFactory : IMotorSessionFactory
     private readonly SidecarBrowserClientOptions _sidecarOptions;
     private readonly MotorUrlAdapter             _urlAdapter;
     private readonly ISidecarClientFactory       _sidecarClientFactory;
-    private readonly IMotorDiagnosticsEmitter    _diagnostics;
     private readonly ILogger<MotorSession>       _logger;
 
     public MotorSessionFactory(
         SidecarBrowserClientOptions sidecarOptions,
         MotorUrlAdapter             urlAdapter,
         ISidecarClientFactory       sidecarClientFactory,
-        IMotorDiagnosticsEmitter    diagnostics,
         ILogger<MotorSession>       logger)
     {
         _sidecarOptions       = sidecarOptions;
         _urlAdapter           = urlAdapter;
         _sidecarClientFactory = sidecarClientFactory;
-        _diagnostics          = diagnostics;
         _logger               = logger;
     }
 
-    public IMotorSession Create(SessionConfigSnapshot snapshot)
+    public IMotorSession Create(SessionConfigSnapshot snapshot, IMotorEvents events)
         => new MotorSession(
             _sidecarOptions,
             snapshot,
             _urlAdapter,
             _sidecarClientFactory,
-            _diagnostics,
+            events,
             _logger);
 }

@@ -63,11 +63,30 @@ describe('diagnosticsApi', () => {
   })
 
   it('getHost unwraps { data } envelope', async () => {
-    mockJson({ data: { utc: '2026-01-01T00:00:00Z', pid: 42 }, redaction: 'none' })
+    mockJson({ data: { hostname: 'motor-01', cpuUsage: 42 }, redaction: 'none' })
 
     const host = await diagnosticsApi.getHost()
     expect(fetchMock).toHaveBeenCalledWith(`${BASE}/host`, expect.any(Object))
-    expect(host.pid).toBe(42)
+    expect(host.cpuUsage).toBe(42)
+  })
+
+  it('getSampleHistory builds the paged query string', async () => {
+    mockJson({ items: [], total: 0, nextCursor: null, bucketSeconds: 0, redaction: 'none' })
+
+    await diagnosticsApi.getSampleHistory({ since: '2026-01-01T00:00:00Z', limit: 50, cursor: 'abc' })
+    const url = fetchMock.mock.calls[0][0] as string
+    expect(url.startsWith(`${BASE}/telemetry/history?`)).toBe(true)
+    expect(url).toContain('since=2026-01-01T00%3A00%3A00Z')
+    expect(url).toContain('limit=50')
+    expect(url).toContain('cursor=abc')
+  })
+
+  it('getSampleHistory forwards bucketSeconds for chart mode', async () => {
+    mockJson({ items: [], total: 0, nextCursor: null, bucketSeconds: 300, redaction: 'none' })
+
+    await diagnosticsApi.getSampleHistory({ bucketSeconds: 300 })
+    const url = fetchMock.mock.calls[0][0] as string
+    expect(url).toContain('bucketSeconds=300')
   })
 
   it('listEvents hits /events with namePrefix', async () => {

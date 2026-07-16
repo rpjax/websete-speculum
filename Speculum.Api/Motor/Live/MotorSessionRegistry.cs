@@ -10,7 +10,10 @@ public sealed class MotorSessionRegistry : IMotorSessionRegistry
 {
     private readonly ConcurrentDictionary<string, IMotorSession> _sessions = new();
     private readonly ConcurrentDictionary<string, IMotorSession> _starting = new();
+    private readonly IMotorEventsFactory _events;
     private int _activeSlots;
+
+    public MotorSessionRegistry(IMotorEventsFactory events) => _events = events;
 
     public void Register(string connectionId, IMotorSession session)
     {
@@ -168,7 +171,6 @@ public sealed class MotorSessionRegistry : IMotorSessionRegistry
     public async Task StopAllAsync(
         IBrowserSessionStore store,
         CancellationToken ct = default,
-        IMotorDiagnosticsEmitter? diagnostics = null,
         string? correlationId = null)
     {
         var connectionIds = _sessions.Keys
@@ -176,7 +178,8 @@ public sealed class MotorSessionRegistry : IMotorSessionRegistry
             .Distinct()
             .ToArray();
 
-        var corr = correlationId ?? Guid.NewGuid().ToString("N");
+        // A null correlationId means a silent drain (e.g. graceful shutdown): no story to tell.
+        var corr = correlationId;
 
         foreach (var connectionId in connectionIds)
         {
@@ -193,24 +196,23 @@ public sealed class MotorSessionRegistry : IMotorSessionRegistry
             if (session is null) continue;
 
             session.MarkPhase(MotorSessionPhase.Stopping);
-            var ctx = MotorDiagnosticsContext.For(connectionId, corr, session);
-            diagnostics?.Emit(ctx, "Motor.SessionStopping", new { reason = "drain" });
+            var events = corr is null ? null : _events.ForSession(connectionId, corr, session);
+            events?.SessionStopping("drain");
 
             if (!string.IsNullOrWhiteSpace(session.PersistedSessionId))
             {
-                diagnostics?.Emit(ctx, "Motor.StateExportRequested",
-                    new { persistedSessionId = session.PersistedSessionId });
+                events?.StateExportRequested();
                 try
                 {
                     var state = await session.CaptureAndPersistAsync(session.PersistedSessionId!, store, ct);
-                    diagnostics?.StateExportCompleted(ctx,
+                    events?.StateExportCompleted(
                         state?.Cookies.Count,
                         state?.LocalStorage.Count,
                         state?.History.Count);
                 }
                 catch (Exception ex)
                 {
-                    diagnostics?.StateExportFailed(ctx, ex);
+                    events?.StateExportFailed(ex);
                 }
             }
 
@@ -218,14 +220,9 @@ public sealed class MotorSessionRegistry : IMotorSessionRegistry
             catch { /* best-effort */ }
 
             session.MarkPhase(MotorSessionPhase.Stopped);
-            diagnostics?.Emit(ctx, "Motor.SessionStopped", new { reason = "drain" });
-            diagnostics?.Emit(ctx, "Motor.SlotReleased", new
-            {
-                activeCount = ActiveCount,
-                startingCount = StartingCount,
-            });
-            diagnostics?.Emit(ctx, "Motor.SidecarDisconnected",
-                new { sidecarSessionId = session.SidecarSessionId });
+            events?.SessionStopped("drain");
+            events?.SlotReleased(null, ActiveCount, StartingCount);
+            events?.SidecarDisconnected();
         }
 
         if (Volatile.Read(ref _activeSlots) < 0)

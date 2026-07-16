@@ -43,5 +43,31 @@ public sealed class TelemetryEmitter : ITelemetryEmitter
             Severity = DiagnosticsSeverity.Information,
             Payload = sample,
         });
+
+        EmitPerSessionSamples(sample);
+    }
+
+    /// <summary>
+    /// When per-session projection is enabled, mirrors each live session's slice as its own event
+    /// scoped by ConnectionId so it plots inside the session's story lane — not only in the global
+    /// composite. Reuses the composite's already-computed projection (no extra registry pass).
+    /// </summary>
+    private void EmitPerSessionSamples(TelemetrySample sample)
+    {
+        var sessions = sample.Motor?.Sessions;
+        if (sessions is null)
+            return;
+
+        foreach (var session in sessions)
+        {
+            _bus.Publish(new DiagnosticsEvent
+            {
+                Domain = DiagnosticsDomain.Telemetry,
+                Name = "Telemetry.SessionSampleCollected",
+                Severity = DiagnosticsSeverity.Information,
+                ConnectionId = session.ConnectionId,
+                Payload = session,
+            });
+        }
     }
 }

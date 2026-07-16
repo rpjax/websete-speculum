@@ -11,6 +11,11 @@ import {
   parseGranularityMs,
   toDatetimeLocalValue,
   parseDatetimeLocalValue,
+  detectAnomalies,
+  metricsBySection,
+  pearson,
+  TELEMETRY_METRICS,
+  METRIC_BY_KEY,
   METRICS,
   type ResourceSample,
 } from './resourceChartCompute'
@@ -18,6 +23,22 @@ import type { DiagnosticsEventRecord } from './diagnosticsApi'
 
 function sample(ts: number, cpu: number, mem: number): ResourceSample {
   return { utc: new Date(ts).toISOString(), timestamp: ts, cpu, memoryMb: mem, threads: 20 }
+}
+
+function richSample(ts: number, cpu: number, live: number, mem = 400): ResourceSample {
+  return {
+    utc: new Date(ts).toISOString(),
+    timestamp: ts,
+    cpu,
+    memoryMb: mem,
+    threads: 20,
+    values: {
+      'host.cpu': cpu,
+      'host.memory': mem,
+      'motor.live': live,
+      'derived.cpuPerSession': live > 0 ? cpu / live : null,
+    },
+  }
 }
 
 function telemetryEvent(
@@ -165,6 +186,102 @@ describe('METRICS', () => {
   it('extracts the matching field, mapping null threads to 0', () => {
     const byKey = Object.fromEntries(METRICS.map((m) => [m.key, m.extract(s)]))
     expect(byKey).toEqual({ cpu: 12.5, memory: 256, threads: 0 })
+  })
+})
+
+describe('telemetryToResourceSamples — composite sections', () => {
+  const t1 = '2026-01-01T12:00:00.000Z'
+  function composite(host: Record<string, unknown>, motor?: Record<string, unknown>) {
+    return telemetryEvent(t1, 'Telemetry.SampleCollected', { host, motor })
+  }
+
+  it('flattens motor + derived per-session metrics into values', () => {
+    const out = telemetryToResourceSamples([
+      composite(
+        { cpuUsage: 40, memoryUsed: 800 * 1024 * 1024, threadCount: 30 },
+        { live: 10, total: 11, avgFps: 24, capacityUsedPct: 40 },
+      ),
+    ])
+    expect(out).toHaveLength(1)
+    const vals = out[0].values!
+    expect(vals['motor.live']).toBe(10)
+    expect(vals['host.cpu']).toBe(40)
+    // 40% cpu across 10 sessions → 4%/session
+    expect(vals['derived.cpuPerSession']).toBe(4)
+    // 800MB across 10 sessions → 80MB/session
+    expect(vals['derived.memPerSession']).toBe(80)
+  })
+
+  it('leaves per-session metrics null when there are no live sessions', () => {
+    const out = telemetryToResourceSamples([composite({ cpuUsage: 6, memoryUsed: 0 }, { live: 0 })])
+    expect(out[0].values!['derived.cpuPerSession']).toBeNull()
+    expect(out[0].values!['derived.memPerSession']).toBeNull()
+  })
+})
+
+describe('analyzePoint — session-aware divergences', () => {
+  it('flags CPU rising while live sessions stay flat (leak)', () => {
+    const samples = [richSample(1, 20, 5), richSample(2, 30, 5)]
+    const insight = analyzePoint(samples, 1)
+    expect(insight?.divergences).toContain('CPU rose while live sessions stayed flat')
+    expect(insight?.liveSessions).toBe(5)
+  })
+
+  it('flags live sessions growing without added CPU (efficiency)', () => {
+    const samples = [richSample(1, 30, 4), richSample(2, 31, 8)]
+    const insight = analyzePoint(samples, 1)
+    expect(insight?.divergences).toContain('Live sessions grew without added CPU')
+    expect(insight?.liveDelta).toBe(4)
+  })
+
+  it('flags rising per-session CPU cost (regression)', () => {
+    const samples = [richSample(1, 20, 10), richSample(2, 44, 11)] // 2.0 → 4.0 %/session
+    const insight = analyzePoint(samples, 1)
+    expect(insight?.divergences).toContain('Per-session CPU cost is rising')
+  })
+})
+
+describe('detectAnomalies', () => {
+  it('detects a sustained leak region (cpu climbs, sessions flat)', () => {
+    const cpu = [20, 20, 20, 20, 20, 24, 28, 32, 36, 40, 40, 40]
+    const samples = cpu.map((c, i) => richSample(i * 60_000, c, 5))
+    const anomalies = detectAnomalies(samples)
+    expect(anomalies).toHaveLength(1)
+    expect(anomalies[0].kind).toBe('leak')
+    expect(anomalies[0].startIndex).toBe(6)
+    expect(anomalies[0].endIndex).toBe(11)
+  })
+
+  it('returns nothing for a short series', () => {
+    expect(detectAnomalies([richSample(1, 10, 2), richSample(2, 12, 2)])).toEqual([])
+  })
+})
+
+describe('metric catalog', () => {
+  it('groups metrics by section with motor.live present', () => {
+    const grouped = metricsBySection()
+    const motor = grouped.find((g) => g.section.key === 'motor')
+    expect(motor?.metrics.some((mDef) => mDef.key === 'motor.live')).toBe(true)
+  })
+
+  it('every catalog metric resolves via METRIC_BY_KEY and reads its value', () => {
+    const s = richSample(1, 42, 6)
+    expect(METRIC_BY_KEY['host.cpu'].extract(s)).toBe(42)
+    expect(METRIC_BY_KEY['motor.live'].extract(s)).toBe(6)
+    expect(TELEMETRY_METRICS.every((mDef) => typeof mDef.extract(s) === 'number')).toBe(true)
+  })
+})
+
+describe('pearson', () => {
+  it('is +1 for a perfectly increasing linear relationship', () => {
+    expect(pearson([1, 2, 3, 4], [2, 4, 6, 8])).toBeCloseTo(1, 5)
+  })
+  it('is -1 for a perfectly inverse relationship', () => {
+    expect(pearson([1, 2, 3, 4], [8, 6, 4, 2])).toBeCloseTo(-1, 5)
+  })
+  it('is 0 for a flat/undefined series', () => {
+    expect(pearson([1, 2, 3], [5, 5, 5])).toBe(0)
+    expect(pearson([1], [1])).toBe(0)
   })
 })
 

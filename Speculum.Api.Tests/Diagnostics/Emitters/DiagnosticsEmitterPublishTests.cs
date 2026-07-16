@@ -25,6 +25,12 @@ public sealed class DiagnosticsEmitterPublishTests
 {
     private const string ValidToken = "abcdef0123456789abcdef0123456789";
 
+    // Matches the production wire: the sink serializes payloads with the camelCase policy.
+    private static readonly JsonSerializerOptions CamelCase = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+    };
+
     [Fact]
     public async Task StartSession_publishes_SessionResolved_with_required_payload_fields()
     {
@@ -41,11 +47,12 @@ public sealed class DiagnosticsEmitterPublishTests
         var resolved = Assert.Single(bus.Events, e => e.Name == "Motor.SessionResolved");
         Assert.Equal("conn-1", resolved.ConnectionId);
         Assert.Equal("sess-new", resolved.PersistedSessionId);
-        using var doc = JsonDocument.Parse(JsonSerializer.Serialize(resolved.Payload));
+        using var doc = JsonDocument.Parse(JsonSerializer.Serialize(resolved.Payload, CamelCase));
         var p = doc.RootElement;
         Assert.False(p.GetProperty("clientTokenProvided").GetBoolean());
         Assert.Equal(ValidToken, p.GetProperty("clientTokenEffective").GetString());
-        Assert.Equal("sess-new", p.GetProperty("persistedSessionId").GetString());
+        // persistedSessionId lives on the envelope now, not duplicated in the payload.
+        Assert.False(p.TryGetProperty("persistedSessionId", out _));
         Assert.False(p.GetProperty("restored").GetBoolean());
         Assert.False(p.GetProperty("stateLoaded").GetBoolean());
         Assert.Equal(0, p.GetProperty("cookieCount").GetInt32());
@@ -87,7 +94,7 @@ public sealed class DiagnosticsEmitterPublishTests
             new SessionIdentity { ClientToken = ValidToken, CorrelationId = "act1" });
 
         var resolved = Assert.Single(bus.Events, e => e.Name == "Motor.SessionResolved");
-        using var doc = JsonDocument.Parse(JsonSerializer.Serialize(resolved.Payload));
+        using var doc = JsonDocument.Parse(JsonSerializer.Serialize(resolved.Payload, CamelCase));
         var p = doc.RootElement;
         Assert.True(p.GetProperty("clientTokenProvided").GetBoolean());
         Assert.True(p.GetProperty("restored").GetBoolean());
@@ -117,8 +124,8 @@ public sealed class DiagnosticsEmitterPublishTests
 
         var mapped = bus.Events.Where(e => e.Name == "Motor.UrlMapped").ToList();
         Assert.Equal(2, mapped.Count);
-        using var p0 = JsonDocument.Parse(JsonSerializer.Serialize(mapped[0].Payload));
-        using var p1 = JsonDocument.Parse(JsonSerializer.Serialize(mapped[1].Payload));
+        using var p0 = JsonDocument.Parse(JsonSerializer.Serialize(mapped[0].Payload, CamelCase));
+        using var p1 = JsonDocument.Parse(JsonSerializer.Serialize(mapped[1].Payload, CamelCase));
         Assert.Contains("/nav/a", p0.RootElement.GetProperty("clientUrl").GetString()!, StringComparison.Ordinal);
         Assert.Contains("/nav/b", p1.RootElement.GetProperty("clientUrl").GetString()!, StringComparison.Ordinal);
         Assert.Equal("https://www.example.com/nav/b", p1.RootElement.GetProperty("targetUrl").GetString());
@@ -202,12 +209,14 @@ public sealed class DiagnosticsEmitterPublishTests
 
         Assert.Contains("Falha", ex.Message, StringComparison.OrdinalIgnoreCase);
         var failed = Assert.Single(bus.Events, e => e.Name == "Motor.SessionStartFailed");
-        using var doc = JsonDocument.Parse(JsonSerializer.Serialize(failed.Payload));
+        Assert.Equal("sess-fail", failed.PersistedSessionId);
+        using var doc = JsonDocument.Parse(JsonSerializer.Serialize(failed.Payload, CamelCase));
         var p = doc.RootElement;
         Assert.Equal("cookie_import_invalid", p.GetProperty("errorCode").GetString());
         Assert.Equal("import_browser_state", p.GetProperty("phase").GetString());
         Assert.False(string.IsNullOrWhiteSpace(p.GetProperty("message").GetString()));
-        Assert.Equal("sess-fail", p.GetProperty("persistedSessionId").GetString());
+        // Envelope carries identity; payload is dedup'd.
+        Assert.False(p.TryGetProperty("persistedSessionId", out _));
         Assert.True(p.GetProperty("restored").GetBoolean());
         Assert.True(p.GetProperty("stateLoaded").GetBoolean());
         Assert.Equal(1, p.GetProperty("cookieCount").GetInt32());
@@ -232,18 +241,20 @@ public sealed class DiagnosticsEmitterPublishTests
                 new SessionResolveResult("sess-x", ValidToken, false), null),
             new MotorUrlAdapter(new NavigationStateCodec(new byte[32], encrypt: false)),
             new StubFactory(),
-            Emitter(bus),
+            TestMotorDiagnostics.Factory(bus),
             NullLogger<MotorSessionCoordinator>.Instance);
 
         await coordinator.HandleDisconnectedAsync("conn-x");
 
         var failed = Assert.Single(bus.Events, e => e.Name == "Motor.StateExportFailed");
-        using var doc = JsonDocument.Parse(JsonSerializer.Serialize(failed.Payload));
+        Assert.Equal("sess-x", failed.PersistedSessionId);
+        using var doc = JsonDocument.Parse(JsonSerializer.Serialize(failed.Payload, CamelCase));
         var p = doc.RootElement;
         Assert.Equal("export_failed", p.GetProperty("errorCode").GetString());
         Assert.Equal("export", p.GetProperty("phase").GetString());
         Assert.False(string.IsNullOrWhiteSpace(p.GetProperty("message").GetString()));
-        Assert.Equal("sess-x", p.GetProperty("persistedSessionId").GetString());
+        // Envelope carries identity; payload is dedup'd.
+        Assert.False(p.TryGetProperty("persistedSessionId", out _));
     }
 
     [Fact]
@@ -260,7 +271,7 @@ public sealed class DiagnosticsEmitterPublishTests
             .Invoke(session, ["sidecar_channel_closed"]);
 
         var faulted = Assert.Single(bus.Events, e => e.Name == "Motor.SidecarFaulted");
-        using var doc = JsonDocument.Parse(JsonSerializer.Serialize(faulted.Payload));
+        using var doc = JsonDocument.Parse(JsonSerializer.Serialize(faulted.Payload, CamelCase));
         Assert.Equal("sidecar_channel_closed", doc.RootElement.GetProperty("fault").GetString());
         Assert.Equal("sidecar_channel_closed", doc.RootElement.GetProperty("errorCode").GetString());
     }
@@ -282,14 +293,14 @@ public sealed class DiagnosticsEmitterPublishTests
                 new SessionResolveResult("sess-n", ValidToken, false), null),
             new MotorUrlAdapter(new NavigationStateCodec(new byte[32], encrypt: false)),
             new StubFactory(),
-            Emitter(bus),
+            TestMotorDiagnostics.Factory(bus),
             NullLogger<MotorSessionCoordinator>.Instance);
 
         await Assert.ThrowsAsync<HubException>(() =>
             coordinator.NavigateMotorSessionAsync("conn-n", "https://speculum.com/nav/a", "speculum.com"));
 
         var rejected = Assert.Single(bus.Events, e => e.Name == "Motor.NavigateRejected");
-        using var doc = JsonDocument.Parse(JsonSerializer.Serialize(rejected.Payload));
+        using var doc = JsonDocument.Parse(JsonSerializer.Serialize(rejected.Payload, CamelCase));
         var p = doc.RootElement;
         Assert.Equal("navigate_rejected", p.GetProperty("errorCode").GetString());
         Assert.Equal("navigate", p.GetProperty("phase").GetString());
@@ -310,17 +321,8 @@ public sealed class DiagnosticsEmitterPublishTests
             store,
             urlAdapter,
             factory ?? new StubFactory(),
-            Emitter(bus),
+            TestMotorDiagnostics.Factory(bus),
             NullLogger<MotorSessionCoordinator>.Instance);
-    }
-
-    // Wrap the fake transport (CapturingBus) in a real Motor emitter so tests still assert
-    // against the emitted DiagnosticsEvent payloads while exercising the emitter gating.
-    private static IMotorDiagnosticsEmitter Emitter(IDiagnosticsEventBus bus)
-    {
-        var runtime = new DiagnosticsRuntime();
-        runtime.ApplyOptions(DiagnosticsSeedProfiles.Development());
-        return new MotorDiagnosticsEmitter(bus, runtime);
     }
 
     private static DiagnosticsEventBus BuildBus(
@@ -328,7 +330,8 @@ public sealed class DiagnosticsEmitterPublishTests
     {
         DiagnosticsEventBus? bus = null;
         var self = new Lazy<IDiagnosticsSelfEmitter>(() => new DiagnosticsSelfEmitter(bus!));
-        bus = new DiagnosticsEventBus(runtime, [sink], ring, self, NullLogger<DiagnosticsEventBus>.Instance);
+        var spans = new SpanTracker(new Lazy<IDiagnosticsEventBus>(() => bus!));
+        bus = new DiagnosticsEventBus(runtime, [sink], ring, self, spans, NullLogger<DiagnosticsEventBus>.Instance);
         return bus;
     }
 
@@ -361,7 +364,7 @@ public sealed class DiagnosticsEmitterPublishTests
             snapshot,
             adapter,
             new ThrowingSidecarFactory(),
-            Emitter(bus),
+            TestMotorDiagnostics.Events(bus),
             NullLogger.Instance);
     }
 
@@ -485,17 +488,17 @@ public sealed class DiagnosticsEmitterPublishTests
         {
             session = null; connectionId = null; return false;
         }
-        public Task StopAllAsync(IBrowserSessionStore store, CancellationToken ct = default, IMotorDiagnosticsEmitter? diagnostics = null, string? correlationId = null) => Task.CompletedTask;
+        public Task StopAllAsync(IBrowserSessionStore store, CancellationToken ct = default, string? correlationId = null) => Task.CompletedTask;
     }
 
     private sealed class StubFactory : IMotorSessionFactory
     {
-        public IMotorSession Create(SessionConfigSnapshot snapshot) => new StubSession();
+        public IMotorSession Create(SessionConfigSnapshot snapshot, IMotorEvents events) => new StubSession();
     }
 
     private sealed class ThrowingSessionFactory(Exception fail) : IMotorSessionFactory
     {
-        public IMotorSession Create(SessionConfigSnapshot snapshot) => new ThrowingStartSession(fail);
+        public IMotorSession Create(SessionConfigSnapshot snapshot, IMotorEvents events) => new ThrowingStartSession(fail);
     }
 
     private sealed class ThrowingStartSession(Exception fail) : StubSession

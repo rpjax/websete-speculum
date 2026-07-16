@@ -32,7 +32,7 @@ export default function DiagnosticsProbesPage() {
       setSessions(r.sessions)
       if (r.sessions[0]) setConnectionId(r.sessions[0].connectionId)
     }).catch(() => {})
-    void diagnosticsApi.getHost().then(setHost).catch(() => setHost(null))
+    void diagnosticsApi.getHost().then((h) => setHost(h as unknown as Record<string, unknown>)).catch(() => setHost(null))
   }, [])
 
   function toggleOp(op: string, checked: boolean) {

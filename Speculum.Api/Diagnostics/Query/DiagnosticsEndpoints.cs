@@ -205,6 +205,48 @@ public static class DiagnosticsEndpoints
             IDiagnosticsRedactor redactor) =>
             Results.Ok(QueryTimeline(connectionId, since, namePrefix, ring, sink, redactor)));
 
+        // Telemetry explorer history — server-side time range + keyset pagination + optional
+        // downsampling. Distinct from /events so the shared timeline contract stays untouched.
+        // Raw mode (bucketSeconds unset/0): { items, total, nextCursor } paged by cursor.
+        // Bucketed mode (bucketSeconds > 0): last-sample-per-bucket over the whole range for charts.
+        g.MapGet("/telemetry/history", (
+            DateTimeOffset? since,
+            DateTimeOffset? until,
+            string? connectionId,
+            string? namePrefix,
+            int? limit,
+            string? cursor,
+            int? bucketSeconds,
+            SqliteDiagnosticsEventSink sink,
+            IDiagnosticsRedactor redactor) =>
+        {
+            var prefix = string.IsNullOrWhiteSpace(namePrefix) ? "Telemetry." : namePrefix;
+
+            if (bucketSeconds is > 0)
+            {
+                var bucketed = sink.QueryEventsBucketed(connectionId, since, until, prefix, bucketSeconds.Value);
+                return Results.Ok(new
+                {
+                    items = bucketed.Select(e => ShapeEvent(e, redactor)),
+                    total = (long)bucketed.Count,
+                    nextCursor = (string?)null,
+                    bucketSeconds = bucketSeconds.Value,
+                    redaction = redactor.Mode,
+                });
+            }
+
+            var (curUtc, curId) = SqliteDiagnosticsEventSink.DecodeCursor(cursor);
+            var page = sink.QueryEventsPaged(connectionId, since, until, prefix, limit ?? 200, curUtc, curId);
+            return Results.Ok(new
+            {
+                items = page.Items.Select(e => ShapeEvent(e, redactor)),
+                total = page.Total,
+                nextCursor = page.NextCursor,
+                bucketSeconds = 0,
+                redaction = redactor.Mode,
+            });
+        });
+
         g.MapPost("/sessions/{connectionId}/browser", async (
             string connectionId,
             HttpContext http,
@@ -444,20 +486,38 @@ public static class DiagnosticsEndpoints
             .GroupBy(e => e.Id)
             .Select(g => g.First())
             .OrderBy(e => e.Utc)
-            .Select(e => (object)new
-            {
-                e.DiagnosticsSchemaVersion,
-                e.Id,
-                e.Utc,
-                domain = e.Domain.ToString(),
-                e.Name,
-                severity = e.Severity.ToString(),
-                e.CorrelationId,
-                e.ConnectionId,
-                e.PersistedSessionId,
-                e.SidecarSessionId,
-                payload = redactor.RedactPayload(e.Payload),
-                redaction = redactor.Mode,
-            });
+            .Select(e => ShapeEvent(e, redactor));
+    }
+
+    private static object ShapeEvent(DiagnosticsEvent e, IDiagnosticsRedactor redactor)
+    {
+        // Surface the span boundary role (from the static catalog) so the UI can classify a lone
+        // span beat — one whose partner fell outside the query window — as an open vs a close
+        // instead of guessing (a trimmed-open close would otherwise render as a phantom open span).
+        var spanRole = DiagnosticsEventCatalog.TryGet(e.Name, out var descriptor)
+            && descriptor.SpanRole != SpanRole.None
+            ? descriptor.SpanRole.ToString()
+            : null;
+
+        return new
+        {
+            e.DiagnosticsSchemaVersion,
+            e.Id,
+            e.Utc,
+            domain = e.Domain.ToString(),
+            e.Name,
+            severity = e.Severity.ToString(),
+            e.CorrelationId,
+            e.ConnectionId,
+            e.PersistedSessionId,
+            e.SidecarSessionId,
+            e.Seq,
+            e.SpanId,
+            e.SpanKey,
+            spanRole,
+            e.CausationId,
+            payload = redactor.RedactPayload(e.Payload),
+            redaction = redactor.Mode,
+        };
     }
 }

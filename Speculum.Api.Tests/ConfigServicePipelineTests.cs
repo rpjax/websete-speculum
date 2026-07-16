@@ -131,7 +131,7 @@ public sealed class ConfigServicePipelineTests : IDisposable
 
         IConfigChangeHandler[] handlers =
         [
-            new MotorSessionDrainHandler(registry, sessionStore, TestMotorDiagnostics.Emitter(new NullDiagnosticsEventBus())),
+            new MotorSessionDrainHandler(registry, sessionStore, TestMotorDiagnostics.Factory(new NullDiagnosticsEventBus())),
             new EdgeSyncConfigHandler(sync),
         ];
 
@@ -221,7 +221,7 @@ public sealed class ConfigServicePipelineTests : IDisposable
             return false;
         }
 
-        public Task StopAllAsync(IBrowserSessionStore sessionStore, CancellationToken ct = default, IMotorDiagnosticsEmitter? diagnostics = null, string? correlationId = null)
+        public Task StopAllAsync(IBrowserSessionStore sessionStore, CancellationToken ct = default, string? correlationId = null)
         {
             StopAllCount++;
             return Task.CompletedTask;

@@ -230,10 +230,15 @@ public sealed class MotorActClient : IAsyncDisposable
         return _connection!.InvokeAsync("NavigateAsync", clientUrl, ct);
     }
 
-    public Task ResizeAsync(int width, int height, CancellationToken ct = default)
+    public Task ResizeAsync(
+        int width,
+        int height,
+        MotorDeviceProfile? device = null,
+        CancellationToken ct = default)
     {
         EnsureConnected();
-        return _connection!.InvokeAsync("ResizeAsync", width, height, ct);
+        // Always send the device arg (even null) so MessagePack arity matches MotorHub.ResizeAsync.
+        return _connection!.InvokeAsync("ResizeAsync", width, height, device, ct);
     }
 
     public async Task<MotorSessionStatus> WaitForStatusAsync(

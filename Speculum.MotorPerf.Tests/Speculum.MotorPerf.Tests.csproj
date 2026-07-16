@@ -27,6 +27,7 @@
     <Compile Include="..\Speculum.MotorAssert.Tests\MotorAssertHost.cs" Link="Shared\MotorAssertHost.cs" />
     <Compile Include="..\Speculum.MotorAssert.Tests\MotorAssertTokens.cs" Link="Shared\MotorAssertTokens.cs" />
     <Compile Include="..\Speculum.MotorAssert.Tests\MotorSessionIdentity.cs" Link="Shared\MotorSessionIdentity.cs" />
+    <Compile Include="..\Speculum.MotorAssert.Tests\MotorDeviceProfile.cs" Link="Shared\MotorDeviceProfile.cs" />
     <Compile Include="..\Speculum.MotorAssert.Tests\DiagnosticsAssertClient.cs" Link="Shared\DiagnosticsAssertClient.cs" />
     <Compile Include="..\Speculum.MotorAssert.Tests\MotorAssertFixture.cs" Link="Shared\MotorAssertFixture.cs" />
     <Compile Include="..\Speculum.MotorAssert.Tests\GlobalUsings.cs" Link="Shared\GlobalUsings.cs" />

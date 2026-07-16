@@ -157,14 +157,15 @@ export class InputPipeline {
                     break;
 
                 case 'goback':
+                    // commit: bfcache restores often skip DOMContentLoaded, which hung goBack for 30s.
                     await this._runNavigation(() =>
-                        this._deps.page.goBack({ waitUntil: 'domcontentloaded', timeout: 30_000 }),
+                        this._deps.page.goBack({ waitUntil: 'commit', timeout: 30_000 }),
                     );
                     break;
 
                 case 'goforward':
                     await this._runNavigation(() =>
-                        this._deps.page.goForward({ waitUntil: 'domcontentloaded', timeout: 30_000 }),
+                        this._deps.page.goForward({ waitUntil: 'commit', timeout: 30_000 }),
                     );
                     break;
 

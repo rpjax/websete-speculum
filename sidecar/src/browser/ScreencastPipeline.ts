@@ -1,5 +1,6 @@
 import { CDPSession } from 'patchright';
 import { encodeScreencastFrame } from '../protocol/wire-protocol';
+import { VirtualDisplay } from './VirtualDisplay';
 
 /**
  * Captures frames from the virtual browser via CDP Page.startScreencast.
@@ -19,6 +20,8 @@ export class ScreencastPipeline {
     private _idleTimer: ReturnType<typeof setInterval> | null = null;
     private _lastFrameAt = 0;
     private _idleBusy = false;
+    private _width = 0;
+    private _height = 0;
 
     /** Push a fallback screenshot if Chromium stayed silent this long. */
     static readonly IDLE_MS = 750;
@@ -80,6 +83,8 @@ export class ScreencastPipeline {
         const cdp  = this._cdp;
         const self = this;
         this._onFrame = onFrame;
+        this._width = width;
+        this._height = height;
         this._lastFrameAt = Date.now();
 
         this._handler = function screencastFrameHandler(event: unknown): void {
@@ -128,10 +133,18 @@ export class ScreencastPipeline {
 
         this._idleBusy = true;
         try {
+            // Clip to the snapped Xvfb CRTC. Without this, a failed xrandr leave the
+            // surface at 4096×2160 and idle JPEGs stretch differently than screencast
+            // frames — rhythmic size/position flicks on the Motor canvas.
+            const snapped = VirtualDisplay.snapSize(
+                Math.max(1, this._width),
+                Math.max(1, this._height),
+            );
             const result = await this._cdp.send('Page.captureScreenshot', {
                 format: 'jpeg',
                 quality: 80,
                 fromSurface: true,
+                clip: { x: 0, y: 0, width: snapped.width, height: snapped.height, scale: 1 },
             }) as { data: string };
             if (this._stopped || !this._onFrame || !result?.data) return;
             this._lastFrameAt = Date.now();

@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { deviceProfilesEqual, normalizeSessionViewport, SESSION_VIEWPORT } from './deviceProfile'
+import {
+  deviceProfilesEqual,
+  isTouchPrimaryProfile,
+  normalizeSessionViewport,
+  SESSION_VIEWPORT,
+} from './deviceProfile'
 
 describe('normalizeSessionViewport', () => {
   it('defaults non-positive to 1280×720', () => {
@@ -32,5 +37,15 @@ describe('deviceProfilesEqual', () => {
     const b = { ...a, screenOrientation: 'landscape-primary' }
     expect(deviceProfilesEqual(a, a)).toBe(true)
     expect(deviceProfilesEqual(a, b)).toBe(false)
+  })
+})
+
+describe('isTouchPrimaryProfile', () => {
+  it('is false for hybrid desktop with touch capability', () => {
+    expect(isTouchPrimaryProfile({ mobile: false })).toBe(false)
+  })
+
+  it('is true only for mobile profiles', () => {
+    expect(isTouchPrimaryProfile({ mobile: true })).toBe(true)
   })
 })

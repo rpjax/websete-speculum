@@ -50,6 +50,16 @@ export class VirtualDisplay {
     }
 
     /**
+     * Snap to an even multiple of 8 — Xvfb/xrandr rejects many odd sizes
+     * (e.g. 1432×715 from a browser viewport) and leaves the CRTC at 4096×2160.
+     */
+    static snapSize(width: number, height: number): { width: number; height: number } {
+        const CELL = 8;
+        const snap = (n: number) => Math.max(CELL, Math.round(n / CELL) * CELL);
+        return { width: snap(width), height: snap(height) };
+    }
+
+    /**
      * Starts Xvfb on `:{number}` and waits until its lock file appears
      * (the conventional X11 server readiness signal), then starts matchbox.
      *
@@ -106,6 +116,11 @@ export class VirtualDisplay {
         return new VirtualDisplay(number, xvfb, wm);
     }
 
+    /** Runtime CRTC resize (session ResizeAsync). Best-effort like start(). */
+    async resize(width: number, height: number): Promise<void> {
+        await VirtualDisplay.applyXrandr(this.number, width, height);
+    }
+
     // ── Internals ─────────────────────────────────────────────────────────────
 
     /**
@@ -131,6 +146,9 @@ export class VirtualDisplay {
     ): { name: string; params: string[] } {
         const CELL  = 8;    // character cell granularity (pixels)
         const STEP  = 0.25; // pixel-clock step (MHz)
+        const snapped = VirtualDisplay.snapSize(width, height);
+        width = snapped.width;
+        height = snapped.height;
 
         // ── Horizontal ────────────────────────────────────────────────────────
         // Active area rounded up to cell boundary, then add 12.5 % blanking
@@ -158,7 +176,8 @@ export class VirtualDisplay {
         const rawClock = hTotal * vTotal * hz / 1_000_000; // MHz
         const clock    = Math.round(rawClock / STEP) * STEP;
 
-        const name = `${width}x${height}_${hz}.00`;
+        // Name must match the active pixel geometry in params (not the raw CSS size).
+        const name = `${hActive}x${vActive}_${hz}.00`;
         return {
             name,
             params: [
@@ -188,6 +207,9 @@ export class VirtualDisplay {
     ): Promise<void> {
         const display = `:${displayNum}`;
         const env     = { ...process.env as Record<string, string>, DISPLAY: display };
+        const snapped = VirtualDisplay.snapSize(width, height);
+        width = snapped.width;
+        height = snapped.height;
 
         try {
             // ── Step 1: compute modeline in TypeScript ────────────────────────

@@ -54,6 +54,8 @@ export type InputPipelineDeps = {
     setDimensions:   (width: number, height: number) => void;
     getDevice:       () => DeviceProfile;
     setDevice:       (device: DeviceProfile) => void;
+    /** Best-effort Xvfb CRTC resize so idle screenshots match the session viewport. */
+    resizeDisplay?:  (width: number, height: number) => Promise<void>;
 };
 
 /**
@@ -214,9 +216,9 @@ export class InputPipeline {
         }
     }
 
+    /** Phone-like only — hybrid desktop (touch=true, mobile=false) must keep mouse clicks. */
     private _isTouchPrimary(): boolean {
-        const d = this._deps.getDevice();
-        return !!(d.touch || d.mobile);
+        return !!this._deps.getDevice().mobile;
     }
 
     private async _dispatchTouch(
@@ -297,6 +299,9 @@ export class InputPipeline {
 
         try {
             console.log(`[${this._deps.sessionId}] Resize → ${w}×${h} mobile=${device.mobile}`);
+            if (!sameSize && this._deps.resizeDisplay) {
+                await this._deps.resizeDisplay(w, h);
+            }
             await applyDeviceEmulation(this._deps.cdp, w, h, device);
             if (!sameSize) {
                 await this._deps.capture.restart(w, h, this._deps.onFrame);

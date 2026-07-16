@@ -20,6 +20,14 @@ export function normalizeSessionViewport(width: number, height: number): { w: nu
   return { w, h }
 }
 
+/**
+ * True when Motor should treat the client as phone-like: suppress remote hover
+ * mouse and prefer touch. Hybrid Windows (maxTouchPoints>0 + mouse) must stay false.
+ */
+export function isTouchPrimaryProfile(profile: Pick<DeviceProfilePayload, 'mobile'>): boolean {
+  return !!profile.mobile
+}
+
 /** Build a DeviceProfile from the local browser environment (capped DPR 1–2). */
 export function detectDeviceProfile(): DeviceProfilePayload {
   const coarse = typeof window !== 'undefined'
@@ -29,7 +37,8 @@ export function detectDeviceProfile(): DeviceProfilePayload {
     && typeof window.matchMedia === 'function'
     && window.matchMedia('(hover: none)').matches
   const maxTouch = typeof navigator !== 'undefined' ? (navigator.maxTouchPoints || 0) : 0
-  const touch = coarse || maxTouch > 0
+  // Capability only — many desktops report maxTouchPoints>0 (touchscreen / pen).
+  const touchCapable = coarse || maxTouch > 0
 
   // Prefer platform signals over CSS width — landscape phones often exceed 900px.
   let uaMobile = false
@@ -41,7 +50,10 @@ export function detectDeviceProfile(): DeviceProfilePayload {
     }
   } catch { /* ignore */ }
 
-  const mobile = uaMobile || (touch && hoverNone)
+  // Phone-like only when UA says mobile, or primary pointer is coarse without hover.
+  // Do NOT use maxTouchPoints alone — that killed desktop mouse on hybrid PCs.
+  const mobile = uaMobile || (coarse && hoverNone)
+  const touch = touchCapable || mobile
   let dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
   if (!Number.isFinite(dpr) || dpr < 1) dpr = 1
   if (dpr > 2) dpr = 2

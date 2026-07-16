@@ -91,6 +91,7 @@ export class RemoteBrowserSession {
             setDimensions: (w, h) => { this._width = w; this._height = h; },
             getDevice:     () => this._device,
             setDevice:     (d) => { this._device = d; },
+            resizeDisplay: (w, h) => this._display.resize(w, h),
         });
 
         this._status = new StatusPublisher(

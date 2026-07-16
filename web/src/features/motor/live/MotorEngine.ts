@@ -6,7 +6,12 @@ import { MotorConnection } from './MotorConnection'
 import { MotorScreencast } from './MotorScreencast'
 import { MotorVcon } from './MotorVcon'
 import { MotorInput } from './MotorInput'
-import { detectDeviceProfile, deviceProfilesEqual, normalizeSessionViewport } from './deviceProfile'
+import {
+  detectDeviceProfile,
+  deviceProfilesEqual,
+  isTouchPrimaryProfile,
+  normalizeSessionViewport,
+} from './deviceProfile'
 import type {
   ConsoleOutputPayload,
   DeviceProfilePayload,
@@ -63,7 +68,7 @@ export class MotorEngine {
     // Use keyboardShellOpen (set from IME focus) — not this.input — to avoid a circular field init.
     isEditingActive: (): boolean => this.keyboardShellOpen,
     onImeFocusChange: (focused) => this.onImeFocusChange(focused),
-    isTouchPrimary: (): boolean => !!(this.deviceProfile.touch || this.deviceProfile.mobile),
+    isTouchPrimary: (): boolean => isTouchPrimaryProfile(this.deviceProfile),
   })
   private connection = new MotorConnection({
     onFrame: (frame) => this.screencast.onFrame(frame),

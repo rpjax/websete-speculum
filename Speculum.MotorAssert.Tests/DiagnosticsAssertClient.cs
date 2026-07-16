@@ -379,4 +379,26 @@ public sealed class DiagnosticsAssertClient(MotorAssertHost host)
         var starting = root.TryGetProperty("startingCount", out var sc) ? sc.GetInt32() : 0;
         return (active, starting);
     }
+
+    /// <summary>
+    /// Wait until no live/starting motor sessions remain — required before lowering MaxSessions.
+    /// </summary>
+    public async Task WaitUntilRegistryIdleAsync(
+        TimeSpan? timeout = null,
+        CancellationToken ct = default)
+    {
+        var deadline = DateTime.UtcNow + (timeout ?? TimeSpan.FromSeconds(30));
+        while (DateTime.UtcNow < deadline)
+        {
+            ct.ThrowIfCancellationRequested();
+            var (active, starting) = await GetRegistryCountsAsync(ct);
+            if (active == 0 && starting == 0)
+                return;
+            await Task.Delay(100, ct);
+        }
+
+        var final = await GetRegistryCountsAsync(ct);
+        Assert.Fail(
+            $"Motor registry not idle after wait: activeCount={final.ActiveCount} startingCount={final.StartingCount}");
+    }
 }

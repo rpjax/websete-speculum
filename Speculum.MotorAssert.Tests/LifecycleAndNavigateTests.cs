@@ -250,6 +250,8 @@ public sealed class LifecycleAndNavigateTests : MotorAssertTestBase
     [MotorAssertFact]
     public async Task A3_max_sessions_rejects_second_start()
     {
+        // Previous tests may still be releasing slots (export/stop). Cap only when idle.
+        await fx.Diagnostics.WaitUntilRegistryIdleAsync();
         await fx.Host.PutConfigAsync("MaxSessions", 1);
         try
         {

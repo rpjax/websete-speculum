@@ -124,6 +124,9 @@ public sealed class MotorAssertFixture : IAsyncLifetime
         if (!IsMotorAssertEnvironment)
             return;
 
+        // Drain leftover slots before restoring MaxSessions so capacity tests start clean.
+        await Diagnostics.WaitUntilRegistryIdleAsync(TimeSpan.FromSeconds(45), ct);
+
         var max = await Host.PutConfigAsync("MaxSessions", 4, ct);
         max.EnsureSuccessStatusCode();
         var bridge = await Host.PutConfigAsync("JsBridge", new { enable = true }, ct);

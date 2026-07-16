@@ -53,6 +53,8 @@ public sealed class LifecycleAndNavigateTests : MotorAssertTestBase
             act.ConnectionId, "Motor.Session", since,
             ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
 
+        // SessionStarted alone is not enough — wait until the fixture page is live before probing.
+        await fx.Diagnostics.WaitFixturePageAsync(act.ConnectionId!, "home");
         var probe = await fx.Diagnostics.PostBrowserProbeAsync(
             act.ConnectionId!, ["process", "resources"]);
         Assert.True(probe.GetProperty("ok").GetBoolean());

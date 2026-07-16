@@ -831,7 +831,7 @@ function AxisSelect({ label, value, options, metricByKey, onChange }: {
 /* ── Heatmap view ───────────────────────────────────────────── */
 
 function HeatmapView({ series, timestamps, geom }: {
-  series: { key: string; label: string; color: string; raw: number[] }[]
+  series: { key: string; label: string; color: string; raw: (number | null)[] }[]
   timestamps: number[]
   geom: { W: number; H: number; pad: { l: number; r: number; t: number; b: number } }
 }) {
@@ -956,7 +956,17 @@ function Callout({ label, value, delta }: { label: string; value: string; delta?
 /* ── Stacked lane ───────────────────────────────────────────── */
 
 function StackedLane({ series, height, showAvg, geom }: {
-  series: { key: string; label: string; color: string; fill: string; unit: string; raw: number[]; scaled: number[]; yMin: number; yMax: number }
+  series: {
+    key: string
+    label: string
+    color: string
+    fill: string
+    unit: string
+    raw: (number | null)[]
+    scaled: (number | null)[]
+    yMin: number
+    yMax: number
+  }
   height: number
   showAvg: boolean
   geom: { W: number; pad: { l: number; r: number; t: number; b: number } }

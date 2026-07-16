@@ -126,14 +126,16 @@ export class RemoteBrowserSession {
             userDataDir = handle.userDataDir;
             const page  = handle.page;
 
+            // Always bypass page CSP: NavigationGuard.setupSingleTabEnforcement registers an
+            // addInitScript (inline). Sites with nonce-only script-src (e.g. Eneba) would otherwise
+            // block it and flood the console with CSP violations the origin never shows.
+            // Custom script-tag injection also requires this. Motor pages are already isolated.
+            try { await cdp.send('Page.setBypassCSP', { enabled: true }); } catch { /* best-effort */ }
+
             await NavigationGuard.setupSingleTabEnforcement(context);
             if (jsBridgeEnabled) await JsBridgeSetup.setup(cdp, ws, sessionId);
             UrlSyncBridge.setupUrlSync(page, ws);
             NavigationGuard.setupTabInterception(context, page, sessionId);
-
-            if (scripts.length > 0) {
-                try { await cdp.send('Page.setBypassCSP', { enabled: true }); } catch { /* best-effort */ }
-            }
 
             if (scripts.length > 0 || (allowedNavigationDomains && allowedNavigationDomains.length > 0)) {
                 await NavigationGuard.setupFetchInterception(

@@ -63,6 +63,7 @@ export class MotorEngine {
     // Use keyboardShellOpen (set from IME focus) — not this.input — to avoid a circular field init.
     isEditingActive: (): boolean => this.keyboardShellOpen,
     onImeFocusChange: (focused) => this.onImeFocusChange(focused),
+    isTouchPrimary: (): boolean => !!(this.deviceProfile.touch || this.deviceProfile.mobile),
   })
   private connection = new MotorConnection({
     onFrame: (frame) => this.screencast.onFrame(frame),
@@ -206,6 +207,7 @@ export class MotorEngine {
   private onImeFocusChange(focused: boolean) {
     if (focused === this.keyboardShellOpen) return
     this.keyboardShellOpen = focused
+    this.input.invalidateRect()
     if (!focused) {
       // User dismissed the OS keyboard while the remote field is still focused.
       if (!this.softBlurringIme && this.state.editing?.focused) {

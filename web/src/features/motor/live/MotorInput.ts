@@ -20,6 +20,11 @@ export interface MotorInputDeps {
   isEditingActive?: () => boolean
   /** Fired when the hidden IME field gains/loses DOM focus (OS keyboard may open). */
   onImeFocusChange?: (focused: boolean) => void
+  /**
+   * Touch-primary session (mobile / coarse pointer): suppress hover mouse and
+   * treat pen as touch so remote pages do not get desktop :hover flicks.
+   */
+  isTouchPrimary?: () => boolean
 }
 
 type ActiveTouch = {
@@ -31,9 +36,12 @@ type ActiveTouch = {
   force: number
 }
 
+/** Suppress synthetic mouse after touch (browser compatibility click). */
+const MOUSE_SUPPRESS_AFTER_TOUCH_MS = 600
+
 /**
  * Captures pointer/keyboard/wheel on the Motor canvas and relays JSON to the hub.
- * Touch uses a dedicated wire family; mouse/pen stay on legacy mouse events.
+ * Touch uses a dedicated wire family; mouse stays on legacy mouse events.
  * Mouse buttons are tracked per-button (chord-safe); touch is tracked per pointerId.
  */
 export class MotorInput {
@@ -43,7 +51,9 @@ export class MotorInput {
   private activeTouches = new Map<number, ActiveTouch>()
   private lastMousePage = { x: 0, y: 0 }
   private cachedRect: DOMRect | null = null
-  private lastMoveTime = 0
+  private lastTouchMoveTime = 0
+  private lastMouseMoveTime = 0
+  private suppressMouseUntil = 0
   private cleanupFns: Array<() => void> = []
   private userInputSubject: UserInputSubject | null = null
   private elements: MotorElements | null = null
@@ -98,41 +108,55 @@ export class MotorInput {
 
     on(canvas, 'pointerdown', (e) => {
       const ev = e as PointerEvent
-      const pointerType = ev.pointerType || 'mouse'
-      if (pointerType === 'mouse' && ev.button !== 0 && ev.button !== 1 && ev.button !== 2) return
-      ev.preventDefault()
-      canvas.focus()
-      try { canvas.setPointerCapture(ev.pointerId) } catch { /* ignore */ }
+      this.invalidateRect()
+      const kind = this.classifyPointer(ev)
 
-      if (pointerType === 'touch') {
-        this.trackTouch(ev)
-        this.emitTouch('start', [ev.pointerId])
-      } else {
+      if (kind === 'mouse') {
+        if (this.shouldIgnoreMouse()) return
+        if (ev.button !== 0 && ev.button !== 1 && ev.button !== 2) return
+        ev.preventDefault()
+        canvas.focus()
+        try { canvas.setPointerCapture(ev.pointerId) } catch { /* ignore */ }
         this.pressedMouseButtons.add(ev.button)
         const { x, y } = this.pageCoords(ev.clientX, ev.clientY)
         this.lastMousePage = { x, y }
         this.sendInput({ type: 'mousedown', x, y, button: ev.button })
+        return
       }
+
+      // touch (native touch or pen in touch-primary mode)
+      ev.preventDefault()
+      canvas.focus()
+      try { canvas.setPointerCapture(ev.pointerId) } catch { /* ignore */ }
+      this.suppressMouseUntil = performance.now() + MOUSE_SUPPRESS_AFTER_TOUCH_MS
+      this.trackTouch(ev)
+      this.emitTouch('start', [ev.pointerId])
     })
 
     on(canvas, 'pointermove', (e) => {
       const ev = e as PointerEvent
-      const pointerType = ev.pointerType || 'mouse'
+      const kind = this.classifyPointer(ev)
 
-      if (pointerType === 'touch') {
+      if (kind === 'touch') {
         if (!this.activeTouches.has(ev.pointerId)) return
         this.trackTouch(ev)
         const now = performance.now()
-        if (shouldThrottleMove(now, this.lastMoveTime)) return
-        this.lastMoveTime = now
+        if (shouldThrottleMove(now, this.lastTouchMoveTime)) return
+        this.lastTouchMoveTime = now
         this.emitTouch('move', [ev.pointerId])
         return
       }
 
-      // Mouse / pen: hover and drag both emit throttled mousemove.
+      if (this.shouldIgnoreMouse()) return
+
+      // Desktop mouse: hover only when not touch-primary; drag always when buttons down.
+      const touchPrimary = !!this.deps.isTouchPrimary?.()
+      const dragging = this.pressedMouseButtons.size > 0 || (ev.buttons ?? 0) !== 0
+      if (touchPrimary && !dragging) return
+
       const now = performance.now()
-      if (shouldThrottleMove(now, this.lastMoveTime)) return
-      this.lastMoveTime = now
+      if (shouldThrottleMove(now, this.lastMouseMoveTime)) return
+      this.lastMouseMoveTime = now
       const { x, y } = this.pageCoords(ev.clientX, ev.clientY)
       this.lastMousePage = { x, y }
       this.sendInput({ type: 'mousemove', x, y })
@@ -140,22 +164,24 @@ export class MotorInput {
 
     const endPointer = (phase: 'end' | 'cancel') => (e: Event) => {
       const ev = e as PointerEvent
-      const pointerType = ev.pointerType || 'mouse'
+      const kind = this.classifyPointer(ev)
 
-      if (pointerType === 'touch') {
+      if (kind === 'touch' || this.activeTouches.has(ev.pointerId)) {
         if (!this.activeTouches.has(ev.pointerId)) return
         ev.preventDefault()
         this.trackTouch(ev)
         this.emitTouch(phase, [ev.pointerId])
         this.activeTouches.delete(ev.pointerId)
+        this.suppressMouseUntil = performance.now() + MOUSE_SUPPRESS_AFTER_TOUCH_MS
         try { canvas.releasePointerCapture(ev.pointerId) } catch { /* ignore */ }
         return
       }
 
+      if (this.shouldIgnoreMouse()) return
+
       if (phase === 'cancel') {
         if (this.pressedMouseButtons.size === 0) return
         ev.preventDefault()
-        // Release every chorded button so the remote never sticks.
         const { x, y } = this.pageCoords(ev.clientX, ev.clientY)
         this.lastMousePage = { x, y }
         for (const button of [...this.pressedMouseButtons]) {
@@ -166,7 +192,6 @@ export class MotorInput {
         return
       }
 
-      // Mouse: release only the button that went up (chord-safe).
       if (!this.pressedMouseButtons.has(ev.button)) return
       ev.preventDefault()
       this.pressedMouseButtons.delete(ev.button)
@@ -179,8 +204,6 @@ export class MotorInput {
     }
     on(canvas, 'pointerup', endPointer('end'))
     on(canvas, 'pointercancel', endPointer('cancel'))
-    // Capture can be lost (focus steal / OS drag). Window listeners cover release
-    // outside the browser chrome when the canvas never sees pointerup.
     on(window, 'pointerup', endPointer('end'))
     on(window, 'pointercancel', endPointer('cancel'))
     on(canvas, 'lostpointercapture', (e) => {
@@ -189,6 +212,7 @@ export class MotorInput {
         this.trackTouch(ev)
         this.emitTouch('cancel', [ev.pointerId])
         this.activeTouches.delete(ev.pointerId)
+        this.suppressMouseUntil = performance.now() + MOUSE_SUPPRESS_AFTER_TOUCH_MS
       }
       if (this.pressedMouseButtons.size === 0) return
       const { x, y } = this.lastMousePage
@@ -203,6 +227,7 @@ export class MotorInput {
     on(canvas, 'wheel', (e) => {
       const ev = e as WheelEvent
       ev.preventDefault()
+      this.invalidateRect()
       const { x, y } = this.pageCoords(ev.clientX, ev.clientY)
       const { deltaX, deltaY } = normalizeWheelDeltas(
         ev.deltaX, ev.deltaY, ev.deltaMode, canvas.clientWidth, canvas.clientHeight)
@@ -265,8 +290,14 @@ export class MotorInput {
     el.addEventListener(type, fn, opts)
     this.cleanupFns.push(() => el.removeEventListener(type, fn, opts))
   }) {
-    on(ime, 'focus', () => this.deps.onImeFocusChange?.(true))
-    on(ime, 'blur', () => this.deps.onImeFocusChange?.(false))
+    on(ime, 'focus', () => {
+      this.invalidateRect()
+      this.deps.onImeFocusChange?.(true)
+    })
+    on(ime, 'blur', () => {
+      this.invalidateRect()
+      this.deps.onImeFocusChange?.(false)
+    })
     on(ime, 'compositionstart', () => { this.composing = true })
     on(ime, 'compositionend', (e) => {
       this.composing = false
@@ -323,6 +354,20 @@ export class MotorInput {
   /** Test seam: emit a raw payload. */
   sendRawForTests(obj: Record<string, unknown>) {
     this.sendInput(obj)
+  }
+
+  private classifyPointer(ev: PointerEvent): 'touch' | 'mouse' {
+    const type = ev.pointerType || 'mouse'
+    if (type === 'touch') return 'touch'
+    // Pen on a touch-primary device maps to touch so we do not drive remote hover.
+    if (type === 'pen' && this.deps.isTouchPrimary?.()) return 'touch'
+    return 'mouse'
+  }
+
+  private shouldIgnoreMouse(): boolean {
+    if (this.activeTouches.size > 0) return true
+    if (performance.now() < this.suppressMouseUntil) return true
+    return false
   }
 
   private trackTouch(ev: PointerEvent): ActiveTouch {

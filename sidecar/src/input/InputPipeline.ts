@@ -7,6 +7,7 @@ import { ResizeGuard } from '../ResizeGuard';
 import { normalizeWheelDeltas } from './wheel-defaults';
 import { normalizeDeviceProfile, type DeviceProfile } from '../protocol/device-profile';
 import { applyDeviceEmulation } from './device-emulation';
+import { TouchMoveCoalescer } from './TouchMoveCoalescer';
 
 export { normalizeWheelDeltas } from './wheel-defaults';
 
@@ -62,12 +63,22 @@ export class InputPipeline {
     private readonly _resizeGuard = new ResizeGuard();
     private readonly _navigation  = new NavigationGeneration();
     private readonly _mouseMoveCoalescer: MouseMoveCoalescer;
+    private readonly _touchMoveCoalescer: TouchMoveCoalescer;
     private _inputChain: Promise<void> = Promise.resolve();
 
     constructor(private readonly _deps: InputPipelineDeps) {
         this._mouseMoveCoalescer = new MouseMoveCoalescer((x, y) => {
             if (this._deps.isExporting() || this._deps.isDisposed()) return;
+            if (this._isTouchPrimary()) return;
             this._deps.page.mouse.move(x, y).catch(() => {});
+        });
+        this._touchMoveCoalescer = new TouchMoveCoalescer((points) => {
+            if (this._deps.isExporting() || this._deps.isDisposed()) return;
+            this._inputChain = this._inputChain
+                .then(() => this._dispatchTouch('move', points))
+                .catch((err) => {
+                    console.warn(`[${this._deps.sessionId}] Touch move error:`, (err as Error).message);
+                });
         });
     }
 
@@ -75,7 +86,7 @@ export class InputPipeline {
         return this._resizeGuard;
     }
 
-    /** Serialize decisive input; mousemove still coalesces separately. */
+    /** Serialize decisive input; mousemove / touchmove still coalesce separately. */
     enqueue(raw: string): void {
         this._inputChain = this._inputChain
             .then(() => this.handleMessage(raw))
@@ -111,27 +122,41 @@ export class InputPipeline {
                     break;
 
                 case 'mousemove':
+                    // Touch-primary sessions: ignore hover cursor — avoids remote :hover flicks.
+                    if (this._isTouchPrimary()) break;
                     this._queueMouseMove(msg.x, msg.y);
                     break;
 
                 case 'mousedown':
+                    if (this._isTouchPrimary()) break;
                     await this._deps.page.mouse.move(msg.x, msg.y);
                     await this._deps.page.mouse.down({ button: domButton(msg.button) });
                     break;
 
                 case 'mouseup':
+                    if (this._isTouchPrimary()) break;
                     await this._deps.page.mouse.move(msg.x, msg.y);
                     await this._deps.page.mouse.up({ button: domButton(msg.button) });
                     break;
 
                 case 'wheel': {
                     const { deltaX, deltaY } = normalizeWheelDeltas(msg);
-                    await this._deps.page.mouse.move(msg.x, msg.y);
+                    if (!this._isTouchPrimary()) {
+                        await this._deps.page.mouse.move(msg.x, msg.y);
+                    }
                     await this._deps.page.mouse.wheel(deltaX, deltaY);
                     break;
                 }
 
                 case 'touch':
+                    if (msg.phase === 'move') {
+                        this._touchMoveCoalescer.queue(msg.points);
+                        break;
+                    }
+                    {
+                        const pendingMove = this._touchMoveCoalescer.takePending();
+                        if (pendingMove) await this._dispatchTouch('move', pendingMove);
+                    }
                     await this._dispatchTouch(msg.phase, msg.points);
                     break;
 
@@ -189,13 +214,18 @@ export class InputPipeline {
         }
     }
 
+    private _isTouchPrimary(): boolean {
+        const d = this._deps.getDevice();
+        return !!(d.touch || d.mobile);
+    }
+
     private async _dispatchTouch(
         phase: string,
         points: TouchPoint[],
     ): Promise<void> {
         // CDP: TouchEnd/TouchCancel must have zero points; TouchStart/Move need ≥1.
-        // For a partial lift the wire still carries remaining contacts — end with []
-        // then re-assert remaining via touchStart so other fingers stay active.
+        // Partial lift: end/cancel with [], then re-assert remaining contacts via touchStart
+        // (required after empty end — Chrome clears the whole contact set).
         if (phase === 'end' || phase === 'cancel') {
             await this._deps.cdp.send('Input.dispatchTouchEvent', {
                 type: cdpTouchType(phase),

@@ -107,14 +107,15 @@ internal static class TelemetryTestSupport
         IReadOnlyList<BrowserSessionMetadata>? sessions = null,
         string? databasePath = null)
     {
-        var host = new HostTelemetrySource(new HostResourceProbe(), runtime);
+        var host = new HostTelemetrySource(new MachineResourceProbe());
+        var apiProcess = new ApiProcessTelemetrySource(new ApiProcessResourceProbe());
         var motor = new MotorTelemetrySource(ConfigStore(maxSessions));
         var sidecar = new SidecarTelemetrySource();
         var persistence = new PersistenceTelemetrySource(
             new FakeBrowserSessionStore(sessions ?? []),
             Bootstrap(databasePath ?? Path.Combine(Path.GetTempPath(), $"speculum-tel-{Guid.NewGuid():N}.db")));
         var pipeline = new PipelineTelemetrySource(runtime, RealBus(runtime));
-        return new TelemetrySampleComposer(host, motor, sidecar, persistence, pipeline, new FakeRegistry(snapshots));
+        return new TelemetrySampleComposer(host, apiProcess, motor, sidecar, persistence, pipeline, new FakeRegistry(snapshots));
     }
 
     internal sealed class CapturingBus : IDiagnosticsEventBus

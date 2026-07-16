@@ -46,7 +46,7 @@ export default function TelemetryAnalysisPage() {
       <div className="flex flex-wrap items-center gap-3">
         <TelemetrySubNav />
         <p className="text-[11px] text-muted-foreground/60 max-w-2xl">
-          Analysis is independent of Monitor. Pick any window here, run the analyzer, and get a complete didactic report — not just problems.
+          Machine-led analysis independent of Monitor. Pick any window, run the analyzer, and get a complete report — runtime overlays are secondary chapters.
         </p>
       </div>
 
@@ -352,7 +352,12 @@ function AnalysisDeepDiveSheet({ refEvidence, onClose }: { refEvidence: Evidence
         if (samples.length > 0) {
           const first = samples[0]
           const last = samples[samples.length - 1]
-          lines.push(`CPU ${first.cpu}% → ${last.cpu}% · Memory ${first.memoryMb} → ${last.memoryMb} MB · Live ${first.values?.['motor.live'] ?? '—'} → ${last.values?.['motor.live'] ?? '—'}`)
+          lines.push(`Machine CPU ${first.cpu ?? '—'}% → ${last.cpu ?? '—'}% · Memory ${first.memoryMb ?? '—'} → ${last.memoryMb ?? '—'} MB`)
+          const liveFirst = first.values?.['motor.live']
+          const liveLast = last.values?.['motor.live']
+          if (liveFirst != null || liveLast != null) {
+            lines.push(`Live sessions (overlay) ${liveFirst ?? '—'} → ${liveLast ?? '—'}`)
+          }
         }
         for (const e of ev.slice(0, 8)) {
           lines.push(`${new Date(e.utc).toLocaleTimeString()} · ${e.name}`)

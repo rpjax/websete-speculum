@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { diagnosticsApi, type DiagnosticsOverview, type DiagnosticsEventRecord } from '@/lib/diagnosticsApi'
+import { diagnosticsApi, type DiagnosticsOverview, type DiagnosticsEventRecord, type HostTelemetry } from '@/lib/diagnosticsApi'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { StatCard } from '@/components/admin/StatCard'
@@ -26,20 +26,10 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-interface HostData {
-  hostname?: string
-  cpuUsage?: number
-  memoryUsed?: number
-  memoryTotal?: number
-  diskFreeBytes?: number
-  threadCount?: number
-  uptimeSec?: number
-}
-
 export default function DiagnosticsHealthPage() {
   const [overview, setOverview] = useState<DiagnosticsOverview | null>(null)
   const [recentEvents, setRecentEvents] = useState<DiagnosticsEventRecord[]>([])
-  const [hostData, setHostData] = useState<HostData | null>(null)
+  const [hostData, setHostData] = useState<HostTelemetry | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [recovering, setRecovering] = useState(false)
 
@@ -53,7 +43,7 @@ export default function DiagnosticsHealthPage() {
       ])
       setOverview(ov)
       setRecentEvents(events)
-      if (host) setHostData(host as unknown as HostData)
+      setHostData(host)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to load health data')
     }
@@ -412,15 +402,18 @@ function MiniStat({ icon, label, value }: { icon: React.ReactNode; label: string
   )
 }
 
-function ResourceSummaryWidget({ host }: { host: HostData }) {
-  const cpuPct = Math.round(host.cpuUsage ?? 0)
-  const memPct = host.memoryTotal ? Math.round(((host.memoryUsed ?? 0) / host.memoryTotal) * 100) : 0
+function ResourceSummaryWidget({ host }: { host: HostTelemetry }) {
+  const cpuPct = host.cpuUsage != null ? Math.round(host.cpuUsage) : null
+  const memPct =
+    host.memoryTotal && host.memoryUsed != null
+      ? Math.round((host.memoryUsed / host.memoryTotal) * 100)
+      : null
 
   return (
     <div className="rounded-xl border border-border bg-card overflow-hidden">
       <div className="flex items-center justify-between border-b border-border/40 px-4 py-2">
         <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-          <Server className="h-3 w-3" /> Host resources
+          <Server className="h-3 w-3" /> Machine resources
         </p>
         <Link
           to="/admin/diagnostics/telemetry"
@@ -429,14 +422,13 @@ function ResourceSummaryWidget({ host }: { host: HostData }) {
           Full telemetry <ArrowRight className="h-3 w-3" />
         </Link>
       </div>
-      <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-border/40">
-        <ResourceMini icon={<Cpu className="h-3.5 w-3.5" />} label="CPU" value={`${cpuPct}%`} percent={cpuPct}
-          tone={cpuPct > 80 ? 'danger' : cpuPct > 50 ? 'warn' : 'ok'} />
-        <ResourceMini icon={<MemoryStick className="h-3.5 w-3.5" />} label="Memory" value={formatBytes(host.memoryUsed ?? 0)} percent={memPct}
-          tone={memPct > 85 ? 'danger' : memPct > 60 ? 'warn' : 'ok'} />
+      <div className="grid grid-cols-3 divide-x divide-border/40">
+        <ResourceMini icon={<Cpu className="h-3.5 w-3.5" />} label="Machine CPU" value={cpuPct != null ? `${cpuPct}%` : '—'} percent={cpuPct ?? undefined}
+          tone={cpuPct == null ? 'ok' : cpuPct > 80 ? 'danger' : cpuPct > 50 ? 'warn' : 'ok'} />
+        <ResourceMini icon={<MemoryStick className="h-3.5 w-3.5" />} label="Machine mem" value={host.memoryUsed != null ? formatBytes(host.memoryUsed) : '—'} percent={memPct ?? undefined}
+          tone={memPct == null ? 'ok' : memPct > 85 ? 'danger' : memPct > 60 ? 'warn' : 'ok'} />
         <ResourceMini icon={<HardDrive className="h-3.5 w-3.5" />} label="Disk free" value={host.diskFreeBytes != null ? formatBytes(host.diskFreeBytes) : '—'}
           tone={host.diskFreeBytes != null && host.diskFreeBytes < 1_000_000_000 ? 'danger' : 'ok'} />
-        <ResourceMini icon={<Layers className="h-3.5 w-3.5" />} label="Threads" value={String(host.threadCount ?? '—')} tone="ok" />
       </div>
     </div>
   )

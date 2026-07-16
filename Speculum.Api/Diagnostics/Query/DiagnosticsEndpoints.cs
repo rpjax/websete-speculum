@@ -122,6 +122,25 @@ public static class DiagnosticsEndpoints
             });
         });
 
+        g.MapGet("/api-process", async (
+            IEnumerable<IDiagnosticsProbeProvider> providers,
+            IDiagnosticsRedactor redactor) =>
+        {
+            var apiProbe = providers.FirstOrDefault(p => p.Name == "api-process-resources");
+            if (apiProbe is null)
+                return Results.Json(new { errorCode = "probe_unavailable" }, statusCode: StatusCodes.Status503ServiceUnavailable);
+
+            var result = await apiProbe.ExecuteAsync(new ProbeRequest());
+            if (!result.Ok)
+                return Results.Json(new { errorCode = result.ErrorCode }, statusCode: StatusCodes.Status403Forbidden);
+
+            return Results.Ok(new
+            {
+                data = redactor.RedactProbeResult(result.Data!),
+                redaction = redactor.Mode,
+            });
+        });
+
         g.MapGet("/resolve", (
             string? connectionId,
             string? persistedSessionId,

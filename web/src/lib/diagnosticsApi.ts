@@ -169,21 +169,42 @@ export interface DiagnosticsEventRecord {
 
 /* ── Telemetry composite sample (payload of Telemetry.SampleCollected) ── */
 
+/** Machine/VPS resources. Opt-in fields are null/absent when their include* toggle is off. */
 export interface HostTelemetry {
   hostname: string
+  source: 'machine' | 'cgroup' | 'unavailable' | string
+  uptimeSec: number
+  cpuUsage: number
+  cpuCount: number
+  memoryUsed: number
+  memoryAvailable: number
+  memoryTotal: number
+  diskFreeBytes: number
+  diskTotalBytes: number
+  loadAverage1m?: number | null
+  loadAverage5m?: number | null
+  loadAverage15m?: number | null
+  swapUsed?: number | null
+  swapTotal?: number | null
+  diskReadBytesPerSec?: number | null
+  diskWriteBytesPerSec?: number | null
+  networkRxBytesPerSec?: number | null
+  networkTxBytesPerSec?: number | null
+}
+
+/** Speculum.Api OS process + CLR. Opt-in fields null when include* is off. */
+export interface ApiProcessTelemetry {
   uptimeSec: number
   cpuUsage: number
   memoryUsed: number
-  memoryPrivate: number
-  memoryTotal: number
-  gcHeap: number
-  gcGen0: number
-  gcGen1: number
-  gcGen2: number
   threadCount: number
-  threadPoolBusy: number
-  threadPoolQueued: number
-  diskFreeBytes: number
+  memoryPrivate?: number | null
+  gcHeap?: number | null
+  gcGen0?: number | null
+  gcGen1?: number | null
+  gcGen2?: number | null
+  threadPoolBusy?: number | null
+  threadPoolQueued?: number | null
 }
 
 export interface MotorSessionTelemetry {
@@ -246,6 +267,7 @@ export interface PipelineTelemetry {
 
 export interface TelemetrySample {
   host?: HostTelemetry | null
+  apiProcess?: ApiProcessTelemetry | null
   motor?: MotorTelemetry | null
   sidecar?: SidecarTelemetry | null
   persistence?: PersistenceTelemetry | null
@@ -319,7 +341,23 @@ export interface DiagnosticsDomainToggles {
 export interface DiagnosticsTelemetryOptions {
   enabled: boolean
   intervalSeconds: number
-  host: { enabled: boolean }
+  host: {
+    enabled: boolean
+    procPath: string
+    diskPath?: string | null
+    sampleIntervalMs: number
+    includeLoadAverage: boolean
+    includeSwap: boolean
+    includeDiskIo: boolean
+    includeNetwork: boolean
+  }
+  apiProcess: {
+    enabled: boolean
+    sampleIntervalMs: number
+    includePrivateMemory: boolean
+    includeGc: boolean
+    includeThreadPool: boolean
+  }
   motor: { enabled: boolean; includeSessionIds: boolean; includePerSession: boolean; includeUrlHost: boolean }
   sidecar: { enabled: boolean; includeFaultedIds: boolean }
   persistence: { enabled: boolean; includeBytes: boolean }
@@ -348,7 +386,6 @@ export interface DiagnosticsOptions {
     diagTimeoutMs: number
     maxConcurrentProbesPerSession: number
     maxProbeResponseBytes: number
-    hostSampleIntervalMs: number
   }
 }
 
@@ -390,6 +427,11 @@ const realDiagnosticsApi = {
   getHost: async () => {
     const res = await request<{ data: HostTelemetry; redaction: string }>(`${BASE}/host`)
     return (res.data ?? {}) as HostTelemetry
+  },
+
+  getApiProcess: async () => {
+    const res = await request<{ data: ApiProcessTelemetry; redaction: string }>(`${BASE}/api-process`)
+    return (res.data ?? {}) as ApiProcessTelemetry
   },
 
   /**

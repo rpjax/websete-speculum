@@ -3,11 +3,17 @@ import type { DiagnosticsEventRecord } from '@/lib/diagnosticsApi'
 export interface ResourceSample {
   utc: string
   timestamp: number
-  /** Host CPU % (canonical convenience mirror of values['host.cpu']). */
-  cpu: number
-  /** Host working set in MB (canonical convenience mirror of values['host.memory']). */
-  memoryMb: number
-  /** Host thread count (canonical convenience mirror of values['host.threads']). */
+  /**
+   * Machine CPU % mirror of `values['host.cpu']` only — never filled from apiProcess.
+   * Null when the host section did not contribute a reading.
+   */
+  cpu: number | null
+  /**
+   * Machine memory MB mirror of `values['host.memory']` only — never filled from apiProcess.
+   * Null when the host section did not contribute a reading.
+   */
+  memoryMb: number | null
+  /** API-process thread count mirror of `values['apiProcess.threads']` only. */
   threads: number | null
   /**
    * Flattened metric map keyed by catalog metric key (e.g. 'host.cpu', 'motor.live',
@@ -16,7 +22,7 @@ export interface ResourceSample {
   values?: Record<string, number | null>
 }
 
-export type MetricSectionKey = 'host' | 'motor' | 'sidecar' | 'persistence' | 'pipeline' | 'derived'
+export type MetricSectionKey = 'host' | 'apiProcess' | 'motor' | 'sidecar' | 'persistence' | 'pipeline' | 'derived'
 
 export interface MetricDef {
   key: string
@@ -24,7 +30,7 @@ export interface MetricDef {
   unit: string
   color: string
   fill: string
-  extract: (s: ResourceSample) => number
+  extract: (s: ResourceSample) => number | null
   /** Catalog section this metric belongs to (optional for legacy host-only defs). */
   section?: MetricSectionKey
   /** One-line operator explanation for tooltips / pickers. */
@@ -41,8 +47,8 @@ export type ScaleMode = 'absolute' | 'normalized' | 'indexed'
 export interface PointInsight {
   index: number
   utc: string
-  cpu: number
-  memoryMb: number
+  cpu: number | null
+  memoryMb: number | null
   threads: number | null
   cpuDelta: number | null
   memoryDelta: number | null
@@ -136,18 +142,19 @@ export function bucketResourceSamples(
 
   return [...buckets.entries()]
     .sort((a, b) => a[0] - b[0])
-    .map(([start, items]) => ({
-      utc: new Date(start + bucketMs / 2).toISOString(),
-      timestamp: start + bucketMs / 2,
-      cpu: Math.round(aggregate(items.map((i) => i.cpu), agg) * 10) / 10,
-      memoryMb: Math.round(aggregate(items.map((i) => i.memoryMb), agg)),
-      threads: (() => {
-        const vals = items.map((i) => i.threads).filter((v): v is number => v != null)
-        if (vals.length === 0) return null
-        return Math.round(aggregate(vals, agg))
-      })(),
-      values: aggregateValues(items, agg),
-    }))
+    .map(([start, items]) => {
+      const cpus = items.map((i) => i.cpu).filter((v): v is number => v != null)
+      const mems = items.map((i) => i.memoryMb).filter((v): v is number => v != null)
+      const thr = items.map((i) => i.threads).filter((v): v is number => v != null)
+      return {
+        utc: new Date(start + bucketMs / 2).toISOString(),
+        timestamp: start + bucketMs / 2,
+        cpu: cpus.length === 0 ? null : Math.round(aggregate(cpus, agg) * 10) / 10,
+        memoryMb: mems.length === 0 ? null : Math.round(aggregate(mems, agg)),
+        threads: thr.length === 0 ? null : Math.round(aggregate(thr, agg)),
+        values: aggregateValues(items, agg),
+      }
+    })
 }
 
 /** Aggregates every metric key seen across the bucket's samples, preserving nulls-only as null. */
@@ -164,31 +171,36 @@ function aggregateValues(items: ResourceSample[], agg: AggFn): Record<string, nu
   return out
 }
 
-export function scaleSeries(values: number[], mode: ScaleMode): { values: number[]; min: number; max: number; unit: string } {
-  if (values.length === 0) return { values: [], min: 0, max: 1, unit: '' }
+export function scaleSeries(
+  values: (number | null)[],
+  mode: ScaleMode,
+): { values: (number | null)[]; min: number; max: number; unit: string } {
+  const finite = values.filter((v): v is number => typeof v === 'number' && Number.isFinite(v))
+  if (finite.length === 0) return { values: values.map(() => null), min: 0, max: 1, unit: '' }
 
   if (mode === 'absolute') {
-    const min = Math.min(0, ...values)
-    const max = Math.max(...values) * 1.05 || 1
+    const min = Math.min(0, ...finite)
+    const max = Math.max(...finite) * 1.05 || 1
     return { values, min, max, unit: '' }
   }
 
   if (mode === 'normalized') {
-    const min = Math.min(...values)
-    const max = Math.max(...values)
+    const min = Math.min(...finite)
+    const max = Math.max(...finite)
     const range = max - min || 1
     return {
-      values: values.map((v) => ((v - min) / range) * 100),
+      values: values.map((v) => (v == null ? null : ((v - min) / range) * 100)),
       min: 0,
       max: 100,
       unit: '%',
     }
   }
 
-  const base = values[0] || 1
-  const scaled = values.map((v) => ((v - base) / Math.abs(base)) * 100)
-  const min = Math.min(...scaled, 0)
-  const max = Math.max(...scaled, 0) * 1.1 || 1
+  const base = finite[0] || 1
+  const scaled = values.map((v) => (v == null ? null : ((v - base) / Math.abs(base)) * 100))
+  const finiteScaled = scaled.filter((v): v is number => v != null)
+  const min = Math.min(...finiteScaled, 0)
+  const max = Math.max(...finiteScaled, 0) * 1.1 || 1
   return { values: scaled, min, max, unit: '%Δ' }
 }
 
@@ -202,15 +214,15 @@ export function analyzePoint(samples: ResourceSample[], index: number): PointIns
   const curr = samples[index]
   const prev = index > 0 ? samples[index - 1] : null
 
-  const cpuDelta = prev ? curr.cpu - prev.cpu : null
-  const memoryDelta = prev ? curr.memoryMb - prev.memoryMb : null
+  const cpuDelta = prev && curr.cpu != null && prev.cpu != null ? curr.cpu - prev.cpu : null
+  const memoryDelta = prev && curr.memoryMb != null && prev.memoryMb != null ? curr.memoryMb - prev.memoryMb : null
   const threadsDelta = prev && curr.threads != null && prev.threads != null ? curr.threads - prev.threads : null
 
   const live = liveOf(curr)
   const prevLive = prev ? liveOf(prev) : null
   const liveDelta = live != null && prevLive != null ? live - prevLive : null
-  const cpuPerSession = live != null && live > 0 ? Math.round((curr.cpu / live) * 100) / 100 : null
-  const prevCps = prev && prevLive != null && prevLive > 0 ? prev.cpu / prevLive : null
+  const cpuPerSession = live != null && live > 0 && curr.cpu != null ? Math.round((curr.cpu / live) * 100) / 100 : null
+  const prevCps = prev && prevLive != null && prevLive > 0 && prev.cpu != null ? prev.cpu / prevLive : null
 
   const divergences: string[] = []
   if (cpuDelta != null && memoryDelta != null) {
@@ -222,7 +234,7 @@ export function analyzePoint(samples: ResourceSample[], index: number): PointIns
     if (Math.abs(memoryDelta) >= 15 && Math.abs(cpuDelta) < 2) divergences.push('Memory moved independently of CPU')
   }
 
-  // Session-aware (nonlinear scaling) divergences — the primary story of the explorer.
+  // Session-aware (nonlinear scaling) divergences — optional overlay context when motor is enabled.
   if (cpuDelta != null && liveDelta != null) {
     if (cpuDelta >= 4 && Math.abs(liveDelta) <= 1)
       divergences.push('CPU rose while live sessions stayed flat')
@@ -306,19 +318,18 @@ export function parseDatetimeLocalValue(value: string): number | null {
 }
 
 /**
- * Legacy host-only series (kept for back-compat with the simple summary widgets and tests).
- * Reads the canonical mirrors, so it works even for samples without a full `values` map.
+ * Convenience summary series for machine CPU/mem + API threads (independent sections; no cross-fill).
  */
 export const METRICS: MetricDef[] = [
-  { key: 'cpu', label: 'CPU', unit: '%', color: 'rgb(59,130,246)', fill: 'rgba(59,130,246,0.1)', extract: (s) => s.cpu },
-  { key: 'memory', label: 'Memory', unit: ' MB', color: 'rgb(168,85,247)', fill: 'rgba(168,85,247,0.1)', extract: (s) => s.memoryMb },
-  { key: 'threads', label: 'Threads', unit: '', color: 'rgb(34,197,94)', fill: 'rgba(34,197,94,0.1)', extract: (s) => s.threads ?? 0 },
+  { key: 'cpu', label: 'Machine CPU', unit: '%', color: 'rgb(59,130,246)', fill: 'rgba(59,130,246,0.1)', extract: (s) => s.cpu },
+  { key: 'memory', label: 'Machine memory', unit: ' MB', color: 'rgb(168,85,247)', fill: 'rgba(168,85,247,0.1)', extract: (s) => s.memoryMb },
+  { key: 'threads', label: 'API threads', unit: '', color: 'rgb(34,197,94)', fill: 'rgba(34,197,94,0.1)', extract: (s) => s.threads },
 ]
 
 /* ── Section-grouped metric catalog ────────────────────────────────────────
- * Every metric an operator can overlay in the explorer. `motor.live` is the
- * correlation anchor: host resources should scale ~linearly with it. GC counters
- * are intentionally excluded — they are not part of what we monitor.
+ * Every metric an operator can overlay in the explorer. Machine (`host.*`) is the
+ * primary resource plane; `motor.live` and other sections are optional correlation
+ * overlays. GC counters are intentionally excluded — they are not part of what we monitor.
  */
 export interface MetricSection {
   key: MetricSectionKey
@@ -327,7 +338,8 @@ export interface MetricSection {
 }
 
 export const METRIC_SECTIONS: MetricSection[] = [
-  { key: 'host', label: 'Host', description: 'API process + machine resources' },
+  { key: 'host', label: 'Machine', description: 'Machine CPU, memory, storage, and optional OS resources' },
+  { key: 'apiProcess', label: 'API process', description: 'Speculum.Api process and CLR resources' },
   { key: 'motor', label: 'Motor', description: 'Live browsing sessions & throughput' },
   { key: 'sidecar', label: 'Sidecar', description: 'Remote browser connectivity' },
   { key: 'persistence', label: 'Persistence', description: 'Saved browser-state footprint' },
@@ -335,10 +347,10 @@ export const METRIC_SECTIONS: MetricSection[] = [
   { key: 'derived', label: 'Derived', description: 'Per-session efficiency (resource ÷ sessions)' },
 ]
 
-function v(key: string): (s: ResourceSample) => number {
+function v(key: string): (s: ResourceSample) => number | null {
   return (s) => {
     const x = s.values?.[key]
-    return typeof x === 'number' ? x : 0
+    return typeof x === 'number' && Number.isFinite(x) ? x : null
   }
 }
 
@@ -372,19 +384,37 @@ function m(
 
 /** The full overlayable catalog (flat). Use {@link metricsBySection} to group for pickers. */
 export const TELEMETRY_METRICS: MetricDef[] = [
-  // Host
-  m('host.cpu', 'CPU', '%', C.blue, 'host', 'Process CPU utilization across all cores.'),
-  m('host.memory', 'Memory', ' MB', C.violet, 'host', 'Working-set memory held by the API process.'),
-  m('host.memoryPrivate', 'Private memory', ' MB', C.pink, 'host', 'Private (non-shared) committed memory.'),
-  m('host.threads', 'Threads', '', C.green, 'host', 'OS threads owned by the process.'),
-  m('host.threadPoolBusy', 'Thread pool busy', '', C.orange, 'host', 'Worker threads currently executing.'),
-  m('host.threadPoolQueued', 'Thread pool queue', '', C.rose, 'host', 'Work items waiting for a worker thread.'),
+  // Machine
+  m('host.cpu', 'CPU', '%', C.blue, 'host', 'Machine CPU utilization across all cores.'),
+  m('host.memory', 'Memory used', ' MB', C.violet, 'host', 'Machine memory currently in use.'),
+  m('host.memoryAvailable', 'Memory available', ' MB', C.teal, 'host', 'Machine memory immediately available to workloads.'),
+  m('host.cpuCount', 'CPU count', '', C.green, 'host', 'Logical CPU count exposed by the machine.'),
   m('host.diskFree', 'Disk free', ' GB', C.teal, 'host', 'Free space on the data volume.'),
+  m('host.diskTotal', 'Disk total', ' GB', C.indigo, 'host', 'Total capacity of the configured data volume.'),
+  m('host.load1m', 'Load 1m', '', C.orange, 'host', 'One-minute machine load average.'),
+  m('host.load5m', 'Load 5m', '', C.orange, 'host', 'Five-minute machine load average.'),
+  m('host.load15m', 'Load 15m', '', C.orange, 'host', 'Fifteen-minute machine load average.'),
+  m('host.swapUsed', 'Swap used', ' MB', C.pink, 'host', 'Machine swap currently in use.'),
+  m('host.diskRead', 'Disk read', ' MB/s', C.cyan, 'host', 'Disk read throughput for the configured volume.'),
+  m('host.diskWrite', 'Disk write', ' MB/s', C.cyan, 'host', 'Disk write throughput for the configured volume.'),
+  m('host.networkRx', 'Network receive', ' MB/s', C.lime, 'host', 'Aggregate network receive throughput.'),
+  m('host.networkTx', 'Network transmit', ' MB/s', C.lime, 'host', 'Aggregate network transmit throughput.'),
+  m('host.memoryPct', 'Memory used %', '%', C.pink, 'host', 'Machine memory used as a share of total memory.'),
+  // API process / CLR
+  m('apiProcess.cpu', 'CPU', '%', C.blue, 'apiProcess', 'Speculum.Api process CPU utilization.'),
+  m('apiProcess.memory', 'Working set', ' MB', C.violet, 'apiProcess', 'Speculum.Api process working-set memory.'),
+  m('apiProcess.threads', 'Threads', '', C.green, 'apiProcess', 'OS threads owned by Speculum.Api.'),
+  m('apiProcess.memoryPrivate', 'Private memory', ' MB', C.pink, 'apiProcess', 'Private committed memory held by Speculum.Api.'),
+  m('apiProcess.gcHeap', 'GC heap', ' MB', C.indigo, 'apiProcess', 'Managed heap size reported by the CLR.'),
+  m('apiProcess.gcGen0', 'GC gen 0', '', C.slate, 'apiProcess', 'CLR generation 0 collection count.', 'max'),
+  m('apiProcess.gcGen1', 'GC gen 1', '', C.slate, 'apiProcess', 'CLR generation 1 collection count.', 'max'),
+  m('apiProcess.gcGen2', 'GC gen 2', '', C.slate, 'apiProcess', 'CLR generation 2 collection count.', 'max'),
+  m('apiProcess.threadPoolBusy', 'Thread pool busy', '', C.orange, 'apiProcess', 'Worker threads currently executing.'),
+  m('apiProcess.threadPoolQueued', 'Thread pool queue', '', C.rose, 'apiProcess', 'Work items waiting for an API process worker thread.'),
   // Motor
   m('motor.live', 'Active sessions', '', C.amber, 'motor', 'Live browsing sessions — the load driver.', 'max'),
   m('motor.total', 'Total sessions', '', C.indigo, 'motor', 'Live + starting + stopping sessions.', 'max'),
   m('motor.starting', 'Starting', '', C.cyan, 'motor', 'Sessions still spinning up.', 'max'),
-  m('host.memoryPct', 'Memory used %', '%', C.pink, 'host', 'Working set as a share of total available memory.'),
   m('motor.avgFps', 'Avg FPS', '', C.lime, 'motor', 'Mean frame rate across live sessions.'),
   m('motor.minFps', 'Min FPS', '', C.slate, 'motor', 'Slowest live session frame rate.'),
   m('motor.maxFps', 'Max FPS', '', C.lime, 'motor', 'Fastest live session frame rate.'),
@@ -422,6 +452,13 @@ export const METRIC_BY_KEY: Record<string, MetricDef> = Object.fromEntries(
   TELEMETRY_METRICS.map((d) => [d.key, d]),
 )
 
+/** Default Monitor chart overlays — machine plane only (runtime via + Metric). */
+export const MACHINE_MONITOR_DEFAULT_KEYS: readonly string[] = [
+  'host.cpu',
+  'host.memory',
+  'host.diskFree',
+]
+
 export function metricsBySection(): { section: MetricSection; metrics: MetricDef[] }[] {
   return METRIC_SECTIONS.map((section) => ({
     section,
@@ -443,9 +480,9 @@ const toGb = (bytes: number | null) => (bytes != null ? Math.round((bytes / 1024
 
 /**
  * Flattens `Telemetry.SampleCollected` events into rich {@link ResourceSample}s: every section
- * (host/motor/sidecar/persistence/pipeline) is projected into the `values` map keyed by catalog
- * metric key, plus derived per-session efficiency metrics. Host-anchored — samples with no `host`
- * section are dropped (host is the time axis). Ascending by time.
+ * (machine/API process/motor/sidecar/persistence/pipeline) is projected into the `values` map keyed by catalog
+ * metric key, plus derived per-session efficiency metrics. A sample is retained when **any** section is
+ * present so independently toggled sections still share a time axis.
  */
 export function telemetryToResourceSamples(events: DiagnosticsEventRecord[]): ResourceSample[] {
   return events
@@ -453,16 +490,22 @@ export function telemetryToResourceSamples(events: DiagnosticsEventRecord[]): Re
     .map((evt): ResourceSample | null => {
       const payload = evt.payload as Record<string, unknown> | null
       const host = (payload?.host ?? null) as Record<string, unknown> | null
-      if (!host) return null
+      const apiProcess = (payload?.apiProcess ?? null) as Record<string, unknown> | null
       const motor = (payload?.motor ?? null) as Record<string, unknown> | null
       const sidecar = (payload?.sidecar ?? null) as Record<string, unknown> | null
       const persistence = (payload?.persistence ?? null) as Record<string, unknown> | null
       const pipeline = (payload?.pipeline ?? null) as Record<string, unknown> | null
+      if (!host && !apiProcess && !motor && !sidecar && !persistence && !pipeline) return null
 
-      const cpu = num(host, 'cpuUsage') != null ? Math.round(num(host, 'cpuUsage')! * 10) / 10 : 0
-      const memMb = toMb(num(host, 'memoryUsed')) ?? 0
+      // Convenience mirrors stay section-pure: cpu/memoryMb = host only; threads = apiProcess only.
+      const hostCpu = num(host, 'cpuUsage')
+      const apiCpu = num(apiProcess, 'cpuUsage')
+      const cpu = hostCpu != null ? Math.round(hostCpu * 10) / 10 : null
+      const hostMemMb = toMb(num(host, 'memoryUsed'))
+      const apiMemMb = toMb(num(apiProcess, 'memoryUsed'))
+      const memMb = hostMemMb
       const memTotal = num(host, 'memoryTotal')
-      const threads = num(host, 'threadCount')
+      const threads = num(apiProcess, 'threadCount')
       const live = num(motor, 'live')
       const memPct =
         memTotal != null && memTotal > 0 && num(host, 'memoryUsed') != null
@@ -471,13 +514,30 @@ export function telemetryToResourceSamples(events: DiagnosticsEventRecord[]): Re
 
       const values: Record<string, number | null> = {
         'host.cpu': cpu,
-        'host.memory': memMb,
-        'host.memoryPrivate': toMb(num(host, 'memoryPrivate')),
+        'host.memory': hostMemMb,
+        'host.memoryAvailable': toMb(num(host, 'memoryAvailable')),
+        'host.cpuCount': num(host, 'cpuCount'),
         'host.memoryPct': memPct,
-        'host.threads': threads,
-        'host.threadPoolBusy': num(host, 'threadPoolBusy'),
-        'host.threadPoolQueued': num(host, 'threadPoolQueued'),
         'host.diskFree': toGb(num(host, 'diskFreeBytes')),
+        'host.diskTotal': toGb(num(host, 'diskTotalBytes')),
+        'host.load1m': num(host, 'loadAverage1m'),
+        'host.load5m': num(host, 'loadAverage5m'),
+        'host.load15m': num(host, 'loadAverage15m'),
+        'host.swapUsed': toMb(num(host, 'swapUsed')),
+        'host.diskRead': toMb(num(host, 'diskReadBytesPerSec')),
+        'host.diskWrite': toMb(num(host, 'diskWriteBytesPerSec')),
+        'host.networkRx': toMb(num(host, 'networkRxBytesPerSec')),
+        'host.networkTx': toMb(num(host, 'networkTxBytesPerSec')),
+        'apiProcess.cpu': apiCpu != null ? Math.round(apiCpu * 10) / 10 : null,
+        'apiProcess.memory': apiMemMb,
+        'apiProcess.threads': threads,
+        'apiProcess.memoryPrivate': toMb(num(apiProcess, 'memoryPrivate')),
+        'apiProcess.gcHeap': toMb(num(apiProcess, 'gcHeap')),
+        'apiProcess.gcGen0': num(apiProcess, 'gcGen0'),
+        'apiProcess.gcGen1': num(apiProcess, 'gcGen1'),
+        'apiProcess.gcGen2': num(apiProcess, 'gcGen2'),
+        'apiProcess.threadPoolBusy': num(apiProcess, 'threadPoolBusy'),
+        'apiProcess.threadPoolQueued': num(apiProcess, 'threadPoolQueued'),
         'motor.live': live,
         'motor.total': num(motor, 'total'),
         'motor.starting': num(motor, 'starting'),
@@ -506,8 +566,13 @@ export function telemetryToResourceSamples(events: DiagnosticsEventRecord[]): Re
         'pipeline.recentSlowWrites': num(pipeline, 'recentSlowWrites'),
         'pipeline.degraded': bool01(pipeline, 'degraded'),
         'pipeline.elevateActive': bool01(pipeline, 'elevateActive'),
-        'derived.cpuPerSession': live != null && live > 0 ? Math.round((cpu / live) * 100) / 100 : null,
-        'derived.memPerSession': live != null && live > 0 ? Math.round(memMb / live) : null,
+        // Per-session efficiency is machine load ÷ live sessions (not API-process CPU).
+        'derived.cpuPerSession': live != null && live > 0 && cpu != null
+          ? Math.round((cpu / live) * 100) / 100
+          : null,
+        'derived.memPerSession': live != null && live > 0 && hostMemMb != null
+          ? Math.round(hostMemMb / live)
+          : null,
       }
 
       return {
@@ -570,13 +635,14 @@ export function detectAnomalies(
 
   const cps = (s: ResourceSample) => {
     const l = liveOf(s)
-    return l != null && l > 0 ? s.cpu / l : null
+    return l != null && l > 0 && s.cpu != null ? s.cpu / l : null
   }
 
   const hits: (AnomalyKind | null)[] = new Array(n).fill(null)
   for (let i = lookback; i < n; i++) {
     const curr = samples[i]
     const base = samples[i - lookback]
+    if (curr.cpu == null || base.cpu == null) continue
     const cpuDelta = curr.cpu - base.cpu
     const live = liveOf(curr)
     const baseLive = liveOf(base)
@@ -607,7 +673,7 @@ export function detectAnomalies(
               ? (liveOf(samples[j]) ?? 0) - (liveOf(base) ?? 0)
               : runKind === 'regression'
                 ? (cps(samples[j]) ?? 0) - (cps(base) ?? 0)
-                : samples[j].cpu - base.cpu
+                : (samples[j].cpu ?? 0) - (base.cpu ?? 0)
           if (Math.abs(magnitude) > Math.abs(mag)) { mag = magnitude; peak = j }
         }
         out.push({
@@ -684,7 +750,9 @@ export interface SeriesStats {
 }
 
 export function seriesStats(samples: ResourceSample[], metric: MetricDef): SeriesStats | null {
-  const vals = samples.map(metric.extract).filter((v) => Number.isFinite(v))
+  const vals = samples
+    .map(metric.extract)
+    .filter((v): v is number => typeof v === 'number' && Number.isFinite(v))
   if (vals.length === 0) return null
   const base = computeStats(vals)
   const n = vals.length

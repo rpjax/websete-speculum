@@ -444,8 +444,8 @@ public static class ConfigValidator
                 if (telemetry.TryGetProperty("intervalSeconds", out var iv)
                     && (!iv.TryGetInt32(out var ivv) || ivv < 1 || ivv > 3600))
                     errors.Add(("$.Diagnostics.telemetry.intervalSeconds", "Must be 1..3600."));
-                ValidateToggleGroup(telemetry, "host", "$.Diagnostics.telemetry.host",
-                    ["enabled"], errors);
+                ValidateTelemetryHost(telemetry, errors);
+                ValidateTelemetryApiProcess(telemetry, errors);
                 ValidateToggleGroup(telemetry, "motor", "$.Diagnostics.telemetry.motor",
                     ["enabled", "includeSessionIds", "includePerSession", "includeUrlHost"], errors);
                 ValidateToggleGroup(telemetry, "sidecar", "$.Diagnostics.telemetry.sidecar",
@@ -504,9 +504,85 @@ public static class ConfigValidator
                 && (!bytes.TryGetInt32(out var b) || b < 1024 || b > 8 * 1024 * 1024))
                 errors.Add(("$.Diagnostics.probe.maxProbeResponseBytes", "Must be 1024..8388608."));
 
-            if (probe.TryGetProperty("hostSampleIntervalMs", out var hostInterval)
-                && (!hostInterval.TryGetInt32(out var hi) || hi < 100 || hi > 60_000))
-                errors.Add(("$.Diagnostics.probe.hostSampleIntervalMs", "Must be 100..60000."));
+            if (probe.TryGetProperty("hostSampleIntervalMs", out _))
+                errors.Add(("$.Diagnostics.probe.hostSampleIntervalMs",
+                    "Removed — use telemetry.host.sampleIntervalMs / telemetry.apiProcess.sampleIntervalMs."));
+        }
+    }
+
+    private static void ValidateTelemetryHost(JsonElement telemetry, List<(string, string)> errors)
+    {
+        if (!telemetry.TryGetProperty("host", out var host))
+            return;
+        if (host.ValueKind != JsonValueKind.Object)
+        {
+            errors.Add(("$.Diagnostics.telemetry.host", "Must be a JSON object."));
+            return;
+        }
+
+        foreach (var prop in host.EnumerateObject())
+        {
+            var path = $"$.Diagnostics.telemetry.host.{prop.Name}";
+            switch (prop.Name)
+            {
+                case "enabled":
+                case "includeLoadAverage":
+                case "includeSwap":
+                case "includeDiskIo":
+                case "includeNetwork":
+                    if (prop.Value.ValueKind is not JsonValueKind.True and not JsonValueKind.False)
+                        errors.Add((path, "Must be a boolean."));
+                    break;
+                case "procPath":
+                    if (prop.Value.ValueKind != JsonValueKind.String
+                        || string.IsNullOrWhiteSpace(prop.Value.GetString()))
+                        errors.Add((path, "Must be a non-empty string."));
+                    break;
+                case "diskPath":
+                    if (prop.Value.ValueKind is not JsonValueKind.String and not JsonValueKind.Null)
+                        errors.Add((path, "Must be a string or null."));
+                    break;
+                case "sampleIntervalMs":
+                    if (!prop.Value.TryGetInt32(out var hi) || hi < 100 || hi > 60_000)
+                        errors.Add((path, "Must be 100..60000."));
+                    break;
+                default:
+                    errors.Add((path, "Unknown toggle."));
+                    break;
+            }
+        }
+    }
+
+    private static void ValidateTelemetryApiProcess(JsonElement telemetry, List<(string, string)> errors)
+    {
+        if (!telemetry.TryGetProperty("apiProcess", out var api))
+            return;
+        if (api.ValueKind != JsonValueKind.Object)
+        {
+            errors.Add(("$.Diagnostics.telemetry.apiProcess", "Must be a JSON object."));
+            return;
+        }
+
+        foreach (var prop in api.EnumerateObject())
+        {
+            var path = $"$.Diagnostics.telemetry.apiProcess.{prop.Name}";
+            switch (prop.Name)
+            {
+                case "enabled":
+                case "includePrivateMemory":
+                case "includeGc":
+                case "includeThreadPool":
+                    if (prop.Value.ValueKind is not JsonValueKind.True and not JsonValueKind.False)
+                        errors.Add((path, "Must be a boolean."));
+                    break;
+                case "sampleIntervalMs":
+                    if (!prop.Value.TryGetInt32(out var hi) || hi < 100 || hi > 60_000)
+                        errors.Add((path, "Must be 100..60000."));
+                    break;
+                default:
+                    errors.Add((path, "Unknown toggle."));
+                    break;
+            }
         }
     }
 

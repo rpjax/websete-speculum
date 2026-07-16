@@ -130,8 +130,29 @@ public sealed class InputResizeProbeGovernanceTests : MotorAssertTestBase
         var res = await fx.Host.Http.GetAsync("api/admin/diagnostics/v1/host");
         res.EnsureSuccessStatusCode();
         using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
-        Assert.True(doc.RootElement.TryGetProperty("data", out _));
         Assert.True(doc.RootElement.TryGetProperty("redaction", out _));
+        var data = doc.RootElement.GetProperty("data");
+        Assert.False(string.IsNullOrWhiteSpace(data.GetProperty("hostname").GetString()));
+        Assert.Contains(data.GetProperty("source").GetString(), new[] { "machine", "cgroup", "unavailable" });
+        Assert.True(data.GetProperty("cpuCount").GetInt32() >= 1);
+        Assert.False(data.TryGetProperty("gcHeap", out _));
+        Assert.False(data.TryGetProperty("threadPoolBusy", out _));
+    }
+
+    [MotorAssertFact]
+    public async Task L14_api_process_envelope()
+    {
+        var res = await fx.Host.Http.GetAsync("api/admin/diagnostics/v1/api-process");
+        res.EnsureSuccessStatusCode();
+        using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
+        Assert.True(doc.RootElement.TryGetProperty("redaction", out _));
+        var data = doc.RootElement.GetProperty("data");
+        Assert.True(data.GetProperty("memoryUsed").GetInt64() >= 0);
+        Assert.True(data.GetProperty("threadCount").GetInt32() >= 1);
+        Assert.True(data.TryGetProperty("gcHeap", out _));
+        Assert.False(data.TryGetProperty("hostname", out _));
+        Assert.False(data.TryGetProperty("source", out _));
+        Assert.False(data.TryGetProperty("cpuCount", out _));
     }
 
     [MotorAssertFact]

@@ -553,34 +553,6 @@ export function GovernanceBudgetsTab({ config, onChange, bytesUsed = 0 }: Govern
                 </div>
               </FieldCard>
 
-              <FieldCard
-                icon={<Clock className="h-3.5 w-3.5" />}
-                title="Host sample interval"
-                body="Minimum gap between host CPU/memory samples reused by the Telemetry sampler."
-                className="sm:col-span-2"
-              >
-                <div className="flex items-center gap-2">
-                  <Input
-                    type="number"
-                    min={100}
-                    step={100}
-                    value={config.probe.hostSampleIntervalMs}
-                    onChange={(e) =>
-                      onChange({
-                        ...config,
-                        probe: {
-                          ...config.probe,
-                          hostSampleIntervalMs: Math.max(100, Number(e.target.value) || 100),
-                        },
-                      })
-                    }
-                    className="h-9 w-28 text-sm"
-                  />
-                  <span className="text-xs text-muted-foreground">
-                    ms between host samples
-                  </span>
-                </div>
-              </FieldCard>
             </div>
           </AccordionContent>
         </AccordionItem>

@@ -11,6 +11,7 @@ export {
   catalog,
   probeResult,
   hostSample,
+  apiProcessSample,
   persistedList,
   telemetrySamples,
 } from './diagnostics'

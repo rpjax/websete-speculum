@@ -73,9 +73,11 @@ services:
       Traefik__Root: /data/traefik
       Traefik__DynamicDir: /data/traefik/dynamic
       Traefik__DockerSocket: /var/run/docker.sock
+      Diagnostics__Telemetry__Host__ProcPath: /host/proc
     volumes:
       - motor-assert-data:/data
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /proc:/host/proc:ro
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
       interval: 10s

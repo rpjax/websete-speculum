@@ -51,15 +51,35 @@ public sealed class DiagnosticsTelemetryOptions
     public bool Enabled { get; init; } = true;
     public int IntervalSeconds { get; init; } = 30;
     public TelemetryHostOptions Host { get; init; } = new();
+    public TelemetryApiProcessOptions ApiProcess { get; init; } = new();
     public TelemetryMotorOptions Motor { get; init; } = new();
     public TelemetrySidecarOptions Sidecar { get; init; } = new();
     public TelemetryPersistenceOptions Persistence { get; init; } = new();
     public TelemetryPipelineOptions Pipeline { get; init; } = new();
 }
 
+/// <summary>Machine/VPS telemetry section — core always on when Enabled; include* and paths are section settings.</summary>
 public sealed class TelemetryHostOptions
 {
     public bool Enabled { get; init; } = true;
+    public string ProcPath { get; init; } = "/proc";
+    /// <summary>Null/empty = auto (app/data root). Otherwise the path whose volume is measured.</summary>
+    public string? DiskPath { get; init; }
+    public int SampleIntervalMs { get; init; } = 1000;
+    public bool IncludeLoadAverage { get; init; } = true;
+    public bool IncludeSwap { get; init; } = true;
+    public bool IncludeDiskIo { get; init; }
+    public bool IncludeNetwork { get; init; }
+}
+
+/// <summary>Speculum.Api process + CLR telemetry section.</summary>
+public sealed class TelemetryApiProcessOptions
+{
+    public bool Enabled { get; init; } = true;
+    public int SampleIntervalMs { get; init; } = 1000;
+    public bool IncludePrivateMemory { get; init; } = true;
+    public bool IncludeGc { get; init; } = true;
+    public bool IncludeThreadPool { get; init; } = true;
 }
 
 public sealed class TelemetryMotorOptions
@@ -112,7 +132,6 @@ public sealed class DiagnosticsProbeOptions
     public int DiagTimeoutMs { get; init; } = 10_000;
     public int MaxConcurrentProbesPerSession { get; init; } = 2;
     public int MaxProbeResponseBytes { get; init; } = 512 * 1024;
-    public int HostSampleIntervalMs { get; init; } = 1000;
 }
 
 public static class DiagnosticsSeedProfiles
@@ -132,6 +151,24 @@ public static class DiagnosticsSeedProfiles
         {
             Enabled = true,
             IntervalSeconds = 15,
+            Host = new TelemetryHostOptions
+            {
+                Enabled = true,
+                ProcPath = "/proc",
+                SampleIntervalMs = 1000,
+                IncludeLoadAverage = true,
+                IncludeSwap = true,
+                IncludeDiskIo = true,
+                IncludeNetwork = true,
+            },
+            ApiProcess = new TelemetryApiProcessOptions
+            {
+                Enabled = true,
+                SampleIntervalMs = 1000,
+                IncludePrivateMemory = true,
+                IncludeGc = true,
+                IncludeThreadPool = true,
+            },
             Motor = new TelemetryMotorOptions
             {
                 Enabled = true,
@@ -159,7 +196,6 @@ public static class DiagnosticsSeedProfiles
         Domains = new DiagnosticsDomainsOptions
         {
             Motor = new DiagnosticsMotorOptions { Metrics = true, Events = true, Snapshots = true },
-            // Events on: probe/lifecycle sidecar beats are cheap to record; probes themselves stay off until Elevate.
             Sidecar = new DiagnosticsSidecarOptions { Metrics = true, Events = true },
             BrowserQuery = new DiagnosticsBrowserQueryOptions { Probe = false },
             Persisted = new DiagnosticsPersistedOptions { Snapshots = true },
@@ -168,7 +204,24 @@ public static class DiagnosticsSeedProfiles
         {
             Enabled = true,
             IntervalSeconds = 30,
-            // IDs + URL host are cheap; IncludePerSession stays off (N SessionSampleCollected per tick).
+            Host = new TelemetryHostOptions
+            {
+                Enabled = true,
+                ProcPath = "/host/proc",
+                SampleIntervalMs = 1000,
+                IncludeLoadAverage = true,
+                IncludeSwap = true,
+                IncludeDiskIo = false,
+                IncludeNetwork = false,
+            },
+            ApiProcess = new TelemetryApiProcessOptions
+            {
+                Enabled = true,
+                SampleIntervalMs = 1000,
+                IncludePrivateMemory = true,
+                IncludeGc = true,
+                IncludeThreadPool = true,
+            },
             Motor = new TelemetryMotorOptions
             {
                 Enabled = true,
@@ -180,7 +233,6 @@ public static class DiagnosticsSeedProfiles
             Persistence = new TelemetryPersistenceOptions { Enabled = true, IncludeBytes = true },
             Pipeline = new TelemetryPipelineOptions { Enabled = true, IncludeBreakerPressure = true },
         },
-        // Sized for ≥50 GiB VPS disks — keep multi-week incident windows without starving the host.
         Storage = new DiagnosticsStorageOptions
         {
             TtlHours = 30 * 24,
@@ -205,6 +257,24 @@ public static class DiagnosticsSeedProfiles
         {
             Enabled = true,
             IntervalSeconds = 10,
+            Host = new TelemetryHostOptions
+            {
+                Enabled = true,
+                ProcPath = "/host/proc",
+                SampleIntervalMs = 1000,
+                IncludeLoadAverage = true,
+                IncludeSwap = true,
+                IncludeDiskIo = true,
+                IncludeNetwork = true,
+            },
+            ApiProcess = new TelemetryApiProcessOptions
+            {
+                Enabled = true,
+                SampleIntervalMs = 1000,
+                IncludePrivateMemory = true,
+                IncludeGc = true,
+                IncludeThreadPool = true,
+            },
             Motor = new TelemetryMotorOptions
             {
                 Enabled = true,

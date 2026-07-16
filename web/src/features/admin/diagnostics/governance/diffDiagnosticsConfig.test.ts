@@ -21,7 +21,8 @@ describe('diffDiagnosticsConfig', () => {
         enabled: true,
         intervalSeconds: 10,
         motor: { ...DEFAULT_CONFIG.telemetry.motor, includePerSession: true },
-        host: { enabled: false },
+        host: { ...DEFAULT_CONFIG.telemetry.host, enabled: false },
+        apiProcess: { ...DEFAULT_CONFIG.telemetry.apiProcess, includeGc: !DEFAULT_CONFIG.telemetry.apiProcess.includeGc },
       },
       sampling: { statusMirrorRatio: 0.25, expensiveEventRatio: 0.1 },
       probe: { ...DEFAULT_CONFIG.probe, diagTimeoutMs: 20_000 },
@@ -36,7 +37,8 @@ describe('diffDiagnosticsConfig', () => {
     expect(labels).toContain('Sidecar · Events')
     expect(labels).toContain('Browser Query · Probe')
     expect(labels).toContain('Telemetry interval')
-    expect(labels).toContain('Telemetry · Host')
+    expect(labels).toContain('Telemetry · Machine')
+    expect(labels).toContain('API process · GC')
     expect(labels).toContain('Motor · per-session')
     expect(labels).toContain('Status mirror ratio')
     expect(labels).toContain('Probe timeout')

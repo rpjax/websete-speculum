@@ -48,6 +48,7 @@ describe('composeTelemetryAnalysis', () => {
     runtime: null,
     overview: null,
     host: null,
+    apiProcess: null,
     window: windowAround(slice),
     coverage: {
       samples: slice.length,
@@ -85,5 +86,44 @@ describe('composeTelemetryAnalysis', () => {
     })
     expect(report.meta.coverage.truncated).toBe(true)
     expect(report.chapters.find((c) => c.id === 'period')!.body.some((p) => /substrate|bucketed/i.test(p))).toBe(true)
+  })
+
+  it('narrates API-process CPU independently when machine section is absent', () => {
+    const apiOnly = Array.from({ length: 8 }, (_, i) => {
+      const ts = Date.UTC(2026, 0, 1, 12, 0, i * 60)
+      return {
+        utc: new Date(ts).toISOString(),
+        timestamp: ts,
+        cpu: null,
+        memoryMb: null,
+        threads: 20,
+        values: {
+          'apiProcess.cpu': 12 + i,
+          'apiProcess.memory': 200 + i * 10,
+          'motor.live': 2,
+        },
+      } satisfies ResourceSample
+    })
+    const report = composeTelemetryAnalysis({
+      samples: apiOnly,
+      events: [],
+      runtime: null,
+      overview: null,
+      host: null,
+      apiProcess: null,
+      window: windowAround(apiOnly),
+      coverage: {
+        samples: apiOnly.length,
+        bucketed: false,
+        truncated: false,
+        events: 0,
+        dataSources: ['telemetry.history'],
+      },
+    })
+    const efficiency = report.chapters.find((c) => c.id === 'efficiency')!
+    expect(efficiency.body.some((p) => /API process CPU/i.test(p))).toBe(true)
+    expect(efficiency.body.some((p) => /Machine CPU section was not present/i.test(p))).toBe(true)
+    expect(report.metricAtlas.some((m) => m.key === 'apiProcess.cpu' && m.present)).toBe(true)
+    expect(report.metricAtlas.some((m) => m.key === 'host.cpu' && m.present)).toBe(false)
   })
 })

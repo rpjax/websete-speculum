@@ -45,7 +45,24 @@ public sealed class MotorAssertFixture : IAsyncLifetime
         {
             enabled = true,
             intervalSeconds = 5,
-            host = new { enabled = true },
+            host = new
+            {
+                enabled = true,
+                procPath = "/host/proc",
+                sampleIntervalMs = 1000,
+                includeLoadAverage = true,
+                includeSwap = true,
+                includeDiskIo = true,
+                includeNetwork = true,
+            },
+            apiProcess = new
+            {
+                enabled = true,
+                sampleIntervalMs = 1000,
+                includePrivateMemory = true,
+                includeGc = true,
+                includeThreadPool = true,
+            },
             motor = new
             {
                 enabled = true,

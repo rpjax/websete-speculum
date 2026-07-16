@@ -1,4 +1,5 @@
 import type {
+  ApiProcessTelemetry,
   DiagnosticsEventRecord,
   DiagnosticsOverview,
   DiagnosticsRuntimeSnapshot,
@@ -40,6 +41,7 @@ export interface AnalysisConsumeInput {
   runtime: DiagnosticsRuntimeSnapshot | null
   overview: DiagnosticsOverview | null
   host: HostTelemetry | null
+  apiProcess: ApiProcessTelemetry | null
   window: AnalysisWindow
   coverage: AnalysisCoverage
 }
@@ -153,13 +155,17 @@ export interface TelemetryAnalysisReport {
 /* ── Engine ───────────────────────────────────────────────────────────────── */
 
 const CORRELATION_PAIRS: { x: string; y: string; expected: boolean; why: string }[] = [
-  { x: 'motor.live', y: 'host.cpu', expected: true, why: 'CPU should track live session load roughly linearly.' },
-  { x: 'motor.live', y: 'host.memory', expected: true, why: 'Working-set memory usually rises with live sessions.' },
+  { x: 'motor.live', y: 'host.cpu', expected: true, why: 'Machine CPU should track live session load roughly linearly.' },
+  { x: 'motor.live', y: 'host.memory', expected: true, why: 'Machine memory use usually rises with live sessions.' },
+  { x: 'motor.live', y: 'apiProcess.cpu', expected: true, why: 'API process CPU should rise with live session orchestration load.' },
+  { x: 'motor.live', y: 'apiProcess.memory', expected: true, why: 'API working set usually grows with live session bookkeeping.' },
   { x: 'motor.live', y: 'derived.cpuPerSession', expected: false, why: 'Per-session CPU should stay stable when scaling is healthy.' },
-  { x: 'host.cpu', y: 'host.memory', expected: true, why: 'CPU and memory often move together under real work.' },
+  { x: 'host.cpu', y: 'host.memory', expected: true, why: 'Machine CPU and memory often move together under real work.' },
+  { x: 'host.cpu', y: 'apiProcess.cpu', expected: true, why: 'API process CPU is a share of machine CPU under normal load.' },
+  { x: 'apiProcess.gcHeap', y: 'apiProcess.memory', expected: true, why: 'Managed heap growth usually appears in the API working set.' },
   { x: 'motor.live', y: 'sidecar.connected', expected: true, why: 'Connected sidecars should match live browsing sessions.' },
   { x: 'pipeline.usedPct', y: 'pipeline.eventsDropped', expected: true, why: 'Storage pressure tends to precede drops.' },
-  { x: 'host.cpu', y: 'pipeline.recentSlowWrites', expected: true, why: 'Host load can slow diagnostics sink writes.' },
+  { x: 'host.cpu', y: 'pipeline.recentSlowWrites', expected: true, why: 'Machine load can slow diagnostics sink writes.' },
   { x: 'motor.capacityPct', y: 'motor.live', expected: true, why: 'Capacity used is driven by live (+ starting) sessions.' },
 ]
 
@@ -199,7 +205,9 @@ function buildMetricAtlas(samples: ResourceSample[]): MetricFinding[] {
   return TELEMETRY_METRICS.map((m) => {
     const has = present.has(m.key)
     const stats = has ? seriesStats(samples, m) : null
-    const vals = has ? samples.map(m.extract).filter((v) => Number.isFinite(v)) : []
+    const vals = has
+      ? samples.map(m.extract).filter((v): v is number => typeof v === 'number' && Number.isFinite(v))
+      : []
     const vol = vals.length > 1 ? stddev(vals) : null
     const narrative = !has
       ? `${m.label} was not collected in this window (section toggle off or absent from samples).`
@@ -246,9 +254,12 @@ function buildCorrelations(samples: ResourceSample[]): CorrelationFinding[] {
     const xm = METRIC_BY_KEY[pair.x]
     const ym = METRIC_BY_KEY[pair.y]
     if (!xm || !ym) continue
-    const xs = samples.map(xm.extract)
-    const ys = samples.map(ym.extract)
-    if (xs.every((v) => v === 0) && ys.every((v) => v === 0)) continue
+    const paired = samples
+      .map((s) => ({ x: xm.extract(s), y: ym.extract(s) }))
+      .filter((p): p is { x: number; y: number } => p.x != null && p.y != null)
+    if (paired.length < 4) continue
+    const xs = paired.map((p) => p.x)
+    const ys = paired.map((p) => p.y)
     const r = pearson(xs, ys)
     const strength = strengthOf(r)
     const healthy = pair.expected
@@ -338,8 +349,8 @@ function buildAnomalies(
 
   // Sustained saturation
   if (samples.length >= 8) {
-    const highCpu = samples.filter((s) => s.cpu >= 85).length
-    if (highCpu / samples.length >= 0.25) {
+    const highCpu = samples.filter((s) => s.cpu != null && s.cpu >= 85).length
+    if (samples.length > 0 && highCpu / samples.length >= 0.25) {
       out.push({
         id: 'sat-cpu',
         title: 'Sustained high CPU',
@@ -439,8 +450,17 @@ function buildStability(
   if (cpu?.present && cpu.avg != null && cpu.avg < 45 && (cpu.volatility ?? 0) < 15) {
     out.push({
       id: 'stable-cpu',
-      title: 'CPU remained within a comfortable band',
-      detail: `Average CPU was ${fmt(cpu.avg)}% with limited volatility. The host had headroom for additional live sessions through most of this window.`,
+      title: 'Machine CPU remained within a comfortable band',
+      detail: `Average machine CPU was ${fmt(cpu.avg)}% with limited volatility. The machine had headroom for additional live sessions through most of this window.`,
+    })
+  }
+
+  const apiCpu = atlas.find((m) => m.key === 'apiProcess.cpu')
+  if (apiCpu?.present && apiCpu.avg != null && apiCpu.avg < 35 && (apiCpu.volatility ?? 0) < 20) {
+    out.push({
+      id: 'stable-api-cpu',
+      title: 'API process CPU stayed moderate',
+      detail: `Speculum.Api averaged ${fmt(apiCpu.avg)}% CPU with limited volatility — orchestration load did not crowd the CLR process.`,
     })
   }
 
@@ -536,7 +556,7 @@ function scoreHealth(anomalies: ReportAnomaly[], windows: StateWindow[], correla
  * didactic TelemetryAnalysisReport (not a problem-only alert list).
  */
 export function composeTelemetryAnalysis(input: AnalysisConsumeInput): TelemetryAnalysisReport {
-  const { samples, events, runtime, overview, host, window, coverage } = input
+  const { samples, events, runtime, overview, host, apiProcess, window, coverage } = input
   const analyzedAt = new Date().toISOString()
   const atlas = buildMetricAtlas(samples)
   const correlations = buildCorrelations(samples)
@@ -549,31 +569,39 @@ export function composeTelemetryAnalysis(input: AnalysisConsumeInput): Telemetry
 
   const spanMin = Math.round(window.spanMs / 60_000)
   const live = atlas.find((m) => m.key === 'motor.live')
-  const cpu = atlas.find((m) => m.key === 'host.cpu')
-  const mem = atlas.find((m) => m.key === 'host.memory')
+  const hostCpu = atlas.find((m) => m.key === 'host.cpu')
+  const hostMem = atlas.find((m) => m.key === 'host.memory')
+  const apiCpu = atlas.find((m) => m.key === 'apiProcess.cpu')
+  const apiMem = atlas.find((m) => m.key === 'apiProcess.memory')
 
   const periodChapter: AnalysisChapter = {
     id: 'period',
     title: 'Period framing',
-    summary: `Analysis covers ${spanMin} minutes with ${coverage.samples} telemetry sample(s)${coverage.truncated ? ' (substrate / truncated ingest)' : ''}.`,
+    summary: `Analysis covers ${spanMin} minutes with ${coverage.samples} telemetry sample(s)${coverage.truncated ? ' (substrate / truncated ingest)' : ''}. Machine resources lead; runtime overlays are secondary context.`,
     body: [
       `You asked the analyzer to explain the period from ${new Date(window.since).toLocaleString()} to ${new Date(window.until).toLocaleString()} (${spanMin} minutes). ` +
-      `This window is independent of the Monitor chart — Analysis owns its own range.`,
+      `This window is independent of the Monitor chart — Analysis owns its own range. The primary resource plane is the machine (host); API process, motor, sidecar, persistence, and pipeline are correlation overlays.`,
       coverage.bucketed || coverage.truncated
         ? `Coverage note: the ingest used a ${coverage.bucketed ? 'bucketed substrate' : 'truncated series'} (${coverage.samples} points). Findings remain directionally valid; extrema may be smoothed.`
         : `Coverage note: the full raw sample series was consumed (${coverage.samples} points). Statistical findings use that full series.`,
       `Data sources: ${coverage.dataSources.join(', ') || 'none'}. Events ingested: ${coverage.events}.`,
+      host
+        ? `Machine context at analysis time: ${host.hostname}, uptime ${Math.round(host.uptimeSec / 3600)}h, live probe CPU ${fmt(host.cpuUsage)}% (source ${host.source ?? '—'}).`
+        : 'Machine live probe was not available; the report relies on sample payloads only.',
+      hostCpu?.present || hostMem?.present
+        ? `Machine series in samples: CPU ${hostCpu?.present ? `avg ${fmt(hostCpu.avg)}%` : 'absent'}; memory ${hostMem?.present ? `avg ${fmt(hostMem.avg)} MB` : 'absent'}.`
+        : 'Machine section was not present in samples for this window.',
       `Sections observed in samples: ${[...new Set(atlas.filter((m) => m.present).map((m) => m.section))].join(', ') || 'none'}. ` +
       `Absent sections usually mean their Telemetry toggles were off for part of the window.`,
-      host
-        ? `Host context at analysis time: ${host.hostname}, uptime ${Math.round(host.uptimeSec / 3600)}h, live probe CPU ${fmt(host.cpuUsage)}%.`
-        : 'Host live probe was not available; the report relies on sample payloads only.',
+      apiProcess
+        ? `API process overlay at analysis time: CPU ${fmt(apiProcess.cpuUsage)}%, working set ${apiProcess.memoryUsed != null ? `${fmt(apiProcess.memoryUsed / (1024 * 1024))} MB` : '—'}, threads ${apiProcess.threadCount ?? '—'} — independent of machine gauges.`
+        : 'API process live probe was not available (optional overlay).',
       overview
         ? `Overview context: ${overview.liveSessions?.activeCount ?? '—'} active / ${overview.liveSessions?.startingCount ?? '—'} starting sessions; diagnostics ${overview.degraded ? 'DEGRADED' : 'not degraded'}; elevate ${overview.elevate?.active ? 'active' : 'inactive'}.`
         : 'Overview snapshot was not available.',
       runtime
-        ? `Runtime storage: ${fmt(runtime.bytesUsed / (1024 * 1024))} MB used of ${fmt(runtime.storageMaxBytes / (1024 * 1024))} MB budget; ${runtime.eventsStored} events stored, ${runtime.eventsDropped} dropped, overflow ${runtime.overflowCount}.`
-        : 'Runtime snapshot was not available.',
+        ? `Diagnostics control plane (not machine resources): storage ${fmt(runtime.bytesUsed / (1024 * 1024))} MB of ${fmt(runtime.storageMaxBytes / (1024 * 1024))} MB budget; ${runtime.eventsStored} events stored, ${runtime.eventsDropped} dropped, overflow ${runtime.overflowCount}.`
+        : 'Diagnostics runtime snapshot was not available.',
     ],
     evidenceRefs: [{ label: 'Full analysis window', since: window.since, until: window.until, kind: 'samples' }],
   }
@@ -597,7 +625,7 @@ export function composeTelemetryAnalysis(input: AnalysisConsumeInput): Telemetry
     title: 'Cross-section correlations',
     summary: `${correlations.length} metric pairs evaluated; ${correlations.filter((c) => c.healthy).length} healthy, ${correlations.filter((c) => c.expected && !c.healthy).length} expected-but-broken.`,
     body: [
-      'Correlation answers whether sections move together. Strong tracking between live sessions and host CPU/memory is usually good. Broken expected pairs are a nonlinear-scaling smell. Healthy pairs are first-class findings — they belong in the report even when nothing is wrong.',
+      'Correlation answers whether sections move together. Machine↔live-session pairs are the primary story; API process↔motor pairs are optional overlays. Broken expected pairs are a nonlinear-scaling smell. Healthy pairs are first-class findings — they belong in the report even when nothing is wrong.',
       ...correlations.map((c) => c.narrative),
     ],
     evidenceRefs: [{ label: 'Correlation window', since: window.since, until: window.until, kind: 'samples' }],
@@ -606,20 +634,31 @@ export function composeTelemetryAnalysis(input: AnalysisConsumeInput): Telemetry
   const efficiencyChapter: AnalysisChapter = {
     id: 'efficiency',
     title: 'Efficiency & capacity story',
-    summary: live?.present
-      ? `Live sessions averaged ${fmt(live.avg)}; CPU/session and memory/session describe unit cost.`
-      : 'Motor live-session series was not present; efficiency ratios are limited.',
+    summary: hostCpu?.present
+      ? `Machine CPU averaged ${fmt(hostCpu.avg)}%; live sessions and API process are narrated as overlays.`
+      : live?.present
+        ? `Live sessions averaged ${fmt(live.avg)}; machine CPU series was absent — runtime overlays only.`
+        : 'Machine and live-session series were limited; efficiency ratios are sparse.',
     body: [
-      live?.present && cpu?.present
-        ? `Active sessions ranged ${fmt(live.min)}–${fmt(live.max)} (avg ${fmt(live.avg)}). Host CPU averaged ${fmt(cpu.avg)}% (peak ${fmt(cpu.max)}%).`
-        : 'Insufficient motor/host data to narrate efficiency in full.',
+      hostCpu?.present
+        ? `Machine CPU averaged ${fmt(hostCpu.avg)}% (peak ${fmt(hostCpu.max)}%) — primary resource plane.`
+        : 'Machine CPU section was not present in samples.',
+      hostMem?.present
+        ? `Machine memory averaged ${fmt(hostMem.avg)} MB (peak ${fmt(hostMem.max)} MB).`
+        : '',
+      live?.present
+        ? `Active sessions (runtime overlay) ranged ${fmt(live.min)}–${fmt(live.max)} (avg ${fmt(live.avg)}).`
+        : 'Motor live-session series was not present.',
+      apiCpu?.present
+        ? `API process CPU averaged ${fmt(apiCpu.avg)}% (peak ${fmt(apiCpu.max)}%) — independent overlay, not machine CPU.`
+        : 'API process CPU section was not present in samples.',
       (() => {
         const cps = atlas.find((m) => m.key === 'derived.cpuPerSession')
         const mps = atlas.find((m) => m.key === 'derived.memPerSession')
-        if (!cps?.present && !mps?.present) return 'Per-session derived metrics were unavailable (no live sessions or section missing).'
+        if (!cps?.present && !mps?.present) return 'Per-session derived metrics were unavailable (no live sessions or machine section missing).'
         return [
-          cps?.present ? `CPU per live session averaged ${fmt(cps.avg)}% (p95 ${fmt(cps.p95)}%). Rising unit cost under growing load is a regression smell.` : '',
-          mps?.present ? `Memory per live session averaged ${fmt(mps.avg)} MB.` : '',
+          cps?.present ? `Machine CPU per live session averaged ${fmt(cps.avg)}% (p95 ${fmt(cps.p95)}%). Rising unit cost under growing load is a regression smell.` : '',
+          mps?.present ? `Machine memory per live session averaged ${fmt(mps.avg)} MB.` : '',
         ].filter(Boolean).join(' ')
       })(),
       (() => {
@@ -628,8 +667,8 @@ export function composeTelemetryAnalysis(input: AnalysisConsumeInput): Telemetry
           ? `Capacity used averaged ${fmt(cap.avg)}% and peaked at ${fmt(cap.max)}%. Staying near 100% predicts SessionRefused events.`
           : 'Capacity percentage was not present in samples.'
       })(),
-      mem?.present
-        ? `Working-set memory averaged ${fmt(mem.avg)} MB (peak ${fmt(mem.max)} MB). Compare with private memory and memory-% in the atlas when diagnosing leaks.`
+      apiMem?.present
+        ? `API working set averaged ${fmt(apiMem.avg)} MB (peak ${fmt(apiMem.max)} MB) — independent of machine memory.`
         : '',
     ].filter(Boolean),
     evidenceRefs: [{ label: 'Efficiency window', since: window.since, until: window.until, kind: 'samples' }],
@@ -694,15 +733,19 @@ export function composeTelemetryAnalysis(input: AnalysisConsumeInput): Telemetry
   const conclusions: Conclusion[] = [
     {
       rank: 1,
-      title: verdict === 'healthy' ? 'Period looks operationally sound' : `Period verdict: ${verdict}`,
-      detail: `Health score ${score}/100. ${stability[0]?.detail ?? ''} ${anomalies[0] ? `Primary concern: ${anomalies[0].title}.` : 'No primary anomaly.'}`,
+      title: verdict === 'healthy' ? 'Machine resources look operationally sound' : `Period verdict: ${verdict}`,
+      detail: `Health score ${score}/100. ${stability.find((s) => s.id === 'stable-cpu')?.detail ?? stability[0]?.detail ?? ''} ${anomalies[0] ? `Primary concern: ${anomalies[0].title}.` : 'No primary anomaly.'}`,
     },
     {
       rank: 2,
-      title: 'Load vs resources',
-      detail: live?.present && cpu?.present
-        ? `Live sessions avg ${fmt(live.avg)}; CPU avg ${fmt(cpu.avg)}%. ${correlations.find((c) => c.xKey === 'motor.live' && c.yKey === 'host.cpu')?.narrative ?? ''}`
-        : 'Insufficient data to conclude on load vs CPU.',
+      title: 'Machine load vs sessions',
+      detail: hostCpu?.present && live?.present
+        ? `Machine CPU avg ${fmt(hostCpu.avg)}%; live sessions avg ${fmt(live.avg)}. ${correlations.find((c) => c.xKey === 'motor.live' && c.yKey === 'host.cpu')?.narrative ?? ''}`
+        : hostCpu?.present
+          ? `Machine CPU avg ${fmt(hostCpu.avg)}% (peak ${fmt(hostCpu.max)}%). Live-session overlay was absent.`
+          : live?.present && apiCpu?.present
+            ? `Machine CPU absent — live sessions avg ${fmt(live.avg)}; API process CPU avg ${fmt(apiCpu.avg)}% (overlay only).`
+            : 'Insufficient data to conclude on machine CPU.',
     },
     {
       rank: 3,
@@ -731,15 +774,17 @@ export function composeTelemetryAnalysis(input: AnalysisConsumeInput): Telemetry
 
   const headline =
     verdict === 'healthy'
-      ? `Healthy period: load and resources largely agreed across ${spanMin} minutes`
+      ? hostCpu?.present
+        ? `Healthy machine period: CPU avg ${fmt(hostCpu.avg)}% across ${spanMin} minutes`
+        : `Healthy period: machine and overlays largely agreed across ${spanMin} minutes`
       : verdict === 'watch'
-        ? `Watch items in an otherwise readable ${spanMin}-minute window`
+        ? `Watch items on machine resources in a ${spanMin}-minute window`
         : verdict === 'degraded'
-          ? `Degraded signals across the analyzed ${spanMin}-minute window`
+          ? `Degraded machine or pipeline signals across the analyzed ${spanMin}-minute window`
           : `Critical pressure detected in the analyzed ${spanMin}-minute window`
 
   const periodSummary =
-    `Analysis of ${coverage.samples} telemetry samples and ${coverage.events} events. ` +
+    `Machine-led analysis of ${coverage.samples} telemetry samples and ${coverage.events} events. ` +
     `${atlas.filter((m) => m.present).length} metrics narrated; ${stability.length} stability finding(s); ${anomalies.length} risk finding(s). ` +
     (coverage.truncated ? 'Ingest was truncated to a substrate — treat fine extrema cautiously. ' : '') +
     `Verdict ${verdict} (score ${score}).`

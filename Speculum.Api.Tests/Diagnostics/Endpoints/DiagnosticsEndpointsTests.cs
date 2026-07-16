@@ -126,7 +126,7 @@ public sealed class DiagnosticsEndpointsTests : IDisposable
     }
 
     [Fact]
-    public async Task Host_returns_enriched_telemetry_envelope_with_redaction()
+    public async Task Host_returns_machine_telemetry_envelope_with_redaction()
     {
         await AuthenticateAsync();
         var response = await _client.GetAsync("/api/admin/diagnostics/v1/host");
@@ -135,13 +135,81 @@ public sealed class DiagnosticsEndpointsTests : IDisposable
         Assert.True(doc.RootElement.TryGetProperty("redaction", out _));
 
         var data = doc.RootElement.GetProperty("data");
-        // Enriched Telemetry host fields (shared HostTelemetry contract).
         Assert.False(string.IsNullOrWhiteSpace(data.GetProperty("hostname").GetString()));
-        Assert.True(data.GetProperty("memoryUsed").GetInt64() > 0);
-        Assert.True(data.GetProperty("memoryTotal").GetInt64() > 0);
+        Assert.Contains(data.GetProperty("source").GetString(), new[] { "machine", "cgroup", "unavailable" });
+        Assert.True(data.GetProperty("cpuCount").GetInt32() >= 1);
         Assert.True(data.TryGetProperty("cpuUsage", out _));
-        Assert.True(data.TryGetProperty("threadPoolQueued", out _));
+        Assert.True(data.TryGetProperty("memoryTotal", out _));
         Assert.True(data.TryGetProperty("diskFreeBytes", out _));
+        Assert.False(data.TryGetProperty("gcHeap", out _));
+    }
+
+    [Fact]
+    public async Task ApiProcess_returns_clr_telemetry_envelope_with_redaction()
+    {
+        await AuthenticateAsync();
+        var response = await _client.GetAsync("/api/admin/diagnostics/v1/api-process");
+        response.EnsureSuccessStatusCode();
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.True(doc.RootElement.TryGetProperty("redaction", out _));
+
+        var data = doc.RootElement.GetProperty("data");
+        Assert.True(data.GetProperty("memoryUsed").GetInt64() > 0);
+        Assert.True(data.TryGetProperty("cpuUsage", out _));
+        Assert.True(data.TryGetProperty("gcHeap", out _));
+        Assert.True(data.TryGetProperty("threadPoolQueued", out _));
+        Assert.True(data.TryGetProperty("threadCount", out _));
+        Assert.False(data.TryGetProperty("hostname", out _));
+        Assert.False(data.TryGetProperty("source", out _));
+        Assert.False(data.TryGetProperty("cpuCount", out _));
+    }
+
+    [Fact]
+    public async Task ApiProcess_disabled_returns_probe_level_insufficient()
+    {
+        await AuthenticateAsync();
+        var options = DiagnosticsSeedProfiles.Development();
+        options = CloneWithApiProcessEnabled(options, enabled: false);
+        await PutDiagnosticsAsync(JsonSerializer.Serialize(options));
+
+        try
+        {
+            var response = await _client.GetAsync("/api/admin/diagnostics/v1/api-process");
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+            using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            Assert.Equal("probe_level_insufficient", doc.RootElement.GetProperty("errorCode").GetString());
+
+            var host = await _client.GetAsync("/api/admin/diagnostics/v1/host");
+            host.EnsureSuccessStatusCode();
+        }
+        finally
+        {
+            await RestoreDevelopmentDiagnosticsAsync();
+        }
+    }
+
+    [Fact]
+    public async Task Host_disabled_returns_probe_level_insufficient_while_api_process_stays_available()
+    {
+        await AuthenticateAsync();
+        var options = DiagnosticsSeedProfiles.Development();
+        options = CloneWithHostEnabled(options, enabled: false);
+        await PutDiagnosticsAsync(JsonSerializer.Serialize(options));
+
+        try
+        {
+            var host = await _client.GetAsync("/api/admin/diagnostics/v1/host");
+            Assert.Equal(HttpStatusCode.Forbidden, host.StatusCode);
+            using var doc = JsonDocument.Parse(await host.Content.ReadAsStringAsync());
+            Assert.Equal("probe_level_insufficient", doc.RootElement.GetProperty("errorCode").GetString());
+
+            var api = await _client.GetAsync("/api/admin/diagnostics/v1/api-process");
+            api.EnsureSuccessStatusCode();
+        }
+        finally
+        {
+            await RestoreDevelopmentDiagnosticsAsync();
+        }
     }
 
     [Fact]
@@ -275,6 +343,69 @@ public sealed class DiagnosticsEndpointsTests : IDisposable
         _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", key);
         await Task.CompletedTask;
     }
+
+    private static DiagnosticsOptions CloneWithApiProcessEnabled(DiagnosticsOptions seed, bool enabled) =>
+        new()
+        {
+            Enabled = seed.Enabled,
+            Profile = seed.Profile,
+            Domains = seed.Domains,
+            Telemetry = new DiagnosticsTelemetryOptions
+            {
+                Enabled = seed.Telemetry.Enabled,
+                IntervalSeconds = seed.Telemetry.IntervalSeconds,
+                Host = seed.Telemetry.Host,
+                ApiProcess = new TelemetryApiProcessOptions
+                {
+                    Enabled = enabled,
+                    SampleIntervalMs = seed.Telemetry.ApiProcess.SampleIntervalMs,
+                    IncludePrivateMemory = seed.Telemetry.ApiProcess.IncludePrivateMemory,
+                    IncludeGc = seed.Telemetry.ApiProcess.IncludeGc,
+                    IncludeThreadPool = seed.Telemetry.ApiProcess.IncludeThreadPool,
+                },
+                Motor = seed.Telemetry.Motor,
+                Sidecar = seed.Telemetry.Sidecar,
+                Persistence = seed.Telemetry.Persistence,
+                Pipeline = seed.Telemetry.Pipeline,
+            },
+            Storage = seed.Storage,
+            Sampling = seed.Sampling,
+            Elevate = seed.Elevate,
+            Probe = seed.Probe,
+        };
+
+    private static DiagnosticsOptions CloneWithHostEnabled(DiagnosticsOptions seed, bool enabled) =>
+        new()
+        {
+            Enabled = seed.Enabled,
+            Profile = seed.Profile,
+            Domains = seed.Domains,
+            Telemetry = new DiagnosticsTelemetryOptions
+            {
+                Enabled = seed.Telemetry.Enabled,
+                IntervalSeconds = seed.Telemetry.IntervalSeconds,
+                Host = new TelemetryHostOptions
+                {
+                    Enabled = enabled,
+                    ProcPath = seed.Telemetry.Host.ProcPath,
+                    DiskPath = seed.Telemetry.Host.DiskPath,
+                    SampleIntervalMs = seed.Telemetry.Host.SampleIntervalMs,
+                    IncludeLoadAverage = seed.Telemetry.Host.IncludeLoadAverage,
+                    IncludeSwap = seed.Telemetry.Host.IncludeSwap,
+                    IncludeDiskIo = seed.Telemetry.Host.IncludeDiskIo,
+                    IncludeNetwork = seed.Telemetry.Host.IncludeNetwork,
+                },
+                ApiProcess = seed.Telemetry.ApiProcess,
+                Motor = seed.Telemetry.Motor,
+                Sidecar = seed.Telemetry.Sidecar,
+                Persistence = seed.Telemetry.Persistence,
+                Pipeline = seed.Telemetry.Pipeline,
+            },
+            Storage = seed.Storage,
+            Sampling = seed.Sampling,
+            Elevate = seed.Elevate,
+            Probe = seed.Probe,
+        };
 
     private sealed class InstantProbeSession : IMotorSession
     {

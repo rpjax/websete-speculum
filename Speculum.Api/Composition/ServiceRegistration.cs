@@ -110,6 +110,7 @@ public static class ServiceRegistration
 
         // Telemetry — composite sample: per-section sources + composer + emitter + sampler.
         builder.Services.AddSingleton<IHostTelemetrySource, HostTelemetrySource>();
+        builder.Services.AddSingleton<IApiProcessTelemetrySource, ApiProcessTelemetrySource>();
         builder.Services.AddSingleton<IMotorTelemetrySource, MotorTelemetrySource>();
         builder.Services.AddSingleton<ISidecarTelemetrySource, SidecarTelemetrySource>();
         builder.Services.AddSingleton<IPersistenceTelemetrySource, PersistenceTelemetrySource>();
@@ -119,8 +120,10 @@ public static class ServiceRegistration
         builder.Services.AddHostedService<TelemetrySamplerHostedService>();
 
         builder.Services.AddSingleton<DiagnosticsProbeGate>();
-        builder.Services.AddSingleton<HostResourceProbe>();
+        builder.Services.AddSingleton<MachineResourceProbe>();
+        builder.Services.AddSingleton<ApiProcessResourceProbe>();
         builder.Services.AddSingleton<IDiagnosticsProbeProvider, HostResourceProbeProvider>();
+        builder.Services.AddSingleton<IDiagnosticsProbeProvider, ApiProcessResourceProbeProvider>();
         builder.Services.AddSingleton<IDiagnosticsProbeProvider, MotorSessionProbeAdapter>();
         builder.Services.AddSingleton<IDiagnosticsProbeProvider, SidecarDiagProbeProvider>();
         builder.Services.AddSingleton<IDiagnosticsRedactor>(sp =>

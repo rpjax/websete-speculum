@@ -87,10 +87,10 @@ public sealed class HostResourceProbeProvider : IDiagnosticsProbeProvider
 {
     public string Name => "host-resources";
 
-    private readonly HostResourceProbe _host;
+    private readonly MachineResourceProbe _host;
     private readonly IDiagnosticsRuntime _runtime;
 
-    public HostResourceProbeProvider(HostResourceProbe host, IDiagnosticsRuntime runtime)
+    public HostResourceProbeProvider(MachineResourceProbe host, IDiagnosticsRuntime runtime)
     {
         _host = host;
         _runtime = runtime;
@@ -112,7 +112,41 @@ public sealed class HostResourceProbeProvider : IDiagnosticsProbeProvider
         return Task.FromResult(new ProbeResult
         {
             Ok = true,
-            Data = _host.Sample(snapshot.Options.Probe.HostSampleIntervalMs),
+            Data = _host.Sample(snapshot.Options.Telemetry.Host),
+        });
+    }
+}
+
+public sealed class ApiProcessResourceProbeProvider : IDiagnosticsProbeProvider
+{
+    public string Name => "api-process-resources";
+
+    private readonly ApiProcessResourceProbe _api;
+    private readonly IDiagnosticsRuntime _runtime;
+
+    public ApiProcessResourceProbeProvider(ApiProcessResourceProbe api, IDiagnosticsRuntime runtime)
+    {
+        _api = api;
+        _runtime = runtime;
+    }
+
+    public Task<ProbeResult> ExecuteAsync(ProbeRequest request, CancellationToken ct = default)
+    {
+        var snapshot = _runtime.GetSnapshot();
+        if (!_runtime.IsCapabilityEnabled(DiagnosticsDomain.Telemetry, DiagnosticsCapability.Metric)
+            || !snapshot.Options.Telemetry.ApiProcess.Enabled)
+        {
+            return Task.FromResult(new ProbeResult
+            {
+                Ok = false,
+                ErrorCode = "probe_level_insufficient",
+            });
+        }
+
+        return Task.FromResult(new ProbeResult
+        {
+            Ok = true,
+            Data = _api.Sample(snapshot.Options.Telemetry.ApiProcess),
         });
     }
 }

@@ -1,29 +1,33 @@
 using System.Diagnostics;
+using Speculum.Api.Diagnostics.Configuration;
 using Speculum.Api.Diagnostics.Telemetry;
 
 namespace Speculum.Api.Diagnostics.Probes;
 
 /// <summary>
-/// Shared host-resource collector (used by both <c>/host</c> and the Telemetry sampler).
-/// Stateful: CPU usage is a delta of <see cref="Process.TotalProcessorTime"/> between samples,
-/// and results are cached for <c>minIntervalMs</c> so bursty callers don't thrash the OS.
+/// Speculum.Api process + CLR collector (shared by telemetry sampler and <c>/api-process</c> probe).
+/// Stateful: CPU is a delta of <see cref="Process.TotalProcessorTime"/>; results cached for
+/// <see cref="TelemetryApiProcessOptions.SampleIntervalMs"/>.
 /// </summary>
-public sealed class HostResourceProbe
+public sealed class ApiProcessResourceProbe
 {
     private readonly object _gate = new();
     private DateTimeOffset _lastSampleUtc = DateTimeOffset.MinValue;
-    private HostTelemetry? _lastSample;
+    private ApiProcessTelemetry? _lastSample;
     private TimeSpan _lastCpuTotal = TimeSpan.Zero;
     private DateTimeOffset _lastCpuUtc = DateTimeOffset.MinValue;
 
-    public HostTelemetry Sample(int minIntervalMs)
+    public ApiProcessTelemetry Sample(TelemetryApiProcessOptions options)
     {
+        ArgumentNullException.ThrowIfNull(options);
+        var minIntervalMs = Math.Clamp(options.SampleIntervalMs, 100, 60_000);
+
         lock (_gate)
         {
             var now = DateTimeOffset.UtcNow;
             if (_lastSample is not null
                 && (now - _lastSampleUtc).TotalMilliseconds < minIntervalMs)
-                return _lastSample;
+                return ApplyIncludes(_lastSample, options);
 
             using var proc = Process.GetCurrentProcess();
 
@@ -41,43 +45,43 @@ public sealed class HostResourceProbe
             _lastCpuTotal = cpuTotal;
             _lastCpuUtc = now;
 
-            var gcInfo = GC.GetGCMemoryInfo();
             ThreadPool.GetAvailableThreads(out var availableWorker, out _);
             ThreadPool.GetMaxThreads(out var maxWorker, out _);
 
-            _lastSample = new HostTelemetry(
-                Hostname: Environment.MachineName,
+            var full = new ApiProcessTelemetry(
                 UptimeSec: SafeUptimeSec(proc, now),
                 CpuUsage: Math.Round(cpuUsage, 2),
                 MemoryUsed: proc.WorkingSet64,
+                ThreadCount: proc.Threads.Count,
                 MemoryPrivate: proc.PrivateMemorySize64,
-                MemoryTotal: gcInfo.TotalAvailableMemoryBytes,
                 GcHeap: GC.GetTotalMemory(false),
                 GcGen0: GC.CollectionCount(0),
                 GcGen1: GC.CollectionCount(1),
                 GcGen2: GC.CollectionCount(2),
-                ThreadCount: proc.Threads.Count,
                 ThreadPoolBusy: Math.Max(0, maxWorker - availableWorker),
-                ThreadPoolQueued: (int)Math.Min(int.MaxValue, ThreadPool.PendingWorkItemCount),
-                DiskFreeBytes: SafeDiskFree());
+                ThreadPoolQueued: (int)Math.Min(int.MaxValue, ThreadPool.PendingWorkItemCount));
+
+            _lastSample = full;
             _lastSampleUtc = now;
-            return _lastSample;
+            return ApplyIncludes(full, options);
         }
     }
+
+    private static ApiProcessTelemetry ApplyIncludes(ApiProcessTelemetry full, TelemetryApiProcessOptions options)
+        => full with
+        {
+            MemoryPrivate = options.IncludePrivateMemory ? full.MemoryPrivate : null,
+            GcHeap = options.IncludeGc ? full.GcHeap : null,
+            GcGen0 = options.IncludeGc ? full.GcGen0 : null,
+            GcGen1 = options.IncludeGc ? full.GcGen1 : null,
+            GcGen2 = options.IncludeGc ? full.GcGen2 : null,
+            ThreadPoolBusy = options.IncludeThreadPool ? full.ThreadPoolBusy : null,
+            ThreadPoolQueued = options.IncludeThreadPool ? full.ThreadPoolQueued : null,
+        };
 
     private static long SafeUptimeSec(Process proc, DateTimeOffset now)
     {
         try { return (long)(now - proc.StartTime.ToUniversalTime()).TotalSeconds; }
-        catch { return 0; }
-    }
-
-    private static long SafeDiskFree()
-    {
-        try
-        {
-            var root = Path.GetPathRoot(AppContext.BaseDirectory);
-            return string.IsNullOrEmpty(root) ? 0 : new DriveInfo(root).AvailableFreeSpace;
-        }
         catch { return 0; }
     }
 }

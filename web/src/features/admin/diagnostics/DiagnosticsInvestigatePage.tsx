@@ -3,6 +3,8 @@ import { useSearchParams } from 'react-router-dom'
 import {
   diagnosticsApi,
   type BrowserProbeResponse,
+  type ApiProcessTelemetry,
+  type HostTelemetry,
   type MotorSessionListItem,
 } from '@/lib/diagnosticsApi'
 import { Button } from '@/components/ui/button'
@@ -40,7 +42,8 @@ export default function DiagnosticsInvestigatePage() {
   const [result, setResult] = useState<BrowserProbeResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
-  const [host, setHost] = useState<Record<string, unknown> | null>(null)
+  const [host, setHost] = useState<HostTelemetry | null>(null)
+  const [apiProcess, setApiProcess] = useState<ApiProcessTelemetry | null>(null)
   const [loadingHost, setLoadingHost] = useState(true)
   const [showHistory, setShowHistory] = useState(false)
   const [saveTemplateOpen, setSaveTemplateOpen] = useState(false)
@@ -57,9 +60,10 @@ export default function DiagnosticsInvestigatePage() {
       })
       .catch(() => {})
     void diagnosticsApi.getHost()
-      .then((h) => setHost(h as unknown as Record<string, unknown>))
+      .then(setHost)
       .catch(() => setHost(null))
       .finally(() => setLoadingHost(false))
+    void diagnosticsApi.getApiProcess().then(setApiProcess).catch(() => setApiProcess(null))
   }, [])
 
   function applyQuickPick(ops: readonly string[]) { setSelectedOps(new Set(ops)) }
@@ -332,15 +336,25 @@ export default function DiagnosticsInvestigatePage() {
       {/* Results */}
       {result && <ProbeResults result={result} />}
 
-      {/* Host resources */}
+      {/* Machine resources (API process nested as overlay) */}
       <div className="rounded-xl border border-border bg-card">
         <div className="flex items-center gap-3 border-b border-border/50 px-5 py-3">
           <Server className="h-4 w-4 text-muted-foreground" />
-          <h3 className="text-sm font-bold">Host resources</h3>
-          <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">Always available</span>
+          <h3 className="text-sm font-bold">Machine resources</h3>
+          <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">When enabled</span>
         </div>
         <div className="p-5">
-          {loadingHost ? <Skeleton className="h-20" /> : host ? <HostResourcesDisplay host={host} /> : <p className="text-sm text-muted-foreground">Unavailable.</p>}
+          {!host && !apiProcess && loadingHost ? (
+            <Skeleton className="h-20" />
+          ) : !host && !apiProcess ? (
+            <p className="text-sm text-muted-foreground">Unavailable.</p>
+          ) : (
+            <HostResourcesDisplay
+              host={host}
+              apiProcess={apiProcess}
+              machineLoading={loadingHost && !host}
+            />
+          )}
         </div>
       </div>
     </div>
@@ -483,36 +497,87 @@ function ProbeCookiesCard({ cookies }: { cookies: Record<string, string>[] }) {
   )
 }
 
-function HostResourcesDisplay({ host }: { host: Record<string, unknown> }) {
-  const memUsed = host.memoryUsed as number | undefined
-  const memTotal = host.memoryTotal as number | undefined
-  const cpuUsage = host.cpuUsage as number | undefined
-  const uptimeSec = host.uptimeSec as number | undefined
+function HostResourcesDisplay({
+  host,
+  apiProcess,
+  machineLoading = false,
+}: {
+  host: HostTelemetry | null
+  apiProcess: ApiProcessTelemetry | null
+  machineLoading?: boolean
+}) {
+  const memUsed = host?.memoryUsed
+  const memTotal = host?.memoryTotal
+  const cpuUsage = host?.cpuUsage
+  const uptimeSec = host?.uptimeSec
+  const diskFree = host?.diskFreeBytes
+  const diskTotal = host?.diskTotalBytes
   const gc: [string, number][] = [
-    ['0', host.gcGen0 as number],
-    ['1', host.gcGen1 as number],
-    ['2', host.gcGen2 as number],
-  ].filter(([, v]) => typeof v === 'number') as [string, number][]
+    ['0', apiProcess?.gcGen0 ?? Number.NaN],
+    ['1', apiProcess?.gcGen1 ?? Number.NaN],
+    ['2', apiProcess?.gcGen2 ?? Number.NaN],
+  ].filter(([, v]) => Number.isFinite(v)) as [string, number][]
+  const hasApiOverlay =
+    apiProcess?.cpuUsage != null ||
+    apiProcess?.memoryUsed != null ||
+    apiProcess?.threadCount != null ||
+    gc.length > 0
   return (
     <div className="space-y-4">
-      {host.hostname != null && (
-        <div className="flex items-center gap-2">
-          <Server className="h-4 w-4 text-muted-foreground" />
-          <span className="text-sm font-medium">{String(host.hostname)}</span>
-          {uptimeSec != null && <span className="text-xs text-muted-foreground">· uptime {Math.round(uptimeSec / 3600)}h</span>}
-        </div>
+      {machineLoading ? (
+        <Skeleton className="h-20" />
+      ) : (
+        <>
+          {host?.hostname != null && (
+            <div className="flex items-center gap-2">
+              <Server className="h-4 w-4 text-muted-foreground" />
+              <span className="text-sm font-medium">{String(host.hostname)}</span>
+              {host.source !== 'machine' && <Badge variant="muted">{host.source}</Badge>}
+              {uptimeSec != null && <span className="text-xs text-muted-foreground">· uptime {Math.round(uptimeSec / 3600)}h</span>}
+            </div>
+          )}
+          {!host && hasApiOverlay && (
+            <p className="text-sm text-muted-foreground">Machine probe unavailable — API process overlay below.</p>
+          )}
+          <div className="grid gap-4 sm:grid-cols-2">
+            {memUsed != null && memTotal != null && <ResourceGauge label="Machine memory" used={memUsed} total={memTotal} formatValue={formatBytes} />}
+            {cpuUsage != null && <ResourceGauge label="Machine CPU" used={Math.round(cpuUsage)} total={100} formatValue={(n) => `${n}%`} />}
+            {diskFree != null && diskTotal != null && (
+              <ResourceGauge label="Disk used" used={diskTotal - diskFree} total={diskTotal} formatValue={formatBytes} />
+            )}
+          </div>
+        </>
       )}
-      <div className="grid gap-4 sm:grid-cols-2">
-        {memUsed != null && memTotal != null && <ResourceGauge label="Memory" used={memUsed} total={memTotal} formatValue={formatBytes} />}
-        {cpuUsage != null && <ResourceGauge label="CPU" used={Math.round(cpuUsage)} total={100} formatValue={(n) => `${n}%`} />}
-      </div>
-      {gc.length > 0 && (
-        <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
-          <span className="flex items-center gap-1"><Info className="h-3 w-3" />GC:</span>
-          {gc.map(([gen, count]) => (
-            <span key={gen}>Gen {gen}: <span className="font-medium text-foreground">{count}</span></span>
-          ))}
-        </div>
+      {hasApiOverlay && (
+        <details className="rounded-lg border border-border/40 bg-muted/5">
+          <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground">
+            API process
+          </summary>
+          <div className="space-y-3 border-t border-border/30 px-3 py-3">
+            <div className="grid gap-3 sm:grid-cols-2">
+              {apiProcess?.cpuUsage != null && (
+                <ResourceGauge label="API process CPU" used={Math.round(apiProcess.cpuUsage)} total={100} formatValue={(n) => `${n}%`} />
+              )}
+              {apiProcess?.memoryUsed != null && (
+                <div className="rounded-lg border border-border/40 bg-muted/10 px-3 py-2 text-xs">
+                  <div className="text-muted-foreground">API working set</div>
+                  <div className="mt-1 text-sm font-semibold tabular-nums">{formatBytes(apiProcess.memoryUsed)}</div>
+                  {apiProcess.threadCount != null && (
+                    <div className="mt-1 text-muted-foreground">{apiProcess.threadCount} threads</div>
+                  )}
+                </div>
+              )}
+            </div>
+            {gc.length > 0 && (
+              <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
+                <span className="flex items-center gap-1"><Info className="h-3 w-3" />API process GC:</span>
+                {gc.map(([gen, count]) => (
+                  <span key={gen}>Gen {gen}: <span className="font-medium text-foreground">{count}</span></span>
+                ))}
+              </div>
+            )}
+          </div>
+        </details>
       )}
     </div>
   )

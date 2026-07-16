@@ -11,14 +11,15 @@ import { resolveWindow, type TelemetryRange } from './useTelemetryMonitorSeries'
 interface Row {
   utc: string
   timestamp: number
-  cpu: number
-  memMb: number
+  cpu: number | null
+  memMb: number | null
+  diskFreeGb: number | null
   live: number | null
   threads: number | null
   cpuPerSession: number | null
 }
 
-type SortField = 'utc' | 'cpu' | 'memMb' | 'live' | 'threads' | 'cpuPerSession'
+type SortField = 'utc' | 'cpu' | 'memMb' | 'diskFreeGb' | 'live' | 'threads' | 'cpuPerSession'
 type SortDir = 'asc' | 'desc'
 
 const PAGE_SIZE = 25
@@ -26,18 +27,25 @@ const PAGE_SIZE = 25
 function flatten(rec: TelemetrySampleRecord): Row {
   const p = rec.payload
   const host = p?.host ?? null
+  const apiProcess = p?.apiProcess ?? null
   const motor = p?.motor ?? null
-  const cpu = host?.cpuUsage != null ? Math.round(host.cpuUsage * 10) / 10 : 0
-  const memMb = host?.memoryUsed != null ? Math.round(host.memoryUsed / (1024 * 1024)) : 0
+  const cpu = host?.cpuUsage != null ? Math.round(host.cpuUsage * 10) / 10 : null
+  const memMb = host?.memoryUsed != null ? Math.round(host.memoryUsed / (1024 * 1024)) : null
+  const diskFreeGb = host?.diskFreeBytes != null
+    ? Math.round((host.diskFreeBytes / 1024 ** 3) * 10) / 10
+    : null
   const live = motor?.live ?? null
   return {
     utc: rec.utc,
     timestamp: new Date(rec.utc).getTime(),
     cpu,
     memMb,
+    diskFreeGb,
     live,
-    threads: host?.threadCount ?? null,
-    cpuPerSession: live != null && live > 0 ? Math.round((cpu / live) * 100) / 100 : null,
+    threads: apiProcess?.threadCount ?? null,
+    cpuPerSession: live != null && live > 0 && cpu != null
+      ? Math.round((cpu / live) * 100) / 100
+      : null,
   }
 }
 
@@ -58,6 +66,7 @@ export function TelemetryMonitorSampleTable({
   const [error, setError] = useState<string | null>(null)
   const [sortField, setSortField] = useState<SortField>('utc')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
+  const [showRuntime, setShowRuntime] = useState(false)
 
   const load = useCallback(
     async (cursor: string | null) => {
@@ -84,7 +93,6 @@ export function TelemetryMonitorSampleTable({
     [range, connectionId],
   )
 
-  // Reset to first page whenever the range/session changes.
   useEffect(() => {
     setCursors([null])
     setPageIdx(0)
@@ -96,8 +104,9 @@ export function TelemetryMonitorSampleTable({
       let cmp = 0
       switch (sortField) {
         case 'utc': cmp = a.timestamp - b.timestamp; break
-        case 'cpu': cmp = a.cpu - b.cpu; break
-        case 'memMb': cmp = a.memMb - b.memMb; break
+        case 'cpu': cmp = (a.cpu ?? -1) - (b.cpu ?? -1); break
+        case 'memMb': cmp = (a.memMb ?? -1) - (b.memMb ?? -1); break
+        case 'diskFreeGb': cmp = (a.diskFreeGb ?? -1) - (b.diskFreeGb ?? -1); break
         case 'live': cmp = (a.live ?? -1) - (b.live ?? -1); break
         case 'threads': cmp = (a.threads ?? -1) - (b.threads ?? -1); break
         case 'cpuPerSession': cmp = (a.cpuPerSession ?? -1) - (b.cpuPerSession ?? -1); break
@@ -128,27 +137,42 @@ export function TelemetryMonitorSampleTable({
 
   const startNum = total === 0 ? 0 : pageIdx * PAGE_SIZE + 1
   const endNum = pageIdx * PAGE_SIZE + rows.length
+  const gridClass = showRuntime
+    ? 'grid-cols-[1fr_72px_84px_72px_64px_52px_72px]'
+    : 'grid-cols-[1fr_72px_84px_72px]'
 
   return (
     <div className="rounded-lg border border-border overflow-hidden">
-      <div className="flex items-center gap-2 border-b border-border/30 px-3 py-1.5 bg-muted/5">
+      <div className="flex flex-wrap items-center gap-2 border-b border-border/30 px-3 py-1.5 bg-muted/5">
         <Table2 className="h-3.5 w-3.5 text-muted-foreground/50" />
         <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Raw samples</span>
         <span className="text-[11px] text-muted-foreground/50 tabular-nums">
           {total.toLocaleString()} in range
         </span>
-        <div className="ml-auto">
-          <ExportButton data={rows} filename="telemetry-samples" className="h-6 text-[11px] px-2" />
-        </div>
+        <label className="ml-auto flex cursor-pointer items-center gap-1.5 text-[10px] text-muted-foreground select-none">
+          <input
+            type="checkbox"
+            checked={showRuntime}
+            onChange={(e) => setShowRuntime(e.target.checked)}
+            className="accent-primary h-2.5 w-2.5"
+          />
+          Show runtime columns
+        </label>
+        <ExportButton data={rows} filename="telemetry-samples" className="h-6 text-[11px] px-2" />
       </div>
 
-      <div className="grid grid-cols-[1fr_60px_84px_64px_52px_72px] gap-1 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70 border-b border-border/20 bg-muted/5">
+      <div className={cn('grid gap-1 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70 border-b border-border/20 bg-muted/5', gridClass)}>
         <SortHeader label="Time" field="utc" current={sortField} dir={sortDir} onSort={toggleSort} />
-        <SortHeader label="CPU" field="cpu" current={sortField} dir={sortDir} onSort={toggleSort} align="right" />
-        <SortHeader label="Memory" field="memMb" current={sortField} dir={sortDir} onSort={toggleSort} align="right" />
-        <SortHeader label="Sessions" field="live" current={sortField} dir={sortDir} onSort={toggleSort} align="right" />
-        <SortHeader label="Thr" field="threads" current={sortField} dir={sortDir} onSort={toggleSort} align="right" />
-        <SortHeader label="CPU/sess" field="cpuPerSession" current={sortField} dir={sortDir} onSort={toggleSort} align="right" />
+        <SortHeader label="Machine CPU" field="cpu" current={sortField} dir={sortDir} onSort={toggleSort} align="right" />
+        <SortHeader label="Machine mem" field="memMb" current={sortField} dir={sortDir} onSort={toggleSort} align="right" />
+        <SortHeader label="Disk free" field="diskFreeGb" current={sortField} dir={sortDir} onSort={toggleSort} align="right" />
+        {showRuntime && (
+          <>
+            <SortHeader label="Sessions" field="live" current={sortField} dir={sortDir} onSort={toggleSort} align="right" />
+            <SortHeader label="API thr" field="threads" current={sortField} dir={sortDir} onSort={toggleSort} align="right" />
+            <SortHeader label="CPU/sess" field="cpuPerSession" current={sortField} dir={sortDir} onSort={toggleSort} align="right" />
+          </>
+        )}
       </div>
 
       {error ? (
@@ -159,13 +183,18 @@ export function TelemetryMonitorSampleTable({
         <div className="py-6 text-center text-xs text-muted-foreground">No samples in range</div>
       ) : (
         sorted.map((s, i) => (
-          <div key={`${s.utc}-${i}`} className="grid grid-cols-[1fr_60px_84px_64px_52px_72px] gap-1 px-3 py-0.5 text-[11px] hover:bg-muted/5 border-b border-border/5 last:border-b-0">
+          <div key={`${s.utc}-${i}`} className={cn('grid gap-1 px-3 py-0.5 text-[11px] hover:bg-muted/5 border-b border-border/5 last:border-b-0', gridClass)}>
             <span className="text-muted-foreground tabular-nums">{new Date(s.utc).toLocaleString([], { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
-            <span className={cn('text-right tabular-nums font-medium', s.cpu > 80 ? 'text-red-400' : s.cpu > 50 ? 'text-amber-400' : '')}>{s.cpu}%</span>
-            <span className="text-right tabular-nums">{s.memMb > 0 ? `${s.memMb} MB` : '—'}</span>
-            <span className="text-right tabular-nums text-amber-300/90">{s.live ?? '—'}</span>
-            <span className="text-right tabular-nums text-muted-foreground/50">{s.threads ?? '—'}</span>
-            <span className="text-right tabular-nums text-muted-foreground/70">{s.cpuPerSession != null ? `${s.cpuPerSession}%` : '—'}</span>
+            <span className={cn('text-right tabular-nums font-medium', (s.cpu ?? 0) > 80 ? 'text-red-400' : (s.cpu ?? 0) > 50 ? 'text-amber-400' : '')}>{s.cpu != null ? `${s.cpu}%` : '—'}</span>
+            <span className="text-right tabular-nums">{s.memMb != null ? `${s.memMb} MB` : '—'}</span>
+            <span className="text-right tabular-nums">{s.diskFreeGb != null ? `${s.diskFreeGb} GB` : '—'}</span>
+            {showRuntime && (
+              <>
+                <span className="text-right tabular-nums text-amber-300/90">{s.live ?? '—'}</span>
+                <span className="text-right tabular-nums text-muted-foreground/50">{s.threads ?? '—'}</span>
+                <span className="text-right tabular-nums text-muted-foreground/70">{s.cpuPerSession != null ? `${s.cpuPerSession}%` : '—'}</span>
+              </>
+            )}
           </div>
         ))
       )}

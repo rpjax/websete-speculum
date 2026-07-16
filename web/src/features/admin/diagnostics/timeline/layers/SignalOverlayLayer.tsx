@@ -11,7 +11,8 @@ interface SignalOverlayLayerProps {
 }
 
 /**
- * Optional telemetry sparkline overlay — coadjutant to the narrative, off by default.
+ * Optional machine-CPU sparkline overlay — coadjutant to the narrative, off by default.
+ * Uses host section only; API-process CPU is a separate signal (plot via Monitor metrics).
  */
 export function SignalOverlayLayer({ startMs, endMs, width, scale }: SignalOverlayLayerProps) {
   const [samples, setSamples] = useState<TelemetrySampleRecord[]>([])
@@ -47,7 +48,7 @@ export function SignalOverlayLayer({ startMs, endMs, width, scale }: SignalOverl
   if (points.length < 2) {
     return (
       <div className="border-b border-border/20 px-3 py-2 text-[10px] text-muted-foreground" style={{ marginLeft: 160 }}>
-        Signal overlay: no host CPU samples in range
+        Signal overlay: no machine CPU samples in range
       </div>
     )
   }
@@ -66,7 +67,7 @@ export function SignalOverlayLayer({ startMs, endMs, width, scale }: SignalOverl
     <div className="border-b border-border/20" style={{ marginLeft: 160 }}>
       <svg width={width - 160} height={h} className="block text-amber-400/70">
         <path d={path} fill="none" stroke="currentColor" strokeWidth={1.5} />
-        <text x={8} y={12} className="fill-muted-foreground text-[9px]">CPU (telemetry)</text>
+        <text x={8} y={12} className="fill-muted-foreground text-[9px]">Machine CPU (telemetry)</text>
       </svg>
     </div>
   )

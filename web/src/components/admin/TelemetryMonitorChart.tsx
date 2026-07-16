@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Button } from '@/components/ui/button'
@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils'
 import {
   analyzePoint,
   bucketResourceSamples,
+  MACHINE_MONITOR_DEFAULT_KEYS,
   metricsBySection,
   nearestIndex,
   pearson,
@@ -41,7 +42,7 @@ interface TelemetryMonitorChartProps {
   focusTimestamp?: number | null
   /** Taller chart for the full-screen explore sub-page. */
   tall?: boolean
-  /** Optional controlled enabled metric keys (e.g. driven by system strip). */
+  /** Optional controlled enabled metric keys (parent state or + Metric picker). */
   enabledKeys?: string[]
   onEnabledKeysChange?: (keys: string[]) => void
 }
@@ -75,11 +76,28 @@ const VIEW_OPTIONS: { value: ViewMode; label: string; icon: React.ReactNode }[] 
   { value: 'heatmap', label: 'Heatmap', icon: <Grid3x3 className="h-3 w-3" /> },
 ]
 
+function correlateAxisOptions(enabledList: string[], allMetrics: MetricDef[]): string[] {
+  return enabledList.length >= 2 ? enabledList : allMetrics.map((m) => m.key)
+}
+
+function defaultCorrelatePair(options: string[]): [string, string] {
+  if (options.includes('host.cpu') && options.includes('host.memory')) {
+    return ['host.cpu', 'host.memory']
+  }
+  if (options.length >= 2) return [options[0], options[1]]
+  if (options.length === 1) return [options[0], options[0]]
+  return ['host.cpu', 'host.memory']
+}
+
+function clampCorrelateKey(key: string, options: string[], fallback: string): string {
+  return options.includes(key) ? key : fallback
+}
+
 export function TelemetryMonitorChart({
   samples,
   metrics,
   onBrushRange,
-  defaultEnabled = ['host.cpu', 'host.memory', 'motor.live'],
+  defaultEnabled = [...MACHINE_MONITOR_DEFAULT_KEYS],
   focusTimestamp = null,
   tall = false,
   enabledKeys,
@@ -108,9 +126,28 @@ export function TelemetryMonitorChart({
   const [brush, setBrush] = useState<{ start: number; end: number } | null>(null)
   const [brushing, setBrushing] = useState<{ startX: number; currX: number } | null>(null)
   const [pickerOpen, setPickerOpen] = useState(false)
-  const [corrX, setCorrX] = useState('motor.live')
-  const [corrY, setCorrY] = useState('host.cpu')
+  const [corrX, setCorrX] = useState('host.cpu')
+  const [corrY, setCorrY] = useState('host.memory')
   const svgRef = useRef<SVGSVGElement>(null)
+
+  const enabledList = useMemo(() => [...enabled], [enabled])
+
+  useEffect(() => {
+    const options = correlateAxisOptions(enabledList, metrics)
+    const [defaultX, defaultY] = defaultCorrelatePair(options)
+    setCorrX((prev) => clampCorrelateKey(prev, options, defaultX))
+    setCorrY((prev) => clampCorrelateKey(prev, options, defaultY))
+  }, [enabledList, metrics])
+
+  function selectViewMode(mode: ViewMode) {
+    if (mode === 'correlation') {
+      const options = correlateAxisOptions(enabledList, metrics)
+      const [defaultX, defaultY] = defaultCorrelatePair(options)
+      setCorrX((prev) => clampCorrelateKey(prev, options, defaultX))
+      setCorrY((prev) => clampCorrelateKey(prev, options, defaultY))
+    }
+    setViewMode(mode)
+  }
 
   const chartSamples = useMemo(
     () => bucketResourceSamples(samples, granularity, aggFn),
@@ -118,6 +155,9 @@ export function TelemetryMonitorChart({
   )
 
   const activeMetrics = useMemo(() => metrics.filter((m) => enabled.has(m.key)), [metrics, enabled])
+  const showSessionOverlay = activeMetrics.some(
+    (m) => m.key === 'motor.live' || m.key === 'derived.cpuPerSession',
+  )
   const timestamps = useMemo(() => chartSamples.map((s) => s.timestamp), [chartSamples])
   const stateWindows = useMemo(() => extractStateWindows(chartSamples), [chartSamples])
 
@@ -234,6 +274,22 @@ export function TelemetryMonitorChart({
     })
   }, [activeMetrics, chartSamples, scaleMode])
 
+  function linePath(
+    pts: { x: number; y: number | null }[],
+  ): string {
+    let d = ''
+    let drawing = false
+    for (const p of pts) {
+      if (p.y == null) {
+        drawing = false
+        continue
+      }
+      d += `${drawing ? 'L' : 'M'}${p.x.toFixed(1)},${p.y.toFixed(1)} `
+      drawing = true
+    }
+    return d.trim()
+  }
+
   if (samples.length < 2) {
     return (
       <div className="flex flex-col items-center justify-center py-16 text-center">
@@ -271,7 +327,7 @@ export function TelemetryMonitorChart({
           {VIEW_OPTIONS.map((v) => (
             <Tooltip key={v.value}>
               <TooltipTrigger asChild>
-                <button onClick={() => setViewMode(v.value)}
+                <button onClick={() => selectViewMode(v.value)}
                   className={cn('flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium transition-colors',
                     viewMode === v.value ? 'bg-primary/15 text-primary' : 'text-muted-foreground hover:text-foreground')}>
                   {v.icon}<span className="hidden sm:inline">{v.label}</span>
@@ -388,31 +444,45 @@ export function TelemetryMonitorChart({
                 const range = s.yMax - s.yMin || 1
                 const pts = s.scaled.map((val, i) => ({
                   x: xAt(i),
-                  y: chartGeom.pad.t + plotH - ((val - s.yMin) / range) * plotH,
+                  y: val == null
+                    ? null
+                    : chartGeom.pad.t + plotH - ((val - s.yMin) / range) * plotH,
                 }))
-                const line = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')
-                const area = `${line} L${pts[pts.length - 1].x.toFixed(1)},${chartGeom.pad.t + plotH} L${chartGeom.pad.l},${chartGeom.pad.t + plotH} Z`
-                const avg = s.scaled.reduce((a, b) => a + b, 0) / s.scaled.length
-                const avgY = chartGeom.pad.t + plotH - ((avg - s.yMin) / range) * plotH
+                const line = linePath(pts)
+                const finitePts = pts.filter((p): p is { x: number; y: number } => p.y != null)
+                const area = finitePts.length === pts.length && finitePts.length > 0
+                  ? `${line} L${finitePts[finitePts.length - 1].x.toFixed(1)},${chartGeom.pad.t + plotH} L${chartGeom.pad.l},${chartGeom.pad.t + plotH} Z`
+                  : ''
+                const finiteScaled = s.scaled.filter((v): v is number => v != null)
+                const avg = finiteScaled.length > 0
+                  ? finiteScaled.reduce((a, b) => a + b, 0) / finiteScaled.length
+                  : null
+                const avgY = avg == null
+                  ? null
+                  : chartGeom.pad.t + plotH - ((avg - s.yMin) / range) * plotH
                 const axisX = scaleMode === 'absolute' && si > 0 ? chartGeom.W - chartGeom.pad.r : chartGeom.pad.l
                 const anchor = scaleMode === 'absolute' && si > 0 ? 'start' as const : 'end' as const
                 const offset = scaleMode === 'absolute' && si > 0 ? 4 : -4
+                if (finitePts.length === 0) return null
                 return (
                   <g key={s.key}>
-                    <path d={area} fill={s.fill} />
+                    {area && <path d={area} fill={s.fill} />}
                     <path d={line} fill="none" stroke={s.color} strokeWidth={2.2} strokeLinejoin="round" strokeLinecap="round" />
                     {chartSamples.length <= 60 && pts.map((p, i) => (
-                      <circle key={i} cx={p.x} cy={p.y} r={activeIdx === i ? 4 : 1.8} fill={s.color} opacity={activeIdx === i ? 1 : 0.65} />
+                      p.y == null ? null : (
+                        <circle key={i} cx={p.x} cy={p.y} r={activeIdx === i ? 4 : 1.8} fill={s.color} opacity={activeIdx === i ? 1 : 0.65} />
+                      )
                     ))}
-                    {showAvg && (
+                    {showAvg && avgY != null && (
                       <line x1={chartGeom.pad.l} x2={chartGeom.W - chartGeom.pad.r} y1={avgY} y2={avgY}
                         stroke={s.color} strokeWidth={0.75} strokeDasharray="4 3" opacity={0.4} />
                     )}
                     {[0, 0.5, 1].map((f) => {
                       const val = s.yMin + range * f
                       const y = chartGeom.pad.t + plotH * (1 - f)
+                      const sampleVal = s.raw[Math.round(f * (s.raw.length - 1))]
                       const label = scaleMode === 'absolute'
-                        ? `${round1(s.raw[Math.round(f * (s.raw.length - 1))])}${s.unit}`
+                        ? `${sampleVal == null ? '—' : round1(sampleVal)}${sampleVal == null ? '' : s.unit}`
                         : `${round1(val)}${s.scaleUnit}`
                       return (
                         <text key={f} x={axisX + offset} y={y + 3} textAnchor={anchor} fill={s.color} className="text-[10px] tabular-nums" opacity={0.7}>{label}</text>
@@ -431,11 +501,14 @@ export function TelemetryMonitorChart({
                     <text x={6} y={11} className="fill-muted-foreground text-[9px] tabular-nums">
                       {new Date(timestamps[activeIdx]).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                     </text>
-                    {activeMetrics.map((m, mi) => (
-                      <text key={m.key} x={6} y={24 + mi * 14} className="text-[10px] tabular-nums font-medium" fill={m.color}>
-                        {m.label} {round1(m.extract(chartSamples[activeIdx]))}{m.unit}
-                      </text>
-                    ))}
+                    {activeMetrics.map((m, mi) => {
+                      const v = m.extract(chartSamples[activeIdx])
+                      return (
+                        <text key={m.key} x={6} y={24 + mi * 14} className="text-[10px] tabular-nums font-medium" fill={m.color}>
+                          {m.label} {v == null ? '—' : `${round1(v)}${m.unit}`}
+                        </text>
+                      )
+                    })}
                   </g>
                 </>
               )}
@@ -466,7 +539,12 @@ export function TelemetryMonitorChart({
 
         <div className="border-t md:border-t-0 md:border-l border-border/30 px-3 py-2 min-h-[120px]">
           {insight ? (
-            <PointInspector insight={insight} sample={chartSamples[insight.index]} metrics={activeMetrics} />
+            <PointInspector
+              insight={insight}
+              sample={chartSamples[insight.index]}
+              metrics={activeMetrics}
+              showSessionOverlay={showSessionOverlay}
+            />
           ) : (
             <StatsInspector metricStats={metricStats} chartSamples={chartSamples} />
           )}
@@ -507,8 +585,10 @@ function MetricPicker({ metrics, enabled, open, onOpenChange, onToggle }: {
       </PopoverTrigger>
       <PopoverContent align="start" className="w-80 p-0 max-h-[440px] overflow-y-auto">
         <div className="sticky top-0 z-10 border-b border-border/40 bg-popover px-3 py-2 space-y-1.5">
-          <p className="text-xs font-semibold">Overlay metrics</p>
-          <p className="text-[10px] text-muted-foreground">Correlate any signal. <span className="text-amber-400">Active sessions</span> drives load.</p>
+          <p className="text-xs font-semibold">Metrics</p>
+          <p className="text-[10px] text-muted-foreground">
+            Machine is the default plane. Runtime overlays (API process, motor, sidecar, persistence, pipeline) are optional correlation signals.
+          </p>
           <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -516,53 +596,103 @@ function MetricPicker({ metrics, enabled, open, onOpenChange, onToggle }: {
             className="h-7 text-xs"
           />
         </div>
-        {grouped.map((g) => {
-          const filtered = g.metrics.filter((m) =>
-            !q || m.label.toLowerCase().includes(q) || m.key.toLowerCase().includes(q),
-          )
-          if (filtered.length === 0) return null
-          const allOn = filtered.every((m) => enabled.has(m.key))
-          return (
-            <div key={g.section.key} className="px-2 py-1.5">
-              <div className="flex items-center gap-1.5 px-1 pb-1">
-                <Layers className="h-3 w-3 text-muted-foreground/40" />
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{g.section.label}</span>
-                {(g.section.key === 'host' || g.section.key === 'motor') && (
-                  <span className="rounded bg-primary/10 px-1 text-[8px] font-semibold uppercase text-primary">Key</span>
-                )}
-                <button
-                  className="ml-auto text-[9px] text-primary hover:underline"
-                  onClick={() => filtered.forEach((m) => {
-                    if (allOn) { if (enabled.has(m.key) && enabled.size > 1) onToggle(m.key) }
-                    else if (!enabled.has(m.key)) onToggle(m.key)
-                  })}
-                >
-                  {allOn ? 'Clear' : 'All'}
-                </button>
-              </div>
-              <div className="grid grid-cols-1 gap-0.5">
-                {filtered.map((m) => {
-                  const on = enabled.has(m.key)
-                  return (
-                    <Tooltip key={m.key}>
-                      <TooltipTrigger asChild>
-                        <button onClick={() => onToggle(m.key)}
-                          className={cn('flex items-center gap-1.5 rounded px-1.5 py-1 text-left text-[11px] transition-colors',
-                            on ? 'bg-muted/40 text-foreground' : 'text-muted-foreground hover:bg-muted/20')}>
-                          <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: on ? m.color : 'transparent', border: `1.5px solid ${m.color}` }} />
-                          <span className="truncate flex-1">{m.label}</span>
-                        </button>
-                      </TooltipTrigger>
-                      {m.description && <TooltipContent className="max-w-[220px]">{m.description}</TooltipContent>}
-                    </Tooltip>
-                  )
-                })}
-              </div>
-            </div>
-          )
-        })}
+        <MetricPickerBody grouped={grouped} enabled={enabled} q={q} onToggle={onToggle} />
       </PopoverContent>
     </Popover>
+  )
+}
+
+type MetricPickerGroup = ReturnType<typeof metricsBySection>[number]
+
+function MetricPickerBody({
+  grouped,
+  enabled,
+  q,
+  onToggle,
+}: {
+  grouped: MetricPickerGroup[]
+  enabled: Set<string>
+  q: string
+  onToggle: (key: string) => void
+}) {
+  const machine = grouped.filter((g) => g.section.key === 'host')
+  const overlays = grouped.filter((g) => g.section.key !== 'host')
+  const overlayVisible = overlays.some((g) =>
+    g.metrics.some((m) => !q || m.label.toLowerCase().includes(q) || m.key.toLowerCase().includes(q)),
+  )
+  return (
+    <>
+      {machine.map((g) => (
+        <MetricPickerSection key={g.section.key} group={g} enabled={enabled} q={q} keyBadge onToggle={onToggle} />
+      ))}
+      {overlayVisible && (
+        <div className="border-t border-border/30 px-3 pt-2 pb-0.5">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">Runtime overlays</p>
+          <p className="text-[9px] text-muted-foreground/50">Optional — add only when correlating with machine load</p>
+        </div>
+      )}
+      {overlays.map((g) => (
+        <MetricPickerSection key={g.section.key} group={g} enabled={enabled} q={q} onToggle={onToggle} />
+      ))}
+    </>
+  )
+}
+
+function MetricPickerSection({
+  group,
+  enabled,
+  q,
+  keyBadge,
+  onToggle,
+}: {
+  group: MetricPickerGroup
+  enabled: Set<string>
+  q: string
+  keyBadge?: boolean
+  onToggle: (key: string) => void
+}) {
+  const filtered = group.metrics.filter((m) =>
+    !q || m.label.toLowerCase().includes(q) || m.key.toLowerCase().includes(q),
+  )
+  if (filtered.length === 0) return null
+  const allOn = filtered.every((m) => enabled.has(m.key))
+  return (
+    <div className="px-2 py-1.5">
+      <div className="flex items-center gap-1.5 px-1 pb-1">
+        <Layers className="h-3 w-3 text-muted-foreground/40" />
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{group.section.label}</span>
+        {keyBadge && (
+          <span className="rounded bg-primary/10 px-1 text-[8px] font-semibold uppercase text-primary">Key</span>
+        )}
+        <button
+          className="ml-auto text-[9px] text-primary hover:underline"
+          onClick={() => filtered.forEach((m) => {
+            if (allOn) { if (enabled.has(m.key) && enabled.size > 1) onToggle(m.key) }
+            else if (!enabled.has(m.key)) onToggle(m.key)
+          })}
+        >
+          {allOn ? 'Clear' : 'All'}
+        </button>
+      </div>
+      <div className="grid grid-cols-1 gap-0.5">
+        {filtered.map((m) => {
+          const on = enabled.has(m.key)
+          return (
+            <Tooltip key={m.key}>
+              <TooltipTrigger asChild>
+                <button onClick={() => onToggle(m.key)}
+                  className={cn('flex items-center gap-1.5 rounded px-1.5 py-1 text-left text-[11px] transition-colors',
+                    on ? 'bg-muted/40 text-foreground' : 'text-muted-foreground hover:bg-muted/20')}>
+                  <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: on ? m.color : 'transparent', border: `1.5px solid ${m.color}` }} />
+                  <span className="truncate flex-1">{m.label}</span>
+                </button>
+              </TooltipTrigger>
+              {m.description && <TooltipContent className="max-w-[220px]">{m.description}</TooltipContent>}
+            </Tooltip>
+          )
+        })}
+      </div>
+    </div>
   )
 }
 
@@ -576,7 +706,9 @@ function StatsInspector({ metricStats, chartSamples }: {
       <p className="text-[10px] text-muted-foreground/50">Hover the chart for a point reading.</p>
       {metricStats.map(({ metric, stats }) => {
         if (!stats) return null
-        const vals = chartSamples.map(metric.extract)
+        const vals = chartSamples
+          .map(metric.extract)
+          .filter((v): v is number => typeof v === 'number' && Number.isFinite(v))
         const path = sparklinePath(vals, 56, 16)
         return (
           <div key={metric.key} className="rounded border border-border/30 bg-muted/5 px-2 py-1.5">
@@ -623,12 +755,16 @@ function CorrelationView({ samples, metrics, enabled, xKey, yKey, onXKey, onYKey
   const plotW = geom.W - geom.pad.l - geom.pad.r
   const plotH = geom.H - geom.pad.t - geom.pad.b
 
-  const pts = samples.map((s) => ({ x: xM.extract(s), y: yM.extract(s) }))
+  const pts = samples
+    .map((s) => ({ x: xM.extract(s), y: yM.extract(s) }))
+    .filter((p): p is { x: number; y: number } => p.x != null && p.y != null)
   const xs = pts.map((p) => p.x)
   const ys = pts.map((p) => p.y)
-  const r = pearson(xs, ys)
-  const xMin = Math.min(...xs), xMax = Math.max(...xs) || 1
-  const yMin = Math.min(...ys), yMax = Math.max(...ys) || 1
+  const r = pts.length >= 2 ? pearson(xs, ys) : 0
+  const xMin = xs.length ? Math.min(...xs) : 0
+  const xMax = xs.length ? Math.max(...xs) : 1
+  const yMin = ys.length ? Math.min(...ys) : 0
+  const yMax = ys.length ? Math.max(...ys) : 1
   const xRange = xMax - xMin || 1
   const yRange = yMax - yMin || 1
   const sx = (x: number) => geom.pad.l + ((x - xMin) / xRange) * plotW
@@ -709,14 +845,23 @@ function HeatmapView({ series, timestamps, geom }: {
   return (
     <svg viewBox={`0 0 ${geom.W} ${height}`} className="w-full">
       {series.map((s, r) => {
-        const min = Math.min(...s.raw)
-        const max = Math.max(...s.raw)
+        const finite = s.raw.filter((v): v is number => v != null)
+        const min = finite.length ? Math.min(...finite) : 0
+        const max = finite.length ? Math.max(...finite) : 1
         const range = max - min || 1
         const y = r * rowH
         return (
           <g key={s.key}>
             <text x={labelW - 6} y={y + rowH / 2 + 3} textAnchor="end" className="text-[9px]" fill={s.color}>{s.label}</text>
             {s.raw.map((val, i) => {
+              if (val == null) {
+                return (
+                  <rect key={i} x={labelW + i * cellW} y={y + 2} width={Math.max(cellW, 0.8)} height={rowH - 4}
+                    className="fill-muted/20">
+                    <title>{`${s.label}: — @ ${new Date(timestamps[i]).toLocaleTimeString()}`}</title>
+                  </rect>
+                )
+              }
               const t = (val - min) / range
               return (
                 <rect key={i} x={labelW + i * cellW} y={y + 2} width={Math.max(cellW, 0.8)} height={rowH - 4}
@@ -743,10 +888,11 @@ function HeatmapView({ series, timestamps, geom }: {
 
 /* ── Point inspector ────────────────────────────────────────── */
 
-function PointInspector({ insight, sample, metrics }: {
+function PointInspector({ insight, sample, metrics, showSessionOverlay }: {
   insight: NonNullable<ReturnType<typeof analyzePoint>>
   sample: ResourceSample | undefined
   metrics: MetricDef[]
+  showSessionOverlay: boolean
 }) {
   return (
     <div className="space-y-2">
@@ -762,12 +908,12 @@ function PointInspector({ insight, sample, metrics }: {
               <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: m.color }} />
               <span className="truncate">{m.label}</span>
             </span>
-            <span className="text-xs font-bold tabular-nums shrink-0">{round1(val)}{m.unit}</span>
+            <span className="text-xs font-bold tabular-nums shrink-0">{val == null ? '—' : `${round1(val)}${m.unit}`}</span>
           </div>
         )
       })}
 
-      {(insight.liveSessions != null || insight.cpuPerSession != null) && (
+      {showSessionOverlay && (insight.liveSessions != null || insight.cpuPerSession != null) && (
         <div className="grid grid-cols-2 gap-1 pt-1 border-t border-border/20">
           {insight.liveSessions != null && (
             <Callout label="Sessions" value={String(insight.liveSessions)} delta={insight.liveDelta} />
@@ -819,23 +965,38 @@ function StackedLane({ series, height, showAvg, geom }: {
   const plotH = height - geom.pad.t - geom.pad.b
   const range = series.yMax - series.yMin || 1
   const pts = series.scaled.map((val, i) => ({
-    x: geom.pad.l + (i / (series.scaled.length - 1)) * plotW,
-    y: geom.pad.t + plotH - ((val - series.yMin) / range) * plotH,
+    x: geom.pad.l + (i / Math.max(1, series.scaled.length - 1)) * plotW,
+    y: val == null ? null : geom.pad.t + plotH - ((val - series.yMin) / range) * plotH,
   }))
-  const line = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')
-  const area = `${line} L${pts[pts.length - 1].x.toFixed(1)},${geom.pad.t + plotH} L${geom.pad.l},${geom.pad.t + plotH} Z`
-  const avg = series.scaled.reduce((a, b) => a + b, 0) / series.scaled.length
-  const avgY = geom.pad.t + plotH - ((avg - series.yMin) / range) * plotH
+  let line = ''
+  let drawing = false
+  for (const p of pts) {
+    if (p.y == null) { drawing = false; continue }
+    line += `${drawing ? 'L' : 'M'}${p.x.toFixed(1)},${p.y.toFixed(1)} `
+    drawing = true
+  }
+  line = line.trim()
+  const finitePts = pts.filter((p): p is { x: number; y: number } => p.y != null)
+  const area = finitePts.length === pts.length && finitePts.length > 0
+    ? `${line} L${finitePts[finitePts.length - 1].x.toFixed(1)},${geom.pad.t + plotH} L${geom.pad.l},${geom.pad.t + plotH} Z`
+    : ''
+  const finiteScaled = series.scaled.filter((v): v is number => v != null)
+  const avg = finiteScaled.length > 0 ? finiteScaled.reduce((a, b) => a + b, 0) / finiteScaled.length : null
+  const avgY = avg == null ? null : geom.pad.t + plotH - ((avg - series.yMin) / range) * plotH
+  const lastRaw = series.raw[series.raw.length - 1]
 
   return (
     <div className="px-1">
       <p className="text-[9px] font-medium mb-0" style={{ color: series.color }}>
-        {series.label} <span className="text-muted-foreground/50 font-normal">· {round1(series.raw[series.raw.length - 1])}{series.unit}</span>
+        {series.label}{' '}
+        <span className="text-muted-foreground/50 font-normal">
+          · {lastRaw == null ? '—' : `${round1(lastRaw)}${series.unit}`}
+        </span>
       </p>
       <svg viewBox={`0 0 ${geom.W} ${height}`} className="w-full">
-        <path d={area} fill={series.fill} />
-        <path d={line} fill="none" stroke={series.color} strokeWidth={1.5} />
-        {showAvg && <line x1={geom.pad.l} x2={geom.W - geom.pad.r} y1={avgY} y2={avgY} stroke={series.color} strokeDasharray="3 3" opacity={0.3} />}
+        {area && <path d={area} fill={series.fill} />}
+        {line && <path d={line} fill="none" stroke={series.color} strokeWidth={1.5} />}
+        {showAvg && avgY != null && <line x1={geom.pad.l} x2={geom.W - geom.pad.r} y1={avgY} y2={avgY} stroke={series.color} strokeDasharray="3 3" opacity={0.3} />}
       </svg>
     </div>
   )

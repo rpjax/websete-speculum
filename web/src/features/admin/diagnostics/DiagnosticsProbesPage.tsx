@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import {
   diagnosticsApi,
   type BrowserProbeResponse,
+  type ApiProcessTelemetry,
+  type HostTelemetry,
   type MotorSessionListItem,
 } from '@/lib/diagnosticsApi'
 import { Button } from '@/components/ui/button'
@@ -25,14 +27,16 @@ export default function DiagnosticsProbesPage() {
   const [result, setResult] = useState<BrowserProbeResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
-  const [host, setHost] = useState<Record<string, unknown> | null>(null)
+  const [host, setHost] = useState<HostTelemetry | null>(null)
+  const [apiProcess, setApiProcess] = useState<ApiProcessTelemetry | null>(null)
 
   useEffect(() => {
     void diagnosticsApi.listSessions().then((r) => {
       setSessions(r.sessions)
       if (r.sessions[0]) setConnectionId(r.sessions[0].connectionId)
     }).catch(() => {})
-    void diagnosticsApi.getHost().then((h) => setHost(h as unknown as Record<string, unknown>)).catch(() => setHost(null))
+    void diagnosticsApi.getHost().then(setHost).catch(() => setHost(null))
+    void diagnosticsApi.getApiProcess().then(setApiProcess).catch(() => setApiProcess(null))
   }, [])
 
   function toggleOp(op: string, checked: boolean) {
@@ -67,8 +71,8 @@ export default function DiagnosticsProbesPage() {
     return (
       <EmptyState
         title="No live session to probe"
-        description="Start a Motor session first. Host resource sample is still available below when Diagnostics allows it."
-        action={host ? <JsonTechnicalDetails data={host} title="Host sample" /> : undefined}
+        description="Start a Motor session first. Machine samples remain available when Diagnostics allows them; API process is an optional overlay."
+        action={host ? <JsonTechnicalDetails data={host} title="Machine sample" /> : undefined}
       />
     )
   }
@@ -152,7 +156,8 @@ export default function DiagnosticsProbesPage() {
         </Card>
       )}
 
-      {host && <JsonTechnicalDetails data={host} title="Host resources sample" />}
+      {host && <JsonTechnicalDetails data={host} title="Machine resources sample" />}
+      {apiProcess && <JsonTechnicalDetails data={apiProcess} title="API process resources sample" />}
     </div>
   )
 }

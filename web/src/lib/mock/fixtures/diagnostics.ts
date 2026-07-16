@@ -7,6 +7,7 @@ import type {
   MotorSessionDiagnosticsSnapshot,
   BrowserProbeResponse,
   HostTelemetry,
+  ApiProcessTelemetry,
   TelemetrySample,
   TelemetrySampleRecord,
 } from '@/lib/diagnosticsApi'
@@ -275,19 +276,38 @@ export function probeResult(ops: string[]): BrowserProbeResponse {
 
 export const hostSample: HostTelemetry = {
   hostname: 'speculum-motor-01',
+  source: 'machine',
+  uptimeSec: 86_400,
+  cpuUsage: 12.4,
+  cpuCount: 4,
+  memoryUsed: 1_240_000_000,
+  memoryAvailable: 808_000_000,
+  memoryTotal: 2_048_000_000,
+  diskFreeBytes: 10_000_000_000,
+  diskTotalBytes: 20_000_000_000,
+  loadAverage1m: 0.82,
+  loadAverage5m: 0.67,
+  loadAverage15m: 0.58,
+  swapUsed: 0,
+  swapTotal: 1_073_741_824,
+  diskReadBytesPerSec: 24_000,
+  diskWriteBytesPerSec: 78_000,
+  networkRxBytesPerSec: 91_000,
+  networkTxBytesPerSec: 42_000,
+}
+
+export const apiProcessSample: ApiProcessTelemetry = {
   uptimeSec: 86_400,
   cpuUsage: 12.4,
   memoryUsed: 512_000_000,
+  threadCount: 24,
   memoryPrivate: 480_000_000,
-  memoryTotal: 2_048_000_000,
   gcHeap: 180_000_000,
   gcGen0: 150,
   gcGen1: 30,
   gcGen2: 5,
-  threadCount: 24,
   threadPoolBusy: 3,
   threadPoolQueued: 0,
-  diskFreeBytes: 10_000_000_000,
 }
 
 export const persistedList = [
@@ -394,8 +414,9 @@ export function telemetrySamples(): TelemetrySampleRecord[] {
       0.5,
       99,
     )
-    const memMb = clamp(IDLE_MEM_MB + live * MEM_PER_SESSION_MB + memBonusMb + memNoise, 300, 1950)
-    const memBytes = Math.round(memMb) * MB
+    const processMemMb = clamp(IDLE_MEM_MB + live * MEM_PER_SESSION_MB + memBonusMb + memNoise, 300, 1950)
+    const processMemBytes = Math.round(processMemMb) * MB
+    const machineMemBytes = Math.round((1_050 + live * 42 + memBonusMb * 1.15 + memNoise) * MB)
     const threads = 20 + Math.round(live * 1.6) + (cpu > 55 ? 5 : 0)
     const starting = live > 0 && t % 17 === 0 ? 1 : 0
     const avgFps = Math.max(6, 30 - live * 0.85)
@@ -404,19 +425,37 @@ export function telemetrySamples(): TelemetrySampleRecord[] {
     const sample: TelemetrySample = {
       host: {
         hostname: 'speculum-motor-01',
+        source: 'machine',
+        uptimeSec: 86_400 + t * 60,
+        cpuUsage: round1(Math.min(99, cpu * 0.72 + 7)),
+        cpuCount: 4,
+        memoryUsed: machineMemBytes,
+        memoryAvailable: Math.max(0, 2_048_000_000 - machineMemBytes),
+        memoryTotal: 2_048_000_000,
+        diskFreeBytes: 10_000_000_000 - t * 250_000,
+        diskTotalBytes: 20_000_000_000,
+        loadAverage1m: round1(cpu / 25),
+        loadAverage5m: round1(cpu / 28),
+        loadAverage15m: round1(cpu / 32),
+        swapUsed: 0,
+        swapTotal: 1_073_741_824,
+        diskReadBytesPerSec: 24_000 + live * 1_800,
+        diskWriteBytesPerSec: 78_000 + live * 2_600,
+        networkRxBytesPerSec: 91_000 + live * 8_000,
+        networkTxBytesPerSec: 42_000 + live * 5_000,
+      },
+      apiProcess: {
         uptimeSec: 86_400 + t * 60,
         cpuUsage: round1(cpu),
-        memoryUsed: memBytes,
-        memoryPrivate: Math.round(memBytes * 0.94),
-        memoryTotal: 2_048_000_000,
-        gcHeap: Math.round(memBytes * 0.35),
+        memoryUsed: processMemBytes,
+        threadCount: threads,
+        memoryPrivate: Math.round(processMemBytes * 0.94),
+        gcHeap: Math.round(processMemBytes * 0.35),
         gcGen0: 120 + t,
         gcGen1: 24 + Math.floor(t / 12),
         gcGen2: 4 + Math.floor(t / 90),
-        threadCount: threads,
         threadPoolBusy: cpu > 40 ? 4 : 2,
         threadPoolQueued: cpu > 70 ? 2 : 0,
-        diskFreeBytes: 10_000_000_000 - t * 250_000,
       },
       motor: {
         total: live + starting,

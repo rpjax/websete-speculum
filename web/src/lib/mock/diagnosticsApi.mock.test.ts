@@ -111,11 +111,16 @@ describe('mockDiagnosticsApi', () => {
     expect(started && typeof started !== 'string' && started.spanKey).toBe('motor.navigate')
   })
 
-  it('getHost returns host sample data', async () => {
+  it('returns separate machine and API process samples', async () => {
     const host = await mockDiagnosticsApi.getHost()
     expect(host.hostname).toBeTruthy()
+    expect(host.source).toBe('machine')
     expect(typeof host.cpuUsage).toBe('number')
     expect(typeof host.memoryUsed).toBe('number')
+
+    const apiProcess = await mockDiagnosticsApi.getApiProcess()
+    expect(typeof apiProcess.threadCount).toBe('number')
+    expect(typeof apiProcess.gcHeap).toBe('number')
   })
 
   it('_resetMockDiagnosticsApi restores initial state', async () => {

@@ -4,7 +4,7 @@ namespace Speculum.MotorAssert.Tests;
 
 /// <summary>
 /// T1–T2: proves the composite <c>Telemetry.SampleCollected</c> sample carries every section
-/// (host / motor / sidecar / persistence / pipeline) end-to-end, and that a live motor session
+/// (host / apiProcess / motor / sidecar / persistence / pipeline) end-to-end, and that a live motor session
 /// is reflected in the motor + sidecar aggregates. Symptom→signal contract of docs/diagnostics.md.
 /// </summary>
 [Collection(nameof(MotorAssertCollection))]
@@ -20,14 +20,23 @@ public sealed class TelemetrySampleDeepTests : MotorAssertTestBase
 
         var sample = await fx.Diagnostics.WaitTelemetrySampleAsync(since);
 
-        // host — memory / GC / threadpool signals.
+        // host — machine / VPS signals.
         var host = DiagnosticsAssertClient.RequireProperty(sample, "host");
         Assert.False(string.IsNullOrWhiteSpace(host.GetProperty("hostname").GetString()));
-        Assert.True(host.GetProperty("memoryUsed").GetInt64() > 0);
-        Assert.True(host.GetProperty("memoryTotal").GetInt64() > 0);
+        Assert.Contains(host.GetProperty("source").GetString(), new[] { "machine", "cgroup", "unavailable" });
+        Assert.True(host.GetProperty("cpuCount").GetInt32() >= 1);
         DiagnosticsAssertClient.RequireProperty(host, "cpuUsage");
-        DiagnosticsAssertClient.RequireProperty(host, "gcGen2");
-        DiagnosticsAssertClient.RequireProperty(host, "threadPoolQueued");
+        DiagnosticsAssertClient.RequireProperty(host, "memoryTotal");
+        DiagnosticsAssertClient.RequireProperty(host, "diskFreeBytes");
+        DiagnosticsAssertClient.RequireProperty(host, "loadAverage1m");
+        DiagnosticsAssertClient.RequireProperty(host, "swapTotal");
+
+        // apiProcess — CLR / process signals.
+        var apiProcess = DiagnosticsAssertClient.RequireProperty(sample, "apiProcess");
+        Assert.True(apiProcess.GetProperty("memoryUsed").GetInt64() > 0);
+        DiagnosticsAssertClient.RequireProperty(apiProcess, "cpuUsage");
+        DiagnosticsAssertClient.RequireProperty(apiProcess, "gcGen2");
+        DiagnosticsAssertClient.RequireProperty(apiProcess, "threadPoolQueued");
 
         // motor — capacity / fps / queue signals.
         var motor = DiagnosticsAssertClient.RequireProperty(sample, "motor");

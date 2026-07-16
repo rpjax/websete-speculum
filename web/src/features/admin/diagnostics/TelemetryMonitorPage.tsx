@@ -4,7 +4,7 @@ import { diagnosticsApi, type HostTelemetry } from '@/lib/diagnosticsApi'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { TelemetryMonitorChart, ResourceTimeRangeControls } from '@/components/admin/TelemetryMonitorChart'
-import { TELEMETRY_METRICS, type TimePreset } from '@/lib/resourceChartCompute'
+import { TELEMETRY_METRICS, MACHINE_MONITOR_DEFAULT_KEYS, type TimePreset } from '@/lib/resourceChartCompute'
 import { TelemetrySubNav } from './telemetry/TelemetrySubNav'
 import { TelemetrySystemStrip } from './telemetry/monitor/TelemetrySystemStrip'
 import { MonitorHints } from './telemetry/monitor/MonitorHints'
@@ -17,7 +17,7 @@ export default function TelemetryMonitorPage() {
   const [autoRefresh, setAutoRefresh] = useState(false)
   const [host, setHost] = useState<HostTelemetry | null>(null)
   const [focusTs, setFocusTs] = useState<number | null>(null)
-  const [enabledKeys, setEnabledKeys] = useState<string[]>(['host.cpu', 'host.memory', 'motor.live'])
+  const [enabledKeys, setEnabledKeys] = useState<string[]>([...MACHINE_MONITOR_DEFAULT_KEYS])
 
   const { chartSamples, latest, loading, error, reload } = useTelemetryMonitorSeries(range, {
     live: autoRefresh,
@@ -44,7 +44,7 @@ export default function TelemetryMonitorPage() {
       <div className="flex flex-wrap items-center gap-3">
         <TelemetrySubNav />
         <p className="text-[11px] text-muted-foreground/60 max-w-xl">
-          Monitor observes signals over time. Analysis is a separate tool — it does not use this chart range.
+          Machine resources over time. Runtime signals (API process, motor, pipeline…) are optional via + Metric. Analysis is a separate tool.
         </p>
       </div>
 
@@ -55,7 +55,7 @@ export default function TelemetryMonitorPage() {
         </div>
       )}
 
-      <TelemetrySystemStrip host={host} latest={latest} onSelectSection={setEnabledKeys} />
+      <TelemetrySystemStrip host={host} latest={latest} />
 
       <div className="rounded-lg border border-border bg-card overflow-hidden">
         <div className="flex flex-wrap items-center gap-2 border-b border-border/40 px-3 py-2">

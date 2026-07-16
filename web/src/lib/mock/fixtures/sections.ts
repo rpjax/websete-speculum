@@ -38,7 +38,6 @@ export const sectionData: Record<string, unknown> = {
       diagTimeoutMs: 10_000,
       maxConcurrentProbesPerSession: 2,
       maxProbeResponseBytes: 512 * 1024,
-      hostSampleIntervalMs: 1000,
     },
   } satisfies DiagnosticsOptions,
   ScriptInjection: [

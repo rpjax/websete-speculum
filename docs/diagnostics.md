@@ -45,7 +45,8 @@ Response wrappers (raw HTTP — client `diagnosticsApi` unwraps where noted):
 | `PUT /elevate` | Start BrowserQuery elevate (TTL) | body `{ minutes }` clamped to `elevate.browserQueryMaxMinutes`; emits `Diagnostics.ElevateStarted` |
 | `DELETE /elevate` | Clear elevate | emits `Diagnostics.ElevateExpired` (`manual_clear`) |
 | `POST /recover` | Clear Degraded circuit breaker | `{ recovered }`; emits `Diagnostics.Recovered` when it was degraded |
-| `GET /host` | Shared host telemetry sample | `{ data, redaction }`; `403 probe_level_insufficient` unless `telemetry.enabled` + `telemetry.host.enabled` |
+| `GET /host` | Machine/VPS telemetry sample | `{ data, redaction }`; `403 probe_level_insufficient` unless `telemetry.enabled` + `telemetry.host.enabled` |
+| `GET /api-process` | Speculum.Api process + CLR sample | `{ data, redaction }`; `403 probe_level_insufficient` unless `telemetry.enabled` + `telemetry.apiProcess.enabled` |
 | `GET /resolve?connectionId=&persistedSessionId=&sidecarSessionId=` | Resolve a live session by any identity indexer | `{ connectionId, snapshot, redaction }` or `404 motor_not_found` (MATRIX `L12`) |
 | `GET /sessions` | Live registry list | `{ activeCount, startingCount, sessions[] }` |
 | `GET /sessions/{connectionId}` | Live session snapshot | `{ snapshot, redaction }` or `404 session_gone` |
@@ -237,7 +238,8 @@ Dynamic SQLite section; `PUT /api/admin/config/Diagnostics` validated by `Config
 | `probe.diagTimeoutMs` | `10000` | sidecar probe timeout (100..120000) |
 | `probe.maxConcurrentProbesPerSession` | `2` | beyond → `429 probe_busy` (1..32) |
 | `probe.maxProbeResponseBytes` | `524288` (512 KiB) | soft-cap; wire ceiling 8 MiB (1024..8388608) |
-| `probe.hostSampleIntervalMs` | `1000` | host-probe cache window (100..60000) |
+| `telemetry.host.sampleIntervalMs` | `1000` | machine collector cache window (100..60000) |
+| `telemetry.apiProcess.sampleIntervalMs` | `1000` | API-process collector cache window (100..60000) |
 
 ### Seed presets (`DiagnosticsSeedProfiles`)
 
@@ -264,17 +266,18 @@ Payload (`TelemetrySample`, camelCase):
 
 | Section | Toggle | Fields |
 |---------|--------|--------|
-| `host` | `telemetry.host.enabled` | `hostname`, `uptimeSec`, `cpuUsage`, `memoryUsed`, `memoryPrivate`, `memoryTotal`, `gcHeap`, `gcGen0/1/2`, `threadCount`, `threadPoolBusy`, `threadPoolQueued`, `diskFreeBytes` |
+| `host` | `telemetry.host.enabled` | Machine/VPS: `hostname`, `source` (`machine`/`cgroup`/`unavailable`), `uptimeSec`, `cpuUsage`, `cpuCount`, `memoryUsed`/`memoryAvailable`/`memoryTotal`, `diskFreeBytes`/`diskTotalBytes`; opt-in `loadAverage1m/5m/15m` (`includeLoadAverage`), `swapUsed`/`swapTotal` (`includeSwap`), disk/network Bps (`includeDiskIo`/`includeNetwork`). Settings: `procPath`, `diskPath`, `sampleIntervalMs`. |
+| `apiProcess` | `telemetry.apiProcess.enabled` | Speculum.Api process: `uptimeSec`, `cpuUsage`, `memoryUsed`, `threadCount`; opt-in `memoryPrivate`, `gcHeap`/`gcGen0/1/2`, `threadPoolBusy`/`threadPoolQueued`. Setting: `sampleIntervalMs`. |
 | `motor` | `telemetry.motor.enabled` | `total`, `live`, `starting`, `stopping`, `byPhase`, `avgFps`/`minFps`/`maxFps`, `inputQueueTotal`, `frameChannelDepthTotal`, `statusChannelDepthTotal`, `capacityMax`, `capacityUsedPct`; `liveSessionIds[]?` (`includeSessionIds`), `sessions[]?` (`includePerSession`; each `urlHost?` needs `includeUrlHost`) |
 | `sidecar` | `telemetry.sidecar.enabled` | `connected`, `faulted`; `faultedSessionIds[]?` (`includeFaultedIds`) |
 | `persistence` | `telemetry.persistence.enabled` | `storedSessions`, `totalCookies`, `totalHistory`, `expiringSoon`; `storeBytes?` (`includeBytes`) |
 | `pipeline` | `telemetry.pipeline.enabled` | `bytesUsed`, `storageMaxBytes`, `usedPct`, `eventsStored`, `eventsDropped`, `overflowCount`, `probeInFlight`, `degraded`, `elevateActive`; `recentDrops?`/`recentSlowWrites?` (`includeBreakerPressure`) |
 
-Symptom → signal coverage (asserted by composer tests + MotorAssert `T1`/`T2`): memory leak (`host.memoryUsed`/`gcGen2`/`gcHeap` rise vs flat `motor.live`); render regression (`motor.avgFps`/`minFps` fall vs `host.cpuUsage`; when CPU is flat, `motor.inputQueueTotal`/`frameChannelDepthTotal` + `sidecar`); thread starvation (`host.threadPoolQueued` up, `threadPoolBusy` at ceiling); saturation (`motor.capacityUsedPct` → 100 + `motor.starting` piling up); sidecar instability (`sidecar.faulted` up, correlates with `Motor.SidecarFaulted`); diagnostics overhead (`pipeline.recentSlowWrites`/`bytesUsed`). Aggregate-only by default; identity (`liveSessionIds`/`sessions`/`faultedSessionIds`/`urlHost`) is opt-in and still governed by read-time redaction.
+Symptom → signal coverage (asserted by composer tests + MotorAssert `T1`/`T2`): API memory leak (`apiProcess.memoryUsed`/`gcGen2`/`gcHeap` rise vs flat `motor.live`); VPS saturation (`host.cpuUsage`/`host.memoryUsed÷memoryTotal` high); render regression (`motor.avgFps`/`minFps` fall vs flat `host.cpuUsage`; when machine CPU is flat, `motor.inputQueueTotal`/`frameChannelDepthTotal` + `sidecar`); thread starvation (`apiProcess.threadPoolQueued` up, `threadPoolBusy` at ceiling); saturation (`motor.capacityUsedPct` → 100 + `motor.starting` piling up); sidecar instability (`sidecar.faulted` up, correlates with `Motor.SidecarFaulted`); diagnostics overhead (`pipeline.recentSlowWrites`/`bytesUsed`). Aggregate-only by default; identity (`liveSessionIds`/`sessions`/`faultedSessionIds`/`urlHost`) is opt-in and still governed by read-time redaction.
 
 When `telemetry.motor.includePerSession` is on, each live session's slice is *also* mirrored as its own **`Telemetry.SessionSampleCollected`** event scoped by `connectionId` (payload = one `sessions[]` entry). Same data as the composite's `motor.sessions[]`, no extra registry pass — it exists so a session's samples plot inside that session's story lane, not only in the global composite. Covered by `TelemetryEmitterTests`.
 
-`GET /host` returns the shared host collector (the `Telemetry.Host` shape), gated by `telemetry.enabled` **and** `telemetry.host.enabled` (otherwise `probe_level_insufficient`).
+`GET /host` returns the machine collector (`HostTelemetry`), gated by Telemetry Metric capability (`telemetry.enabled`) **and** `telemetry.host.enabled`. `GET /api-process` returns the API-process collector (`ApiProcessTelemetry`), gated by Telemetry Metric capability **and** `telemetry.apiProcess.enabled`. Both share the same singleton collectors as the periodic sampler (probe providers `host-resources` / `api-process-resources`). In Docker, mount host procfs at `/host/proc` and set `telemetry.host.procPath` so `source` is `machine`; without the mount, expect `cgroup`/`unavailable`. Production/Assertive seeds already use `/host/proc`. `Diagnostics__Telemetry__Host__ProcPath` overrides `procPath` **only on first diagnostics seed** (config store owns the section afterward — change via admin PUT or re-seed).
 
 ## CI: motor-assertive
 

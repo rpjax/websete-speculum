@@ -244,6 +244,43 @@ public sealed class ConfigService : ISpeculumConfigStore
         else
             seed = DiagnosticsSeedProfiles.Production();
 
+        // Config store owns diagnostics after first boot — apply deploy env only at seed time.
+        var hostProcPath = Environment.GetEnvironmentVariable("Diagnostics__Telemetry__Host__ProcPath");
+        if (!string.IsNullOrWhiteSpace(hostProcPath))
+        {
+            seed = new DiagnosticsOptions
+            {
+                Enabled = seed.Enabled,
+                Profile = seed.Profile,
+                Domains = seed.Domains,
+                Telemetry = new DiagnosticsTelemetryOptions
+                {
+                    Enabled = seed.Telemetry.Enabled,
+                    IntervalSeconds = seed.Telemetry.IntervalSeconds,
+                    Host = new TelemetryHostOptions
+                    {
+                        Enabled = seed.Telemetry.Host.Enabled,
+                        ProcPath = hostProcPath.Trim(),
+                        DiskPath = seed.Telemetry.Host.DiskPath,
+                        SampleIntervalMs = seed.Telemetry.Host.SampleIntervalMs,
+                        IncludeLoadAverage = seed.Telemetry.Host.IncludeLoadAverage,
+                        IncludeSwap = seed.Telemetry.Host.IncludeSwap,
+                        IncludeDiskIo = seed.Telemetry.Host.IncludeDiskIo,
+                        IncludeNetwork = seed.Telemetry.Host.IncludeNetwork,
+                    },
+                    ApiProcess = seed.Telemetry.ApiProcess,
+                    Motor = seed.Telemetry.Motor,
+                    Sidecar = seed.Telemetry.Sidecar,
+                    Persistence = seed.Telemetry.Persistence,
+                    Pipeline = seed.Telemetry.Pipeline,
+                },
+                Storage = seed.Storage,
+                Sampling = seed.Sampling,
+                Elevate = seed.Elevate,
+                Probe = seed.Probe,
+            };
+        }
+
         var json = JsonSerializer.Serialize(seed, JsonOptions);
         await _repository.UpsertAsync(ConfigSectionKeys.Diagnostics, json, ct);
         _logger.LogInformation(

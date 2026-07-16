@@ -111,11 +111,28 @@ public sealed class DiagnosticsConfigValidatorTests
     [InlineData("diagTimeoutMs", 50)]
     [InlineData("maxConcurrentProbesPerSession", 0)]
     [InlineData("maxProbeResponseBytes", 512)]
-    [InlineData("hostSampleIntervalMs", 60)]
     public void Probe_bounds_are_enforced(string field, int value)
         => AssertInvalid(
             $$"""{ "probe": { "{{field}}": {{value}} } }""",
             $"$.Diagnostics.probe.{field}");
+
+    [Fact]
+    public void Probe_hostSampleIntervalMs_is_rejected()
+        => AssertInvalid(
+            """{ "probe": { "hostSampleIntervalMs": 1000 } }""",
+            "$.Diagnostics.probe.hostSampleIntervalMs");
+
+    [Fact]
+    public void Telemetry_host_sampleIntervalMs_bounds_are_enforced()
+        => AssertInvalid(
+            """{ "telemetry": { "host": { "sampleIntervalMs": 50 } } }""",
+            "$.Diagnostics.telemetry.host.sampleIntervalMs");
+
+    [Fact]
+    public void Telemetry_apiProcess_sampleIntervalMs_bounds_are_enforced()
+        => AssertInvalid(
+            """{ "telemetry": { "apiProcess": { "sampleIntervalMs": 50 } } }""",
+            "$.Diagnostics.telemetry.apiProcess.sampleIntervalMs");
 
     private static void AssertValid(string json)
     {

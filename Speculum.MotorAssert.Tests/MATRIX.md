@@ -59,7 +59,8 @@ Constitution: [docs/engineering-standards.md](../docs/engineering-standards.md) 
 | L9–L10 | deep | probe_busy 429; timeout errorCode | `L9_*` `L10_*` |
 | L11 | contract | soft-cap XOR 413 | `L11_*` |
 | L12 | deep | resolve op | `L12_*` |
-| L13 | deep | host probe | `L13_*` |
+| L13 | deep | machine host probe envelope | `L13_*` |
+| L14 | deep | API process probe envelope | `L14_*` |
 | M1 | deep | ConfigApplied / seed Assertive | `M1_*` |
 | M2 / M11 | deep | elevate + catalog | `M2_*` `M11_*` |
 | M overflow | contract | catalog + runtime overflow fields (load in Perf/Api.Tests) | `M_storage_overflow_contract` + Api.Tests/MotorPerf |
@@ -67,7 +68,7 @@ Constitution: [docs/engineering-standards.md](../docs/engineering-standards.md) 
 | N1–N2 | deep | popup / `_blank` single-tab | `N1_N2_*` |
 | O1–O5 | deep | auth / opacity / validation / wipe | `O1_*`…`O5_*` |
 | O4 | deep | casing/validation matrix | `O4_section_casing_validation` |
-| T1 | deep | composite `Telemetry.SampleCollected` carries all sections (host/motor/sidecar/persistence/pipeline) + story fields | `T1_composite_sample_has_all_sections` |
+| T1 | deep | composite `Telemetry.SampleCollected` carries all sections (host/apiProcess/motor/sidecar/persistence/pipeline) + story fields | `T1_composite_sample_has_all_sections` |
 | T2 | deep | live session reflected in `motor.total`/`liveSessionIds`/`sessions` + `sidecar.connected` | `T2_live_session_reflected_in_motor_and_sidecar_aggregates` |
 
 ## Organization

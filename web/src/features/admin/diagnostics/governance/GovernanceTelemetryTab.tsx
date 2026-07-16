@@ -33,6 +33,7 @@ export function GovernanceTelemetryTab({ config, onChange }: GovernanceTelemetry
   const t = config.telemetry
   const sectionCount = [
     t.host.enabled,
+    t.apiProcess.enabled,
     t.motor.enabled,
     t.sidecar.enabled,
     t.persistence.enabled,
@@ -50,10 +51,10 @@ export function GovernanceTelemetryTab({ config, onChange }: GovernanceTelemetry
         <div className="min-w-0 text-sm leading-relaxed">
           <p className="font-medium">What is telemetry here?</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            On a fixed interval the host builds <strong className="font-medium text-foreground">one composite
+            On a fixed interval Speculum builds <strong className="font-medium text-foreground">one composite
             sample</strong> (
             <code className="rounded bg-muted px-1">Telemetry.SampleCollected</code>
-            ) with optional sections — host, motor, sidecar, persistence, pipeline. That is separate from
+            ) with optional sections — machine, API process, motor, sidecar, persistence, pipeline. That is separate from
             lifecycle <em>events</em> on Coverage. Charts live under Telemetry Monitor; this tab only chooses
             what goes into each sample.
           </p>
@@ -166,7 +167,7 @@ export function GovernanceTelemetryTab({ config, onChange }: GovernanceTelemetry
               </p>
             </div>
             <span className="rounded-full bg-muted px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
-              {sectionCount} of 5 included
+              {sectionCount} of 6 included
             </span>
           </div>
         </header>
@@ -174,12 +175,21 @@ export function GovernanceTelemetryTab({ config, onChange }: GovernanceTelemetry
         <div className="grid gap-3 p-4 sm:grid-cols-2 sm:p-5">
           <SectionCard
             icon={<Server className="h-3.5 w-3.5" />}
-            title="Host"
-            summary="Machine health under Speculum"
-            detail="CPU%, working set, GC gens, thread pool depth, disk free — shared process view, not per browser."
+            title="Machine"
+            summary="Machine and volume health"
+            detail="Machine CPU, CPU count, available memory, and disk capacity. Load, swap, disk I/O, and network are optional."
             checked={t.host.enabled}
             disabled={!t.enabled}
-            onChange={(v) => patchTelemetry({ host: { enabled: v } })}
+            onChange={(v) => patchTelemetry({ host: { ...t.host, enabled: v } })}
+          />
+          <SectionCard
+            icon={<Activity className="h-3.5 w-3.5" />}
+            title="API process"
+            summary="Speculum.Api process and CLR"
+            detail="Process CPU, working set, and threads. Private memory, GC counters, and thread-pool pressure are optional."
+            checked={t.apiProcess.enabled}
+            disabled={!t.enabled}
+            onChange={(v) => patchTelemetry({ apiProcess: { ...t.apiProcess, enabled: v } })}
           />
           <SectionCard
             icon={<Activity className="h-3.5 w-3.5" />}
@@ -230,9 +240,9 @@ export function GovernanceTelemetryTab({ config, onChange }: GovernanceTelemetry
                 <Shield className="h-4 w-4 text-muted-foreground" />
               </div>
               <div>
-                <p className="text-sm font-bold">Identity & detail opt-ins</p>
+                <p className="text-sm font-bold">Machine collection & overlay detail opt-ins</p>
                 <p className="mt-0.5 text-xs font-normal text-muted-foreground">
-                  Extra fields inside sections — Production skips per-session rows for perf
+                  Machine paths and sampling first; API process, motor, and optional detail fields are overlays
                 </p>
               </div>
             </div>
@@ -249,6 +259,26 @@ export function GovernanceTelemetryTab({ config, onChange }: GovernanceTelemetry
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2">
+              <TelemetrySettingsCard title="Machine collection" disabled={!t.enabled || !t.host.enabled}>
+                <label className="block text-[11px] text-muted-foreground">proc path</label>
+                <Input className="mt-1 h-8 text-xs" value={t.host.procPath} onChange={(e) => patchTelemetry({ host: { ...t.host, procPath: e.target.value } })} />
+                <label className="mt-2 block text-[11px] text-muted-foreground">disk path</label>
+                <Input className="mt-1 h-8 text-xs" value={t.host.diskPath ?? ''} placeholder="Default" onChange={(e) => patchTelemetry({ host: { ...t.host, diskPath: e.target.value || null } })} />
+                <SampleIntervalInput value={t.host.sampleIntervalMs} disabled={!t.enabled || !t.host.enabled} onChange={(sampleIntervalMs) => patchTelemetry({ host: { ...t.host, sampleIntervalMs } })} />
+              </TelemetrySettingsCard>
+              <TelemetrySettingsCard title="API process collection" disabled={!t.enabled || !t.apiProcess.enabled}>
+                <SampleIntervalInput value={t.apiProcess.sampleIntervalMs} disabled={!t.enabled || !t.apiProcess.enabled} onChange={(sampleIntervalMs) => patchTelemetry({ apiProcess: { ...t.apiProcess, sampleIntervalMs } })} />
+              </TelemetrySettingsCard>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <OptInCard title="Machine · load average" body="Include one-, five-, and fifteen-minute machine load averages." checked={t.host.includeLoadAverage} disabled={!t.enabled || !t.host.enabled} onChange={(v) => patchTelemetry({ host: { ...t.host, includeLoadAverage: v } })} />
+              <OptInCard title="Machine · swap" body="Include used and total machine swap." checked={t.host.includeSwap} disabled={!t.enabled || !t.host.enabled} onChange={(v) => patchTelemetry({ host: { ...t.host, includeSwap: v } })} />
+              <OptInCard title="Machine · disk I/O" body="Include disk read and write throughput for the configured volume." checked={t.host.includeDiskIo} disabled={!t.enabled || !t.host.enabled} onChange={(v) => patchTelemetry({ host: { ...t.host, includeDiskIo: v } })} />
+              <OptInCard title="Machine · network" body="Include aggregate receive and transmit throughput." checked={t.host.includeNetwork} disabled={!t.enabled || !t.host.enabled} onChange={(v) => patchTelemetry({ host: { ...t.host, includeNetwork: v } })} />
+              <OptInCard title="API process · private memory" body="Include process-private committed memory." checked={t.apiProcess.includePrivateMemory} disabled={!t.enabled || !t.apiProcess.enabled} onChange={(v) => patchTelemetry({ apiProcess: { ...t.apiProcess, includePrivateMemory: v } })} />
+              <OptInCard title="API process · GC" body="Include CLR heap and generation counters." checked={t.apiProcess.includeGc} disabled={!t.enabled || !t.apiProcess.enabled} onChange={(v) => patchTelemetry({ apiProcess: { ...t.apiProcess, includeGc: v } })} />
+              <OptInCard title="API process · thread pool" body="Include busy workers and queued work items." checked={t.apiProcess.includeThreadPool} disabled={!t.enabled || !t.apiProcess.enabled} onChange={(v) => patchTelemetry({ apiProcess: { ...t.apiProcess, includeThreadPool: v } })} />
               <OptInCard
                 title="Motor · session IDs"
                 body="List live connection IDs in the sample. Helps map charts to sessions; increases payload size."
@@ -300,6 +330,48 @@ export function GovernanceTelemetryTab({ config, onChange }: GovernanceTelemetry
         </AccordionItem>
       </Accordion>
     </div>
+  )
+}
+
+function TelemetrySettingsCard({
+  title,
+  disabled,
+  children,
+}: {
+  title: string
+  disabled: boolean
+  children: ReactNode
+}) {
+  return (
+    <div className={cn('rounded-lg border border-border/60 bg-muted/10 p-3', disabled && 'opacity-50')}>
+      <p className="mb-2 text-sm font-medium">{title}</p>
+      <div className="space-y-2">{children}</div>
+    </div>
+  )
+}
+
+function SampleIntervalInput({
+  value,
+  disabled,
+  onChange,
+}: {
+  value: number
+  disabled: boolean
+  onChange: (value: number) => void
+}) {
+  return (
+    <label className="mt-2 block text-[11px] text-muted-foreground">
+      Sample interval (ms)
+      <Input
+        className="mt-1 h-8 w-28 text-xs"
+        type="number"
+        min={100}
+        step={100}
+        disabled={disabled}
+        value={value}
+        onChange={(e) => onChange(Math.max(100, Number(e.target.value) || 100))}
+      />
+    </label>
   )
 }
 

@@ -12,6 +12,7 @@ import {
   toDatetimeLocalValue,
   parseDatetimeLocalValue,
   detectAnomalies,
+  MACHINE_MONITOR_DEFAULT_KEYS,
   metricsBySection,
   pearson,
   extractStateWindows,
@@ -61,8 +62,12 @@ function telemetryEvent(
   }
 }
 
-function hostSample(utc: string, host: Record<string, unknown>): DiagnosticsEventRecord {
-  return telemetryEvent(utc, 'Telemetry.SampleCollected', { host })
+function hostSample(
+  utc: string,
+  host: Record<string, unknown>,
+  apiProcess?: Record<string, unknown>,
+): DiagnosticsEventRecord {
+  return telemetryEvent(utc, 'Telemetry.SampleCollected', { host, apiProcess })
 }
 
 describe('filterByTimeRange', () => {
@@ -137,43 +142,60 @@ describe('telemetryToResourceSamples', () => {
   const t1 = '2026-01-01T12:00:00.000Z'
   const t2 = '2026-01-01T12:00:30.000Z'
 
-  it('projects the host section: bytes→MB, cpu rounded to .1, threads passthrough', () => {
+  it('projects machine fields and API-process threads into one sample', () => {
     const out = telemetryToResourceSamples([
-      hostSample(t1, { cpuUsage: 42.37, memoryUsed: 128 * 1024 * 1024, threadCount: 33 }),
+      hostSample(t1, { cpuUsage: 42.37, memoryUsed: 128 * 1024 * 1024 }, { threadCount: 33 }),
     ])
     expect(out).toHaveLength(1)
     expect(out[0]).toMatchObject({ utc: t1, cpu: 42.4, memoryMb: 128, threads: 33 })
     expect(out[0].timestamp).toBe(new Date(t1).getTime())
   })
 
-  it('drops samples that carry no host section', () => {
+  it('keeps motor-only samples and drops empty payloads', () => {
     const out = telemetryToResourceSamples([
-      telemetryEvent(t1, 'Telemetry.SampleCollected', { motor: { activeSessions: 2 } }),
+      telemetryEvent(t1, 'Telemetry.SampleCollected', { motor: { live: 2, avgFps: 30 } }),
       telemetryEvent(t2, 'Telemetry.SampleCollected', null),
     ])
-    expect(out).toHaveLength(0)
+    expect(out).toHaveLength(1)
+    expect(out[0].values?.['motor.live']).toBe(2)
+  })
+
+  it('keeps an API-process-only sample without inventing machine CPU/mem', () => {
+    const out = telemetryToResourceSamples([
+      telemetryEvent(t1, 'Telemetry.SampleCollected', {
+        apiProcess: { cpuUsage: 14, memoryUsed: 96 * 1024 * 1024, threadCount: 11, gcHeap: 32 * 1024 * 1024 },
+      }),
+    ])
+    expect(out).toHaveLength(1)
+    expect(out[0].cpu).toBeNull()
+    expect(out[0].memoryMb).toBeNull()
+    expect(out[0].threads).toBe(11)
+    expect(out[0].values?.['apiProcess.cpu']).toBe(14)
+    expect(out[0].values?.['apiProcess.gcHeap']).toBe(32)
+    expect(out[0].values?.['host.cpu']).toBeNull()
   })
 
   it('ignores events that are not Telemetry.SampleCollected', () => {
     const out = telemetryToResourceSamples([
       telemetryEvent(t1, 'Telemetry.Other', { host: { cpuUsage: 10 } }),
-      hostSample(t2, { cpuUsage: 5, memoryUsed: 64 * 1024 * 1024, threadCount: 10 }),
+      hostSample(t2, { cpuUsage: 5, memoryUsed: 64 * 1024 * 1024 }, { threadCount: 10 }),
     ])
     expect(out).toHaveLength(1)
     expect(out[0].utc).toBe(t2)
   })
 
-  it('defaults non-numeric host fields (cpu→0, memMb→0, threads→null)', () => {
+  it('keeps non-numeric host fields as null (absence ≠ zero)', () => {
     const out = telemetryToResourceSamples([
       hostSample(t1, { cpuUsage: 'n/a', memoryUsed: null }),
     ])
-    expect(out[0]).toMatchObject({ cpu: 0, memoryMb: 0, threads: null })
+    expect(out[0]).toMatchObject({ cpu: null, memoryMb: null, threads: null })
+    expect(out[0].values?.['host.cpu']).toBeNull()
   })
 
   it('returns samples sorted ascending by timestamp', () => {
     const out = telemetryToResourceSamples([
-      hostSample(t2, { cpuUsage: 20, memoryUsed: 0, threadCount: 2 }),
-      hostSample(t1, { cpuUsage: 10, memoryUsed: 0, threadCount: 1 }),
+      hostSample(t2, { cpuUsage: 20, memoryUsed: 0 }, { threadCount: 2 }),
+      hostSample(t1, { cpuUsage: 10, memoryUsed: 0 }, { threadCount: 1 }),
     ])
     expect(out.map((s) => s.utc)).toEqual([t1, t2])
   })
@@ -186,9 +208,9 @@ describe('METRICS', () => {
     expect(METRICS.map((m) => m.key)).toEqual(['cpu', 'memory', 'threads'])
   })
 
-  it('extracts the matching field, mapping null threads to 0', () => {
+  it('extracts the matching field, keeping null threads as null', () => {
     const byKey = Object.fromEntries(METRICS.map((m) => [m.key, m.extract(s)]))
-    expect(byKey).toEqual({ cpu: 12.5, memory: 256, threads: 0 })
+    expect(byKey).toEqual({ cpu: 12.5, memory: 256, threads: null })
   })
 })
 
@@ -201,7 +223,7 @@ describe('telemetryToResourceSamples — composite sections', () => {
   it('flattens motor + derived per-session metrics into values', () => {
     const out = telemetryToResourceSamples([
       composite(
-        { cpuUsage: 40, memoryUsed: 800 * 1024 * 1024, threadCount: 30 },
+        { cpuUsage: 40, memoryUsed: 800 * 1024 * 1024 },
         { live: 10, total: 11, avgFps: 24, capacityUsedPct: 40 },
       ),
     ])
@@ -271,7 +293,23 @@ describe('metric catalog', () => {
     const s = richSample(1, 42, 6)
     expect(METRIC_BY_KEY['host.cpu'].extract(s)).toBe(42)
     expect(METRIC_BY_KEY['motor.live'].extract(s)).toBe(6)
-    expect(TELEMETRY_METRICS.every((mDef) => typeof mDef.extract(s) === 'number')).toBe(true)
+    expect(TELEMETRY_METRICS.every((mDef) => {
+      const v = mDef.extract(s)
+      return v == null || typeof v === 'number'
+    })).toBe(true)
+  })
+
+  it('returns null for absent catalog sections instead of inventing zeros', () => {
+    const s = richSample(1, 10, 2)
+    // richSample has host+motor but not apiProcess GC
+    expect(METRIC_BY_KEY['apiProcess.gcHeap'].extract(s)).toBeNull()
+    expect(METRIC_BY_KEY['apiProcess.cpu'].extract(s)).toBeNull()
+  })
+
+  it('machine monitor defaults exclude runtime overlays', () => {
+    expect(MACHINE_MONITOR_DEFAULT_KEYS.every((k) => k.startsWith('host.'))).toBe(true)
+    expect(MACHINE_MONITOR_DEFAULT_KEYS).not.toContain('motor.live')
+    expect(MACHINE_MONITOR_DEFAULT_KEYS).not.toContain('apiProcess.memory')
   })
 })
 
@@ -404,13 +442,15 @@ describe('catalog — expanded fields', () => {
 
   it('flattens new fields from composite samples', () => {
     const evt = telemetryEvent(new Date().toISOString(), 'Telemetry.SampleCollected', {
-      host: { cpuUsage: 40, memoryUsed: 512 * 1024 * 1024, memoryTotal: 1024 * 1024 * 1024, threadCount: 20 },
+      host: { cpuUsage: 40, memoryUsed: 512 * 1024 * 1024, memoryTotal: 1024 * 1024 * 1024 },
+      apiProcess: { threadCount: 20 },
       motor: { live: 4, total: 4, starting: 0, stopping: 1, maxFps: 28, statusChannelDepthTotal: 3, avgFps: 20, minFps: 10, inputQueueTotal: 0, frameChannelDepthTotal: 1, capacityUsedPct: 20 },
       persistence: { storedSessions: 2, totalCookies: 10, totalHistory: 99, expiringSoon: 1 },
       pipeline: { bytesUsed: 1e6, usedPct: 10, eventsStored: 100, eventsDropped: 2, overflowCount: 1, probeInFlight: 0, recentDrops: 3, recentSlowWrites: 1, degraded: true, elevateActive: false },
     })
     const [s] = telemetryToResourceSamples([evt])
     expect(s.values?.['host.memoryPct']).toBe(50)
+    expect(s.values?.['apiProcess.threads']).toBe(20)
     expect(s.values?.['motor.maxFps']).toBe(28)
     expect(s.values?.['motor.stopping']).toBe(1)
     expect(s.values?.['persistence.history']).toBe(99)

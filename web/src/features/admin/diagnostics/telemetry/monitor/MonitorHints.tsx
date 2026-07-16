@@ -24,6 +24,14 @@ export function MonitorHints({
   onJump?: (timestamp: number) => void
 }) {
   const anomalies = useMemo(() => detectAnomalies(samples), [samples])
+  const hasLiveOverlay = useMemo(
+    () => samples.some((s) => s.values?.['motor.live'] != null),
+    [samples],
+  )
+
+  const emptyCopy = hasLiveOverlay
+    ? 'Machine resource usage tracks live sessions linearly across this range — no leaks, regressions, or idle scaling detected.'
+    : 'No machine anomalies in this range. Add motor or derived overlays via + Metric to check session correlation.'
 
   return (
     <div className="rounded-lg border border-border bg-card overflow-hidden">
@@ -37,7 +45,7 @@ export function MonitorHints({
       {anomalies.length === 0 ? (
         <div className="flex items-center gap-2 px-3 py-4 text-xs text-muted-foreground">
           <ShieldCheck className="h-4 w-4 text-emerald-400/70 shrink-0" />
-          Resource usage tracks live sessions linearly across this range — no leaks, regressions, or idle scaling detected.
+          {emptyCopy}
         </div>
       ) : (
         <div className="divide-y divide-border/10">

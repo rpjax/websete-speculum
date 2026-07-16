@@ -20,7 +20,12 @@ public interface ITelemetrySource
 
 public interface IHostTelemetrySource : ITelemetrySource
 {
-    HostTelemetry Collect();
+    HostTelemetry Collect(TelemetryHostOptions options);
+}
+
+public interface IApiProcessTelemetrySource : ITelemetrySource
+{
+    ApiProcessTelemetry Collect(TelemetryApiProcessOptions options);
 }
 
 public interface IMotorTelemetrySource : ITelemetrySource
@@ -43,22 +48,36 @@ public interface IPipelineTelemetrySource : ITelemetrySource
     PipelineTelemetry Collect(TelemetryPipelineOptions options);
 }
 
-/// <summary>Host section — wraps the shared <see cref="HostResourceProbe"/>.</summary>
+/// <summary>Host (machine) section — wraps the shared <see cref="MachineResourceProbe"/>.</summary>
 public sealed class HostTelemetrySource : IHostTelemetrySource
 {
-    private readonly HostResourceProbe _host;
-    private readonly IDiagnosticsRuntime _runtime;
+    private readonly MachineResourceProbe _host;
 
-    public HostTelemetrySource(HostResourceProbe host, IDiagnosticsRuntime runtime)
+    public HostTelemetrySource(MachineResourceProbe host)
     {
         _host = host;
-        _runtime = runtime;
     }
 
     public string Section => "host";
 
-    public HostTelemetry Collect()
-        => _host.Sample(_runtime.GetSnapshot().Options.Probe.HostSampleIntervalMs);
+    public HostTelemetry Collect(TelemetryHostOptions options)
+        => _host.Sample(options);
+}
+
+/// <summary>API process + CLR section — wraps the shared <see cref="ApiProcessResourceProbe"/>.</summary>
+public sealed class ApiProcessTelemetrySource : IApiProcessTelemetrySource
+{
+    private readonly ApiProcessResourceProbe _api;
+
+    public ApiProcessTelemetrySource(ApiProcessResourceProbe api)
+    {
+        _api = api;
+    }
+
+    public string Section => "apiProcess";
+
+    public ApiProcessTelemetry Collect(TelemetryApiProcessOptions options)
+        => _api.Sample(options);
 }
 
 /// <summary>Motor section — aggregates the per-session snapshots into live-motor signals.</summary>

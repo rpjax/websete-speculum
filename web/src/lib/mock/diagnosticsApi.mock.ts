@@ -10,6 +10,7 @@ import type {
   BrowserProbeResponse,
   DiagnosticsCatalogResponse,
   HostTelemetry,
+  ApiProcessTelemetry,
   TelemetryHistoryParams,
   TelemetryHistoryResponse,
   TelemetrySampleRecord,
@@ -24,6 +25,7 @@ import {
   catalog,
   probeResult,
   hostSample,
+  apiProcessSample,
   persistedList,
   telemetrySamples,
 } from './fixtures'
@@ -86,6 +88,8 @@ export const mockDiagnosticsApi = {
   },
 
   getHost: () => delay<HostTelemetry>(structuredClone(hostSample)),
+
+  getApiProcess: () => delay<ApiProcessTelemetry>(structuredClone(apiProcessSample)),
 
   getSampleHistory: (params?: TelemetryHistoryParams) => {
     const prefix = params?.namePrefix ?? 'Telemetry.'

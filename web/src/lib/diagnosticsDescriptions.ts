@@ -41,7 +41,7 @@ export const EVENT_DESCRIPTIONS: Record<string, string> = {
   'Diagnostics.StorageOverflow': 'The diagnostics event buffer is full — oldest events are being dropped to make room.',
   'Persistence.StateExportCompleted': 'Browser state (cookies, localStorage, IndexedDB) was persisted to the session store.',
   'Persistence.SessionQueried': 'A persisted session record was queried from the store.',
-  'Telemetry.SampleCollected': 'A composite telemetry sample was collected — host, motor, sidecar, persistence, and pipeline sections captured on one time axis.',
+  'Telemetry.SampleCollected': 'A composite telemetry sample was collected — machine, API process, motor, sidecar, persistence, and pipeline sections captured on one time axis.',
   'Telemetry.SessionSampleCollected': 'A per-session telemetry slice was captured and scoped to a live session, so it plots inside that session\'s story lane.',
   'Diagnostics.SpanAbandoned': 'An open span was closed synthetically — it timed out, was torn down on disconnect/drain, or was recovered as orphaned after a restart.',
 }
@@ -227,7 +227,7 @@ export function humanizeDomain(domain: string): string {
     SidecarBrowser: 'Browser process, probes, and screencast',
     BrowserQuery: 'Cookies, DOM, localStorage, JS evaluation',
     PersistedSessions: 'State export, restore, and stored sessions',
-    Telemetry: 'Composite host, motor, sidecar, persistence, and pipeline sample',
+    Telemetry: 'Composite machine, API process, motor, sidecar, persistence, and pipeline sample',
     DiagnosticsSelf: 'Pipeline config, elevation, and cleanup',
   }
   return DOMAIN_HUMAN[domain] ?? domain

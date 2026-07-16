@@ -13,7 +13,6 @@ export const DEFAULT_CONFIG: DiagnosticsOptions = {
     diagTimeoutMs: 10_000,
     maxConcurrentProbesPerSession: 2,
     maxProbeResponseBytes: 512 * 1024,
-    hostSampleIntervalMs: 1000,
   },
 }
 

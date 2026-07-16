@@ -4,32 +4,52 @@ namespace Speculum.Api.Diagnostics.Telemetry;
 /// Composite periodic snapshot of the motor's health, published as the
 /// <c>Telemetry.SampleCollected</c> event payload. Every section is optional and only
 /// present when its toggle is enabled — a section-shaped null means "not collected".
-/// Overlaying host × motor × sidecar × persistence × pipeline on one time axis is how
-/// the sample "tells a story" (symptom → signal); see docs/diagnostics.md.
+/// Overlaying host × apiProcess × motor × sidecar × persistence × pipeline on one time axis
+/// is how the sample "tells a story" (symptom → signal); see docs/diagnostics.md.
 /// </summary>
 public sealed record TelemetrySample(
     HostTelemetry? Host,
+    ApiProcessTelemetry? ApiProcess,
     MotorTelemetry? Motor,
     SidecarTelemetry? Sidecar,
     PersistenceTelemetry? Persistence,
     PipelineTelemetry? Pipeline);
 
-/// <summary>.NET process + machine resources for the API host.</summary>
+/// <summary>Machine/VPS resources. Opt-in fields are null when their include* toggle is off.</summary>
 public sealed record HostTelemetry(
     string Hostname,
+    string Source,
+    long UptimeSec,
+    double CpuUsage,
+    int CpuCount,
+    long MemoryUsed,
+    long MemoryAvailable,
+    long MemoryTotal,
+    long DiskFreeBytes,
+    long DiskTotalBytes,
+    double? LoadAverage1m,
+    double? LoadAverage5m,
+    double? LoadAverage15m,
+    long? SwapUsed,
+    long? SwapTotal,
+    double? DiskReadBytesPerSec,
+    double? DiskWriteBytesPerSec,
+    double? NetworkRxBytesPerSec,
+    double? NetworkTxBytesPerSec);
+
+/// <summary>Speculum.Api OS process + CLR. Opt-in fields are null when their include* toggle is off.</summary>
+public sealed record ApiProcessTelemetry(
     long UptimeSec,
     double CpuUsage,
     long MemoryUsed,
-    long MemoryPrivate,
-    long MemoryTotal,
-    long GcHeap,
-    int GcGen0,
-    int GcGen1,
-    int GcGen2,
     int ThreadCount,
-    int ThreadPoolBusy,
-    int ThreadPoolQueued,
-    long DiskFreeBytes);
+    long? MemoryPrivate,
+    long? GcHeap,
+    int? GcGen0,
+    int? GcGen1,
+    int? GcGen2,
+    int? ThreadPoolBusy,
+    int? ThreadPoolQueued);
 
 /// <summary>Aggregate live-motor state; opt-in identity via <c>LiveSessionIds</c>/<c>Sessions</c>.</summary>
 public sealed record MotorTelemetry(

@@ -62,12 +62,22 @@ describe('diagnosticsApi', () => {
     )
   })
 
-  it('getHost unwraps { data } envelope', async () => {
-    mockJson({ data: { hostname: 'motor-01', cpuUsage: 42 }, redaction: 'none' })
+  it('getHost unwraps machine telemetry envelope', async () => {
+    mockJson({ data: { hostname: 'motor-01', source: 'machine', cpuUsage: 42, cpuCount: 4, memoryAvailable: 100, diskTotalBytes: 200 }, redaction: 'none' })
 
     const host = await diagnosticsApi.getHost()
     expect(fetchMock).toHaveBeenCalledWith(`${BASE}/host`, expect.any(Object))
     expect(host.cpuUsage).toBe(42)
+    expect(host.source).toBe('machine')
+    expect(host.cpuCount).toBe(4)
+  })
+
+  it('getApiProcess unwraps process and CLR telemetry envelope', async () => {
+    mockJson({ data: { cpuUsage: 12, memoryUsed: 100, threadCount: 8, gcHeap: 50 }, redaction: 'none' })
+
+    const apiProcess = await diagnosticsApi.getApiProcess()
+    expect(fetchMock).toHaveBeenCalledWith(`${BASE}/api-process`, expect.any(Object))
+    expect(apiProcess.gcHeap).toBe(50)
   })
 
   it('getSampleHistory builds the paged query string', async () => {

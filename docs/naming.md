@@ -50,8 +50,8 @@ Type families:
 - Transport (no rename): `IDiagnosticsEventBus` / `DiagnosticsEventBus` — **domain-agnostic**; gates only by descriptor + settings.
 - Catalog: `DiagnosticsEventDescriptor { Name, Domain, Capability, Persist, SpanRole, SpanKey, SpanTimeoutSec }` + `DiagnosticsEventCatalog`. Span pairing is descriptor-driven (`SpanRole` `Open`/`Close`/`None`, keyed by `SpanKey`).
 - Producers: `ISidecarDiagnosticsEmitter`, `IDiagnosticsSelfEmitter`, `ITelemetryEmitter` keep the `Emitter` suffix. **Motor** uses a context-bound producer handle instead — `IMotorEventsFactory` mints an `IMotorEvents` (impl `MotorEvents`) bound to a session/operation, so callsites emit without passing context/ids. The `Diagnostics` token appears only when the type lives **outside** the `Diagnostics.*` namespace (Motor).
-- Telemetry pull: `ITelemetrySource` (+ `Host`/`Motor`/`Sidecar`/`Persistence`/`Pipeline` sources), composed by `ITelemetrySampleComposer`; sampled by `TelemetrySamplerHostedService`; shared host collector stays `HostResourceProbe`.
-- Payload DTOs (camelCase records): `TelemetrySample` (root) + `HostTelemetry`/`MotorTelemetry`/`SidecarTelemetry`/`PersistenceTelemetry`/`PipelineTelemetry`.
+- Telemetry pull: `ITelemetrySource` (+ `Host`/`ApiProcess`/`Motor`/`Sidecar`/`Persistence`/`Pipeline` sources), composed by `ITelemetrySampleComposer`; sampled by `TelemetrySamplerHostedService`; collectors `MachineResourceProbe` + `ApiProcessResourceProbe` (also exposed as probe providers `host-resources` / `api-process-resources`).
+- Payload DTOs (camelCase records): `TelemetrySample` (root) + `HostTelemetry`/`ApiProcessTelemetry`/`MotorTelemetry`/`SidecarTelemetry`/`PersistenceTelemetry`/`PipelineTelemetry`.
 - Options family: `DiagnosticsDomainsOptions`, `DiagnosticsTelemetryOptions`, presets in `DiagnosticsSeedProfiles`; `Profile` (not `DefaultLevel`) names the seed preset.
 
 ## Web client folders

@@ -5,6 +5,7 @@ import {
   type DiagnosticsOverview,
   type DiagnosticsRuntimeSnapshot,
   type HostTelemetry,
+  type ApiProcessTelemetry,
   type TelemetrySampleRecord,
 } from '@/lib/diagnosticsApi'
 import { telemetryToResourceSamples, type ResourceSample } from '@/lib/resourceChartCompute'
@@ -148,6 +149,7 @@ export function useTelemetryAnalysisConsume(maxSamples = 20_000) {
       let runtime: DiagnosticsRuntimeSnapshot | null = null
       let overview: DiagnosticsOverview | null = null
       let host: HostTelemetry | null = null
+      let apiProcess: ApiProcessTelemetry | null = null
       try {
         runtime = await diagnosticsApi.getRuntime()
         dataSources.push('runtime')
@@ -159,6 +161,10 @@ export function useTelemetryAnalysisConsume(maxSamples = 20_000) {
       try {
         host = await diagnosticsApi.getHost()
         dataSources.push('host')
+      } catch { /* optional */ }
+      try {
+        apiProcess = await diagnosticsApi.getApiProcess()
+        dataSources.push('apiProcess')
       } catch { /* optional */ }
 
       if (cancelRef.current) return
@@ -177,6 +183,7 @@ export function useTelemetryAnalysisConsume(maxSamples = 20_000) {
         runtime,
         overview,
         host,
+        apiProcess,
         window,
         coverage,
       })

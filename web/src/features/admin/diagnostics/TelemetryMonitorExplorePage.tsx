@@ -5,7 +5,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { PageHeader } from '@/components/admin/PageHeader'
 import { useBreadcrumbs } from '@/lib/hooks/useBreadcrumbs'
 import { TelemetryMonitorChart, ResourceTimeRangeControls } from '@/components/admin/TelemetryMonitorChart'
-import { TELEMETRY_METRICS, type TimePreset } from '@/lib/resourceChartCompute'
+import { TELEMETRY_METRICS, MACHINE_MONITOR_DEFAULT_KEYS, type TimePreset } from '@/lib/resourceChartCompute'
 import { TelemetrySystemStrip } from './telemetry/monitor/TelemetrySystemStrip'
 import { MonitorHints } from './telemetry/monitor/MonitorHints'
 import { TelemetryMonitorSampleTable } from './telemetry/monitor/TelemetryMonitorSampleTable'
@@ -18,7 +18,7 @@ export default function TelemetryMonitorExplorePage() {
   const [autoRefresh, setAutoRefresh] = useState(false)
   const [host, setHost] = useState<HostTelemetry | null>(null)
   const [focusTs, setFocusTs] = useState<number | null>(null)
-  const [enabledKeys, setEnabledKeys] = useState<string[]>(['host.cpu', 'host.memory', 'motor.live'])
+  const [enabledKeys, setEnabledKeys] = useState<string[]>([...MACHINE_MONITOR_DEFAULT_KEYS])
 
   const { chartSamples, latest, loading, error, reload } = useTelemetryMonitorSeries(range, {
     live: autoRefresh,
@@ -29,6 +29,11 @@ export default function TelemetryMonitorExplorePage() {
     void diagnosticsApi.getHost().then(setHost).catch(() => {})
   }, [])
   useEffect(() => { loadHost() }, [loadHost])
+  useEffect(() => {
+    if (!autoRefresh) return
+    const id = setInterval(loadHost, 10_000)
+    return () => clearInterval(id)
+  }, [autoRefresh, loadHost])
 
   function refreshAll() {
     void reload()
@@ -40,7 +45,7 @@ export default function TelemetryMonitorExplorePage() {
       <PageHeader
         breadcrumbs={breadcrumbs}
         title="Monitor — expanded"
-        description="Full-canvas observation of host, motor, sidecar, persistence, and pipeline signals. Analysis is a separate workspace."
+        description="Full-canvas machine resource observation (CPU, memory, disk, load, I/O). Add API process, motor, or pipeline overlays via + Metric when correlating. Analysis is a separate workspace."
         actions={
           <div className="flex flex-wrap items-center gap-1.5">
             <ResourceTimeRangeControls
@@ -73,7 +78,7 @@ export default function TelemetryMonitorExplorePage() {
         </div>
       )}
 
-      <TelemetrySystemStrip host={host} latest={latest} onSelectSection={setEnabledKeys} />
+      <TelemetrySystemStrip host={host} latest={latest} />
 
       <div className="rounded-lg border border-border bg-card overflow-hidden">
         <TelemetryMonitorChart

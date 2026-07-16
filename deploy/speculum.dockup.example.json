@@ -66,11 +66,13 @@
           { "name": "Traefik__DynamicDir", "value": "/data/traefik/dynamic" },
           { "name": "Traefik__DockerSocket", "value": "/var/run/docker.sock" },
           { "name": "ADMIN_BOOTSTRAP_KEY", "value": "password" },
-          { "name": "SPECULUM_DIAGNOSTICS_PROFILE", "value": "Assertive" }
+          { "name": "SPECULUM_DIAGNOSTICS_PROFILE", "value": "Assertive" },
+          { "name": "Diagnostics__Telemetry__Host__ProcPath", "value": "/host/proc" }
         ],
         "volumes": [
           { "name": "speculum-data", "container": "/data" },
-          { "host": "/var/run/docker.sock", "container": "/var/run/docker.sock:ro" }
+          { "host": "/var/run/docker.sock", "container": "/var/run/docker.sock:ro" },
+          { "host": "/proc", "container": "/host/proc:ro" }
         ],
         "labels": [
           "traefik.enable=true",
@@ -159,11 +161,13 @@
           { "name": "Sidecar__BaseUrl", "value": "ws://sidecar:3000" },
           { "name": "Traefik__Root", "value": "/data/traefik" },
           { "name": "Traefik__DynamicDir", "value": "/data/traefik/dynamic" },
-          { "name": "Traefik__DockerSocket", "value": "/var/run/docker.sock" }
+          { "name": "Traefik__DockerSocket", "value": "/var/run/docker.sock" },
+          { "name": "Diagnostics__Telemetry__Host__ProcPath", "value": "/host/proc" }
         ],
         "volumes": [
           { "name": "speculum-data", "container": "/data" },
-          { "host": "/var/run/docker.sock", "container": "/var/run/docker.sock:ro" }
+          { "host": "/var/run/docker.sock", "container": "/var/run/docker.sock:ro" },
+          { "host": "/proc", "container": "/host/proc:ro" }
         ],
         "labels": [
           "traefik.enable=true",

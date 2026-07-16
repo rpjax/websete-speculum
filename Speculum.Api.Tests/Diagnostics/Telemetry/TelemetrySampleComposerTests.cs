@@ -21,6 +21,7 @@ public sealed class TelemetrySampleComposerTests
         var sample = await composer.ComposeAsync(DiagnosticsSeedProfiles.Development().Telemetry);
 
         Assert.NotNull(sample.Host);
+        Assert.NotNull(sample.ApiProcess);
         Assert.NotNull(sample.Motor);
         Assert.NotNull(sample.Sidecar);
         Assert.NotNull(sample.Persistence);
@@ -37,6 +38,7 @@ public sealed class TelemetrySampleComposerTests
         {
             Enabled = true,
             Host = new TelemetryHostOptions { Enabled = false },
+            ApiProcess = new TelemetryApiProcessOptions { Enabled = true },
             Motor = new TelemetryMotorOptions { Enabled = true },
             Sidecar = new TelemetrySidecarOptions { Enabled = false },
             Persistence = new TelemetryPersistenceOptions { Enabled = false },
@@ -46,6 +48,7 @@ public sealed class TelemetrySampleComposerTests
         var sample = await composer.ComposeAsync(telemetry);
 
         Assert.Null(sample.Host);
+        Assert.NotNull(sample.ApiProcess);
         Assert.NotNull(sample.Motor);
         Assert.Null(sample.Sidecar);
         Assert.Null(sample.Persistence);
@@ -58,7 +61,8 @@ public sealed class TelemetrySampleComposerTests
         var runtime = Runtime(DiagnosticsSeedProfiles.Development());
         var registry = new FakeRegistry([Snap("a"), Snap("b", sidecarConnected: false, lastFault: "x")]);
         var composer = new TelemetrySampleComposer(
-            new HostTelemetrySource(new HostResourceProbe(), runtime),
+            new HostTelemetrySource(new MachineResourceProbe()),
+            new ApiProcessTelemetrySource(new ApiProcessResourceProbe()),
             new MotorTelemetrySource(ConfigStore(4)),
             new SidecarTelemetrySource(),
             new PersistenceTelemetrySource(
@@ -93,11 +97,16 @@ public sealed class TelemetrySampleComposerTests
 
         var sample = await composer.ComposeAsync(DiagnosticsSeedProfiles.Development().Telemetry);
 
-        // Memory leak / GC pressure signal.
-        Assert.True(sample.Host!.MemoryUsed > 0);
-        Assert.True(sample.Host!.GcGen2 >= 0);
-        Assert.True(sample.Host!.GcHeap > 0);
-        Assert.True(sample.Host!.ThreadPoolQueued >= 0);
+        // Machine pressure signal (may be unavailable on Windows unit hosts).
+        Assert.False(string.IsNullOrWhiteSpace(sample.Host!.Hostname));
+        Assert.Contains(sample.Host!.Source, new[] { "machine", "cgroup", "unavailable" });
+        Assert.True(sample.Host!.CpuCount >= 1);
+
+        // API-process leak / GC / threadpool signal.
+        Assert.True(sample.ApiProcess!.MemoryUsed > 0);
+        Assert.True(sample.ApiProcess!.GcGen2 >= 0);
+        Assert.True(sample.ApiProcess!.GcHeap > 0);
+        Assert.True(sample.ApiProcess!.ThreadPoolQueued >= 0);
 
         // Perf/render + saturation signals.
         Assert.Equal(5, sample.Motor!.AvgFps);

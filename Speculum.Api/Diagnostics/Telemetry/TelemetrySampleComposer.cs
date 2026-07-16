@@ -15,6 +15,7 @@ public interface ITelemetrySampleComposer
 public sealed class TelemetrySampleComposer : ITelemetrySampleComposer
 {
     private readonly IHostTelemetrySource _host;
+    private readonly IApiProcessTelemetrySource _apiProcess;
     private readonly IMotorTelemetrySource _motor;
     private readonly ISidecarTelemetrySource _sidecar;
     private readonly IPersistenceTelemetrySource _persistence;
@@ -23,6 +24,7 @@ public sealed class TelemetrySampleComposer : ITelemetrySampleComposer
 
     public TelemetrySampleComposer(
         IHostTelemetrySource host,
+        IApiProcessTelemetrySource apiProcess,
         IMotorTelemetrySource motor,
         ISidecarTelemetrySource sidecar,
         IPersistenceTelemetrySource persistence,
@@ -30,6 +32,7 @@ public sealed class TelemetrySampleComposer : ITelemetrySampleComposer
         IMotorSessionRegistry registry)
     {
         _host = host;
+        _apiProcess = apiProcess;
         _motor = motor;
         _sidecar = sidecar;
         _persistence = persistence;
@@ -41,7 +44,8 @@ public sealed class TelemetrySampleComposer : ITelemetrySampleComposer
         DiagnosticsTelemetryOptions telemetry,
         CancellationToken ct = default)
     {
-        var host = telemetry.Host.Enabled ? _host.Collect() : null;
+        var host = telemetry.Host.Enabled ? _host.Collect(telemetry.Host) : null;
+        var apiProcess = telemetry.ApiProcess.Enabled ? _apiProcess.Collect(telemetry.ApiProcess) : null;
 
         // One in-memory registry pass shared by both motor and sidecar sections.
         IReadOnlyList<MotorSessionDiagnosticsSnapshot>? snapshots =
@@ -62,6 +66,6 @@ public sealed class TelemetrySampleComposer : ITelemetrySampleComposer
             ? _pipeline.Collect(telemetry.Pipeline)
             : null;
 
-        return new TelemetrySample(host, motor, sidecar, persistence, pipeline);
+        return new TelemetrySample(host, apiProcess, motor, sidecar, persistence, pipeline);
     }
 }

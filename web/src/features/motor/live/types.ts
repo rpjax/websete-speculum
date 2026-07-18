@@ -16,10 +16,26 @@ export interface MotorUiState {
   navDisabled: boolean
   editing?: EditingUiState | null
   showKeyboard?: boolean
+  /** Non-fatal resize failure banner; does not tear down the session. */
+  resizeWarning?: string | null
   correlationId?: string
   connectionId?: string
   persistedSessionId?: string
   sidecarSessionId?: string
+}
+
+export interface ResizeResultPayload {
+  applied: boolean
+  width: number
+  height: number
+  chromeWidth?: number | null
+  chromeHeight?: number | null
+  displayWidth?: number | null
+  displayHeight?: number | null
+  resizeId?: string | null
+  errorCode?: string | null
+  phase?: string | null
+  message?: string | null
 }
 
 export interface DeviceProfilePayload {

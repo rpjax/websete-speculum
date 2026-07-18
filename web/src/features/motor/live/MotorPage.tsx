@@ -132,6 +132,15 @@ function RealMotorPage() {
           )}
         </div>
 
+        {ui.resizeWarning && (
+          <div
+            role="status"
+            className="shrink-0 border-b border-destructive/40 bg-destructive/10 px-3 py-1.5 text-xs text-destructive"
+          >
+            {ui.resizeWarning}
+          </div>
+        )}
+
         {showDiag && (
           <div className="shrink-0 border-b border-border bg-sidebar px-3 py-1.5 font-mono text-[10px] text-muted-foreground">
             {ui.correlationId && <span className="mr-3">corr={ui.correlationId.slice(0, 12)}</span>}

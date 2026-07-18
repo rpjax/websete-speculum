@@ -14,7 +14,7 @@ Constitution: [docs/engineering-standards.md](../docs/engineering-standards.md) 
 | A6 | deep | disconnect → StateExportCompleted + persisted | `A6_disconnect_exports_and_persists` |
 | A7 | deep | resource probe + gone | `A7_resource_probe_while_running_then_gone` |
 | A8 | deep | sidecar stop → SidecarFaulted **payload errorCode+fault** and session_gone | `A8_sidecar_stop_faults_and_cleans_session` |
-| A9 | deep | viewport defaults **1280×720** when 0×0 | `A9_viewport_defaults_when_zero` |
+| A9 | deep | startup **0×0 → 1280×720** proven (status + Chrome + RandR + JPEG) | `A9_viewport_defaults_when_zero` |
 | A10 | deep | clientToken hex round-trip + reject | `A10_*` / `A10b_*` |
 | B1–B3 | deep | navigate allowlist (**B1 probe `/nav/b`**) / reject / scheme | `B1_*` `B2_*` `B3_*` |
 | B4 | deep | goEvil → redirect wire + alive + tabs | `B4_*` / `B4b_*` |
@@ -32,8 +32,8 @@ Constitution: [docs/engineering-standards.md](../docs/engineering-standards.md) 
 | C10 | deep | touch drag scroll | `C10_touch_scroll_moves_scrollTop` |
 | C11 | deep | mobile DeviceProfile → maxTouchPoints | `C11_mobile_device_profile_sets_maxTouchPoints` |
 | C12 | deep | `text` insertText into focused input | `C12_text_input_reaches_focused_field` |
-| D1 | deep | resize dims on status | `D1_*` |
-| D2 | deep | resize &lt;100 noop | `D2_resize_below_100_is_noop` |
+| D1 | deep | exact resize **757×715** (`ResizeApplied` + RandR + Chrome + status + JPEG) | `D1_resize_exact_geometry_applied` |
+| D2 | deep | resize &lt;100 → `ResizeRejected`, session stays at prior size | `D2_resize_below_100_is_rejected` |
 | D3–D4 | deep | frames + status/tabCount | `D3_*` `D4_*` |
 | D-Start / D-Create / D-Restore / D-UrlMap | deep | SessionResolved + UrlMapped recipes | `DiagnosticsEmitterRecipesTests` |
 | E1–E2 | deep | persist export/restore cookie+LS | `E1_E2_*` |

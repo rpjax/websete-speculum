@@ -6,7 +6,7 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts",
-    "test": "npm run build && node --test dist/test/session-coherence.test.js dist/test/wire-protocol.test.js dist/test/create-handshake.test.js dist/test/diag-probe.test.js dist/test/navigation-guard.test.js dist/test/input-wheel.test.js dist/test/input-touch.test.js dist/test/touch-move-coalescer.test.js dist/test/screencast-idle.test.js dist/test/cookie-sanitize.test.js dist/test/display-snap.test.js"
+    "test": "npm run build && node --test dist/test/session-coherence.test.js dist/test/wire-protocol.test.js dist/test/create-handshake.test.js dist/test/diag-probe.test.js dist/test/navigation-guard.test.js dist/test/input-wheel.test.js dist/test/input-touch.test.js dist/test/touch-move-coalescer.test.js dist/test/screencast-idle.test.js dist/test/cookie-sanitize.test.js dist/test/viewport-bounds.test.js dist/test/session-viewport.test.js"
   },
   "dependencies": {
     "patchright": "1.49.1",

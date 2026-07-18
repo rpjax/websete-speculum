@@ -12,6 +12,9 @@ export type DiagProbeEvidence = {
         wmPid: number | null;
         chromePid: number | null;
         userDataDirExists: boolean;
+        /** Active Xvfb / RandR geometry (exact Motor viewport). */
+        activeWidth: number;
+        activeHeight: number;
     };
     tabs?: {
         tabCount: number;
@@ -163,12 +166,15 @@ export async function collectDiagProbeEvidence(
     const data: DiagProbeEvidence = {};
 
     if (opSet.has('process')) {
+        const active = await ctx.display.readActiveGeometry();
         data.process = {
             display:           ctx.display.displayEnv,
             xvfbPid:           ctx.display.xvfbPid,
             wmPid:             ctx.display.wmPid,
             chromePid:         resolveChromePid(ctx.context),
             userDataDirExists: fs.existsSync(ctx.userDataDir),
+            activeWidth:       active.width,
+            activeHeight:      active.height,
         };
     }
 

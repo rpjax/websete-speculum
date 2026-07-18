@@ -55,7 +55,19 @@ public sealed record MotorSessionStartFailedPayload(
 
 public sealed record MotorSidecarFaultedPayload(string Fault, string ErrorCode);
 
-public sealed record MotorResizePayload(int Width, int Height);
+public sealed record MotorResizePayload(int Width, int Height, string? ResizeId = null);
+
+public sealed record MotorResizeOutcomePayload(
+    string ResizeId,
+    int Width,
+    int Height,
+    string? ErrorCode = null,
+    string? Phase = null,
+    string? Message = null,
+    int? ChromeWidth = null,
+    int? ChromeHeight = null,
+    int? DisplayWidth = null,
+    int? DisplayHeight = null);
 
 public sealed record MotorInputRejectedPayload(
     string ErrorCode, string Phase, string Message, string? InputType);

@@ -28,5 +28,14 @@ public interface ISidecarClient : IAsyncDisposable
         string? domSelector = null,
         int? maxProbeResponseBytes = null,
         CancellationToken ct = default);
+
+    /// <summary>Send correlated <c>resize</c> and await <c>resizeResult</c>.</summary>
+    Task<SidecarResizeResult> RequestResizeAsync(
+        string requestId,
+        int width,
+        int height,
+        Speculum.Api.Motor.Live.DeviceProfile device,
+        CancellationToken ct = default);
+
     Task SendInputAsync(ReadOnlyMemory<byte> raw, CancellationToken ct = default);
 }

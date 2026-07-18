@@ -204,6 +204,10 @@ Lifecycle payload minimums (opaque but decisive — no stacks):
 | `NavigateBlocked` | `errorCode:"url_blocked"`, `phase:"build_target"`, `message`, `clientUrl` |
 | `SessionRefused` | `errorCode:"session_limit"`, `phase:"acquire_slot"`, `maxSessions`, `activeCount`, `startingCount` |
 | `SidecarFaulted` | `fault`, `errorCode` |
+| `ResizeRequested` | `width`, `height`, `resizeId` |
+| `ResizeApplied` | `resizeId`, confirmed `width`/`height`, optional `chromeWidth`/`chromeHeight`/`displayWidth`/`displayHeight` |
+| `ResizeRejected` | `resizeId`, requested `width`/`height`, `errorCode` (`invalid_viewport`), `phase` (`validate`), `message` |
+| `ResizeFailed` | `resizeId`, requested `width`/`height`, `errorCode`, `phase`, `message` (last confirmed size kept) |
 | `Sidecar.DiagProbe*` | `ops`; TimedOut/Rejected/Busy also `errorCode` (`DiagProbeBusy` = `probe_busy`, standalone beat — not a span close) |
 | `Diagnostics.SpanAbandoned` | `spanKey?`, `errorCode` (`span_timeout`/`span_abandoned`/`disconnect`), `phase`, `openMs` |
 

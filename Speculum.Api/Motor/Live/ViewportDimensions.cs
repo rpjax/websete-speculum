@@ -13,13 +13,42 @@ internal static class ViewportDimensions
     public const double MaxDeviceScaleFactor = 2;
     public const int MaxTouchPoints = 10;
 
-    public static (int Width, int Height) Normalize(int viewportWidth, int viewportHeight)
+    /// <summary>Startup only: 0 / non-positive → defaults; clamp to max (never reject).</summary>
+    public static (int Width, int Height) NormalizeStart(int viewportWidth, int viewportHeight)
     {
         var w = viewportWidth > 0 ? viewportWidth : DefaultWidth;
         var h = viewportHeight > 0 ? viewportHeight : DefaultHeight;
         w = Math.Clamp(w, 1, MaxWidth);
         h = Math.Clamp(h, 1, MaxHeight);
         return (w, h);
+    }
+
+    /// <summary>
+    /// Legacy alias for startup normalization (session create / coordinator).
+    /// Runtime resize must use <see cref="TryValidateResize"/>.
+    /// </summary>
+    public static (int Width, int Height) Normalize(int viewportWidth, int viewportHeight)
+        => NormalizeStart(viewportWidth, viewportHeight);
+
+    /// <summary>Runtime resize: reject below min or above max — never snap or clamp silently.</summary>
+    public static bool TryValidateResize(int width, int height, out int w, out int h, out string message)
+    {
+        w = width;
+        h = height;
+        if (width < MinWidth || height < MinHeight)
+        {
+            message = $"viewport {width}×{height} below minimum {MinWidth}×{MinHeight}";
+            return false;
+        }
+
+        if (width > MaxWidth || height > MaxHeight)
+        {
+            message = $"viewport {width}×{height} above maximum {MaxWidth}×{MaxHeight}";
+            return false;
+        }
+
+        message = "";
+        return true;
     }
 
     public static DeviceProfile NormalizeDevice(DeviceProfile? device)

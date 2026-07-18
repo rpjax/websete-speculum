@@ -89,6 +89,7 @@ export type InputEvent =
     | TouchEvent
     | {
         type: 'resize';
+        requestId?: string;
         width: number;
         height: number;
         mobile?: boolean;
@@ -195,6 +196,29 @@ export type StateExportErrorMessage = {
     type:      'stateExportError';
     message:   string;
     errorCode: string;
+};
+
+/** Sidecar → API acknowledged resize outcome. */
+export type ResizeResultMessage = {
+    type: 'resizeResult';
+    requestId: string;
+    ok: boolean;
+    width: number;
+    height: number;
+    chromeWidth?: number;
+    chromeHeight?: number;
+    displayWidth?: number;
+    displayHeight?: number;
+    errorCode?: string;
+    phase?: string;
+    message?: string;
+};
+
+export type ReadyMessage = {
+    type: 'ready';
+    sessionId: string;
+    width: number;
+    height: number;
 };
 
 export type SidecarInboundMessage =

@@ -1,7 +1,6 @@
 import { WebSocket } from 'ws';
 import { BrowserContext, Page } from 'patchright';
 import { encodeUrlUpdate, encodeStatusFrame, type EditingState } from '../protocol/wire-protocol';
-import { ResizeGuard } from '../ResizeGuard';
 
 /**
  * URL sync on navigation and periodic status publisher.
@@ -23,14 +22,26 @@ export class StatusPublisher {
     private _editing: EditingState | null = null;
     private _statusGen = 0;
     private _inFlight = false;
+    private _context: BrowserContext;
+    private _page: Page;
 
     constructor(
-        private readonly _ws:          WebSocket,
-        private readonly _context:   BrowserContext,
-        private readonly _page:      Page,
-        private readonly _resizeGuard: ResizeGuard,
+        private readonly _ws: WebSocket,
+        context: BrowserContext,
+        page: Page,
+        private readonly _isResizing: () => boolean,
         private readonly _getDimensions: () => { width: number; height: number },
-    ) {}
+    ) {
+        this._context = context;
+        this._page = page;
+    }
+
+    rebind(context: BrowserContext, page: Page): void {
+        this._context = context;
+        this._page = page;
+        this._statusGen++;
+        this._editing = null;
+    }
 
     start(): void {
         this._interval = setInterval(() => this._sendStatus(), 1_000);
@@ -107,7 +118,7 @@ export class StatusPublisher {
                 this._ws.send(encodeStatusFrame({
                     tabCount: this._context.pages().length,
                     url:      this._page.url(),
-                    resizing: this._resizeGuard.isActive,
+                    resizing: this._isResizing(),
                     width,
                     height,
                     editing:  this._editing,

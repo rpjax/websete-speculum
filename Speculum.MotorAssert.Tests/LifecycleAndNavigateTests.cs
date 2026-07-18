@@ -287,6 +287,23 @@ public sealed class LifecycleAndNavigateTests : MotorAssertTestBase
             TimeSpan.FromSeconds(30));
         Assert.Equal(1280, status.Width);
         Assert.Equal(720, status.Height);
+
+        var chrome = await fx.Diagnostics.PostBrowserProbeAsync(
+            act.ConnectionId!,
+            ["evaluate", "process"],
+            evaluateExpression: "JSON.stringify({w: window.innerWidth, h: window.innerHeight})");
+        Assert.True(chrome.GetProperty("ok").GetBoolean());
+        var data = chrome.GetProperty("data");
+        var evaluateRaw = data.GetProperty("evaluate").GetString();
+        Assert.False(string.IsNullOrWhiteSpace(evaluateRaw), data.ToString());
+        using var evaluateDoc = JsonDocument.Parse(evaluateRaw!);
+        Assert.Equal(1280, evaluateDoc.RootElement.GetProperty("w").GetInt32());
+        Assert.Equal(720, evaluateDoc.RootElement.GetProperty("h").GetInt32());
+        Assert.Equal(1280, data.GetProperty("process").GetProperty("activeWidth").GetInt32());
+        Assert.Equal(720, data.GetProperty("process").GetProperty("activeHeight").GetInt32());
+
+        await act.WaitForJpegGeometryAsync(1280, 720, TimeSpan.FromSeconds(30));
+
         var session = await fx.Diagnostics.TryGetSessionAsync(act.ConnectionId!);
         Assert.Equal("Running", session!.Value.GetProperty("snapshot").GetProperty("phase").GetString());
     }

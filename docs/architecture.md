@@ -77,10 +77,13 @@ The **Diagnostics** pipeline follows **Observe → Govern → Record → Query �
                                 ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │  sidecar (Node.js + Patchright)                                              │
-│    Xvfb → Chrome (non-headless) → CDP screencast → JPEG frames              │
+│    SessionViewport (confirmed W×H) → exact Xvfb → Chrome → JPEG frames      │
+│    Runtime resize recreates Xvfb at the exact size (no xrandr snap)          │
 │    Navigation guard, browser state export/import, script injection           │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+**Viewport contract:** confirmed CSS client size = Chrome `innerWidth`/`innerHeight` = active Xvfb geometry. Create fails if the initial size cannot be proven. Runtime invalid sizes are rejected; operational failures keep the last confirmed size.
 
 ### Component responsibilities
 

@@ -27,11 +27,13 @@ This container is **never exposed** to the public internet in production stacks 
 Speculum.Api  ──ws://sidecar:3000──►  sidecar
                                          ├─ WsSessionHost (WebSocket transport)
                                          ├─ RemoteBrowserSession (Chrome + CDP)
-                                         ├─ ScreencastPipeline → JPEG
+                                         ├─ SessionViewport (sole confirmed W×H owner)
+                                         ├─ VirtualDisplay (exact Xvfb geometry)
+                                         ├─ ScreencastPipeline → JPEG (idle screenshots match confirmed size)
                                          └─ BrowserState (CDP export/import on shutdown/create)
 ```
 
-Each API session maps to one `RemoteBrowserSession` with its own display number, viewport, navigation allowlist, and optional browser state restore.
+Each API session maps to one `RemoteBrowserSession` with its own display number, **confirmed** viewport (`SessionViewport`), navigation allowlist, and optional browser state restore. Runtime size changes recreate Xvfb at the exact requested geometry (this image does not honour `xrandr --newmode`) and acknowledge via correlated `resize` / `resizeResult`.
 
 ---
 
@@ -44,9 +46,11 @@ sidecar/
 │   ├── transport/WsSessionHost.ts  WS handshake + session routing
 │   ├── browser/
 │   │   ├── RemoteBrowserSession.ts Chrome lifecycle orchestrator
+│   │   ├── SessionViewport.ts      Confirmed viewport + resize outcomes
+│   │   ├── viewport-bounds.ts      Start normalize / resize validate
 │   │   ├── BrowserLauncher.ts      Patchright launch and CDP
 │   │   ├── ScreencastPipeline.ts   JPEG frame pipeline
-│   │   ├── VirtualDisplay.ts       Xvfb display allocation
+│   │   ├── VirtualDisplay.ts       Exact Xvfb lifecycle + recreate
 │   │   ├── JsBridgeSetup.ts        evaljs + console bridge
 │   │   └── UrlSyncBridge.ts        URL/status sync
 │   ├── navigation/NavigationGuard.ts

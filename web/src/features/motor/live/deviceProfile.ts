@@ -9,7 +9,7 @@ export const SESSION_VIEWPORT = {
 } as const
 
 /**
- * Normalize session size the same way the API does before create/resize,
+ * Normalize session size the same way the API does at create,
  * so canvas→page coordinate mapping matches the remote viewport.
  */
 export function normalizeSessionViewport(width: number, height: number): { w: number; h: number } {
@@ -18,6 +18,24 @@ export function normalizeSessionViewport(width: number, height: number): { w: nu
   w = Math.min(SESSION_VIEWPORT.maxWidth, Math.max(1, w))
   h = Math.min(SESSION_VIEWPORT.maxHeight, Math.max(1, h))
   return { w, h }
+}
+
+/** Runtime resize candidate — reject below 100 or above ceiling (never snap). */
+export function validateResizeViewport(width: number, height: number):
+  | { ok: true; w: number; h: number }
+  | { ok: false; message: string } {
+  const w = Math.round(width)
+  const h = Math.round(height)
+  if (!Number.isFinite(w) || !Number.isFinite(h) || w < 100 || h < 100) {
+    return { ok: false, message: `viewport ${w}×${h} below minimum 100×100` }
+  }
+  if (w > SESSION_VIEWPORT.maxWidth || h > SESSION_VIEWPORT.maxHeight) {
+    return {
+      ok: false,
+      message: `viewport ${w}×${h} above maximum ${SESSION_VIEWPORT.maxWidth}×${SESSION_VIEWPORT.maxHeight}`,
+    }
+  }
+  return { ok: true, w, h }
 }
 
 /**

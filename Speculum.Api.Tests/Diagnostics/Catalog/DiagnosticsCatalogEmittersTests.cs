@@ -24,6 +24,7 @@ public sealed class DiagnosticsCatalogEmittersTests
             "Motor.SessionStarted", "Motor.SessionResolved", "Motor.UrlMapped",
             "Motor.SessionStopped", "Motor.NavigateRejected",
             "Motor.DrainStarted", "Motor.DrainCompleted", "Motor.ResizeRequested",
+            "Motor.ResizeApplied", "Motor.ResizeRejected", "Motor.ResizeFailed",
             "Motor.InputRejected",
             "Motor.SidecarFaulted", "Diagnostics.StorageOverflow",
             "Diagnostics.ElevateStarted", "Diagnostics.ElevateExpired",

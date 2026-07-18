@@ -11,12 +11,14 @@ import {
   deviceProfilesEqual,
   isTouchPrimaryProfile,
   normalizeSessionViewport,
+  validateResizeViewport,
 } from './deviceProfile'
 import type {
   ConsoleOutputPayload,
   DeviceProfilePayload,
   MotorElements,
   MotorUiState,
+  ResizeResultPayload,
   SessionStatusPayload,
   StateListener,
 } from './types'
@@ -50,6 +52,8 @@ export class MotorEngine {
   /** Consecutive status ticks without editing — absorb probe false-negatives. */
   private editingMissTicks = 0
   private editingSessionActive = false
+  /** True while a ResizeAsync invoke is in flight — do not commit canvas from status. */
+  private resizeInFlight = false
   /** Viewport size used for remote resize — frozen while local keyboard is open. */
   private remoteViewportW = 0
   private remoteViewportH = 0
@@ -91,6 +95,7 @@ export class MotorEngine {
     url: '',
     fps: null,
     navDisabled: true,
+    resizeWarning: null,
   }
 
   constructor() {
@@ -166,15 +171,21 @@ export class MotorEngine {
     this.elements = null
   }
 
-  /** Debounced ResizeAsync — size and/or device profile (orientation, DPR, mobile). */
+  /** Debounced ResizeAsync — candidate size; canvas commits only after hub ack. */
   private scheduleRemoteViewportSync(rawW: number, rawH: number) {
     // Do not resize the remote device when the local virtual keyboard shrinks the SPA.
     if (this.keyboardShellOpen) {
       this.viewportSyncPending = true
       return
     }
-    if (rawW < 100 || rawH < 100) return
-    const { w, h } = normalizeSessionViewport(rawW, rawH)
+    // Coalesce while an invoke is in flight — avoids concurrent ResizeAsync / sidecar busy.
+    if (this.resizeInFlight) {
+      this.viewportSyncPending = true
+      return
+    }
+    const validated = validateResizeViewport(rawW, rawH)
+    if (!validated.ok) return
+    const { w, h } = validated
     const nextProfile = detectDeviceProfile()
     if (w === this.remoteViewportW && h === this.remoteViewportH
       && deviceProfilesEqual(this.deviceProfile, nextProfile)) {
@@ -184,14 +195,30 @@ export class MotorEngine {
     if (this.resizeTimer) clearTimeout(this.resizeTimer)
     this.resizeTimer = setTimeout(async () => {
       const profile = detectDeviceProfile()
-      this.syncCanvasSize(w, h)
-      this.remoteViewportW = w
-      this.remoteViewportH = h
-      this.deviceProfile = profile
-      if (this.connection.hub) {
-        try {
-          await this.connection.hub.invoke('ResizeAsync', w, h, profile)
-        } catch { /* ignore */ }
+      if (!this.connection.hub || this.resizeInFlight) return
+      this.resizeInFlight = true
+      try {
+        const result = await this.connection.hub.invoke<ResizeResultPayload>(
+          'ResizeAsync', w, h, profile,
+        )
+        if (result?.applied) {
+          this.syncCanvasSize(result.width, result.height)
+          this.remoteViewportW = result.width
+          this.remoteViewportH = result.height
+          this.deviceProfile = profile
+          this.emit({ resizeWarning: null })
+        } else {
+          const detail = result?.message || result?.errorCode || 'resize rejected'
+          this.emit({ resizeWarning: `Viewport resize failed: ${detail}` })
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        this.emit({ resizeWarning: `Viewport resize failed: ${message}` })
+      } finally {
+        this.resizeInFlight = false
+        if (this.viewportSyncPending && !this.keyboardShellOpen) {
+          this.flushPendingViewportSync()
+        }
       }
     }, 250)
   }
@@ -379,8 +406,9 @@ export class MotorEngine {
       syncClientLocation(s.url, !!this.clientConfig?.mirroringEnabled)
     }
 
-    // Prefer remote-reported dims so input mapping matches a server-side clamp.
-    if (s.width > 0 && s.height > 0
+    // Confirmed geometry only — never while a ResizeAsync ack is pending (candidate vs confirmed).
+    if (!this.resizeInFlight
+      && s.width > 0 && s.height > 0
       && (s.width !== this.sessionW || s.height !== this.sessionH)) {
       this.syncCanvasSize(s.width, s.height)
       this.remoteViewportW = this.sessionW

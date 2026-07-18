@@ -60,7 +60,7 @@ public sealed class MotorHub : Hub
             clientUrl,
             Context.GetHttpContext()?.Request.Host.Value);
 
-    public Task ResizeAsync(int width, int height, DeviceProfile? device = null)
+    public Task<ResizeResult> ResizeAsync(int width, int height, DeviceProfile? device = null)
         => RequireSession().ResizeAsync(width, height, device);
 
     private IMotorSession RequireSession()

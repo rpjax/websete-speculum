@@ -11,28 +11,52 @@ public sealed class InputResizeProbeGovernanceTests : MotorAssertTestBase
     public InputResizeProbeGovernanceTests(MotorAssertFixture fixture) : base(fixture) { }
 
     [MotorAssertFact]
-    public async Task D1_resize_emits_requested()
+    public async Task D1_resize_exact_geometry_applied()
     {
         var since = DateTimeOffset.UtcNow.AddSeconds(-2);
         var actId = Guid.NewGuid().ToString("N");
         await using var act = new MotorActClient(fx.Host);
         await act.ConnectAsync();
-        await act.StartSessionAsync($"{fx.Host.FixtureClientOrigin}/", actId);
+        await act.StartSessionAsync($"{fx.Host.FixtureClientOrigin}/", actId, width: 1280, height: 720);
         await fx.Diagnostics.WaitForEventsAsync(
             act.ConnectionId, "Motor.Session", since,
             ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
 
         var resizeSince = DateTimeOffset.UtcNow.AddSeconds(-1);
-        await act.ResizeAsync(1024, 768);
+        var result = await act.ResizeAsync(757, 715);
+        Assert.True(result.Applied, $"resize not applied: {result.ErrorCode} {result.Message}");
+        Assert.Equal(757, result.Width);
+        Assert.Equal(715, result.Height);
+
         await fx.Diagnostics.WaitForEventsAsync(
             act.ConnectionId, "Motor.Resize", resizeSince,
-            ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.ResizeRequested"));
+            ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.ResizeRequested")
+                  && DiagnosticsAssertClient.HasEvent(ev, "Motor.ResizeApplied"));
 
         var status = await act.WaitForStatusAsync(
-            s => s.Width == 1024 && s.Height == 768,
+            s => s.Width == 757 && s.Height == 715,
             TimeSpan.FromSeconds(45));
-        Assert.Equal(1024, status.Width);
-        Assert.Equal(768, status.Height);
+        Assert.Equal(757, status.Width);
+        Assert.Equal(715, status.Height);
+
+        var chrome = await fx.Diagnostics.PostBrowserProbeAsync(
+            act.ConnectionId!,
+            ["evaluate"],
+            evaluateExpression: "JSON.stringify({w: window.innerWidth, h: window.innerHeight})");
+        Assert.True(chrome.GetProperty("ok").GetBoolean());
+        var evaluateRaw = chrome.GetProperty("data").GetProperty("evaluate").GetString();
+        Assert.False(string.IsNullOrWhiteSpace(evaluateRaw), chrome.GetProperty("data").ToString());
+        using var evaluateDoc = JsonDocument.Parse(evaluateRaw!);
+        Assert.Equal(757, evaluateDoc.RootElement.GetProperty("w").GetInt32());
+        Assert.Equal(715, evaluateDoc.RootElement.GetProperty("h").GetInt32());
+
+        var process = await fx.Diagnostics.PostBrowserProbeAsync(act.ConnectionId!, ["process"]);
+        Assert.True(process.GetProperty("ok").GetBoolean());
+        var proc = process.GetProperty("data").GetProperty("process");
+        Assert.Equal(757, proc.GetProperty("activeWidth").GetInt32());
+        Assert.Equal(715, proc.GetProperty("activeHeight").GetInt32());
+
+        await act.WaitForJpegGeometryAsync(757, 715, TimeSpan.FromSeconds(30));
     }
 
     [MotorAssertFact]

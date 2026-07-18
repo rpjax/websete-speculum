@@ -29,11 +29,14 @@ export async function launchBrowser(
     height:       number,
     browserState?: BrowserStatePayload,
     device?:      DeviceProfile,
+    options?:     { preserveUserDataDir?: boolean },
 ): Promise<BrowserHandle> {
     const profile = normalizeDeviceProfile(device);
     const userDataDir = profileDirForSession(sessionId);
 
-    try { fs.rmSync(userDataDir, { recursive: true, force: true }); } catch { /* best-effort */ }
+    if (!options?.preserveUserDataDir) {
+        try { fs.rmSync(userDataDir, { recursive: true, force: true }); } catch { /* best-effort */ }
+    }
 
     const context = await chromium.launchPersistentContext(userDataDir, {
         headless:       false,
@@ -77,21 +80,14 @@ export async function launchBrowser(
     if (!page) page = await context.newPage();
 
     const cdp = await context.newCDPSession(page);
-    try {
-        const { windowId } = await cdp.send('Browser.getWindowForTarget', {});
-        await cdp.send('Browser.setWindowBounds', {
-            windowId,
-            bounds: { windowState: 'fullscreen' },
-        });
-    } catch (err) {
-        console.warn('[BrowserManager] setWindowBounds failed:', (err as Error).message);
-    }
 
-    try {
-        await applyDeviceEmulation(cdp, width, height, profile);
-    } catch (err) {
-        console.warn('[BrowserManager] device emulation failed:', (err as Error).message);
-    }
+    const { windowId } = await cdp.send('Browser.getWindowForTarget', {}) as { windowId: number };
+    await cdp.send('Browser.setWindowBounds', {
+        windowId,
+        bounds: { windowState: 'fullscreen' },
+    });
+
+    await applyDeviceEmulation(cdp, width, height, profile);
 
     if (browserState) {
         await importBrowserState(cdp, page, browserState);

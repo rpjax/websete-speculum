@@ -65,6 +65,8 @@ test('WsSessionHost responds ready to create handshake', async () => {
 
     RemoteBrowserSession.create = async (sessionId) => ({
         sessionId,
+        confirmedWidth: 1280,
+        confirmedHeight: 720,
         dispose: async () => {},
         handleMessage: async () => {},
         captureState: async () => ({} as BrowserStatePayload),
@@ -84,9 +86,13 @@ test('WsSessionHost responds ready to create handshake', async () => {
             height:    720,
         }));
 
-        const response = await responsePromise as { type: string; sessionId: string };
+        const response = await responsePromise as {
+            type: string; sessionId: string; width: number; height: number;
+        };
         assert.equal(response.type, 'ready');
         assert.equal(response.sessionId, 'handshake-test');
+        assert.equal(response.width, 1280);
+        assert.equal(response.height, 720);
 
         ws.close();
         await host.shutdown();
@@ -114,6 +120,8 @@ test('WsSessionHost rejects duplicate create on same connection', async () => {
 
     RemoteBrowserSession.create = async (sessionId) => ({
         sessionId,
+        confirmedWidth: 800,
+        confirmedHeight: 600,
         dispose: async () => {},
         handleMessage: async () => {},
         captureState: async () => ({} as BrowserStatePayload),
@@ -132,8 +140,10 @@ test('WsSessionHost rejects duplicate create on same connection', async () => {
             height:    600,
         }));
 
-        const ready = await waitForJsonMessage(ws) as { type: string };
+        const ready = await waitForJsonMessage(ws) as { type: string; width: number; height: number };
         assert.equal(ready.type, 'ready');
+        assert.equal(ready.width, 800);
+        assert.equal(ready.height, 600);
 
         ws.send(JSON.stringify({
             type:      'create',

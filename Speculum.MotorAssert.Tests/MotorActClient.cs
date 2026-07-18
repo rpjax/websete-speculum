@@ -230,7 +230,7 @@ public sealed class MotorActClient : IAsyncDisposable
         return _connection!.InvokeAsync("NavigateAsync", clientUrl, ct);
     }
 
-    public Task ResizeAsync(
+    public Task<MotorResizeResult> ResizeAsync(
         int width,
         int height,
         MotorDeviceProfile? device = null,
@@ -238,7 +238,60 @@ public sealed class MotorActClient : IAsyncDisposable
     {
         EnsureConnected();
         // Always send the device arg (even null) so MessagePack arity matches MotorHub.ResizeAsync.
-        return _connection!.InvokeAsync("ResizeAsync", width, height, device, ct);
+        return _connection!.InvokeAsync<MotorResizeResult>("ResizeAsync", width, height, device, ct);
+    }
+
+    /// <summary>Wait until a JPEG frame reports exact SOF dimensions.</summary>
+    public async Task WaitForJpegGeometryAsync(int width, int height, TimeSpan timeout, CancellationToken ct = default)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            ct.ThrowIfCancellationRequested();
+            var frame = LastFrame;
+            if (frame?.Jpeg is { Length: > 0 } jpeg
+                && TryReadJpegDimensions(jpeg, out var w, out var h)
+                && w == width && h == height)
+            {
+                return;
+            }
+
+            await Task.Delay(200, ct);
+        }
+
+        throw new TimeoutException($"Timed out waiting for JPEG {width}×{height}.");
+    }
+
+    private static bool TryReadJpegDimensions(byte[] buf, out int width, out int height)
+    {
+        width = 0;
+        height = 0;
+        if (buf.Length < 4 || buf[0] != 0xff || buf[1] != 0xd8) return false;
+        var i = 2;
+        while (i + 9 < buf.Length)
+        {
+            if (buf[i] != 0xff) { i++; continue; }
+            var marker = buf[i + 1];
+            if (marker is 0x00 or 0xd8 or 0xd9 || (marker >= 0xd0 && marker <= 0xd7))
+            {
+                i += 2;
+                continue;
+            }
+
+            if (i + 3 >= buf.Length) return false;
+            var segLen = (buf[i + 2] << 8) | buf[i + 3];
+            if (segLen < 2) return false;
+            if (marker is 0xc0 or 0xc2)
+            {
+                height = (buf[i + 5] << 8) | buf[i + 6];
+                width = (buf[i + 7] << 8) | buf[i + 8];
+                return true;
+            }
+
+            i += 2 + segLen;
+        }
+
+        return false;
     }
 
     public async Task<MotorSessionStatus> WaitForStatusAsync(
@@ -408,4 +461,42 @@ public sealed class MotorConsoleInput
 
     [Key("code")]
     public required string Code { get; set; }
+}
+
+/// <summary>MessagePack mirror of ResizeResult.</summary>
+[MessagePackObject]
+public sealed class MotorResizeResult
+{
+    [Key("applied")]
+    public bool Applied { get; set; }
+
+    [Key("width")]
+    public int Width { get; set; }
+
+    [Key("height")]
+    public int Height { get; set; }
+
+    [Key("chromeWidth")]
+    public int? ChromeWidth { get; set; }
+
+    [Key("chromeHeight")]
+    public int? ChromeHeight { get; set; }
+
+    [Key("displayWidth")]
+    public int? DisplayWidth { get; set; }
+
+    [Key("displayHeight")]
+    public int? DisplayHeight { get; set; }
+
+    [Key("resizeId")]
+    public string? ResizeId { get; set; }
+
+    [Key("errorCode")]
+    public string? ErrorCode { get; set; }
+
+    [Key("phase")]
+    public string? Phase { get; set; }
+
+    [Key("message")]
+    public string? Message { get; set; }
 }

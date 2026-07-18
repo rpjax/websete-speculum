@@ -55,7 +55,7 @@ test('capProbeData trims oversized payloads within budget', () => {
         cookies: [{ name: 'a', value: huge, domain: 'x', path: '/', httpOnly: false, secure: false }],
         storage: Array.from({ length: 100 }, (_, i) => ({ origin: 'https://a', key: `k${i}`, value: 'v' })),
         dom:     { outerHTML: huge, text: 't' },
-        process: { display: ':100', xvfbPid: 1, wmPid: 2, chromePid: 3, userDataDirExists: true },
+        process: { display: ':100', xvfbPid: 1, wmPid: 2, chromePid: 3, userDataDirExists: true, activeWidth: 1280, activeHeight: 720 },
     }, 16_384);
 
     assert.ok(Buffer.byteLength(JSON.stringify(capped), 'utf8') <= 16_384);
@@ -70,7 +70,7 @@ test('capProbeData throws response_too_large when evidence cannot fit', () => {
             cookies: [{ name: 'a', value: huge, domain: 'x', path: '/', httpOnly: false, secure: false }],
             storage: Array.from({ length: 100 }, (_, i) => ({ origin: 'https://a', key: `k${i}`, value: 'v' })),
             dom:     { outerHTML: huge, text: 't' },
-            process: { display: ':100', xvfbPid: 1, wmPid: 2, chromePid: 3, userDataDirExists: true },
+            process: { display: ':100', xvfbPid: 1, wmPid: 2, chromePid: 3, userDataDirExists: true, activeWidth: 1280, activeHeight: 720 },
         }, 256),
         (err: Error) => err.message.includes('response_too_large'),
     );

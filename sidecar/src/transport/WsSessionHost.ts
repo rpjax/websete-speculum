@@ -1,6 +1,7 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import { VirtualDisplay } from '../browser/VirtualDisplay';
 import { RemoteBrowserSession } from '../browser/RemoteBrowserSession';
+import { normalizeStartViewport } from '../browser/viewport-bounds';
 import { CreateMessage, decodeMessage, type DiagProbeMessage } from '../protocol/wire-protocol';
 import { normalizeDeviceProfile } from '../protocol/device-profile';
 
@@ -78,20 +79,26 @@ export class WsSessionHost {
                     return;
                 }
 
+                const start = normalizeStartViewport(width, height);
                 const displayNum = this.nextDisplay++;
-                console.log(`[${sessionId}] Creating session on display :${displayNum}`);
+                console.log(`[${sessionId}] Creating session on display :${displayNum} at ${start.width}×${start.height}`);
 
                 let display: VirtualDisplay | undefined;
                 try {
-                    display = await VirtualDisplay.start(displayNum, width, height);
+                    display = await VirtualDisplay.start(displayNum, start.width, start.height);
 
                     session = await RemoteBrowserSession.create(
-                        sessionId, ws, display, width, height, url, scripts,
+                        sessionId, ws, display, start.width, start.height, url, scripts,
                         jsBridgeEnabled, allowedNavigationDomains, browserState, device,
                     );
                     this.activeSessions.add(session);
 
-                    ws.send(JSON.stringify({ type: 'ready', sessionId }));
+                    ws.send(JSON.stringify({
+                        type: 'ready',
+                        sessionId,
+                        width: session.confirmedWidth,
+                        height: session.confirmedHeight,
+                    }));
                 } catch (err) {
                     const message = (err as Error).message;
                     const errorCode = mapSidecarErrorCode(message);

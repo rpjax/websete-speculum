@@ -173,7 +173,7 @@ public sealed class NavigationDeepTests : MotorAssertTestBase
     }
 
     [MotorAssertFact]
-    public async Task D2_resize_below_100_is_noop()
+    public async Task D2_resize_below_100_is_rejected()
     {
         var since = DateTimeOffset.UtcNow.AddSeconds(-2);
         var actId = Guid.NewGuid().ToString("N");
@@ -185,9 +185,25 @@ public sealed class NavigationDeepTests : MotorAssertTestBase
             ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.SessionStarted", actId));
 
         await act.WaitForStatusAsync(s => s.Width == 1280 && s.Height == 720, TimeSpan.FromSeconds(30));
-        await act.ResizeAsync(50, 50);
+
+        var resizeSince = DateTimeOffset.UtcNow.AddSeconds(-1);
+        var result = await act.ResizeAsync(50, 50);
+        Assert.False(result.Applied);
+        Assert.Equal("invalid_viewport", result.ErrorCode);
+        Assert.Equal("validate", result.Phase);
+        Assert.Equal(1280, result.Width);
+        Assert.Equal(720, result.Height);
+
+        await fx.Diagnostics.WaitForEventsAsync(
+            act.ConnectionId, "Motor.Resize", resizeSince,
+            ev => DiagnosticsAssertClient.HasEvent(ev, "Motor.ResizeRejected")
+                  && !DiagnosticsAssertClient.HasEvent(ev, "Motor.ResizeApplied"));
+
         var status = await act.WaitForStatusAsync(s => true, TimeSpan.FromSeconds(10));
         Assert.Equal(1280, status.Width);
         Assert.Equal(720, status.Height);
+
+        var session = await fx.Diagnostics.TryGetSessionAsync(act.ConnectionId!);
+        Assert.Equal("Running", session!.Value.GetProperty("snapshot").GetProperty("phase").GetString());
     }
 }

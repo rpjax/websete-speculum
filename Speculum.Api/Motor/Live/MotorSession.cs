@@ -58,6 +58,9 @@ public sealed class MotorSession : IMotorSession
     private int _inputForwardedApprox;
     private string _lastMappedClientUrl = "";
     private string _lastMappedTargetUrl = "";
+    private int _confirmedWidth;
+    private int _confirmedHeight;
+    private DeviceProfile _confirmedDevice;
 
     public string? PersistedSessionId
     {
@@ -101,6 +104,9 @@ public sealed class MotorSession : IMotorSession
         _events.Attach(this);
         _logger               = logger;
         _currentUrl           = snapshot.InitialUrl;
+        _confirmedWidth       = snapshot.Width;
+        _confirmedHeight      = snapshot.Height;
+        _confirmedDevice      = snapshot.Device;
 
         _frameChannel = Channel.CreateBounded<Frame>(new BoundedChannelOptions(2)
         {
@@ -319,25 +325,103 @@ public sealed class MotorSession : IMotorSession
             JsonSerializer.SerializeToUtf8Bytes(new { type = "navigate", url }).AsMemory(), ct);
     }
 
-    public Task ResizeAsync(int width, int height, DeviceProfile? device = null, CancellationToken ct = default)
+    public async Task<ResizeResult> ResizeAsync(
+        int width, int height, DeviceProfile? device = null, CancellationToken ct = default)
     {
-        var (w, h) = ViewportDimensions.Normalize(width, height);
-        var profile = ViewportDimensions.NormalizeDevice(device ?? _snapshot.Device);
-        _events.Resize(w, h);
+        var resizeId = Guid.NewGuid().ToString("N");
+        var profile = ViewportDimensions.NormalizeDevice(device ?? _confirmedDevice);
 
-        return _client!.SendInputAsync(
-            JsonSerializer.SerializeToUtf8Bytes(new
+        if (!ViewportDimensions.TryValidateResize(width, height, out var w, out var h, out var rejectMessage))
+        {
+            _events.ResizeRequested(resizeId, width, height);
+            _events.ResizeRejected(resizeId, width, height, "invalid_viewport", "validate", rejectMessage);
+            return new ResizeResult
             {
-                type = "resize",
-                width = w,
-                height = h,
-                mobile = profile.Mobile,
-                touch = profile.Touch,
-                deviceScaleFactor = profile.DeviceScaleFactor,
-                maxTouchPoints = profile.MaxTouchPoints,
-                userAgentProfile = profile.UserAgentProfile,
-                screenOrientation = profile.ScreenOrientation,
-            }).AsMemory(), ct);
+                Applied = false,
+                Width = _confirmedWidth,
+                Height = _confirmedHeight,
+                ResizeId = resizeId,
+                ErrorCode = "invalid_viewport",
+                Phase = "validate",
+                Message = rejectMessage,
+            };
+        }
+
+        _events.ResizeRequested(resizeId, w, h);
+
+        try
+        {
+            var sidecar = await _client!.RequestResizeAsync(resizeId, w, h, profile, ct);
+            if (sidecar.Ok)
+            {
+                _confirmedWidth = sidecar.Width;
+                _confirmedHeight = sidecar.Height;
+                _confirmedDevice = profile;
+                _events.ResizeApplied(
+                    resizeId, sidecar.Width, sidecar.Height,
+                    sidecar.ChromeWidth, sidecar.ChromeHeight,
+                    sidecar.DisplayWidth, sidecar.DisplayHeight);
+                return new ResizeResult
+                {
+                    Applied = true,
+                    Width = sidecar.Width,
+                    Height = sidecar.Height,
+                    ChromeWidth = sidecar.ChromeWidth,
+                    ChromeHeight = sidecar.ChromeHeight,
+                    DisplayWidth = sidecar.DisplayWidth,
+                    DisplayHeight = sidecar.DisplayHeight,
+                    ResizeId = resizeId,
+                };
+            }
+
+            var errorCode = string.IsNullOrWhiteSpace(sidecar.ErrorCode)
+                ? "resize_apply_failed"
+                : sidecar.ErrorCode;
+            var phase = string.IsNullOrWhiteSpace(sidecar.Phase) ? "resize_apply" : sidecar.Phase;
+            var message = string.IsNullOrWhiteSpace(sidecar.Message)
+                ? "resize failed"
+                : sidecar.Message;
+
+            if (string.Equals(errorCode, "invalid_viewport", StringComparison.Ordinal)
+                || string.Equals(errorCode, "resize_busy", StringComparison.Ordinal))
+            {
+                _events.ResizeRejected(resizeId, w, h, errorCode, phase, message);
+            }
+            else
+            {
+                _events.ResizeFailed(resizeId, w, h, errorCode, phase, message);
+            }
+
+            return new ResizeResult
+            {
+                Applied = false,
+                Width = sidecar.Width > 0 ? sidecar.Width : _confirmedWidth,
+                Height = sidecar.Height > 0 ? sidecar.Height : _confirmedHeight,
+                ChromeWidth = sidecar.ChromeWidth,
+                ChromeHeight = sidecar.ChromeHeight,
+                DisplayWidth = sidecar.DisplayWidth,
+                DisplayHeight = sidecar.DisplayHeight,
+                ResizeId = resizeId,
+                ErrorCode = errorCode,
+                Phase = phase,
+                Message = message,
+            };
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            var message = ex.Message.Length > 512 ? ex.Message[..512] : ex.Message;
+            _events.ResizeFailed(resizeId, w, h, "resize_transport_failed", "await_result", message);
+            return new ResizeResult
+            {
+                Applied = false,
+                Width = _confirmedWidth,
+                Height = _confirmedHeight,
+                ResizeId = resizeId,
+                ErrorCode = "resize_transport_failed",
+                Phase = "await_result",
+                Message = message,
+            };
+        }
     }
 
     private async Task PumpFramesAsync(CancellationToken ct)

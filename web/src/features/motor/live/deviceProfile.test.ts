@@ -4,6 +4,7 @@ import {
   isTouchPrimaryProfile,
   normalizeSessionViewport,
   SESSION_VIEWPORT,
+  validateResizeViewport,
 } from './deviceProfile'
 
 describe('normalizeSessionViewport', () => {
@@ -21,6 +22,16 @@ describe('normalizeSessionViewport', () => {
 
   it('passes through normal sizes', () => {
     expect(normalizeSessionViewport(1440, 900)).toEqual({ w: 1440, h: 900 })
+  })
+})
+
+describe('validateResizeViewport', () => {
+  it('rejects below minimum without snapping', () => {
+    expect(validateResizeViewport(50, 50).ok).toBe(false)
+  })
+
+  it('accepts exact odd geometry', () => {
+    expect(validateResizeViewport(757, 715)).toEqual({ ok: true, w: 757, h: 715 })
   })
 })
 

@@ -1,16 +1,14 @@
 import { CDPSession } from 'patchright';
 import { encodeScreencastFrame } from '../protocol/wire-protocol';
-import { VirtualDisplay } from './VirtualDisplay';
+import { readJpegDimensions } from './jpeg-geometry';
 
 /**
- * Captures frames from the virtual browser via CDP Page.startScreencast.
+ * Captures frames via CDP Page.startScreencast.
  *
- * Chrome pushes JPEG frames on visual change. For idle/static pages that only
- * emit a single frame, we also push an idle screenshot on a timer so clients
- * and assertive probes always observe a live stream (not a one-shot still).
- *
- * Each screencast frame is ACKed immediately (fire-and-forget) so Chrome can
- * enqueue the next frame without waiting for a full round-trip.
+ * Chrome pushes JPEG frames on visual change. For idle/static pages we also
+ * push a fresh Page.captureScreenshot on a timer so clients always observe a
+ * live stream. Idle JPEGs whose decoded geometry diverges from the confirmed
+ * viewport are discarded (never stretched to fake sync).
  */
 export class ScreencastPipeline {
     private _cdp:     CDPSession;
@@ -46,14 +44,22 @@ export class ScreencastPipeline {
         return sc;
     }
 
+    /** Update confirmed viewport used for idle clip (no screencast restart). */
+    setViewport(width: number, height: number): void {
+        this._width = width;
+        this._height = height;
+    }
+
     async restart(
         width:   number,
         height:  number,
         onFrame: (buf: Buffer) => void,
+        cdp?:    CDPSession,
     ): Promise<void> {
         if (this._stopped) return;
         this._clearIdleTimer();
         try { await this._cdp.send('Page.stopScreencast', {}); } catch { /* best-effort */ }
+        if (cdp) this._cdp = cdp;
         await this._attach(width, height, onFrame);
     }
 
@@ -90,21 +96,21 @@ export class ScreencastPipeline {
         this._handler = function screencastFrameHandler(event: unknown): void {
             if (self._stopped) return;
             const ev = event as { data: string; sessionId: number };
-
-            // ACK immediately — Chromium waits for ack before sending another frame.
             cdp.send('Page.screencastFrameAck', { sessionId: ev.sessionId }).catch(() => {});
-
+            const jpeg = Buffer.from(ev.data, 'base64');
+            if (!self._jpegMatchesViewport(jpeg)) return;
             self._lastFrameAt = Date.now();
-            onFrame(encodeScreencastFrame(Buffer.from(ev.data, 'base64')));
+            onFrame(encodeScreencastFrame(jpeg));
         };
 
         this._cdp.on('Page.screencastFrame', this._handler);
 
+        // Ceiling caps — Chromium scales down to the page; do not restart on every resize.
         await this._cdp.send('Page.startScreencast', {
             format:        'jpeg',
             quality:       80,
-            maxWidth:      width,
-            maxHeight:     height,
+            maxWidth:      4096,
+            maxHeight:     2160,
             everyNthFrame: 1,
         });
 
@@ -116,7 +122,6 @@ export class ScreencastPipeline {
         this._idleTimer = setInterval(() => {
             void this._maybeIdleCapture();
         }, ScreencastPipeline.IDLE_MS);
-        // Unref so the timer never keeps the Node process alive alone.
         this._idleTimer.unref?.();
     }
 
@@ -130,29 +135,37 @@ export class ScreencastPipeline {
     private async _maybeIdleCapture(): Promise<void> {
         if (this._stopped || this._idleBusy || !this._onFrame) return;
         if (!ScreencastPipeline.shouldEmitIdleFrame(this._lastFrameAt, Date.now())) return;
+        if (this._width < 1 || this._height < 1) return;
 
         this._idleBusy = true;
         try {
-            // Clip to the snapped Xvfb CRTC. Without this, a failed xrandr leave the
-            // surface at 4096×2160 and idle JPEGs stretch differently than screencast
-            // frames — rhythmic size/position flicks on the Motor canvas.
-            const snapped = VirtualDisplay.snapSize(
-                Math.max(1, this._width),
-                Math.max(1, this._height),
-            );
             const result = await this._cdp.send('Page.captureScreenshot', {
                 format: 'jpeg',
                 quality: 80,
                 fromSurface: true,
-                clip: { x: 0, y: 0, width: snapped.width, height: snapped.height, scale: 1 },
+                clip: {
+                    x: 0,
+                    y: 0,
+                    width: this._width,
+                    height: this._height,
+                    scale: 1,
+                },
             }) as { data: string };
             if (this._stopped || !this._onFrame || !result?.data) return;
+            const jpeg = Buffer.from(result.data, 'base64');
+            if (!this._jpegMatchesViewport(jpeg)) return;
             this._lastFrameAt = Date.now();
-            this._onFrame(encodeScreencastFrame(Buffer.from(result.data, 'base64')));
+            this._onFrame(encodeScreencastFrame(jpeg));
         } catch {
-            // CDP may be mid-navigation; skip this tick.
+            // CDP may be mid-navigation / mid-rebind; skip this tick.
         } finally {
             this._idleBusy = false;
         }
+    }
+
+    private _jpegMatchesViewport(jpeg: Buffer): boolean {
+        const dims = readJpegDimensions(jpeg);
+        if (!dims) return false;
+        return dims.width === this._width && dims.height === this._height;
     }
 }

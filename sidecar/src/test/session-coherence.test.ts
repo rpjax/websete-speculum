@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import { AsyncChain } from '../AsyncChain';
 import { MouseMoveCoalescer } from '../MouseMoveCoalescer';
 import { NavigationGeneration } from '../NavigationGeneration';
-import { ResizeGuard } from '../ResizeGuard';
 
 test('AsyncChain serializes overlapping runs', async () => {
     const chain = new AsyncChain();
@@ -60,13 +59,4 @@ test('NavigationGeneration stale completion is a no-op after superseded', async 
 
     await stale;
     assert.equal(completed, 0);
-});
-
-test('ResizeGuard ignores concurrent resize attempts', () => {
-    const guard = new ResizeGuard();
-    assert.equal(guard.tryBegin(), true);
-    assert.equal(guard.tryBegin(), false);
-    guard.end();
-    assert.equal(guard.tryBegin(), true);
-    guard.end();
 });

@@ -217,7 +217,7 @@ public sealed class MotorSessionCoordinatorTests
             return Task.CompletedTask;
         }
 
-        public Task ResizeAsync(int width, int height, Speculum.Api.Motor.Live.DeviceProfile? device = null, CancellationToken ct = default) => Task.CompletedTask;
+        public Task<Speculum.Api.Motor.Live.Models.ResizeResult> ResizeAsync(int width, int height, Speculum.Api.Motor.Live.DeviceProfile? device = null, CancellationToken ct = default) => Task.FromResult(new Speculum.Api.Motor.Live.Models.ResizeResult { Applied = true, Width = width, Height = height });
     }
 
     private sealed class StubConfigStore : ISpeculumConfigStore
@@ -404,6 +404,6 @@ public sealed class MotorSessionCoordinatorTests
         public Task ConsumeUserInputAsync(ChannelReader<string> channelReader) => Task.CompletedTask;
         public Task ConsumeConsoleInputAsync(ChannelReader<ConsoleInput> channelReader) => Task.CompletedTask;
         public Task NavigateAsync(string url, CancellationToken ct = default) => Task.CompletedTask;
-        public Task ResizeAsync(int width, int height, Speculum.Api.Motor.Live.DeviceProfile? device = null, CancellationToken ct = default) => Task.CompletedTask;
+        public Task<Speculum.Api.Motor.Live.Models.ResizeResult> ResizeAsync(int width, int height, Speculum.Api.Motor.Live.DeviceProfile? device = null, CancellationToken ct = default) => Task.FromResult(new Speculum.Api.Motor.Live.Models.ResizeResult { Applied = true, Width = width, Height = height });
     }
 }

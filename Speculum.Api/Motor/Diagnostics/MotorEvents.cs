@@ -52,7 +52,12 @@ public interface IMotorEvents
     void SessionRefused(int maxSessions, int activeCount, int startingCount);
 
     void SidecarFaulted(string fault);
-    void Resize(int width, int height);
+    void ResizeRequested(string resizeId, int width, int height);
+    void ResizeApplied(
+        string resizeId, int width, int height,
+        int? chromeWidth, int? chromeHeight, int? displayWidth, int? displayHeight);
+    void ResizeRejected(string resizeId, int width, int height, string errorCode, string phase, string message);
+    void ResizeFailed(string resizeId, int width, int height, string errorCode, string phase, string message);
     void InputRejected(string rejectReason, string? inputType);
     void UrlMapped(string targetUrl, string clientUrl);
     void StatusMirror(double fps, long uptimeMs, int tabCount, int width, int height);
@@ -226,12 +231,45 @@ public sealed class MotorEvents : IMotorEvents
             DiagnosticsSeverity.Error);
     }
 
-    public void Resize(int width, int height)
+    public void ResizeRequested(string resizeId, int width, int height)
     {
         if (!_runtime.IsCapabilityEnabled(DiagnosticsDomain.MotorLive, DiagnosticsCapability.Event))
             return;
 
-        Publish("Motor.ResizeRequested", new MotorResizePayload(width, height));
+        Publish("Motor.ResizeRequested", new MotorResizePayload(width, height, resizeId));
+    }
+
+    public void ResizeApplied(
+        string resizeId, int width, int height,
+        int? chromeWidth, int? chromeHeight, int? displayWidth, int? displayHeight)
+    {
+        if (!_runtime.IsCapabilityEnabled(DiagnosticsDomain.MotorLive, DiagnosticsCapability.Event))
+            return;
+
+        Publish("Motor.ResizeApplied", new MotorResizeOutcomePayload(
+            resizeId, width, height,
+            ChromeWidth: chromeWidth, ChromeHeight: chromeHeight,
+            DisplayWidth: displayWidth, DisplayHeight: displayHeight));
+    }
+
+    public void ResizeRejected(string resizeId, int width, int height, string errorCode, string phase, string message)
+    {
+        if (!_runtime.IsCapabilityEnabled(DiagnosticsDomain.MotorLive, DiagnosticsCapability.Event))
+            return;
+
+        Publish("Motor.ResizeRejected",
+            new MotorResizeOutcomePayload(resizeId, width, height, errorCode, phase, Truncate(message)),
+            DiagnosticsSeverity.Warning);
+    }
+
+    public void ResizeFailed(string resizeId, int width, int height, string errorCode, string phase, string message)
+    {
+        if (!_runtime.IsCapabilityEnabled(DiagnosticsDomain.MotorLive, DiagnosticsCapability.Event))
+            return;
+
+        Publish("Motor.ResizeFailed",
+            new MotorResizeOutcomePayload(resizeId, width, height, errorCode, phase, Truncate(message)),
+            DiagnosticsSeverity.Error);
     }
 
     public void InputRejected(string rejectReason, string? inputType)

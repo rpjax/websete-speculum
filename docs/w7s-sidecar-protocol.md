@@ -61,9 +61,53 @@ Sidecar replies with `{"type":"ready","sessionId":"…"}` or:
 
 `errorCode` is stable for API diagnostics (`Network.setCookies` / invalid cookie params → `cookie_import_invalid`).
 
+### Ready handshake
+
+After a successful create the sidecar replies with confirmed geometry (already verified against Xvfb + Chrome):
+
+```json
+{ "type": "ready", "sessionId": "…", "width": 1280, "height": 720 }
+```
+
+Startup `0×0` (or non-positive) is normalized to **1280×720** before Xvfb/Chrome start. Create fails fatally if that geometry cannot be applied and proven.
+
 ### Input events (after create)
 
 `navigate`, `mousemove`, `mousedown`, `mouseup`, `wheel`, `keydown`, `keyup`, `type`, `text`, `touch`, `resize`, `refresh`, `goback`, `goforward`, `evaljs`.
+
+#### Resize (correlated)
+
+```json
+{
+  "type": "resize",
+  "requestId": "…",
+  "width": 757,
+  "height": 715,
+  "mobile": false,
+  "touch": false,
+  "deviceScaleFactor": 1
+}
+```
+
+Runtime resize rejects widths/heights below **100** or above **4096×2160** (never snaps). Size changes recreate Xvfb at the exact geometry and relaunch Chrome on that display; the last confirmed size is preserved on operational failure (one compensation attempt; session faults if compensation fails).
+
+Sidecar replies:
+
+```json
+{
+  "type": "resizeResult",
+  "requestId": "…",
+  "ok": true,
+  "width": 757,
+  "height": 715,
+  "chromeWidth": 757,
+  "chromeHeight": 715,
+  "displayWidth": 757,
+  "displayHeight": 715
+}
+```
+
+On failure: `ok: false` plus `errorCode` / `phase` / `message`, with `width`/`height` set to the last confirmed size.
 
 Touch (CDP `Input.dispatchTouchEvent`):
 

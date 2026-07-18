@@ -38,6 +38,8 @@ public sealed class SidecarClient : ISidecarClient
     private TaskCompletionSource<BrowserStatePayload>? _stateExportTcs;
     private TaskCompletionSource<object>? _diagProbeTcs;
     private string? _diagProbeRequestId;
+    private TaskCompletionSource<SidecarResizeResult>? _resizeTcs;
+    private string? _resizeRequestId;
 
     public string SessionId { get; }
 
@@ -158,6 +160,69 @@ public sealed class SidecarClient : ISidecarClient
         await SendCoreAsync(request, ct);
 
         return await _diagProbeTcs.Task.WaitAsync(ct);
+    }
+
+    public async Task<SidecarResizeResult> RequestResizeAsync(
+        string requestId,
+        int width,
+        int height,
+        Speculum.Api.Motor.Live.DeviceProfile device,
+        CancellationToken ct = default)
+    {
+        if (_ws.State != WebSocketState.Open)
+            throw new InvalidOperationException("Sidecar WebSocket is not open.");
+
+        if (string.IsNullOrWhiteSpace(requestId))
+            throw new ArgumentException("requestId is required.", nameof(requestId));
+
+        if (_resizeTcs is not null)
+            throw new InvalidOperationException("A resize request is already in flight.");
+
+        _resizeRequestId = requestId;
+        _resizeTcs = new TaskCompletionSource<SidecarResizeResult>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var payload = new Dictionary<string, object?>
+        {
+            ["type"] = "resize",
+            ["requestId"] = requestId,
+            ["width"] = width,
+            ["height"] = height,
+            ["mobile"] = device.Mobile,
+            ["touch"] = device.Touch,
+            ["deviceScaleFactor"] = device.DeviceScaleFactor,
+            ["maxTouchPoints"] = device.MaxTouchPoints,
+            ["userAgentProfile"] = device.UserAgentProfile,
+            ["screenOrientation"] = device.ScreenOrientation,
+        };
+
+        var request = JsonSerializer.SerializeToUtf8Bytes(payload, JsonOptions);
+        try
+        {
+            await SendCoreAsync(request, ct, requireOpen: true);
+        }
+        catch
+        {
+            _resizeTcs = null;
+            _resizeRequestId = null;
+            throw;
+        }
+
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeoutCts.CancelAfter(TimeSpan.FromSeconds(45));
+        try
+        {
+            return await _resizeTcs.Task.WaitAsync(timeoutCts.Token);
+        }
+        catch (OperationCanceledException) when (
+            timeoutCts.IsCancellationRequested && !ct.IsCancellationRequested)
+        {
+            _resizeTcs?.TrySetCanceled();
+            _resizeTcs = null;
+            _resizeRequestId = null;
+            throw new TimeoutException(
+                $"Sidecar did not acknowledge resize {requestId} within 45 s (session {SessionId}).");
+        }
     }
 
     private async Task<List<byte[]>> WaitForReadyAsync(CancellationToken ct)
@@ -297,6 +362,9 @@ public sealed class SidecarClient : ISidecarClient
             _video.Writer.TryComplete();
             _control.Writer.TryComplete();
             _stateExportTcs?.TrySetException(new OperationCanceledException("Sidecar receive loop ended."));
+            _resizeTcs?.TrySetException(new OperationCanceledException("Sidecar receive loop ended."));
+            _resizeTcs = null;
+            _resizeRequestId = null;
         }
     }
 
@@ -351,6 +419,24 @@ public sealed class SidecarClient : ISidecarClient
                 return;
             }
 
+            if (type == "resizeResult")
+            {
+                if (_resizeTcs is null) return;
+                var requestId = doc.RootElement.TryGetProperty("requestId", out var rid)
+                    ? rid.GetString()
+                    : null;
+                if (_resizeRequestId is not null
+                    && !string.Equals(requestId, _resizeRequestId, StringComparison.Ordinal))
+                    return;
+
+                var result = JsonSerializer.Deserialize<SidecarResizeResult>(text, JsonOptions)
+                    ?? new SidecarResizeResult { RequestId = requestId ?? "", Ok = false };
+                _resizeTcs.TrySetResult(result);
+                _resizeTcs = null;
+                _resizeRequestId = null;
+                return;
+            }
+
             if (_stateExportTcs is not null && type is "stateExportError" or "error")
             {
                 var msg = doc.RootElement.TryGetProperty("message", out var m)
@@ -368,6 +454,9 @@ public sealed class SidecarClient : ISidecarClient
             _diagProbeTcs?.TrySetException(ex);
             _diagProbeTcs = null;
             _diagProbeRequestId = null;
+            _resizeTcs?.TrySetException(ex);
+            _resizeTcs = null;
+            _resizeRequestId = null;
         }
     }
 
@@ -415,12 +504,17 @@ public sealed class SidecarClient : ISidecarClient
     public Task SendInputAsync(ReadOnlyMemory<byte> raw, CancellationToken ct = default)
         => SendCoreAsync(raw, ct);
 
-    private async Task SendCoreAsync(ReadOnlyMemory<byte> data, CancellationToken ct)
+    private async Task SendCoreAsync(ReadOnlyMemory<byte> data, CancellationToken ct, bool requireOpen = false)
     {
         await _sendLock.WaitAsync(ct);
         try
         {
-            if (_ws.State != WebSocketState.Open) return;
+            if (_ws.State != WebSocketState.Open)
+            {
+                if (requireOpen)
+                    throw new InvalidOperationException("Sidecar WebSocket is not open.");
+                return;
+            }
             await _ws.SendAsync(data, WebSocketMessageType.Text, true, ct);
         }
         finally
@@ -446,6 +540,9 @@ public sealed class SidecarClient : ISidecarClient
         _video.Writer.TryComplete();
         _control.Writer.TryComplete();
         _stateExportTcs?.TrySetCanceled();
+        _resizeTcs?.TrySetCanceled();
+        _resizeTcs = null;
+        _resizeRequestId = null;
 
         try
         {

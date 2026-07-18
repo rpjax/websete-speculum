@@ -1,13 +1,11 @@
 import { Page, CDPSession } from 'patchright';
 import { decodeMessage, type TouchPoint } from '../protocol/wire-protocol';
-import { ScreencastPipeline } from '../browser/ScreencastPipeline';
 import { MouseMoveCoalescer } from '../MouseMoveCoalescer';
 import { NavigationGeneration } from '../NavigationGeneration';
-import { ResizeGuard } from '../ResizeGuard';
 import { normalizeWheelDeltas } from './wheel-defaults';
 import { normalizeDeviceProfile, type DeviceProfile } from '../protocol/device-profile';
-import { applyDeviceEmulation } from './device-emulation';
 import { TouchMoveCoalescer } from './TouchMoveCoalescer';
+import type { SessionViewport } from '../browser/SessionViewport';
 
 export { normalizeWheelDeltas } from './wheel-defaults';
 
@@ -44,35 +42,63 @@ export type InputPipelineDeps = {
     sessionId:       string;
     page:            Page;
     cdp:             CDPSession;
-    capture:         ScreencastPipeline;
-    onFrame:         (buf: Buffer) => void;
     jsBridgeEnabled: boolean;
     onEvalJs:        (id: number, code: string) => Promise<void>;
     isExporting:     () => boolean;
     isDisposed:      () => boolean;
-    getDimensions:   () => { width: number; height: number };
-    setDimensions:   (width: number, height: number) => void;
-    getDevice:       () => DeviceProfile;
-    setDevice:       (device: DeviceProfile) => void;
-    /** Best-effort Xvfb CRTC resize so idle screenshots match the session viewport. */
-    resizeDisplay?:  (width: number, height: number) => Promise<void>;
+    getViewport:     () => SessionViewport;
+    /** Runtime resize — returns wire resizeResult fields (caller sends). */
+    onResize:        (req: {
+        requestId: string;
+        width: number;
+        height: number;
+        device: DeviceProfile;
+    }) => Promise<{
+        ok: boolean;
+        width: number;
+        height: number;
+        chromeWidth?: number;
+        chromeHeight?: number;
+        displayWidth?: number;
+        displayHeight?: number;
+        errorCode?: string;
+        phase?: string;
+        message?: string;
+    }>;
+    sendResizeResult: (result: {
+        requestId: string;
+        ok: boolean;
+        width: number;
+        height: number;
+        chromeWidth?: number;
+        chromeHeight?: number;
+        displayWidth?: number;
+        displayHeight?: number;
+        errorCode?: string;
+        phase?: string;
+        message?: string;
+    }) => void;
 };
 
 /**
- * Decodes wire input messages and dispatches pointer, touch, keyboard, navigation, resize.
+ * Decodes wire input messages and dispatches pointer, touch, keyboard, navigation.
+ * Viewport mutation is owned by SessionViewport via onResize.
  */
 export class InputPipeline {
-    private readonly _resizeGuard = new ResizeGuard();
     private readonly _navigation  = new NavigationGeneration();
     private readonly _mouseMoveCoalescer: MouseMoveCoalescer;
     private readonly _touchMoveCoalescer: TouchMoveCoalescer;
     private _inputChain: Promise<void> = Promise.resolve();
+    private _page: Page;
+    private _cdp: CDPSession;
 
     constructor(private readonly _deps: InputPipelineDeps) {
+        this._page = _deps.page;
+        this._cdp = _deps.cdp;
         this._mouseMoveCoalescer = new MouseMoveCoalescer((x, y) => {
             if (this._deps.isExporting() || this._deps.isDisposed()) return;
             if (this._isTouchPrimary()) return;
-            this._deps.page.mouse.move(x, y).catch(() => {});
+            this._page.mouse.move(x, y).catch(() => {});
         });
         this._touchMoveCoalescer = new TouchMoveCoalescer((points) => {
             if (this._deps.isExporting() || this._deps.isDisposed()) return;
@@ -84,8 +110,10 @@ export class InputPipeline {
         });
     }
 
-    get resizeGuard(): ResizeGuard {
-        return this._resizeGuard;
+    /** After display/Chrome recreate, point dispatch at the new page/CDP. */
+    rebind(page: Page, cdp: CDPSession): void {
+        this._page = page;
+        this._cdp = cdp;
     }
 
     /** Serialize decisive input; mousemove / touchmove still coalesce separately. */
@@ -109,7 +137,7 @@ export class InputPipeline {
                     const url = msg.url;
                     if (!url.startsWith('http://') && !url.startsWith('https://')) break;
                     await this._runNavigation(() =>
-                        this._deps.page.goto(url, {
+                        this._page.goto(url, {
                             waitUntil: 'domcontentloaded',
                             timeout:   30_000,
                         }),
@@ -119,34 +147,33 @@ export class InputPipeline {
 
                 case 'refresh':
                     await this._runNavigation(() =>
-                        this._deps.page.reload({ waitUntil: 'domcontentloaded', timeout: 30_000 }),
+                        this._page.reload({ waitUntil: 'domcontentloaded', timeout: 30_000 }),
                     );
                     break;
 
                 case 'mousemove':
-                    // Touch-primary sessions: ignore hover cursor — avoids remote :hover flicks.
                     if (this._isTouchPrimary()) break;
                     this._queueMouseMove(msg.x, msg.y);
                     break;
 
                 case 'mousedown':
                     if (this._isTouchPrimary()) break;
-                    await this._deps.page.mouse.move(msg.x, msg.y);
-                    await this._deps.page.mouse.down({ button: domButton(msg.button) });
+                    await this._page.mouse.move(msg.x, msg.y);
+                    await this._page.mouse.down({ button: domButton(msg.button) });
                     break;
 
                 case 'mouseup':
                     if (this._isTouchPrimary()) break;
-                    await this._deps.page.mouse.move(msg.x, msg.y);
-                    await this._deps.page.mouse.up({ button: domButton(msg.button) });
+                    await this._page.mouse.move(msg.x, msg.y);
+                    await this._page.mouse.up({ button: domButton(msg.button) });
                     break;
 
                 case 'wheel': {
                     const { deltaX, deltaY } = normalizeWheelDeltas(msg);
                     if (!this._isTouchPrimary()) {
-                        await this._deps.page.mouse.move(msg.x, msg.y);
+                        await this._page.mouse.move(msg.x, msg.y);
                     }
-                    await this._deps.page.mouse.wheel(deltaX, deltaY);
+                    await this._page.mouse.wheel(deltaX, deltaY);
                     break;
                 }
 
@@ -164,19 +191,19 @@ export class InputPipeline {
 
                 case 'keydown':
                     if (msg.key.length === 1 && msg.key.charCodeAt(0) > 127) {
-                        await this._deps.page.keyboard.type(msg.key);
+                        await this._page.keyboard.type(msg.key);
                     } else {
-                        await this._deps.page.keyboard.down(msg.key);
+                        await this._page.keyboard.down(msg.key);
                     }
                     break;
 
                 case 'keyup':
                     if (msg.key.length === 1 && msg.key.charCodeAt(0) > 127) break;
-                    await this._deps.page.keyboard.up(msg.key);
+                    await this._page.keyboard.up(msg.key);
                     break;
 
                 case 'type':
-                    await this._deps.page.keyboard.type(msg.text);
+                    await this._page.keyboard.type(msg.text);
                     break;
 
                 case 'text':
@@ -184,15 +211,14 @@ export class InputPipeline {
                     break;
 
                 case 'goback':
-                    // commit: bfcache restores often skip DOMContentLoaded, which hung goBack for 30s.
                     await this._runNavigation(() =>
-                        this._deps.page.goBack({ waitUntil: 'commit', timeout: 30_000 }),
+                        this._page.goBack({ waitUntil: 'commit', timeout: 30_000 }),
                     );
                     break;
 
                 case 'goforward':
                     await this._runNavigation(() =>
-                        this._deps.page.goForward({ waitUntil: 'commit', timeout: 30_000 }),
+                        this._page.goForward({ waitUntil: 'commit', timeout: 30_000 }),
                     );
                     break;
 
@@ -200,16 +226,27 @@ export class InputPipeline {
                     if (this._deps.jsBridgeEnabled) await this._deps.onEvalJs(msg.id, msg.code);
                     break;
 
-                case 'resize':
-                    await this._handleResize(msg.width, msg.height, normalizeDeviceProfile({
+                case 'resize': {
+                    const requestId = typeof msg.requestId === 'string' && msg.requestId.length > 0
+                        ? msg.requestId
+                        : `anon-${Date.now()}`;
+                    const device = normalizeDeviceProfile({
                         mobile: msg.mobile,
                         touch: msg.touch,
                         deviceScaleFactor: msg.deviceScaleFactor,
                         maxTouchPoints: msg.maxTouchPoints,
                         userAgentProfile: msg.userAgentProfile,
                         screenOrientation: msg.screenOrientation,
-                    }));
+                    });
+                    const result = await this._deps.onResize({
+                        requestId,
+                        width: msg.width,
+                        height: msg.height,
+                        device,
+                    });
+                    this._deps.sendResizeResult({ requestId, ...result });
                     break;
+                }
             }
         } catch (err) {
             console.warn(`[${this._deps.sessionId}] Input error (${msg.type}):`, (err as Error).message);
@@ -218,23 +255,20 @@ export class InputPipeline {
 
     /** Phone-like only — hybrid desktop (touch=true, mobile=false) must keep mouse clicks. */
     private _isTouchPrimary(): boolean {
-        return !!this._deps.getDevice().mobile;
+        return !!this._deps.getViewport().device.mobile;
     }
 
     private async _dispatchTouch(
         phase: string,
         points: TouchPoint[],
     ): Promise<void> {
-        // CDP: TouchEnd/TouchCancel must have zero points; TouchStart/Move need ≥1.
-        // Partial lift: end/cancel with [], then re-assert remaining contacts via touchStart
-        // (required after empty end — Chrome clears the whole contact set).
         if (phase === 'end' || phase === 'cancel') {
-            await this._deps.cdp.send('Input.dispatchTouchEvent', {
+            await this._cdp.send('Input.dispatchTouchEvent', {
                 type: cdpTouchType(phase),
                 touchPoints: [],
             });
             if (points.length > 0) {
-                await this._deps.cdp.send('Input.dispatchTouchEvent', {
+                await this._cdp.send('Input.dispatchTouchEvent', {
                     type: 'touchStart',
                     touchPoints: toCdpPoints(points),
                 });
@@ -242,7 +276,7 @@ export class InputPipeline {
             return;
         }
 
-        await this._deps.cdp.send('Input.dispatchTouchEvent', {
+        await this._cdp.send('Input.dispatchTouchEvent', {
             type: cdpTouchType(phase),
             touchPoints: toCdpPoints(points),
         });
@@ -250,9 +284,9 @@ export class InputPipeline {
 
     private async _insertText(text: string): Promise<void> {
         try {
-            await this._deps.cdp.send('Input.insertText', { text });
+            await this._cdp.send('Input.insertText', { text });
         } catch {
-            await this._deps.page.keyboard.type(text);
+            await this._page.keyboard.type(text);
         }
     }
 
@@ -273,46 +307,6 @@ export class InputPipeline {
                     (err as Error).message,
                 );
             }
-        }
-    }
-
-    private async _handleResize(w: number, h: number, device: DeviceProfile): Promise<void> {
-        if (!this._resizeGuard.tryBegin()) return;
-        const { width, height } = this._deps.getDimensions();
-        const current = this._deps.getDevice();
-        const sameSize = w === width && h === height;
-        const sameDevice =
-            current.mobile === device.mobile
-            && current.touch === device.touch
-            && current.deviceScaleFactor === device.deviceScaleFactor
-            && current.maxTouchPoints === device.maxTouchPoints
-            && current.userAgentProfile === device.userAgentProfile
-            && current.screenOrientation === device.screenOrientation;
-        if (sameSize && sameDevice) {
-            this._resizeGuard.end();
-            return;
-        }
-        if (w < 100 || h < 100) {
-            this._resizeGuard.end();
-            return;
-        }
-
-        try {
-            console.log(`[${this._deps.sessionId}] Resize → ${w}×${h} mobile=${device.mobile}`);
-            if (!sameSize && this._deps.resizeDisplay) {
-                await this._deps.resizeDisplay(w, h);
-            }
-            await applyDeviceEmulation(this._deps.cdp, w, h, device);
-            if (!sameSize) {
-                await this._deps.capture.restart(w, h, this._deps.onFrame);
-            }
-            this._deps.setDimensions(w, h);
-            this._deps.setDevice(device);
-            console.log(`[${this._deps.sessionId}] Resize complete → ${w}×${h}`);
-        } catch (err) {
-            console.error(`[${this._deps.sessionId}] Resize failed:`, (err as Error).message);
-        } finally {
-            this._resizeGuard.end();
         }
     }
 }

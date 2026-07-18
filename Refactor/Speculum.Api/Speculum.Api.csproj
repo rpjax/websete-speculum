@@ -1,0 +1,30 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="UserSessions\**" />
+    <Content Remove="UserSessions\**" />
+    <EmbeddedResource Remove="UserSessions\**" />
+    <None Remove="UserSessions\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Remove="Microsoft.AspNetCore.Http" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Aidan.Core" Version="1.9.0" />
+    <PackageReference Include="WolverineFx" Version="6.19.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="BrowserSessions\Aggregates\" />
+    <Folder Include="Diagnostics\" />
+  </ItemGroup>
+
+</Project>

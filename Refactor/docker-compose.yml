@@ -1,0 +1,47 @@
+# Refactor target stack — gRPC Api ↔ Patchright sidecar (no WS live path).
+# From Refactor/: docker compose -f docker-compose.yml up --build
+
+services:
+  sidecar:
+    build:
+      context: .
+      dockerfile: sidecar/Dockerfile
+    cap_add:
+      - SYS_ADMIN
+    shm_size: 2gb
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - SPECULUM_GRPC_PORT=50051
+      - SPECULUM_HEALTH_PORT=3001
+      - CHROME_EXECUTABLE=/usr/bin/google-chrome
+    ports:
+      - "50051:50051"
+      - "3001:3001"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:3001/ready"]
+      interval: 15s
+      timeout: 5s
+      start_period: 40s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: Speculum.Api/Dockerfile
+    restart: unless-stopped
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://0.0.0.0:8080
+      - Sidecar__GrpcAddress=http://sidecar:50051
+    ports:
+      - "8080:8080"
+    depends_on:
+      sidecar:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health/ready"]
+      interval: 15s
+      timeout: 5s
+      start_period: 20s
+      retries: 3

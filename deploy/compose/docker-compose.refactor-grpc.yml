@@ -1,0 +1,62 @@
+# gRPC-only target stack (Refactor Api + Patchright sidecar).
+# Replaces Sidecar__BaseUrl=ws://sidecar:3000 with Sidecar__GrpcAddress.
+#
+# From repo root:
+#   docker compose -f deploy/compose/docker-compose.refactor-grpc.yml up -d --build
+#
+# Sidecar image build context is Refactor/ (Chrome + Xvfb + gRPC :50051, health :3001).
+
+name: refactor-grpc
+
+services:
+  sidecar:
+    build:
+      context: ../../Refactor
+      dockerfile: sidecar/Dockerfile
+    cap_add:
+      - SYS_ADMIN
+    shm_size: 2gb
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      SPECULUM_GRPC_PORT: "50051"
+      SPECULUM_HEALTH_PORT: "3001"
+      CHROME_EXECUTABLE: /usr/bin/google-chrome
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:3001/ready"]
+      interval: 15s
+      timeout: 5s
+      start_period: 40s
+      retries: 5
+    networks:
+      - refactor-grpc
+
+  api:
+    build:
+      context: ../../Refactor
+      dockerfile: Speculum.Api/Dockerfile
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://0.0.0.0:8080
+      Sidecar__GrpcAddress: http://sidecar:50051
+      Database__Path: /data/speculum.db
+    volumes:
+      - refactor-grpc-data:/data
+    depends_on:
+      sidecar:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health/ready"]
+      interval: 15s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    networks:
+      - refactor-grpc
+
+networks:
+  refactor-grpc:
+
+volumes:
+  refactor-grpc-data:

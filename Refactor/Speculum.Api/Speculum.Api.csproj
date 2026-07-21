@@ -19,12 +19,25 @@
 
   <ItemGroup>
     <PackageReference Include="Aidan.Core" Version="1.9.0" />
+    <PackageReference Include="Google.Protobuf" Version="3.29.3" />
+    <PackageReference Include="Grpc.Net.Client" Version="2.67.0" />
+    <PackageReference Include="Grpc.Tools" Version="2.69.0">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="MessagePack" Version="3.1.3" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.0" />
     <PackageReference Include="WolverineFx" Version="6.19.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Protobuf Include="..\proto\browser_session.proto" GrpcServices="Client" />
   </ItemGroup>
 
   <ItemGroup>
     <Folder Include="BrowserSessions\Aggregates\" />
     <Folder Include="Diagnostics\" />
+    <Folder Include="Telemetry\" />
   </ItemGroup>
 
 </Project>

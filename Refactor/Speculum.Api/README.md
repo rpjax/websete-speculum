@@ -180,7 +180,7 @@ live output stream.
 | ◐ | Initial navigation | Required for successful start | Modeled, but resolver inputs are incomplete |
 | ○ | Runtime navigation | Maps client URL to target URL and commands the active browser | Navigation application port/orchestrator |
 | ○ | Scheme validation | Invalid/unsupported navigation is rejected | Navigation request validation |
-| ○ | Domain allowlist | Main-frame navigation honors exact and wildcard `Forwarding.domains` | Navigation policy port/result |
+| ○ | URL allowlist | Main-frame navigation honors shared domain/path pattern rules | Navigation policy port/result |
 | ○ | Blocked vs failed | Policy block is distinct from technical browser failure | Named results/events |
 | ○ | External redirect | Navigation outside the virtualized domain redirects the real client while session remains alive | Redirect output model |
 | ○ | Client URL mapping | Target URLs map back to client URLs, preserving path/query and navigation state | Reverse-mapping port |
@@ -289,6 +289,7 @@ The migration must preserve each section's **Motor effect**, not merely its JSON
 | ○ | Ordered script references by stored id or remote URL |
 | ○ | Positions: HeaderTop, HeaderBottom, BodyTop, BodyBottom |
 | ○ | Types: Classic / Module |
+| ○ | Per-script target URL rules with shared domain/path pattern models |
 | ○ | Session-generation snapshot: config changes affect new sessions |
 | ○ | Resolution failure leaves Motor operational without scripts but reports warning |
 
@@ -359,16 +360,16 @@ event catalog and persisted-state control.
 
 | Status | Feature to model |
 |--------|------------------|
-| ○ | Global enabled/profile (Development, Production, Assertive) |
-| ○ | Capability toggles: Motor metrics/events/snapshots |
-| ○ | Capability toggles: Sidecar metrics/events |
-| ○ | Capability toggle: BrowserQuery probe |
-| ○ | Capability toggle: Persisted snapshots |
-| ○ | Composite telemetry and per-section identity/detail toggles |
+| ◐ | Global enabled; Development/Production/Assertive remain bootstrap presets |
+| ◐ | Capability toggles: Motor metrics/events/snapshots |
+| ◐ | Capability toggles: Sidecar metrics/events |
+| ◐ | Capability toggle: BrowserQuery probe |
+| ◐ | Capability toggle: persisted-profile snapshots |
+| ◐ | Composite telemetry and per-section identity/detail toggles |
 | ○ | Storage budget, TTL, per-session event cap and DropOldest overflow |
-| ○ | Sampling ratios |
-| ○ | Temporary elevate duration |
-| ○ | Probe timeout, concurrency and response-size limits |
+| ◐ | Sampling ratios |
+| ◐ | Temporary elevate duration |
+| ◐ | Probe concurrency and response-size budgets; timeout remains technical |
 
 ### Diagnostics routes/features
 
@@ -485,3 +486,15 @@ application-layer orchestration, then mark the feature ✅/◐ here.
 - Diagnostics failures still require stable `errorCode` + context in their
   eventual catalog payloads.
 - W7S vocabulary remains at wire/client boundaries only.
+
+### `ISessionConnection` surface (API ↔ sidecar)
+
+**On the port:** `SessionId` / `IsOpen`; lifecycle (`LaunchBrowser` → ready geometry,
+`RestoreProfileState`, `Navigate`, `Refresh`, `ExportSessionState`, `StopBrowser`,
+`Close`); runtime (`Resize`, `RequestDiagnostics`); streams (frames, console out,
+status, user-input JSON pump, console-input pump).
+
+**Not on the port:** `IBrowserClient` registry; session slots / pipes; client↔target URL
+mapping and business allowlist; profile merge/persist; Journal emit; Diagnostics
+capability gates / probe budgets; hub/SignalR binding. History (`goback` /
+`goforward`) stays in validated user-input JSON.

@@ -1,0 +1,345 @@
+syntax = "proto3";
+
+package speculum.sidecar.v1;
+
+option csharp_namespace = "Speculum.Api.Sidecar.V1";
+
+// ── Shared ───────────────────────────────────────────────────────────────────
+
+message SessionId {
+  string session_id = 1;
+}
+
+message Empty {}
+
+message DeviceProfile {
+  optional bool mobile = 1;
+  optional bool touch = 2;
+  optional double device_scale_factor = 3;
+  optional int32 max_touch_points = 4;
+  optional string user_agent_profile = 5;
+  optional string screen_orientation = 6;
+}
+
+message ScriptInjection {
+  string position = 1;
+  string type = 2;
+  string file = 3;
+  string content = 4;
+}
+
+message EditingState {
+  optional string input_mode = 1;
+  optional bool multiline = 2;
+  optional string tag_name = 3;
+}
+
+// ── Lifecycle ────────────────────────────────────────────────────────────────
+
+message CreateRequest {
+  // Optional client-chosen id; server generates one when empty.
+  optional string session_id = 1;
+}
+
+message CreateResponse {
+  string session_id = 1;
+}
+
+message LaunchRequest {
+  string session_id = 1;
+  int32 width = 2;
+  int32 height = 3;
+  optional DeviceProfile device = 4;
+  repeated ScriptInjection scripts = 5;
+  repeated string allowed_navigation_domains = 6;
+}
+
+message ReadyInfo {
+  int32 width = 1;
+  int32 height = 2;
+}
+
+message Status {
+  bool is_open = 1;
+  int32 tab_count = 2;
+  string url = 3;
+  bool resizing = 4;
+  int32 width = 5;
+  int32 height = 6;
+}
+
+// ── Durable state ────────────────────────────────────────────────────────────
+
+message CookieState {
+  string name = 1;
+  string value = 2;
+  string domain = 3;
+  string path = 4;
+  optional double expires = 5;
+  optional bool http_only = 6;
+  optional bool secure = 7;
+  optional string same_site = 8;
+}
+
+message LocalStorageState {
+  string origin = 1;
+  string key = 2;
+  string value = 3;
+}
+
+message IdbRecordState {
+  string origin = 1;
+  string database_name = 2;
+  string store_name = 3;
+  string key_json = 4;
+  string value_json = 5;
+}
+
+message HistoryState {
+  string url = 1;
+  optional string title = 2;
+  optional int64 visited_at_ms = 3;
+  optional string transition_type = 4;
+  optional int32 index_order = 5;
+}
+
+message BrowserState {
+  repeated CookieState cookies = 1;
+  repeated LocalStorageState local_storage = 2;
+  repeated IdbRecordState idb_records = 3;
+  repeated HistoryState history = 4;
+}
+
+message RestoreStateRequest {
+  string session_id = 1;
+  BrowserState state = 2;
+}
+
+message ExportStateRequest {
+  string session_id = 1;
+}
+
+// ── Navigation / resize / probe / evaluate ───────────────────────────────────
+
+message NavigateRequest {
+  string session_id = 1;
+  string url = 2;
+}
+
+message ResizeRequest {
+  string session_id = 1;
+  int32 width = 2;
+  int32 height = 3;
+  DeviceProfile device = 4;
+}
+
+message ResizeResult {
+  bool ok = 1;
+  int32 width = 2;
+  int32 height = 3;
+  optional int32 chrome_width = 4;
+  optional int32 chrome_height = 5;
+  optional int32 display_width = 6;
+  optional int32 display_height = 7;
+  optional string error_code = 8;
+  optional string phase = 9;
+  optional string message = 10;
+}
+
+message ProbeRequest {
+  string session_id = 1;
+  repeated string ops = 2;
+  optional string evaluate_expression = 3;
+  optional string dom_selector = 4;
+}
+
+message ProbeResult {
+  bool ok = 1;
+  // JSON-encoded opaque evidence when ok.
+  optional string data_json = 2;
+  optional string error_code = 3;
+  optional string message = 4;
+}
+
+message EvaluateRequest {
+  string session_id = 1;
+  string code = 2;
+}
+
+message EvaluateResult {
+  bool ok = 1;
+  string value = 2;
+  optional string error_message = 3;
+}
+
+// ── Outbound streams (sidecar → Api) ─────────────────────────────────────────
+
+message VideoFrame {
+  bytes jpeg = 1;
+}
+
+message AudioFrame {
+  bytes chunk = 1;
+}
+
+message ConsoleEvent {
+  int32 level = 1;
+  string text = 2;
+}
+
+message LocationEvent {
+  string url = 1;
+}
+
+message NavigationBlockedEvent {
+  string url = 1;
+}
+
+message EditableFocusEvent {
+  // Absent / unset editing means blur (dismiss native keyboard).
+  optional EditingState editing = 1;
+  bool focused = 2;
+}
+
+message CrashEvent {
+  string error_code = 1;
+  string message = 2;
+  optional string phase = 3;
+}
+
+// ── Inbound streams (Api → sidecar) ──────────────────────────────────────────
+
+message TouchPoint {
+  int32 id = 1;
+  double x = 2;
+  double y = 3;
+  optional double radius_x = 4;
+  optional double radius_y = 5;
+  optional double force = 6;
+}
+
+message InputEvent {
+  string session_id = 1;
+  oneof payload {
+    MouseMove mouse_move = 10;
+    MouseButton mouse_down = 11;
+    MouseButton mouse_up = 12;
+    Wheel wheel = 13;
+    Key key_down = 14;
+    Key key_up = 15;
+    TypeText type = 16;
+    TextInput text = 17;
+    Touch touch = 18;
+    HistoryNav goback = 19;
+    HistoryNav goforward = 20;
+  }
+}
+
+message MouseMove {
+  double x = 1;
+  double y = 2;
+}
+
+message MouseButton {
+  double x = 1;
+  double y = 2;
+  int32 button = 3;
+}
+
+message Wheel {
+  double x = 1;
+  double y = 2;
+  double delta_x = 3;
+  double delta_y = 4;
+}
+
+message Key {
+  string key = 1;
+}
+
+message TypeText {
+  string text = 1;
+}
+
+message TextInput {
+  string text = 1;
+  optional string source = 2;
+}
+
+message Touch {
+  string phase = 1; // start | move | end | cancel
+  repeated TouchPoint points = 2;
+  repeated int32 changed_ids = 3;
+}
+
+message HistoryNav {}
+
+message MediaChunk {
+  string session_id = 1;
+  bytes data = 2;
+}
+
+// ── Control bidi (permission RPC reverse) ────────────────────────────────────
+
+enum PermissionKind {
+  PERMISSION_KIND_UNSPECIFIED = 0;
+  PERMISSION_KIND_CAMERA = 1;
+  PERMISSION_KIND_MICROPHONE = 2;
+}
+
+message ControlFromSidecar {
+  oneof message {
+    PermissionRequest permission_request = 1;
+  }
+}
+
+message ControlToSidecar {
+  oneof message {
+    PermissionReply permission_reply = 1;
+  }
+}
+
+message PermissionRequest {
+  uint32 corr_id = 1;
+  PermissionKind kind = 2;
+  string session_id = 3;
+}
+
+message PermissionReply {
+  uint32 corr_id = 1;
+  bool allow = 2;
+  string session_id = 3;
+}
+
+// ── Service ──────────────────────────────────────────────────────────────────
+
+service BrowserSessionService {
+  rpc Create(CreateRequest) returns (CreateResponse);
+  rpc Launch(LaunchRequest) returns (ReadyInfo);
+  rpc Stop(SessionId) returns (Empty);
+  rpc Dispose(SessionId) returns (Empty);
+
+  rpc GetStatus(SessionId) returns (Status);
+  rpc RestoreState(RestoreStateRequest) returns (Empty);
+  rpc ExportState(ExportStateRequest) returns (BrowserState);
+
+  rpc Navigate(NavigateRequest) returns (Empty);
+  rpc Refresh(SessionId) returns (Empty);
+  rpc Resize(ResizeRequest) returns (ResizeResult);
+  rpc Probe(ProbeRequest) returns (ProbeResult);
+  rpc Evaluate(EvaluateRequest) returns (EvaluateResult);
+
+  rpc WatchVideo(SessionId) returns (stream VideoFrame);
+  rpc WatchAudio(SessionId) returns (stream AudioFrame);
+  rpc WatchConsole(SessionId) returns (stream ConsoleEvent);
+  rpc WatchLocation(SessionId) returns (stream LocationEvent);
+  rpc WatchNavigationBlocked(SessionId) returns (stream NavigationBlockedEvent);
+  rpc WatchEditableFocus(SessionId) returns (stream EditableFocusEvent);
+  rpc WatchCrash(SessionId) returns (stream CrashEvent);
+
+  rpc PushInput(stream InputEvent) returns (Empty);
+  rpc PushCamera(stream MediaChunk) returns (Empty);
+  rpc PushMicrophone(stream MediaChunk) returns (Empty);
+
+  rpc Control(stream ControlToSidecar) returns (stream ControlFromSidecar);
+}

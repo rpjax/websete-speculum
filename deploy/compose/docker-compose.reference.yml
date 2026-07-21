@@ -49,6 +49,8 @@ services:
       - ASPNETCORE_ENVIRONMENT=Production
       - HttpAddress=0.0.0.0:8080
       - Database__Path=/data/speculum.db
+      # Legacy WS stack uses Sidecar__BaseUrl=ws://sidecar:3000.
+      # gRPC target stack: deploy/compose/docker-compose.refactor-grpc.yml (Sidecar__GrpcAddress).
       - Sidecar__BaseUrl=ws://sidecar:3000
       - Traefik__Root=/data/traefik
       - Traefik__DynamicDir=/data/traefik/dynamic

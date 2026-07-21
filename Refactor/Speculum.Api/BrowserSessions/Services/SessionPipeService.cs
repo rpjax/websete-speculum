@@ -68,7 +68,7 @@ public class SessionPipeService : ISessionPipeService
     public void CloseAllSessionPipes(Guid sessionId)
     {
         foreach (var pipeId in _pipes
-                     .Where(static kv => kv.Value.SessionId == sessionId)
+                     .Where(kv => kv.Value.SessionId == sessionId)
                      .Select(static kv => kv.Key)
                      .ToArray())
         {

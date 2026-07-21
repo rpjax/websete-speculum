@@ -1,0 +1,24 @@
+{
+  "name": "speculum-sidecar-refactor",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Speculum sidecar refactor — gRPC host over BrowserSession",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node index.ts",
+    "smoke": "npm run build && node dist/smoke.js",
+    "smoke:remote": "npm run build && node dist/smoke-remote.js",
+    "unit": "npm run build && node dist/unit.js"
+  },
+  "dependencies": {
+    "@grpc/grpc-js": "^1.12.6",
+    "@grpc/proto-loader": "^0.7.13",
+    "patchright": "1.49.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.0"
+  }
+}

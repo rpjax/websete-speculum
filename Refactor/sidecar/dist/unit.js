@@ -14,9 +14,14 @@ function testDomainMatch() {
     console.log('[unit] domain match ok');
 }
 function testViewportBounds() {
-    const start = (0, viewport_bounds_1.normalizeStartViewport)(0, 0);
-    assert_1.default.strictEqual(start.width, 1280);
-    assert_1.default.strictEqual(start.height, 720);
+    const invalidLaunch = (0, viewport_bounds_1.validateLaunchViewport)(0, 0);
+    assert_1.default.strictEqual(invalidLaunch.ok, false);
+    const validLaunch = (0, viewport_bounds_1.validateLaunchViewport)(800, 600);
+    assert_1.default.strictEqual(validLaunch.ok, true);
+    if (validLaunch.ok) {
+        assert_1.default.strictEqual(validLaunch.width, 800);
+        assert_1.default.strictEqual(validLaunch.height, 600);
+    }
     const ok = (0, viewport_bounds_1.validateResizeViewport)(800, 600);
     assert_1.default.strictEqual(ok.ok, true);
     const tooSmall = (0, viewport_bounds_1.validateResizeViewport)(10, 10);

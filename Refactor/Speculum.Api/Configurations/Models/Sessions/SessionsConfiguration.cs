@@ -2,6 +2,8 @@ namespace Speculum.Api.Configurations.Models.Sessions;
 
 public class SessionsConfiguration
 {
+    public const string SectionName = "Sessions";
+
     public TimeSpan DetachedSessionTimeout { get; init; }
     public bool IsJsBridgeEnabled { get; set; }
     public ViewportPolicy ViewportPolicy { get; set; } = new();

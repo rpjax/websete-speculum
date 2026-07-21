@@ -1,58 +1,11 @@
 "use strict";
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.createBrowserSessionHandlers = createBrowserSessionHandlers;
-const grpc = __importStar(require("@grpc/grpc-js"));
 const mappers_1 = require("./mappers");
+const validate_1 = require("./validate");
 /* eslint-disable @typescript-eslint/no-explicit-any */
 function grpcError(err) {
-    const e = err;
-    const status = e.code === 'NOT_FOUND'
-        ? grpc.status.NOT_FOUND
-        : e.code === 'ALREADY_EXISTS'
-            ? grpc.status.ALREADY_EXISTS
-            : e.code === 'FAILED_PRECONDITION'
-                ? grpc.status.FAILED_PRECONDITION
-                : grpc.status.INTERNAL;
-    return Object.assign(new Error(e.message ?? String(err)), {
-        code: status,
-        details: e.message ?? String(err),
-    });
-}
-function sessionIdOf(req) {
-    return req.sessionId ?? req.session_id ?? '';
+    return (0, validate_1.mapGrpcError)(err);
 }
 async function pumpQueue(queue, call, map, signal) {
     for (;;) {
@@ -95,7 +48,8 @@ function createBrowserSessionHandlers(registry) {
         },
         async launch(call, callback) {
             try {
-                const { session } = registry.get(sessionIdOf(call.request));
+                const sessionId = (0, validate_1.requireSessionId)(call.request);
+                const { session } = registry.get(sessionId);
                 const ready = await session.launch((0, mappers_1.toLaunchOptions)(call.request));
                 callback(null, ready);
             }
@@ -105,7 +59,7 @@ function createBrowserSessionHandlers(registry) {
         },
         async stop(call, callback) {
             try {
-                const { session } = registry.get(sessionIdOf(call.request));
+                const { session } = registry.get((0, validate_1.requireSessionId)(call.request));
                 await session.stop();
                 callback(null, {});
             }
@@ -115,7 +69,7 @@ function createBrowserSessionHandlers(registry) {
         },
         async dispose(call, callback) {
             try {
-                await registry.dispose(sessionIdOf(call.request));
+                await registry.dispose((0, validate_1.requireSessionId)(call.request));
                 callback(null, {});
             }
             catch (err) {
@@ -124,7 +78,7 @@ function createBrowserSessionHandlers(registry) {
         },
         async getStatus(call, callback) {
             try {
-                const { session } = registry.get(sessionIdOf(call.request));
+                const { session } = registry.get((0, validate_1.requireSessionId)(call.request));
                 const status = await session.getStatus();
                 callback(null, {
                     isOpen: status.isOpen,
@@ -141,7 +95,8 @@ function createBrowserSessionHandlers(registry) {
         },
         async restoreState(call, callback) {
             try {
-                const { session } = registry.get(sessionIdOf(call.request));
+                const { session } = registry.get((0, validate_1.requireSessionId)(call.request));
+                (0, validate_1.requireState)(call.request.state);
                 await session.restoreState((0, mappers_1.toBrowserState)(call.request.state));
                 callback(null, {});
             }
@@ -151,7 +106,7 @@ function createBrowserSessionHandlers(registry) {
         },
         async exportState(call, callback) {
             try {
-                const { session } = registry.get(sessionIdOf(call.request));
+                const { session } = registry.get((0, validate_1.requireSessionId)(call.request));
                 const state = await session.exportState();
                 callback(null, (0, mappers_1.fromBrowserState)(state));
             }
@@ -161,8 +116,8 @@ function createBrowserSessionHandlers(registry) {
         },
         async navigate(call, callback) {
             try {
-                const { session } = registry.get(sessionIdOf(call.request));
-                await session.navigate(call.request.url);
+                const { session } = registry.get((0, validate_1.requireSessionId)(call.request));
+                await session.navigate((0, validate_1.requireUrl)(call.request.url));
                 callback(null, {});
             }
             catch (err) {
@@ -171,7 +126,7 @@ function createBrowserSessionHandlers(registry) {
         },
         async refresh(call, callback) {
             try {
-                const { session } = registry.get(sessionIdOf(call.request));
+                const { session } = registry.get((0, validate_1.requireSessionId)(call.request));
                 await session.refresh();
                 callback(null, {});
             }
@@ -181,11 +136,11 @@ function createBrowserSessionHandlers(registry) {
         },
         async resize(call, callback) {
             try {
-                const { session } = registry.get(sessionIdOf(call.request));
+                const { session } = registry.get((0, validate_1.requireSessionId)(call.request));
                 const result = await session.resize({
                     width: call.request.width,
                     height: call.request.height,
-                    device: (0, mappers_1.toDevice)(call.request.device ?? {}),
+                    device: call.request.device ? (0, mappers_1.toDevice)(call.request.device) : undefined,
                 });
                 callback(null, result);
             }
@@ -195,9 +150,10 @@ function createBrowserSessionHandlers(registry) {
         },
         async probe(call, callback) {
             try {
-                const { session } = registry.get(sessionIdOf(call.request));
+                const { session } = registry.get((0, validate_1.requireSessionId)(call.request));
+                const ops = (0, validate_1.requireProbeOps)(call.request.ops);
                 const result = await session.probe({
-                    ops: call.request.ops ?? [],
+                    ops,
                     evaluateExpression: call.request.evaluateExpression,
                     domSelector: call.request.domSelector,
                 });
@@ -214,8 +170,8 @@ function createBrowserSessionHandlers(registry) {
         },
         async evaluate(call, callback) {
             try {
-                const { session } = registry.get(sessionIdOf(call.request));
-                const result = await session.evaluate(call.request.code);
+                const { session } = registry.get((0, validate_1.requireSessionId)(call.request));
+                const result = await session.evaluate((0, validate_1.requireEvaluateCode)(call.request.code));
                 callback(null, {
                     ok: result.ok,
                     value: result.value,
@@ -253,25 +209,24 @@ function createBrowserSessionHandlers(registry) {
         },
         pushInput(call, callback) {
             pumpClientStream(call, callback, async (msg) => {
-                const sid = sessionIdOf(msg);
+                const sid = (0, validate_1.requireSessionId)(msg);
                 const { session } = registry.get(sid);
                 const input = (0, mappers_1.toBrowserInput)(msg);
-                if (input)
-                    await session.pushInput(input);
+                await session.pushInput(input);
             });
         },
         pushCamera(call, callback) {
             pumpClientStream(call, callback, async (msg) => {
-                const { session } = registry.get(sessionIdOf(msg));
-                const data = msg.data;
-                await session.pushCameraFrame(new Uint8Array(data));
+                const { session } = registry.get((0, validate_1.requireSessionId)(msg));
+                const data = (0, validate_1.requireBinaryData)(msg.data, 'camera frame');
+                await session.pushCameraFrame(data);
             });
         },
         pushMicrophone(call, callback) {
             pumpClientStream(call, callback, async (msg) => {
-                const { session } = registry.get(sessionIdOf(msg));
-                const data = msg.data;
-                await session.pushMicrophoneAudio(new Uint8Array(data));
+                const { session } = registry.get((0, validate_1.requireSessionId)(msg));
+                const data = (0, validate_1.requireBinaryData)(msg.data, 'microphone audio');
+                await session.pushMicrophoneAudio(data);
             });
         },
         control(call) {
@@ -325,7 +280,7 @@ function createBrowserSessionHandlers(registry) {
 function watchStream(call, registry, pick, map) {
     let entry;
     try {
-        entry = registry.get(sessionIdOf(call.request));
+        entry = registry.get((0, validate_1.requireSessionId)(call.request));
     }
     catch (err) {
         call.destroy(grpcError(err));

@@ -174,7 +174,7 @@ export interface BrowserHistoryState {
 export interface BrowserResizeRequest {
   width: number;
   height: number;
-  device: BrowserDeviceProfile;
+  device?: BrowserDeviceProfile;
 }
 
 export interface BrowserResizeResult {

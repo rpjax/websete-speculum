@@ -42,7 +42,13 @@ const os = __importStar(require("os"));
 const path = __importStar(require("path"));
 const patchright_1 = require("patchright");
 const device_emulation_1 = require("./device-emulation");
-const CHROME_EXECUTABLE = process.env['CHROME_EXECUTABLE'] ?? '/usr/bin/google-chrome';
+function requireChromeExecutable() {
+    const path = process.env['CHROME_EXECUTABLE'];
+    if (!path?.trim()) {
+        throw new Error('CHROME_EXECUTABLE environment variable is required');
+    }
+    return path.trim();
+}
 function profileDirForSession(sessionId) {
     return path.join(os.tmpdir(), 'speculum-profiles', sessionId);
 }
@@ -69,7 +75,12 @@ function buildChromeArgs(width, height) {
     return args;
 }
 async function launchChrome(args) {
-    const device = (0, device_emulation_1.normalizeDevice)(args.device);
+    if (!Number.isFinite(args.width) || !Number.isFinite(args.height) || args.width <= 0 || args.height <= 0) {
+        throw Object.assign(new Error('launch requires positive width and height'), {
+            code: 'INVALID_ARGUMENT',
+        });
+    }
+    const chromeExecutable = requireChromeExecutable();
     const userDataDir = profileDirForSession(args.sessionId);
     if (!args.preserveUserDataDir) {
         try {
@@ -81,7 +92,7 @@ async function launchChrome(args) {
     }
     const context = await patchright_1.chromium.launchPersistentContext(userDataDir, {
         headless: false,
-        executablePath: CHROME_EXECUTABLE,
+        executablePath: chromeExecutable,
         env: {
             ...process.env,
             DISPLAY: args.displayEnv,
@@ -102,7 +113,7 @@ async function launchChrome(args) {
         bounds: { windowState: 'fullscreen' },
     });
     if (args.device) {
-        await (0, device_emulation_1.applyDeviceEmulation)(cdp, args.width, args.height, device);
+        await (0, device_emulation_1.applyDeviceEmulation)(cdp, args.width, args.height, args.device);
     }
     // No device profile: rely on window-size + fullscreen only (no Emulation override).
     return { context, page, cdp, userDataDir };

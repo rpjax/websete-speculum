@@ -15,10 +15,13 @@ namespace Speculum.Api.BrowserClients.Grpc;
 
 internal static class GrpcSessionMappers
 {
-    public static LaunchRequest ToLaunchRequest(Guid sessionId, SessionConfig? configuration)
+    public static LaunchRequest ToLaunchRequest(
+        Guid sessionId,
+        int width,
+        int height,
+        SessionConfig configuration)
     {
-        var width = configuration?.Resolution?.Width ?? 1280;
-        var height = configuration?.Resolution?.Height ?? 720;
+        ArgumentNullException.ThrowIfNull(configuration);
         var request = new LaunchRequest
         {
             SessionId = sessionId.ToString("D"),
@@ -26,12 +29,12 @@ internal static class GrpcSessionMappers
             Height = height,
         };
 
-        if (configuration?.Device is { } device)
+        if (configuration.Device is { } device)
         {
             request.Device = ToProtoDevice(device);
         }
 
-        if (configuration?.Scripts is { Count: > 0 } scripts)
+        if (configuration.Scripts is { Count: > 0 } scripts)
         {
             foreach (var s in scripts)
             {
@@ -45,7 +48,7 @@ internal static class GrpcSessionMappers
             }
         }
 
-        if (configuration?.AllowedNavigationDomains is { Count: > 0 } domains)
+        if (configuration.AllowedNavigationDomains is { Count: > 0 } domains)
         {
             request.AllowedNavigationDomains.AddRange(domains);
         }
@@ -53,15 +56,38 @@ internal static class GrpcSessionMappers
         return request;
     }
 
-    public static ProtoDevice ToProtoDevice(DomainDeviceProfile device) => new()
+    public static ProtoDevice? TryToProtoDevice(DomainDeviceProfile device)
     {
-        Mobile = device.Mobile,
-        Touch = device.Touch,
-        DeviceScaleFactor = device.DeviceScaleFactor,
-        MaxTouchPoints = device.MaxTouchPoints,
-        UserAgentProfile = device.UserAgentProfile ?? "",
-        ScreenOrientation = device.ScreenOrientation ?? "",
-    };
+        if (!GrpcRequestValidation.HasExplicitDevice(device))
+        {
+            return null;
+        }
+
+        return ToProtoDevice(device);
+    }
+
+    public static ProtoDevice ToProtoDevice(DomainDeviceProfile device)
+    {
+        var proto = new ProtoDevice
+        {
+            Mobile = device.Mobile,
+            Touch = device.Touch,
+            DeviceScaleFactor = device.DeviceScaleFactor,
+            MaxTouchPoints = device.MaxTouchPoints,
+        };
+
+        if (!string.IsNullOrWhiteSpace(device.UserAgentProfile))
+        {
+            proto.UserAgentProfile = device.UserAgentProfile;
+        }
+
+        if (!string.IsNullOrWhiteSpace(device.ScreenOrientation))
+        {
+            proto.ScreenOrientation = device.ScreenOrientation;
+        }
+
+        return proto;
+    }
 
     public static BrowserReadyInfo ToReadyInfo(ReadyInfo ready) => new()
     {

@@ -50,8 +50,15 @@ class PatchrightBrowserSession {
     async launch(options) {
         this.ensureNotDisposed();
         this.launchOptions = options;
-        const { width, height } = (0, viewport_bounds_1.normalizeStartViewport)(options.width, options.height);
-        const device = (0, device_emulation_1.normalizeDevice)(options.device);
+        const validated = (0, viewport_bounds_1.validateLaunchViewport)(options.width, options.height);
+        if (!validated.ok) {
+            throw Object.assign(new Error(validated.message), {
+                code: 'FAILED_PRECONDITION',
+                errorCode: validated.errorCode,
+                phase: 'validate',
+            });
+        }
+        const { width, height } = validated;
         const displayNum = this.displays.allocate();
         this.display = await Display_1.Display.start(displayNum, width, height);
         this.chrome = await (0, ChromeRuntime_1.launchChrome)({
@@ -61,7 +68,7 @@ class PatchrightBrowserSession {
             height,
             device: options.device,
         });
-        this.viewport = new Viewport_1.Viewport(width, height, device);
+        this.viewport = new Viewport_1.Viewport(width, height, options.device);
         await this.navigation.setupSingleTab(this.chrome.context);
         this.navigation.setupTabInterception(this.chrome.context, this.chrome.page);
         this.navigation.setupLocationSync(this.chrome.page);
@@ -75,9 +82,9 @@ class PatchrightBrowserSession {
             // Soft confirm: some Chrome builds report off-by-one until fullscreen settles
             console.warn(`[${this.sessionId}] chrome viewport ${chromeVp.width}×${chromeVp.height} vs ${width}×${height}`);
         }
-        this.viewport.confirm(width, height, device);
+        this.viewport.confirm(width, height, options.device);
         this.input = new Input_1.InputController(this.chrome.page, this.chrome.cdp);
-        this.input.setTouchPrimary(!!(device.touch || device.mobile));
+        this.input.setTouchPrimary(touchPrimary(options.device));
         this.evaluateCap.attachConsole(this.chrome.page);
         this.editableFocus.start(this.chrome.page);
         this.screencast = await Screencast_1.Screencast.start(this.chrome.cdp, width, height, (jpeg) => this.events.onVideoFrame(jpeg));
@@ -148,7 +155,7 @@ class PatchrightBrowserSession {
                 message: validated.message,
             };
         }
-        const device = (0, device_emulation_1.normalizeDevice)(request.device);
+        const device = request.device;
         const nextW = validated.width;
         const nextH = validated.height;
         const sameSize = nextW === this.viewport.width && nextH === this.viewport.height;
@@ -171,9 +178,11 @@ class PatchrightBrowserSession {
         let sizeChanged = false;
         try {
             if (sameSize) {
-                await (0, device_emulation_1.applyDeviceEmulation)(this.chrome.cdp, nextW, nextH, device);
-                this.viewport.confirm(nextW, nextH, device);
-                this.input?.setTouchPrimary(!!(device.touch || device.mobile));
+                if (device) {
+                    await (0, device_emulation_1.applyDeviceEmulation)(this.chrome.cdp, nextW, nextH, device);
+                    this.viewport.confirm(nextW, nextH, device);
+                    this.input?.setTouchPrimary(touchPrimary(device));
+                }
                 return {
                     ok: true,
                     width: nextW,
@@ -186,7 +195,7 @@ class PatchrightBrowserSession {
             }
             sizeChanged = true;
             await this.recreateAtSize(nextW, nextH, request.device);
-            this.viewport.confirm(nextW, nextH, device);
+            this.viewport.confirm(nextW, nextH, request.device);
             return {
                 ok: true,
                 width: nextW,
@@ -200,8 +209,8 @@ class PatchrightBrowserSession {
         catch (err) {
             if (sizeChanged) {
                 try {
-                    await this.recreateAtSize(previous.width, previous.height, previous.device);
-                    this.viewport.confirm(previous.width, previous.height, previous.device);
+                    await this.recreateAtSize(previous.width, previous.height, previous.device ?? undefined);
+                    this.viewport.confirm(previous.width, previous.height, previous.device ?? undefined);
                 }
                 catch (compErr) {
                     const message = compErr.message?.slice(0, 512) ?? 'compensation failed';
@@ -238,7 +247,6 @@ class PatchrightBrowserSession {
      * Tear down Chrome+display and relaunch at exact geometry, resuming the prior http(s) URL.
      */
     async recreateAtSize(width, height, deviceProfile) {
-        const device = (0, device_emulation_1.normalizeDevice)(deviceProfile);
         const resumeUrl = this.chrome ? safeUrl(this.chrome.page) : this.url;
         const displayNum = this.display.number;
         if (this.screencast) {
@@ -267,7 +275,7 @@ class PatchrightBrowserSession {
         this.navigation.setupLocationSync(this.chrome.page);
         await this.navigation.setupFetchGuard(this.chrome.cdp, this.launchOptions?.scripts ?? [], this.launchOptions?.allowedNavigationDomains);
         this.input = new Input_1.InputController(this.chrome.page, this.chrome.cdp);
-        this.input.setTouchPrimary(!!(device.touch || device.mobile));
+        this.input.setTouchPrimary(touchPrimary(deviceProfile));
         this.evaluateCap.attachConsole(this.chrome.page);
         this.editableFocus.rebind(this.chrome.page);
         this.editableFocus.start(this.chrome.page);
@@ -360,6 +368,9 @@ class PatchrightBrowserSession {
     }
 }
 exports.PatchrightBrowserSession = PatchrightBrowserSession;
+function touchPrimary(device) {
+    return !!(device?.touch || device?.mobile);
+}
 function safeUrl(page) {
     try {
         return page.url();

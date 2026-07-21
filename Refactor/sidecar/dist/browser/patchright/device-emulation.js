@@ -1,30 +1,18 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.DEFAULT_DEVICE = void 0;
-exports.normalizeDevice = normalizeDevice;
 exports.applyDeviceEmulation = applyDeviceEmulation;
 exports.readChromeViewport = readChromeViewport;
-exports.DEFAULT_DEVICE = {
-    mobile: false,
-    touch: false,
-    deviceScaleFactor: 1,
-    maxTouchPoints: 1,
-};
-function normalizeDevice(device) {
-    return {
-        mobile: device?.mobile ?? false,
-        touch: device?.touch ?? false,
-        deviceScaleFactor: device?.deviceScaleFactor ?? 1,
-        maxTouchPoints: device?.maxTouchPoints ?? (device?.touch || device?.mobile ? 5 : 1),
-        userAgentProfile: device?.userAgentProfile,
-        screenOrientation: device?.screenOrientation,
-    };
-}
-async function applyDeviceEmulation(cdp, width, height, device = exports.DEFAULT_DEVICE) {
+async function applyDeviceEmulation(cdp, width, height, device) {
+    if (device.deviceScaleFactor === undefined || device.deviceScaleFactor <= 0) {
+        throw new Error('device.deviceScaleFactor must be a positive number');
+    }
+    if (device.maxTouchPoints === undefined || device.maxTouchPoints < 0) {
+        throw new Error('device.maxTouchPoints must be provided and non-negative');
+    }
     await cdp.send('Emulation.setDeviceMetricsOverride', {
         width,
         height,
-        deviceScaleFactor: device.deviceScaleFactor ?? 1,
+        deviceScaleFactor: device.deviceScaleFactor,
         mobile: !!device.mobile,
         screenOrientation: device.screenOrientation
             ? {
@@ -37,14 +25,20 @@ async function applyDeviceEmulation(cdp, width, height, device = exports.DEFAULT
     });
     await cdp.send('Emulation.setTouchEmulationEnabled', {
         enabled: !!(device.touch || device.mobile),
-        maxTouchPoints: Math.max(1, device.maxTouchPoints ?? (device.touch ? 5 : 1)),
+        maxTouchPoints: device.maxTouchPoints,
     });
     if (!device.userAgentProfile && !device.mobile)
         return;
     const version = (await cdp.send('Browser.getVersion'));
     if (device.userAgentProfile === 'mobile' || device.mobile) {
-        const chromeVer = (version.product ?? 'Chrome/120.0.0.0').replace(/^Chrome\//, '');
-        const major = chromeVer.split('.')[0] ?? '120';
+        if (!version.product) {
+            throw new Error('Browser.getVersion did not return product');
+        }
+        const chromeVer = version.product.replace(/^Chrome\//, '');
+        const major = chromeVer.split('.')[0];
+        if (!major) {
+            throw new Error('Unable to parse Chrome version from product string');
+        }
         const ua = `Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) ` +
             `Chrome/${chromeVer} Mobile Safari/537.36`;
         await cdp.send('Emulation.setUserAgentOverride', {

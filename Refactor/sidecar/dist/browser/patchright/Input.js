@@ -87,10 +87,10 @@ class InputController {
                 await this._dispatchTouch(input.phase, [...input.points]);
                 return;
             case 'goback':
-                await this._page.goBack({ waitUntil: 'domcontentloaded', timeout: 30_000 }).catch(() => { });
+                await this._page.goBack({ waitUntil: 'domcontentloaded', timeout: 30_000 });
                 return;
             case 'goforward':
-                await this._page.goForward({ waitUntil: 'domcontentloaded', timeout: 30_000 }).catch(() => { });
+                await this._page.goForward({ waitUntil: 'domcontentloaded', timeout: 30_000 });
                 return;
         }
     }
@@ -116,9 +116,9 @@ class InputController {
                 x: p.x,
                 y: p.y,
                 id: p.id,
-                radiusX: p.radiusX ?? 1,
-                radiusY: p.radiusY ?? 1,
-                force: p.force ?? 0.5,
+                radiusX: p.radiusX,
+                radiusY: p.radiusY,
+                force: p.force,
             }));
         await this._cdp.send('Input.dispatchTouchEvent', { type, touchPoints });
     }

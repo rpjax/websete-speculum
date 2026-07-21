@@ -3,6 +3,7 @@
  */
 
 import * as grpc from '@grpc/grpc-js';
+import { createMockBrowserSessionFactory } from './browser/MockBrowserSession';
 import { createSidecarServer, bindAndStart } from './index';
 import { loadBrowserSessionPackage } from './grpc/loadProto';
 
@@ -22,9 +23,13 @@ async function unary(
 }
 
 async function main(): Promise<void> {
-  // Force mock so smoke does not require Chrome/Xvfb.
   process.env['SPECULUM_BROWSER'] = 'mock';
-  const { server } = createSidecarServer({ frameIntervalMs: 100 });
+  const factory = createMockBrowserSessionFactory({ emitFrames: true, frameIntervalMs: 100 });
+  const { server } = createSidecarServer({
+    emitFrames: true,
+    frameIntervalMs: 100,
+    factory,
+  });
   const addr = await bindAndStart(server, '127.0.0.1:0');
   const target = addr.replace('0.0.0.0', '127.0.0.1');
 
@@ -64,7 +69,6 @@ async function main(): Promise<void> {
     });
 
     const statusPromise = (async () => {
-      // Parallel unaries while WatchVideo is open
       for (let i = 0; i < 5; i++) {
         const status = await unary(client, 'getStatus', { sessionId });
         console.log(`[smoke] getStatus #${i + 1} open=${status.isOpen} ${status.width}x${status.height}`);

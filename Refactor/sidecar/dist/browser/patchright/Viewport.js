@@ -1,7 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.Viewport = void 0;
-const device_emulation_1 = require("./device-emulation");
 /** Confirmed Motor viewport owner for a session. */
 class Viewport {
     _width;
@@ -11,7 +10,7 @@ class Viewport {
     constructor(width, height, device) {
         this._width = width;
         this._height = height;
-        this._device = (0, device_emulation_1.normalizeDevice)(device);
+        this._device = device ?? null;
     }
     get width() {
         return this._width;
@@ -31,8 +30,9 @@ class Viewport {
     confirm(width, height, device) {
         this._width = width;
         this._height = height;
-        if (device)
-            this._device = (0, device_emulation_1.normalizeDevice)(device);
+        if (device !== undefined) {
+            this._device = device;
+        }
     }
 }
 exports.Viewport = Viewport;

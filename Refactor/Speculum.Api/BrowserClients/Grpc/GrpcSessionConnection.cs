@@ -146,11 +146,18 @@ public sealed class GrpcSessionConnection : ISessionConnection
         SessionConfig? configuration,
         CancellationToken ct = default)
     {
+        var validated = GrpcRequestValidation.ValidateLaunch(configuration);
+        if (validated.IsFailure)
+        {
+            return Result<BrowserReadyInfo>.Failure(validated.Errors.ToArray());
+        }
+
+        var (width, height) = validated.Value;
         return await CallValueAsync(async () =>
         {
             var ready = await WithLinkedAsync(ct, token =>
                 _client.LaunchAsync(
-                    GrpcSessionMappers.ToLaunchRequest(SessionId, configuration),
+                    GrpcSessionMappers.ToLaunchRequest(SessionId, width, height, configuration!),
                     cancellationToken: token).ResponseAsync);
             return Result<BrowserReadyInfo>.Success(GrpcSessionMappers.ToReadyInfo(ready));
         });
@@ -184,6 +191,7 @@ public sealed class GrpcSessionConnection : ISessionConnection
         ProfileState state,
         CancellationToken ct = default)
     {
+        ArgumentNullException.ThrowIfNull(state);
         return await CallAsync(async () =>
         {
             await WithLinkedAsync(ct, token =>
@@ -196,6 +204,12 @@ public sealed class GrpcSessionConnection : ISessionConnection
 
     public async Task<IResult> NavigateAsync(string url, CancellationToken ct = default)
     {
+        var validated = GrpcRequestValidation.ValidateNavigate(url);
+        if (validated.IsFailure)
+        {
+            return Result.Failure(validated.Errors.ToArray());
+        }
+
         return await CallAsync(async () =>
         {
             await WithLinkedAsync(ct, token =>
@@ -225,18 +239,27 @@ public sealed class GrpcSessionConnection : ISessionConnection
         DomainDeviceProfile device,
         CancellationToken ct = default)
     {
+        var validated = GrpcRequestValidation.ValidateResize(width, height);
+        if (validated.IsFailure)
+        {
+            return Result<DomainResizeResult>.Failure(validated.Errors.ToArray());
+        }
+
         return await CallValueAsync(async () =>
         {
+            var request = new ResizeRequest
+            {
+                SessionId = SessionId.ToString("D"),
+                Width = width,
+                Height = height,
+            };
+            if (GrpcSessionMappers.TryToProtoDevice(device) is { } protoDevice)
+            {
+                request.Device = protoDevice;
+            }
+
             var result = await WithLinkedAsync(ct, token =>
-                _client.ResizeAsync(
-                    new ResizeRequest
-                    {
-                        SessionId = SessionId.ToString("D"),
-                        Width = width,
-                        Height = height,
-                        Device = GrpcSessionMappers.ToProtoDevice(device),
-                    },
-                    cancellationToken: token).ResponseAsync);
+                _client.ResizeAsync(request, cancellationToken: token).ResponseAsync);
             return Result<DomainResizeResult>.Success(GrpcSessionMappers.ToResizeResult(requestId, result));
         });
     }
@@ -245,6 +268,12 @@ public sealed class GrpcSessionConnection : ISessionConnection
         DiagProbeRequest request,
         CancellationToken ct = default)
     {
+        var validated = GrpcRequestValidation.ValidateProbe(request);
+        if (validated.IsFailure)
+        {
+            return Result<DiagProbeResult>.Failure(validated.Errors.ToArray());
+        }
+
         return await CallValueAsync(async () =>
         {
             var probe = new ProbeRequest { SessionId = SessionId.ToString("D") };
@@ -328,7 +357,7 @@ public sealed class GrpcSessionConnection : ISessionConnection
         {
             if (!GrpcSessionMappers.TryParseInputEvent(SessionId, json, out var input) || input is null)
             {
-                continue;
+                throw new InvalidOperationException($"Invalid user input JSON: {json}");
             }
 
             await stream.WriteAsync(input, ct);
@@ -339,6 +368,13 @@ public sealed class GrpcSessionConnection : ISessionConnection
     {
         await foreach (var input in reader.ReadAllAsync(ct))
         {
+            var codeValidation = GrpcRequestValidation.ValidateEvaluate(input.Code);
+            if (codeValidation.IsFailure)
+            {
+                throw new InvalidOperationException(
+                    string.Join("; ", codeValidation.Errors.Select(e => e.Message)));
+            }
+
             try
             {
                 var result = await _client.EvaluateAsync(

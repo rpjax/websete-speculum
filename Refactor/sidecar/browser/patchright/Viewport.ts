@@ -1,17 +1,16 @@
 import type { BrowserDeviceProfile } from '../BrowserSession';
-import { normalizeDevice } from './device-emulation';
 
 /** Confirmed Motor viewport owner for a session. */
 export class Viewport {
   private _width: number;
   private _height: number;
-  private _device: BrowserDeviceProfile;
+  private _device: BrowserDeviceProfile | null;
   private _resizing = false;
 
   constructor(width: number, height: number, device?: BrowserDeviceProfile) {
     this._width = width;
     this._height = height;
-    this._device = normalizeDevice(device);
+    this._device = device ?? null;
   }
 
   get width(): number {
@@ -22,7 +21,7 @@ export class Viewport {
     return this._height;
   }
 
-  get device(): BrowserDeviceProfile {
+  get device(): BrowserDeviceProfile | null {
     return this._device;
   }
 
@@ -37,6 +36,8 @@ export class Viewport {
   confirm(width: number, height: number, device?: BrowserDeviceProfile): void {
     this._width = width;
     this._height = height;
-    if (device) this._device = normalizeDevice(device);
+    if (device !== undefined) {
+      this._device = device;
+    }
   }
 }

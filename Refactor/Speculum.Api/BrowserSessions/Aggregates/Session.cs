@@ -16,6 +16,14 @@ public sealed class Session
             State = LifecycleState.Live,
         };
 
+    internal static Session Reconstitute(Guid id, Guid profileId, LifecycleState state)
+        => new()
+        {
+            Id = id,
+            ProfileId = profileId,
+            State = state,
+        };
+
     public void MarkStopped()
         => State = LifecycleState.Stopped;
 }

@@ -6,27 +6,48 @@ exports.toBrowserState = toBrowserState;
 exports.fromBrowserState = fromBrowserState;
 exports.toBrowserInput = toBrowserInput;
 exports.editingToProto = editingToProto;
+const validate_1 = require("./validate");
 /* eslint-disable @typescript-eslint/no-explicit-any */
 function toLaunchOptions(req) {
+    const validated = (0, validate_1.validateLaunchViewport)(req.width, req.height);
+    if (!validated.ok) {
+        throw Object.assign(new Error(validated.message), {
+            code: 'INVALID_ARGUMENT',
+            errorCode: validated.errorCode,
+            phase: 'validate',
+        });
+    }
     return {
-        width: req.width,
-        height: req.height,
+        width: validated.width,
+        height: validated.height,
         device: req.device ? toDevice(req.device) : undefined,
-        scripts: (req.scripts ?? []).map((s) => ({
-            position: s.position,
-            type: s.type,
-            file: s.file,
-            content: s.content,
-        })),
+        scripts: Array.isArray(req.scripts)
+            ? req.scripts.map((s) => ({
+                position: s.position,
+                type: s.type,
+                file: s.file,
+                content: s.content,
+            }))
+            : [],
         allowedNavigationDomains: req.allowedNavigationDomains?.length
             ? req.allowedNavigationDomains
             : undefined,
     };
 }
 function toDevice(d) {
+    if (d.deviceScaleFactor === undefined || d.deviceScaleFactor <= 0) {
+        throw Object.assign(new Error('device.deviceScaleFactor must be a positive number'), {
+            code: 'INVALID_ARGUMENT',
+        });
+    }
+    if (d.maxTouchPoints === undefined || d.maxTouchPoints < 0) {
+        throw Object.assign(new Error('device.maxTouchPoints must be provided and non-negative'), {
+            code: 'INVALID_ARGUMENT',
+        });
+    }
     return {
-        mobile: d.mobile,
-        touch: d.touch,
+        mobile: !!d.mobile,
+        touch: !!d.touch,
         deviceScaleFactor: d.deviceScaleFactor,
         maxTouchPoints: d.maxTouchPoints,
         userAgentProfile: d.userAgentProfile,
@@ -79,62 +100,97 @@ function fromBrowserState(s) {
 }
 function toBrowserInput(msg) {
     const p = msg.payload;
-    if (!p)
-        return null;
+    if (!p) {
+        throw Object.assign(new Error('input payload is required'), { code: 'INVALID_ARGUMENT' });
+    }
     switch (p) {
         case 'mouseMove':
-            return { type: 'mousemove', x: msg.mouseMove.x, y: msg.mouseMove.y };
+            return { type: 'mousemove', x: requireNumber(msg.mouseMove?.x, 'mouseMove.x'), y: requireNumber(msg.mouseMove?.y, 'mouseMove.y') };
         case 'mouseDown':
             return {
                 type: 'mousedown',
-                x: msg.mouseDown.x,
-                y: msg.mouseDown.y,
-                button: msg.mouseDown.button,
+                x: requireNumber(msg.mouseDown?.x, 'mouseDown.x'),
+                y: requireNumber(msg.mouseDown?.y, 'mouseDown.y'),
+                button: requireInt(msg.mouseDown?.button, 'mouseDown.button'),
             };
         case 'mouseUp':
             return {
                 type: 'mouseup',
-                x: msg.mouseUp.x,
-                y: msg.mouseUp.y,
-                button: msg.mouseUp.button,
+                x: requireNumber(msg.mouseUp?.x, 'mouseUp.x'),
+                y: requireNumber(msg.mouseUp?.y, 'mouseUp.y'),
+                button: requireInt(msg.mouseUp?.button, 'mouseUp.button'),
             };
         case 'wheel':
             return {
                 type: 'wheel',
-                x: msg.wheel.x,
-                y: msg.wheel.y,
-                deltaX: msg.wheel.deltaX,
-                deltaY: msg.wheel.deltaY,
+                x: requireNumber(msg.wheel?.x, 'wheel.x'),
+                y: requireNumber(msg.wheel?.y, 'wheel.y'),
+                deltaX: requireNumber(msg.wheel?.deltaX, 'wheel.deltaX'),
+                deltaY: requireNumber(msg.wheel?.deltaY, 'wheel.deltaY'),
             };
         case 'keyDown':
-            return { type: 'keydown', key: msg.keyDown.key };
+            return { type: 'keydown', key: requireString(msg.keyDown?.key, 'keyDown.key') };
         case 'keyUp':
-            return { type: 'keyup', key: msg.keyUp.key };
+            return { type: 'keyup', key: requireString(msg.keyUp?.key, 'keyUp.key') };
         case 'type':
-            return { type: 'type', text: msg.type.text };
+            return { type: 'type', text: requireString(msg.type?.text, 'type.text') };
         case 'text':
-            return { type: 'text', text: msg.text.text, source: msg.text.source };
-        case 'touch':
             return {
-                type: 'touch',
-                phase: msg.touch.phase,
-                points: (msg.touch.points ?? []).map((pt) => ({
-                    id: pt.id,
-                    x: pt.x,
-                    y: pt.y,
-                    radiusX: pt.radiusX,
-                    radiusY: pt.radiusY,
-                    force: pt.force,
-                })),
-                changedIds: msg.touch.changedIds ?? [],
+                type: 'text',
+                text: requireString(msg.text?.text, 'text.text'),
+                source: requireString(msg.text?.source, 'text.source'),
             };
+        case 'touch':
+            return parseTouch(msg.touch);
         case 'goback':
             return { type: 'goback' };
         case 'goforward':
             return { type: 'goforward' };
         default:
-            return null;
+            throw Object.assign(new Error(`unsupported input payload: ${String(p)}`), {
+                code: 'INVALID_ARGUMENT',
+            });
     }
+}
+function parseTouch(touch) {
+    const phase = requireString(touch?.phase, 'touch.phase');
+    if (!Array.isArray(touch?.points)) {
+        throw Object.assign(new Error('touch.points must be an array'), { code: 'INVALID_ARGUMENT' });
+    }
+    return {
+        type: 'touch',
+        phase,
+        points: touch.points.map((pt, index) => ({
+            id: requireInt(pt?.id, `touch.points[${index}].id`),
+            x: requireNumber(pt?.x, `touch.points[${index}].x`),
+            y: requireNumber(pt?.y, `touch.points[${index}].y`),
+            radiusX: requireNumber(pt?.radiusX, `touch.points[${index}].radiusX`),
+            radiusY: requireNumber(pt?.radiusY, `touch.points[${index}].radiusY`),
+            force: requireNumber(pt?.force, `touch.points[${index}].force`),
+        })),
+        changedIds: Array.isArray(touch.changedIds)
+            ? touch.changedIds.map((id, index) => requireInt(id, `touch.changedIds[${index}]`))
+            : [],
+    };
+}
+function requireString(value, field) {
+    if (typeof value !== 'string' || !value.length) {
+        throw Object.assign(new Error(`${field} is required`), { code: 'INVALID_ARGUMENT' });
+    }
+    return value;
+}
+function requireNumber(value, field) {
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+        throw Object.assign(new Error(`${field} must be a finite number`), { code: 'INVALID_ARGUMENT' });
+    }
+    return value;
+}
+function requireInt(value, field) {
+    const n = requireNumber(value, field);
+    if (!Number.isInteger(n)) {
+        throw Object.assign(new Error(`${field} must be an integer`), { code: 'INVALID_ARGUMENT' });
+    }
+    return n;
 }
 function editingToProto(editing) {
     if (!editing)

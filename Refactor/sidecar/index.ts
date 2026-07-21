@@ -12,28 +12,42 @@ import { SessionRegistry } from './host/SessionRegistry';
 import { getBrowserSessionService } from './grpc/loadProto';
 import { createBrowserSessionHandlers } from './grpc/BrowserSessionService';
 
-const CHROME_EXECUTABLE = process.env['CHROME_EXECUTABLE'] ?? '/usr/bin/google-chrome';
+function requireEnv(name: string): string {
+  const value = process.env[name];
+  if (!value?.trim()) {
+    throw new Error(`${name} environment variable is required`);
+  }
+  return value.trim();
+}
 
-export function resolveBrowserFactory(options?: {
-  emitFrames?: boolean;
-  frameIntervalMs?: number;
+function resolveBrowserMode(): 'mock' | 'patchright' {
+  const mode = requireEnv('SPECULUM_BROWSER');
+  if (mode !== 'mock' && mode !== 'patchright') {
+    throw new Error('SPECULUM_BROWSER must be "mock" or "patchright"');
+  }
+  return mode;
+}
+
+export function resolveBrowserFactory(options: {
+  emitFrames: boolean;
+  frameIntervalMs: number;
 }): BrowserSessionFactory {
-  if (process.env['SPECULUM_BROWSER'] === 'mock') {
+  if (resolveBrowserMode() === 'mock') {
     return createMockBrowserSessionFactory({
-      emitFrames: options?.emitFrames ?? true,
-      frameIntervalMs: options?.frameIntervalMs ?? 500,
+      emitFrames: options.emitFrames,
+      frameIntervalMs: options.frameIntervalMs,
     });
   }
+  requireEnv('CHROME_EXECUTABLE');
   return createPatchrightFactory();
 }
 
-export function createSidecarServer(options?: {
-  emitFrames?: boolean;
-  frameIntervalMs?: number;
-  factory?: BrowserSessionFactory;
+export function createSidecarServer(options: {
+  emitFrames: boolean;
+  frameIntervalMs: number;
+  factory: BrowserSessionFactory;
 }): { server: grpc.Server; registry: SessionRegistry } {
-  const factory = options?.factory ?? resolveBrowserFactory(options);
-  const registry = new SessionRegistry(factory);
+  const registry = new SessionRegistry(options.factory);
   const server = new grpc.Server();
   server.addService(getBrowserSessionService(), createBrowserSessionHandlers(registry));
   return { server, registry };
@@ -41,7 +55,7 @@ export function createSidecarServer(options?: {
 
 export function bindAndStart(
   server: grpc.Server,
-  bindAddress = `0.0.0.0:${process.env['SPECULUM_GRPC_PORT'] ?? '50051'}`,
+  bindAddress: string,
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     server.bindAsync(bindAddress, grpc.ServerCredentials.createInsecure(), (err, port) => {
@@ -55,17 +69,15 @@ export function bindAndStart(
 }
 
 function chromePresent(): boolean {
-  if (process.env['SPECULUM_BROWSER'] === 'mock') return true;
+  if (resolveBrowserMode() === 'mock') return true;
   try {
-    return fs.existsSync(CHROME_EXECUTABLE);
+    return fs.existsSync(requireEnv('CHROME_EXECUTABLE'));
   } catch {
     return false;
   }
 }
 
-export function startHealthServer(
-  port = Number(process.env['SPECULUM_HEALTH_PORT'] ?? '3001'),
-): http.Server {
+export function startHealthServer(port: number): http.Server {
   const server = http.createServer((req, res) => {
     if (req.url === '/health') {
       res.writeHead(200, { 'content-type': 'application/json' });
@@ -74,13 +86,14 @@ export function startHealthServer(
     }
     if (req.url === '/ready') {
       const ready = chromePresent();
+      const chromeExecutable = process.env['CHROME_EXECUTABLE'] ?? '';
       res.writeHead(ready ? 200 : 503, { 'content-type': 'application/json' });
       res.end(
         JSON.stringify({
           status: ready ? 'ready' : 'not_ready',
-          chrome: CHROME_EXECUTABLE,
+          chrome: chromeExecutable,
           chromePresent: ready,
-          browser: process.env['SPECULUM_BROWSER'] ?? 'patchright',
+          browser: process.env['SPECULUM_BROWSER'] ?? '',
         }),
       );
       return;
@@ -109,10 +122,17 @@ function tryShutdownGrpc(server: grpc.Server, timeoutMs: number): Promise<void> 
 }
 
 async function main(): Promise<void> {
-  const mode = process.env['SPECULUM_BROWSER'] ?? 'patchright';
-  const { server, registry } = createSidecarServer();
-  const health = startHealthServer();
-  const addr = await bindAndStart(server);
+  const mode = resolveBrowserMode();
+  const grpcPort = requireEnv('SPECULUM_GRPC_PORT');
+  const healthPort = Number(requireEnv('SPECULUM_HEALTH_PORT'));
+  const factory = resolveBrowserFactory({ emitFrames: true, frameIntervalMs: 500 });
+  const { server, registry } = createSidecarServer({
+    emitFrames: true,
+    frameIntervalMs: 500,
+    factory,
+  });
+  const health = startHealthServer(healthPort);
+  const addr = await bindAndStart(server, `0.0.0.0:${grpcPort}`);
   console.log(`[sidecar-refactor] BrowserSessionService (${mode}) listening on ${addr}`);
 
   let shuttingDown = false;

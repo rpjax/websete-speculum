@@ -3,9 +3,15 @@ import * as os from 'os';
 import * as path from 'path';
 import { chromium, type BrowserContext, type Page, type CDPSession } from 'patchright';
 import type { BrowserDeviceProfile, BrowserScriptInjection } from '../BrowserSession';
-import { applyDeviceEmulation, normalizeDevice } from './device-emulation';
+import { applyDeviceEmulation } from './device-emulation';
 
-const CHROME_EXECUTABLE = process.env['CHROME_EXECUTABLE'] ?? '/usr/bin/google-chrome';
+function requireChromeExecutable(): string {
+  const path = process.env['CHROME_EXECUTABLE'];
+  if (!path?.trim()) {
+    throw new Error('CHROME_EXECUTABLE environment variable is required');
+  }
+  return path.trim();
+}
 
 export interface ChromeHandle {
   context: BrowserContext;
@@ -52,7 +58,13 @@ export async function launchChrome(args: {
   device?: BrowserDeviceProfile;
   preserveUserDataDir?: boolean;
 }): Promise<ChromeHandle> {
-  const device = normalizeDevice(args.device);
+  if (!Number.isFinite(args.width) || !Number.isFinite(args.height) || args.width <= 0 || args.height <= 0) {
+    throw Object.assign(new Error('launch requires positive width and height'), {
+      code: 'INVALID_ARGUMENT',
+    });
+  }
+
+  const chromeExecutable = requireChromeExecutable();
   const userDataDir = profileDirForSession(args.sessionId);
 
   if (!args.preserveUserDataDir) {
@@ -65,7 +77,7 @@ export async function launchChrome(args: {
 
   const context = await chromium.launchPersistentContext(userDataDir, {
     headless: false,
-    executablePath: CHROME_EXECUTABLE,
+    executablePath: chromeExecutable,
     env: {
       ...process.env as Record<string, string>,
       DISPLAY: args.displayEnv,
@@ -88,7 +100,7 @@ export async function launchChrome(args: {
   });
 
   if (args.device) {
-    await applyDeviceEmulation(cdp, args.width, args.height, device);
+    await applyDeviceEmulation(cdp, args.width, args.height, args.device);
   }
   // No device profile: rely on window-size + fullscreen only (no Emulation override).
 

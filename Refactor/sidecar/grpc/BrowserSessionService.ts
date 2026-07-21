@@ -10,27 +10,20 @@ import {
   toDevice,
   toLaunchOptions,
 } from './mappers';
+import {
+  mapGrpcError,
+  requireBinaryData,
+  requireEvaluateCode,
+  requireProbeOps,
+  requireSessionId,
+  requireState,
+  requireUrl,
+} from './validate';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 function grpcError(err: unknown): grpc.ServiceError {
-  const e = err as { code?: string; message?: string };
-  const status =
-    e.code === 'NOT_FOUND'
-      ? grpc.status.NOT_FOUND
-      : e.code === 'ALREADY_EXISTS'
-        ? grpc.status.ALREADY_EXISTS
-        : e.code === 'FAILED_PRECONDITION'
-          ? grpc.status.FAILED_PRECONDITION
-          : grpc.status.INTERNAL;
-  return Object.assign(new Error(e.message ?? String(err)), {
-    code: status,
-    details: e.message ?? String(err),
-  }) as grpc.ServiceError;
-}
-
-function sessionIdOf(req: any): string {
-  return req.sessionId ?? req.session_id ?? '';
+  return mapGrpcError(err);
 }
 
 async function pumpQueue<T>(
@@ -84,7 +77,8 @@ export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.Un
       callback: grpc.sendUnaryData<any>,
     ): Promise<void> {
       try {
-        const { session } = registry.get(sessionIdOf(call.request));
+        const sessionId = requireSessionId(call.request);
+        const { session } = registry.get(sessionId);
         const ready = await session.launch(toLaunchOptions(call.request));
         callback(null, ready);
       } catch (err) {
@@ -97,7 +91,7 @@ export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.Un
       callback: grpc.sendUnaryData<any>,
     ): Promise<void> {
       try {
-        const { session } = registry.get(sessionIdOf(call.request));
+        const { session } = registry.get(requireSessionId(call.request));
         await session.stop();
         callback(null, {});
       } catch (err) {
@@ -110,7 +104,7 @@ export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.Un
       callback: grpc.sendUnaryData<any>,
     ): Promise<void> {
       try {
-        await registry.dispose(sessionIdOf(call.request));
+        await registry.dispose(requireSessionId(call.request));
         callback(null, {});
       } catch (err) {
         callback(grpcError(err), null);
@@ -122,7 +116,7 @@ export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.Un
       callback: grpc.sendUnaryData<any>,
     ): Promise<void> {
       try {
-        const { session } = registry.get(sessionIdOf(call.request));
+        const { session } = registry.get(requireSessionId(call.request));
         const status = await session.getStatus();
         callback(null, {
           isOpen: status.isOpen,
@@ -142,7 +136,8 @@ export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.Un
       callback: grpc.sendUnaryData<any>,
     ): Promise<void> {
       try {
-        const { session } = registry.get(sessionIdOf(call.request));
+        const { session } = registry.get(requireSessionId(call.request));
+        requireState(call.request.state);
         await session.restoreState(toBrowserState(call.request.state));
         callback(null, {});
       } catch (err) {
@@ -155,7 +150,7 @@ export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.Un
       callback: grpc.sendUnaryData<any>,
     ): Promise<void> {
       try {
-        const { session } = registry.get(sessionIdOf(call.request));
+        const { session } = registry.get(requireSessionId(call.request));
         const state = await session.exportState();
         callback(null, fromBrowserState(state));
       } catch (err) {
@@ -168,8 +163,8 @@ export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.Un
       callback: grpc.sendUnaryData<any>,
     ): Promise<void> {
       try {
-        const { session } = registry.get(sessionIdOf(call.request));
-        await session.navigate(call.request.url);
+        const { session } = registry.get(requireSessionId(call.request));
+        await session.navigate(requireUrl(call.request.url));
         callback(null, {});
       } catch (err) {
         callback(grpcError(err), null);
@@ -181,7 +176,7 @@ export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.Un
       callback: grpc.sendUnaryData<any>,
     ): Promise<void> {
       try {
-        const { session } = registry.get(sessionIdOf(call.request));
+        const { session } = registry.get(requireSessionId(call.request));
         await session.refresh();
         callback(null, {});
       } catch (err) {
@@ -194,11 +189,11 @@ export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.Un
       callback: grpc.sendUnaryData<any>,
     ): Promise<void> {
       try {
-        const { session } = registry.get(sessionIdOf(call.request));
+        const { session } = registry.get(requireSessionId(call.request));
         const result = await session.resize({
           width: call.request.width,
           height: call.request.height,
-          device: toDevice(call.request.device ?? {}),
+          device: call.request.device ? toDevice(call.request.device) : undefined,
         });
         callback(null, result);
       } catch (err) {
@@ -211,9 +206,10 @@ export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.Un
       callback: grpc.sendUnaryData<any>,
     ): Promise<void> {
       try {
-        const { session } = registry.get(sessionIdOf(call.request));
+        const { session } = registry.get(requireSessionId(call.request));
+        const ops = requireProbeOps(call.request.ops);
         const result = await session.probe({
-          ops: call.request.ops ?? [],
+          ops,
           evaluateExpression: call.request.evaluateExpression,
           domSelector: call.request.domSelector,
         });
@@ -233,8 +229,8 @@ export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.Un
       callback: grpc.sendUnaryData<any>,
     ): Promise<void> {
       try {
-        const { session } = registry.get(sessionIdOf(call.request));
-        const result = await session.evaluate(call.request.code);
+        const { session } = registry.get(requireSessionId(call.request));
+        const result = await session.evaluate(requireEvaluateCode(call.request.code));
         callback(null, {
           ok: result.ok,
           value: result.value,
@@ -281,18 +277,18 @@ export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.Un
 
     pushInput(call: grpc.ServerReadableStream<any, any>, callback: grpc.sendUnaryData<any>): void {
       pumpClientStream(call, callback, async (msg) => {
-        const sid = sessionIdOf(msg);
+        const sid = requireSessionId(msg);
         const { session } = registry.get(sid);
         const input = toBrowserInput(msg);
-        if (input) await session.pushInput(input);
+        await session.pushInput(input);
       });
     },
 
     pushCamera(call: grpc.ServerReadableStream<any, any>, callback: grpc.sendUnaryData<any>): void {
       pumpClientStream(call, callback, async (msg) => {
-        const { session } = registry.get(sessionIdOf(msg));
-        const data = msg.data as Buffer;
-        await session.pushCameraFrame(new Uint8Array(data));
+        const { session } = registry.get(requireSessionId(msg));
+        const data = requireBinaryData(msg.data, 'camera frame');
+        await session.pushCameraFrame(data);
       });
     },
 
@@ -301,9 +297,9 @@ export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.Un
       callback: grpc.sendUnaryData<any>,
     ): void {
       pumpClientStream(call, callback, async (msg) => {
-        const { session } = registry.get(sessionIdOf(msg));
-        const data = msg.data as Buffer;
-        await session.pushMicrophoneAudio(new Uint8Array(data));
+        const { session } = registry.get(requireSessionId(msg));
+        const data = requireBinaryData(msg.data, 'microphone audio');
+        await session.pushMicrophoneAudio(data);
       });
     },
 
@@ -368,7 +364,7 @@ function watchStream<T>(
 ): void {
   let entry;
   try {
-    entry = registry.get(sessionIdOf(call.request));
+    entry = registry.get(requireSessionId(call.request));
   } catch (err) {
     call.destroy(grpcError(err));
     return;

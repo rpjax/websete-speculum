@@ -1,6 +1,6 @@
 import assert from 'assert';
 import { matchesAllowedDomain } from './browser/patchright/Navigation';
-import { normalizeStartViewport, validateResizeViewport } from './browser/patchright/viewport-bounds';
+import { validateLaunchViewport, validateResizeViewport } from './browser/patchright/viewport-bounds';
 
 function testDomainMatch(): void {
   assert.strictEqual(matchesAllowedDomain('example.com', ['example.com']), true);
@@ -11,9 +11,15 @@ function testDomainMatch(): void {
 }
 
 function testViewportBounds(): void {
-  const start = normalizeStartViewport(0, 0);
-  assert.strictEqual(start.width, 1280);
-  assert.strictEqual(start.height, 720);
+  const invalidLaunch = validateLaunchViewport(0, 0);
+  assert.strictEqual(invalidLaunch.ok, false);
+
+  const validLaunch = validateLaunchViewport(800, 600);
+  assert.strictEqual(validLaunch.ok, true);
+  if (validLaunch.ok) {
+    assert.strictEqual(validLaunch.width, 800);
+    assert.strictEqual(validLaunch.height, 600);
+  }
 
   const ok = validateResizeViewport(800, 600);
   assert.strictEqual(ok.ok, true);

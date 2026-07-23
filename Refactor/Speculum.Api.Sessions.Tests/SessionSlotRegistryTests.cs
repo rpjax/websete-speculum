@@ -1,5 +1,5 @@
 using Microsoft.Extensions.Options;
-using Speculum.Api.BrowserSessions.Services;
+using Speculum.Api.Sessions.Services;
 
 namespace Speculum.Api.Sessions.Tests;
 

@@ -1,9 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Speculum.Api.BrowserSessions.Journal;
 using Speculum.Api.Database;
 using Speculum.Api.Journal.Services.Contracts;
+using Speculum.Api.Sessions.Events.Models;
 
 namespace Speculum.Api.Journal.Tests;
 

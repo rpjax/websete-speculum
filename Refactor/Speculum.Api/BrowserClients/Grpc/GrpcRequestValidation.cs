@@ -1,5 +1,5 @@
 using Aidan.Core.Patterns;
-using Speculum.Api.BrowserSessions.Models;
+using Speculum.Api.Sessions.Models;
 
 namespace Speculum.Api.BrowserClients.Grpc;
 

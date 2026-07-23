@@ -1,7 +1,7 @@
 using System.Threading.Channels;
 using Aidan.Core.Patterns;
-using Speculum.Api.BrowserProfiles.Aggregates;
-using Speculum.Api.BrowserSessions.Models;
+using Speculum.Api.Profiles.Aggregates;
+using Speculum.Api.Sessions.Models;
 
 namespace Speculum.Api.BrowserClients;
 

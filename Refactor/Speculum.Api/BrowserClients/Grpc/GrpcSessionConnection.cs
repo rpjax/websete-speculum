@@ -1,12 +1,12 @@
 using System.Threading.Channels;
 using Aidan.Core.Patterns;
 using Grpc.Core;
-using Speculum.Api.BrowserProfiles.Aggregates;
-using Speculum.Api.BrowserSessions.Models;
+using Speculum.Api.Profiles.Aggregates;
+using Speculum.Api.Sessions.Models;
 using Speculum.Api.Sidecar.V1;
-using DomainDeviceProfile = Speculum.Api.BrowserSessions.Models.DeviceProfile;
-using DomainEditingState = Speculum.Api.BrowserSessions.Models.EditingState;
-using DomainResizeResult = Speculum.Api.BrowserSessions.Models.ResizeResult;
+using DomainDeviceProfile = Speculum.Api.Sessions.Models.DeviceProfile;
+using DomainEditingState = Speculum.Api.Sessions.Models.EditingState;
+using DomainResizeResult = Speculum.Api.Sessions.Models.ResizeResult;
 using ProtoEmpty = Speculum.Api.Sidecar.V1.Empty;
 using ProtoSessionId = Speculum.Api.Sidecar.V1.SessionId;
 

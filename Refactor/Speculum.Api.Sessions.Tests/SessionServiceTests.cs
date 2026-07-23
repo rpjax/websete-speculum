@@ -1,15 +1,17 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Threading.Channels;
+using Aidan.Core.Errors;
 using Aidan.Core.Patterns;
 using Microsoft.Extensions.Options;
 using Speculum.Api.BrowserClients;
-using Speculum.Api.BrowserProfiles.Aggregates;
-using Speculum.Api.BrowserProfiles.Services.Contracts;
-using Speculum.Api.BrowserSessions.Aggregates;
-using Speculum.Api.BrowserSessions.Models;
-using Speculum.Api.BrowserSessions.Requests;
-using Speculum.Api.BrowserSessions.Services;
-using Speculum.Api.BrowserSessions.Services.Contracts;
+using Speculum.Api.Profiles.Aggregates;
+using Speculum.Api.Profiles.Services.Contracts;
+using Speculum.Api.Sessions.Aggregates;
+using Speculum.Api.Sessions.Events.Services.Contracts;
+using Speculum.Api.Sessions.Models;
+using Speculum.Api.Sessions.Requests;
+using Speculum.Api.Sessions.Services;
+using Speculum.Api.Sessions.Services.Contracts;
 
 namespace Speculum.Api.Sessions.Tests;
 
@@ -36,9 +38,7 @@ public sealed class SessionServiceTests
             collector,
             pipes,
             new FixedInitialUrlResolver("https://example.test/"),
-            new NullSessionLifecycleEvents(),
-            new NullSessionStartEvents(),
-            new NullSessionStopEvents(),
+            new NoOpSessionEventsFactory(),
             browser);
 
         var result = await service.StartSessionAsync(new StartSession
@@ -67,9 +67,7 @@ public sealed class SessionServiceTests
             new NoOpCollector(),
             new NoOpPipeService(),
             new FixedInitialUrlResolver("https://example.test/"),
-            new NullSessionLifecycleEvents(),
-            new NullSessionStartEvents(),
-            new NullSessionStopEvents(),
+            new NoOpSessionEventsFactory(),
             new FakeBrowserClient());
 
         var result = await service.StartSessionAsync(new StartSession
@@ -94,14 +92,65 @@ public sealed class SessionServiceTests
             => Result<string>.Success(_url);
     }
 
-    private sealed class NullSessionLifecycleEvents : ISessionLifecycleEvents
+    private sealed class NoOpSessionEventsFactory : ISessionEventsFactory
     {
-        public void Starting(Guid sessionId) { }
-        public void Started(Guid sessionId) { }
-        public void Stopping(Guid sessionId) { }
-        public void Stopped(Guid sessionId) { }
-        public void TimedOut(Guid sessionId) { }
-        public void Aborted(Guid sessionId) { }
+        public ISessionLifecycleEvents ForSessionLifecycle(Guid sessionId, Guid profileId)
+            => new NoOpLifecycleEvents();
+
+        public ISessionStartEvents ForSessionStart(Guid sessionId, Guid profileId)
+            => new NoOpStartEvents();
+
+        public ISessionStopEvents ForSessionStop(Guid sessionId, Guid profileId)
+            => new NoOpStopEvents();
+
+        public ISessionLifecycleEvents ForSessionLifecycle(Session session)
+            => ForSessionLifecycle(session.Id, session.ProfileId);
+
+        public ISessionStartEvents ForSessionStart(Session session)
+            => ForSessionStart(session.Id, session.ProfileId);
+
+        public ISessionStopEvents ForSessionStop(Session session)
+            => ForSessionStop(session.Id, session.ProfileId);
+    }
+
+    private sealed class NoOpLifecycleEvents : ISessionLifecycleEvents
+    {
+        public void Starting() { }
+        public void Started() { }
+        public void Stopping() { }
+        public void Stopped() { }
+        public void TimedOut() { }
+        public void Aborted() { }
+    }
+
+    private sealed class NoOpStartEvents : ISessionStartEvents
+    {
+        public void SlotAcquired() { }
+        public void ConnectionStarted() { }
+        public void BrowserLaunched() { }
+        public void ProfileStateRestored() { }
+        public void InitialUrlResolved(string url) { }
+        public void InitialNavigationCompleted() { }
+        public void ProfileNotFound() { }
+        public void NoSlotAvailable() { }
+        public void ConnectionStartFailed(Error[] errors) { }
+        public void LaunchBrowserFailed(Error[] errors) { }
+        public void RestoreProfileStateFailed(Error[] errors) { }
+        public void InitialUrlResolveFailed(Error[] errors) { }
+        public void InitialNavigationFailed(Error[] errors) { }
+    }
+
+    private sealed class NoOpStopEvents : ISessionStopEvents
+    {
+        public void SessionStatePersisted() { }
+        public void PersistSkippedNoConnection() { }
+        public void PersistSkippedProfileNotFound() { }
+        public void ExportSessionStateFailed(Error[] errors) { }
+        public void CloseBrowserFailed(Error[] errors) { }
+        public void CloseConnectionFailed(Error[] errors) { }
+        public void BrowserClosed() { }
+        public void ConnectionClosed() { }
+        public void SlotReleased() { }
     }
 
     private sealed class InMemorySessionRepository : ISessionRepository

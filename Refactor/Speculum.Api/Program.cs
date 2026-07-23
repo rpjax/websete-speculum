@@ -1,8 +1,8 @@
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Speculum.Api.BrowserClients;
-using Speculum.Api.BrowserSessions;
 using Speculum.Api.Database;
 using Speculum.Api.Journal;
+using Speculum.Api.Sessions;
 using Wolverine;
 
 var builder = WebApplication.CreateBuilder(args);

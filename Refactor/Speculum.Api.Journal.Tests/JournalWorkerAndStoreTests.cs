@@ -4,7 +4,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
-using Speculum.Api.BrowserSessions.Journal;
+using Speculum.Api.Sessions.Events.Models;
 using Speculum.Api.Database;
 using Speculum.Api.Journal;
 using Speculum.Api.Journal.Models;

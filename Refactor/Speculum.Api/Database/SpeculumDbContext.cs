@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
-using Speculum.Api.BrowserProfiles.Storage;
-using Speculum.Api.BrowserSessions.Storage;
+using Speculum.Api.Profiles.Storage;
+using Speculum.Api.Sessions.Storage;
 
 namespace Speculum.Api.Database;
 

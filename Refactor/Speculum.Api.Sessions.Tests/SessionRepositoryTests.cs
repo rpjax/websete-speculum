@@ -1,11 +1,11 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
-using Speculum.Api.BrowserProfiles.Aggregates;
-using Speculum.Api.BrowserProfiles.Storage;
-using Speculum.Api.BrowserSessions.Aggregates;
-using Speculum.Api.BrowserSessions.Models;
-using Speculum.Api.BrowserSessions.Storage;
 using Speculum.Api.Database;
+using Speculum.Api.Profiles.Aggregates;
+using Speculum.Api.Profiles.Storage;
+using Speculum.Api.Sessions.Aggregates;
+using Speculum.Api.Sessions.Models;
+using Speculum.Api.Sessions.Storage;
 
 namespace Speculum.Api.Sessions.Tests;
 

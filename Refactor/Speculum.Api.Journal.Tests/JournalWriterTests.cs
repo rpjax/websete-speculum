@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Logging.Abstractions;
-using Speculum.Api.BrowserSessions.Journal;
 using Speculum.Api.Journal.Models;
 using Speculum.Api.Journal.Services;
+using Speculum.Api.Sessions.Events.Models;
 
 namespace Speculum.Api.Journal.Tests;
 
@@ -39,12 +39,11 @@ public sealed class JournalWriterTests
         {
             ProfileId = profileId,
             SessionId = sessionId,
-            Restored = true,
         });
 
         Assert.Equal(1, queue.Count);
         var entry = (await queue.TakeBatchAsync(1)).Single();
-        Assert.Equal("BrowserSessions.SessionStarted", entry.Type);
+        Assert.Equal("Sessions.SessionStarted", entry.Type);
         Assert.Equal(PublishPolicy.Guaranteed, entry.PublishPolicy);
         Assert.NotEqual(Guid.Empty, entry.Id);
         Assert.NotEqual(default, entry.PublishedAt);
@@ -58,7 +57,7 @@ public sealed class JournalWriterTests
     {
         var catalog = new JournalCatalog();
         catalog.RegisterFromAssemblies(typeof(SessionStarted).Assembly);
-        catalog.SetEnabled("BrowserSessions.SessionStarted", false);
+        catalog.SetEnabled("Sessions.SessionStarted", false);
 
         var (queue, metrics, health) = JournalTestHarness.CreateQueue(o => o.MaxQueueDepth = 0);
         var writer = new JournalWriter(
@@ -73,7 +72,6 @@ public sealed class JournalWriterTests
         {
             ProfileId = Guid.CreateVersion7(),
             SessionId = Guid.CreateVersion7(),
-            Restored = false,
         });
 
         Assert.Equal(0, queue.Count);
@@ -102,7 +100,6 @@ public sealed class JournalWriterTests
         {
             ProfileId = Guid.CreateVersion7(),
             SessionId = Guid.CreateVersion7(),
-            Restored = false,
         });
 
         Assert.Equal(0, queue.Count);

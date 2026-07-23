@@ -1,11 +1,11 @@
 using System.Text;
 using System.Text.Json;
-using Speculum.Api.BrowserProfiles.Aggregates;
-using Speculum.Api.BrowserSessions.Models;
+using Speculum.Api.Profiles.Aggregates;
+using Speculum.Api.Sessions.Models;
 using Speculum.Api.Sidecar.V1;
-using DomainDeviceProfile = Speculum.Api.BrowserSessions.Models.DeviceProfile;
-using DomainEditingState = Speculum.Api.BrowserSessions.Models.EditingState;
-using DomainResizeResult = Speculum.Api.BrowserSessions.Models.ResizeResult;
+using DomainDeviceProfile = Speculum.Api.Sessions.Models.DeviceProfile;
+using DomainEditingState = Speculum.Api.Sessions.Models.EditingState;
+using DomainResizeResult = Speculum.Api.Sessions.Models.ResizeResult;
 using ProtoDevice = Speculum.Api.Sidecar.V1.DeviceProfile;
 using ProtoResizeResult = Speculum.Api.Sidecar.V1.ResizeResult;
 using ProtoScript = Speculum.Api.Sidecar.V1.ScriptInjection;

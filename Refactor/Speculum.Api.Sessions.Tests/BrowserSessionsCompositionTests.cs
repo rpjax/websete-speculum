@@ -1,13 +1,14 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Speculum.Api.BrowserProfiles.Services.Contracts;
-using Speculum.Api.BrowserSessions;
-using Speculum.Api.BrowserSessions.Journal;
-using Speculum.Api.BrowserSessions.Services.Contracts;
 using Speculum.Api.Database;
 using Speculum.Api.Journal;
 using Speculum.Api.Journal.Services.Contracts;
+using Speculum.Api.Profiles.Services.Contracts;
+using Speculum.Api.Sessions;
+using Speculum.Api.Sessions.Events.Models;
+using Speculum.Api.Sessions.Events.Services.Contracts;
+using Speculum.Api.Sessions.Services.Contracts;
 
 namespace Speculum.Api.Sessions.Tests;
 
@@ -52,12 +53,18 @@ public sealed class BrowserSessionsCompositionTests
         Assert.NotNull(provider.GetService<IProfileRepository>());
         Assert.NotNull(provider.GetService<ISessionSlotRegistry>());
         Assert.NotNull(provider.GetService<ISessionCollector>());
+        Assert.NotNull(provider.GetService<ISessionEventsFactory>());
         Assert.Null(provider.GetService<ISessionService>());
         Assert.Null(provider.GetService<IInitialUrlResolver>());
+        Assert.Null(provider.GetService<ISessionLifecycleEvents>());
+        Assert.Null(provider.GetService<ISessionStartEvents>());
+        Assert.Null(provider.GetService<ISessionStopEvents>());
 
         var catalog = provider.GetRequiredService<IJournalCatalog>();
         Assert.True(catalog.TryGet<SessionStopped>(out _));
         Assert.True(catalog.TryGet<SessionAborted>(out _));
         Assert.True(catalog.TryGet<SessionTimedOut>(out _));
+        Assert.True(catalog.TryGet<SessionStarting>(out _));
+        Assert.True(catalog.TryGet<SlotAcquired>(out _));
     }
 }

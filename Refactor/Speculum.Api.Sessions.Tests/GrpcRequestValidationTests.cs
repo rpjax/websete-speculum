@@ -1,5 +1,5 @@
 using Speculum.Api.BrowserClients.Grpc;
-using Speculum.Api.BrowserSessions.Models;
+using Speculum.Api.Sessions.Models;
 
 namespace Speculum.Api.Sessions.Tests;
 

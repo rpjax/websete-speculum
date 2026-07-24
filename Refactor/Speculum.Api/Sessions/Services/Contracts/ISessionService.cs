@@ -4,11 +4,22 @@ using Speculum.Api.Sessions.Responses;
 
 namespace Speculum.Api.Sessions.Services.Contracts;
 
+/// <summary>
+/// Application port for session lifecycle: provision and tear down.
+/// </summary>
+/// <remarks>
+/// Coordinates durable session state with runtime:
+/// <see cref="ILiveSessionService"/> (in-memory context) and
+/// <see cref="ISessionCollector"/> (detached presence timer).
+/// Runtime consumption (streams, commands, hooks, Attach/Detach) is on
+/// <see cref="ILiveSession"/> after a successful start.
+/// </remarks>
 public interface ISessionService
 {
     /// <summary>
     /// Starts a live session. Fail-fast on any provisioning step (including initial navigation).
-    /// On failure, partially acquired resources are released.
+    /// On failure, partially acquired resources are released and a persisted row is marked Aborted.
+    /// Success order: persist Live → <see cref="ILiveSessionService.Create"/> → watch collector.
     /// Returns session id and auth token on success.
     /// </summary>
     Task<IResult<StartSessionResponse>> StartSessionAsync(
@@ -17,7 +28,9 @@ public interface ISessionService
 
     /// <summary>
     /// Stops a live session. Failure only when the session identity is unknown.
-    /// Already-stopped is Success (idempotent). Persist is best-effort; teardown always runs.
+    /// Already-stopped/aborted is Success (idempotent) and still runs teardown for leftovers.
+    /// Persist is best-effort while the connection is open; then live Release → Unwatch →
+    /// StopBrowser → Close → slot release.
     /// </summary>
     Task<IResult> StopSessionAsync(
         StopSession request,

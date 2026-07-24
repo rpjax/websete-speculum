@@ -8,7 +8,6 @@ using Speculum.Api.Profiles.Services.Contracts;
 using Speculum.Api.Sessions;
 using Speculum.Api.Sessions.Events.Models;
 using Speculum.Api.Sessions.Events.Services.Contracts;
-using Speculum.Api.Sessions.Pipes.Services.Contracts;
 using Speculum.Api.Sessions.Services;
 using Speculum.Api.Sessions.Services.Contracts;
 using Speculum.Api.Shared.Services.Contracts;
@@ -51,8 +50,7 @@ public sealed class BrowserSessionsCompositionTests
         services.DiscoverJournalFacts();
         services.AddBrowserSessions();
 
-        Assert.Contains(services, d => d.ServiceType == typeof(ISessionPipeService));
-        Assert.DoesNotContain(services, d => d.ServiceType == typeof(ISessionCommandService));
+        Assert.Contains(services, d => d.ServiceType == typeof(ILiveSessionService));
         Assert.Contains(services, d => d.ServiceType == typeof(IScopedMutex));
 
         using var provider = services.BuildServiceProvider();
@@ -63,7 +61,6 @@ public sealed class BrowserSessionsCompositionTests
         Assert.NotNull(provider.GetService<ISessionEventsFactory>());
         Assert.NotNull(provider.GetService<ISessionTokenGenerator>());
         Assert.Null(provider.GetService<ISessionService>());
-        Assert.Null(provider.GetService<ISessionCommandService>());
         Assert.Null(provider.GetService<IUrlResolver>());
         Assert.Null(provider.GetService<ISessionLifecycleEvents>());
         Assert.Null(provider.GetService<ISessionStartEvents>());

@@ -4,7 +4,7 @@ using Speculum.Api.Configurations.Models.Sessions;
 using Speculum.Api.BrowserClients;
 using Speculum.Api.Sessions.Models;
 
-namespace Speculum.Api.Sessions.Pipes.Streaming;
+namespace Speculum.Api.Sessions.Services.Streaming;
 
 /// <summary>
 /// Merges inbound pipe pumps into a single connection consume path,
@@ -117,7 +117,7 @@ internal sealed class SessionInputMerger
     {
         lock (_ownershipGate)
         {
-            if (ownerSlot is { } owner && owner != pipeId)
+            if (ownerSlot is not null)
             {
                 return false;
             }

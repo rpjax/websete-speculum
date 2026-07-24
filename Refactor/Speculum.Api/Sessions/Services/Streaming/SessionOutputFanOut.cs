@@ -4,7 +4,7 @@ using Aidan.Core.Patterns;
 using Speculum.Api.BrowserClients;
 using Speculum.Api.Sessions.Models;
 
-namespace Speculum.Api.Sessions.Pipes.Streaming;
+namespace Speculum.Api.Sessions.Services.Streaming;
 
 /// <summary>
 /// Single-reader fan-out from <see cref="ISessionConnection"/> outbound streams

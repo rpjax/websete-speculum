@@ -121,8 +121,8 @@ The current product binds one live session directly to one SignalR
 
 | Status | Feature | Current observable behavior | Application model still required |
 |--------|---------|-----------------------------|----------------------------------|
-| ✅ | Pipe ownership | Pipe is the caller's I/O handle; only the service closes it | Modeled |
-| ✅ | Reference-counted presence | Opening/closing pipes retains/releases the session | Modeled at contract level |
+| ✅ | Stream ownership | Disposable stream handles unregister themselves from the mux | Modeled |
+| ✅ | Reference-counted presence | Explicit `ILiveSession.Attach` / `Detach` retains/releases the whole session; streams do not affect presence | Modeled |
 | ○ | Transport binding | Maps SignalR connection identity to a pipe/session without leaking SignalR into domain types | Transport-session binding application port |
 | ○ | Second-start replacement | Same caller can replace its previous active or starting session | Replacement orchestration contract |
 | ○ | Disconnect policy | Current behavior immediately exports and stops; refactor proposes detached TTL | A deliberate parity decision and disconnect orchestrator |
@@ -151,14 +151,14 @@ Current Hub methods:
 |--------|---------|-----------------------------|----------------------------------|
 | ◐ | Frame stream | JPEG + monotonic sequence + capture timestamp | Pipe contract exists; frame semantics should be finalized |
 | ◐ | Console/control output | Console, URL updates, eval results and redirects share client-visible output | Define typed output/control capabilities exposed by a pipe |
-| ◐ | Status poll | Unary GetStatus; callers poll on demand (not a stream) | Modeled on `ISessionCommandService` |
+| ◐ | Status poll | Unary GetStatus; callers poll on demand (not a stream) | Modeled on `ILiveSession` |
 | ◐ | User input | Mouse, keyboard, wheel, text and touch reach browser | Typed input model and application input flow |
 | ◐ | Console input | Eval request carries id + JavaScript code | Eval request/result contract and JsBridge gate |
 | ○ | Input validation | Malformed JSON and blocked input types are rejected; session stays alive | Input-validation policy and rejection events |
 | ○ | Touch gestures | Tap, cancel, multitouch and drag-scroll are supported | Touch input models |
 | ○ | Single-tab enforcement | Popup and `_blank` navigation remain in one controlled tab | Browser-window policy capability |
-| ◐ | Multi-pipe output | One session can supply equivalent output to N pipes | Fan-out modeled in pipe streaming multiplexer |
-| ◐ | Multi-pipe input authority | Defines who may control a session when multiple pipes exist | Shared/Exclusive access modeled; ownership/scheduling pending |
+| ◐ | Multi-pipe output | One session can supply equivalent output to N pipes | Fan-out via live-session stream mux |
+| ◐ | Multi-pipe input authority | Defines who may control a session when multiple pipes exist | Shared/Exclusive access on mux; ownership/scheduling pending |
 
 ---
 
@@ -178,7 +178,7 @@ live output stream.
 | Status | Feature | Current observable behavior | Application model still required |
 |--------|---------|-----------------------------|----------------------------------|
 | ◐ | Initial navigation | Required for successful start | Modeled, but resolver inputs are incomplete |
-| ◐ | Runtime navigation | Maps client URL to target URL and commands the active browser | `ISessionCommandService.NavigateAsync` + `IUrlResolver`; allowlist/mirroring still incomplete |
+| ◐ | Runtime navigation | Maps client URL to target URL and commands the active browser | `ILiveSession.NavigateAsync` + `IUrlResolver`; allowlist/mirroring still incomplete |
 | ○ | Scheme validation | Invalid/unsupported navigation is rejected | Navigation request validation |
 | ○ | URL allowlist | Main-frame navigation honors shared domain/path pattern rules | Navigation policy port/result |
 | ○ | Blocked vs failed | Policy block is distinct from technical browser failure | Named results/events |
@@ -203,7 +203,7 @@ ResizeAsync(width, height, device?) → ResizeResult
 | Status | Feature | Current observable behavior | Application model still required |
 |--------|---------|-----------------------------|----------------------------------|
 | ◐ | Startup viewport | Resolution exists in `SessionConfig` | Startup normalization policy |
-| ◐ | Runtime resize | Requests a new viewport for a live session | `ISessionCommandService.ResizeAsync`; validation/busy policy still incomplete |
+| ◐ | Runtime resize | Requests a new viewport for a live session | `ILiveSession.ResizeAsync`; validation/busy policy still incomplete |
 | ○ | Exact geometry | Success confirms browser and display geometry, not merely requested size | Resize result model |
 | ○ | Resize rejection | `<100` or `>4096×2160` is rejected without changing prior geometry | Validation/rejection flow |
 | ○ | Resize failure | Operational failure is distinct from validation rejection | Named failure event/result |
@@ -422,8 +422,8 @@ The following are the immediate modeling gaps visible in the existing chassis:
 3. `StartSessionAsync` returns `sessionId`; current client behavior also needs
    effective profile/client-token continuity.
 4. There is no EnsureProfile/identity-indexer application flow.
-5. Runtime Navigate/Resize/Status/Refresh/Diag are on `ISessionCommandService`;
-   richer allowlist, busy-coalesce and projection contracts remain open.
+5. Runtime Navigate/Resize/Status/Refresh/Diag/streams/hooks are on `ILiveSession`
+   via `ILiveSessionService`; richer allowlist, busy-coalesce and projection contracts remain open.
 6. Pipe models do not yet represent URL updates, redirects, eval results,
    complete status or input validation.
 7. Disconnect/replacement/config-drain/sidecar-fault flows are not modeled.
@@ -480,13 +480,16 @@ application-layer orchestration, then mark the feature ✅/◐ here.
 ## 15. Boundaries to preserve while modeling
 
 - Presentation calls application ports; it does not inject `IBrowserClient`.
-- `ISessionService` = lifecycle (Start/Stop); `ISessionCommandService` = unary
-  live commands (status/navigate/resize/refresh/diag); `ISessionPipeService` =
-  streams + input pumps. Host registers `ISessionService` / `ISessionCommandService`
-  with `IUrlResolver`; `AddBrowserSessions` registers pipes + infra only.
+- `ISessionService` = lifecycle (Start/Stop); `ILiveSessionService` / `ILiveSession` =
+  one in-memory context per live connection (typed streams, commands, hooks, Attach/Detach).
+  Start success order: persist Live → `Create(sessionId, connection)` → collector `Watch`.
+  Stop order: persist best-effort → MarkStopped → live `Release` → `Unwatch` →
+  StopBrowser → Close → slot release. Host registers `ISessionService` with `IUrlResolver`;
+  `AddBrowserSessions` registers `ILiveSessionService` (needs `IUrlResolver`).
 - `ISessionConnection` is the sidecar boundary, not the user-facing session API.
 - `Session` (live) remains distinct from `Profile` (durable identity/state).
-- Pipes are transport consumers; attached/detached are not lifecycle states.
+- Caller attachment is explicit on `ILiveSession` and independent from disposable
+  stream registrations; attached/detached are not lifecycle states.
 - Named events replace generic `Failed(phase)`.
 - Diagnostics failures still require stable `errorCode` + context in their
   eventual catalog payloads.
@@ -497,9 +500,12 @@ application-layer orchestration, then mark the feature ✅/◐ here.
 **On the port:** `SessionId` / `IsOpen`; lifecycle (`LaunchBrowser` → ready geometry,
 `RestoreProfileState`, `Navigate`, `Refresh`, `ExportSessionState`, `StopBrowser`,
 `Close`); runtime (`Resize`, `RequestDiagnostics`); streams (frames, console out,
-status, user-input JSON pump, console-input pump).
+notifications, user-input JSON pump, console-input pump); hooks (camera/mic
+permission handlers — default deny).
 
 **Not on the port:** `IBrowserClient` registry; session slots / pipes; client↔target URL
 mapping and business allowlist; profile merge/persist; Journal emit; Diagnostics
 capability gates / probe budgets; hub/SignalR binding. History (`goback` /
-`goforward`) stays in validated user-input JSON.
+`goforward`) stays in validated user-input JSON. Application wraps hooks via
+`ILiveSession` / `ILiveSessionService` (application never calls
+`Set*PermissionHandler` directly).

@@ -1,4 +1,4 @@
-namespace Speculum.Api.Sessions.Services;
+namespace Speculum.Api.Sessions.Services.Contracts;
 
 public interface ISessionTokenGenerator
 {

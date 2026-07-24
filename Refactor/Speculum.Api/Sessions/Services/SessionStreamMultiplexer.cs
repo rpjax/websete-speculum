@@ -4,19 +4,24 @@ using Aidan.Core.Patterns;
 using Speculum.Api.BrowserClients;
 using Speculum.Api.Configurations.Models.Sessions;
 using Speculum.Api.Sessions.Models;
+using Speculum.Api.Sessions.Services.Contracts;
+using Speculum.Api.Sessions.Services.Streaming;
 
-namespace Speculum.Api.Sessions.Pipes.Streaming;
+namespace Speculum.Api.Sessions.Services;
 
 /// <summary>
-/// Multiplexes one sidecar connection's streams onto N registered pipes.
+/// Multiplexes one sidecar connection's streams onto N registered output consumers,
+/// and merges inbound pumps from input consumers.
 /// </summary>
 internal sealed class SessionStreamMultiplexer : ISessionStreamMultiplexer
 {
     private readonly ISessionConnection _connection;
     private readonly ConcurrentDictionary<Guid, PipeStreamChannels> _pipes = new();
+    private readonly ConcurrentDictionary<Guid, byte> _inputConsumers = new();
     private readonly CancellationTokenSource _lifetime = new();
     private readonly SessionOutputFanOut _fanOut;
     private readonly SessionInputMerger _input;
+    private int _disposed;
 
     public SessionStreamMultiplexer(
         ISessionConnection connection,
@@ -29,12 +34,12 @@ internal sealed class SessionStreamMultiplexer : ISessionStreamMultiplexer
             connection,
             inputAccess,
             jsBridgeEnabled,
-            pipeId => _pipes.ContainsKey(pipeId));
+            IsInputConsumerAttached);
     }
 
-    public bool IsEmpty => _pipes.IsEmpty;
+    public bool IsEmpty => _pipes.IsEmpty && _inputConsumers.IsEmpty;
 
-    public bool IsAlive => !_lifetime.IsCancellationRequested;
+    public bool IsAlive => Volatile.Read(ref _disposed) == 0;
 
     public bool IsBoundTo(ISessionConnection connection)
         => ReferenceEquals(_connection, connection);
@@ -43,7 +48,7 @@ internal sealed class SessionStreamMultiplexer : ISessionStreamMultiplexer
     {
         if (!IsAlive)
         {
-            return Result.Failure("Multiplexer is retired");
+            return Result.Failure("Multiplexer is disposed");
         }
 
         var channels = new PipeStreamChannels(
@@ -69,12 +74,55 @@ internal sealed class SessionStreamMultiplexer : ISessionStreamMultiplexer
         }
 
         channels.Complete();
-        _input.ReleaseOwnership(pipeId);
+    }
 
-        if (_pipes.IsEmpty)
+    public IResult RegisterInputConsumer(Guid consumerId)
+    {
+        if (!IsAlive)
+        {
+            return Result.Failure("Multiplexer is disposed");
+        }
+
+        return _inputConsumers.TryAdd(consumerId, 0)
+            ? Result.Success()
+            : Result.Failure("Input consumer already registered");
+    }
+
+    public void UnregisterInputConsumer(Guid consumerId)
+    {
+        if (!_inputConsumers.TryRemove(consumerId, out _))
+        {
+            return;
+        }
+
+        _input.ReleaseOwnership(consumerId);
+    }
+
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        {
+            return;
+        }
+
+        foreach (var pipeId in _pipes.Keys.ToArray())
+        {
+            UnregisterPipe(pipeId);
+        }
+
+        foreach (var consumerId in _inputConsumers.Keys.ToArray())
+        {
+            UnregisterInputConsumer(consumerId);
+        }
+
+        try
         {
             _lifetime.Cancel();
+        }
+        finally
+        {
             _input.Complete();
+            _lifetime.Dispose();
         }
     }
 
@@ -109,14 +157,17 @@ internal sealed class SessionStreamMultiplexer : ISessionStreamMultiplexer
     }
 
     public IResult<Task> StartUserInputPump(
-        Guid pipeId,
+        Guid consumerId,
         ChannelReader<string> channelReader,
         CancellationToken ct)
-        => _input.StartUserInputPump(pipeId, channelReader, ct);
+        => _input.StartUserInputPump(consumerId, channelReader, ct);
 
     public IResult<Task> StartConsoleInputPump(
-        Guid pipeId,
+        Guid consumerId,
         ChannelReader<ConsoleInput> channelReader,
         CancellationToken ct)
-        => _input.StartConsoleInputPump(pipeId, channelReader, ct);
+        => _input.StartConsoleInputPump(consumerId, channelReader, ct);
+
+    private bool IsInputConsumerAttached(Guid consumerId)
+        => _inputConsumers.ContainsKey(consumerId);
 }

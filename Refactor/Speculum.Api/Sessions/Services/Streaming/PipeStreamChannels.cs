@@ -1,7 +1,7 @@
 using System.Threading.Channels;
 using Speculum.Api.Sessions.Models;
 
-namespace Speculum.Api.Sessions.Pipes.Streaming;
+namespace Speculum.Api.Sessions.Services.Streaming;
 
 /// <summary>
 /// Per-pipe outbound channels (fan-out targets + consumer readers).

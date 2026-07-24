@@ -2,17 +2,20 @@ using System.Diagnostics.CodeAnalysis;
 using System.Threading.Channels;
 using Aidan.Core.Errors;
 using Aidan.Core.Patterns;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Speculum.Api.BrowserClients;
+using Speculum.Api.Configurations.Models.Sessions;
 using Speculum.Api.Profiles.Aggregates;
 using Speculum.Api.Profiles.Services.Contracts;
 using Speculum.Api.Sessions.Aggregates;
 using Speculum.Api.Sessions.Events.Services.Contracts;
 using Speculum.Api.Sessions.Models;
 using Speculum.Api.Sessions.Requests;
-using Speculum.Api.Sessions.Pipes.Services.Contracts;
 using Speculum.Api.Sessions.Services;
 using Speculum.Api.Sessions.Services.Contracts;
+using Speculum.Api.Shared.Services;
+using ScreenResolution = Speculum.Api.Sessions.Models.ScreenResolution;
 
 namespace Speculum.Api.Sessions.Tests;
 
@@ -28,20 +31,22 @@ public sealed class SessionServiceTests
         var sessions = new InMemorySessionRepository();
         var slots = new SessionSlotRegistry(
             Options.Create(SessionsTestHarness.ResourceManagement()));
-        var collector = new NoOpCollector();
+        var collector = new RecordingCollector();
         var browser = new FakeBrowserClient();
-        var pipes = new NoOpPipeService();
+        var urls = new FixedUrlResolver("https://example.test/");
+        var live = CreateLiveSessionService(urls, collector);
 
         var service = new SessionService(
             profiles,
             sessions,
             slots,
             collector,
-            pipes,
-            new FixedUrlResolver("https://example.test/"),
+            live,
+            urls,
             new NoOpSessionEventsFactory(),
             browser,
-            new FixedSessionTokenGenerator("test-auth-token"));
+            new FixedSessionTokenGenerator("test-auth-token"),
+            new ScopedMutex());
 
         var result = await service.StartSessionAsync(new StartSession
         {
@@ -60,22 +65,134 @@ public sealed class SessionServiceTests
         Assert.NotNull(loaded);
         Assert.Equal(profileId, loaded.ProfileId);
         Assert.Equal("test-auth-token", loaded.AuthToken);
+        Assert.True(live.TryGet(result.Value.SessionId, out _));
+        Assert.Contains(result.Value.SessionId, collector.Watched);
+    }
+
+    [Fact]
+    public async Task StopSession_ReleasesLiveContextAndConnection()
+    {
+        var profileId = Guid.NewGuid();
+        var profiles = new InMemoryProfileRepository();
+        await profiles.SaveAsync(Profile.Create(profileId));
+
+        var sessions = new InMemorySessionRepository();
+        var slots = new SessionSlotRegistry(
+            Options.Create(SessionsTestHarness.ResourceManagement()));
+        var collector = new RecordingCollector();
+        var browser = new FakeBrowserClient();
+        var urls = new FixedUrlResolver("https://example.test/");
+        var live = CreateLiveSessionService(urls, collector);
+
+        var service = new SessionService(
+            profiles,
+            sessions,
+            slots,
+            collector,
+            live,
+            urls,
+            new NoOpSessionEventsFactory(),
+            browser,
+            new FixedSessionTokenGenerator("tok"),
+            new ScopedMutex());
+
+        var started = await service.StartSessionAsync(new StartSession
+        {
+            ProfileId = profileId,
+            Path = "/",
+            Query = "",
+            Configuration = new SessionConfig
+            {
+                Resolution = new ScreenResolution { Width = 800, Height = 600 },
+            },
+        });
+        Assert.True(started.IsSuccess);
+        var sessionId = started.Value.SessionId;
+        Assert.True(live.TryGet(sessionId, out var handle));
+        Assert.True(handle!.Attach().IsSuccess);
+
+        var stopped = await service.StopSessionAsync(new StopSession { SessionId = sessionId });
+        Assert.True(stopped.IsSuccess);
+
+        Assert.False(live.TryGet(sessionId, out _));
+        Assert.False(browser.TryGetConnection(sessionId, out _));
+        Assert.False(slots.IsAquired(sessionId));
+        Assert.Contains(sessionId, collector.Unwatched);
+
+        var loaded = await sessions.LoadAsync(sessionId);
+        Assert.NotNull(loaded);
+        Assert.Equal(LifecycleState.Stopped, loaded.State);
+    }
+
+    [Fact]
+    public async Task StartSession_WhenLiveCreateFails_AbortsPersistedSession()
+    {
+        var profileId = Guid.NewGuid();
+        var profiles = new InMemoryProfileRepository();
+        await profiles.SaveAsync(Profile.Create(profileId));
+
+        var sessions = new InMemorySessionRepository();
+        var slots = new SessionSlotRegistry(
+            Options.Create(SessionsTestHarness.ResourceManagement()));
+        var collector = new RecordingCollector();
+        var browser = new FakeBrowserClient();
+        var urls = new FixedUrlResolver("https://example.test/");
+        var live = new FailingLiveSessionService();
+
+        var service = new SessionService(
+            profiles,
+            sessions,
+            slots,
+            collector,
+            live,
+            urls,
+            new NoOpSessionEventsFactory(),
+            browser,
+            new FixedSessionTokenGenerator("tok"),
+            new ScopedMutex());
+
+        var result = await service.StartSessionAsync(new StartSession
+        {
+            ProfileId = profileId,
+            Path = "/",
+            Query = "",
+            Configuration = new SessionConfig
+            {
+                Resolution = new ScreenResolution { Width = 800, Height = 600 },
+            },
+        });
+
+        Assert.True(result.IsFailure);
+        Assert.Empty(collector.Watched);
+        Assert.False(browser.TryGetConnection(sessions.LastSavedId, out _));
+        Assert.False(slots.IsAquired(sessions.LastSavedId));
+
+        var loaded = await sessions.LoadAsync(sessions.LastSavedId);
+        Assert.NotNull(loaded);
+        Assert.Equal(LifecycleState.Aborted, loaded.State);
     }
 
     [Fact]
     public async Task StartSession_ProfileNotFound_Fails()
     {
+        var sessions = new InMemorySessionRepository();
+        var browser = new FakeBrowserClient();
+        var urls = new FixedUrlResolver("https://example.test/");
+        var collector = new RecordingCollector();
+        var live = CreateLiveSessionService(urls, collector);
+
         var service = new SessionService(
             new InMemoryProfileRepository(),
-            new InMemorySessionRepository(),
+            sessions,
             new SessionSlotRegistry(
                 Options.Create(SessionsTestHarness.ResourceManagement())),
-            new NoOpCollector(),
-            new NoOpPipeService(),
-            new FixedUrlResolver("https://example.test/"),
+            collector,
+            live,
+            urls,
             new NoOpSessionEventsFactory(),
-            new FakeBrowserClient(),
-            new FixedSessionTokenGenerator("unused"));
+            browser,
+            new FixedSessionTokenGenerator("unused"),
+            new ScopedMutex());
 
         var result = await service.StartSessionAsync(new StartSession
         {
@@ -91,23 +208,33 @@ public sealed class SessionServiceTests
         Assert.True(result.IsFailure);
     }
 
-    private sealed class FixedUrlResolver : IUrlResolver
+    private static LiveSessionService CreateLiveSessionService(
+        IUrlResolver urls,
+        ISessionCollector collector)
     {
-        private readonly string _url;
-
-        public FixedUrlResolver(string url) => _url = url;
-
-        public IResult<string> Resolve(string path, string query)
-            => Result<string>.Success(_url);
+        return new LiveSessionService(
+            collector,
+            urls,
+            Options.Create(new SessionsConfiguration
+            {
+                IsJsBridgeEnabled = true,
+                InputMultiplexingPolicy = new InputMultiplexingPolicy
+                {
+                    Access = InputAccessPolicy.Shared,
+                },
+            }),
+            new ScopedMutex());
     }
 
-    private sealed class FixedSessionTokenGenerator : ISessionTokenGenerator
+    private sealed class FixedUrlResolver(string url) : IUrlResolver
     {
-        private readonly string _token;
+        public IResult<string> Resolve(string path, string query)
+            => Result<string>.Success(url);
+    }
 
-        public FixedSessionTokenGenerator(string token) => _token = token;
-
-        public string GetRandom() => _token;
+    private sealed class FixedSessionTokenGenerator(string token) : ISessionTokenGenerator
+    {
+        public string GetRandom() => token;
     }
 
     private sealed class NoOpSessionEventsFactory : ISessionEventsFactory
@@ -175,14 +302,42 @@ public sealed class SessionServiceTests
     {
         private readonly Dictionary<Guid, Session> _sessions = new();
 
+        public Guid LastSavedId { get; private set; }
+
         public Task<Session?> LoadAsync(Guid sessionId, CancellationToken ct = default)
             => Task.FromResult(_sessions.GetValueOrDefault(sessionId));
 
         public Task SaveAsync(Session session, CancellationToken ct = default)
         {
             _sessions[session.Id] = session;
+            LastSavedId = session.Id;
             return Task.CompletedTask;
         }
+    }
+
+    private sealed class RecordingCollector : ISessionCollector
+    {
+        public List<Guid> Watched { get; } = [];
+        public List<Guid> Unwatched { get; } = [];
+
+        public void Watch(Guid sessionId) => Watched.Add(sessionId);
+        public void AddRef(Guid sessionId) { }
+        public void Release(Guid sessionId) { }
+        public void Unwatch(Guid sessionId) => Unwatched.Add(sessionId);
+    }
+
+    private sealed class FailingLiveSessionService : ILiveSessionService
+    {
+        public IResult<ILiveSession> Create(Guid sessionId, ISessionConnection connection)
+            => Result<ILiveSession>.Failure("live create failed");
+
+        public bool TryGet(Guid sessionId, [NotNullWhen(true)] out ILiveSession? session)
+        {
+            session = null;
+            return false;
+        }
+
+        public void Release(Guid sessionId) { }
     }
 
     private sealed class InMemoryProfileRepository : IProfileRepository
@@ -199,28 +354,6 @@ public sealed class SessionServiceTests
         {
             _profiles[profile.Id] = profile;
             return Task.CompletedTask;
-        }
-    }
-
-    private sealed class NoOpCollector : ISessionCollector
-    {
-        public void Watch(Guid sessionId) { }
-        public void AddRef(Guid sessionId) { }
-        public void Release(Guid sessionId) { }
-        public void Unwatch(Guid sessionId) { }
-    }
-
-    private sealed class NoOpPipeService : ISessionPipeService
-    {
-        public Task<IResult<ISessionPipe>> OpenPipeAsync(Guid sessionId, CancellationToken ct = default)
-            => Task.FromResult<IResult<ISessionPipe>>(Result<ISessionPipe>.Failure("not implemented"));
-
-        public IResult ClosePipe(Guid pipeId) => Result.Success();
-        public void CloseAllSessionPipes(Guid sessionId) { }
-        public bool TryGetPipe(Guid pipeId, [NotNullWhen(true)] out ISessionPipe? pipe)
-        {
-            pipe = null;
-            return false;
         }
     }
 
@@ -257,6 +390,9 @@ public sealed class SessionServiceTests
     {
         private readonly Action _onClose;
         private bool _open = true;
+        private readonly Channel<Frame> _frames = Channel.CreateUnbounded<Frame>();
+        private readonly Channel<ConsoleOutput> _console = Channel.CreateUnbounded<ConsoleOutput>();
+        private readonly Channel<SessionNotification> _notifications = Channel.CreateUnbounded<SessionNotification>();
 
         public FakeSessionConnection(Guid sessionId, Action onClose)
         {
@@ -312,10 +448,10 @@ public sealed class SessionServiceTests
             => Task.FromResult<IResult<DiagProbeResult>>(Result<DiagProbeResult>.Failure("not implemented"));
 
         public IResult<ChannelReader<Frame>> GetFrameReader()
-            => Result<ChannelReader<Frame>>.Success(Channel.CreateUnbounded<Frame>().Reader);
+            => Result<ChannelReader<Frame>>.Success(_frames.Reader);
 
         public IResult<ChannelReader<ConsoleOutput>> GetConsoleOutputReader()
-            => Result<ChannelReader<ConsoleOutput>>.Success(Channel.CreateUnbounded<ConsoleOutput>().Reader);
+            => Result<ChannelReader<ConsoleOutput>>.Success(_console.Reader);
 
         public Task<IResult<SessionStatus>> GetStatusAsync(CancellationToken ct = default)
             => Task.FromResult<IResult<SessionStatus>>(Result<SessionStatus>.Success(new SessionStatus
@@ -324,7 +460,7 @@ public sealed class SessionServiceTests
             }));
 
         public IResult<ChannelReader<SessionNotification>> GetNotificationReader()
-            => Result<ChannelReader<SessionNotification>>.Success(Channel.CreateUnbounded<SessionNotification>().Reader);
+            => Result<ChannelReader<SessionNotification>>.Success(_notifications.Reader);
 
         public void SetCameraPermissionHandler(Func<CancellationToken, Task<PermissionDecision>> handler) { }
 

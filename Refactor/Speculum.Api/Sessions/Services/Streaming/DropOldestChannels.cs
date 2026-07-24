@@ -1,6 +1,6 @@
 using System.Threading.Channels;
 
-namespace Speculum.Api.Sessions.Pipes.Streaming;
+namespace Speculum.Api.Sessions.Services.Streaming;
 
 /// <summary>
 /// Bounded DropOldest channels used for per-pipe outbound streams.

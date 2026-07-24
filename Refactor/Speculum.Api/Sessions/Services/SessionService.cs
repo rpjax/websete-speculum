@@ -4,45 +4,51 @@ using Speculum.Api.Profiles.Services.Contracts;
 using Speculum.Api.Sessions.Aggregates;
 using Speculum.Api.Sessions.Events.Services.Contracts;
 using Speculum.Api.Sessions.Models;
-using Speculum.Api.Sessions.Pipes.Services.Contracts;
 using Speculum.Api.Sessions.Requests;
 using Speculum.Api.Sessions.Responses;
 using Speculum.Api.Sessions.Services.Contracts;
+using Speculum.Api.Shared.Services.Contracts;
 
 namespace Speculum.Api.Sessions.Services;
 
-public partial class SessionService : ISessionService
+/// <summary>
+/// Session lifecycle orchestrator: durable state + sidecar connection + live runtime context.
+/// </summary>
+public sealed class SessionService : ISessionService
 {
     private readonly IProfileRepository _profiles;
     private readonly ISessionRepository _sessions;
     private readonly ISessionSlotRegistry _slotRegistry;
     private readonly ISessionCollector _sessionCollector;
-    private readonly ISessionPipeService _pipes;
+    private readonly ILiveSessionService _liveSessions;
     private readonly IUrlResolver _urls;
     private readonly ISessionEventsFactory _events;
     private readonly IBrowserClient _browserClient;
     private readonly ISessionTokenGenerator _sessionTokens;
+    private readonly IAsyncScopedMutex _lifecycleGate;
 
     public SessionService(
         IProfileRepository profiles,
         ISessionRepository sessions,
         ISessionSlotRegistry slotRegistry,
         ISessionCollector sessionCollector,
-        ISessionPipeService pipes,
+        ILiveSessionService liveSessions,
         IUrlResolver urls,
         ISessionEventsFactory events,
         IBrowserClient browserClient,
-        ISessionTokenGenerator sessionTokens)
+        ISessionTokenGenerator sessionTokens,
+        IAsyncScopedMutex lifecycleGate)
     {
         _profiles = profiles;
         _sessions = sessions;
         _slotRegistry = slotRegistry;
         _sessionCollector = sessionCollector;
-        _pipes = pipes;
+        _liveSessions = liveSessions;
         _urls = urls;
         _events = events;
         _browserClient = browserClient;
         _sessionTokens = sessionTokens;
+        _lifecycleGate = lifecycleGate;
     }
 
     public async Task<IResult<StartSessionResponse>> StartSessionAsync(
@@ -53,8 +59,9 @@ public partial class SessionService : ISessionService
         var profileId = request.ProfileId;
         var startEvents = _events.ForSessionStart(sessionId, profileId);
         var lifecycleEvents = _events.ForSessionLifecycle(sessionId, profileId);
+        var persisted = false;
 
-        var profile = await _profiles.LoadAsync(profileId, ct);
+        var profile = await _profiles.LoadAsync(profileId, ct).ConfigureAwait(false);
         if (profile is null)
         {
             startEvents.ProfileNotFound();
@@ -72,30 +79,39 @@ public partial class SessionService : ISessionService
 
         try
         {
-            var connectionResult = await _browserClient.StartConnectionAsync(sessionId, ct);
+            var connectionResult = await _browserClient.StartConnectionAsync(sessionId, ct)
+                .ConfigureAwait(false);
             if (connectionResult.IsFailure)
             {
                 startEvents.ConnectionStartFailed(connectionResult.Errors.ToArray());
-                return await AbortStartAsync(sessionId, profileId, lifecycleEvents, connectionResult, ct);
+                return await AbortStartAsync(
+                    sessionId, profileId, persisted, lifecycleEvents, connectionResult, ct)
+                    .ConfigureAwait(false);
             }
 
             startEvents.ConnectionStarted();
             var connection = connectionResult.Value;
 
-            var launchResult = await connection.LaunchBrowserAsync(request.Configuration, ct);
+            var launchResult = await connection.LaunchBrowserAsync(request.Configuration, ct)
+                .ConfigureAwait(false);
             if (launchResult.IsFailure)
             {
                 startEvents.LaunchBrowserFailed(launchResult.Errors.ToArray());
-                return await AbortStartAsync(sessionId, profileId, lifecycleEvents, launchResult, ct);
+                return await AbortStartAsync(
+                    sessionId, profileId, persisted, lifecycleEvents, launchResult, ct)
+                    .ConfigureAwait(false);
             }
 
             startEvents.BrowserLaunched();
 
-            var restoreResult = await connection.RestoreProfileStateAsync(profile.State, ct);
+            var restoreResult = await connection.RestoreProfileStateAsync(profile.State, ct)
+                .ConfigureAwait(false);
             if (restoreResult.IsFailure)
             {
                 startEvents.RestoreProfileStateFailed(restoreResult.Errors.ToArray());
-                return await AbortStartAsync(sessionId, profileId, lifecycleEvents, restoreResult, ct);
+                return await AbortStartAsync(
+                    sessionId, profileId, persisted, lifecycleEvents, restoreResult, ct)
+                    .ConfigureAwait(false);
             }
 
             startEvents.ProfileStateRestored();
@@ -104,24 +120,42 @@ public partial class SessionService : ISessionService
             if (urlResult.IsFailure)
             {
                 startEvents.InitialUrlResolveFailed(urlResult.Errors.ToArray());
-                return await AbortStartAsync(sessionId, profileId, lifecycleEvents, urlResult, ct);
+                return await AbortStartAsync(
+                    sessionId, profileId, persisted, lifecycleEvents, urlResult, ct)
+                    .ConfigureAwait(false);
             }
 
             startEvents.InitialUrlResolved(urlResult.Value);
 
-            var navigationResult = await connection.NavigateAsync(urlResult.Value, ct);
+            var navigationResult = await connection.NavigateAsync(urlResult.Value, ct)
+                .ConfigureAwait(false);
             if (navigationResult.IsFailure)
             {
                 startEvents.InitialNavigationFailed(navigationResult.Errors.ToArray());
-                return await AbortStartAsync(sessionId, profileId, lifecycleEvents, navigationResult, ct);
+                return await AbortStartAsync(
+                    sessionId, profileId, persisted, lifecycleEvents, navigationResult, ct)
+                    .ConfigureAwait(false);
             }
 
             startEvents.InitialNavigationCompleted();
 
             var token = _sessionTokens.GetRandom();
-            await _sessions.SaveAsync(Session.Create(sessionId, profileId, token), ct);
+            await _sessions.SaveAsync(Session.Create(sessionId, profileId, token), ct)
+                .ConfigureAwait(false);
+            persisted = true;
 
+            // Bind runtime to the connection we just provisioned (no re-resolve).
+            var live = _liveSessions.Create(sessionId, connection);
+            if (live.IsFailure)
+            {
+                return await AbortStartAsync(
+                    sessionId, profileId, persisted, lifecycleEvents, live, ct)
+                    .ConfigureAwait(false);
+            }
+
+            // Arm detached timer only after live context exists.
             _sessionCollector.Watch(sessionId);
+
             lifecycleEvents.Started();
             return Result<StartSessionResponse>.Success(new StartSessionResponse
             {
@@ -131,7 +165,8 @@ public partial class SessionService : ISessionService
         }
         catch
         {
-            await TearDownLiveResourcesAsync(sessionId, profileId, ct, emitStopEvents: false);
+            await CompensateStartFailureAsync(sessionId, profileId, persisted, ct)
+                .ConfigureAwait(false);
             lifecycleEvents.Aborted();
             throw;
         }
@@ -142,44 +177,78 @@ public partial class SessionService : ISessionService
         CancellationToken ct = default)
     {
         var sessionId = request.SessionId;
-        var session = await _sessions.LoadAsync(sessionId, ct);
 
-        if (session is null)
+        await using (await _lifecycleGate.AcquireAsync(sessionId, ct).ConfigureAwait(false))
         {
-            return Result.Failure("Session not found");
-        }
+            var session = await _sessions.LoadAsync(sessionId, ct).ConfigureAwait(false);
 
-        if (session.State is LifecycleState.Stopped or LifecycleState.Aborted)
-        {
+            if (session is null)
+            {
+                return Result.Failure("Session not found");
+            }
+
+            if (session.State is LifecycleState.Stopped or LifecycleState.Aborted)
+            {
+                await TearDownLiveResourcesAsync(session.Id, session.ProfileId, ct, emitStopEvents: false)
+                    .ConfigureAwait(false);
+                return Result.Success();
+            }
+
+            var lifecycleEvents = _events.ForSessionLifecycle(session);
+            var stopEvents = _events.ForSessionStop(session);
+
+            lifecycleEvents.Stopping();
+
+            // Persist while the sidecar connection is still open.
+            await TryPersistSessionStateAsync(session, stopEvents, ct).ConfigureAwait(false);
+
+            session.MarkStopped();
+            await _sessions.SaveAsync(session, ct).ConfigureAwait(false);
+
+            await TearDownLiveResourcesAsync(session.Id, session.ProfileId, ct, emitStopEvents: true, stopEvents)
+                .ConfigureAwait(false);
+
+            lifecycleEvents.Stopped();
             return Result.Success();
         }
-
-        var lifecycleEvents = _events.ForSessionLifecycle(session);
-        var stopEvents = _events.ForSessionStop(session);
-
-        lifecycleEvents.Stopping();
-
-        await TryPersistSessionStateAsync(session, stopEvents, ct);
-
-        session.MarkStopped();
-        await _sessions.SaveAsync(session, ct);
-
-        await TearDownLiveResourcesAsync(session.Id, session.ProfileId, ct, emitStopEvents: true, stopEvents);
-
-        lifecycleEvents.Stopped();
-        return Result.Success();
     }
 
     private async Task<IResult<StartSessionResponse>> AbortStartAsync(
         Guid sessionId,
         Guid profileId,
+        bool persisted,
         ISessionLifecycleEvents lifecycleEvents,
         IResult failed,
         CancellationToken ct)
     {
-        await TearDownLiveResourcesAsync(sessionId, profileId, ct, emitStopEvents: false);
+        await CompensateStartFailureAsync(sessionId, profileId, persisted, ct)
+            .ConfigureAwait(false);
         lifecycleEvents.Aborted();
         return Result<StartSessionResponse>.Failure(failed.Errors.ToArray());
+    }
+
+    private async Task CompensateStartFailureAsync(
+        Guid sessionId,
+        Guid profileId,
+        bool persisted,
+        CancellationToken ct)
+    {
+        if (persisted)
+        {
+            var session = await _sessions.LoadAsync(sessionId, ct).ConfigureAwait(false);
+            if (session is { State: LifecycleState.Live })
+            {
+                session.MarkAborted();
+                await _sessions.SaveAsync(session, ct).ConfigureAwait(false);
+            }
+        }
+
+        await TearDownLiveResourcesAsync(
+                sessionId,
+                profileId,
+                ct,
+                emitStopEvents: false)
+            .ConfigureAwait(false);
     }
 
     private async Task TryPersistSessionStateAsync(
@@ -195,14 +264,14 @@ public partial class SessionService : ISessionService
             return;
         }
 
-        var profile = await _profiles.LoadAsync(session.ProfileId, ct);
+        var profile = await _profiles.LoadAsync(session.ProfileId, ct).ConfigureAwait(false);
         if (profile is null)
         {
             stopEvents.PersistSkippedProfileNotFound();
             return;
         }
 
-        var exportResult = await connection.ExportSessionStateAsync(ct);
+        var exportResult = await connection.ExportSessionStateAsync(ct).ConfigureAwait(false);
         if (exportResult.IsFailure)
         {
             stopEvents.ExportSessionStateFailed(exportResult.Errors.ToArray());
@@ -210,10 +279,18 @@ public partial class SessionService : ISessionService
         }
 
         profile.ApplySessionExport(exportResult.Value);
-        await _profiles.SaveAsync(profile, ct);
+        await _profiles.SaveAsync(profile, ct).ConfigureAwait(false);
         stopEvents.SessionStatePersisted();
     }
 
+    /// <summary>
+    /// Tears down runtime resources. Order:
+    /// 1) dispose live context (mux/hooks/attachments),
+    /// 2) unwatch collector,
+    /// 3) stop browser + close connection,
+    /// 4) release slot.
+    /// Each step is best-effort so a failure does not skip the rest.
+    /// </summary>
     private async Task TearDownLiveResourcesAsync(
         Guid sessionId,
         Guid profileId,
@@ -225,35 +302,49 @@ public partial class SessionService : ISessionService
             ? _events.ForSessionStop(sessionId, profileId)
             : null;
 
-        _pipes.CloseAllSessionPipes(sessionId);
+        _liveSessions.Release(sessionId);
         _sessionCollector.Unwatch(sessionId);
 
         if (_browserClient.TryGetConnection(sessionId, out var connection))
         {
-            var stopBrowserResult = await connection.StopBrowserAsync(ct);
-            if (emitStopEvents && stopEvents is not null)
+            try
             {
-                if (stopBrowserResult.IsFailure)
+                var stopBrowserResult = await connection.StopBrowserAsync(ct).ConfigureAwait(false);
+                if (emitStopEvents && stopEvents is not null)
                 {
-                    stopEvents.CloseBrowserFailed(stopBrowserResult.Errors.ToArray());
-                }
-                else
-                {
-                    stopEvents.BrowserClosed();
+                    if (stopBrowserResult.IsFailure)
+                    {
+                        stopEvents.CloseBrowserFailed(stopBrowserResult.Errors.ToArray());
+                    }
+                    else
+                    {
+                        stopEvents.BrowserClosed();
+                    }
                 }
             }
-
-            var closeResult = await connection.CloseAsync(ct);
-            if (emitStopEvents && stopEvents is not null)
+            catch
             {
-                if (closeResult.IsFailure)
+                // Best-effort: still attempt Close + slot release.
+            }
+
+            try
+            {
+                var closeResult = await connection.CloseAsync(ct).ConfigureAwait(false);
+                if (emitStopEvents && stopEvents is not null)
                 {
-                    stopEvents.CloseConnectionFailed(closeResult.Errors.ToArray());
+                    if (closeResult.IsFailure)
+                    {
+                        stopEvents.CloseConnectionFailed(closeResult.Errors.ToArray());
+                    }
+                    else
+                    {
+                        stopEvents.ConnectionClosed();
+                    }
                 }
-                else
-                {
-                    stopEvents.ConnectionClosed();
-                }
+            }
+            catch
+            {
+                // Best-effort: still release the slot.
             }
         }
 

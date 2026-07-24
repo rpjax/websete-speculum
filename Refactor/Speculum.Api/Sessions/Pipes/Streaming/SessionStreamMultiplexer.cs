@@ -108,9 +108,6 @@ internal sealed class SessionStreamMultiplexer : ISessionStreamMultiplexer
         return Result<ChannelReader<SessionNotification>>.Success(channels.Notifications.Reader);
     }
 
-    public Task<IResult<SessionStatus>> GetStatusAsync(CancellationToken ct = default)
-        => _connection.GetStatusAsync(ct);
-
     public IResult<Task> StartUserInputPump(
         Guid pipeId,
         ChannelReader<string> channelReader,

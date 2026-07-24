@@ -52,6 +52,7 @@ public sealed class BrowserSessionsCompositionTests
         services.AddBrowserSessions();
 
         Assert.Contains(services, d => d.ServiceType == typeof(ISessionPipeService));
+        Assert.DoesNotContain(services, d => d.ServiceType == typeof(ISessionCommandService));
         Assert.Contains(services, d => d.ServiceType == typeof(IScopedMutex));
 
         using var provider = services.BuildServiceProvider();
@@ -62,6 +63,7 @@ public sealed class BrowserSessionsCompositionTests
         Assert.NotNull(provider.GetService<ISessionEventsFactory>());
         Assert.NotNull(provider.GetService<ISessionTokenGenerator>());
         Assert.Null(provider.GetService<ISessionService>());
+        Assert.Null(provider.GetService<ISessionCommandService>());
         Assert.Null(provider.GetService<IUrlResolver>());
         Assert.Null(provider.GetService<ISessionLifecycleEvents>());
         Assert.Null(provider.GetService<ISessionStartEvents>());

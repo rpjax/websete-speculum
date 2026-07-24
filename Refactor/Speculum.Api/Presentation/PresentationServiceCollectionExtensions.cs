@@ -11,6 +11,8 @@ public static class PresentationServiceCollectionExtensions
     /// <summary>
     /// Registers SignalR session control-plane presentation.
     /// Requires host registration of <see cref="ISessionService"/> (and its deps).
+    /// Data-plane / command ports (<c>ISessionPipeService</c>, <c>ISessionCommandService</c>)
+    /// are registered by the host when those presentation surfaces exist.
     /// </summary>
     public static IServiceCollection AddPresentation(this IServiceCollection services)
     {

@@ -20,7 +20,8 @@ namespace Speculum.Api.Sessions.Pipes.Services.Contracts;
 /// </para>
 /// <para>
 /// Outbound streams (frames, console, notifications) are typically broadcast to all pipes of
-/// the session. Status is not a stream — callers poll <see cref="GetStatusAsync"/>.
+/// the session. Unary session commands (status, navigate, resize, …) live on
+/// <c>ISessionCommandService</c>, not on this pipe.
 /// Inbound input policy (exclusive vs any-writer) is defined by the implementation / fan-out layer.
 /// </para>
 /// </remarks>
@@ -46,11 +47,6 @@ public interface ISessionPipe
     /// Informative session notifications (location, navigation blocked, editable focus, crash).
     /// </summary>
     IResult<ChannelReader<SessionNotification>> GetNotificationChannel();
-
-    /// <summary>
-    /// One-shot status snapshot for this session. Not a stream — poll as needed.
-    /// </summary>
-    Task<IResult<SessionStatus>> GetStatusAsync(CancellationToken ct = default);
 
     /// <summary>
     /// Pumps user input from <paramref name="channelReader"/> into the live session

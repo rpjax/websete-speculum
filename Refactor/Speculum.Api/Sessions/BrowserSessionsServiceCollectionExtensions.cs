@@ -22,8 +22,9 @@ namespace Speculum.Api.Sessions;
 public static class BrowserSessionsServiceCollectionExtensions
 {
     /// <summary>
-    /// Registers session-domain infrastructure (repos, slots, collector, lifecycle journal).
-    /// Does not register <see cref="ISessionService"/> or <see cref="IUrlResolver"/>.
+    /// Registers session-domain infrastructure (repos, slots, collector, lifecycle journal, pipes).
+    /// Does not register <see cref="ISessionService"/>, <see cref="ISessionCommandService"/>,
+    /// or <see cref="IUrlResolver"/> — host wires those with their application deps.
     /// Requires <c>AddDatabase()</c> and <c>AddJournal()</c> first.
     /// </summary>
     public static IServiceCollection AddBrowserSessions(this IServiceCollection services)

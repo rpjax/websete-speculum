@@ -30,8 +30,6 @@ internal interface ISessionStreamMultiplexer
 
     IResult<ChannelReader<SessionNotification>> GetNotificationChannel(Guid pipeId);
 
-    Task<IResult<SessionStatus>> GetStatusAsync(CancellationToken ct = default);
-
     IResult<Task> StartUserInputPump(
         Guid pipeId,
         ChannelReader<string> channelReader,

@@ -90,19 +90,6 @@ public sealed class SessionPipeStreamTests
     }
 
     [Fact]
-    public async Task GetStatusAsync_IsOnDemandPoll_NotAStream()
-    {
-        var connection = new StreamFakeConnection(Guid.NewGuid());
-        var multiplexer = CreateMultiplexer(connection, InputAccessPolicy.Shared, jsBridgeEnabled: true);
-        var pipe = RegisterPipe(multiplexer, Guid.NewGuid(), connection.SessionId);
-
-        var status = await pipe.GetStatusAsync();
-        Assert.True(status.IsSuccess);
-        Assert.Equal(connection.SessionId.ToString("D"), status.Value.SessionId);
-        Assert.Equal(1, status.Value.TabCount);
-    }
-
-    [Fact]
     public void SharedInput_BothPumpsAccepted()
     {
         var connection = new StreamFakeConnection(Guid.NewGuid());
@@ -173,10 +160,12 @@ public sealed class SessionPipeStreamTests
             },
         });
 
+        var mutex = new ScopedMutex();
         var pipeService = new SessionPipeService(
             browser,
             new NoOpCollector(),
-            new ScopedMutex(),
+            mutex,
+            mutex,
             provider.GetRequiredService<IServiceScopeFactory>(),
             options);
 
@@ -264,10 +253,12 @@ public sealed class SessionPipeStreamTests
             },
         });
 
+        var mutex = new ScopedMutex();
         return new SessionPipeService(
             browser,
             new NoOpCollector(),
-            new ScopedMutex(),
+            mutex,
+            mutex,
             provider.GetRequiredService<IServiceScopeFactory>(),
             options);
     }

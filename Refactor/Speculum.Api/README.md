@@ -151,14 +151,14 @@ Current Hub methods:
 |--------|---------|-----------------------------|----------------------------------|
 | ◐ | Frame stream | JPEG + monotonic sequence + capture timestamp | Pipe contract exists; frame semantics should be finalized |
 | ◐ | Console/control output | Console, URL updates, eval results and redirects share client-visible output | Define typed output/control capabilities exposed by a pipe |
-| ◐ | Status poll | Unary GetStatus; callers poll on demand (not a stream) | Final `SessionStatus` projection contract |
+| ◐ | Status poll | Unary GetStatus; callers poll on demand (not a stream) | Modeled on `ISessionCommandService` |
 | ◐ | User input | Mouse, keyboard, wheel, text and touch reach browser | Typed input model and application input flow |
 | ◐ | Console input | Eval request carries id + JavaScript code | Eval request/result contract and JsBridge gate |
 | ○ | Input validation | Malformed JSON and blocked input types are rejected; session stays alive | Input-validation policy and rejection events |
 | ○ | Touch gestures | Tap, cancel, multitouch and drag-scroll are supported | Touch input models |
 | ○ | Single-tab enforcement | Popup and `_blank` navigation remain in one controlled tab | Browser-window policy capability |
-| ○ | Multi-pipe output | One session can supply equivalent output to N pipes | Fan-out semantics in the pipe application contract |
-| ○ | Multi-pipe input authority | Defines who may control a session when multiple pipes exist | Controller/ownership policy |
+| ◐ | Multi-pipe output | One session can supply equivalent output to N pipes | Fan-out modeled in pipe streaming multiplexer |
+| ◐ | Multi-pipe input authority | Defines who may control a session when multiple pipes exist | Shared/Exclusive access modeled; ownership/scheduling pending |
 
 ---
 
@@ -178,7 +178,7 @@ live output stream.
 | Status | Feature | Current observable behavior | Application model still required |
 |--------|---------|-----------------------------|----------------------------------|
 | ◐ | Initial navigation | Required for successful start | Modeled, but resolver inputs are incomplete |
-| ○ | Runtime navigation | Maps client URL to target URL and commands the active browser | Navigation application port/orchestrator |
+| ◐ | Runtime navigation | Maps client URL to target URL and commands the active browser | `ISessionCommandService.NavigateAsync` + `IUrlResolver`; allowlist/mirroring still incomplete |
 | ○ | Scheme validation | Invalid/unsupported navigation is rejected | Navigation request validation |
 | ○ | URL allowlist | Main-frame navigation honors shared domain/path pattern rules | Navigation policy port/result |
 | ○ | Blocked vs failed | Policy block is distinct from technical browser failure | Named results/events |
@@ -203,7 +203,7 @@ ResizeAsync(width, height, device?) → ResizeResult
 | Status | Feature | Current observable behavior | Application model still required |
 |--------|---------|-----------------------------|----------------------------------|
 | ◐ | Startup viewport | Resolution exists in `SessionConfig` | Startup normalization policy |
-| ○ | Runtime resize | Requests a new viewport for a live session | Resize application port/orchestrator |
+| ◐ | Runtime resize | Requests a new viewport for a live session | `ISessionCommandService.ResizeAsync`; validation/busy policy still incomplete |
 | ○ | Exact geometry | Success confirms browser and display geometry, not merely requested size | Resize result model |
 | ○ | Resize rejection | `<100` or `>4096×2160` is rejected without changing prior geometry | Validation/rejection flow |
 | ○ | Resize failure | Operational failure is distinct from validation rejection | Named failure event/result |
@@ -422,7 +422,8 @@ The following are the immediate modeling gaps visible in the existing chassis:
 3. `StartSessionAsync` returns `sessionId`; current client behavior also needs
    effective profile/client-token continuity.
 4. There is no EnsureProfile/identity-indexer application flow.
-5. There is no runtime Navigate or Resize application port/orchestrator.
+5. Runtime Navigate/Resize/Status/Refresh/Diag are on `ISessionCommandService`;
+   richer allowlist, busy-coalesce and projection contracts remain open.
 6. Pipe models do not yet represent URL updates, redirects, eval results,
    complete status or input validation.
 7. Disconnect/replacement/config-drain/sidecar-fault flows are not modeled.
@@ -479,6 +480,10 @@ application-layer orchestration, then mark the feature ✅/◐ here.
 ## 15. Boundaries to preserve while modeling
 
 - Presentation calls application ports; it does not inject `IBrowserClient`.
+- `ISessionService` = lifecycle (Start/Stop); `ISessionCommandService` = unary
+  live commands (status/navigate/resize/refresh/diag); `ISessionPipeService` =
+  streams + input pumps. Host registers `ISessionService` / `ISessionCommandService`
+  with `IUrlResolver`; `AddBrowserSessions` registers pipes + infra only.
 - `ISessionConnection` is the sidecar boundary, not the user-facing session API.
 - `Session` (live) remains distinct from `Profile` (durable identity/state).
 - Pipes are transport consumers; attached/detached are not lifecycle states.

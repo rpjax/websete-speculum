@@ -20,6 +20,7 @@ public class SessionPipeService : ISessionPipeService
     private readonly IBrowserClient _browserClient;
     private readonly ISessionCollector _collector;
     private readonly IScopedMutex _mutex;
+    private readonly IAsyncScopedMutex _asyncMutex;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IOptions<SessionsConfiguration> _sessionsOptions;
 
@@ -27,12 +28,14 @@ public class SessionPipeService : ISessionPipeService
         IBrowserClient browserClient,
         ISessionCollector collector,
         IScopedMutex mutex,
+        IAsyncScopedMutex asyncMutex,
         IServiceScopeFactory scopeFactory,
         IOptions<SessionsConfiguration> sessionsOptions)
     {
         _browserClient = browserClient;
         _collector = collector;
         _mutex = mutex;
+        _asyncMutex = asyncMutex;
         _scopeFactory = scopeFactory;
         _sessionsOptions = sessionsOptions;
     }
@@ -41,7 +44,7 @@ public class SessionPipeService : ISessionPipeService
         Guid sessionId,
         CancellationToken ct = default)
     {
-        using (_mutex.Acquire(sessionId, ct))
+        await using (await _asyncMutex.AcquireAsync(sessionId, ct).ConfigureAwait(false))
         {
             using var scope = _scopeFactory.CreateScope();
             var repository = scope.ServiceProvider.GetRequiredService<ISessionRepository>();
@@ -57,7 +60,7 @@ public class SessionPipeService : ISessionPipeService
                 return Result<ISessionPipe>.Failure("Session is not live");
             }
 
-            if (!_browserClient.TryGetConnection(sessionId, out var connection))
+            if (!_browserClient.TryGetConnection(sessionId, out var connection) || !connection.IsOpen)
             {
                 return Result<ISessionPipe>.Failure("The session does not have an active connection");
             }

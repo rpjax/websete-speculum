@@ -92,17 +92,6 @@ public sealed class SessionPipe : ISessionPipe
         return _multiplexer.GetNotificationChannel(Id);
     }
 
-    public Task<IResult<SessionStatus>> GetStatusAsync(CancellationToken ct = default)
-    {
-        if (IsClosed)
-        {
-            return Task.FromResult<IResult<SessionStatus>>(
-                Result<SessionStatus>.Failure(ClosedMessage));
-        }
-
-        return _multiplexer.GetStatusAsync(ct);
-    }
-
     public IResult<Task> ConsumeUserInputAsync(
         ChannelReader<string> channelReader,
         CancellationToken ct = default)

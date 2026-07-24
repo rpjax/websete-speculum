@@ -1,7 +1,10 @@
 # Motor migration — feature-parity modeling map
 
-This refactor is currently modeling **interfaces and application-layer flows**.
-It is not yet implementing infrastructure.
+This refactor models **interfaces and application-layer flows** and implements the
+session lifecycle/runtime chassis (`ISessionService`, `ILiveSessionService` /
+`ILiveSession`, stream multiplexer, hooks, collector) with unit coverage in
+`Speculum.Api.Sessions.Tests`. Infrastructure adapters (real sidecar wire, edge,
+diagnostics pipeline) are still deliberately out of scope.
 
 The goal of this document is precise:
 
@@ -97,8 +100,8 @@ StartSessionAsync(clientUrl, viewportWidth, viewportHeight, identity, device?)
 
 | Status | Feature | Current observable behavior | Application model still required |
 |--------|---------|-----------------------------|----------------------------------|
-| ✅ | Fail-fast provisioning | Session is usable only after browser launch, state restore and initial navigation | Already modeled in `SessionService` |
-| ✅ | Compensation | Failed start releases acquired live resources | Already modeled |
+| ✅ | Fail-fast provisioning | Session is usable only after browser launch, state restore and initial navigation | Modeled in `SessionService` (persist Live → `Create(connection)` → `Watch`) |
+| ✅ | Compensation | Failed start releases acquired live resources and marks a persisted row Aborted | Modeled (`CompensateStartFailureAsync`) |
 | ✅ | Slot admission | Rejects starts beyond `MaxSessions` | Port and flow modeled |
 | ◐ | Initial URL | Resolver port exists, but lacks client URL and request-host context | Initial-navigation request/context and richer resolver contract |
 | ◐ | Initial viewport | `SessionConfig` has resolution only | Startup normalization rules and viewport result |
@@ -122,7 +125,8 @@ The current product binds one live session directly to one SignalR
 | Status | Feature | Current observable behavior | Application model still required |
 |--------|---------|-----------------------------|----------------------------------|
 | ✅ | Stream ownership | Disposable stream handles unregister themselves from the mux | Modeled |
-| ✅ | Reference-counted presence | Explicit `ILiveSession.Attach` / `Detach` retains/releases the whole session; streams do not affect presence | Modeled |
+| ✅ | Reference-counted presence | Explicit `ILiveSession.Attach` / `Detach` retains/releases the whole session; streams do not affect presence | Modeled (per-attachment ids; `Release` drops all) |
+| ✅ | Context teardown | Releasing a live context disposes mux, unbinds hooks (deny) and drops attachments | Modeled via `ILiveSessionService.Release` → `LiveSession.Release` |
 | ○ | Transport binding | Maps SignalR connection identity to a pipe/session without leaking SignalR into domain types | Transport-session binding application port |
 | ○ | Second-start replacement | Same caller can replace its previous active or starting session | Replacement orchestration contract |
 | ○ | Disconnect policy | Current behavior immediately exports and stops; refactor proposes detached TTL | A deliberate parity decision and disconnect orchestrator |
@@ -149,15 +153,15 @@ Current Hub methods:
 
 | Status | Feature | Current observable behavior | Application model still required |
 |--------|---------|-----------------------------|----------------------------------|
-| ◐ | Frame stream | JPEG + monotonic sequence + capture timestamp | Pipe contract exists; frame semantics should be finalized |
-| ◐ | Console/control output | Console, URL updates, eval results and redirects share client-visible output | Define typed output/control capabilities exposed by a pipe |
-| ◐ | Status poll | Unary GetStatus; callers poll on demand (not a stream) | Modeled on `ILiveSession` |
-| ◐ | User input | Mouse, keyboard, wheel, text and touch reach browser | Typed input model and application input flow |
-| ◐ | Console input | Eval request carries id + JavaScript code | Eval request/result contract and JsBridge gate |
+| ◐ | Frame stream | JPEG + monotonic sequence + capture timestamp | `IFrameStream` (disposable) over the mux; frame semantics should be finalized |
+| ◐ | Console/control output | Console, URL updates, eval results and redirects share client-visible output | `IConsoleOutputStream` + `INotificationStream` exist; typed control capabilities still to finalize |
+| ✅ | Status poll | Unary GetStatus; callers poll on demand (not a stream) | Modeled on `ILiveSession.GetStatusAsync` |
+| ◐ | User input | Mouse, keyboard, wheel, text and touch reach browser | `ConsumeUserInputAsync` pump modeled; typed input model still open |
+| ◐ | Console input | Eval request carries id + JavaScript code | `ConsumeConsoleInputAsync` pump + JsBridge gate on mux; eval request/result contract still open |
 | ○ | Input validation | Malformed JSON and blocked input types are rejected; session stays alive | Input-validation policy and rejection events |
 | ○ | Touch gestures | Tap, cancel, multitouch and drag-scroll are supported | Touch input models |
 | ○ | Single-tab enforcement | Popup and `_blank` navigation remain in one controlled tab | Browser-window policy capability |
-| ◐ | Multi-pipe output | One session can supply equivalent output to N pipes | Fan-out via live-session stream mux |
+| ✅ | Multi-pipe output | One session can supply equivalent output to N consumers | Fan-out via `SessionStreamMultiplexer`; disposable per-consumer streams |
 | ◐ | Multi-pipe input authority | Defines who may control a session when multiple pipes exist | Shared/Exclusive access on mux; ownership/scheduling pending |
 
 ---
@@ -401,8 +405,8 @@ error outcomes.
 
 | Status | Feature | Current observable behavior | Application model still required |
 |--------|---------|-----------------------------|----------------------------------|
-| ◐ | Start failure | Named failures + compensation exist | Cancellation and persistence-save failures |
-| ◐ | Stop failure | Persist is soft; teardown continues | Explicit aggregate stop outcome/reason |
+| ◐ | Start failure | Named failures + compensation + Aborted marking exist | Cancellation and persistence-save failures |
+| ◐ | Stop failure | Persist is soft; teardown is best-effort and serialized per session; idempotent for already-stopped | Explicit aggregate stop outcome/reason |
 | ○ | Sidecar fault | Marks session faulted, releases capacity, makes diagnostics return gone | Session fault orchestrator |
 | ○ | Export on disconnect | Export success/failure is observable | Disconnect policy + persistence events |
 | ○ | Config drain | Exports/stops all active and starting sessions | Drain application service |
@@ -422,9 +426,10 @@ The following are the immediate modeling gaps visible in the existing chassis:
 3. `StartSessionAsync` returns `sessionId`; current client behavior also needs
    effective profile/client-token continuity.
 4. There is no EnsureProfile/identity-indexer application flow.
-5. Runtime Navigate/Resize/Status/Refresh/Diag/streams/hooks are on `ILiveSession`
-   via `ILiveSessionService`; richer allowlist, busy-coalesce and projection contracts remain open.
-6. Pipe models do not yet represent URL updates, redirects, eval results,
+5. Runtime Navigate/Resize/Status/Refresh/Diag/streams/hooks/Attach-Detach are on
+   `ILiveSession`; `ILiveSessionService.Create` binds a context to an already-open
+   connection (no re-resolve). Richer allowlist, busy-coalesce and projection contracts remain open.
+6. Stream models do not yet represent URL updates, redirects, eval results,
    complete status or input validation.
 7. Disconnect/replacement/config-drain/sidecar-fault flows are not modeled.
 8. `SessionState` and `ProfileState` do not express the persisted feature set.

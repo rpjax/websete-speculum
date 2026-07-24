@@ -151,7 +151,7 @@ Current Hub methods:
 |--------|---------|-----------------------------|----------------------------------|
 | ◐ | Frame stream | JPEG + monotonic sequence + capture timestamp | Pipe contract exists; frame semantics should be finalized |
 | ◐ | Console/control output | Console, URL updates, eval results and redirects share client-visible output | Define typed output/control capabilities exposed by a pipe |
-| ◐ | Status stream | Periodic tab count, URL, resize state, geometry, FPS, uptime, session id, JsBridge and editing state | Final `SessionStatus` projection contract |
+| ◐ | Status poll | Unary GetStatus; callers poll on demand (not a stream) | Final `SessionStatus` projection contract |
 | ◐ | User input | Mouse, keyboard, wheel, text and touch reach browser | Typed input model and application input flow |
 | ◐ | Console input | Eval request carries id + JavaScript code | Eval request/result contract and JsBridge gate |
 | ○ | Input validation | Malformed JSON and blocked input types are rejected; session stays alive | Input-validation policy and rejection events |

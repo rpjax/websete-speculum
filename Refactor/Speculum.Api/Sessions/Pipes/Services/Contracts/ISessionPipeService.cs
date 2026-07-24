@@ -1,7 +1,8 @@
 using System.Diagnostics.CodeAnalysis;
 using Aidan.Core.Patterns;
+using Speculum.Api.Sessions.Services.Contracts;
 
-namespace Speculum.Api.Sessions.Services.Contracts;
+namespace Speculum.Api.Sessions.Pipes.Services.Contracts;
 
 /// <summary>
 /// Application port for session pipes: per-consumer I/O handles over a live session.
@@ -9,8 +10,9 @@ namespace Speculum.Api.Sessions.Services.Contracts;
 /// <remarks>
 /// <para>
 /// A <see cref="ISessionPipe"/> is not the sidecar connection. There is one
-/// <c>ISessionConnection</c> per live session; there may be many pipes (SignalR connections,
-/// workers, etc.) fan-out from that connection. Pooling/multiplexing is an API concern.
+/// <c>ISessionConnection</c> per live session; there may be many pipes (WebTransport
+/// consumers, workers, etc.) fan-out from that connection. Pooling/multiplexing is an
+/// API concern.
 /// </para>
 /// <para>
 /// Opening a pipe retains the session in <see cref="ISessionCollector"/> (<c>AddRef</c>);
@@ -22,33 +24,31 @@ namespace Speculum.Api.Sessions.Services.Contracts;
 /// <c>IResult</c> Failure — callers must not assume removal from this registry alone.
 /// </para>
 /// <para>
-/// Presentation (hubs) depends on this port; it must not depend on <c>IBrowserClient</c> directly.
+/// Presentation (data plane) depends on this port; it must not depend on <c>IBrowserClient</c>
+/// directly. Control-plane SignalR must not call this port.
 /// </para>
 /// </remarks>
 public interface ISessionPipeService
 {
     /// <summary>
-    /// Opens and registers a pipe for <paramref name="sessionId"/> keyed by <paramref name="pipeId"/>.
+    /// Opens and registers a pipe for <paramref name="sessionId"/>. The pipe id is minted
+    /// on success and exposed as <see cref="ISessionPipe.Id"/>.
     /// </summary>
-    /// <param name="sessionId">Live session that already has an active sidecar connection.</param>
-    /// <param name="pipeId">
-    /// Stable id for this consumer (e.g. transport connection id mapped to a <see cref="Guid"/>).
-    /// Must be unique among open pipes.
-    /// </param>
+    /// <param name="sessionId">Session that must exist and be <c>Live</c>.</param>
+    /// <param name="ct">Cancellation token.</param>
     /// <returns>
-    /// Success with the new <see cref="ISessionPipe"/>, or Failure if the pipe already exists
-    /// or the session has no active connection.
+    /// Success with the new <see cref="ISessionPipe"/>, or Failure when the session is
+    /// missing, not live, or has no active sidecar connection.
     /// </returns>
     /// <remarks>
-    /// On success, increments the session collector refcount. Idempotent open of the same
-    /// <paramref name="pipeId"/> is rejected (not a second <c>AddRef</c>).
+    /// On success, increments the session collector refcount.
     /// </remarks>
-    IResult<ISessionPipe> OpenPipe(Guid sessionId, Guid pipeId);
+    Task<IResult<ISessionPipe>> OpenPipeAsync(Guid sessionId, CancellationToken ct = default);
 
     /// <summary>
     /// Removes the pipe, marks it closed, and releases the session collector ref.
     /// </summary>
-    /// <param name="pipeId">Pipe previously returned by <see cref="OpenPipe"/>.</param>
+    /// <param name="pipeId">Pipe id previously returned by <see cref="OpenPipeAsync"/>.</param>
     /// <returns>
     /// Success when the pipe was open and closed; Failure when no pipe is registered for
     /// <paramref name="pipeId"/> (already closed or never opened).

@@ -9,9 +9,13 @@ using Speculum.Api.Profiles.Services.Contracts;
 using Speculum.Api.Profiles.Storage;
 using Speculum.Api.Sessions.Events.Services;
 using Speculum.Api.Sessions.Events.Services.Contracts;
+using Speculum.Api.Sessions.Pipes.Services;
+using Speculum.Api.Sessions.Pipes.Services.Contracts;
 using Speculum.Api.Sessions.Services;
 using Speculum.Api.Sessions.Services.Contracts;
 using Speculum.Api.Sessions.Storage;
+using Speculum.Api.Shared.Services;
+using Speculum.Api.Shared.Services.Contracts;
 
 namespace Speculum.Api.Sessions;
 
@@ -19,7 +23,7 @@ public static class BrowserSessionsServiceCollectionExtensions
 {
     /// <summary>
     /// Registers session-domain infrastructure (repos, slots, collector, lifecycle journal).
-    /// Does not register <see cref="ISessionService"/> or <see cref="IInitialUrlResolver"/>.
+    /// Does not register <see cref="ISessionService"/> or <see cref="IUrlResolver"/>.
     /// Requires <c>AddDatabase()</c> and <c>AddJournal()</c> first.
     /// </summary>
     public static IServiceCollection AddBrowserSessions(this IServiceCollection services)
@@ -57,6 +61,11 @@ public static class BrowserSessionsServiceCollectionExtensions
         services.TryAddSingleton<ISessionSlotRegistry, SessionSlotRegistry>();
         services.TryAddSingleton<ISessionCollector, SessionCollector>();
         services.TryAddSingleton<ISessionEventsFactory, SessionEventsFactory>();
+        services.TryAddSingleton<ISessionTokenGenerator, SessionTokenGenerator>();
+        services.TryAddSingleton<ScopedMutex>();
+        services.TryAddSingleton<IScopedMutex>(sp => sp.GetRequiredService<ScopedMutex>());
+        services.TryAddSingleton<IAsyncScopedMutex>(sp => sp.GetRequiredService<ScopedMutex>());
+        services.TryAddSingleton<ISessionPipeService, SessionPipeService>();
 
         return services;
     }

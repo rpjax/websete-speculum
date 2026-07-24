@@ -14,7 +14,7 @@ namespace Speculum.Api.BrowserClients.Grpc;
 
 /// <summary>
 /// gRPC-backed <see cref="ISessionConnection"/>. One WatchVideo / WatchConsole / Control /
-/// PushInput writer per connection; status is polled GetStatus; informative signals on
+/// PushInput writer per connection; status is on-demand GetStatus; informative signals on
 /// <see cref="GetNotificationReader"/>; permission hooks reply on Control.
 /// </summary>
 public sealed class GrpcSessionConnection : ISessionConnection
@@ -33,14 +33,6 @@ public sealed class GrpcSessionConnection : ISessionConnection
 
     private readonly Channel<ConsoleOutput> _console = Channel.CreateBounded<ConsoleOutput>(
         new BoundedChannelOptions(256)
-        {
-            FullMode = BoundedChannelFullMode.DropOldest,
-            SingleReader = false,
-            SingleWriter = false,
-        });
-
-    private readonly Channel<SessionStatus> _status = Channel.CreateBounded<SessionStatus>(
-        new BoundedChannelOptions(8)
         {
             FullMode = BoundedChannelFullMode.DropOldest,
             SingleReader = false,
@@ -92,7 +84,6 @@ public sealed class GrpcSessionConnection : ISessionConnection
         _ = PumpNavigationBlockedAsync(token);
         _ = PumpEditableFocusAsync(token);
         _ = PumpCrashAsync(token);
-        _ = PumpStatusAsync(token);
         _ = PumpControlAsync(token);
     }
 
@@ -133,7 +124,6 @@ public sealed class GrpcSessionConnection : ISessionConnection
         {
             _frames.Writer.TryComplete();
             _console.Writer.TryComplete();
-            _status.Writer.TryComplete();
             _notifications.Writer.TryComplete();
             _onClosed(SessionId);
             _lifetime.Dispose();
@@ -306,10 +296,29 @@ public sealed class GrpcSessionConnection : ISessionConnection
         return Result<ChannelReader<ConsoleOutput>>.Success(_console.Reader);
     }
 
-    public IResult<ChannelReader<SessionStatus>> GetStatusReader()
+    public async Task<IResult<SessionStatus>> GetStatusAsync(CancellationToken ct = default)
     {
-        if (!IsOpen) return Result<ChannelReader<SessionStatus>>.Failure("Connection closed");
-        return Result<ChannelReader<SessionStatus>>.Success(_status.Reader);
+        if (!IsOpen)
+        {
+            return Result<SessionStatus>.Failure("Connection closed");
+        }
+
+        return await CallValueAsync(async () =>
+        {
+            var status = await WithLinkedAsync(ct, token =>
+                _client.GetStatusAsync(
+                    new ProtoSessionId { SessionId_ = SessionId.ToString("D") },
+                    cancellationToken: token).ResponseAsync);
+
+            DomainEditingState? editing;
+            lock (_gate)
+            {
+                editing = _editing;
+            }
+
+            return Result<SessionStatus>.Success(
+                GrpcSessionMappers.ToSessionStatus(SessionId, status, editing));
+        });
     }
 
     public IResult<ChannelReader<SessionNotification>> GetNotificationReader()
@@ -548,42 +557,6 @@ public sealed class GrpcSessionConnection : ISessionConnection
         }
         catch (OperationCanceledException) { /* */ }
         catch (RpcException) { /* */ }
-    }
-
-    private async Task PumpStatusAsync(CancellationToken ct)
-    {
-        try
-        {
-            while (!ct.IsCancellationRequested && IsOpen)
-            {
-                await PublishStatusAsync(ct);
-                await Task.Delay(1000, ct);
-            }
-        }
-        catch (OperationCanceledException) { /* */ }
-    }
-
-    private async Task PublishStatusAsync(CancellationToken ct)
-    {
-        try
-        {
-            var status = await _client.GetStatusAsync(
-                new ProtoSessionId { SessionId_ = SessionId.ToString("D") },
-                cancellationToken: ct);
-            DomainEditingState? editing;
-            lock (_gate)
-            {
-                editing = _editing;
-            }
-
-            await _status.Writer.WriteAsync(
-                GrpcSessionMappers.ToSessionStatus(SessionId, status, editing),
-                ct);
-        }
-        catch (RpcException)
-        {
-            /* transient */
-        }
     }
 
     private async Task PumpControlAsync(CancellationToken ct)

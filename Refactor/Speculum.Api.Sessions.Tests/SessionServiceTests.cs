@@ -10,6 +10,7 @@ using Speculum.Api.Sessions.Aggregates;
 using Speculum.Api.Sessions.Events.Services.Contracts;
 using Speculum.Api.Sessions.Models;
 using Speculum.Api.Sessions.Requests;
+using Speculum.Api.Sessions.Pipes.Services.Contracts;
 using Speculum.Api.Sessions.Services;
 using Speculum.Api.Sessions.Services.Contracts;
 
@@ -37,13 +38,16 @@ public sealed class SessionServiceTests
             slots,
             collector,
             pipes,
-            new FixedInitialUrlResolver("https://example.test/"),
+            new FixedUrlResolver("https://example.test/"),
             new NoOpSessionEventsFactory(),
-            browser);
+            browser,
+            new FixedSessionTokenGenerator("test-auth-token"));
 
         var result = await service.StartSessionAsync(new StartSession
         {
             ProfileId = profileId,
+            Path = "/",
+            Query = "",
             Configuration = new SessionConfig
             {
                 Resolution = new ScreenResolution { Width = 800, Height = 600 },
@@ -51,9 +55,11 @@ public sealed class SessionServiceTests
         });
 
         Assert.True(result.IsSuccess);
-        var loaded = await sessions.LoadAsync(result.Value);
+        Assert.Equal("test-auth-token", result.Value.Token);
+        var loaded = await sessions.LoadAsync(result.Value.SessionId);
         Assert.NotNull(loaded);
         Assert.Equal(profileId, loaded.ProfileId);
+        Assert.Equal("test-auth-token", loaded.AuthToken);
     }
 
     [Fact]
@@ -66,13 +72,16 @@ public sealed class SessionServiceTests
                 Options.Create(SessionsTestHarness.ResourceManagement())),
             new NoOpCollector(),
             new NoOpPipeService(),
-            new FixedInitialUrlResolver("https://example.test/"),
+            new FixedUrlResolver("https://example.test/"),
             new NoOpSessionEventsFactory(),
-            new FakeBrowserClient());
+            new FakeBrowserClient(),
+            new FixedSessionTokenGenerator("unused"));
 
         var result = await service.StartSessionAsync(new StartSession
         {
             ProfileId = Guid.NewGuid(),
+            Path = "/",
+            Query = "",
             Configuration = new SessionConfig
             {
                 Resolution = new ScreenResolution { Width = 800, Height = 600 },
@@ -82,14 +91,23 @@ public sealed class SessionServiceTests
         Assert.True(result.IsFailure);
     }
 
-    private sealed class FixedInitialUrlResolver : IInitialUrlResolver
+    private sealed class FixedUrlResolver : IUrlResolver
     {
         private readonly string _url;
 
-        public FixedInitialUrlResolver(string url) => _url = url;
+        public FixedUrlResolver(string url) => _url = url;
 
-        public IResult<string> Resolve(Guid sessionId, Guid profileId)
+        public IResult<string> Resolve(string path, string query)
             => Result<string>.Success(_url);
+    }
+
+    private sealed class FixedSessionTokenGenerator : ISessionTokenGenerator
+    {
+        private readonly string _token;
+
+        public FixedSessionTokenGenerator(string token) => _token = token;
+
+        public string GetRandom() => _token;
     }
 
     private sealed class NoOpSessionEventsFactory : ISessionEventsFactory
@@ -194,8 +212,8 @@ public sealed class SessionServiceTests
 
     private sealed class NoOpPipeService : ISessionPipeService
     {
-        public IResult<ISessionPipe> OpenPipe(Guid sessionId, Guid pipeId)
-            => Result<ISessionPipe>.Failure("not implemented");
+        public Task<IResult<ISessionPipe>> OpenPipeAsync(Guid sessionId, CancellationToken ct = default)
+            => Task.FromResult<IResult<ISessionPipe>>(Result<ISessionPipe>.Failure("not implemented"));
 
         public IResult ClosePipe(Guid pipeId) => Result.Success();
         public void CloseAllSessionPipes(Guid sessionId) { }
@@ -299,8 +317,11 @@ public sealed class SessionServiceTests
         public IResult<ChannelReader<ConsoleOutput>> GetConsoleOutputReader()
             => Result<ChannelReader<ConsoleOutput>>.Success(Channel.CreateUnbounded<ConsoleOutput>().Reader);
 
-        public IResult<ChannelReader<SessionStatus>> GetStatusReader()
-            => Result<ChannelReader<SessionStatus>>.Success(Channel.CreateUnbounded<SessionStatus>().Reader);
+        public Task<IResult<SessionStatus>> GetStatusAsync(CancellationToken ct = default)
+            => Task.FromResult<IResult<SessionStatus>>(Result<SessionStatus>.Success(new SessionStatus
+            {
+                SessionId = SessionId.ToString("D"),
+            }));
 
         public IResult<ChannelReader<SessionNotification>> GetNotificationReader()
             => Result<ChannelReader<SessionNotification>>.Success(Channel.CreateUnbounded<SessionNotification>().Reader);

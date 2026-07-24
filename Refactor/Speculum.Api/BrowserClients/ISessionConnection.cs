@@ -52,6 +52,13 @@ public interface ISessionConnection
     bool IsOpen { get; }
 
     /// <summary>
+    /// One-shot session status snapshot (unary sidecar <c>GetStatus</c> + last-known editing).
+    /// Not a stream — callers that need periodic updates poll this method themselves.
+    /// Relay fields (fps, uptime, jsBridge) may be filled by layers above.
+    /// </summary>
+    Task<IResult<SessionStatus>> GetStatusAsync(CancellationToken ct = default);
+
+    /// <summary>
     /// Closes the connection (<c>CloseConnection</c> phase): cancels work, releases resources,
     /// and deregisters from <see cref="IBrowserClient"/>. Idempotent.
     /// </summary>
@@ -122,12 +129,6 @@ public interface ISessionConnection
 
     /// <summary>Console output stream from the live browser.</summary>
     IResult<ChannelReader<ConsoleOutput>> GetConsoleOutputReader();
-
-    /// <summary>
-    /// Session status from the sidecar (polled GetStatus + optional last-known editing).
-    /// Relay fields (fps, uptime, jsBridge) may be filled by pipe/session layers above.
-    /// </summary>
-    IResult<ChannelReader<SessionStatus>> GetStatusReader();
 
     /// <summary>
     /// Informative notifications: location, navigation blocked, editable focus, crash.

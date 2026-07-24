@@ -1,5 +1,6 @@
 using Aidan.Core.Patterns;
 using Speculum.Api.Sessions.Requests;
+using Speculum.Api.Sessions.Responses;
 
 namespace Speculum.Api.Sessions.Services.Contracts;
 
@@ -7,9 +8,10 @@ public interface ISessionService
 {
     /// <summary>
     /// Starts a live session. Fail-fast on any provisioning step (including initial navigation).
-    /// On failure, partially acquired resources are released. Returns the new session id on success.
+    /// On failure, partially acquired resources are released.
+    /// Returns session id and auth token on success.
     /// </summary>
-    Task<IResult<Guid>> StartSessionAsync(
+    Task<IResult<StartSessionResponse>> StartSessionAsync(
         StartSession request,
         CancellationToken ct = default);
 

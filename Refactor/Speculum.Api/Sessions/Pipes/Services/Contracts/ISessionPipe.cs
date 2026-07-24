@@ -2,14 +2,14 @@ using System.Threading.Channels;
 using Aidan.Core.Patterns;
 using Speculum.Api.Sessions.Models;
 
-namespace Speculum.Api.Sessions.Services.Contracts;
+namespace Speculum.Api.Sessions.Pipes.Services.Contracts;
 
 /// <summary>
-/// Per-consumer I/O handle over a live session (frames, console, status, input pumps).
+/// Per-consumer I/O handle over a live session (frames, console, notifications, input pumps).
 /// </summary>
 /// <remarks>
 /// <para>
-/// Obtained from <see cref="ISessionPipeService.OpenPipe"/>. Many pipes may share one
+/// Obtained from <see cref="ISessionPipeService.OpenPipeAsync"/>. Many pipes may share one
 /// session / sidecar connection; this type is the caller's private stream gate, not the
 /// connection itself.
 /// </para>
@@ -19,13 +19,14 @@ namespace Speculum.Api.Sessions.Services.Contracts;
 /// <c>Close</c> — only the pipe service may close a pipe.
 /// </para>
 /// <para>
-/// Outbound streams are typically broadcast to all pipes of the session. Inbound input
-/// policy (exclusive vs any-writer) is defined by the implementation / fan-out layer.
+/// Outbound streams (frames, console, notifications) are typically broadcast to all pipes of
+/// the session. Status is not a stream — callers poll <see cref="GetStatusAsync"/>.
+/// Inbound input policy (exclusive vs any-writer) is defined by the implementation / fan-out layer.
 /// </para>
 /// </remarks>
 public interface ISessionPipe
 {
-    /// <summary>Stable id of this consumer pipe (same as passed to <c>OpenPipe</c>).</summary>
+    /// <summary>Stable id of this consumer pipe (minted by <c>OpenPipeAsync</c>).</summary>
     Guid Id { get; }
 
     /// <summary>Live session this pipe is bound to.</summary>
@@ -34,34 +35,27 @@ public interface ISessionPipe
     /// <summary>
     /// Screencast / frame stream for this pipe.
     /// </summary>
-    /// <returns>
-    /// Success with a reader, or Failure if the pipe is closed.
-    /// </returns>
     IResult<ChannelReader<Frame>> GetFramesChannel();
 
     /// <summary>
     /// Browser console output stream for this pipe.
     /// </summary>
-    /// <returns>
-    /// Success with a reader, or Failure if the pipe is closed.
-    /// </returns>
     IResult<ChannelReader<ConsoleOutput>> GetConsoleOutputChannel();
 
     /// <summary>
-    /// Session status / lifecycle signals visible to this consumer.
+    /// Informative session notifications (location, navigation blocked, editable focus, crash).
     /// </summary>
-    /// <returns>
-    /// Success with a reader, or Failure if the pipe is closed.
-    /// </returns>
-    IResult<ChannelReader<SessionStatus>> GetStatusChannel();
+    IResult<ChannelReader<SessionNotification>> GetNotificationChannel();
+
+    /// <summary>
+    /// One-shot status snapshot for this session. Not a stream — poll as needed.
+    /// </summary>
+    Task<IResult<SessionStatus>> GetStatusAsync(CancellationToken ct = default);
 
     /// <summary>
     /// Pumps user input from <paramref name="channelReader"/> into the live session
     /// until the channel completes, <paramref name="ct"/> cancels, or the pipe is closed.
     /// </summary>
-    /// <returns>
-    /// Success with the pump task, or Failure if the pipe is already closed.
-    /// </returns>
     IResult<Task> ConsumeUserInputAsync(
         ChannelReader<string> channelReader,
         CancellationToken ct = default);
@@ -70,9 +64,6 @@ public interface ISessionPipe
     /// Pumps console input from <paramref name="channelReader"/> into the live session
     /// until the channel completes, <paramref name="ct"/> cancels, or the pipe is closed.
     /// </summary>
-    /// <returns>
-    /// Success with the pump task, or Failure if the pipe is already closed.
-    /// </returns>
     IResult<Task> ConsumeConsoleInputAsync(
         ChannelReader<ConsoleInput> channelReader,
         CancellationToken ct = default);

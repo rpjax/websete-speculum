@@ -6,6 +6,7 @@ using Microsoft.Extensions.Options;
 using Speculum.Api.Sessions.Aggregates;
 using Speculum.Api.Sessions.Events.Services.Contracts;
 using Speculum.Api.Sessions.Requests;
+using Speculum.Api.Sessions.Responses;
 using Speculum.Api.Sessions.Services;
 using Speculum.Api.Sessions.Services.Contracts;
 
@@ -139,10 +140,15 @@ public sealed class SessionCollectorTests
         public FakeSessionService(TaskCompletionSource<Guid>? stopSignal = null)
             => _stopSignal = stopSignal;
 
-        public Task<IResult<Guid>> StartSessionAsync(
+        public Task<IResult<StartSessionResponse>> StartSessionAsync(
             StartSession request,
             CancellationToken ct = default)
-            => Task.FromResult<IResult<Guid>>(Result<Guid>.Success(Guid.NewGuid()));
+            => Task.FromResult<IResult<StartSessionResponse>>(Result<StartSessionResponse>.Success(
+                new StartSessionResponse
+                {
+                    SessionId = Guid.NewGuid(),
+                    Token = "test-token",
+                }));
 
         public Task<IResult> StopSessionAsync(
             StopSession request,

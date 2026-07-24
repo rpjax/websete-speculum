@@ -4,7 +4,9 @@ using Speculum.Api.Profiles.Services.Contracts;
 using Speculum.Api.Sessions.Aggregates;
 using Speculum.Api.Sessions.Events.Services.Contracts;
 using Speculum.Api.Sessions.Models;
+using Speculum.Api.Sessions.Pipes.Services.Contracts;
 using Speculum.Api.Sessions.Requests;
+using Speculum.Api.Sessions.Responses;
 using Speculum.Api.Sessions.Services.Contracts;
 
 namespace Speculum.Api.Sessions.Services;
@@ -16,9 +18,10 @@ public partial class SessionService : ISessionService
     private readonly ISessionSlotRegistry _slotRegistry;
     private readonly ISessionCollector _sessionCollector;
     private readonly ISessionPipeService _pipes;
-    private readonly IInitialUrlResolver _initialUrls;
+    private readonly IUrlResolver _urls;
     private readonly ISessionEventsFactory _events;
     private readonly IBrowserClient _browserClient;
+    private readonly ISessionTokenGenerator _sessionTokens;
 
     public SessionService(
         IProfileRepository profiles,
@@ -26,21 +29,23 @@ public partial class SessionService : ISessionService
         ISessionSlotRegistry slotRegistry,
         ISessionCollector sessionCollector,
         ISessionPipeService pipes,
-        IInitialUrlResolver initialUrls,
+        IUrlResolver urls,
         ISessionEventsFactory events,
-        IBrowserClient browserClient)
+        IBrowserClient browserClient,
+        ISessionTokenGenerator sessionTokens)
     {
         _profiles = profiles;
         _sessions = sessions;
         _slotRegistry = slotRegistry;
         _sessionCollector = sessionCollector;
         _pipes = pipes;
-        _initialUrls = initialUrls;
+        _urls = urls;
         _events = events;
         _browserClient = browserClient;
+        _sessionTokens = sessionTokens;
     }
 
-    public async Task<IResult<Guid>> StartSessionAsync(
+    public async Task<IResult<StartSessionResponse>> StartSessionAsync(
         StartSession request,
         CancellationToken ct = default)
     {
@@ -53,13 +58,13 @@ public partial class SessionService : ISessionService
         if (profile is null)
         {
             startEvents.ProfileNotFound();
-            return Result<Guid>.Failure("Profile not found");
+            return Result<StartSessionResponse>.Failure("Profile not found");
         }
 
         if (!_slotRegistry.TryAquire(sessionId))
         {
             startEvents.NoSlotAvailable();
-            return Result<Guid>.Failure("No session slot available");
+            return Result<StartSessionResponse>.Failure("No session slot available");
         }
 
         startEvents.SlotAcquired();
@@ -95,7 +100,7 @@ public partial class SessionService : ISessionService
 
             startEvents.ProfileStateRestored();
 
-            var urlResult = _initialUrls.Resolve(sessionId, profileId);
+            var urlResult = _urls.Resolve(request.Path, request.Query);
             if (urlResult.IsFailure)
             {
                 startEvents.InitialUrlResolveFailed(urlResult.Errors.ToArray());
@@ -113,11 +118,16 @@ public partial class SessionService : ISessionService
 
             startEvents.InitialNavigationCompleted();
 
-            await _sessions.SaveAsync(Session.Create(sessionId, profileId), ct);
+            var token = _sessionTokens.GetRandom();
+            await _sessions.SaveAsync(Session.Create(sessionId, profileId, token), ct);
 
             _sessionCollector.Watch(sessionId);
             lifecycleEvents.Started();
-            return Result<Guid>.Success(sessionId);
+            return Result<StartSessionResponse>.Success(new StartSessionResponse
+            {
+                SessionId = sessionId,
+                Token = token,
+            });
         }
         catch
         {
@@ -160,7 +170,7 @@ public partial class SessionService : ISessionService
         return Result.Success();
     }
 
-    private async Task<IResult<Guid>> AbortStartAsync(
+    private async Task<IResult<StartSessionResponse>> AbortStartAsync(
         Guid sessionId,
         Guid profileId,
         ISessionLifecycleEvents lifecycleEvents,
@@ -169,7 +179,7 @@ public partial class SessionService : ISessionService
     {
         await TearDownLiveResourcesAsync(sessionId, profileId, ct, emitStopEvents: false);
         lifecycleEvents.Aborted();
-        return Result<Guid>.Failure(failed.Errors.ToArray());
+        return Result<StartSessionResponse>.Failure(failed.Errors.ToArray());
     }
 
     private async Task TryPersistSessionStateAsync(

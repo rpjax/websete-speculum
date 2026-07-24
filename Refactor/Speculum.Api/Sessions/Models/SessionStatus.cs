@@ -3,13 +3,9 @@ using MessagePack;
 namespace Speculum.Api.Sessions.Models;
 
 /// <summary>
-/// Periodic session health snapshot sent to the client via the dedicated
-/// <c>OpenStatusChannel</c> SignalR stream.
-///
-/// Sidecar-side fields (tabCount, url, resizing, width, height) come from
-/// the MSG_STATUS (0x09) binary frame published every 1 s by the sidecar.
-/// .NET-side fields (fps, uptimeMs, sessionId, jsBridgeEnabled) are added
-/// by <c>MotorSession</c> before the snapshot is placed in the status channel.
+/// Session health snapshot from unary sidecar <c>GetStatus</c>, optionally enriched
+/// by .NET layers (fps, uptime, jsBridge) before returning to a caller that polled.
+/// Not a stream — consumers call <c>GetStatusAsync</c> on demand.
 ///
 /// MessagePack (and JSON) wire keys are camelCase to match the React client:
 ///   { tabCount, url, resizing, width, height, fps, uptimeMs,

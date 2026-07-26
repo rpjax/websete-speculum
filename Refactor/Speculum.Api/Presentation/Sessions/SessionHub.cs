@@ -19,6 +19,7 @@ namespace Speculum.Api.Presentation.Sessions;
 public sealed class SessionHub : Hub<ISessionHubClient>
 {
     private readonly ISessionService _sessions;
+    private readonly ILiveSessionService _liveSessions;
     private readonly IConfigurationService _configuration;
     private readonly ISessionBindingRegistry _bindings;
     private readonly IProfileService _profiles;
@@ -26,12 +27,14 @@ public sealed class SessionHub : Hub<ISessionHubClient>
 
     public SessionHub(
         ISessionService sessions,
+        ILiveSessionService liveSessions,
         IConfigurationService configuration,
         ISessionBindingRegistry bindings,
         IProfileService profiles,
         IJournalLiveFeed journalFeed)
     {
         _sessions = sessions;
+        _liveSessions = liveSessions;
         _configuration = configuration;
         _bindings = bindings;
         _profiles = profiles;
@@ -155,6 +158,34 @@ public sealed class SessionHub : Hub<ISessionHubClient>
             stop,
             Context.ConnectionAborted);
 
+        if (result.IsFailure)
+        {
+            throw new HubException(SessionHubRequestMapper.FormatErrors(result));
+        }
+    }
+
+    /// <summary>
+    /// Runtime navigation against the caller's bound live session (path/query → target URL).
+    /// </summary>
+    public async Task NavigateAsync(NavigateSessionHubRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var navigate = SessionHubRequestMapper.ToNavigateSession(request);
+        if (!_bindings.IsAuthorized(
+                Context.ConnectionId,
+                navigate.SessionId,
+                request.Token ?? string.Empty))
+        {
+            throw new HubException("Session binding is not authorized");
+        }
+
+        if (!_liveSessions.TryGet(navigate.SessionId, out var live))
+        {
+            throw new HubException("Live session not found");
+        }
+
+        var result = await live.NavigateAsync(navigate, Context.ConnectionAborted);
         if (result.IsFailure)
         {
             throw new HubException(SessionHubRequestMapper.FormatErrors(result));

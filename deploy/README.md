@@ -257,6 +257,7 @@ Sidecar changes require rebuilding `speculum-sidecar`; active sessions should dr
 | ACME failure (prod) | DNS or port 80 blocked | Verify A records and firewall |
 | Machine telemetry shows `cgroup`/`unavailable` | Host `/proc` not mounted | Confirm `/proc:/host/proc:ro` on api + `Diagnostics__Telemetry__Host__ProcPath=/host/proc` |
 | Chrome crashes in sidecar | Low `/dev/shm` | Confirm `shm_size: 2gb` in manifest |
+| Session dies / fake crash after YouTube navigate | Sidecar link vs Chromium contract | Optional lab: `cd Refactor/web && node scripts/smoke-hub.mjs http://localhost:8080` — Start → Navigate → assert still live (not CI) |
 | `dockup validate` fails | JSON syntax or missing `--root` | Run from `deploy/` with `--root ..` |
 | `docker buildx build requires 1 argument` (Windows) | dockup **< 2.0.2** on a repo path with spaces | `npm install -g @rodrigopjax/dockup@2.0.2` |
 | `npm ci` fails in sidecar build | `package-lock.json` out of sync with `package.json` | Run `npm install` in `sidecar/` and rebuild |

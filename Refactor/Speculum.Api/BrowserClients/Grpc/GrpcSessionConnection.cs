@@ -1,6 +1,8 @@
 using System.Threading.Channels;
 using Aidan.Core.Patterns;
 using Grpc.Core;
+using Microsoft.Extensions.Logging;
+using Speculum.Api.Configurations.Models.Sidecar;
 using Speculum.Api.Configurations.Services.Contracts;
 using Speculum.Api.Profiles.Aggregates;
 using Speculum.Api.Sessions.Models;
@@ -17,14 +19,19 @@ namespace Speculum.Api.BrowserClients.Grpc;
 /// gRPC-backed <see cref="ISessionConnection"/>. One WatchVideo / WatchConsole / Control /
 /// PushInput writer per connection; status is on-demand GetStatus; informative signals on
 /// <see cref="GetNotificationReader"/>; permission hooks reply on Control.
+/// Transient transport blips retry internally; <c>Crashed</c> is only from WatchCrash.
 /// </summary>
 public sealed class GrpcSessionConnection : ISessionConnection
 {
     private readonly BrowserSessionService.BrowserSessionServiceClient _client;
     private readonly IConfigurationService _configuration;
+    private readonly ILogger _logger;
     private readonly Action<Guid> _onClosed;
+    private readonly int _linkRetryCount;
+    private readonly TimeSpan _linkRetryBackoff;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly object _gate = new();
+    private readonly object _linkGate = new();
 
     private readonly Channel<Frame> _frames = Channel.CreateBounded<Frame>(new BoundedChannelOptions(2)
     {
@@ -56,22 +63,67 @@ public sealed class GrpcSessionConnection : ISessionConnection
     private Func<CancellationToken, Task<PermissionDecision>>? _microphonePermissionHandler;
     private long _frameSequence;
     private int _open = 1;
+    private int _transportLost;
+    /// <summary>Set once a Chromium <see cref="SessionNotificationKind.Crashed"/> is queued — blocks further DropOldest churn from evicting it.</summary>
+    private int _crashQueued;
 
     public GrpcSessionConnection(
         Guid sessionId,
         BrowserSessionService.BrowserSessionServiceClient client,
         IConfigurationService configuration,
+        SidecarOptions options,
+        ILogger logger,
         Action<Guid> onClosed)
     {
+        ArgumentNullException.ThrowIfNull(options);
         SessionId = sessionId;
         _client = client;
         _configuration = configuration;
+        _logger = logger;
         _onClosed = onClosed;
+        _linkRetryCount = options.LinkRetryCount;
+        _linkRetryBackoff = options.LinkRetryBackoff;
     }
 
     public Guid SessionId { get; }
 
     public bool IsOpen => Volatile.Read(ref _open) == 1;
+
+    /// <summary>
+    /// Transient gRPC failures worth a short unary/watch reopen retry.
+    /// Session-not-found is never retryable — use <see cref="IsSessionGone"/>.
+    /// </summary>
+    internal static bool ShouldRetry(StatusCode statusCode, string? detail)
+    {
+        if (statusCode is StatusCode.Unavailable)
+        {
+            return true;
+        }
+
+        if (statusCode is StatusCode.Unknown or StatusCode.Internal)
+        {
+            var text = detail ?? string.Empty;
+            return text.Contains("ResponseEnded", StringComparison.OrdinalIgnoreCase)
+                || text.Contains("ended prematurely", StringComparison.OrdinalIgnoreCase)
+                || text.Contains("Unavailable", StringComparison.OrdinalIgnoreCase);
+        }
+
+        return false;
+    }
+
+    internal static bool ShouldRetry(RpcException ex)
+        => ShouldRetry(ex.StatusCode, ex.Status.Detail ?? ex.Message);
+
+    internal static bool IsSessionGone(RpcException ex)
+    {
+        if (ex.StatusCode is StatusCode.NotFound)
+        {
+            return true;
+        }
+
+        var detail = ex.Status.Detail ?? ex.Message;
+        return detail.Contains("session not found", StringComparison.OrdinalIgnoreCase);
+    }
 
     public Task StartStreamsAsync(CancellationToken ct)
     {
@@ -80,7 +132,7 @@ public sealed class GrpcSessionConnection : ISessionConnection
         var token = _lifetime.Token;
 
         _pushInput = _client.PushInput(cancellationToken: token);
-        _control = _client.Control(cancellationToken: token);
+        _control = _client.Control(headers: CreateSessionMetadata(), cancellationToken: token);
 
         _ = PumpVideoAsync(token);
         _ = PumpConsoleAsync(token);
@@ -102,16 +154,27 @@ public sealed class GrpcSessionConnection : ISessionConnection
         try
         {
             _lifetime.Cancel();
-            if (_pushInput is not null)
+
+            AsyncClientStreamingCall<InputEvent, ProtoEmpty>? push;
+            AsyncDuplexStreamingCall<ControlToSidecar, ControlFromSidecar>? control;
+            lock (_linkGate)
             {
-                try { await _pushInput.RequestStream.CompleteAsync(); } catch { /* */ }
-                _pushInput.Dispose();
+                push = _pushInput;
+                _pushInput = null;
+                control = _control;
+                _control = null;
             }
 
-            if (_control is not null)
+            if (push is not null)
             {
-                try { await _control.RequestStream.CompleteAsync(); } catch { /* */ }
-                _control.Dispose();
+                try { await push.RequestStream.CompleteAsync(); } catch { /* */ }
+                try { push.Dispose(); } catch { /* */ }
+            }
+
+            if (control is not null)
+            {
+                try { await control.RequestStream.CompleteAsync(); } catch { /* */ }
+                try { control.Dispose(); } catch { /* */ }
             }
 
             try
@@ -349,33 +412,55 @@ public sealed class GrpcSessionConnection : ISessionConnection
 
     public IResult<Task> ConsumeUserInputAsync(ChannelReader<UserInput> channelReader)
     {
-        if (!IsOpen || _pushInput is null)
+        CancellationToken lifetime;
+        lock (_linkGate)
         {
-            return Result<Task>.Failure("Connection closed");
+            if (!IsOpen || _pushInput is null)
+            {
+                return Result<Task>.Failure("Connection closed");
+            }
+
+            try
+            {
+                lifetime = _lifetime.Token;
+            }
+            catch (ObjectDisposedException)
+            {
+                return Result<Task>.Failure("Connection closed");
+            }
         }
 
-        return Result<Task>.Success(PumpUserInputAsync(channelReader, _lifetime.Token));
+        return Result<Task>.Success(PumpUserInputAsync(channelReader, lifetime));
     }
 
     public IResult<Task> ConsumeConsoleInputAsync(ChannelReader<ConsoleInput> channelReader)
     {
-        if (!IsOpen)
+        CancellationToken lifetime;
+        try
+        {
+            if (!IsOpen)
+            {
+                return Result<Task>.Failure("Connection closed");
+            }
+
+            lifetime = _lifetime.Token;
+        }
+        catch (ObjectDisposedException)
         {
             return Result<Task>.Failure("Connection closed");
         }
 
-        return Result<Task>.Success(PumpConsoleInputAsync(channelReader, _lifetime.Token));
+        return Result<Task>.Success(PumpConsoleInputAsync(channelReader, lifetime));
     }
 
     private async Task PumpUserInputAsync(ChannelReader<UserInput> reader, CancellationToken ct)
     {
-        var stream = _pushInput!.RequestStream;
         await foreach (var userInput in reader.ReadAllAsync(ct))
         {
             if (!GrpcSessionMappers.TryParseInputEvent(SessionId, userInput, out var input)
                 || input is null)
             {
-                _notifications.Writer.TryWrite(new SessionNotification
+                TryPublishNotification(new SessionNotification
                 {
                     Kind = SessionNotificationKind.InputRejected,
                     ErrorCode = "input_invalid",
@@ -387,15 +472,42 @@ public sealed class GrpcSessionConnection : ISessionConnection
 
             try
             {
-                await stream.WriteAsync(input, ct);
+                await WriteInputWithRetryAsync(input, ct).ConfigureAwait(false);
             }
-            catch (RpcException ex) when (ex.StatusCode is StatusCode.Cancelled or StatusCode.Unavailable)
+            catch (RpcException ex) when (ex.StatusCode == StatusCode.Cancelled)
             {
                 break;
             }
+            catch (RpcException ex) when (IsSessionGone(ex))
+            {
+                _logger.LogWarning(
+                    ex,
+                    "PushInput session gone for session {SessionId}",
+                    SessionId);
+                await FaultSidecarConnectionAsync().ConfigureAwait(false);
+                break;
+            }
+            catch (RpcException ex) when (ShouldRetry(ex))
+            {
+                // Exhausted WriteInput retries. Do not tear down the link or end the
+                // drain — SessionInputMerger starts this pump once. Keep consuming so
+                // later input can ReopenPushInput; Chromium death stays on WatchCrash.
+                _logger.LogWarning(
+                    ex,
+                    "PushInput faulted for session {SessionId} after retries (link kept for WatchCrash)",
+                    SessionId);
+                TryPublishNotification(new SessionNotification
+                {
+                    Kind = SessionNotificationKind.InputRejected,
+                    ErrorCode = "input_push_failed",
+                    Phase = "push",
+                    Message = ex.Status.Detail ?? ex.Message,
+                });
+                continue;
+            }
             catch (RpcException ex)
             {
-                _notifications.Writer.TryWrite(new SessionNotification
+                TryPublishNotification(new SessionNotification
                 {
                     Kind = SessionNotificationKind.InputRejected,
                     ErrorCode = "input_push_failed",
@@ -403,9 +515,88 @@ public sealed class GrpcSessionConnection : ISessionConnection
                     Message = ex.Status.Detail ?? ex.Message,
                 });
             }
+            catch (ObjectDisposedException)
+            {
+                break;
+            }
             catch (OperationCanceledException)
             {
                 break;
+            }
+        }
+    }
+
+    private async Task WriteInputWithRetryAsync(InputEvent input, CancellationToken ct)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            IClientStreamWriter<InputEvent>? stream;
+            lock (_linkGate)
+            {
+                stream = _pushInput?.RequestStream;
+            }
+
+            if (stream is null || !IsOpen)
+            {
+                throw new RpcException(new global::Grpc.Core.Status(StatusCode.Unavailable, "PushInput stream closed"));
+            }
+
+            try
+            {
+                await stream.WriteAsync(input, ct).ConfigureAwait(false);
+                return;
+            }
+            catch (RpcException ex) when (ex.StatusCode == StatusCode.Cancelled)
+            {
+                throw;
+            }
+            catch (RpcException ex) when (ShouldRetry(ex) && attempt < _linkRetryCount && IsOpen)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "PushInput retry {Attempt}/{Retries} (reopen stream) for session {SessionId}",
+                    attempt + 1,
+                    _linkRetryCount,
+                    SessionId);
+                await DelayLinkBackoffAsync(ct).ConfigureAwait(false);
+                ReopenPushInput();
+            }
+        }
+    }
+
+    private void ReopenPushInput()
+    {
+        lock (_linkGate)
+        {
+            if (!IsOpen)
+            {
+                return;
+            }
+
+            CancellationToken lifetime;
+            try
+            {
+                lifetime = _lifetime.Token;
+            }
+            catch (ObjectDisposedException)
+            {
+                return;
+            }
+
+            var previous = _pushInput;
+            _pushInput = null;
+            if (previous is not null)
+            {
+                try { previous.Dispose(); } catch { /* */ }
+            }
+
+            try
+            {
+                _pushInput = _client.PushInput(cancellationToken: lifetime);
+            }
+            catch (ObjectDisposedException)
+            {
+                /* Close raced */
             }
         }
     }
@@ -433,15 +624,34 @@ public sealed class GrpcSessionConnection : ISessionConnection
 
             try
             {
-                var result = await _client.EvaluateAsync(
-                    new EvaluateRequest
-                    {
-                        SessionId = SessionId.ToString("D"),
-                        Code = input.Code,
-                    },
-                    cancellationToken: ct);
+                var eval = await CallValueAsync(async () =>
+                {
+                    var result = await _client.EvaluateAsync(
+                        new EvaluateRequest
+                        {
+                            SessionId = SessionId.ToString("D"),
+                            Code = input.Code,
+                        },
+                        cancellationToken: ct);
+                    return Result<EvaluateResult>.Success(result);
+                }).ConfigureAwait(false);
+
+                if (eval.IsFailure)
+                {
+                    await _console.Writer.WriteAsync(
+                        new ConsoleOutput
+                        {
+                            Kind = ConsoleOutputKind.EvalResult,
+                            RequestId = input.Id,
+                            Ok = false,
+                            Error = string.Join("; ", eval.Errors.Select(e => e.Message)),
+                        },
+                        ct);
+                    continue;
+                }
+
                 await _console.Writer.WriteAsync(
-                    GrpcSessionMappers.EvalResultToOutput(input.Id, result),
+                    GrpcSessionMappers.EvalResultToOutput(input.Id, eval.Value),
                     ct);
             }
             catch (RpcException ex) when (ex.StatusCode == StatusCode.Cancelled)
@@ -452,29 +662,16 @@ public sealed class GrpcSessionConnection : ISessionConnection
             {
                 break;
             }
-            catch (RpcException ex)
-            {
-                await _console.Writer.WriteAsync(
-                    new ConsoleOutput
-                    {
-                        Kind = ConsoleOutputKind.EvalResult,
-                        RequestId = input.Id,
-                        Ok = false,
-                        Error = ex.Status.Detail ?? ex.Message,
-                    },
-                    ct);
-            }
         }
     }
 
-    private async Task PumpVideoAsync(CancellationToken ct)
-    {
-        try
-        {
-            using var call = _client.WatchVideo(
+    private Task PumpVideoAsync(CancellationToken ct) =>
+        RunWatchLoopAsync(
+            "WatchVideo",
+            token => _client.WatchVideo(
                 new ProtoSessionId { SessionId_ = SessionId.ToString("D") },
-                cancellationToken: ct);
-            await foreach (var frame in call.ResponseStream.ReadAllAsync(ct))
+                cancellationToken: token),
+            async (frame, token) =>
             {
                 var jpeg = frame.Jpeg.ToByteArray();
                 var item = new Frame
@@ -483,84 +680,65 @@ public sealed class GrpcSessionConnection : ISessionConnection
                     Sequence = Interlocked.Increment(ref _frameSequence),
                     Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                 };
-                await _frames.Writer.WriteAsync(item, ct);
-            }
-        }
-        catch (OperationCanceledException) { /* shutdown */ }
-        catch (RpcException ex) when (ex.StatusCode is StatusCode.Cancelled or StatusCode.Unavailable)
-        {
-            /* shutdown */
-        }
-    }
+                await _frames.Writer.WriteAsync(item, token).ConfigureAwait(false);
+            },
+            ct);
 
-    private async Task PumpConsoleAsync(CancellationToken ct)
-    {
-        try
-        {
-            using var call = _client.WatchConsole(
+    private Task PumpConsoleAsync(CancellationToken ct) =>
+        RunWatchLoopAsync(
+            "WatchConsole",
+            token => _client.WatchConsole(
                 new ProtoSessionId { SessionId_ = SessionId.ToString("D") },
-                cancellationToken: ct);
-            await foreach (var ev in call.ResponseStream.ReadAllAsync(ct))
+                cancellationToken: token),
+            async (ev, token) =>
             {
-                await _console.Writer.WriteAsync(GrpcSessionMappers.ConsoleEventToOutput(ev), ct);
-            }
-        }
-        catch (OperationCanceledException) { /* */ }
-        catch (RpcException) { /* */ }
-    }
+                await _console.Writer.WriteAsync(
+                    GrpcSessionMappers.ConsoleEventToOutput(ev),
+                    token).ConfigureAwait(false);
+            },
+            ct);
 
-    private async Task PumpLocationAsync(CancellationToken ct)
-    {
-        try
-        {
-            using var call = _client.WatchLocation(
+    private Task PumpLocationAsync(CancellationToken ct) =>
+        RunWatchLoopAsync(
+            "WatchLocation",
+            token => _client.WatchLocation(
                 new ProtoSessionId { SessionId_ = SessionId.ToString("D") },
-                cancellationToken: ct);
-            await foreach (var ev in call.ResponseStream.ReadAllAsync(ct))
+                cancellationToken: token),
+            async (ev, token) =>
             {
-                await _notifications.Writer.WriteAsync(
-                    new SessionNotification
-                    {
-                        Kind = SessionNotificationKind.LocationChanged,
-                        Url = ev.Url,
-                    },
-                    ct);
-            }
-        }
-        catch (OperationCanceledException) { /* */ }
-        catch (RpcException) { /* */ }
-    }
+                TryPublishNotification(new SessionNotification
+                {
+                    Kind = SessionNotificationKind.LocationChanged,
+                    Url = ev.Url,
+                });
+                await Task.CompletedTask.ConfigureAwait(false);
+            },
+            ct);
 
-    private async Task PumpNavigationBlockedAsync(CancellationToken ct)
-    {
-        try
-        {
-            using var call = _client.WatchNavigationBlocked(
+    private Task PumpNavigationBlockedAsync(CancellationToken ct) =>
+        RunWatchLoopAsync(
+            "WatchNavigationBlocked",
+            token => _client.WatchNavigationBlocked(
                 new ProtoSessionId { SessionId_ = SessionId.ToString("D") },
-                cancellationToken: ct);
-            await foreach (var ev in call.ResponseStream.ReadAllAsync(ct))
+                cancellationToken: token),
+            async (ev, token) =>
             {
-                await _notifications.Writer.WriteAsync(
-                    new SessionNotification
-                    {
-                        Kind = SessionNotificationKind.MainFrameNavigationBlocked,
-                        Url = ev.Url,
-                    },
-                    ct);
-            }
-        }
-        catch (OperationCanceledException) { /* */ }
-        catch (RpcException) { /* */ }
-    }
+                TryPublishNotification(new SessionNotification
+                {
+                    Kind = SessionNotificationKind.MainFrameNavigationBlocked,
+                    Url = ev.Url,
+                });
+                await Task.CompletedTask.ConfigureAwait(false);
+            },
+            ct);
 
-    private async Task PumpEditableFocusAsync(CancellationToken ct)
-    {
-        try
-        {
-            using var call = _client.WatchEditableFocus(
+    private Task PumpEditableFocusAsync(CancellationToken ct) =>
+        RunWatchLoopAsync(
+            "WatchEditableFocus",
+            token => _client.WatchEditableFocus(
                 new ProtoSessionId { SessionId_ = SessionId.ToString("D") },
-                cancellationToken: ct);
-            await foreach (var ev in call.ResponseStream.ReadAllAsync(ct))
+                cancellationToken: token),
+            async (ev, token) =>
             {
                 DomainEditingState? editing = null;
                 if (ev.Focused && ev.Editing is { } e)
@@ -579,102 +757,455 @@ public sealed class GrpcSessionConnection : ISessionConnection
                     _editing = editing;
                 }
 
-                await _notifications.Writer.WriteAsync(
-                    new SessionNotification
-                    {
-                        Kind = SessionNotificationKind.EditableFocusChanged,
-                        Editing = editing,
-                    },
-                    ct);
-            }
-        }
-        catch (OperationCanceledException) { /* */ }
-        catch (RpcException) { /* */ }
-    }
+                TryPublishNotification(new SessionNotification
+                {
+                    Kind = SessionNotificationKind.EditableFocusChanged,
+                    Editing = editing,
+                });
+                await Task.CompletedTask.ConfigureAwait(false);
+            },
+            ct);
 
-    private async Task PumpCrashAsync(CancellationToken ct)
-    {
-        try
-        {
-            using var call = _client.WatchCrash(
+    private Task PumpCrashAsync(CancellationToken ct) =>
+        RunWatchLoopAsync(
+            "WatchCrash",
+            token => _client.WatchCrash(
                 new ProtoSessionId { SessionId_ = SessionId.ToString("D") },
-                cancellationToken: ct);
-            await foreach (var crash in call.ResponseStream.ReadAllAsync(ct))
+                cancellationToken: token),
+            async (crash, token) =>
             {
-                await _notifications.Writer.WriteAsync(
-                    new SessionNotification
+                // True Chromium/session fault from sidecar onCrash.
+                // Keep the sidecar link (and Watch* streams) open — only CloseAsync ends them.
+                if (IsOpen)
+                {
+                    TryPublishNotification(new SessionNotification
                     {
                         Kind = SessionNotificationKind.Crashed,
                         ErrorCode = crash.ErrorCode,
                         Message = crash.Message,
-                        Phase = crash.HasPhase ? crash.Phase : null,
-                    },
-                    ct);
-                await CloseAsync(CancellationToken.None);
-                break;
+                        Phase = crash.HasPhase ? crash.Phase : "runtime",
+                    });
+                }
+
+                await Task.CompletedTask.ConfigureAwait(false);
+            },
+            ct);
+
+    /// <summary>
+    /// Queue a notification. After <see cref="SessionNotificationKind.Crashed"/> is queued,
+    /// further non-crash items are dropped so DropOldest cannot evict the crash signal.
+    /// </summary>
+    private void TryPublishNotification(SessionNotification notification)
+    {
+        lock (_gate)
+        {
+            if (notification.Kind == SessionNotificationKind.Crashed)
+            {
+                Volatile.Write(ref _crashQueued, 1);
+                _notifications.Writer.TryWrite(notification);
+                return;
+            }
+
+            if (Volatile.Read(ref _crashQueued) != 0)
+            {
+                return;
+            }
+
+            _notifications.Writer.TryWrite(notification);
+        }
+    }
+
+    private enum LinkProbeResult
+    {
+        Alive,
+        BrowserClosed,
+        Unreachable,
+    }
+
+    /// <summary>
+    /// Pump one Watch* stream; if it ends while the link is still open, probe GetStatus and
+    /// reopen that stream only (C# channels stay the same). Never emits Crashed.
+    /// </summary>
+    private async Task RunWatchLoopAsync<T>(
+        string streamName,
+        Func<CancellationToken, AsyncServerStreamingCall<T>> openCall,
+        Func<T, CancellationToken, Task> onItem,
+        CancellationToken ct)
+    {
+        while (IsOpen && !ct.IsCancellationRequested)
+        {
+            try
+            {
+                using var call = openCall(ct);
+                await foreach (var item in call.ResponseStream.ReadAllAsync(ct).ConfigureAwait(false))
+                {
+                    await onItem(item, ct).ConfigureAwait(false);
+                }
+
+                if (!IsOpen || ct.IsCancellationRequested)
+                {
+                    return;
+                }
+
+                _logger.LogWarning(
+                    "Sidecar {Stream} ended for session {SessionId}; probing before reopen",
+                    streamName,
+                    SessionId);
+
+                var probe = await ProbeSessionLinkAsync(streamName, ct).ConfigureAwait(false);
+                if (probe == LinkProbeResult.Unreachable)
+                {
+                    await FaultSidecarConnectionAsync().ConfigureAwait(false);
+                    return;
+                }
+
+                // Alive or BrowserClosed: keep reopening. BrowserClosed covers mid-resize
+                // (open=false during recreate) and lets WatchCrash drain onCrash after death.
+                _logger.LogWarning(
+                    "Sidecar {Stream} reopening for session {SessionId} (probe={Probe})",
+                    streamName,
+                    SessionId,
+                    probe);
+                await DelayLinkBackoffAsync(ct).ConfigureAwait(false);
+                continue;
+            }
+            catch (ObjectDisposedException)
+            {
+                return;
+            }
+            catch (ChannelClosedException)
+            {
+                return;
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+            catch (RpcException ex) when (ex.StatusCode == StatusCode.Cancelled)
+            {
+                return;
+            }
+            catch (RpcException ex)
+            {
+                if (!IsOpen || ct.IsCancellationRequested)
+                {
+                    return;
+                }
+
+                _logger.LogWarning(
+                    ex,
+                    "Sidecar {Stream} error for session {SessionId}",
+                    streamName,
+                    SessionId);
+
+                if (IsSessionGone(ex))
+                {
+                    await FaultSidecarConnectionAsync().ConfigureAwait(false);
+                    return;
+                }
+
+                var probe = await ProbeSessionLinkAsync(streamName, ct).ConfigureAwait(false);
+                if (probe == LinkProbeResult.Unreachable)
+                {
+                    await FaultSidecarConnectionAsync().ConfigureAwait(false);
+                    return;
+                }
+
+                _logger.LogWarning(
+                    "Sidecar {Stream} reopening after error for session {SessionId} (probe={Probe})",
+                    streamName,
+                    SessionId,
+                    probe);
+                await DelayLinkBackoffAsync(ct).ConfigureAwait(false);
+                continue;
             }
         }
-        catch (OperationCanceledException) { /* */ }
-        catch (RpcException) { /* */ }
+    }
+
+    /// <summary>
+    /// Unary GetStatus probe with the same retry budget. Does not emit Crashed.
+    /// </summary>
+    private async Task<LinkProbeResult> ProbeSessionLinkAsync(string streamName, CancellationToken ct)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            if (!IsOpen || ct.IsCancellationRequested)
+            {
+                return LinkProbeResult.Unreachable;
+            }
+
+            try
+            {
+                var status = await WithLinkedAsync(ct, token =>
+                    _client.GetStatusAsync(
+                        new ProtoSessionId { SessionId_ = SessionId.ToString("D") },
+                        cancellationToken: token).ResponseAsync).ConfigureAwait(false);
+
+                if (!status.IsOpen)
+                {
+                    _logger.LogWarning(
+                        "Sidecar session {SessionId} browser closed while probing after {Stream}",
+                        SessionId,
+                        streamName);
+                    return LinkProbeResult.BrowserClosed;
+                }
+
+                return LinkProbeResult.Alive;
+            }
+            catch (OperationCanceledException)
+            {
+                return LinkProbeResult.Unreachable;
+            }
+            catch (RpcException ex) when (ex.StatusCode == StatusCode.Cancelled)
+            {
+                return LinkProbeResult.Unreachable;
+            }
+            catch (RpcException ex)
+            {
+                if (IsSessionGone(ex))
+                {
+                    _logger.LogWarning(
+                        ex,
+                        "Sidecar session {SessionId} gone while probing after {Stream}",
+                        SessionId,
+                        streamName);
+                    return LinkProbeResult.Unreachable;
+                }
+
+                if (ShouldRetry(ex) && attempt < _linkRetryCount)
+                {
+                    _logger.LogWarning(
+                        ex,
+                        "Sidecar GetStatus probe retry {Attempt}/{Retries} after {Stream} for session {SessionId}",
+                        attempt + 1,
+                        _linkRetryCount,
+                        streamName,
+                        SessionId);
+                    await DelayLinkBackoffAsync(ct).ConfigureAwait(false);
+                    continue;
+                }
+
+                _logger.LogWarning(
+                    ex,
+                    "Sidecar GetStatus probe failed after {Stream} for session {SessionId}",
+                    streamName,
+                    SessionId);
+                return LinkProbeResult.Unreachable;
+            }
+            catch (ObjectDisposedException)
+            {
+                return LinkProbeResult.Unreachable;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Unrecoverable break of the API↔sidecar session link. Completes local channels via
+    /// <see cref="CloseAsync"/> so live session teardown can observe connection end.
+    /// Does <b>not</b> emit <see cref="SessionNotificationKind.Crashed"/> — that kind is reserved
+    /// for sidecar <c>onCrash</c> / <c>WatchCrash</c> (Chromium), not transport.
+    /// </summary>
+    private Task FaultSidecarConnectionAsync()
+    {
+        if (!IsOpen)
+        {
+            return Task.CompletedTask;
+        }
+
+        if (Interlocked.Exchange(ref _transportLost, 1) != 0)
+        {
+            return Task.CompletedTask;
+        }
+
+        _logger.LogWarning("Sidecar link faulted for session {SessionId}; closing connection", SessionId);
+        return CloseAsync(CancellationToken.None);
     }
 
     private async Task PumpControlAsync(CancellationToken ct)
     {
-        var call = _control;
-        if (call is null) return;
-        try
+        while (IsOpen && !ct.IsCancellationRequested)
         {
-            await foreach (var msg in call.ResponseStream.ReadAllAsync(ct))
+            AsyncDuplexStreamingCall<ControlToSidecar, ControlFromSidecar>? call;
+            lock (_linkGate)
             {
-                if (msg.PermissionRequest is not { } req) continue;
+                call = _control;
+            }
 
-                var allow = false;
+            if (call is null)
+            {
                 try
                 {
-                    var handler = req.Kind switch
+                    var opened = _client.Control(headers: CreateSessionMetadata(), cancellationToken: ct);
+                    lock (_linkGate)
                     {
-                        PermissionKind.Camera => _cameraPermissionHandler,
-                        PermissionKind.Microphone => _microphonePermissionHandler,
-                        _ => null,
-                    };
-                    if (handler is not null)
-                    {
-                        var decision = await handler(ct);
-                        allow = decision == PermissionDecision.Allow;
+                        if (!IsOpen)
+                        {
+                            try { opened.Dispose(); } catch { /* */ }
+                            return;
+                        }
+
+                        _control = opened;
+                        call = opened;
                     }
                 }
-                catch
+                catch (ObjectDisposedException)
                 {
-                    allow = false;
+                    return;
+                }
+                catch (OperationCanceledException)
+                {
+                    return;
+                }
+                catch (RpcException ex) when (ex.StatusCode == StatusCode.Cancelled)
+                {
+                    return;
+                }
+                catch (RpcException ex)
+                {
+                    _logger.LogWarning(ex, "Sidecar Control open failed for session {SessionId}", SessionId);
+                    if (IsSessionGone(ex))
+                    {
+                        await FaultSidecarConnectionAsync().ConfigureAwait(false);
+                        return;
+                    }
+
+                    var openProbe = await ProbeSessionLinkAsync("Control", ct).ConfigureAwait(false);
+                    if (openProbe == LinkProbeResult.Unreachable)
+                    {
+                        await FaultSidecarConnectionAsync().ConfigureAwait(false);
+                        return;
+                    }
+
+                    await DelayLinkBackoffAsync(ct).ConfigureAwait(false);
+                    continue;
+                }
+            }
+
+            try
+            {
+                await foreach (var msg in call.ResponseStream.ReadAllAsync(ct).ConfigureAwait(false))
+                {
+                    if (msg.PermissionRequest is not { } req) continue;
+
+                    var allow = false;
+                    try
+                    {
+                        var handler = req.Kind switch
+                        {
+                            PermissionKind.Camera => _cameraPermissionHandler,
+                            PermissionKind.Microphone => _microphonePermissionHandler,
+                            _ => null,
+                        };
+                        if (handler is not null)
+                        {
+                            var decision = await handler(ct).ConfigureAwait(false);
+                            allow = decision == PermissionDecision.Allow;
+                        }
+                    }
+                    catch
+                    {
+                        allow = false;
+                    }
+
+                    await call.RequestStream.WriteAsync(
+                        new ControlToSidecar
+                        {
+                            PermissionReply = new PermissionReply
+                            {
+                                CorrId = req.CorrId,
+                                Allow = allow,
+                                SessionId = req.SessionId,
+                            },
+                        },
+                        ct).ConfigureAwait(false);
                 }
 
-                await call.RequestStream.WriteAsync(
-                    new ControlToSidecar
-                    {
-                        PermissionReply = new PermissionReply
-                        {
-                            CorrId = req.CorrId,
-                            Allow = allow,
-                            SessionId = req.SessionId,
-                        },
-                    },
-                    ct);
+                if (!IsOpen || ct.IsCancellationRequested)
+                {
+                    return;
+                }
+
+                _logger.LogWarning(
+                    "Sidecar Control ended for session {SessionId}; probing before reopen",
+                    SessionId);
+                DisposeControlCall();
+
+                var endedProbe = await ProbeSessionLinkAsync("Control", ct).ConfigureAwait(false);
+                if (endedProbe == LinkProbeResult.Unreachable)
+                {
+                    await FaultSidecarConnectionAsync().ConfigureAwait(false);
+                    return;
+                }
+
+                await DelayLinkBackoffAsync(ct).ConfigureAwait(false);
+                continue;
+            }
+            catch (ObjectDisposedException)
+            {
+                return;
+            }
+            catch (ChannelClosedException)
+            {
+                return;
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+            catch (RpcException ex) when (ex.StatusCode == StatusCode.Cancelled)
+            {
+                return;
+            }
+            catch (RpcException ex)
+            {
+                if (!IsOpen || ct.IsCancellationRequested)
+                {
+                    return;
+                }
+
+                _logger.LogWarning(ex, "Sidecar Control error for session {SessionId}", SessionId);
+                DisposeControlCall();
+
+                if (IsSessionGone(ex))
+                {
+                    await FaultSidecarConnectionAsync().ConfigureAwait(false);
+                    return;
+                }
+
+                var errorProbe = await ProbeSessionLinkAsync("Control", ct).ConfigureAwait(false);
+                if (errorProbe == LinkProbeResult.Unreachable)
+                {
+                    await FaultSidecarConnectionAsync().ConfigureAwait(false);
+                    return;
+                }
+
+                await DelayLinkBackoffAsync(ct).ConfigureAwait(false);
+                continue;
             }
         }
-        catch (OperationCanceledException) { /* */ }
-        catch (RpcException) { /* */ }
+    }
+
+    private void DisposeControlCall()
+    {
+        AsyncDuplexStreamingCall<ControlToSidecar, ControlFromSidecar>? call;
+        lock (_linkGate)
+        {
+            call = _control;
+            _control = null;
+        }
+
+        if (call is null)
+        {
+            return;
+        }
+
+        try { call.Dispose(); } catch { /* */ }
     }
 
     private async Task<T> WithLinkedAsync<T>(CancellationToken ct, Func<CancellationToken, Task<T>> action)
     {
         using var linked = CreateLifetimeLink(ct);
         return await action(linked.Token);
-    }
-
-    private async Task WithLinkedAsync(CancellationToken ct, Func<CancellationToken, Task> action)
-    {
-        using var linked = CreateLifetimeLink(ct);
-        await action(linked.Token);
     }
 
     private CancellationTokenSource CreateLifetimeLink(CancellationToken ct)
@@ -689,6 +1220,9 @@ public sealed class GrpcSessionConnection : ISessionConnection
         }
     }
 
+    private Metadata CreateSessionMetadata() =>
+        new() { { "x-session-id", SessionId.ToString("D") } };
+
     private void EnsureOpen()
     {
         if (!IsOpen)
@@ -697,37 +1231,152 @@ public sealed class GrpcSessionConnection : ISessionConnection
         }
     }
 
-    private async Task<IResult> CallAsync(Func<Task<IResult>> action)
+    /// <summary>
+    /// Backoff between link retries. Safe after <see cref="CloseAsync"/> disposes
+    /// <c>_lifetime</c> — does not re-read <c>_lifetime.Token</c> when a usable
+    /// <paramref name="preferred"/> token is supplied.
+    /// </summary>
+    private async Task DelayLinkBackoffAsync(CancellationToken preferred = default)
     {
-        if (!IsOpen) return Result.Failure("Connection closed");
+        CancellationToken token;
         try
         {
-            return await action();
+            token = preferred.CanBeCanceled ? preferred : _lifetime.Token;
+        }
+        catch (ObjectDisposedException)
+        {
+            return;
+        }
+
+        try
+        {
+            await Task.Delay(_linkRetryBackoff, token).ConfigureAwait(false);
+        }
+        catch (ObjectDisposedException)
+        {
+            // CTS disposed mid-delay / callback registration.
         }
         catch (OperationCanceledException)
         {
-            return Result.Failure("Connection closed");
+            // Close in flight — caller checks IsOpen / ct.
         }
-        catch (RpcException ex)
+    }
+
+    private async Task<IResult> CallAsync(Func<Task<IResult>> action)
+    {
+        if (!IsOpen) return Result.Failure("Connection closed");
+        for (var attempt = 0; ; attempt++)
         {
-            return Result.Failure(ex.Status.Detail ?? ex.Message);
+            try
+            {
+                return await action();
+            }
+            catch (ObjectDisposedException)
+            {
+                return Result.Failure("Connection closed");
+            }
+            catch (OperationCanceledException)
+            {
+                return Result.Failure("Connection closed");
+            }
+            catch (RpcException ex)
+            {
+                if (IsSessionGone(ex))
+                {
+                    _logger.LogWarning(ex, "Sidecar session {SessionId} gone on unary call", SessionId);
+                    await FaultSidecarConnectionAsync().ConfigureAwait(false);
+                    return Result.Failure(ex.Status.Detail ?? ex.Message);
+                }
+
+                if (ShouldRetry(ex) && attempt < _linkRetryCount && IsOpen)
+                {
+                    _logger.LogWarning(
+                        ex,
+                        "Sidecar unary retry {Attempt}/{Retries} for session {SessionId}",
+                        attempt + 1,
+                        _linkRetryCount,
+                        SessionId);
+                    await DelayLinkBackoffAsync().ConfigureAwait(false);
+                    if (!IsOpen)
+                    {
+                        return Result.Failure("Connection closed");
+                    }
+
+                    continue;
+                }
+
+                if (ShouldRetry(ex))
+                {
+                    // Exhausted retries — only tear down when the session link is unreachable.
+                    // BrowserClosed / Alive keep WatchCrash able to deliver Crashed.
+                    var probe = await ProbeSessionLinkAsync("Unary", CancellationToken.None)
+                        .ConfigureAwait(false);
+                    if (probe == LinkProbeResult.Unreachable)
+                    {
+                        await FaultSidecarConnectionAsync().ConfigureAwait(false);
+                    }
+                }
+
+                return Result.Failure(ex.Status.Detail ?? ex.Message);
+            }
         }
     }
 
     private async Task<IResult<T>> CallValueAsync<T>(Func<Task<Result<T>>> action)
     {
         if (!IsOpen) return Result<T>.Failure("Connection closed");
-        try
+        for (var attempt = 0; ; attempt++)
         {
-            return await action();
-        }
-        catch (OperationCanceledException)
-        {
-            return Result<T>.Failure("Connection closed");
-        }
-        catch (RpcException ex)
-        {
-            return Result<T>.Failure(ex.Status.Detail ?? ex.Message);
+            try
+            {
+                return await action();
+            }
+            catch (ObjectDisposedException)
+            {
+                return Result<T>.Failure("Connection closed");
+            }
+            catch (OperationCanceledException)
+            {
+                return Result<T>.Failure("Connection closed");
+            }
+            catch (RpcException ex)
+            {
+                if (IsSessionGone(ex))
+                {
+                    _logger.LogWarning(ex, "Sidecar session {SessionId} gone on unary call", SessionId);
+                    await FaultSidecarConnectionAsync().ConfigureAwait(false);
+                    return Result<T>.Failure(ex.Status.Detail ?? ex.Message);
+                }
+
+                if (ShouldRetry(ex) && attempt < _linkRetryCount && IsOpen)
+                {
+                    _logger.LogWarning(
+                        ex,
+                        "Sidecar unary retry {Attempt}/{Retries} for session {SessionId}",
+                        attempt + 1,
+                        _linkRetryCount,
+                        SessionId);
+                    await DelayLinkBackoffAsync().ConfigureAwait(false);
+                    if (!IsOpen)
+                    {
+                        return Result<T>.Failure("Connection closed");
+                    }
+
+                    continue;
+                }
+
+                if (ShouldRetry(ex))
+                {
+                    var probe = await ProbeSessionLinkAsync("Unary", CancellationToken.None)
+                        .ConfigureAwait(false);
+                    if (probe == LinkProbeResult.Unreachable)
+                    {
+                        await FaultSidecarConnectionAsync().ConfigureAwait(false);
+                    }
+                }
+
+                return Result<T>.Failure(ex.Status.Detail ?? ex.Message);
+            }
         }
     }
 }

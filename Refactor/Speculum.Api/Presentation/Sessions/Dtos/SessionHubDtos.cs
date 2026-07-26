@@ -98,6 +98,25 @@ public sealed class StopSessionHubRequest
     public string Token { get; set; } = string.Empty;
 }
 
+/// <summary>Wire DTO for hub <c>NavigateAsync</c> (runtime path/query navigation).</summary>
+[MessagePackObject]
+public sealed class NavigateSessionHubRequest
+{
+    [Key("sessionId")]
+    public Guid SessionId { get; set; }
+
+    [Key("token")]
+    public string Token { get; set; } = string.Empty;
+
+    /// <summary>Client pathname (no query), e.g. <c>/search</c>.</summary>
+    [Key("path")]
+    public string Path { get; set; } = string.Empty;
+
+    /// <summary>Query without leading <c>?</c>, or empty.</summary>
+    [Key("query")]
+    public string Query { get; set; } = string.Empty;
+}
+
 /// <summary>Wire result for a successful start.</summary>
 [MessagePackObject]
 public sealed class StartSessionHubResponse
@@ -125,12 +144,37 @@ public sealed class RedirectHubEvent
     public string Url { get; set; } = string.Empty;
 }
 
+/// <summary>Server→client: live session ended; client must clear local live state.</summary>
+[MessagePackObject]
+public sealed class SessionEndedHubEvent
+{
+    [Key("sessionId")]
+    public Guid SessionId { get; set; }
+
+    /// <summary><see cref="StopReason"/> stable string (e.g. <c>Faulted</c>).</summary>
+    [Key("reason")]
+    public string Reason { get; set; } = string.Empty;
+
+    [Key("errorCode")]
+    public string? ErrorCode { get; set; }
+
+    [Key("message")]
+    public string? Message { get; set; }
+}
+
 internal static class SessionHubRequestMapper
 {
     public static StopSession ToStopSession(StopSessionHubRequest request) => new()
     {
         SessionId = request.SessionId,
         Token = request.Token ?? string.Empty,
+    };
+
+    public static NavigateSession ToNavigateSession(NavigateSessionHubRequest request) => new()
+    {
+        SessionId = request.SessionId,
+        Path = request.Path ?? string.Empty,
+        Query = request.Query ?? string.Empty,
     };
 
     public static string FormatErrors(IResult result)

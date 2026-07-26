@@ -127,6 +127,13 @@ internal sealed class SessionConfigAssembler
     private static IReadOnlyList<string> ProjectAllowedDomains(
         EngineConfiguration configuration)
     {
+        // Scope.Any → empty list: sidecar disables main-frame guard (open allowlist).
+        if (configuration.Navigation.AllowedMainFrameUrls.Any(rule =>
+                rule.Domain.Scope == PatternScope.Any))
+        {
+            return Array.Empty<string>();
+        }
+
         var domains = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             configuration.Navigation.DefaultTargetHost.Trim().ToLowerInvariant(),

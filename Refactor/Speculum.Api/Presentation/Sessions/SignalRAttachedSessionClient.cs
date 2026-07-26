@@ -30,6 +30,24 @@ internal sealed class SignalRAttachedSessionClient : IAttachedSessionClient
         return _caller.Redirect(new RedirectHubEvent { Url = normalized });
     }
 
+    public Task SessionEndedAsync(
+        Guid sessionId,
+        string reason,
+        string? errorCode = null,
+        string? message = null,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ArgumentException.ThrowIfNullOrWhiteSpace(reason);
+        return _caller.SessionEnded(new SessionEndedHubEvent
+        {
+            SessionId = sessionId,
+            Reason = reason.Trim(),
+            ErrorCode = string.IsNullOrWhiteSpace(errorCode) ? null : errorCode.Trim(),
+            Message = string.IsNullOrWhiteSpace(message) ? null : message.Trim(),
+        });
+    }
+
     private static string NormalizeUrl(string url)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(url);

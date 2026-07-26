@@ -18,6 +18,7 @@ public sealed class LiveSessionService : ILiveSessionService
 {
     private readonly ConcurrentDictionary<Guid, LiveSession> _sessions = new();
     private readonly ISessionCollector _collector;
+    private readonly ISessionFaultScheduler _faults;
     private readonly IUrlResolver _urls;
     private readonly IOptions<SessionsConfiguration> _sessionsOptions;
     private readonly ISessionEventsFactory _events;
@@ -30,12 +31,14 @@ public sealed class LiveSessionService : ILiveSessionService
 
     public LiveSessionService(
         ISessionCollector collector,
+        ISessionFaultScheduler faults,
         IUrlResolver urls,
         IOptions<SessionsConfiguration> sessionsOptions,
         ISessionEventsFactory events,
         ILoggerFactory loggerFactory)
     {
         _collector = collector;
+        _faults = faults;
         _urls = urls;
         _sessionsOptions = sessionsOptions;
         _events = events;
@@ -84,6 +87,7 @@ public sealed class LiveSessionService : ILiveSessionService
                 mux,
                 hooks,
                 _collector,
+                _faults,
                 _urls,
                 requestHost,
                 jsBridgeEnabled,

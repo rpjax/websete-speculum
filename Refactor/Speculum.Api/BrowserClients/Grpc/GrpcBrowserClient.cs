@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
 using Aidan.Core.Patterns;
 using Grpc.Net.Client;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Speculum.Api.Configurations.Models.Sidecar;
 using Speculum.Api.Configurations.Services.Contracts;
@@ -19,16 +20,21 @@ public sealed class GrpcBrowserClient : IBrowserClient, IDisposable
     private readonly GrpcChannel _channel;
     private readonly BrowserSessionService.BrowserSessionServiceClient _client;
     private readonly IConfigurationService _configuration;
+    private readonly SidecarOptions _options;
+    private readonly ILogger<GrpcSessionConnection> _connectionLogger;
     private bool _disposed;
 
     public GrpcBrowserClient(
         IOptions<SidecarOptions> options,
-        IConfigurationService configuration)
+        IConfigurationService configuration,
+        ILogger<GrpcSessionConnection> connectionLogger)
     {
-        var address = options.Value.GrpcAddress;
+        _options = options.Value;
+        var address = _options.GrpcAddress;
         _channel = GrpcChannel.ForAddress(address);
         _client = new BrowserSessionService.BrowserSessionServiceClient(_channel);
         _configuration = configuration;
+        _connectionLogger = connectionLogger;
     }
 
     public bool TryGetConnection(
@@ -74,6 +80,8 @@ public sealed class GrpcBrowserClient : IBrowserClient, IDisposable
                 sessionId,
                 _client,
                 _configuration,
+                _options,
+                _connectionLogger,
                 id => _connections.TryRemove(id, out _));
 
             if (!_connections.TryAdd(sessionId, connection))

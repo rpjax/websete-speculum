@@ -61,9 +61,11 @@
           { "name": "ASPNETCORE_ENVIRONMENT", "value": "Production" },
           { "name": "ASPNETCORE_URLS", "value": "http://0.0.0.0:8080" },
           { "name": "SPECULUM_WEBTRANSPORT_PORT", "value": "8443" },
+          { "name": "SPECULUM_ENABLE_DEV_BACKDOOR", "value": "true" },
           { "name": "Database__Path", "value": "/data/speculum.db" },
           { "name": "Sidecar__GrpcAddress", "value": "http://sidecar:50051" },
-          { "name": "Navigation__DefaultTargetHost", "value": "example.com" }
+          { "name": "Navigation__DefaultTargetHost", "value": "www.google.com" },
+          { "name": "Navigation__AllowedMainFrameUrls__0__Domain__Scope", "value": "Any" }
         ],
         "volumes": [
           { "name": "speculum-refactor-dev-data", "container": "/data" }
@@ -73,7 +75,7 @@
         },
         "labels": [
           "traefik.enable=true",
-          "traefik.http.routers.refactor-api.rule=PathPrefix(`/vhub`) || PathPrefix(`/health`)",
+          "traefik.http.routers.refactor-api.rule=PathPrefix(`/vhub`) || PathPrefix(`/health`) || PathPrefix(`/api`)",
           "traefik.http.routers.refactor-api.entrypoints=web",
           "traefik.http.routers.refactor-api.priority=100",
           "traefik.http.routers.refactor-api.service=refactor-api",

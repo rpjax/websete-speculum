@@ -1,6 +1,6 @@
 // Ad-hoc driver: proves the refactor hub flow (EnsureProfile → StartSession →
-// StopSession) end to end against a running API + sidecar, and that the live
-// Journal stream reports the facts those acts admitted. Not part of CI.
+// NavigateAsync → still live → StopSession) against a running API + sidecar.
+// Not part of CI.
 //
 // Usage:
 //   node scripts/smoke-hub.mjs                         # process-local API
@@ -11,6 +11,8 @@ import { MessagePackHubProtocol } from '@microsoft/signalr-protocol-msgpack'
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
 
 const origin = process.argv[2] ?? 'https://localhost:5001'
+const navigatePath = process.argv[3] ?? '/watch'
+const navigateQuery = process.argv[4] ?? 'v=dQw4w9WgXcQ'
 
 const connection = new HubConnectionBuilder()
   .withUrl(`${origin}/vhub`, { transport: HttpTransportType.WebSockets })
@@ -20,6 +22,14 @@ const connection = new HubConnectionBuilder()
 
 const facts = []
 let journal = null
+let sessionEnded = null
+
+connection.on('SessionEnded', (evt) => {
+  sessionEnded = evt
+  console.log('SessionEnded →', evt)
+})
+connection.on('SyncUrl', () => {})
+connection.on('Redirect', () => {})
 
 try {
   await connection.start()
@@ -48,6 +58,31 @@ try {
   })
   console.log('StartSessionAsync →', started)
 
+  // Heavy navigate must keep the session live (no SessionEnded / fake crash).
+  await connection.invoke('NavigateAsync', {
+    sessionId: started.sessionId,
+    token: started.token,
+    path: navigatePath,
+    query: navigateQuery,
+  })
+  console.log('NavigateAsync → ok', navigatePath, navigateQuery)
+
+  await new Promise((resolve) => setTimeout(resolve, 500))
+  if (sessionEnded) {
+    throw new Error(
+      `session ended after navigate (reason=${sessionEnded.reason} errorCode=${sessionEnded.errorCode})`,
+    )
+  }
+
+  const crashedFacts = facts.filter(
+    (f) =>
+      typeof f?.type === 'string' &&
+      /BrowserCrashed|browser_crashed/i.test(f.type),
+  )
+  if (crashedFacts.length > 0) {
+    throw new Error(`journal reported crash after navigate: ${JSON.stringify(crashedFacts)}`)
+  }
+
   await connection.invoke('StopSessionAsync', {
     sessionId: started.sessionId,
     token: started.token,
@@ -60,7 +95,7 @@ try {
     throw new Error('journal stream reported no facts for the start/stop flow')
   }
 
-  console.log('SMOKE OK')
+  console.log('SMOKE OK (navigate stayed live)')
 } catch (error) {
   console.error('SMOKE FAILED:', error?.message ?? error)
   process.exitCode = 1

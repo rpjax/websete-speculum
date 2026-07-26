@@ -19,6 +19,9 @@ public sealed class ConfigurationService : IConfigurationService
     private readonly IOptionsMonitor<ResourceManagementConfiguration> _resources;
     private readonly IOptionsMonitor<ScriptingConfiguration> _scripting;
     private readonly IOptionsMonitor<DiagnosticsConfiguration> _diagnostics;
+    private readonly object _gate = new();
+    private HostingConfiguration? _hostingOverride;
+    private NavigationConfiguration? _navigationOverride;
 
     public ConfigurationService(
         IOptionsMonitor<HostingConfiguration> hosting,
@@ -38,14 +41,38 @@ public sealed class ConfigurationService : IConfigurationService
         _diagnostics = diagnostics;
     }
 
-    public EngineConfiguration GetCurrent() => new()
+    public EngineConfiguration GetCurrent()
     {
-        Hosting = _hosting.CurrentValue,
-        Navigation = _navigation.CurrentValue,
-        Sessions = _sessions.CurrentValue,
-        Profiles = _profiles.CurrentValue,
-        ResourceManagement = _resources.CurrentValue,
-        Scripting = _scripting.CurrentValue,
-        Diagnostics = _diagnostics.CurrentValue,
-    };
+        lock (_gate)
+        {
+            return new EngineConfiguration
+            {
+                Hosting = _hostingOverride ?? _hosting.CurrentValue,
+                Navigation = _navigationOverride ?? _navigation.CurrentValue,
+                Sessions = _sessions.CurrentValue,
+                Profiles = _profiles.CurrentValue,
+                ResourceManagement = _resources.CurrentValue,
+                Scripting = _scripting.CurrentValue,
+                Diagnostics = _diagnostics.CurrentValue,
+            };
+        }
+    }
+
+    public void SetHosting(HostingConfiguration hosting)
+    {
+        ArgumentNullException.ThrowIfNull(hosting);
+        lock (_gate)
+        {
+            _hostingOverride = hosting;
+        }
+    }
+
+    public void SetNavigation(NavigationConfiguration navigation)
+    {
+        ArgumentNullException.ThrowIfNull(navigation);
+        lock (_gate)
+        {
+            _navigationOverride = navigation;
+        }
+    }
 }

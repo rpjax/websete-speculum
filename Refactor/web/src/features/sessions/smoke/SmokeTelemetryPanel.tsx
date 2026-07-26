@@ -121,7 +121,7 @@ export function SmokeTelemetryPanel({ stats, status, live }: SmokeTelemetryPanel
         </dl>
       ) : (
         <p className="rounded-md border border-dashed border-border p-3 text-xs text-muted-foreground">
-          Poll status to pull the unary snapshot (tab count, relay fps, JsBridge, editing focus).
+          Poll Status to pull the unary snapshot (tab count, relay fps, JsBridge, editing focus).
         </p>
       )}
     </div>

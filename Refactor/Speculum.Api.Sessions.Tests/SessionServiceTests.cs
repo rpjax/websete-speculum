@@ -281,6 +281,7 @@ public sealed class SessionServiceTests
     {
         return new LiveSessionService(
             collector,
+            new NoOpFaultScheduler(),
             urls,
             Options.Create(new SessionsConfiguration
             {
@@ -292,6 +293,11 @@ public sealed class SessionServiceTests
             }),
             new NoOpSessionEventsFactory(),
             NullLoggerFactory.Instance);
+    }
+
+    private sealed class NoOpFaultScheduler : ISessionFaultScheduler
+    {
+        public void RequestStop(Guid sessionId, StopReason reason) { }
     }
 
     private sealed class NoOpSessionEventsFactory : ISessionEventsFactory
@@ -325,6 +331,15 @@ public sealed class SessionServiceTests
     {
         public void AttachedClientCommandFailed(string command, Exception exception) { }
         public void FeatureLoopFaulted(Exception exception) { }
+        public void NavigateRequested(string path, string query) { }
+        public void NavigateUrlResolved(string url) { }
+        public void NavigateCompleted(string url) { }
+        public void NavigateFailed(string phase, Aidan.Core.Errors.Error[] errors) { }
+        public void LocationChanged(string url) { }
+        public void MainFrameNavigationBlocked(string url, string? errorCode, string? message) { }
+        public void BrowserCrashed(string? errorCode, string? message, string? phase) { }
+        public void InputRejected(string? errorCode, string? message, string? phase) { }
+        public void LiveSessionAbandoned(string reason, string? errorCode, string? message) { }
     }
 
     private sealed class FixedUrlResolver(string url) : IUrlResolver
@@ -422,6 +437,14 @@ public sealed class SessionServiceTests
             => Task.CompletedTask;
 
         public Task RedirectAsync(string url, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task SessionEndedAsync(
+            Guid sessionId,
+            string reason,
+            string? errorCode = null,
+            string? message = null,
+            CancellationToken cancellationToken = default)
             => Task.CompletedTask;
     }
 

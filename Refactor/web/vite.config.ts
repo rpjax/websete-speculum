@@ -19,6 +19,7 @@ export default defineConfig({
     proxy: {
       '/vhub': { target: apiTarget, ws: true, secure: false, changeOrigin: true },
       '/health': { target: apiTarget, secure: false, changeOrigin: true },
+      '/api': { target: apiTarget, secure: false, changeOrigin: true },
     },
   },
 })

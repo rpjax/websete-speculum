@@ -1,5 +1,6 @@
 using System.Threading.Channels;
 using Aidan.Core.Patterns;
+using Aidan.Core.Errors;
 using Speculum.Api.BrowserClients;
 using Speculum.Api.Sessions.Events.Services.Contracts;
 using Speculum.Api.Sessions.Models;
@@ -19,6 +20,7 @@ internal sealed class LiveSession : ILiveSession
     private readonly ISessionStreamMultiplexer _mux;
     private readonly SessionHooks _hooks;
     private readonly ISessionCollector _collector;
+    private readonly ISessionFaultScheduler _faults;
     private readonly IUrlResolver _urls;
     private readonly ISessionLiveEvents _liveEvents;
     private readonly ILogger _logger;
@@ -34,6 +36,7 @@ internal sealed class LiveSession : ILiveSession
     private Task? _featureLoop;
     private CancellationTokenSource? _lifetime = new();
     private int _released;
+    private int _abandoned;
 
     public Guid SessionId { get; }
 
@@ -43,6 +46,7 @@ internal sealed class LiveSession : ILiveSession
         ISessionStreamMultiplexer mux,
         SessionHooks hooks,
         ISessionCollector collector,
+        ISessionFaultScheduler faults,
         IUrlResolver urls,
         string requestHost,
         bool jsBridgeEnabled,
@@ -54,6 +58,7 @@ internal sealed class LiveSession : ILiveSession
         _mux = mux;
         _hooks = hooks;
         _collector = collector;
+        _faults = faults;
         _urls = urls;
         _requestHost = requestHost;
         _jsBridgeEnabled = jsBridgeEnabled;
@@ -228,6 +233,19 @@ internal sealed class LiveSession : ILiveSession
             await foreach (var notification in reader.ReadAllAsync(cancellationToken)
                 .ConfigureAwait(false))
             {
+                TryJournalNotification(notification);
+
+                if (notification.Kind == SessionNotificationKind.Crashed)
+                {
+                    // True sidecar onCrash (Chromium). gRPC link stays open until TearDown CloseAsync.
+                    await AbandonAsync(
+                            StopReason.Faulted,
+                            notification.ErrorCode ?? "browser_crashed",
+                            notification.Message ?? "Browser session crashed")
+                        .ConfigureAwait(false);
+                    break;
+                }
+
                 IAttachedSessionClient? client;
                 lock (_attachmentGate)
                 {
@@ -291,6 +309,137 @@ internal sealed class LiveSession : ILiveSession
         }
         catch (ObjectDisposedException)
         {
+        }
+        finally
+        {
+            // Notification channel ended while still live → sidecar session link is gone.
+            // Intentional Release cancels the lifetime token and skips this.
+            if (!cancellationToken.IsCancellationRequested && !IsReleased)
+            {
+                await AbandonAsync(
+                        StopReason.Faulted,
+                        "sidecar_connection_ended",
+                        "Sidecar session connection ended")
+                    .ConfigureAwait(false);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Pushes <c>SessionEnded</c> once and schedules Faulted stop. Idempotent.
+    /// Not tied to the feature-loop token — TearDown must not cancel abandon mid-flight.
+    /// </summary>
+    private async Task AbandonAsync(StopReason reason, string? errorCode, string? message)
+    {
+        if (Interlocked.Exchange(ref _abandoned, 1) != 0 || IsReleased)
+        {
+            return;
+        }
+
+        try
+        {
+            _liveEvents.LiveSessionAbandoned(
+                reason.ToStableString(),
+                errorCode,
+                message);
+        }
+        catch (Exception journalEx)
+        {
+            _logger.LogWarning(
+                journalEx,
+                "Session {SessionId} failed to journal LiveSessionAbandoned.",
+                SessionId);
+        }
+
+        IAttachedSessionClient? client;
+        lock (_attachmentGate)
+        {
+            client = _attachedClient;
+        }
+
+        if (client is not null)
+        {
+            try
+            {
+                await client.SessionEndedAsync(
+                        SessionId,
+                        reason.ToStableString(),
+                        errorCode,
+                        message,
+                        CancellationToken.None)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(
+                    ex,
+                    "Session {SessionId} failed to push SessionEnded to attached client.",
+                    SessionId);
+                try
+                {
+                    _liveEvents.AttachedClientCommandFailed("SessionEnded", ex);
+                }
+                catch (Exception journalEx)
+                {
+                    _logger.LogWarning(
+                        journalEx,
+                        "Session {SessionId} failed to journal AttachedClientCommandFailed.",
+                        SessionId);
+                }
+            }
+        }
+
+        _faults.RequestStop(SessionId, reason);
+    }
+
+    /// <summary>
+    /// Journals browser notifications worth observing. Skips EditableFocusChanged (noisy).
+    /// </summary>
+    private void TryJournalNotification(SessionNotification notification)
+    {
+        try
+        {
+            switch (notification.Kind)
+            {
+                case SessionNotificationKind.LocationChanged:
+                    if (!string.IsNullOrWhiteSpace(notification.Url))
+                    {
+                        _liveEvents.LocationChanged(notification.Url.Trim());
+                    }
+
+                    break;
+                case SessionNotificationKind.MainFrameNavigationBlocked:
+                    if (!string.IsNullOrWhiteSpace(notification.Url))
+                    {
+                        _liveEvents.MainFrameNavigationBlocked(
+                            notification.Url.Trim(),
+                            notification.ErrorCode,
+                            notification.Message);
+                    }
+
+                    break;
+                case SessionNotificationKind.Crashed:
+                    _liveEvents.BrowserCrashed(
+                        notification.ErrorCode,
+                        notification.Message,
+                        notification.Phase);
+                    break;
+                case SessionNotificationKind.InputRejected:
+                    _liveEvents.InputRejected(
+                        notification.ErrorCode,
+                        notification.Message,
+                        notification.Phase);
+                    break;
+                // EditableFocusChanged — omitted (high churn, low narrative value).
+            }
+        }
+        catch (Exception journalEx)
+        {
+            _logger.LogWarning(
+                journalEx,
+                "Session {SessionId} failed to journal notification {Kind}.",
+                SessionId,
+                notification.Kind);
         }
     }
 
@@ -356,15 +505,78 @@ internal sealed class LiveSession : ILiveSession
         return WithCommandGateAsync(
             async () =>
             {
-                var urlResult = _urls.Resolve(request.Path, request.Query, _requestHost);
+                var path = request.Path ?? string.Empty;
+                var query = request.Query ?? string.Empty;
+                try
+                {
+                    _liveEvents.NavigateRequested(path, query);
+                }
+                catch (Exception journalEx)
+                {
+                    _logger.LogWarning(
+                        journalEx,
+                        "Session {SessionId} failed to journal NavigateRequested.",
+                        SessionId);
+                }
+
+                var urlResult = _urls.Resolve(path, query, _requestHost);
                 if (urlResult.IsFailure)
                 {
+                    TryJournalNavigateFailed("Resolve", urlResult.Errors.ToArray());
                     return Result.Failure(urlResult.Errors.ToArray());
                 }
 
-                return await _connection.NavigateAsync(urlResult.Value, ct).ConfigureAwait(false);
+                var url = urlResult.Value;
+                try
+                {
+                    _liveEvents.NavigateUrlResolved(url);
+                }
+                catch (Exception journalEx)
+                {
+                    _logger.LogWarning(
+                        journalEx,
+                        "Session {SessionId} failed to journal NavigateUrlResolved.",
+                        SessionId);
+                }
+
+                var navigated = await _connection.NavigateAsync(url, ct).ConfigureAwait(false);
+                if (navigated.IsFailure)
+                {
+                    TryJournalNavigateFailed("Navigate", navigated.Errors.ToArray());
+                    return navigated;
+                }
+
+                try
+                {
+                    _liveEvents.NavigateCompleted(url);
+                }
+                catch (Exception journalEx)
+                {
+                    _logger.LogWarning(
+                        journalEx,
+                        "Session {SessionId} failed to journal NavigateCompleted.",
+                        SessionId);
+                }
+
+                return navigated;
             },
             ct);
+    }
+
+    private void TryJournalNavigateFailed(string phase, Error[] errors)
+    {
+        try
+        {
+            _liveEvents.NavigateFailed(phase, errors);
+        }
+        catch (Exception journalEx)
+        {
+            _logger.LogWarning(
+                journalEx,
+                "Session {SessionId} failed to journal NavigateFailed ({Phase}).",
+                SessionId,
+                phase);
+        }
     }
 
     public Task<IResult> RefreshAsync(CancellationToken ct = default)

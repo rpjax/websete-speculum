@@ -11,6 +11,7 @@ import type {
   JournalFact,
   JournalStreamObserver,
   JournalStreamSubscription,
+  SessionEndedEvent,
   StartSessionRequest,
   StartSessionResult,
 } from './types'
@@ -137,11 +138,46 @@ export class ControlPlane {
     return this.onHubEvent('Redirect', handler)
   }
 
+  /** Registers a SessionEnded handler; returns disposer. */
+  onSessionEnded(handler: (event: SessionEndedEvent) => void): () => void {
+    const connection = this.requireConnection()
+    const listener = (payload: unknown) => {
+      const event = readSessionEnded(payload)
+      if (event) {
+        handler(event)
+      }
+    }
+    const aliases = ['SessionEnded', 'sessionEnded', 'sessionended']
+    for (const name of aliases) {
+      connection.on(name, listener)
+    }
+    return () => {
+      for (const name of aliases) {
+        connection.off(name, listener)
+      }
+    }
+  }
+
   async stopSession(request: { sessionId: string; token: string }): Promise<void> {
     const connection = this.requireConnection()
     await connection.invoke('StopSessionAsync', {
       sessionId: request.sessionId,
       token: request.token,
+    })
+  }
+
+  async navigateSession(request: {
+    sessionId: string
+    token: string
+    path: string
+    query?: string
+  }): Promise<void> {
+    const connection = this.requireConnection()
+    await connection.invoke('NavigateAsync', {
+      sessionId: request.sessionId,
+      token: request.token,
+      path: request.path,
+      query: request.query ?? '',
     })
   }
 
@@ -153,8 +189,20 @@ export class ControlPlane {
         handler(url)
       }
     }
-    connection.on(method, listener)
-    return () => connection.off(method, listener)
+    // SignalR + MessagePack may deliver PascalCase, camelCase, or all-lowercase.
+    const aliases = method === 'SyncUrl'
+      ? ['SyncUrl', 'syncUrl', 'syncurl']
+      : method === 'Redirect'
+        ? ['Redirect', 'redirect']
+        : [method]
+    for (const name of aliases) {
+      connection.on(name, listener)
+    }
+    return () => {
+      for (const name of aliases) {
+        connection.off(name, listener)
+      }
+    }
   }
 
   private requireConnection(): HubConnection {
@@ -176,6 +224,40 @@ function readHubUrl(payload: unknown): string {
     return String((payload as { url?: unknown }).url ?? '')
   }
   return ''
+}
+
+function readSessionEnded(payload: unknown): SessionEndedEvent | null {
+  const record = readHubRecord(payload)
+  if (!record) {
+    return null
+  }
+  const sessionId = String(record.sessionId ?? record.SessionId ?? '').trim()
+  const reason = String(record.reason ?? record.Reason ?? '').trim()
+  if (!sessionId || !reason) {
+    return null
+  }
+  const errorCode = record.errorCode ?? record.ErrorCode
+  const message = record.message ?? record.Message
+  return {
+    sessionId,
+    reason,
+    errorCode: errorCode == null || errorCode === '' ? undefined : String(errorCode),
+    message: message == null || message === '' ? undefined : String(message),
+  }
+}
+
+function readHubRecord(payload: unknown): Record<string, unknown> | null {
+  if (payload instanceof Map) {
+    const record: Record<string, unknown> = {}
+    for (const [key, value] of payload) {
+      record[String(key)] = value
+    }
+    return record
+  }
+  if (payload && typeof payload === 'object') {
+    return payload as Record<string, unknown>
+  }
+  return null
 }
 
 function trimSlash(value: string): string {

@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Options;
+using Speculum.Api.Configurations.Models.Hosting;
 using Speculum.Api.Configurations.Models.Navigation;
 using Speculum.Api.Configurations.Models.Sessions;
 using Speculum.Api.Configurations.Services.Contracts;
@@ -111,11 +112,41 @@ internal static class SessionsTestHarness
 
         public Task RedirectAsync(string url, CancellationToken cancellationToken = default)
             => Task.CompletedTask;
+
+        public Task SessionEndedAsync(
+            Guid sessionId,
+            string reason,
+            string? errorCode = null,
+            string? message = null,
+            CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
     }
 
     public sealed class StaticConfigurationService(EngineConfiguration configuration)
         : IConfigurationService
     {
-        public EngineConfiguration GetCurrent() => configuration;
+        private EngineConfiguration _configuration = configuration;
+
+        public EngineConfiguration GetCurrent() => _configuration;
+
+        public void SetHosting(HostingConfiguration hosting)
+            => _configuration = CloneWith(hosting: hosting);
+
+        public void SetNavigation(NavigationConfiguration navigation)
+            => _configuration = CloneWith(navigation: navigation);
+
+        private EngineConfiguration CloneWith(
+            HostingConfiguration? hosting = null,
+            NavigationConfiguration? navigation = null)
+            => new()
+            {
+                Hosting = hosting ?? _configuration.Hosting,
+                Navigation = navigation ?? _configuration.Navigation,
+                Sessions = _configuration.Sessions,
+                Profiles = _configuration.Profiles,
+                ResourceManagement = _configuration.ResourceManagement,
+                Scripting = _configuration.Scripting,
+                Diagnostics = _configuration.Diagnostics,
+            };
     }
 }

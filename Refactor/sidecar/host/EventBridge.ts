@@ -25,17 +25,37 @@ export class EventBridge implements BrowserSessionEvents {
   readonly crash = new DropOldestQueue<BrowserFault>(4);
 
   private nextCorrId = 1;
+  private sinkEpoch = 0;
   private readonly permissionWaiters = new Map<
     number,
-    { kind: PermissionKind; resolve: (d: BrowserPermissionDecision) => void }
+    { kind: PermissionKind; resolve: (d: BrowserPermissionDecision) => void; epoch: number }
   >();
   private permissionSink: ((req: PermissionRequestMsg) => void) | null = null;
 
   constructor(readonly sessionId: string) {}
 
-  /** Called by Control stream to receive permission requests. */
-  setPermissionSink(sink: ((req: PermissionRequestMsg) => void) | null): void {
+  /** Called by Control stream to receive permission requests. Returns sink epoch. */
+  setPermissionSink(sink: ((req: PermissionRequestMsg) => void) | null): number {
     this.permissionSink = sink;
+    return ++this.sinkEpoch;
+  }
+
+  /**
+   * Control stream detached. Denies waiters from `ownedEpoch` only, and clears the
+   * sink only when it is still `ownedSink` so a reopened Control is not wiped.
+   */
+  clearPermissionSink(
+    ownedSink: ((req: PermissionRequestMsg) => void) | null,
+    ownedEpoch: number,
+  ): void {
+    for (const [id, w] of this.permissionWaiters) {
+      if (w.epoch !== ownedEpoch) continue;
+      w.resolve('deny');
+      this.permissionWaiters.delete(id);
+    }
+    if (this.permissionSink === ownedSink) {
+      this.permissionSink = null;
+    }
   }
 
   onVideoFrame(jpeg: Uint8Array): void {
@@ -81,6 +101,11 @@ export class EventBridge implements BrowserSessionEvents {
     waiter.resolve(allow ? 'allow' : 'deny');
   }
 
+  /**
+   * Ends all Watch* queues. Contract: call only from SessionRegistry.dispose /
+   * CloseConnection (API Dispose of the sidecar session object). Chromium stop(),
+   * crash, or navigate must never close the bridge — gRPC streams outlive the browser.
+   */
   close(): void {
     this.video.close();
     this.audio.close();
@@ -98,8 +123,9 @@ export class EventBridge implements BrowserSessionEvents {
 
   private requestPermission(kind: PermissionKind): Promise<BrowserPermissionDecision> {
     const corrId = this.nextCorrId++;
+    const epoch = this.sinkEpoch;
     return new Promise<BrowserPermissionDecision>((resolve) => {
-      this.permissionWaiters.set(corrId, { kind, resolve });
+      this.permissionWaiters.set(corrId, { kind, resolve, epoch });
       const sink = this.permissionSink;
       if (!sink) {
         this.permissionWaiters.delete(corrId);

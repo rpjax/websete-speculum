@@ -47,6 +47,14 @@ docker compose --env-file .env up -d
 Open **http://localhost:8080** — SPA at `/`; Traefik routes `/vhub` and `/health`
 to the api (nginx in the web image also proxies them same-origin).
 
+`dev` keeps `ASPNETCORE_ENVIRONMENT=Production` (container has no ASP.NET
+dev cert) and sets `SPECULUM_ENABLE_DEV_BACKDOOR=true` so the lab maps
+`GET/PUT /api/dev/engine-config` (Hosting + Navigation via
+`IConfigurationService`). Local `dotnet run` under Development maps the same
+route without the flag. It also seeds `Navigation.DefaultTargetHost=www.google.com`
+and an open allowlist (`AllowedMainFrameUrls[0].Domain.Scope=Any`).
+`smoke` omits the backdoor flag and stays locked to `example.com`.
+
 Stop / wipe:
 
 ```bash

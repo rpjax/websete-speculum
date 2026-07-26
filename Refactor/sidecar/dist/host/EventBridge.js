@@ -13,14 +13,31 @@ class EventBridge {
     editableFocus = new DropOldestQueue_1.DropOldestQueue(1);
     crash = new DropOldestQueue_1.DropOldestQueue(4);
     nextCorrId = 1;
+    sinkEpoch = 0;
     permissionWaiters = new Map();
     permissionSink = null;
     constructor(sessionId) {
         this.sessionId = sessionId;
     }
-    /** Called by Control stream to receive permission requests. */
+    /** Called by Control stream to receive permission requests. Returns sink epoch. */
     setPermissionSink(sink) {
         this.permissionSink = sink;
+        return ++this.sinkEpoch;
+    }
+    /**
+     * Control stream detached. Denies waiters from `ownedEpoch` only, and clears the
+     * sink only when it is still `ownedSink` so a reopened Control is not wiped.
+     */
+    clearPermissionSink(ownedSink, ownedEpoch) {
+        for (const [id, w] of this.permissionWaiters) {
+            if (w.epoch !== ownedEpoch)
+                continue;
+            w.resolve('deny');
+            this.permissionWaiters.delete(id);
+        }
+        if (this.permissionSink === ownedSink) {
+            this.permissionSink = null;
+        }
     }
     onVideoFrame(jpeg) {
         this.video.tryWrite(jpeg);
@@ -56,6 +73,11 @@ class EventBridge {
         this.permissionWaiters.delete(corrId);
         waiter.resolve(allow ? 'allow' : 'deny');
     }
+    /**
+     * Ends all Watch* queues. Contract: call only from SessionRegistry.dispose /
+     * CloseConnection (API Dispose of the sidecar session object). Chromium stop(),
+     * crash, or navigate must never close the bridge — gRPC streams outlive the browser.
+     */
     close() {
         this.video.close();
         this.audio.close();
@@ -72,8 +94,9 @@ class EventBridge {
     }
     requestPermission(kind) {
         const corrId = this.nextCorrId++;
+        const epoch = this.sinkEpoch;
         return new Promise((resolve) => {
-            this.permissionWaiters.set(corrId, { kind, resolve });
+            this.permissionWaiters.set(corrId, { kind, resolve, epoch });
             const sink = this.permissionSink;
             if (!sink) {
                 this.permissionWaiters.delete(corrId);

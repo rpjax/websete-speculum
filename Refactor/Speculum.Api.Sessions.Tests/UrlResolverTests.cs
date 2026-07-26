@@ -183,7 +183,7 @@ public sealed class UrlResolverTests
     }
 
     [Fact]
-    public void Resolve_PatternScopeAny_DoesNotAllowAllHosts()
+    public void Resolve_PatternScopeAny_AllowsAnyValidHost()
     {
         var configuration = SessionsTestHarness.Engine("www.target.test");
         configuration.Navigation = new NavigationConfiguration
@@ -200,10 +200,13 @@ public sealed class UrlResolverTests
         var resolver = new UrlResolver(
             new SessionsTestHarness.StaticConfigurationService(configuration));
 
-        Assert.True(resolver.Resolve(
-            "/",
-            $"_w7s_nso={EncodeNavigationState("evil.example.com")}",
-            "speculum.test").IsFailure);
+        var result = resolver.Resolve(
+            "/search",
+            $"q=1&_w7s_nso={EncodeNavigationState("www.google.com")}",
+            "speculum.test");
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("https://www.google.com/search?q=1", result.Value);
     }
 
     [Fact]

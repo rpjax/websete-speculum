@@ -1,3 +1,4 @@
+using Aidan.Core.Errors;
 using Speculum.Api.Journal.Services.Contracts;
 using Speculum.Api.Sessions.Events.Models;
 using Speculum.Api.Sessions.Events.Services.Contracts;
@@ -5,7 +6,7 @@ using Speculum.Api.Sessions.Events.Services.Contracts;
 namespace Speculum.Api.Sessions.Events.Services;
 
 /// <summary>
-/// Emits live-session runtime failures to the Journal.
+/// Emits live-session runtime observations to the Journal.
 /// </summary>
 public sealed class SessionLiveEvents : ISessionLiveEvents
 {
@@ -46,6 +47,119 @@ public sealed class SessionLiveEvents : ISessionLiveEvents
             SessionId = _sessionId,
             ProfileId = _profileId,
             Errors = JournalError.From(exception),
+        });
+    }
+
+    public void NavigateRequested(string path, string query)
+    {
+        _writer.Append(new NavigateRequested
+        {
+            SessionId = _sessionId,
+            ProfileId = _profileId,
+            Path = path ?? string.Empty,
+            Query = query ?? string.Empty,
+        });
+    }
+
+    public void NavigateUrlResolved(string url)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(url);
+
+        _writer.Append(new NavigateUrlResolved
+        {
+            SessionId = _sessionId,
+            ProfileId = _profileId,
+            Url = url,
+        });
+    }
+
+    public void NavigateCompleted(string url)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(url);
+
+        _writer.Append(new NavigateCompleted
+        {
+            SessionId = _sessionId,
+            ProfileId = _profileId,
+            Url = url,
+        });
+    }
+
+    public void NavigateFailed(string phase, Error[] errors)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(phase);
+        ArgumentNullException.ThrowIfNull(errors);
+
+        _writer.Append(new NavigateFailed
+        {
+            SessionId = _sessionId,
+            ProfileId = _profileId,
+            Phase = phase,
+            Errors = JournalError.From(errors),
+        });
+    }
+
+    public void LocationChanged(string url)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(url);
+
+        _writer.Append(new LocationChanged
+        {
+            SessionId = _sessionId,
+            ProfileId = _profileId,
+            Url = url,
+        });
+    }
+
+    public void MainFrameNavigationBlocked(string url, string? errorCode, string? message)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(url);
+
+        _writer.Append(new MainFrameNavigationBlocked
+        {
+            SessionId = _sessionId,
+            ProfileId = _profileId,
+            Url = url,
+            ErrorCode = errorCode,
+            Message = message,
+        });
+    }
+
+    public void BrowserCrashed(string? errorCode, string? message, string? phase)
+    {
+        _writer.Append(new BrowserCrashed
+        {
+            SessionId = _sessionId,
+            ProfileId = _profileId,
+            ErrorCode = errorCode,
+            Message = message,
+            Phase = phase,
+        });
+    }
+
+    public void InputRejected(string? errorCode, string? message, string? phase)
+    {
+        _writer.Append(new InputRejected
+        {
+            SessionId = _sessionId,
+            ProfileId = _profileId,
+            ErrorCode = errorCode,
+            Message = message,
+            Phase = phase,
+        });
+    }
+
+    public void LiveSessionAbandoned(string reason, string? errorCode, string? message)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(reason);
+
+        _writer.Append(new LiveSessionAbandoned
+        {
+            SessionId = _sessionId,
+            ProfileId = _profileId,
+            Reason = reason,
+            ErrorCode = errorCode,
+            Message = message,
         });
     }
 }

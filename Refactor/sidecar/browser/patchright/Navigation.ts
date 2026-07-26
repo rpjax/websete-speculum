@@ -102,10 +102,14 @@ export class Navigation {
 
   setupLocationSync(page: Page): void {
     page.on('framenavigated', (frame) => {
-      if (frame !== page.mainFrame()) return;
-      const url = page.url();
-      if (!/^https?:\/\//i.test(url)) return;
-      this.events.onLocationChanged(url);
+      try {
+        if (frame !== page.mainFrame()) return;
+        const url = page.url();
+        if (!/^https?:\/\//i.test(url)) return;
+        this.events.onLocationChanged(url);
+      } catch {
+        /* frame/page can detach mid-navigation */
+      }
     });
   }
 

@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
+using Speculum.Api.Presentation.Dev;
 using Speculum.Api.Presentation.Sessions;
 using Speculum.Api.Sessions.Services.Contracts;
 
@@ -27,6 +28,12 @@ public static class PresentationServiceCollectionExtensions
             options.SerializerOptions = SessionHubMessagePack.Options;
         });
 
+        services.ConfigureHttpJsonOptions(options =>
+        {
+            options.SerializerOptions.Converters.Add(
+                new System.Text.Json.Serialization.JsonStringEnumConverter());
+        });
+
         return services;
     }
 
@@ -43,6 +50,7 @@ public static class PresentationServiceCollectionExtensions
             options.ApplicationMaxBufferSize = 512 * 1024;
         });
         SessionWebTransportEndpoint.Map(endpoints);
+        endpoints.MapDevEngineConfig();
 
         return endpoints;
     }

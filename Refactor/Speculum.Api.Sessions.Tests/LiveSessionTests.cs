@@ -177,6 +177,120 @@ public sealed class LiveSessionTests
     }
 
     [Fact]
+    public async Task FeatureLoop_Crashed_PushesSessionEndedAndRequestsFaultStop()
+    {
+        var sessionId = Guid.NewGuid();
+        var connection = new LiveFakeConnection(sessionId);
+        var faults = new RecordingFaultScheduler();
+        var live = CreateService(faults).Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
+        var client = new RecordingAttachedClient();
+        Assert.True(live.Attach(client).IsSuccess);
+
+        await connection.Notifications.Writer.WriteAsync(new SessionNotification
+        {
+            Kind = SessionNotificationKind.Crashed,
+            ErrorCode = "browser_closed",
+            Message = "Chrome context closed",
+            Phase = "runtime",
+        });
+
+        var ended = await client.WaitSessionEndedAsync(TimeSpan.FromSeconds(2));
+        Assert.Equal(sessionId, ended.SessionId);
+        Assert.Equal("Faulted", ended.Reason);
+        Assert.Equal("browser_closed", ended.ErrorCode);
+
+        var stop = await faults.WaitStopAsync(TimeSpan.FromSeconds(2));
+        Assert.Equal(sessionId, stop.SessionId);
+        Assert.Equal(StopReason.Faulted, stop.Reason);
+    }
+
+    [Fact]
+    public async Task FeatureLoop_Crashed_JournalsLiveSessionAbandoned()
+    {
+        var sessionId = Guid.NewGuid();
+        var connection = new LiveFakeConnection(sessionId);
+        var faults = new RecordingFaultScheduler();
+        var liveEvents = new RecordingSessionLiveEvents();
+        var live = CreateService(faults, liveEvents: liveEvents)
+            .Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
+        var client = new RecordingAttachedClient();
+        Assert.True(live.Attach(client).IsSuccess);
+
+        await connection.Notifications.Writer.WriteAsync(new SessionNotification
+        {
+            Kind = SessionNotificationKind.Crashed,
+            ErrorCode = "browser_closed",
+            Message = "Chrome context closed",
+            Phase = "runtime",
+        });
+
+        await client.WaitSessionEndedAsync(TimeSpan.FromSeconds(2));
+        Assert.NotNull(liveEvents.LastAbandoned);
+        Assert.Equal("Faulted", liveEvents.LastAbandoned!.Value.Reason);
+        Assert.Equal("browser_closed", liveEvents.LastAbandoned.Value.ErrorCode);
+    }
+
+    [Fact]
+    public async Task FeatureLoop_SecondCrashed_DoesNotReAbandon()
+    {
+        var sessionId = Guid.NewGuid();
+        var connection = new LiveFakeConnection(sessionId);
+        var faults = new RecordingFaultScheduler();
+        var live = CreateService(faults).Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
+        var client = new RecordingAttachedClient();
+        Assert.True(live.Attach(client).IsSuccess);
+
+        await connection.Notifications.Writer.WriteAsync(new SessionNotification
+        {
+            Kind = SessionNotificationKind.Crashed,
+            ErrorCode = "browser_closed",
+            Message = "first",
+            Phase = "runtime",
+        });
+
+        await client.WaitSessionEndedAsync(TimeSpan.FromSeconds(2));
+        await faults.WaitStopAsync(TimeSpan.FromSeconds(2));
+
+        await connection.Notifications.Writer.WriteAsync(new SessionNotification
+        {
+            Kind = SessionNotificationKind.Crashed,
+            ErrorCode = "browser_closed",
+            Message = "second",
+            Phase = "runtime",
+        });
+
+        await Task.Delay(150);
+        Assert.Equal(1, client.SessionEndedCount);
+        Assert.Equal(1, faults.StopCount);
+    }
+
+    [Fact]
+    public async Task FeatureLoop_NotificationChannelCompleted_AbandonsSession()
+    {
+        var sessionId = Guid.NewGuid();
+        var connection = new LiveFakeConnection(sessionId);
+        var faults = new RecordingFaultScheduler();
+        var liveEvents = new RecordingSessionLiveEvents();
+        var live = CreateService(faults, liveEvents: liveEvents)
+            .Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
+        var client = new RecordingAttachedClient();
+        Assert.True(live.Attach(client).IsSuccess);
+
+        connection.Notifications.Writer.TryComplete();
+
+        var ended = await client.WaitSessionEndedAsync(TimeSpan.FromSeconds(2));
+        Assert.Equal(sessionId, ended.SessionId);
+        Assert.Equal("Faulted", ended.Reason);
+        Assert.Equal("sidecar_connection_ended", ended.ErrorCode);
+
+        var stop = await faults.WaitStopAsync(TimeSpan.FromSeconds(2));
+        Assert.Equal(StopReason.Faulted, stop.Reason);
+        Assert.NotNull(liveEvents.LastAbandoned);
+        Assert.Equal("Faulted", liveEvents.LastAbandoned!.Value.Reason);
+        Assert.Equal("sidecar_connection_ended", liveEvents.LastAbandoned.Value.ErrorCode);
+    }
+
+    [Fact]
     public async Task FeatureLoop_EmptyUrl_DoesNotCallClient()
     {
         var sessionId = Guid.NewGuid();
@@ -257,13 +371,37 @@ public sealed class LiveSessionTests
         var sessionId = Guid.NewGuid();
         var connection = new LiveFakeConnection(sessionId);
         var urls = new RecordingUrlResolver("https://target.test/");
-        var live = CreateService(urls).Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
+        var liveEvents = new RecordingSessionLiveEvents();
+        var live = CreateService(urls, liveEvents: liveEvents)
+            .Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true)
+            .Value;
 
         var result = await live.NavigateAsync(new NavigateSession { Path = "/x", Query = "q=1" });
         Assert.True(result.IsSuccess);
         Assert.Equal("/x", urls.LastPath);
         Assert.Equal("speculum.test", urls.LastRequestHost);
         Assert.Equal("https://target.test/", connection.LastNavigatedUrl);
+        Assert.Equal(("/x", "q=1"), liveEvents.LastNavigateRequested);
+        Assert.Equal("https://target.test/", liveEvents.LastNavigateResolvedUrl);
+        Assert.Equal("https://target.test/", liveEvents.LastNavigateCompletedUrl);
+        Assert.Null(liveEvents.LastNavigateFailedPhase);
+    }
+
+    [Fact]
+    public async Task Navigate_WhenResolveFails_JournalsNavigateFailed()
+    {
+        var sessionId = Guid.NewGuid();
+        var connection = new LiveFakeConnection(sessionId);
+        var urls = new FailingUrlResolver();
+        var liveEvents = new RecordingSessionLiveEvents();
+        var live = CreateService(urls, liveEvents: liveEvents)
+            .Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true)
+            .Value;
+
+        var result = await live.NavigateAsync(new NavigateSession { Path = "bad", Query = "" });
+        Assert.True(result.IsFailure);
+        Assert.Equal("Resolve", liveEvents.LastNavigateFailedPhase);
+        Assert.Null(connection.LastNavigatedUrl);
     }
 
     [Fact]
@@ -416,8 +554,30 @@ public sealed class LiveSessionTests
     {
         return new LiveSessionService(
             collector ?? new NoOpCollector(),
+            new NoOpFaultScheduler(),
             urls ?? new RecordingUrlResolver("https://example.test/"),
             options ?? Options.Create(new SessionsConfiguration
+            {
+                IsJsBridgeEnabled = true,
+                InputMultiplexingPolicy = new InputMultiplexingPolicy
+                {
+                    Access = InputAccessPolicy.Shared,
+                },
+            }),
+            new NoOpSessionEventsFactory(liveEvents ?? new NoOpSessionLiveEvents()),
+            NullLoggerFactory.Instance);
+    }
+
+    private static LiveSessionService CreateService(
+        ISessionFaultScheduler faults,
+        ISessionCollector? collector = null,
+        ISessionLiveEvents? liveEvents = null)
+    {
+        return new LiveSessionService(
+            collector ?? new NoOpCollector(),
+            faults,
+            new RecordingUrlResolver("https://example.test/"),
+            Options.Create(new SessionsConfiguration
             {
                 IsJsBridgeEnabled = true,
                 InputMultiplexingPolicy = new InputMultiplexingPolicy
@@ -460,6 +620,15 @@ public sealed class LiveSessionTests
     {
         public void AttachedClientCommandFailed(string command, Exception exception) { }
         public void FeatureLoopFaulted(Exception exception) { }
+        public void NavigateRequested(string path, string query) { }
+        public void NavigateUrlResolved(string url) { }
+        public void NavigateCompleted(string url) { }
+        public void NavigateFailed(string phase, Aidan.Core.Errors.Error[] errors) { }
+        public void LocationChanged(string url) { }
+        public void MainFrameNavigationBlocked(string url, string? errorCode, string? message) { }
+        public void BrowserCrashed(string? errorCode, string? message, string? phase) { }
+        public void InputRejected(string? errorCode, string? message, string? phase) { }
+        public void LiveSessionAbandoned(string reason, string? errorCode, string? message) { }
     }
 
     private sealed class RecordingSessionLiveEvents : ISessionLiveEvents
@@ -468,6 +637,12 @@ public sealed class LiveSessionTests
             TaskCreationOptions.RunContinuationsAsynchronously);
 
         public string? LastCommand { get; private set; }
+        public (string Path, string Query)? LastNavigateRequested { get; private set; }
+        public string? LastNavigateResolvedUrl { get; private set; }
+        public string? LastNavigateCompletedUrl { get; private set; }
+        public string? LastNavigateFailedPhase { get; private set; }
+        public string? LastLocationChangedUrl { get; private set; }
+        public (string Reason, string? ErrorCode, string? Message)? LastAbandoned { get; private set; }
 
         public void AttachedClientCommandFailed(string command, Exception exception)
         {
@@ -476,6 +651,28 @@ public sealed class LiveSessionTests
         }
 
         public void FeatureLoopFaulted(Exception exception) { }
+
+        public void NavigateRequested(string path, string query)
+            => LastNavigateRequested = (path, query);
+
+        public void NavigateUrlResolved(string url)
+            => LastNavigateResolvedUrl = url;
+
+        public void NavigateCompleted(string url)
+            => LastNavigateCompletedUrl = url;
+
+        public void NavigateFailed(string phase, Aidan.Core.Errors.Error[] errors)
+            => LastNavigateFailedPhase = phase;
+
+        public void LocationChanged(string url)
+            => LastLocationChangedUrl = url;
+
+        public void MainFrameNavigationBlocked(string url, string? errorCode, string? message) { }
+        public void BrowserCrashed(string? errorCode, string? message, string? phase) { }
+        public void InputRejected(string? errorCode, string? message, string? phase) { }
+
+        public void LiveSessionAbandoned(string reason, string? errorCode, string? message)
+            => LastAbandoned = (reason, errorCode, message);
 
         public async Task WaitCommandFailedAsync(TimeSpan timeout)
         {
@@ -492,6 +689,43 @@ public sealed class LiveSessionTests
 
         public Task RedirectAsync(string url, CancellationToken cancellationToken = default)
             => throw new InvalidOperationException("redirect failed");
+
+        public Task SessionEndedAsync(
+            Guid sessionId,
+            string reason,
+            string? errorCode = null,
+            string? message = null,
+            CancellationToken cancellationToken = default)
+            => throw new InvalidOperationException("session ended push failed");
+    }
+
+    private sealed class NoOpFaultScheduler : ISessionFaultScheduler
+    {
+        public void RequestStop(Guid sessionId, StopReason reason) { }
+    }
+
+    private sealed class RecordingFaultScheduler : ISessionFaultScheduler
+    {
+        private readonly TaskCompletionSource<(Guid SessionId, StopReason Reason)> _stop = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public (Guid SessionId, StopReason Reason)? LastStop { get; private set; }
+
+        public int StopCount { get; private set; }
+
+        public void RequestStop(Guid sessionId, StopReason reason)
+        {
+            StopCount++;
+            LastStop = (sessionId, reason);
+            _stop.TrySetResult((sessionId, reason));
+        }
+
+        public async Task<(Guid SessionId, StopReason Reason)> WaitStopAsync(TimeSpan timeout)
+        {
+            var completed = await Task.WhenAny(_stop.Task, Task.Delay(timeout));
+            Assert.Same(_stop.Task, completed);
+            return await _stop.Task;
+        }
     }
 
     private sealed class RecordingUrlResolver : IUrlResolver
@@ -508,6 +742,12 @@ public sealed class LiveSessionTests
             LastRequestHost = requestHost;
             return Result<string>.Success(_url);
         }
+    }
+
+    private sealed class FailingUrlResolver : IUrlResolver
+    {
+        public IResult<string> Resolve(string path, string query, string requestHost)
+            => Result<string>.Failure("Navigation path must be absolute and contain no query");
     }
 
     private sealed class NoOpCollector : ISessionCollector
@@ -538,6 +778,8 @@ public sealed class LiveSessionTests
 
         public int SyncUrlCount { get; private set; }
 
+        public int SessionEndedCount { get; private set; }
+
         public Task SyncUrlAsync(string url, CancellationToken cancellationToken = default)
         {
             SyncUrlCount++;
@@ -551,6 +793,28 @@ public sealed class LiveSessionTests
             return Task.CompletedTask;
         }
 
+        public Task SessionEndedAsync(
+            Guid sessionId,
+            string reason,
+            string? errorCode = null,
+            string? message = null,
+            CancellationToken cancellationToken = default)
+        {
+            SessionEndedCount++;
+            LastSessionEnded = (sessionId, reason, errorCode, message);
+            _sessionEnded.TrySetResult(LastSessionEnded.Value);
+            return Task.CompletedTask;
+        }
+
+        public (Guid SessionId, string Reason, string? ErrorCode, string? Message)? LastSessionEnded
+        {
+            get;
+            private set;
+        }
+
+        private readonly TaskCompletionSource<(Guid SessionId, string Reason, string? ErrorCode, string? Message)>
+            _sessionEnded = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
         public async Task<string> WaitSyncUrlAsync(TimeSpan timeout)
         {
             var completed = await Task.WhenAny(_syncUrl.Task, Task.Delay(timeout));
@@ -563,6 +827,14 @@ public sealed class LiveSessionTests
             var completed = await Task.WhenAny(_redirect.Task, Task.Delay(timeout));
             Assert.Same(_redirect.Task, completed);
             return await _redirect.Task;
+        }
+
+        public async Task<(Guid SessionId, string Reason, string? ErrorCode, string? Message)>
+            WaitSessionEndedAsync(TimeSpan timeout)
+        {
+            var completed = await Task.WhenAny(_sessionEnded.Task, Task.Delay(timeout));
+            Assert.Same(_sessionEnded.Task, completed);
+            return await _sessionEnded.Task;
         }
     }
 

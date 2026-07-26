@@ -145,7 +145,9 @@ function mapGrpcError(err) {
                 ? grpc.status.INVALID_ARGUMENT
                 : e.code === 'FAILED_PRECONDITION'
                     ? grpc.status.FAILED_PRECONDITION
-                    : grpc.status.INTERNAL;
+                    : e.code === 'ABORTED'
+                        ? grpc.status.ABORTED
+                        : grpc.status.INTERNAL;
     return Object.assign(new Error(e.message ?? String(err)), {
         code: status,
         details: e.message ?? String(err),

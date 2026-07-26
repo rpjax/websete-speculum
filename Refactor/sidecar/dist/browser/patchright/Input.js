@@ -28,6 +28,8 @@ class InputController {
     _touchPrimary = false;
     _movePending = null;
     _moveScheduled = false;
+    /** When true (e.g. during navigate), drop enqueue and pending moves — avoid Frame was detached. */
+    _suspended = false;
     constructor(page, cdp) {
         this._page = page;
         this._cdp = cdp;
@@ -39,9 +41,25 @@ class InputController {
     setTouchPrimary(value) {
         this._touchPrimary = value;
     }
+    /** Pause/resume the input chain (navigate / recreate). Does not reject in-flight work. */
+    setSuspended(value) {
+        this._suspended = value;
+        if (value) {
+            this._movePending = null;
+        }
+    }
+    get suspended() {
+        return this._suspended;
+    }
     enqueue(input) {
+        if (this._suspended)
+            return;
         this._chain = this._chain
-            .then(() => this.dispatch(input))
+            .then(() => {
+            if (this._suspended)
+                return;
+            return this.dispatch(input);
+        })
             .catch((err) => {
             console.warn('[Input] error:', err.message);
         });
@@ -95,6 +113,8 @@ class InputController {
         }
     }
     _queueMouseMove(x, y) {
+        if (this._suspended)
+            return;
         this._movePending = { x, y };
         if (this._moveScheduled)
             return;
@@ -103,9 +123,14 @@ class InputController {
             this._moveScheduled = false;
             const p = this._movePending;
             this._movePending = null;
-            if (!p || this._touchPrimary)
+            if (!p || this._touchPrimary || this._suspended)
                 return;
-            this._page.mouse.move(p.x, p.y).catch(() => { });
+            try {
+                void this._page.mouse.move(p.x, p.y).catch(() => { });
+            }
+            catch {
+                /* frame detached mid-move */
+            }
         });
     }
     async _dispatchTouch(phase, points) {

@@ -39,7 +39,8 @@ React **single-page application** for the Speculum motor, first-run setup, and a
 
 | Path | Feature | Auth |
 |------|---------|------|
-| `/` | Session smoke — refactor wire (EnsureProfile → StartSession → WebTransport), all inputs + stream telemetry | — |
+| `/` | Session lab (smoke) — shared viewport + debug tools (navigate, journal, wire) | — |
+| `/live` | Immersive canvas-only — same session client/viewport as `/`, no debug chrome | — |
 | `/setup` | Guided first-run wizard | — |
 | `/admin/login` | Admin login | — |
 | `/admin` | Dashboard overview (health + needs attention) | Bearer |

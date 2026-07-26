@@ -1,7 +1,12 @@
 import type { ControlPlane } from './control'
 import { Emitter } from './emitter'
 import { DataPlane } from './transport'
-import type { SessionEventMap, SessionInput } from './types'
+import type {
+  NavigateSessionRequest,
+  SessionEndedEvent,
+  SessionEventMap,
+  SessionInput,
+} from './types'
 
 export interface LiveSessionOptions {
   control: ControlPlane
@@ -15,7 +20,7 @@ export interface LiveSessionOptions {
 
 /**
  * One live browsing session: hub lifecycle + WebTransport I/O.
- * Events: frame, console, notification, syncUrl, redirect, error, close.
+ * Events: frame, console, notification, syncUrl, redirect, ended, error, close.
  */
 export class LiveSession extends Emitter<SessionEventMap> {
   readonly sessionId: string
@@ -75,6 +80,18 @@ export class LiveSession extends Emitter<SessionEventMap> {
     this.emit('redirect', normalized)
   }
 
+  /**
+   * Applies hub SessionEnded: emit, then close the data plane without calling Stop
+   * (the server already tore the session down or is doing so).
+   */
+  receiveSessionEnded(event: SessionEndedEvent): void {
+    if (event.sessionId && event.sessionId !== this.sessionId) {
+      return
+    }
+    this.emit('ended', event)
+    void this.stop({ skipHub: true })
+  }
+
   async open(): Promise<void> {
     this.forward('frame')
     this.forward('console')
@@ -94,6 +111,16 @@ export class LiveSession extends Emitter<SessionEventMap> {
 
   getStatus() {
     return this.data.getStatus()
+  }
+
+  /** Runtime navigation via hub (path/query resolved server-side). */
+  navigate(request: NavigateSessionRequest): Promise<void> {
+    return this.control.navigateSession({
+      sessionId: this.sessionId,
+      token: this.token,
+      path: request.path,
+      query: request.query ?? '',
+    })
   }
 
   /** Stops the session via hub and closes the data plane. */

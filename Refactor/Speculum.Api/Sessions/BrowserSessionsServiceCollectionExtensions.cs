@@ -63,6 +63,7 @@ public static class BrowserSessionsServiceCollectionExtensions
         services.TryAddScoped<IProfileRepository, EfProfileRepository>();
         services.TryAddSingleton<ISessionSlotRegistry, SessionSlotRegistry>();
         services.TryAddSingleton<ISessionCollector, SessionCollector>();
+        services.TryAddSingleton<ISessionFaultScheduler, SessionFaultScheduler>();
         services.TryAddSingleton<ISessionBindingRegistry, SessionBindingRegistry>();
         services.TryAddSingleton<ISessionEventsFactory, SessionEventsFactory>();
         services.TryAddSingleton<ISessionTokenGenerator, SessionTokenGenerator>();

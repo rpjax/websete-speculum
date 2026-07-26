@@ -10,6 +10,16 @@ namespace Speculum.Api.BrowserClients;
 /// </summary>
 /// <remarks>
 /// <para>
+/// This connection is the link to the <b>sidecar session object</b>, not to Chromium.
+/// gRPC streams and in-process channels stay open across browser stop/crash; only
+/// <see cref="CloseAsync"/> (or an unrecoverable sidecar-link fault after internal retries)
+/// ends them. Transient unary/Watch transport failures are retried inside the connection;
+/// callers only see Failure / channel completion when the link is truly gone.
+/// Chromium death is signaled as a <c>Crashed</c> notification on
+/// <see cref="GetNotificationReader"/> while the connection remains open until closed —
+/// never confuse Watch* stream end with a browser crash.
+/// </para>
+/// <para>
 /// Commands and streams are scoped to this connection. Callers obtain an instance from
 /// <see cref="IBrowserClient.StartConnectionAsync"/> or <see cref="IBrowserClient.TryGetConnection"/>;
 /// the connection is not a DI singleton.
@@ -46,8 +56,9 @@ public interface ISessionConnection
     Guid SessionId { get; }
 
     /// <summary>
-    /// True while the connection accepts commands and streams.
-    /// Becomes false after <see cref="CloseAsync"/> or an unrecoverable sidecar fault.
+    /// True while the sidecar session link accepts commands and streams.
+    /// Becomes false after <see cref="CloseAsync"/> or an unrecoverable sidecar-link fault
+    /// (not merely because Chromium stopped).
     /// </summary>
     bool IsOpen { get; }
 

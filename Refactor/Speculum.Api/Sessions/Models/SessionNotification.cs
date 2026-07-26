@@ -8,6 +8,7 @@ public enum SessionNotificationKind
     LocationChanged = 1,
     MainFrameNavigationBlocked = 2,
     EditableFocusChanged = 3,
+    /// <summary>True Chromium/session fault from sidecar <c>onCrash</c> — not transport.</summary>
     Crashed = 4,
     InputRejected = 5,
 }

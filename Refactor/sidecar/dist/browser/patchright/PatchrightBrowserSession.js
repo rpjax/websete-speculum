@@ -7,6 +7,7 @@ const device_emulation_1 = require("./device-emulation");
 const EditableFocus_1 = require("./EditableFocus");
 const Evaluate_1 = require("./Evaluate");
 const Input_1 = require("./Input");
+const contextCrash_1 = require("./contextCrash");
 const MediaIngress_1 = require("./MediaIngress");
 const Navigation_1 = require("./Navigation");
 const PageState_1 = require("./PageState");
@@ -38,6 +39,10 @@ class PatchrightBrowserSession {
     url = 'about:blank';
     pendingState = null;
     launchOptions = null;
+    /** When true, context 'close' is an intentional teardown — do not emit onCrash. */
+    suppressContextCrash = false;
+    /** Bumped to retire stale context 'close' listeners across stop/recreate. */
+    crashEpoch = 0;
     constructor(sessionId, events, displays) {
         this.sessionId = sessionId;
         this.events = events;
@@ -136,16 +141,65 @@ class PatchrightBrowserSession {
     }
     async navigate(url) {
         this.ensureLive();
-        await this.chrome.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+        this.editableFocus.stop();
+        this.input?.setSuspended(true);
+        try {
+            await this.chrome.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+        }
+        catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            // Detached frames / closed targets are session faults, not process crashes.
+            if (/frame was detached|target closed|has been closed|navigation interrupted|navigating.*interrupted/i.test(message)) {
+                throw Object.assign(new Error(`navigate failed: ${message}`), {
+                    code: 'ABORTED',
+                    errorCode: 'navigate_failed',
+                    phase: 'goto',
+                });
+            }
+            throw err;
+        }
+        finally {
+            this.input?.setSuspended(false);
+            if (this.open && this.chrome) {
+                this.editableFocus.start(this.chrome.page);
+            }
+        }
         this.url = url;
         if (this.pendingState) {
-            await this.pageState.importLocalStorage(this.chrome.page, this.pendingState);
-            await this.pageState.importIndexedDbForPage(this.chrome.page, this.pendingState);
+            try {
+                await this.pageState.importLocalStorage(this.chrome.page, this.pendingState);
+                await this.pageState.importIndexedDbForPage(this.chrome.page, this.pendingState);
+            }
+            catch {
+                /* page may navigate away again before import finishes */
+            }
         }
     }
     async refresh() {
         this.ensureLive();
-        await this.chrome.page.reload({ waitUntil: 'domcontentloaded', timeout: 30_000 });
+        this.editableFocus.stop();
+        this.input?.setSuspended(true);
+        try {
+            await this.chrome.page.reload({ waitUntil: 'domcontentloaded', timeout: 30_000 });
+        }
+        catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            // Same class as navigate: detached frames / closed targets are session faults.
+            if (/frame was detached|target closed|has been closed|navigation interrupted|navigating.*interrupted/i.test(message)) {
+                throw Object.assign(new Error(`refresh failed: ${message}`), {
+                    code: 'ABORTED',
+                    errorCode: 'refresh_failed',
+                    phase: 'reload',
+                });
+            }
+            throw err;
+        }
+        finally {
+            this.input?.setSuspended(false);
+            if (this.open && this.chrome) {
+                this.editableFocus.start(this.chrome.page);
+            }
+        }
     }
     async resize(request) {
         this.ensureLive();
@@ -255,6 +309,12 @@ class PatchrightBrowserSession {
     async recreateAtSize(width, height, deviceProfile) {
         const resumeUrl = this.chrome ? safeUrl(this.chrome.page) : this.url;
         const displayNum = this.display.number;
+        // Intentional teardown for resize — must not enqueue onCrash (same contract as stop()).
+        this.suppressContextCrash = true;
+        this.crashEpoch++;
+        this.open = false;
+        this.editableFocus.stop();
+        this.input?.setSuspended(true);
         if (this.screencast) {
             await this.screencast.stop();
             this.screencast = null;
@@ -263,6 +323,7 @@ class PatchrightBrowserSession {
             await (0, ChromeRuntime_1.closeChrome)(this.chrome, { removeUserDataDir: false });
             this.chrome = null;
         }
+        this.input = null;
         if (this.display) {
             await this.display.dispose();
             this.display = null;
@@ -291,28 +352,52 @@ class PatchrightBrowserSession {
         await this.navigation.setupFetchGuard(this.chrome.cdp, this.launchOptions?.scripts ?? [], this.launchOptions?.allowedNavigationDomains);
         this.input = new Input_1.InputController(this.chrome.page, this.chrome.cdp);
         this.input.setTouchPrimary(touchPrimary(deviceProfile));
+        this.input.setSuspended(true);
         this.evaluateCap.attachConsole(this.chrome.page);
         this.editableFocus.rebind(this.chrome.page);
-        this.editableFocus.start(this.chrome.page);
+        // Do not start EditableFocus until after resume goto (same contract as navigate).
         this.screencast = await Screencast_1.Screencast.start(this.chrome.cdp, width, height, (jpeg) => this.events.onVideoFrame(jpeg));
-        if (resumeUrl && /^https?:\/\//i.test(resumeUrl)) {
-            await this.chrome.page.goto(resumeUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
-            this.url = resumeUrl;
-        }
+        this.open = true;
         this.bindCrashHandler(this.chrome.context);
+        try {
+            if (resumeUrl && /^https?:\/\//i.test(resumeUrl)) {
+                await this.chrome.page.goto(resumeUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+                this.url = resumeUrl;
+            }
+        }
+        finally {
+            this.input?.setSuspended(false);
+            if (this.open && this.chrome) {
+                this.editableFocus.start(this.chrome.page);
+            }
+        }
     }
     bindCrashHandler(context) {
+        // New live context — unexpected closes must emit onCrash again.
+        const epoch = ++this.crashEpoch;
+        this.suppressContextCrash = false;
         context.on('close', () => {
+            if (!(0, contextCrash_1.shouldEmitContextCrash)({
+                listenerEpoch: epoch,
+                currentEpoch: this.crashEpoch,
+                suppress: this.suppressContextCrash,
+            })) {
+                return;
+            }
             this.open = false;
             this.events.onCrash({
                 errorCode: 'browser_closed',
-                message: 'Chrome context closed',
+                message: 'Chrome context closed unexpectedly',
                 phase: 'runtime',
             });
         });
     }
     /** Stop screencast/Chrome/display and clear handles — no Xvfb leak. */
     async teardownBrowserResources(options) {
+        // Stay suppressed after teardown so a deferred context 'close' cannot emit a false onCrash.
+        // Cleared only when bindCrashHandler runs for a new live context.
+        this.suppressContextCrash = true;
+        this.crashEpoch++;
         this.open = false;
         this.editableFocus.stop();
         if (this.screencast) {

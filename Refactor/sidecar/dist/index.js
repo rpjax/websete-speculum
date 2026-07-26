@@ -46,6 +46,7 @@ const grpc = __importStar(require("@grpc/grpc-js"));
 const MockBrowserSession_1 = require("./browser/MockBrowserSession");
 const createPatchrightFactory_1 = require("./browser/patchright/createPatchrightFactory");
 const SessionRegistry_1 = require("./host/SessionRegistry");
+const browserRace_1 = require("./host/browserRace");
 const loadProto_1 = require("./grpc/loadProto");
 const BrowserSessionService_1 = require("./grpc/BrowserSessionService");
 function requireEnv(name) {
@@ -165,6 +166,25 @@ async function main() {
         await tryShutdownGrpc(server, 10_000);
         process.exit(0);
     };
+    // Patchright emits detached-frame races during normal navigations (esp. heavy sites).
+    // Swallow those so the process stays up; do NOT dispose live sessions — that falsely
+    // faults a healthy browse. Real browser death still arrives via context 'close' → onCrash.
+    process.on('uncaughtException', (err) => {
+        if ((0, browserRace_1.isBenignBrowserRace)(err)) {
+            console.warn('[sidecar-refactor] ignored browser race (uncaughtException)', err);
+            return;
+        }
+        console.error(err);
+        process.exit(1);
+    });
+    process.on('unhandledRejection', (reason) => {
+        if ((0, browserRace_1.isBenignBrowserRace)(reason)) {
+            console.warn('[sidecar-refactor] ignored browser race (unhandledRejection)', reason);
+            return;
+        }
+        console.error('[sidecar-refactor] unhandledRejection', reason);
+        process.exit(1);
+    });
     process.on('SIGTERM', () => {
         void shutdown('SIGTERM');
     });

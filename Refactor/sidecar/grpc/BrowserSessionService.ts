@@ -34,7 +34,12 @@ async function pumpQueue<T>(
 ): Promise<void> {
   for (;;) {
     const item = await queue.read(signal);
-    if (item === null || signal.aborted || call.cancelled) break;
+    if (item === null) break;
+    // Abort may race after dequeue — put the item back for the next Watch* reopen.
+    if (signal.aborted || call.cancelled) {
+      queue.tryWrite(item);
+      break;
+    }
     const ok = call.write(map(item));
     if (!ok) {
       await new Promise<void>((resolve) => {
@@ -304,45 +309,67 @@ export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.Un
     },
 
     control(call: grpc.ServerDuplexStream<any, any>): void {
-      const bridges = new Map<string, EventBridge>();
+      // Each API session opens its own Control duplex and identifies via metadata.
+      // Never attach all bridges — that cross-wires permissions across sessions.
+      const sessionId = readSessionIdMetadata(call.metadata);
+      if (!sessionId) {
+        call.destroy(
+          grpcError(
+            Object.assign(new Error('Control requires x-session-id metadata'), {
+              code: 'INVALID_ARGUMENT',
+            }),
+          ),
+        );
+        return;
+      }
 
-      const attachBridge = (bridge: EventBridge): void => {
-        if (bridges.has(bridge.sessionId)) return;
-        bridges.set(bridge.sessionId, bridge);
-        bridge.setPermissionSink((req) => {
-          const kindEnum =
-            req.kind === 'camera'
-              ? 'PERMISSION_KIND_CAMERA'
-              : 'PERMISSION_KIND_MICROPHONE';
-          call.write({
-            permissionRequest: {
-              corrId: req.corrId,
-              kind: kindEnum,
-              sessionId: req.sessionId,
-            },
-          });
+      let bridge: EventBridge;
+      try {
+        bridge = registry.get(sessionId).bridge;
+      } catch (err) {
+        call.destroy(grpcError(err));
+        return;
+      }
+
+      const sink = (req: {
+        corrId: number;
+        kind: 'camera' | 'microphone';
+        sessionId: string;
+      }): void => {
+        const kindEnum =
+          req.kind === 'camera'
+            ? 'PERMISSION_KIND_CAMERA'
+            : 'PERMISSION_KIND_MICROPHONE';
+        call.write({
+          permissionRequest: {
+            corrId: req.corrId,
+            kind: kindEnum,
+            sessionId: req.sessionId,
+          },
         });
       };
 
-      for (const bridge of registry.listBridges()) {
-        attachBridge(bridge);
-      }
-      const unsubscribe = registry.onCreate((entry) => attachBridge(entry.bridge));
+      const sinkEpoch = bridge.setPermissionSink(sink);
+
+      // If this session id is re-created while Control is up, re-bind the new bridge.
+      let activeEpoch = sinkEpoch;
+      const unsubscribe = registry.onCreate((entry) => {
+        if (entry.bridge.sessionId !== sessionId) return;
+        bridge.clearPermissionSink(sink, activeEpoch);
+        bridge = entry.bridge;
+        activeEpoch = bridge.setPermissionSink(sink);
+      });
 
       call.on('data', (msg: any) => {
         const reply = msg.permissionReply;
         if (!reply) return;
-        const bridge = bridges.get(reply.sessionId as string);
-        if (!bridge) return;
+        if (reply.sessionId && reply.sessionId !== sessionId) return;
         bridge.resolvePermission(reply.corrId, !!reply.allow);
       });
 
       const cleanup = (): void => {
         unsubscribe();
-        for (const bridge of bridges.values()) {
-          bridge.setPermissionSink(null);
-        }
-        bridges.clear();
+        bridge.clearPermissionSink(sink, activeEpoch);
       };
 
       call.on('end', () => {
@@ -356,6 +383,22 @@ export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.Un
   };
 }
 
+function readSessionIdMetadata(metadata: grpc.Metadata): string | null {
+  const values = metadata.get('x-session-id');
+  if (!values || values.length === 0) {
+    return null;
+  }
+  const raw = values[0];
+  const text = typeof raw === 'string' ? raw : raw.toString('utf8');
+  const trimmed = text.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+/**
+ * Pumps a per-session EventBridge queue onto a gRPC server-streaming call.
+ * The queue stays open for the life of the registry entry (CloseConnection/Dispose).
+ * Chromium stop/crash must not close the queue — only bridge.close() on dispose.
+ */
 function watchStream<T>(
   call: grpc.ServerWritableStream<any, any>,
   registry: SessionRegistry,

@@ -5,6 +5,7 @@ import type {
   EnsureProfileResult,
   JournalStreamObserver,
   JournalStreamSubscription,
+  SessionEndedEvent,
   StartSessionRequest,
 } from './types'
 
@@ -90,11 +91,12 @@ export class SessionClient extends Emitter<SessionClientEventMap> {
       this.active = null
     }
 
-    // Register before StartSessionAsync — SyncUrl/Redirect can fire during start.
+    // Register before StartSessionAsync — SyncUrl/Redirect/SessionEnded can fire during start.
     // Latest-wins: only the most recent URL matters once the session exists.
     let session: LiveSession | null = null
     let pendingSync: string | null = null
     let pendingRedirect: string | null = null
+    let pendingEnded: SessionEndedEvent | null = null
     let commandsDisposed = false
 
     const offSync = this.control.onSyncUrl((url) => {
@@ -111,6 +113,13 @@ export class SessionClient extends Emitter<SessionClientEventMap> {
         pendingRedirect = url
       }
     })
+    const offEnded = this.control.onSessionEnded((event) => {
+      if (session) {
+        session.receiveSessionEnded(event)
+      } else {
+        pendingEnded = event
+      }
+    })
 
     const disposeCommands = () => {
       if (commandsDisposed) {
@@ -119,6 +128,7 @@ export class SessionClient extends Emitter<SessionClientEventMap> {
       commandsDisposed = true
       offSync()
       offRedirect()
+      offEnded()
     }
 
     try {
@@ -136,6 +146,9 @@ export class SessionClient extends Emitter<SessionClientEventMap> {
       }
       if (pendingRedirect) {
         session.receiveRedirect(pendingRedirect)
+      }
+      if (pendingEnded) {
+        session.receiveSessionEnded(pendingEnded)
       }
 
       await session.open()

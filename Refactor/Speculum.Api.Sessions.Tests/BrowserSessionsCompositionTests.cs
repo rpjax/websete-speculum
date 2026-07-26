@@ -84,6 +84,7 @@ public sealed class BrowserSessionsCompositionTests
         Assert.NotNull(provider.GetService<IProfileEventsFactory>());
         Assert.NotNull(provider.GetService<ISessionSlotRegistry>());
         Assert.NotNull(provider.GetService<ISessionCollector>());
+        Assert.NotNull(provider.GetService<ISessionFaultScheduler>());
         Assert.NotNull(provider.GetService<ISessionEventsFactory>());
         Assert.NotNull(provider.GetService<ISessionTokenGenerator>());
         Assert.Null(provider.GetService<ISessionService>());

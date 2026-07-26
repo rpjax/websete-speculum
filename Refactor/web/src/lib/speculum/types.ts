@@ -47,6 +47,12 @@ export interface StartSessionResult {
   token: string
 }
 
+/** Runtime navigation (hub <c>NavigateAsync</c>) — client path/query, not absolute target. */
+export interface NavigateSessionRequest {
+  path: string
+  query?: string
+}
+
 /** Server frame envelope (`Frame` DTO). */
 export interface SessionFrame {
   jpeg: Uint8Array
@@ -161,6 +167,16 @@ export interface SessionEventMap {
   notification: SessionNotification
   syncUrl: string
   redirect: string
+  /** Server ended the live session; local state must clear. */
+  ended: SessionEndedEvent
   error: unknown
   close: undefined
+}
+
+/** Hub <c>SessionEnded</c> payload. */
+export interface SessionEndedEvent {
+  sessionId: string
+  reason: string
+  errorCode?: string
+  message?: string
 }

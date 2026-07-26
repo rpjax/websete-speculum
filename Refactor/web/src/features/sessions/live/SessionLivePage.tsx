@@ -1,0 +1,60 @@
+import { useEffect, useRef } from 'react'
+import { SessionViewport } from '@/features/sessions/live/SessionViewport'
+import { parseClientNavigation } from '@/features/sessions/live/sessionCoords'
+import { useLiveSession } from '@/features/sessions/live/useLiveSession'
+
+const VIEWPORT = { width: 1280, height: 720 }
+
+/**
+ * Immersive live surface: same {@link useLiveSession} + {@link SessionViewport}
+ * as the smoke lab — no debug chrome, no lab origin overrides, no Journal stream.
+ * Starts from the current browser path/query (official path+query / NSO wire).
+ */
+export default function SessionLivePage() {
+  const session = useLiveSession({ viewport: VIEWPORT, debug: false, labOrigins: false })
+  const startedRef = useRef(false)
+  const startRef = useRef(session.start)
+  startRef.current = session.start
+
+  useEffect(() => {
+    if (startedRef.current) {
+      return
+    }
+    startedRef.current = true
+    const { path, query } = parseClientNavigation(
+      `${window.location.pathname}${window.location.search}`,
+    )
+    // /live is the SPA route — browse the virtual root unless a deeper path is present.
+    const startPath = path === '/live' ? '/' : path
+    void startRef.current(startPath, query)
+  }, [])
+
+  return (
+    <div className="fixed inset-0 bg-background">
+      <SessionViewport
+        width={VIEWPORT.width}
+        height={VIEWPORT.height}
+        live={session.isLive}
+        attachFrameSink={session.attachFrameSink}
+        onInput={session.sendInput}
+        className="h-full w-full"
+        label="Live session"
+      />
+      {!session.isLive && (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+          <p className="rounded-md bg-background/90 px-4 py-3 text-sm text-muted-foreground">
+            {PHASE_HINT[session.phase] ?? 'Connecting…'}
+          </p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+const PHASE_HINT: Record<string, string> = {
+  connecting: 'Connecting hub…',
+  connected: 'Starting session…',
+  starting: 'Starting session…',
+  stopping: 'Stopping…',
+  idle: 'Connecting…',
+}

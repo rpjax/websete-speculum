@@ -10,4 +10,6 @@ public interface ISessionHubClient
     Task SyncUrl(SyncUrlHubEvent message);
 
     Task Redirect(RedirectHubEvent message);
+
+    Task SessionEnded(SessionEndedHubEvent message);
 }

@@ -2,30 +2,38 @@ import { useCallback, useEffect, useRef } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from 'react'
 import type { SessionFrame, SessionInput, TouchPointInput } from '@/lib/speculum'
 import { cn } from '@/lib/utils'
+import { clientToFramePoint, normalizeWheelDeltas } from './sessionCoords'
 
-interface SmokeCanvasProps {
+export interface SessionViewportProps {
   width: number
   height: number
   live: boolean
   attachFrameSink: (sink: (frame: SessionFrame) => void) => () => void
   onInput: (input: SessionInput) => void
   className?: string
+  /** Accessible name for the stream surface. */
+  label?: string
 }
 
 type TouchPhase = 'start' | 'move' | 'end' | 'cancel'
 
 /**
- * Paints session frames and forwards every interactive input type.
- * Decoding drops backlog frames so a slow tab never lags behind the stream.
+ * Shared session frame surface: paints JPEGs and forwards interactive input.
+ * Used by both the immersive live page and the smoke/debug chrome.
+ *
+ * Coordinates account for CSS `object-contain` letterboxing. Mouse moves are
+ * coalesced per animation frame, but the first move after a button press is
+ * flushed immediately so clicks are not delayed behind rAF.
  */
-export function SmokeCanvas({
+export function SessionViewport({
   width,
   height,
   live,
   attachFrameSink,
   onInput,
   className,
-}: SmokeCanvasProps) {
+  label = 'Session frame stream',
+}: SessionViewportProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const contextRef = useRef<CanvasRenderingContext2D | null>(null)
   const decodingRef = useRef(false)
@@ -33,6 +41,7 @@ export function SmokeCanvas({
   const moveRef = useRef<{ x: number; y: number } | null>(null)
   const moveFrameRef = useRef<number | null>(null)
   const touchesRef = useRef(new Map<number, TouchPointInput>())
+  const frameSizeRef = useRef({ width, height })
 
   const paint = useCallback(async (jpeg: Uint8Array) => {
     const canvas = canvasRef.current
@@ -50,10 +59,15 @@ export function SmokeCanvas({
     if (canvas.width !== bitmap.width || canvas.height !== bitmap.height) {
       canvas.width = bitmap.width
       canvas.height = bitmap.height
+      frameSizeRef.current = { width: bitmap.width, height: bitmap.height }
     }
     context.drawImage(bitmap, 0, 0)
     bitmap.close()
   }, [])
+
+  useEffect(() => {
+    frameSizeRef.current = { width, height }
+  }, [width, height])
 
   useEffect(() => {
     const pump = async (jpeg: Uint8Array): Promise<void> => {
@@ -87,10 +101,8 @@ export function SmokeCanvas({
       return { x: 0, y: 0 }
     }
     const rect = canvas.getBoundingClientRect()
-    return {
-      x: Math.round((clientX - rect.left) * (canvas.width / rect.width)),
-      y: Math.round((clientY - rect.top) * (canvas.height / rect.height)),
-    }
+    const size = frameSizeRef.current
+    return clientToFramePoint(clientX, clientY, rect, size.width, size.height)
   }, [])
 
   const flushMove = useCallback(() => {
@@ -102,16 +114,30 @@ export function SmokeCanvas({
     }
   }, [onInput])
 
+  const queueMove = useCallback(
+    (clientX: number, clientY: number, immediate = false) => {
+      moveRef.current = toFramePoint(clientX, clientY)
+      if (immediate) {
+        if (moveFrameRef.current != null) {
+          window.cancelAnimationFrame(moveFrameRef.current)
+          moveFrameRef.current = null
+        }
+        flushMove()
+        return
+      }
+      moveFrameRef.current ??= window.requestAnimationFrame(flushMove)
+    },
+    [flushMove, toFramePoint],
+  )
+
   const handleMouseMove = useCallback(
     (event: ReactMouseEvent<HTMLCanvasElement>) => {
       if (!live) {
         return
       }
-      moveRef.current = toFramePoint(event.clientX, event.clientY)
-      // One move per animation frame; the raw stream would flood the pipe.
-      moveFrameRef.current ??= window.requestAnimationFrame(flushMove)
+      queueMove(event.clientX, event.clientY)
     },
-    [flushMove, live, toFramePoint],
+    [live, queueMove],
   )
 
   useEffect(() => {
@@ -129,11 +155,13 @@ export function SmokeCanvas({
       }
       if (type === 'mousedown') {
         canvasRef.current?.focus()
+        // Align cursor before the button so the remote hit-test matches.
+        queueMove(event.clientX, event.clientY, true)
       }
       const { x, y } = toFramePoint(event.clientX, event.clientY)
       onInput({ type, x, y, button: event.button })
     },
-    [live, onInput, toFramePoint],
+    [live, onInput, queueMove, toFramePoint],
   )
 
   const handleKey = useCallback(
@@ -156,8 +184,6 @@ export function SmokeCanvas({
     [live, onInput],
   )
 
-  // React binds wheel/touch listeners as passive, so preventDefault needs raw
-  // listeners — otherwise the page scrolls instead of the remote page.
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) {
@@ -190,7 +216,15 @@ export function SmokeCanvas({
       }
       event.preventDefault()
       const { x, y } = toFramePoint(event.clientX, event.clientY)
-      onInput({ type: 'wheel', x, y, deltaX: event.deltaX, deltaY: event.deltaY })
+      const size = frameSizeRef.current
+      const deltas = normalizeWheelDeltas(
+        event.deltaX,
+        event.deltaY,
+        event.deltaMode,
+        size.width,
+        size.height,
+      )
+      onInput({ type: 'wheel', x, y, deltaX: deltas.deltaX, deltaY: deltas.deltaY })
     }
 
     const onTouch = (event: TouchEvent, phase: TouchPhase): void => {
@@ -240,7 +274,7 @@ export function SmokeCanvas({
       width={width}
       height={height}
       tabIndex={0}
-      aria-label="Session frame stream"
+      aria-label={label}
       className={cn(
         'h-full w-full bg-muted object-contain outline-none focus-visible:ring-2 focus-visible:ring-ring',
         live ? 'cursor-crosshair' : 'cursor-not-allowed opacity-60',

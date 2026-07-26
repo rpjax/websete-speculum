@@ -156,6 +156,10 @@ sequenceDiagram
 - On disconnect, browser state (cookies, localStorage, IndexedDB, history) is exported via CDP and stored relationally in SQLite (`browser_sessions` + child tables).
 - There is **no HTTP session cookie** for live browsing; persistence is client token + server state.
 
+### API↔sidecar link vs Chromium (Refactor)
+
+The live session’s `ISessionConnection` is the link to the **sidecar session object**, not to Chromium. Watch* gRPC streams and API channels stay open across intentional browser `stop()` and real Chrome crashes; they close only on `CloseConnection` / Dispose or after link retries are exhausted. **`Crashed`** comes only from sidecar `onCrash` / `WatchCrash`. Transient gRPC Unavailable / response-ended failures retry inside the connection; a dead sidecar or missing session id ends the link as connection fault (`sidecar_connection_ended`), never as a fake browser crash.
+
 ### Session URL modes
 
 | Mode | Trigger | Client URL bar | Cookie domain |

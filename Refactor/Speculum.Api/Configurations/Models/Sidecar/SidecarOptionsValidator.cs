@@ -1,5 +1,4 @@
 using Microsoft.Extensions.Options;
-using Speculum.Api.Configurations.Models.Sidecar;
 
 namespace Speculum.Api.Configurations.Models.Sidecar;
 
@@ -16,6 +15,17 @@ public sealed class SidecarOptionsValidator : IValidateOptions<SidecarOptions>
                  || uri.Scheme is not ("http" or "https"))
         {
             failures.Add("Sidecar:GrpcAddress must be an absolute http(s) URI.");
+        }
+
+        if (options.LinkRetryCount < 0 || options.LinkRetryCount > 20)
+        {
+            failures.Add("Sidecar:LinkRetryCount must be between 0 and 20.");
+        }
+
+        if (options.LinkRetryBackoff < TimeSpan.Zero
+            || options.LinkRetryBackoff > TimeSpan.FromSeconds(30))
+        {
+            failures.Add("Sidecar:LinkRetryBackoff must be between 0 and 30 seconds.");
         }
 
         return failures.Count == 0

@@ -9,7 +9,8 @@
     "dev": "ts-node index.ts",
     "smoke": "npm run build && node dist/smoke.js",
     "smoke:remote": "npm run build && node dist/smoke-remote.js",
-    "unit": "npm run build && node dist/unit.js"
+    "unit": "npm run build && node dist/unit.js",
+    "test": "npm run unit"
   },
   "dependencies": {
     "@grpc/grpc-js": "^1.12.6",

@@ -293,12 +293,17 @@ public sealed class UrlResolver : IUrlResolver
             return true;
         }
 
+        // Operator-configured open allowlist: Domain.Scope = Any admits any valid host.
+        if (allowedUrls.Any(rule => rule.Domain.Scope == PatternScope.Any))
+        {
+            return true;
+        }
+
         return allowedUrls.Any(rule => Matches(rule.Domain, host));
     }
 
     private static bool Matches(DomainPattern domain, string host)
     {
-        // Scope.Any is not an allow-all for URL resolve; only explicit patterns match.
         if (domain.Scope != PatternScope.Pattern || domain.Labels.Count == 0)
         {
             return false;

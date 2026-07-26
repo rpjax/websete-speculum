@@ -22,8 +22,10 @@ public sealed class SessionJournalPublishPolicyTests
         var soft = catalog.Types
             .Where(d => d.Type.StartsWith("Sessions.", StringComparison.Ordinal)
                 || d.Type.StartsWith("Profiles.", StringComparison.Ordinal))
-            // Live attached-client push failures are BestEffort (transient SignalR flaps).
-            .Where(d => d.Type is not "Sessions.AttachedClientCommandFailed")
+            // Live attached-client push failures and high-churn browser observations are BestEffort.
+            .Where(d => d.Type is not "Sessions.AttachedClientCommandFailed"
+                and not "Sessions.LocationChanged"
+                and not "Sessions.InputRejected")
             .Where(d => d.PublishPolicy != PublishPolicy.Guaranteed)
             .Select(d => $"{d.Type}@v{d.SchemaVersion}")
             .OrderBy(x => x, StringComparer.Ordinal)
@@ -35,7 +37,21 @@ public sealed class SessionJournalPublishPolicyTests
 
         Assert.True(catalog.TryGet<AttachedClientCommandFailed>(out var commandFailed));
         Assert.Equal(PublishPolicy.BestEffort, commandFailed.PublishPolicy);
+        Assert.True(catalog.TryGet<LocationChanged>(out var locationChanged));
+        Assert.Equal(PublishPolicy.BestEffort, locationChanged.PublishPolicy);
+        Assert.True(catalog.TryGet<InputRejected>(out var inputRejected));
+        Assert.Equal(PublishPolicy.BestEffort, inputRejected.PublishPolicy);
         Assert.True(catalog.TryGet<FeatureLoopFaulted>(out var loopFaulted));
         Assert.Equal(PublishPolicy.Guaranteed, loopFaulted.PublishPolicy);
+        Assert.True(catalog.TryGet<NavigateRequested>(out var navigateRequested));
+        Assert.Equal(PublishPolicy.Guaranteed, navigateRequested.PublishPolicy);
+        Assert.True(catalog.TryGet<NavigateFailed>(out var navigateFailed));
+        Assert.Equal(PublishPolicy.Guaranteed, navigateFailed.PublishPolicy);
+        Assert.True(catalog.TryGet<MainFrameNavigationBlocked>(out var blocked));
+        Assert.Equal(PublishPolicy.Guaranteed, blocked.PublishPolicy);
+        Assert.True(catalog.TryGet<BrowserCrashed>(out var crashed));
+        Assert.Equal(PublishPolicy.Guaranteed, crashed.PublishPolicy);
+        Assert.True(catalog.TryGet<LiveSessionAbandoned>(out var abandoned));
+        Assert.Equal(PublishPolicy.Guaranteed, abandoned.PublishPolicy);
     }
 }

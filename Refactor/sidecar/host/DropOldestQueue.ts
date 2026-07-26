@@ -22,11 +22,12 @@ export class DropOldestQueue<T> {
 
   async read(signal?: AbortSignal): Promise<T | null> {
     for (;;) {
+      // Check abort before dequeue so a cancelled Watch* cannot steal the only onCrash.
+      if (signal?.aborted) return null;
       if (this.items.length > 0) {
         return this.items.shift()!;
       }
       if (this.closed) return null;
-      if (signal?.aborted) return null;
 
       await new Promise<void>((resolve) => {
         const wake = (): void => {
@@ -47,5 +48,14 @@ export class DropOldestQueue<T> {
     while (this.waiters.length > 0) {
       this.waiters.shift()!();
     }
+  }
+
+  get isClosed(): boolean {
+    return this.closed;
+  }
+
+  /** Visible depth for contract tests (not for production hot paths). */
+  get pendingCount(): number {
+    return this.items.length;
   }
 }

@@ -1,16 +1,26 @@
-import { ChevronLeft, ChevronRight, Activity, Play, Square } from 'lucide-react'
+import {
+  Activity,
+  ChevronLeft,
+  ChevronRight,
+  CornerDownLeft,
+  Play,
+  Square,
+} from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Separator } from '@/components/ui/separator'
 import type { SmokePhase } from './useSmokeSession'
 
 interface SmokeToolbarProps {
   phase: SmokePhase
-  path: string
+  address: string
   currentUrl: string | null
-  onPathChange: (path: string) => void
+  onAddressChange: (value: string) => void
+  onAddressFocusChange?: (focused: boolean) => void
   onStart: () => void
   onStop: () => void
+  onNavigate: () => void
   onStatus: () => void
   onHistory: (direction: 'goback' | 'goforward') => void
 }
@@ -18,7 +28,7 @@ interface SmokeToolbarProps {
 const PHASE_LABEL: Record<SmokePhase, string> = {
   idle: 'offline',
   connecting: 'connecting hub',
-  connected: 'hub connected',
+  connected: 'hub ready',
   starting: 'starting session',
   live: 'live',
   stopping: 'stopping',
@@ -30,68 +40,107 @@ function phaseVariant(phase: SmokePhase): 'success' | 'warning' | 'muted' {
   return 'warning'
 }
 
+/**
+ * Dev chrome for session lifecycle + runtime navigation.
+ * Address bar: idle → start path; live → NavigateAsync (Enter / Go).
+ */
 export function SmokeToolbar({
   phase,
-  path,
+  address,
   currentUrl,
-  onPathChange,
+  onAddressChange,
+  onAddressFocusChange,
   onStart,
   onStop,
+  onNavigate,
   onStatus,
   onHistory,
 }: SmokeToolbarProps) {
   const live = phase === 'live'
   const busy = phase === 'connecting' || phase === 'starting' || phase === 'stopping'
 
+  const submitAddress = () => {
+    if (live) {
+      onNavigate()
+    } else if (!busy) {
+      onStart()
+    }
+  }
+
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <Button
-        variant="outline"
-        size="icon"
-        disabled={!live}
-        aria-label="Go back"
-        onClick={() => onHistory('goback')}
-      >
-        <ChevronLeft className="h-4 w-4" />
-      </Button>
-      <Button
-        variant="outline"
-        size="icon"
-        disabled={!live}
-        aria-label="Go forward"
-        onClick={() => onHistory('goforward')}
-      >
-        <ChevronRight className="h-4 w-4" />
-      </Button>
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex items-center gap-1">
+          <Button
+            variant="outline"
+            size="icon"
+            disabled={!live}
+            aria-label="Go back"
+            onClick={() => onHistory('goback')}
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            disabled={!live}
+            aria-label="Go forward"
+            onClick={() => onHistory('goforward')}
+          >
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+        </div>
 
-      <Input
-        className="min-w-56 flex-1 font-mono text-xs"
-        value={path}
-        spellCheck={false}
-        aria-label="Start path"
-        placeholder="/"
-        disabled={live}
-        onChange={(event) => onPathChange(event.target.value)}
-      />
+        <form
+          className="flex min-w-0 flex-1 items-center gap-2"
+          onSubmit={(event) => {
+            event.preventDefault()
+            submitAddress()
+          }}
+        >
+          <Input
+            className="min-w-0 flex-1 font-mono text-xs"
+            value={address}
+            spellCheck={false}
+            aria-label={live ? 'Navigate URL' : 'Start URL'}
+            placeholder={live ? 'google.com or https://…' : 'google.com or /path'}
+            disabled={busy}
+            onChange={(event) => onAddressChange(event.target.value)}
+            onFocus={() => onAddressFocusChange?.(true)}
+            onBlur={() => onAddressFocusChange?.(false)}
+          />
+          {live ? (
+            <Button type="submit" variant="outline" disabled={busy}>
+              <CornerDownLeft className="h-4 w-4" /> Go
+            </Button>
+          ) : (
+            <Button type="submit" disabled={busy}>
+              <Play className="h-4 w-4" /> Start
+            </Button>
+          )}
+        </form>
 
-      {live ? (
-        <Button variant="destructive" onClick={onStop} disabled={busy}>
-          <Square className="h-4 w-4" /> Stop
+        {live && (
+          <Button variant="destructive" onClick={onStop} disabled={busy}>
+            <Square className="h-4 w-4" /> Stop
+          </Button>
+        )}
+
+        <Button variant="outline" onClick={onStatus} disabled={!live} title="Pull unary SessionStatus">
+          <Activity className="h-4 w-4" /> Status
         </Button>
-      ) : (
-        <Button onClick={onStart} disabled={busy}>
-          <Play className="h-4 w-4" /> Start session
-        </Button>
-      )}
-      <Button variant="outline" onClick={onStatus} disabled={!live}>
-        <Activity className="h-4 w-4" /> Poll status
-      </Button>
 
-      <Badge variant={phaseVariant(phase)}>{PHASE_LABEL[phase]}</Badge>
-      {currentUrl && (
-        <span className="max-w-72 truncate font-mono text-[11px] text-muted-foreground">
-          {currentUrl}
-        </span>
+        <Badge variant={phaseVariant(phase)}>{PHASE_LABEL[phase]}</Badge>
+      </div>
+
+      {live && currentUrl && (
+        <p className="flex items-center gap-2 text-[11px] text-muted-foreground">
+          <span className="shrink-0 uppercase tracking-wide">Browser</span>
+          <Separator orientation="vertical" className="h-3" />
+          <span className="min-w-0 truncate font-mono" title={currentUrl}>
+            {currentUrl}
+          </span>
+        </p>
       )}
     </div>
   )

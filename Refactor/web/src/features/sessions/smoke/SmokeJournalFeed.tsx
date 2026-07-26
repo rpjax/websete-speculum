@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import type { JournalFact } from '@/lib/speculum'
@@ -15,17 +15,6 @@ function prettyPayload(payload: string): string {
   } catch {
     return payload
   }
-}
-
-/** Groups fact types so a burst reads as a shape, not a wall of rows. */
-function summarize(facts: JournalFact[]): { type: string; count: number }[] {
-  const counts = new Map<string, number>()
-  for (const fact of facts) {
-    counts.set(fact.type, (counts.get(fact.type) ?? 0) + 1)
-  }
-  return [...counts]
-    .map(([type, count]) => ({ type, count }))
-    .sort((left, right) => right.count - left.count)
 }
 
 function FactRow({ fact }: { fact: JournalFact }) {
@@ -81,8 +70,6 @@ function FactRow({ fact }: { fact: JournalFact }) {
  * Only catalogued, enabled fact types reach this stream.
  */
 export function SmokeJournalFeed({ feed }: { feed: JournalFeed }) {
-  const summary = useMemo(() => summarize(feed.facts), [feed.facts])
-
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2">
@@ -90,7 +77,7 @@ export function SmokeJournalFeed({ feed }: { feed: JournalFeed }) {
           {feed.streaming ? 'streaming' : 'not streaming'}
         </Badge>
         <span className="text-xs text-muted-foreground tabular-nums">
-          {feed.facts.length} facts · {summary.length} types
+          {feed.facts.length} facts
         </span>
         {feed.facts.length > 0 && (
           <Button variant="ghost" size="sm" className="ml-auto h-6" onClick={feed.clear}>
@@ -103,16 +90,6 @@ export function SmokeJournalFeed({ feed }: { feed: JournalFeed }) {
         <p className="rounded-md border border-destructive/50 p-2 text-xs text-destructive">
           {feed.error}
         </p>
-      )}
-
-      {summary.length > 0 && (
-        <div className="flex flex-wrap gap-1">
-          {summary.map(({ type, count }) => (
-            <Badge key={type} variant="muted" className="font-mono text-[10px]">
-              {type} ×{count}
-            </Badge>
-          ))}
-        </div>
       )}
 
       {feed.facts.length === 0 ? (

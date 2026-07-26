@@ -53,6 +53,7 @@ export class SessionRegistry {
     return () => this.createListeners.delete(listener);
   }
 
+  /** CloseConnection: ends Watch* queues then disposes the browser session object. */
   async dispose(sessionId: string): Promise<void> {
     const entry = this.sessions.get(sessionId);
     if (!entry) return;

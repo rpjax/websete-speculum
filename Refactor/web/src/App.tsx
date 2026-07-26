@@ -24,7 +24,9 @@ import DiagnosticsGovernancePage from '@/features/admin/diagnostics/governance/D
 import NarrativeWorkspacePage from '@/features/admin/diagnostics/timeline/NarrativeWorkspacePage'
 import AnalysisWorkspacePage from '@/features/admin/diagnostics/analysis/AnalysisWorkspacePage'
 
-const MotorPage = lazy(() => import('@/features/motor/live/MotorPage'))
+// Live surface for the refactored wire (EnsureProfile → StartSession →
+// WebTransport). `features/motor/live` still targets the legacy wire.
+const SessionSmokePage = lazy(() => import('@/features/sessions/smoke/SessionSmokePage'))
 
 function DiagnosticsSessionRedirect() {
   const { connectionId } = useParams<{ connectionId: string }>()
@@ -40,7 +42,7 @@ export default function App() {
         }
       >
         <Routes>
-          <Route path="/" element={<MotorPage />} />
+          <Route path="/" element={<SessionSmokePage />} />
           <Route path="/setup" element={<SetupPage />} />
           <Route path="/admin/login" element={<LoginPage />} />
           <Route path="/admin" element={<AdminLayout />}>
@@ -78,7 +80,7 @@ export default function App() {
             <Route path="api-key" element={<AdminKeyPage />} />
             <Route path="openapi" element={<OpenApiPage />} />
           </Route>
-          <Route path="*" element={<MotorPage />} />
+          <Route path="*" element={<SessionSmokePage />} />
         </Routes>
       </Suspense>
     </BrowserRouter>

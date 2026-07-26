@@ -9,7 +9,7 @@ namespace Speculum.Api.Sessions.Events.Models;
     Name = "Start configuration rejected",
     Description = "Start rejected because required engine configuration or mimicry is invalid.",
     Owner = "sessions",
-    PublishPolicy = PublishPolicy.BestEffort,
+    PublishPolicy = PublishPolicy.Guaranteed,
     EnabledByDefault = true)]
 public sealed class StartConfigurationRejected
 {

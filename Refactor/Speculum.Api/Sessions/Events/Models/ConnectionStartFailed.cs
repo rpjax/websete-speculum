@@ -9,7 +9,7 @@ namespace Speculum.Api.Sessions.Events.Models;
     Name = "Connection start failed",
     Description = "Browser client connection could not be started.",
     Owner = "sessions",
-    PublishPolicy = PublishPolicy.BestEffort,
+    PublishPolicy = PublishPolicy.Guaranteed,
     EnabledByDefault = true)]
 public sealed class ConnectionStartFailed
 {

@@ -9,7 +9,7 @@ namespace Speculum.Api.Sessions.Events.Models;
     Name = "Session state persisted",
     Description = "Exported session state was merged into the profile.",
     Owner = "sessions",
-    PublishPolicy = PublishPolicy.BestEffort,
+    PublishPolicy = PublishPolicy.Guaranteed,
     EnabledByDefault = true)]
 public sealed class SessionStatePersisted
 {

@@ -7,7 +7,7 @@ namespace Speculum.Api.Profiles.Aggregates;
         → (N Sessions linked)
         → ProfileDeleted
 */
-public enum SessionDeletionReason
+public enum ProfileDeletionReason
 {
     Unknown,
     UserRequested,

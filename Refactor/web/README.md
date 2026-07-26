@@ -39,7 +39,7 @@ React **single-page application** for the Speculum motor, first-run setup, and a
 
 | Path | Feature | Auth |
 |------|---------|------|
-| `/` | Virtual browser motor (canvas + SignalR) | — |
+| `/` | Session smoke — refactor wire (EnsureProfile → StartSession → WebTransport), all inputs + stream telemetry | — |
 | `/setup` | Guided first-run wizard | — |
 | `/admin/login` | Admin login | — |
 | `/admin` | Dashboard overview (health + needs attention) | Bearer |
@@ -98,6 +98,9 @@ cp .env.example .env
 |----------|-------------|
 | `VITE_API_URL` | Optional — omit for same-origin (dockup/prod). Set for cross-origin local dev only. |
 | `VITE_MOCK` | Set to `1` to activate **mock mode** — the SPA runs with simulated API data, no backend needed. Admin and Setup work fully; Motor shows a placeholder. |
+| `VITE_SPECULUM_HUB_ORIGIN` | Optional origin for the session-smoke SignalR hub (`/vhub`). Empty = same origin (dev proxy / Traefik). Also editable at runtime in the smoke **Wire** tab. |
+| `VITE_SPECULUM_TRANSPORT_ORIGIN` | Origin for the session-smoke WebTransport data plane (`/vtransport`). WebTransport is HTTP/3-only and cannot be proxied — point this at the API's HTTPS origin (e.g. `https://localhost:5001`). |
+| `VITE_SPECULUM_API_PROXY` | Dev-only target the Vite proxy forwards `/vhub` + `/health` to (default `https://localhost:5001`). |
 
 ---
 

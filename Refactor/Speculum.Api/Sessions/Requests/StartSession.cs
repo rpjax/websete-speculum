@@ -1,10 +1,16 @@
 using Speculum.Api.Sessions.Models;
+using Speculum.Api.Sessions.Services.Contracts;
 
 namespace Speculum.Api.Sessions.Requests;
 
 public sealed class StartSession
 {
     public string CallerId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Browser client command sink attached for the life of this start (SyncUrl / Redirect).
+    /// </summary>
+    public IAttachedSessionClient AttachedClient { get; set; } = null!;
 
     public Guid ProfileId { get; set; }
 

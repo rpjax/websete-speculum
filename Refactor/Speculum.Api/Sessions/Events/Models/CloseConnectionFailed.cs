@@ -9,7 +9,7 @@ namespace Speculum.Api.Sessions.Events.Models;
     Name = "Close connection failed",
     Description = "Connection close failed during teardown.",
     Owner = "sessions",
-    PublishPolicy = PublishPolicy.BestEffort,
+    PublishPolicy = PublishPolicy.Guaranteed,
     EnabledByDefault = true)]
 public sealed class CloseConnectionFailed
 {

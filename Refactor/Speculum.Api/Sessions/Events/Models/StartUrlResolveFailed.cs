@@ -9,7 +9,7 @@ namespace Speculum.Api.Sessions.Events.Models;
     Name = "Start URL resolve failed",
     Description = "Target URL resolution failed during session start.",
     Owner = "sessions",
-    PublishPolicy = PublishPolicy.BestEffort,
+    PublishPolicy = PublishPolicy.Guaranteed,
     EnabledByDefault = true)]
 public sealed class StartUrlResolveFailed
 {

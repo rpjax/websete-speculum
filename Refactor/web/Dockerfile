@@ -7,6 +7,10 @@ COPY package.json package-lock.json ./
 RUN npm ci
 
 COPY . .
+
+ARG VITE_SPECULUM_TRANSPORT_ORIGIN=
+ENV VITE_SPECULUM_TRANSPORT_ORIGIN=$VITE_SPECULUM_TRANSPORT_ORIGIN
+
 RUN npm run build
 
 FROM nginx:alpine

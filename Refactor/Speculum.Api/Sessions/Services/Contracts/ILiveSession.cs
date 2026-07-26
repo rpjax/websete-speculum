@@ -22,12 +22,13 @@ public interface ILiveSession
     // ── Caller attachment ────────────────────────────────────────────────────
 
     /// <summary>
-    /// Attaches a caller to the whole live session (presence / detached timeout).
+    /// Attaches the single browser client (presence / detached timeout + command sink).
+    /// Fails if a client is already attached.
     /// </summary>
-    IResult<Guid> Attach();
+    IResult<Guid> Attach(IAttachedSessionClient client);
 
     /// <summary>
-    /// Detaches a caller previously registered by <see cref="Attach"/>.
+    /// Detaches the client previously registered by <see cref="Attach"/>.
     /// Idempotent after <c>Release</c>.
     /// </summary>
     IResult Detach(Guid attachmentId);

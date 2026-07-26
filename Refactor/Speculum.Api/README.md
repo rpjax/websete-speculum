@@ -55,35 +55,40 @@ Required sections in current behavior are `Forwarding`, `MaxSessions` and
 
 ## 2. Profile identity and continuity
 
-The current Hub accepts `SessionIdentity`:
+Speculum V1 persists continuity as an opaque `profileId` the client stores
+locally. There is no application-layer `clientToken` and no indexer table —
+that differs from the legacy `BrowserSessionRegistry` which resolved identity
+via token/indexers.
 
-- optional `clientToken`
-- optional `correlationId`
-- optional `indexers` dictionary
+Security rules that drive the ensure contract:
 
-It resolves or creates a persisted identity and returns the effective client
-token from `StartSessionAsync`.
+- Unknown/forged/purged ids never bind to the caller's value; the service
+  issues a new `Guid.NewGuid()` (v4) and returns `Created = true`.
+- The id is the credential for the cookie/localStorage bucket; v7 timestamps
+  are deliberately avoided on this public credential.
+
+Optional `correlationId` on ensure is projected onto profile journal facts.
 
 ### Features to preserve
 
 | Status | Feature | Current observable behavior | Application model still required |
 |--------|---------|-----------------------------|----------------------------------|
-| ◐ | Durable profile | `Profile` exists, but no application flow creates/resolves one | `IProfileService` with Ensure/Resolve flow |
-| ○ | Client-token continuity | Same valid token resolves the same persisted identity; invalid token is rejected | Ensure-profile request/result including effective token |
-| ○ | Identity indexers | Equivalent indexers resolve the same persisted identity | Indexer model and identity-resolution rules |
-| ○ | New-token issuance | Missing token creates identity and returns a token to the client | Result contract for EnsureProfile/bootstrap |
-| ○ | Correlation identity | Client correlation id follows the session story | Operation/session context model |
-| ○ | Rebind across generations | New live sessions reuse one persisted profile and merge history/state | Profile generation/rebind application flow |
+| ✅ | Durable profile | `EnsureProfileAsync` resolves a known `profileId` or creates one; unknown ids never bind to caller-supplied values | — |
+| — | Client-token continuity | N/A in Speculum V1 (continuity is the opaque `profileId`) | — |
+| — | Identity indexers | N/A in Speculum V1 | — |
+| ✅ | Id issuance | Missing/unknown id creates identity and returns a server-generated `profileId` | — |
+| ✅ | Correlation identity | Optional correlation id follows profile ensure/delete journal facts | — |
+| ✅ | Rebind across generations | New live sessions reuse one persisted profile and merge history/state | — |
 
-The refactor's intended client flow remains:
+The refactor client flow:
 
 ```text
-EnsureProfile(identity) → { profileId, clientToken }
-StartSession(profileId, ...)
+EnsureProfileAsync({ profileId?, correlationId? }) → { profileId, created }
+StartSessionAsync({ profileId, … })
 ```
 
-This preserves the current feature without forcing persistence identity back
-into the live `Session`.
+This preserves continuity without forcing persistence identity back into the
+live `Session`.
 
 ---
 
@@ -131,7 +136,7 @@ The current product binds one live session directly to one SignalR
 | Status | Feature | Current observable behavior | Application model still required |
 |--------|---------|-----------------------------|----------------------------------|
 | ✅ | Stream ownership | Disposable stream handles unregister themselves from the mux | Modeled |
-| ✅ | Reference-counted presence | Explicit `ILiveSession.Attach` / `Detach` retains/releases the whole session; streams do not affect presence | Modeled (per-attachment ids; `Release` drops all) |
+| ✅ | Reference-counted presence | Explicit `ILiveSession.Attach(IAttachedSessionClient)` / `Detach` retains/releases the whole session (single client slot); streams do not affect presence | Modeled (one attach; SyncUrl/Redirect via attached client; reverse URL map still ○) |
 | ✅ | Context teardown | Releasing a live context disposes mux, unbinds hooks (deny) and drops attachments | Modeled via `ILiveSessionService.Release` → `LiveSession.Release` |
 | ✅ | Transport binding | Maps opaque caller identity to Starting/Live state, attachment and owned pipes without SignalR types in the port | `ISessionBindingRegistry` |
 | ✅ | Second-start replacement | Same caller replaces Live or cancels and awaits Starting teardown before slot admission | `BeginStart` / `TryPromote` / start completion |
@@ -146,8 +151,11 @@ calls `StopSession`; collector timeout performs the eventual stop.
 
 ## 5. Streaming and input
 
-SignalR `/vhub` is control-only (`StartSessionAsync`, `StopSessionAsync` and
-lifecycle hooks). WebTransport `/vtransport?sessionId=…&token=…` carries the
+SignalR `/vhub` carries control only: `EnsureProfileAsync`, `StartSessionAsync`,
+`StopSessionAsync`, lifecycle hooks, `StreamJournalAsync` (live Journal
+observation — catalogued facts as the Journal admits them, no replay, not session
+data), and typed server→client `SyncUrl` / `Redirect` (`ISessionHubClient`) to the
+attached session client. WebTransport `/vtransport?sessionId=…&token=…` carries the
 data plane. Each WebTransport stream starts with a one-byte kind followed by
 big-endian length-prefixed MessagePack messages:
 
@@ -162,7 +170,7 @@ HTTP requests to `/vtransport` are rejected with `426 Upgrade Required`.
 | Status | Feature | Current observable behavior | Application model still required |
 |--------|---------|-----------------------------|----------------------------------|
 | ✅ | Frame stream | CDP JPEG + relay monotonic sequence + API relay-receipt UTC timestamp | Typed `Frame` over disposable mux streams and WebTransport |
-| ◐ | Console/control output | Console and eval results use typed envelopes; location/blocked/focus/crash use typed notifications | URL reverse projection/redirect stubs remain item 5 |
+| ◐ | Console/control output | Console and eval results use typed envelopes; location/blocked drive hub SyncUrl/Redirect via attached client; focus/crash still on notification pipe | Reverse URL projection still ○ |
 | ✅ | Status poll | Unary status includes engine JsBridge state, session id and relay uptime | `ILiveSession.GetStatusAsync`; fps remains zero until measured |
 | ✅ | User input | Typed `UserInput` envelopes carry validated mouse, keyboard, wheel, text and touch payloads through mux → gRPC | Invalid payloads emit `InputRejected` and do not kill the session |
 | ✅ | Console input | Stable `{ id, code }` eval request and typed eval-result envelope | JsBridge-gated; disabled requests are rejected without stopping the session |
@@ -190,12 +198,12 @@ live output stream.
 | Status | Feature | Current observable behavior | Application model still required |
 |--------|---------|-----------------------------|----------------------------------|
 | ✅ | Start navigation | Required for successful start | Resolve → Navigate uses Path, Query and transport host |
-| ◐ | Runtime navigation | Maps client path/query to target URL and commands the active browser | `ILiveSession.NavigateAsync` uses the same host-aware `IUrlResolver`; URL sync/redirect projection remains incomplete |
+| ◐ | Runtime navigation | Maps client path/query to target URL and commands the active browser | `ILiveSession.NavigateAsync` uses the same host-aware `IUrlResolver`; SyncUrl/Redirect push absolute target URLs (reverse map ○) |
 | ○ | Scheme validation | Invalid/unsupported navigation is rejected | Navigation request validation |
 | ○ | URL allowlist | Main-frame navigation honors shared domain/path pattern rules | Navigation policy port/result |
 | ○ | Blocked vs failed | Policy block is distinct from technical browser failure | Named results/events |
-| ○ | External redirect | Navigation outside the virtualized domain redirects the real client while session remains alive | Redirect output model |
-| ○ | Client URL mapping | Target URLs map back to client URLs, preserving path/query and navigation state | Reverse-mapping port |
+| ◐ | External redirect | Navigation outside the virtualized domain redirects the real client while session remains alive | `IAttachedSessionClient.RedirectAsync` ← `MainFrameNavigationBlocked` (absolute URL) |
+| ○ | Client URL mapping | Target URLs map back to client URLs, preserving path/query and navigation state | Reverse-mapping port; SyncUrl currently pushes absolute browser URL |
 | ○ | Subdomain mirroring | Host changes map to mirrored session hosts when operational | Hosting-aware mapping context |
 | ○ | Redirect chains / history | Redirects, SPA paths, back/forward and history remain coherent | Navigation-state/history capability |
 | ○ | Asset escape rule | Allowlist applies to main-frame navigation, not assets/XHR/subframes | Explicit policy boundary |
@@ -242,12 +250,12 @@ Diagnostics also exposes persisted list/detail and state replacement.
 | Status | Feature | Current observable behavior | Application model still required |
 |--------|---------|-----------------------------|----------------------------------|
 | ◐ | Restore/export orchestration | Start restores; stop exports best-effort | Flow modeled |
-| ○ | State schema | Cookies, localStorage, IndexedDB and history have real contracts | `ProfileState` / `SessionState` models |
-| ○ | State merge | New exports merge continuity/history across live generations | Profile merge rules |
+| ◐ | State schema | Cookies, localStorage, IndexedDB and history have real contracts | Tolerant restore / normalization still open |
+| ◐ | State merge | New exports merge continuity/history across live generations | — |
 | ○ | Tolerant cookie restore | Dirty SameSite/expiry fields do not prevent start | State normalization policy/result |
 | ○ | Export failure | Sidecar loss may prevent export without blocking resource cleanup | Explicit persistence outcome/events |
-| ○ | Profile list/detail | Operator can inspect persisted identities and state metadata | Profile administration query port |
-| ○ | Profile deletion | Operator deletes a persisted identity | Profile deletion flow/reasons |
+| ✅ | Profile list/detail | Operator can inspect persisted identities and state metadata | Admin HTTP mapping deferred until Admin auth (§9) |
+| ✅ | Profile deletion | Operator deletes a persisted identity; live sessions reject delete | Admin HTTP mapping deferred until Admin auth (§9) |
 | ○ | Manual state replacement | Diagnostics can replace persisted browser state | Controlled profile-state update command |
 | ○ | Retention policy | `SessionPolicy.ttlDays` purges expired persisted identities | Profile-retention policy and purge flow |
 
@@ -431,19 +439,18 @@ The following are the immediate modeling gaps visible in the existing chassis:
    complete launch mimicry; policy fields are assembled from Engine configuration.
 2. `IUrlResolver` is host-aware for start and runtime navigation; reverse URL
    projection, redirects and full navigation-state semantics remain open.
-3. `StartSessionAsync` returns `sessionId` plus a session token; current client behavior also needs
-   effective profile/client-token continuity.
-4. There is no EnsureProfile/identity-indexer application flow.
-5. Runtime Navigate/Resize/Status/Refresh/Diag/streams/hooks/Attach-Detach are on
+3. Runtime Navigate/Resize/Status/Refresh/Diag/streams/hooks/Attach-Detach are on
    `ILiveSession`; `ILiveSessionService.Create` binds a context to an already-open
    connection (no re-resolve). Richer allowlist, busy-coalesce and projection contracts remain open.
-6. Stream models do not yet represent URL updates, redirects, eval results,
+4. Stream models do not yet represent URL updates, redirects, eval results,
    complete status or input validation.
-7. Disconnect/replacement/config-drain/sidecar-fault flows are not modeled.
-8. `SessionState` and `ProfileState` do not express the persisted feature set.
-9. Runtime configuration and its behavioral reactions are not modeled.
-10. Admin profile/script/config/readiness/client-bootstrap features are not modeled.
-11. Diagnostics query/control/probe/telemetry features are not modeled.
+5. Disconnect/replacement/config-drain/sidecar-fault flows are not modeled.
+6. `SessionState` and `ProfileState` express the persisted feature set; tolerant
+   restore / export-failure outcomes remain open.
+7. Runtime configuration and its behavioral reactions are not modeled.
+8. Admin profile HTTP / script/config/readiness/client-bootstrap features are not
+   modeled (profile query/delete exist on `IProfileService`; Admin Bearer arrives in §9).
+9. Diagnostics query/control/probe/telemetry features are not modeled.
 
 ---
 
@@ -452,8 +459,8 @@ The following are the immediate modeling gaps visible in the existing chassis:
 This order follows user-visible dependencies, not infrastructure dependencies:
 
 ```text
-1. Profile identity
-   EnsureProfile + token/indexers + start result
+1. Profile identity ✅
+   EnsureProfile (opaque profileId) + correlation + list/detail/delete ports
 
 2. Complete StartSession contract
    Path/Query + transport host + edge-normalized mimicry + Engine launch assembly
@@ -497,14 +504,16 @@ application-layer orchestration, then mark the feature ✅/◐ here.
 - `ISessionService` = lifecycle (Start/Stop); `ILiveSessionService` / `ILiveSession` =
   one in-memory context per live connection (typed streams, commands, hooks, Attach/Detach).
   Start success order: persist Live → `Create(sessionId, connection, requestHost, jsBridgeEnabled)` →
-  collector `Watch` → `Attach` → binding `TryPromote`.
+  collector `Watch` → `Attach(IAttachedSessionClient)` → binding `TryPromote`.
+  Live runtime push failures journal `Sessions.AttachedClientCommandFailed` (BestEffort)
+  and `Sessions.FeatureLoopFaulted` (Guaranteed); ILogger remains the operational log path.
   Stop order: persist best-effort → MarkStopped → live `Release` → `Unwatch` →
   StopBrowser → Close → slot release. Host registers `ISessionService` with `IUrlResolver`;
   `AddBrowserSessions` registers `ILiveSessionService` (needs `IUrlResolver`).
 - `ISessionConnection` is the sidecar boundary, not the user-facing session API.
 - `Session` (live) remains distinct from `Profile` (durable identity/state).
-- Caller attachment is explicit on `ILiveSession` and independent from disposable
-  stream registrations; attached/detached are not lifecycle states.
+- Caller attachment is a single `IAttachedSessionClient` on `ILiveSession` (presence +
+  SyncUrl/Redirect); independent from disposable stream registrations.
 - Named events replace generic `Failed(phase)`.
 - Diagnostics failures still require stable `errorCode` + context in their
   eventual catalog payloads.

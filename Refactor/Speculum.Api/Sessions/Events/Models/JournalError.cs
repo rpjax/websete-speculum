@@ -29,4 +29,21 @@ public sealed class JournalError
 
         return mapped;
     }
+
+    public static JournalError[] From(Exception exception)
+    {
+        ArgumentNullException.ThrowIfNull(exception);
+        var root = exception is AggregateException aggregate
+            ? aggregate.GetBaseException()
+            : exception;
+
+        return
+        [
+            new JournalError
+            {
+                Code = root.GetType().Name,
+                Message = root.Message ?? string.Empty,
+            },
+        ];
+    }
 }

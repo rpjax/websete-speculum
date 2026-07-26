@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Speculum.Api.Profiles.Aggregates;
+using Speculum.Api.Profiles.Responses;
 using Speculum.Api.Sessions.Models;
 
 namespace Speculum.Api.Profiles.Storage;
@@ -18,12 +19,39 @@ internal static class ProfileMapper
         return Profile.Reconstitute(record.Id, snapshot.ToProfileState());
     }
 
-    public static ProfileRecord ToRecord(Profile profile)
+    public static ProfileRecord ToRecord(Profile profile, DateTimeOffset now)
         => new()
         {
             Id = profile.Id,
             StateJson = JsonSerializer.Serialize(ProfileStateSnapshot.From(profile.State), JsonOptions),
+            CreatedAt = now,
+            UpdatedAt = now,
         };
+
+    public static ProfileListItem ToListItem(ProfileRecord record)
+        => new()
+        {
+            ProfileId = record.Id,
+            CreatedAt = record.CreatedAt,
+            UpdatedAt = record.UpdatedAt,
+        };
+
+    public static ProfileSummary ToSummary(ProfileRecord record)
+    {
+        var snapshot = JsonSerializer.Deserialize<ProfileStateSnapshot>(record.StateJson, JsonOptions)
+            ?? new ProfileStateSnapshot();
+
+        return new ProfileSummary
+        {
+            ProfileId = record.Id,
+            CreatedAt = record.CreatedAt,
+            UpdatedAt = record.UpdatedAt,
+            CookieCount = snapshot.Cookies.Count,
+            LocalStorageCount = snapshot.LocalStorage.Count,
+            IdbRecordCount = snapshot.IdbRecords.Count,
+            HistoryCount = snapshot.History.Count,
+        };
+    }
 
     private sealed class ProfileStateSnapshot
     {

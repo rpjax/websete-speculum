@@ -1,6 +1,26 @@
 import type { CDPSession, Page } from 'patchright';
 import type { BrowserDeviceProfile } from '../BrowserSession';
 
+/**
+ * Chrome CDP rejects `maxTouchPoints: 0` even when touch is disabled.
+ * Omit the field when disabled; require 1–16 when enabled.
+ */
+export function touchEmulationParams(
+  device: Pick<BrowserDeviceProfile, 'touch' | 'mobile' | 'maxTouchPoints'>,
+): { enabled: boolean; maxTouchPoints?: number } {
+  const enabled = !!(device.touch || device.mobile);
+  if (!enabled) {
+    return { enabled: false };
+  }
+
+  const points = device.maxTouchPoints;
+  if (points === undefined || points < 1 || points > 16) {
+    throw new Error('device.maxTouchPoints must be between 1 and 16 when touch is enabled');
+  }
+
+  return { enabled: true, maxTouchPoints: points };
+}
+
 export async function applyDeviceEmulation(
   cdp: CDPSession,
   width: number,
@@ -30,10 +50,7 @@ export async function applyDeviceEmulation(
       : undefined,
   });
 
-  await cdp.send('Emulation.setTouchEmulationEnabled', {
-    enabled: !!(device.touch || device.mobile),
-    maxTouchPoints: device.maxTouchPoints,
-  });
+  await cdp.send('Emulation.setTouchEmulationEnabled', touchEmulationParams(device));
 
   if (!device.userAgentProfile && !device.mobile) return;
 

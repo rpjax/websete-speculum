@@ -1,7 +1,23 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.touchEmulationParams = touchEmulationParams;
 exports.applyDeviceEmulation = applyDeviceEmulation;
 exports.readChromeViewport = readChromeViewport;
+/**
+ * Chrome CDP rejects `maxTouchPoints: 0` even when touch is disabled.
+ * Omit the field when disabled; require 1–16 when enabled.
+ */
+function touchEmulationParams(device) {
+    const enabled = !!(device.touch || device.mobile);
+    if (!enabled) {
+        return { enabled: false };
+    }
+    const points = device.maxTouchPoints;
+    if (points === undefined || points < 1 || points > 16) {
+        throw new Error('device.maxTouchPoints must be between 1 and 16 when touch is enabled');
+    }
+    return { enabled: true, maxTouchPoints: points };
+}
 async function applyDeviceEmulation(cdp, width, height, device) {
     if (device.deviceScaleFactor === undefined || device.deviceScaleFactor <= 0) {
         throw new Error('device.deviceScaleFactor must be a positive number');
@@ -23,10 +39,7 @@ async function applyDeviceEmulation(cdp, width, height, device) {
             }
             : undefined,
     });
-    await cdp.send('Emulation.setTouchEmulationEnabled', {
-        enabled: !!(device.touch || device.mobile),
-        maxTouchPoints: device.maxTouchPoints,
-    });
+    await cdp.send('Emulation.setTouchEmulationEnabled', touchEmulationParams(device));
     if (!device.userAgentProfile && !device.mobile)
         return;
     const version = (await cdp.send('Browser.getVersion'));

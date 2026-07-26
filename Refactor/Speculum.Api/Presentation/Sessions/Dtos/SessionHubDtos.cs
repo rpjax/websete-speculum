@@ -5,6 +5,28 @@ using Speculum.Api.Sessions.Requests;
 
 namespace Speculum.Api.Presentation.Sessions.Dtos;
 
+/// <summary>Wire DTO for hub <c>EnsureProfileAsync</c>. Null id requests a new profile.</summary>
+[MessagePackObject]
+public sealed class EnsureProfileHubRequest
+{
+    [Key("profileId")]
+    public Guid? ProfileId { get; set; }
+
+    [Key("correlationId")]
+    public string? CorrelationId { get; set; }
+}
+
+/// <summary>Wire result for <c>EnsureProfileAsync</c>.</summary>
+[MessagePackObject]
+public sealed class EnsureProfileHubResponse
+{
+    [Key("profileId")]
+    public Guid ProfileId { get; set; }
+
+    [Key("created")]
+    public bool Created { get; set; }
+}
+
 /// <summary>Wire DTO for hub <c>StartSessionAsync</c>.</summary>
 [MessagePackObject]
 public sealed class StartSessionHubRequest
@@ -85,6 +107,22 @@ public sealed class StartSessionHubResponse
 
     [Key("token")]
     public string Token { get; set; } = string.Empty;
+}
+
+/// <summary>Server→client: sync the SPA address bar to the virtual browser URL.</summary>
+[MessagePackObject]
+public sealed class SyncUrlHubEvent
+{
+    [Key("url")]
+    public string Url { get; set; } = string.Empty;
+}
+
+/// <summary>Server→client: navigate the real browser (e.g. allowlist block).</summary>
+[MessagePackObject]
+public sealed class RedirectHubEvent
+{
+    [Key("url")]
+    public string Url { get; set; } = string.Empty;
 }
 
 internal static class SessionHubRequestMapper

@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Speculum.Api.Database;
 using Speculum.Api.Sessions.Aggregates;
+using Speculum.Api.Sessions.Models;
 using Speculum.Api.Sessions.Services.Contracts;
 
 namespace Speculum.Api.Sessions.Storage;
@@ -45,4 +46,12 @@ public sealed class EfSessionRepository : ISessionRepository
 
         await _db.SaveChangesAsync(ct).ConfigureAwait(false);
     }
+
+    public async Task<bool> AnyLiveByProfileAsync(Guid profileId, CancellationToken ct = default)
+        => await _db.Sessions
+            .AsNoTracking()
+            .AnyAsync(
+                s => s.ProfileId == profileId && s.State == LifecycleState.Live,
+                ct)
+            .ConfigureAwait(false);
 }

@@ -22,6 +22,9 @@ public sealed class SessionEventsFactory : ISessionEventsFactory
     public ISessionStopEvents ForSessionStop(Guid sessionId, Guid profileId)
         => new SessionStopEvents(_writer, sessionId, profileId);
 
+    public ISessionLiveEvents ForSessionLive(Guid sessionId, Guid profileId)
+        => new SessionLiveEvents(_writer, sessionId, profileId);
+
     public ISessionLifecycleEvents ForSessionLifecycle(Session session)
     {
         ArgumentNullException.ThrowIfNull(session);
@@ -38,5 +41,11 @@ public sealed class SessionEventsFactory : ISessionEventsFactory
     {
         ArgumentNullException.ThrowIfNull(session);
         return ForSessionStop(session.Id, session.ProfileId);
+    }
+
+    public ISessionLiveEvents ForSessionLive(Session session)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        return ForSessionLive(session.Id, session.ProfileId);
     }
 }

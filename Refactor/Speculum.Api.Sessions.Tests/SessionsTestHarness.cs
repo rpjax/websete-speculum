@@ -4,6 +4,7 @@ using Speculum.Api.Configurations.Models.Sessions;
 using Speculum.Api.Configurations.Services.Contracts;
 using Speculum.Api.Sessions.Models;
 using Speculum.Api.Sessions.Requests;
+using Speculum.Api.Sessions.Services.Contracts;
 
 namespace Speculum.Api.Sessions.Tests;
 
@@ -81,6 +82,7 @@ internal static class SessionsTestHarness
     public static StartSession Start(Guid profileId) => new()
     {
         CallerId = Guid.NewGuid().ToString("N"),
+        AttachedClient = new NoOpAttachedSessionClient(),
         ProfileId = profileId,
         Path = "/",
         Query = "",
@@ -101,6 +103,15 @@ internal static class SessionsTestHarness
             ColorScheme = "dark",
         },
     };
+
+    private sealed class NoOpAttachedSessionClient : IAttachedSessionClient
+    {
+        public Task SyncUrlAsync(string url, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task RedirectAsync(string url, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+    }
 
     public sealed class StaticConfigurationService(EngineConfiguration configuration)
         : IConfigurationService

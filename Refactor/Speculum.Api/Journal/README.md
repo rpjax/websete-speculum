@@ -120,6 +120,10 @@ public sealed class SessionStarted
 
 Emit: `writer.Append(new SessionStarted { ... });`
 
+Session start/stop narrative facts under `Sessions.*` (and profile ensure
+`Profiles.ProfileCreated` / `Profiles.ProfileReused`) use
+`PublishPolicy.Guaranteed` so Act→Assert beats are not shed under queue pressure.
+
 ---
 
 ## DI
@@ -136,7 +140,7 @@ app.Services.EnsureDatabase();
 - `"Database"` — SQLite path / busy timeout (`DatabaseOptions`)
 - `"Journal"` — drain / admission tunables (`JournalDrainOptions`, validated on start)
 
-Ports: `IJournalWriter`, `IJournalReader`, `IJournalCatalog`, `IJournalQueue`, `IJournalHealth`, `IJournalRepository`, `IJournalDrainPolicy`, `JournalDrainMetrics`. Hosted: `JournalWorker` (`IHostedService`).
+Ports: `IJournalWriter`, `IJournalReader`, `IJournalCatalog`, `IJournalQueue`, `IJournalLiveFeed`, `IJournalHealth`, `IJournalRepository`, `IJournalDrainPolicy`, `JournalDrainMetrics`. Hosted: `JournalWorker` (`IHostedService`).
 
 Store: unified [`SpeculumDbContext`](../Database/SpeculumDbContext.cs); Journal contributes `IEntityTypeConfiguration<>` under `Storage/`.
 
@@ -149,6 +153,22 @@ Default `Limit` = `DefaultReadLimit` (1000); hard ceiling `MaxReadLimit` (10_000
 
 ---
 
+## Live observation
+
+`IJournalLiveFeed` fans admitted facts out in-process, after the catalog enablement
+gate and right after enqueue. It is an observation tap, never a read model:
+
+- No replay — a subscriber sees only facts admitted while it is subscribed.
+- No back-pressure on admission — each subscriber has a bounded buffer
+  (`JournalLiveFeed.SubscriberCapacity`) that drops its oldest fact when full.
+- `Sequence` is still zero: durable order comes from `IJournalReader`.
+
+Presentation surface: `SessionHub.StreamJournalAsync` streams
+`JournalFactHubEvent` (catalog identity + envelope + opaque payload JSON) to hub
+clients, so the transport never names a domain or a fact shape.
+
+---
+
 ## Folder map
 
 ```text
@@ -156,7 +176,7 @@ Journal/
   Attributes/   [JournalFact], [JournalIndex]
   Catalog/      Descriptor + factory
   Models/       Envelope, PublishPolicy, Query, HealthState
-  Services/     Writer, Catalog, Queue, Worker, Policy, Health, Metrics, Reader, Options
+  Services/     Writer, Catalog, Queue, LiveFeed, Worker, Policy, Health, Metrics, Reader, Options
   Storage/      EF configurations, Repository, records, mapper
   JournalServiceCollectionExtensions.cs
   JournalFactDiscovery.cs

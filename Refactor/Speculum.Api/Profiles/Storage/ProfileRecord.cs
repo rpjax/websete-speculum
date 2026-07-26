@@ -13,4 +13,10 @@ public sealed class ProfileRecord
     [Required]
     [Column("state_json")]
     public string StateJson { get; set; } = "{}";
+
+    [Column("created_at")]
+    public DateTimeOffset CreatedAt { get; set; }
+
+    [Column("updated_at")]
+    public DateTimeOffset UpdatedAt { get; set; }
 }

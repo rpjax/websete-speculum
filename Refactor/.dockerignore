@@ -1,0 +1,11 @@
+# Build context is Refactor/ (dockup + docker-compose).
+# Host obj/ embeds Windows NuGet fallback paths and breaks Linux publish.
+**/bin/
+**/obj/
+**/node_modules/
+**/.vs/
+**/TestResults/
+deploy/out/
+.git/
+*.user
+*.suo

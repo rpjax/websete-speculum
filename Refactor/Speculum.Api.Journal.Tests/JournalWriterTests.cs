@@ -30,6 +30,7 @@ public sealed class JournalWriterTests
             queue,
             health,
             metrics,
+            new JournalLiveFeed(),
             monitor,
             NullLogger<JournalWriter>.Instance);
 
@@ -65,6 +66,7 @@ public sealed class JournalWriterTests
             queue,
             health,
             metrics,
+            new JournalLiveFeed(),
             new StaticOptionsMonitor<JournalDrainOptions>(new JournalDrainOptions()),
             NullLogger<JournalWriter>.Instance);
 
@@ -93,6 +95,7 @@ public sealed class JournalWriterTests
             queue,
             health,
             metrics,
+            new JournalLiveFeed(),
             new StaticOptionsMonitor<JournalDrainOptions>(new JournalDrainOptions()),
             NullLogger<JournalWriter>.Instance);
 

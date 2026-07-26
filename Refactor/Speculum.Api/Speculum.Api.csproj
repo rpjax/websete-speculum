@@ -4,6 +4,8 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- API is headless: the SPA (Refactor/web) serves all static assets. -->
+    <StaticWebAssetsEnabled>false</StaticWebAssetsEnabled>
   </PropertyGroup>
 
   <ItemGroup>
@@ -33,7 +35,9 @@
     <PackageReference Include="MessagePack" Version="3.1.3" />
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Protocols.MessagePack" Version="10.0.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.0" />
-    <PackageReference Include="WolverineFx" Version="6.19.0" />
+    <PackageReference Include="WolverineFx" Version="6.22.0" />
+    <!-- Core Wolverine no longer ships the runtime compiler; required to boot. -->
+    <PackageReference Include="WolverineFx.RuntimeCompilation" Version="6.22.0" />
   </ItemGroup>
 
   <ItemGroup>

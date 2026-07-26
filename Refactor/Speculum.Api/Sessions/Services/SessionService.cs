@@ -66,6 +66,7 @@ public sealed class SessionService : ISessionService
         CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(request.AttachedClient);
         if (string.IsNullOrWhiteSpace(request.CallerId))
         {
             return Result<StartSessionResponse>.Failure("Caller id is required");
@@ -218,6 +219,7 @@ public sealed class SessionService : ISessionService
                 // Bind runtime to the connection we just provisioned (no re-resolve).
                 var live = _liveSessions.Create(
                     sessionId,
+                    profileId,
                     connection,
                     request.RequestHost,
                     sessionConfiguration.Value.JsBridgeEnabled);
@@ -231,7 +233,7 @@ public sealed class SessionService : ISessionService
 
                 // Arm detached timer only after live context exists.
                 _sessionCollector.Watch(sessionId);
-                var attachment = live.Value.Attach();
+                var attachment = live.Value.Attach(request.AttachedClient);
                 if (attachment.IsFailure)
                 {
                     return await AbortStartAsync(

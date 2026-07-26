@@ -20,6 +20,7 @@ public sealed class JournalWriter : IJournalWriter
     private readonly IJournalQueue _queue;
     private readonly IJournalHealth _health;
     private readonly JournalDrainMetrics _metrics;
+    private readonly IJournalLiveFeed _liveFeed;
     private readonly IOptionsMonitor<JournalDrainOptions> _options;
     private readonly ILogger<JournalWriter> _logger;
     private readonly TimeProvider _timeProvider;
@@ -29,6 +30,7 @@ public sealed class JournalWriter : IJournalWriter
         IJournalQueue queue,
         IJournalHealth health,
         JournalDrainMetrics metrics,
+        IJournalLiveFeed liveFeed,
         IOptionsMonitor<JournalDrainOptions> options,
         ILogger<JournalWriter> logger,
         TimeProvider? timeProvider = null)
@@ -37,6 +39,7 @@ public sealed class JournalWriter : IJournalWriter
         _queue = queue ?? throw new ArgumentNullException(nameof(queue));
         _health = health ?? throw new ArgumentNullException(nameof(health));
         _metrics = metrics ?? throw new ArgumentNullException(nameof(metrics));
+        _liveFeed = liveFeed ?? throw new ArgumentNullException(nameof(liveFeed));
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _timeProvider = timeProvider ?? TimeProvider.System;
@@ -62,7 +65,9 @@ public sealed class JournalWriter : IJournalWriter
             return;
         }
 
-        _queue.Enqueue(CreateEntry(descriptor, payload));
+        var entry = CreateEntry(descriptor, payload);
+        _queue.Enqueue(entry);
+        _liveFeed.Publish(entry);
     }
 
     private void RejectClosedAdmission(JournalEntryDescriptor descriptor)

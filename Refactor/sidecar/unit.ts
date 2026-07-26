@@ -1,5 +1,6 @@
 import assert from 'assert';
 import { matchesAllowedDomain } from './browser/patchright/Navigation';
+import { touchEmulationParams } from './browser/patchright/device-emulation';
 import { validateLaunchViewport, validateResizeViewport } from './browser/patchright/viewport-bounds';
 import { toLaunchOptions } from './grpc/mappers';
 
@@ -57,7 +58,24 @@ function testLaunchEnvironmentIsRequired(): void {
   console.log('[unit] launch environment ok');
 }
 
+function testTouchEmulationParams(): void {
+  assert.deepStrictEqual(
+    touchEmulationParams({ touch: false, mobile: false, maxTouchPoints: 0 }),
+    { enabled: false },
+  );
+  assert.deepStrictEqual(
+    touchEmulationParams({ touch: true, mobile: false, maxTouchPoints: 5 }),
+    { enabled: true, maxTouchPoints: 5 },
+  );
+  assert.throws(
+    () => touchEmulationParams({ touch: true, mobile: false, maxTouchPoints: 0 }),
+    /between 1 and 16/,
+  );
+  console.log('[unit] touch emulation params ok');
+}
+
 testDomainMatch();
 testViewportBounds();
 testLaunchEnvironmentIsRequired();
+testTouchEmulationParams();
 console.log('[unit] all passed');

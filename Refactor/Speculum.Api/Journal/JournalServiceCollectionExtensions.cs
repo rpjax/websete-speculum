@@ -13,7 +13,7 @@ namespace Speculum.Api.Journal;
 public static class JournalServiceCollectionExtensions
 {
     /// <summary>
-    /// Registers Journal admission, drain, health, and metrics.
+    /// Registers Journal admission, drain, health, metrics, and the live observation feed.
     /// Requires <c>AddDatabase()</c> first. Call <see cref="DiscoverJournalFacts"/> to scan facts.
     /// </summary>
     public static IServiceCollection AddJournal(this IServiceCollection services)
@@ -50,6 +50,7 @@ public static class JournalServiceCollectionExtensions
         services.TryAddSingleton<IJournalHealth, JournalHealth>();
         services.TryAddSingleton<IJournalDrainPolicy, JournalDrainPolicy>();
         services.TryAddSingleton<IJournalQueue, JournalQueue>();
+        services.TryAddSingleton<IJournalLiveFeed, JournalLiveFeed>();
         services.TryAddSingleton<IJournalWriter, JournalWriter>();
         services.TryAddSingleton(TimeProvider.System);
 

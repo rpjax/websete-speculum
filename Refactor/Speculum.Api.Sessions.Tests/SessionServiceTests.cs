@@ -3,10 +3,12 @@ using System.Threading.Channels;
 using Aidan.Core.Errors;
 using Aidan.Core.Patterns;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Speculum.Api.BrowserClients;
 using Speculum.Api.Configurations.Models.Sessions;
 using Speculum.Api.Profiles.Aggregates;
+using Speculum.Api.Profiles.Responses;
 using Speculum.Api.Profiles.Services.Contracts;
 using Speculum.Api.Sessions.Aggregates;
 using Speculum.Api.Sessions.Events.Services.Contracts;
@@ -150,7 +152,8 @@ public sealed class SessionServiceTests
         Assert.True(started.IsSuccess);
         var sessionId = started.Value.SessionId;
         Assert.True(live.TryGet(sessionId, out var handle));
-        Assert.True(handle!.Attach().IsSuccess);
+        Assert.NotNull(handle);
+        Assert.True(handle.Attach(new NoOpAttachedClient()).IsFailure);
 
         var stopped = await service.StopSessionAsync(new StopSession { SessionId = sessionId });
         Assert.True(stopped.IsSuccess);
@@ -287,7 +290,41 @@ public sealed class SessionServiceTests
                     Access = InputAccessPolicy.Shared,
                 },
             }),
-            new ScopedMutex());
+            new NoOpSessionEventsFactory(),
+            NullLoggerFactory.Instance);
+    }
+
+    private sealed class NoOpSessionEventsFactory : ISessionEventsFactory
+    {
+        public ISessionLifecycleEvents ForSessionLifecycle(Guid sessionId, Guid profileId)
+            => new NoOpLifecycleEvents();
+
+        public ISessionStartEvents ForSessionStart(Guid sessionId, Guid profileId)
+            => new NoOpStartEvents();
+
+        public ISessionStopEvents ForSessionStop(Guid sessionId, Guid profileId)
+            => new NoOpStopEvents();
+
+        public ISessionLiveEvents ForSessionLive(Guid sessionId, Guid profileId)
+            => new NoOpLiveEvents();
+
+        public ISessionLifecycleEvents ForSessionLifecycle(Session session)
+            => new NoOpLifecycleEvents();
+
+        public ISessionStartEvents ForSessionStart(Session session)
+            => new NoOpStartEvents();
+
+        public ISessionStopEvents ForSessionStop(Session session)
+            => new NoOpStopEvents();
+
+        public ISessionLiveEvents ForSessionLive(Session session)
+            => new NoOpLiveEvents();
+    }
+
+    private sealed class NoOpLiveEvents : ISessionLiveEvents
+    {
+        public void AttachedClientCommandFailed(string command, Exception exception) { }
+        public void FeatureLoopFaulted(Exception exception) { }
     }
 
     private sealed class FixedUrlResolver(string url) : IUrlResolver
@@ -304,27 +341,6 @@ public sealed class SessionServiceTests
     private sealed class FixedSessionTokenGenerator(string token) : ISessionTokenGenerator
     {
         public string GetRandom() => token;
-    }
-
-    private sealed class NoOpSessionEventsFactory : ISessionEventsFactory
-    {
-        public ISessionLifecycleEvents ForSessionLifecycle(Guid sessionId, Guid profileId)
-            => new NoOpLifecycleEvents();
-
-        public ISessionStartEvents ForSessionStart(Guid sessionId, Guid profileId)
-            => new NoOpStartEvents();
-
-        public ISessionStopEvents ForSessionStop(Guid sessionId, Guid profileId)
-            => new NoOpStopEvents();
-
-        public ISessionLifecycleEvents ForSessionLifecycle(Session session)
-            => ForSessionLifecycle(session.Id, session.ProfileId);
-
-        public ISessionStartEvents ForSessionStart(Session session)
-            => ForSessionStart(session.Id, session.ProfileId);
-
-        public ISessionStopEvents ForSessionStop(Session session)
-            => ForSessionStop(session.Id, session.ProfileId);
     }
 
     private sealed class NoOpLifecycleEvents : ISessionLifecycleEvents
@@ -383,6 +399,10 @@ public sealed class SessionServiceTests
             LastSavedId = session.Id;
             return Task.CompletedTask;
         }
+
+        public Task<bool> AnyLiveByProfileAsync(Guid profileId, CancellationToken ct = default)
+            => Task.FromResult(_sessions.Values.Any(
+                s => s.ProfileId == profileId && s.State == LifecycleState.Live));
     }
 
     private sealed class RecordingCollector : ISessionCollector
@@ -396,10 +416,20 @@ public sealed class SessionServiceTests
         public void Unwatch(Guid sessionId) => Unwatched.Add(sessionId);
     }
 
+    private sealed class NoOpAttachedClient : IAttachedSessionClient
+    {
+        public Task SyncUrlAsync(string url, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task RedirectAsync(string url, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+    }
+
     private sealed class FailingLiveSessionService : ILiveSessionService
     {
         public IResult<ILiveSession> Create(
             Guid sessionId,
+            Guid profileId,
             ISessionConnection connection,
             string requestHost,
             bool jsBridgeEnabled)
@@ -429,6 +459,44 @@ public sealed class SessionServiceTests
             _profiles[profile.Id] = profile;
             return Task.CompletedTask;
         }
+
+        public Task<ProfileSummary?> GetSummaryAsync(Guid profileId, CancellationToken ct = default)
+        {
+            if (!_profiles.TryGetValue(profileId, out var profile))
+                return Task.FromResult<ProfileSummary?>(null);
+
+            return Task.FromResult<ProfileSummary?>(new ProfileSummary
+            {
+                ProfileId = profile.Id,
+                CreatedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = DateTimeOffset.UtcNow,
+                CookieCount = profile.State.Cookies.Count,
+                LocalStorageCount = profile.State.LocalStorage.Count,
+                IdbRecordCount = profile.State.IdbRecords.Count,
+                HistoryCount = profile.State.History.Count,
+            });
+        }
+
+        public Task<(IReadOnlyList<ProfileListItem> Items, int Total)> ListAsync(
+            int skip,
+            int take,
+            CancellationToken ct = default)
+        {
+            var all = _profiles.Values
+                .Select(p => new ProfileListItem
+                {
+                    ProfileId = p.Id,
+                    CreatedAt = DateTimeOffset.UtcNow,
+                    UpdatedAt = DateTimeOffset.UtcNow,
+                })
+                .ToList();
+            return Task.FromResult<(IReadOnlyList<ProfileListItem>, int)>((
+                all.Skip(skip).Take(take).ToList(),
+                all.Count));
+        }
+
+        public Task<bool> DeleteAsync(Guid profileId, CancellationToken ct = default)
+            => Task.FromResult(_profiles.Remove(profileId));
     }
 
     private sealed class FakeBrowserClient : IBrowserClient

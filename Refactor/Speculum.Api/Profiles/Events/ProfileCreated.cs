@@ -1,6 +1,22 @@
+using Speculum.Api.Journal.Attributes;
+using Speculum.Api.Journal.Models;
+
 namespace Speculum.Api.Profiles.Events;
 
+/// <summary>Journal fact: a new durable profile identity was issued.</summary>
+[JournalFact(
+    "Profiles.ProfileCreated",
+    schemaVersion: 1,
+    Name = "Profile created",
+    Description = "A server-generated profile id was issued for a client ensure.",
+    Owner = "profiles",
+    PublishPolicy = PublishPolicy.Guaranteed,
+    EnabledByDefault = true)]
 public sealed class ProfileCreated
 {
-    public Guid Id { get; set; }
+    [JournalIndex("profile")]
+    public required Guid ProfileId { get; init; }
+
+    [JournalIndex("correlation")]
+    public string? CorrelationId { get; init; }
 }

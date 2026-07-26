@@ -49,9 +49,7 @@ COPY sidecar/host ./host
 COPY sidecar/index.ts sidecar/smoke.ts sidecar/smoke-remote.ts sidecar/unit.ts ./
 COPY proto /proto
 
-RUN npm run build \
- && mkdir -p /app/../proto \
- && cp /proto/browser_session.proto /app/../proto/browser_session.proto
+RUN npm run build
 
 EXPOSE 50051 3001
 

@@ -4,6 +4,9 @@ using Microsoft.Extensions.DependencyInjection;
 using Speculum.Api.Database;
 using Speculum.Api.Journal;
 using Speculum.Api.Journal.Services.Contracts;
+using Speculum.Api.Profiles;
+using Speculum.Api.Profiles.Events;
+using Speculum.Api.Profiles.Events.Services.Contracts;
 using Speculum.Api.Profiles.Services.Contracts;
 using Speculum.Api.Sessions;
 using Speculum.Api.Sessions.Events.Models;
@@ -67,14 +70,18 @@ public sealed class BrowserSessionsCompositionTests
         services.AddDbContext<SpeculumDbContext>(o => o.UseSqlite("Data Source=:memory:"));
         services.AddJournal();
         services.DiscoverJournalFacts();
+        services.AddProfiles();
         services.AddBrowserSessions();
 
         Assert.Contains(services, d => d.ServiceType == typeof(ILiveSessionService));
-        Assert.Contains(services, d => d.ServiceType == typeof(IScopedMutex));
+        Assert.Contains(services, d => d.ServiceType == typeof(IAsyncScopedMutex));
+        Assert.DoesNotContain(services, d => d.ServiceType == typeof(IScopedMutex));
 
         using var provider = services.BuildServiceProvider();
         Assert.NotNull(provider.GetService<ISessionRepository>());
         Assert.NotNull(provider.GetService<IProfileRepository>());
+        Assert.NotNull(provider.GetService<IProfileService>());
+        Assert.NotNull(provider.GetService<IProfileEventsFactory>());
         Assert.NotNull(provider.GetService<ISessionSlotRegistry>());
         Assert.NotNull(provider.GetService<ISessionCollector>());
         Assert.NotNull(provider.GetService<ISessionEventsFactory>());
@@ -91,5 +98,9 @@ public sealed class BrowserSessionsCompositionTests
         Assert.True(catalog.TryGet<SessionTimedOut>(out _));
         Assert.True(catalog.TryGet<SessionStarting>(out _));
         Assert.True(catalog.TryGet<SlotAcquired>(out _));
+        Assert.True(catalog.TryGet<ProfileCreated>(out _));
+        Assert.True(catalog.TryGet<ProfileReused>(out _));
+        Assert.True(catalog.TryGet<ProfileDeleted>(out _));
+        Assert.True(catalog.TryGet<ProfileDeleteRejectedSessionLive>(out _));
     }
 }

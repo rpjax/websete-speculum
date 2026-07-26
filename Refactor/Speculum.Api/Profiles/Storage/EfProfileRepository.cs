@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Speculum.Api.Database;
 using Speculum.Api.Profiles.Aggregates;
+using Speculum.Api.Profiles.Responses;
 using Speculum.Api.Profiles.Services.Contracts;
 
 namespace Speculum.Api.Profiles.Storage;
@@ -8,10 +9,12 @@ namespace Speculum.Api.Profiles.Storage;
 public sealed class EfProfileRepository : IProfileRepository
 {
     private readonly SpeculumDbContext _db;
+    private readonly TimeProvider _time;
 
-    public EfProfileRepository(SpeculumDbContext db)
+    public EfProfileRepository(SpeculumDbContext db, TimeProvider? time = null)
     {
         _db = db ?? throw new ArgumentNullException(nameof(db));
+        _time = time ?? TimeProvider.System;
     }
 
     public async Task<bool> ExistsAsync(Guid profileId, CancellationToken ct = default)
@@ -34,20 +37,66 @@ public sealed class EfProfileRepository : IProfileRepository
     {
         ArgumentNullException.ThrowIfNull(profile);
 
-        var record = ProfileMapper.ToRecord(profile);
+        var now = _time.GetUtcNow();
         var existing = await _db.Profiles
             .FirstOrDefaultAsync(p => p.Id == profile.Id, ct)
             .ConfigureAwait(false);
 
         if (existing is null)
         {
-            _db.Profiles.Add(record);
+            _db.Profiles.Add(ProfileMapper.ToRecord(profile, now));
         }
         else
         {
-            existing.StateJson = record.StateJson;
+            var updated = ProfileMapper.ToRecord(profile, now);
+            existing.StateJson = updated.StateJson;
+            existing.UpdatedAt = now;
         }
 
         await _db.SaveChangesAsync(ct).ConfigureAwait(false);
+    }
+
+    public async Task<ProfileSummary?> GetSummaryAsync(Guid profileId, CancellationToken ct = default)
+    {
+        var record = await _db.Profiles
+            .AsNoTracking()
+            .FirstOrDefaultAsync(p => p.Id == profileId, ct)
+            .ConfigureAwait(false);
+
+        return record is null ? null : ProfileMapper.ToSummary(record);
+    }
+
+    public async Task<(IReadOnlyList<ProfileListItem> Items, int Total)> ListAsync(
+        int skip,
+        int take,
+        CancellationToken ct = default)
+    {
+        var query = _db.Profiles.AsNoTracking();
+        var total = await query.CountAsync(ct).ConfigureAwait(false);
+        var items = await query
+            .OrderByDescending(p => p.CreatedAt)
+            .ThenBy(p => p.Id)
+            .Skip(skip)
+            .Take(take)
+            .Select(p => new ProfileListItem
+            {
+                ProfileId = p.Id,
+                CreatedAt = p.CreatedAt,
+                UpdatedAt = p.UpdatedAt,
+            })
+            .ToListAsync(ct)
+            .ConfigureAwait(false);
+
+        return (items, total);
+    }
+
+    public async Task<bool> DeleteAsync(Guid profileId, CancellationToken ct = default)
+    {
+        var deleted = await _db.Profiles
+            .Where(p => p.Id == profileId)
+            .ExecuteDeleteAsync(ct)
+            .ConfigureAwait(false);
+
+        return deleted > 0;
     }
 }

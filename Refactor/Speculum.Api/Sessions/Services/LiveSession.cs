@@ -1,6 +1,7 @@
 using System.Threading.Channels;
 using Aidan.Core.Patterns;
 using Speculum.Api.BrowserClients;
+using Speculum.Api.Sessions.Events.Services.Contracts;
 using Speculum.Api.Sessions.Models;
 using Speculum.Api.Sessions.Requests;
 using Speculum.Api.Sessions.Services.Contracts;
@@ -9,7 +10,7 @@ using Speculum.Api.Shared.Services;
 namespace Speculum.Api.Sessions.Services;
 
 /// <summary>
-/// In-memory context for one live connection: mux, hooks, commands, attachments.
+/// In-memory context for one live connection: mux, hooks, commands, one attached client.
 /// Output streams are owned by callers (dispose to unregister); presence is Attach/Detach.
 /// </summary>
 internal sealed class LiveSession : ILiveSession
@@ -19,13 +20,18 @@ internal sealed class LiveSession : ILiveSession
     private readonly SessionHooks _hooks;
     private readonly ISessionCollector _collector;
     private readonly IUrlResolver _urls;
+    private readonly ISessionLiveEvents _liveEvents;
+    private readonly ILogger _logger;
     private readonly string _requestHost;
     private readonly bool _jsBridgeEnabled;
     private readonly long _startedTimestamp = Environment.TickCount64;
     private readonly ScopedMutex _commandGate = new();
     private readonly object _attachmentGate = new();
-    private readonly HashSet<Guid> _attachments = new();
 
+    private Guid? _attachmentId;
+    private IAttachedSessionClient? _attachedClient;
+    private INotificationStream? _featureNotifications;
+    private Task? _featureLoop;
     private CancellationTokenSource? _lifetime = new();
     private int _released;
 
@@ -39,7 +45,9 @@ internal sealed class LiveSession : ILiveSession
         ISessionCollector collector,
         IUrlResolver urls,
         string requestHost,
-        bool jsBridgeEnabled)
+        bool jsBridgeEnabled,
+        ISessionLiveEvents liveEvents,
+        ILogger logger)
     {
         SessionId = sessionId;
         _connection = connection;
@@ -49,6 +57,8 @@ internal sealed class LiveSession : ILiveSession
         _urls = urls;
         _requestHost = requestHost;
         _jsBridgeEnabled = jsBridgeEnabled;
+        _liveEvents = liveEvents;
+        _logger = logger;
 
         hooks.BindToConnection(connection);
     }
@@ -62,39 +72,46 @@ internal sealed class LiveSession : ILiveSession
 
         lock (_attachmentGate)
         {
-            foreach (var _ in _attachments)
+            if (_attachmentId is not null)
             {
                 _collector.Release(SessionId);
             }
 
-            _attachments.Clear();
+            _attachmentId = null;
+            _attachedClient = null;
         }
-
-        _hooks.Unbind(_connection.IsOpen ? _connection : null);
-        _mux.Dispose();
 
         var lifetime = Interlocked.Exchange(ref _lifetime, null);
-        if (lifetime is null)
+        if (lifetime is not null)
         {
-            return;
+            try
+            {
+                lifetime.Cancel();
+            }
+            finally
+            {
+                lifetime.Dispose();
+            }
         }
 
-        try
-        {
-            lifetime.Cancel();
-        }
-        finally
-        {
-            lifetime.Dispose();
-        }
+        _featureNotifications?.Dispose();
+        _featureNotifications = null;
+        _hooks.Unbind(_connection.IsOpen ? _connection : null);
+        _mux.Dispose();
     }
 
     private bool IsReleased => Volatile.Read(ref _released) != 0;
 
     // ── Caller attachment ────────────────────────────────────────────────────
 
-    public IResult<Guid> Attach()
+    public IResult<Guid> Attach(IAttachedSessionClient client)
     {
+        ArgumentNullException.ThrowIfNull(client);
+
+        ChannelReader<SessionNotification>? featureReader = null;
+        CancellationToken lifetimeToken = default;
+        Guid attachedId;
+
         lock (_attachmentGate)
         {
             if (IsReleased)
@@ -102,11 +119,50 @@ internal sealed class LiveSession : ILiveSession
                 return Result<Guid>.Failure("Live session is released");
             }
 
-            var attachmentId = Guid.CreateVersion7();
-            _attachments.Add(attachmentId);
+            if (_attachmentId is not null)
+            {
+                return Result<Guid>.Failure("A client is already attached");
+            }
+
+            if (_featureNotifications is null)
+            {
+                var stream = OpenNotificationStream();
+                if (stream.IsFailure)
+                {
+                    return Result<Guid>.Failure(stream.Errors.ToArray());
+                }
+
+                if (!TryGetLifetimeToken(out lifetimeToken))
+                {
+                    stream.Value.Dispose();
+                    return Result<Guid>.Failure("Live session is released");
+                }
+
+                var channel = stream.Value.GetNotificationChannel();
+                if (channel.IsFailure)
+                {
+                    stream.Value.Dispose();
+                    return Result<Guid>.Failure(channel.Errors.ToArray());
+                }
+
+                _featureNotifications = stream.Value;
+                featureReader = channel.Value;
+            }
+
+            attachedId = Guid.CreateVersion7();
+            _attachmentId = attachedId;
+            _attachedClient = client;
             _collector.AddRef(SessionId);
-            return Result<Guid>.Success(attachmentId);
         }
+
+        if (featureReader is not null)
+        {
+            var loop = RunFeatureLoopAsync(featureReader, lifetimeToken);
+            _featureLoop = loop;
+            ObserveFeatureLoop(loop);
+        }
+
+        return Result<Guid>.Success(attachedId);
     }
 
     public IResult Detach(Guid attachmentId)
@@ -115,17 +171,126 @@ internal sealed class LiveSession : ILiveSession
         {
             if (IsReleased)
             {
-                // Release already dropped all attachments and collector refs.
+                // Release already dropped the attachment and collector ref.
                 return Result.Success();
             }
 
-            if (!_attachments.Remove(attachmentId))
+            if (_attachmentId != attachmentId)
             {
                 return Result.Failure("Attachment not found");
             }
 
+            _attachmentId = null;
+            _attachedClient = null;
             _collector.Release(SessionId);
             return Result.Success();
+        }
+    }
+
+    private void ObserveFeatureLoop(Task loop)
+    {
+        _ = loop.ContinueWith(
+            static (task, state) =>
+            {
+                var session = (LiveSession)state!;
+                if (task.IsFaulted && task.Exception is not null)
+                {
+                    var error = task.Exception.GetBaseException();
+                    session._logger.LogError(
+                        error,
+                        "Session {SessionId} feature loop faulted.",
+                        session.SessionId);
+                    try
+                    {
+                        session._liveEvents.FeatureLoopFaulted(error);
+                    }
+                    catch (Exception journalEx)
+                    {
+                        session._logger.LogWarning(
+                            journalEx,
+                            "Session {SessionId} failed to journal FeatureLoopFaulted.",
+                            session.SessionId);
+                    }
+                }
+            },
+            this,
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously | TaskContinuationOptions.OnlyOnFaulted,
+            TaskScheduler.Default);
+    }
+
+    private async Task RunFeatureLoopAsync(
+        ChannelReader<SessionNotification> reader,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await foreach (var notification in reader.ReadAllAsync(cancellationToken)
+                .ConfigureAwait(false))
+            {
+                IAttachedSessionClient? client;
+                lock (_attachmentGate)
+                {
+                    client = _attachedClient;
+                }
+
+                if (client is null || string.IsNullOrWhiteSpace(notification.Url))
+                {
+                    continue;
+                }
+
+                var url = notification.Url.Trim();
+                string? command = null;
+                try
+                {
+                    switch (notification.Kind)
+                    {
+                        case SessionNotificationKind.LocationChanged:
+                            command = "SyncUrl";
+                            await client.SyncUrlAsync(url, cancellationToken).ConfigureAwait(false);
+                            break;
+                        case SessionNotificationKind.MainFrameNavigationBlocked:
+                            command = "Redirect";
+                            await client.RedirectAsync(url, cancellationToken).ConfigureAwait(false);
+                            break;
+                    }
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(
+                        ex,
+                        "Session {SessionId} failed to push {Kind} to attached client.",
+                        SessionId,
+                        notification.Kind);
+                    if (command is not null)
+                    {
+                        try
+                        {
+                            _liveEvents.AttachedClientCommandFailed(command, ex);
+                        }
+                        catch (Exception journalEx)
+                        {
+                            _logger.LogWarning(
+                                journalEx,
+                                "Session {SessionId} failed to journal AttachedClientCommandFailed.",
+                                SessionId);
+                        }
+                    }
+                }
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (ChannelClosedException)
+        {
+        }
+        catch (ObjectDisposedException)
+        {
         }
     }
 

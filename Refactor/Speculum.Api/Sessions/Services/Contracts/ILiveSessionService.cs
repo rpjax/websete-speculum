@@ -16,6 +16,7 @@ public interface ILiveSessionService
     /// </summary>
     IResult<ILiveSession> Create(
         Guid sessionId,
+        Guid profileId,
         ISessionConnection connection,
         string requestHost,
         bool jsBridgeEnabled);

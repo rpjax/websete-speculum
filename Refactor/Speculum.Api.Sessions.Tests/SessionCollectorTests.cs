@@ -172,6 +172,9 @@ public sealed class SessionCollectorTests
         public ISessionStopEvents ForSessionStop(Guid sessionId, Guid profileId)
             => throw new NotSupportedException();
 
+        public ISessionLiveEvents ForSessionLive(Guid sessionId, Guid profileId)
+            => throw new NotSupportedException();
+
         public ISessionLifecycleEvents ForSessionLifecycle(Session session)
             => ForSessionLifecycle(session.Id, session.ProfileId);
 
@@ -180,6 +183,9 @@ public sealed class SessionCollectorTests
 
         public ISessionStopEvents ForSessionStop(Session session)
             => ForSessionStop(session.Id, session.ProfileId);
+
+        public ISessionLiveEvents ForSessionLive(Session session)
+            => ForSessionLive(session.Id, session.ProfileId);
     }
 
     private sealed class RecordingLifecycleEvents : ISessionLifecycleEvents
@@ -222,6 +228,10 @@ public sealed class SessionCollectorTests
             _sessions[session.Id] = session;
             return Task.CompletedTask;
         }
+
+        public Task<bool> AnyLiveByProfileAsync(Guid profileId, CancellationToken ct = default)
+            => Task.FromResult(_sessions.Values.Any(
+                s => s.ProfileId == profileId && s.State == LifecycleState.Live));
     }
 
     private sealed class FakeSessionService : ISessionService

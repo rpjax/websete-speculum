@@ -1,11 +1,13 @@
 using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
 using Aidan.Core.Patterns;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Speculum.Api.BrowserClients;
 using Speculum.Api.Configurations.Models.Sessions;
+using Speculum.Api.Sessions.Events.Services.Contracts;
 using Speculum.Api.Sessions.Services.Contracts;
-using Speculum.Api.Shared.Services.Contracts;
+using Speculum.Api.Shared.Services;
 
 namespace Speculum.Api.Sessions.Services;
 
@@ -18,22 +20,31 @@ public sealed class LiveSessionService : ILiveSessionService
     private readonly ISessionCollector _collector;
     private readonly IUrlResolver _urls;
     private readonly IOptions<SessionsConfiguration> _sessionsOptions;
-    private readonly IScopedMutex _mutex;
+    private readonly ISessionEventsFactory _events;
+    private readonly ILoggerFactory _loggerFactory;
+    /// <summary>
+    /// Registry lock only. Must not be the session lifecycle gate — <c>StopSession</c>
+    /// already holds that lock when it calls <see cref="Release"/>.
+    /// </summary>
+    private readonly ScopedMutex _registryGate = new();
 
     public LiveSessionService(
         ISessionCollector collector,
         IUrlResolver urls,
         IOptions<SessionsConfiguration> sessionsOptions,
-        IScopedMutex mutex)
+        ISessionEventsFactory events,
+        ILoggerFactory loggerFactory)
     {
         _collector = collector;
         _urls = urls;
         _sessionsOptions = sessionsOptions;
-        _mutex = mutex;
+        _events = events;
+        _loggerFactory = loggerFactory;
     }
 
     public IResult<ILiveSession> Create(
         Guid sessionId,
+        Guid profileId,
         ISessionConnection connection,
         string requestHost,
         bool jsBridgeEnabled)
@@ -54,7 +65,7 @@ public sealed class LiveSessionService : ILiveSessionService
             return Result<ILiveSession>.Failure("The session does not have an active connection");
         }
 
-        using (_mutex.Acquire(sessionId))
+        using (_registryGate.Acquire(sessionId))
         {
             if (_sessions.ContainsKey(sessionId))
             {
@@ -75,7 +86,9 @@ public sealed class LiveSessionService : ILiveSessionService
                 _collector,
                 _urls,
                 requestHost,
-                jsBridgeEnabled);
+                jsBridgeEnabled,
+                _events.ForSessionLive(sessionId, profileId),
+                _loggerFactory.CreateLogger<LiveSession>());
 
             if (!_sessions.TryAdd(sessionId, live))
             {
@@ -101,14 +114,15 @@ public sealed class LiveSessionService : ILiveSessionService
 
     public void Release(Guid sessionId)
     {
-        using (_mutex.Acquire(sessionId))
+        LiveSession? live;
+        using (_registryGate.Acquire(sessionId))
         {
-            if (!_sessions.TryRemove(sessionId, out var live))
+            if (!_sessions.TryRemove(sessionId, out live))
             {
                 return;
             }
-
-            live.Release();
         }
+
+        live.Release();
     }
 }

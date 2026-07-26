@@ -58,6 +58,8 @@ public static class BrowserSessionsServiceCollectionExtensions
             ServiceDescriptor.Singleton<IValidateOptions<SessionsConfiguration>, SessionsConfigurationValidator>());
 
         services.TryAddScoped<ISessionRepository, EfSessionRepository>();
+        // Keep TryAdd so composition tests that only call AddBrowserSessions still resolve
+        // the profile store; hosts should prefer AddProfiles() for the full profile stack.
         services.TryAddScoped<IProfileRepository, EfProfileRepository>();
         services.TryAddSingleton<ISessionSlotRegistry, SessionSlotRegistry>();
         services.TryAddSingleton<ISessionCollector, SessionCollector>();
@@ -65,9 +67,9 @@ public static class BrowserSessionsServiceCollectionExtensions
         services.TryAddSingleton<ISessionEventsFactory, SessionEventsFactory>();
         services.TryAddSingleton<ISessionTokenGenerator, SessionTokenGenerator>();
         services.TryAddSingleton<ILaunchScriptResolver, LaunchScriptResolver>();
-        services.TryAddSingleton<ScopedMutex>();
-        services.TryAddSingleton<IScopedMutex>(sp => sp.GetRequiredService<ScopedMutex>());
-        services.TryAddSingleton<IAsyncScopedMutex>(sp => sp.GetRequiredService<ScopedMutex>());
+        // Session lifecycle gate only. LiveSessionService owns a separate registry lock —
+        // sharing this instance deadlocks StopSession (holds gate → Release tries same key).
+        services.TryAddSingleton<IAsyncScopedMutex>(_ => new ScopedMutex());
         services.TryAddSingleton<ILiveSessionService, LiveSessionService>();
 
         return services;

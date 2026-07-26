@@ -94,6 +94,7 @@ public sealed class SessionBindingRegistryTests
 
         public IResult<ILiveSession> Create(
             Guid sessionId,
+            Guid profileId,
             ISessionConnection connection,
             string requestHost,
             bool jsBridgeEnabled)
@@ -122,7 +123,8 @@ public sealed class SessionBindingRegistryTests
         public Guid SessionId { get; }
         public Guid? DetachedAttachmentId { get; private set; }
 
-        public IResult<Guid> Attach() => Result<Guid>.Success(Guid.NewGuid());
+        public IResult<Guid> Attach(IAttachedSessionClient client)
+            => Result<Guid>.Success(Guid.NewGuid());
 
         public IResult Detach(Guid attachmentId)
         {

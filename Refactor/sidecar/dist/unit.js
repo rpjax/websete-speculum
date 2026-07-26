@@ -5,6 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 const assert_1 = __importDefault(require("assert"));
 const Navigation_1 = require("./browser/patchright/Navigation");
+const device_emulation_1 = require("./browser/patchright/device-emulation");
 const viewport_bounds_1 = require("./browser/patchright/viewport-bounds");
 const mappers_1 = require("./grpc/mappers");
 function testDomainMatch() {
@@ -50,8 +51,15 @@ function testLaunchEnvironmentIsRequired() {
     assert_1.default.strictEqual(options.geolocation?.accuracy, 10);
     console.log('[unit] launch environment ok');
 }
+function testTouchEmulationParams() {
+    assert_1.default.deepStrictEqual((0, device_emulation_1.touchEmulationParams)({ touch: false, mobile: false, maxTouchPoints: 0 }), { enabled: false });
+    assert_1.default.deepStrictEqual((0, device_emulation_1.touchEmulationParams)({ touch: true, mobile: false, maxTouchPoints: 5 }), { enabled: true, maxTouchPoints: 5 });
+    assert_1.default.throws(() => (0, device_emulation_1.touchEmulationParams)({ touch: true, mobile: false, maxTouchPoints: 0 }), /between 1 and 16/);
+    console.log('[unit] touch emulation params ok');
+}
 testDomainMatch();
 testViewportBounds();
 testLaunchEnvironmentIsRequired();
+testTouchEmulationParams();
 console.log('[unit] all passed');
 //# sourceMappingURL=unit.js.map

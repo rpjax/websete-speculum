@@ -18,6 +18,7 @@ sidecar/dist/
 # dockup deploy artifacts
 deploy/speculum.dockup.json
 deploy/out/
+Refactor/deploy/out/
 
 # Local API SQLite (dotnet run)
 Speculum.Api/data/

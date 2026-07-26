@@ -1,14 +1,16 @@
 using System.Threading.Channels;
 using Aidan.Core.Patterns;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Speculum.Api.BrowserClients;
 using Speculum.Api.Configurations.Models.Sessions;
 using Speculum.Api.Profiles.Aggregates;
+using Speculum.Api.Sessions.Aggregates;
+using Speculum.Api.Sessions.Events.Services.Contracts;
 using Speculum.Api.Sessions.Models;
 using Speculum.Api.Sessions.Requests;
 using Speculum.Api.Sessions.Services;
 using Speculum.Api.Sessions.Services.Contracts;
-using Speculum.Api.Shared.Services;
 
 namespace Speculum.Api.Sessions.Tests;
 
@@ -21,8 +23,8 @@ public sealed class LiveSessionTests
         var connection = new LiveFakeConnection(sessionId);
         var service = CreateService();
 
-        var created = service.Create(sessionId, connection, "speculum.test", true);
-        var again = service.Create(sessionId, connection, "speculum.test", true);
+        var created = service.Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true);
+        var again = service.Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true);
 
         Assert.True(created.IsSuccess);
         Assert.True(again.IsFailure);
@@ -45,7 +47,7 @@ public sealed class LiveSessionTests
     {
         var sessionId = Guid.NewGuid();
         var connection = new LiveFakeConnection(sessionId);
-        var live = CreateService().Create(sessionId, connection, "speculum.test", true).Value;
+        var live = CreateService().Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
 
         var a = live.OpenFrameStream().Value;
         var b = live.OpenFrameStream().Value;
@@ -60,7 +62,7 @@ public sealed class LiveSessionTests
     {
         var sessionId = Guid.NewGuid();
         var connection = new LiveFakeConnection(sessionId);
-        var live = CreateService().Create(sessionId, connection, "speculum.test", true).Value;
+        var live = CreateService().Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
 
         var a = live.OpenFrameStream().Value;
         var b = live.OpenFrameStream().Value;
@@ -76,7 +78,7 @@ public sealed class LiveSessionTests
     {
         var sessionId = Guid.NewGuid();
         var connection = new LiveFakeConnection(sessionId);
-        var live = CreateService().Create(sessionId, connection, "speculum.test", true).Value;
+        var live = CreateService().Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
 
         var first = live.OpenFrameStream().Value;
         first.Dispose();
@@ -87,7 +89,7 @@ public sealed class LiveSessionTests
     }
 
     [Fact]
-    public async Task Attachments_NotStreams_HoldCollectorReferences()
+    public async Task Attach_SingleClient_SecondAttachFails()
     {
         var sessionId = Guid.NewGuid();
         var connection = new LiveFakeConnection(sessionId);
@@ -96,24 +98,139 @@ public sealed class LiveSessionTests
             new RecordingUrlResolver("https://example.test/"),
             Options.Create(new SessionsConfiguration()),
             collector);
-        var live = service.Create(sessionId, connection, "speculum.test", true).Value;
+        var live = service.Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
 
         var stream = live.OpenFrameStream().Value;
         stream.Dispose();
         Assert.Equal(0, collector.AddRefs);
         Assert.Equal(0, collector.Releases);
 
-        var first = live.Attach().Value;
-        var second = live.Attach().Value;
-        Assert.Equal(2, collector.AddRefs);
+        var first = live.Attach(new RecordingAttachedClient()).Value;
+        Assert.Equal(1, collector.AddRefs);
+        Assert.True(live.Attach(new RecordingAttachedClient()).IsFailure);
 
         Assert.True(live.Detach(first).IsSuccess);
         Assert.True(live.Detach(first).IsFailure);
         Assert.Equal(1, collector.Releases);
 
         service.Release(sessionId);
-        Assert.Equal(2, collector.Releases);
-        Assert.True(live.Detach(second).IsSuccess);
+        Assert.Equal(1, collector.Releases);
+        Assert.True(live.Detach(first).IsSuccess);
+    }
+
+    [Fact]
+    public async Task FeatureLoop_LocationChangedBufferedBeforeAttach_CallsSyncUrl()
+    {
+        var sessionId = Guid.NewGuid();
+        var connection = new LiveFakeConnection(sessionId);
+        var live = CreateService().Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
+
+        await connection.Notifications.Writer.WriteAsync(new SessionNotification
+        {
+            Kind = SessionNotificationKind.LocationChanged,
+            Url = "https://example.test/before-attach",
+        });
+
+        var client = new RecordingAttachedClient();
+        Assert.True(live.Attach(client).IsSuccess);
+
+        var url = await client.WaitSyncUrlAsync(TimeSpan.FromSeconds(2));
+        Assert.Equal("https://example.test/before-attach", url);
+    }
+
+    [Fact]
+    public async Task FeatureLoop_LocationChanged_CallsSyncUrl()
+    {
+        var sessionId = Guid.NewGuid();
+        var connection = new LiveFakeConnection(sessionId);
+        var live = CreateService().Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
+        var client = new RecordingAttachedClient();
+        Assert.True(live.Attach(client).IsSuccess);
+
+        await connection.Notifications.Writer.WriteAsync(new SessionNotification
+        {
+            Kind = SessionNotificationKind.LocationChanged,
+            Url = "https://example.test/synced",
+        });
+
+        var url = await client.WaitSyncUrlAsync(TimeSpan.FromSeconds(2));
+        Assert.Equal("https://example.test/synced", url);
+    }
+
+    [Fact]
+    public async Task FeatureLoop_MainFrameBlocked_CallsRedirect()
+    {
+        var sessionId = Guid.NewGuid();
+        var connection = new LiveFakeConnection(sessionId);
+        var live = CreateService().Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
+        var client = new RecordingAttachedClient();
+        Assert.True(live.Attach(client).IsSuccess);
+
+        await connection.Notifications.Writer.WriteAsync(new SessionNotification
+        {
+            Kind = SessionNotificationKind.MainFrameNavigationBlocked,
+            Url = "https://blocked.test/",
+        });
+
+        var url = await client.WaitRedirectAsync(TimeSpan.FromSeconds(2));
+        Assert.Equal("https://blocked.test/", url);
+    }
+
+    [Fact]
+    public async Task FeatureLoop_EmptyUrl_DoesNotCallClient()
+    {
+        var sessionId = Guid.NewGuid();
+        var connection = new LiveFakeConnection(sessionId);
+        var live = CreateService().Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
+        var client = new RecordingAttachedClient();
+        Assert.True(live.Attach(client).IsSuccess);
+
+        await connection.Notifications.Writer.WriteAsync(new SessionNotification
+        {
+            Kind = SessionNotificationKind.LocationChanged,
+            Url = "   ",
+        });
+        await connection.Notifications.Writer.WriteAsync(new SessionNotification
+        {
+            Kind = SessionNotificationKind.LocationChanged,
+            Url = "https://example.test/after-empty",
+        });
+
+        var url = await client.WaitSyncUrlAsync(TimeSpan.FromSeconds(2));
+        Assert.Equal("https://example.test/after-empty", url);
+        Assert.Equal(1, client.SyncUrlCount);
+    }
+
+    [Fact]
+    public async Task FeatureLoop_Detach_StopsPushingUntilReattach()
+    {
+        var sessionId = Guid.NewGuid();
+        var connection = new LiveFakeConnection(sessionId);
+        var live = CreateService().Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
+        var first = new RecordingAttachedClient();
+        var attachmentId = live.Attach(first).Value;
+
+        Assert.True(live.Detach(attachmentId).IsSuccess);
+
+        await connection.Notifications.Writer.WriteAsync(new SessionNotification
+        {
+            Kind = SessionNotificationKind.LocationChanged,
+            Url = "https://example.test/while-detached",
+        });
+
+        await Task.Delay(100);
+        Assert.Equal(0, first.SyncUrlCount);
+
+        var second = new RecordingAttachedClient();
+        Assert.True(live.Attach(second).IsSuccess);
+        await connection.Notifications.Writer.WriteAsync(new SessionNotification
+        {
+            Kind = SessionNotificationKind.LocationChanged,
+            Url = "https://example.test/reattached",
+        });
+
+        var url = await second.WaitSyncUrlAsync(TimeSpan.FromSeconds(2));
+        Assert.Equal("https://example.test/reattached", url);
     }
 
     [Fact]
@@ -121,7 +238,7 @@ public sealed class LiveSessionTests
     {
         var sessionId = Guid.NewGuid();
         var connection = new LiveFakeConnection(sessionId);
-        var live = CreateService().Create(sessionId, connection, "speculum.test", true).Value;
+        var live = CreateService().Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
 
         var stream = live.OpenNotificationStream().Value;
         await connection.Notifications.Writer.WriteAsync(new SessionNotification
@@ -140,7 +257,7 @@ public sealed class LiveSessionTests
         var sessionId = Guid.NewGuid();
         var connection = new LiveFakeConnection(sessionId);
         var urls = new RecordingUrlResolver("https://target.test/");
-        var live = CreateService(urls).Create(sessionId, connection, "speculum.test", true).Value;
+        var live = CreateService(urls).Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
 
         var result = await live.NavigateAsync(new NavigateSession { Path = "/x", Query = "q=1" });
         Assert.True(result.IsSuccess);
@@ -154,7 +271,7 @@ public sealed class LiveSessionTests
     {
         var sessionId = Guid.NewGuid();
         var connection = new LiveFakeConnection(sessionId);
-        var live = CreateService().Create(sessionId, connection, "speculum.test", true).Value;
+        var live = CreateService().Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
 
         var status = await live.GetStatusAsync();
         Assert.True(status.IsSuccess);
@@ -168,7 +285,7 @@ public sealed class LiveSessionTests
     {
         var sessionId = Guid.NewGuid();
         var connection = new LiveFakeConnection(sessionId);
-        var live = CreateService().Create(sessionId, connection, "speculum.test", false).Value;
+        var live = CreateService().Create(sessionId, Guid.NewGuid(), connection, "speculum.test", false).Value;
         var input = Channel.CreateUnbounded<ConsoleInput>();
 
         var consume = live.ConsumeConsoleInputAsync(input.Reader);
@@ -182,7 +299,7 @@ public sealed class LiveSessionTests
     {
         var sessionId = Guid.NewGuid();
         var connection = new LiveFakeConnection(sessionId);
-        var live = CreateService().Create(sessionId, connection, "speculum.test", true).Value;
+        var live = CreateService().Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
 
         Assert.Equal(PermissionDecision.Deny, await connection.CameraHandler!(CancellationToken.None));
 
@@ -195,7 +312,7 @@ public sealed class LiveSessionTests
     {
         var sessionId = Guid.NewGuid();
         var connection = new LiveFakeConnection(sessionId);
-        var live = CreateService().Create(sessionId, connection, "speculum.test", true).Value;
+        var live = CreateService().Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
 
         Assert.True(live.RegisterCameraPermission(_ => Task.FromResult(PermissionDecision.Allow)).IsSuccess);
         Assert.True(live.RegisterCameraPermission(_ => Task.FromResult(PermissionDecision.Deny)).IsSuccess);
@@ -208,7 +325,7 @@ public sealed class LiveSessionTests
         var sessionId = Guid.NewGuid();
         var connection = new LiveFakeConnection(sessionId);
         var service = CreateService();
-        var live = service.Create(sessionId, connection, "speculum.test", true).Value;
+        var live = service.Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
 
         Assert.True(live.RegisterCameraPermission(_ => Task.FromResult(PermissionDecision.Allow)).IsSuccess);
         service.Release(sessionId);
@@ -234,7 +351,7 @@ public sealed class LiveSessionTests
         });
 
         var service = CreateService(new RecordingUrlResolver("https://x.test/"), options);
-        var live = service.Create(sessionId, connection, "speculum.test", true).Value;
+        var live = service.Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
 
         var inputA = Channel.CreateUnbounded<UserInput>();
         var inputB = Channel.CreateUnbounded<UserInput>();
@@ -258,7 +375,7 @@ public sealed class LiveSessionTests
         });
 
         var service = CreateService(new RecordingUrlResolver("https://x.test/"), options);
-        var live = service.Create(sessionId, connection, "speculum.test", true).Value;
+        var live = service.Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
 
         var inputA = Channel.CreateUnbounded<UserInput>();
         var first = live.ConsumeUserInputAsync(inputA.Reader);
@@ -270,10 +387,32 @@ public sealed class LiveSessionTests
         Assert.True(live.ConsumeUserInputAsync(inputB.Reader).IsSuccess);
     }
 
+    [Fact]
+    public async Task FeatureLoop_CommandFailure_JournalsAttachedClientCommandFailed()
+    {
+        var sessionId = Guid.NewGuid();
+        var profileId = Guid.NewGuid();
+        var connection = new LiveFakeConnection(sessionId);
+        var liveEvents = new RecordingSessionLiveEvents();
+        var service = CreateService(liveEvents: liveEvents);
+        var live = service.Create(sessionId, profileId, connection, "speculum.test", true).Value;
+        Assert.True(live.Attach(new ThrowingAttachedClient()).IsSuccess);
+
+        await connection.Notifications.Writer.WriteAsync(new SessionNotification
+        {
+            Kind = SessionNotificationKind.LocationChanged,
+            Url = "https://example.test/fail",
+        });
+
+        await liveEvents.WaitCommandFailedAsync(TimeSpan.FromSeconds(2));
+        Assert.Equal("SyncUrl", liveEvents.LastCommand);
+    }
+
     private static LiveSessionService CreateService(
         IUrlResolver? urls = null,
         IOptions<SessionsConfiguration>? options = null,
-        ISessionCollector? collector = null)
+        ISessionCollector? collector = null,
+        ISessionLiveEvents? liveEvents = null)
     {
         return new LiveSessionService(
             collector ?? new NoOpCollector(),
@@ -286,7 +425,73 @@ public sealed class LiveSessionTests
                     Access = InputAccessPolicy.Shared,
                 },
             }),
-            new ScopedMutex());
+            new NoOpSessionEventsFactory(liveEvents ?? new NoOpSessionLiveEvents()),
+            NullLoggerFactory.Instance);
+    }
+
+    private sealed class NoOpSessionEventsFactory(ISessionLiveEvents liveEvents) : ISessionEventsFactory
+    {
+        public ISessionLifecycleEvents ForSessionLifecycle(Guid sessionId, Guid profileId)
+            => throw new NotSupportedException();
+
+        public ISessionStartEvents ForSessionStart(Guid sessionId, Guid profileId)
+            => throw new NotSupportedException();
+
+        public ISessionStopEvents ForSessionStop(Guid sessionId, Guid profileId)
+            => throw new NotSupportedException();
+
+        public ISessionLiveEvents ForSessionLive(Guid sessionId, Guid profileId)
+            => liveEvents;
+
+        public ISessionLifecycleEvents ForSessionLifecycle(Session session)
+            => throw new NotSupportedException();
+
+        public ISessionStartEvents ForSessionStart(Session session)
+            => throw new NotSupportedException();
+
+        public ISessionStopEvents ForSessionStop(Session session)
+            => throw new NotSupportedException();
+
+        public ISessionLiveEvents ForSessionLive(Session session)
+            => liveEvents;
+    }
+
+    private sealed class NoOpSessionLiveEvents : ISessionLiveEvents
+    {
+        public void AttachedClientCommandFailed(string command, Exception exception) { }
+        public void FeatureLoopFaulted(Exception exception) { }
+    }
+
+    private sealed class RecordingSessionLiveEvents : ISessionLiveEvents
+    {
+        private readonly TaskCompletionSource<string> _commandFailed = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public string? LastCommand { get; private set; }
+
+        public void AttachedClientCommandFailed(string command, Exception exception)
+        {
+            LastCommand = command;
+            _commandFailed.TrySetResult(command);
+        }
+
+        public void FeatureLoopFaulted(Exception exception) { }
+
+        public async Task WaitCommandFailedAsync(TimeSpan timeout)
+        {
+            var completed = await Task.WhenAny(_commandFailed.Task, Task.Delay(timeout));
+            Assert.Same(_commandFailed.Task, completed);
+            await _commandFailed.Task;
+        }
+    }
+
+    private sealed class ThrowingAttachedClient : IAttachedSessionClient
+    {
+        public Task SyncUrlAsync(string url, CancellationToken cancellationToken = default)
+            => throw new InvalidOperationException("sync failed");
+
+        public Task RedirectAsync(string url, CancellationToken cancellationToken = default)
+            => throw new InvalidOperationException("redirect failed");
     }
 
     private sealed class RecordingUrlResolver : IUrlResolver
@@ -322,6 +527,43 @@ public sealed class LiveSessionTests
         public void AddRef(Guid sessionId) => AddRefs++;
         public void Release(Guid sessionId) => Releases++;
         public void Unwatch(Guid sessionId) { }
+    }
+
+    private sealed class RecordingAttachedClient : IAttachedSessionClient
+    {
+        private readonly TaskCompletionSource<string> _syncUrl = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<string> _redirect = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public int SyncUrlCount { get; private set; }
+
+        public Task SyncUrlAsync(string url, CancellationToken cancellationToken = default)
+        {
+            SyncUrlCount++;
+            _syncUrl.TrySetResult(url);
+            return Task.CompletedTask;
+        }
+
+        public Task RedirectAsync(string url, CancellationToken cancellationToken = default)
+        {
+            _redirect.TrySetResult(url);
+            return Task.CompletedTask;
+        }
+
+        public async Task<string> WaitSyncUrlAsync(TimeSpan timeout)
+        {
+            var completed = await Task.WhenAny(_syncUrl.Task, Task.Delay(timeout));
+            Assert.Same(_syncUrl.Task, completed);
+            return await _syncUrl.Task;
+        }
+
+        public async Task<string> WaitRedirectAsync(TimeSpan timeout)
+        {
+            var completed = await Task.WhenAny(_redirect.Task, Task.Delay(timeout));
+            Assert.Same(_redirect.Task, completed);
+            return await _redirect.Task;
+        }
     }
 
     private sealed class LiveFakeConnection : ISessionConnection

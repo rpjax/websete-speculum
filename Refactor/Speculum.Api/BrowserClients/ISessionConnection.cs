@@ -152,7 +152,7 @@ public interface ISessionConnection
     /// Pumps opaque user-input JSON from <paramref name="channelReader"/> into the sidecar
     /// until the channel completes or the connection closes.
     /// </summary>
-    IResult<Task> ConsumeUserInputAsync(ChannelReader<string> channelReader);
+    IResult<Task> ConsumeUserInputAsync(ChannelReader<UserInput> channelReader);
 
     /// <summary>
     /// Pumps console input from <paramref name="channelReader"/> into the sidecar until the

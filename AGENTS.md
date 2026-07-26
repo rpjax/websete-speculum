@@ -5,10 +5,10 @@ You are working in the **Speculum** remote browser isolation repository.
 ## Mandatory reading order
 
 1. **[docs/engineering-standards.md](docs/engineering-standards.md)** — constitution (architecture, code, tests, CI, anti-patterns). **Always apply.**
-2. [docs/naming.md](docs/naming.md) — Speculum / Motor / W7S vocabulary.
+2. [docs/naming.md](docs/naming.md) — Speculum / Sessions / W7S vocabulary.
 3. [docs/architecture.md](docs/architecture.md) — domains and flows (if the change crosses boundaries).
 4. [docs/diagnostics.md](docs/diagnostics.md) — Act→Assert contracts (if the change touches observability or MotorAssert).
-5. [Speculum.MotorAssert.Tests/MATRIX.md](Speculum.MotorAssert.Tests/MATRIX.md) — coverage truth for motor CI.
+5. [Speculum.MotorAssert.Tests/MATRIX.md](Speculum.MotorAssert.Tests/MATRIX.md) — coverage truth for session CI (legacy project name).
 6. [docs/assert-failure-policy.md](docs/assert-failure-policy.md) — when asserts fail; do **not** weaken to get green.
 7. **When changing `web/`:** [docs/frontend-standards.md](docs/frontend-standards.md) + [docs/frontend-patterns.md](docs/frontend-patterns.md) — shadcn-only, revealing UI, complex-viz, anti-god-page. **Mandatory for frontend work.**
 
@@ -16,7 +16,7 @@ You are working in the **Speculum** remote browser isolation repository.
 
 - **Effect asserts**, not smoke (`200` / `ok: true` alone).
 - Missing JSON properties **fail** — never skip-if-absent.
-- Never publish a catalogued Motor/Sidecar DiagProbe **failure** without `errorCode` + `phase` (see [docs/diagnostics.md](docs/diagnostics.md)).
+- Never publish a catalogued Sessions/Sidecar DiagProbe **failure** without `errorCode` + `phase` (see [docs/diagnostics.md](docs/diagnostics.md)).
 - **Diagnostics** — **capability toggles per domain** (not levels); the transport is domain-agnostic (gate only by catalog `descriptor` + `IsCapabilityEnabled`, never hardcode event/domain names, every emitted event has a descriptor). `Telemetry.SampleCollected` is one composite sample; sections and identity are opt-in per toggle, redaction stays read-time.
 - **Functional ≠ Perf** — capacity/SLO belongs in `perf.yml`, not as a substitute for correctness.
 - **V1 development** — no backward-compat shims or config aliases unless explicitly requested post-launch.
@@ -24,6 +24,9 @@ You are working in the **Speculum** remote browser isolation repository.
 - **Frontend:** shadcn-only; revealing UI; no god pages/components; complex data visualized — not dumped ([docs/frontend-standards.md](docs/frontend-standards.md)).
 
 ## MotorAssert harness (when touching CI tests)
+
+`MotorAssert` is the legacy proper name of the existing test project and
+category; it does not define vocabulary for new product code.
 
 - Serial shared stack — `MotorAssertTestBase` runs `EnsureBaselineAsync` before each test.
 - Clear **Diagnostics Degraded** (`POST /api/admin/diagnostics/v1/recover`) before BrowserQuery probes.

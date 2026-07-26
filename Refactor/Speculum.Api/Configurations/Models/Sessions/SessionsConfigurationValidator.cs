@@ -13,6 +13,61 @@ public sealed class SessionsConfigurationValidator : IValidateOptions<SessionsCo
                 "Sessions.DetachedSessionTimeout must be greater than zero.");
         }
 
+        var viewport = options.ViewportPolicy;
+        if (!IsPositive(viewport.Minimum)
+            || !IsPositive(viewport.Default)
+            || !IsPositive(viewport.Maximum)
+            || viewport.Minimum.Width > viewport.Default.Width
+            || viewport.Minimum.Height > viewport.Default.Height
+            || viewport.Default.Width > viewport.Maximum.Width
+            || viewport.Default.Height > viewport.Maximum.Height)
+        {
+            return ValidateOptionsResult.Fail(
+                "Sessions.ViewportPolicy must satisfy 0 < Minimum <= Default <= Maximum.");
+        }
+
+        var environment = options.ClientEnvironmentPolicy;
+        if (string.IsNullOrWhiteSpace(environment.DefaultLocale)
+            || string.IsNullOrWhiteSpace(environment.DefaultLanguage)
+            || string.IsNullOrWhiteSpace(environment.DefaultTimeZoneId)
+            || !ClientEnvironmentPolicy.IsSupportedColorScheme(
+                environment.DefaultColorScheme))
+        {
+            return ValidateOptionsResult.Fail(
+                "Sessions.ClientEnvironmentPolicy defaults are required and DefaultColorScheme must be light, dark, or no-preference.");
+        }
+
+        var device = options.DeviceEmulationPolicy;
+        if (!double.IsFinite(device.MinDeviceScaleFactor)
+            || !double.IsFinite(device.MaxDeviceScaleFactor)
+            || device.MinDeviceScaleFactor <= 0
+            || device.MinDeviceScaleFactor > device.MaxDeviceScaleFactor
+            || device.MaxTouchPoints < 0
+            || device.DefaultTouchPointsWhenTouch < 0
+            || device.DefaultTouchPointsWhenTouch > device.MaxTouchPoints
+            || !double.IsFinite(device.Default.DeviceScaleFactor)
+            || device.Default.DeviceScaleFactor < device.MinDeviceScaleFactor
+            || device.Default.DeviceScaleFactor > device.MaxDeviceScaleFactor
+            || device.Default.MaxTouchPoints < 0
+            || device.Default.MaxTouchPoints > device.MaxTouchPoints
+            || string.IsNullOrWhiteSpace(device.Default.UserAgentProfile)
+            || string.IsNullOrWhiteSpace(device.Default.ScreenOrientation)
+            || string.IsNullOrWhiteSpace(device.DesktopUserAgentProfile)
+            || string.IsNullOrWhiteSpace(device.MobileUserAgentProfile)
+            || (!device.Default.UserAgentProfile.Equals(
+                    device.DesktopUserAgentProfile,
+                    StringComparison.OrdinalIgnoreCase)
+                && !device.Default.UserAgentProfile.Equals(
+                    device.MobileUserAgentProfile,
+                    StringComparison.OrdinalIgnoreCase)))
+        {
+            return ValidateOptionsResult.Fail(
+                "Sessions.DeviceEmulationPolicy is incomplete or has invalid bounds.");
+        }
+
         return ValidateOptionsResult.Success;
     }
+
+    private static bool IsPositive(ScreenResolution resolution)
+        => resolution.Width > 0 && resolution.Height > 0;
 }

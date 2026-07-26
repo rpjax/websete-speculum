@@ -20,6 +20,17 @@ function toLaunchOptions(req) {
     return {
         width: validated.width,
         height: validated.height,
+        locale: requireString(req.locale, 'locale'),
+        language: requireString(req.language, 'language'),
+        timeZoneId: requireString(req.timezoneId, 'timezoneId'),
+        colorScheme: requireColorScheme(req.colorScheme),
+        geolocation: req.geolocation
+            ? {
+                latitude: requireLatitude(req.geolocation.latitude),
+                longitude: requireLongitude(req.geolocation.longitude),
+                accuracy: requireAccuracy(req.geolocation.accuracy),
+            }
+            : undefined,
         device: req.device ? toDevice(req.device) : undefined,
         scripts: Array.isArray(req.scripts)
             ? req.scripts.map((s) => ({
@@ -191,6 +202,40 @@ function requireInt(value, field) {
         throw Object.assign(new Error(`${field} must be an integer`), { code: 'INVALID_ARGUMENT' });
     }
     return n;
+}
+function requireLatitude(value) {
+    const latitude = requireNumber(value, 'geolocation.latitude');
+    if (latitude < -90 || latitude > 90) {
+        throw Object.assign(new Error('geolocation.latitude must be between -90 and 90'), {
+            code: 'INVALID_ARGUMENT',
+        });
+    }
+    return latitude;
+}
+function requireLongitude(value) {
+    const longitude = requireNumber(value, 'geolocation.longitude');
+    if (longitude < -180 || longitude > 180) {
+        throw Object.assign(new Error('geolocation.longitude must be between -180 and 180'), {
+            code: 'INVALID_ARGUMENT',
+        });
+    }
+    return longitude;
+}
+function requireAccuracy(value) {
+    const accuracy = requireNumber(value, 'geolocation.accuracy');
+    if (accuracy < 0) {
+        throw Object.assign(new Error('geolocation.accuracy must be non-negative'), {
+            code: 'INVALID_ARGUMENT',
+        });
+    }
+    return accuracy;
+}
+function requireColorScheme(value) {
+    const colorScheme = requireString(value, 'colorScheme');
+    if (colorScheme !== 'light' && colorScheme !== 'dark' && colorScheme !== 'no-preference') {
+        throw Object.assign(new Error('colorScheme must be light, dark, or no-preference'), { code: 'INVALID_ARGUMENT' });
+    }
+    return colorScheme;
 }
 function editingToProto(editing) {
     if (!editing)

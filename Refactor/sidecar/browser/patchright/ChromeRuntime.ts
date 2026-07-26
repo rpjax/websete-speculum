@@ -2,7 +2,12 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { chromium, type BrowserContext, type Page, type CDPSession } from 'patchright';
-import type { BrowserDeviceProfile, BrowserScriptInjection } from '../BrowserSession';
+import type {
+  BrowserColorScheme,
+  BrowserDeviceProfile,
+  BrowserGeolocation,
+  BrowserScriptInjection,
+} from '../BrowserSession';
 import { applyDeviceEmulation } from './device-emulation';
 
 function requireChromeExecutable(): string {
@@ -55,11 +60,21 @@ export async function launchChrome(args: {
   displayEnv: string;
   width: number;
   height: number;
+  locale: string;
+  language: string;
+  timeZoneId: string;
+  colorScheme: BrowserColorScheme;
+  geolocation?: BrowserGeolocation;
   device?: BrowserDeviceProfile;
   preserveUserDataDir?: boolean;
 }): Promise<ChromeHandle> {
   if (!Number.isFinite(args.width) || !Number.isFinite(args.height) || args.width <= 0 || args.height <= 0) {
     throw Object.assign(new Error('launch requires positive width and height'), {
+      code: 'INVALID_ARGUMENT',
+    });
+  }
+  if (!args.locale.trim() || !args.language.trim() || !args.timeZoneId.trim() || !args.colorScheme) {
+    throw Object.assign(new Error('launch requires locale, language, timeZoneId, and colorScheme'), {
       code: 'INVALID_ARGUMENT',
     });
   }
@@ -84,15 +99,25 @@ export async function launchChrome(args: {
     },
     args: buildChromeArgs(args.width, args.height),
     viewport: null,
-    locale: 'en-US',
-    timezoneId: 'America/New_York',
-    colorScheme: 'dark',
+    locale: args.locale,
+    timezoneId: args.timeZoneId,
+    colorScheme: args.colorScheme,
+    extraHTTPHeaders: {
+      'Accept-Language': args.language,
+    },
   });
 
   let page = context.pages()[0];
   if (!page) page = await context.newPage();
 
   const cdp = await context.newCDPSession(page);
+  if (args.geolocation) {
+    await cdp.send('Emulation.setGeolocationOverride', {
+      latitude: args.geolocation.latitude,
+      longitude: args.geolocation.longitude,
+      accuracy: args.geolocation.accuracy,
+    });
+  }
   const { windowId } = (await cdp.send('Browser.getWindowForTarget', {})) as { windowId: number };
   await cdp.send('Browser.setWindowBounds', {
     windowId,

@@ -1,3 +1,5 @@
+using Speculum.Api.Sessions.Models;
+
 namespace Speculum.Api.Sessions.Events.Services.Contracts;
 
 /// <summary>
@@ -8,9 +10,9 @@ public interface ISessionLifecycleEvents
     void Starting();
     void Started();
 
-    void Stopping();
-    void Stopped();
+    void Stopping(StopReason reason);
+    void Stopped(StopReason reason);
 
-    void TimedOut();
-    void Aborted();
+    void TimedOut(StopReason reason);
+    void Aborted(StopReason reason);
 }

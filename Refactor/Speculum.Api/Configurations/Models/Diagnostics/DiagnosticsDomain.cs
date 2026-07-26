@@ -2,7 +2,7 @@ namespace Speculum.Api.Configurations.Models.Diagnostics;
 
 public enum DiagnosticsDomain
 {
-    Motor,
+    Sessions,
     Sidecar,
     BrowserQuery,
     Profiles,

@@ -2,18 +2,34 @@ using MessagePack;
 
 namespace Speculum.Api.Sessions.Models;
 
-/// <summary>
-/// Saída de controlo produzida pelo navegador virtual:
-/// <c>MSG_URL</c> (0x04), <c>MSG_CONSOLE</c> (0x05) ou
-/// <c>MSG_EVAL_RESULT</c> (0x06), já codificados no protocolo binário.
-/// </summary>
+public enum ConsoleOutputKind
+{
+    Console = 1,
+    EvalResult = 2,
+}
+
+/// <summary>Typed console/eval output from the virtual browser.</summary>
 [MessagePackObject]
 public sealed class ConsoleOutput
 {
-    /// <summary>
-    /// Frame binário já codificado, pronto para relay ao cliente sem
-    /// re-serialização.
-    /// </summary>
-    [Key("data")]
-    public ReadOnlyMemory<byte> Data { get; init; }
+    [Key("kind")]
+    public ConsoleOutputKind Kind { get; init; }
+
+    [Key("level")]
+    public int? Level { get; init; }
+
+    [Key("text")]
+    public string? Text { get; init; }
+
+    [Key("requestId")]
+    public int? RequestId { get; init; }
+
+    [Key("ok")]
+    public bool? Ok { get; init; }
+
+    [Key("value")]
+    public string? Value { get; init; }
+
+    [Key("error")]
+    public string? Error { get; init; }
 }

@@ -14,7 +14,10 @@ public sealed class Frame
     [Key("sequence")]
     public long Sequence { get; init; }
 
-    /// <summary>Capture timestamp in Unix ms (UTC).</summary>
+    /// <summary>
+    /// Relay receipt timestamp in Unix ms (UTC), sampled by the API because the
+    /// sidecar/CDP frame message does not carry a capture clock.
+    /// </summary>
     [Key("timestamp")]
     public long Timestamp { get; init; }
 }

@@ -9,7 +9,7 @@ This document defines vocabulary and naming rules for the API and sidecar codeba
 | Term | Use when | Examples |
 |------|----------|----------|
 | **Speculum** | Platform, config, infrastructure, docs | `ConfigService`, `ISpeculumConfigStore`, `SpeculumRuntimeConfig` |
-| **Motor** | Live remote browsing (hub, relay session, URL mapping) | `MotorHub`, `MotorSession`, `MotorUrlAdapter` |
+| **Sessions** | Live remote browsing (control, transport, URL mapping) | `SessionHub`, `LiveSession`, `UrlResolver` |
 | **W7S** | **Wire/client boundary only** | `_w7s_nso`, `docs/w7s-sidecar-protocol.md` |
 | **Browser persistence** | Chrome state in SQLite (not live relay) | `BrowserSessionStore`, `BrowserPersistence/` |
 | **Sidecar** | Node process hosting Chrome | `SidecarClient`, `sidecar/` |
@@ -20,21 +20,28 @@ This document defines vocabulary and naming rules for the API and sidecar codeba
 
 **W7S must not appear** in C# namespaces, internal class names, application logs, or API folder names.
 
+**Motor is legacy vocabulary.** It remains only where an existing artifact
+still has that proper name (for example `MotorHub`,
+`Speculum.MotorAssert.Tests`, or `web/src/features/motor/`). Do not introduce
+`Motor` in new domain types, folders, diagnostics domains, configuration, or
+client APIs. Structural migrations replace those identifiers with
+`Session`/`Sessions`; no compatibility aliases are added during V1.
+
 ## Code readability rules
 
-1. **File name = primary type** — `MotorSessionCoordinator.cs` contains `MotorSessionCoordinator`.
+1. **File name = primary type** — `SessionCoordinator.cs` contains `SessionCoordinator`.
 2. **No cryptic prefixes** — no `VSession`, no generic `Mgr` / `Svc` / `Helper`.
-3. **Explicit verbs** — `DrainActiveMotorSessionsAsync`, `SynchronizeEdgeConfigAsync`.
-4. **One question per folder** — `Motor/Mapping/` answers “how do URLs map?”; `Motor/Live/` answers “how does a live session work?”
+3. **Explicit verbs** — `DrainActiveSessionsAsync`, `SynchronizeEdgeConfigAsync`.
+4. **One question per folder** — `Sessions/` owns live-session behavior; `Presentation/Sessions/` owns its transport edge.
 5. **Rename with structural moves** — never a PR that only renames symbols.
-6. **Interfaces name a capability** — `IMotorSession`, not `ISessionManager`.
+6. **Interfaces name a capability** — `ILiveSession`, not `ISessionManager`.
 
 ## Live vs persisted session
 
 | Concept | API type | Sidecar type |
 |---------|----------|--------------|
-| Live relay (SignalR ↔ WS) | `MotorSession` | — |
-| Chrome instance on server | — | `RemoteBrowserSession` |
+| Live relay (control + WebTransport) | `LiveSession` | — |
+| Chrome instance on server | — | `BrowserSession` |
 | Persisted browser state (SQLite) | `BrowserSessionStore` | — |
 
 ## Diagnostics vocabulary (config vs runtime)
@@ -51,21 +58,24 @@ Type families:
 
 - Transport (no rename): `IDiagnosticsEventBus` / `DiagnosticsEventBus` — **domain-agnostic**; gates only by descriptor + settings.
 - Catalog: `DiagnosticsEventDescriptor { Name, Domain, Capability, Persist, SpanRole, SpanKey, SpanTimeoutSec }` + `DiagnosticsEventCatalog`. Span pairing is descriptor-driven (`SpanRole` `Open`/`Close`/`None`, keyed by `SpanKey`).
-- Producers: `ISidecarDiagnosticsEmitter`, `IDiagnosticsSelfEmitter`, `ITelemetryEmitter` keep the `Emitter` suffix. **Motor** uses a context-bound producer handle instead — `IMotorEventsFactory` mints an `IMotorEvents` (impl `MotorEvents`) bound to a session/operation, so callsites emit without passing context/ids. The `Diagnostics` token appears only when the type lives **outside** the `Diagnostics.*` namespace (Motor).
-- Telemetry pull: `ITelemetrySource` (+ `Host`/`ApiProcess`/`Motor`/`Sidecar`/`Persistence`/`Pipeline` sources), composed by `ITelemetrySampleComposer`; sampled by `TelemetrySamplerHostedService`; collectors `MachineResourceProbe` + `ApiProcessResourceProbe` (also exposed as probe providers `host-resources` / `api-process-resources`).
-- Payload DTOs (camelCase records): `TelemetrySample` (root) + `HostTelemetry`/`ApiProcessTelemetry`/`MotorTelemetry`/`SidecarTelemetry`/`PersistenceTelemetry`/`PipelineTelemetry`.
+- Producers: `ISidecarDiagnosticsEmitter`, `IDiagnosticsSelfEmitter`, `ITelemetryEmitter` keep the `Emitter` suffix. Sessions use a context-bound producer handle so callsites emit without repeatedly passing session context/ids. Legacy types (`IMotorEventsFactory`, `IMotorEvents`, `MotorEvents`) retain their names until structurally migrated.
+- Telemetry pull: `ITelemetrySource` (+ host/API process/sessions/sidecar/persistence/pipeline sources), composed by `ITelemetrySampleComposer`; sampled by `TelemetrySamplerHostedService`; collectors `MachineResourceProbe` + `ApiProcessResourceProbe` (also exposed as probe providers `host-resources` / `api-process-resources`).
+- Payload DTOs use camelCase records. New session telemetry names use `Session`/`Sessions`; existing `MotorTelemetry` is a legacy identifier until its structural migration.
 - Options family: `DiagnosticsDomainsOptions`, `DiagnosticsTelemetryOptions`, presets in `DiagnosticsSeedProfiles`; `Profile` (not `DefaultLevel`) names the seed preset.
 
 ## Web client folders
 
-The React app mirrors the same Motor domains:
+The legacy React app still uses historical Motor folders:
 
 | Folder | Question it answers |
 |--------|---------------------|
 | `web/src/features/motor/live/` | How does the live SignalR session work in the browser? |
 | `web/src/features/motor/mapping/` | How does the client sync its address bar (not server HostMapper)? |
 
-W7S remains wire/UI boundary only (e.g. `_w7s_nso`, setup copy). Do not invent parallel virtualization vocabulary in `web/`.
+New browser libraries use `Refactor/Speculum.Api/wwwroot/speculum/`; their
+public types use `SessionClient` and `LiveSession`. W7S remains wire/UI boundary
+only (e.g. `_w7s_nso`, setup copy). Do not invent parallel virtualization
+vocabulary.
 
 ## Dependency direction
 

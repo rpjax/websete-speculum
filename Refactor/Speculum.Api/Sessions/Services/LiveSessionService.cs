@@ -4,7 +4,6 @@ using Aidan.Core.Patterns;
 using Microsoft.Extensions.Options;
 using Speculum.Api.BrowserClients;
 using Speculum.Api.Configurations.Models.Sessions;
-using Speculum.Api.Sessions.Pipes.Streaming;
 using Speculum.Api.Sessions.Services.Contracts;
 using Speculum.Api.Shared.Services.Contracts;
 
@@ -33,9 +32,17 @@ public sealed class LiveSessionService : ILiveSessionService
         _mutex = mutex;
     }
 
-    public IResult<ILiveSession> Create(Guid sessionId, ISessionConnection connection)
+    public IResult<ILiveSession> Create(
+        Guid sessionId,
+        ISessionConnection connection,
+        string requestHost,
+        bool jsBridgeEnabled)
     {
         ArgumentNullException.ThrowIfNull(connection);
+        if (string.IsNullOrWhiteSpace(requestHost))
+        {
+            return Result<ILiveSession>.Failure("Request host is required");
+        }
 
         if (connection.SessionId != sessionId)
         {
@@ -58,7 +65,7 @@ public sealed class LiveSessionService : ILiveSessionService
             var mux = new SessionStreamMultiplexer(
                 connection,
                 options.InputMultiplexingPolicy.Access,
-                options.IsJsBridgeEnabled);
+                jsBridgeEnabled);
             var hooks = new SessionHooks(sessionId);
             var live = new LiveSession(
                 sessionId,
@@ -66,7 +73,9 @@ public sealed class LiveSessionService : ILiveSessionService
                 mux,
                 hooks,
                 _collector,
-                _urls);
+                _urls,
+                requestHost,
+                jsBridgeEnabled);
 
             if (!_sessions.TryAdd(sessionId, live))
             {

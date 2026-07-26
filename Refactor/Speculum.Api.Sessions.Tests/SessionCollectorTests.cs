@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Speculum.Api.Sessions.Aggregates;
 using Speculum.Api.Sessions.Events.Services.Contracts;
+using Speculum.Api.Sessions.Models;
 using Speculum.Api.Sessions.Requests;
 using Speculum.Api.Sessions.Responses;
 using Speculum.Api.Sessions.Services;
@@ -66,6 +67,96 @@ public sealed class SessionCollectorTests
         Assert.Empty(lifecycle.TimedOutIds);
     }
 
+    [Fact]
+    public async Task TimedOut_DoesNotStopAlreadyStoppedSession()
+    {
+        var lifecycle = new RecordingLifecycleEvents();
+        var stopSignal = new TaskCompletionSource<Guid>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var sessionId = Guid.NewGuid();
+        var profileId = Guid.NewGuid();
+        var session = Session.Create(sessionId, profileId);
+        session.MarkStopped(StopReason.UserStop);
+
+        var services = new ServiceCollection();
+        services.AddSingleton<ISessionService>(new FakeSessionService(stopSignal));
+        services.AddSingleton<ISessionRepository>(new InMemorySessionRepository(session));
+        var provider = services.BuildServiceProvider();
+
+        using var collector = new SessionCollector(
+            provider.GetRequiredService<IServiceScopeFactory>(),
+            new RecordingEventsFactory(lifecycle),
+            Options.Create(SessionsTestHarness.Sessions(TimeSpan.FromMilliseconds(30))),
+            NullLogger<SessionCollector>.Instance);
+
+        collector.Watch(sessionId);
+        await Task.Delay(80);
+
+        Assert.Empty(lifecycle.TimedOutIds);
+        Assert.False(stopSignal.Task.IsCompleted);
+    }
+
+    [Fact]
+    public async Task TimedOut_DoesNotFireAfterReattachClaimRace()
+    {
+        var lifecycle = new RecordingLifecycleEvents();
+        var stopSignal = new TaskCompletionSource<Guid>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var sessionId = Guid.NewGuid();
+        var profileId = Guid.NewGuid();
+
+        var services = new ServiceCollection();
+        services.AddSingleton<ISessionService>(new FakeSessionService(stopSignal));
+        services.AddSingleton<ISessionRepository>(new InMemorySessionRepository(
+            Session.Create(sessionId, profileId)));
+        var provider = services.BuildServiceProvider();
+
+        using var collector = new SessionCollector(
+            provider.GetRequiredService<IServiceScopeFactory>(),
+            new RecordingEventsFactory(lifecycle),
+            Options.Create(SessionsTestHarness.Sessions(TimeSpan.FromMilliseconds(40))),
+            NullLogger<SessionCollector>.Instance);
+
+        collector.Watch(sessionId);
+        await Task.Delay(20);
+        collector.AddRef(sessionId);
+        await Task.Delay(80);
+
+        Assert.Empty(lifecycle.TimedOutIds);
+        Assert.False(stopSignal.Task.IsCompleted);
+    }
+
+    [Fact]
+    public async Task TimedOut_ReArmsWhenStopFails()
+    {
+        var lifecycle = new RecordingLifecycleEvents();
+        var sessionId = Guid.NewGuid();
+        var profileId = Guid.NewGuid();
+        var failingStops = new FailingSessionService();
+
+        var services = new ServiceCollection();
+        services.AddSingleton<ISessionService>(failingStops);
+        services.AddSingleton<ISessionRepository>(new InMemorySessionRepository(
+            Session.Create(sessionId, profileId)));
+        var provider = services.BuildServiceProvider();
+
+        using var collector = new SessionCollector(
+            provider.GetRequiredService<IServiceScopeFactory>(),
+            new RecordingEventsFactory(lifecycle),
+            Options.Create(SessionsTestHarness.Sessions(TimeSpan.FromMilliseconds(30))),
+            NullLogger<SessionCollector>.Instance);
+
+        collector.Watch(sessionId);
+        await Task.Delay(80);
+        Assert.True(failingStops.StopAttempts >= 1);
+
+        failingStops.ShouldFail = false;
+        var stopSignal = new TaskCompletionSource<Guid>(TaskCreationOptions.RunContinuationsAsynchronously);
+        failingStops.StopSignal = stopSignal;
+
+        var stoppedId = await stopSignal.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.Equal(sessionId, stoppedId);
+        Assert.Contains(sessionId, lifecycle.TimedOutIds);
+    }
+
     private sealed class RecordingEventsFactory : ISessionEventsFactory
     {
         private readonly RecordingLifecycleEvents _lifecycle;
@@ -105,10 +196,10 @@ public sealed class SessionCollectorTests
 
         public void Starting() { }
         public void Started() { }
-        public void Stopping() { }
-        public void Stopped() { }
-        public void TimedOut() => TimedOutIds.Add(_sessionId);
-        public void Aborted() { }
+        public void Stopping(StopReason reason) { }
+        public void Stopped(StopReason reason) { }
+        public void TimedOut(StopReason reason) => TimedOutIds.Add(_sessionId);
+        public void Aborted(StopReason reason) { }
     }
 
     private sealed class InMemorySessionRepository : ISessionRepository
@@ -155,6 +246,37 @@ public sealed class SessionCollectorTests
             CancellationToken ct = default)
         {
             _stopSignal?.TrySetResult(request.SessionId);
+            return Task.FromResult<IResult>(Result.Success());
+        }
+    }
+
+    private sealed class FailingSessionService : ISessionService
+    {
+        public bool ShouldFail { get; set; } = true;
+        public int StopAttempts { get; private set; }
+        public TaskCompletionSource<Guid>? StopSignal { get; set; }
+
+        public Task<IResult<StartSessionResponse>> StartSessionAsync(
+            StartSession request,
+            CancellationToken ct = default)
+            => Task.FromResult<IResult<StartSessionResponse>>(Result<StartSessionResponse>.Success(
+                new StartSessionResponse
+                {
+                    SessionId = Guid.NewGuid(),
+                    Token = "test-token",
+                }));
+
+        public Task<IResult> StopSessionAsync(
+            StopSession request,
+            CancellationToken ct = default)
+        {
+            StopAttempts++;
+            if (ShouldFail)
+            {
+                return Task.FromResult<IResult>(Result.Failure("stop failed"));
+            }
+
+            StopSignal?.TrySetResult(request.SessionId);
             return Task.FromResult<IResult>(Result.Success());
         }
     }

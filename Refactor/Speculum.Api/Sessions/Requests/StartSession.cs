@@ -4,6 +4,8 @@ namespace Speculum.Api.Sessions.Requests;
 
 public sealed class StartSession
 {
+    public string CallerId { get; set; } = string.Empty;
+
     public Guid ProfileId { get; set; }
 
     /// <summary>
@@ -17,5 +19,13 @@ public sealed class StartSession
     /// </summary>
     public string Query { get; set; } = string.Empty;
 
-    public SessionConfig? Configuration { get; set; }
+    public string RequestHost { get; set; } = string.Empty;
+
+    public int ViewportWidth { get; set; }
+
+    public int ViewportHeight { get; set; }
+
+    public DeviceProfile? Device { get; set; }
+
+    public ClientEnvironment? ClientEnvironment { get; set; }
 }

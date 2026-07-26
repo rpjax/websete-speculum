@@ -2,12 +2,14 @@ namespace Speculum.Api.Configurations.Models.Diagnostics;
 
 public sealed class DiagnosticsConfiguration
 {
+    public const string SectionName = "Diagnostics";
+
     public bool IsEnabled { get; init; } = true;
 
     public IReadOnlyDictionary<DiagnosticsDomain, DiagnosticsCapabilityToggles> Domains { get; init; }
         = new Dictionary<DiagnosticsDomain, DiagnosticsCapabilityToggles>
         {
-            [DiagnosticsDomain.Motor] = new()
+            [DiagnosticsDomain.Sessions] = new()
             {
                 Metrics = true,
                 Events = true,

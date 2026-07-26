@@ -19,7 +19,7 @@ Technical documentation for the **Speculum** remote browser isolation platform (
 | [../.cursor/rules/speculum-frontend-standards.mdc](../.cursor/rules/speculum-frontend-standards.mdc) | Cursor | Frontend rule when editing `web/**` |
 | [../readme.md](../readme.md) | Everyone | Project overview, quick start, repository map |
 | [architecture.md](architecture.md) | Architects, operators | System design, data flows, security boundaries |
-| [naming.md](naming.md) | Developers / agents | Speculum / Motor / W7S vocabulary |
+| [naming.md](naming.md) | Developers / agents | Speculum / Sessions / W7S vocabulary |
 | [diagnostics.md](diagnostics.md) | Backend / QA | Assertable observability contracts + Assert Cookbook |
 | [assert-failure-policy.md](assert-failure-policy.md) | CI / QA | Never weaken hardened asserts — triage product vs harness |
 | [motor-reference.md](motor-reference.md) | Backend / motor developers | Session lifecycle, forwarding model, binary protocol |
@@ -49,5 +49,5 @@ Technical documentation for the **Speculum** remote browser isolation platform (
 - **Deploy:** always use `deploy/` + dockup. Do not hand-edit `deploy/out/` — it is generated.
 - **Configuration:** infrastructure via environment variables; motor behaviour via SQLite + Admin API.
 - **Domains:** same-origin — SPA, `/api`, and `/vhub` share one motor host; `EdgeSynchronizer` materializes Traefik routes per **Hosting** profile.
-- **Naming:** see [naming.md](naming.md) (Speculum / Motor / W7S vocabulary).
+- **Naming:** see [naming.md](naming.md) (Speculum / Sessions / W7S vocabulary).
 - **MotorAssert matrix:** [../Speculum.MotorAssert.Tests/MATRIX.md](../Speculum.MotorAssert.Tests/MATRIX.md).

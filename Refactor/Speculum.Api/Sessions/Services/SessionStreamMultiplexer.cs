@@ -158,7 +158,7 @@ internal sealed class SessionStreamMultiplexer : ISessionStreamMultiplexer
 
     public IResult<Task> StartUserInputPump(
         Guid consumerId,
-        ChannelReader<string> channelReader,
+        ChannelReader<UserInput> channelReader,
         CancellationToken ct)
         => _input.StartUserInputPump(consumerId, channelReader, ct);
 

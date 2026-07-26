@@ -15,7 +15,7 @@ Read this **before** any UI, UX, layout, or React feature work under `web/`. Rec
 | 1 | This file |
 | 2 | [frontend-patterns.md](frontend-patterns.md) — approved UX recipes |
 | 3 | [../web/README.md](../web/README.md) — routes, structure, motor/admin surfaces |
-| 4 | [naming.md](naming.md) — Speculum / Motor / W7S vocabulary (motor feature folders) |
+| 4 | [naming.md](naming.md) — Speculum / Sessions / W7S vocabulary (legacy motor feature folders) |
 | 5 | [engineering-standards.md](engineering-standards.md) — still applies (tests, CI, wire, V1) |
 | 6 | Cursor injects a short summary when editing `web/`: [../.cursor/rules/speculum-frontend-standards.mdc](../.cursor/rules/speculum-frontend-standards.mdc) |
 
@@ -204,7 +204,7 @@ Every interactive surface must define UI for:
 
 - Fast gate: `web` lint + Vitest + build (see engineering-standards pyramid).
 - New pure logic and non-trivial flow helpers get Vitest coverage.
-- MotorAssert proves **motor truth**, not SPA visual polish — polish is enforced by this constitution and the merge checklist.
+- MotorAssert proves **session truth**, not SPA visual polish — polish is enforced by this constitution and the merge checklist.
 - Do not weaken product contracts to green UI tests.
 
 ---

@@ -1,4 +1,4 @@
-# Motor migration — feature-parity modeling map
+# Sessions migration — feature-parity modeling map
 
 This refactor models **interfaces and application-layer flows** and implements the
 session lifecycle/runtime chassis (`ISessionService`, `ILiveSessionService` /
@@ -8,15 +8,15 @@ diagnostics pipeline) are still deliberately out of scope.
 
 The goal of this document is precise:
 
-> List every externally observable Motor feature that must be represented by
+> List every externally observable live-session feature that must be represented by
 > application contracts and orchestrators before the migration can be 1:1.
 
 The inventory comes from the current product surface:
 
-- SignalR `/vhub` methods (`MotorHub`)
+- legacy SignalR `/vhub` methods (`MotorHub`)
 - public and Admin REST routes
 - runtime sections written through `/api/admin/config/{section}`
-- the asserted feature matrix (`Speculum.MotorAssert.Tests/MATRIX.md`)
+- the legacy asserted feature matrix (`Speculum.MotorAssert.Tests/MATRIX.md`)
 
 Legend:
 
@@ -29,7 +29,7 @@ databases, protocols, DI, transport mechanics and tests are deliberately omitted
 
 ---
 
-## 1. Client bootstrap and Motor availability
+## 1. Client bootstrap and session availability
 
 Current public surface:
 
@@ -43,10 +43,10 @@ Current public surface:
 
 | Status | Feature | Current observable behavior | Application model still required |
 |--------|---------|-----------------------------|----------------------------------|
-| ○ | Motor readiness | Reports whether required Motor configuration is present and names missing sections | Readiness query port/result |
+| ○ | Session readiness | Reports whether required live-session configuration is present and names missing sections | Readiness query port/result |
 | ○ | Configuration status | Reports operational state plus Hosting profile/mirroring status | Admin configuration-status query |
 | ○ | Client bootstrap | Returns forwarding host, navigation-state parameter name, Hosting profiles, current domain and effective mirroring | Client-bootstrap query port/result |
-| ○ | Setup mode | Motor UI can determine that setup is required while Admin/config surfaces remain available | Explicit bootstrap/setup application flow |
+| ○ | Setup mode | Session UI can determine that setup is required while Admin/config surfaces remain available | Explicit bootstrap/setup application flow |
 
 Required sections in current behavior are `Forwarding`, `MaxSessions` and
 `Hosting`. Mirroring has its own per-profile operational status.
@@ -89,12 +89,18 @@ into the live `Session`.
 
 ## 3. Start-session feature surface
 
-Current Hub method:
+Refactor Hub method:
 
 ```text
-StartSessionAsync(clientUrl, viewportWidth, viewportHeight, identity, device?)
-    → clientToken
+StartSessionAsync({
+  profileId, path, query, viewportWidth, viewportHeight, device?, clientEnvironment?
+}) → { sessionId, token }
 ```
+
+`RequestHost` is read from the SignalR HTTP transport; it is never trusted from
+the client body. Missing mimicry is filled once at the presentation edge from
+validated `EngineConfiguration.Sessions` policies. From the application layer
+through gRPC and the sidecar, values are explicit and missing values fail.
 
 ### Features to preserve
 
@@ -103,15 +109,15 @@ StartSessionAsync(clientUrl, viewportWidth, viewportHeight, identity, device?)
 | ✅ | Fail-fast provisioning | Session is usable only after browser launch, state restore and initial navigation | Modeled in `SessionService` (persist Live → `Create(connection)` → `Watch`) |
 | ✅ | Compensation | Failed start releases acquired live resources and marks a persisted row Aborted | Modeled (`CompensateStartFailureAsync`) |
 | ✅ | Slot admission | Rejects starts beyond `MaxSessions` | Port and flow modeled |
-| ◐ | Initial URL | Resolver port exists, but lacks client URL and request-host context | Initial-navigation request/context and richer resolver contract |
-| ◐ | Initial viewport | `SessionConfig` has resolution only | Startup normalization rules and viewport result |
-| ○ | Startup defaults | Non-positive viewport becomes `1280×720`; oversized input is bounded | Viewport policy port/value objects |
-| ○ | Device emulation | Mobile, touch, DPR, max touch points, UA profile and orientation apply at start | Device-profile model and normalization flow |
-| ○ | Operational gate | Start is rejected while Motor config is incomplete | Runtime-capabilities/readiness dependency in start flow |
-| ○ | Session runtime snapshot | Start captures Forwarding, Hosting profile, scripts, JsBridge, allowlist and device settings for that generation | Session-runtime-policy snapshot contract |
-| ○ | Return contract | Current client receives effective client token; refactor returns only `sessionId` | Start result coordinated with EnsureProfile |
-| ○ | Start replacement | A second start on the same Hub connection replaces active session or cancels an in-progress start | Transport-binding/application orchestration flow |
-| ○ | Startup cancellation | Disconnect/cancellation during start releases slot and partially started session | Explicit cancellation outcome/events |
+| ✅ | Resolved start URL | `Path` + `Query` + transport host resolve NSO/apex or mirrored subdomains to one allowlisted absolute target before browser navigation | `IUrlResolver.Resolve(path, query, requestHost)` is shared by start and runtime navigation; mirroring apex comes from `Navigation.AllowedMainFrameUrls` |
+| ✅ | Start viewport | Client geometry is filled/clamped once at the edge from `Sessions.ViewportPolicy` | Application and sidecar reject incomplete values; they do not re-default |
+| ✅ | Device emulation | Mobile, touch, DPR, max touch points, UA profile and orientation apply at start | Edge normalization uses `Sessions.DeviceEmulationPolicy` |
+| ✅ | Client environment | Locale, language, timezone, color scheme and optional geolocation reach Chrome | Edge fill uses `Sessions.ClientEnvironmentPolicy`; launch wire is strict |
+| ✅ | Operational gate | Start is rejected while required engine configuration is incomplete | `SessionService` validates configuration before opening a browser connection |
+| ◐ | Launch configuration | Start assembles mimicry, JsBridge, allowlist and resolved scripts for the generation | Script source resolution remains part of item 9; configured unresolved injections fail closed |
+| ✅ | Return contract | Client receives `sessionId` plus the effective binding token | `StartSessionResponse` / Hub response |
+| ✅ | Start replacement | A second start on the same Hub connection stops Live with `Replaced` or cancels and awaits an in-progress start teardown | `ISessionBindingRegistry` + `SessionService` |
+| ✅ | Startup cancellation | Disconnect/cancellation during start compensates with a non-cancelled teardown token and releases the slot | `Cancelled` / `Disconnected` lifecycle reasons |
 
 ---
 
@@ -127,39 +133,41 @@ The current product binds one live session directly to one SignalR
 | ✅ | Stream ownership | Disposable stream handles unregister themselves from the mux | Modeled |
 | ✅ | Reference-counted presence | Explicit `ILiveSession.Attach` / `Detach` retains/releases the whole session; streams do not affect presence | Modeled (per-attachment ids; `Release` drops all) |
 | ✅ | Context teardown | Releasing a live context disposes mux, unbinds hooks (deny) and drops attachments | Modeled via `ILiveSessionService.Release` → `LiveSession.Release` |
-| ○ | Transport binding | Maps SignalR connection identity to a pipe/session without leaking SignalR into domain types | Transport-session binding application port |
-| ○ | Second-start replacement | Same caller can replace its previous active or starting session | Replacement orchestration contract |
-| ○ | Disconnect policy | Current behavior immediately exports and stops; refactor proposes detached TTL | A deliberate parity decision and disconnect orchestrator |
+| ✅ | Transport binding | Maps opaque caller identity to Starting/Live state, attachment and owned pipes without SignalR types in the port | `ISessionBindingRegistry` |
+| ✅ | Second-start replacement | Same caller replaces Live or cancels and awaits Starting teardown before slot admission | `BeginStart` / `TryPromote` / start completion |
+| ✅ | Disconnect policy | Hub disconnect closes owned pipes and detaches presence; zero attachments arm detached TTL | `OnDisconnectedAsync` → `CloseCaller`; collector stops with `TimedOut` |
 | ○ | Sidecar death | Sidecar loss faults the session, closes client access and releases capacity | Session-fault handling flow |
-| ○ | Stop reason | Disconnect, timeout, replacement, config drain, user stop and force stop are distinguishable | `StopReason` model and policy |
+| ◐ | Stop reason | User stop, replacement, cancellation/disconnect, timeout and faults are distinguishable in aggregate and journal payloads | Drain/force-stop orchestration remains item 11 |
 
-The detached-TTL design changes current behavior. It must be accepted as an
-intentional product change or configured to reproduce immediate stop during
-migration.
+Detached TTL is the selected disconnect policy. A transport disconnect never
+calls `StopSession`; collector timeout performs the eventual stop.
 
 ---
 
 ## 5. Streaming and input
 
-Current Hub methods:
+SignalR `/vhub` is control-only (`StartSessionAsync`, `StopSessionAsync` and
+lifecycle hooks). WebTransport `/vtransport?sessionId=…&token=…` carries the
+data plane. Each WebTransport stream starts with a one-byte kind followed by
+big-endian length-prefixed MessagePack messages:
 
-- `OpenFrameChannel`
-- `OpenConsoleOutputChannel`
-- `OpenStatusChannel`
-- `OpenUserInputChannel`
-- `OpenConsoleInputChannel`
+- server streams: frame, console/eval output, notification
+- client streams: user input, console/eval input, unary status
+
+The host must expose an HTTPS HTTP/3 Kestrel endpoint for WebTransport; ordinary
+HTTP requests to `/vtransport` are rejected with `426 Upgrade Required`.
 
 ### Features to preserve
 
 | Status | Feature | Current observable behavior | Application model still required |
 |--------|---------|-----------------------------|----------------------------------|
-| ◐ | Frame stream | JPEG + monotonic sequence + capture timestamp | `IFrameStream` (disposable) over the mux; frame semantics should be finalized |
-| ◐ | Console/control output | Console, URL updates, eval results and redirects share client-visible output | `IConsoleOutputStream` + `INotificationStream` exist; typed control capabilities still to finalize |
-| ✅ | Status poll | Unary GetStatus; callers poll on demand (not a stream) | Modeled on `ILiveSession.GetStatusAsync` |
-| ◐ | User input | Mouse, keyboard, wheel, text and touch reach browser | `ConsumeUserInputAsync` pump modeled; typed input model still open |
-| ◐ | Console input | Eval request carries id + JavaScript code | `ConsumeConsoleInputAsync` pump + JsBridge gate on mux; eval request/result contract still open |
-| ○ | Input validation | Malformed JSON and blocked input types are rejected; session stays alive | Input-validation policy and rejection events |
-| ○ | Touch gestures | Tap, cancel, multitouch and drag-scroll are supported | Touch input models |
+| ✅ | Frame stream | CDP JPEG + relay monotonic sequence + API relay-receipt UTC timestamp | Typed `Frame` over disposable mux streams and WebTransport |
+| ◐ | Console/control output | Console and eval results use typed envelopes; location/blocked/focus/crash use typed notifications | URL reverse projection/redirect stubs remain item 5 |
+| ✅ | Status poll | Unary status includes engine JsBridge state, session id and relay uptime | `ILiveSession.GetStatusAsync`; fps remains zero until measured |
+| ✅ | User input | Typed `UserInput` envelopes carry validated mouse, keyboard, wheel, text and touch payloads through mux → gRPC | Invalid payloads emit `InputRejected` and do not kill the session |
+| ✅ | Console input | Stable `{ id, code }` eval request and typed eval-result envelope | JsBridge-gated; disabled requests are rejected without stopping the session |
+| ✅ | Input validation | Malformed MessagePack/JSON and blocked input types are rejected; session stays alive | WebTransport framing limits + gRPC input mapping |
+| ◐ | Touch gestures | Touch points/phases reach the sidecar | Exclusive gesture ownership/scheduling remains |
 | ○ | Single-tab enforcement | Popup and `_blank` navigation remain in one controlled tab | Browser-window policy capability |
 | ✅ | Multi-pipe output | One session can supply equivalent output to N consumers | Fan-out via `SessionStreamMultiplexer`; disposable per-consumer streams |
 | ◐ | Multi-pipe input authority | Defines who may control a session when multiple pipes exist | Shared/Exclusive access on mux; ownership/scheduling pending |
@@ -181,14 +189,14 @@ live output stream.
 
 | Status | Feature | Current observable behavior | Application model still required |
 |--------|---------|-----------------------------|----------------------------------|
-| ◐ | Initial navigation | Required for successful start | Modeled, but resolver inputs are incomplete |
-| ◐ | Runtime navigation | Maps client URL to target URL and commands the active browser | `ILiveSession.NavigateAsync` + `IUrlResolver`; allowlist/mirroring still incomplete |
+| ✅ | Start navigation | Required for successful start | Resolve → Navigate uses Path, Query and transport host |
+| ◐ | Runtime navigation | Maps client path/query to target URL and commands the active browser | `ILiveSession.NavigateAsync` uses the same host-aware `IUrlResolver`; URL sync/redirect projection remains incomplete |
 | ○ | Scheme validation | Invalid/unsupported navigation is rejected | Navigation request validation |
 | ○ | URL allowlist | Main-frame navigation honors shared domain/path pattern rules | Navigation policy port/result |
 | ○ | Blocked vs failed | Policy block is distinct from technical browser failure | Named results/events |
 | ○ | External redirect | Navigation outside the virtualized domain redirects the real client while session remains alive | Redirect output model |
 | ○ | Client URL mapping | Target URLs map back to client URLs, preserving path/query and navigation state | Reverse-mapping port |
-| ○ | Subdomain mirroring | Host changes map to mirrored Motor hosts when operational | Hosting-aware mapping context |
+| ○ | Subdomain mirroring | Host changes map to mirrored session hosts when operational | Hosting-aware mapping context |
 | ○ | Redirect chains / history | Redirects, SPA paths, back/forward and history remain coherent | Navigation-state/history capability |
 | ○ | Asset escape rule | Allowlist applies to main-frame navigation, not assets/XHR/subframes | Explicit policy boundary |
 
@@ -253,7 +261,7 @@ All sections are managed through:
 - `PUT /api/admin/config/{section}`
 - `DELETE /api/admin/config/{section}`
 
-The migration must preserve each section's **Motor effect**, not merely its JSON.
+The migration must preserve each section's **session effect**, not merely its JSON.
 
 ### `Forwarding`
 
@@ -278,7 +286,7 @@ The migration must preserve each section's **Motor effect**, not merely its JSON
 
 | Status | Feature to model |
 |--------|------------------|
-| ○ | Multiple Motor domains/profiles |
+| ○ | Multiple session domains/profiles |
 | ○ | Current profile resolution from request host |
 | ○ | Subdomain-mirroring enablement and operational status |
 | ○ | Wildcard dependency on Forwarding domains |
@@ -295,7 +303,7 @@ The migration must preserve each section's **Motor effect**, not merely its JSON
 | ○ | Types: Classic / Module |
 | ○ | Per-script target URL rules with shared domain/path pattern models |
 | ○ | Session-generation snapshot: config changes affect new sessions |
-| ○ | Resolution failure leaves Motor operational without scripts but reports warning |
+| ○ | Resolution failure leaves sessions operational without scripts but reports warning |
 
 ### `JsBridge`
 
@@ -365,7 +373,7 @@ event catalog and persisted-state control.
 | Status | Feature to model |
 |--------|------------------|
 | ◐ | Global enabled; Development/Production/Assertive remain bootstrap presets |
-| ◐ | Capability toggles: Motor metrics/events/snapshots |
+| ◐ | Capability toggles: Sessions metrics/events/snapshots |
 | ◐ | Capability toggles: Sidecar metrics/events |
 | ◐ | Capability toggle: BrowserQuery probe |
 | ◐ | Capability toggle: persisted-profile snapshots |
@@ -391,9 +399,9 @@ event catalog and persisted-state control.
 | ○ | Host/API process probes | Resource-probe query surface |
 | ○ | Event catalog | Descriptor/capability/span catalog query |
 | ○ | Persisted snapshots | List/detail/state replacement under capability gate |
-| ◐ | Motor lifecycle events | Explicit event interfaces exist only for start/stop |
+| ◐ | Session lifecycle events | Explicit event interfaces exist only for start/stop |
 | ○ | Navigate/input/resize/pipe/sidecar events | Capability-specific event ports |
-| ○ | Composite telemetry source | Motor/sidecar/persistence/pipeline projections |
+| ○ | Composite telemetry source | Sessions/sidecar/persistence/pipeline projections |
 
 Diagnostics is a product feature, not incidental logging. Its application
 contracts must preserve capability gating, redaction, governance and stable
@@ -419,11 +427,11 @@ error outcomes.
 
 The following are the immediate modeling gaps visible in the existing chassis:
 
-1. `StartSession` does not carry client URL, request-host context, startup
-   viewport or device profile.
-2. `IInitialUrlResolver` cannot reproduce current mapping because it receives
-   neither client URL nor Motor host/Hosting context.
-3. `StartSessionAsync` returns `sessionId`; current client behavior also needs
+1. `StartSession` now carries Path/Query, transport-derived request host and
+   complete launch mimicry; policy fields are assembled from Engine configuration.
+2. `IUrlResolver` is host-aware for start and runtime navigation; reverse URL
+   projection, redirects and full navigation-state semantics remain open.
+3. `StartSessionAsync` returns `sessionId` plus a session token; current client behavior also needs
    effective profile/client-token continuity.
 4. There is no EnsureProfile/identity-indexer application flow.
 5. Runtime Navigate/Resize/Status/Refresh/Diag/streams/hooks/Attach-Detach are on
@@ -448,13 +456,14 @@ This order follows user-visible dependencies, not infrastructure dependencies:
    EnsureProfile + token/indexers + start result
 
 2. Complete StartSession contract
-   client URL + host context + viewport + device + runtime policy snapshot
+   Path/Query + transport host + edge-normalized mimicry + Engine launch assembly
 
-3. Transport binding lifecycle
+3. Transport binding lifecycle ✅
    start replacement + startup cancellation + disconnect + stop reasons
 
-4. Live I/O parity
+4. Live I/O parity ◐
    frame + console/control + status + user input + eval
+   (URL/redirect projection and input ownership scheduling remain)
 
 5. Runtime navigation
    mapping + allowlist + URL sync + redirects + history semantics
@@ -487,7 +496,8 @@ application-layer orchestration, then mark the feature ✅/◐ here.
 - Presentation calls application ports; it does not inject `IBrowserClient`.
 - `ISessionService` = lifecycle (Start/Stop); `ILiveSessionService` / `ILiveSession` =
   one in-memory context per live connection (typed streams, commands, hooks, Attach/Detach).
-  Start success order: persist Live → `Create(sessionId, connection)` → collector `Watch`.
+  Start success order: persist Live → `Create(sessionId, connection, requestHost, jsBridgeEnabled)` →
+  collector `Watch` → `Attach` → binding `TryPromote`.
   Stop order: persist best-effort → MarkStopped → live `Release` → `Unwatch` →
   StopBrowser → Close → slot release. Host registers `ISessionService` with `IUrlResolver`;
   `AddBrowserSessions` registers `ILiveSessionService` (needs `IUrlResolver`).

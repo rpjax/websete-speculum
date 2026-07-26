@@ -19,10 +19,12 @@ internal sealed class LiveSession : ILiveSession
     private readonly SessionHooks _hooks;
     private readonly ISessionCollector _collector;
     private readonly IUrlResolver _urls;
+    private readonly string _requestHost;
+    private readonly bool _jsBridgeEnabled;
+    private readonly long _startedTimestamp = Environment.TickCount64;
     private readonly ScopedMutex _commandGate = new();
     private readonly object _attachmentGate = new();
     private readonly HashSet<Guid> _attachments = new();
-    private readonly Guid _inputConsumerId = Guid.CreateVersion7();
 
     private CancellationTokenSource? _lifetime = new();
     private int _released;
@@ -35,7 +37,9 @@ internal sealed class LiveSession : ILiveSession
         ISessionStreamMultiplexer mux,
         SessionHooks hooks,
         ISessionCollector collector,
-        IUrlResolver urls)
+        IUrlResolver urls,
+        string requestHost,
+        bool jsBridgeEnabled)
     {
         SessionId = sessionId;
         _connection = connection;
@@ -43,14 +47,10 @@ internal sealed class LiveSession : ILiveSession
         _hooks = hooks;
         _collector = collector;
         _urls = urls;
+        _requestHost = requestHost;
+        _jsBridgeEnabled = jsBridgeEnabled;
 
         hooks.BindToConnection(connection);
-
-        var inputRegister = mux.RegisterInputConsumer(_inputConsumerId);
-        if (inputRegister.IsFailure)
-        {
-            throw new InvalidOperationException("Failed to register live-session input consumer");
-        }
     }
 
     internal void Release()
@@ -141,7 +141,7 @@ internal sealed class LiveSession : ILiveSession
         => OpenStream(static (id, mux) => (INotificationStream)new NotificationStream(id, mux));
 
     public IResult<Task> ConsumeUserInputAsync(
-        ChannelReader<string> channelReader,
+        ChannelReader<UserInput> channelReader,
         CancellationToken ct = default)
         => StartInputPump(
             (consumerId, token) => _mux.StartUserInputPump(consumerId, channelReader, token),
@@ -163,7 +163,26 @@ internal sealed class LiveSession : ILiveSession
             return Result<SessionStatus>.Failure("Live session is released");
         }
 
-        return await _connection.GetStatusAsync(ct).ConfigureAwait(false);
+        var status = await _connection.GetStatusAsync(ct).ConfigureAwait(false);
+        if (status.IsFailure)
+        {
+            return status;
+        }
+
+        var current = status.Value;
+        return Result<SessionStatus>.Success(new SessionStatus
+        {
+            TabCount = current.TabCount,
+            Url = current.Url,
+            Resizing = current.Resizing,
+            Width = current.Width,
+            Height = current.Height,
+            Fps = current.Fps,
+            UptimeMs = Math.Max(1, Environment.TickCount64 - _startedTimestamp),
+            SessionId = SessionId.ToString("D"),
+            JsBridgeEnabled = _jsBridgeEnabled,
+            Editing = current.Editing,
+        });
     }
 
     public Task<IResult> NavigateAsync(NavigateSession request, CancellationToken ct = default)
@@ -172,7 +191,7 @@ internal sealed class LiveSession : ILiveSession
         return WithCommandGateAsync(
             async () =>
             {
-                var urlResult = _urls.Resolve(request.Path, request.Query);
+                var urlResult = _urls.Resolve(request.Path, request.Query, _requestHost);
                 if (urlResult.IsFailure)
                 {
                     return Result.Failure(urlResult.Errors.ToArray());
@@ -196,12 +215,12 @@ internal sealed class LiveSession : ILiveSession
                     ? Guid.CreateVersion7().ToString("D")
                     : request.RequestId.Trim();
 
-                var device = request.Device ?? new DeviceProfile();
+                // Optional device: empty profile maps to no proto device (size-only resize).
                 return _connection.ResizeAsync(
                     requestId,
                     request.Width,
                     request.Height,
-                    device,
+                    request.Device ?? new DeviceProfile(),
                     ct);
             },
             ct);
@@ -274,15 +293,24 @@ internal sealed class LiveSession : ILiveSession
             return Result<Task>.Failure("Live session is released");
         }
 
+        var consumerId = Guid.CreateVersion7();
+        var register = _mux.RegisterInputConsumer(consumerId);
+        if (register.IsFailure)
+        {
+            return Result<Task>.Failure(register.Errors.ToArray());
+        }
+
         var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, lifetimeToken);
-        var pump = start(_inputConsumerId, linked.Token);
+        var pump = start(consumerId, linked.Token);
         if (pump.IsFailure)
         {
             linked.Dispose();
+            _mux.UnregisterInputConsumer(consumerId);
             return pump;
         }
 
-        return Result<Task>.Success(ObserveAndDisposeAsync(pump.Value, linked));
+        return Result<Task>.Success(
+            ObserveAndUnregisterAsync(pump.Value, linked, consumerId));
     }
 
     private bool TryGetLifetimeToken(out CancellationToken token)
@@ -345,7 +373,10 @@ internal sealed class LiveSession : ILiveSession
         }
     }
 
-    private static async Task ObserveAndDisposeAsync(Task pump, CancellationTokenSource linked)
+    private async Task ObserveAndUnregisterAsync(
+        Task pump,
+        CancellationTokenSource linked,
+        Guid consumerId)
     {
         try
         {
@@ -354,6 +385,7 @@ internal sealed class LiveSession : ILiveSession
         finally
         {
             linked.Dispose();
+            _mux.UnregisterInputConsumer(consumerId);
         }
     }
 }

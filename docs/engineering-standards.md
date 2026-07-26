@@ -4,7 +4,7 @@
 **Status:** constitution — not optional guidance.  
 **If this conflicts with convenience, this wins.**
 
-Read this **before** multi-file or motor/diagnostics/CI changes. Deeper detail lives in the linked docs; this file defines the **non-negotiable contract**.
+Read this **before** multi-file or sessions/diagnostics/CI changes. Deeper detail lives in the linked docs; this file defines the **non-negotiable contract**.
 
 ---
 
@@ -13,7 +13,7 @@ Read this **before** multi-file or motor/diagnostics/CI changes. Deeper detail l
 | Step | Document |
 |------|----------|
 | 1 | This file |
-| 2 | [naming.md](naming.md) — Speculum / Motor / W7S vocabulary |
+| 2 | [naming.md](naming.md) — Speculum / Sessions / W7S vocabulary |
 | 3 | [architecture.md](architecture.md) — domains and flows |
 | 4 | [diagnostics.md](diagnostics.md) — Act→Assert cookbook |
 | 5 | Before MotorAssert or CI matrix changes: [../Speculum.MotorAssert.Tests/MATRIX.md](../Speculum.MotorAssert.Tests/MATRIX.md) |
@@ -26,7 +26,7 @@ Read this **before** multi-file or motor/diagnostics/CI changes. Deeper detail l
 - Do not skip, ignore, or soften an assert to get green CI.
 - Do not add config key aliases or “deprecated” API paths during V1 development.
 - Do not treat `Task.Delay` as the primary Act→Assert synchronizer.
-- Do not assume `200` / `ok: true` proves motor truth.
+- Do not assume `200` / `ok: true` proves session truth.
 
 ---
 
@@ -34,17 +34,19 @@ Read this **before** multi-file or motor/diagnostics/CI changes. Deeper detail l
 
 ### 1.1 One question per folder
 
-`Speculum.Api` (and mirrored `web/src/features/motor/`) is organized by **responsibility**, not by layer soup:
+`Speculum.Api` is organized by **responsibility**, not by layer soup. The
+pre-refactor tree and `web/src/features/motor/` retain legacy names until a
+structural migration:
 
 | Domain | Folder | Question |
 |--------|--------|----------|
-| Config | `Config/` | What does the motor know about itself? |
-| Motor / Mapping | `Motor/Mapping/` | How do client URLs map to the forwarded site? |
-| Motor / Live | `Motor/Live/` | How does a live SignalR session relay to the sidecar? |
-| Motor / Sidecar | `Motor/Sidecar/` | How does the API speak the W7S sidecar wire protocol? |
+| Sessions | `Refactor/Speculum.Api/Sessions/` | How does a live browsing session behave? |
+| Session edge | `Refactor/Speculum.Api/Presentation/Sessions/` | How do clients control and stream a session? |
+| Browser client | `Refactor/Speculum.Api/wwwroot/speculum/` | How does browser code open and use sessions? |
+| Legacy live browsing | `Motor/`, `web/src/features/motor/` | Existing pre-refactor implementation only |
 | Edge | `Edge/` | How is Traefik/CORS materialized from Hosting? |
 | Browser persistence | `BrowserPersistence/` | How is Chrome state stored between visits? |
-| Diagnostics | `Diagnostics/` | How do we observe and prove motor truth? |
+| Diagnostics | `Diagnostics/` | How do we observe and prove session truth? |
 | Admin / Scripts | `Admin/`, `Scripts/` | Operator HTTP + injected scripts |
 
 Cross-cutting change → re-read architecture + naming **before** editing two or more domains.
@@ -60,34 +62,36 @@ Transport (Hub, Admin endpoints)
 
 Domain types **must not** reference ASP.NET, SignalR, or `IServiceProvider`.
 
-### 1.3 Vocabulary (Speculum / Motor / W7S)
+### 1.3 Vocabulary (Speculum / Sessions / W7S)
 
 | Term | Use when |
 |------|----------|
 | **Speculum** | Platform, config, infrastructure, docs |
-| **Motor** | Live remote browsing (hub, relay, URL mapping) |
+| **Sessions** | Live remote browsing (control, transport, URL mapping) |
 | **W7S** | **Wire / client boundary only** (`_w7s_nso`, sidecar protocol docs) |
 | **Browser persistence** | Chrome state in SQLite — not the live relay |
 | **Diagnostics** | Assertable observability |
 
 **Distinctions:**
 
-- `MotorSession` (live SignalR ↔ sidecar) ≠ `BrowserSessionStore` (persisted snapshots).
+- `LiveSession` (live control + transport) ≠ `BrowserSessionStore` (persisted snapshots).
+- `Motor` is allowed only in existing legacy proper names such as
+  `MotorHub` and `Speculum.MotorAssert.Tests`; do not introduce it in new code.
 - **W7S must not** appear in C# namespaces, internal class names, application log prefixes, or API folder names.
 
 Full rules: [naming.md](naming.md).
 
 ### 1.4 Configuration layers (do not mix)
 
-1. **Infrastructure (env)** — bind address, DB path, sidecar URL, Traefik roots. Never motor site domains as sole source of truth.
-2. **Motor runtime (SQLite + Admin API)** — `Forwarding`, `MaxSessions`, `Hosting`, `Diagnostics`, `JsBridge`, …
+1. **Infrastructure (env)** — bind address, DB path, sidecar URL, Traefik roots. Never session site domains as sole source of truth.
+2. **Session runtime (SQLite + Admin API)** — `Forwarding`, `MaxSessions`, `Hosting`, `Diagnostics`, `JsBridge`, …
 3. **Admin credentials** — `Admin.apiKey` seeded once (`ADMIN_BOOTSTRAP_KEY` optional bootstrap).
 
 Config section path segments are **PascalCase literals** (`SessionPolicy`, not `sessionPolicy`). No legacy aliases in V1.
 
 ### 1.5 Edge and deploy
 
-- Same-origin motor host: SPA + `/api` + `/vhub`.
+- Same-origin session host: SPA + `/api` + `/vhub`.
 - `EdgeSynchronizer` materializes Traefik from Hosting — do not hand-edit generated `deploy/out/`.
 - Canonical deploy: **dockup** + [../deploy/README.md](../deploy/README.md).
 
@@ -113,7 +117,7 @@ Config section path segments are **PascalCase literals** (`SessionPolicy`, not `
 ### 2.2 Wire and hub contracts
 
 - Prefer **explicit, MessagePack-safe** DTOs (concrete `Dictionary<>` when `IReadOnlyDictionary` fails round-trip).
-- Use `[MessagePackObject]` + `[Key("camelCase")]` on hub DTOs consumed by JS (`clientToken`, `url`, indexers, …). Align server `MotorHubMessagePack.Options` with Act clients and Vitest contract tests.
+- Use `[MessagePackObject]` + `[Key("camelCase")]` on hub DTOs consumed by JS (`clientToken`, `url`, indexers, …). Align server `SessionHubMessagePack.Options` in the refactor with clients and contract tests.
 - Stable public contracts (do not rename without a deliberate plan): REST config/diagnostics routes, `/vhub` methods, `_w7s_nso`, sidecar opcodes and `diagProbe` / `diagResult`.
 
 ### 2.3 Errors and opacity
@@ -129,7 +133,7 @@ Pipeline: **Observe → Govern → Record → Query → Present**.
 - Catalog Act→Assert events must not be randomly sampled away.
 - Catalogued **failures** (and decisive lifecycle emits) must include stable payload fields — at minimum `errorCode` + `phase` on failures. An incomplete emit is a product defect, not an acceptable soft-pass — see [diagnostics.md](diagnostics.md) (Failure & lifecycle payload contract).
 - Control plane: **capability toggles per domain** (`metrics`/`events`/`snapshots`/`probe`), budgets, overflow, elevate, soft-caps. The transport is domain-agnostic — it gates only by catalog `descriptor` + `IsCapabilityEnabled`, never by hardcoded event/domain names — see [diagnostics.md](diagnostics.md).
-- `Telemetry` domain: one composite `Telemetry.SampleCollected` sample (host/motor/sidecar/persistence/pipeline) on a global interval; sections and identity are opt-in per toggle, redaction stays read-time.
+- `Telemetry` domain: one composite `Telemetry.SampleCollected` sample (host/sessions/sidecar/persistence/pipeline) on a global interval; sections and identity are opt-in per toggle, redaction stays read-time.
 
 ---
 
@@ -146,8 +150,8 @@ web Vitest                     compose + Chromium              .github/workflows
 ```
 
 - Fast gate catches cheap bugs (URL map, MsgPack keys, wheel defaults, Traefik YAML).
-- **motor-assertive** proves **motor truth** end-to-end.
-- **Perf** measures capacity/SLO — **never** confuses “slow” with “motor lied”. Badge is informational; **not** branch-protection required.
+- The legacy **motor-assertive** category proves **session truth** end-to-end.
+- **Perf** measures capacity/SLO — **never** confuses “slow” with “the session lied”. Badge is informational; **not** branch-protection required.
 
 ### 3.2 Act → Assert (effect, not smoke)
 
@@ -241,7 +245,7 @@ dotnet test Speculum.sln -c Release --filter "Category!=MotorAssertive&Category!
 # + sidecar npm test + web npm test
 ```
 
-Do **not** treat motor-assertive Docker+Chrome as laptop QA by default — that job is GitHub Actions–first ([CONTRIBUTING.md](../CONTRIBUTING.md)).
+Do **not** treat the legacy motor-assertive Docker+Chrome category as laptop QA by default — that job is GitHub Actions–first ([CONTRIBUTING.md](../CONTRIBUTING.md)).
 
 ---
 
@@ -250,7 +254,7 @@ Do **not** treat motor-assertive Docker+Chrome as laptop QA by default — that 
 | Ban | Why |
 |-----|-----|
 | Skip-if-missing-property | Hides missing contracts |
-| Smoke-only motor tests | Green ≠ working |
+| Smoke-only session tests | Green ≠ working |
 | Shrinking live Diagnostics `maxBytes` on shared CI stack to “prove” overflow without a Perf/unit home | Stack kills cascade; move load to Perf / sink units |
 | Hub args as `IReadOnlyDictionary` without a round-trip test | MessagePack may drop indexers |
 | `Task.Delay` as sole wait for SessionStarted / export / probe | Race-prone flakes |
@@ -268,12 +272,12 @@ Do **not** treat motor-assertive Docker+Chrome as laptop QA by default — that 
 ## 6. Merge checklist
 
 - [ ] Fast gate green (`Category!=MotorAssertive&Category!=MotorPerf`, sidecar, web).
-- [ ] Required CI green including **`motor-assertive`** when behaviour touches motor/diagnostics/edge/persist.
+- [ ] Required CI green including legacy **`motor-assertive`** when behaviour touches sessions/diagnostics/edge/persist.
 - [ ] MATRIX depth updated if coverage changed.
 - [ ] Diagnostics cookbook / this file updated if a new contract class was introduced.
 - [ ] Component or architecture docs updated when behaviour or boundaries change (same PR).
 - [ ] No new skip/ignore on MotorAssertive without an explicit deferred MATRIX row (e.g. K4).
-- [ ] Naming: Speculum / Motor / W7S respected; no new ambiguity between live session and persisted session.
+- [ ] Naming: Speculum / Sessions / W7S respected; no new ambiguity between live session and persisted session.
 
 ---
 

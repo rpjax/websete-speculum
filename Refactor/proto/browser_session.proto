@@ -28,6 +28,12 @@ message ScriptInjection {
   string content = 4;
 }
 
+message Geolocation {
+  double latitude = 1;
+  double longitude = 2;
+  double accuracy = 3;
+}
+
 message EditingState {
   optional string input_mode = 1;
   optional bool multiline = 2;
@@ -52,6 +58,11 @@ message LaunchRequest {
   optional DeviceProfile device = 4;
   repeated ScriptInjection scripts = 5;
   repeated string allowed_navigation_domains = 6;
+  string locale = 7;
+  string language = 8;
+  string timezone_id = 9;
+  string color_scheme = 10;
+  optional Geolocation geolocation = 11;
 }
 
 message ReadyInfo {

@@ -1,6 +1,7 @@
 import assert from 'assert';
 import { matchesAllowedDomain } from './browser/patchright/Navigation';
 import { validateLaunchViewport, validateResizeViewport } from './browser/patchright/viewport-bounds';
+import { toLaunchOptions } from './grpc/mappers';
 
 function testDomainMatch(): void {
   assert.strictEqual(matchesAllowedDomain('example.com', ['example.com']), true);
@@ -32,6 +33,31 @@ function testViewportBounds(): void {
   console.log('[unit] viewport bounds ok');
 }
 
+function testLaunchEnvironmentIsRequired(): void {
+  assert.throws(
+    () => toLaunchOptions({ width: 800, height: 600 }),
+    /locale is required/,
+  );
+
+  const options = toLaunchOptions({
+    width: 800,
+    height: 600,
+    locale: 'pt-BR',
+    language: 'pt-BR',
+    timezoneId: 'America/Sao_Paulo',
+    colorScheme: 'light',
+    geolocation: {
+      latitude: -23.55,
+      longitude: -46.63,
+      accuracy: 10,
+    },
+  });
+  assert.strictEqual(options.locale, 'pt-BR');
+  assert.strictEqual(options.geolocation?.accuracy, 10);
+  console.log('[unit] launch environment ok');
+}
+
 testDomainMatch();
 testViewportBounds();
+testLaunchEnvironmentIsRequired();
 console.log('[unit] all passed');

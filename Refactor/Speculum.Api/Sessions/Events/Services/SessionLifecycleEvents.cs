@@ -1,6 +1,7 @@
 using Speculum.Api.Journal.Services.Contracts;
 using Speculum.Api.Sessions.Events.Models;
 using Speculum.Api.Sessions.Events.Services.Contracts;
+using Speculum.Api.Sessions.Models;
 
 namespace Speculum.Api.Sessions.Events.Services;
 
@@ -41,39 +42,43 @@ public sealed class SessionLifecycleEvents : ISessionLifecycleEvents
         });
     }
 
-    public void Stopping()
+    public void Stopping(StopReason reason)
     {
         _writer.Append(new SessionStopping
         {
             SessionId = _sessionId,
             ProfileId = _profileId,
+            Reason = reason.ToStableString(),
         });
     }
 
-    public void Stopped()
+    public void Stopped(StopReason reason)
     {
         _writer.Append(new SessionStopped
         {
             SessionId = _sessionId,
             ProfileId = _profileId,
+            Reason = reason.ToStableString(),
         });
     }
 
-    public void TimedOut()
+    public void TimedOut(StopReason reason)
     {
         _writer.Append(new SessionTimedOut
         {
             SessionId = _sessionId,
             ProfileId = _profileId,
+            Reason = reason.ToStableString(),
         });
     }
 
-    public void Aborted()
+    public void Aborted(StopReason reason)
     {
         _writer.Append(new SessionAborted
         {
             SessionId = _sessionId,
             ProfileId = _profileId,
+            Reason = reason.ToStableString(),
         });
     }
 }

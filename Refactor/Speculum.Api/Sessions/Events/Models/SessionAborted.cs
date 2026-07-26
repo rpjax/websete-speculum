@@ -5,7 +5,7 @@ namespace Speculum.Api.Sessions.Events.Models;
 
 [JournalFact(
     "Sessions.SessionAborted",
-    schemaVersion: 1,
+    schemaVersion: 2,
     Name = "Session aborted",
     Description = "Session provisioning failed before Live was reached.",
     Owner = "sessions",
@@ -18,4 +18,7 @@ public sealed class SessionAborted
 
     [JournalIndex("profile")]
     public required Guid ProfileId { get; init; }
+
+    [JournalIndex("reason")]
+    public required string Reason { get; init; }
 }

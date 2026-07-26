@@ -3,15 +3,29 @@
 ## Run
 
 ```bash
-# mock (no Chrome) — local smoke
+# interactive harness (no Chrome) — ~60 fps JPEG scene + full input feedback
+SPECULUM_BROWSER=mock SPECULUM_GRPC_PORT=50051 SPECULUM_HEALTH_PORT=3001 npm start
+
+# mock smoke (asserts a real JPEG frame)
 SPECULUM_BROWSER=mock npm run smoke
 
 # units (domain allowlist + viewport bounds)
 npm run unit
 
 # production host (requires Chrome + Xvfb on Linux)
-npm start
+SPECULUM_BROWSER=patchright SPECULUM_GRPC_PORT=50051 SPECULUM_HEALTH_PORT=3001 npm start
 ```
+
+### Mock harness
+
+When `SPECULUM_BROWSER=mock`, the sidecar does **not** launch Chrome. It runs an
+interactive in-process scene (`MockBrowserSession` + `HarnessScene`) that:
+
+- Emits real JPEG frames at ~60 fps (16 ms target; quality auto-drops if encode is slow)
+- Visualizes all `BrowserInput` types (mouse, wheel, keys, type/text, touch, goback/goforward)
+- Emits location / editable-focus / navigation-blocked events like a real session
+
+Use with the Api demo (`Speculum.Api/wwwroot`) for daily stream + input feel testing.
 
 ## Docker
 
@@ -37,10 +51,10 @@ docker compose -f deploy/compose/docker-compose.refactor-grpc.yml up --build
 
 | Variable | Default | Meaning |
 |----------|---------|---------|
-| `SPECULUM_BROWSER` | `patchright` | Set `mock` for in-memory sessions |
+| `SPECULUM_BROWSER` | _(required)_ | `mock` (interactive harness) or `patchright` |
 | `SPECULUM_GRPC_PORT` | `50051` | gRPC listen port |
 | `SPECULUM_HEALTH_PORT` | `3001` | `GET /health`, `GET /ready` |
-| `CHROME_EXECUTABLE` | `/usr/bin/google-chrome` | Chrome binary |
+| `CHROME_EXECUTABLE` | `/usr/bin/google-chrome` | Chrome binary (patchright only) |
 | `SPECULUM_GL_FALLBACK` | unset | Ops-only SwiftShader / webgl-spoof |
 | `SPECULUM_V4L2_DEVICE` | unset | Reserved — media ingress not implemented |
 

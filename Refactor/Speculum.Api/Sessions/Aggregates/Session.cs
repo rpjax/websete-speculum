@@ -11,6 +11,7 @@ public sealed class Session
     public DateTimeOffset CreatedAt { get; private set; }
     public DateTimeOffset? StoppedAt { get; private set; }
     public DateTimeOffset? AbortedAt { get; private set; }
+    public StopReason? StopReason { get; private set; }
 
     internal Session(
         Guid id,
@@ -19,7 +20,8 @@ public sealed class Session
         string authToken,
         DateTimeOffset createdAt,
         DateTimeOffset? stoppedAt,
-        DateTimeOffset? abortedAt)
+        DateTimeOffset? abortedAt,
+        StopReason? stopReason = null)
     {
         Id = id;
         ProfileId = profileId;
@@ -28,6 +30,7 @@ public sealed class Session
         CreatedAt = createdAt;
         StoppedAt = stoppedAt;
         AbortedAt = abortedAt;
+        StopReason = stopReason;
     }
 
     public static Session Create(Guid id, Guid profileId, string? authToken = null)
@@ -40,7 +43,11 @@ public sealed class Session
             stoppedAt: null,
             abortedAt: null);
 
-    public static Session Reconstitute(Guid id, Guid profileId, LifecycleState state)
+    public static Session Reconstitute(
+        Guid id,
+        Guid profileId,
+        LifecycleState state,
+        StopReason? stopReason = null)
         => new(
             id,
             profileId,
@@ -48,26 +55,29 @@ public sealed class Session
             authToken: string.Empty,
             createdAt: DateTimeOffset.UtcNow,
             stoppedAt: null,
-            abortedAt: null);
+            abortedAt: null,
+            stopReason);
 
     public void MarkLive()
     {
         State = LifecycleState.Live;
     }
 
-    public void MarkStopped() => MarkStopped(DateTimeOffset.UtcNow);
+    public void MarkStopped(StopReason reason) => MarkStopped(reason, DateTimeOffset.UtcNow);
 
-    public void MarkStopped(DateTimeOffset stoppedAt)
+    public void MarkStopped(StopReason reason, DateTimeOffset stoppedAt)
     {
         State = LifecycleState.Stopped;
         StoppedAt = stoppedAt;
+        StopReason = reason;
     }
 
-    public void MarkAborted() => MarkAborted(DateTimeOffset.UtcNow);
+    public void MarkAborted(StopReason reason) => MarkAborted(reason, DateTimeOffset.UtcNow);
 
-    public void MarkAborted(DateTimeOffset abortedAt)
+    public void MarkAborted(StopReason reason, DateTimeOffset abortedAt)
     {
         State = LifecycleState.Aborted;
         AbortedAt = abortedAt;
+        StopReason = reason;
     }
 }

@@ -1,6 +1,6 @@
 "use strict";
 /**
- * Smoke: Create → Launch → WatchVideo (receive ≥1 frame) while GetStatus succeeds in parallel.
+ * Smoke: Create → Launch → WatchVideo (receive ≥1 real JPEG) while GetStatus succeeds in parallel.
  */
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
@@ -40,6 +40,7 @@ const grpc = __importStar(require("@grpc/grpc-js"));
 const MockBrowserSession_1 = require("./browser/MockBrowserSession");
 const index_1 = require("./index");
 const loadProto_1 = require("./grpc/loadProto");
+const MIN_JPEG_BYTES = 1024;
 async function unary(client, method, request, deadlineMs = 5_000) {
     return new Promise((resolve, reject) => {
         const deadline = new Date(Date.now() + deadlineMs);
@@ -72,6 +73,10 @@ async function main() {
             sessionId,
             width: 800,
             height: 600,
+            locale: 'en-US',
+            language: 'en-US',
+            timezoneId: 'UTC',
+            colorScheme: 'light',
         });
         console.log('[smoke] launched');
         const framePromise = new Promise((resolve, reject) => {
@@ -82,7 +87,18 @@ async function main() {
             }, 5_000);
             call.on('data', (frame) => {
                 clearTimeout(timer);
-                console.log(`[smoke] video frame bytes=${frame.jpeg?.length ?? 0}`);
+                const bytes = frame.jpeg?.length ?? 0;
+                console.log(`[smoke] video frame bytes=${bytes}`);
+                if (bytes < MIN_JPEG_BYTES) {
+                    call.cancel();
+                    reject(new Error(`expected JPEG > ${MIN_JPEG_BYTES} bytes, got ${bytes}`));
+                    return;
+                }
+                if (frame.jpeg[0] !== 0xff || frame.jpeg[1] !== 0xd8) {
+                    call.cancel();
+                    reject(new Error('frame is not a JPEG SOI'));
+                    return;
+                }
                 call.cancel();
                 resolve();
             });

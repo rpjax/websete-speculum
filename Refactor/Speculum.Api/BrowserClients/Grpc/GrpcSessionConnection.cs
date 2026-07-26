@@ -1,6 +1,7 @@
 using System.Threading.Channels;
 using Aidan.Core.Patterns;
 using Grpc.Core;
+using Speculum.Api.Configurations.Services.Contracts;
 using Speculum.Api.Profiles.Aggregates;
 using Speculum.Api.Sessions.Models;
 using Speculum.Api.Sidecar.V1;
@@ -20,6 +21,7 @@ namespace Speculum.Api.BrowserClients.Grpc;
 public sealed class GrpcSessionConnection : ISessionConnection
 {
     private readonly BrowserSessionService.BrowserSessionServiceClient _client;
+    private readonly IConfigurationService _configuration;
     private readonly Action<Guid> _onClosed;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly object _gate = new();
@@ -58,10 +60,12 @@ public sealed class GrpcSessionConnection : ISessionConnection
     public GrpcSessionConnection(
         Guid sessionId,
         BrowserSessionService.BrowserSessionServiceClient client,
+        IConfigurationService configuration,
         Action<Guid> onClosed)
     {
         SessionId = sessionId;
         _client = client;
+        _configuration = configuration;
         _onClosed = onClosed;
     }
 
@@ -69,11 +73,11 @@ public sealed class GrpcSessionConnection : ISessionConnection
 
     public bool IsOpen => Volatile.Read(ref _open) == 1;
 
-    public async Task StartStreamsAsync(CancellationToken ct)
+    public Task StartStreamsAsync(CancellationToken ct)
     {
         EnsureOpen();
-        var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _lifetime.Token);
-        var token = linked.Token;
+        ct.ThrowIfCancellationRequested();
+        var token = _lifetime.Token;
 
         _pushInput = _client.PushInput(cancellationToken: token);
         _control = _client.Control(cancellationToken: token);
@@ -85,6 +89,7 @@ public sealed class GrpcSessionConnection : ISessionConnection
         _ = PumpEditableFocusAsync(token);
         _ = PumpCrashAsync(token);
         _ = PumpControlAsync(token);
+        return Task.CompletedTask;
     }
 
     public async Task<IResult> CloseAsync(CancellationToken ct = default)
@@ -229,7 +234,10 @@ public sealed class GrpcSessionConnection : ISessionConnection
         DomainDeviceProfile device,
         CancellationToken ct = default)
     {
-        var validated = GrpcRequestValidation.ValidateResize(width, height);
+        var validated = GrpcRequestValidation.ValidateResize(
+            width,
+            height,
+            _configuration.GetCurrent().Sessions.ViewportPolicy);
         if (validated.IsFailure)
         {
             return Result<DomainResizeResult>.Failure(validated.Errors.ToArray());
@@ -339,7 +347,7 @@ public sealed class GrpcSessionConnection : ISessionConnection
         _microphonePermissionHandler = handler;
     }
 
-    public IResult<Task> ConsumeUserInputAsync(ChannelReader<string> channelReader)
+    public IResult<Task> ConsumeUserInputAsync(ChannelReader<UserInput> channelReader)
     {
         if (!IsOpen || _pushInput is null)
         {
@@ -359,17 +367,46 @@ public sealed class GrpcSessionConnection : ISessionConnection
         return Result<Task>.Success(PumpConsoleInputAsync(channelReader, _lifetime.Token));
     }
 
-    private async Task PumpUserInputAsync(ChannelReader<string> reader, CancellationToken ct)
+    private async Task PumpUserInputAsync(ChannelReader<UserInput> reader, CancellationToken ct)
     {
         var stream = _pushInput!.RequestStream;
-        await foreach (var json in reader.ReadAllAsync(ct))
+        await foreach (var userInput in reader.ReadAllAsync(ct))
         {
-            if (!GrpcSessionMappers.TryParseInputEvent(SessionId, json, out var input) || input is null)
+            if (!GrpcSessionMappers.TryParseInputEvent(SessionId, userInput, out var input)
+                || input is null)
             {
-                throw new InvalidOperationException($"Invalid user input JSON: {json}");
+                _notifications.Writer.TryWrite(new SessionNotification
+                {
+                    Kind = SessionNotificationKind.InputRejected,
+                    ErrorCode = "input_invalid",
+                    Phase = "validate",
+                    Message = $"Invalid user input: {userInput.Type}",
+                });
+                continue;
             }
 
-            await stream.WriteAsync(input, ct);
+            try
+            {
+                await stream.WriteAsync(input, ct);
+            }
+            catch (RpcException ex) when (ex.StatusCode is StatusCode.Cancelled or StatusCode.Unavailable)
+            {
+                break;
+            }
+            catch (RpcException ex)
+            {
+                _notifications.Writer.TryWrite(new SessionNotification
+                {
+                    Kind = SessionNotificationKind.InputRejected,
+                    ErrorCode = "input_push_failed",
+                    Phase = "push",
+                    Message = ex.Status.Detail ?? ex.Message,
+                });
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
         }
     }
 
@@ -380,8 +417,18 @@ public sealed class GrpcSessionConnection : ISessionConnection
             var codeValidation = GrpcRequestValidation.ValidateEvaluate(input.Code);
             if (codeValidation.IsFailure)
             {
-                throw new InvalidOperationException(
-                    string.Join("; ", codeValidation.Errors.Select(e => e.Message)));
+                await _console.Writer.WriteAsync(
+                    new ConsoleOutput
+                    {
+                        Kind = ConsoleOutputKind.EvalResult,
+                        RequestId = input.Id,
+                        Ok = false,
+                        Error = string.Join(
+                            "; ",
+                            codeValidation.Errors.Select(e => e.Message)),
+                    },
+                    ct);
+                continue;
             }
 
             try
@@ -404,6 +451,18 @@ public sealed class GrpcSessionConnection : ISessionConnection
             catch (OperationCanceledException)
             {
                 break;
+            }
+            catch (RpcException ex)
+            {
+                await _console.Writer.WriteAsync(
+                    new ConsoleOutput
+                    {
+                        Kind = ConsoleOutputKind.EvalResult,
+                        RequestId = input.Id,
+                        Ok = false,
+                        Error = ex.Status.Detail ?? ex.Message,
+                    },
+                    ct);
             }
         }
     }
@@ -608,14 +667,26 @@ public sealed class GrpcSessionConnection : ISessionConnection
 
     private async Task<T> WithLinkedAsync<T>(CancellationToken ct, Func<CancellationToken, Task<T>> action)
     {
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _lifetime.Token);
+        using var linked = CreateLifetimeLink(ct);
         return await action(linked.Token);
     }
 
     private async Task WithLinkedAsync(CancellationToken ct, Func<CancellationToken, Task> action)
     {
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _lifetime.Token);
+        using var linked = CreateLifetimeLink(ct);
         await action(linked.Token);
+    }
+
+    private CancellationTokenSource CreateLifetimeLink(CancellationToken ct)
+    {
+        try
+        {
+            return CancellationTokenSource.CreateLinkedTokenSource(ct, _lifetime.Token);
+        }
+        catch (ObjectDisposedException)
+        {
+            throw new OperationCanceledException(ct);
+        }
     }
 
     private void EnsureOpen()
@@ -633,6 +704,10 @@ public sealed class GrpcSessionConnection : ISessionConnection
         {
             return await action();
         }
+        catch (OperationCanceledException)
+        {
+            return Result.Failure("Connection closed");
+        }
         catch (RpcException ex)
         {
             return Result.Failure(ex.Status.Detail ?? ex.Message);
@@ -645,6 +720,10 @@ public sealed class GrpcSessionConnection : ISessionConnection
         try
         {
             return await action();
+        }
+        catch (OperationCanceledException)
+        {
+            return Result<T>.Failure("Connection closed");
         }
         catch (RpcException ex)
         {

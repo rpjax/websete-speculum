@@ -11,14 +11,15 @@ public interface ISessionStartEvents
     void ConnectionStarted();
     void BrowserLaunched();
     void ProfileStateRestored();
-    void InitialUrlResolved(string url);
+    void StartUrlResolved(string url);
     void InitialNavigationCompleted();
 
     void ProfileNotFound();
+    void StartConfigurationRejected(Error[] errors);
     void NoSlotAvailable();
     void ConnectionStartFailed(Error[] errors);
     void LaunchBrowserFailed(Error[] errors);
     void RestoreProfileStateFailed(Error[] errors);
-    void InitialUrlResolveFailed(Error[] errors);
+    void StartUrlResolveFailed(Error[] errors);
     void InitialNavigationFailed(Error[] errors);
 }

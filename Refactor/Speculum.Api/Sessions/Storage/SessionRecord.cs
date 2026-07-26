@@ -18,4 +18,5 @@ public sealed class SessionRecord
 
     [Column("state")]
     public LifecycleState State { get; set; }
+
 }

@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Speculum.Api.Configurations.Models.Sessions;
 using Speculum.Api.Sessions.Events.Services.Contracts;
+using Speculum.Api.Sessions.Models;
 using Speculum.Api.Sessions.Requests;
 using Speculum.Api.Sessions.Services.Contracts;
 
@@ -116,11 +117,37 @@ public sealed class SessionCollector : ISessionCollector, IDisposable
     private void ArmTimer(Guid sessionId, Entry entry)
     {
         DisarmTimer(entry);
-        entry.Timer = new Timer(
-            _ => _ = OnTimedOutAsync(sessionId),
+        Timer? timer = null;
+        timer = new Timer(
+            _ =>
+            {
+                if (!TryClaimTimedOut(sessionId, timer))
+                {
+                    return;
+                }
+
+                _ = OnTimedOutAsync(sessionId);
+            },
             null,
             _detachedTimeout,
             Timeout.InfiniteTimeSpan);
+        entry.Timer = timer;
+    }
+
+    private bool TryClaimTimedOut(Guid sessionId, Timer? timer)
+    {
+        lock (_gate)
+        {
+            if (!_entries.TryGetValue(sessionId, out var entry)
+                || entry.RefCount != 0
+                || !ReferenceEquals(entry.Timer, timer))
+            {
+                return false;
+            }
+
+            entry.Timer = null;
+            return true;
+        }
     }
 
     private static void DisarmTimer(Entry entry)
@@ -136,18 +163,49 @@ public sealed class SessionCollector : ISessionCollector, IDisposable
             using var scope = _scopeFactory.CreateScope();
             var repository = scope.ServiceProvider.GetRequiredService<ISessionRepository>();
             var session = await repository.LoadAsync(sessionId).ConfigureAwait(false);
-            if (session is not null)
+            if (session is null
+                || session.State is LifecycleState.Stopped or LifecycleState.Aborted)
             {
-                _events.ForSessionLifecycle(session).TimedOut();
+                Unwatch(sessionId);
+                return;
+            }
+
+            if (session.State == LifecycleState.Live)
+            {
+                _events.ForSessionLifecycle(session).TimedOut(StopReason.TimedOut);
             }
 
             var sessions = scope.ServiceProvider.GetRequiredService<ISessionService>();
-            await sessions.StopSessionAsync(new StopSession { SessionId = sessionId })
+            var stop = await sessions.StopSessionAsync(new StopSession
+                {
+                    SessionId = sessionId,
+                    Reason = StopReason.TimedOut,
+                })
                 .ConfigureAwait(false);
+            if (stop.IsFailure)
+            {
+                ReArmIfStillDetached(sessionId);
+            }
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Detached session {SessionId} timed out but stop failed.", sessionId);
+            ReArmIfStillDetached(sessionId);
+        }
+    }
+
+    private void ReArmIfStillDetached(Guid sessionId)
+    {
+        lock (_gate)
+        {
+            if (!_entries.TryGetValue(sessionId, out var entry)
+                || entry.RefCount != 0
+                || entry.Timer is not null)
+            {
+                return;
+            }
+
+            ArmTimer(sessionId, entry);
         }
     }
 

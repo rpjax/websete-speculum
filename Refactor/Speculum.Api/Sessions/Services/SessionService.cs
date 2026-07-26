@@ -1,5 +1,6 @@
 using Aidan.Core.Patterns;
 using Speculum.Api.BrowserClients;
+using Speculum.Api.Configurations.Services.Contracts;
 using Speculum.Api.Profiles.Services.Contracts;
 using Speculum.Api.Sessions.Aggregates;
 using Speculum.Api.Sessions.Events.Services.Contracts;
@@ -26,6 +27,9 @@ public sealed class SessionService : ISessionService
     private readonly IBrowserClient _browserClient;
     private readonly ISessionTokenGenerator _sessionTokens;
     private readonly IAsyncScopedMutex _lifecycleGate;
+    private readonly ISessionBindingRegistry _bindings;
+    private readonly IConfigurationService _configuration;
+    private readonly SessionConfigAssembler _configAssembler;
 
     public SessionService(
         IProfileRepository profiles,
@@ -37,7 +41,10 @@ public sealed class SessionService : ISessionService
         ISessionEventsFactory events,
         IBrowserClient browserClient,
         ISessionTokenGenerator sessionTokens,
-        IAsyncScopedMutex lifecycleGate)
+        IAsyncScopedMutex lifecycleGate,
+        ISessionBindingRegistry bindings,
+        IConfigurationService configuration,
+        ILaunchScriptResolver launchScripts)
     {
         _profiles = profiles;
         _sessions = sessions;
@@ -49,17 +56,35 @@ public sealed class SessionService : ISessionService
         _browserClient = browserClient;
         _sessionTokens = sessionTokens;
         _lifecycleGate = lifecycleGate;
+        _bindings = bindings;
+        _configuration = configuration;
+        _configAssembler = new SessionConfigAssembler(launchScripts);
     }
 
     public async Task<IResult<StartSessionResponse>> StartSessionAsync(
         StartSession request,
         CancellationToken ct = default)
     {
+        ArgumentNullException.ThrowIfNull(request);
+        if (string.IsNullOrWhiteSpace(request.CallerId))
+        {
+            return Result<StartSessionResponse>.Failure("Caller id is required");
+        }
+
         var sessionId = Guid.NewGuid();
         var profileId = request.ProfileId;
         var startEvents = _events.ForSessionStart(sessionId, profileId);
         var lifecycleEvents = _events.ForSessionLifecycle(sessionId, profileId);
         var persisted = false;
+
+        var engineConfiguration = _configuration.GetCurrent();
+        var sessionConfiguration = _configAssembler.Assemble(request, engineConfiguration);
+        if (sessionConfiguration.IsFailure)
+        {
+            startEvents.StartConfigurationRejected(sessionConfiguration.Errors.ToArray());
+            return Result<StartSessionResponse>.Failure(
+                sessionConfiguration.Errors.ToArray());
+        }
 
         var profile = await _profiles.LoadAsync(profileId, ct).ConfigureAwait(false);
         if (profile is null)
@@ -68,107 +93,199 @@ public sealed class SessionService : ISessionService
             return Result<StartSessionResponse>.Failure("Profile not found");
         }
 
-        if (!_slotRegistry.TryAquire(sessionId))
-        {
-            startEvents.NoSlotAvailable();
-            return Result<StartSessionResponse>.Failure("No session slot available");
-        }
-
-        startEvents.SlotAcquired();
-        lifecycleEvents.Starting();
-
+        var binding = _bindings.BeginStart(request.CallerId, sessionId);
         try
         {
-            var connectionResult = await _browserClient.StartConnectionAsync(sessionId, ct)
-                .ConfigureAwait(false);
-            if (connectionResult.IsFailure)
+            if (binding.ReplacedSessionId is { } replacedSessionId)
             {
-                startEvents.ConnectionStartFailed(connectionResult.Errors.ToArray());
-                return await AbortStartAsync(
-                    sessionId, profileId, persisted, lifecycleEvents, connectionResult, ct)
+                var replace = await StopSessionAsync(
+                        new StopSession
+                        {
+                            SessionId = replacedSessionId,
+                            Reason = StopReason.Replaced,
+                        },
+                        CancellationToken.None)
                     .ConfigureAwait(false);
+                if (replace.IsFailure)
+                {
+                    _bindings.TryCancelStart(request.CallerId, sessionId);
+                    return Result<StartSessionResponse>.Failure(replace.Errors.ToArray());
+                }
             }
 
-            startEvents.ConnectionStarted();
-            var connection = connectionResult.Value;
-
-            var launchResult = await connection.LaunchBrowserAsync(request.Configuration, ct)
-                .ConfigureAwait(false);
-            if (launchResult.IsFailure)
+            using var startLifetime = CancellationTokenSource.CreateLinkedTokenSource(
+                ct,
+                binding.CancellationToken);
+            var startCt = startLifetime.Token;
+            try
             {
-                startEvents.LaunchBrowserFailed(launchResult.Errors.ToArray());
-                return await AbortStartAsync(
-                    sessionId, profileId, persisted, lifecycleEvents, launchResult, ct)
+                await binding.PreviousStartCompletion
+                    .WaitAsync(startCt)
                     .ConfigureAwait(false);
             }
-
-            startEvents.BrowserLaunched();
-
-            var restoreResult = await connection.RestoreProfileStateAsync(profile.State, ct)
-                .ConfigureAwait(false);
-            if (restoreResult.IsFailure)
+            catch (OperationCanceledException)
             {
-                startEvents.RestoreProfileStateFailed(restoreResult.Errors.ToArray());
-                return await AbortStartAsync(
-                    sessionId, profileId, persisted, lifecycleEvents, restoreResult, ct)
-                    .ConfigureAwait(false);
+                _bindings.TryCancelStart(request.CallerId, sessionId);
+                var waitReason = ct.IsCancellationRequested
+                    ? StopReason.Disconnected
+                    : StopReason.Cancelled;
+                lifecycleEvents.Aborted(waitReason);
+                return Result<StartSessionResponse>.Failure("Session start was cancelled");
             }
 
-            startEvents.ProfileStateRestored();
-
-            var urlResult = _urls.Resolve(request.Path, request.Query);
-            if (urlResult.IsFailure)
+            if (!_slotRegistry.TryAquire(sessionId))
             {
-                startEvents.InitialUrlResolveFailed(urlResult.Errors.ToArray());
-                return await AbortStartAsync(
-                    sessionId, profileId, persisted, lifecycleEvents, urlResult, ct)
-                    .ConfigureAwait(false);
+                _bindings.TryCancelStart(request.CallerId, sessionId);
+                startEvents.NoSlotAvailable();
+                return Result<StartSessionResponse>.Failure("No session slot available");
             }
 
-            startEvents.InitialUrlResolved(urlResult.Value);
+            startEvents.SlotAcquired();
+            lifecycleEvents.Starting();
 
-            var navigationResult = await connection.NavigateAsync(urlResult.Value, ct)
-                .ConfigureAwait(false);
-            if (navigationResult.IsFailure)
+            try
             {
-                startEvents.InitialNavigationFailed(navigationResult.Errors.ToArray());
-                return await AbortStartAsync(
-                    sessionId, profileId, persisted, lifecycleEvents, navigationResult, ct)
+                var connectionResult = await _browserClient.StartConnectionAsync(sessionId, startCt)
                     .ConfigureAwait(false);
-            }
+                if (connectionResult.IsFailure)
+                {
+                    startEvents.ConnectionStartFailed(connectionResult.Errors.ToArray());
+                    return await AbortStartAsync(
+                        request.CallerId, sessionId, profileId, persisted, lifecycleEvents,
+                        connectionResult, StopReason.Faulted)
+                        .ConfigureAwait(false);
+                }
 
-            startEvents.InitialNavigationCompleted();
+                startEvents.ConnectionStarted();
+                var connection = connectionResult.Value;
 
-            var token = _sessionTokens.GetRandom();
-            await _sessions.SaveAsync(Session.Create(sessionId, profileId, token), ct)
-                .ConfigureAwait(false);
-            persisted = true;
-
-            // Bind runtime to the connection we just provisioned (no re-resolve).
-            var live = _liveSessions.Create(sessionId, connection);
-            if (live.IsFailure)
-            {
-                return await AbortStartAsync(
-                    sessionId, profileId, persisted, lifecycleEvents, live, ct)
+                var launchResult = await connection.LaunchBrowserAsync(sessionConfiguration.Value, startCt)
                     .ConfigureAwait(false);
+                if (launchResult.IsFailure)
+                {
+                    startEvents.LaunchBrowserFailed(launchResult.Errors.ToArray());
+                    return await AbortStartAsync(
+                        request.CallerId, sessionId, profileId, persisted, lifecycleEvents,
+                        launchResult, StopReason.Faulted)
+                        .ConfigureAwait(false);
+                }
+
+                startEvents.BrowserLaunched();
+
+                var restoreResult = await connection.RestoreProfileStateAsync(profile.State, startCt)
+                    .ConfigureAwait(false);
+                if (restoreResult.IsFailure)
+                {
+                    startEvents.RestoreProfileStateFailed(restoreResult.Errors.ToArray());
+                    return await AbortStartAsync(
+                        request.CallerId, sessionId, profileId, persisted, lifecycleEvents,
+                        restoreResult, StopReason.Faulted)
+                        .ConfigureAwait(false);
+                }
+
+                startEvents.ProfileStateRestored();
+
+                var urlResult = _urls.Resolve(request.Path, request.Query, request.RequestHost);
+                if (urlResult.IsFailure)
+                {
+                    startEvents.StartUrlResolveFailed(urlResult.Errors.ToArray());
+                    return await AbortStartAsync(
+                        request.CallerId, sessionId, profileId, persisted, lifecycleEvents,
+                        urlResult, StopReason.Faulted)
+                        .ConfigureAwait(false);
+                }
+
+                startEvents.StartUrlResolved(urlResult.Value);
+
+                var navigationResult = await connection.NavigateAsync(urlResult.Value, startCt)
+                    .ConfigureAwait(false);
+                if (navigationResult.IsFailure)
+                {
+                    startEvents.InitialNavigationFailed(navigationResult.Errors.ToArray());
+                    return await AbortStartAsync(
+                        request.CallerId, sessionId, profileId, persisted, lifecycleEvents,
+                        navigationResult, StopReason.Faulted)
+                        .ConfigureAwait(false);
+                }
+
+                startEvents.InitialNavigationCompleted();
+
+                var token = _sessionTokens.GetRandom();
+                await _sessions.SaveAsync(Session.Create(sessionId, profileId, token), startCt)
+                    .ConfigureAwait(false);
+                persisted = true;
+
+                // Bind runtime to the connection we just provisioned (no re-resolve).
+                var live = _liveSessions.Create(
+                    sessionId,
+                    connection,
+                    request.RequestHost,
+                    sessionConfiguration.Value.JsBridgeEnabled);
+                if (live.IsFailure)
+                {
+                    return await AbortStartAsync(
+                        request.CallerId, sessionId, profileId, persisted, lifecycleEvents,
+                        live, StopReason.Faulted)
+                        .ConfigureAwait(false);
+                }
+
+                // Arm detached timer only after live context exists.
+                _sessionCollector.Watch(sessionId);
+                var attachment = live.Value.Attach();
+                if (attachment.IsFailure)
+                {
+                    return await AbortStartAsync(
+                            request.CallerId, sessionId, profileId, persisted, lifecycleEvents,
+                            attachment, StopReason.Faulted)
+                        .ConfigureAwait(false);
+                }
+
+                if (!_bindings.TryPromote(
+                        request.CallerId,
+                        sessionId,
+                        attachment.Value,
+                        token))
+                {
+                    live.Value.Detach(attachment.Value);
+                    return await AbortStartAsync(
+                            request.CallerId, sessionId, profileId, persisted, lifecycleEvents,
+                            Result.Failure("Session start was cancelled"),
+                            StopReason.Cancelled)
+                        .ConfigureAwait(false);
+                }
+
+                lifecycleEvents.Started();
+                return Result<StartSessionResponse>.Success(new StartSessionResponse
+                {
+                    SessionId = sessionId,
+                    Token = token,
+                });
             }
-
-            // Arm detached timer only after live context exists.
-            _sessionCollector.Watch(sessionId);
-
-            lifecycleEvents.Started();
-            return Result<StartSessionResponse>.Success(new StartSessionResponse
+            catch (OperationCanceledException)
             {
-                SessionId = sessionId,
-                Token = token,
-            });
+                _bindings.TryCancelStart(request.CallerId, sessionId);
+                var reason = ct.IsCancellationRequested
+                    ? StopReason.Disconnected
+                    : StopReason.Cancelled;
+                await CompensateStartFailureAsync(
+                        sessionId, profileId, persisted, reason, CancellationToken.None)
+                    .ConfigureAwait(false);
+                lifecycleEvents.Aborted(reason);
+                return Result<StartSessionResponse>.Failure("Session start was cancelled");
+            }
+            catch
+            {
+                _bindings.TryCancelStart(request.CallerId, sessionId);
+                await CompensateStartFailureAsync(
+                        sessionId, profileId, persisted, StopReason.Faulted, CancellationToken.None)
+                    .ConfigureAwait(false);
+                lifecycleEvents.Aborted(StopReason.Faulted);
+                throw;
+            }
         }
-        catch
+        finally
         {
-            await CompensateStartFailureAsync(sessionId, profileId, persisted, ct)
-                .ConfigureAwait(false);
-            lifecycleEvents.Aborted();
-            throw;
+            _bindings.CompleteStart(sessionId);
         }
     }
 
@@ -189,7 +306,11 @@ public sealed class SessionService : ISessionService
 
             if (session.State is LifecycleState.Stopped or LifecycleState.Aborted)
             {
-                await TearDownLiveResourcesAsync(session.Id, session.ProfileId, ct, emitStopEvents: false)
+                await TearDownLiveResourcesAsync(
+                        session.Id,
+                        session.ProfileId,
+                        CancellationToken.None,
+                        emitStopEvents: false)
                     .ConfigureAwait(false);
                 return Result.Success();
             }
@@ -197,33 +318,43 @@ public sealed class SessionService : ISessionService
             var lifecycleEvents = _events.ForSessionLifecycle(session);
             var stopEvents = _events.ForSessionStop(session);
 
-            lifecycleEvents.Stopping();
+            lifecycleEvents.Stopping(request.Reason);
 
             // Persist while the sidecar connection is still open.
-            await TryPersistSessionStateAsync(session, stopEvents, ct).ConfigureAwait(false);
-
-            session.MarkStopped();
-            await _sessions.SaveAsync(session, ct).ConfigureAwait(false);
-
-            await TearDownLiveResourcesAsync(session.Id, session.ProfileId, ct, emitStopEvents: true, stopEvents)
+            await TryPersistSessionStateAsync(session, stopEvents, CancellationToken.None)
                 .ConfigureAwait(false);
 
-            lifecycleEvents.Stopped();
+            session.MarkStopped(request.Reason);
+            await _sessions.SaveAsync(session, CancellationToken.None).ConfigureAwait(false);
+
+            await TearDownLiveResourcesAsync(
+                    session.Id,
+                    session.ProfileId,
+                    CancellationToken.None,
+                    emitStopEvents: true,
+                    stopEvents)
+                .ConfigureAwait(false);
+
+            lifecycleEvents.Stopped(request.Reason);
             return Result.Success();
         }
     }
 
     private async Task<IResult<StartSessionResponse>> AbortStartAsync(
+        string callerId,
         Guid sessionId,
         Guid profileId,
         bool persisted,
         ISessionLifecycleEvents lifecycleEvents,
         IResult failed,
-        CancellationToken ct)
+        StopReason reason)
     {
-        await CompensateStartFailureAsync(sessionId, profileId, persisted, ct)
+        _bindings.TryCancelStart(callerId, sessionId);
+        await CompensateStartFailureAsync(
+                sessionId, profileId, persisted, reason, CancellationToken.None)
             .ConfigureAwait(false);
-        lifecycleEvents.Aborted();
+        _bindings.CompleteStart(sessionId);
+        lifecycleEvents.Aborted(reason);
         return Result<StartSessionResponse>.Failure(failed.Errors.ToArray());
     }
 
@@ -231,6 +362,7 @@ public sealed class SessionService : ISessionService
         Guid sessionId,
         Guid profileId,
         bool persisted,
+        StopReason reason,
         CancellationToken ct)
     {
         if (persisted)
@@ -238,7 +370,7 @@ public sealed class SessionService : ISessionService
             var session = await _sessions.LoadAsync(sessionId, ct).ConfigureAwait(false);
             if (session is { State: LifecycleState.Live })
             {
-                session.MarkAborted();
+                session.MarkAborted(reason);
                 await _sessions.SaveAsync(session, ct).ConfigureAwait(false);
             }
         }
@@ -302,6 +434,7 @@ public sealed class SessionService : ISessionService
             ? _events.ForSessionStop(sessionId, profileId)
             : null;
 
+        _bindings.CloseSession(sessionId);
         _liveSessions.Release(sessionId);
         _sessionCollector.Unwatch(sessionId);
 

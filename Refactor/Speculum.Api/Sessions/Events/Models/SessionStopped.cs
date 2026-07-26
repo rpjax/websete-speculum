@@ -5,7 +5,7 @@ namespace Speculum.Api.Sessions.Events.Models;
 
 [JournalFact(
     "Sessions.SessionStopped",
-    schemaVersion: 1,
+    schemaVersion: 2,
     Name = "Session stopped",
     Description = "Session left Live after an explicit stop.",
     Owner = "sessions",
@@ -18,4 +18,7 @@ public sealed class SessionStopped
 
     [JournalIndex("profile")]
     public required Guid ProfileId { get; init; }
+
+    [JournalIndex("reason")]
+    public required string Reason { get; init; }
 }

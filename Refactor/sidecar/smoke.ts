@@ -1,11 +1,13 @@
 /**
- * Smoke: Create → Launch → WatchVideo (receive ≥1 frame) while GetStatus succeeds in parallel.
+ * Smoke: Create → Launch → WatchVideo (receive ≥1 real JPEG) while GetStatus succeeds in parallel.
  */
 
 import * as grpc from '@grpc/grpc-js';
 import { createMockBrowserSessionFactory } from './browser/MockBrowserSession';
 import { createSidecarServer, bindAndStart } from './index';
 import { loadBrowserSessionPackage } from './grpc/loadProto';
+
+const MIN_JPEG_BYTES = 1024;
 
 async function unary(
   client: any,
@@ -46,6 +48,10 @@ async function main(): Promise<void> {
       sessionId,
       width: 800,
       height: 600,
+      locale: 'en-US',
+      language: 'en-US',
+      timezoneId: 'UTC',
+      colorScheme: 'light',
     });
     console.log('[smoke] launched');
 
@@ -57,7 +63,18 @@ async function main(): Promise<void> {
       }, 5_000);
       call.on('data', (frame: { jpeg: Buffer }) => {
         clearTimeout(timer);
-        console.log(`[smoke] video frame bytes=${frame.jpeg?.length ?? 0}`);
+        const bytes = frame.jpeg?.length ?? 0;
+        console.log(`[smoke] video frame bytes=${bytes}`);
+        if (bytes < MIN_JPEG_BYTES) {
+          call.cancel();
+          reject(new Error(`expected JPEG > ${MIN_JPEG_BYTES} bytes, got ${bytes}`));
+          return;
+        }
+        if (frame.jpeg[0] !== 0xff || frame.jpeg[1] !== 0xd8) {
+          call.cancel();
+          reject(new Error('frame is not a JPEG SOI'));
+          return;
+        }
         call.cancel();
         resolve();
       });

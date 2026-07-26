@@ -1,4 +1,3 @@
-using System.Text;
 using System.Text.Json;
 using Speculum.Api.Profiles.Aggregates;
 using Speculum.Api.Sessions.Models;
@@ -10,6 +9,7 @@ using ProtoDevice = Speculum.Api.Sidecar.V1.DeviceProfile;
 using ProtoResizeResult = Speculum.Api.Sidecar.V1.ResizeResult;
 using ProtoScript = Speculum.Api.Sidecar.V1.ScriptInjection;
 using ProtoState = Speculum.Api.Sidecar.V1.BrowserState;
+using ProtoGeolocation = Speculum.Api.Sidecar.V1.Geolocation;
 
 namespace Speculum.Api.BrowserClients.Grpc;
 
@@ -28,6 +28,25 @@ internal static class GrpcSessionMappers
             Width = width,
             Height = height,
         };
+
+        var environment = configuration.ClientEnvironment
+            ?? throw new ArgumentException(
+                "SessionConfig.ClientEnvironment is required",
+                nameof(configuration));
+        request.Locale = environment.Locale;
+        request.Language = environment.Language;
+        request.TimezoneId = environment.TimeZoneId;
+        request.ColorScheme = environment.ColorScheme;
+
+        if (environment.Geolocation is { } geolocation)
+        {
+            request.Geolocation = new ProtoGeolocation
+            {
+                Latitude = geolocation.Latitude,
+                Longitude = geolocation.Longitude,
+                Accuracy = geolocation.Accuracy,
+            };
+        }
 
         if (configuration.Device is { } device)
         {
@@ -243,37 +262,50 @@ internal static class GrpcSessionMappers
 
     public static ConsoleOutput ConsoleEventToOutput(ConsoleEvent ev) => new()
     {
-        Data = Encoding.UTF8.GetBytes(
-            JsonSerializer.Serialize(new { kind = "console", level = ev.Level, text = ev.Text })),
+        Kind = ConsoleOutputKind.Console,
+        Level = ev.Level,
+        Text = ev.Text,
     };
 
     public static ConsoleOutput EvalResultToOutput(int id, EvaluateResult result) => new()
     {
-        Data = Encoding.UTF8.GetBytes(
-            JsonSerializer.Serialize(new
-            {
-                kind = "eval",
-                id,
-                ok = result.Ok,
-                value = result.Value,
-                error = result.HasErrorMessage ? result.ErrorMessage : null,
-            })),
+        Kind = ConsoleOutputKind.EvalResult,
+        RequestId = id,
+        Ok = result.Ok,
+        Value = result.Value,
+        Error = result.HasErrorMessage ? result.ErrorMessage : null,
     };
 
-    public static bool TryParseInputEvent(Guid sessionId, string json, out InputEvent? input)
+    public static bool TryParseInputEvent(
+        Guid sessionId,
+        UserInput userInput,
+        out InputEvent? input)
     {
         input = null;
-        using var doc = JsonDocument.Parse(json);
-        var root = doc.RootElement;
-        if (!root.TryGetProperty("type", out var typeEl) || typeEl.ValueKind != JsonValueKind.String)
+        if (string.IsNullOrWhiteSpace(userInput.Type)
+            || string.IsNullOrWhiteSpace(userInput.Payload))
         {
             return false;
         }
 
-        var type = typeEl.GetString() ?? "";
-        var sid = sessionId.ToString("D");
-        input = type switch
+        try
         {
+            using var doc = JsonDocument.Parse(userInput.Payload);
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object
+                || (root.TryGetProperty("type", out var typeEl)
+                    && (typeEl.ValueKind != JsonValueKind.String
+                        || !string.Equals(
+                            typeEl.GetString(),
+                            userInput.Type,
+                            StringComparison.Ordinal))))
+            {
+                return false;
+            }
+
+            var sid = sessionId.ToString("D");
+            input = userInput.Type switch
+            {
             "mousemove" => new InputEvent
             {
                 SessionId = sid,
@@ -338,8 +370,29 @@ internal static class GrpcSessionMappers
             "goback" => new InputEvent { SessionId = sid, Goback = new HistoryNav() },
             "goforward" => new InputEvent { SessionId = sid, Goforward = new HistoryNav() },
             _ => null,
-        };
-        return input is not null;
+            };
+            return input is not null;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+        catch (KeyNotFoundException)
+        {
+            return false;
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
+        catch (OverflowException)
+        {
+            return false;
+        }
     }
 
     private static InputEvent ParseTouch(string sid, JsonElement root)

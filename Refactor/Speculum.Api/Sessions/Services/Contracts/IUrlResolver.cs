@@ -23,5 +23,5 @@ public interface IUrlResolver
     /// Absolute target URL on success; failure when the input is malformed or blocked
     /// (allowlist / mapping) before a target can be built.
     /// </returns>
-    IResult<string> Resolve(string path, string query);
+    IResult<string> Resolve(string path, string query, string requestHost);
 }

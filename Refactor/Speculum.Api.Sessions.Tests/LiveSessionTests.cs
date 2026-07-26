@@ -21,8 +21,8 @@ public sealed class LiveSessionTests
         var connection = new LiveFakeConnection(sessionId);
         var service = CreateService();
 
-        var created = service.Create(sessionId, connection);
-        var again = service.Create(sessionId, connection);
+        var created = service.Create(sessionId, connection, "speculum.test", true);
+        var again = service.Create(sessionId, connection, "speculum.test", true);
 
         Assert.True(created.IsSuccess);
         Assert.True(again.IsFailure);
@@ -45,7 +45,7 @@ public sealed class LiveSessionTests
     {
         var sessionId = Guid.NewGuid();
         var connection = new LiveFakeConnection(sessionId);
-        var live = CreateService().Create(sessionId, connection).Value;
+        var live = CreateService().Create(sessionId, connection, "speculum.test", true).Value;
 
         var a = live.OpenFrameStream().Value;
         var b = live.OpenFrameStream().Value;
@@ -60,7 +60,7 @@ public sealed class LiveSessionTests
     {
         var sessionId = Guid.NewGuid();
         var connection = new LiveFakeConnection(sessionId);
-        var live = CreateService().Create(sessionId, connection).Value;
+        var live = CreateService().Create(sessionId, connection, "speculum.test", true).Value;
 
         var a = live.OpenFrameStream().Value;
         var b = live.OpenFrameStream().Value;
@@ -76,7 +76,7 @@ public sealed class LiveSessionTests
     {
         var sessionId = Guid.NewGuid();
         var connection = new LiveFakeConnection(sessionId);
-        var live = CreateService().Create(sessionId, connection).Value;
+        var live = CreateService().Create(sessionId, connection, "speculum.test", true).Value;
 
         var first = live.OpenFrameStream().Value;
         first.Dispose();
@@ -96,7 +96,7 @@ public sealed class LiveSessionTests
             new RecordingUrlResolver("https://example.test/"),
             Options.Create(new SessionsConfiguration()),
             collector);
-        var live = service.Create(sessionId, connection).Value;
+        var live = service.Create(sessionId, connection, "speculum.test", true).Value;
 
         var stream = live.OpenFrameStream().Value;
         stream.Dispose();
@@ -121,7 +121,7 @@ public sealed class LiveSessionTests
     {
         var sessionId = Guid.NewGuid();
         var connection = new LiveFakeConnection(sessionId);
-        var live = CreateService().Create(sessionId, connection).Value;
+        var live = CreateService().Create(sessionId, connection, "speculum.test", true).Value;
 
         var stream = live.OpenNotificationStream().Value;
         await connection.Notifications.Writer.WriteAsync(new SessionNotification
@@ -140,11 +140,12 @@ public sealed class LiveSessionTests
         var sessionId = Guid.NewGuid();
         var connection = new LiveFakeConnection(sessionId);
         var urls = new RecordingUrlResolver("https://target.test/");
-        var live = CreateService(urls).Create(sessionId, connection).Value;
+        var live = CreateService(urls).Create(sessionId, connection, "speculum.test", true).Value;
 
         var result = await live.NavigateAsync(new NavigateSession { Path = "/x", Query = "q=1" });
         Assert.True(result.IsSuccess);
         Assert.Equal("/x", urls.LastPath);
+        Assert.Equal("speculum.test", urls.LastRequestHost);
         Assert.Equal("https://target.test/", connection.LastNavigatedUrl);
     }
 
@@ -153,11 +154,27 @@ public sealed class LiveSessionTests
     {
         var sessionId = Guid.NewGuid();
         var connection = new LiveFakeConnection(sessionId);
-        var live = CreateService().Create(sessionId, connection).Value;
+        var live = CreateService().Create(sessionId, connection, "speculum.test", true).Value;
 
         var status = await live.GetStatusAsync();
         Assert.True(status.IsSuccess);
         Assert.Equal(sessionId.ToString("D"), status.Value.SessionId);
+        Assert.True(status.Value.JsBridgeEnabled);
+        Assert.True(status.Value.UptimeMs > 0);
+    }
+
+    [Fact]
+    public async Task ConsoleInput_WithJsBridgeDisabled_IsRejectedWithoutStoppingSession()
+    {
+        var sessionId = Guid.NewGuid();
+        var connection = new LiveFakeConnection(sessionId);
+        var live = CreateService().Create(sessionId, connection, "speculum.test", false).Value;
+        var input = Channel.CreateUnbounded<ConsoleInput>();
+
+        var consume = live.ConsumeConsoleInputAsync(input.Reader);
+
+        Assert.True(consume.IsFailure);
+        Assert.True((await live.GetStatusAsync()).IsSuccess);
     }
 
     [Fact]
@@ -165,7 +182,7 @@ public sealed class LiveSessionTests
     {
         var sessionId = Guid.NewGuid();
         var connection = new LiveFakeConnection(sessionId);
-        var live = CreateService().Create(sessionId, connection).Value;
+        var live = CreateService().Create(sessionId, connection, "speculum.test", true).Value;
 
         Assert.Equal(PermissionDecision.Deny, await connection.CameraHandler!(CancellationToken.None));
 
@@ -178,7 +195,7 @@ public sealed class LiveSessionTests
     {
         var sessionId = Guid.NewGuid();
         var connection = new LiveFakeConnection(sessionId);
-        var live = CreateService().Create(sessionId, connection).Value;
+        var live = CreateService().Create(sessionId, connection, "speculum.test", true).Value;
 
         Assert.True(live.RegisterCameraPermission(_ => Task.FromResult(PermissionDecision.Allow)).IsSuccess);
         Assert.True(live.RegisterCameraPermission(_ => Task.FromResult(PermissionDecision.Deny)).IsSuccess);
@@ -191,7 +208,7 @@ public sealed class LiveSessionTests
         var sessionId = Guid.NewGuid();
         var connection = new LiveFakeConnection(sessionId);
         var service = CreateService();
-        var live = (service.Create(sessionId, connection)).Value;
+        var live = service.Create(sessionId, connection, "speculum.test", true).Value;
 
         Assert.True(live.RegisterCameraPermission(_ => Task.FromResult(PermissionDecision.Allow)).IsSuccess);
         service.Release(sessionId);
@@ -217,13 +234,40 @@ public sealed class LiveSessionTests
         });
 
         var service = CreateService(new RecordingUrlResolver("https://x.test/"), options);
-        var live = service.Create(sessionId, connection).Value;
+        var live = service.Create(sessionId, connection, "speculum.test", true).Value;
 
-        var inputA = Channel.CreateUnbounded<string>();
-        var inputB = Channel.CreateUnbounded<string>();
+        var inputA = Channel.CreateUnbounded<UserInput>();
+        var inputB = Channel.CreateUnbounded<UserInput>();
         Assert.True(live.ConsumeUserInputAsync(inputA.Reader).IsSuccess);
         var second = live.ConsumeUserInputAsync(inputB.Reader);
         Assert.True(second.IsFailure);
+    }
+
+    [Fact]
+    public async Task ExclusiveInput_AfterFirstPumpEnds_NextPumpSucceeds()
+    {
+        var sessionId = Guid.NewGuid();
+        var connection = new LiveFakeConnection(sessionId);
+        var options = Options.Create(new SessionsConfiguration
+        {
+            IsJsBridgeEnabled = true,
+            InputMultiplexingPolicy = new InputMultiplexingPolicy
+            {
+                Access = InputAccessPolicy.Exclusive,
+            },
+        });
+
+        var service = CreateService(new RecordingUrlResolver("https://x.test/"), options);
+        var live = service.Create(sessionId, connection, "speculum.test", true).Value;
+
+        var inputA = Channel.CreateUnbounded<UserInput>();
+        var first = live.ConsumeUserInputAsync(inputA.Reader);
+        Assert.True(first.IsSuccess);
+        inputA.Writer.TryComplete();
+        await first.Value;
+
+        var inputB = Channel.CreateUnbounded<UserInput>();
+        Assert.True(live.ConsumeUserInputAsync(inputB.Reader).IsSuccess);
     }
 
     private static LiveSessionService CreateService(
@@ -251,9 +295,12 @@ public sealed class LiveSessionTests
         public RecordingUrlResolver(string url) => _url = url;
         public string? LastPath { get; private set; }
 
-        public IResult<string> Resolve(string path, string query)
+        public string? LastRequestHost { get; private set; }
+
+        public IResult<string> Resolve(string path, string query, string requestHost)
         {
             LastPath = path;
+            LastRequestHost = requestHost;
             return Result<string>.Success(_url);
         }
     }
@@ -285,7 +332,7 @@ public sealed class LiveSessionTests
             Frames = Channel.CreateUnbounded<Frame>();
             Console = Channel.CreateUnbounded<ConsoleOutput>();
             Notifications = Channel.CreateUnbounded<SessionNotification>();
-            UserInputReceived = Channel.CreateUnbounded<string>();
+            UserInputReceived = Channel.CreateUnbounded<UserInput>();
             ConsoleInputReceived = Channel.CreateUnbounded<ConsoleInput>();
         }
 
@@ -294,7 +341,7 @@ public sealed class LiveSessionTests
         public Channel<Frame> Frames { get; }
         public Channel<ConsoleOutput> Console { get; }
         public Channel<SessionNotification> Notifications { get; }
-        public Channel<string> UserInputReceived { get; }
+        public Channel<UserInput> UserInputReceived { get; }
         public Channel<ConsoleInput> ConsoleInputReceived { get; }
         public string? LastNavigatedUrl { get; private set; }
         public Func<CancellationToken, Task<PermissionDecision>>? CameraHandler { get; private set; }
@@ -374,7 +421,7 @@ public sealed class LiveSessionTests
         public void SetMicrophonePermissionHandler(Func<CancellationToken, Task<PermissionDecision>> handler)
             => MicrophoneHandler = handler;
 
-        public IResult<Task> ConsumeUserInputAsync(ChannelReader<string> channelReader)
+        public IResult<Task> ConsumeUserInputAsync(ChannelReader<UserInput> channelReader)
             => Result<Task>.Success(DrainAsync(channelReader, UserInputReceived.Writer));
 
         public IResult<Task> ConsumeConsoleInputAsync(ChannelReader<ConsoleInput> channelReader)

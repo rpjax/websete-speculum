@@ -125,10 +125,11 @@ async function main(): Promise<void> {
   const mode = resolveBrowserMode();
   const grpcPort = requireEnv('SPECULUM_GRPC_PORT');
   const healthPort = Number(requireEnv('SPECULUM_HEALTH_PORT'));
-  const factory = resolveBrowserFactory({ emitFrames: true, frameIntervalMs: 500 });
+  const frameIntervalMs = mode === 'mock' ? 16 : 500;
+  const factory = resolveBrowserFactory({ emitFrames: true, frameIntervalMs });
   const { server, registry } = createSidecarServer({
     emitFrames: true,
-    frameIntervalMs: 500,
+    frameIntervalMs,
     factory,
   });
   const health = startHealthServer(healthPort);

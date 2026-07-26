@@ -80,6 +80,11 @@ export class PatchrightBrowserSession implements BrowserSession {
       displayEnv: this.display.displayEnv,
       width,
       height,
+      locale: options.locale,
+      language: options.language,
+      timeZoneId: options.timeZoneId,
+      colorScheme: options.colorScheme,
+      geolocation: options.geolocation,
       device: options.device,
     });
 
@@ -236,8 +241,9 @@ export class PatchrightBrowserSession implements BrowserSession {
       }
 
       sizeChanged = true;
-      await this.recreateAtSize(nextW, nextH, request.device);
-      this.viewport!.confirm(nextW, nextH, request.device);
+      const nextDevice = device ?? previous.device ?? undefined;
+      await this.recreateAtSize(nextW, nextH, nextDevice);
+      this.viewport!.confirm(nextW, nextH, nextDevice);
       return {
         ok: true,
         width: nextW,
@@ -307,12 +313,22 @@ export class PatchrightBrowserSession implements BrowserSession {
       this.display = null;
     }
 
+    const launchOptions = this.launchOptions;
+    if (!launchOptions) {
+      throw new Error('cannot recreate Chrome before launch options are captured');
+    }
+
     this.display = await Display.start(displayNum, width, height);
     this.chrome = await launchChrome({
       sessionId: this.sessionId,
       displayEnv: this.display.displayEnv,
       width,
       height,
+      locale: launchOptions.locale,
+      language: launchOptions.language,
+      timeZoneId: launchOptions.timeZoneId,
+      colorScheme: launchOptions.colorScheme,
+      geolocation: launchOptions.geolocation,
       device: deviceProfile,
       preserveUserDataDir: true,
     });

@@ -1,7 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.Viewport = void 0;
-/** Confirmed Motor viewport owner for a session. */
+/** Confirmed viewport owner for a live session. */
 class Viewport {
     _width;
     _height;

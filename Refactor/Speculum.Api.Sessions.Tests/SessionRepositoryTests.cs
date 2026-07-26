@@ -53,7 +53,7 @@ public sealed class SessionRepositoryTests
         var session = Session.Create(Guid.NewGuid(), Guid.NewGuid());
         await repository.SaveAsync(session);
 
-        session.MarkStopped();
+        session.MarkStopped(StopReason.UserStop);
         await repository.SaveAsync(session);
 
         var loaded = await repository.LoadAsync(session.Id);

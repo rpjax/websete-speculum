@@ -42,6 +42,7 @@ public static class PresentationServiceCollectionExtensions
             options.TransportMaxBufferSize = 512 * 1024;
             options.ApplicationMaxBufferSize = 512 * 1024;
         });
+        SessionWebTransportEndpoint.Map(endpoints);
 
         return endpoints;
     }

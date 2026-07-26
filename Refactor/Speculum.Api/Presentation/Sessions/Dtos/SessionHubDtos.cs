@@ -28,6 +28,41 @@ public sealed class StartSessionHubRequest
 
     [Key("device")]
     public DeviceProfile? Device { get; set; }
+
+    [Key("clientEnvironment")]
+    public ClientEnvironmentHubRequest? ClientEnvironment { get; set; }
+}
+
+[MessagePackObject]
+public sealed class ClientEnvironmentHubRequest
+{
+    [Key("locale")]
+    public string? Locale { get; set; }
+
+    [Key("language")]
+    public string? Language { get; set; }
+
+    [Key("timeZoneId")]
+    public string? TimeZoneId { get; set; }
+
+    [Key("colorScheme")]
+    public string? ColorScheme { get; set; }
+
+    [Key("geolocation")]
+    public GeolocationHubRequest? Geolocation { get; set; }
+}
+
+[MessagePackObject]
+public sealed class GeolocationHubRequest
+{
+    [Key("latitude")]
+    public double Latitude { get; set; }
+
+    [Key("longitude")]
+    public double Longitude { get; set; }
+
+    [Key("accuracy")]
+    public double Accuracy { get; set; }
 }
 
 /// <summary>Wire DTO for hub <c>StopSessionAsync</c>.</summary>
@@ -54,22 +89,6 @@ public sealed class StartSessionHubResponse
 
 internal static class SessionHubRequestMapper
 {
-    public static StartSession ToStartSession(StartSessionHubRequest request) => new()
-    {
-        ProfileId = request.ProfileId,
-        Path = request.Path ?? string.Empty,
-        Query = request.Query ?? string.Empty,
-        Configuration = new SessionConfig
-        {
-            Resolution = new ScreenResolution
-            {
-                Width = request.ViewportWidth,
-                Height = request.ViewportHeight,
-            },
-            Device = request.Device,
-        },
-    };
-
     public static StopSession ToStopSession(StopSessionHubRequest request) => new()
     {
         SessionId = request.SessionId,

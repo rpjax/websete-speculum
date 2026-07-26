@@ -15,6 +15,8 @@ public sealed class SessionConfig
 
     public DeviceProfile? Device { get; set; }
 
+    public ClientEnvironment? ClientEnvironment { get; set; }
+
     /// <summary>Scripts with content already resolved (connection does not load sources).</summary>
     public IReadOnlyList<ScriptInjection>? Scripts { get; set; }
 

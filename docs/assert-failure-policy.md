@@ -12,7 +12,7 @@ Canonical constitution: [engineering-standards.md](engineering-standards.md) §3
 ## Rules
 
 1. **Missing JSON property = fail** — never `TryGetProperty` then skip as success.
-2. **Effect assert** — catalogued events, snapshots, probes, and `errorCode` values. Status `200` or `ok: true` alone is not motor truth.
+2. **Effect assert** — catalogued events, snapshots, probes, and `errorCode` values. Status `200` or `ok: true` alone is not session truth.
 3. **Functional ≠ Perf** — overflow load, frame SLOs, and probe-storm capacity belong in `perf.yml` / Api sink units, not weakened MotorAssert cases.
 4. **Flake = bug** — fix wait scope, baseline isolation, or product timing. No silent retry loops.
 5. **MATRIX stays accurate** when coverage depth changes (same PR).

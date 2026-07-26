@@ -49,7 +49,7 @@ export interface BrowserSessionEvents {
   /** Main-frame http(s) URL changed inside the virtual browser. */
   onLocationChanged(url: string): void;
   /**
-   * Allowlist aborted this main-frame navigation; the real client should leave Motor
+   * Allowlist aborted this main-frame navigation; the real client should leave the session
    * to this absolute URL. Session stays alive. Browser already failed the request.
    */
   onMainFrameNavigationBlocked(url: string): void;
@@ -100,11 +100,24 @@ export interface BrowserStatus {
 export interface BrowserLaunchOptions {
   width: number;
   height: number;
+  locale: string;
+  language: string;
+  timeZoneId: string;
+  colorScheme: BrowserColorScheme;
+  geolocation?: BrowserGeolocation;
   device?: BrowserDeviceProfile;
   scripts?: readonly BrowserScriptInjection[];
   /** Main-frame allowlist; matching and block notify are internal to the session. */
   allowedNavigationDomains?: readonly string[];
 }
+
+export interface BrowserGeolocation {
+  latitude: number;
+  longitude: number;
+  accuracy: number;
+}
+
+export type BrowserColorScheme = 'light' | 'dark' | 'no-preference';
 
 export interface BrowserDeviceProfile {
   mobile?: boolean;
@@ -241,7 +254,7 @@ export type BrowserInput =
 // ── Contract ─────────────────────────────────────────────────────────────────
 
 /**
- * One live browser session (Chrome instance + display for a Motor session).
+ * One live browser session (Chrome instance + display for a Speculum session).
  *
  * Lifecycle expected by the connection handler:
  *   launch → restoreState? → navigate? → (resize | input | probe | …) → exportState? → stop → dispose

@@ -39,7 +39,7 @@ internal interface ISessionStreamMultiplexer : IDisposable
 
     IResult<Task> StartUserInputPump(
         Guid consumerId,
-        ChannelReader<string> channelReader,
+        ChannelReader<UserInput> channelReader,
         CancellationToken ct);
 
     IResult<Task> StartConsoleInputPump(

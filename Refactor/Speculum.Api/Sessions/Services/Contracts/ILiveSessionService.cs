@@ -14,7 +14,11 @@ public interface ILiveSessionService
     /// Fails when a context already exists or the connection is not usable.
     /// Does not own browser/connection lifecycle — that is <see cref="ISessionService"/>.
     /// </summary>
-    IResult<ILiveSession> Create(Guid sessionId, ISessionConnection connection);
+    IResult<ILiveSession> Create(
+        Guid sessionId,
+        ISessionConnection connection,
+        string requestHost,
+        bool jsBridgeEnabled);
 
     /// <summary>Looks up an existing context. Never creates one.</summary>
     bool TryGet(Guid sessionId, [NotNullWhen(true)] out ILiveSession? session);

@@ -60,9 +60,9 @@ public sealed class SessionStartEvents : ISessionStartEvents
         });
     }
 
-    public void InitialUrlResolved(string url)
+    public void StartUrlResolved(string url)
     {
-        _writer.Append(new InitialUrlResolved
+        _writer.Append(new StartUrlResolved
         {
             SessionId = _sessionId,
             ProfileId = _profileId,
@@ -85,6 +85,16 @@ public sealed class SessionStartEvents : ISessionStartEvents
         {
             SessionId = _sessionId,
             ProfileId = _profileId,
+        });
+    }
+
+    public void StartConfigurationRejected(Error[] errors)
+    {
+        _writer.Append(new StartConfigurationRejected
+        {
+            SessionId = _sessionId,
+            ProfileId = _profileId,
+            Errors = errors.Select(static error => error.Message ?? "").ToArray(),
         });
     }
 
@@ -127,9 +137,9 @@ public sealed class SessionStartEvents : ISessionStartEvents
         });
     }
 
-    public void InitialUrlResolveFailed(Error[] errors)
+    public void StartUrlResolveFailed(Error[] errors)
     {
-        _writer.Append(new InitialUrlResolveFailed
+        _writer.Append(new StartUrlResolveFailed
         {
             SessionId = _sessionId,
             ProfileId = _profileId,

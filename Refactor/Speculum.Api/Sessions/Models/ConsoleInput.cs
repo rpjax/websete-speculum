@@ -3,7 +3,7 @@ using MessagePack;
 namespace Speculum.Api.Sessions.Models;
 
 /// <summary>
-/// Comando <c>evaljs</c> originado no cliente e destinado ao motor JS do
+/// Comando <c>evaljs</c> originado no cliente e destinado ao runtime JS do
 /// navegador virtual.
 /// </summary>
 [MessagePackObject]

@@ -39,6 +39,25 @@ public sealed class BrowserSessionsCompositionTests
             {
                 ["ResourceManagement:Sessions:MaxConcurrentSessions"] = "4",
                 ["Sessions:DetachedSessionTimeout"] = "00:01:00",
+                ["Sessions:ViewportPolicy:Default:Width"] = "1280",
+                ["Sessions:ViewportPolicy:Default:Height"] = "720",
+                ["Sessions:ViewportPolicy:Minimum:Width"] = "100",
+                ["Sessions:ViewportPolicy:Minimum:Height"] = "100",
+                ["Sessions:ViewportPolicy:Maximum:Width"] = "4096",
+                ["Sessions:ViewportPolicy:Maximum:Height"] = "2160",
+                ["Sessions:ClientEnvironmentPolicy:DefaultLocale"] = "en-US",
+                ["Sessions:ClientEnvironmentPolicy:DefaultLanguage"] = "en-US",
+                ["Sessions:ClientEnvironmentPolicy:DefaultTimeZoneId"] = "America/New_York",
+                ["Sessions:ClientEnvironmentPolicy:DefaultColorScheme"] = "dark",
+                ["Sessions:DeviceEmulationPolicy:Default:DeviceScaleFactor"] = "1",
+                ["Sessions:DeviceEmulationPolicy:Default:UserAgentProfile"] = "desktop",
+                ["Sessions:DeviceEmulationPolicy:Default:ScreenOrientation"] = "landscapePrimary",
+                ["Sessions:DeviceEmulationPolicy:MinDeviceScaleFactor"] = "1",
+                ["Sessions:DeviceEmulationPolicy:MaxDeviceScaleFactor"] = "2",
+                ["Sessions:DeviceEmulationPolicy:MaxTouchPoints"] = "10",
+                ["Sessions:DeviceEmulationPolicy:DefaultTouchPointsWhenTouch"] = "5",
+                ["Sessions:DeviceEmulationPolicy:DesktopUserAgentProfile"] = "desktop",
+                ["Sessions:DeviceEmulationPolicy:MobileUserAgentProfile"] = "mobile",
             })
             .Build();
 

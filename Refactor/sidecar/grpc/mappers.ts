@@ -2,6 +2,7 @@ import type {
   BrowserDeviceProfile,
   BrowserInput,
   BrowserLaunchOptions,
+  BrowserColorScheme,
   BrowserState,
   BrowserEditingState,
 } from '../browser/BrowserSession';
@@ -22,6 +23,17 @@ export function toLaunchOptions(req: any): BrowserLaunchOptions {
   return {
     width: validated.width,
     height: validated.height,
+    locale: requireString(req.locale, 'locale'),
+    language: requireString(req.language, 'language'),
+    timeZoneId: requireString(req.timezoneId, 'timezoneId'),
+    colorScheme: requireColorScheme(req.colorScheme),
+    geolocation: req.geolocation
+      ? {
+          latitude: requireLatitude(req.geolocation.latitude),
+          longitude: requireLongitude(req.geolocation.longitude),
+          accuracy: requireAccuracy(req.geolocation.accuracy),
+        }
+      : undefined,
     device: req.device ? toDevice(req.device) : undefined,
     scripts: Array.isArray(req.scripts)
       ? req.scripts.map((s: any) => ({
@@ -204,6 +216,47 @@ function requireInt(value: unknown, field: string): number {
     throw Object.assign(new Error(`${field} must be an integer`), { code: 'INVALID_ARGUMENT' });
   }
   return n;
+}
+
+function requireLatitude(value: unknown): number {
+  const latitude = requireNumber(value, 'geolocation.latitude');
+  if (latitude < -90 || latitude > 90) {
+    throw Object.assign(new Error('geolocation.latitude must be between -90 and 90'), {
+      code: 'INVALID_ARGUMENT',
+    });
+  }
+  return latitude;
+}
+
+function requireLongitude(value: unknown): number {
+  const longitude = requireNumber(value, 'geolocation.longitude');
+  if (longitude < -180 || longitude > 180) {
+    throw Object.assign(new Error('geolocation.longitude must be between -180 and 180'), {
+      code: 'INVALID_ARGUMENT',
+    });
+  }
+  return longitude;
+}
+
+function requireAccuracy(value: unknown): number {
+  const accuracy = requireNumber(value, 'geolocation.accuracy');
+  if (accuracy < 0) {
+    throw Object.assign(new Error('geolocation.accuracy must be non-negative'), {
+      code: 'INVALID_ARGUMENT',
+    });
+  }
+  return accuracy;
+}
+
+function requireColorScheme(value: unknown): BrowserColorScheme {
+  const colorScheme = requireString(value, 'colorScheme');
+  if (colorScheme !== 'light' && colorScheme !== 'dark' && colorScheme !== 'no-preference') {
+    throw Object.assign(
+      new Error('colorScheme must be light, dark, or no-preference'),
+      { code: 'INVALID_ARGUMENT' },
+    );
+  }
+  return colorScheme;
 }
 
 export function editingToProto(editing: BrowserEditingState | null): {

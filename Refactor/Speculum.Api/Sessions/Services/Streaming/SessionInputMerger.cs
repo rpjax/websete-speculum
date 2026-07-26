@@ -18,7 +18,7 @@ internal sealed class SessionInputMerger
     private readonly Func<Guid, bool> _isPipeAttached;
     private readonly object _ownershipGate = new();
 
-    private readonly Channel<string> _userInputMerge = Channel.CreateUnbounded<string>(
+    private readonly Channel<UserInput> _userInputMerge = Channel.CreateUnbounded<UserInput>(
         new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
 
     private readonly Channel<ConsoleInput> _consoleInputMerge = Channel.CreateUnbounded<ConsoleInput>(
@@ -43,7 +43,7 @@ internal sealed class SessionInputMerger
 
     public IResult<Task> StartUserInputPump(
         Guid pipeId,
-        ChannelReader<string> channelReader,
+        ChannelReader<UserInput> channelReader,
         CancellationToken ct)
     {
         if (!_isPipeAttached(pipeId))

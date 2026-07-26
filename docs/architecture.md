@@ -1,6 +1,6 @@
 # Architecture
 
-Speculum is a **remote browser isolation** platform. A real Chromium instance runs on the server; end users interact through a low-latency JPEG screencast rendered in a React canvas. The stack is deliberately **domain-agnostic**: Traefik terminates TLS at the edge, and all motor behaviour is configured at runtime through SQLite and the Admin API.
+Speculum is a **remote browser isolation** platform. A real Chromium instance runs on the server; end users interact through a low-latency JPEG screencast rendered in a React canvas. The stack is deliberately **domain-agnostic**: Traefik terminates TLS at the edge, and all session behaviour is configured at runtime through SQLite and the Admin API.
 
 ---
 
@@ -24,8 +24,8 @@ Speculum is a **remote browser isolation** platform. A real Chromium instance ru
 |------|-------------------|
 | **Isolation** | Browsing happens in server-side Chrome; only pixels and input events cross the wire |
 | **Domain flexibility** | No hard-coded target site; `Forwarding` section defines the remote site host and navigation allowlist |
-| **Operational clarity** | `/ready` and `/api/admin/config/status` expose whether the motor can start sessions |
-| **Same-origin edge** | React SPA, REST, and SignalR share one motor host; `EdgeSynchronizer` materializes Traefik routes for `/api` and `/vhub` to the API container |
+| **Operational clarity** | `/ready` and `/api/admin/config/status` expose whether live sessions can start |
+| **Same-origin edge** | React SPA, REST, and SignalR share one session host; `EdgeSynchronizer` materializes Traefik routes for `/api` and `/vhub` to the API container |
 | **Repeatable deploy** | [dockup](../deploy/README.md) generates environment-specific compose stacks |
 
 ---
@@ -36,20 +36,20 @@ Speculum is a **remote browser isolation** platform. A real Chromium instance ru
 
 | Domain | Folder | Question it answers |
 |--------|--------|---------------------|
-| **Config** | `Config/` | What does the motor know about itself? (SQLite sections, validation) |
-| **Motor / Mapping** | `Motor/Mapping/` | How do client URLs map to the forwarded site? |
-| **Motor / Live** | `Motor/Live/` | How does a live SignalR session relay to the sidecar? |
-| **Motor / Sidecar** | `Motor/Sidecar/` | How does the API speak the W7S sidecar wire protocol? |
+| **Config** | `Config/` | What does the platform know about itself? (SQLite sections, validation) |
+| **Legacy mapping** | `Motor/Mapping/` | How do client URLs map to the forwarded site? |
+| **Legacy live sessions** | `Motor/Live/` | How does a live SignalR session relay to the sidecar? |
+| **Legacy sidecar edge** | `Motor/Sidecar/` | How does the API speak the W7S sidecar wire protocol? |
 | **Edge** | `Edge/` | How is Traefik/CORS materialized from Hosting config? |
 | **Infrastructure** | `Infrastructure/` | Cross-cutting hosted services (graceful shutdown) |
 | **Browser persistence** | `BrowserPersistence/` | How is Chrome state stored in SQLite between visits? |
-| **Diagnostics** | `Diagnostics/` | How do we observe/assert motor truth (events, probes, budgets)? |
+| **Diagnostics** | `Diagnostics/` | How do we observe/assert session truth (events, probes, budgets)? |
 | **Admin** | `Admin/` | HTTP surface for operators |
 | **Scripts** | `Scripts/` | Injected script storage and SSRF-safe resolution |
 
-The **Diagnostics** pipeline follows **Observe → Govern → Record → Query → Present**: motor, sidecar, and periodic `Telemetry` signals are observed at configured **capability toggles per domain** (emitted by domain emitters over a domain-agnostic transport), governed by budgets/elevate/redaction, recorded in SQLite and in-memory rings, queried through **`/api/admin/diagnostics/v1`** (Admin diagnostics REST), and presented in the admin Diagnostics page. See [diagnostics.md](diagnostics.md).
+The **Diagnostics** pipeline follows **Observe → Govern → Record → Query → Present**: sessions, sidecar, and periodic `Telemetry` signals are observed at configured **capability toggles per domain** (emitted by domain emitters over a domain-agnostic transport), governed by budgets/elevate/redaction, recorded in SQLite and in-memory rings, queried through **`/api/admin/diagnostics/v1`** (Admin diagnostics REST), and presented in the admin Diagnostics page. See [diagnostics.md](diagnostics.md).
 
-**Vocabulary:** Speculum = platform; Motor = live browsing; W7S = wire/client boundary only (`_w7s_nso`, [w7s-sidecar-protocol.md](w7s-sidecar-protocol.md)). See also [diagnostics.md](diagnostics.md).
+**Vocabulary:** Speculum = platform; Sessions = live browsing; W7S = wire/client boundary only (`_w7s_nso`, [w7s-sidecar-protocol.md](w7s-sidecar-protocol.md)). Motor appears only in legacy proper names. See also [naming.md](naming.md).
 
 **Distinction:** `MotorSession` (live relay) ≠ `BrowserSessionStore` (persisted snapshots).
 
@@ -90,7 +90,7 @@ The **Diagnostics** pipeline follows **Observe → Govern → Record → Query �
 | Layer | Repository path | Responsibility |
 |-------|-----------------|----------------|
 | **Edge** | Traefik + `EdgeSynchronizer` | TLS, HTTP→HTTPS redirect, host-based routing |
-| **Web** | `web/` | Motor UI, setup wizard, admin panel |
+| **Web** | `web/` | Session UI, setup wizard, admin panel |
 | **API** | `Speculum.Api/` | Sessions, config store, frame relay, admin REST |
 | **Sidecar** | `sidecar/` | Chrome lifecycle, input, screencast, browser state export/import |
 
@@ -124,7 +124,7 @@ See [deploy/README.md](../deploy/README.md) for ports, TLS, and VPS transfer.
 
 ## Request and session flows
 
-### Motor startup (happy path)
+### Session startup (happy path)
 
 ```mermaid
 sequenceDiagram
@@ -150,18 +150,18 @@ sequenceDiagram
 
 ### Session identity and URL sync
 
-- The motor stores a **`client_token`** in a cookie (`speculum_client_token`). The API maps it to an internal **`session_id`** (SQLite primary key).
+- The client stores a **`client_token`** in a cookie (`speculum_client_token`). The API maps it to an internal **`session_id`** (SQLite primary key).
 - `StartSessionAsync(clientUrl, w, h, SessionIdentity?)` accepts `{ clientToken }` and optional indexers; returns the effective client token.
 - **URL is never persisted or restored.** Initial navigation uses `MotorUrlAdapter` + `InitialUrlBuilder` (apex+NSO or subdomain mirroring per **Hosting** profile).
 - On disconnect, browser state (cookies, localStorage, IndexedDB, history) is exported via CDP and stored relationally in SQLite (`browser_sessions` + child tables).
-- There is **no HTTP session cookie** for the motor; persistence is client token + server state.
+- There is **no HTTP session cookie** for live browsing; persistence is client token + server state.
 
-### Motor URL modes
+### Session URL modes
 
 | Mode | Trigger | Client URL bar | Cookie domain |
 |------|---------|----------------|---------------|
-| **Apex + NSO** | `Hosting.profiles[].subdomainMirroringEnabled = false` | Apex motor host + `_w7s_nso` query param (path sync only) | Host-only |
-| **Subdomain mirroring** | Profile mirroring ON **and** operational | Server-mapped motor subdomains (`www.speculum.com` ↔ `www.olx.com.br`) | `.<profile.domain>` when mirroring ON |
+| **Apex + NSO** | `Hosting.profiles[].subdomainMirroringEnabled = false` | Apex session host + `_w7s_nso` query param (path sync only) | Host-only |
+| **Subdomain mirroring** | Profile mirroring ON **and** operational | Server-mapped session subdomains (`www.speculum.com` ↔ `www.olx.com.br`) | `.<profile.domain>` when mirroring ON |
 
 Mirroring is **per domain profile** in SQLite section `Hosting`. When enabled but misconfigured, `/api/admin/config/status` exposes `hosting.profiles[].missing`.
 
@@ -193,9 +193,9 @@ Required for API boot. Never stored in SQLite.
 | `ASPNETCORE_ENVIRONMENT` | `Development` / `Production` | NSO encrypt off in Development |
 | `ADMIN_BOOTSTRAP_KEY` | (optional) | Override first-boot admin API key |
 
-Motor domains, TLS, and mirroring live in SQLite **`Hosting`** (Admin UI), not in container env.
+Session domains, TLS, and mirroring live in SQLite **`Hosting`** (Admin UI), not in container env.
 
-### Layer 2 — Motor runtime (SQLite + Admin API)
+### Layer 2 — Session runtime (SQLite + Admin API)
 
 | Section | Required | Description |
 |---------|----------|-------------|
@@ -208,7 +208,7 @@ Motor domains, TLS, and mirroring live in SQLite **`Hosting`** (Admin UI), not i
 
 REST `{section}` path segments must match these names **exactly** (PascalCase). During V1 development there are no legacy aliases or migration keys.
 
-`Forwarding.host` is the site the motor opens (`https://{host}{path}`). It is independent of motor **Hosting** profile domains (Traefik edge hostnames).
+`Forwarding.host` is the site a session opens (`https://{host}{path}`). It is independent of session **Hosting** profile domains (Traefik edge hostnames).
 
 Changing `Forwarding` or `Hosting` terminates all active sessions.
 
@@ -224,12 +224,12 @@ On first boot, `Admin.apiKey` is generated randomly (or taken from `ADMIN_BOOTST
 |---------|------|-------|
 | `/health`, `/ready` | Public | Liveness / readiness (`/ready` does not require subdomain mirroring) |
 | `GET /api/admin/config/status` | Public | Setup UI; includes `hosting.profiles` |
-| `GET /api/public/client-config` | Public | Motor profiles, mirroring flags, NSO param name |
+| `GET /api/public/client-config` | Public | Session profiles, mirroring flags, NSO param name |
 | `/vhub` (SignalR) | Public | Edge protection expected from Traefik / network policy |
 | `/api/admin/*`, `/openapi/*` | Bearer `Admin.apiKey` | Enforced by `AdminAuthMiddleware` |
 | Script URL resolution | SSRF guard | `SsrfGuard` + custom DNS resolver for remote script fetches |
 
-When subdomain mirroring is operational, CORS allows motor apex/subdomains plus bootstrap `Cors__AllowedOrigins` (so Vite dev on `localhost:5173` still works).
+When subdomain mirroring is operational, CORS allows session apex/subdomains plus bootstrap `Cors__AllowedOrigins` (so Vite dev on `localhost:5173` still works).
 
 Defence in depth: Traefik TLS and network policy are expected at the edge; the API does not authenticate `/vhub` — restrict exposure in production.
 
@@ -251,7 +251,7 @@ Defence in depth: Traefik TLS and network policy are expected at the edge; the A
 | Area | Choice | Rationale |
 |------|--------|-----------|
 | API | .NET 10, SignalR + MessagePack | Strong typing, efficient binary hub protocol |
-| Web | React 19, Vite, Tailwind | Modern SPA; canvas motor with Web Worker JPEG decode |
+| Web | React 19, Vite, Tailwind | Modern SPA; session canvas with Web Worker JPEG decode |
 | Sidecar | Patchright (Chromium), Xvfb | Real browser fingerprint; non-headless screencast |
 | Config | SQLite | Single-file ops model; no separate config service |
 | Deploy | dockup v2 | Declarative multi-env compose generation |
@@ -261,10 +261,10 @@ Defence in depth: Traefik TLS and network policy are expected at the edge; the A
 ## Related documents
 
 - [Engineering standards](engineering-standards.md) — **mandatory** architecture / code / testing constitution (agents: [../AGENTS.md](../AGENTS.md))
-- [Naming guide](naming.md) — Speculum / Motor / W7S vocabulary
+- [Naming guide](naming.md) — Speculum / Sessions / W7S vocabulary
 - [Diagnostics](diagnostics.md) — assertable observability + Act→Assert cookbook
 - [W7S sidecar protocol](w7s-sidecar-protocol.md) — wire format between API and sidecar
-- [Motor reference](motor-reference.md) — protocol bytes, config store algorithm, setup mode
+- [Legacy Motor reference](motor-reference.md) — protocol bytes, config store algorithm, setup mode
 - [Deploy guide](../deploy/README.md) — dockup commands, VPS workflow
 - [API README](../Speculum.Api/README.md) — project layout and local run
 - [Web README](../web/README.md) — routes and environment variables

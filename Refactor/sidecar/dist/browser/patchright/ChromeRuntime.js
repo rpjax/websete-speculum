@@ -80,6 +80,11 @@ async function launchChrome(args) {
             code: 'INVALID_ARGUMENT',
         });
     }
+    if (!args.locale.trim() || !args.language.trim() || !args.timeZoneId.trim() || !args.colorScheme) {
+        throw Object.assign(new Error('launch requires locale, language, timeZoneId, and colorScheme'), {
+            code: 'INVALID_ARGUMENT',
+        });
+    }
     const chromeExecutable = requireChromeExecutable();
     const userDataDir = profileDirForSession(args.sessionId);
     if (!args.preserveUserDataDir) {
@@ -99,14 +104,24 @@ async function launchChrome(args) {
         },
         args: buildChromeArgs(args.width, args.height),
         viewport: null,
-        locale: 'en-US',
-        timezoneId: 'America/New_York',
-        colorScheme: 'dark',
+        locale: args.locale,
+        timezoneId: args.timeZoneId,
+        colorScheme: args.colorScheme,
+        extraHTTPHeaders: {
+            'Accept-Language': args.language,
+        },
     });
     let page = context.pages()[0];
     if (!page)
         page = await context.newPage();
     const cdp = await context.newCDPSession(page);
+    if (args.geolocation) {
+        await cdp.send('Emulation.setGeolocationOverride', {
+            latitude: args.geolocation.latitude,
+            longitude: args.geolocation.longitude,
+            accuracy: args.geolocation.accuracy,
+        });
+    }
     const { windowId } = (await cdp.send('Browser.getWindowForTarget', {}));
     await cdp.send('Browser.setWindowBounds', {
         windowId,

@@ -4,14 +4,14 @@ using Speculum.Api.Journal.Models;
 namespace Speculum.Api.Sessions.Events.Models;
 
 [JournalFact(
-    "Sessions.InitialUrlResolved",
+    "Sessions.StartUrlResolved",
     schemaVersion: 1,
-    Name = "Initial URL resolved",
-    Description = "Initial navigation URL was resolved.",
+    Name = "Start URL resolved",
+    Description = "The target URL for start navigation was resolved.",
     Owner = "sessions",
     PublishPolicy = PublishPolicy.BestEffort,
     EnabledByDefault = true)]
-public sealed class InitialUrlResolved
+public sealed class StartUrlResolved
 {
     [JournalIndex("profile")]
     public required Guid ProfileId { get; init; }

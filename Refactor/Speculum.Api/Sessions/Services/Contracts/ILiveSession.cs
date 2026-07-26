@@ -48,7 +48,7 @@ public interface ILiveSession
     /// <paramref name="ct"/> cancels, or the live session is released.
     /// </summary>
     IResult<Task> ConsumeUserInputAsync(
-        ChannelReader<string> channelReader,
+        ChannelReader<UserInput> channelReader,
         CancellationToken ct = default);
 
     /// <summary>

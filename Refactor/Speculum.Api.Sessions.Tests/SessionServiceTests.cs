@@ -46,18 +46,12 @@ public sealed class SessionServiceTests
             new NoOpSessionEventsFactory(),
             browser,
             new FixedSessionTokenGenerator("test-auth-token"),
-            new ScopedMutex());
+            new ScopedMutex(),
+            new SessionBindingRegistry(live),
+            new SessionsTestHarness.StaticConfigurationService(SessionsTestHarness.Engine()),
+            new LaunchScriptResolver());
 
-        var result = await service.StartSessionAsync(new StartSession
-        {
-            ProfileId = profileId,
-            Path = "/",
-            Query = "",
-            Configuration = new SessionConfig
-            {
-                Resolution = new ScreenResolution { Width = 800, Height = 600 },
-            },
-        });
+        var result = await service.StartSessionAsync(SessionsTestHarness.Start(profileId));
 
         Assert.True(result.IsSuccess);
         Assert.Equal("test-auth-token", result.Value.Token);
@@ -67,6 +61,59 @@ public sealed class SessionServiceTests
         Assert.Equal("test-auth-token", loaded.AuthToken);
         Assert.True(live.TryGet(result.Value.SessionId, out _));
         Assert.Contains(result.Value.SessionId, collector.Watched);
+        Assert.Equal("speculum.test", urls.LastRequestHost);
+        Assert.True(browser.TryGetConnection(result.Value.SessionId, out var connection));
+        var fakeConnection = Assert.IsType<FakeSessionConnection>(connection);
+        Assert.NotNull(fakeConnection.LastLaunchConfiguration);
+        Assert.Equal(800, fakeConnection.LastLaunchConfiguration.Resolution!.Width);
+        Assert.Equal("en-US", fakeConnection.LastLaunchConfiguration.ClientEnvironment!.Locale);
+        Assert.True(fakeConnection.LastLaunchConfiguration.JsBridgeEnabled);
+    }
+
+    [Fact]
+    public async Task StartSession_SameCaller_ReplacesPriorLiveSession()
+    {
+        var profileId = Guid.NewGuid();
+        var profiles = new InMemoryProfileRepository();
+        await profiles.SaveAsync(Profile.Create(profileId));
+        var sessions = new InMemorySessionRepository();
+        var slots = new SessionSlotRegistry(
+            Options.Create(SessionsTestHarness.ResourceManagement()));
+        var collector = new RecordingCollector();
+        var browser = new FakeBrowserClient();
+        var urls = new FixedUrlResolver("https://example.test/");
+        var live = CreateLiveSessionService(urls, collector);
+        var bindings = new SessionBindingRegistry(live);
+        var service = new SessionService(
+            profiles,
+            sessions,
+            slots,
+            collector,
+            live,
+            urls,
+            new NoOpSessionEventsFactory(),
+            browser,
+            new FixedSessionTokenGenerator("tok"),
+            new ScopedMutex(),
+            bindings,
+            new SessionsTestHarness.StaticConfigurationService(SessionsTestHarness.Engine()),
+            new LaunchScriptResolver());
+        var firstRequest = SessionsTestHarness.Start(profileId);
+        firstRequest.CallerId = "caller";
+        var secondRequest = SessionsTestHarness.Start(profileId);
+        secondRequest.CallerId = "caller";
+
+        var first = await service.StartSessionAsync(firstRequest);
+        var second = await service.StartSessionAsync(secondRequest);
+
+        Assert.True(first.IsSuccess);
+        Assert.True(second.IsSuccess);
+        var replaced = await sessions.LoadAsync(first.Value.SessionId);
+        Assert.NotNull(replaced);
+        Assert.Equal(LifecycleState.Stopped, replaced.State);
+        Assert.Equal(StopReason.Replaced, replaced.StopReason);
+        Assert.False(browser.TryGetConnection(first.Value.SessionId, out _));
+        Assert.True(browser.TryGetConnection(second.Value.SessionId, out _));
     }
 
     [Fact]
@@ -94,18 +141,12 @@ public sealed class SessionServiceTests
             new NoOpSessionEventsFactory(),
             browser,
             new FixedSessionTokenGenerator("tok"),
-            new ScopedMutex());
+            new ScopedMutex(),
+            new SessionBindingRegistry(live),
+            new SessionsTestHarness.StaticConfigurationService(SessionsTestHarness.Engine()),
+            new LaunchScriptResolver());
 
-        var started = await service.StartSessionAsync(new StartSession
-        {
-            ProfileId = profileId,
-            Path = "/",
-            Query = "",
-            Configuration = new SessionConfig
-            {
-                Resolution = new ScreenResolution { Width = 800, Height = 600 },
-            },
-        });
+        var started = await service.StartSessionAsync(SessionsTestHarness.Start(profileId));
         Assert.True(started.IsSuccess);
         var sessionId = started.Value.SessionId;
         Assert.True(live.TryGet(sessionId, out var handle));
@@ -149,18 +190,12 @@ public sealed class SessionServiceTests
             new NoOpSessionEventsFactory(),
             browser,
             new FixedSessionTokenGenerator("tok"),
-            new ScopedMutex());
+            new ScopedMutex(),
+            new SessionBindingRegistry(live),
+            new SessionsTestHarness.StaticConfigurationService(SessionsTestHarness.Engine()),
+            new LaunchScriptResolver());
 
-        var result = await service.StartSessionAsync(new StartSession
-        {
-            ProfileId = profileId,
-            Path = "/",
-            Query = "",
-            Configuration = new SessionConfig
-            {
-                Resolution = new ScreenResolution { Width = 800, Height = 600 },
-            },
-        });
+        var result = await service.StartSessionAsync(SessionsTestHarness.Start(profileId));
 
         Assert.True(result.IsFailure);
         Assert.Empty(collector.Watched);
@@ -192,20 +227,49 @@ public sealed class SessionServiceTests
             new NoOpSessionEventsFactory(),
             browser,
             new FixedSessionTokenGenerator("unused"),
-            new ScopedMutex());
+            new ScopedMutex(),
+            new SessionBindingRegistry(live),
+            new SessionsTestHarness.StaticConfigurationService(SessionsTestHarness.Engine()),
+            new LaunchScriptResolver());
 
-        var result = await service.StartSessionAsync(new StartSession
-        {
-            ProfileId = Guid.NewGuid(),
-            Path = "/",
-            Query = "",
-            Configuration = new SessionConfig
-            {
-                Resolution = new ScreenResolution { Width = 800, Height = 600 },
-            },
-        });
+        var result = await service.StartSessionAsync(SessionsTestHarness.Start(Guid.NewGuid()));
 
         Assert.True(result.IsFailure);
+    }
+
+    [Fact]
+    public async Task StartSession_IncompleteEngineConfiguration_FailsBeforeBrowserConnection()
+    {
+        var profileId = Guid.NewGuid();
+        var profiles = new InMemoryProfileRepository();
+        await profiles.SaveAsync(Profile.Create(profileId));
+        var browser = new FakeBrowserClient();
+        var urls = new FixedUrlResolver("https://example.test/");
+        var collector = new RecordingCollector();
+        var live = CreateLiveSessionService(urls, collector);
+        var service = new SessionService(
+            profiles,
+            new InMemorySessionRepository(),
+            new SessionSlotRegistry(Options.Create(SessionsTestHarness.ResourceManagement())),
+            collector,
+            live,
+            urls,
+            new NoOpSessionEventsFactory(),
+            browser,
+            new FixedSessionTokenGenerator("unused"),
+            new ScopedMutex(),
+            new SessionBindingRegistry(live),
+            new SessionsTestHarness.StaticConfigurationService(new()
+            {
+                Sessions = SessionsTestHarness.Sessions(),
+                ResourceManagement = SessionsTestHarness.ResourceManagement(),
+            }),
+            new LaunchScriptResolver());
+
+        var result = await service.StartSessionAsync(SessionsTestHarness.Start(profileId));
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(0, browser.ConnectionCount);
     }
 
     private static LiveSessionService CreateLiveSessionService(
@@ -228,8 +292,13 @@ public sealed class SessionServiceTests
 
     private sealed class FixedUrlResolver(string url) : IUrlResolver
     {
-        public IResult<string> Resolve(string path, string query)
-            => Result<string>.Success(url);
+        public string? LastRequestHost { get; private set; }
+
+        public IResult<string> Resolve(string path, string query, string requestHost)
+        {
+            LastRequestHost = requestHost;
+            return Result<string>.Success(url);
+        }
     }
 
     private sealed class FixedSessionTokenGenerator(string token) : ISessionTokenGenerator
@@ -262,10 +331,10 @@ public sealed class SessionServiceTests
     {
         public void Starting() { }
         public void Started() { }
-        public void Stopping() { }
-        public void Stopped() { }
-        public void TimedOut() { }
-        public void Aborted() { }
+        public void Stopping(StopReason reason) { }
+        public void Stopped(StopReason reason) { }
+        public void TimedOut(StopReason reason) { }
+        public void Aborted(StopReason reason) { }
     }
 
     private sealed class NoOpStartEvents : ISessionStartEvents
@@ -274,14 +343,15 @@ public sealed class SessionServiceTests
         public void ConnectionStarted() { }
         public void BrowserLaunched() { }
         public void ProfileStateRestored() { }
-        public void InitialUrlResolved(string url) { }
+        public void StartUrlResolved(string url) { }
         public void InitialNavigationCompleted() { }
         public void ProfileNotFound() { }
+        public void StartConfigurationRejected(Error[] errors) { }
         public void NoSlotAvailable() { }
         public void ConnectionStartFailed(Error[] errors) { }
         public void LaunchBrowserFailed(Error[] errors) { }
         public void RestoreProfileStateFailed(Error[] errors) { }
-        public void InitialUrlResolveFailed(Error[] errors) { }
+        public void StartUrlResolveFailed(Error[] errors) { }
         public void InitialNavigationFailed(Error[] errors) { }
     }
 
@@ -328,7 +398,11 @@ public sealed class SessionServiceTests
 
     private sealed class FailingLiveSessionService : ILiveSessionService
     {
-        public IResult<ILiveSession> Create(Guid sessionId, ISessionConnection connection)
+        public IResult<ILiveSession> Create(
+            Guid sessionId,
+            ISessionConnection connection,
+            string requestHost,
+            bool jsBridgeEnabled)
             => Result<ILiveSession>.Failure("live create failed");
 
         public bool TryGet(Guid sessionId, [NotNullWhen(true)] out ILiveSession? session)
@@ -360,6 +434,7 @@ public sealed class SessionServiceTests
     private sealed class FakeBrowserClient : IBrowserClient
     {
         private readonly Dictionary<Guid, FakeSessionConnection> _connections = new();
+        public int ConnectionCount => _connections.Count;
 
         public bool TryGetConnection(Guid sessionId, [NotNullWhen(true)] out ISessionConnection? connection)
         {
@@ -402,15 +477,19 @@ public sealed class SessionServiceTests
 
         public Guid SessionId { get; }
         public bool IsOpen => _open;
+        public SessionConfig? LastLaunchConfiguration { get; private set; }
 
         public Task<IResult<BrowserReadyInfo>> LaunchBrowserAsync(
             SessionConfig? configuration,
             CancellationToken ct = default)
-            => Task.FromResult<IResult<BrowserReadyInfo>>(Result<BrowserReadyInfo>.Success(new BrowserReadyInfo
+        {
+            LastLaunchConfiguration = configuration;
+            return Task.FromResult<IResult<BrowserReadyInfo>>(Result<BrowserReadyInfo>.Success(new BrowserReadyInfo
             {
                 Width = 800,
                 Height = 600,
             }));
+        }
 
         public Task<IResult> NavigateAsync(string url, CancellationToken ct = default)
             => Task.FromResult<IResult>(Result.Success());
@@ -466,7 +545,7 @@ public sealed class SessionServiceTests
 
         public void SetMicrophonePermissionHandler(Func<CancellationToken, Task<PermissionDecision>> handler) { }
 
-        public IResult<Task> ConsumeUserInputAsync(ChannelReader<string> channelReader)
+        public IResult<Task> ConsumeUserInputAsync(ChannelReader<UserInput> channelReader)
             => Result<Task>.Success(Task.CompletedTask);
 
         public IResult<Task> ConsumeConsoleInputAsync(ChannelReader<ConsoleInput> channelReader)

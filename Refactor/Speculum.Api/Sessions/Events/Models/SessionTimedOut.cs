@@ -5,7 +5,7 @@ namespace Speculum.Api.Sessions.Events.Models;
 
 [JournalFact(
     "Sessions.SessionTimedOut",
-    schemaVersion: 1,
+    schemaVersion: 2,
     Name = "Session timed out",
     Description = "Detached session exceeded DetachedSessionTimeout with zero active pipes.",
     Owner = "sessions",
@@ -18,4 +18,7 @@ public sealed class SessionTimedOut
 
     [JournalIndex("profile")]
     public required Guid ProfileId { get; init; }
+
+    [JournalIndex("reason")]
+    public required string Reason { get; init; }
 }

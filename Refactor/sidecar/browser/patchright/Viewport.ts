@@ -1,6 +1,6 @@
 import type { BrowserDeviceProfile } from '../BrowserSession';
 
-/** Confirmed Motor viewport owner for a session. */
+/** Confirmed viewport owner for a live session. */
 export class Viewport {
   private _width: number;
   private _height: number;

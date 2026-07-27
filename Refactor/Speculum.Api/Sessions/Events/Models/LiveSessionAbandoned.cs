@@ -7,14 +7,13 @@ namespace Speculum.Api.Sessions.Events.Models;
 /// Live session left the live phase via fault abandon (crash, link death, etc.).
 /// Distinct from <see cref="SessionAborted"/> (provisioning never reached Live).
 /// </summary>
-[JournalFact(
+[CanonicalFact(
     "Sessions.LiveSessionAbandoned",
     schemaVersion: 1,
     Name = "Live session abandoned",
     Description = "A live session was abandoned (SessionEnded + Faulted stop). Covers Chromium crash and sidecar link death.",
     Owner = "sessions",
-    PublishPolicy = PublishPolicy.Guaranteed,
-    EnabledByDefault = true)]
+    PublishPolicy = PublishPolicy.Guaranteed)]
 public sealed class LiveSessionAbandoned
 {
     [JournalIndex("profile")]

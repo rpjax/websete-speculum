@@ -2,6 +2,7 @@ using System.Threading.Channels;
 using Aidan.Core.Patterns;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Speculum.Api.Configurations.Services.Contracts;
 using Speculum.Api.BrowserClients;
 using Speculum.Api.Configurations.Models.Sessions;
 using Speculum.Api.Profiles.Aggregates;
@@ -96,7 +97,7 @@ public sealed class LiveSessionTests
         var collector = new RecordingCollector();
         var service = CreateService(
             new RecordingUrlResolver("https://example.test/"),
-            Options.Create(new SessionsConfiguration()),
+            SessionsTestHarness.Configuration(),
             collector);
         var live = service.Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
 
@@ -479,16 +480,17 @@ public sealed class LiveSessionTests
     {
         var sessionId = Guid.NewGuid();
         var connection = new LiveFakeConnection(sessionId);
-        var options = Options.Create(new SessionsConfiguration
+        var configuration = SessionsTestHarness.Configuration(new SessionsConfiguration
         {
             IsJsBridgeEnabled = true,
+            DetachedSessionTimeout = TimeSpan.FromMinutes(5),
             InputMultiplexingPolicy = new InputMultiplexingPolicy
             {
                 Access = InputAccessPolicy.Exclusive,
             },
         });
 
-        var service = CreateService(new RecordingUrlResolver("https://x.test/"), options);
+        var service = CreateService(new RecordingUrlResolver("https://x.test/"), configuration);
         var live = service.Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
 
         var inputA = Channel.CreateUnbounded<UserInput>();
@@ -503,16 +505,17 @@ public sealed class LiveSessionTests
     {
         var sessionId = Guid.NewGuid();
         var connection = new LiveFakeConnection(sessionId);
-        var options = Options.Create(new SessionsConfiguration
+        var configuration = SessionsTestHarness.Configuration(new SessionsConfiguration
         {
             IsJsBridgeEnabled = true,
+            DetachedSessionTimeout = TimeSpan.FromMinutes(5),
             InputMultiplexingPolicy = new InputMultiplexingPolicy
             {
                 Access = InputAccessPolicy.Exclusive,
             },
         });
 
-        var service = CreateService(new RecordingUrlResolver("https://x.test/"), options);
+        var service = CreateService(new RecordingUrlResolver("https://x.test/"), configuration);
         var live = service.Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
 
         var inputA = Channel.CreateUnbounded<UserInput>();
@@ -548,7 +551,7 @@ public sealed class LiveSessionTests
 
     private static LiveSessionService CreateService(
         IUrlResolver? urls = null,
-        IOptions<SessionsConfiguration>? options = null,
+        IConfigurationService? configuration = null,
         ISessionCollector? collector = null,
         ISessionLiveEvents? liveEvents = null)
     {
@@ -556,9 +559,10 @@ public sealed class LiveSessionTests
             collector ?? new NoOpCollector(),
             new NoOpFaultScheduler(),
             urls ?? new RecordingUrlResolver("https://example.test/"),
-            options ?? Options.Create(new SessionsConfiguration
+            configuration ?? SessionsTestHarness.Configuration(new SessionsConfiguration
             {
                 IsJsBridgeEnabled = true,
+                DetachedSessionTimeout = TimeSpan.FromMinutes(5),
                 InputMultiplexingPolicy = new InputMultiplexingPolicy
                 {
                     Access = InputAccessPolicy.Shared,
@@ -577,9 +581,10 @@ public sealed class LiveSessionTests
             collector ?? new NoOpCollector(),
             faults,
             new RecordingUrlResolver("https://example.test/"),
-            Options.Create(new SessionsConfiguration
+            SessionsTestHarness.Configuration(new SessionsConfiguration
             {
                 IsJsBridgeEnabled = true,
+                DetachedSessionTimeout = TimeSpan.FromMinutes(5),
                 InputMultiplexingPolicy = new InputMultiplexingPolicy
                 {
                     Access = InputAccessPolicy.Shared,

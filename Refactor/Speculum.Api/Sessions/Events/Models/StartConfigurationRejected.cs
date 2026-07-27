@@ -3,14 +3,13 @@ using Speculum.Api.Journal.Models;
 
 namespace Speculum.Api.Sessions.Events.Models;
 
-[JournalFact(
+[CanonicalFact(
     "Sessions.StartConfigurationRejected",
     schemaVersion: 1,
     Name = "Start configuration rejected",
     Description = "Start rejected because required engine configuration or mimicry is invalid.",
     Owner = "sessions",
-    PublishPolicy = PublishPolicy.Guaranteed,
-    EnabledByDefault = true)]
+    PublishPolicy = PublishPolicy.Guaranteed)]
 public sealed class StartConfigurationRejected
 {
     [JournalIndex("profile")]

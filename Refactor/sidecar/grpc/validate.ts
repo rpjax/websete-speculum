@@ -1,49 +1,103 @@
 import * as grpc from '@grpc/grpc-js';
 
-/** Viewport bounds — keep in sync with GrpcRequestValidation / viewport-bounds.ts */
-export const VIEWPORT_LIMITS = {
-  minWidth: 100,
-  minHeight: 100,
-  maxWidth: 4096,
-  maxHeight: 2160,
-} as const;
+/**
+ * Per-session viewport bounds from Sessions.ViewportPolicy (via LaunchRequest).
+ * Not a module-level product constant — launch supplies the sole truth.
+ */
+export interface ViewportPolicyBounds {
+  minWidth: number;
+  minHeight: number;
+  /** Capacity / Xvfb size (= policy Maximum). */
+  maxWidth: number;
+  maxHeight: number;
+}
 
 export type ViewportValidation =
   | { ok: true; width: number; height: number }
   | { ok: false; errorCode: 'invalid_viewport'; message: string };
 
-export function validateLaunchViewport(width: number, height: number): ViewportValidation {
-  return validateViewport(width, height);
+/** Parse LaunchRequest min_* / display_* — required; no silent defaults. */
+export function requireViewportPolicy(req: {
+  minWidth?: number;
+  min_width?: number;
+  minHeight?: number;
+  min_height?: number;
+  displayWidth?: number;
+  display_width?: number;
+  displayHeight?: number;
+  display_height?: number;
+}): ViewportPolicyBounds {
+  const minWidth = Number(req.minWidth ?? req.min_width);
+  const minHeight = Number(req.minHeight ?? req.min_height);
+  const maxWidth = Number(req.displayWidth ?? req.display_width);
+  const maxHeight = Number(req.displayHeight ?? req.display_height);
+  if (
+    !Number.isFinite(minWidth)
+    || !Number.isFinite(minHeight)
+    || !Number.isFinite(maxWidth)
+    || !Number.isFinite(maxHeight)
+    || minWidth < 1
+    || minHeight < 1
+    || maxWidth < minWidth
+    || maxHeight < minHeight
+  ) {
+    throw grpcInvalidArgument(
+      'Launch requires Sessions.ViewportPolicy bounds '
+        + '(min_width/min_height/display_width/display_height with 0 < min <= display)',
+    );
+  }
+  return {
+    minWidth: Math.round(minWidth),
+    minHeight: Math.round(minHeight),
+    maxWidth: Math.round(maxWidth),
+    maxHeight: Math.round(maxHeight),
+  };
 }
 
-export function validateResizeViewport(width: number, height: number): ViewportValidation {
-  return validateViewport(width, height);
+export function validateLaunchViewport(
+  width: number,
+  height: number,
+  policy: ViewportPolicyBounds,
+): ViewportValidation {
+  return validateViewport(width, height, policy);
 }
 
-function validateViewport(width: number, height: number): ViewportValidation {
+export function validateResizeViewport(
+  width: number,
+  height: number,
+  policy: ViewportPolicyBounds,
+): ViewportValidation {
+  return validateViewport(width, height, policy);
+}
+
+function validateViewport(
+  width: number,
+  height: number,
+  policy: ViewportPolicyBounds,
+): ViewportValidation {
   const w = Math.round(width);
   const h = Math.round(height);
   if (
-    !Number.isFinite(w) ||
-    !Number.isFinite(h) ||
-    w < VIEWPORT_LIMITS.minWidth ||
-    h < VIEWPORT_LIMITS.minHeight
+    !Number.isFinite(w)
+    || !Number.isFinite(h)
+    || w < policy.minWidth
+    || h < policy.minHeight
   ) {
     return {
       ok: false,
       errorCode: 'invalid_viewport',
       message:
-        `viewport ${w}×${h} below minimum ` +
-        `${VIEWPORT_LIMITS.minWidth}×${VIEWPORT_LIMITS.minHeight}`,
+        `viewport ${w}×${h} below minimum `
+        + `${policy.minWidth}×${policy.minHeight}`,
     };
   }
-  if (w > VIEWPORT_LIMITS.maxWidth || h > VIEWPORT_LIMITS.maxHeight) {
+  if (w > policy.maxWidth || h > policy.maxHeight) {
     return {
       ok: false,
       errorCode: 'invalid_viewport',
       message:
-        `viewport ${w}×${h} above maximum ` +
-        `${VIEWPORT_LIMITS.maxWidth}×${VIEWPORT_LIMITS.maxHeight}`,
+        `viewport ${w}×${h} above maximum `
+        + `${policy.maxWidth}×${policy.maxHeight}`,
     };
   }
   return { ok: true, width: w, height: h };

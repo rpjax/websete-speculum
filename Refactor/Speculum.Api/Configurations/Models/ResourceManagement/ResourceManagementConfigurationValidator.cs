@@ -8,10 +8,11 @@ public sealed class ResourceManagementConfigurationValidator
 {
     public ValidateOptionsResult Validate(string? name, ResourceManagementConfiguration options)
     {
-        if (options.Sessions.MaxConcurrentSessions <= 0)
+        // <= 0 means incomplete (pending config), not invalid shape.
+        if (options.Sessions.MaxConcurrentSessions < 0)
         {
             return ValidateOptionsResult.Fail(
-                "ResourceManagement.Sessions.MaxConcurrentSessions must be greater than zero.");
+                "ResourceManagement.Sessions.MaxConcurrentSessions must be >= 0.");
         }
 
         return ValidateOptionsResult.Success;

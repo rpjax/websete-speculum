@@ -1,7 +1,7 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
-using Speculum.Api.Presentation.Dev;
+using Speculum.Api.Presentation.Configurations;
 using Speculum.Api.Presentation.Sessions;
 using Speculum.Api.Sessions.Services.Contracts;
 
@@ -38,7 +38,7 @@ public static class PresentationServiceCollectionExtensions
     }
 
     /// <summary>
-    /// Maps the session SignalR control hub at <c>/vhub</c>.
+    /// Maps the session SignalR control hub at <c>/vhub</c>, WebTransport, and domain HTTP APIs.
     /// </summary>
     public static IEndpointRouteBuilder MapPresentation(this IEndpointRouteBuilder endpoints)
     {
@@ -50,8 +50,8 @@ public static class PresentationServiceCollectionExtensions
             options.ApplicationMaxBufferSize = 512 * 1024;
         });
         SessionWebTransportEndpoint.Map(endpoints);
-        endpoints.MapDevEngineConfig();
-        endpoints.MapDevSessionHarness();
+        endpoints.MapConfigurationEndpoints();
+        endpoints.MapSessionHarness();
 
         return endpoints;
     }

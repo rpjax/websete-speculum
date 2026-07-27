@@ -3,14 +3,13 @@ using Speculum.Api.Journal.Models;
 
 namespace Speculum.Api.Sessions.Events.Models;
 
-[JournalFact(
+[CanonicalFact(
     "Sessions.InitialNavigationCompleted",
     schemaVersion: 1,
     Name = "Initial navigation completed",
     Description = "Initial navigation finished successfully.",
     Owner = "sessions",
-    PublishPolicy = PublishPolicy.Guaranteed,
-    EnabledByDefault = true)]
+    PublishPolicy = PublishPolicy.Guaranteed)]
 public sealed class InitialNavigationCompleted
 {
     [JournalIndex("profile")]

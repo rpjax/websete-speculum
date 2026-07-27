@@ -155,7 +155,8 @@ function RealMotorPage() {
         <div ref={viewportRef} className="relative min-h-0 flex-1 touch-none">
           <canvas
             ref={canvasRef}
-            className="absolute inset-0 block h-full w-full cursor-default touch-none"
+            className="absolute inset-0 block h-full w-full max-h-full max-w-full cursor-default touch-none"
+            style={{ width: '100%', height: '100%' }}
           />
           <textarea
             ref={imeRef}

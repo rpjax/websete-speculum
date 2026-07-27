@@ -68,6 +68,7 @@ public sealed class SessionHub : Hub<ISessionHubClient>
         EnsureProfileHubRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
+        EnsureOperational();
 
         var result = await _profiles.EnsureProfileAsync(
             new EnsureProfile
@@ -92,6 +93,7 @@ public sealed class SessionHub : Hub<ISessionHubClient>
     public async Task<StartSessionHubResponse> StartSessionAsync(StartSessionHubRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
+        EnsureOperational();
 
         var requestHost = Context.GetHttpContext()?.Request.Host.Value;
         if (string.IsNullOrWhiteSpace(requestHost))
@@ -134,11 +136,26 @@ public sealed class SessionHub : Hub<ISessionHubClient>
             throw new HubException(SessionHubRequestMapper.FormatErrors(result));
         }
 
+        var viewport = _configuration.GetCurrent().Sessions.ViewportPolicy;
         return new StartSessionHubResponse
         {
             SessionId = result.Value.SessionId,
             Token = result.Value.Token,
+            ViewportMinWidth = viewport.Minimum.Width,
+            ViewportMinHeight = viewport.Minimum.Height,
+            ViewportMaxWidth = viewport.Maximum.Width,
+            ViewportMaxHeight = viewport.Maximum.Height,
         };
+    }
+
+    private void EnsureOperational()
+    {
+        if (_configuration.AreMandatorySettingsSatisfied)
+            return;
+
+        var missing = string.Join(", ", _configuration.MissingRequired);
+        throw new HubException(
+            $"Pending config: mandatory settings incomplete ({missing}).");
     }
 
     public async Task StopSessionAsync(StopSessionHubRequest request)

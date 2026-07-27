@@ -14,6 +14,11 @@ export interface LiveSessionOptions {
   control: ControlPlane
   sessionId: string
   token: string
+  /** Sessions.ViewportPolicy bounds from StartSession (sole client resize limits). */
+  viewportMinWidth: number
+  viewportMinHeight: number
+  viewportMaxWidth: number
+  viewportMaxHeight: number
   baseUrl?: string
   /** Hub origin for `/health/webtransport-cert` pin fetch. */
   certificateHashBaseUrl?: string
@@ -27,6 +32,10 @@ export interface LiveSessionOptions {
 export class LiveSession extends Emitter<SessionEventMap> {
   readonly sessionId: string
   readonly token: string
+  readonly viewportMinWidth: number
+  readonly viewportMinHeight: number
+  readonly viewportMaxWidth: number
+  readonly viewportMaxHeight: number
   private readonly control: ControlPlane
   private readonly data: DataPlane
   private disposers: Array<() => void> = []
@@ -38,6 +47,10 @@ export class LiveSession extends Emitter<SessionEventMap> {
     super()
     this.sessionId = options.sessionId
     this.token = options.token
+    this.viewportMinWidth = options.viewportMinWidth
+    this.viewportMinHeight = options.viewportMinHeight
+    this.viewportMaxWidth = options.viewportMaxWidth
+    this.viewportMaxHeight = options.viewportMaxHeight
     this.control = options.control
     this.data = new DataPlane({
       baseUrl: options.baseUrl,

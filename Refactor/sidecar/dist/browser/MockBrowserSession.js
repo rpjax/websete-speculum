@@ -4,9 +4,10 @@ exports.MockBrowserSession = void 0;
 exports.createMockBrowserSessionFactory = createMockBrowserSessionFactory;
 const HarnessRenderer_1 = require("./mock/HarnessRenderer");
 const HarnessScene_1 = require("./mock/HarnessScene");
+const validate_1 = require("../grpc/validate");
 /**
  * Interactive harness BrowserSession for SPECULUM_BROWSER=mock.
- * Renders a real JPEG scene at ~60 fps and mirrors all BrowserInput types visually.
+ * Soft resize: logical W×H changes without tearing down; display dims from Launch policy.
  */
 class MockBrowserSession {
     sessionId;
@@ -15,6 +16,7 @@ class MockBrowserSession {
     width = 1280;
     height = 720;
     resizing = false;
+    viewportPolicy = null;
     state = {
         cookies: [],
         localStorage: [],
@@ -38,9 +40,17 @@ class MockBrowserSession {
         this.emitFrames = options?.emitFrames ?? true;
         this.frameIntervalMs = options?.frameIntervalMs ?? 16;
     }
+    displayDims() {
+        const policy = this.viewportPolicy;
+        if (!policy) {
+            return { displayWidth: 0, displayHeight: 0 };
+        }
+        return { displayWidth: policy.maxWidth, displayHeight: policy.maxHeight };
+    }
     async launch(options) {
         this.width = options.width;
         this.height = options.height;
+        this.viewportPolicy = options.viewportPolicy;
         this.open = true;
         this.scene = new HarnessScene_1.HarnessScene(this.width, this.height, {
             onLocationChanged: (url) => this.events.onLocationChanged(url),
@@ -97,21 +107,69 @@ class MockBrowserSession {
         this.scene?.refresh();
     }
     async resize(request) {
+        if (!this.open || !this.viewportPolicy) {
+            return {
+                ok: false,
+                width: this.width,
+                height: this.height,
+                errorCode: 'session_gone',
+                phase: 'resize_apply',
+                message: 'browser session is not open',
+                ...this.displayDims(),
+            };
+        }
+        const validated = (0, validate_1.validateResizeViewport)(request.width, request.height, this.viewportPolicy);
+        if (!validated.ok) {
+            return {
+                ok: false,
+                width: this.width,
+                height: this.height,
+                errorCode: validated.errorCode,
+                phase: 'validate',
+                message: validated.message,
+                ...this.displayDims(),
+            };
+        }
+        if (this.resizing) {
+            return {
+                ok: false,
+                width: this.width,
+                height: this.height,
+                errorCode: 'resize_busy',
+                phase: 'validate',
+                message: 'another resize is in progress',
+                ...this.displayDims(),
+            };
+        }
+        // Soft no-op when logical size unchanged (mock has no device profile state).
+        if (validated.width === this.width && validated.height === this.height) {
+            return {
+                ok: true,
+                width: this.width,
+                height: this.height,
+                chromeWidth: this.width,
+                chromeHeight: this.height,
+                ...this.displayDims(),
+            };
+        }
         this.resizing = true;
-        this.width = request.width;
-        this.height = request.height;
-        this.scene?.resize(this.width, this.height);
-        this.renderer?.resize(this.width, this.height);
-        this.resizing = false;
-        return {
-            ok: true,
-            width: this.width,
-            height: this.height,
-            chromeWidth: this.width,
-            chromeHeight: this.height,
-            displayWidth: this.width,
-            displayHeight: this.height,
-        };
+        try {
+            this.width = validated.width;
+            this.height = validated.height;
+            this.scene?.resize(this.width, this.height);
+            this.renderer?.resize(this.width, this.height);
+            return {
+                ok: true,
+                width: this.width,
+                height: this.height,
+                chromeWidth: this.width,
+                chromeHeight: this.height,
+                ...this.displayDims(),
+            };
+        }
+        finally {
+            this.resizing = false;
+        }
     }
     async probe(request) {
         return {

@@ -1,7 +1,7 @@
 import assert from 'assert';
 import { matchesAllowedDomain } from './browser/patchright/Navigation';
-import { isInputTouchPrimary, touchEmulationParams } from './browser/patchright/device-emulation';
-import { validateLaunchViewport, validateResizeViewport } from './browser/patchright/viewport-bounds';
+import { isInputTouchPrimary, resolveDeviceProfile, deviceProfilesEqual, touchEmulationParams, DEFAULT_DESKTOP_DEVICE, applyLogicalViewport } from './browser/patchright/device-emulation';
+import { validateLaunchViewport, validateResizeViewport, requireViewportPolicy } from './browser/patchright/viewport-bounds';
 import { InputController } from './browser/patchright/Input';
 import { shouldEmitContextCrash } from './browser/patchright/contextCrash';
 import { toLaunchOptions } from './grpc/mappers';
@@ -9,6 +9,14 @@ import { EventBridge } from './host/EventBridge';
 import { DropOldestQueue } from './host/DropOldestQueue';
 import { isBenignBrowserRace } from './host/browserRace';
 import type { Page, CDPSession } from 'patchright';
+
+/** Test stand-in for Sessions.ViewportPolicy — production gets this on Launch. */
+const POLICY = {
+  minWidth: 100,
+  minHeight: 100,
+  maxWidth: 4096,
+  maxHeight: 2160,
+} as const;
 
 function testDomainMatch(): void {
   assert.strictEqual(matchesAllowedDomain('example.com', ['example.com']), true);
@@ -19,36 +27,221 @@ function testDomainMatch(): void {
 }
 
 function testViewportBounds(): void {
-  const invalidLaunch = validateLaunchViewport(0, 0);
+  const invalidLaunch = validateLaunchViewport(0, 0, POLICY);
   assert.strictEqual(invalidLaunch.ok, false);
 
-  const validLaunch = validateLaunchViewport(800, 600);
+  const validLaunch = validateLaunchViewport(800, 600, POLICY);
   assert.strictEqual(validLaunch.ok, true);
   if (validLaunch.ok) {
     assert.strictEqual(validLaunch.width, 800);
     assert.strictEqual(validLaunch.height, 600);
   }
 
-  const ok = validateResizeViewport(800, 600);
+  const ok = validateResizeViewport(800, 600, POLICY);
   assert.strictEqual(ok.ok, true);
 
-  const tooSmall = validateResizeViewport(10, 10);
+  const tooSmall = validateResizeViewport(10, 10, POLICY);
   assert.strictEqual(tooSmall.ok, false);
 
-  const tooBig = validateResizeViewport(9000, 9000);
+  const tooBig = validateResizeViewport(9000, 9000, POLICY);
   assert.strictEqual(tooBig.ok, false);
+
+  const tight = { minWidth: 300, minHeight: 200, maxWidth: 1600, maxHeight: 1200 };
+  assert.strictEqual(validateResizeViewport(299, 600, tight).ok, false);
+  assert.strictEqual(validateResizeViewport(800, 600, tight).ok, true);
+
+  assert.throws(
+    () => requireViewportPolicy({}),
+    /ViewportPolicy bounds/,
+  );
+  assert.deepStrictEqual(
+    requireViewportPolicy({
+      minWidth: 100,
+      minHeight: 100,
+      displayWidth: 2048,
+      displayHeight: 1080,
+    }),
+    { minWidth: 100, minHeight: 100, maxWidth: 2048, maxHeight: 1080 },
+  );
   console.log('[unit] viewport bounds ok');
+}
+
+function testResolveDeviceProfileDefaults(): void {
+  assert.deepStrictEqual(resolveDeviceProfile(null), DEFAULT_DESKTOP_DEVICE);
+  assert.deepStrictEqual(resolveDeviceProfile(undefined), DEFAULT_DESKTOP_DEVICE);
+  const partial = resolveDeviceProfile({ mobile: true, touch: true, deviceScaleFactor: 2, maxTouchPoints: 5 });
+  assert.strictEqual(partial.mobile, true);
+  assert.strictEqual(partial.deviceScaleFactor, 2);
+  assert.strictEqual(partial.maxTouchPoints, 5);
+  const missingDpr = resolveDeviceProfile({ mobile: false, touch: false });
+  assert.strictEqual(missingDpr.deviceScaleFactor, 1);
+  assert.strictEqual(missingDpr.maxTouchPoints, 0);
+  assert.strictEqual(deviceProfilesEqual(null, undefined), true);
+  assert.strictEqual(
+    deviceProfilesEqual(
+      { mobile: false, touch: false, deviceScaleFactor: 1, maxTouchPoints: 0 },
+      DEFAULT_DESKTOP_DEVICE,
+    ),
+    true,
+  );
+  assert.strictEqual(
+    deviceProfilesEqual(
+      { mobile: true, touch: true, deviceScaleFactor: 2, maxTouchPoints: 5 },
+      DEFAULT_DESKTOP_DEVICE,
+    ),
+    false,
+  );
+  console.log('[unit] resolve device profile defaults ok');
+}
+
+async function testApplyLogicalViewportUsesNormalBounds(): Promise<void> {
+  const calls: Array<{ method: string; params: unknown }> = [];
+  const cdp = {
+    send: async (method: string, params?: unknown) => {
+      calls.push({ method, params });
+      if (method === 'Browser.getWindowForTarget') return { windowId: 7 };
+      if (method === 'Browser.getVersion') {
+        return { product: 'Chrome/120.0.0.0', userAgent: 'Mozilla/5.0 Desktop' };
+      }
+      return {};
+    },
+  } as unknown as CDPSession;
+
+  const profile = await applyLogicalViewport(cdp, 1024, 768, null);
+  assert.strictEqual(profile.deviceScaleFactor, 1);
+  assert.strictEqual(profile.mobile, false);
+
+  const bounds = calls.find((c) => c.method === 'Browser.setWindowBounds');
+  assert.ok(bounds, 'must set window bounds');
+  assert.deepStrictEqual(bounds!.params, {
+    windowId: 7,
+    bounds: { left: 0, top: 0, width: 1024, height: 768, windowState: 'normal' },
+  });
+
+  const metrics = calls.find((c) => c.method === 'Emulation.setDeviceMetricsOverride');
+  assert.ok(metrics, 'must apply device metrics');
+  assert.strictEqual((metrics!.params as { width: number }).width, 1024);
+  assert.strictEqual((metrics!.params as { height: number }).height, 768);
+  assert.strictEqual((metrics!.params as { deviceScaleFactor: number }).deviceScaleFactor, 1);
+  assert.strictEqual((metrics!.params as { screenWidth: number }).screenWidth, 1024);
+  assert.strictEqual((metrics!.params as { screenHeight: number }).screenHeight, 768);
+
+  // Soft resize path must never imply fullscreen-on-max display.
+  assert.ok(
+    !calls.some(
+      (c) =>
+        c.method === 'Browser.setWindowBounds'
+        && (c.params as { bounds?: { windowState?: string } })?.bounds?.windowState === 'fullscreen',
+    ),
+  );
+
+  // Desktop apply must clear UA (even after prior mobile) — no early-return skip.
+  const ua = calls.find((c) => c.method === 'Emulation.setUserAgentOverride');
+  assert.ok(ua, 'desktop apply must set/clear user agent');
+  assert.strictEqual((ua!.params as { userAgent: string }).userAgent, 'Mozilla/5.0 Desktop');
+
+  await assert.rejects(
+    () =>
+      applyLogicalViewport(
+        {
+          send: async (method: string) => {
+            if (method === 'Browser.getWindowForTarget') return { windowId: 1 };
+            if (method === 'Browser.getVersion') return { product: 'Chrome/120.0.0.0' };
+            return {};
+          },
+        } as unknown as CDPSession,
+        800,
+        600,
+        null,
+      ),
+    /did not return userAgent/,
+  );
+  console.log('[unit] apply logical viewport uses normal bounds ok');
+}
+
+async function testScreencastRestartThrowsAfterStop(): Promise<void> {
+  const { Screencast } = await import('./browser/patchright/Screencast');
+  const cdp = {
+    on: () => {},
+    off: () => {},
+    send: async () => ({}),
+  } as unknown as CDPSession;
+  const sc = await Screencast.start(cdp, 100, 100, () => {});
+  await sc.stop();
+  await assert.rejects(
+    () => sc.restart(200, 200, () => {}),
+    /restart after stop/,
+  );
+  console.log('[unit] screencast restart throws after stop ok');
+}
+
+async function testInputDrainAwaitsInFlight(): Promise<void> {
+  let resolveMove!: () => void;
+  const moveGate = new Promise<void>((r) => {
+    resolveMove = r;
+  });
+  let moveStarted = false;
+  const page = {
+    mouse: {
+      move: async () => {
+        moveStarted = true;
+        await moveGate;
+      },
+      down: async () => {},
+      up: async () => {},
+      wheel: async () => {},
+    },
+    keyboard: {
+      down: async () => {},
+      up: async () => {},
+      type: async () => {},
+      insertText: async () => {},
+    },
+  } as unknown as Page;
+  const cdp = { send: async () => {} } as unknown as CDPSession;
+  const input = new InputController(page, cdp);
+  input.enqueue({ type: 'mousedown', x: 1, y: 2, button: 0 });
+  await new Promise((r) => setImmediate(r));
+  assert.strictEqual(moveStarted, true);
+  input.setSuspended(true);
+  let drained = false;
+  const drainPromise = input.drain().then(() => {
+    drained = true;
+  });
+  await new Promise((r) => setImmediate(r));
+  assert.strictEqual(drained, false);
+  resolveMove();
+  await drainPromise;
+  assert.strictEqual(drained, true);
+  console.log('[unit] input drain awaits in-flight ok');
 }
 
 function testLaunchEnvironmentIsRequired(): void {
   assert.throws(
     () => toLaunchOptions({ width: 800, height: 600 }),
+    /ViewportPolicy bounds|locale is required/,
+  );
+
+  assert.throws(
+    () =>
+      toLaunchOptions({
+        width: 800,
+        height: 600,
+        minWidth: 100,
+        minHeight: 100,
+        displayWidth: 4096,
+        displayHeight: 2160,
+      }),
     /locale is required/,
   );
 
   const options = toLaunchOptions({
     width: 800,
     height: 600,
+    minWidth: 100,
+    minHeight: 100,
+    displayWidth: 2048,
+    displayHeight: 1080,
     locale: 'pt-BR',
     language: 'pt-BR',
     timezoneId: 'America/Sao_Paulo',
@@ -61,6 +254,12 @@ function testLaunchEnvironmentIsRequired(): void {
   });
   assert.strictEqual(options.locale, 'pt-BR');
   assert.strictEqual(options.geolocation?.accuracy, 10);
+  assert.deepStrictEqual(options.viewportPolicy, {
+    minWidth: 100,
+    minHeight: 100,
+    maxWidth: 2048,
+    maxHeight: 1080,
+  });
   console.log('[unit] launch environment ok');
 }
 
@@ -120,7 +319,7 @@ function testUnexpectedContextCloseEnqueuesCrash(): void {
 function testRecreateKeepsOpenAcrossStaleClose(): void {
   const bridge = new EventBridge('s4');
   const session = { open: true };
-  // recreate: invalidate epoch, intentional close of old context
+  // Intentional teardown: invalidate epoch + suppress before old context close
   applyContextClose(bridge, { listenerEpoch: 1, currentEpoch: 2, suppress: true }, session);
   assert.strictEqual(bridge.crash.pendingCount, 0);
   assert.strictEqual(session.open, true);
@@ -134,7 +333,7 @@ function testRecreateKeepsOpenAcrossStaleClose(): void {
   applyContextClose(bridge, { listenerEpoch: 3, currentEpoch: 3, suppress: false }, session);
   assert.strictEqual(bridge.crash.pendingCount, 1);
   assert.strictEqual(session.open, false);
-  console.log('[unit] recreate_keeps_open_across_stale_close ok');
+  console.log('[unit] stale_context_close_epoch ok');
 }
 
 async function testStopKeepsBridgeQueuesOpen(): Promise<void> {
@@ -181,18 +380,55 @@ async function testNavigateSuspendsInput(): Promise<void> {
   const cdp = { send: async () => {} } as unknown as CDPSession;
   const input = new InputController(page, cdp);
 
-  input.setSuspended(true);
+  input.beginSuspend();
   input.enqueue({ type: 'mousedown', x: 1, y: 2, button: 0 });
   await new Promise((r) => setImmediate(r));
   assert.strictEqual(moveCalls, 0);
   assert.strictEqual(input.suspended, true);
 
-  input.setSuspended(false);
+  input.endSuspend();
   input.enqueue({ type: 'mousedown', x: 3, y: 4, button: 0 });
   await new Promise((r) => setImmediate(r));
   // mousedown does move then down
   assert.ok(moveCalls >= 1);
   console.log('[unit] navigate_suspends_input ok');
+}
+
+async function testSuspendNestingKeepsPaused(): Promise<void> {
+  let moveCalls = 0;
+  const page = {
+    mouse: {
+      move: async () => {
+        moveCalls++;
+      },
+      down: async () => {},
+      up: async () => {},
+      wheel: async () => {},
+    },
+    keyboard: {
+      down: async () => {},
+      up: async () => {},
+      type: async () => {},
+      insertText: async () => {},
+    },
+  } as unknown as Page;
+  const cdp = { send: async () => {} } as unknown as CDPSession;
+  const input = new InputController(page, cdp);
+
+  input.beginSuspend(); // resize
+  input.beginSuspend(); // navigate overlaps
+  input.endSuspend(); // navigate ends first — must stay suspended
+  assert.strictEqual(input.suspended, true);
+  input.enqueue({ type: 'mousedown', x: 1, y: 2, button: 0 });
+  await new Promise((r) => setImmediate(r));
+  assert.strictEqual(moveCalls, 0);
+
+  input.endSuspend(); // resize ends
+  assert.strictEqual(input.suspended, false);
+  input.enqueue({ type: 'mousedown', x: 3, y: 4, button: 0 });
+  await new Promise((r) => setImmediate(r));
+  assert.ok(moveCalls >= 1);
+  console.log('[unit] suspend nesting keeps paused ok');
 }
 
 function testBenignBrowserRaceNarrow(): void {
@@ -241,6 +477,9 @@ async function testPermissionClearRespectsEpoch(): Promise<void> {
 async function main(): Promise<void> {
   testDomainMatch();
   testViewportBounds();
+  testResolveDeviceProfileDefaults();
+  await testApplyLogicalViewportUsesNormalBounds();
+  await testScreencastRestartThrowsAfterStop();
   testLaunchEnvironmentIsRequired();
   testTouchEmulationParams();
   testStopDoesNotEnqueueCrash();
@@ -248,6 +487,8 @@ async function main(): Promise<void> {
   testRecreateKeepsOpenAcrossStaleClose();
   await testStopKeepsBridgeQueuesOpen();
   await testNavigateSuspendsInput();
+  await testSuspendNestingKeepsPaused();
+  await testInputDrainAwaitsInFlight();
   testBenignBrowserRaceNarrow();
   await testAbortDoesNotStealQueuedCrash();
   await testPermissionClearRespectsEpoch();

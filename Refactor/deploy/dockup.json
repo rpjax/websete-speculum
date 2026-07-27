@@ -51,7 +51,7 @@
         "dockerfile": "Speculum.Api/Dockerfile",
         "dependsOn": [{ "id": "sidecar", "condition": "service_healthy" }],
         "healthcheck": {
-          "test": ["CMD", "curl", "-sf", "http://localhost:8080/health/ready"],
+          "test": ["CMD", "curl", "-sf", "http://localhost:8080/health/live"],
           "interval": "15s",
           "timeout": "5s",
           "startPeriod": "25s",
@@ -61,11 +61,34 @@
           { "name": "ASPNETCORE_ENVIRONMENT", "value": "Production" },
           { "name": "ASPNETCORE_URLS", "value": "http://0.0.0.0:8080" },
           { "name": "SPECULUM_WEBTRANSPORT_PORT", "value": "8443" },
-          { "name": "SPECULUM_ENABLE_DEV_BACKDOOR", "value": "true" },
+          { "name": "SPECULUM_BYPASS_API_AUTH", "value": "true" },
           { "name": "Database__Path", "value": "/data/speculum.db" },
           { "name": "Sidecar__GrpcAddress", "value": "http://sidecar:50051" },
           { "name": "Navigation__DefaultTargetHost", "value": "www.google.com" },
-          { "name": "Navigation__AllowedMainFrameUrls__0__Domain__Scope", "value": "Any" }
+          { "name": "Navigation__AllowedMainFrameUrls__0__Domain__Scope", "value": "Any" },
+          { "name": "ResourceManagement__Sessions__MaxConcurrentSessions", "value": "10" },
+          { "name": "Sessions__DetachedSessionTimeout", "value": "00:05:00" },
+          { "name": "Sessions__IsJsBridgeEnabled", "value": "true" },
+          { "name": "Sessions__InputMultiplexingPolicy__Access", "value": "Shared" },
+          { "name": "Sessions__ViewportPolicy__Default__Width", "value": "1280" },
+          { "name": "Sessions__ViewportPolicy__Default__Height", "value": "720" },
+          { "name": "Sessions__ViewportPolicy__Minimum__Width", "value": "100" },
+          { "name": "Sessions__ViewportPolicy__Minimum__Height", "value": "100" },
+          { "name": "Sessions__ViewportPolicy__Maximum__Width", "value": "4096" },
+          { "name": "Sessions__ViewportPolicy__Maximum__Height", "value": "2160" },
+          { "name": "Sessions__ClientEnvironmentPolicy__DefaultLocale", "value": "en-US" },
+          { "name": "Sessions__ClientEnvironmentPolicy__DefaultLanguage", "value": "en-US" },
+          { "name": "Sessions__ClientEnvironmentPolicy__DefaultTimeZoneId", "value": "America/New_York" },
+          { "name": "Sessions__ClientEnvironmentPolicy__DefaultColorScheme", "value": "dark" },
+          { "name": "Sessions__DeviceEmulationPolicy__Default__DeviceScaleFactor", "value": "1" },
+          { "name": "Sessions__DeviceEmulationPolicy__Default__UserAgentProfile", "value": "desktop" },
+          { "name": "Sessions__DeviceEmulationPolicy__Default__ScreenOrientation", "value": "landscapePrimary" },
+          { "name": "Sessions__DeviceEmulationPolicy__MinDeviceScaleFactor", "value": "1" },
+          { "name": "Sessions__DeviceEmulationPolicy__MaxDeviceScaleFactor", "value": "2" },
+          { "name": "Sessions__DeviceEmulationPolicy__MaxTouchPoints", "value": "10" },
+          { "name": "Sessions__DeviceEmulationPolicy__DefaultTouchPointsWhenTouch", "value": "5" },
+          { "name": "Sessions__DeviceEmulationPolicy__DesktopUserAgentProfile", "value": "desktop" },
+          { "name": "Sessions__DeviceEmulationPolicy__MobileUserAgentProfile", "value": "mobile" }
         ],
         "volumes": [
           { "name": "speculum-refactor-dev-data", "container": "/data" }
@@ -110,9 +133,9 @@
     ],
     "volumes": [{ "name": "speculum-refactor-dev-data" }]
   },
-  "smoke": {
+  "prod": {
     "namespace": "speculum-refactor",
-    "network": "speculum-refactor-smoke",
+    "network": "speculum-refactor-prod",
     "containers": [
       {
         "id": "traefik",
@@ -122,7 +145,7 @@
           "--api.dashboard=false",
           "--providers.docker=true",
           "--providers.docker.exposedbydefault=false",
-          "--providers.docker.network=speculum-refactor-smoke",
+          "--providers.docker.network=speculum-refactor-prod",
           "--entrypoints.web.address=:80"
         ],
         "ports": [
@@ -142,7 +165,8 @@
         "shmSize": "2gb",
         "env": [
           { "name": "NODE_ENV", "value": "production" },
-          { "name": "SPECULUM_BROWSER", "value": "mock" },
+          { "name": "SPECULUM_BROWSER", "value": "patchright" },
+          { "name": "CHROME_EXECUTABLE", "value": "/usr/bin/google-chrome" },
           { "name": "SPECULUM_GRPC_PORT", "value": "50051" },
           { "name": "SPECULUM_HEALTH_PORT", "value": "3001" }
         ],
@@ -150,8 +174,8 @@
           "test": ["CMD", "curl", "-sf", "http://localhost:3001/ready"],
           "interval": "15s",
           "timeout": "5s",
-          "startPeriod": "20s",
-          "retries": 3
+          "startPeriod": "60s",
+          "retries": 5
         }
       },
       {
@@ -161,7 +185,7 @@
         "dockerfile": "Speculum.Api/Dockerfile",
         "dependsOn": [{ "id": "sidecar", "condition": "service_healthy" }],
         "healthcheck": {
-          "test": ["CMD", "curl", "-sf", "http://localhost:8080/health/ready"],
+          "test": ["CMD", "curl", "-sf", "http://localhost:8080/health/live"],
           "interval": "15s",
           "timeout": "5s",
           "startPeriod": "25s",
@@ -173,54 +197,51 @@
           { "name": "SPECULUM_WEBTRANSPORT_PORT", "value": "8443" },
           { "name": "Database__Path", "value": "/data/speculum.db" },
           { "name": "Sidecar__GrpcAddress", "value": "http://sidecar:50051" },
-          { "name": "Navigation__DefaultTargetHost", "value": "example.com" }
+          { "name": "ResourceManagement__Sessions__MaxConcurrentSessions", "value": "10" },
+          { "name": "Sessions__DetachedSessionTimeout", "value": "00:05:00" },
+          { "name": "Sessions__IsJsBridgeEnabled", "value": "true" },
+          { "name": "Sessions__InputMultiplexingPolicy__Access", "value": "Shared" },
+          { "name": "Sessions__ViewportPolicy__Default__Width", "value": "1280" },
+          { "name": "Sessions__ViewportPolicy__Default__Height", "value": "720" },
+          { "name": "Sessions__ViewportPolicy__Minimum__Width", "value": "100" },
+          { "name": "Sessions__ViewportPolicy__Minimum__Height", "value": "100" },
+          { "name": "Sessions__ViewportPolicy__Maximum__Width", "value": "4096" },
+          { "name": "Sessions__ViewportPolicy__Maximum__Height", "value": "2160" },
+          { "name": "Sessions__ClientEnvironmentPolicy__DefaultLocale", "value": "en-US" },
+          { "name": "Sessions__ClientEnvironmentPolicy__DefaultLanguage", "value": "en-US" },
+          { "name": "Sessions__ClientEnvironmentPolicy__DefaultTimeZoneId", "value": "America/New_York" },
+          { "name": "Sessions__ClientEnvironmentPolicy__DefaultColorScheme", "value": "dark" },
+          { "name": "Sessions__DeviceEmulationPolicy__Default__DeviceScaleFactor", "value": "1" },
+          { "name": "Sessions__DeviceEmulationPolicy__Default__UserAgentProfile", "value": "desktop" },
+          { "name": "Sessions__DeviceEmulationPolicy__Default__ScreenOrientation", "value": "landscapePrimary" },
+          { "name": "Sessions__DeviceEmulationPolicy__MinDeviceScaleFactor", "value": "1" },
+          { "name": "Sessions__DeviceEmulationPolicy__MaxDeviceScaleFactor", "value": "2" },
+          { "name": "Sessions__DeviceEmulationPolicy__MaxTouchPoints", "value": "10" },
+          { "name": "Sessions__DeviceEmulationPolicy__DefaultTouchPointsWhenTouch", "value": "5" },
+          { "name": "Sessions__DeviceEmulationPolicy__DesktopUserAgentProfile", "value": "desktop" },
+          { "name": "Sessions__DeviceEmulationPolicy__MobileUserAgentProfile", "value": "mobile" }
         ],
         "volumes": [
-          { "name": "speculum-refactor-smoke-data", "container": "/data" }
+          { "name": "speculum-refactor-prod-data", "container": "/data" }
         ],
         "compose": {
           "ports": ["8443:8443/tcp", "8443:8443/udp"]
         },
         "labels": [
           "traefik.enable=true",
-          "traefik.http.routers.refactor-api.rule=PathPrefix(`/vhub`) || PathPrefix(`/health`)",
+          "traefik.http.routers.refactor-api.rule=PathPrefix(`/vhub`) || PathPrefix(`/health`) || PathPrefix(`/api`)",
           "traefik.http.routers.refactor-api.entrypoints=web",
           "traefik.http.routers.refactor-api.priority=100",
           "traefik.http.routers.refactor-api.service=refactor-api",
           "traefik.http.services.refactor-api.loadbalancer.server.port=8080"
         ]
-      },
-      {
-        "id": "web",
-        "image": "speculum-refactor-web",
-        "context": "web",
-        "dockerfile": "Dockerfile",
-        "buildArgs": [
-          { "name": "VITE_SPECULUM_TRANSPORT_ORIGIN", "value": "https://localhost:8443" }
-        ],
-        "dependsOn": [{ "id": "api", "condition": "service_healthy" }],
-        "healthcheck": {
-          "test": ["CMD", "wget", "-qO-", "http://localhost/"],
-          "interval": "15s",
-          "timeout": "5s",
-          "startPeriod": "15s",
-          "retries": 3
-        },
-        "labels": [
-          "traefik.enable=true",
-          "traefik.http.routers.refactor-web.rule=PathPrefix(`/`)",
-          "traefik.http.routers.refactor-web.entrypoints=web",
-          "traefik.http.routers.refactor-web.priority=1",
-          "traefik.http.routers.refactor-web.service=refactor-web",
-          "traefik.http.services.refactor-web.loadbalancer.server.port=80"
-        ]
       }
     ],
-    "volumes": [{ "name": "speculum-refactor-smoke-data" }]
+    "volumes": [{ "name": "speculum-refactor-prod-data" }]
   },
-  "assert": {
+  "test": {
     "namespace": "speculum-refactor",
-    "network": "speculum-refactor-assert",
+    "network": "speculum-refactor-test",
     "containers": [
       {
         "id": "fixture",
@@ -235,7 +256,7 @@
         ],
         "networks": [
           {
-            "name": "speculum-refactor-assert",
+            "name": "speculum-refactor-test",
             "aliases": ["fixture.test", "www.fixture.test", "sub.fixture.test"]
           }
         ],
@@ -291,7 +312,7 @@
           { "name": "ASPNETCORE_ENVIRONMENT", "value": "Production" },
           { "name": "ASPNETCORE_URLS", "value": "http://0.0.0.0:8080" },
           { "name": "SPECULUM_WEBTRANSPORT_PORT", "value": "8443" },
-          { "name": "SPECULUM_ENABLE_DEV_BACKDOOR", "value": "true" },
+          { "name": "SPECULUM_BYPASS_API_AUTH", "value": "true" },
           { "name": "Database__Path", "value": "/data/speculum.db" },
           { "name": "Sidecar__GrpcAddress", "value": "http://sidecar:50051" },
           { "name": "Navigation__DefaultTargetHost", "value": "fixture.test" },
@@ -299,16 +320,46 @@
           { "name": "Navigation__AllowedMainFrameUrls__0__Domain__Labels__0__Match", "value": "Exact" },
           { "name": "Navigation__AllowedMainFrameUrls__0__Domain__Labels__0__Value", "value": "fixture" },
           { "name": "Navigation__AllowedMainFrameUrls__0__Domain__Labels__1__Match", "value": "Exact" },
-          { "name": "Navigation__AllowedMainFrameUrls__0__Domain__Labels__1__Value", "value": "test" }
+          { "name": "Navigation__AllowedMainFrameUrls__0__Domain__Labels__1__Value", "value": "test" },
+          { "name": "Navigation__AllowedMainFrameUrls__1__Domain__Scope", "value": "Pattern" },
+          { "name": "Navigation__AllowedMainFrameUrls__1__Domain__Labels__0__Match", "value": "Any" },
+          { "name": "Navigation__AllowedMainFrameUrls__1__Domain__Labels__0__Value", "value": "" },
+          { "name": "Navigation__AllowedMainFrameUrls__1__Domain__Labels__1__Match", "value": "Exact" },
+          { "name": "Navigation__AllowedMainFrameUrls__1__Domain__Labels__1__Value", "value": "fixture" },
+          { "name": "Navigation__AllowedMainFrameUrls__1__Domain__Labels__2__Match", "value": "Exact" },
+          { "name": "Navigation__AllowedMainFrameUrls__1__Domain__Labels__2__Value", "value": "test" },
+          { "name": "ResourceManagement__Sessions__MaxConcurrentSessions", "value": "10" },
+          { "name": "Sessions__DetachedSessionTimeout", "value": "00:05:00" },
+          { "name": "Sessions__IsJsBridgeEnabled", "value": "true" },
+          { "name": "Sessions__InputMultiplexingPolicy__Access", "value": "Shared" },
+          { "name": "Sessions__ViewportPolicy__Default__Width", "value": "1280" },
+          { "name": "Sessions__ViewportPolicy__Default__Height", "value": "720" },
+          { "name": "Sessions__ViewportPolicy__Minimum__Width", "value": "100" },
+          { "name": "Sessions__ViewportPolicy__Minimum__Height", "value": "100" },
+          { "name": "Sessions__ViewportPolicy__Maximum__Width", "value": "4096" },
+          { "name": "Sessions__ViewportPolicy__Maximum__Height", "value": "2160" },
+          { "name": "Sessions__ClientEnvironmentPolicy__DefaultLocale", "value": "en-US" },
+          { "name": "Sessions__ClientEnvironmentPolicy__DefaultLanguage", "value": "en-US" },
+          { "name": "Sessions__ClientEnvironmentPolicy__DefaultTimeZoneId", "value": "America/New_York" },
+          { "name": "Sessions__ClientEnvironmentPolicy__DefaultColorScheme", "value": "dark" },
+          { "name": "Sessions__DeviceEmulationPolicy__Default__DeviceScaleFactor", "value": "1" },
+          { "name": "Sessions__DeviceEmulationPolicy__Default__UserAgentProfile", "value": "desktop" },
+          { "name": "Sessions__DeviceEmulationPolicy__Default__ScreenOrientation", "value": "landscapePrimary" },
+          { "name": "Sessions__DeviceEmulationPolicy__MinDeviceScaleFactor", "value": "1" },
+          { "name": "Sessions__DeviceEmulationPolicy__MaxDeviceScaleFactor", "value": "2" },
+          { "name": "Sessions__DeviceEmulationPolicy__MaxTouchPoints", "value": "10" },
+          { "name": "Sessions__DeviceEmulationPolicy__DefaultTouchPointsWhenTouch", "value": "5" },
+          { "name": "Sessions__DeviceEmulationPolicy__DesktopUserAgentProfile", "value": "desktop" },
+          { "name": "Sessions__DeviceEmulationPolicy__MobileUserAgentProfile", "value": "mobile" }
         ],
         "volumes": [
-          { "name": "speculum-refactor-assert-data", "container": "/data" }
+          { "name": "speculum-refactor-test-data", "container": "/data" }
         ],
         "compose": {
           "ports": ["18090:8080", "18443:8443/tcp", "18443:8443/udp"]
         }
       }
     ],
-    "volumes": [{ "name": "speculum-refactor-assert-data" }]
+    "volumes": [{ "name": "speculum-refactor-test-data" }]
   }
 }

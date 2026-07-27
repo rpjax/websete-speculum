@@ -3,14 +3,13 @@ using Speculum.Api.Journal.Models;
 
 namespace Speculum.Api.Sessions.Events.Models;
 
-[JournalFact(
+[CanonicalFact(
     "Sessions.SessionStopping",
     schemaVersion: 2,
     Name = "Session stopping",
     Description = "Session teardown began.",
     Owner = "sessions",
-    PublishPolicy = PublishPolicy.Guaranteed,
-    EnabledByDefault = true)]
+    PublishPolicy = PublishPolicy.Guaranteed)]
 public sealed class SessionStopping
 {
     [JournalIndex("profile")]

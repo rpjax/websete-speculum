@@ -3,14 +3,13 @@ using Speculum.Api.Journal.Models;
 
 namespace Speculum.Api.Sessions.Events.Models;
 
-[JournalFact(
+[CanonicalFact(
     "Sessions.SessionStatePersisted",
     schemaVersion: 1,
     Name = "Session state persisted",
     Description = "Exported session state was merged into the profile.",
     Owner = "sessions",
-    PublishPolicy = PublishPolicy.Guaranteed,
-    EnabledByDefault = true)]
+    PublishPolicy = PublishPolicy.Guaranteed)]
 public sealed class SessionStatePersisted
 {
     [JournalIndex("profile")]

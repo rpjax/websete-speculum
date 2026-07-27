@@ -11,6 +11,7 @@ import type {
 import {
   detectDeviceProfile,
   isTouchPrimaryProfile,
+  type SessionViewportBounds,
 } from '@/features/motor/live/deviceProfile'
 import type { CanvasSize } from './CanvasViewportSync'
 import {
@@ -26,15 +27,15 @@ import { applySyncedBrowserUrl } from './sessionUrlSync'
 import {
   inputConsoleLine,
   lineFromConsoleOutput,
-  type SmokeConsoleLine,
-} from '@/features/sessions/smoke/smokeConsole'
+  type LabConsoleLine,
+} from '@/features/sessions/lab/labConsole'
 import {
   describe,
-  SMOKE_LOG_LIMIT,
-  type SmokeLogEntry,
-  type SmokeLogLevel,
-} from '@/features/sessions/smoke/smokeLog'
-import { useJournalFeed, type JournalFeed } from '@/features/sessions/smoke/useJournalFeed'
+  LAB_LOG_LIMIT,
+  type LabLogEntry,
+  type LabLogLevel,
+} from '@/features/sessions/lab/labLog'
+import { useJournalFeed, type JournalFeed } from '@/features/sessions/lab/useJournalFeed'
 
 export type LiveSessionPhase =
   | 'idle'
@@ -144,6 +145,32 @@ function freshCounters(): FrameCounters {
 }
 
 /**
+ * Poll CSS host size until laid out (≥100×100) so StartSession matches the canvas.
+ * Falls back to the configured viewport after a short budget — never window/screen.
+ */
+async function waitForCanvasLayout(
+  layoutRef: { current: CanvasSize },
+  fallback: LiveSessionViewport,
+  budgetMs = 600,
+): Promise<CanvasSize> {
+  const deadline = performance.now() + budgetMs
+  while (performance.now() < deadline) {
+    const size = layoutRef.current
+    if (size.width >= 100 && size.height >= 100) {
+      return { width: size.width, height: size.height }
+    }
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => resolve())
+    })
+  }
+  const size = layoutRef.current
+  if (size.width >= 100 && size.height >= 100) {
+    return { width: size.width, height: size.height }
+  }
+  return { width: fallback.width, height: fallback.height }
+}
+
+/**
  * Shared session controller for lab and immersive live.
  * One path: createSessionClient → EnsureProfile → StartSession → WebTransport
  * → NavigateAsync(path/query) → hub → ILiveSession → IUrlResolver.
@@ -160,8 +187,8 @@ export function useLiveSession({
   const [connectionId, setConnectionId] = useState<string | null>(null)
   const [profileId, setProfileId] = useState<string | null>(() => loadProfileId())
   const [sessionId, setSessionId] = useState<string | null>(null)
-  const [entries, setEntries] = useState<SmokeLogEntry[]>([])
-  const [consoleLines, setConsoleLines] = useState<SmokeConsoleLine[]>([])
+  const [entries, setEntries] = useState<LabLogEntry[]>([])
+  const [consoleLines, setConsoleLines] = useState<LabConsoleLine[]>([])
   const [stats, setStats] = useState<LiveSessionStats>(EMPTY_STATS)
   const [status, setStatus] = useState<SessionStatus | null>(null)
   const [editing, setEditing] = useState<EditingState | null>(null)
@@ -171,6 +198,8 @@ export function useLiveSession({
   const [currentUrl, setCurrentUrl] = useState<string | null>(null)
   /** Confirmed remote session viewport (StartSession / ResizeApplied). */
   const [remoteViewport, setRemoteViewport] = useState<LiveSessionViewport>(viewport)
+  /** Sessions.ViewportPolicy from StartSession — drives client resize validation. */
+  const [viewportPolicy, setViewportPolicy] = useState<SessionViewportBounds | null>(null)
   const canvasLayoutRef = useRef<CanvasSize>({
     width: viewport.width,
     height: viewport.height,
@@ -185,18 +214,18 @@ export function useLiveSession({
   const debugRef = useRef(debug)
   debugRef.current = debug
 
-  const log = useCallback((level: SmokeLogLevel, label: string, detail?: unknown) => {
+  const log = useCallback((level: LabLogLevel, label: string, detail?: unknown) => {
     if (!debugRef.current) {
       return
     }
-    const entry: SmokeLogEntry = {
+    const entry: LabLogEntry = {
       id: ++logIdRef.current,
       at: Date.now(),
       level,
       label,
       detail: describe(detail),
     }
-    setEntries((previous) => [entry, ...previous].slice(0, SMOKE_LOG_LIMIT))
+    setEntries((previous) => [entry, ...previous].slice(0, LAB_LOG_LIMIT))
   }, [])
 
   const client = useMemo(() => {
@@ -306,7 +335,7 @@ export function useLiveSession({
         if (debugRef.current) {
           const line = lineFromConsoleOutput(message, ++consoleIdRef.current)
           if (line) {
-            setConsoleLines((previous) => [...previous, line].slice(-SMOKE_LOG_LIMIT))
+            setConsoleLines((previous) => [...previous, line].slice(-LAB_LOG_LIMIT))
           }
           log('wire', 'console', message)
         }
@@ -399,12 +428,11 @@ export function useLiveSession({
         const device = detectDeviceProfile()
         const primary = isTouchPrimaryProfile(device)
         setTouchPrimary(primary)
-        // Canvas layout size 1:1 — not window/screen. Fallback when host not laid out yet.
-        const layout = canvasLayoutRef.current
-        const viewportWidth =
-          layout.width >= 100 ? layout.width : viewport.width
-        const viewportHeight =
-          layout.height >= 100 ? layout.height : viewport.height
+        // Wait for client surface layout — StartSession must use measured size, not a fallback
+        // that forces an immediate ResizeAsync.
+        const layout = await waitForCanvasLayout(canvasLayoutRef, viewport)
+        const viewportWidth = layout.width
+        const viewportHeight = layout.height
         log('info', 'hub start…', {
           profileId: ensured.profileId,
           path: normalizedPath,
@@ -424,6 +452,12 @@ export function useLiveSession({
         bind(session)
         setSessionId(session.sessionId)
         setRemoteViewport({ width: viewportWidth, height: viewportHeight })
+        setViewportPolicy({
+          minWidth: session.viewportMinWidth,
+          minHeight: session.viewportMinHeight,
+          maxWidth: session.viewportMaxWidth,
+          maxHeight: session.viewportMaxHeight,
+        })
         setEditing(null)
         setKeyboardNonce(0)
         setPhase('live')
@@ -450,6 +484,7 @@ export function useLiveSession({
     } finally {
       sessionRef.current = null
       setSessionId(null)
+      setViewportPolicy(null)
       setEditing(null)
       setKeyboardNonce(0)
       setPhase(client.isConnected ? 'connected' : 'idle')
@@ -573,7 +608,7 @@ export function useLiveSession({
       if (debugRef.current) {
         setConsoleLines((previous) =>
           [...previous, inputConsoleLine(++consoleIdRef.current, trimmed)].slice(
-            -SMOKE_LOG_LIMIT,
+            -LAB_LOG_LIMIT,
           ),
         )
       }
@@ -632,6 +667,7 @@ export function useLiveSession({
     openKeyboard,
     isLive: phase === 'live',
     remoteViewport,
+    viewportPolicy,
     attachFrameSink,
     connect,
     start,

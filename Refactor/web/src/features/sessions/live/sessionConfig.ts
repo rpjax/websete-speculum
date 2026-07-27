@@ -1,12 +1,8 @@
 /** Shared session client config — same for lab and immersive live. */
 
 const PROFILE_KEY = 'speculum.session.profileId'
-/** Legacy smoke key — read once for migration, then rewrite to PROFILE_KEY. */
-const LEGACY_SMOKE_PROFILE_KEY = 'speculum.smoke.profileId'
 const LAB_HUB_ORIGIN_KEY = 'speculum.lab.hubOrigin'
 const LAB_TRANSPORT_ORIGIN_KEY = 'speculum.lab.transportOrigin'
-const LEGACY_SMOKE_HUB_KEY = 'speculum.smoke.hubOrigin'
-const LEGACY_SMOKE_TRANSPORT_KEY = 'speculum.smoke.transportOrigin'
 
 export interface SessionOrigins {
   /** Origin serving `/vhub`; empty means same-origin (dev proxy or Traefik). */
@@ -55,14 +51,8 @@ export function loadEnvOrigins(): SessionOrigins {
 export function loadLabOrigins(): SessionOrigins {
   const env = loadEnvOrigins()
   return {
-    hubOrigin:
-      stored(LAB_HUB_ORIGIN_KEY) ??
-      stored(LEGACY_SMOKE_HUB_KEY) ??
-      env.hubOrigin,
-    transportOrigin:
-      stored(LAB_TRANSPORT_ORIGIN_KEY) ??
-      stored(LEGACY_SMOKE_TRANSPORT_KEY) ??
-      env.transportOrigin,
+    hubOrigin: stored(LAB_HUB_ORIGIN_KEY) ?? env.hubOrigin,
+    transportOrigin: stored(LAB_TRANSPORT_ORIGIN_KEY) ?? env.transportOrigin,
   }
 }
 
@@ -73,16 +63,7 @@ export function saveLabOrigins(origins: SessionOrigins): void {
 
 /** Profile id from EnsureProfile — shared across lab and live (same persisted browser). */
 export function loadProfileId(): string | null {
-  const current = stored(PROFILE_KEY)
-  if (current) {
-    return current
-  }
-  const legacy = stored(LEGACY_SMOKE_PROFILE_KEY)
-  if (legacy) {
-    persist(PROFILE_KEY, legacy)
-    return legacy
-  }
-  return null
+  return stored(PROFILE_KEY)
 }
 
 export function saveProfileId(profileId: string): void {
@@ -91,5 +72,4 @@ export function saveProfileId(profileId: string): void {
 
 export function clearProfileId(): void {
   persist(PROFILE_KEY, '')
-  persist(LEGACY_SMOKE_PROFILE_KEY, '')
 }

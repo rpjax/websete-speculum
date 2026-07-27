@@ -3,14 +3,13 @@ using Speculum.Api.Journal.Models;
 
 namespace Speculum.Api.Sessions.Events.Models;
 
-[JournalFact(
+[CanonicalFact(
     "Sessions.MainFrameNavigationBlocked",
     schemaVersion: 1,
     Name = "Main-frame navigation blocked",
     Description = "Browser blocked a main-frame navigation (allowlist / policy).",
     Owner = "sessions",
-    PublishPolicy = PublishPolicy.Guaranteed,
-    EnabledByDefault = true)]
+    PublishPolicy = PublishPolicy.Guaranteed)]
 public sealed class MainFrameNavigationBlocked
 {
     [JournalIndex("profile")]

@@ -3,14 +3,13 @@ using Speculum.Api.Journal.Models;
 
 namespace Speculum.Api.Sessions.Events.Models;
 
-[JournalFact(
+[CanonicalFact(
     "Sessions.CloseBrowserFailed",
     schemaVersion: 1,
     Name = "Close browser failed",
     Description = "Browser stop failed during teardown.",
     Owner = "sessions",
-    PublishPolicy = PublishPolicy.Guaranteed,
-    EnabledByDefault = true)]
+    PublishPolicy = PublishPolicy.Guaranteed)]
 public sealed class CloseBrowserFailed
 {
     [JournalIndex("profile")]

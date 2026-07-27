@@ -1,6 +1,8 @@
 using Microsoft.Extensions.Options;
 using Speculum.Api.Configurations.Models.Hosting;
+using Speculum.Api.Configurations.Models.Journal;
 using Speculum.Api.Configurations.Models.Navigation;
+using Speculum.Api.Configurations.Models.ResourceManagement;
 using Speculum.Api.Configurations.Models.Sessions;
 using Speculum.Api.Configurations.Services.Contracts;
 using Speculum.Api.Sessions.Models;
@@ -72,13 +74,23 @@ internal static class SessionsTestHarness
 
     public static EngineConfiguration Engine(string targetHost = "example.test") => new()
     {
-        Navigation = new NavigationConfiguration
-        {
-            DefaultTargetHost = targetHost,
-        },
-        Sessions = Sessions(),
-        ResourceManagement = ResourceManagement(),
+        Hosting = new HostingConfiguration(),
+        Navigation = new NavigationConfiguration { DefaultTargetHost = targetHost },
+        Sessions = Sessions(TimeSpan.FromMinutes(5)),
+        ResourceManagement = ResourceManagement(10),
     };
+
+    public static StaticConfigurationService Configuration(
+        SessionsConfiguration? sessions = null,
+        string targetHost = "example.test",
+        int maxConcurrentSessions = 10)
+        => new(new EngineConfiguration
+        {
+            Hosting = new HostingConfiguration(),
+            Navigation = new NavigationConfiguration { DefaultTargetHost = targetHost },
+            Sessions = sessions ?? Sessions(TimeSpan.FromMinutes(5)),
+            ResourceManagement = ResourceManagement(maxConcurrentSessions),
+        });
 
     public static StartSession Start(Guid profileId) => new()
     {
@@ -126,8 +138,25 @@ internal static class SessionsTestHarness
         : IConfigurationService
     {
         private EngineConfiguration _configuration = configuration;
+        private readonly List<string> _missing = [];
 
         public EngineConfiguration GetCurrent() => _configuration;
+
+        public JournalEventsConfiguration GetJournalEvents() => new();
+
+        public bool AreMandatorySettingsSatisfied => _missing.Count == 0;
+
+        public IReadOnlyList<string> MissingRequired => _missing;
+
+        public void ReplaceApplied(
+            EngineConfiguration configuration,
+            JournalEventsConfiguration journalEvents,
+            IReadOnlyList<string> missingRequired)
+        {
+            _configuration = configuration;
+            _missing.Clear();
+            _missing.AddRange(missingRequired);
+        }
 
         public void SetHosting(HostingConfiguration hosting)
             => _configuration = CloneWith(hosting: hosting);

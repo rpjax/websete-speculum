@@ -3,14 +3,13 @@ using Speculum.Api.Journal.Models;
 
 namespace Speculum.Api.Sessions.Events.Models;
 
-[JournalFact(
+[CanonicalFact(
     "Sessions.NoSlotAvailable",
     schemaVersion: 1,
     Name = "No slot available",
     Description = "Start rejected because MaxSessions capacity is exhausted.",
     Owner = "sessions",
-    PublishPolicy = PublishPolicy.Guaranteed,
-    EnabledByDefault = true)]
+    PublishPolicy = PublishPolicy.Guaranteed)]
 public sealed class NoSlotAvailable
 {
     [JournalIndex("profile")]

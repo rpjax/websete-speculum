@@ -3,14 +3,13 @@ using Speculum.Api.Journal.Models;
 
 namespace Speculum.Api.Sessions.Events.Models;
 
-[JournalFact(
+[CanonicalFact(
     "Sessions.ConnectionStartFailed",
     schemaVersion: 1,
     Name = "Connection start failed",
     Description = "Browser client connection could not be started.",
     Owner = "sessions",
-    PublishPolicy = PublishPolicy.Guaranteed,
-    EnabledByDefault = true)]
+    PublishPolicy = PublishPolicy.Guaranteed)]
 public sealed class ConnectionStartFailed
 {
     [JournalIndex("profile")]

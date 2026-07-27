@@ -49,14 +49,18 @@ public sealed class GrpcRequestValidationTests
     [Fact]
     public void ValidateLaunch_NullConfiguration_Fails()
     {
-        var result = GrpcRequestValidation.ValidateLaunch(null);
+        var result = GrpcRequestValidation.ValidateLaunch(
+            null,
+            SessionsTestHarness.Sessions().ViewportPolicy);
         Assert.True(result.IsFailure);
     }
 
     [Fact]
     public void ValidateLaunch_MissingResolution_Fails()
     {
-        var result = GrpcRequestValidation.ValidateLaunch(new SessionConfig());
+        var result = GrpcRequestValidation.ValidateLaunch(
+            new SessionConfig(),
+            SessionsTestHarness.Sessions().ViewportPolicy);
         Assert.True(result.IsFailure);
     }
 
@@ -79,7 +83,7 @@ public sealed class GrpcRequestValidationTests
                 TimeZoneId = "America/New_York",
                 ColorScheme = "dark",
             },
-        });
+        }, SessionsTestHarness.Sessions().ViewportPolicy);
 
         Assert.True(result.IsSuccess);
         Assert.Equal((1280, 720), result.Value);
@@ -104,7 +108,7 @@ public sealed class GrpcRequestValidationTests
                 TimeZoneId = "America/New_York",
                 ColorScheme = "sepia",
             },
-        });
+        }, SessionsTestHarness.Sessions().ViewportPolicy);
 
         Assert.True(result.IsFailure);
     }
@@ -134,7 +138,37 @@ public sealed class GrpcRequestValidationTests
                     Accuracy = 10,
                 },
             },
-        });
+        }, SessionsTestHarness.Sessions().ViewportPolicy);
+
+        Assert.True(result.IsFailure);
+    }
+
+    [Fact]
+    public void ValidateLaunch_OutsideViewportPolicy_Fails()
+    {
+        var policy = new Configurations.Models.Sessions.ViewportPolicy
+        {
+            Minimum = new Configurations.Models.Sessions.ScreenResolution { Width = 300, Height = 200 },
+            Default = new Configurations.Models.Sessions.ScreenResolution { Width = 800, Height = 600 },
+            Maximum = new Configurations.Models.Sessions.ScreenResolution { Width = 1600, Height = 1200 },
+        };
+        var result = GrpcRequestValidation.ValidateLaunch(new SessionConfig
+        {
+            Resolution = new ScreenResolution { Width = 2000, Height = 600 },
+            Device = new DeviceProfile
+            {
+                DeviceScaleFactor = 1,
+                UserAgentProfile = "desktop",
+                ScreenOrientation = "landscapePrimary",
+            },
+            ClientEnvironment = new ClientEnvironment
+            {
+                Locale = "en-US",
+                Language = "en-US",
+                TimeZoneId = "America/New_York",
+                ColorScheme = "dark",
+            },
+        }, policy);
 
         Assert.True(result.IsFailure);
     }
@@ -177,12 +211,17 @@ public sealed class GrpcRequestValidationTests
             Guid.NewGuid(),
             800,
             600,
-            configuration);
+            configuration,
+            SessionsTestHarness.Sessions().ViewportPolicy);
 
         Assert.Equal("pt-BR", request.Locale);
         Assert.Equal("America/Sao_Paulo", request.TimezoneId);
         Assert.NotNull(request.Geolocation);
         Assert.Equal(10, request.Geolocation.Accuracy);
+        Assert.Equal(100, request.MinWidth);
+        Assert.Equal(100, request.MinHeight);
+        Assert.Equal(4096, request.DisplayWidth);
+        Assert.Equal(2160, request.DisplayHeight);
     }
 
     [Fact]

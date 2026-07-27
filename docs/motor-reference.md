@@ -125,8 +125,8 @@ Changing `Forwarding` or `Hosting` kills all active sessions.
 2. Motor connects SignalR to `/vhub` (same origin).
 3. `StartSessionAsync(clientUrl, w, h, SessionIdentity?)` resolves identity → internal `session_id`, returns client token.
 4. Hub checks `IsOperational`, `MaxSessions`, loads Tier 4 browser state by `session_id`.
-5. Sidecar: import state → exact Xvfb → Chrome → confirm viewport → screencast → frames.
-6. Runtime `ResizeAsync` awaits sidecar `resizeResult` and emits `Motor.ResizeApplied` / `Rejected` / `Failed`.
+5. Sidecar: import state → Xvfb at policy max → Chrome at logical viewport → confirm → screencast → frames.
+6. Runtime `ResizeAsync` soft-applies logical viewport (no Chrome/Xvfb recreate) and emits `Motor.ResizeApplied` / `Rejected` / `Failed`.
 7. Disconnect → CDP export (cookies, localStorage, IndexedDB, history) → SQLite relational store.
 
 There is **no HTTP session cookie** for the motor; persistence is client token + server state.

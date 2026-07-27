@@ -77,13 +77,13 @@ The **Diagnostics** pipeline follows **Observe → Govern → Record → Query �
                                 ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │  sidecar (Node.js + Patchright)                                              │
-│    SessionViewport (confirmed W×H) → exact Xvfb → Chrome → JPEG frames      │
-│    Runtime resize recreates Xvfb at the exact size (no xrandr snap)          │
+│    SessionViewport (logical W×H from client) → Chrome metrics/window        │
+│    Xvfb allocated once at policy max; runtime resize is soft (no recreate)  │
 │    Navigation guard, browser state export/import, script injection           │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-**Viewport contract:** confirmed CSS client size = Chrome `innerWidth`/`innerHeight` = active Xvfb geometry. Create fails if the initial size cannot be proven. Runtime invalid sizes are rejected; operational failures keep the last confirmed size.
+**Viewport contract:** the client chooses the logical viewport (Start/Resize). Sidecar allocates Xvfb once at `Sessions.ViewportPolicy` maximum (capacity). Chrome window bounds + CDP device metrics + screencast encode size track the logical viewport so render/encode cost follows client size. Create fails if the initial logical size cannot be proven. Runtime invalid sizes are rejected; operational resize failures soft-compensate to the last confirmed logical size (never recreate Chrome/Xvfb for resize). If compensate itself fails, the session faults.
 
 ### Component responsibilities
 

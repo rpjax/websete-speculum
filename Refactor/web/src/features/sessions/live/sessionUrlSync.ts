@@ -2,7 +2,7 @@ import { parseClientNavigation, toClientAddressBar } from './sessionCoords'
 
 /**
  * Projects a SyncUrl absolute target into the client address forms used by lab
- * and live alike (same helper — no smoke-only branch).
+ * and live alike (same helper — no lab-only branch).
  *
  * `clientHref` is the official path + `_w7s_nso` wire shape for Navigate/Start.
  * History pushState is intentionally not done here: the SPA still mounts live

@@ -122,15 +122,8 @@ async function launchChrome(args) {
             accuracy: args.geolocation.accuracy,
         });
     }
-    const { windowId } = (await cdp.send('Browser.getWindowForTarget', {}));
-    await cdp.send('Browser.setWindowBounds', {
-        windowId,
-        bounds: { windowState: 'fullscreen' },
-    });
-    if (args.device) {
-        await (0, device_emulation_1.applyDeviceEmulation)(cdp, args.width, args.height, args.device);
-    }
-    // No device profile: rely on window-size + fullscreen only (no Emulation override).
+    // Logical window + metrics — display is overallocated to policy max separately.
+    await (0, device_emulation_1.applyLogicalViewport)(cdp, args.width, args.height, args.device);
     return { context, page, cdp, userDataDir };
 }
 async function closeChrome(handle, options) {

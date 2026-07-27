@@ -2,39 +2,72 @@ import type { DeviceProfilePayload } from './types'
 
 export type { DeviceProfilePayload } from './types'
 
-/** Mirrors Speculum.Api ViewportDimensions — keep in sync with sidecar Xvfb ceiling. */
-export const SESSION_VIEWPORT = {
-  defaultWidth: 1280,
-  defaultHeight: 720,
-  maxWidth: 4096,
-  maxHeight: 2160,
-} as const
+/** Bounds from Sessions.ViewportPolicy (StartSession hub response). */
+export interface SessionViewportBounds {
+  minWidth: number
+  minHeight: number
+  maxWidth: number
+  maxHeight: number
+  defaultWidth?: number
+  defaultHeight?: number
+}
 
 /**
- * Normalize session size the same way the API does at create,
- * so canvas→page coordinate mapping matches the remote viewport.
+ * Mirrors Speculum.Api `appsettings` Sessions.ViewportPolicy defaults.
+ * Prefer StartSession hub bounds in live sessions — do not treat this as product truth.
  */
-export function normalizeSessionViewport(width: number, height: number): { w: number; h: number } {
-  let w = width > 0 ? Math.round(width) : SESSION_VIEWPORT.defaultWidth
-  let h = height > 0 ? Math.round(height) : SESSION_VIEWPORT.defaultHeight
-  w = Math.min(SESSION_VIEWPORT.maxWidth, Math.max(1, w))
-  h = Math.min(SESSION_VIEWPORT.maxHeight, Math.max(1, h))
+export const DEFAULT_VIEWPORT_POLICY: SessionViewportBounds = {
+  minWidth: 100,
+  minHeight: 100,
+  maxWidth: 4096,
+  maxHeight: 2160,
+  defaultWidth: 1280,
+  defaultHeight: 720,
+}
+
+/**
+ * Normalize session size the same way the API edge does at start
+ * (fill non-positive → default, clamp to policy min..max).
+ */
+export function normalizeSessionViewport(
+  width: number,
+  height: number,
+  policy: SessionViewportBounds,
+): { w: number; h: number } {
+  const defaultW = policy.defaultWidth ?? policy.minWidth
+  const defaultH = policy.defaultHeight ?? policy.minHeight
+  let w = width > 0 ? Math.round(width) : defaultW
+  let h = height > 0 ? Math.round(height) : defaultH
+  w = Math.min(policy.maxWidth, Math.max(policy.minWidth, w))
+  h = Math.min(policy.maxHeight, Math.max(policy.minHeight, h))
   return { w, h }
 }
 
-/** Runtime resize candidate — reject below 100 or above ceiling (never snap). */
-export function validateResizeViewport(width: number, height: number):
+/** Runtime resize candidate — reject outside policy (never snap). */
+export function validateResizeViewport(
+  width: number,
+  height: number,
+  policy: SessionViewportBounds,
+):
   | { ok: true; w: number; h: number }
   | { ok: false; message: string } {
   const w = Math.round(width)
   const h = Math.round(height)
-  if (!Number.isFinite(w) || !Number.isFinite(h) || w < 100 || h < 100) {
-    return { ok: false, message: `viewport ${w}×${h} below minimum 100×100` }
-  }
-  if (w > SESSION_VIEWPORT.maxWidth || h > SESSION_VIEWPORT.maxHeight) {
+  if (
+    !Number.isFinite(w)
+    || !Number.isFinite(h)
+    || w < policy.minWidth
+    || h < policy.minHeight
+  ) {
     return {
       ok: false,
-      message: `viewport ${w}×${h} above maximum ${SESSION_VIEWPORT.maxWidth}×${SESSION_VIEWPORT.maxHeight}`,
+      message: `viewport ${w}×${h} below minimum ${policy.minWidth}×${policy.minHeight}`,
+    }
+  }
+  if (w > policy.maxWidth || h > policy.maxHeight) {
+    return {
+      ok: false,
+      message: `viewport ${w}×${h} above maximum ${policy.maxWidth}×${policy.maxHeight}`,
     }
   }
   return { ok: true, w, h }

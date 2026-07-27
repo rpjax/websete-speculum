@@ -7,6 +7,9 @@ public sealed class SessionsConfigurationValidator : IValidateOptions<SessionsCo
 {
     public ValidateOptionsResult Validate(string? name, SessionsConfiguration options)
     {
+        if (IsEmpty(options))
+            return ValidateOptionsResult.Success;
+
         if (options.DetachedSessionTimeout <= TimeSpan.Zero)
         {
             return ValidateOptionsResult.Fail(
@@ -66,6 +69,19 @@ public sealed class SessionsConfigurationValidator : IValidateOptions<SessionsCo
         }
 
         return ValidateOptionsResult.Success;
+    }
+
+    private static bool IsEmpty(SessionsConfiguration options)
+    {
+        var viewport = options.ViewportPolicy;
+        return options.DetachedSessionTimeout <= TimeSpan.Zero
+            && viewport.Minimum.Width == 0
+            && viewport.Minimum.Height == 0
+            && viewport.Default.Width == 0
+            && viewport.Default.Height == 0
+            && viewport.Maximum.Width == 0
+            && viewport.Maximum.Height == 0
+            && string.IsNullOrWhiteSpace(options.ClientEnvironmentPolicy.DefaultLocale);
     }
 
     private static bool IsPositive(ScreenResolution resolution)

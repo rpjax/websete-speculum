@@ -3,14 +3,13 @@ using Speculum.Api.Journal.Models;
 
 namespace Speculum.Api.Sessions.Events.Models;
 
-[JournalFact(
+[CanonicalFact(
     "Sessions.StartUrlResolved",
     schemaVersion: 1,
     Name = "Start URL resolved",
     Description = "The target URL for start navigation was resolved.",
     Owner = "sessions",
-    PublishPolicy = PublishPolicy.Guaranteed,
-    EnabledByDefault = true)]
+    PublishPolicy = PublishPolicy.Guaranteed)]
 public sealed class StartUrlResolved
 {
     [JournalIndex("profile")]

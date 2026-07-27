@@ -14,7 +14,9 @@ public sealed class JournalEntryDescriptor
     public string? Description { get; init; }
     public string? Owner { get; init; }
     public PublishPolicy PublishPolicy { get; init; } = PublishPolicy.BestEffort;
-    public bool EnabledByDefault { get; init; } = true;
+
+    /// <summary>Canonical facts are always on and reject enablement toggles.</summary>
+    public bool IsCanonical { get; init; }
 
     /// <summary>CLR payload type this descriptor was built from.</summary>
     public required Type ClrType { get; init; }

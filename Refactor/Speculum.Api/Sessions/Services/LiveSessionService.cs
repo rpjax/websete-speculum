@@ -2,9 +2,8 @@ using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
 using Aidan.Core.Patterns;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 using Speculum.Api.BrowserClients;
-using Speculum.Api.Configurations.Models.Sessions;
+using Speculum.Api.Configurations.Services.Contracts;
 using Speculum.Api.Sessions.Events.Services.Contracts;
 using Speculum.Api.Sessions.Services.Contracts;
 using Speculum.Api.Shared.Services;
@@ -20,7 +19,7 @@ public sealed class LiveSessionService : ILiveSessionService
     private readonly ISessionCollector _collector;
     private readonly ISessionFaultScheduler _faults;
     private readonly IUrlResolver _urls;
-    private readonly IOptions<SessionsConfiguration> _sessionsOptions;
+    private readonly IConfigurationService _configuration;
     private readonly ISessionEventsFactory _events;
     private readonly ILoggerFactory _loggerFactory;
     /// <summary>
@@ -33,14 +32,14 @@ public sealed class LiveSessionService : ILiveSessionService
         ISessionCollector collector,
         ISessionFaultScheduler faults,
         IUrlResolver urls,
-        IOptions<SessionsConfiguration> sessionsOptions,
+        IConfigurationService configuration,
         ISessionEventsFactory events,
         ILoggerFactory loggerFactory)
     {
         _collector = collector;
         _faults = faults;
         _urls = urls;
-        _sessionsOptions = sessionsOptions;
+        _configuration = configuration;
         _events = events;
         _loggerFactory = loggerFactory;
     }
@@ -75,7 +74,7 @@ public sealed class LiveSessionService : ILiveSessionService
                 return Result<ILiveSession>.Failure("Live session already exists");
             }
 
-            var options = _sessionsOptions.Value;
+            var options = _configuration.GetCurrent().Sessions;
             var mux = new SessionStreamMultiplexer(
                 connection,
                 options.InputMultiplexingPolicy.Access,

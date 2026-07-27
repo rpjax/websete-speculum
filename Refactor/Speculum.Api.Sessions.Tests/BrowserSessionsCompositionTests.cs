@@ -66,6 +66,8 @@ public sealed class BrowserSessionsCompositionTests
 
         var services = new ServiceCollection();
         services.AddSingleton<IConfiguration>(config);
+        services.AddSingleton<Speculum.Api.Configurations.Services.Contracts.IConfigurationService>(
+            SessionsTestHarness.Configuration());
         services.AddLogging();
         services.AddDbContext<SpeculumDbContext>(o => o.UseSqlite("Data Source=:memory:"));
         services.AddJournal();

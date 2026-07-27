@@ -63,6 +63,12 @@ message LaunchRequest {
   string timezone_id = 9;
   string color_scheme = 10;
   optional Geolocation geolocation = 11;
+  // Sessions.ViewportPolicy — sole product bounds; sidecar allocates Xvfb at display_* and
+  // rejects logical sizes outside min_*..display_*.
+  int32 min_width = 12;
+  int32 min_height = 13;
+  int32 display_width = 14;
+  int32 display_height = 15;
 }
 
 message ReadyInfo {

@@ -3,14 +3,13 @@ using Speculum.Api.Journal.Models;
 
 namespace Speculum.Api.Sessions.Events.Models;
 
-[JournalFact(
+[CanonicalFact(
     "Sessions.PersistSkippedNoConnection",
     schemaVersion: 1,
     Name = "Persist skipped no connection",
     Description = "State persist skipped because no live connection exists.",
     Owner = "sessions",
-    PublishPolicy = PublishPolicy.Guaranteed,
-    EnabledByDefault = true)]
+    PublishPolicy = PublishPolicy.Guaranteed)]
 public sealed class PersistSkippedNoConnection
 {
     [JournalIndex("profile")]

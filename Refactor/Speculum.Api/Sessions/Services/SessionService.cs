@@ -72,6 +72,13 @@ public sealed class SessionService : ISessionService
             return Result<StartSessionResponse>.Failure("Caller id is required");
         }
 
+        if (!_configuration.AreMandatorySettingsSatisfied)
+        {
+            var missing = string.Join(", ", _configuration.MissingRequired);
+            return Result<StartSessionResponse>.Failure(
+                $"Pending config: mandatory settings incomplete ({missing}).");
+        }
+
         var sessionId = Guid.NewGuid();
         var profileId = request.ProfileId;
         var startEvents = _events.ForSessionStart(sessionId, profileId);

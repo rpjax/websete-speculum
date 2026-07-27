@@ -7,8 +7,12 @@ namespace Speculum.Api.BrowserClients.Grpc;
 /// <summary>Strict request validation for the ISessionConnection ↔ gRPC boundary.</summary>
 internal static class GrpcRequestValidation
 {
-    public static IResult<(int Width, int Height)> ValidateLaunch(SessionConfig? configuration)
+    public static IResult<(int Width, int Height)> ValidateLaunch(
+        SessionConfig? configuration,
+        ViewportPolicy policy)
     {
+        ArgumentNullException.ThrowIfNull(policy);
+
         if (configuration?.Resolution is not { } resolution)
         {
             return Result<(int, int)>.Failure("Launch requires SessionConfig.Resolution");
@@ -41,13 +45,7 @@ internal static class GrpcRequestValidation
             return Result<(int, int)>.Failure("Launch geolocation is invalid");
         }
 
-        if (resolution.Width <= 0 || resolution.Height <= 0)
-        {
-            return Result<(int, int)>.Failure(
-                "Launch viewport must have positive width and height");
-        }
-
-        return Result<(int, int)>.Success((resolution.Width, resolution.Height));
+        return ValidateViewport(resolution.Width, resolution.Height, policy);
     }
 
     public static IResult ValidateNavigate(string? url)

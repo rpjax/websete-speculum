@@ -2,7 +2,6 @@ using Aidan.Core.Errors;
 using Aidan.Core.Patterns;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Options;
 using Speculum.Api.Sessions.Aggregates;
 using Speculum.Api.Sessions.Events.Services.Contracts;
 using Speculum.Api.Sessions.Models;
@@ -32,7 +31,7 @@ public sealed class SessionCollectorTests
         using var collector = new SessionCollector(
             provider.GetRequiredService<IServiceScopeFactory>(),
             new RecordingEventsFactory(lifecycle),
-            Options.Create(SessionsTestHarness.Sessions(TimeSpan.FromMilliseconds(50))),
+            SessionsTestHarness.Configuration(SessionsTestHarness.Sessions(TimeSpan.FromMilliseconds(50))),
             NullLogger<SessionCollector>.Instance);
 
         collector.Watch(sessionId);
@@ -54,7 +53,7 @@ public sealed class SessionCollectorTests
         using var collector = new SessionCollector(
             provider.GetRequiredService<IServiceScopeFactory>(),
             new RecordingEventsFactory(lifecycle),
-            Options.Create(SessionsTestHarness.Sessions(TimeSpan.FromMilliseconds(100))),
+            SessionsTestHarness.Configuration(SessionsTestHarness.Sessions(TimeSpan.FromMilliseconds(100))),
             NullLogger<SessionCollector>.Instance);
 
         var sessionId = Guid.NewGuid();
@@ -85,7 +84,7 @@ public sealed class SessionCollectorTests
         using var collector = new SessionCollector(
             provider.GetRequiredService<IServiceScopeFactory>(),
             new RecordingEventsFactory(lifecycle),
-            Options.Create(SessionsTestHarness.Sessions(TimeSpan.FromMilliseconds(30))),
+            SessionsTestHarness.Configuration(SessionsTestHarness.Sessions(TimeSpan.FromMilliseconds(30))),
             NullLogger<SessionCollector>.Instance);
 
         collector.Watch(sessionId);
@@ -112,7 +111,7 @@ public sealed class SessionCollectorTests
         using var collector = new SessionCollector(
             provider.GetRequiredService<IServiceScopeFactory>(),
             new RecordingEventsFactory(lifecycle),
-            Options.Create(SessionsTestHarness.Sessions(TimeSpan.FromMilliseconds(40))),
+            SessionsTestHarness.Configuration(SessionsTestHarness.Sessions(TimeSpan.FromMilliseconds(40))),
             NullLogger<SessionCollector>.Instance);
 
         collector.Watch(sessionId);
@@ -141,7 +140,7 @@ public sealed class SessionCollectorTests
         using var collector = new SessionCollector(
             provider.GetRequiredService<IServiceScopeFactory>(),
             new RecordingEventsFactory(lifecycle),
-            Options.Create(SessionsTestHarness.Sessions(TimeSpan.FromMilliseconds(30))),
+            SessionsTestHarness.Configuration(SessionsTestHarness.Sessions(TimeSpan.FromMilliseconds(30))),
             NullLogger<SessionCollector>.Instance);
 
         collector.Watch(sessionId);

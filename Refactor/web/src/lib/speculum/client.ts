@@ -137,6 +137,10 @@ export class SessionClient extends Emitter<SessionClientEventMap> {
         control: this.control,
         sessionId: started.sessionId,
         token: started.token,
+        viewportMinWidth: started.viewportMinWidth,
+        viewportMinHeight: started.viewportMinHeight,
+        viewportMaxWidth: started.viewportMaxWidth,
+        viewportMaxHeight: started.viewportMaxHeight,
         baseUrl: this.options.transportBaseUrl ?? this.options.baseUrl,
         certificateHashBaseUrl: this.options.baseUrl,
         transportPath: this.options.transportPath,
@@ -166,7 +170,7 @@ export class SessionClient extends Emitter<SessionClientEventMap> {
       if (session) {
         // Hub already promoted Live — tear it down so a retry is not blocked by
         // an orphaned session/slot/binding. Bound the stop so a hung export cannot
-        // freeze the smoke UI forever.
+        // freeze the lab UI forever.
         await withTimeout(session.stop().catch(() => {}), 5_000).catch(() => {})
       }
       throw error

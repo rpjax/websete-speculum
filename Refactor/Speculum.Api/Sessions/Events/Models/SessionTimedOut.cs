@@ -3,14 +3,13 @@ using Speculum.Api.Journal.Models;
 
 namespace Speculum.Api.Sessions.Events.Models;
 
-[JournalFact(
+[CanonicalFact(
     "Sessions.SessionTimedOut",
     schemaVersion: 2,
     Name = "Session timed out",
     Description = "Detached session exceeded DetachedSessionTimeout with zero active pipes.",
     Owner = "sessions",
-    PublishPolicy = PublishPolicy.Guaranteed,
-    EnabledByDefault = true)]
+    PublishPolicy = PublishPolicy.Guaranteed)]
 public sealed class SessionTimedOut
 {
     [JournalIndex("session")]

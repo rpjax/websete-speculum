@@ -13,8 +13,7 @@ namespace Speculum.Api.Sessions.Events.Models;
     Name = "Input applied",
     Description = "User input was accepted and pushed to the sidecar (test/debug only).",
     Owner = "sessions",
-    PublishPolicy = PublishPolicy.BestEffort,
-    EnabledByDefault = false)]
+    PublishPolicy = PublishPolicy.BestEffort)]
 public sealed class InputApplied
 {
     [JournalIndex("profile")]

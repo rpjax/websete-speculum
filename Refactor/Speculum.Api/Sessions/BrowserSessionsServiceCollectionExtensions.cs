@@ -1,8 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using Microsoft.Extensions.Options;
-using Speculum.Api.Configurations.Models.ResourceManagement;
-using Speculum.Api.Configurations.Models.Sessions;
 using Speculum.Api.Database;
 using Speculum.Api.Journal.Services.Contracts;
 using Speculum.Api.Profiles.Services.Contracts;
@@ -43,19 +40,8 @@ public static class BrowserSessionsServiceCollectionExtensions
                 "AddBrowserSessions requires AddJournal() to be called first.");
         }
 
-        services.AddOptions<ResourceManagementConfiguration>()
-            .BindConfiguration(ResourceManagementConfiguration.SectionName)
-            .ValidateOnStart();
-
-        services.TryAddEnumerable(
-            ServiceDescriptor.Singleton<IValidateOptions<ResourceManagementConfiguration>, ResourceManagementConfigurationValidator>());
-
-        services.AddOptions<SessionsConfiguration>()
-            .BindConfiguration(SessionsConfiguration.SectionName)
-            .ValidateOnStart();
-
-        services.TryAddEnumerable(
-            ServiceDescriptor.Singleton<IValidateOptions<SessionsConfiguration>, SessionsConfigurationValidator>());
+        // Sessions/ResourceManagement bind + Apply live in AddEngineConfiguration /
+        // IConfigurationService — do not re-bind with ValidateOnStart here.
 
         services.TryAddScoped<ISessionRepository, EfSessionRepository>();
         // Keep TryAdd so composition tests that only call AddBrowserSessions still resolve

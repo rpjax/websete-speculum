@@ -13,8 +13,7 @@ namespace Speculum.Api.Sessions.Events.Models;
     Name = "Resize applied",
     Description = "Session viewport resize was applied (test/debug only).",
     Owner = "sessions",
-    PublishPolicy = PublishPolicy.BestEffort,
-    EnabledByDefault = false)]
+    PublishPolicy = PublishPolicy.BestEffort)]
 public sealed class ResizeApplied
 {
     [JournalIndex("profile")]

@@ -28,8 +28,11 @@ export class InputController {
   private _touchPrimary = false;
   private _movePending: { x: number; y: number } | null = null;
   private _moveScheduled = false;
-  /** When true (e.g. during navigate), drop enqueue and pending moves — avoid Frame was detached. */
-  private _suspended = false;
+  /**
+   * Nestable suspend depth (navigate / soft resize / refresh).
+   * Input stays paused while depth > 0 so overlapping ops cannot clear each other.
+   */
+  private _suspendDepth = 0;
 
   constructor(page: Page, cdp: CDPSession) {
     this._page = page;
@@ -45,23 +48,43 @@ export class InputController {
     this._touchPrimary = value;
   }
 
-  /** Pause/resume the input chain (navigate / recreate). Does not reject in-flight work. */
-  setSuspended(value: boolean): void {
-    this._suspended = value;
-    if (value) {
-      this._movePending = null;
+  /** Nestable pause — pair with {@link endSuspend} in finally. */
+  beginSuspend(): void {
+    this._suspendDepth++;
+    this._movePending = null;
+  }
+
+  /** Nestable resume — only clears pause when the last suspend ends. */
+  endSuspend(): void {
+    if (this._suspendDepth > 0) {
+      this._suspendDepth--;
     }
   }
 
+  /**
+   * @deprecated Prefer beginSuspend/endSuspend — boolean overwrite races overlapping ops.
+   * Kept as depth++ / depth-- for call-site compatibility.
+   */
+  setSuspended(value: boolean): void {
+    if (value) this.beginSuspend();
+    else this.endSuspend();
+  }
+
   get suspended(): boolean {
-    return this._suspended;
+    return this._suspendDepth > 0;
+  }
+
+  /** Await in-flight dispatch so soft resize does not race mid-click. */
+  async drain(): Promise<void> {
+    this._movePending = null;
+    await this._chain;
   }
 
   enqueue(input: BrowserInput): void {
-    if (this._suspended) return;
+    if (this._suspendDepth > 0) return;
     this._chain = this._chain
       .then(() => {
-        if (this._suspended) return;
+        if (this._suspendDepth > 0) return;
         return this.dispatch(input);
       })
       .catch((err) => {
@@ -115,7 +138,7 @@ export class InputController {
   }
 
   private _queueMouseMove(x: number, y: number): void {
-    if (this._suspended) return;
+    if (this._suspendDepth > 0) return;
     this._movePending = { x, y };
     if (this._moveScheduled) return;
     this._moveScheduled = true;
@@ -123,7 +146,7 @@ export class InputController {
       this._moveScheduled = false;
       const p = this._movePending;
       this._movePending = null;
-      if (!p || this._touchPrimary || this._suspended) return;
+      if (!p || this._touchPrimary || this._suspendDepth > 0) return;
       try {
         void this._page.mouse.move(p.x, p.y).catch(() => {});
       } catch {

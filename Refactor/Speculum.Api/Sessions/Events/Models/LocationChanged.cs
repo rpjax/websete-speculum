@@ -9,8 +9,7 @@ namespace Speculum.Api.Sessions.Events.Models;
     Name = "Location changed",
     Description = "Browser main-frame location changed (observed notification).",
     Owner = "sessions",
-    PublishPolicy = PublishPolicy.BestEffort,
-    EnabledByDefault = true)]
+    PublishPolicy = PublishPolicy.BestEffort)]
 public sealed class LocationChanged
 {
     [JournalIndex("profile")]

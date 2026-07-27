@@ -8,6 +8,7 @@ using Speculum.Api.Configurations.Models.Profiles;
 using Speculum.Api.Configurations.Models.ResourceManagement;
 using Speculum.Api.Configurations.Models.Scripting;
 using Speculum.Api.Configurations.Models.Sessions;
+using Speculum.Api.Configurations.Persistence;
 using Speculum.Api.Configurations.Services;
 using Speculum.Api.Configurations.Services.Contracts;
 
@@ -19,20 +20,17 @@ public static class ConfigurationsServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
 
+        // Bound for first-boot merge only — runtime truth is SQLite → Apply → IConfigurationService.
         services.AddOptions<HostingConfiguration>()
-            .BindConfiguration(HostingConfiguration.SectionName)
-            .ValidateOnStart();
+            .BindConfiguration(HostingConfiguration.SectionName);
         services.AddOptions<NavigationConfiguration>()
-            .BindConfiguration(NavigationConfiguration.SectionName)
-            .ValidateOnStart();
+            .BindConfiguration(NavigationConfiguration.SectionName);
         services.AddOptions<SessionsConfiguration>()
-            .BindConfiguration(SessionsConfiguration.SectionName)
-            .ValidateOnStart();
+            .BindConfiguration(SessionsConfiguration.SectionName);
         services.AddOptions<ProfilesConfiguration>()
             .BindConfiguration(ProfilesConfiguration.SectionName);
         services.AddOptions<ResourceManagementConfiguration>()
-            .BindConfiguration(ResourceManagementConfiguration.SectionName)
-            .ValidateOnStart();
+            .BindConfiguration(ResourceManagementConfiguration.SectionName);
         services.AddOptions<ScriptingConfiguration>()
             .BindConfiguration(ScriptingConfiguration.SectionName);
         services.AddOptions<DiagnosticsConfiguration>()
@@ -44,7 +42,14 @@ public static class ConfigurationsServiceCollectionExtensions
             ServiceDescriptor.Singleton<IValidateOptions<SessionsConfiguration>, SessionsConfigurationValidator>());
         services.TryAddEnumerable(
             ServiceDescriptor.Singleton<IValidateOptions<ResourceManagementConfiguration>, ResourceManagementConfigurationValidator>());
+
+        services.TryAddSingleton<IConfigSectionStore, ConfigSectionStore>();
         services.TryAddSingleton<IConfigurationService, ConfigurationService>();
+        services.TryAddSingleton<IConfigurationApplyService, ConfigurationApplyService>();
+        services.TryAddSingleton<IConfigurationLoadService, ConfigurationLoadService>();
+
+        services.AddHealthChecks()
+            .AddCheck<PendingConfigHealthCheck>("pending-config", tags: ["ready"]);
 
         return services;
     }

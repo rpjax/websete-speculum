@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.VIEWPORT_LIMITS = void 0;
+exports.requireViewportPolicy = requireViewportPolicy;
 exports.validateLaunchViewport = validateLaunchViewport;
 exports.validateResizeViewport = validateResizeViewport;
 exports.requireSessionId = requireSessionId;
@@ -46,39 +46,56 @@ exports.grpcInvalidArgument = grpcInvalidArgument;
 exports.grpcFailedPrecondition = grpcFailedPrecondition;
 exports.mapGrpcError = mapGrpcError;
 const grpc = __importStar(require("@grpc/grpc-js"));
-/** Viewport bounds — keep in sync with GrpcRequestValidation / viewport-bounds.ts */
-exports.VIEWPORT_LIMITS = {
-    minWidth: 100,
-    minHeight: 100,
-    maxWidth: 4096,
-    maxHeight: 2160,
-};
-function validateLaunchViewport(width, height) {
-    return validateViewport(width, height);
+/** Parse LaunchRequest min_* / display_* — required; no silent defaults. */
+function requireViewportPolicy(req) {
+    const minWidth = Number(req.minWidth ?? req.min_width);
+    const minHeight = Number(req.minHeight ?? req.min_height);
+    const maxWidth = Number(req.displayWidth ?? req.display_width);
+    const maxHeight = Number(req.displayHeight ?? req.display_height);
+    if (!Number.isFinite(minWidth)
+        || !Number.isFinite(minHeight)
+        || !Number.isFinite(maxWidth)
+        || !Number.isFinite(maxHeight)
+        || minWidth < 1
+        || minHeight < 1
+        || maxWidth < minWidth
+        || maxHeight < minHeight) {
+        throw grpcInvalidArgument('Launch requires Sessions.ViewportPolicy bounds '
+            + '(min_width/min_height/display_width/display_height with 0 < min <= display)');
+    }
+    return {
+        minWidth: Math.round(minWidth),
+        minHeight: Math.round(minHeight),
+        maxWidth: Math.round(maxWidth),
+        maxHeight: Math.round(maxHeight),
+    };
 }
-function validateResizeViewport(width, height) {
-    return validateViewport(width, height);
+function validateLaunchViewport(width, height, policy) {
+    return validateViewport(width, height, policy);
 }
-function validateViewport(width, height) {
+function validateResizeViewport(width, height, policy) {
+    return validateViewport(width, height, policy);
+}
+function validateViewport(width, height, policy) {
     const w = Math.round(width);
     const h = Math.round(height);
-    if (!Number.isFinite(w) ||
-        !Number.isFinite(h) ||
-        w < exports.VIEWPORT_LIMITS.minWidth ||
-        h < exports.VIEWPORT_LIMITS.minHeight) {
+    if (!Number.isFinite(w)
+        || !Number.isFinite(h)
+        || w < policy.minWidth
+        || h < policy.minHeight) {
         return {
             ok: false,
             errorCode: 'invalid_viewport',
-            message: `viewport ${w}×${h} below minimum ` +
-                `${exports.VIEWPORT_LIMITS.minWidth}×${exports.VIEWPORT_LIMITS.minHeight}`,
+            message: `viewport ${w}×${h} below minimum `
+                + `${policy.minWidth}×${policy.minHeight}`,
         };
     }
-    if (w > exports.VIEWPORT_LIMITS.maxWidth || h > exports.VIEWPORT_LIMITS.maxHeight) {
+    if (w > policy.maxWidth || h > policy.maxHeight) {
         return {
             ok: false,
             errorCode: 'invalid_viewport',
-            message: `viewport ${w}×${h} above maximum ` +
-                `${exports.VIEWPORT_LIMITS.maxWidth}×${exports.VIEWPORT_LIMITS.maxHeight}`,
+            message: `viewport ${w}×${h} above maximum `
+                + `${policy.maxWidth}×${policy.maxHeight}`,
         };
     }
     return { ok: true, width: w, height: h };

@@ -19,14 +19,20 @@ internal static class GrpcSessionMappers
         Guid sessionId,
         int width,
         int height,
-        SessionConfig configuration)
+        SessionConfig configuration,
+        Speculum.Api.Configurations.Models.Sessions.ViewportPolicy policy)
     {
         ArgumentNullException.ThrowIfNull(configuration);
+        ArgumentNullException.ThrowIfNull(policy);
         var request = new LaunchRequest
         {
             SessionId = sessionId.ToString("D"),
             Width = width,
             Height = height,
+            MinWidth = policy.Minimum.Width,
+            MinHeight = policy.Minimum.Height,
+            DisplayWidth = policy.Maximum.Width,
+            DisplayHeight = policy.Maximum.Height,
         };
 
         var environment = configuration.ClientEnvironment

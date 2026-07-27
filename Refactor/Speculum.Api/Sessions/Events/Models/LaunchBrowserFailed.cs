@@ -3,14 +3,13 @@ using Speculum.Api.Journal.Models;
 
 namespace Speculum.Api.Sessions.Events.Models;
 
-[JournalFact(
+[CanonicalFact(
     "Sessions.LaunchBrowserFailed",
     schemaVersion: 1,
     Name = "Launch browser failed",
     Description = "Chrome launch failed during start.",
     Owner = "sessions",
-    PublishPolicy = PublishPolicy.Guaranteed,
-    EnabledByDefault = true)]
+    PublishPolicy = PublishPolicy.Guaranteed)]
 public sealed class LaunchBrowserFailed
 {
     [JournalIndex("profile")]

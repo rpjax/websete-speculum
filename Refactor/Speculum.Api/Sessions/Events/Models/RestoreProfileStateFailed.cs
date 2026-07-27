@@ -3,14 +3,13 @@ using Speculum.Api.Journal.Models;
 
 namespace Speculum.Api.Sessions.Events.Models;
 
-[JournalFact(
+[CanonicalFact(
     "Sessions.RestoreProfileStateFailed",
     schemaVersion: 1,
     Name = "Restore profile state failed",
     Description = "Profile state restore failed during start.",
     Owner = "sessions",
-    PublishPolicy = PublishPolicy.Guaranteed,
-    EnabledByDefault = true)]
+    PublishPolicy = PublishPolicy.Guaranteed)]
 public sealed class RestoreProfileStateFailed
 {
     [JournalIndex("profile")]

@@ -1,3 +1,4 @@
+using Speculum.Api.Configurations.Services.Contracts;
 using System.Diagnostics.CodeAnalysis;
 using System.Threading.Channels;
 using Aidan.Core.Errors;
@@ -31,8 +32,7 @@ public sealed class SessionServiceTests
         await profiles.SaveAsync(Profile.Create(profileId));
 
         var sessions = new InMemorySessionRepository();
-        var slots = new SessionSlotRegistry(
-            Options.Create(SessionsTestHarness.ResourceManagement()));
+        var slots = new SessionSlotRegistry(SessionsTestHarness.Configuration());
         var collector = new RecordingCollector();
         var browser = new FakeBrowserClient();
         var urls = new FixedUrlResolver("https://example.test/");
@@ -73,14 +73,52 @@ public sealed class SessionServiceTests
     }
 
     [Fact]
+    public async Task StartSession_WhenPendingConfig_Fails()
+    {
+        var profileId = Guid.NewGuid();
+        var profiles = new InMemoryProfileRepository();
+        await profiles.SaveAsync(Profile.Create(profileId));
+
+        var configuration = SessionsTestHarness.Configuration();
+        configuration.ReplaceApplied(
+            new EngineConfiguration(),
+            new Configurations.Models.Journal.JournalEventsConfiguration(),
+            ["Navigation", "Sessions", "ResourceManagement"]);
+
+        var live = CreateLiveSessionService(
+            new FixedUrlResolver("https://example.test/"),
+            new RecordingCollector());
+        var service = new SessionService(
+            profiles,
+            new InMemorySessionRepository(),
+            new SessionSlotRegistry(configuration),
+            new RecordingCollector(),
+            live,
+            new FixedUrlResolver("https://example.test/"),
+            new NoOpSessionEventsFactory(),
+            new FakeBrowserClient(),
+            new FixedSessionTokenGenerator("tok"),
+            new ScopedMutex(),
+            new SessionBindingRegistry(live),
+            configuration,
+            new LaunchScriptResolver());
+
+        var result = await service.StartSessionAsync(SessionsTestHarness.Start(profileId));
+
+        Assert.True(result.IsFailure);
+        Assert.Contains(
+            result.Errors,
+            e => e.Message?.Contains("Pending config", StringComparison.Ordinal) == true);
+    }
+
+    [Fact]
     public async Task StartSession_SameCaller_ReplacesPriorLiveSession()
     {
         var profileId = Guid.NewGuid();
         var profiles = new InMemoryProfileRepository();
         await profiles.SaveAsync(Profile.Create(profileId));
         var sessions = new InMemorySessionRepository();
-        var slots = new SessionSlotRegistry(
-            Options.Create(SessionsTestHarness.ResourceManagement()));
+        var slots = new SessionSlotRegistry(SessionsTestHarness.Configuration());
         var collector = new RecordingCollector();
         var browser = new FakeBrowserClient();
         var urls = new FixedUrlResolver("https://example.test/");
@@ -126,8 +164,7 @@ public sealed class SessionServiceTests
         await profiles.SaveAsync(Profile.Create(profileId));
 
         var sessions = new InMemorySessionRepository();
-        var slots = new SessionSlotRegistry(
-            Options.Create(SessionsTestHarness.ResourceManagement()));
+        var slots = new SessionSlotRegistry(SessionsTestHarness.Configuration());
         var collector = new RecordingCollector();
         var browser = new FakeBrowserClient();
         var urls = new FixedUrlResolver("https://example.test/");
@@ -176,8 +213,7 @@ public sealed class SessionServiceTests
         await profiles.SaveAsync(Profile.Create(profileId));
 
         var sessions = new InMemorySessionRepository();
-        var slots = new SessionSlotRegistry(
-            Options.Create(SessionsTestHarness.ResourceManagement()));
+        var slots = new SessionSlotRegistry(SessionsTestHarness.Configuration());
         var collector = new RecordingCollector();
         var browser = new FakeBrowserClient();
         var urls = new FixedUrlResolver("https://example.test/");
@@ -222,8 +258,7 @@ public sealed class SessionServiceTests
         var service = new SessionService(
             new InMemoryProfileRepository(),
             sessions,
-            new SessionSlotRegistry(
-                Options.Create(SessionsTestHarness.ResourceManagement())),
+            new SessionSlotRegistry(SessionsTestHarness.Configuration()),
             collector,
             live,
             urls,
@@ -253,7 +288,7 @@ public sealed class SessionServiceTests
         var service = new SessionService(
             profiles,
             new InMemorySessionRepository(),
-            new SessionSlotRegistry(Options.Create(SessionsTestHarness.ResourceManagement())),
+            new SessionSlotRegistry(SessionsTestHarness.Configuration()),
             collector,
             live,
             urls,
@@ -283,9 +318,10 @@ public sealed class SessionServiceTests
             collector,
             new NoOpFaultScheduler(),
             urls,
-            Options.Create(new SessionsConfiguration
+            SessionsTestHarness.Configuration(new SessionsConfiguration
             {
                 IsJsBridgeEnabled = true,
+                DetachedSessionTimeout = TimeSpan.FromMinutes(5),
                 InputMultiplexingPolicy = new InputMultiplexingPolicy
                 {
                     Access = InputAccessPolicy.Shared,

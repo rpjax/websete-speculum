@@ -205,7 +205,8 @@ public sealed class GrpcSessionConnection : ISessionConnection
         SessionConfig? configuration,
         CancellationToken ct = default)
     {
-        var validated = GrpcRequestValidation.ValidateLaunch(configuration);
+        var policy = _configuration.GetCurrent().Sessions.ViewportPolicy;
+        var validated = GrpcRequestValidation.ValidateLaunch(configuration, policy);
         if (validated.IsFailure)
         {
             return Result<BrowserReadyInfo>.Failure(validated.Errors.ToArray());
@@ -216,7 +217,12 @@ public sealed class GrpcSessionConnection : ISessionConnection
         {
             var ready = await WithLinkedAsync(ct, token =>
                 _client.LaunchAsync(
-                    GrpcSessionMappers.ToLaunchRequest(SessionId, width, height, configuration!),
+                    GrpcSessionMappers.ToLaunchRequest(
+                        SessionId,
+                        width,
+                        height,
+                        configuration!,
+                        policy),
                     cancellationToken: token).ResponseAsync);
             return Result<BrowserReadyInfo>.Success(GrpcSessionMappers.ToReadyInfo(ready));
         });
@@ -298,10 +304,8 @@ public sealed class GrpcSessionConnection : ISessionConnection
         DomainDeviceProfile device,
         CancellationToken ct = default)
     {
-        var validated = GrpcRequestValidation.ValidateResize(
-            width,
-            height,
-            _configuration.GetCurrent().Sessions.ViewportPolicy);
+        var policy = _configuration.GetCurrent().Sessions.ViewportPolicy;
+        var validated = GrpcRequestValidation.ValidateResize(width, height, policy);
         if (validated.IsFailure)
         {
             var first = validated.Errors.FirstOrDefault();
@@ -310,6 +314,8 @@ public sealed class GrpcSessionConnection : ISessionConnection
                 Applied = false,
                 Width = width,
                 Height = height,
+                DisplayWidth = policy.Maximum.Width,
+                DisplayHeight = policy.Maximum.Height,
                 ResizeId = requestId,
                 ErrorCode = string.IsNullOrWhiteSpace(first?.Code)
                     ? "invalid_viewport"

@@ -7,7 +7,9 @@ const execFileAsync = promisify(execFile);
 export type DisplayGeometry = { width: number; height: number };
 
 /**
- * One Xvfb + matchbox WM per session. Runtime size changes recreate at exact geometry.
+ * One Xvfb + matchbox WM per session.
+ * Allocated once at policy max (display capacity). Runtime logical viewport
+ * changes do not recreate the display — Chrome window + CDP metrics adapt instead.
  */
 export class Display {
   readonly number: number;
@@ -88,10 +90,11 @@ export class Display {
     return display;
   }
 
-  async recreate(width: number, height: number): Promise<Display> {
-    const number = this.number;
-    await this.dispose();
-    return Display.start(number, width, height);
+  /**
+   * @deprecated Soft viewport model never recreates the display. Throws if called.
+   */
+  async recreate(_width: number, _height: number): Promise<Display> {
+    throw new Error('Display.recreate is removed — allocate at policy max; soft-resize the logical viewport');
   }
 
   async readActiveGeometry(): Promise<DisplayGeometry> {

@@ -27,8 +27,8 @@ import AnalysisWorkspacePage from '@/features/admin/diagnostics/analysis/Analysi
 // Live surfaces for the refactored wire (EnsureProfile → StartSession →
 // WebTransport). Lab (`/`) and immersive (`/live`) share useLiveSession —
 // same client, hub RPCs, IUrlResolver path. Lab adds debug chrome + optional
-// /api/dev/engine-config backdoor. `features/motor/live` is legacy wire only.
-const SessionSmokePage = lazy(() => import('@/features/sessions/smoke/SessionSmokePage'))
+// /api/configurations editor. `features/motor/live` is legacy wire only.
+const SessionLabPage = lazy(() => import('@/features/sessions/lab/SessionLabPage'))
 const SessionLivePage = lazy(() => import('@/features/sessions/live/SessionLivePage'))
 
 function DiagnosticsSessionRedirect() {
@@ -45,7 +45,7 @@ export default function App() {
         }
       >
         <Routes>
-          <Route path="/" element={<SessionSmokePage />} />
+          <Route path="/" element={<SessionLabPage />} />
           <Route path="/live" element={<SessionLivePage />} />
           <Route path="/setup" element={<SetupPage />} />
           <Route path="/admin/login" element={<LoginPage />} />
@@ -84,7 +84,7 @@ export default function App() {
             <Route path="api-key" element={<AdminKeyPage />} />
             <Route path="openapi" element={<OpenApiPage />} />
           </Route>
-          <Route path="*" element={<SessionSmokePage />} />
+          <Route path="*" element={<SessionLabPage />} />
         </Routes>
       </Suspense>
     </BrowserRouter>

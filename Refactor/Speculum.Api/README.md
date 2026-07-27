@@ -224,7 +224,7 @@ ResizeAsync(width, height, device?) → ResizeResult
 |--------|---------|-----------------------------|----------------------------------|
 | ◐ | Startup viewport | Resolution exists in `SessionConfig` | Startup normalization policy |
 | ◐ | Runtime resize | Requests a new viewport for a live session | `ILiveSession.ResizeAsync`; validation/busy policy still incomplete |
-| ○ | Exact geometry | Success confirms browser and display geometry, not merely requested size | Resize result model |
+| ○ | Exact geometry | Success confirms logical Chrome viewport; display dims report policy max allocation | Resize result model |
 | ○ | Resize rejection | `<100` or `>4096×2160` is rejected without changing prior geometry | Validation/rejection flow |
 | ○ | Resize failure | Operational failure is distinct from validation rejection | Named failure event/result |
 | ○ | Resize serialization | Concurrent resize is rejected/coalesced as busy | Per-session resize coordination contract |

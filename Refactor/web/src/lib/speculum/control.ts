@@ -99,7 +99,7 @@ export class ControlPlane {
 
   async startSession(request: StartSessionRequest): Promise<StartSessionResult> {
     const connection = this.requireConnection()
-    const response = await connection.invoke<{ sessionId: string; token: string }>(
+    const response = await connection.invoke<Record<string, unknown>>(
       'StartSessionAsync',
       {
         profileId: request.profileId,
@@ -114,6 +114,10 @@ export class ControlPlane {
     return {
       sessionId: String(response.sessionId),
       token: String(response.token),
+      viewportMinWidth: Number(response.viewportMinWidth),
+      viewportMinHeight: Number(response.viewportMinHeight),
+      viewportMaxWidth: Number(response.viewportMaxWidth),
+      viewportMaxHeight: Number(response.viewportMaxHeight),
     }
   }
 

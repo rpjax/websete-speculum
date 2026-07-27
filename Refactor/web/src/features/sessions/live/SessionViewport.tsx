@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils'
 import {
   CanvasViewportSync,
   measureCanvasElement,
+  viewportSizesClose,
   type CanvasSize,
 } from './CanvasViewportSync'
 import { SessionInputController } from './SessionInputController'
@@ -26,6 +27,8 @@ export interface SessionViewportProps {
     size: CanvasSize,
     device: import('@/lib/speculum').SessionDeviceProfile,
   ) => Promise<ResizeSessionResult>
+  /** Sessions.ViewportPolicy from StartSession — required when requestRemoteResize is set. */
+  viewportPolicy?: import('@/features/motor/live/deviceProfile').SessionViewportBounds
   /** Notifies parent of current CSS layout size (for StartSession measure). */
   onCanvasLayout?: (size: CanvasSize) => void
   /** Confirmed applied size after remote resize ack. */
@@ -56,6 +59,7 @@ export function SessionViewport({
   attachFrameSink,
   onInput,
   requestRemoteResize,
+  viewportPolicy,
   onCanvasLayout,
   onRemoteViewportApplied,
   touchPrimary = false,
@@ -185,6 +189,13 @@ export function SessionViewport({
     }
     reportLayout()
 
+    // Keep StartSession informed of CSS box size even before live (no remote resize).
+    const layoutObserver = new ResizeObserver(() => {
+      controller.invalidateRect()
+      reportLayout()
+    })
+    layoutObserver.observe(host)
+
     const onWindowResize = () => {
       controller.invalidateRect()
       reportLayout()
@@ -195,6 +206,7 @@ export function SessionViewport({
 
     return () => {
       mountedRef.current = false
+      layoutObserver.disconnect()
       window.removeEventListener('resize', onWindowResize)
       window.visualViewport?.removeEventListener('resize', onWindowResize)
       window.visualViewport?.removeEventListener('scroll', onWindowResize)
@@ -208,7 +220,7 @@ export function SessionViewport({
   useEffect(() => {
     const host = hostRef.current
     const request = requestRemoteResizeRef.current
-    if (!host || !live || !request) {
+    if (!host || !live || !request || !viewportPolicy) {
       syncRef.current?.dispose()
       syncRef.current = null
       return
@@ -218,8 +230,10 @@ export function SessionViewport({
     const sync = new CanvasViewportSync({
       measure: () => measureCanvasElement(host),
       resize: (size, device) => request(size, device),
+      viewportPolicy,
       isDeferred,
       onApplied: (size) => {
+        // Hit-test / paint buffer follow CSS-requested remote size — never inflate CSS.
         frameSizeRef.current = size
         applyBufferSize(size.width, size.height)
         controllerRef.current?.setFrameSize(size.width, size.height)
@@ -227,11 +241,15 @@ export function SessionViewport({
         onRemoteViewportAppliedRef.current?.(size)
       },
     })
-    // Seed with last known remote; observer + measure immediately correct to CSS box.
+    // Seed with StartSession size (props). Only ResizeAsync when client surface differs.
+    const layout = measureCanvasElement(host)
     sync.seedRemote(width, height)
     sync.observe(host)
-    const layout = measureCanvasElement(host)
-    if (layout.width >= 100 && layout.height >= 100) {
+    if (
+      layout.width >= viewportPolicy.minWidth
+      && layout.height >= viewportPolicy.minHeight
+      && !viewportSizesClose(layout.width, layout.height, width, height)
+    ) {
       sync.schedule(layout.width, layout.height)
     }
     syncRef.current = sync
@@ -242,8 +260,8 @@ export function SessionViewport({
         syncRef.current = null
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- re-bind when live toggles
-  }, [live, applyBufferSize])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- re-bind when live/policy toggles
+  }, [live, applyBufferSize, viewportPolicy])
 
   // Flush when deferral clears (IME closed OR no longer touch-primary).
   useEffect(() => {
@@ -292,11 +310,11 @@ export function SessionViewport({
         tabIndex={0}
         aria-label={label}
         className={cn(
-          // Out of flow + min-size 0: bitmap attrs never inflate the CSS host.
-          'absolute inset-0 block h-full w-full min-h-0 min-w-0 touch-none bg-muted outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          // Out of flow + explicit max: bitmap attrs never inflate the CSS host.
+          'absolute inset-0 block h-full w-full max-h-full max-w-full min-h-0 min-w-0 touch-none bg-muted outline-none focus-visible:ring-2 focus-visible:ring-ring',
           live ? 'cursor-crosshair' : 'cursor-not-allowed opacity-60',
         )}
-        style={{ touchAction: 'none' }}
+        style={{ touchAction: 'none', width: '100%', height: '100%' }}
       />
       <textarea
         ref={imeRef}

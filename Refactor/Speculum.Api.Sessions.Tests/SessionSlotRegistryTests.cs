@@ -1,4 +1,3 @@
-using Microsoft.Extensions.Options;
 using Speculum.Api.Sessions.Services;
 
 namespace Speculum.Api.Sessions.Tests;
@@ -9,7 +8,7 @@ public sealed class SessionSlotRegistryTests
     public void TryAquire_RespectsMaxConcurrentSessions()
     {
         var registry = new SessionSlotRegistry(
-            Options.Create(SessionsTestHarness.ResourceManagement(maxConcurrentSessions: 2)));
+            SessionsTestHarness.Configuration(maxConcurrentSessions: 2));
 
         Assert.True(registry.TryAquire(Guid.NewGuid()));
         Assert.True(registry.TryAquire(Guid.NewGuid()));
@@ -21,7 +20,7 @@ public sealed class SessionSlotRegistryTests
     public void Release_FreesSlot()
     {
         var registry = new SessionSlotRegistry(
-            Options.Create(SessionsTestHarness.ResourceManagement(maxConcurrentSessions: 1)));
+            SessionsTestHarness.Configuration(maxConcurrentSessions: 1));
 
         var sessionId = Guid.NewGuid();
         Assert.True(registry.TryAquire(sessionId));
@@ -36,11 +35,36 @@ public sealed class SessionSlotRegistryTests
     public void TryAquire_SameSession_IsIdempotent()
     {
         var registry = new SessionSlotRegistry(
-            Options.Create(SessionsTestHarness.ResourceManagement(maxConcurrentSessions: 1)));
+            SessionsTestHarness.Configuration(maxConcurrentSessions: 1));
 
         var sessionId = Guid.NewGuid();
         Assert.True(registry.TryAquire(sessionId));
         Assert.True(registry.IsAquired(sessionId));
         Assert.True(registry.TryAquire(sessionId));
+    }
+
+    [Fact]
+    public void TryAquire_WhenMaxIsZero_ReturnsFalse()
+    {
+        var registry = new SessionSlotRegistry(
+            SessionsTestHarness.Configuration(maxConcurrentSessions: 0));
+
+        Assert.False(registry.TryAquire(Guid.NewGuid()));
+        Assert.Equal(0, registry.GetAvailableSlots());
+    }
+
+    [Fact]
+    public void TryAquire_PicksUpAppliedMaxAfterReplace()
+    {
+        var configuration = SessionsTestHarness.Configuration(maxConcurrentSessions: 0);
+        var registry = new SessionSlotRegistry(configuration);
+        Assert.False(registry.TryAquire(Guid.NewGuid()));
+
+        configuration.ReplaceApplied(
+            SessionsTestHarness.Engine(),
+            new Configurations.Models.Journal.JournalEventsConfiguration(),
+            []);
+
+        Assert.True(registry.TryAquire(Guid.NewGuid()));
     }
 }

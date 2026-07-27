@@ -100,6 +100,13 @@ export interface BrowserStatus {
 export interface BrowserLaunchOptions {
   width: number;
   height: number;
+  /** Sessions.ViewportPolicy bounds from Launch — required for allocate + validate. */
+  viewportPolicy: {
+    minWidth: number;
+    minHeight: number;
+    maxWidth: number;
+    maxHeight: number;
+  };
   locale: string;
   language: string;
   timeZoneId: string;

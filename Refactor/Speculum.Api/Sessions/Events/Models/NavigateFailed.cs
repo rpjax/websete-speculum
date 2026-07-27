@@ -3,14 +3,13 @@ using Speculum.Api.Journal.Models;
 
 namespace Speculum.Api.Sessions.Events.Models;
 
-[JournalFact(
+[CanonicalFact(
     "Sessions.NavigateFailed",
     schemaVersion: 1,
     Name = "Navigate failed",
     Description = "Runtime navigation failed during URL resolve or browser command.",
     Owner = "sessions",
-    PublishPolicy = PublishPolicy.Guaranteed,
-    EnabledByDefault = true)]
+    PublishPolicy = PublishPolicy.Guaranteed)]
 public sealed class NavigateFailed
 {
     [JournalIndex("profile")]

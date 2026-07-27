@@ -19,7 +19,7 @@ namespace Speculum.Api.Journal.Services.Contracts;
 /// <see cref="IJournalWriter"/> resolves descriptors by CLR type on
 /// <c>Append&lt;T&gt;</c> and consults <see cref="IsTypeEnabled"/> before enqueue.
 /// All schema versions of a fact <c>Type</c> share one enablement toggle.
-/// First registration seeds enablement from <c>EnabledByDefault</c>; later versions do not clobber it.
+/// Canonical facts seed enabled; <see cref="JournalFactAttribute"/> facts seed off until Apply.
 /// </para>
 /// </remarks>
 public interface IJournalCatalog
@@ -40,7 +40,7 @@ public interface IJournalCatalog
     void Register(JournalEntryDescriptor descriptor);
 
     /// <summary>
-    /// Builds a descriptor from <see cref="JournalFactAttribute"/> on <paramref name="clrType"/> and registers it.
+    /// Builds a descriptor from Journal/Canonical fact attributes on <paramref name="clrType"/> and registers it.
     /// </summary>
     void Register(Type clrType);
 
@@ -50,7 +50,7 @@ public interface IJournalCatalog
     void Register<T>();
 
     /// <summary>
-    /// Scans assemblies for types annotated with <see cref="JournalFactAttribute"/> and registers them.
+    /// Scans assemblies for types annotated with Journal/Canonical fact attributes and registers them.
     /// </summary>
     void RegisterFromAssemblies(params Assembly[] assemblies);
 
@@ -60,11 +60,15 @@ public interface IJournalCatalog
 
     bool TryGet<T>([NotNullWhen(true)] out JournalEntryDescriptor? descriptor);
 
+    /// <summary>True when the fact type is canonical (always on; not toggleable).</summary>
+    bool IsCanonical(string type);
+
     /// <summary>
     /// Enablement gate for a fact type key (all schema versions share the toggle).
     /// </summary>
     bool IsTypeEnabled(string type);
 
+    /// <summary>Toggles a non-canonical fact. Throws for unknown or canonical types.</summary>
     void SetEnabled(string type, bool enabled);
 
     /// <summary>

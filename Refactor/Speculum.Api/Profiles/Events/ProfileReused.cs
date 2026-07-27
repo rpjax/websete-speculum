@@ -4,14 +4,13 @@ using Speculum.Api.Journal.Models;
 namespace Speculum.Api.Profiles.Events;
 
 /// <summary>Journal fact: an existing profile id was resolved on ensure.</summary>
-[JournalFact(
+[CanonicalFact(
     "Profiles.ProfileReused",
     schemaVersion: 1,
     Name = "Profile reused",
     Description = "Ensure resolved a known profile id without creating a new identity.",
     Owner = "profiles",
-    PublishPolicy = PublishPolicy.Guaranteed,
-    EnabledByDefault = true)]
+    PublishPolicy = PublishPolicy.Guaranteed)]
 public sealed class ProfileReused
 {
     [JournalIndex("profile")]

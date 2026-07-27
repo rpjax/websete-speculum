@@ -69,7 +69,7 @@ export class DataPlane extends Emitter<SessionEventMap> {
     )
     if (url.startsWith('http:')) {
       throw new Error(
-        "WebTransport requires https (HTTP/3). Set Transport origin in Wire — for dockup smoke use https://localhost:8443.",
+        "WebTransport requires https (HTTP/3). Set Transport origin in Wire — for dockup lab use https://localhost:8443.",
       )
     }
 

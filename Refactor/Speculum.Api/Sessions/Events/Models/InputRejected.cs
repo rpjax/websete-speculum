@@ -9,8 +9,7 @@ namespace Speculum.Api.Sessions.Events.Models;
     Name = "Input rejected",
     Description = "Sidecar rejected an input event (policy / state).",
     Owner = "sessions",
-    PublishPolicy = PublishPolicy.BestEffort,
-    EnabledByDefault = true)]
+    PublishPolicy = PublishPolicy.BestEffort)]
 public sealed class InputRejected
 {
     [JournalIndex("profile")]

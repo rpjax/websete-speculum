@@ -8,7 +8,7 @@ import type {
   BrowserGeolocation,
   BrowserScriptInjection,
 } from '../BrowserSession';
-import { applyDeviceEmulation } from './device-emulation';
+import { applyLogicalViewport } from './device-emulation';
 
 function requireChromeExecutable(): string {
   const path = process.env['CHROME_EXECUTABLE'];
@@ -118,16 +118,8 @@ export async function launchChrome(args: {
       accuracy: args.geolocation.accuracy,
     });
   }
-  const { windowId } = (await cdp.send('Browser.getWindowForTarget', {})) as { windowId: number };
-  await cdp.send('Browser.setWindowBounds', {
-    windowId,
-    bounds: { windowState: 'fullscreen' },
-  });
-
-  if (args.device) {
-    await applyDeviceEmulation(cdp, args.width, args.height, args.device);
-  }
-  // No device profile: rely on window-size + fullscreen only (no Emulation override).
+  // Logical window + metrics — display is overallocated to policy max separately.
+  await applyLogicalViewport(cdp, args.width, args.height, args.device);
 
   return { context, page, cdp, userDataDir };
 }

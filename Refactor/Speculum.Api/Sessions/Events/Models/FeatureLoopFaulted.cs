@@ -6,14 +6,13 @@ namespace Speculum.Api.Sessions.Events.Models;
 /// <summary>
 /// The live-session feature loop exited with an unexpected fault.
 /// </summary>
-[JournalFact(
+[CanonicalFact(
     "Sessions.FeatureLoopFaulted",
     schemaVersion: 1,
     Name = "Feature loop faulted",
     Description = "The attached-client feature loop terminated with an unexpected exception.",
     Owner = "sessions",
-    PublishPolicy = PublishPolicy.Guaranteed,
-    EnabledByDefault = true)]
+    PublishPolicy = PublishPolicy.Guaranteed)]
 public sealed class FeatureLoopFaulted
 {
     [JournalIndex("profile")]

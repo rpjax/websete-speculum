@@ -9,7 +9,8 @@ exports.editingToProto = editingToProto;
 const validate_1 = require("./validate");
 /* eslint-disable @typescript-eslint/no-explicit-any */
 function toLaunchOptions(req) {
-    const validated = (0, validate_1.validateLaunchViewport)(req.width, req.height);
+    const viewportPolicy = (0, validate_1.requireViewportPolicy)(req);
+    const validated = (0, validate_1.validateLaunchViewport)(req.width, req.height, viewportPolicy);
     if (!validated.ok) {
         throw Object.assign(new Error(validated.message), {
             code: 'INVALID_ARGUMENT',
@@ -20,6 +21,7 @@ function toLaunchOptions(req) {
     return {
         width: validated.width,
         height: validated.height,
+        viewportPolicy,
         locale: requireString(req.locale, 'locale'),
         language: requireString(req.language, 'language'),
         timeZoneId: requireString(req.timezoneId, 'timezoneId'),

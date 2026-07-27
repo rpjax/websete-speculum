@@ -45,6 +45,11 @@ export interface StartSessionRequest {
 export interface StartSessionResult {
   sessionId: string
   token: string
+  /** Sessions.ViewportPolicy — sole client bounds for resize validation after start. */
+  viewportMinWidth: number
+  viewportMinHeight: number
+  viewportMaxWidth: number
+  viewportMaxHeight: number
 }
 
 /** Runtime navigation (hub <c>NavigateAsync</c>) — client path/query, not absolute target. */

@@ -3,14 +3,13 @@ using Speculum.Api.Journal.Models;
 
 namespace Speculum.Api.Sessions.Events.Models;
 
-[JournalFact(
+[CanonicalFact(
     "Sessions.ExportSessionStateFailed",
     schemaVersion: 1,
     Name = "Export session state failed",
     Description = "Session state export failed during stop.",
     Owner = "sessions",
-    PublishPolicy = PublishPolicy.Guaranteed,
-    EnabledByDefault = true)]
+    PublishPolicy = PublishPolicy.Guaranteed)]
 public sealed class ExportSessionStateFailed
 {
     [JournalIndex("profile")]

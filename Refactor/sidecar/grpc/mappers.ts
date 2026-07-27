@@ -6,12 +6,13 @@ import type {
   BrowserState,
   BrowserEditingState,
 } from '../browser/BrowserSession';
-import { validateLaunchViewport } from './validate';
+import { requireViewportPolicy, validateLaunchViewport } from './validate';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 export function toLaunchOptions(req: any): BrowserLaunchOptions {
-  const validated = validateLaunchViewport(req.width, req.height);
+  const viewportPolicy = requireViewportPolicy(req);
+  const validated = validateLaunchViewport(req.width, req.height, viewportPolicy);
   if (!validated.ok) {
     throw Object.assign(new Error(validated.message), {
       code: 'INVALID_ARGUMENT',
@@ -23,6 +24,7 @@ export function toLaunchOptions(req: any): BrowserLaunchOptions {
   return {
     width: validated.width,
     height: validated.height,
+    viewportPolicy,
     locale: requireString(req.locale, 'locale'),
     language: requireString(req.language, 'language'),
     timeZoneId: requireString(req.timezoneId, 'timezoneId'),

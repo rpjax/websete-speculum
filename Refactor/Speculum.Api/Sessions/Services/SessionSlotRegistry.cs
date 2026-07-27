@@ -1,5 +1,4 @@
-using Microsoft.Extensions.Options;
-using Speculum.Api.Configurations.Models.ResourceManagement;
+using Speculum.Api.Configurations.Services.Contracts;
 using Speculum.Api.Sessions.Services.Contracts;
 
 namespace Speculum.Api.Sessions.Services;
@@ -8,24 +7,21 @@ public sealed class SessionSlotRegistry : ISessionSlotRegistry
 {
     private readonly object _gate = new();
     private readonly HashSet<Guid> _acquired = new();
-    private readonly int _maxConcurrentSessions;
+    private readonly IConfigurationService _configuration;
 
-    public SessionSlotRegistry(IOptions<ResourceManagementConfiguration> options)
+    public SessionSlotRegistry(IConfigurationService configuration)
     {
-        ArgumentNullException.ThrowIfNull(options);
-        _maxConcurrentSessions = options.Value.Sessions.MaxConcurrentSessions;
-        if (_maxConcurrentSessions <= 0)
-        {
-            throw new InvalidOperationException(
-                "ResourceManagement.Sessions.MaxConcurrentSessions must be greater than zero.");
-        }
+        _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
     }
+
+    private int MaxConcurrentSessions
+        => Math.Max(0, _configuration.GetCurrent().ResourceManagement.Sessions.MaxConcurrentSessions);
 
     public int GetAvailableSlots()
     {
         lock (_gate)
         {
-            return Math.Max(0, _maxConcurrentSessions - _acquired.Count);
+            return Math.Max(0, MaxConcurrentSessions - _acquired.Count);
         }
     }
 
@@ -46,7 +42,8 @@ public sealed class SessionSlotRegistry : ISessionSlotRegistry
                 return true;
             }
 
-            if (_acquired.Count >= _maxConcurrentSessions)
+            var max = MaxConcurrentSessions;
+            if (max <= 0 || _acquired.Count >= max)
             {
                 return false;
             }

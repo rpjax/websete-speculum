@@ -1,6 +1,7 @@
 import {
   detectDeviceProfile,
   validateResizeViewport,
+  type SessionViewportBounds,
 } from '@/features/motor/live/deviceProfile'
 import type { ResizeSessionResult, SessionDeviceProfile } from '@/lib/speculum'
 
@@ -9,14 +10,19 @@ export interface CanvasSize {
   height: number
 }
 
+/** Ignore sub-pixel / scrollbar jitter — avoid needless ResizeAsync chatter. */
+export const VIEWPORT_SIZE_EPSILON = 2
+
 export interface CanvasViewportSyncOptions {
-  /** Measure the canvas layout box (clientWidth/Height) — not window/screen. */
+  /** Measure the CSS layout host (clientWidth/Height) — not window/screen/bitmap. */
   measure: () => CanvasSize
   /** Invoke hub ResizeAsync; awaited so only one resize runs at a time. */
   resize: (
     size: CanvasSize,
     device: SessionDeviceProfile,
   ) => Promise<ResizeSessionResult>
+  /** Sessions.ViewportPolicy from StartSession — required (no hardcoded product max). */
+  viewportPolicy: SessionViewportBounds
   debounceMs?: number
   /** When true, defer remote resize (e.g. IME shell open). */
   isDeferred?: () => boolean
@@ -39,15 +45,28 @@ function deviceProfilesEqual(
   )
 }
 
+export function viewportSizesClose(
+  aW: number,
+  aH: number,
+  bW: number,
+  bH: number,
+  epsilon = VIEWPORT_SIZE_EPSILON,
+): boolean {
+  return Math.abs(aW - bW) <= epsilon && Math.abs(aH - bH) <= epsilon
+}
+
 /**
  * CSS layout host → remote session viewport 1:1 sync.
  * Debounces layout noise; single-flight ResizeAsync with pending coalesce.
  * Source of truth is always the host CSS box — never window/screen, never the
  * canvas bitmap attributes (those must not drive layout).
+ * On reject/error, retries with backoff while the CSS box still differs from remote
+ * (ResizeObserver will not re-fire on a stable host).
  */
 export class CanvasViewportSync {
   private readonly measure: () => CanvasSize
   private readonly resize: CanvasViewportSyncOptions['resize']
+  private readonly viewportPolicy: SessionViewportBounds
   private readonly debounceMs: number
   private readonly isDeferred: () => boolean
   private readonly onApplied?: (size: CanvasSize) => void
@@ -60,13 +79,18 @@ export class CanvasViewportSync {
   private resizeTimer: ReturnType<typeof setTimeout> | null = null
   private resizeInFlight = false
   private pending = false
+  private consecutiveRejects = 0
   private observer: ResizeObserver | null = null
   private disposed = false
+
+  /** Cap automatic retries after applied:false / throw so permanent faults do not spin. */
+  static readonly MAX_REJECT_RETRIES = 5
 
   constructor(options: CanvasViewportSyncOptions) {
     this.measure = options.measure
     this.resize = options.resize
-    this.debounceMs = options.debounceMs ?? 250
+    this.viewportPolicy = options.viewportPolicy
+    this.debounceMs = options.debounceMs ?? 320
     this.isDeferred = options.isDeferred ?? (() => false)
     this.onApplied = options.onApplied
     this.onRejected = options.onRejected
@@ -82,6 +106,7 @@ export class CanvasViewportSync {
   seedRemote(width: number, height: number, device?: SessionDeviceProfile): void {
     this.remoteW = width
     this.remoteH = height
+    this.consecutiveRejects = 0
     if (device) {
       this.deviceProfile = device
     }
@@ -99,6 +124,7 @@ export class CanvasViewportSync {
 
   /**
    * Debounced remote resize. Coalesces while in flight; flushes latest on complete.
+   * No-ops when within {@link VIEWPORT_SIZE_EPSILON} of the confirmed remote size.
    */
   schedule(rawW: number, rawH: number): void {
     if (this.disposed) {
@@ -113,15 +139,14 @@ export class CanvasViewportSync {
       return
     }
 
-    const validated = validateResizeViewport(rawW, rawH)
+    const validated = validateResizeViewport(rawW, rawH, this.viewportPolicy)
     if (!validated.ok) {
       return
     }
     const { w, h } = validated
     const nextProfile = this.detectDevice()
     if (
-      w === this.remoteW
-      && h === this.remoteH
+      viewportSizesClose(w, h, this.remoteW, this.remoteH)
       && deviceProfilesEqual(this.deviceProfile, nextProfile)
     ) {
       return
@@ -130,9 +155,10 @@ export class CanvasViewportSync {
     if (this.resizeTimer) {
       clearTimeout(this.resizeTimer)
     }
+    const delay = this.rejectBackoffMs()
     this.resizeTimer = setTimeout(() => {
-      void this.invoke(w, h)
-    }, this.debounceMs)
+      void this.invoke()
+    }, delay)
   }
 
   /** After IME closes (or deferral clears), apply any layout change deferred. */
@@ -155,7 +181,16 @@ export class CanvasViewportSync {
     this.observer = null
   }
 
-  private async invoke(w: number, h: number): Promise<void> {
+  private rejectBackoffMs(): number {
+    if (this.consecutiveRejects <= 0) {
+      return this.debounceMs
+    }
+    // 1→2×, 2→4×… capped so transient resize_busy / apply_failed can recover.
+    const factor = Math.min(8, 2 ** Math.min(this.consecutiveRejects, 3))
+    return Math.min(2_000, this.debounceMs * factor)
+  }
+
+  private async invoke(): Promise<void> {
     if (this.disposed || this.resizeInFlight) {
       return
     }
@@ -164,27 +199,51 @@ export class CanvasViewportSync {
       return
     }
 
+    // Re-measure at fire time — layout may have settled back to seed size.
+    const latest = this.measure()
+    const validated = validateResizeViewport(latest.width, latest.height, this.viewportPolicy)
+    if (!validated.ok) {
+      return
+    }
+    const targetW = validated.w
+    const targetH = validated.h
     const profile = this.detectDevice()
+    if (
+      viewportSizesClose(targetW, targetH, this.remoteW, this.remoteH)
+      && deviceProfilesEqual(this.deviceProfile, profile)
+    ) {
+      this.consecutiveRejects = 0
+      return
+    }
+
     this.resizeInFlight = true
     try {
-      const result = await this.resize({ width: w, height: h }, profile)
+      const result = await this.resize({ width: targetW, height: targetH }, profile)
       if (this.disposed) {
         return
       }
       if (result.applied) {
-        // CSS host was the request source — confirm that size so we do not chase
-        // ack/chrome deltas that would re-enter ResizeObserver churn.
-        this.remoteW = w
-        this.remoteH = h
+        // Confirm the CSS-requested size — never chase ack/chrome deltas.
+        this.remoteW = targetW
+        this.remoteH = targetH
         this.deviceProfile = profile
-        this.onApplied?.({ width: w, height: h })
+        this.consecutiveRejects = 0
+        this.onApplied?.({ width: targetW, height: targetH })
       } else {
         const detail = result.message || result.errorCode || 'resize rejected'
         this.onRejected?.(String(detail))
+        this.consecutiveRejects++
+        if (this.consecutiveRejects <= CanvasViewportSync.MAX_REJECT_RETRIES) {
+          this.pending = true
+        }
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       this.onRejected?.(message)
+      this.consecutiveRejects++
+      if (this.consecutiveRejects <= CanvasViewportSync.MAX_REJECT_RETRIES) {
+        this.pending = true
+      }
     } finally {
       this.resizeInFlight = false
       if (this.pending && !this.isDeferred() && !this.disposed) {

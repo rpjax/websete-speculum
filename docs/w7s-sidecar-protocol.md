@@ -63,13 +63,13 @@ Sidecar replies with `{"type":"ready","sessionId":"…"}` or:
 
 ### Ready handshake
 
-After a successful create the sidecar replies with confirmed geometry (already verified against Xvfb + Chrome):
+After a successful create the sidecar replies with confirmed **logical** geometry (Chrome metrics/window verified; Xvfb already allocated at policy max):
 
 ```json
 { "type": "ready", "sessionId": "…", "width": 1280, "height": 720 }
 ```
 
-Startup `0×0` (or non-positive) is normalized to **1280×720** before Xvfb/Chrome start. Create fails fatally if that geometry cannot be applied and proven.
+Startup `0×0` (or non-positive) is normalized to **1280×720** before logical viewport apply. Create fails fatally if that logical geometry cannot be applied and proven.
 
 ### Input events (after create)
 
@@ -89,7 +89,7 @@ Startup `0×0` (or non-positive) is normalized to **1280×720** before Xvfb/Chro
 }
 ```
 
-Runtime resize rejects widths/heights below **100** or above **4096×2160** (never snaps). Size changes recreate Xvfb at the exact geometry and relaunch Chrome on that display; the last confirmed size is preserved on operational failure (one compensation attempt; session faults if compensation fails).
+Runtime resize rejects widths/heights outside **`Sessions.ViewportPolicy`** (never snaps). Bounds travel on **Launch** as `min_width`/`min_height`/`display_width`/`display_height` (policy Maximum = Xvfb capacity). Xvfb is allocated once at that maximum; size changes apply a **soft** logical viewport (Chrome window bounds + CDP device metrics + screencast encode size) without recreating the display or relaunching Chrome. Confirmed `width`/`height` are the logical viewport; `displayWidth`/`displayHeight` report the allocated max from Launch. Operational failure soft-compensates to the last confirmed size; if compensate fails the session faults (`resize_session_faulted`).
 
 Sidecar replies:
 
@@ -102,8 +102,8 @@ Sidecar replies:
   "height": 715,
   "chromeWidth": 757,
   "chromeHeight": 715,
-  "displayWidth": 757,
-  "displayHeight": 715
+  "displayWidth": 4096,
+  "displayHeight": 2160
 }
 ```
 

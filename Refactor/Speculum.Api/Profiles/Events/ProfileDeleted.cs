@@ -5,14 +5,13 @@ using Speculum.Api.Profiles.Aggregates;
 namespace Speculum.Api.Profiles.Events;
 
 /// <summary>Journal fact: a persisted profile identity was deleted.</summary>
-[JournalFact(
+[CanonicalFact(
     "Profiles.ProfileDeleted",
     schemaVersion: 1,
     Name = "Profile deleted",
     Description = "Operator deleted a persisted profile identity and its state bucket.",
     Owner = "profiles",
-    PublishPolicy = PublishPolicy.Guaranteed,
-    EnabledByDefault = true)]
+    PublishPolicy = PublishPolicy.Guaranteed)]
 public sealed class ProfileDeleted
 {
     [JournalIndex("profile")]

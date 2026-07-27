@@ -13,6 +13,7 @@ public sealed class JournalCatalog : IJournalCatalog
     private readonly ConcurrentDictionary<(string Type, int Version), JournalEntryDescriptor> _byFactKey = new();
     private readonly ConcurrentDictionary<Type, JournalEntryDescriptor> _byClrType = new();
     private readonly ConcurrentDictionary<string, bool> _enabledByType = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, bool> _canonicalTypes = new(StringComparer.Ordinal);
     private readonly object _gate = new();
 
     public bool RejectUnregisteredTypes { get; set; } = true;
@@ -65,8 +66,9 @@ public sealed class JournalCatalog : IJournalCatalog
                     $"CLR type '{descriptor.ClrType.FullName}' is already registered in the Journal catalog.");
             }
 
-            // First registration seeds enablement; later versions / SetEnabled must not be clobbered.
-            _enabledByType.TryAdd(descriptor.Type, descriptor.EnabledByDefault);
+            // Canonical → always on; JournalFact → off until config Apply.
+            _enabledByType.TryAdd(descriptor.Type, descriptor.IsCanonical);
+            _canonicalTypes.TryAdd(descriptor.Type, descriptor.IsCanonical);
         }
     }
 
@@ -105,7 +107,9 @@ public sealed class JournalCatalog : IJournalCatalog
                     continue;
                 }
 
-                if (type.GetCustomAttribute<JournalFactAttribute>(inherit: false) is null)
+                var hasJournal = type.GetCustomAttribute<JournalFactAttribute>(inherit: false) is not null;
+                var hasCanonical = type.GetCustomAttribute<CanonicalFactAttribute>(inherit: false) is not null;
+                if (!hasJournal && !hasCanonical)
                     continue;
 
                 Register(type);
@@ -132,6 +136,12 @@ public sealed class JournalCatalog : IJournalCatalog
     public bool TryGet<T>([NotNullWhen(true)] out JournalEntryDescriptor? descriptor)
         => TryGet(typeof(T), out descriptor);
 
+    public bool IsCanonical(string type)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(type);
+        return _canonicalTypes.TryGetValue(type, out var canonical) && canonical;
+    }
+
     public bool IsTypeEnabled(string type)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(type);
@@ -142,11 +152,16 @@ public sealed class JournalCatalog : IJournalCatalog
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(type);
 
-        // Register always seeds enablement; absence means the fact type is unknown.
         if (!_enabledByType.ContainsKey(type))
         {
             throw new InvalidOperationException(
                 $"Cannot set enablement for unknown Journal fact type '{type}'.");
+        }
+
+        if (_canonicalTypes.TryGetValue(type, out var canonical) && canonical)
+        {
+            throw new InvalidOperationException(
+                $"Cannot toggle canonical Journal fact type '{type}'.");
         }
 
         _enabledByType[type] = enabled;

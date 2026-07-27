@@ -3,14 +3,13 @@ using Speculum.Api.Journal.Models;
 
 namespace Speculum.Api.Sessions.Events.Models;
 
-[JournalFact(
+[CanonicalFact(
     "Sessions.CloseConnectionFailed",
     schemaVersion: 1,
     Name = "Close connection failed",
     Description = "Connection close failed during teardown.",
     Owner = "sessions",
-    PublishPolicy = PublishPolicy.Guaranteed,
-    EnabledByDefault = true)]
+    PublishPolicy = PublishPolicy.Guaranteed)]
 public sealed class CloseConnectionFailed
 {
     [JournalIndex("profile")]

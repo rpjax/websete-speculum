@@ -1,1 +1,6 @@
-export { validateLaunchViewport, validateResizeViewport, VIEWPORT_LIMITS } from '../../grpc/validate';
+export {
+  validateLaunchViewport,
+  validateResizeViewport,
+  requireViewportPolicy,
+  type ViewportPolicyBounds,
+} from '../../grpc/validate';

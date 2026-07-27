@@ -13,8 +13,7 @@ namespace Speculum.Api.Sessions.Events.Models;
     Name = "Resize rejected",
     Description = "Session viewport resize was rejected (test/debug only).",
     Owner = "sessions",
-    PublishPolicy = PublishPolicy.BestEffort,
-    EnabledByDefault = false)]
+    PublishPolicy = PublishPolicy.BestEffort)]
 public sealed class ResizeRejected
 {
     [JournalIndex("profile")]

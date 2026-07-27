@@ -8,7 +8,7 @@ const VIEWPORT = { width: 1280, height: 720 }
 
 /**
  * Immersive live surface: same {@link useLiveSession} + {@link SessionViewport}
- * as the smoke lab — no debug chrome, no lab origin overrides, no Journal stream.
+ * as the session lab — no debug chrome, no lab origin overrides, no Journal stream.
  * Starts from the current browser path/query (official path+query / NSO wire).
  */
 export default function SessionLivePage() {
@@ -39,6 +39,7 @@ export default function SessionLivePage() {
         attachFrameSink={session.attachFrameSink}
         onInput={session.sendInput}
         requestRemoteResize={session.requestRemoteResize}
+        viewportPolicy={session.viewportPolicy ?? undefined}
         onCanvasLayout={session.onCanvasLayout}
         onRemoteViewportApplied={session.onRemoteViewportApplied}
         touchPrimary={session.touchPrimary}

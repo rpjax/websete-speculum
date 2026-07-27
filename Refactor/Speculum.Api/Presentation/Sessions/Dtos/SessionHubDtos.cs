@@ -187,6 +187,20 @@ public sealed class StartSessionHubResponse
 
     [Key("token")]
     public string Token { get; set; } = string.Empty;
+
+    /// <summary><see cref="Configurations.Models.Sessions.ViewportPolicy.Minimum"/> width.</summary>
+    [Key("viewportMinWidth")]
+    public int ViewportMinWidth { get; set; }
+
+    [Key("viewportMinHeight")]
+    public int ViewportMinHeight { get; set; }
+
+    /// <summary>Policy maximum — same capacity the sidecar allocates for Xvfb.</summary>
+    [Key("viewportMaxWidth")]
+    public int ViewportMaxWidth { get; set; }
+
+    [Key("viewportMaxHeight")]
+    public int ViewportMaxHeight { get; set; }
 }
 
 /// <summary>Server→client: sync the SPA address bar to the virtual browser URL.</summary>

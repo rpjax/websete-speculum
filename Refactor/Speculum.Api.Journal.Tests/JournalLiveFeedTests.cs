@@ -43,10 +43,11 @@ public sealed class JournalLiveFeedTests
         using var subscription = feed.Subscribe();
         var writer = CreateWriter(feed, out var queue, enabled: false);
 
-        writer.Append(new SessionStarted
+        writer.Append(new InputApplied
         {
             ProfileId = Guid.CreateVersion7(),
             SessionId = Guid.CreateVersion7(),
+            Kind = "click",
         });
 
         Assert.Equal(0, queue.Count);
@@ -95,10 +96,8 @@ public sealed class JournalLiveFeedTests
     {
         var catalog = new JournalCatalog();
         catalog.RegisterFromAssemblies(typeof(SessionStarted).Assembly);
-        if (!enabled)
-        {
-            catalog.SetEnabled("Sessions.SessionStarted", false);
-        }
+        // InputApplied is JournalFact (off by default); enable only when testing admission.
+        catalog.SetEnabled("Sessions.InputApplied", enabled);
 
         var (created, metrics, health) = JournalTestHarness.CreateQueue(o => o.MaxQueueDepth = 0);
         queue = created;

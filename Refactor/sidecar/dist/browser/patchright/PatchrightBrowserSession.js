@@ -18,6 +18,10 @@ const viewport_bounds_1 = require("./viewport-bounds");
 /**
  * Production BrowserSession: composes Patchright capabilities.
  * No transport / WS / wire codecs.
+ *
+ * Display is allocated at policy max (from Launch / Sessions.ViewportPolicy);
+ * logical viewport follows the client via window bounds + CDP metrics +
+ * screencast encode size (never recreate on resize).
  */
 class PatchrightBrowserSession {
     sessionId;
@@ -39,10 +43,17 @@ class PatchrightBrowserSession {
     url = 'about:blank';
     pendingState = null;
     launchOptions = null;
+    /** Sessions.ViewportPolicy bounds from Launch — set before Display.start. */
+    viewportPolicy = null;
     /** When true, context 'close' is an intentional teardown — do not emit onCrash. */
     suppressContextCrash = false;
-    /** Bumped to retire stale context 'close' listeners across stop/recreate. */
+    /** Bumped to retire stale context 'close' listeners across stop. */
     crashEpoch = 0;
+    /**
+     * Serializes navigate / refresh / soft resize so CDP metrics and page.goto
+     * cannot interleave. Settles even when the op rejects.
+     */
+    browserOpTail = Promise.resolve();
     constructor(sessionId, events, displays) {
         this.sessionId = sessionId;
         this.events = events;
@@ -52,10 +63,26 @@ class PatchrightBrowserSession {
         this.editableFocus = new EditableFocus_1.EditableFocus(events);
         this.media = new MediaIngress_1.MediaIngress(sessionId, events);
     }
+    displayDims() {
+        const policy = this.viewportPolicy;
+        if (!policy) {
+            throw Object.assign(new Error('viewport policy missing'), {
+                code: 'FAILED_PRECONDITION',
+            });
+        }
+        return { displayWidth: policy.maxWidth, displayHeight: policy.maxHeight };
+    }
+    /** Run exclusive browser mutation (navigate / refresh / resize). */
+    runBrowserOp(fn) {
+        const run = this.browserOpTail.then(fn, fn);
+        this.browserOpTail = run.then(() => undefined, () => undefined);
+        return run;
+    }
     async launch(options) {
         this.ensureNotDisposed();
         this.launchOptions = options;
-        const validated = (0, viewport_bounds_1.validateLaunchViewport)(options.width, options.height);
+        this.viewportPolicy = options.viewportPolicy;
+        const validated = (0, viewport_bounds_1.validateLaunchViewport)(options.width, options.height, options.viewportPolicy);
         if (!validated.ok) {
             throw Object.assign(new Error(validated.message), {
                 code: 'FAILED_PRECONDITION',
@@ -65,46 +92,57 @@ class PatchrightBrowserSession {
         }
         const { width, height } = validated;
         const displayNum = this.displays.allocate();
-        this.display = await Display_1.Display.start(displayNum, width, height);
-        this.chrome = await (0, ChromeRuntime_1.launchChrome)({
-            sessionId: this.sessionId,
-            displayEnv: this.display.displayEnv,
-            width,
-            height,
-            locale: options.locale,
-            language: options.language,
-            timeZoneId: options.timeZoneId,
-            colorScheme: options.colorScheme,
-            geolocation: options.geolocation,
-            device: options.device,
-        });
-        this.viewport = new Viewport_1.Viewport(width, height, options.device);
-        await this.navigation.setupSingleTab(this.chrome.context);
-        this.navigation.setupTabInterception(this.chrome.context, this.chrome.page);
-        this.navigation.setupLocationSync(this.chrome.page);
-        await this.navigation.setupFetchGuard(this.chrome.cdp, options.scripts ?? [], options.allowedNavigationDomains);
-        const chromeVp = await (0, device_emulation_1.readChromeViewport)(this.chrome.page);
-        const active = await this.display.readActiveGeometry();
-        if (active.width !== width || active.height !== height) {
-            throw new Error(`display ${active.width}×${active.height} != ${width}×${height}`);
+        const maxW = options.viewportPolicy.maxWidth;
+        const maxH = options.viewportPolicy.maxHeight;
+        try {
+            // Capacity only — logical client size applied via Chrome window + metrics.
+            this.display = await Display_1.Display.start(displayNum, maxW, maxH);
+            this.chrome = await (0, ChromeRuntime_1.launchChrome)({
+                sessionId: this.sessionId,
+                displayEnv: this.display.displayEnv,
+                width,
+                height,
+                locale: options.locale,
+                language: options.language,
+                timeZoneId: options.timeZoneId,
+                colorScheme: options.colorScheme,
+                geolocation: options.geolocation,
+                device: options.device,
+            });
+            const device = (0, device_emulation_1.resolveDeviceProfile)(options.device);
+            this.viewport = new Viewport_1.Viewport(width, height, device);
+            await this.navigation.setupSingleTab(this.chrome.context);
+            this.navigation.setupTabInterception(this.chrome.context, this.chrome.page);
+            this.navigation.setupLocationSync(this.chrome.page);
+            await this.navigation.setupFetchGuard(this.chrome.cdp, options.scripts ?? [], options.allowedNavigationDomains);
+            const chromeVp = await (0, device_emulation_1.readChromeViewport)(this.chrome.page);
+            const active = await this.display.readActiveGeometry();
+            if (active.width !== maxW || active.height !== maxH) {
+                throw new Error(`display ${active.width}×${active.height} != allocated ${maxW}×${maxH}`);
+            }
+            if (!viewportClose(chromeVp.width, chromeVp.height, width, height)) {
+                throw Object.assign(new Error(`chrome viewport ${chromeVp.width}×${chromeVp.height} != logical ${width}×${height}`), { code: 'FAILED_PRECONDITION', errorCode: 'viewport_unproven', phase: 'launch' });
+            }
+            this.viewport.confirm(width, height, device);
+            this.input = new Input_1.InputController(this.chrome.page, this.chrome.cdp);
+            this.input.setTouchPrimary(touchPrimary(device));
+            this.evaluateCap.attachConsole(this.chrome.page);
+            this.editableFocus.start(this.chrome.page);
+            this.screencast = await Screencast_1.Screencast.start(this.chrome.cdp, width, height, (jpeg) => this.events.onVideoFrame(jpeg));
+            if (this.pendingState) {
+                await this.pageState.restore(this.chrome.cdp, this.chrome.page, this.pendingState);
+                this.pendingState = null;
+            }
+            this.open = true;
+            this.bindCrashHandler(this.chrome.context);
+            return { width, height };
         }
-        if (chromeVp.width !== width || chromeVp.height !== height) {
-            // Soft confirm: some Chrome builds report off-by-one until fullscreen settles
-            console.warn(`[${this.sessionId}] chrome viewport ${chromeVp.width}×${chromeVp.height} vs ${width}×${height}`);
+        catch (err) {
+            // Partial launch must not leak Xvfb/Chrome — API may keep the session id until dispose.
+            await this.teardownBrowserResources({ removeUserDataDir: true });
+            this.viewport = null;
+            throw err;
         }
-        this.viewport.confirm(width, height, options.device);
-        this.input = new Input_1.InputController(this.chrome.page, this.chrome.cdp);
-        this.input.setTouchPrimary(touchPrimary(options.device));
-        this.evaluateCap.attachConsole(this.chrome.page);
-        this.editableFocus.start(this.chrome.page);
-        this.screencast = await Screencast_1.Screencast.start(this.chrome.cdp, width, height, (jpeg) => this.events.onVideoFrame(jpeg));
-        if (this.pendingState) {
-            await this.pageState.restore(this.chrome.cdp, this.chrome.page, this.pendingState);
-            this.pendingState = null;
-        }
-        this.open = true;
-        this.bindCrashHandler(this.chrome.context);
-        return { width, height };
     }
     async stop() {
         await this.teardownBrowserResources({ removeUserDataDir: true });
@@ -141,69 +179,75 @@ class PatchrightBrowserSession {
     }
     async navigate(url) {
         this.ensureLive();
-        this.editableFocus.stop();
-        this.input?.setSuspended(true);
-        try {
-            await this.chrome.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 });
-        }
-        catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            // Detached frames / closed targets are session faults, not process crashes.
-            if (/frame was detached|target closed|has been closed|navigation interrupted|navigating.*interrupted/i.test(message)) {
-                throw Object.assign(new Error(`navigate failed: ${message}`), {
-                    code: 'ABORTED',
-                    errorCode: 'navigate_failed',
-                    phase: 'goto',
-                });
-            }
-            throw err;
-        }
-        finally {
-            this.input?.setSuspended(false);
-            if (this.open && this.chrome) {
-                this.editableFocus.start(this.chrome.page);
-            }
-        }
-        this.url = url;
-        if (this.pendingState) {
+        await this.runBrowserOp(async () => {
+            this.ensureLive();
+            this.editableFocus.stop();
+            this.input?.beginSuspend();
             try {
-                await this.pageState.importLocalStorage(this.chrome.page, this.pendingState);
-                await this.pageState.importIndexedDbForPage(this.chrome.page, this.pendingState);
+                await this.chrome.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 });
             }
-            catch {
-                /* page may navigate away again before import finishes */
+            catch (err) {
+                const message = err instanceof Error ? err.message : String(err);
+                // Detached frames / closed targets are session faults, not process crashes.
+                if (/frame was detached|target closed|has been closed|navigation interrupted|navigating.*interrupted/i.test(message)) {
+                    throw Object.assign(new Error(`navigate failed: ${message}`), {
+                        code: 'ABORTED',
+                        errorCode: 'navigate_failed',
+                        phase: 'goto',
+                    });
+                }
+                throw err;
             }
-        }
+            finally {
+                this.input?.endSuspend();
+                if (this.open && this.chrome) {
+                    this.editableFocus.start(this.chrome.page);
+                }
+            }
+            this.url = url;
+            if (this.pendingState) {
+                try {
+                    await this.pageState.importLocalStorage(this.chrome.page, this.pendingState);
+                    await this.pageState.importIndexedDbForPage(this.chrome.page, this.pendingState);
+                }
+                catch {
+                    /* page may navigate away again before import finishes */
+                }
+            }
+        });
     }
     async refresh() {
         this.ensureLive();
-        this.editableFocus.stop();
-        this.input?.setSuspended(true);
-        try {
-            await this.chrome.page.reload({ waitUntil: 'domcontentloaded', timeout: 30_000 });
-        }
-        catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            // Same class as navigate: detached frames / closed targets are session faults.
-            if (/frame was detached|target closed|has been closed|navigation interrupted|navigating.*interrupted/i.test(message)) {
-                throw Object.assign(new Error(`refresh failed: ${message}`), {
-                    code: 'ABORTED',
-                    errorCode: 'refresh_failed',
-                    phase: 'reload',
-                });
+        await this.runBrowserOp(async () => {
+            this.ensureLive();
+            this.editableFocus.stop();
+            this.input?.beginSuspend();
+            try {
+                await this.chrome.page.reload({ waitUntil: 'domcontentloaded', timeout: 30_000 });
             }
-            throw err;
-        }
-        finally {
-            this.input?.setSuspended(false);
-            if (this.open && this.chrome) {
-                this.editableFocus.start(this.chrome.page);
+            catch (err) {
+                const message = err instanceof Error ? err.message : String(err);
+                // Same class as navigate: detached frames / closed targets are session faults.
+                if (/frame was detached|target closed|has been closed|navigation interrupted|navigating.*interrupted/i.test(message)) {
+                    throw Object.assign(new Error(`refresh failed: ${message}`), {
+                        code: 'ABORTED',
+                        errorCode: 'refresh_failed',
+                        phase: 'reload',
+                    });
+                }
+                throw err;
             }
-        }
+            finally {
+                this.input?.endSuspend();
+                if (this.open && this.chrome) {
+                    this.editableFocus.start(this.chrome.page);
+                }
+            }
+        });
     }
     async resize(request) {
         this.ensureLive();
-        const validated = (0, viewport_bounds_1.validateResizeViewport)(request.width, request.height);
+        const validated = (0, viewport_bounds_1.validateResizeViewport)(request.width, request.height, this.viewportPolicy);
         if (!validated.ok) {
             return {
                 ok: false,
@@ -212,12 +256,26 @@ class PatchrightBrowserSession {
                 errorCode: validated.errorCode,
                 phase: 'validate',
                 message: validated.message,
+                ...this.displayDims(),
             };
         }
-        const device = request.device;
         const nextW = validated.width;
         const nextH = validated.height;
-        const sameSize = nextW === this.viewport.width && nextH === this.viewport.height;
+        const nextDevice = (0, device_emulation_1.resolveDeviceProfile)(request.device ?? this.viewport.device);
+        // Fast no-op outside the op lock when already at target (avoids queueing behind navigate).
+        if (nextW === this.viewport.width
+            && nextH === this.viewport.height
+            && (0, device_emulation_1.deviceProfilesEqual)(this.viewport.device, nextDevice)
+            && !this.viewport.isResizing) {
+            return {
+                ok: true,
+                width: nextW,
+                height: nextH,
+                chromeWidth: nextW,
+                chromeHeight: nextH,
+                ...this.displayDims(),
+            };
+        }
         if (this.viewport.isResizing) {
             return {
                 ok: false,
@@ -226,150 +284,133 @@ class PatchrightBrowserSession {
                 errorCode: 'resize_busy',
                 phase: 'validate',
                 message: 'another resize is in progress',
+                ...this.displayDims(),
             };
         }
-        this.viewport.setResizing(true);
+        return this.runBrowserOp(() => this.resizeExclusive(nextW, nextH, nextDevice));
+    }
+    async resizeExclusive(nextW, nextH, nextDevice) {
+        this.ensureLive();
         const previous = {
             width: this.viewport.width,
             height: this.viewport.height,
             device: this.viewport.device,
         };
-        let sizeChanged = false;
+        // Re-check after waiting behind navigate/refresh/prior resize.
+        if (nextW === previous.width
+            && nextH === previous.height
+            && (0, device_emulation_1.deviceProfilesEqual)(previous.device, nextDevice)) {
+            return {
+                ok: true,
+                width: previous.width,
+                height: previous.height,
+                chromeWidth: previous.width,
+                chromeHeight: previous.height,
+                ...this.displayDims(),
+            };
+        }
+        if (this.viewport.isResizing) {
+            return {
+                ok: false,
+                width: previous.width,
+                height: previous.height,
+                errorCode: 'resize_busy',
+                phase: 'validate',
+                message: 'another resize is in progress',
+                ...this.displayDims(),
+            };
+        }
+        this.viewport.setResizing(true);
+        this.input?.beginSuspend();
+        let screencastTouched = false;
+        const sizeChanged = nextW !== previous.width || nextH !== previous.height;
         try {
-            if (sameSize) {
-                if (device) {
-                    await (0, device_emulation_1.applyDeviceEmulation)(this.chrome.cdp, nextW, nextH, device);
-                    this.viewport.confirm(nextW, nextH, device);
-                    this.input?.setTouchPrimary(touchPrimary(device));
+            await this.input?.drain();
+            // Pause encode before metrics so old-size frames are not filtered into a black gap.
+            if (sizeChanged) {
+                if (!this.screencast) {
+                    throw new Error('screencast missing during resize');
                 }
-                return {
-                    ok: true,
-                    width: nextW,
-                    height: nextH,
-                    chromeWidth: nextW,
-                    chromeHeight: nextH,
-                    displayWidth: nextW,
-                    displayHeight: nextH,
-                };
+                screencastTouched = true;
+                await this.screencast.pauseForRestart();
             }
-            sizeChanged = true;
-            const nextDevice = device ?? previous.device ?? undefined;
-            await this.recreateAtSize(nextW, nextH, nextDevice);
+            await (0, device_emulation_1.applyLogicalViewport)(this.chrome.cdp, nextW, nextH, nextDevice);
+            const chromeVp = await (0, device_emulation_1.readChromeViewport)(this.chrome.page);
+            if (!viewportClose(chromeVp.width, chromeVp.height, nextW, nextH)) {
+                throw new Error(`chrome viewport ${chromeVp.width}×${chromeVp.height} != logical ${nextW}×${nextH}`);
+            }
+            if (sizeChanged) {
+                await this.screencast.completeRestart(nextW, nextH, (jpeg) => this.events.onVideoFrame(jpeg), this.chrome.cdp);
+            }
             this.viewport.confirm(nextW, nextH, nextDevice);
+            this.input?.setTouchPrimary(touchPrimary(nextDevice));
             return {
                 ok: true,
                 width: nextW,
                 height: nextH,
-                chromeWidth: nextW,
-                chromeHeight: nextH,
-                displayWidth: nextW,
-                displayHeight: nextH,
+                chromeWidth: chromeVp.width,
+                chromeHeight: chromeVp.height,
+                ...this.displayDims(),
             };
         }
         catch (err) {
-            if (sizeChanged) {
-                try {
-                    await this.recreateAtSize(previous.width, previous.height, previous.device ?? undefined);
-                    this.viewport.confirm(previous.width, previous.height, previous.device ?? undefined);
+            // Soft compensate — never recreate Chrome/Xvfb. If compensate fails, fault the session.
+            if (!this.chrome || !this.open) {
+                return {
+                    ok: false,
+                    width: previous.width,
+                    height: previous.height,
+                    errorCode: 'session_gone',
+                    phase: 'resize_apply',
+                    message: err.message?.slice(0, 512) ?? 'session gone during resize',
+                    ...this.displayDims(),
+                };
+            }
+            try {
+                await (0, device_emulation_1.applyLogicalViewport)(this.chrome.cdp, previous.width, previous.height, previous.device);
+                const chromeVp = await (0, device_emulation_1.readChromeViewport)(this.chrome.page);
+                if (!viewportClose(chromeVp.width, chromeVp.height, previous.width, previous.height)) {
+                    throw new Error(`compensate chrome viewport ${chromeVp.width}×${chromeVp.height} != ${previous.width}×${previous.height}`);
                 }
-                catch (compErr) {
-                    const message = compErr.message?.slice(0, 512) ?? 'compensation failed';
-                    await this.teardownBrowserResources({ removeUserDataDir: true });
-                    this.events.onCrash({
-                        errorCode: 'resize_session_faulted',
-                        message,
-                        phase: 'compensate',
-                    });
-                    return {
-                        ok: false,
-                        width: previous.width,
-                        height: previous.height,
-                        errorCode: 'resize_session_faulted',
-                        phase: 'compensate',
-                        message,
-                    };
+                // Only reattach screencast if the forward path already paused it.
+                if (screencastTouched && this.screencast) {
+                    await this.screencast.completeRestart(previous.width, previous.height, (jpeg) => this.events.onVideoFrame(jpeg), this.chrome.cdp);
                 }
+                this.viewport.confirm(previous.width, previous.height, previous.device ?? undefined);
+                this.input?.setTouchPrimary(touchPrimary(previous.device));
+            }
+            catch (compErr) {
+                const message = compErr.message?.slice(0, 512) ?? 'compensate failed';
+                await this.teardownBrowserResources({ removeUserDataDir: true });
+                this.viewport = null;
+                this.events.onCrash({
+                    errorCode: 'resize_session_faulted',
+                    message,
+                    phase: 'compensate',
+                });
+                return {
+                    ok: false,
+                    width: previous.width,
+                    height: previous.height,
+                    errorCode: 'resize_session_faulted',
+                    phase: 'compensate',
+                    message,
+                    ...this.displayDims(),
+                };
             }
             return {
                 ok: false,
-                width: this.viewport?.width ?? previous.width,
-                height: this.viewport?.height ?? previous.height,
+                width: previous.width,
+                height: previous.height,
                 errorCode: 'resize_apply_failed',
                 phase: 'resize_apply',
                 message: err.message?.slice(0, 512),
+                ...this.displayDims(),
             };
         }
         finally {
+            this.input?.endSuspend();
             this.viewport?.setResizing(false);
-        }
-    }
-    /**
-     * Tear down Chrome+display and relaunch at exact geometry, resuming the prior http(s) URL.
-     */
-    async recreateAtSize(width, height, deviceProfile) {
-        const resumeUrl = this.chrome ? safeUrl(this.chrome.page) : this.url;
-        const displayNum = this.display.number;
-        // Intentional teardown for resize — must not enqueue onCrash (same contract as stop()).
-        this.suppressContextCrash = true;
-        this.crashEpoch++;
-        this.open = false;
-        this.editableFocus.stop();
-        this.input?.setSuspended(true);
-        if (this.screencast) {
-            await this.screencast.stop();
-            this.screencast = null;
-        }
-        if (this.chrome) {
-            await (0, ChromeRuntime_1.closeChrome)(this.chrome, { removeUserDataDir: false });
-            this.chrome = null;
-        }
-        this.input = null;
-        if (this.display) {
-            await this.display.dispose();
-            this.display = null;
-        }
-        const launchOptions = this.launchOptions;
-        if (!launchOptions) {
-            throw new Error('cannot recreate Chrome before launch options are captured');
-        }
-        this.display = await Display_1.Display.start(displayNum, width, height);
-        this.chrome = await (0, ChromeRuntime_1.launchChrome)({
-            sessionId: this.sessionId,
-            displayEnv: this.display.displayEnv,
-            width,
-            height,
-            locale: launchOptions.locale,
-            language: launchOptions.language,
-            timeZoneId: launchOptions.timeZoneId,
-            colorScheme: launchOptions.colorScheme,
-            geolocation: launchOptions.geolocation,
-            device: deviceProfile,
-            preserveUserDataDir: true,
-        });
-        await this.navigation.setupSingleTab(this.chrome.context);
-        this.navigation.setupTabInterception(this.chrome.context, this.chrome.page);
-        this.navigation.setupLocationSync(this.chrome.page);
-        await this.navigation.setupFetchGuard(this.chrome.cdp, this.launchOptions?.scripts ?? [], this.launchOptions?.allowedNavigationDomains);
-        this.input = new Input_1.InputController(this.chrome.page, this.chrome.cdp);
-        this.input.setTouchPrimary(touchPrimary(deviceProfile));
-        this.input.setSuspended(true);
-        this.evaluateCap.attachConsole(this.chrome.page);
-        this.editableFocus.rebind(this.chrome.page);
-        // Do not start EditableFocus until after resume goto (same contract as navigate).
-        this.screencast = await Screencast_1.Screencast.start(this.chrome.cdp, width, height, (jpeg) => this.events.onVideoFrame(jpeg));
-        this.open = true;
-        this.bindCrashHandler(this.chrome.context);
-        try {
-            if (resumeUrl && /^https?:\/\//i.test(resumeUrl)) {
-                await this.chrome.page.goto(resumeUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
-                this.url = resumeUrl;
-            }
-        }
-        finally {
-            this.input?.setSuspended(false);
-            if (this.open && this.chrome) {
-                this.editableFocus.start(this.chrome.page);
-            }
         }
     }
     bindCrashHandler(context) {
@@ -430,6 +471,7 @@ class PatchrightBrowserSession {
             this.display = null;
         }
         this.input = null;
+        this.viewportPolicy = null;
     }
     async probe(request) {
         this.ensureLive();
@@ -470,6 +512,10 @@ class PatchrightBrowserSession {
 exports.PatchrightBrowserSession = PatchrightBrowserSession;
 function touchPrimary(device) {
     return (0, device_emulation_1.isInputTouchPrimary)(device);
+}
+/** Tolerate 2px Chrome settle jitter when proving logical viewport. */
+function viewportClose(aW, aH, bW, bH, epsilon = 2) {
+    return Math.abs(aW - bW) <= epsilon && Math.abs(aH - bH) <= epsilon;
 }
 function safeUrl(page) {
     try {

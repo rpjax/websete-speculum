@@ -12,8 +12,7 @@ namespace Speculum.Api.Sessions.Events.Models;
     Name = "Attached client command failed",
     Description = "Best-effort SyncUrl or Redirect to the attached client failed.",
     Owner = "sessions",
-    PublishPolicy = PublishPolicy.BestEffort,
-    EnabledByDefault = true)]
+    PublishPolicy = PublishPolicy.BestEffort)]
 public sealed class AttachedClientCommandFailed
 {
     [JournalIndex("profile")]

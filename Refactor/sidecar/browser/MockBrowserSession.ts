@@ -15,16 +15,18 @@ import {
 } from './BrowserSession';
 import { HarnessRenderer } from './mock/HarnessRenderer';
 import { HarnessScene } from './mock/HarnessScene';
+import { validateResizeViewport, type ViewportPolicyBounds } from '../grpc/validate';
 
 /**
  * Interactive harness BrowserSession for SPECULUM_BROWSER=mock.
- * Renders a real JPEG scene at ~60 fps and mirrors all BrowserInput types visually.
+ * Soft resize: logical W×H changes without tearing down; display dims from Launch policy.
  */
 export class MockBrowserSession implements BrowserSession {
   private open = false;
   private width = 1280;
   private height = 720;
   private resizing = false;
+  private viewportPolicy: ViewportPolicyBounds | null = null;
   private state: BrowserState = {
     cookies: [],
     localStorage: [],
@@ -52,9 +54,18 @@ export class MockBrowserSession implements BrowserSession {
     this.frameIntervalMs = options?.frameIntervalMs ?? 16;
   }
 
+  private displayDims(): { displayWidth: number; displayHeight: number } {
+    const policy = this.viewportPolicy;
+    if (!policy) {
+      return { displayWidth: 0, displayHeight: 0 };
+    }
+    return { displayWidth: policy.maxWidth, displayHeight: policy.maxHeight };
+  }
+
   async launch(options: BrowserLaunchOptions): Promise<BrowserReadyInfo> {
     this.width = options.width;
     this.height = options.height;
+    this.viewportPolicy = options.viewportPolicy;
     this.open = true;
     this.scene = new HarnessScene(this.width, this.height, {
       onLocationChanged: (url) => this.events.onLocationChanged(url),
@@ -119,21 +130,72 @@ export class MockBrowserSession implements BrowserSession {
   }
 
   async resize(request: BrowserResizeRequest): Promise<BrowserResizeResult> {
+    if (!this.open || !this.viewportPolicy) {
+      return {
+        ok: false,
+        width: this.width,
+        height: this.height,
+        errorCode: 'session_gone',
+        phase: 'resize_apply',
+        message: 'browser session is not open',
+        ...this.displayDims(),
+      };
+    }
+    const validated = validateResizeViewport(
+      request.width,
+      request.height,
+      this.viewportPolicy,
+    );
+    if (!validated.ok) {
+      return {
+        ok: false,
+        width: this.width,
+        height: this.height,
+        errorCode: validated.errorCode,
+        phase: 'validate',
+        message: validated.message,
+        ...this.displayDims(),
+      };
+    }
+    if (this.resizing) {
+      return {
+        ok: false,
+        width: this.width,
+        height: this.height,
+        errorCode: 'resize_busy',
+        phase: 'validate',
+        message: 'another resize is in progress',
+        ...this.displayDims(),
+      };
+    }
+    // Soft no-op when logical size unchanged (mock has no device profile state).
+    if (validated.width === this.width && validated.height === this.height) {
+      return {
+        ok: true,
+        width: this.width,
+        height: this.height,
+        chromeWidth: this.width,
+        chromeHeight: this.height,
+        ...this.displayDims(),
+      };
+    }
     this.resizing = true;
-    this.width = request.width;
-    this.height = request.height;
-    this.scene?.resize(this.width, this.height);
-    this.renderer?.resize(this.width, this.height);
-    this.resizing = false;
-    return {
-      ok: true,
-      width: this.width,
-      height: this.height,
-      chromeWidth: this.width,
-      chromeHeight: this.height,
-      displayWidth: this.width,
-      displayHeight: this.height,
-    };
+    try {
+      this.width = validated.width;
+      this.height = validated.height;
+      this.scene?.resize(this.width, this.height);
+      this.renderer?.resize(this.width, this.height);
+      return {
+        ok: true,
+        width: this.width,
+        height: this.height,
+        chromeWidth: this.width,
+        chromeHeight: this.height,
+        ...this.displayDims(),
+      };
+    } finally {
+      this.resizing = false;
+    }
   }
 
   async probe(request: BrowserProbeRequest): Promise<BrowserProbeResult> {

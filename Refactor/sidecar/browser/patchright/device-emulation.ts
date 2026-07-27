@@ -1,6 +1,14 @@
 import type { CDPSession, Page } from 'patchright';
 import type { BrowserDeviceProfile } from '../BrowserSession';
 
+/** Desktop fallback when the client omits a device profile (dpr=1, no touch). */
+export const DEFAULT_DESKTOP_DEVICE: BrowserDeviceProfile = {
+  mobile: false,
+  touch: false,
+  deviceScaleFactor: 1,
+  maxTouchPoints: 0,
+};
+
 /**
  * Drop hover-mouse input only for phone-like profiles.
  * Must match web `isTouchPrimaryProfile` — never use `touch` alone (hybrid
@@ -32,6 +40,42 @@ export function touchEmulationParams(
   return { enabled: true, maxTouchPoints: points };
 }
 
+/** Normalize optional wire device into a complete profile for CDP metrics. */
+export function resolveDeviceProfile(
+  device?: BrowserDeviceProfile | null,
+): BrowserDeviceProfile {
+  if (!device) {
+    return { ...DEFAULT_DESKTOP_DEVICE };
+  }
+  const dpr = device.deviceScaleFactor;
+  const points = device.maxTouchPoints;
+  return {
+    mobile: !!device.mobile,
+    touch: !!device.touch,
+    deviceScaleFactor: dpr !== undefined && dpr > 0 ? dpr : 1,
+    maxTouchPoints: points !== undefined && points >= 0 ? points : 0,
+    userAgentProfile: device.userAgentProfile,
+    screenOrientation: device.screenOrientation,
+  };
+}
+
+/** Wire-relevant device fields equal (soft-resize no-op check). */
+export function deviceProfilesEqual(
+  a: BrowserDeviceProfile | null | undefined,
+  b: BrowserDeviceProfile | null | undefined,
+): boolean {
+  const left = resolveDeviceProfile(a);
+  const right = resolveDeviceProfile(b);
+  return (
+    left.mobile === right.mobile
+    && left.touch === right.touch
+    && left.deviceScaleFactor === right.deviceScaleFactor
+    && left.maxTouchPoints === right.maxTouchPoints
+    && left.userAgentProfile === right.userAgentProfile
+    && left.screenOrientation === right.screenOrientation
+  );
+}
+
 export async function applyDeviceEmulation(
   cdp: CDPSession,
   width: number,
@@ -51,6 +95,9 @@ export async function applyDeviceEmulation(
     height,
     deviceScaleFactor: device.deviceScaleFactor,
     mobile: !!device.mobile,
+    // Match logical viewport — Xvfb is overallocated; screen.* must not report capacity max.
+    screenWidth: width,
+    screenHeight: height,
     screenOrientation: device.screenOrientation
       ? {
           type: device.screenOrientation.includes('landscape')
@@ -62,8 +109,6 @@ export async function applyDeviceEmulation(
   });
 
   await cdp.send('Emulation.setTouchEmulationEnabled', touchEmulationParams(device));
-
-  if (!device.userAgentProfile && !device.mobile) return;
 
   const version = (await cdp.send('Browser.getVersion')) as {
     product?: string;
@@ -97,9 +142,42 @@ export async function applyDeviceEmulation(
         mobile: true,
       },
     });
-  } else if (version.userAgent) {
-    await cdp.send('Emulation.setUserAgentOverride', { userAgent: version.userAgent });
+    return;
   }
+
+  // Always clear mobile UA on desktop apply — soft resize must not leave prior override.
+  if (!version.userAgent) {
+    throw new Error('Browser.getVersion did not return userAgent');
+  }
+  await cdp.send('Emulation.setUserAgentOverride', { userAgent: version.userAgent });
+}
+
+/**
+ * Soft logical viewport: window bounds at W×H (not fullscreen-on-max display)
+ * plus device metrics so layout/paint track the client size.
+ */
+export async function applyLogicalViewport(
+  cdp: CDPSession,
+  width: number,
+  height: number,
+  device?: BrowserDeviceProfile | null,
+): Promise<BrowserDeviceProfile> {
+  const profile = resolveDeviceProfile(device);
+  const { windowId } = (await cdp.send('Browser.getWindowForTarget', {})) as {
+    windowId: number;
+  };
+  await cdp.send('Browser.setWindowBounds', {
+    windowId,
+    bounds: {
+      left: 0,
+      top: 0,
+      width,
+      height,
+      windowState: 'normal',
+    },
+  });
+  await applyDeviceEmulation(cdp, width, height, profile);
+  return profile;
 }
 
 export async function readChromeViewport(page: Page): Promise<{ width: number; height: number }> {

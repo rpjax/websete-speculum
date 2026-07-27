@@ -39,7 +39,9 @@ const util_1 = require("util");
 const fs = __importStar(require("fs"));
 const execFileAsync = (0, util_1.promisify)(child_process_1.execFile);
 /**
- * One Xvfb + matchbox WM per session. Runtime size changes recreate at exact geometry.
+ * One Xvfb + matchbox WM per session.
+ * Allocated once at policy max (display capacity). Runtime logical viewport
+ * changes do not recreate the display — Chrome window + CDP metrics adapt instead.
  */
 class Display {
     number;
@@ -99,10 +101,11 @@ class Display {
         }
         return display;
     }
-    async recreate(width, height) {
-        const number = this.number;
-        await this.dispose();
-        return Display.start(number, width, height);
+    /**
+     * @deprecated Soft viewport model never recreates the display. Throws if called.
+     */
+    async recreate(_width, _height) {
+        throw new Error('Display.recreate is removed — allocate at policy max; soft-resize the logical viewport');
     }
     async readActiveGeometry() {
         const display = this.displayEnv;

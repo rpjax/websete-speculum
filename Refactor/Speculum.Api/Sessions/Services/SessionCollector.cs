@@ -1,7 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
-using Speculum.Api.Configurations.Models.Sessions;
+using Speculum.Api.Configurations.Services.Contracts;
 using Speculum.Api.Sessions.Events.Services.Contracts;
 using Speculum.Api.Sessions.Models;
 using Speculum.Api.Sessions.Requests;
@@ -15,25 +14,33 @@ public sealed class SessionCollector : ISessionCollector, IDisposable
     private readonly Dictionary<Guid, Entry> _entries = new();
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ISessionEventsFactory _events;
+    private readonly IConfigurationService _configuration;
     private readonly ILogger<SessionCollector> _logger;
-    private readonly TimeSpan _detachedTimeout;
 
     public SessionCollector(
         IServiceScopeFactory scopeFactory,
         ISessionEventsFactory events,
-        IOptions<SessionsConfiguration> options,
+        IConfigurationService configuration,
         ILogger<SessionCollector> logger)
     {
         _scopeFactory = scopeFactory ?? throw new ArgumentNullException(nameof(scopeFactory));
         _events = events ?? throw new ArgumentNullException(nameof(events));
+        _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+    }
 
-        ArgumentNullException.ThrowIfNull(options);
-        _detachedTimeout = options.Value.DetachedSessionTimeout;
-        if (_detachedTimeout <= TimeSpan.Zero)
+    private TimeSpan DetachedTimeout
+    {
+        get
         {
-            throw new InvalidOperationException(
-                "Sessions.DetachedSessionTimeout must be greater than zero.");
+            var timeout = _configuration.GetCurrent().Sessions.DetachedSessionTimeout;
+            if (timeout <= TimeSpan.Zero)
+            {
+                throw new InvalidOperationException(
+                    "Sessions.DetachedSessionTimeout must be greater than zero.");
+            }
+
+            return timeout;
         }
     }
 
@@ -129,7 +136,7 @@ public sealed class SessionCollector : ISessionCollector, IDisposable
                 _ = OnTimedOutAsync(sessionId);
             },
             null,
-            _detachedTimeout,
+            DetachedTimeout,
             Timeout.InfiniteTimeSpan);
         entry.Timer = timer;
     }

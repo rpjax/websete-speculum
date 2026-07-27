@@ -8,7 +8,7 @@ namespace Speculum.Api.Journal.Catalog;
 
 /// <summary>
 /// Builds <see cref="JournalEntryDescriptor"/> from <see cref="JournalFactAttribute"/> /
-/// <see cref="JournalIndexAttribute"/> using reflection once at registration time.
+/// <see cref="CanonicalFactAttribute"/> / <see cref="JournalIndexAttribute"/>.
 /// </summary>
 public static class JournalEntryDescriptorFactory
 {
@@ -24,11 +24,20 @@ public static class JournalEntryDescriptorFactory
                 $"Journal fact type '{clrType.FullName}' must be a concrete closed type.");
         }
 
-        var fact = clrType.GetCustomAttribute<JournalFactAttribute>(inherit: false)
-            ?? throw new InvalidOperationException(
-                $"Type '{clrType.FullName}' is missing [{nameof(JournalFactAttribute)}].");
+        var journal = clrType.GetCustomAttribute<JournalFactAttribute>(inherit: false);
+        var canonical = clrType.GetCustomAttribute<CanonicalFactAttribute>(inherit: false);
+        if (journal is not null && canonical is not null)
+        {
+            throw new InvalidOperationException(
+                $"Type '{clrType.FullName}' cannot declare both [{nameof(JournalFactAttribute)}] and [{nameof(CanonicalFactAttribute)}].");
+        }
 
-        // NullabilityInfoContext is not thread-safe — one instance per build.
+        if (journal is null && canonical is null)
+        {
+            throw new InvalidOperationException(
+                $"Type '{clrType.FullName}' is missing [{nameof(JournalFactAttribute)}] or [{nameof(CanonicalFactAttribute)}].");
+        }
+
         var nullability = new NullabilityInfoContext();
         var accessors = BuildIndexAccessors(clrType, nullability);
         var required = accessors.Where(a => a.Required).Select(a => a.KeyType).ToArray();
@@ -40,15 +49,34 @@ public static class JournalEntryDescriptorFactory
                 $"Type '{clrType.FullName}' declares duplicate Journal index key types.");
         }
 
+        if (canonical is not null)
+        {
+            return new JournalEntryDescriptor
+            {
+                Type = canonical.Type,
+                SchemaVersion = canonical.SchemaVersion,
+                Name = canonical.Name,
+                Description = canonical.Description,
+                Owner = canonical.Owner,
+                PublishPolicy = canonical.PublishPolicy,
+                IsCanonical = true,
+                ClrType = clrType,
+                PayloadJsonTypeInfo = SharedOptions.GetTypeInfo(clrType),
+                RequiredIndexKeyTypes = required,
+                OptionalIndexKeyTypes = optional,
+                IndexAccessors = accessors,
+            };
+        }
+
         return new JournalEntryDescriptor
         {
-            Type = fact.Type,
-            SchemaVersion = fact.SchemaVersion,
-            Name = fact.Name,
-            Description = fact.Description,
-            Owner = fact.Owner,
-            PublishPolicy = fact.PublishPolicy,
-            EnabledByDefault = fact.EnabledByDefault,
+            Type = journal!.Type,
+            SchemaVersion = journal.SchemaVersion,
+            Name = journal.Name,
+            Description = journal.Description,
+            Owner = journal.Owner,
+            PublishPolicy = journal.PublishPolicy,
+            IsCanonical = false,
             ClrType = clrType,
             PayloadJsonTypeInfo = SharedOptions.GetTypeInfo(clrType),
             RequiredIndexKeyTypes = required,

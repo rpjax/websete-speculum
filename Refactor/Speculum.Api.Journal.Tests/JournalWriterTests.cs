@@ -58,7 +58,7 @@ public sealed class JournalWriterTests
     {
         var catalog = new JournalCatalog();
         catalog.RegisterFromAssemblies(typeof(SessionStarted).Assembly);
-        catalog.SetEnabled("Sessions.SessionStarted", false);
+        catalog.SetEnabled("Sessions.InputApplied", false);
 
         var (queue, metrics, health) = JournalTestHarness.CreateQueue(o => o.MaxQueueDepth = 0);
         var writer = new JournalWriter(
@@ -70,10 +70,11 @@ public sealed class JournalWriterTests
             new StaticOptionsMonitor<JournalDrainOptions>(new JournalDrainOptions()),
             NullLogger<JournalWriter>.Instance);
 
-        writer.Append(new SessionStarted
+        writer.Append(new InputApplied
         {
             ProfileId = Guid.CreateVersion7(),
             SessionId = Guid.CreateVersion7(),
+            Kind = "click",
         });
 
         Assert.Equal(0, queue.Count);

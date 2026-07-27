@@ -3,14 +3,13 @@ using Speculum.Api.Journal.Models;
 
 namespace Speculum.Api.Sessions.Events.Models;
 
-[JournalFact(
+[CanonicalFact(
     "Sessions.PersistSkippedProfileNotFound",
     schemaVersion: 1,
     Name = "Persist skipped profile not found",
     Description = "State persist skipped because the profile no longer exists.",
     Owner = "sessions",
-    PublishPolicy = PublishPolicy.Guaranteed,
-    EnabledByDefault = true)]
+    PublishPolicy = PublishPolicy.Guaranteed)]
 public sealed class PersistSkippedProfileNotFound
 {
     [JournalIndex("profile")]

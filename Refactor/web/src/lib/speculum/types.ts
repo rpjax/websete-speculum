@@ -53,6 +53,28 @@ export interface NavigateSessionRequest {
   query?: string
 }
 
+/** Runtime canvas 1:1 resize (hub <c>ResizeAsync</c>). */
+export interface ResizeSessionRequest {
+  width: number
+  height: number
+  requestId?: string
+  device?: SessionDeviceProfile | null
+}
+
+export interface ResizeSessionResult {
+  applied: boolean
+  width: number
+  height: number
+  chromeWidth?: number | null
+  chromeHeight?: number | null
+  displayWidth?: number | null
+  displayHeight?: number | null
+  resizeId?: string | null
+  errorCode?: string | null
+  phase?: string | null
+  message?: string | null
+}
+
 /** Server frame envelope (`Frame` DTO). */
 export interface SessionFrame {
   jpeg: Uint8Array

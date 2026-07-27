@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Threading.Channels;
 using Aidan.Core.Patterns;
 using Grpc.Core;
@@ -303,7 +304,20 @@ public sealed class GrpcSessionConnection : ISessionConnection
             _configuration.GetCurrent().Sessions.ViewportPolicy);
         if (validated.IsFailure)
         {
-            return Result<DomainResizeResult>.Failure(validated.Errors.ToArray());
+            var first = validated.Errors.FirstOrDefault();
+            return Result<DomainResizeResult>.Success(new DomainResizeResult
+            {
+                Applied = false,
+                Width = width,
+                Height = height,
+                ResizeId = requestId,
+                ErrorCode = string.IsNullOrWhiteSpace(first?.Code)
+                    ? "invalid_viewport"
+                    : first.Code,
+                Phase = "validate",
+                Message = first?.Message
+                    ?? string.Join("; ", validated.Errors.Select(e => e.Message)),
+            });
         }
 
         return await CallValueAsync(async () =>
@@ -473,6 +487,12 @@ public sealed class GrpcSessionConnection : ISessionConnection
             try
             {
                 await WriteInputWithRetryAsync(input, ct).ConfigureAwait(false);
+                TryPublishNotification(new SessionNotification
+                {
+                    Kind = SessionNotificationKind.InputApplied,
+                    InputKind = userInput.Type,
+                    Phase = TryTouchPhase(userInput),
+                });
             }
             catch (RpcException ex) when (ex.StatusCode == StatusCode.Cancelled)
             {
@@ -524,6 +544,31 @@ public sealed class GrpcSessionConnection : ISessionConnection
                 break;
             }
         }
+    }
+
+    private static string? TryTouchPhase(UserInput userInput)
+    {
+        if (!string.Equals(userInput.Type, "touch", StringComparison.Ordinal)
+            || string.IsNullOrWhiteSpace(userInput.Payload))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(userInput.Payload);
+            if (doc.RootElement.TryGetProperty("phase", out var phase)
+                && phase.ValueKind == JsonValueKind.String)
+            {
+                return phase.GetString();
+            }
+        }
+        catch (JsonException)
+        {
+            // Ignore — phase is optional metadata for journal.
+        }
+
+        return null;
     }
 
     private async Task WriteInputWithRetryAsync(InputEvent input, CancellationToken ct)

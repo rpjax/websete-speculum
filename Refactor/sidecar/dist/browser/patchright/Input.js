@@ -135,17 +135,35 @@ class InputController {
     }
     async _dispatchTouch(phase, points) {
         const type = cdpTouchType(phase);
-        const touchPoints = type === 'touchEnd' || type === 'touchCancel'
-            ? []
-            : points.map((p) => ({
+        if (type === 'touchEnd' || type === 'touchCancel') {
+            // CDP requires empty touchPoints on end/cancel; re-assert remaining contacts.
+            await this._cdp.send('Input.dispatchTouchEvent', { type, touchPoints: [] });
+            if (points.length > 0) {
+                await this._cdp.send('Input.dispatchTouchEvent', {
+                    type: 'touchStart',
+                    touchPoints: points.map((p) => ({
+                        x: p.x,
+                        y: p.y,
+                        id: p.id,
+                        radiusX: p.radiusX,
+                        radiusY: p.radiusY,
+                        force: p.force,
+                    })),
+                });
+            }
+            return;
+        }
+        await this._cdp.send('Input.dispatchTouchEvent', {
+            type,
+            touchPoints: points.map((p) => ({
                 x: p.x,
                 y: p.y,
                 id: p.id,
                 radiusX: p.radiusX,
                 radiusY: p.radiusY,
                 force: p.force,
-            }));
-        await this._cdp.send('Input.dispatchTouchEvent', { type, touchPoints });
+            })),
+        });
     }
 }
 exports.InputController = InputController;

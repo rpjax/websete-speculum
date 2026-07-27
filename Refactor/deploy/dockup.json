@@ -217,5 +217,98 @@
       }
     ],
     "volumes": [{ "name": "speculum-refactor-smoke-data" }]
+  },
+  "assert": {
+    "namespace": "speculum-refactor",
+    "network": "speculum-refactor-assert",
+    "containers": [
+      {
+        "id": "fixture",
+        "image": "speculum-refactor-fixture",
+        "context": "../tests/motor-fixture",
+        "dockerfile": "Dockerfile",
+        "env": [
+          { "name": "FIXTURE_ROLE", "value": "good" },
+          { "name": "FIXTURE_HOSTNAME", "value": "fixture.test" },
+          { "name": "PORT", "value": "443" },
+          { "name": "HEALTH_PORT", "value": "8090" }
+        ],
+        "networks": [
+          {
+            "name": "speculum-refactor-assert",
+            "aliases": ["fixture.test", "www.fixture.test", "sub.fixture.test"]
+          }
+        ],
+        "healthcheck": {
+          "test": ["CMD", "node", "-e", "fetch('http://127.0.0.1:8090/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"],
+          "interval": "10s",
+          "timeout": "5s",
+          "startPeriod": "15s",
+          "retries": 8
+        }
+      },
+      {
+        "id": "sidecar",
+        "image": "speculum-refactor-sidecar",
+        "context": ".",
+        "dockerfile": "sidecar/Dockerfile",
+        "init": true,
+        "capAdd": ["SYS_ADMIN"],
+        "shmSize": "2gb",
+        "env": [
+          { "name": "NODE_ENV", "value": "production" },
+          { "name": "SPECULUM_BROWSER", "value": "patchright" },
+          { "name": "CHROME_EXECUTABLE", "value": "/usr/bin/google-chrome" },
+          { "name": "SPECULUM_GRPC_PORT", "value": "50051" },
+          { "name": "SPECULUM_HEALTH_PORT", "value": "3001" },
+          { "name": "SPECULUM_IGNORE_CERT_ERRORS", "value": "1" }
+        ],
+        "healthcheck": {
+          "test": ["CMD", "curl", "-sf", "http://localhost:3001/ready"],
+          "interval": "15s",
+          "timeout": "5s",
+          "startPeriod": "60s",
+          "retries": 5
+        }
+      },
+      {
+        "id": "api",
+        "image": "speculum-refactor-api",
+        "context": ".",
+        "dockerfile": "Speculum.Api/Dockerfile",
+        "dependsOn": [
+          { "id": "sidecar", "condition": "service_healthy" },
+          { "id": "fixture", "condition": "service_healthy" }
+        ],
+        "healthcheck": {
+          "test": ["CMD", "curl", "-sf", "http://localhost:8080/health/ready"],
+          "interval": "15s",
+          "timeout": "5s",
+          "startPeriod": "25s",
+          "retries": 5
+        },
+        "env": [
+          { "name": "ASPNETCORE_ENVIRONMENT", "value": "Production" },
+          { "name": "ASPNETCORE_URLS", "value": "http://0.0.0.0:8080" },
+          { "name": "SPECULUM_WEBTRANSPORT_PORT", "value": "8443" },
+          { "name": "SPECULUM_ENABLE_DEV_BACKDOOR", "value": "true" },
+          { "name": "Database__Path", "value": "/data/speculum.db" },
+          { "name": "Sidecar__GrpcAddress", "value": "http://sidecar:50051" },
+          { "name": "Navigation__DefaultTargetHost", "value": "fixture.test" },
+          { "name": "Navigation__AllowedMainFrameUrls__0__Domain__Scope", "value": "Pattern" },
+          { "name": "Navigation__AllowedMainFrameUrls__0__Domain__Labels__0__Match", "value": "Exact" },
+          { "name": "Navigation__AllowedMainFrameUrls__0__Domain__Labels__0__Value", "value": "fixture" },
+          { "name": "Navigation__AllowedMainFrameUrls__0__Domain__Labels__1__Match", "value": "Exact" },
+          { "name": "Navigation__AllowedMainFrameUrls__0__Domain__Labels__1__Value", "value": "test" }
+        ],
+        "volumes": [
+          { "name": "speculum-refactor-assert-data", "container": "/data" }
+        ],
+        "compose": {
+          "ports": ["18090:8080", "18443:8443/tcp", "18443:8443/udp"]
+        }
+      }
+    ],
+    "volumes": [{ "name": "speculum-refactor-assert-data" }]
   }
 }

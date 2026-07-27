@@ -5,6 +5,7 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import {
+  DEV_JOURNAL_TYPES,
   fetchDevEngineConfig,
   formatAllowlistLines,
   formatHostingDomainLines,
@@ -12,6 +13,7 @@ import {
   parseHostingDomainLines,
   putDevEngineConfig,
   type DevEngineConfig,
+  type DevJournalType,
 } from './devEngineConfig'
 
 interface SmokeEngineConfigPanelProps {
@@ -34,6 +36,11 @@ export function SmokeEngineConfigPanel({
   const [allowlistText, setAllowlistText] = useState('')
   const [hostingText, setHostingText] = useState('')
   const [certificateEmail, setCertificateEmail] = useState('')
+  const [journal, setJournal] = useState<Record<DevJournalType, boolean>>({
+    'Sessions.InputApplied': false,
+    'Sessions.ResizeApplied': false,
+    'Sessions.ResizeRejected': false,
+  })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [savedAt, setSavedAt] = useState<string | null>(null)
@@ -45,6 +52,11 @@ export function SmokeEngineConfigPanel({
     setAllowlistText(allowlist.text)
     setHostingText(formatHostingDomainLines(config.hosting.domains ?? []))
     setCertificateEmail(config.hosting.defaultCertificateEmail ?? '')
+    const nextJournal = { ...journal }
+    for (const type of DEV_JOURNAL_TYPES) {
+      nextJournal[type] = Boolean(config.journal?.[type])
+    }
+    setJournal(nextJournal)
   }
 
   useEffect(() => {
@@ -86,6 +98,7 @@ export function SmokeEngineConfigPanel({
           defaultTargetHost: defaultTargetHost.trim(),
           allowedMainFrameUrls: parseAllowlistLines(allowlistText, allowAny),
         },
+        journal,
       }
       const saved = await putDevEngineConfig(body, hubOrigin)
       applySnapshot(saved)
@@ -197,6 +210,30 @@ export function SmokeEngineConfigPanel({
           placeholder="optional"
           onChange={(event) => setCertificateEmail(event.target.value)}
         />
+      </div>
+
+      <div className="space-y-3 rounded-md border border-border p-3">
+        <div>
+          <p className="text-xs font-medium">Journal (test / debug only)</p>
+          <p className="text-[11px] text-muted-foreground">
+            Opt-in facts stay off until you enable them. Expensive for real traffic — never
+            on by default.
+          </p>
+        </div>
+        {DEV_JOURNAL_TYPES.map((type) => (
+          <div key={type} className="flex items-center justify-between gap-3">
+            <Label htmlFor={`dev-journal-${type}`} className="font-mono text-[11px]">
+              {type}
+            </Label>
+            <Switch
+              id={`dev-journal-${type}`}
+              checked={journal[type]}
+              onCheckedChange={(checked) =>
+                setJournal((prev) => ({ ...prev, [type]: checked }))
+              }
+            />
+          </div>
+        ))}
       </div>
 
       <div className="flex flex-wrap items-center gap-2">

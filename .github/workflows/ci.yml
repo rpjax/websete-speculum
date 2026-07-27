@@ -152,3 +152,68 @@ jobs:
       - name: Tear down
         if: always()
         run: docker compose -f deploy/compose/docker-compose.motor-assert.yml down -v --remove-orphans
+
+  sessions-assertive:
+    name: sessions-assertive (Refactor)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Build sessions-assert stack
+        run: docker compose -f Refactor/deploy/compose/docker-compose.sessions-assert.yml up -d --build
+
+      - name: Wait for fixture + API health
+        run: |
+          set -euo pipefail
+          ok=0
+          for i in $(seq 1 90); do
+            if curl -sf http://127.0.0.1:18090/health/ready >/dev/null \
+              && docker compose -f Refactor/deploy/compose/docker-compose.sessions-assert.yml exec -T fixture \
+                   node -e "fetch('http://127.0.0.1:8090/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))" \
+              && docker compose -f Refactor/deploy/compose/docker-compose.sessions-assert.yml ps --status running | grep -q sidecar; then
+              ok=1
+              break
+            fi
+            sleep 2
+          done
+          if [ "$ok" != "1" ]; then
+            echo "stack did not become healthy in time" >&2
+            docker compose -f Refactor/deploy/compose/docker-compose.sessions-assert.yml ps >&2 || true
+            exit 1
+          fi
+
+      - name: Seed opt-in Journal (explicit enable)
+        run: |
+          chmod +x Refactor/deploy/compose/seed-sessions-assert.sh
+          SESSIONS_ASSERT_API_BASE=http://127.0.0.1:18090 \
+            ./Refactor/deploy/compose/seed-sessions-assert.sh
+
+      - name: Run SessionsAssertive tests
+        env:
+          SESSIONS_ASSERT_API_BASE: http://127.0.0.1:18090
+        run: >
+          dotnet test Refactor/Speculum.Api.Assert.Tests/Speculum.Api.Assert.Tests.csproj
+          -c Release --filter "Category=SessionsAssertive" --verbosity normal
+
+      - name: Collect compose logs on failure
+        if: failure()
+        run: |
+          mkdir -p "${{ runner.temp }}/sessions-assert-logs"
+          docker compose -f Refactor/deploy/compose/docker-compose.sessions-assert.yml logs --no-color > "${{ runner.temp }}/sessions-assert-logs/compose.log" || true
+
+      - name: Upload failure artefacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sessions-assertive-failure
+          path: ${{ runner.temp }}/sessions-assert-logs/
+          if-no-files-found: ignore
+
+      - name: Tear down
+        if: always()
+        run: docker compose -f Refactor/deploy/compose/docker-compose.sessions-assert.yml down -v --remove-orphans

@@ -234,4 +234,24 @@ public sealed class GrpcRequestValidationTests
         Assert.True(GrpcRequestValidation.ValidateEvaluate(null).IsFailure);
         Assert.True(GrpcRequestValidation.ValidateEvaluate("").IsFailure);
     }
+
+    [Fact]
+    public void UserInput_MessagePack_RoundTripsCamelCaseMapFromJsClient()
+    {
+        // Mirrors @msgpack/msgpack encode({ type, payload }) on the web data plane.
+        var options = Speculum.Api.Presentation.SessionHubMessagePack.Options;
+        var map = new Dictionary<string, object>
+        {
+            ["type"] = "mousedown",
+            ["payload"] = """{"type":"mousedown","x":640,"y":360,"button":0}""",
+        };
+        var bytes = MessagePack.MessagePackSerializer.Serialize(map, options);
+        var decoded = MessagePack.MessagePackSerializer.Deserialize<UserInput>(bytes, options);
+
+        Assert.Equal("mousedown", decoded.Type);
+        Assert.Contains("640", decoded.Payload);
+        Assert.True(
+            GrpcSessionMappers.TryParseInputEvent(Guid.NewGuid(), decoded, out var input)
+            && input?.MouseDown is not null);
+    }
 }

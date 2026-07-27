@@ -469,7 +469,7 @@ class PatchrightBrowserSession {
 }
 exports.PatchrightBrowserSession = PatchrightBrowserSession;
 function touchPrimary(device) {
-    return !!(device?.touch || device?.mobile);
+    return (0, device_emulation_1.isInputTouchPrimary)(device);
 }
 function safeUrl(page) {
     try {

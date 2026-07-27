@@ -430,6 +430,15 @@ internal sealed class LiveSession : ILiveSession
                         notification.Message,
                         notification.Phase);
                     break;
+                case SessionNotificationKind.InputApplied:
+                    if (!string.IsNullOrWhiteSpace(notification.InputKind))
+                    {
+                        _liveEvents.InputApplied(
+                            notification.InputKind.Trim(),
+                            notification.Phase);
+                    }
+
+                    break;
                 // EditableFocusChanged — omitted (high churn, low narrative value).
             }
         }
@@ -586,21 +595,71 @@ internal sealed class LiveSession : ILiveSession
     {
         ArgumentNullException.ThrowIfNull(request);
         return WithCommandGateAsync(
-            () =>
+            async () =>
             {
                 var requestId = string.IsNullOrWhiteSpace(request.RequestId)
                     ? Guid.CreateVersion7().ToString("D")
                     : request.RequestId.Trim();
 
                 // Optional device: empty profile maps to no proto device (size-only resize).
-                return _connection.ResizeAsync(
+                var result = await _connection.ResizeAsync(
                     requestId,
                     request.Width,
                     request.Height,
                     request.Device ?? new DeviceProfile(),
-                    ct);
+                    ct).ConfigureAwait(false);
+
+                TryJournalResize(request.Width, request.Height, requestId, result);
+                return result;
             },
             ct);
+    }
+
+    private void TryJournalResize(
+        int requestedWidth,
+        int requestedHeight,
+        string requestId,
+        IResult<ResizeResult> result)
+    {
+        try
+        {
+            if (result.IsSuccess && result.Value.Applied)
+            {
+                _liveEvents.ResizeApplied(
+                    result.Value.Width,
+                    result.Value.Height,
+                    result.Value.ResizeId ?? requestId);
+                return;
+            }
+
+            if (result.IsFailure)
+            {
+                var first = result.Errors.FirstOrDefault();
+                _liveEvents.ResizeRejected(
+                    requestedWidth,
+                    requestedHeight,
+                    requestId,
+                    first?.Code,
+                    first?.Message,
+                    "validate");
+                return;
+            }
+
+            _liveEvents.ResizeRejected(
+                requestedWidth,
+                requestedHeight,
+                result.Value.ResizeId ?? requestId,
+                result.Value.ErrorCode,
+                result.Value.Message,
+                result.Value.Phase ?? "resize");
+        }
+        catch (Exception journalEx)
+        {
+            _logger.LogWarning(
+                journalEx,
+                "Failed to journal resize for session {SessionId}",
+                SessionId);
+        }
     }
 
     public Task<IResult<DiagProbeResult>> RequestDiagnosticsAsync(

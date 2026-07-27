@@ -1,6 +1,12 @@
 import type { Page } from 'patchright';
 import type { BrowserEditingState, BrowserSessionEvents } from '../BrowserSession';
 
+type FocusSample = {
+  editing: BrowserEditingState;
+  /** Local change key — not on the wire. Distinguishes focus targets. */
+  key: string;
+};
+
 /**
  * Polls editable focus and pushes onEditableFocusChanged (null = blur).
  */
@@ -27,14 +33,16 @@ export class EditableFocus {
   stop(): void {
     if (this.timer) {
       clearInterval(this.timer);
-      this.timer = null;
     }
+    this.timer = null;
   }
 
   private async tick(): Promise<void> {
     if (!this.page) return;
     try {
-      const editing = (await this.page.evaluate(`(() => {
+      // Expando id on the DOM node — stable across polls; getBoundingClientRect
+      // alone re-fires on scroll/keyboard resize and spams EditableFocus.
+      const sample = (await this.page.evaluate(`(() => {
         function resolveActive(doc) {
           const el = doc.activeElement;
           if (!el) return null;
@@ -59,19 +67,21 @@ export class EditableFocus {
           tag === 'textarea' ||
           (tag === 'input' && TEXT_INPUT_TYPES.has((el.getAttribute('type') || '').toLowerCase()));
         if (!isEditable) return null;
+        const inputMode = el.getAttribute('inputmode') || undefined;
+        const multiline = tag === 'textarea' || !!el.isContentEditable;
+        if (!el.__speculumFocusId) {
+          el.__speculumFocusId = 'f' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+        }
         return {
-          inputMode: el.getAttribute('inputmode') || undefined,
-          multiline: tag === 'textarea' || !!el.isContentEditable,
-          tagName: tag,
+          editing: { inputMode, multiline, tagName: tag },
+          key: el.__speculumFocusId,
         };
-      })()`)) as BrowserEditingState | null;
+      })()`)) as FocusSample | null;
 
-      const key = editing
-        ? `${editing.tagName}|${editing.inputMode}|${editing.multiline}`
-        : '';
+      const key = sample?.key ?? '';
       if (key === this.lastKey) return;
       this.lastKey = key;
-      this.events.onEditableFocusChanged(editing);
+      this.events.onEditableFocusChanged(sample?.editing ?? null);
     } catch {
       /* page gone */
     }

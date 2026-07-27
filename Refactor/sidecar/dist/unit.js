@@ -60,6 +60,10 @@ function testTouchEmulationParams() {
     assert_1.default.deepStrictEqual((0, device_emulation_1.touchEmulationParams)({ touch: false, mobile: false, maxTouchPoints: 0 }), { enabled: false });
     assert_1.default.deepStrictEqual((0, device_emulation_1.touchEmulationParams)({ touch: true, mobile: false, maxTouchPoints: 5 }), { enabled: true, maxTouchPoints: 5 });
     assert_1.default.throws(() => (0, device_emulation_1.touchEmulationParams)({ touch: true, mobile: false, maxTouchPoints: 0 }), /between 1 and 16/);
+    // Hybrid desktop: touch capability must NOT suppress mouse input.
+    assert_1.default.strictEqual((0, device_emulation_1.isInputTouchPrimary)({ mobile: false }), false);
+    assert_1.default.strictEqual((0, device_emulation_1.isInputTouchPrimary)({ mobile: true }), true);
+    assert_1.default.strictEqual((0, device_emulation_1.isInputTouchPrimary)(null), false);
     console.log('[unit] touch emulation params ok');
 }
 function applyContextClose(bridge, args, session) {

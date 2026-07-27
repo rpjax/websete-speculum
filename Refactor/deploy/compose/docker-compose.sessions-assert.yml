@@ -1,0 +1,100 @@
+# Sessions-assertive stack — Chrome + motor-fixture for Refactor Act→Assert.
+# Usage (CI / local):
+#   docker compose -f Refactor/deploy/compose/docker-compose.sessions-assert.yml up -d --build
+#   ./Refactor/deploy/compose/seed-sessions-assert.sh
+#   dotnet test Refactor/Speculum.Api.Assert.Tests --filter Category=SessionsAssertive
+
+name: sessions-assert
+
+services:
+  fixture:
+    build:
+      context: ../../../tests/motor-fixture
+      dockerfile: Dockerfile
+    environment:
+      FIXTURE_ROLE: good
+      FIXTURE_HOSTNAME: fixture.test
+      PORT: "443"
+      HEALTH_PORT: "8090"
+    networks:
+      sessions-assert:
+        aliases:
+          - fixture.test
+          - www.fixture.test
+          - sub.fixture.test
+
+  sidecar:
+    build:
+      context: ../..
+      dockerfile: sidecar/Dockerfile
+    init: true
+    cap_add:
+      - SYS_ADMIN
+    shm_size: 2gb
+    environment:
+      NODE_ENV: production
+      SPECULUM_BROWSER: patchright
+      CHROME_EXECUTABLE: /usr/bin/google-chrome
+      SPECULUM_GRPC_PORT: "50051"
+      SPECULUM_HEALTH_PORT: "3001"
+      SPECULUM_IGNORE_CERT_ERRORS: "1"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:3001/ready"]
+      interval: 15s
+      timeout: 5s
+      start_period: 60s
+      retries: 8
+    networks:
+      - sessions-assert
+
+  api:
+    build:
+      context: ../..
+      dockerfile: Speculum.Api/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: "http://0.0.0.0:8080"
+      SPECULUM_WEBTRANSPORT_PORT: "8443"
+      SPECULUM_ENABLE_DEV_BACKDOOR: "true"
+      Database__Path: /data/speculum.db
+      Sidecar__GrpcAddress: "http://sidecar:50051"
+      Sessions__InputMultiplexingPolicy__Access: Shared
+      Navigation__DefaultTargetHost: fixture.test
+      Navigation__AllowedMainFrameUrls__0__Domain__Scope: Pattern
+      Navigation__AllowedMainFrameUrls__0__Domain__Labels__0__Match: Exact
+      Navigation__AllowedMainFrameUrls__0__Domain__Labels__0__Value: fixture
+      Navigation__AllowedMainFrameUrls__0__Domain__Labels__1__Match: Exact
+      Navigation__AllowedMainFrameUrls__0__Domain__Labels__1__Value: test
+      Navigation__AllowedMainFrameUrls__1__Domain__Scope: Pattern
+      Navigation__AllowedMainFrameUrls__1__Domain__Labels__0__Match: Any
+      Navigation__AllowedMainFrameUrls__1__Domain__Labels__0__Value: ""
+      Navigation__AllowedMainFrameUrls__1__Domain__Labels__1__Match: Exact
+      Navigation__AllowedMainFrameUrls__1__Domain__Labels__1__Value: fixture
+      Navigation__AllowedMainFrameUrls__1__Domain__Labels__2__Match: Exact
+      Navigation__AllowedMainFrameUrls__1__Domain__Labels__2__Value: test
+    volumes:
+      - sessions-assert-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health/ready"]
+      interval: 10s
+      timeout: 5s
+      start_period: 25s
+      retries: 12
+    depends_on:
+      sidecar:
+        condition: service_healthy
+      fixture:
+        condition: service_healthy
+    ports:
+      - "18090:8080"
+      - "18443:8443/tcp"
+      - "18443:8443/udp"
+    networks:
+      - sessions-assert
+
+volumes:
+  sessions-assert-data:
+
+networks:
+  sessions-assert:
+    name: sessions-assert

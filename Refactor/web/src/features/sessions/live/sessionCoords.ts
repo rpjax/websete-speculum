@@ -23,8 +23,34 @@ export function containContentRect(
 }
 
 /**
+ * Maps a client pointer into session/frame pixel space for CSS `object-fill`
+ * (canvas layout box == session viewport 1:1). No letterbox gutters.
+ */
+export function clientToFramePointFill(
+  clientX: number,
+  clientY: number,
+  rect: { left: number; top: number; width: number; height: number },
+  frameW: number,
+  frameH: number,
+): { x: number; y: number } | null {
+  if (rect.width <= 0 || rect.height <= 0 || frameW <= 0 || frameH <= 0) {
+    return null
+  }
+  const localX = clientX - rect.left
+  const localY = clientY - rect.top
+  if (localX < -0.5 || localY < -0.5 || localX > rect.width + 0.5 || localY > rect.height + 0.5) {
+    return null
+  }
+  return {
+    x: Math.round(Math.min(frameW - 1, Math.max(0, (localX / rect.width) * frameW))),
+    y: Math.round(Math.min(frameH - 1, Math.max(0, (localY / rect.height) * frameH))),
+  }
+}
+
+/**
  * Maps a client pointer into session/frame pixel space, accounting for
- * CSS `object-contain` letterboxing inside the element box.
+ * CSS `object-contain` letterboxing. Returns `null` when the hit is in the
+ * letterbox gutter (outside the drawn frame) so callers can ignore it.
  */
 export function clientToFramePoint(
   clientX: number,
@@ -32,9 +58,9 @@ export function clientToFramePoint(
   rect: { left: number; top: number; width: number; height: number },
   frameW: number,
   frameH: number,
-): { x: number; y: number } {
+): { x: number; y: number } | null {
   if (rect.width <= 0 || rect.height <= 0 || frameW <= 0 || frameH <= 0) {
-    return { x: 0, y: 0 }
+    return null
   }
   const { offsetX, offsetY, drawW, drawH } = containContentRect(
     rect.width,
@@ -43,14 +69,28 @@ export function clientToFramePoint(
     frameH,
   )
   if (drawW <= 0 || drawH <= 0) {
-    return { x: 0, y: 0 }
+    return null
   }
   const localX = clientX - rect.left - offsetX
   const localY = clientY - rect.top - offsetY
+  // Small epsilon so edges of the drawn bitmap still hit.
+  if (localX < -0.5 || localY < -0.5 || localX > drawW + 0.5 || localY > drawH + 0.5) {
+    return null
+  }
   return {
     x: Math.round(Math.min(frameW - 1, Math.max(0, (localX / drawW) * frameW))),
     y: Math.round(Math.min(frameH - 1, Math.max(0, (localY / drawH) * frameH))),
   }
+}
+
+export function shouldThrottleMove(nowMs: number, lastMoveMs: number, minIntervalMs = 16): boolean {
+  return nowMs - lastMoveMs < minIntervalMs
+}
+
+export function isLocalBrowserShortcut(key: string, ctrlOrMeta: boolean): boolean {
+  if (key === 'F12') return true
+  if (ctrlOrMeta && ['r', 'l', 't', 'w', 'n'].includes(key.toLowerCase())) return true
+  return false
 }
 
 export function normalizeWheelDeltas(

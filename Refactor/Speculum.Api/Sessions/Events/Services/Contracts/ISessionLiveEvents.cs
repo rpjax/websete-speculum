@@ -27,6 +27,21 @@ public interface ISessionLiveEvents
 
     void InputRejected(string? errorCode, string? message, string? phase);
 
+    /// <summary>Opt-in test/debug: input successfully pushed to the sidecar.</summary>
+    void InputApplied(string kind, string? phase);
+
+    /// <summary>Opt-in test/debug: viewport resize applied.</summary>
+    void ResizeApplied(int width, int height, string? resizeId);
+
+    /// <summary>Opt-in test/debug: viewport resize rejected.</summary>
+    void ResizeRejected(
+        int? width,
+        int? height,
+        string? resizeId,
+        string? errorCode,
+        string? message,
+        string? phase);
+
     /// <summary>Live session abandoned (SessionEnded + Faulted stop).</summary>
     void LiveSessionAbandoned(string reason, string? errorCode, string? message);
 }

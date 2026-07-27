@@ -25,7 +25,10 @@ public sealed class SessionJournalPublishPolicyTests
             // Live attached-client push failures and high-churn browser observations are BestEffort.
             .Where(d => d.Type is not "Sessions.AttachedClientCommandFailed"
                 and not "Sessions.LocationChanged"
-                and not "Sessions.InputRejected")
+                and not "Sessions.InputRejected"
+                and not "Sessions.InputApplied"
+                and not "Sessions.ResizeApplied"
+                and not "Sessions.ResizeRejected")
             .Where(d => d.PublishPolicy != PublishPolicy.Guaranteed)
             .Select(d => $"{d.Type}@v{d.SchemaVersion}")
             .OrderBy(x => x, StringComparer.Ordinal)
@@ -41,6 +44,19 @@ public sealed class SessionJournalPublishPolicyTests
         Assert.Equal(PublishPolicy.BestEffort, locationChanged.PublishPolicy);
         Assert.True(catalog.TryGet<InputRejected>(out var inputRejected));
         Assert.Equal(PublishPolicy.BestEffort, inputRejected.PublishPolicy);
+        Assert.True(inputRejected.EnabledByDefault);
+        Assert.True(catalog.TryGet<InputApplied>(out var inputApplied));
+        Assert.Equal(PublishPolicy.BestEffort, inputApplied.PublishPolicy);
+        Assert.False(inputApplied.EnabledByDefault);
+        Assert.False(catalog.IsTypeEnabled("Sessions.InputApplied"));
+        Assert.True(catalog.TryGet<ResizeApplied>(out var resizeApplied));
+        Assert.Equal(PublishPolicy.BestEffort, resizeApplied.PublishPolicy);
+        Assert.False(resizeApplied.EnabledByDefault);
+        Assert.False(catalog.IsTypeEnabled("Sessions.ResizeApplied"));
+        Assert.True(catalog.TryGet<ResizeRejected>(out var resizeRejected));
+        Assert.Equal(PublishPolicy.BestEffort, resizeRejected.PublishPolicy);
+        Assert.False(resizeRejected.EnabledByDefault);
+        Assert.False(catalog.IsTypeEnabled("Sessions.ResizeRejected"));
         Assert.True(catalog.TryGet<FeatureLoopFaulted>(out var loopFaulted));
         Assert.Equal(PublishPolicy.Guaranteed, loopFaulted.PublishPolicy);
         Assert.True(catalog.TryGet<NavigateRequested>(out var navigateRequested));

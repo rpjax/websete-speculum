@@ -1,5 +1,7 @@
 import type { DeviceProfilePayload } from './types'
 
+export type { DeviceProfilePayload } from './types'
+
 /** Mirrors Speculum.Api ViewportDimensions — keep in sync with sidecar Xvfb ceiling. */
 export const SESSION_VIEWPORT = {
   defaultWidth: 1280,

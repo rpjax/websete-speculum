@@ -2,6 +2,17 @@ import type { CDPSession, Page } from 'patchright';
 import type { BrowserDeviceProfile } from '../BrowserSession';
 
 /**
+ * Drop hover-mouse input only for phone-like profiles.
+ * Must match web `isTouchPrimaryProfile` — never use `touch` alone (hybrid
+ * desktops report maxTouchPoints>0 and would silently lose mouse clicks).
+ */
+export function isInputTouchPrimary(
+  device?: Pick<BrowserDeviceProfile, 'mobile'> | null,
+): boolean {
+  return !!device?.mobile;
+}
+
+/**
  * Chrome CDP rejects `maxTouchPoints: 0` even when touch is disabled.
  * Omit the field when disabled; require 1–16 when enabled.
  */

@@ -192,6 +192,36 @@ public sealed class SessionHub : Hub<ISessionHubClient>
         }
     }
 
+    /// <summary>
+    /// Runtime viewport resize against the caller's bound live session (canvas 1:1).
+    /// </summary>
+    public async Task<ResizeSessionHubResponse> ResizeAsync(ResizeSessionHubRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (!_bindings.IsAuthorized(
+                Context.ConnectionId,
+                request.SessionId,
+                request.Token ?? string.Empty))
+        {
+            throw new HubException("Session binding is not authorized");
+        }
+
+        if (!_liveSessions.TryGet(request.SessionId, out var live))
+        {
+            throw new HubException("Live session not found");
+        }
+
+        var resize = SessionHubRequestMapper.ToResizeSession(request);
+        var result = await live.ResizeAsync(resize, Context.ConnectionAborted);
+        if (result.IsFailure)
+        {
+            throw new HubException(SessionHubRequestMapper.FormatErrors(result));
+        }
+
+        return SessionHubRequestMapper.ToResizeResponse(result.Value);
+    }
+
     public override async Task OnDisconnectedAsync(Exception? exception)
     {
         _bindings.CloseCaller(Context.ConnectionId);

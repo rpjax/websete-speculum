@@ -1,8 +1,17 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.isInputTouchPrimary = isInputTouchPrimary;
 exports.touchEmulationParams = touchEmulationParams;
 exports.applyDeviceEmulation = applyDeviceEmulation;
 exports.readChromeViewport = readChromeViewport;
+/**
+ * Drop hover-mouse input only for phone-like profiles.
+ * Must match web `isTouchPrimaryProfile` — never use `touch` alone (hybrid
+ * desktops report maxTouchPoints>0 and would silently lose mouse clicks).
+ */
+function isInputTouchPrimary(device) {
+    return !!device?.mobile;
+}
 /**
  * Chrome CDP rejects `maxTouchPoints: 0` even when touch is disabled.
  * Omit the field when disabled; require 1–16 when enabled.

@@ -14,6 +14,8 @@ import type {
   SessionEndedEvent,
   StartSessionRequest,
   StartSessionResult,
+  ResizeSessionRequest,
+  ResizeSessionResult,
 } from './types'
 
 export interface ControlPlaneOptions {
@@ -181,6 +183,34 @@ export class ControlPlane {
     })
   }
 
+  async resizeSession(request: {
+    sessionId: string
+    token: string
+  } & ResizeSessionRequest): Promise<ResizeSessionResult> {
+    const connection = this.requireConnection()
+    const response = await connection.invoke<Record<string, unknown>>('ResizeAsync', {
+      sessionId: request.sessionId,
+      token: request.token,
+      width: request.width,
+      height: request.height,
+      requestId: request.requestId ?? null,
+      device: request.device ?? null,
+    })
+    return {
+      applied: Boolean(response.applied),
+      width: Number(response.width ?? 0),
+      height: Number(response.height ?? 0),
+      chromeWidth: optionalNumber(response.chromeWidth),
+      chromeHeight: optionalNumber(response.chromeHeight),
+      displayWidth: optionalNumber(response.displayWidth),
+      displayHeight: optionalNumber(response.displayHeight),
+      resizeId: optionalString(response.resizeId),
+      errorCode: optionalString(response.errorCode),
+      phase: optionalString(response.phase),
+      message: optionalString(response.message),
+    }
+  }
+
   private onHubEvent(method: string, handler: (url: string) => void): () => void {
     const connection = this.requireConnection()
     const listener = (payload: unknown) => {
@@ -262,6 +292,22 @@ function readHubRecord(payload: unknown): Record<string, unknown> | null {
 
 function trimSlash(value: string): string {
   return value.endsWith('/') ? value.slice(0, -1) : value
+}
+
+function optionalNumber(value: unknown): number | null | undefined {
+  if (value == null) {
+    return value as null | undefined
+  }
+  const n = Number(value)
+  return Number.isFinite(n) ? n : undefined
+}
+
+function optionalString(value: unknown): string | null | undefined {
+  if (value == null) {
+    return value as null | undefined
+  }
+  const s = String(value)
+  return s === '' ? undefined : s
 }
 
 function toJournalFact(raw: Record<string, unknown>): JournalFact {

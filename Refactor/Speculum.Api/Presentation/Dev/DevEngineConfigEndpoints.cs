@@ -1,17 +1,17 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using Speculum.Api.Configurations.Models.Hosting;
 using Speculum.Api.Configurations.Models.Navigation;
 using Speculum.Api.Configurations.Services.Contracts;
+using Speculum.Api.Journal.Services.Contracts;
 
 namespace Speculum.Api.Presentation.Dev;
 
 /// <summary>
 /// Development backdoor to read/write Hosting + Navigation through
-/// <see cref="IConfigurationService"/> (same snapshot Sessions resolve against).
+/// <see cref="IConfigurationService"/> and explicitly toggle opt-in Journal types
+/// via <see cref="IJournalCatalog.SetEnabled"/> (test/debug only — never auto-on).
 /// Mapped when <c>ASPNETCORE_ENVIRONMENT=Development</c> or
 /// <c>SPECULUM_ENABLE_DEV_BACKDOOR=true</c>.
 /// </summary>
@@ -19,27 +19,35 @@ public static class DevEngineConfigEndpoints
 {
     public const string Path = "/api/dev/engine-config";
 
+    /// <summary>Journal types that may be toggled through this backdoor.</summary>
+    public static readonly string[] ToggleableJournalTypes =
+    [
+        "Sessions.InputApplied",
+        "Sessions.ResizeApplied",
+        "Sessions.ResizeRejected",
+    ];
+
     public static IEndpointRouteBuilder MapDevEngineConfig(this IEndpointRouteBuilder endpoints)
     {
         ArgumentNullException.ThrowIfNull(endpoints);
 
-        var env = endpoints.ServiceProvider.GetRequiredService<IHostEnvironment>();
-        var backdoorFlag = Environment.GetEnvironmentVariable("SPECULUM_ENABLE_DEV_BACKDOOR");
-        var enabled = env.IsDevelopment()
-            || string.Equals(backdoorFlag, "true", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(backdoorFlag, "1", StringComparison.OrdinalIgnoreCase);
-        if (!enabled)
+        if (!DevBackdoorGate.IsEnabled(endpoints.ServiceProvider))
         {
             return endpoints;
         }
 
-        endpoints.MapGet(Path, (IConfigurationService configuration) =>
+        endpoints.MapGet(Path, (
+            IConfigurationService configuration,
+            IJournalCatalog journalCatalog) =>
         {
             var current = configuration.GetCurrent();
-            return Results.Ok(ToResponse(current));
+            return Results.Ok(ToResponse(current, journalCatalog));
         }).WithTags("Dev");
 
-        endpoints.MapPut(Path, (DevEngineConfigRequest body, IConfigurationService configuration) =>
+        endpoints.MapPut(Path, (
+            DevEngineConfigRequest body,
+            IConfigurationService configuration,
+            IJournalCatalog journalCatalog) =>
         {
             ArgumentNullException.ThrowIfNull(body);
 
@@ -71,19 +79,55 @@ public static class DevEngineConfigEndpoints
                 configuration.SetNavigation(navigation);
             }
 
-            return Results.Ok(ToResponse(configuration.GetCurrent()));
+            if (body.Journal is { } journal)
+            {
+                foreach (var (type, enabled) in journal)
+                {
+                    if (!ToggleableJournalTypes.Contains(type, StringComparer.Ordinal))
+                    {
+                        return Results.ValidationProblem(new Dictionary<string, string[]>
+                        {
+                            ["Journal"] = [$"Journal type '{type}' is not toggleable via the backdoor."],
+                        });
+                    }
+
+                    try
+                    {
+                        journalCatalog.SetEnabled(type, enabled);
+                    }
+                    catch (ArgumentException ex)
+                    {
+                        return Results.ValidationProblem(new Dictionary<string, string[]>
+                        {
+                            ["Journal"] = [ex.Message],
+                        });
+                    }
+                }
+            }
+
+            return Results.Ok(ToResponse(configuration.GetCurrent(), journalCatalog));
         }).WithTags("Dev");
 
         return endpoints;
     }
 
     private static DevEngineConfigResponse ToResponse(
-        EngineConfiguration current)
-        => new()
+        EngineConfiguration current,
+        IJournalCatalog journalCatalog)
+    {
+        var journal = new Dictionary<string, bool>(StringComparer.Ordinal);
+        foreach (var type in ToggleableJournalTypes)
+        {
+            journal[type] = journalCatalog.IsTypeEnabled(type);
+        }
+
+        return new DevEngineConfigResponse
         {
             Hosting = current.Hosting,
             Navigation = current.Navigation,
+            Journal = journal,
         };
+    }
 
     private static string? ValidateNavigation(NavigationConfiguration navigation)
     {
@@ -127,10 +171,17 @@ public sealed class DevEngineConfigRequest
 {
     public HostingConfiguration? Hosting { get; init; }
     public NavigationConfiguration? Navigation { get; init; }
+
+    /// <summary>
+    /// Explicit Journal enablement map. Keys must be toggleable types.
+    /// Omitted keys are left unchanged (defaults remain off for opt-in facts).
+    /// </summary>
+    public Dictionary<string, bool>? Journal { get; init; }
 }
 
 public sealed class DevEngineConfigResponse
 {
     public required HostingConfiguration Hosting { get; init; }
     public required NavigationConfiguration Navigation { get; init; }
+    public required Dictionary<string, bool> Journal { get; init; }
 }

@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { Button } from '@/components/ui/button'
 import { SessionViewport } from '@/features/sessions/live/SessionViewport'
 import { parseClientNavigation } from '@/features/sessions/live/sessionCoords'
 import { useLiveSession } from '@/features/sessions/live/useLiveSession'
@@ -32,11 +33,17 @@ export default function SessionLivePage() {
   return (
     <div className="fixed inset-0 bg-background">
       <SessionViewport
-        width={VIEWPORT.width}
-        height={VIEWPORT.height}
+        width={session.remoteViewport.width}
+        height={session.remoteViewport.height}
         live={session.isLive}
         attachFrameSink={session.attachFrameSink}
         onInput={session.sendInput}
+        requestRemoteResize={session.requestRemoteResize}
+        onCanvasLayout={session.onCanvasLayout}
+        onRemoteViewportApplied={session.onRemoteViewportApplied}
+        touchPrimary={session.touchPrimary}
+        editingActive={session.editing != null}
+        keyboardNonce={session.keyboardNonce}
         className="h-full w-full"
         label="Live session"
       />
@@ -46,6 +53,16 @@ export default function SessionLivePage() {
             {PHASE_HINT[session.phase] ?? 'Connecting…'}
           </p>
         </div>
+      )}
+      {session.isLive && session.touchPrimary && (
+        <Button
+          type="button"
+          size="sm"
+          className="absolute bottom-4 right-4 shadow"
+          onClick={() => session.openKeyboard()}
+        >
+          Keyboard
+        </Button>
       )}
     </div>
   )

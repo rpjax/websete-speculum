@@ -117,6 +117,67 @@ public sealed class NavigateSessionHubRequest
     public string Query { get; set; } = string.Empty;
 }
 
+/// <summary>Wire DTO for hub <c>ResizeAsync</c> (canvas 1:1 viewport sync).</summary>
+[MessagePackObject]
+public sealed class ResizeSessionHubRequest
+{
+    [Key("sessionId")]
+    public Guid SessionId { get; set; }
+
+    [Key("token")]
+    public string Token { get; set; } = string.Empty;
+
+    [Key("width")]
+    public int Width { get; set; }
+
+    [Key("height")]
+    public int Height { get; set; }
+
+    [Key("requestId")]
+    public string? RequestId { get; set; }
+
+    [Key("device")]
+    public DeviceProfile? Device { get; set; }
+}
+
+/// <summary>Wire result for <c>ResizeAsync</c>.</summary>
+[MessagePackObject]
+public sealed class ResizeSessionHubResponse
+{
+    [Key("applied")]
+    public bool Applied { get; set; }
+
+    [Key("width")]
+    public int Width { get; set; }
+
+    [Key("height")]
+    public int Height { get; set; }
+
+    [Key("chromeWidth")]
+    public int? ChromeWidth { get; set; }
+
+    [Key("chromeHeight")]
+    public int? ChromeHeight { get; set; }
+
+    [Key("displayWidth")]
+    public int? DisplayWidth { get; set; }
+
+    [Key("displayHeight")]
+    public int? DisplayHeight { get; set; }
+
+    [Key("resizeId")]
+    public string? ResizeId { get; set; }
+
+    [Key("errorCode")]
+    public string? ErrorCode { get; set; }
+
+    [Key("phase")]
+    public string? Phase { get; set; }
+
+    [Key("message")]
+    public string? Message { get; set; }
+}
+
 /// <summary>Wire result for a successful start.</summary>
 [MessagePackObject]
 public sealed class StartSessionHubResponse
@@ -175,6 +236,29 @@ internal static class SessionHubRequestMapper
         SessionId = request.SessionId,
         Path = request.Path ?? string.Empty,
         Query = request.Query ?? string.Empty,
+    };
+
+    public static ResizeSession ToResizeSession(ResizeSessionHubRequest request) => new()
+    {
+        Width = request.Width,
+        Height = request.Height,
+        RequestId = request.RequestId ?? string.Empty,
+        Device = request.Device,
+    };
+
+    public static ResizeSessionHubResponse ToResizeResponse(ResizeResult result) => new()
+    {
+        Applied = result.Applied,
+        Width = result.Width,
+        Height = result.Height,
+        ChromeWidth = result.ChromeWidth,
+        ChromeHeight = result.ChromeHeight,
+        DisplayWidth = result.DisplayWidth,
+        DisplayHeight = result.DisplayHeight,
+        ResizeId = result.ResizeId,
+        ErrorCode = result.ErrorCode,
+        Phase = result.Phase,
+        Message = result.Message,
     };
 
     public static string FormatErrors(IResult result)

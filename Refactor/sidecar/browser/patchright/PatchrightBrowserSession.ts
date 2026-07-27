@@ -15,7 +15,7 @@ import type {
 } from '../BrowserSession';
 import { closeChrome, launchChrome, type ChromeHandle } from './ChromeRuntime';
 import { Display, type DisplayAllocator } from './Display';
-import { applyDeviceEmulation, readChromeViewport } from './device-emulation';
+import { applyDeviceEmulation, isInputTouchPrimary, readChromeViewport } from './device-emulation';
 import { EditableFocus } from './EditableFocus';
 import { Evaluate } from './Evaluate';
 import { InputController } from './Input';
@@ -534,7 +534,7 @@ export class PatchrightBrowserSession implements BrowserSession {
 }
 
 function touchPrimary(device?: BrowserDeviceProfile | null): boolean {
-  return !!(device?.touch || device?.mobile);
+  return isInputTouchPrimary(device);
 }
 
 function safeUrl(page: { url(): string }): string {

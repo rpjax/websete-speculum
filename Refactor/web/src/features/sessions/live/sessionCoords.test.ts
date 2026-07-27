@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   clientToFramePoint,
+  clientToFramePointFill,
   containContentRect,
   parseClientNavigation,
   toClientAddressBar,
@@ -26,8 +27,44 @@ describe('clientToFramePoint', () => {
       400,
       200,
     )
-    expect(point.x).toBe(200)
-    expect(point.y).toBe(100)
+    expect(point).toEqual({ x: 200, y: 100 })
+  })
+
+  it('returns null for letterbox gutter hits', () => {
+    const point = clientToFramePoint(
+      100,
+      10,
+      { left: 0, top: 0, width: 200, height: 200 },
+      400,
+      200,
+    )
+    expect(point).toBeNull()
+  })
+})
+
+describe('clientToFramePointFill', () => {
+  it('maps the full CSS box 1:1 into frame space', () => {
+    expect(
+      clientToFramePointFill(
+        100,
+        10,
+        { left: 0, top: 0, width: 200, height: 200 },
+        400,
+        200,
+      ),
+    ).toEqual({ x: 200, y: 10 })
+  })
+
+  it('maps center to center', () => {
+    expect(
+      clientToFramePointFill(
+        100,
+        100,
+        { left: 0, top: 0, width: 200, height: 200 },
+        400,
+        200,
+      ),
+    ).toEqual({ x: 200, y: 100 })
   })
 })
 

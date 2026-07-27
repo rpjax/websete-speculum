@@ -3,6 +3,8 @@ import { Emitter } from './emitter'
 import { DataPlane } from './transport'
 import type {
   NavigateSessionRequest,
+  ResizeSessionRequest,
+  ResizeSessionResult,
   SessionEndedEvent,
   SessionEventMap,
   SessionInput,
@@ -120,6 +122,18 @@ export class LiveSession extends Emitter<SessionEventMap> {
       token: this.token,
       path: request.path,
       query: request.query ?? '',
+    })
+  }
+
+  /** Runtime canvas 1:1 resize via hub. */
+  resize(request: ResizeSessionRequest): Promise<ResizeSessionResult> {
+    return this.control.resizeSession({
+      sessionId: this.sessionId,
+      token: this.token,
+      width: request.width,
+      height: request.height,
+      requestId: request.requestId,
+      device: request.device,
     })
   }
 

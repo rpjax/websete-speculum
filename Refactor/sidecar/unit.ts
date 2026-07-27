@@ -1,6 +1,6 @@
 import assert from 'assert';
 import { matchesAllowedDomain } from './browser/patchright/Navigation';
-import { touchEmulationParams } from './browser/patchright/device-emulation';
+import { isInputTouchPrimary, touchEmulationParams } from './browser/patchright/device-emulation';
 import { validateLaunchViewport, validateResizeViewport } from './browser/patchright/viewport-bounds';
 import { InputController } from './browser/patchright/Input';
 import { shouldEmitContextCrash } from './browser/patchright/contextCrash';
@@ -77,6 +77,10 @@ function testTouchEmulationParams(): void {
     () => touchEmulationParams({ touch: true, mobile: false, maxTouchPoints: 0 }),
     /between 1 and 16/,
   );
+  // Hybrid desktop: touch capability must NOT suppress mouse input.
+  assert.strictEqual(isInputTouchPrimary({ mobile: false }), false);
+  assert.strictEqual(isInputTouchPrimary({ mobile: true }), true);
+  assert.strictEqual(isInputTouchPrimary(null), false);
   console.log('[unit] touch emulation params ok');
 }
 

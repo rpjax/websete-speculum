@@ -11,6 +11,8 @@ public enum SessionNotificationKind
     /// <summary>True Chromium/session fault from sidecar <c>onCrash</c> — not transport.</summary>
     Crashed = 4,
     InputRejected = 5,
+    /// <summary>Input was pushed to the sidecar successfully (test/debug journal only).</summary>
+    InputApplied = 6,
 }
 
 /// <summary>
@@ -39,4 +41,8 @@ public sealed class SessionNotification
 
     [Key("phase")]
     public string? Phase { get; init; }
+
+    /// <summary>Wire input type for <see cref="SessionNotificationKind.InputApplied"/>.</summary>
+    [Key("inputKind")]
+    public string? InputKind { get; init; }
 }

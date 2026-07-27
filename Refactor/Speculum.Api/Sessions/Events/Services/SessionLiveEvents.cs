@@ -149,6 +149,52 @@ public sealed class SessionLiveEvents : ISessionLiveEvents
         });
     }
 
+    public void InputApplied(string kind, string? phase)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(kind);
+
+        _writer.Append(new InputApplied
+        {
+            SessionId = _sessionId,
+            ProfileId = _profileId,
+            Kind = kind.Trim(),
+            Phase = phase,
+        });
+    }
+
+    public void ResizeApplied(int width, int height, string? resizeId)
+    {
+        _writer.Append(new ResizeApplied
+        {
+            SessionId = _sessionId,
+            ProfileId = _profileId,
+            Width = width,
+            Height = height,
+            ResizeId = resizeId,
+        });
+    }
+
+    public void ResizeRejected(
+        int? width,
+        int? height,
+        string? resizeId,
+        string? errorCode,
+        string? message,
+        string? phase)
+    {
+        _writer.Append(new ResizeRejected
+        {
+            SessionId = _sessionId,
+            ProfileId = _profileId,
+            Width = width,
+            Height = height,
+            ResizeId = resizeId,
+            ErrorCode = errorCode,
+            Message = message,
+            Phase = phase,
+        });
+    }
+
     public void LiveSessionAbandoned(string reason, string? errorCode, string? message)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(reason);

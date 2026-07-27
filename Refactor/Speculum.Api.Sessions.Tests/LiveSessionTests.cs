@@ -628,6 +628,16 @@ public sealed class LiveSessionTests
         public void MainFrameNavigationBlocked(string url, string? errorCode, string? message) { }
         public void BrowserCrashed(string? errorCode, string? message, string? phase) { }
         public void InputRejected(string? errorCode, string? message, string? phase) { }
+        public void InputApplied(string kind, string? phase) { }
+        public void ResizeApplied(int width, int height, string? resizeId) { }
+        public void ResizeRejected(
+            int? width,
+            int? height,
+            string? resizeId,
+            string? errorCode,
+            string? message,
+            string? phase)
+        { }
         public void LiveSessionAbandoned(string reason, string? errorCode, string? message) { }
     }
 
@@ -670,6 +680,16 @@ public sealed class LiveSessionTests
         public void MainFrameNavigationBlocked(string url, string? errorCode, string? message) { }
         public void BrowserCrashed(string? errorCode, string? message, string? phase) { }
         public void InputRejected(string? errorCode, string? message, string? phase) { }
+        public void InputApplied(string kind, string? phase) { }
+        public void ResizeApplied(int width, int height, string? resizeId) { }
+        public void ResizeRejected(
+            int? width,
+            int? height,
+            string? resizeId,
+            string? errorCode,
+            string? message,
+            string? phase)
+        { }
 
         public void LiveSessionAbandoned(string reason, string? errorCode, string? message)
             => LastAbandoned = (reason, errorCode, message);

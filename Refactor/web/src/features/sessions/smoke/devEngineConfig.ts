@@ -30,7 +30,17 @@ export interface DevEngineConfig {
     defaultTargetHost: string
     allowedMainFrameUrls: DevUrlMatchRule[]
   }
+  /** Opt-in Journal types (test/debug). Off unless explicitly enabled. */
+  journal?: Record<string, boolean>
 }
+
+export const DEV_JOURNAL_TYPES = [
+  'Sessions.InputApplied',
+  'Sessions.ResizeApplied',
+  'Sessions.ResizeRejected',
+] as const
+
+export type DevJournalType = (typeof DEV_JOURNAL_TYPES)[number]
 
 export const DEV_ENGINE_CONFIG_PATH = '/api/dev/engine-config'
 

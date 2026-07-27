@@ -149,7 +149,10 @@ function toBrowserInput(msg) {
             return {
                 type: 'text',
                 text: requireString(msg.text?.text, 'text.text'),
-                source: requireString(msg.text?.source, 'text.source'),
+                // Empty source is valid on the API wire — default like insertText callers.
+                source: typeof msg.text?.source === 'string' && msg.text.source.length > 0
+                    ? msg.text.source
+                    : 'insert',
             };
         case 'touch':
             return parseTouch(msg.touch);

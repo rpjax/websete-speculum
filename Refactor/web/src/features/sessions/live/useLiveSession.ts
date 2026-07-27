@@ -1,12 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { createSessionClient } from '@/lib/speculum'
+import { createSessionClient, NotificationKind } from '@/lib/speculum'
 import type { LiveSession, SessionClient } from '@/lib/speculum'
 import type {
+  EditingState,
   EvalResult,
   SessionFrame,
   SessionInput,
   SessionStatus,
 } from '@/lib/speculum'
+import {
+  detectDeviceProfile,
+  isTouchPrimaryProfile,
+} from '@/features/motor/live/deviceProfile'
+import type { CanvasSize } from './CanvasViewportSync'
 import {
   clearProfileId,
   loadEnvOrigins,
@@ -59,6 +65,10 @@ export interface LiveSessionViewport {
 }
 
 export interface UseLiveSessionOptions {
+  /**
+   * Fallback viewport when the canvas has not laid out yet (e.g. first paint).
+   * StartSession prefers the measured canvas size when available.
+   */
   viewport: LiveSessionViewport
   /**
    * Lab-only observation: Activity log, console feed, stats tick, Journal stream.
@@ -154,7 +164,17 @@ export function useLiveSession({
   const [consoleLines, setConsoleLines] = useState<SmokeConsoleLine[]>([])
   const [stats, setStats] = useState<LiveSessionStats>(EMPTY_STATS)
   const [status, setStatus] = useState<SessionStatus | null>(null)
+  const [editing, setEditing] = useState<EditingState | null>(null)
+  const [touchPrimary, setTouchPrimary] = useState(false)
+  /** Bumps on each Keyboard tap so SessionViewport can re-focus IME after dismiss. */
+  const [keyboardNonce, setKeyboardNonce] = useState(0)
   const [currentUrl, setCurrentUrl] = useState<string | null>(null)
+  /** Confirmed remote session viewport (StartSession / ResizeApplied). */
+  const [remoteViewport, setRemoteViewport] = useState<LiveSessionViewport>(viewport)
+  const canvasLayoutRef = useRef<CanvasSize>({
+    width: viewport.width,
+    height: viewport.height,
+  })
 
   const clientRef = useRef<SessionClient | null>(null)
   const sessionRef = useRef<LiveSession | null>(null)
@@ -294,6 +314,9 @@ export function useLiveSession({
       session.on('notification', (notification) => {
         countersRef.current.notifications += 1
         countersRef.current.dirty = true
+        if (notification.kind === NotificationKind.EditableFocusChanged) {
+          setEditing(notification.editing ?? null)
+        }
         log(notification.errorCode ? 'warn' : 'wire', 'notification', notification)
       })
       session.on('syncUrl', (url) => {
@@ -327,6 +350,8 @@ export function useLiveSession({
         if (sessionRef.current === session) {
           sessionRef.current = null
           setSessionId(null)
+          setEditing(null)
+          setKeyboardNonce(0)
           setPhase(client.isConnected ? 'connected' : 'idle')
         }
         log('info', 'session closed')
@@ -371,23 +396,38 @@ export function useLiveSession({
         log('info', ensured.created ? 'profile created' : 'profile reused', ensured)
 
         const normalizedPath = path.startsWith('/') ? path : `/${path}`
+        const device = detectDeviceProfile()
+        const primary = isTouchPrimaryProfile(device)
+        setTouchPrimary(primary)
+        // Canvas layout size 1:1 — not window/screen. Fallback when host not laid out yet.
+        const layout = canvasLayoutRef.current
+        const viewportWidth =
+          layout.width >= 100 ? layout.width : viewport.width
+        const viewportHeight =
+          layout.height >= 100 ? layout.height : viewport.height
         log('info', 'hub start…', {
           profileId: ensured.profileId,
           path: normalizedPath,
           query,
           transportOrigin: origins.transportOrigin || '(same origin)',
+          device,
+          viewport: { width: viewportWidth, height: viewportHeight },
         })
         const session = await client.startSession({
           profileId: ensured.profileId,
           path: normalizedPath,
           query,
-          viewportWidth: viewport.width,
-          viewportHeight: viewport.height,
+          viewportWidth,
+          viewportHeight,
+          device,
         })
         bind(session)
         setSessionId(session.sessionId)
+        setRemoteViewport({ width: viewportWidth, height: viewportHeight })
+        setEditing(null)
+        setKeyboardNonce(0)
         setPhase('live')
-        log('info', 'session live', { sessionId: session.sessionId })
+        log('info', 'session live', { sessionId: session.sessionId, touchPrimary: primary })
       } catch (error) {
         setPhase(client.isConnected ? 'connected' : 'idle')
         log('error', 'start failed', error)
@@ -410,6 +450,8 @@ export function useLiveSession({
     } finally {
       sessionRef.current = null
       setSessionId(null)
+      setEditing(null)
+      setKeyboardNonce(0)
       setPhase(client.isConnected ? 'connected' : 'idle')
     }
   }, [client, log])
@@ -427,6 +469,42 @@ export function useLiveSession({
       counters.dirty = true
       void session.sendInput(input).catch((error: unknown) => {
         log('error', `input ${input.type} failed`, error)
+      })
+    },
+    [log],
+  )
+
+  const onCanvasLayout = useCallback((size: CanvasSize) => {
+    if (size.width > 0 && size.height > 0) {
+      canvasLayoutRef.current = size
+    }
+  }, [])
+
+  const onRemoteViewportApplied = useCallback((size: CanvasSize) => {
+    setRemoteViewport({ width: size.width, height: size.height })
+    log('info', 'remote viewport applied', size)
+  }, [log])
+
+  const requestRemoteResize = useCallback(
+    async (
+      size: CanvasSize,
+      device: import('@/lib/speculum').SessionDeviceProfile,
+    ) => {
+      const session = sessionRef.current
+      if (!session) {
+        return {
+          applied: false,
+          width: size.width,
+          height: size.height,
+          errorCode: 'session_gone',
+          message: 'No live session',
+        }
+      }
+      log('info', 'resize…', size)
+      return session.resize({
+        width: size.width,
+        height: size.height,
+        device,
       })
     },
     [log],
@@ -532,6 +610,10 @@ export function useLiveSession({
     log('info', 'profile forgotten — next start creates a new one')
   }, [log])
 
+  const openKeyboard = useCallback(() => {
+    setKeyboardNonce((n) => n + 1)
+  }, [])
+
   return {
     phase,
     origins,
@@ -544,12 +626,20 @@ export function useLiveSession({
     journal: debug ? journal : EMPTY_JOURNAL,
     stats: debug ? stats : EMPTY_STATS,
     status,
+    editing,
+    touchPrimary,
+    keyboardNonce,
+    openKeyboard,
     isLive: phase === 'live',
+    remoteViewport,
     attachFrameSink,
     connect,
     start,
     stop,
     sendInput,
+    onCanvasLayout,
+    onRemoteViewportApplied,
+    requestRemoteResize,
     pollStatus,
     navigate,
     evaluate,

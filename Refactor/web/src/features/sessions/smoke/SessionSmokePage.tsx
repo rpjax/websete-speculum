@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { Button } from '@/components/ui/button'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { SessionViewport } from '@/features/sessions/live/SessionViewport'
 import {
@@ -71,13 +72,19 @@ export default function SessionSmokePage() {
 
         <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(0,1fr)_26rem]">
           <section className="flex min-h-0 flex-col gap-2">
-            <div className="relative min-h-[20rem] flex-1 overflow-hidden rounded-lg border border-border bg-card lg:min-h-0">
+            <div className="relative min-h-[20rem] min-w-0 flex-1 overflow-hidden rounded-lg border border-border bg-card lg:min-h-0">
               <SessionViewport
-                width={VIEWPORT.width}
-                height={VIEWPORT.height}
+                width={session.remoteViewport.width}
+                height={session.remoteViewport.height}
                 live={session.isLive}
                 attachFrameSink={session.attachFrameSink}
                 onInput={session.sendInput}
+                requestRemoteResize={session.requestRemoteResize}
+                onCanvasLayout={session.onCanvasLayout}
+                onRemoteViewportApplied={session.onRemoteViewportApplied}
+                touchPrimary={session.touchPrimary}
+                editingActive={session.editing != null}
+                keyboardNonce={session.keyboardNonce}
               />
               {!session.isLive && (
                 <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
@@ -86,6 +93,16 @@ export default function SessionSmokePage() {
                     type, or touch — inputs share the production data plane.
                   </p>
                 </div>
+              )}
+              {session.isLive && session.touchPrimary && (
+                <Button
+                  type="button"
+                  size="sm"
+                  className="absolute bottom-3 right-3 shadow"
+                  onClick={() => session.openKeyboard()}
+                >
+                  Keyboard
+                </Button>
               )}
             </div>
           </section>

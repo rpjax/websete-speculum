@@ -18,8 +18,10 @@ npm install -g @rodrigopjax/dockup
 |-----|-----------------|---------|
 | **`dev`** | `patchright` (Chrome) | Prod-shaped stack on localhost — real browsing |
 | **`smoke`** | `mock` | Fast harness / CI — no Chrome |
+| **`assert`** | `patchright` + motor-fixture | Act→Assert SessionsAssertive (CI also uses compose) |
 
-Both publish Traefik on host **`:8080`** and WebTransport on **`:8443`** — run only one at a time.
+Both `dev` and `smoke` publish Traefik on host **`:8080`** and WebTransport on **`:8443`** — run only one at a time.
+`assert` / compose sessions-assert uses **`:18090`** (API) so it can run beside local stacks.
 Sidecar uses Docker `init: true` (reaps Chrome/Xvfb zombies). Volumes are env-scoped
 (`speculum-refactor-dev-data` / `speculum-refactor-smoke-data`).
 
@@ -96,6 +98,19 @@ with an ephemeral ECDSA cert. The web image is built with
 
 If you cleared Wire overrides in localStorage, hard-refresh so the baked transport
 origin applies — or set Transport origin to `https://localhost:8443` in the Wire tab.
+
+## Assert (SessionsAssertive)
+
+Chrome + `tests/motor-fixture` for Act→Assert input/resize. CI uses compose on `:18090`.
+
+```bash
+docker compose -f Refactor/deploy/compose/docker-compose.sessions-assert.yml up -d --build
+# wait for http://127.0.0.1:18090/health/ready + fixture health
+./Refactor/deploy/compose/seed-sessions-assert.sh   # explicit Journal enable only
+dotnet test Refactor/Speculum.Api.Assert.Tests --filter Category=SessionsAssertive
+```
+
+Opt-in journal (`Sessions.InputApplied` / `ResizeApplied` / `ResizeRejected`) stays off until seed or smoke Config toggles — never by env alone. See [`../Speculum.Api.Assert.Tests/MATRIX.md`](../Speculum.Api.Assert.Tests/MATRIX.md).
 
 ## Process-local (no Docker)
 

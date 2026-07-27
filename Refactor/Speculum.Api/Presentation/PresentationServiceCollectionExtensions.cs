@@ -51,6 +51,7 @@ public static class PresentationServiceCollectionExtensions
         });
         SessionWebTransportEndpoint.Map(endpoints);
         endpoints.MapDevEngineConfig();
+        endpoints.MapDevSessionHarness();
 
         return endpoints;
     }

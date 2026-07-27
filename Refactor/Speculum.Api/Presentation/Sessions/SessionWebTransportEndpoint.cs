@@ -341,8 +341,11 @@ internal static class SessionWebTransportEndpoint
                     SessionHubMessagePack.Options,
                     ct);
             }
-            catch (MessagePackSerializationException)
+            catch (MessagePackSerializationException ex)
             {
+                // Was a silent continue — every bad UserInput looked like "canvas dead".
+                Console.Error.WriteLine(
+                    $"[vtransport] MessagePack deserialize {typeof(T).Name} failed: {ex.Message}");
                 continue;
             }
 

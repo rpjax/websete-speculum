@@ -154,7 +154,7 @@ const TOOLS = [
 
     icon: Settings2,
 
-    blurb: 'Hosting + Navigation allowlist and Journal toggles via /api/configurations.',
+    blurb: 'Get StartSession ready — browse target, capacity, and lab probes.',
 
   },
 

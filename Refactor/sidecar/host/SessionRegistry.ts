@@ -47,6 +47,10 @@ export class SessionRegistry {
     return [...this.sessions.values()].map((e) => e.bridge);
   }
 
+  list(): RegisteredSession[] {
+    return [...this.sessions.values()];
+  }
+
   /** Notify when a session is created (e.g. Control stream attaches permission sinks). */
   onCreate(listener: (entry: RegisteredSession) => void): () => void {
     this.createListeners.add(listener);

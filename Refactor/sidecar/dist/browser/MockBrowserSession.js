@@ -84,6 +84,11 @@ class MockBrowserSession {
             height: this.height,
         };
     }
+    getTelemetrySnapshot() {
+        return {
+            inputPendingCount: this.movePending ? 1 : 0,
+        };
+    }
     async restoreState(state) {
         this.state = {
             cookies: [...state.cookies],

@@ -83,6 +83,71 @@ export interface LabResourceManagementConfig {
   diagnostics?: Record<string, unknown>
 }
 
+export interface LabTelemetrySectionToggle {
+  isEnabled: boolean
+}
+
+export interface LabTelemetryHostConfig extends LabTelemetrySectionToggle {
+  procPath?: string
+  diskPath?: string | null
+  sampleIntervalMs?: number
+  includeLoadAverage?: boolean
+  includeSwap?: boolean
+  includeDiskIo?: boolean
+  includeNetwork?: boolean
+}
+
+export interface LabTelemetryApiProcessConfig extends LabTelemetrySectionToggle {
+  sampleIntervalMs?: number
+  includePrivateMemory?: boolean
+  includeGarbageCollection?: boolean
+  includeThreadPool?: boolean
+}
+
+export interface LabTelemetrySessionsConfig extends LabTelemetrySectionToggle {
+  includeSessionIds?: boolean
+  includePerSession?: boolean
+  includeUrlHost?: boolean
+}
+
+export interface LabTelemetrySidecarConfig extends LabTelemetrySectionToggle {
+  includeProcess?: boolean
+  includeEventLoop?: boolean
+  includeChrome?: boolean
+  includeQueues?: boolean
+  includeSessionsSummary?: boolean
+  includeFaultedIds?: boolean
+  timeoutMs?: number
+}
+
+export interface LabTelemetryProfilesConfig extends LabTelemetrySectionToggle {
+  includeStorageBytes?: boolean
+}
+
+export interface LabTelemetryJournalConfig extends LabTelemetrySectionToggle {
+  includePressure?: boolean
+}
+
+export interface LabTelemetryDockerConfig extends LabTelemetrySectionToggle {
+  endpoint?: string
+  includeRuntime?: boolean
+  includeContainers?: boolean
+  timeoutMs?: number
+}
+
+/** Engine Telemetry section — Apply also enables Journal fact types. */
+export interface LabTelemetryConfig {
+  isEnabled: boolean
+  intervalSeconds: number
+  host: LabTelemetryHostConfig
+  apiProcess: LabTelemetryApiProcessConfig
+  sessions: LabTelemetrySessionsConfig
+  sidecar: LabTelemetrySidecarConfig
+  profiles: LabTelemetryProfilesConfig
+  journal: LabTelemetryJournalConfig
+  docker: LabTelemetryDockerConfig
+}
+
 export interface LabConfigStatus {
   operational: boolean
   missing: string[]
@@ -99,6 +164,8 @@ export interface LabEngineConfig {
   }
   sessions: LabSessionsConfig
   resourceManagement: LabResourceManagementConfig
+  /** Periodic resource samples → Journal (Telemetry-owned facts). Off unless enabled. */
+  telemetry: LabTelemetryConfig
   /** Opt-in Journal types (test/debug). Off unless explicitly enabled. */
   journal?: Record<string, boolean>
   status?: LabConfigStatus
@@ -119,6 +186,7 @@ export const CONFIG_HOSTING_PATH = '/api/configurations/Hosting'
 export const CONFIG_NAVIGATION_PATH = '/api/configurations/Navigation'
 export const CONFIG_SESSIONS_PATH = '/api/configurations/Sessions'
 export const CONFIG_RESOURCE_MANAGEMENT_PATH = '/api/configurations/ResourceManagement'
+export const CONFIG_TELEMETRY_PATH = '/api/configurations/Telemetry'
 export const CONFIG_JOURNAL_PATH = '/api/configurations/Journal'
 
 /** Explicit lab-complete Sessions snapshot (operator-chosen, not product defaults). */
@@ -170,6 +238,96 @@ export function createLabResourceManagementBaseline(): LabResourceManagementConf
     },
     profiles: {},
     diagnostics: {},
+  }
+}
+
+/** Human labels for pending-config checklist (API section names → operator language). */
+export const LAB_CONFIG_SECTION_LABELS: Record<string, string> = {
+  Navigation: 'Where sessions may browse',
+  Sessions: 'Viewport, timeouts, and device policy',
+  ResourceManagement: 'How many sessions can run',
+  Hosting: 'Public session domains',
+  Journal: 'Session fact recording',
+  Telemetry: 'Periodic resource samples',
+}
+
+/** Lab telemetry starts off — opt-in while browsing; Apply enables Journal facts when on. */
+export function createLabTelemetryBaseline(): LabTelemetryConfig {
+  return {
+    isEnabled: false,
+    intervalSeconds: 15,
+    host: {
+      isEnabled: true,
+      procPath: '/proc',
+      sampleIntervalMs: 1000,
+      includeLoadAverage: true,
+      includeSwap: true,
+      includeDiskIo: false,
+      includeNetwork: false,
+    },
+    apiProcess: {
+      isEnabled: true,
+      sampleIntervalMs: 1000,
+      includePrivateMemory: true,
+      includeGarbageCollection: true,
+      includeThreadPool: true,
+    },
+    sessions: {
+      isEnabled: true,
+      includeSessionIds: true,
+      includePerSession: false,
+      includeUrlHost: true,
+    },
+    sidecar: {
+      isEnabled: true,
+      includeProcess: true,
+      includeEventLoop: true,
+      includeChrome: true,
+      includeQueues: true,
+      includeSessionsSummary: true,
+      includeFaultedIds: true,
+      timeoutMs: 2000,
+    },
+    profiles: {
+      isEnabled: true,
+      includeStorageBytes: true,
+    },
+    journal: {
+      isEnabled: true,
+      includePressure: true,
+    },
+    docker: {
+      isEnabled: false,
+      endpoint: 'unix:///var/run/docker.sock',
+      includeRuntime: true,
+      includeContainers: true,
+      timeoutMs: 2000,
+    },
+  }
+}
+
+/** Lab journal toggles start off — InputApplied is expensive on the input hot path. */
+export function createLabJournalBaseline(): Record<LabJournalType, boolean> {
+  return {
+    'Sessions.InputApplied': false,
+    'Sessions.InputRejected': false,
+    'Sessions.ResizeApplied': false,
+    'Sessions.ResizeRejected': false,
+  }
+}
+
+/**
+ * Operator-chosen snapshot that satisfies mandatory completeness for local lab.
+ * Does not invent product defaults into the binary — only what this UI applies.
+ */
+export function createLabReadyNavigation(defaultTargetHost = 'www.google.com'): {
+  defaultTargetHost: string
+  allowedMainFrameUrls: LabUrlMatchRule[]
+} {
+  const host = defaultTargetHost.trim() || 'www.google.com'
+  return {
+    defaultTargetHost: host,
+    allowedMainFrameUrls: [{ domain: { scope: 'Any', labels: [] } }],
   }
 }
 
@@ -281,8 +439,28 @@ function normalizeResourceManagement(
   }
 }
 
+function normalizeTelemetry(
+  raw: Partial<LabTelemetryConfig> | null | undefined,
+): LabTelemetryConfig {
+  const baseline = createLabTelemetryBaseline()
+  if (!raw) {
+    return baseline
+  }
+  return {
+    isEnabled: raw.isEnabled ?? baseline.isEnabled,
+    intervalSeconds: raw.intervalSeconds ?? baseline.intervalSeconds,
+    host: { ...baseline.host, ...raw.host },
+    apiProcess: { ...baseline.apiProcess, ...raw.apiProcess },
+    sessions: { ...baseline.sessions, ...raw.sessions },
+    sidecar: { ...baseline.sidecar, ...raw.sidecar },
+    profiles: { ...baseline.profiles, ...raw.profiles },
+    journal: { ...baseline.journal, ...raw.journal },
+    docker: { ...baseline.docker, ...raw.docker },
+  }
+}
+
 export async function fetchLabEngineConfig(hubOrigin = ''): Promise<LabEngineConfig> {
-  const [status, hosting, navigation, sessions, resourceManagement, journalPayload] =
+  const [status, hosting, navigation, sessions, resourceManagement, telemetry, journalPayload] =
     await Promise.all([
       getJson<LabConfigStatus>(CONFIG_STATUS_PATH, hubOrigin),
       getJson<LabEngineConfig['hosting']>(CONFIG_HOSTING_PATH, hubOrigin),
@@ -292,6 +470,7 @@ export async function fetchLabEngineConfig(hubOrigin = ''): Promise<LabEngineCon
         CONFIG_RESOURCE_MANAGEMENT_PATH,
         hubOrigin,
       ),
+      getJson<Partial<LabTelemetryConfig>>(CONFIG_TELEMETRY_PATH, hubOrigin),
       getJson<JournalEventsPayload>(CONFIG_JOURNAL_PATH, hubOrigin),
     ])
 
@@ -307,12 +486,13 @@ export async function fetchLabEngineConfig(hubOrigin = ''): Promise<LabEngineCon
     },
     sessions: normalizeSessions(sessions),
     resourceManagement: normalizeResourceManagement(resourceManagement),
+    telemetry: normalizeTelemetry(telemetry),
     journal: journalPayload.events ?? {},
   }
 }
 
 /**
- * Persist Hosting + Navigation + Sessions + ResourceManagement + Journal in one
+ * Persist Hosting + Navigation + Sessions + ResourceManagement + Telemetry + Journal in one
  * validated Apply (no partial mid-save apply).
  */
 export async function putLabEngineConfig(
@@ -326,6 +506,7 @@ export async function putLabEngineConfig(
       Navigation: body.navigation,
       Sessions: body.sessions,
       ResourceManagement: body.resourceManagement,
+      Telemetry: body.telemetry,
       Journal: { events: body.journal ?? {} },
     },
     hubOrigin,

@@ -6,7 +6,7 @@ export const crossCorrelateAnalyzer: Analyzer = {
     const findings: Finding[] = []
     const refused = bag.events.filter((e) => e.name === 'Motor.SessionRefused').length
     const lastCap = bag.telemetry
-      .map((s) => s.payload.motor?.capacityUsedPct)
+      .map((s) => s.payload.sessions?.capacityUsedPct)
       .filter((n): n is number => typeof n === 'number')
       .at(-1)
 

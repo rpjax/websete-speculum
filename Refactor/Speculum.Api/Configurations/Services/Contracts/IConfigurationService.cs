@@ -6,6 +6,7 @@ using Speculum.Api.Configurations.Models.Profiles;
 using Speculum.Api.Configurations.Models.ResourceManagement;
 using Speculum.Api.Configurations.Models.Scripting;
 using Speculum.Api.Configurations.Models.Sessions;
+using Speculum.Api.Configurations.Models.Telemetry;
 
 namespace Speculum.Api.Configurations.Services.Contracts;
 
@@ -38,4 +39,5 @@ public sealed class EngineConfiguration
     public ResourceManagementConfiguration ResourceManagement { get; set; } = new();
     public ScriptingConfiguration Scripting { get; set; } = new();
     public DiagnosticsConfiguration Diagnostics { get; set; } = new();
+    public TelemetryConfiguration Telemetry { get; set; } = new();
 }

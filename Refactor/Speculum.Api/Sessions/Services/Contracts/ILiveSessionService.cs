@@ -24,9 +24,18 @@ public interface ILiveSessionService
     /// <summary>Looks up an existing context. Never creates one.</summary>
     bool TryGet(Guid sessionId, [NotNullWhen(true)] out ILiveSession? session);
 
+    IReadOnlyList<LiveSessionTelemetrySnapshot> ListSnapshots();
+
     /// <summary>
     /// Tears down the context: unbinds hooks, disposes the multiplexer, drops attachments.
     /// Idempotent. Does not stop the browser / connection (that is <see cref="ISessionService"/>).
     /// </summary>
     void Release(Guid sessionId);
 }
+
+public sealed record LiveSessionTelemetrySnapshot(
+    Guid SessionId,
+    Guid ProfileId,
+    bool JsBridgeEnabled,
+    bool ConnectionOpen,
+    long UptimeMs);

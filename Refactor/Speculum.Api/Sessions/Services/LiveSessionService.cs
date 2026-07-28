@@ -82,6 +82,7 @@ public sealed class LiveSessionService : ILiveSessionService
             var hooks = new SessionHooks(sessionId);
             var live = new LiveSession(
                 sessionId,
+                profileId,
                 connection,
                 mux,
                 hooks,
@@ -114,6 +115,9 @@ public sealed class LiveSessionService : ILiveSessionService
         session = null;
         return false;
     }
+
+    public IReadOnlyList<LiveSessionTelemetrySnapshot> ListSnapshots()
+        => _sessions.Values.Select(session => session.GetTelemetrySnapshot()).ToArray();
 
     public void Release(Guid sessionId)
     {

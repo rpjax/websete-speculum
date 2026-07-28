@@ -255,13 +255,15 @@ internal static class GrpcSessionMappers
     public static SessionStatus ToSessionStatus(
         Guid sessionId,
         Status status,
-        DomainEditingState? editing) => new()
+        DomainEditingState? editing,
+        double fps) => new()
     {
         TabCount = status.TabCount,
         Url = status.Url,
         Resizing = status.Resizing,
         Width = status.Width,
         Height = status.Height,
+        Fps = fps,
         SessionId = sessionId.ToString("D"),
         Editing = editing,
     };

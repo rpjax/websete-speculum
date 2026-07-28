@@ -26,6 +26,7 @@ internal sealed class LiveSession : ILiveSession
     private readonly ILogger _logger;
     private readonly string _requestHost;
     private readonly bool _jsBridgeEnabled;
+    private readonly Guid _profileId;
     private readonly long _startedTimestamp = Environment.TickCount64;
     private readonly ScopedMutex _commandGate = new();
     private readonly object _attachmentGate = new();
@@ -42,6 +43,7 @@ internal sealed class LiveSession : ILiveSession
 
     internal LiveSession(
         Guid sessionId,
+        Guid profileId,
         ISessionConnection connection,
         ISessionStreamMultiplexer mux,
         SessionHooks hooks,
@@ -54,6 +56,7 @@ internal sealed class LiveSession : ILiveSession
         ILogger logger)
     {
         SessionId = sessionId;
+        _profileId = profileId;
         _connection = connection;
         _mux = mux;
         _hooks = hooks;
@@ -67,6 +70,14 @@ internal sealed class LiveSession : ILiveSession
 
         hooks.BindToConnection(connection);
     }
+
+    internal LiveSessionTelemetrySnapshot GetTelemetrySnapshot()
+        => new(
+            SessionId,
+            _profileId,
+            _jsBridgeEnabled,
+            _connection.IsOpen && !IsReleased,
+            Math.Max(1, Environment.TickCount64 - _startedTimestamp));
 
     internal void Release()
     {
@@ -668,9 +679,15 @@ internal sealed class LiveSession : ILiveSession
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(request.Probe);
-        return WithCommandGateAsync(
-            () => _connection.RequestDiagnosticsAsync(request.Probe, ct),
-            ct);
+        // Unlocked vs navigate/resize (sidecar probe is unlocked too), but still
+        // fail fast after Release — same guard as GetStatusAsync.
+        if (IsReleased || !_connection.IsOpen)
+        {
+            return Task.FromResult<IResult<DiagProbeResult>>(
+                Result<DiagProbeResult>.Failure("Live session is released"));
+        }
+
+        return _connection.RequestDiagnosticsAsync(request.Probe, ct);
     }
 
     // ── Hooks ────────────────────────────────────────────────────────────────

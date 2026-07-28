@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
 using Speculum.Api.Sessions.Models;
 using Speculum.Api.Sessions.Services.Contracts;
+using Speculum.Api.Sessions.Services.Streaming;
 
 namespace Speculum.Api.Presentation.Sessions;
 
@@ -241,7 +242,7 @@ internal static class SessionWebTransportEndpoint
         ILiveSession live,
         CancellationToken ct)
     {
-        var channel = Channel.CreateBounded<UserInput>(32);
+        var channel = DropOldestChannels.Create<UserInput>(32);
         var consume = live.ConsumeUserInputAsync(channel.Reader, ct);
         if (consume.IsFailure)
         {
@@ -258,7 +259,7 @@ internal static class SessionWebTransportEndpoint
         ILiveSession live,
         CancellationToken ct)
     {
-        var channel = Channel.CreateBounded<ConsoleInput>(16);
+        var channel = DropOldestChannels.Create<ConsoleInput>(16);
         var consume = live.ConsumeConsoleInputAsync(channel.Reader, ct);
         if (consume.IsFailure)
         {
@@ -305,7 +306,8 @@ internal static class SessionWebTransportEndpoint
     {
         await foreach (var item in ReadMessagesAsync<T>(reader, ct))
         {
-            await destination.WriteAsync(item, ct);
+            // DropOldest: never block the WT reader waiting for buffer space.
+            _ = destination.TryWrite(item);
         }
     }
 

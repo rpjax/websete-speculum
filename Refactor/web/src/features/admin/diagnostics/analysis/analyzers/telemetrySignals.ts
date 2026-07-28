@@ -21,9 +21,9 @@ export const telemetrySignalsAnalyzer: Analyzer = {
       if (typeof p.apiProcess?.cpuUsage === 'number') apiCpus.push(p.apiProcess.cpuUsage)
       if (typeof p.apiProcess?.memoryUsed === 'number') apiMems.push(p.apiProcess.memoryUsed)
       if (typeof p.apiProcess?.threadCount === 'number') apiThreads.push(p.apiProcess.threadCount)
-      if (typeof p.motor?.avgFps === 'number') fps.push(p.motor.avgFps)
-      if (typeof p.motor?.capacityUsedPct === 'number') caps.push(p.motor.capacityUsedPct)
-      if (typeof p.motor?.live === 'number') lives.push(p.motor.live)
+      if (typeof p.sessions?.avgFps === 'number') fps.push(p.sessions.avgFps)
+      if (typeof p.sessions?.capacityUsedPct === 'number') caps.push(p.sessions.capacityUsedPct)
+      if (typeof p.sessions?.live === 'number') lives.push(p.sessions.live)
     }
 
     const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null)
@@ -53,7 +53,7 @@ export const telemetrySignalsAnalyzer: Analyzer = {
           (avgApiCpu != null ? `API process CPU avg≈${avgApiCpu.toFixed(1)}%. ` : 'API process CPU section absent. ') +
           (avgApiMem != null ? `API working set avg≈${Math.round(avgApiMem / (1024 * 1024))} MiB. ` : '') +
           (avgThreads != null ? `API threads avg≈${avgThreads.toFixed(0)}. ` : '') +
-          (avgFps != null ? `Motor avgFps≈${avgFps.toFixed(1)} (min ${minFps?.toFixed(1)}). ` : 'Motor FPS absent. ') +
+          (avgFps != null ? `Sessions avgFps≈${avgFps.toFixed(1)} (min ${minFps?.toFixed(1)}). ` : 'Sessions FPS absent. ') +
           (maxCap != null ? `Peak capacityUsedPct≈${maxCap.toFixed(1)}%. ` : '') +
           `Live session count delta across samples: ${liveDelta >= 0 ? '+' : ''}${liveDelta}. ` +
           `Missing sections mean those toggles were off — absence is a completeness fact, not a zero measurement.`,
@@ -72,7 +72,7 @@ export const telemetrySignalsAnalyzer: Analyzer = {
         title: 'Possible render pressure with flat machine CPU',
         body:
           `Minimum avgFps dipped to ${minFps.toFixed(1)} while average machine CPU stayed moderate (${avgHostCpu.toFixed(1)}%). ` +
-          `Symptom→signal guidance: when FPS falls and machine CPU is flat, inspect motor input/frame channel depths and sidecar connectivity next.`,
+          `Symptom→signal guidance: when FPS falls and machine CPU is flat, inspect session input/frame channel depths and sidecar connectivity next.`,
         evidenceRefs: [],
         relatedFindingIds: ['telemetry-signals'],
         sectionHints: ['signals', 'crossings'],

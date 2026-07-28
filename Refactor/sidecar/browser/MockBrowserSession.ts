@@ -12,6 +12,7 @@ import {
   type BrowserSessionFactory,
   type BrowserState,
   type BrowserStatus,
+  type BrowserTelemetrySnapshot,
 } from './BrowserSession';
 import { HarnessRenderer } from './mock/HarnessRenderer';
 import { HarnessScene } from './mock/HarnessScene';
@@ -100,6 +101,12 @@ export class MockBrowserSession implements BrowserSession {
       resizing: this.resizing,
       width: this.width,
       height: this.height,
+    };
+  }
+
+  getTelemetrySnapshot(): BrowserTelemetrySnapshot {
+    return {
+      inputPendingCount: this.movePending ? 1 : 0,
     };
   }
 

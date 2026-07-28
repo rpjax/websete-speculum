@@ -95,6 +95,14 @@ export interface BrowserStatus {
   height: number;
 }
 
+/**
+ * Session-local operational telemetry that stays inside the sidecar process and is sampled
+ * only by the sidecar telemetry collector.
+ */
+export interface BrowserTelemetrySnapshot {
+  inputPendingCount?: number;
+}
+
 // ── Launch / device / scripts ────────────────────────────────────────────────
 
 export interface BrowserLaunchOptions {
@@ -266,7 +274,8 @@ export type BrowserInput =
  * Lifecycle expected by the connection handler:
  *   launch → restoreState? → navigate? → (resize | input | probe | …) → exportState? → stop → dispose
  *
- * History (goback/goforward) and pointer/key events travel through {@link pushInput}.
+ * History (goback/goforward) travels through {@link pushInput} as non-blocking
+ * navigation; pointer/key/touch are fire-and-forget CDP Input.* events.
  */
 export interface BrowserSession {
   readonly sessionId: string;
@@ -284,6 +293,7 @@ export interface BrowserSession {
    * this session does not push periodic status.
    */
   getStatus(): Promise<BrowserStatus>;
+  getTelemetrySnapshot?(): BrowserTelemetrySnapshot;
 
   restoreState(state: BrowserState): Promise<void>;
   exportState(): Promise<BrowserState>;
@@ -302,6 +312,7 @@ export interface BrowserSession {
 
   /**
    * Pointer / keyboard / wheel / touch / text / history.
+   * Input.* CDP is fire-and-forget; history does not block other input.
    * Validation and product policy live above this port.
    */
   pushInput(input: BrowserInput): Promise<void>;

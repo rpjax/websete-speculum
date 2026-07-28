@@ -40,12 +40,12 @@ const assert_1 = __importDefault(require("assert"));
 const Navigation_1 = require("./browser/patchright/Navigation");
 const device_emulation_1 = require("./browser/patchright/device-emulation");
 const viewport_bounds_1 = require("./browser/patchright/viewport-bounds");
-const Input_1 = require("./browser/patchright/Input");
 const contextCrash_1 = require("./browser/patchright/contextCrash");
 const mappers_1 = require("./grpc/mappers");
 const EventBridge_1 = require("./host/EventBridge");
 const DropOldestQueue_1 = require("./host/DropOldestQueue");
 const browserRace_1 = require("./host/browserRace");
+const collectTelemetry_1 = require("./telemetry/collectTelemetry");
 /** Test stand-in for Sessions.ViewportPolicy — production gets this on Launch. */
 const POLICY = {
     minWidth: 100,
@@ -161,46 +161,6 @@ async function testScreencastRestartThrowsAfterStop() {
     await assert_1.default.rejects(() => sc.restart(200, 200, () => { }), /restart after stop/);
     console.log('[unit] screencast restart throws after stop ok');
 }
-async function testInputDrainAwaitsInFlight() {
-    let resolveMove;
-    const moveGate = new Promise((r) => {
-        resolveMove = r;
-    });
-    let moveStarted = false;
-    const page = {
-        mouse: {
-            move: async () => {
-                moveStarted = true;
-                await moveGate;
-            },
-            down: async () => { },
-            up: async () => { },
-            wheel: async () => { },
-        },
-        keyboard: {
-            down: async () => { },
-            up: async () => { },
-            type: async () => { },
-            insertText: async () => { },
-        },
-    };
-    const cdp = { send: async () => { } };
-    const input = new Input_1.InputController(page, cdp);
-    input.enqueue({ type: 'mousedown', x: 1, y: 2, button: 0 });
-    await new Promise((r) => setImmediate(r));
-    assert_1.default.strictEqual(moveStarted, true);
-    input.setSuspended(true);
-    let drained = false;
-    const drainPromise = input.drain().then(() => {
-        drained = true;
-    });
-    await new Promise((r) => setImmediate(r));
-    assert_1.default.strictEqual(drained, false);
-    resolveMove();
-    await drainPromise;
-    assert_1.default.strictEqual(drained, true);
-    console.log('[unit] input drain awaits in-flight ok');
-}
 function testLaunchEnvironmentIsRequired() {
     assert_1.default.throws(() => (0, mappers_1.toLaunchOptions)({ width: 800, height: 600 }), /ViewportPolicy bounds|locale is required/);
     assert_1.default.throws(() => (0, mappers_1.toLaunchOptions)({
@@ -314,72 +274,6 @@ async function testStopKeepsBridgeQueuesOpen() {
     assert_1.default.strictEqual(bridge.video.isClosed, true);
     console.log('[unit] stop_keeps_bridge_queues_open ok');
 }
-async function testNavigateSuspendsInput() {
-    let moveCalls = 0;
-    const page = {
-        mouse: {
-            move: async () => {
-                moveCalls++;
-            },
-            down: async () => { },
-            up: async () => { },
-            wheel: async () => { },
-        },
-        keyboard: {
-            down: async () => { },
-            up: async () => { },
-            type: async () => { },
-            insertText: async () => { },
-        },
-    };
-    const cdp = { send: async () => { } };
-    const input = new Input_1.InputController(page, cdp);
-    input.beginSuspend();
-    input.enqueue({ type: 'mousedown', x: 1, y: 2, button: 0 });
-    await new Promise((r) => setImmediate(r));
-    assert_1.default.strictEqual(moveCalls, 0);
-    assert_1.default.strictEqual(input.suspended, true);
-    input.endSuspend();
-    input.enqueue({ type: 'mousedown', x: 3, y: 4, button: 0 });
-    await new Promise((r) => setImmediate(r));
-    // mousedown does move then down
-    assert_1.default.ok(moveCalls >= 1);
-    console.log('[unit] navigate_suspends_input ok');
-}
-async function testSuspendNestingKeepsPaused() {
-    let moveCalls = 0;
-    const page = {
-        mouse: {
-            move: async () => {
-                moveCalls++;
-            },
-            down: async () => { },
-            up: async () => { },
-            wheel: async () => { },
-        },
-        keyboard: {
-            down: async () => { },
-            up: async () => { },
-            type: async () => { },
-            insertText: async () => { },
-        },
-    };
-    const cdp = { send: async () => { } };
-    const input = new Input_1.InputController(page, cdp);
-    input.beginSuspend(); // resize
-    input.beginSuspend(); // navigate overlaps
-    input.endSuspend(); // navigate ends first — must stay suspended
-    assert_1.default.strictEqual(input.suspended, true);
-    input.enqueue({ type: 'mousedown', x: 1, y: 2, button: 0 });
-    await new Promise((r) => setImmediate(r));
-    assert_1.default.strictEqual(moveCalls, 0);
-    input.endSuspend(); // resize ends
-    assert_1.default.strictEqual(input.suspended, false);
-    input.enqueue({ type: 'mousedown', x: 3, y: 4, button: 0 });
-    await new Promise((r) => setImmediate(r));
-    assert_1.default.ok(moveCalls >= 1);
-    console.log('[unit] suspend nesting keeps paused ok');
-}
 function testBenignBrowserRaceNarrow() {
     assert_1.default.strictEqual((0, browserRace_1.isBenignBrowserRace)(new Error('Frame was detached')), true);
     assert_1.default.strictEqual((0, browserRace_1.isBenignBrowserRace)(new Error('Target closed')), true);
@@ -399,6 +293,16 @@ async function testAbortDoesNotStealQueuedCrash() {
     const next = await q.read();
     assert_1.default.deepStrictEqual(next, { errorCode: 'browser_closed' });
     console.log('[unit] abort_does_not_steal_queued_crash ok');
+}
+function testDropOldestQueueTracksDroppedCount() {
+    const q = new DropOldestQueue_1.DropOldestQueue(2);
+    q.tryWrite(1);
+    q.tryWrite(2);
+    q.tryWrite(3);
+    q.tryWrite(4);
+    assert_1.default.strictEqual(q.pendingCount, 2);
+    assert_1.default.strictEqual(q.droppedCount, 2);
+    console.log('[unit] drop_oldest_queue_tracks_dropped_count ok');
 }
 async function testPermissionClearRespectsEpoch() {
     const bridge = new EventBridge_1.EventBridge('s-perm');
@@ -420,6 +324,121 @@ async function testPermissionClearRespectsEpoch() {
     bridge.clearPermissionSink(sinkB, epochB);
     console.log('[unit] permission_clear_respects_epoch ok');
 }
+async function testInputFireAndForgetAndMoveCoalesce() {
+    const sent = [];
+    let resolveSlow = null;
+    const slow = new Promise((r) => {
+        resolveSlow = r;
+    });
+    const cdp = {
+        send(method, params) {
+            sent.push({ method, params: (params ?? {}) });
+            if (method === 'Input.dispatchMouseEvent' && params?.type === 'mousePressed') {
+                return slow;
+            }
+            return Promise.resolve({});
+        },
+    };
+    const page = {
+        goBack: () => Promise.reject(new Error('should not block')),
+        goForward: () => Promise.reject(new Error('should not block')),
+    };
+    const { InputController } = await Promise.resolve().then(() => __importStar(require('./browser/patchright/Input')));
+    const input = new InputController(page, cdp);
+    // Admission must return while a prior CDP call is still in flight.
+    input.enqueue({ type: 'mousedown', x: 1, y: 2, button: 0 });
+    assert_1.default.strictEqual(input.pendingCount, 1, 'in-flight CDP must be visible in telemetry');
+    input.enqueue({ type: 'mouseup', x: 1, y: 2, button: 0 });
+    input.enqueue({ type: 'keydown', key: 'a' });
+    assert_1.default.strictEqual(sent.length, 3, 'second/third CDP must not wait for first');
+    // mousemove coalesces to last point via setImmediate
+    input.enqueue({ type: 'mousemove', x: 10, y: 10 });
+    input.enqueue({ type: 'mousemove', x: 20, y: 20 });
+    input.enqueue({ type: 'mousemove', x: 30, y: 30 });
+    assert_1.default.ok(input.pendingCount >= 2, 'coalesced pending move must count until flushed');
+    await new Promise((r) => setImmediate(r));
+    const moves = sent.filter((s) => s.method === 'Input.dispatchMouseEvent' && s.params.type === 'mouseMoved');
+    assert_1.default.strictEqual(moves.length, 1);
+    assert_1.default.strictEqual(moves[0].params.x, 30);
+    assert_1.default.strictEqual(moves[0].params.y, 30);
+    // history must not throw / block admission
+    input.enqueue({ type: 'goback' });
+    input.enqueue({ type: 'goforward' });
+    resolveSlow();
+    await slow;
+    await Promise.resolve();
+    assert_1.default.strictEqual(input.pendingCount, 0, 'telemetry input depth must drain after completion');
+    console.log('[unit] input fire-and-forget + move coalesce ok');
+}
+async function testTelemetryToggleOmission() {
+    const registry = { list: () => [] };
+    const empty = await (0, collectTelemetry_1.collectTelemetry)({}, registry);
+    assert_1.default.deepStrictEqual(empty, {});
+    const processOnly = await (0, collectTelemetry_1.collectTelemetry)({ includeProcess: true }, registry);
+    assert_1.default.ok(processOnly.process);
+    assert_1.default.strictEqual(processOnly.eventLoop, undefined);
+    assert_1.default.strictEqual(processOnly.chrome, undefined);
+    assert_1.default.strictEqual(processOnly.queues, undefined);
+    assert_1.default.strictEqual(processOnly.sessions, undefined);
+    const sectioned = await (0, collectTelemetry_1.collectTelemetry)({ includeChrome: true, includeQueues: true }, registry);
+    assert_1.default.ok(sectioned.chrome);
+    assert_1.default.ok(sectioned.queues);
+    assert_1.default.strictEqual('totalJsHeapUsed' in sectioned.chrome, false);
+    assert_1.default.strictEqual(sectioned.queues.inputDepth, 0);
+    assert_1.default.strictEqual(sectioned.queues.droppedTotal, 0);
+    console.log('[unit] telemetry toggles omit sections ok');
+}
+async function testTelemetryQueuesReportInputDepthAndDrops() {
+    const bridge = new EventBridge_1.EventBridge('telemetry-session');
+    bridge.video.tryWrite(new Uint8Array([1]));
+    bridge.video.tryWrite(new Uint8Array([2]));
+    bridge.video.tryWrite(new Uint8Array([3]));
+    const registry = {
+        list: () => [
+            {
+                bridge,
+                session: {
+                    sessionId: 'telemetry-session',
+                    getStatus: async () => ({ isOpen: true, tabCount: 1, url: 'about:blank', resizing: false, width: 1, height: 1 }),
+                    getTelemetrySnapshot: () => ({ inputPendingCount: 2 }),
+                },
+            },
+        ],
+    };
+    const sample = await (0, collectTelemetry_1.collectTelemetry)({ includeQueues: true }, registry);
+    assert_1.default.deepStrictEqual(sample.queues, {
+        videoDepth: 2,
+        audioDepth: 0,
+        consoleDepth: 0,
+        inputDepth: 2,
+        droppedTotal: 1,
+    });
+    console.log('[unit] telemetry queues report input depth and drops ok');
+}
+async function testTelemetryFaultStateSurvivesCrashConsumption() {
+    const bridge = new EventBridge_1.EventBridge('faulted-session');
+    bridge.onCrash({
+        errorCode: 'browser_closed',
+        message: 'Chrome context closed unexpectedly',
+        phase: 'runtime',
+    });
+    const consumed = await bridge.crash.read();
+    assert_1.default.ok(consumed);
+    assert_1.default.strictEqual(bridge.crash.pendingCount, 0);
+    const registry = {
+        list: () => [{
+                bridge,
+                session: {
+                    sessionId: 'faulted-session',
+                    getStatus: async () => ({ isOpen: false, tabCount: 0 }),
+                },
+            }],
+    };
+    const telemetry = await (0, collectTelemetry_1.collectTelemetry)({ includeSessionsSummary: true, includeFaultedIds: true }, registry);
+    assert_1.default.strictEqual(telemetry.sessions?.faulted, 1);
+    assert_1.default.deepStrictEqual(telemetry.sessions?.faultedSessionIds, ['faulted-session']);
+    console.log('[unit] telemetry fault state survives crash consumption ok');
+}
 async function main() {
     testDomainMatch();
     testViewportBounds();
@@ -432,12 +451,14 @@ async function main() {
     testUnexpectedContextCloseEnqueuesCrash();
     testRecreateKeepsOpenAcrossStaleClose();
     await testStopKeepsBridgeQueuesOpen();
-    await testNavigateSuspendsInput();
-    await testSuspendNestingKeepsPaused();
-    await testInputDrainAwaitsInFlight();
     testBenignBrowserRaceNarrow();
     await testAbortDoesNotStealQueuedCrash();
+    testDropOldestQueueTracksDroppedCount();
     await testPermissionClearRespectsEpoch();
+    await testInputFireAndForgetAndMoveCoalesce();
+    await testTelemetryToggleOmission();
+    await testTelemetryQueuesReportInputDepthAndDrops();
+    await testTelemetryFaultStateSurvivesCrashConsumption();
     console.log('[unit] all passed');
 }
 main().catch((err) => {

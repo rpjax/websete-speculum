@@ -38,6 +38,9 @@ class SessionRegistry {
     listBridges() {
         return [...this.sessions.values()].map((e) => e.bridge);
     }
+    list() {
+        return [...this.sessions.values()];
+    }
     /** Notify when a session is created (e.g. Control stream attaches permission sinks). */
     onCreate(listener) {
         this.createListeners.add(listener);

@@ -7,6 +7,9 @@ using Microsoft.Extensions.Options;
 using Speculum.Api.Configurations.Models.Sidecar;
 using Speculum.Api.Configurations.Services.Contracts;
 using Speculum.Api.Sidecar.V1;
+using Speculum.Api.Telemetry.Models;
+using TelemetryRequest = Speculum.Api.Telemetry.Models.SidecarTelemetryRequest;
+using ProtoTelemetryRequest = Speculum.Api.Sidecar.V1.SidecarTelemetryRequest;
 
 namespace Speculum.Api.BrowserClients.Grpc;
 
@@ -53,6 +56,64 @@ public sealed class GrpcBrowserClient : IBrowserClient, IDisposable
 
     public Task<IResult> UpdateBrowserConfigsAsync(CancellationToken ct = default)
         => Task.FromResult<IResult>(Result.Success());
+
+    public async Task<IResult<SidecarTelemetrySample>> CollectTelemetryAsync(
+        TelemetryRequest request,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        try
+        {
+            var response = await _client.CollectTelemetryAsync(
+                new ProtoTelemetryRequest
+                {
+                    IncludeProcess = request.IncludeProcess,
+                    IncludeEventLoop = request.IncludeEventLoop,
+                    IncludeChrome = request.IncludeChrome,
+                    IncludeQueues = request.IncludeQueues,
+                    IncludeSessionsSummary = request.IncludeSessionsSummary,
+                    IncludeFaultedIds = request.IncludeFaultedIds,
+                },
+                cancellationToken: ct);
+
+            return Result<SidecarTelemetrySample>.Success(new SidecarTelemetrySample(
+                response.Process is not null
+                    ? new Speculum.Api.Telemetry.Models.SidecarProcessTelemetry(
+                        response.Process.CpuUsage, response.Process.MemoryRss,
+                        response.Process.MemoryHeapUsed, response.Process.MemoryHeapTotal,
+                        response.Process.Pid, response.Process.UptimeSec)
+                    : null,
+                response.EventLoop is not null
+                    ? new Speculum.Api.Telemetry.Models.SidecarEventLoopTelemetry(
+                        response.EventLoop.DelayMsP50, response.EventLoop.DelayMsP99,
+                        response.EventLoop.Utilization)
+                    : null,
+                response.Chrome is not null
+                    ? new Speculum.Api.Telemetry.Models.SidecarChromeTelemetry(
+                        response.Chrome.BrowserCount, response.Chrome.PageCount,
+                        response.Chrome.HasTotalJsHeapUsed ? response.Chrome.TotalJsHeapUsed : null)
+                    : null,
+                response.Queues is not null
+                    ? new Speculum.Api.Telemetry.Models.SidecarQueueTelemetry(
+                        response.Queues.VideoDepth, response.Queues.AudioDepth,
+                        response.Queues.ConsoleDepth,
+                        response.Queues.HasInputDepth ? response.Queues.InputDepth : null,
+                        response.Queues.HasDroppedTotal ? response.Queues.DroppedTotal : null)
+                    : null,
+                response.Sessions is not null
+                    ? new Speculum.Api.Telemetry.Models.SidecarSessionsSummary(
+                        response.Sessions.Registered, response.Sessions.Open,
+                        response.Sessions.Faulted,
+                        request.IncludeFaultedIds
+                            ? response.Sessions.FaultedSessionIds.ToArray()
+                            : null)
+                    : null));
+        }
+        catch (Exception ex)
+        {
+            return Result<SidecarTelemetrySample>.Failure(ex.Message);
+        }
+    }
 
     public async Task<IResult<ISessionConnection>> StartConnectionAsync(
         Guid sessionId,

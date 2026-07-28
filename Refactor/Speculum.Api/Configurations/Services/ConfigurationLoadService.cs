@@ -7,6 +7,7 @@ using Speculum.Api.Configurations.Models.Journal;
 using Speculum.Api.Configurations.Models.Navigation;
 using Speculum.Api.Configurations.Models.ResourceManagement;
 using Speculum.Api.Configurations.Models.Sessions;
+using Speculum.Api.Configurations.Models.Telemetry;
 using Speculum.Api.Configurations.Persistence;
 using Speculum.Api.Configurations.Services.Contracts;
 
@@ -61,33 +62,43 @@ public sealed class ConfigurationLoadService : IConfigurationLoadService
 
     private async Task MergeFirstBootAsync(CancellationToken ct)
     {
-        await MergeSectionAsync(
+        await MergeTypedSectionAsync<HostingConfiguration>(
             ConfigSectionKeys.Hosting,
             HostingConfiguration.SectionName,
             ct).ConfigureAwait(false);
 
-        await MergeSectionAsync(
+        await MergeTypedSectionAsync<NavigationConfiguration>(
             ConfigSectionKeys.Navigation,
             NavigationConfiguration.SectionName,
             ct).ConfigureAwait(false);
 
-        await MergeSectionAsync(
+        await MergeTypedSectionAsync<SessionsConfiguration>(
             ConfigSectionKeys.Sessions,
             SessionsConfiguration.SectionName,
             ct).ConfigureAwait(false);
 
-        await MergeSectionAsync(
+        await MergeTypedSectionAsync<ResourceManagementConfiguration>(
             ConfigSectionKeys.ResourceManagement,
             ResourceManagementConfiguration.SectionName,
             ct).ConfigureAwait(false);
 
         await MergeJournalEventsAsync(ct).ConfigureAwait(false);
+
+        await MergeTypedSectionAsync<TelemetryConfiguration>(
+            ConfigSectionKeys.Telemetry,
+            TelemetryConfiguration.SectionName,
+            ct).ConfigureAwait(false);
     }
 
-    private async Task MergeSectionAsync(string storeKey, string configurationSection, CancellationToken ct)
+    private async Task MergeTypedSectionAsync<T>(
+        string storeKey,
+        string configurationSection,
+        CancellationToken ct)
+        where T : class, new()
     {
         var sqliteJson = await _store.GetSectionJsonAsync(storeKey, ct).ConfigureAwait(false);
-        var fromHost = SectionToJsonNode(_configuration.GetSection(configurationSection));
+        var bound = _configuration.GetSection(configurationSection).Get<T>() ?? new T();
+        var fromHost = JsonSerializer.SerializeToNode(bound, ConfigSectionStore.SerializerOptions);
         var merged = MergeJson(ParseObject(sqliteJson), fromHost);
         var json = merged?.ToJsonString(ConfigSectionStore.SerializerOptions);
         await _store.UpsertSectionJsonAsync(storeKey, json, ct).ConfigureAwait(false);

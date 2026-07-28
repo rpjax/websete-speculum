@@ -8,6 +8,7 @@ public static class ConfigSectionKeys
     public const string Sessions = "Sessions";
     public const string ResourceManagement = "ResourceManagement";
     public const string Journal = "Journal";
+    public const string Telemetry = "Telemetry";
 
     public const string MetadataIsFirstBoot = "IsFirstBoot";
 
@@ -18,6 +19,7 @@ public static class ConfigSectionKeys
         Sessions,
         ResourceManagement,
         Journal,
+        Telemetry,
     ];
 
     /// <summary>Pre-PascalCase store keys (one-time rename on EnsureSchema).</summary>
@@ -28,6 +30,7 @@ public static class ConfigSectionKeys
         ("sessions", Sessions),
         ("resourceManagement", ResourceManagement),
         ("journal", Journal),
+        ("telemetry", Telemetry),
     ];
 }
 

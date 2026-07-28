@@ -63,6 +63,7 @@ public sealed class GrpcSessionConnection : ISessionConnection
     private Func<CancellationToken, Task<PermissionDecision>>? _cameraPermissionHandler;
     private Func<CancellationToken, Task<PermissionDecision>>? _microphonePermissionHandler;
     private long _frameSequence;
+    private readonly Queue<long> _recentFrameTimestamps = new();
     private int _open = 1;
     private int _transportLost;
     /// <summary>Set once a Chromium <see cref="SessionNotificationKind.Crashed"/> is queued — blocks further DropOldest churn from evicting it.</summary>
@@ -402,13 +403,15 @@ public sealed class GrpcSessionConnection : ISessionConnection
                     cancellationToken: token).ResponseAsync);
 
             DomainEditingState? editing;
+            double fps;
             lock (_gate)
             {
                 editing = _editing;
+                fps = ComputeCurrentFps();
             }
 
             return Result<SessionStatus>.Success(
-                GrpcSessionMappers.ToSessionStatus(SessionId, status, editing));
+                GrpcSessionMappers.ToSessionStatus(SessionId, status, editing, fps));
         });
     }
 
@@ -725,15 +728,35 @@ public sealed class GrpcSessionConnection : ISessionConnection
             async (frame, token) =>
             {
                 var jpeg = frame.Jpeg.ToByteArray();
+                var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                lock (_gate)
+                {
+                    _recentFrameTimestamps.Enqueue(nowMs);
+                    TrimRecentFrames(nowMs);
+                }
                 var item = new Frame
                 {
                     Jpeg = jpeg,
                     Sequence = Interlocked.Increment(ref _frameSequence),
-                    Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    Timestamp = nowMs,
                 };
                 await _frames.Writer.WriteAsync(item, token).ConfigureAwait(false);
             },
             ct);
+
+    private double ComputeCurrentFps()
+    {
+        var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        TrimRecentFrames(nowMs);
+        return _recentFrameTimestamps.Count;
+    }
+
+    private void TrimRecentFrames(long nowMs)
+    {
+        const long windowMs = 1_000;
+        while (_recentFrameTimestamps.Count > 0 && nowMs - _recentFrameTimestamps.Peek() >= windowMs)
+            _recentFrameTimestamps.Dequeue();
+    }
 
     private Task PumpConsoleAsync(CancellationToken ct) =>
         RunWatchLoopAsync(

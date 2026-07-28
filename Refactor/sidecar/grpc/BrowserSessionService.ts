@@ -2,6 +2,7 @@ import * as grpc from '@grpc/grpc-js';
 import type { SessionRegistry } from '../host/SessionRegistry';
 import type { DropOldestQueue } from '../host/DropOldestQueue';
 import type { EventBridge, PermissionKind } from '../host/EventBridge';
+import { collectTelemetry } from '../telemetry/collectTelemetry';
 import {
   editingToProto,
   fromBrowserState,
@@ -32,34 +33,29 @@ async function pumpQueue<T>(
   map: (item: T) => any,
   signal: AbortSignal,
 ): Promise<void> {
-  for (;;) {
-    const item = await queue.read(signal);
-    if (item === null) break;
-    // Abort may race after dequeue — put the item back for the next Watch* reopen.
-    if (signal.aborted || call.cancelled) {
-      queue.tryWrite(item);
-      break;
+  // When write returns false, skip further writes until 'drain' — drop items, do not
+  // await drain or keep stuffing the gRPC buffer (unbounded memory).
+  let congested = false;
+  const onDrain = (): void => {
+    congested = false;
+  };
+  call.on('drain', onDrain);
+  try {
+    for (;;) {
+      const item = await queue.read(signal);
+      if (item === null) break;
+      // Abort may race after dequeue — put the item back for the next Watch* reopen.
+      if (signal.aborted || call.cancelled) {
+        queue.tryWrite(item);
+        break;
+      }
+      if (congested) {
+        continue;
+      }
+      congested = !call.write(map(item));
     }
-    const ok = call.write(map(item));
-    if (!ok) {
-      await new Promise<void>((resolve) => {
-        const onDrain = (): void => {
-          cleanup();
-          resolve();
-        };
-        const onAbort = (): void => {
-          cleanup();
-          resolve();
-        };
-        const cleanup = (): void => {
-          call.off('drain', onDrain);
-          signal.removeEventListener('abort', onAbort);
-        };
-        call.once('drain', onDrain);
-        signal.addEventListener('abort', onAbort, { once: true });
-      });
-      if (signal.aborted || call.cancelled) break;
-    }
+  } finally {
+    call.off('drain', onDrain);
   }
 }
 
@@ -241,6 +237,17 @@ export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.Un
           value: result.value,
           errorMessage: result.errorMessage,
         });
+      } catch (err) {
+        callback(grpcError(err), null);
+      }
+    },
+
+    async collectTelemetry(
+      call: grpc.ServerUnaryCall<any, any>,
+      callback: grpc.sendUnaryData<any>,
+    ): Promise<void> {
+      try {
+        callback(null, await collectTelemetry(call.request, registry));
       } catch (err) {
         callback(grpcError(err), null);
       }

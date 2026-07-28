@@ -39,7 +39,7 @@ function richSample(ts: number, cpu: number, live: number, mem = 400): ResourceS
     values: {
       'host.cpu': cpu,
       'host.memory': mem,
-      'motor.live': live,
+      'sessions.live': live,
       'derived.cpuPerSession': live > 0 ? cpu / live : null,
     },
   }
@@ -151,13 +151,13 @@ describe('telemetryToResourceSamples', () => {
     expect(out[0].timestamp).toBe(new Date(t1).getTime())
   })
 
-  it('keeps motor-only samples and drops empty payloads', () => {
+  it('keeps sessions-only samples and drops empty payloads', () => {
     const out = telemetryToResourceSamples([
-      telemetryEvent(t1, 'Telemetry.SampleCollected', { motor: { live: 2, avgFps: 30 } }),
+      telemetryEvent(t1, 'Telemetry.SampleCollected', { sessions: { live: 2, avgFps: 30 } }),
       telemetryEvent(t2, 'Telemetry.SampleCollected', null),
     ])
     expect(out).toHaveLength(1)
-    expect(out[0].values?.['motor.live']).toBe(2)
+    expect(out[0].values?.['sessions.live']).toBe(2)
   })
 
   it('keeps an API-process-only sample without inventing machine CPU/mem', () => {
@@ -216,11 +216,11 @@ describe('METRICS', () => {
 
 describe('telemetryToResourceSamples — composite sections', () => {
   const t1 = '2026-01-01T12:00:00.000Z'
-  function composite(host: Record<string, unknown>, motor?: Record<string, unknown>) {
-    return telemetryEvent(t1, 'Telemetry.SampleCollected', { host, motor })
+  function composite(host: Record<string, unknown>, sessions?: Record<string, unknown>) {
+    return telemetryEvent(t1, 'Telemetry.SampleCollected', { host, sessions })
   }
 
-  it('flattens motor + derived per-session metrics into values', () => {
+  it('flattens sessions + derived per-session metrics into values', () => {
     const out = telemetryToResourceSamples([
       composite(
         { cpuUsage: 40, memoryUsed: 800 * 1024 * 1024 },
@@ -229,7 +229,7 @@ describe('telemetryToResourceSamples — composite sections', () => {
     ])
     expect(out).toHaveLength(1)
     const vals = out[0].values!
-    expect(vals['motor.live']).toBe(10)
+    expect(vals['sessions.live']).toBe(10)
     expect(vals['host.cpu']).toBe(40)
     // 40% cpu across 10 sessions → 4%/session
     expect(vals['derived.cpuPerSession']).toBe(4)
@@ -283,16 +283,16 @@ describe('detectAnomalies', () => {
 })
 
 describe('metric catalog', () => {
-  it('groups metrics by section with motor.live present', () => {
+  it('groups metrics by section with sessions.live present', () => {
     const grouped = metricsBySection()
-    const motor = grouped.find((g) => g.section.key === 'motor')
-    expect(motor?.metrics.some((mDef) => mDef.key === 'motor.live')).toBe(true)
+    const sessions = grouped.find((g) => g.section.key === 'sessions')
+    expect(sessions?.metrics.some((mDef) => mDef.key === 'sessions.live')).toBe(true)
   })
 
   it('every catalog metric resolves via METRIC_BY_KEY and reads its value', () => {
     const s = richSample(1, 42, 6)
     expect(METRIC_BY_KEY['host.cpu'].extract(s)).toBe(42)
-    expect(METRIC_BY_KEY['motor.live'].extract(s)).toBe(6)
+    expect(METRIC_BY_KEY['sessions.live'].extract(s)).toBe(6)
     expect(TELEMETRY_METRICS.every((mDef) => {
       const v = mDef.extract(s)
       return v == null || typeof v === 'number'
@@ -308,7 +308,7 @@ describe('metric catalog', () => {
 
   it('machine monitor defaults exclude runtime overlays', () => {
     expect(MACHINE_MONITOR_DEFAULT_KEYS.every((k) => k.startsWith('host.'))).toBe(true)
-    expect(MACHINE_MONITOR_DEFAULT_KEYS).not.toContain('motor.live')
+    expect(MACHINE_MONITOR_DEFAULT_KEYS).not.toContain('sessions.live')
     expect(MACHINE_MONITOR_DEFAULT_KEYS).not.toContain('apiProcess.memory')
   })
 })
@@ -386,20 +386,18 @@ describe('datetime-local conversion', () => {
 })
 
 describe('extractStateWindows', () => {
-  it('merges consecutive degraded / elevate flags', () => {
+  it('merges consecutive degraded bands only', () => {
     const samples = Array.from({ length: 8 }, (_, i) => ({
       ...richSample(i * 60_000, 20, 5),
       values: {
         'host.cpu': 20,
-        'motor.live': 5,
-        'pipeline.degraded': i >= 2 && i <= 4 ? 1 : 0,
-        'pipeline.elevateActive': i >= 5 && i <= 6 ? 1 : 0,
+        'sessions.live': 5,
+        'journal.degraded': i >= 2 && i <= 4 ? 1 : 0,
       },
     }))
     const windows = extractStateWindows(samples)
-    expect(windows).toHaveLength(2)
+    expect(windows).toHaveLength(1)
     expect(windows[0]).toMatchObject({ kind: 'degraded', startIndex: 2, endIndex: 4 })
-    expect(windows[1]).toMatchObject({ kind: 'elevate', startIndex: 5, endIndex: 6 })
   })
 
   it('returns empty for short or flag-less series', () => {
@@ -428,13 +426,13 @@ describe('seriesStats + sparklinePath', () => {
 })
 
 describe('catalog — expanded fields', () => {
-  it('includes motor/persistence/pipeline extensions and state flags', () => {
+  it('includes sessions/profiles/journal/docker extensions', () => {
     const keys = TELEMETRY_METRICS.map((m) => m.key)
     for (const k of [
-      'host.memoryPct', 'motor.maxFps', 'motor.stopping', 'motor.statusDepth',
-      'persistence.history', 'persistence.expiringSoon',
-      'pipeline.overflow', 'pipeline.recentDrops', 'pipeline.recentSlowWrites',
-      'pipeline.degraded', 'pipeline.elevateActive',
+      'host.memoryPct', 'sessions.maxFps', 'sidecar.videoDepth',
+      'profiles.total', 'profiles.storageBytes',
+      'journal.queueDepth', 'journal.droppedTotal', 'journal.degraded',
+      'docker.containers', 'docker.running',
     ]) {
       expect(keys).toContain(k)
     }
@@ -444,18 +442,21 @@ describe('catalog — expanded fields', () => {
     const evt = telemetryEvent(new Date().toISOString(), 'Telemetry.SampleCollected', {
       host: { cpuUsage: 40, memoryUsed: 512 * 1024 * 1024, memoryTotal: 1024 * 1024 * 1024 },
       apiProcess: { threadCount: 20 },
-      motor: { live: 4, total: 4, starting: 0, stopping: 1, maxFps: 28, statusChannelDepthTotal: 3, avgFps: 20, minFps: 10, inputQueueTotal: 0, frameChannelDepthTotal: 1, capacityUsedPct: 20 },
-      persistence: { storedSessions: 2, totalCookies: 10, totalHistory: 99, expiringSoon: 1 },
-      pipeline: { bytesUsed: 1e6, usedPct: 10, eventsStored: 100, eventsDropped: 2, overflowCount: 1, probeInFlight: 0, recentDrops: 3, recentSlowWrites: 1, degraded: true, elevateActive: false },
+      sessions: { live: 4, total: 4, maxFps: 28, avgFps: 20, minFps: 10, capacityUsedPct: 20 },
+      sidecar: { queues: { videoDepth: 3, audioDepth: 1, consoleDepth: 2, droppedTotal: 5 }, sessions: { open: 4, faulted: 1 } },
+      profiles: { total: 2, storageBytes: 1e6 },
+      journal: { queueDepth: 4, droppedTotal: 2, persistFailures: 1, degraded: true },
+      docker: { runtime: { containers: 4, containersRunning: 3 } },
     })
     const [s] = telemetryToResourceSamples([evt])
     expect(s.values?.['host.memoryPct']).toBe(50)
     expect(s.values?.['apiProcess.threads']).toBe(20)
-    expect(s.values?.['motor.maxFps']).toBe(28)
-    expect(s.values?.['motor.stopping']).toBe(1)
-    expect(s.values?.['persistence.history']).toBe(99)
-    expect(s.values?.['pipeline.degraded']).toBe(1)
-    expect(s.values?.['pipeline.elevateActive']).toBe(0)
-    expect(s.values?.['pipeline.overflow']).toBe(1)
+    expect(s.values?.['sessions.maxFps']).toBe(28)
+    expect(s.values?.['sidecar.videoDepth']).toBe(3)
+    expect(s.values?.['sidecar.faulted']).toBe(1)
+    expect(s.values?.['profiles.total']).toBe(2)
+    expect(s.values?.['journal.degraded']).toBe(1)
+    expect(s.values?.['journal.queueDepth']).toBe(4)
+    expect(s.values?.['docker.running']).toBe(3)
   })
 })

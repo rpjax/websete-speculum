@@ -1,9 +1,9 @@
 import { useCallback, useRef, useState } from 'react'
 import {
-  diagnosticsApi,
-  type DiagnosticsEventRecord,
-  type DiagnosticsOverview,
-  type DiagnosticsRuntimeSnapshot,
+  diagnosticsApi as telemetryApi,
+  type DiagnosticsEventRecord as TelemetryContextEventRecord,
+  type DiagnosticsOverview as TelemetryOverviewSnapshot,
+  type DiagnosticsRuntimeSnapshot as TelemetryRuntimeSnapshot,
   type HostTelemetry,
   type ApiProcessTelemetry,
   type TelemetrySampleRecord,
@@ -76,7 +76,7 @@ export function useTelemetryAnalysisConsume(maxSamples = 20_000) {
       setProgress({ phase: 'samples', loaded: 0, total: 0, message: 'Reading telemetry samples…' })
 
       // Probe total with a tiny page
-      const probe = await diagnosticsApi.getSampleHistory({
+      const probe = await telemetryApi.getSampleHistory({
         since: window.since,
         until: window.until,
         limit: 1,
@@ -96,7 +96,7 @@ export function useTelemetryAnalysisConsume(maxSamples = 20_000) {
           total,
           message: `Window has ${total.toLocaleString()} samples — using substrate (bucket ${bucketSeconds}s)…`,
         })
-        const res = await diagnosticsApi.getSampleHistory({
+        const res = await telemetryApi.getSampleHistory({
           since: window.since,
           until: window.until,
           bucketSeconds,
@@ -112,7 +112,7 @@ export function useTelemetryAnalysisConsume(maxSamples = 20_000) {
         const records: TelemetrySampleRecord[] = []
         do {
           if (cancelRef.current) return
-          const page = await diagnosticsApi.getSampleHistory({
+          const page = await telemetryApi.getSampleHistory({
             since: window.since,
             until: window.until,
             limit: 500,
@@ -133,10 +133,10 @@ export function useTelemetryAnalysisConsume(maxSamples = 20_000) {
 
       if (cancelRef.current) return
 
-      setProgress({ phase: 'events', loaded: samples.length, total: samples.length, message: 'Reading diagnostics events…' })
-      let events: DiagnosticsEventRecord[] = []
+      setProgress({ phase: 'events', loaded: samples.length, total: samples.length, message: 'Reading context events…' })
+      let events: TelemetryContextEventRecord[] = []
       try {
-        events = await diagnosticsApi.listEvents({ since: window.since, until: window.until })
+        events = await telemetryApi.listEvents({ since: window.since, until: window.until })
         events = events.filter((e) => e.name !== 'Telemetry.SampleCollected')
         dataSources.push('events')
       } catch {
@@ -145,25 +145,25 @@ export function useTelemetryAnalysisConsume(maxSamples = 20_000) {
 
       if (cancelRef.current) return
 
-      setProgress({ phase: 'context', loaded: samples.length, total: samples.length, message: 'Reading runtime context…' })
-      let runtime: DiagnosticsRuntimeSnapshot | null = null
-      let overview: DiagnosticsOverview | null = null
+      setProgress({ phase: 'context', loaded: samples.length, total: samples.length, message: 'Reading telemetry context…' })
+      let runtime: TelemetryRuntimeSnapshot | null = null
+      let overview: TelemetryOverviewSnapshot | null = null
       let host: HostTelemetry | null = null
       let apiProcess: ApiProcessTelemetry | null = null
       try {
-        runtime = await diagnosticsApi.getRuntime()
+        runtime = await telemetryApi.getRuntime()
         dataSources.push('runtime')
       } catch { /* optional */ }
       try {
-        overview = await diagnosticsApi.getOverview()
+        overview = await telemetryApi.getOverview()
         dataSources.push('overview')
       } catch { /* optional */ }
       try {
-        host = await diagnosticsApi.getHost()
+        host = await telemetryApi.getHost()
         dataSources.push('host')
       } catch { /* optional */ }
       try {
-        apiProcess = await diagnosticsApi.getApiProcess()
+        apiProcess = await telemetryApi.getApiProcess()
         dataSources.push('apiProcess')
       } catch { /* optional */ }
 

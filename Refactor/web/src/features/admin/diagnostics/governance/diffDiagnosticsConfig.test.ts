@@ -20,9 +20,9 @@ describe('diffDiagnosticsConfig', () => {
         ...DEFAULT_CONFIG.telemetry,
         enabled: true,
         intervalSeconds: 10,
-        motor: { ...DEFAULT_CONFIG.telemetry.motor, includePerSession: true },
+        sessions: { ...DEFAULT_CONFIG.telemetry.sessions, includePerSession: true },
         host: { ...DEFAULT_CONFIG.telemetry.host, enabled: false },
-        apiProcess: { ...DEFAULT_CONFIG.telemetry.apiProcess, includeGc: !DEFAULT_CONFIG.telemetry.apiProcess.includeGc },
+        apiProcess: { ...DEFAULT_CONFIG.telemetry.apiProcess, includeGarbageCollection: !DEFAULT_CONFIG.telemetry.apiProcess.includeGarbageCollection },
       },
       sampling: { statusMirrorRatio: 0.25, expensiveEventRatio: 0.1 },
       probe: { ...DEFAULT_CONFIG.probe, diagTimeoutMs: 20_000 },
@@ -39,7 +39,7 @@ describe('diffDiagnosticsConfig', () => {
     expect(labels).toContain('Telemetry interval')
     expect(labels).toContain('Telemetry · Machine')
     expect(labels).toContain('API process · GC')
-    expect(labels).toContain('Motor · per-session')
+    expect(labels).toContain('Sessions · per-session')
     expect(labels).toContain('Status mirror ratio')
     expect(labels).toContain('Probe timeout')
     expect(labels).toContain('Elevate max minutes')

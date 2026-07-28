@@ -29,6 +29,38 @@ public sealed class SessionsTestFixture
             ct);
         response.EnsureSuccessStatusCode();
     }
+
+    /// <summary>
+    /// Opt-in Telemetry for tests that assert <c>Telemetry.SampleCollected</c>.
+    /// Apply maps <c>IsEnabled</c> onto the Journal catalog (Telemetry-owned facts).
+    /// </summary>
+    public async Task EnsureTelemetryEnabledAsync(
+        bool includePerSession = false,
+        CancellationToken ct = default)
+    {
+        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+        using var response = await http.PutAsJsonAsync(
+            $"{Host.ApiBase}/api/configurations/Telemetry",
+            new
+            {
+                isEnabled = true,
+                intervalSeconds = 15,
+                host = new { isEnabled = true },
+                apiProcess = new { isEnabled = true },
+                sessions = new
+                {
+                    isEnabled = true,
+                    includePerSession,
+                    includeSessionIds = true,
+                },
+                sidecar = new { isEnabled = true },
+                profiles = new { isEnabled = true },
+                journal = new { isEnabled = true },
+                docker = new { isEnabled = false },
+            },
+            ct);
+        response.EnsureSuccessStatusCode();
+    }
 }
 
 public abstract class SessionsTestBase : IAsyncLifetime

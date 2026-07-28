@@ -32,12 +32,13 @@ export function useDiagnosticsGovernance() {
     setLoading(true)
     setError(null)
     try {
-      const [ov, section] = await Promise.all([
+      const [ov, section, telemetry] = await Promise.all([
         diagnosticsApi.getOverview(),
         api.getSection<DiagnosticsOptions>(ConfigSections.Diagnostics),
+        api.getSection<DiagnosticsOptions['telemetry']>(ConfigSections.Telemetry).catch(() => DEFAULT_CONFIG.telemetry),
       ])
       setOverview(ov)
-      const merged = mergeDiagnosticsConfig(section)
+      const merged = mergeDiagnosticsConfig({ ...section, telemetry })
       setSavedConfig(merged)
       if (!opts?.keepDraft) {
         setConfig(merged)
@@ -77,7 +78,9 @@ export function useDiagnosticsGovernance() {
     setError(null)
     const sinceIso = new Date().toISOString()
     try {
-      await api.putSection(ConfigSections.Diagnostics, config)
+      const { telemetry, ...diagnosticsSection } = config
+      await api.putSection(ConfigSections.Telemetry, config.telemetry)
+      await api.putSection(ConfigSections.Diagnostics, diagnosticsSection)
       const confirmed = await waitConfigApplied(sinceIso)
       await refresh()
       if (confirmed) {
@@ -100,6 +103,7 @@ export function useDiagnosticsGovernance() {
     setError(null)
     const sinceIso = new Date().toISOString()
     try {
+      await api.deleteSection(ConfigSections.Telemetry).catch(() => undefined)
       await api.deleteSection(ConfigSections.Diagnostics)
       const confirmed = await waitConfigApplied(sinceIso)
       await refresh()
@@ -112,7 +116,9 @@ export function useDiagnosticsGovernance() {
     } catch (e: unknown) {
       // Fallback: PUT Production defaults if DELETE is unavailable.
       try {
-        await api.putSection(ConfigSections.Diagnostics, DEFAULT_CONFIG)
+        const { telemetry, ...diagnosticsSection } = DEFAULT_CONFIG
+        await api.putSection(ConfigSections.Telemetry, telemetry)
+        await api.putSection(ConfigSections.Diagnostics, diagnosticsSection)
         const confirmed = await waitConfigApplied(sinceIso)
         await refresh()
         setMessage(

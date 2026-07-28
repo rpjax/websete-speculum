@@ -28,13 +28,13 @@ function flatten(rec: TelemetrySampleRecord): Row {
   const p = rec.payload
   const host = p?.host ?? null
   const apiProcess = p?.apiProcess ?? null
-  const motor = p?.motor ?? null
+  const sessions = p?.sessions ?? null
   const cpu = host?.cpuUsage != null ? Math.round(host.cpuUsage * 10) / 10 : null
   const memMb = host?.memoryUsed != null ? Math.round(host.memoryUsed / (1024 * 1024)) : null
   const diskFreeGb = host?.diskFreeBytes != null
     ? Math.round((host.diskFreeBytes / 1024 ** 3) * 10) / 10
     : null
-  const live = motor?.live ?? null
+  const live = sessions?.live ?? null
   return {
     utc: rec.utc,
     timestamp: new Date(rec.utc).getTime(),

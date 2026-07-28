@@ -12,6 +12,7 @@ class EventBridge {
     navigationBlocked = new DropOldestQueue_1.DropOldestQueue(8);
     editableFocus = new DropOldestQueue_1.DropOldestQueue(1);
     crash = new DropOldestQueue_1.DropOldestQueue(4);
+    faulted = false;
     nextCorrId = 1;
     sinkEpoch = 0;
     permissionWaiters = new Map();
@@ -64,7 +65,11 @@ class EventBridge {
         return this.requestPermission('microphone');
     }
     onCrash(fault) {
+        this.faulted = true;
         this.crash.tryWrite(fault);
+    }
+    get isFaulted() {
+        return this.faulted;
     }
     resolvePermission(corrId, allow) {
         const waiter = this.permissionWaiters.get(corrId);

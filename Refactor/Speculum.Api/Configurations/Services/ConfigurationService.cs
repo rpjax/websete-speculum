@@ -86,5 +86,6 @@ public sealed class ConfigurationService : IConfigurationService
             ResourceManagement = source.ResourceManagement,
             Scripting = source.Scripting,
             Diagnostics = source.Diagnostics,
+            Telemetry = source.Telemetry,
         };
 }

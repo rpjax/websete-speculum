@@ -51,9 +51,9 @@ export const PROFILE_GUIDES: Record<
     tagline: 'Operable evidence, controlled cost',
     audience: 'Live traffic — diagnose without slowing the motor',
     highlights: [
-      'Motor + sidecar events on; probes via Elevate',
-      'Telemetry IDs + URL host on; per-session rows off (perf)',
-      'Fault / store / breaker pressure signals on',
+      'Sessions + sidecar events on; probes via Elevate',
+      'Telemetry IDs + URL host on; per-session rows off',
+      'Fault / profile / Journal pressure signals on',
       '16 GB · 30d · half status-mirror sampling',
     ],
   },
@@ -72,5 +72,31 @@ export const PROFILE_GUIDES: Record<
 export const OVERFLOW_POLICIES = ['DropOldest'] as const
 
 export function mergeDiagnosticsConfig(section: Partial<DiagnosticsOptions> | null | undefined): DiagnosticsOptions {
-  return { ...DEFAULT_CONFIG, ...section }
+  return {
+    ...DEFAULT_CONFIG,
+    ...section,
+    domains: {
+      ...DEFAULT_CONFIG.domains,
+      ...section?.domains,
+      motor: { ...DEFAULT_CONFIG.domains.motor, ...section?.domains?.motor },
+      sidecar: { ...DEFAULT_CONFIG.domains.sidecar, ...section?.domains?.sidecar },
+      browserQuery: { ...DEFAULT_CONFIG.domains.browserQuery, ...section?.domains?.browserQuery },
+      persisted: { ...DEFAULT_CONFIG.domains.persisted, ...section?.domains?.persisted },
+    },
+    telemetry: {
+      ...DEFAULT_CONFIG.telemetry,
+      ...section?.telemetry,
+      host: { ...DEFAULT_CONFIG.telemetry.host, ...section?.telemetry?.host },
+      apiProcess: { ...DEFAULT_CONFIG.telemetry.apiProcess, ...section?.telemetry?.apiProcess },
+      sessions: { ...DEFAULT_CONFIG.telemetry.sessions, ...section?.telemetry?.sessions },
+      sidecar: { ...DEFAULT_CONFIG.telemetry.sidecar, ...section?.telemetry?.sidecar },
+      profiles: { ...DEFAULT_CONFIG.telemetry.profiles, ...section?.telemetry?.profiles },
+      journal: { ...DEFAULT_CONFIG.telemetry.journal, ...section?.telemetry?.journal },
+      docker: { ...DEFAULT_CONFIG.telemetry.docker, ...section?.telemetry?.docker },
+    },
+    storage: { ...DEFAULT_CONFIG.storage, ...section?.storage },
+    sampling: { ...DEFAULT_CONFIG.sampling, ...section?.sampling },
+    elevate: { ...DEFAULT_CONFIG.elevate, ...section?.elevate },
+    probe: { ...DEFAULT_CONFIG.probe, ...section?.probe },
+  }
 }

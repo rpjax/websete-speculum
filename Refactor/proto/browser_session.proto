@@ -328,6 +328,61 @@ message PermissionReply {
   string session_id = 3;
 }
 
+// ── Telemetry (process-wide; toggles carried in the request) ─────────────────
+
+message SidecarTelemetryRequest {
+  bool include_process = 1;
+  bool include_event_loop = 2;
+  bool include_chrome = 3;
+  bool include_queues = 4;
+  bool include_sessions_summary = 5;
+  bool include_faulted_ids = 6;
+}
+
+message SidecarProcessTelemetry {
+  double cpu_usage = 1;
+  int64 memory_rss = 2;
+  int64 memory_heap_used = 3;
+  int64 memory_heap_total = 4;
+  int32 pid = 5;
+  double uptime_sec = 6;
+}
+
+message SidecarEventLoopTelemetry {
+  double delay_ms_p50 = 1;
+  double delay_ms_p99 = 2;
+  double utilization = 3;
+}
+
+message SidecarChromeTelemetry {
+  int32 browser_count = 1;
+  int32 page_count = 2;
+  optional int64 total_js_heap_used = 3;
+}
+
+message SidecarQueueTelemetry {
+  int32 video_depth = 1;
+  int32 audio_depth = 2;
+  int32 console_depth = 3;
+  optional int32 input_depth = 4;
+  optional int64 dropped_total = 5;
+}
+
+message SidecarSessionsSummary {
+  int32 registered = 1;
+  int32 open = 2;
+  int32 faulted = 3;
+  repeated string faulted_session_ids = 4;
+}
+
+message SidecarTelemetryResponse {
+  optional SidecarProcessTelemetry process = 1;
+  optional SidecarEventLoopTelemetry event_loop = 2;
+  optional SidecarChromeTelemetry chrome = 3;
+  optional SidecarQueueTelemetry queues = 4;
+  optional SidecarSessionsSummary sessions = 5;
+}
+
 // ── Service ──────────────────────────────────────────────────────────────────
 
 service BrowserSessionService {
@@ -359,4 +414,7 @@ service BrowserSessionService {
   rpc PushMicrophone(stream MediaChunk) returns (Empty);
 
   rpc Control(stream ControlToSidecar) returns (stream ControlFromSidecar);
+
+  // Process-wide composite sample — not scoped to a session id.
+  rpc CollectTelemetry(SidecarTelemetryRequest) returns (SidecarTelemetryResponse);
 }

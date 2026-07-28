@@ -11,6 +11,7 @@ using Speculum.Api.Profiles;
 using Speculum.Api.Sessions;
 using Speculum.Api.Sessions.Services;
 using Speculum.Api.Sessions.Services.Contracts;
+using Speculum.Api.Telemetry;
 using Wolverine;
 
 AppContext.SetSwitch(
@@ -29,6 +30,7 @@ builder.Services.DiscoverJournalFacts();
 builder.Services.AddProfiles();
 builder.Services.AddBrowserSessions();
 builder.Services.AddGrpcBrowserClient();
+builder.Services.AddTelemetry();
 builder.Services.AddSingleton<IUrlResolver, UrlResolver>();
 builder.Services.AddScoped<ISessionService, SessionService>();
 builder.Services.AddPresentation();

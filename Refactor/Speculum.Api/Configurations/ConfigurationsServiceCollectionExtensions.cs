@@ -8,6 +8,7 @@ using Speculum.Api.Configurations.Models.Profiles;
 using Speculum.Api.Configurations.Models.ResourceManagement;
 using Speculum.Api.Configurations.Models.Scripting;
 using Speculum.Api.Configurations.Models.Sessions;
+using Speculum.Api.Configurations.Models.Telemetry;
 using Speculum.Api.Configurations.Persistence;
 using Speculum.Api.Configurations.Services;
 using Speculum.Api.Configurations.Services.Contracts;
@@ -35,6 +36,9 @@ public static class ConfigurationsServiceCollectionExtensions
             .BindConfiguration(ScriptingConfiguration.SectionName);
         services.AddOptions<DiagnosticsConfiguration>()
             .BindConfiguration(DiagnosticsConfiguration.SectionName);
+        // First-boot merge seed only — runtime truth is SQLite → Apply → EngineConfiguration.Telemetry.
+        services.AddOptions<TelemetryConfiguration>()
+            .BindConfiguration(TelemetryConfiguration.SectionName);
 
         services.TryAddEnumerable(
             ServiceDescriptor.Singleton<IValidateOptions<NavigationConfiguration>, NavigationConfigurationValidator>());

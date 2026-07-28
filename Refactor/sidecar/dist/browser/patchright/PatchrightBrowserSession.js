@@ -165,6 +165,11 @@ class PatchrightBrowserSession {
             height: this.viewport?.height ?? 0,
         };
     }
+    getTelemetrySnapshot() {
+        return {
+            inputPendingCount: this.input?.pendingCount ?? 0,
+        };
+    }
     async restoreState(state) {
         this.pendingState = state;
         if (!this.chrome)
@@ -182,7 +187,6 @@ class PatchrightBrowserSession {
         await this.runBrowserOp(async () => {
             this.ensureLive();
             this.editableFocus.stop();
-            this.input?.beginSuspend();
             try {
                 await this.chrome.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 });
             }
@@ -199,7 +203,6 @@ class PatchrightBrowserSession {
                 throw err;
             }
             finally {
-                this.input?.endSuspend();
                 if (this.open && this.chrome) {
                     this.editableFocus.start(this.chrome.page);
                 }
@@ -221,7 +224,6 @@ class PatchrightBrowserSession {
         await this.runBrowserOp(async () => {
             this.ensureLive();
             this.editableFocus.stop();
-            this.input?.beginSuspend();
             try {
                 await this.chrome.page.reload({ waitUntil: 'domcontentloaded', timeout: 30_000 });
             }
@@ -238,7 +240,6 @@ class PatchrightBrowserSession {
                 throw err;
             }
             finally {
-                this.input?.endSuspend();
                 if (this.open && this.chrome) {
                     this.editableFocus.start(this.chrome.page);
                 }
@@ -321,11 +322,9 @@ class PatchrightBrowserSession {
             };
         }
         this.viewport.setResizing(true);
-        this.input?.beginSuspend();
         let screencastTouched = false;
         const sizeChanged = nextW !== previous.width || nextH !== previous.height;
         try {
-            await this.input?.drain();
             // Pause encode before metrics so old-size frames are not filtered into a black gap.
             if (sizeChanged) {
                 if (!this.screencast) {
@@ -409,7 +408,6 @@ class PatchrightBrowserSession {
             };
         }
         finally {
-            this.input?.endSuspend();
             this.viewport?.setResizing(false);
         }
     }

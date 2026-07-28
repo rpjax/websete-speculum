@@ -5,6 +5,7 @@ export class DropOldestQueue<T> {
   private readonly items: T[] = [];
   private readonly waiters: Array<() => void> = [];
   private closed = false;
+  private dropped = 0;
 
   constructor(private readonly capacity: number) {
     if (capacity < 1) throw new Error('capacity must be >= 1');
@@ -14,6 +15,7 @@ export class DropOldestQueue<T> {
     if (this.closed) return;
     if (this.items.length >= this.capacity) {
       this.items.shift();
+      this.dropped++;
     }
     this.items.push(item);
     const w = this.waiters.shift();
@@ -57,5 +59,9 @@ export class DropOldestQueue<T> {
   /** Visible depth for contract tests (not for production hot paths). */
   get pendingCount(): number {
     return this.items.length;
+  }
+
+  get droppedCount(): number {
+    return this.dropped;
   }
 }

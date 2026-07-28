@@ -23,6 +23,7 @@ export class EventBridge implements BrowserSessionEvents {
   readonly navigationBlocked = new DropOldestQueue<string>(8);
   readonly editableFocus = new DropOldestQueue<BrowserEditingState | null>(1);
   readonly crash = new DropOldestQueue<BrowserFault>(4);
+  private faulted = false;
 
   private nextCorrId = 1;
   private sinkEpoch = 0;
@@ -91,7 +92,12 @@ export class EventBridge implements BrowserSessionEvents {
   }
 
   onCrash(fault: BrowserFault): void {
+    this.faulted = true;
     this.crash.tryWrite(fault);
+  }
+
+  get isFaulted(): boolean {
+    return this.faulted;
   }
 
   resolvePermission(corrId: number, allow: boolean): void {

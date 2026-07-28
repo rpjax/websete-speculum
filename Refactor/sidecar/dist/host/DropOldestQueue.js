@@ -9,6 +9,7 @@ class DropOldestQueue {
     items = [];
     waiters = [];
     closed = false;
+    dropped = 0;
     constructor(capacity) {
         this.capacity = capacity;
         if (capacity < 1)
@@ -19,6 +20,7 @@ class DropOldestQueue {
             return;
         if (this.items.length >= this.capacity) {
             this.items.shift();
+            this.dropped++;
         }
         this.items.push(item);
         const w = this.waiters.shift();
@@ -62,6 +64,9 @@ class DropOldestQueue {
     /** Visible depth for contract tests (not for production hot paths). */
     get pendingCount() {
         return this.items.length;
+    }
+    get droppedCount() {
+        return this.dropped;
     }
 }
 exports.DropOldestQueue = DropOldestQueue;

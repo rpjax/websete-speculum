@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.createBrowserSessionHandlers = createBrowserSessionHandlers;
+const collectTelemetry_1 = require("../telemetry/collectTelemetry");
 const mappers_1 = require("./mappers");
 const validate_1 = require("./validate");
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -8,36 +9,31 @@ function grpcError(err) {
     return (0, validate_1.mapGrpcError)(err);
 }
 async function pumpQueue(queue, call, map, signal) {
-    for (;;) {
-        const item = await queue.read(signal);
-        if (item === null)
-            break;
-        // Abort may race after dequeue — put the item back for the next Watch* reopen.
-        if (signal.aborted || call.cancelled) {
-            queue.tryWrite(item);
-            break;
-        }
-        const ok = call.write(map(item));
-        if (!ok) {
-            await new Promise((resolve) => {
-                const onDrain = () => {
-                    cleanup();
-                    resolve();
-                };
-                const onAbort = () => {
-                    cleanup();
-                    resolve();
-                };
-                const cleanup = () => {
-                    call.off('drain', onDrain);
-                    signal.removeEventListener('abort', onAbort);
-                };
-                call.once('drain', onDrain);
-                signal.addEventListener('abort', onAbort, { once: true });
-            });
-            if (signal.aborted || call.cancelled)
+    // When write returns false, skip further writes until 'drain' — drop items, do not
+    // await drain or keep stuffing the gRPC buffer (unbounded memory).
+    let congested = false;
+    const onDrain = () => {
+        congested = false;
+    };
+    call.on('drain', onDrain);
+    try {
+        for (;;) {
+            const item = await queue.read(signal);
+            if (item === null)
                 break;
+            // Abort may race after dequeue — put the item back for the next Watch* reopen.
+            if (signal.aborted || call.cancelled) {
+                queue.tryWrite(item);
+                break;
+            }
+            if (congested) {
+                continue;
+            }
+            congested = !call.write(map(item));
         }
+    }
+    finally {
+        call.off('drain', onDrain);
     }
 }
 function createBrowserSessionHandlers(registry) {
@@ -182,6 +178,14 @@ function createBrowserSessionHandlers(registry) {
                     value: result.value,
                     errorMessage: result.errorMessage,
                 });
+            }
+            catch (err) {
+                callback(grpcError(err), null);
+            }
+        },
+        async collectTelemetry(call, callback) {
+            try {
+                callback(null, await (0, collectTelemetry_1.collectTelemetry)(call.request, registry));
             }
             catch (err) {
                 callback(grpcError(err), null);

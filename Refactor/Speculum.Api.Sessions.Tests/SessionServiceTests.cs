@@ -510,6 +510,8 @@ public sealed class SessionServiceTests
             return false;
         }
 
+        public IReadOnlyList<LiveSessionTelemetrySnapshot> ListSnapshots() => [];
+
         public void Release(Guid sessionId) { }
     }
 
@@ -587,6 +589,12 @@ public sealed class SessionServiceTests
 
         public Task<IResult> UpdateBrowserConfigsAsync(CancellationToken ct = default)
             => Task.FromResult<IResult>(Result.Success());
+
+        public Task<IResult<Speculum.Api.Telemetry.Models.SidecarTelemetrySample>> CollectTelemetryAsync(
+            Speculum.Api.Telemetry.Models.SidecarTelemetryRequest request,
+            CancellationToken ct = default)
+            => Task.FromResult<IResult<Speculum.Api.Telemetry.Models.SidecarTelemetrySample>>(
+                Result<Speculum.Api.Telemetry.Models.SidecarTelemetrySample>.Failure("not supported"));
 
         public Task<IResult<ISessionConnection>> StartConnectionAsync(
             Guid sessionId,

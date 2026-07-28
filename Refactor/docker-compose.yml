@@ -34,6 +34,11 @@ services:
       - ASPNETCORE_ENVIRONMENT=Production
       - ASPNETCORE_URLS=http://0.0.0.0:8080
       - Sidecar__GrpcAddress=http://sidecar:50051
+      - Telemetry__Host__ProcPath=/host/proc
+      - Telemetry__Docker__Endpoint=unix:///var/run/docker.sock
+    volumes:
+      - /proc:/host/proc:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
     ports:
       - "8080:8080"
     depends_on:

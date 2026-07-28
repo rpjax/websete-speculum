@@ -96,6 +96,7 @@ export const ConfigSections = {
   JsBridge: 'JsBridge',
   Hosting: 'Hosting',
   Diagnostics: 'Diagnostics',
+  Telemetry: 'Telemetry',
 } as const
 
 export type ConfigSectionName = (typeof ConfigSections)[keyof typeof ConfigSections]

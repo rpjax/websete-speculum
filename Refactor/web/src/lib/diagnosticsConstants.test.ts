@@ -171,10 +171,10 @@ describe('diagnostics presets', () => {
   it('Production keeps operable evidence without per-session telemetry fan-out', () => {
     const p = DIAGNOSTICS_PRESETS.Production
     expect(p.domains.sidecar.events).toBe(true)
-    expect(p.telemetry.motor.includeSessionIds).toBe(true)
-    expect(p.telemetry.motor.includeUrlHost).toBe(true)
-    expect(p.telemetry.motor.includePerSession).toBe(false)
-    expect(p.telemetry.pipeline.includeBreakerPressure).toBe(true)
+    expect(p.telemetry.sessions.includeSessionIds).toBe(true)
+    expect(p.telemetry.sessions.includeUrlHost).toBe(true)
+    expect(p.telemetry.sessions.includePerSession).toBe(false)
+    expect(p.telemetry.journal.includePressure).toBe(true)
     expect(p.telemetry.sidecar.includeFaultedIds).toBe(true)
     expect(p.storage.maxBytes).toBe(16 * 1024 * 1024 * 1024)
     expect(p.storage.ttlHours).toBe(30 * 24)

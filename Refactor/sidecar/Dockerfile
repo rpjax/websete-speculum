@@ -46,6 +46,7 @@ COPY sidecar/tsconfig.json ./
 COPY sidecar/browser ./browser
 COPY sidecar/grpc ./grpc
 COPY sidecar/host ./host
+COPY sidecar/telemetry ./telemetry
 COPY sidecar/index.ts sidecar/smoke.ts sidecar/smoke-remote.ts sidecar/unit.ts ./
 COPY proto /proto
 

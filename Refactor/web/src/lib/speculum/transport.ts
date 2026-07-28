@@ -31,6 +31,9 @@ export class DataPlane extends Emitter<SessionEventMap> {
   private transport: WebTransport | null = null
   private userInput: WritableStreamDefaultWriter<Uint8Array> | null = null
   private consoleInput: WritableStreamDefaultWriter<Uint8Array> | null = null
+  /** Serialize concurrent writes on this pipe's writer (WritableStream single-writer). */
+  private userInputWriteChain: Promise<void> = Promise.resolve()
+  private consoleInputWriteChain: Promise<void> = Promise.resolve()
   private lifetime: AbortController | null = null
   private readonly pendingEval = new Map<
     number,
@@ -104,10 +107,18 @@ export class DataPlane extends Emitter<SessionEventMap> {
     if (!this.userInput) {
       throw new Error('Data plane is not open')
     }
-    await writeMessage(this.userInput, {
+    const writer = this.userInput
+    const message = {
       type: input.type,
       payload: JSON.stringify(input),
-    })
+    }
+    const write = this.userInputWriteChain.then(() => writeMessage(writer, message))
+    // Keep the chain alive after errors so later inputs still serialize.
+    this.userInputWriteChain = write.then(
+      () => undefined,
+      () => undefined,
+    )
+    await write
   }
 
   async evaluate(code: string): Promise<EvalResult> {
@@ -118,7 +129,15 @@ export class DataPlane extends Emitter<SessionEventMap> {
     const result = new Promise<EvalResult>((resolve, reject) => {
       this.pendingEval.set(id, { resolve, reject })
     })
-    await writeMessage(this.consoleInput, { id, code })
+    const writer = this.consoleInput
+    const write = this.consoleInputWriteChain.then(() =>
+      writeMessage(writer, { id, code }),
+    )
+    this.consoleInputWriteChain = write.then(
+      () => undefined,
+      () => undefined,
+    )
+    await write
     return result
   }
 
@@ -163,6 +182,8 @@ export class DataPlane extends Emitter<SessionEventMap> {
     await closeWriter(this.consoleInput)
     this.userInput = null
     this.consoleInput = null
+    this.userInputWriteChain = Promise.resolve()
+    this.consoleInputWriteChain = Promise.resolve()
 
     const transport = this.transport
     this.transport = null

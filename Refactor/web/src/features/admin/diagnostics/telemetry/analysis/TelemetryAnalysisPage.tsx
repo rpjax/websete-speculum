@@ -14,7 +14,11 @@ import type {
   AnalysisChapter,
   EvidenceRef,
 } from '@/lib/telemetryAnalysis'
-import { diagnosticsApi, type DiagnosticsEventRecord, type TelemetrySampleRecord } from '@/lib/diagnosticsApi'
+import {
+  diagnosticsApi as telemetryApi,
+  type DiagnosticsEventRecord as TelemetryContextEventRecord,
+  type TelemetrySampleRecord,
+} from '@/lib/diagnosticsApi'
 import { telemetryToResourceSamples } from '@/lib/resourceChartCompute'
 import { cn } from '@/lib/utils'
 import {
@@ -29,6 +33,7 @@ const PRESETS: { value: AnalysisRangePreset; label: string }[] = [
 ]
 
 const VERDICT_STYLE: Record<string, string> = {
+  no_data: 'border-slate-500/30 bg-slate-500/10 text-slate-300',
   healthy: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300',
   watch: 'border-amber-500/30 bg-amber-500/10 text-amber-300',
   degraded: 'border-orange-500/30 bg-orange-500/10 text-orange-300',
@@ -234,7 +239,7 @@ export default function TelemetryAnalysisPage() {
           <p className="text-sm font-medium">No report yet</p>
           <p className="text-xs text-muted-foreground mt-1 max-w-md mx-auto">
             Choose a free time window above and run analysis. The engine will paginate telemetry samples,
-            pull overlapping events and runtime context, then produce a full didactic report.
+            pull overlapping events and telemetry context, then produce a full didactic report.
           </p>
           <p className="text-[11px] text-muted-foreground/50 mt-3">
             Prefer watching a live chart? Open <Link to="/admin/diagnostics/telemetry" className="text-primary hover:underline">Monitor</Link>.
@@ -325,7 +330,7 @@ function AnalysisDeepDiveSheet({ refEvidence, onClose }: { refEvidence: Evidence
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [sampleCount, setSampleCount] = useState(0)
-  const [events, setEvents] = useState<DiagnosticsEventRecord[]>([])
+  const [events, setEvents] = useState<TelemetryContextEventRecord[]>([])
   const [preview, setPreview] = useState<string[]>([])
 
   useEffect(() => {
@@ -334,16 +339,16 @@ function AnalysisDeepDiveSheet({ refEvidence, onClose }: { refEvidence: Evidence
       setLoading(true)
       setError(null)
       try {
-        const hist = await diagnosticsApi.getSampleHistory({
+        const hist = await telemetryApi.getSampleHistory({
           since: refEvidence.since,
           until: refEvidence.until,
           limit: 200,
         })
         const samples = telemetryToResourceSamples(hist.items as TelemetrySampleRecord[])
-        let ev: DiagnosticsEventRecord[] = []
+        let ev: TelemetryContextEventRecord[] = []
         try {
-          ev = await diagnosticsApi.listEvents({ since: refEvidence.since })
-          ev = ev.filter((e) => e.utc <= refEvidence.until && e.name !== 'Telemetry.SampleCollected').slice(0, 40)
+          ev = await telemetryApi.listEvents({ since: refEvidence.since, until: refEvidence.until })
+          ev = ev.filter((e) => e.name !== 'Telemetry.SampleCollected').slice(0, 40)
         } catch { /* optional */ }
         if (cancelled) return
         setSampleCount(samples.length)
@@ -353,8 +358,8 @@ function AnalysisDeepDiveSheet({ refEvidence, onClose }: { refEvidence: Evidence
           const first = samples[0]
           const last = samples[samples.length - 1]
           lines.push(`Machine CPU ${first.cpu ?? '—'}% → ${last.cpu ?? '—'}% · Memory ${first.memoryMb ?? '—'} → ${last.memoryMb ?? '—'} MB`)
-          const liveFirst = first.values?.['motor.live']
-          const liveLast = last.values?.['motor.live']
+          const liveFirst = first.values?.['sessions.live']
+          const liveLast = last.values?.['sessions.live']
           if (liveFirst != null || liveLast != null) {
             lines.push(`Live sessions (overlay) ${liveFirst ?? '—'} → ${liveLast ?? '—'}`)
           }

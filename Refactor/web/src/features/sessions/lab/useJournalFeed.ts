@@ -14,6 +14,9 @@ export interface JournalFeed {
  * Live view of Journal facts, parallel to the client-side event log: these come
  * from the API's Journal admission path, not from this browser's own actions.
  * Facts admitted before the subscription are not replayed.
+ *
+ * Incoming facts are batched per animation frame so high-rate trails (e.g.
+ * InputApplied) do not force a React commit on every click/key.
  */
 export function useJournalFeed(client: SessionClient, connected: boolean): JournalFeed {
   const [facts, setFacts] = useState<JournalFact[]>([])
@@ -27,8 +30,20 @@ export function useJournalFeed(client: SessionClient, connected: boolean): Journ
     }
 
     let active = true
+    let pending: JournalFact[] = []
+    let raf = 0
     setError(null)
     setStreaming(true)
+
+    const flush = () => {
+      raf = 0
+      if (!active || pending.length === 0) {
+        return
+      }
+      const batch = pending
+      pending = []
+      setFacts((previous) => [...batch.reverse(), ...previous].slice(0, JOURNAL_FEED_LIMIT))
+    }
 
     let subscription: { dispose: () => void } | null = null
     try {
@@ -37,7 +52,10 @@ export function useJournalFeed(client: SessionClient, connected: boolean): Journ
           if (!active) {
             return
           }
-          setFacts((previous) => [fact, ...previous].slice(0, JOURNAL_FEED_LIMIT))
+          pending.push(fact)
+          if (raf === 0) {
+            raf = requestAnimationFrame(flush)
+          }
         },
         error: (streamError) => {
           if (!active) {
@@ -62,6 +80,9 @@ export function useJournalFeed(client: SessionClient, connected: boolean): Journ
     return () => {
       active = false
       setStreaming(false)
+      if (raf !== 0) {
+        cancelAnimationFrame(raf)
+      }
       subscription?.dispose()
     }
   }, [client, connected])

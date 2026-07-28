@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
+  createLabReadyNavigation,
+  createLabTelemetryBaseline,
   formatAllowlistLines,
   parseAllowlistLines,
   parseHostingDomainLines,
@@ -77,5 +79,25 @@ describe('parseHostingDomainLines', () => {
         dnsChallenge: { provider: 'Cloudflare' },
       },
     ])
+  })
+})
+
+describe('createLabReadyNavigation', () => {
+  it('opens Scope.Any on the chosen host', () => {
+    expect(createLabReadyNavigation('www.google.com')).toEqual({
+      defaultTargetHost: 'www.google.com',
+      allowedMainFrameUrls: [{ domain: { scope: 'Any', labels: [] } }],
+    })
+  })
+})
+
+describe('createLabTelemetryBaseline', () => {
+  it('starts disabled with lab-friendly section defaults', () => {
+    const baseline = createLabTelemetryBaseline()
+    expect(baseline.isEnabled).toBe(false)
+    expect(baseline.intervalSeconds).toBe(15)
+    expect(baseline.host.isEnabled).toBe(true)
+    expect(baseline.sessions.includePerSession).toBe(false)
+    expect(baseline.docker.isEnabled).toBe(false)
   })
 })

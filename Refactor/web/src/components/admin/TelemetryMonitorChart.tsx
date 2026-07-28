@@ -156,7 +156,7 @@ export function TelemetryMonitorChart({
 
   const activeMetrics = useMemo(() => metrics.filter((m) => enabled.has(m.key)), [metrics, enabled])
   const showSessionOverlay = activeMetrics.some(
-    (m) => m.key === 'motor.live' || m.key === 'derived.cpuPerSession',
+    (m) => m.key === 'sessions.live' || m.key === 'derived.cpuPerSession',
   )
   const timestamps = useMemo(() => chartSamples.map((s) => s.timestamp), [chartSamples])
   const stateWindows = useMemo(() => extractStateWindows(chartSamples), [chartSamples])
@@ -529,9 +529,6 @@ export function TelemetryMonitorChart({
               )}
               {stateWindows.some((w) => w.kind === 'degraded') && (
                 <span className="ml-2 text-red-400/80">■ Degraded</span>
-              )}
-              {stateWindows.some((w) => w.kind === 'elevate') && (
-                <span className="ml-2 text-amber-400/80">■ Elevate</span>
               )}
             </p>
           )}

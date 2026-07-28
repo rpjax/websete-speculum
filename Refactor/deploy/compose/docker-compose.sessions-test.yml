@@ -58,6 +58,8 @@ services:
       SPECULUM_BYPASS_API_AUTH: "true"
       Database__Path: /data/speculum.db
       Sidecar__GrpcAddress: "http://sidecar:50051"
+      Telemetry__Host__ProcPath: /host/proc
+      Telemetry__Docker__Endpoint: unix:///var/run/docker.sock
       Sessions__InputMultiplexingPolicy__Access: Shared
       ResourceManagement__Sessions__MaxConcurrentSessions: "10"
       Sessions__DetachedSessionTimeout: "00:05:00"
@@ -96,6 +98,8 @@ services:
       Navigation__AllowedMainFrameUrls__1__Domain__Labels__2__Value: test
     volumes:
       - sessions-test-data:/data
+      - /proc:/host/proc:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8080/health/ready"]
       interval: 10s

@@ -108,6 +108,8 @@ public sealed class SessionBindingRegistryTests
             return session is not null;
         }
 
+        public IReadOnlyList<LiveSessionTelemetrySnapshot> ListSnapshots() => [];
+
         public void Release(Guid sessionId)
         {
         }

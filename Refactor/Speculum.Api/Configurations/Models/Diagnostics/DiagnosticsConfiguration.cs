@@ -25,12 +25,7 @@ public sealed class DiagnosticsConfiguration
             {
                 Snapshots = true,
             },
-            [DiagnosticsDomain.Telemetry] = new()
-            {
-                Metrics = true,
-            },
         };
 
-    public TelemetryConfiguration Telemetry { get; init; } = new();
     public DiagnosticsSamplingConfiguration Sampling { get; init; } = new();
 }

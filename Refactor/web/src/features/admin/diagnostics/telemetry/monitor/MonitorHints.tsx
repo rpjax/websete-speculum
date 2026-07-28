@@ -25,13 +25,13 @@ export function MonitorHints({
 }) {
   const anomalies = useMemo(() => detectAnomalies(samples), [samples])
   const hasLiveOverlay = useMemo(
-    () => samples.some((s) => s.values?.['motor.live'] != null),
+    () => samples.some((s) => s.values?.['sessions.live'] != null),
     [samples],
   )
 
   const emptyCopy = hasLiveOverlay
     ? 'Machine resource usage tracks live sessions linearly across this range — no leaks, regressions, or idle scaling detected.'
-    : 'No machine anomalies in this range. Add motor or derived overlays via + Metric to check session correlation.'
+    : 'No machine anomalies in this range. Add sessions or derived overlays via + Metric to check session correlation.'
 
   return (
     <div className="rounded-lg border border-border bg-card overflow-hidden">

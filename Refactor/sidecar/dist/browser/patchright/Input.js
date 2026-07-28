@@ -1,12 +1,23 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.InputController = void 0;
-function domButton(b) {
+function mouseButtonName(b) {
     if (b === 1)
         return 'middle';
     if (b === 2)
         return 'right';
-    return 'left';
+    if (b === 0)
+        return 'left';
+    return 'none';
+}
+function mouseButtonMask(b) {
+    if (b === 0)
+        return 1;
+    if (b === 1)
+        return 4;
+    if (b === 2)
+        return 2;
+    return 0;
 }
 function cdpTouchType(phase) {
     switch (phase) {
@@ -20,19 +31,31 @@ function cdpTouchType(phase) {
             return 'touchStart';
     }
 }
-/** Coalesce high-frequency pointer moves; decisive input is serialized. */
+/** Text for Input.dispatchKeyEvent so Enter/Tab/printable trigger default actions. */
+function keyText(key) {
+    if (key === 'Enter')
+        return '\r';
+    if (key === 'Tab')
+        return '\t';
+    if (key === ' ')
+        return ' ';
+    if (key.length === 1)
+        return key;
+    return undefined;
+}
+/**
+ * Pointer/key/touch → Chrome Input.* domain, fire-and-forget.
+ * Does not await CDP; does not serialize behind navigate/resize.
+ * History nav is also non-blocking (void) so it cannot stall the input path.
+ */
 class InputController {
     _page;
     _cdp;
-    _chain = Promise.resolve();
     _touchPrimary = false;
+    _buttons = 0;
     _movePending = null;
     _moveScheduled = false;
-    /**
-     * Nestable suspend depth (navigate / soft resize / refresh).
-     * Input stays paused while depth > 0 so overlapping ops cannot clear each other.
-     */
-    _suspendDepth = 0;
+    _inFlight = 0;
     constructor(page, cdp) {
         this._page = page;
         this._cdp = cdp;
@@ -44,49 +67,16 @@ class InputController {
     setTouchPrimary(value) {
         this._touchPrimary = value;
     }
-    /** Nestable pause — pair with {@link endSuspend} in finally. */
-    beginSuspend() {
-        this._suspendDepth++;
-        this._movePending = null;
-    }
-    /** Nestable resume — only clears pause when the last suspend ends. */
-    endSuspend() {
-        if (this._suspendDepth > 0) {
-            this._suspendDepth--;
+    /** Admission is synchronous — CDP work is scheduled without awaiting. */
+    enqueue(input) {
+        try {
+            this.dispatch(input);
+        }
+        catch (err) {
+            console.warn('[Input] error:', err.message);
         }
     }
-    /**
-     * @deprecated Prefer beginSuspend/endSuspend — boolean overwrite races overlapping ops.
-     * Kept as depth++ / depth-- for call-site compatibility.
-     */
-    setSuspended(value) {
-        if (value)
-            this.beginSuspend();
-        else
-            this.endSuspend();
-    }
-    get suspended() {
-        return this._suspendDepth > 0;
-    }
-    /** Await in-flight dispatch so soft resize does not race mid-click. */
-    async drain() {
-        this._movePending = null;
-        await this._chain;
-    }
-    enqueue(input) {
-        if (this._suspendDepth > 0)
-            return;
-        this._chain = this._chain
-            .then(() => {
-            if (this._suspendDepth > 0)
-                return;
-            return this.dispatch(input);
-        })
-            .catch((err) => {
-            console.warn('[Input] error:', err.message);
-        });
-    }
-    async dispatch(input) {
+    dispatch(input) {
         switch (input.type) {
             case 'mousemove':
                 if (this._touchPrimary)
@@ -96,47 +86,50 @@ class InputController {
             case 'mousedown':
                 if (this._touchPrimary)
                     return;
-                await this._page.mouse.move(input.x, input.y);
-                await this._page.mouse.down({ button: domButton(input.button) });
+                this._buttons |= mouseButtonMask(input.button);
+                this._sendMouse('mousePressed', input.x, input.y, input.button, 1);
                 return;
             case 'mouseup':
                 if (this._touchPrimary)
                     return;
-                await this._page.mouse.move(input.x, input.y);
-                await this._page.mouse.up({ button: domButton(input.button) });
+                this._buttons &= ~mouseButtonMask(input.button);
+                this._sendMouse('mouseReleased', input.x, input.y, input.button, 1);
                 return;
-            case 'wheel': {
-                if (!this._touchPrimary)
-                    await this._page.mouse.move(input.x, input.y);
-                await this._page.mouse.wheel(input.deltaX, input.deltaY);
+            case 'wheel':
+                if (this._touchPrimary) {
+                    this._sendWheel(input.x, input.y, input.deltaX, input.deltaY);
+                    return;
+                }
+                this._sendMouse('mouseMoved', input.x, input.y, -1, 0);
+                this._sendWheel(input.x, input.y, input.deltaX, input.deltaY);
                 return;
-            }
             case 'keydown':
-                await this._page.keyboard.down(input.key);
+                this._sendKey('keyDown', input.key);
                 return;
             case 'keyup':
-                await this._page.keyboard.up(input.key);
+                this._sendKey('keyUp', input.key);
                 return;
             case 'type':
-                await this._page.keyboard.type(input.text);
-                return;
             case 'text':
-                await this._page.keyboard.insertText(input.text);
+                this._ff('Input.insertText', { text: input.text });
                 return;
             case 'touch':
-                await this._dispatchTouch(input.phase, [...input.points]);
+                this._dispatchTouch(input.phase, [...input.points]);
                 return;
             case 'goback':
-                await this._page.goBack({ waitUntil: 'domcontentloaded', timeout: 30_000 });
+                // History is not pointer/key — never await on the input path.
+                void this._page.goBack({ waitUntil: 'domcontentloaded', timeout: 30_000 }).catch((err) => {
+                    console.warn('[Input] goback:', err.message);
+                });
                 return;
             case 'goforward':
-                await this._page.goForward({ waitUntil: 'domcontentloaded', timeout: 30_000 });
+                void this._page.goForward({ waitUntil: 'domcontentloaded', timeout: 30_000 }).catch((err) => {
+                    console.warn('[Input] goforward:', err.message);
+                });
                 return;
         }
     }
     _queueMouseMove(x, y) {
-        if (this._suspendDepth > 0)
-            return;
         this._movePending = { x, y };
         if (this._moveScheduled)
             return;
@@ -145,23 +138,50 @@ class InputController {
             this._moveScheduled = false;
             const p = this._movePending;
             this._movePending = null;
-            if (!p || this._touchPrimary || this._suspendDepth > 0)
+            if (!p || this._touchPrimary)
                 return;
-            try {
-                void this._page.mouse.move(p.x, p.y).catch(() => { });
-            }
-            catch {
-                /* frame detached mid-move */
-            }
+            this._sendMouse('mouseMoved', p.x, p.y, -1, 0);
         });
     }
-    async _dispatchTouch(phase, points) {
+    _sendMouse(type, x, y, button, clickCount) {
+        this._ff('Input.dispatchMouseEvent', {
+            type,
+            x,
+            y,
+            button: type === 'mouseMoved' ? 'none' : mouseButtonName(button),
+            buttons: this._buttons,
+            clickCount,
+        });
+    }
+    _sendWheel(x, y, deltaX, deltaY) {
+        this._ff('Input.dispatchMouseEvent', {
+            type: 'mouseWheel',
+            x,
+            y,
+            deltaX,
+            deltaY,
+            button: 'none',
+            buttons: this._buttons,
+        });
+    }
+    _sendKey(type, key) {
+        const text = type === 'keyDown' ? keyText(key) : undefined;
+        const params = {
+            type: text && type === 'keyDown' ? 'keyDown' : type === 'keyDown' ? 'rawKeyDown' : 'keyUp',
+            key,
+        };
+        if (text) {
+            params.text = text;
+            params.unmodifiedText = text;
+        }
+        this._ff('Input.dispatchKeyEvent', params);
+    }
+    _dispatchTouch(phase, points) {
         const type = cdpTouchType(phase);
         if (type === 'touchEnd' || type === 'touchCancel') {
-            // CDP requires empty touchPoints on end/cancel; re-assert remaining contacts.
-            await this._cdp.send('Input.dispatchTouchEvent', { type, touchPoints: [] });
+            this._ff('Input.dispatchTouchEvent', { type, touchPoints: [] });
             if (points.length > 0) {
-                await this._cdp.send('Input.dispatchTouchEvent', {
+                this._ff('Input.dispatchTouchEvent', {
                     type: 'touchStart',
                     touchPoints: points.map((p) => ({
                         x: p.x,
@@ -175,7 +195,7 @@ class InputController {
             }
             return;
         }
-        await this._cdp.send('Input.dispatchTouchEvent', {
+        this._ff('Input.dispatchTouchEvent', {
             type,
             touchPoints: points.map((p) => ({
                 x: p.x,
@@ -186,6 +206,20 @@ class InputController {
                 force: p.force,
             })),
         });
+    }
+    _ff(method, params) {
+        this._inFlight++;
+        void this._cdp
+            .send(method, params)
+            .catch((err) => {
+            console.warn(`[Input] ${method}:`, err.message);
+        })
+            .finally(() => {
+            this._inFlight = Math.max(0, this._inFlight - 1);
+        });
+    }
+    get pendingCount() {
+        return this._inFlight + (this._movePending ? 1 : 0);
     }
 }
 exports.InputController = InputController;

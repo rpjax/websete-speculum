@@ -1,4 +1,4 @@
-namespace Speculum.Api.Configurations.Models.Diagnostics;
+namespace Speculum.Api.Configurations.Models.Telemetry;
 
 public sealed class SessionTelemetryConfiguration
 {

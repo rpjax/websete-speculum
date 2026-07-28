@@ -1,5 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using Aidan.Core.Patterns;
+using Speculum.Api.Telemetry.Models;
 
 namespace Speculum.Api.BrowserClients;
 
@@ -42,6 +43,10 @@ public interface IBrowserClient
     /// Applies global browser/sidecar configuration that is not scoped to a single session.
     /// </summary>
     Task<IResult> UpdateBrowserConfigsAsync(CancellationToken ct = default);
+
+    Task<IResult<SidecarTelemetrySample>> CollectTelemetryAsync(
+        SidecarTelemetryRequest request,
+        CancellationToken ct = default);
 
     /// <summary>
     /// Opens and registers the internal sidecar connection for <paramref name="sessionId"/>

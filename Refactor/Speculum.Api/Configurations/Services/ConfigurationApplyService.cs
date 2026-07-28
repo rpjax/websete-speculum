@@ -9,9 +9,11 @@ using Speculum.Api.Configurations.Models.Profiles;
 using Speculum.Api.Configurations.Models.ResourceManagement;
 using Speculum.Api.Configurations.Models.Scripting;
 using Speculum.Api.Configurations.Models.Sessions;
+using Speculum.Api.Configurations.Models.Telemetry;
 using Speculum.Api.Configurations.Persistence;
 using Speculum.Api.Configurations.Services.Contracts;
 using Speculum.Api.Journal.Services.Contracts;
+using Speculum.Api.Telemetry;
 
 namespace Speculum.Api.Configurations.Services;
 
@@ -183,6 +185,9 @@ public sealed class ConfigurationApplyService : IConfigurationApplyService
             DisableAllNonCanonicalJournalTypes();
         }
 
+        // Telemetry-owned facts follow TelemetryConfiguration, not the Journal events map.
+        TelemetryJournalFacts.ApplyToCatalog(_journalCatalog, engine.Telemetry);
+
         var missing = ConfigurationCompleteness.MissingRequired(engine);
         _configuration.ReplaceApplied(engine, journal, missing);
 
@@ -222,6 +227,8 @@ public sealed class ConfigurationApplyService : IConfigurationApplyService
             ConfigSectionKeys.ResourceManagement, ct).ConfigureAwait(false);
         var journal = await DeserializeOrThrowAsync<JournalEventsConfiguration>(
             ConfigSectionKeys.Journal, ct).ConfigureAwait(false);
+        var telemetry = await DeserializeOrThrowAsync<TelemetryConfiguration>(
+            ConfigSectionKeys.Telemetry, ct).ConfigureAwait(false);
 
         return (
             new EngineConfiguration
@@ -233,6 +240,7 @@ public sealed class ConfigurationApplyService : IConfigurationApplyService
                 Profiles = _profiles.CurrentValue,
                 Scripting = _scripting.CurrentValue,
                 Diagnostics = _diagnostics.CurrentValue,
+                Telemetry = telemetry,
             },
             journal);
     }
@@ -248,6 +256,10 @@ public sealed class ConfigurationApplyService : IConfigurationApplyService
             if (descriptor.IsCanonical)
                 continue;
 
+            // Owned by Telemetry Apply — leave untouched until ApplyTelemetryJournalFacts.
+            if (TelemetryJournalFacts.Owns(descriptor.Type))
+                continue;
+
             var enabled = journal.Events.TryGetValue(descriptor.Type, out var flag) && flag;
             _journalCatalog.SetEnabled(descriptor.Type, enabled);
         }
@@ -261,6 +273,13 @@ public sealed class ConfigurationApplyService : IConfigurationApplyService
             {
                 throw new InvalidOperationException(
                     $"Cannot apply enablement for canonical Journal fact type '{type}'.");
+            }
+
+            if (TelemetryJournalFacts.Owns(type))
+            {
+                throw new InvalidOperationException(
+                    $"Cannot apply Journal enablement for Telemetry-owned fact type '{type}'. " +
+                    "Use the Telemetry configuration section instead.");
             }
 
             if (!_journalCatalog.Types.Any(d => string.Equals(d.Type, type, StringComparison.Ordinal)))
@@ -317,6 +336,7 @@ public sealed class ConfigurationApplyService : IConfigurationApplyService
                 ConfigSectionKeys.Sessions => ValidateSessions(valueJson),
                 ConfigSectionKeys.ResourceManagement => ValidateResources(valueJson),
                 ConfigSectionKeys.Journal => ValidateJournal(valueJson),
+                ConfigSectionKeys.Telemetry => ValidateTelemetry(valueJson),
                 _ => "Unknown section.",
             };
         }
@@ -386,12 +406,42 @@ public sealed class ConfigurationApplyService : IConfigurationApplyService
             if (_journalCatalog.IsCanonical(type))
                 return $"Cannot toggle canonical Journal fact type '{type}'.";
 
+            if (TelemetryJournalFacts.Owns(type))
+            {
+                return $"Cannot toggle Telemetry-owned Journal fact type '{type}' via Journal; " +
+                    "use the Telemetry configuration section.";
+            }
+
             if (!_journalCatalog.Types.Any(d =>
                     string.Equals(d.Type, type, StringComparison.Ordinal)))
             {
                 return $"Unknown Journal fact type '{type}'.";
             }
         }
+
+        return null;
+    }
+
+    private static string? ValidateTelemetry(string json)
+    {
+        var telemetry = JsonSerializer.Deserialize<TelemetryConfiguration>(json, JsonOptions)
+            ?? new TelemetryConfiguration();
+
+        if (telemetry.IntervalSeconds is < TelemetryConfiguration.MinIntervalSeconds
+            or > TelemetryConfiguration.MaxIntervalSeconds)
+            return $"Telemetry.IntervalSeconds must be between {TelemetryConfiguration.MinIntervalSeconds} and {TelemetryConfiguration.MaxIntervalSeconds}.";
+
+        if (telemetry.Host.SampleIntervalMs is < 100 or > 60_000)
+            return "Telemetry.Host.SampleIntervalMs must be between 100 and 60000.";
+
+        if (telemetry.ApiProcess.SampleIntervalMs is < 100 or > 60_000)
+            return "Telemetry.ApiProcess.SampleIntervalMs must be between 100 and 60000.";
+
+        if (telemetry.Sidecar.TimeoutMs is < 100 or > 60_000)
+            return "Telemetry.Sidecar.TimeoutMs must be between 100 and 60000.";
+
+        if (telemetry.Docker.TimeoutMs is < 100 or > 60_000)
+            return "Telemetry.Docker.TimeoutMs must be between 100 and 60000.";
 
         return null;
     }

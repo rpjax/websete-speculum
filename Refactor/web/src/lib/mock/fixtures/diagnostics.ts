@@ -206,7 +206,7 @@ export function eventsList(): DiagnosticsEventRecord[] {
     { diagnosticsSchemaVersion: 2, seq: 23, spanId: 'span-nav-abandon', spanKey: 'motor.navigate', id: eid(), utc: ago(1.4), domain: 'DiagnosticsSelf', name: 'Diagnostics.SpanAbandoned', severity: 'Warning', correlationId: corrSessionLifecycle2, connectionId: conn2, persistedSessionId: null, sidecarSessionId: 'sc-333-444', payload: { spanKey: 'motor.navigate', errorCode: 'span_timeout', phase: 'timeout', openMs: 60_000 }, redaction: 'none' },
 
     // --- Per-session telemetry slice scoped to conn1's story lane ---
-    { diagnosticsSchemaVersion: 2, seq: 24, id: eid(), utc: ago(1), domain: 'Telemetry', name: 'Telemetry.SessionSampleCollected', severity: 'Info', correlationId: corrSessionLifecycle1, connectionId: conn1, persistedSessionId: null, sidecarSessionId: 'sc-111-222', payload: { connectionId: conn1, phase: 'Running', fps: 24, uptimeMs: 660_000, inputQueue: 0, sidecarConnected: true, jsBridgeEnabled: false, urlHost: 'www.example.com' }, redaction: 'none' },
+    { diagnosticsSchemaVersion: 2, seq: 24, id: eid(), utc: ago(1), domain: 'Telemetry', name: 'Telemetry.SessionSampleCollected', severity: 'Info', correlationId: corrSessionLifecycle1, connectionId: conn1, persistedSessionId: null, sidecarSessionId: 'sc-111-222', payload: { sessionId: '11111111-1111-1111-1111-111111111111', profileId: '22222222-2222-2222-2222-222222222222', connectionOpen: true, fps: 24, uptimeMs: 660_000, jsBridgeEnabled: false, urlHost: 'www.example.com' }, redaction: 'none' },
 
     // --- Cleanup event (system, no correlation) ---
     { diagnosticsSchemaVersion: 1, id: eid(), utc: ago(1.5), domain: 'DiagnosticsSelf', name: 'Diagnostics.CleanupCompleted', severity: 'Info', correlationId: null, connectionId: null, persistedSessionId: null, sidecarSessionId: null, payload: { purgedCount: 12, bytesFreed: 1_048_576 }, redaction: 'none' },
@@ -457,49 +457,43 @@ export function telemetrySamples(): TelemetrySampleRecord[] {
         threadPoolBusy: cpu > 40 ? 4 : 2,
         threadPoolQueued: cpu > 70 ? 2 : 0,
       },
-      motor: {
+      sessions: {
         total: live + starting,
         live,
-        starting,
-        stopping: 0,
-        byPhase: { Running: live, Starting: starting },
         avgFps: round1(avgFps),
         minFps: round1(Math.max(4, avgFps - 6)),
         maxFps: round1(Math.min(30, avgFps + 4)),
-        inputQueueTotal: Math.round(live * (cpu > 60 ? 2.4 : 0.6)),
-        frameChannelDepthTotal: Math.round(live * 1.2),
-        statusChannelDepthTotal: Math.round(live * 0.4),
         capacityMax: CAPACITY_MAX,
         capacityUsedPct: round1((live / CAPACITY_MAX) * 100),
         liveSessionIds: null,
         sessions: null,
       },
       sidecar: {
-        connected: live,
-        faulted,
-        faultedSessionIds: null,
+        queues: {
+          videoDepth: Math.round(live * 1.2),
+          audioDepth: Math.round(live * 0.2),
+          consoleDepth: Math.round(live * 0.4),
+          inputDepth: Math.round(live * (cpu > 60 ? 2.4 : 0.6)),
+          droppedTotal: anomaly?.kind === 'leak' ? Math.max(0, Math.round((t - 70) * 0.3)) : null,
+        },
+        sessions: {
+          registered: live + faulted,
+          open: live,
+          faulted,
+          faultedSessionIds: null,
+        },
       },
-      persistence: {
-        storedSessions: 8 + Math.floor(t / 40),
-        totalCookies: 96 + t,
-        totalHistory: 42 + Math.floor(t / 3),
-        expiringSoon: t % 50 === 0 ? 2 : 0,
-        storeBytes: 4_200_000 + t * 1500,
+      profiles: {
+        total: 8 + Math.floor(t / 40),
+        storageBytes: 4_200_000 + t * 1500,
       },
-      pipeline: {
-        bytesUsed: 12_000_000 + t * 42_000,
-        storageMaxBytes: STORAGE_MAX_BYTES,
-        usedPct: round1(((12_000_000 + t * 42_000) / STORAGE_MAX_BYTES) * 100),
-        eventsStored: 300 + t * 3,
-        eventsDropped: anomaly?.kind === 'leak' || (t >= 80 && t <= 95)
+      journal: {
+        queueDepth: t >= 80 && t <= 95 ? 20 : 0,
+        droppedTotal: anomaly?.kind === 'leak' || (t >= 80 && t <= 95)
           ? Math.max(0, Math.round((t - 70) * 0.4))
           : 0,
-        overflowCount: t >= 82 && t <= 90 ? Math.round((t - 81) / 2) : 0,
-        probeInFlight: 0,
         degraded: t >= 80 && t <= 95,
-        elevateActive: t >= 200 && t <= 210,
-        recentDrops: t >= 80 && t <= 95 ? Math.round(2 + (t - 80) * 0.5) : null,
-        recentSlowWrites: cpu > 80 || (t >= 80 && t <= 95) ? 1 + Math.floor((t % 5) / 2) : null,
+        persistFailures: cpu > 80 || (t >= 80 && t <= 95) ? 1 + Math.floor((t % 5) / 2) : null,
       },
     }
 

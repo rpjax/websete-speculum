@@ -9,7 +9,7 @@ export async function writePipeHeader(
   await writer.write(Uint8Array.of(kind & 0xff))
 }
 
-/** Writes one big-endian length-prefixed MessagePack message. */
+/** Writes one big-endian length-prefixed MessagePack message as a single chunk. */
 export async function writeMessage(
   writer: WritableStreamDefaultWriter<Uint8Array>,
   value: unknown,
@@ -18,10 +18,10 @@ export async function writeMessage(
   if (payload.byteLength <= 0 || payload.byteLength > MaxMessageBytes) {
     throw new Error(`Message size out of range: ${payload.byteLength}`)
   }
-  const header = new Uint8Array(4)
-  new DataView(header.buffer).setInt32(0, payload.byteLength, false)
-  await writer.write(header)
-  await writer.write(payload)
+  const frame = new Uint8Array(4 + payload.byteLength)
+  new DataView(frame.buffer).setInt32(0, payload.byteLength, false)
+  frame.set(payload, 4)
+  await writer.write(frame)
 }
 
 /**

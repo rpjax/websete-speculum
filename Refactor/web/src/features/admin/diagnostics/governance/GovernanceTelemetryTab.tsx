@@ -34,10 +34,11 @@ export function GovernanceTelemetryTab({ config, onChange }: GovernanceTelemetry
   const sectionCount = [
     t.host.enabled,
     t.apiProcess.enabled,
-    t.motor.enabled,
+    t.sessions.enabled,
     t.sidecar.enabled,
-    t.persistence.enabled,
-    t.pipeline.enabled,
+    t.profiles.enabled,
+    t.journal.enabled,
+    t.docker.enabled,
   ].filter(Boolean).length
 
   function patchTelemetry(patch: Partial<DiagnosticsOptions['telemetry']>) {
@@ -54,20 +55,13 @@ export function GovernanceTelemetryTab({ config, onChange }: GovernanceTelemetry
             On a fixed interval Speculum builds <strong className="font-medium text-foreground">one composite
             sample</strong> (
             <code className="rounded bg-muted px-1">Telemetry.SampleCollected</code>
-            ) with optional sections — machine, API process, motor, sidecar, persistence, pipeline. That is separate from
-            lifecycle <em>events</em> on Coverage. Charts live under Telemetry Monitor; this tab only chooses
-            what goes into each sample.
+            ) with optional sections for machine, API process, sessions, sidecar, profiles, Journal,
+            and Docker. Charts live under Telemetry Monitor; this tab only chooses what goes into each sample.
           </p>
         </div>
       </div>
 
-      {/* Master */}
-      <section
-        className={cn(
-          'rounded-xl border bg-card',
-          t.enabled ? 'border-border' : 'border-warning/30',
-        )}
-      >
+      <section className={cn('rounded-xl border bg-card', t.enabled ? 'border-border' : 'border-warning/30')}>
         <header className="flex items-start gap-3 border-b border-border/50 px-4 py-3.5 sm:px-5">
           <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10">
             <Gauge className="h-4 w-4 text-primary" />
@@ -77,15 +71,10 @@ export function GovernanceTelemetryTab({ config, onChange }: GovernanceTelemetry
               <div>
                 <h3 className="text-sm font-bold">Sampler master</h3>
                 <p className="mt-0.5 text-xs text-muted-foreground leading-relaxed">
-                  When off, no composite samples are emitted — section toggles below have no effect until
-                  the sampler is on again.
+                  When off, no composite samples are emitted. Section toggles below only matter when the sampler is on.
                 </p>
               </div>
-              <Switch
-                id="tel-enabled"
-                checked={t.enabled}
-                onCheckedChange={(enabled) => patchTelemetry({ enabled })}
-              />
+              <Switch id="tel-enabled" checked={t.enabled} onCheckedChange={(enabled) => patchTelemetry({ enabled })} />
             </div>
           </div>
         </header>
@@ -99,13 +88,12 @@ export function GovernanceTelemetryTab({ config, onChange }: GovernanceTelemetry
                   <HelpCircle className="h-3 w-3 text-muted-foreground/50" />
                 </TooltipTrigger>
                 <TooltipContent className="max-w-xs text-xs leading-relaxed">
-                  How often a new composite sample is taken (1–3600s). Faster intervals fill the event store
-                  quicker — pair with Budgets if you go aggressive.
+                  How often a new composite sample is taken (1–3600s). Faster intervals fill Journal quicker.
                 </TooltipContent>
               </Tooltip>
             </div>
             <p className="mb-2.5 text-[11px] text-muted-foreground leading-relaxed">
-              One sample every N seconds across the whole process — not per session.
+              One sample every N seconds across the whole process, not per session.
             </p>
             <div className="mb-2 flex flex-wrap gap-1.5">
               {INTERVAL_PRESETS.map((p) => (
@@ -155,19 +143,17 @@ export function GovernanceTelemetryTab({ config, onChange }: GovernanceTelemetry
         </div>
       </section>
 
-      {/* Sections */}
       <section className="rounded-xl border border-border bg-card">
         <header className="border-b border-border/50 px-4 py-3.5 sm:px-5">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <h3 className="text-sm font-bold">Sample sections</h3>
               <p className="mt-0.5 text-xs text-muted-foreground leading-relaxed">
-                Each section is a slice of the same composite sample. Off sections are omitted from the
-                payload — they do not emit separate events.
+                Each section is a slice of the same composite sample. Off sections are omitted from the payload.
               </p>
             </div>
             <span className="rounded-full bg-muted px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
-              {sectionCount} of 6 included
+              {sectionCount} of 7 included
             </span>
           </div>
         </header>
@@ -176,8 +162,8 @@ export function GovernanceTelemetryTab({ config, onChange }: GovernanceTelemetry
           <SectionCard
             icon={<Server className="h-3.5 w-3.5" />}
             title="Machine"
-            summary="Machine and volume health"
-            detail="Machine CPU, CPU count, available memory, and disk capacity. Load, swap, disk I/O, and network are optional."
+            summary="Host CPU, memory, disk, and network"
+            detail="Machine CPU, CPU count, available memory, disk capacity, and optional load/swap/network overlays."
             checked={t.host.enabled}
             disabled={!t.enabled}
             onChange={(v) => patchTelemetry({ host: { ...t.host, enabled: v } })}
@@ -186,52 +172,60 @@ export function GovernanceTelemetryTab({ config, onChange }: GovernanceTelemetry
             icon={<Activity className="h-3.5 w-3.5" />}
             title="API process"
             summary="Speculum.Api process and CLR"
-            detail="Process CPU, working set, and threads. Private memory, GC counters, and thread-pool pressure are optional."
+            detail="Process CPU, working set, threads, and optional private-memory / GC / thread-pool overlays."
             checked={t.apiProcess.enabled}
             disabled={!t.enabled}
             onChange={(v) => patchTelemetry({ apiProcess: { ...t.apiProcess, enabled: v } })}
           />
           <SectionCard
             icon={<Activity className="h-3.5 w-3.5" />}
-            title="Motor"
-            summary="Live browsing capacity & FPS"
-            detail="Session counts by phase, avg/min/max FPS, input/frame queue depth, capacity %. Answers “is the motor healthy right now?”"
-            checked={t.motor.enabled}
+            title="Sessions"
+            summary="Live browsing load and capacity"
+            detail="Live session totals, capacity used, FPS aggregates, and optional per-session identity overlays."
+            checked={t.sessions.enabled}
             disabled={!t.enabled}
-            onChange={(v) => patchTelemetry({ motor: { ...t.motor, enabled: v } })}
+            onChange={(v) => patchTelemetry({ sessions: { ...t.sessions, enabled: v } })}
           />
           <SectionCard
             icon={<Radar className="h-3.5 w-3.5" />}
             title="Sidecar"
-            summary="Browser process connectivity"
-            detail="How many sidecars are connected vs faulted. Lightweight aggregate — turn on identity opt-ins below if you need faulted IDs."
+            summary="Browser-process health"
+            detail="Sidecar process, event-loop, browser/page totals, bridge queues, and faulted session summary."
             checked={t.sidecar.enabled}
             disabled={!t.enabled}
             onChange={(v) => patchTelemetry({ sidecar: { ...t.sidecar, enabled: v } })}
           />
           <SectionCard
             icon={<Database className="h-3.5 w-3.5" />}
-            title="Persistence"
-            summary="Stored session footprint"
-            detail="Counts of persisted sessions, cookies, history, expiring-soon. Useful for restore/capacity planning."
-            checked={t.persistence.enabled}
+            title="Profiles"
+            summary="Stored profile/database footprint"
+            detail="Profile totals and optional storage footprint from the shared Speculum database."
+            checked={t.profiles.enabled}
             disabled={!t.enabled}
-            onChange={(v) => patchTelemetry({ persistence: { ...t.persistence, enabled: v } })}
+            onChange={(v) => patchTelemetry({ profiles: { ...t.profiles, enabled: v } })}
           />
           <SectionCard
             icon={<HardDrive className="h-3.5 w-3.5" />}
-            title="Pipeline"
-            summary="Diagnostics back-pressure"
-            detail="Event-store bytes used, drops, overflow, probe-in-flight, degraded/elevate flags. The self-view of the diagnostics pipeline."
-            checked={t.pipeline.enabled}
+            title="Journal"
+            summary="Telemetry write pressure"
+            detail="Queue depth, dropped facts, persist failures, and degraded state for the Journal sink used by Telemetry."
+            checked={t.journal.enabled}
             disabled={!t.enabled}
-            onChange={(v) => patchTelemetry({ pipeline: { ...t.pipeline, enabled: v } })}
+            onChange={(v) => patchTelemetry({ journal: { ...t.journal, enabled: v } })}
+          />
+          <SectionCard
+            icon={<Database className="h-3.5 w-3.5" />}
+            title="Docker"
+            summary="Container runtime overlay"
+            detail="Docker runtime info and optional per-container inventory from the configured endpoint."
+            checked={t.docker.enabled}
+            disabled={!t.enabled}
+            onChange={(v) => patchTelemetry({ docker: { ...t.docker, enabled: v } })}
             className="sm:col-span-2"
           />
         </div>
       </section>
 
-      {/* Identity */}
       <Accordion type="single" collapsible>
         <AccordionItem value="identity" className="rounded-xl border border-border bg-card">
           <AccordionTrigger className="px-4 py-3.5 hover:no-underline sm:px-5">
@@ -240,9 +234,9 @@ export function GovernanceTelemetryTab({ config, onChange }: GovernanceTelemetry
                 <Shield className="h-4 w-4 text-muted-foreground" />
               </div>
               <div>
-                <p className="text-sm font-bold">Machine collection & overlay detail opt-ins</p>
+                <p className="text-sm font-bold">Collection and overlay opt-ins</p>
                 <p className="mt-0.5 text-xs font-normal text-muted-foreground">
-                  Machine paths and sampling first; API process, motor, and optional detail fields are overlays
+                  Machine paths and sampling first; the other sections add detail or identity as needed
                 </p>
               </div>
             </div>
@@ -251,10 +245,9 @@ export function GovernanceTelemetryTab({ config, onChange }: GovernanceTelemetry
             <div className="flex gap-2 rounded-lg border border-border/60 bg-muted/15 px-3 py-2.5 text-[11px] leading-relaxed text-muted-foreground">
               <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               <div>
-                These enrich an already-enabled section. Most are cheap. The costly one is{' '}
-                <strong className="font-medium text-foreground">Motor · per-session</strong> — it
-                emits one <code className="rounded bg-muted px-1">SessionSampleCollected</code> per
-                live session every interval. Production keeps that off; session IDs and URL host stay on.
+                The costly option is <strong className="font-medium text-foreground">Sessions · per-session</strong>.
+                It emits one <code className="rounded bg-muted px-1">Telemetry.SessionSampleCollected</code> per live
+                session every interval. Production usually keeps that off.
               </div>
             </div>
 
@@ -264,10 +257,16 @@ export function GovernanceTelemetryTab({ config, onChange }: GovernanceTelemetry
                 <Input className="mt-1 h-8 text-xs" value={t.host.procPath} onChange={(e) => patchTelemetry({ host: { ...t.host, procPath: e.target.value } })} />
                 <label className="mt-2 block text-[11px] text-muted-foreground">disk path</label>
                 <Input className="mt-1 h-8 text-xs" value={t.host.diskPath ?? ''} placeholder="Default" onChange={(e) => patchTelemetry({ host: { ...t.host, diskPath: e.target.value || null } })} />
-                <SampleIntervalInput value={t.host.sampleIntervalMs} disabled={!t.enabled || !t.host.enabled} onChange={(sampleIntervalMs) => patchTelemetry({ host: { ...t.host, sampleIntervalMs } })} />
+                <NumberField label="Sample interval (ms)" value={t.host.sampleIntervalMs} disabled={!t.enabled || !t.host.enabled} onChange={(sampleIntervalMs) => patchTelemetry({ host: { ...t.host, sampleIntervalMs } })} />
               </TelemetrySettingsCard>
               <TelemetrySettingsCard title="API process collection" disabled={!t.enabled || !t.apiProcess.enabled}>
-                <SampleIntervalInput value={t.apiProcess.sampleIntervalMs} disabled={!t.enabled || !t.apiProcess.enabled} onChange={(sampleIntervalMs) => patchTelemetry({ apiProcess: { ...t.apiProcess, sampleIntervalMs } })} />
+                <NumberField label="Sample interval (ms)" value={t.apiProcess.sampleIntervalMs} disabled={!t.enabled || !t.apiProcess.enabled} onChange={(sampleIntervalMs) => patchTelemetry({ apiProcess: { ...t.apiProcess, sampleIntervalMs } })} />
+              </TelemetrySettingsCard>
+              <TelemetrySettingsCard title="Sidecar / Docker collection" disabled={!t.enabled}>
+                <NumberField label="Sidecar timeout (ms)" value={t.sidecar.timeoutMs} disabled={!t.enabled || !t.sidecar.enabled} onChange={(timeoutMs) => patchTelemetry({ sidecar: { ...t.sidecar, timeoutMs } })} />
+                <NumberField label="Docker timeout (ms)" value={t.docker.timeoutMs} disabled={!t.enabled || !t.docker.enabled} onChange={(timeoutMs) => patchTelemetry({ docker: { ...t.docker, timeoutMs } })} />
+                <label className="mt-2 block text-[11px] text-muted-foreground">Docker endpoint</label>
+                <Input className="mt-1 h-8 text-xs" value={t.docker.endpoint} onChange={(e) => patchTelemetry({ docker: { ...t.docker, endpoint: e.target.value } })} />
               </TelemetrySettingsCard>
             </div>
 
@@ -277,54 +276,21 @@ export function GovernanceTelemetryTab({ config, onChange }: GovernanceTelemetry
               <OptInCard title="Machine · disk I/O" body="Include disk read and write throughput for the configured volume." checked={t.host.includeDiskIo} disabled={!t.enabled || !t.host.enabled} onChange={(v) => patchTelemetry({ host: { ...t.host, includeDiskIo: v } })} />
               <OptInCard title="Machine · network" body="Include aggregate receive and transmit throughput." checked={t.host.includeNetwork} disabled={!t.enabled || !t.host.enabled} onChange={(v) => patchTelemetry({ host: { ...t.host, includeNetwork: v } })} />
               <OptInCard title="API process · private memory" body="Include process-private committed memory." checked={t.apiProcess.includePrivateMemory} disabled={!t.enabled || !t.apiProcess.enabled} onChange={(v) => patchTelemetry({ apiProcess: { ...t.apiProcess, includePrivateMemory: v } })} />
-              <OptInCard title="API process · GC" body="Include CLR heap and generation counters." checked={t.apiProcess.includeGc} disabled={!t.enabled || !t.apiProcess.enabled} onChange={(v) => patchTelemetry({ apiProcess: { ...t.apiProcess, includeGc: v } })} />
+              <OptInCard title="API process · GC" body="Include CLR heap and generation counters." checked={t.apiProcess.includeGarbageCollection} disabled={!t.enabled || !t.apiProcess.enabled} onChange={(v) => patchTelemetry({ apiProcess: { ...t.apiProcess, includeGarbageCollection: v } })} />
               <OptInCard title="API process · thread pool" body="Include busy workers and queued work items." checked={t.apiProcess.includeThreadPool} disabled={!t.enabled || !t.apiProcess.enabled} onChange={(v) => patchTelemetry({ apiProcess: { ...t.apiProcess, includeThreadPool: v } })} />
-              <OptInCard
-                title="Motor · session IDs"
-                body="List live connection IDs in the sample. Helps map charts to sessions; increases payload size."
-                checked={t.motor.includeSessionIds}
-                disabled={!t.enabled || !t.motor.enabled}
-                onChange={(v) => patchTelemetry({ motor: { ...t.motor, includeSessionIds: v } })}
-              />
-              <OptInCard
-                title="Motor · per-session rows"
-                body="Embed a compact projection per live session (phase, FPS, queues) and emit one SessionSampleCollected per session each tick — the expensive identity option."
-                checked={t.motor.includePerSession}
-                disabled={!t.enabled || !t.motor.enabled}
-                onChange={(v) => patchTelemetry({ motor: { ...t.motor, includePerSession: v } })}
-              />
-              <OptInCard
-                title="Motor · URL host"
-                body="Include the hostname of each session’s current URL in the composite sample (cheap; useful for allowlist issues)."
-                checked={t.motor.includeUrlHost}
-                disabled={!t.enabled || !t.motor.enabled}
-                onChange={(v) => patchTelemetry({ motor: { ...t.motor, includeUrlHost: v } })}
-              />
-              <OptInCard
-                title="Sidecar · faulted IDs"
-                body="List which sessions have a faulted sidecar. Turn on when chasing browser process crashes."
-                checked={t.sidecar.includeFaultedIds}
-                disabled={!t.enabled || !t.sidecar.enabled}
-                onChange={(v) => patchTelemetry({ sidecar: { ...t.sidecar, includeFaultedIds: v } })}
-              />
-              <OptInCard
-                title="Persistence · store bytes"
-                body="Include on-disk store size for the session archive. Helps correlate disk growth with Budgets."
-                checked={t.persistence.includeBytes}
-                disabled={!t.enabled || !t.persistence.enabled}
-                onChange={(v) =>
-                  patchTelemetry({ persistence: { ...t.persistence, includeBytes: v } })
-                }
-              />
-              <OptInCard
-                title="Pipeline · breaker pressure"
-                body="Include recent drop / slow-write counters that feed the Degraded circuit. Useful when diagnosing StorageOverflow."
-                checked={t.pipeline.includeBreakerPressure}
-                disabled={!t.enabled || !t.pipeline.enabled}
-                onChange={(v) =>
-                  patchTelemetry({ pipeline: { ...t.pipeline, includeBreakerPressure: v } })
-                }
-              />
+              <OptInCard title="Sessions · session IDs" body="List live session IDs in the sample to correlate charts with sessions." checked={t.sessions.includeSessionIds} disabled={!t.enabled || !t.sessions.enabled} onChange={(v) => patchTelemetry({ sessions: { ...t.sessions, includeSessionIds: v } })} />
+              <OptInCard title="Sessions · per-session rows" body="Emit one Telemetry.SessionSampleCollected per live session on each tick." checked={t.sessions.includePerSession} disabled={!t.enabled || !t.sessions.enabled} onChange={(v) => patchTelemetry({ sessions: { ...t.sessions, includePerSession: v } })} />
+              <OptInCard title="Sessions · URL host" body="Include each session's current URL hostname." checked={t.sessions.includeUrlHost} disabled={!t.enabled || !t.sessions.enabled} onChange={(v) => patchTelemetry({ sessions: { ...t.sessions, includeUrlHost: v } })} />
+              <OptInCard title="Sidecar · process" body="Include sidecar CPU, RSS, heap, PID, and uptime." checked={t.sidecar.includeProcess} disabled={!t.enabled || !t.sidecar.enabled} onChange={(v) => patchTelemetry({ sidecar: { ...t.sidecar, includeProcess: v } })} />
+              <OptInCard title="Sidecar · event loop" body="Include sidecar event-loop delay and utilization." checked={t.sidecar.includeEventLoop} disabled={!t.enabled || !t.sidecar.enabled} onChange={(v) => patchTelemetry({ sidecar: { ...t.sidecar, includeEventLoop: v } })} />
+              <OptInCard title="Sidecar · chrome" body="Include open browser/page counts from the sidecar." checked={t.sidecar.includeChrome} disabled={!t.enabled || !t.sidecar.enabled} onChange={(v) => patchTelemetry({ sidecar: { ...t.sidecar, includeChrome: v } })} />
+              <OptInCard title="Sidecar · queues" body="Include sidecar bridge queue depths that are actually supported by the sidecar." checked={t.sidecar.includeQueues} disabled={!t.enabled || !t.sidecar.enabled} onChange={(v) => patchTelemetry({ sidecar: { ...t.sidecar, includeQueues: v } })} />
+              <OptInCard title="Sidecar · sessions summary" body="Include registered/open/faulted session totals from the sidecar." checked={t.sidecar.includeSessionsSummary} disabled={!t.enabled || !t.sidecar.enabled} onChange={(v) => patchTelemetry({ sidecar: { ...t.sidecar, includeSessionsSummary: v } })} />
+              <OptInCard title="Sidecar · faulted IDs" body="List faulted session IDs from the sidecar summary." checked={t.sidecar.includeFaultedIds} disabled={!t.enabled || !t.sidecar.enabled} onChange={(v) => patchTelemetry({ sidecar: { ...t.sidecar, includeFaultedIds: v } })} />
+              <OptInCard title="Profiles · storage bytes" body="Include the unified Speculum database footprint." checked={t.profiles.includeStorageBytes} disabled={!t.enabled || !t.profiles.enabled} onChange={(v) => patchTelemetry({ profiles: { ...t.profiles, includeStorageBytes: v } })} />
+              <OptInCard title="Journal · pressure detail" body="Include persist failures, admission failures, queue pressure, and drain-state detail for the Telemetry sink." checked={t.journal.includePressure} disabled={!t.enabled || !t.journal.enabled} onChange={(v) => patchTelemetry({ journal: { ...t.journal, includePressure: v } })} />
+              <OptInCard title="Docker · runtime" body="Include Docker runtime version/OS/container totals." checked={t.docker.includeRuntime} disabled={!t.enabled || !t.docker.enabled} onChange={(v) => patchTelemetry({ docker: { ...t.docker, includeRuntime: v } })} />
+              <OptInCard title="Docker · containers" body="Include per-container state and resource snapshots." checked={t.docker.includeContainers} disabled={!t.enabled || !t.docker.enabled} onChange={(v) => patchTelemetry({ docker: { ...t.docker, includeContainers: v } })} />
             </div>
           </AccordionContent>
         </AccordionItem>
@@ -333,15 +299,7 @@ export function GovernanceTelemetryTab({ config, onChange }: GovernanceTelemetry
   )
 }
 
-function TelemetrySettingsCard({
-  title,
-  disabled,
-  children,
-}: {
-  title: string
-  disabled: boolean
-  children: ReactNode
-}) {
+function TelemetrySettingsCard({ title, disabled, children }: { title: string; disabled: boolean; children: ReactNode }) {
   return (
     <div className={cn('rounded-lg border border-border/60 bg-muted/10 p-3', disabled && 'opacity-50')}>
       <p className="mb-2 text-sm font-medium">{title}</p>
@@ -350,26 +308,32 @@ function TelemetrySettingsCard({
   )
 }
 
-function SampleIntervalInput({
+function NumberField({
+  label,
   value,
   disabled,
+  min = 100,
+  step = 100,
   onChange,
 }: {
+  label: string
   value: number
   disabled: boolean
+  min?: number
+  step?: number
   onChange: (value: number) => void
 }) {
   return (
     <label className="mt-2 block text-[11px] text-muted-foreground">
-      Sample interval (ms)
+      {label}
       <Input
         className="mt-1 h-8 w-28 text-xs"
         type="number"
-        min={100}
-        step={100}
+        min={min}
+        step={step}
         disabled={disabled}
         value={value}
-        onChange={(e) => onChange(Math.max(100, Number(e.target.value) || 100))}
+        onChange={(e) => onChange(Math.max(min, Number(e.target.value) || min))}
       />
     </label>
   )
@@ -398,9 +362,7 @@ function SectionCard({
     <label
       className={cn(
         'flex cursor-pointer flex-col rounded-lg border p-3.5 transition-colors',
-        checked && !disabled
-          ? 'border-primary/40 bg-primary/5'
-          : 'border-border/60 bg-muted/10',
+        checked && !disabled ? 'border-primary/40 bg-primary/5' : 'border-border/60 bg-muted/10',
         disabled && 'cursor-not-allowed opacity-50',
         className,
       )}
@@ -434,18 +396,8 @@ function OptInCard({
   onChange: (v: boolean) => void
 }) {
   return (
-    <label
-      className={cn(
-        'flex cursor-pointer items-start gap-3 rounded-lg border border-border/60 bg-muted/10 px-3 py-3',
-        disabled && 'cursor-not-allowed opacity-50',
-      )}
-    >
-      <Switch
-        className="mt-0.5"
-        checked={checked}
-        disabled={disabled}
-        onCheckedChange={onChange}
-      />
+    <label className={cn('flex cursor-pointer items-start gap-3 rounded-lg border border-border/60 bg-muted/10 px-3 py-3', disabled && 'cursor-not-allowed opacity-50')}>
+      <Switch className="mt-0.5" checked={checked} disabled={disabled} onCheckedChange={onChange} />
       <div className="min-w-0">
         <p className="text-sm font-medium">{title}</p>
         <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">{body}</p>

@@ -6,5 +6,4 @@ public enum DiagnosticsDomain
     Sidecar,
     BrowserQuery,
     Profiles,
-    Telemetry,
 }

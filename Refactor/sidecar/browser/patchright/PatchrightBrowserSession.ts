@@ -12,6 +12,7 @@ import type {
   BrowserSessionEvents,
   BrowserState,
   BrowserStatus,
+  BrowserTelemetrySnapshot,
 } from '../BrowserSession';
 import { closeChrome, launchChrome, type ChromeHandle } from './ChromeRuntime';
 import { Display, type DisplayAllocator } from './Display';
@@ -221,6 +222,12 @@ export class PatchrightBrowserSession implements BrowserSession {
     };
   }
 
+  getTelemetrySnapshot(): BrowserTelemetrySnapshot {
+    return {
+      inputPendingCount: this.input?.pendingCount ?? 0,
+    };
+  }
+
   async restoreState(state: BrowserState): Promise<void> {
     this.pendingState = state;
     if (!this.chrome) return;
@@ -239,7 +246,6 @@ export class PatchrightBrowserSession implements BrowserSession {
     await this.runBrowserOp(async () => {
       this.ensureLive();
       this.editableFocus.stop();
-      this.input?.beginSuspend();
       try {
         await this.chrome!.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 });
       } catch (err) {
@@ -254,7 +260,6 @@ export class PatchrightBrowserSession implements BrowserSession {
         }
         throw err;
       } finally {
-        this.input?.endSuspend();
         if (this.open && this.chrome) {
           this.editableFocus.start(this.chrome.page);
         }
@@ -276,7 +281,6 @@ export class PatchrightBrowserSession implements BrowserSession {
     await this.runBrowserOp(async () => {
       this.ensureLive();
       this.editableFocus.stop();
-      this.input?.beginSuspend();
       try {
         await this.chrome!.page.reload({ waitUntil: 'domcontentloaded', timeout: 30_000 });
       } catch (err) {
@@ -291,7 +295,6 @@ export class PatchrightBrowserSession implements BrowserSession {
         }
         throw err;
       } finally {
-        this.input?.endSuspend();
         if (this.open && this.chrome) {
           this.editableFocus.start(this.chrome.page);
         }
@@ -395,11 +398,9 @@ export class PatchrightBrowserSession implements BrowserSession {
     }
 
     this.viewport!.setResizing(true);
-    this.input?.beginSuspend();
     let screencastTouched = false;
     const sizeChanged = nextW !== previous.width || nextH !== previous.height;
     try {
-      await this.input?.drain();
       // Pause encode before metrics so old-size frames are not filtered into a black gap.
       if (sizeChanged) {
         if (!this.screencast) {
@@ -499,7 +500,6 @@ export class PatchrightBrowserSession implements BrowserSession {
         ...this.displayDims(),
       };
     } finally {
-      this.input?.endSuspend();
       this.viewport?.setResizing(false);
     }
   }

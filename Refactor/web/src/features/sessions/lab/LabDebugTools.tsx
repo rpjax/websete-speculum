@@ -87,7 +87,7 @@ const TOOLS: {
     value: 'config',
     label: 'Config',
     icon: Settings2,
-    blurb: 'Session readiness, Telemetry sampling, and opt-in Telemetry events.',
+    blurb: 'Session readiness, Telemetry sampling, and the full Telemetry.Sessions event catalog.',
   },
   {
     value: 'wire',
@@ -130,13 +130,18 @@ export function LabDebugTools({
         setTab(next)
         saveLabDebugTab(next)
       }}
-      className="flex h-full min-h-0 flex-col"
+      className="flex flex-col"
     >
-      <TabsList className="sticky top-0 z-10 flex h-auto w-full shrink-0 flex-wrap justify-start gap-1 bg-card pb-2">
+      <TabsList className="mb-3 flex h-auto w-full flex-nowrap justify-start gap-1 overflow-x-auto bg-card [scrollbar-width:thin]">
         {TOOLS.map((tool) => {
           const Icon = tool.icon
           return (
-            <TabsTrigger key={tool.value} value={tool.value} className="gap-1.5">
+            <TabsTrigger
+              key={tool.value}
+              value={tool.value}
+              className="shrink-0 gap-1.5 px-2.5 text-xs sm:px-3 sm:text-sm"
+              title={tool.blurb}
+            >
               <Icon className="h-3.5 w-3.5" />
               {tool.label}
             </TabsTrigger>
@@ -148,54 +153,46 @@ export function LabDebugTools({
         <TabsContent
           key={tool.value}
           value={tool.value}
-          className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden data-[state=inactive]:hidden"
+          className="mt-0 data-[state=inactive]:hidden"
         >
           {tool.value !== 'console' && (
-            <p className="mb-3 shrink-0 text-[11px] text-muted-foreground">{tool.blurb}</p>
+            <p className="mb-3 text-[11px] text-muted-foreground">{tool.blurb}</p>
           )}
-          <div
-            className={
-              tool.value === 'console' || tool.value === 'config'
-                ? 'flex min-h-0 flex-1 flex-col overflow-hidden'
-                : 'min-h-0 flex-1 overflow-y-auto'
-            }
-          >
-            {tool.value === 'stream' && (
-              <LabTelemetryPanel stats={stats} status={status} live={live} />
-            )}
-            {tool.value === 'activity' && <LabEventFeed entries={entries} />}
-            {tool.value === 'journal' && <LabJournalFeed feed={journal} />}
-            {tool.value === 'console' && (
-              <LabConsolePanel
-                live={live}
-                jsBridgeEnabled={jsBridgeEnabled}
-                lines={consoleLines}
-                onClear={onClearConsole}
-                onRunCommand={onRunConsoleCommand}
-              />
-            )}
-            {tool.value === 'eval' && (
-              <LabEvalPanel
-                live={live}
-                jsBridgeEnabled={jsBridgeEnabled}
-                onEvaluate={onEvaluate}
-              />
-            )}
-            {tool.value === 'config' && (
-              <LabEngineConfigPanel hubOrigin={origins.hubOrigin} sessionLive={live} />
-            )}
-            {tool.value === 'wire' && (
-              <LabWireSettings
-                origins={origins}
-                connectionId={connectionId}
-                profileId={profileId}
-                sessionId={sessionId}
-                disabled={wireDisabled}
-                onApply={onApplyOrigins}
-                onForgetProfile={onForgetProfile}
-              />
-            )}
-          </div>
+          {tool.value === 'stream' && (
+            <LabTelemetryPanel stats={stats} status={status} live={live} />
+          )}
+          {tool.value === 'activity' && <LabEventFeed entries={entries} />}
+          {tool.value === 'journal' && <LabJournalFeed feed={journal} />}
+          {tool.value === 'console' && (
+            <LabConsolePanel
+              live={live}
+              jsBridgeEnabled={jsBridgeEnabled}
+              lines={consoleLines}
+              onClear={onClearConsole}
+              onRunCommand={onRunConsoleCommand}
+            />
+          )}
+          {tool.value === 'eval' && (
+            <LabEvalPanel
+              live={live}
+              jsBridgeEnabled={jsBridgeEnabled}
+              onEvaluate={onEvaluate}
+            />
+          )}
+          {tool.value === 'config' && (
+            <LabEngineConfigPanel hubOrigin={origins.hubOrigin} sessionLive={live} />
+          )}
+          {tool.value === 'wire' && (
+            <LabWireSettings
+              origins={origins}
+              connectionId={connectionId}
+              profileId={profileId}
+              sessionId={sessionId}
+              disabled={wireDisabled}
+              onApply={onApplyOrigins}
+              onForgetProfile={onForgetProfile}
+            />
+          )}
         </TabsContent>
       ))}
     </Tabs>

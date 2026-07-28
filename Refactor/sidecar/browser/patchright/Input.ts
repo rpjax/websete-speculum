@@ -28,13 +28,83 @@ function cdpTouchType(phase: string): 'touchStart' | 'touchMove' | 'touchEnd' | 
   }
 }
 
-/** Text for Input.dispatchKeyEvent so Enter/Tab/printable trigger default actions. */
-function keyText(key: string): string | undefined {
-  if (key === 'Enter') return '\r';
-  if (key === 'Tab') return '\t';
-  if (key === ' ') return ' ';
+/** CDP Input.modifiers bitmask (matches Chromium / Playwright). */
+function modifiersMask(pressed: ReadonlySet<string>): number {
+  let mask = 0;
+  if (pressed.has('Alt')) mask |= 1;
+  if (pressed.has('Control')) mask |= 2;
+  if (pressed.has('Meta')) mask |= 4;
+  if (pressed.has('Shift')) mask |= 8;
+  return mask;
+}
+
+const MODIFIER_KEYS = new Set(['Alt', 'Control', 'Meta', 'Shift']);
+
+/**
+ * US layout defs keyed by KeyboardEvent.key (what the Sessions client sends).
+ * Without windowsVirtualKeyCode/code, Blink skips editing defaults (Backspace, arrows, …).
+ * Sourced from Playwright usKeyboardLayout (code name === key for these).
+ */
+type KeyDef = { keyCode: number; code: string; text?: string };
+
+const KEY_DEFS: Record<string, KeyDef> = {
+  Backspace: { keyCode: 8, code: 'Backspace' },
+  Tab: { keyCode: 9, code: 'Tab', text: '\t' },
+  Enter: { keyCode: 13, code: 'Enter', text: '\r' },
+  Escape: { keyCode: 27, code: 'Escape' },
+  ' ': { keyCode: 32, code: 'Space', text: ' ' },
+  PageUp: { keyCode: 33, code: 'PageUp' },
+  PageDown: { keyCode: 34, code: 'PageDown' },
+  End: { keyCode: 35, code: 'End' },
+  Home: { keyCode: 36, code: 'Home' },
+  ArrowLeft: { keyCode: 37, code: 'ArrowLeft' },
+  ArrowUp: { keyCode: 38, code: 'ArrowUp' },
+  ArrowRight: { keyCode: 39, code: 'ArrowRight' },
+  ArrowDown: { keyCode: 40, code: 'ArrowDown' },
+  Insert: { keyCode: 45, code: 'Insert' },
+  Delete: { keyCode: 46, code: 'Delete' },
+  Shift: { keyCode: 16, code: 'ShiftLeft' },
+  Control: { keyCode: 17, code: 'ControlLeft' },
+  Alt: { keyCode: 18, code: 'AltLeft' },
+  Meta: { keyCode: 91, code: 'MetaLeft' },
+  ContextMenu: { keyCode: 93, code: 'ContextMenu' },
+  F1: { keyCode: 112, code: 'F1' },
+  F2: { keyCode: 113, code: 'F2' },
+  F3: { keyCode: 114, code: 'F3' },
+  F4: { keyCode: 115, code: 'F4' },
+  F5: { keyCode: 116, code: 'F5' },
+  F6: { keyCode: 117, code: 'F6' },
+  F7: { keyCode: 118, code: 'F7' },
+  F8: { keyCode: 119, code: 'F8' },
+  F9: { keyCode: 120, code: 'F9' },
+  F10: { keyCode: 121, code: 'F10' },
+  F11: { keyCode: 122, code: 'F11' },
+  F12: { keyCode: 123, code: 'F12' },
+};
+
+/** Text for Input.dispatchKeyEvent so Enter/Tab/printable trigger insert defaults. */
+function keyText(key: string, def: KeyDef | undefined): string | undefined {
+  if (def?.text !== undefined) return def.text;
   if (key.length === 1) return key;
   return undefined;
+}
+
+function resolveKeyDef(key: string): KeyDef | undefined {
+  const known = KEY_DEFS[key];
+  if (known) return known;
+  if (key.length !== 1) return undefined;
+  // Printable: Digit/letter code is best-effort (insertion uses text).
+  const upper = key.toUpperCase();
+  if (key >= 'a' && key <= 'z') {
+    return { keyCode: upper.charCodeAt(0), code: `Key${upper}` };
+  }
+  if (key >= 'A' && key <= 'Z') {
+    return { keyCode: key.charCodeAt(0), code: `Key${key}` };
+  }
+  if (key >= '0' && key <= '9') {
+    return { keyCode: key.charCodeAt(0), code: `Digit${key}` };
+  }
+  return { keyCode: key.charCodeAt(0), code: '' };
 }
 
 /**
@@ -50,6 +120,7 @@ export class InputController {
   private _movePending: { x: number; y: number } | null = null;
   private _moveScheduled = false;
   private _inFlight = 0;
+  private _pressedModifiers = new Set<string>();
 
   constructor(page: Page, cdp: CDPSession) {
     this._page = page;
@@ -59,6 +130,7 @@ export class InputController {
   rebind(page: Page, cdp: CDPSession): void {
     this._page = page;
     this._cdp = cdp;
+    this._pressedModifiers.clear();
   }
 
   setTouchPrimary(value: boolean): void {
@@ -152,6 +224,7 @@ export class InputController {
       button: type === 'mouseMoved' ? 'none' : mouseButtonName(button),
       buttons: this._buttons,
       clickCount,
+      modifiers: modifiersMask(this._pressedModifiers),
     });
   }
 
@@ -164,15 +237,35 @@ export class InputController {
       deltaY,
       button: 'none',
       buttons: this._buttons,
+      modifiers: modifiersMask(this._pressedModifiers),
     });
   }
 
   private _sendKey(type: 'keyDown' | 'keyUp', key: string): void {
-    const text = type === 'keyDown' ? keyText(key) : undefined;
+    // Match Playwright: modifiers set before down, cleared before up.
+    if (type === 'keyDown' && MODIFIER_KEYS.has(key)) {
+      this._pressedModifiers.add(key);
+    } else if (type === 'keyUp' && MODIFIER_KEYS.has(key)) {
+      this._pressedModifiers.delete(key);
+    }
+
+    const def = resolveKeyDef(key);
+    // Insert text only with no modifiers, or Shift alone (Playwright US layout rule).
+    const allowText =
+      this._pressedModifiers.size === 0 ||
+      (this._pressedModifiers.size === 1 && this._pressedModifiers.has('Shift'));
+    const text = type === 'keyDown' && allowText ? keyText(key, def) : undefined;
+
     const params: Record<string, unknown> = {
       type: text && type === 'keyDown' ? 'keyDown' : type === 'keyDown' ? 'rawKeyDown' : 'keyUp',
       key,
+      modifiers: modifiersMask(this._pressedModifiers),
     };
+    if (def) {
+      params.code = def.code;
+      params.windowsVirtualKeyCode = def.keyCode;
+      params.nativeVirtualKeyCode = def.keyCode;
+    }
     if (text) {
       params.text = text;
       params.unmodifiedText = text;

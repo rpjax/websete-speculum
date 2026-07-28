@@ -16,6 +16,8 @@ namespace Speculum.Api.Presentation.Sessions;
 /// <summary>
 /// WebTransport data plane. Each stream starts with one <see cref="SessionPipeKind"/>
 /// byte, followed by big-endian length-prefixed MessagePack messages.
+/// User input is admitted primarily via SignalR (<c>SendInputAsync</c>); optional late
+/// client-initiated UserInput streams still feed the same admission pump.
 /// </summary>
 internal static class SessionWebTransportEndpoint
 {
@@ -82,13 +84,32 @@ internal static class SessionWebTransportEndpoint
         CancellationTokenSource lifetime)
     {
         var ct = lifetime.Token;
-        var pumps = new List<Task>
-        {
-            PumpFramesAsync(transport, live, ct),
-            PumpConsoleAsync(transport, live, ct),
-            PumpNotificationsAsync(transport, live, ct),
-        };
+        var acceptTask = AcceptClientStreamsAsync(transport, live, lifetime);
 
+        try
+        {
+            var pumps = new List<Task>
+            {
+                acceptTask,
+                PumpFramesAsync(transport, live, ct),
+                PumpConsoleAsync(transport, live, ct),
+                PumpNotificationsAsync(transport, live, ct),
+            };
+
+            await Task.WhenAll(pumps.Select(ObservePumpAsync));
+        }
+        finally
+        {
+            lifetime.Cancel();
+        }
+    }
+
+    private static async Task AcceptClientStreamsAsync(
+        IWebTransportSession transport,
+        ILiveSession live,
+        CancellationTokenSource lifetime)
+    {
+        var ct = lifetime.Token;
         try
         {
             while (!ct.IsCancellationRequested)
@@ -99,7 +120,8 @@ internal static class SessionWebTransportEndpoint
                     break;
                 }
 
-                pumps.Add(HandleClientStreamAsync(stream, live, ct));
+                // Fire-and-forget per stream so Accept is never blocked on UserInput/Console.
+                _ = ObservePumpAsync(HandleClientStreamAsync(stream, live, ct));
             }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -107,8 +129,8 @@ internal static class SessionWebTransportEndpoint
         }
         finally
         {
+            // Peer closed or accept ended — tear down Frame/Console/Notification pumps.
             lifetime.Cancel();
-            await Task.WhenAll(pumps.Select(ObservePumpAsync));
         }
     }
 
@@ -130,11 +152,7 @@ internal static class SessionWebTransportEndpoint
             return;
         }
 
-        await PumpOutputAsync(
-            transport,
-            SessionPipeKind.Frame,
-            channel.Value,
-            ct);
+        await PumpOutputAsync(transport, SessionPipeKind.Frame, channel.Value, ct);
     }
 
     private static async Task PumpConsoleAsync(
@@ -155,11 +173,7 @@ internal static class SessionWebTransportEndpoint
             return;
         }
 
-        await PumpOutputAsync(
-            transport,
-            SessionPipeKind.ConsoleOutput,
-            channel.Value,
-            ct);
+        await PumpOutputAsync(transport, SessionPipeKind.ConsoleOutput, channel.Value, ct);
     }
 
     private static async Task PumpNotificationsAsync(
@@ -180,11 +194,7 @@ internal static class SessionWebTransportEndpoint
             return;
         }
 
-        await PumpOutputAsync(
-            transport,
-            SessionPipeKind.Notification,
-            channel.Value,
-            ct);
+        await PumpOutputAsync(transport, SessionPipeKind.Notification, channel.Value, ct);
     }
 
     private static async Task PumpOutputAsync<T>(
@@ -203,6 +213,7 @@ internal static class SessionWebTransportEndpoint
         await stream.Transport.Output.WriteAsync(
             new[] { (byte)kind },
             ct);
+        await stream.Transport.Output.FlushAsync(ct);
         await foreach (var item in source.ReadAllAsync(ct))
         {
             await WriteMessageAsync(stream.Transport.Output, item, ct);
@@ -222,7 +233,8 @@ internal static class SessionWebTransportEndpoint
                 return;
             }
 
-            switch ((SessionPipeKind)kindBytes[0])
+            var kind = (SessionPipeKind)kindBytes[0];
+            switch (kind)
             {
                 case SessionPipeKind.UserInput:
                     await HandleUserInputAsync(stream, live, ct);
@@ -242,22 +254,12 @@ internal static class SessionWebTransportEndpoint
         ILiveSession live,
         CancellationToken ct)
     {
-        var channel = DropOldestChannels.Create<UserInput>(32);
-        var consume = live.ConsumeUserInputAsync(channel.Reader, ct);
-        if (consume.IsFailure)
-        {
-            return;
-        }
-
+        // Shared admission with SignalR (primary). Late WT streams still feed the same pump.
         await foreach (var item in ReadMessagesAsync<UserInput>(stream.Transport.Input, ct))
         {
             live.TraceInputPathWtReceived(item.Type);
-            // DropOldest: never block the WT reader waiting for buffer space.
-            _ = channel.Writer.TryWrite(item);
+            _ = live.AdmitUserInput(item);
         }
-
-        channel.Writer.TryComplete();
-        await ObservePumpAsync(consume.Value);
     }
 
     private static async Task HandleConsoleInputAsync(
@@ -374,6 +376,7 @@ internal static class SessionWebTransportEndpoint
         BinaryPrimitives.WriteInt32BigEndian(header, payload.Length);
         await writer.WriteAsync(header, ct);
         await writer.WriteAsync(payload, ct);
+        await writer.FlushAsync(ct);
     }
 
     private static async Task<byte[]?> ReadExactAsync(

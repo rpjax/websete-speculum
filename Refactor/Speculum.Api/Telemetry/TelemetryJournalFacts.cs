@@ -12,6 +12,7 @@ public static class TelemetryJournalFacts
     public const string SampleCollected = "Telemetry.Sampling.SampleCollected";
     public const string SessionSampleCollected = "Telemetry.Sampling.SessionSampleCollected";
     public const string InputWebTransportReceived = "Telemetry.Sessions.Input.WebTransportReceived";
+    public const string InputControlReceived = "Telemetry.Sessions.Input.ControlReceived";
 
     public static bool Owns(string type)
         => !string.IsNullOrWhiteSpace(type)

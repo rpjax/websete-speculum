@@ -25,9 +25,10 @@ import NarrativeWorkspacePage from '@/features/admin/diagnostics/timeline/Narrat
 import AnalysisWorkspacePage from '@/features/admin/diagnostics/analysis/AnalysisWorkspacePage'
 
 // Live surfaces share useLiveSession (EnsureProfile → StartSession → WebTransport).
-// Production product: immersive canvas only at `/` + `/live` (+ path catch-all).
-// Session lab (debug chrome + config): `/lab`, and `/` only under Vite DEV.
-// `features/motor/live` is legacy wire only.
+// This web package is the local Session Lab (`/` + `/lab`) with debug chrome.
+// Immersive product preview (canvas only, like a normal site): `/live` (+ path catch-all).
+// Real prod deployments omit this lab SPA; do not gate Lab on Vite `import.meta.env.DEV`
+// — dockup `dev` still ships a production Vite build.
 const SessionLabPage = lazy(() => import('@/features/sessions/lab/SessionLabPage'))
 const SessionLivePage = lazy(() => import('@/features/sessions/live/SessionLivePage'))
 
@@ -37,8 +38,6 @@ function DiagnosticsSessionRedirect() {
 }
 
 export default function App() {
-  const labAtRoot = import.meta.env.DEV
-
   return (
     <BrowserRouter>
       <Suspense
@@ -47,10 +46,7 @@ export default function App() {
         }
       >
         <Routes>
-          <Route
-            path="/"
-            element={labAtRoot ? <SessionLabPage /> : <SessionLivePage />}
-          />
+          <Route path="/" element={<SessionLabPage />} />
           <Route path="/lab" element={<SessionLabPage />} />
           <Route path="/live" element={<SessionLivePage />} />
           <Route path="/setup" element={<SetupPage />} />

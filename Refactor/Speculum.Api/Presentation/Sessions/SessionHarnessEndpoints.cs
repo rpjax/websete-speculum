@@ -48,23 +48,21 @@ public static class SessionHarnessEndpoints
                 return Results.NotFound(new { errorCode = "session_gone" });
             }
 
-            var channel = Channel.CreateUnbounded<UserInput>();
-            await channel.Writer.WriteAsync(
-                new UserInput { Type = body.Type.Trim(), Payload = body.Payload },
-                ct).ConfigureAwait(false);
-            channel.Writer.Complete();
-
-            var start = live.ConsumeUserInputAsync(channel.Reader, ct);
-            if (start.IsFailure)
+            var admit = live.AdmitUserInput(new UserInput
+            {
+                Type = body.Type.Trim(),
+                Payload = body.Payload,
+            });
+            if (admit.IsFailure)
             {
                 return Results.BadRequest(new
                 {
-                    errorCode = "input_pump_failed",
-                    message = string.Join("; ", start.Errors.Select(e => e.Message)),
+                    errorCode = "input_admit_failed",
+                    message = string.Join("; ", admit.Errors.Select(e => e.Message)),
                 });
             }
 
-            await start.Value.ConfigureAwait(false);
+            live.TraceInputPathControlReceived(body.Type.Trim());
             return Results.Ok(new { ok = true });
         }).WithTags("Sessions");
 

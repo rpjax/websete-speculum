@@ -1,5 +1,9 @@
 /** Lab editor for engine config via `/api/configurations/{section}`. */
 
+import {
+  createLabTelemetryEventsBaseline,
+} from './labTelemetryEvents'
+
 export interface LabDomainLabel {
   match: 'Exact' | 'Any'
   value: string
@@ -172,17 +176,16 @@ export interface LabEngineConfig {
   status?: LabConfigStatus
 }
 
-export const LAB_TELEMETRY_EVENT_TYPES = [
-  'Telemetry.Sessions.Input.Applied',
-  'Telemetry.Sessions.Input.Rejected',
-  'Telemetry.Sessions.Input.WebTransportReceived',
-  'Telemetry.Sessions.Input.SidecarPushWritten',
-  'Telemetry.Sessions.Input.SidecarAdmitted',
-  'Telemetry.Sessions.Resize.Applied',
-  'Telemetry.Sessions.Resize.Rejected',
-] as const
-
-export type LabTelemetryEventType = (typeof LAB_TELEMETRY_EVENT_TYPES)[number]
+export {
+  LAB_TELEMETRY_EVENT_TYPES,
+  LAB_TELEMETRY_EVENT_GROUPS,
+  LAB_TELEMETRY_INPUT_PATH_TYPES,
+  createLabTelemetryEventsBaseline,
+  emptyLabTelemetryEvents,
+  type LabTelemetryEventType,
+  type LabTelemetryEventGroup,
+  type LabTelemetryEventGroupId,
+} from './labTelemetryEvents'
 
 export const CONFIG_STATUS_PATH = '/api/configurations/status'
 export const CONFIG_BATCH_PATH = '/api/configurations'
@@ -308,19 +311,6 @@ export function createLabTelemetryBaseline(): LabTelemetryConfig {
       includeContainers: true,
       timeoutMs: 2000,
     },
-  }
-}
-
-/** Telemetry event toggles start off — input path events are expensive on the input hot path. */
-export function createLabTelemetryEventsBaseline(): Record<LabTelemetryEventType, boolean> {
-  return {
-    'Telemetry.Sessions.Input.Applied': false,
-    'Telemetry.Sessions.Input.Rejected': false,
-    'Telemetry.Sessions.Input.WebTransportReceived': false,
-    'Telemetry.Sessions.Input.SidecarPushWritten': false,
-    'Telemetry.Sessions.Input.SidecarAdmitted': false,
-    'Telemetry.Sessions.Resize.Applied': false,
-    'Telemetry.Sessions.Resize.Rejected': false,
   }
 }
 

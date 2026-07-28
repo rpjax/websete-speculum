@@ -74,7 +74,7 @@ export function LabConsolePanel({
   const levelsLabel = isDefaultConsoleLevels(levels) ? 'Default levels' : 'Custom levels'
 
   return (
-    <div className="flex h-full min-h-[220px] min-w-0 flex-col overflow-hidden border border-border bg-background">
+    <div className="flex min-h-[16rem] min-w-0 flex-col overflow-hidden border border-border bg-background">
       <div className="flex h-7 shrink-0 items-center gap-1 border-b border-border bg-card px-1.5">
         <Input
           value={textFilter}

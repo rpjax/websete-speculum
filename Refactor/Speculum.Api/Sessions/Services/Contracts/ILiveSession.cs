@@ -47,10 +47,17 @@ public interface ILiveSession
     /// <summary>
     /// Pumps user input into the live session until the channel completes,
     /// <paramref name="ct"/> cancels, or the live session is released.
+    /// Prefer <see cref="AdmitUserInput"/> for the product path (shared admission).
     /// </summary>
     IResult<Task> ConsumeUserInputAsync(
         ChannelReader<UserInput> channelReader,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Ensures a single DropOldest admission pump and enqueues one user-input event.
+    /// Used by SignalR (primary) and optional late WebTransport UserInput streams.
+    /// </summary>
+    IResult AdmitUserInput(UserInput input);
 
     /// <summary>
     /// Pumps console input into the live session (JsBridge-gated by mux policy).
@@ -64,6 +71,12 @@ public interface ILiveSession
     /// No-op when <c>Telemetry.Sessions.Input.WebTransportReceived</c> is disabled in the catalog.
     /// </summary>
     void TraceInputPathWtReceived(string kind);
+
+    /// <summary>
+    /// Opt-in Journal hop: user input admitted on the SignalR control plane.
+    /// No-op when <c>Telemetry.Sessions.Input.ControlReceived</c> is disabled in the catalog.
+    /// </summary>
+    void TraceInputPathControlReceived(string kind);
 
     // ── Commands ─────────────────────────────────────────────────────────────
 

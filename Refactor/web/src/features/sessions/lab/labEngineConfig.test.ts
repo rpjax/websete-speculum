@@ -100,4 +100,31 @@ describe('createLabTelemetryBaseline', () => {
     expect(baseline.sessions.includePerSession).toBe(false)
     expect(baseline.docker.isEnabled).toBe(false)
   })
+
+  it('includes the full Telemetry.Sessions event catalog (off by default)', () => {
+    const baseline = createLabTelemetryBaseline()
+    expect(Object.keys(baseline.events).sort()).toEqual(
+      [
+        'Telemetry.Sessions.Browse.LocationChanged',
+        'Telemetry.Sessions.Capacity.NoSlotAvailable',
+        'Telemetry.Sessions.Capacity.SlotAcquired',
+        'Telemetry.Sessions.Capacity.SlotReleased',
+        'Telemetry.Sessions.Client.AttachedCommandFailed',
+        'Telemetry.Sessions.Input.Applied',
+        'Telemetry.Sessions.Input.ControlReceived',
+        'Telemetry.Sessions.Input.Rejected',
+        'Telemetry.Sessions.Input.SidecarAdmitted',
+        'Telemetry.Sessions.Input.SidecarPushWritten',
+        'Telemetry.Sessions.Input.WebTransportReceived',
+        'Telemetry.Sessions.Navigate.UrlResolved',
+        'Telemetry.Sessions.Persist.SkippedNoConnection',
+        'Telemetry.Sessions.Persist.SkippedProfileNotFound',
+        'Telemetry.Sessions.Resize.Applied',
+        'Telemetry.Sessions.Resize.Rejected',
+        'Telemetry.Sessions.Start.UrlResolveFailed',
+        'Telemetry.Sessions.Start.UrlResolved',
+      ].sort(),
+    )
+    expect(Object.values(baseline.events).every((on) => on === false)).toBe(true)
+  })
 })

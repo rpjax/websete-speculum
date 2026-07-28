@@ -16,8 +16,9 @@ import { useLabSession } from './useLabSession'
 const VIEWPORT = { width: 1280, height: 720 }
 
 /**
- * Session lab (`/lab`, or `/` under Vite DEV): canvas + optional debug dock.
- * Production product surface is immersive `/` + `/live` — canvas only.
+ * Session lab (`/` / `/lab`): canvas + Debug dock.
+ * Dock sizes to its content (page scrolls) — no clipped inner pane.
+ * Immersive prod preview (canvas only) is `/live`.
  */
 export default function SessionLabPage() {
   const [address, setAddress] = useState('www.google.com')
@@ -68,7 +69,13 @@ export default function SessionLabPage() {
 
   return (
     <TooltipProvider>
-      <div className="flex h-dvh flex-col gap-3 bg-background p-3 text-foreground">
+      <div
+        className={
+          debugOpen
+            ? 'flex min-h-dvh flex-col gap-3 bg-background p-3 text-foreground'
+            : 'flex h-dvh flex-col gap-3 overflow-hidden bg-background p-3 text-foreground'
+        }
+      >
         <header className="shrink-0 space-y-2">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <div className="flex items-baseline gap-3">
@@ -103,14 +110,14 @@ export default function SessionLabPage() {
         <div
           className={
             debugOpen
-              ? 'flex min-h-0 flex-1 flex-col gap-3 overflow-hidden transition-[gap] duration-200 xl:flex-row'
+              ? 'flex flex-col gap-3 lg:flex-row lg:items-start'
               : 'flex min-h-0 flex-1 flex-col overflow-hidden'
           }
         >
           <LabCanvasStage
             className={
               debugOpen
-                ? 'relative min-h-0 min-w-0 flex-[3] overflow-hidden rounded-lg border border-border bg-card xl:min-w-[28rem]'
+                ? 'relative h-[min(45dvh,22rem)] w-full shrink-0 overflow-hidden rounded-lg border border-border bg-card lg:sticky lg:top-3 lg:h-[calc(100dvh-5.5rem)] lg:min-w-0 lg:flex-[3]'
                 : 'relative min-h-0 min-w-0 flex-1 overflow-hidden rounded-lg border border-border bg-card'
             }
             width={session.remoteViewport.width}
@@ -130,7 +137,7 @@ export default function SessionLabPage() {
 
           {debugOpen && (
             <LabDebugDock
-              className="flex min-h-0 min-w-0 flex-[2] flex-col overflow-hidden rounded-lg border border-border bg-card xl:min-w-[22rem]"
+              className="flex w-full shrink-0 flex-col rounded-lg border border-border bg-card lg:min-w-[22rem] lg:flex-[2]"
               onCollapse={() => setDebugDock(false)}
               {...debugToolsProps}
             />

@@ -29,6 +29,20 @@ type ActiveTouch = {
 
 const MOUSE_SUPPRESS_AFTER_TOUCH_MS = 600
 
+/** Keys forwarded from the IME shell (beforeinput does not cover caret/nav). */
+const IME_NAV_KEYS = new Set([
+  'ArrowLeft',
+  'ArrowRight',
+  'ArrowUp',
+  'ArrowDown',
+  'Home',
+  'End',
+  'PageUp',
+  'PageDown',
+  'Tab',
+  'Escape',
+])
+
 /**
  * Pointer/keyboard/wheel/IME capture bound to the session canvas.
  * Coordinates use object-fill 1:1 mapping ({@link clientToFramePointFill}) —
@@ -394,7 +408,7 @@ export class SessionInputController {
     on(ime, 'keydown', (e) => {
       const ev = e as KeyboardEvent
       if (this.composing) return
-      if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Tab', 'Escape'].includes(ev.key)) {
+      if (IME_NAV_KEYS.has(ev.key)) {
         ev.preventDefault()
         this.send({ type: 'keydown', key: ev.key })
         return
@@ -412,7 +426,7 @@ export class SessionInputController {
     })
     on(ime, 'keyup', (e) => {
       const ev = e as KeyboardEvent
-      if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Tab', 'Escape'].includes(ev.key)) {
+      if (IME_NAV_KEYS.has(ev.key)) {
         this.send({ type: 'keyup', key: ev.key })
       }
     })

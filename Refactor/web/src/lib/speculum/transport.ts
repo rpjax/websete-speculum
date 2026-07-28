@@ -19,8 +19,8 @@ export interface DataPlaneOptions {
 }
 
 /**
- * WebTransport data plane for /vtransport.
- * Emits: frame, console, notification, error, close.
+ * WebTransport data plane for /vtransport (frames, console, notifications, eval, status).
+ * User input is admitted on the SignalR control plane — see {@link ControlPlane.sendInput}.
  */
 export class DataPlane extends Emitter<SessionEventMap> {
   private readonly baseUrl: string
@@ -29,10 +29,8 @@ export class DataPlane extends Emitter<SessionEventMap> {
   private readonly sessionId: string
   private readonly token: string
   private transport: WebTransport | null = null
-  private userInput: WritableStreamDefaultWriter<Uint8Array> | null = null
   private consoleInput: WritableStreamDefaultWriter<Uint8Array> | null = null
   /** Serialize concurrent writes on this pipe's writer (WritableStream single-writer). */
-  private userInputWriteChain: Promise<void> = Promise.resolve()
   private consoleInputWriteChain: Promise<void> = Promise.resolve()
   private lifetime: AbortController | null = null
   private readonly pendingEval = new Map<
@@ -79,6 +77,7 @@ export class DataPlane extends Emitter<SessionEventMap> {
     const serverCertificateHashes = await fetchServerCertificateHashes(
       this.certificateHashBaseUrl,
     )
+
     const transport = serverCertificateHashes
       ? new WebTransport(url, { serverCertificateHashes })
       : new WebTransport(url)
@@ -96,29 +95,17 @@ export class DataPlane extends Emitter<SessionEventMap> {
       throw error
     }
 
-    this.userInput = await this.openUnidirectional(PipeKind.UserInput)
+    // User input uses SignalR AdmitUserInput (Kestrel has no WT datagrams; client-initiated
+    // UserInput streams are unreliable on some Docker Desktop lab paths).
     this.consoleInput = await this.openBidirectionalWriter(PipeKind.ConsoleInput)
-
     this.pumpIncoming()
     this.watchClosed()
   }
 
-  async sendInput(input: SessionInput): Promise<void> {
-    if (!this.userInput) {
-      throw new Error('Data plane is not open')
-    }
-    const writer = this.userInput
-    const message = {
-      type: input.type,
-      payload: JSON.stringify(input),
-    }
-    const write = this.userInputWriteChain.then(() => writeMessage(writer, message))
-    // Keep the chain alive after errors so later inputs still serialize.
-    this.userInputWriteChain = write.then(
-      () => undefined,
-      () => undefined,
+  async sendInput(_input: SessionInput): Promise<void> {
+    throw new Error(
+      'DataPlane.sendInput is disabled — use ControlPlane.sendInput (SignalR AdmitUserInput)',
     )
-    await write
   }
 
   async evaluate(code: string): Promise<EvalResult> {
@@ -178,11 +165,8 @@ export class DataPlane extends Emitter<SessionEventMap> {
     }
     this.pendingEval.clear()
 
-    await closeWriter(this.userInput)
     await closeWriter(this.consoleInput)
-    this.userInput = null
     this.consoleInput = null
-    this.userInputWriteChain = Promise.resolve()
     this.consoleInputWriteChain = Promise.resolve()
 
     const transport = this.transport
@@ -202,16 +186,6 @@ export class DataPlane extends Emitter<SessionEventMap> {
     this.emit('close')
   }
 
-  private async openUnidirectional(
-    kind: number,
-  ): Promise<WritableStreamDefaultWriter<Uint8Array>> {
-    const transport = this.requireTransport()
-    const stream = await transport.createUnidirectionalStream()
-    const writer = stream.getWriter()
-    await writePipeHeader(writer, kind)
-    return writer
-  }
-
   private async openBidirectionalWriter(
     kind: number,
   ): Promise<WritableStreamDefaultWriter<Uint8Array>> {
@@ -219,6 +193,7 @@ export class DataPlane extends Emitter<SessionEventMap> {
     const stream = await transport.createBidirectionalStream()
     const writer = stream.writable.getWriter()
     await writePipeHeader(writer, kind)
+    await writer.ready
     // JsBridge-disabled rejections come back on this duplex; live eval results
     // also arrive on the console output pipe.
     void this.pumpDuplexResponses(stream.readable.getReader())

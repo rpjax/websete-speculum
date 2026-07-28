@@ -370,6 +370,50 @@ async function testInputFireAndForgetAndMoveCoalesce() {
     assert_1.default.strictEqual(input.pendingCount, 0, 'telemetry input depth must drain after completion');
     console.log('[unit] input fire-and-forget + move coalesce ok');
 }
+async function testInputKeyDefsIncludeEditingKeys() {
+    const sent = [];
+    const cdp = {
+        send: async (method, params) => {
+            sent.push({ method, params: (params ?? {}) });
+        },
+    };
+    const page = {
+        goBack: () => Promise.resolve(null),
+        goForward: () => Promise.resolve(null),
+    };
+    const { InputController } = await Promise.resolve().then(() => __importStar(require('./browser/patchright/Input')));
+    const input = new InputController(page, cdp);
+    input.enqueue({ type: 'keydown', key: 'Backspace' });
+    input.enqueue({ type: 'keyup', key: 'Backspace' });
+    input.enqueue({ type: 'keydown', key: 'Delete' });
+    input.enqueue({ type: 'keydown', key: 'ArrowLeft' });
+    input.enqueue({ type: 'keydown', key: 'Home' });
+    input.enqueue({ type: 'keydown', key: 'Enter' });
+    const keys = sent.filter((s) => s.method === 'Input.dispatchKeyEvent');
+    const backspace = keys.find((s) => s.params.key === 'Backspace' && s.params.type === 'rawKeyDown');
+    assert_1.default.ok(backspace, 'Backspace must use rawKeyDown');
+    assert_1.default.strictEqual(backspace.params.windowsVirtualKeyCode, 8);
+    assert_1.default.strictEqual(backspace.params.code, 'Backspace');
+    const del = keys.find((s) => s.params.key === 'Delete' && s.params.type === 'rawKeyDown');
+    assert_1.default.strictEqual(del?.params.windowsVirtualKeyCode, 46);
+    const arrow = keys.find((s) => s.params.key === 'ArrowLeft');
+    assert_1.default.strictEqual(arrow?.params.windowsVirtualKeyCode, 37);
+    assert_1.default.strictEqual(arrow?.params.code, 'ArrowLeft');
+    const home = keys.find((s) => s.params.key === 'Home');
+    assert_1.default.strictEqual(home?.params.windowsVirtualKeyCode, 36);
+    const enter = keys.find((s) => s.params.key === 'Enter' && s.params.type === 'keyDown');
+    assert_1.default.strictEqual(enter?.params.text, '\r');
+    assert_1.default.strictEqual(enter?.params.windowsVirtualKeyCode, 13);
+    // Shift must set modifiers on subsequent keys (selection / uppercase path).
+    input.enqueue({ type: 'keydown', key: 'Shift' });
+    input.enqueue({ type: 'keydown', key: 'ArrowRight' });
+    const shiftArrow = sent
+        .filter((s) => s.method === 'Input.dispatchKeyEvent' && s.params.key === 'ArrowRight')
+        .at(-1);
+    assert_1.default.strictEqual(shiftArrow?.params.modifiers, 8, 'Shift bitmask must be set');
+    assert_1.default.strictEqual(shiftArrow?.params.type, 'rawKeyDown');
+    console.log('[unit] input key defs (Backspace/Delete/nav/modifiers) ok');
+}
 async function testTelemetryToggleOmission() {
     const registry = { list: () => [] };
     const empty = await (0, collectTelemetry_1.collectTelemetry)({}, registry);
@@ -456,6 +500,7 @@ async function main() {
     testDropOldestQueueTracksDroppedCount();
     await testPermissionClearRespectsEpoch();
     await testInputFireAndForgetAndMoveCoalesce();
+    await testInputKeyDefsIncludeEditingKeys();
     await testTelemetryToggleOmission();
     await testTelemetryQueuesReportInputDepthAndDrops();
     await testTelemetryFaultStateSurvivesCrashConsumption();

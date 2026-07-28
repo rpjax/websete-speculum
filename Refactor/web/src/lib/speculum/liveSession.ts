@@ -117,7 +117,12 @@ export class LiveSession extends Emitter<SessionEventMap> {
   }
 
   sendInput(input: SessionInput): Promise<void> {
-    return this.data.sendInput(input)
+    return this.control.sendInput({
+      sessionId: this.sessionId,
+      token: this.token,
+      type: input.type,
+      payload: JSON.stringify(input),
+    })
   }
 
   evaluate(code: string) {

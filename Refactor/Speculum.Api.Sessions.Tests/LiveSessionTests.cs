@@ -731,6 +731,7 @@ public sealed class LiveSessionTests
         public void Applied(string kind, string? phase) { }
         public void Rejected(string? errorCode, string? message, string? phase) { }
         public void WebTransportReceived(string kind) => LastWebTransportKind = kind;
+        public void ControlReceived(string kind) { }
         public void SidecarPushWritten(string kind, string? phase) { }
         public void SidecarAdmitted(string kind) { }
     }

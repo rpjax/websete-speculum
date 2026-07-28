@@ -87,6 +87,25 @@ public sealed class GeolocationHubRequest
     public double Accuracy { get; set; }
 }
 
+/// <summary>Wire DTO for hub <c>SendInputAsync</c> (user mouse/key/wheel/touch).</summary>
+[MessagePackObject]
+public sealed class SendInputHubRequest
+{
+    [Key("sessionId")]
+    public Guid SessionId { get; set; }
+
+    [Key("token")]
+    public string Token { get; set; } = string.Empty;
+
+    /// <summary>Event type — e.g. <c>mousemove</c>, <c>keydown</c>.</summary>
+    [Key("type")]
+    public string Type { get; set; } = string.Empty;
+
+    /// <summary>JSON payload of the input event (same shape as WT UserInput).</summary>
+    [Key("payload")]
+    public string Payload { get; set; } = string.Empty;
+}
+
 /// <summary>Wire DTO for hub <c>StopSessionAsync</c>.</summary>
 [MessagePackObject]
 public sealed class StopSessionHubRequest

@@ -142,6 +142,17 @@ internal sealed class SessionTelemetryEvents : ISessionTelemetryEvents
             });
         }
 
+        public void ControlReceived(string kind)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(kind);
+            Writer.Append(new ControlReceived
+            {
+                SessionId = SessionId,
+                ProfileId = ProfileId,
+                Kind = kind.Trim(),
+            });
+        }
+
         public void SidecarPushWritten(string kind, string? phase)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(kind);

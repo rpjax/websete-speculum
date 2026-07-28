@@ -8,20 +8,20 @@ interface LabDebugDockProps extends LabDebugToolsProps {
 }
 
 /**
- * Session Lab debug dock. Parent owns split sizing so the canvas stays navigable.
+ * Session Lab debug dock — height follows content; the page scrolls, not an inner pane.
  */
 export function LabDebugDock({ onCollapse, className, ...tools }: LabDebugDockProps) {
   return (
     <aside
       className={
         className
-        ?? 'flex min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border border-border bg-card'
+        ?? 'flex w-full shrink-0 flex-col rounded-lg border border-border bg-card'
       }
     >
-      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-3 py-2">
-        <div>
+      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-3 py-1.5">
+        <div className="min-w-0">
           <p className="text-xs font-semibold tracking-wide text-foreground">Debug tools</p>
-          <p className="text-[11px] text-muted-foreground">
+          <p className="hidden text-[11px] text-muted-foreground sm:block">
             Same session as the canvas — stream, Journal, config, wire.
           </p>
         </div>
@@ -37,7 +37,7 @@ export function LabDebugDock({ onCollapse, className, ...tools }: LabDebugDockPr
           Hide
         </Button>
       </div>
-      <div className="min-h-0 flex-1 overflow-hidden p-3">
+      <div className="p-2 sm:p-3">
         <LabDebugTools {...tools} />
       </div>
     </aside>

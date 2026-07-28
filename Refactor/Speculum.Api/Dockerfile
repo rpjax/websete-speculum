@@ -19,11 +19,17 @@ RUN --mount=type=cache,target=/root/.nuget/packages \
 FROM mcr.microsoft.com/dotnet/aspnet:10.0
 
 # WebTransport needs HTTP/3 (QUIC). Kestrel silently drops H3 without libmsquic on Linux.
-ADD https://packages.microsoft.com/config/ubuntu/24.04/packages-microsoft-prod.deb /tmp/packages-microsoft-prod.deb
-RUN dpkg -i /tmp/packages-microsoft-prod.deb \
+# Download inside RUN (with retries) — ADD https:// always hits the network for the
+# cache key and fails the whole build on a flaky packages.microsoft.com EOF.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl ca-certificates \
+    && curl -fsSL --retry 8 --retry-all-errors --retry-delay 2 \
+         -o /tmp/packages-microsoft-prod.deb \
+         https://packages.microsoft.com/config/ubuntu/24.04/packages-microsoft-prod.deb \
+    && dpkg -i /tmp/packages-microsoft-prod.deb \
     && rm /tmp/packages-microsoft-prod.deb \
     && apt-get update \
-    && apt-get install -y --no-install-recommends curl libmsquic \
+    && apt-get install -y --no-install-recommends libmsquic \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

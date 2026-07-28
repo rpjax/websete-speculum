@@ -143,12 +143,16 @@ public sealed class SessionBindingRegistryTests
             CancellationToken ct = default)
             => throw new NotSupportedException();
 
+        public IResult AdmitUserInput(UserInput input) => Result.Success();
+
         public IResult<Task> ConsumeConsoleInputAsync(
             ChannelReader<ConsoleInput> channelReader,
             CancellationToken ct = default)
             => throw new NotSupportedException();
 
         public void TraceInputPathWtReceived(string kind) { }
+
+        public void TraceInputPathControlReceived(string kind) { }
 
         public Task<IResult<SessionStatus>> GetStatusAsync(CancellationToken ct = default)
             => throw new NotSupportedException();

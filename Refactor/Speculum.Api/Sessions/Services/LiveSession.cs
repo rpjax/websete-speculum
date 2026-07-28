@@ -7,6 +7,7 @@ using Speculum.Api.Sessions.Events.Services.Contracts;
 using Speculum.Api.Sessions.Models;
 using Speculum.Api.Sessions.Requests;
 using Speculum.Api.Sessions.Services.Contracts;
+using Speculum.Api.Sessions.Services.Streaming;
 using Speculum.Api.Shared.Services;
 using Speculum.Api.Telemetry;
 using Speculum.Api.Telemetry.Events.Services.Contracts;
@@ -43,6 +44,8 @@ internal sealed class LiveSession : ILiveSession
     private CancellationTokenSource? _lifetime = new();
     private int _released;
     private int _abandoned;
+    private int _userInputAdmissionStarted;
+    private Channel<UserInput>? _userInputAdmission;
 
     public Guid SessionId { get; }
 
@@ -122,6 +125,8 @@ internal sealed class LiveSession : ILiveSession
         _featureNotifications?.Dispose();
         _featureNotifications = null;
         _hooks.Unbind(_connection.IsOpen ? _connection : null);
+        var admission = Interlocked.Exchange(ref _userInputAdmission, null);
+        admission?.Writer.TryComplete();
         _mux.Dispose();
     }
 
@@ -512,6 +517,35 @@ internal sealed class LiveSession : ILiveSession
             (consumerId, token) => _mux.StartUserInputPump(consumerId, channelReader, token),
             ct);
 
+    public IResult AdmitUserInput(UserInput input)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+        if (string.IsNullOrWhiteSpace(input.Type) || string.IsNullOrWhiteSpace(input.Payload))
+        {
+            return Result.Failure("UserInput type and payload are required");
+        }
+
+        var ensure = EnsureUserInputAdmission();
+        if (ensure.IsFailure)
+        {
+            return ensure;
+        }
+
+        var channel = Volatile.Read(ref _userInputAdmission);
+        if (channel is null)
+        {
+            return Result.Failure("User input admission is not ready");
+        }
+
+        // DropOldest: TryWrite always succeeds (may drop the oldest queued item).
+        _ = channel.Writer.TryWrite(new UserInput
+        {
+            Type = input.Type.Trim(),
+            Payload = input.Payload,
+        });
+        return Result.Success();
+    }
+
     public IResult<Task> ConsumeConsoleInputAsync(
         ChannelReader<ConsoleInput> channelReader,
         CancellationToken ct = default)
@@ -537,6 +571,80 @@ internal sealed class LiveSession : ILiveSession
                 journalEx,
                 "Session {SessionId} failed to journal Telemetry.Sessions.Input.WebTransportReceived.",
                 SessionId);
+        }
+    }
+
+    public void TraceInputPathControlReceived(string kind)
+    {
+        if (string.IsNullOrWhiteSpace(kind)
+            || !_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.InputControlReceived))
+        {
+            return;
+        }
+
+        try
+        {
+            _telemetry.Input.ControlReceived(kind.Trim());
+        }
+        catch (Exception journalEx)
+        {
+            _logger.LogWarning(
+                journalEx,
+                "Session {SessionId} failed to journal Telemetry.Sessions.Input.ControlReceived.",
+                SessionId);
+        }
+    }
+
+    private IResult EnsureUserInputAdmission()
+    {
+        if (IsReleased)
+        {
+            return Result.Failure("Live session is released");
+        }
+
+        if (Interlocked.CompareExchange(ref _userInputAdmissionStarted, 1, 0) != 0)
+        {
+            // Another caller is starting or already started — wait briefly for the channel.
+            var spun = 0;
+            while (Volatile.Read(ref _userInputAdmission) is null && !IsReleased && spun < 200)
+            {
+                Thread.SpinWait(20);
+                spun++;
+            }
+
+            return Volatile.Read(ref _userInputAdmission) is null
+                ? Result.Failure("User input admission failed to start")
+                : Result.Success();
+        }
+
+        var channel = DropOldestChannels.Create<UserInput>(64);
+        Volatile.Write(ref _userInputAdmission, channel);
+        var pump = ConsumeUserInputAsync(channel.Reader);
+        if (pump.IsFailure)
+        {
+            Volatile.Write(ref _userInputAdmission, null);
+            Interlocked.Exchange(ref _userInputAdmissionStarted, 0);
+            return Result.Failure(pump.Errors.ToArray());
+        }
+
+        // Pump runs until admission completes (Release) or the session lifetime cancels.
+        _ = ObserveAdmissionPumpAsync(pump.Value);
+        return Result.Success();
+    }
+
+    private async Task ObserveAdmissionPumpAsync(Task pump)
+    {
+        try
+        {
+            await pump.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // session released
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Session {SessionId} user-input admission pump faulted.", SessionId);
         }
     }
 

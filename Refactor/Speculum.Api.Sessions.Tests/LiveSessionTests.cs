@@ -2,6 +2,9 @@ using System.Threading.Channels;
 using Aidan.Core.Patterns;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Speculum.Api.Configurations.Models.Hosting;
+using Speculum.Api.Configurations.Models.Navigation;
+using Speculum.Api.Configurations.Models.Patterns;
 using Speculum.Api.Configurations.Services.Contracts;
 using Speculum.Api.BrowserClients;
 using Speculum.Api.Configurations.Models.Sessions;
@@ -137,7 +140,7 @@ public sealed class LiveSessionTests
         Assert.True(live.Attach(client).IsSuccess);
 
         var url = await client.WaitSyncUrlAsync(TimeSpan.FromSeconds(2));
-        Assert.Equal("https://example.test/before-attach", url);
+        Assert.Equal("https://speculum.test/before-attach", url);
     }
 
     [Fact]
@@ -156,7 +159,82 @@ public sealed class LiveSessionTests
         });
 
         var url = await client.WaitSyncUrlAsync(TimeSpan.FromSeconds(2));
-        Assert.Equal("https://example.test/synced", url);
+        Assert.Equal("https://speculum.test/synced", url);
+    }
+
+    [Fact]
+    public async Task FeatureLoop_LocationChanged_RealResolver_SyncUrlKeepsLabelThroughNavigate()
+    {
+        var configuration = SessionsTestHarness.Engine("www.olx.com.br");
+        configuration.Navigation = new NavigationConfiguration
+        {
+            DefaultTargetHost = "www.olx.com.br",
+            AllowedMainFrameUrls =
+            [
+                new UrlMatchRule { Domain = ExactDomain("www", "olx", "com", "br") },
+                new UrlMatchRule { Domain = ExactDomain("olx", "com", "br") },
+                new UrlMatchRule { Domain = WildcardDomain("olx", "com", "br") },
+            ],
+        };
+        configuration.Hosting = new HostingConfiguration
+        {
+            Domains =
+            [
+                new DomainConfiguration
+                {
+                    Domain = "speculum.test",
+                    IsSubdomainMirroringEnabled = false,
+                },
+            ],
+        };
+        configuration.Sessions = SessionsTestHarness.Sessions(TimeSpan.FromMinutes(5));
+
+        var urls = new UrlResolver(new SessionsTestHarness.StaticConfigurationService(configuration));
+        var sessionId = Guid.NewGuid();
+        var connection = new LiveFakeConnection(sessionId);
+        var live = CreateService(urls, new SessionsTestHarness.StaticConfigurationService(configuration))
+            .Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true)
+            .Value;
+        var client = new RecordingAttachedClient();
+        Assert.True(live.Attach(client).IsSuccess);
+
+        await connection.Notifications.Writer.WriteAsync(new SessionNotification
+        {
+            Kind = SessionNotificationKind.LocationChanged,
+            Url = "https://cars.olx.com.br/listing?q=1",
+        });
+
+        var synced = await client.WaitSyncUrlAsync(TimeSpan.FromSeconds(2));
+        var syncedUri = new Uri(synced);
+        Assert.Equal("speculum.test", syncedUri.Host);
+        Assert.Equal("/listing", syncedUri.AbsolutePath);
+        Assert.Contains("_w7s_nso=", syncedUri.Query, StringComparison.Ordinal);
+
+        var path = syncedUri.AbsolutePath;
+        var query = syncedUri.Query.TrimStart('?');
+        var navigated = await live.NavigateAsync(new NavigateSession { Path = path, Query = query });
+        Assert.True(navigated.IsSuccess);
+        Assert.Equal("https://cars.olx.com.br/listing?q=1", connection.LastNavigatedUrl);
+    }
+
+    [Fact]
+    public async Task FeatureLoop_LocationChanged_ProjectFailure_SkipsSyncUrl()
+    {
+        var sessionId = Guid.NewGuid();
+        var connection = new LiveFakeConnection(sessionId);
+        var live = CreateService(urls: new FailingUrlResolver())
+            .Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
+        var client = new RecordingAttachedClient();
+        Assert.True(live.Attach(client).IsSuccess);
+
+        await connection.Notifications.Writer.WriteAsync(new SessionNotification
+        {
+            Kind = SessionNotificationKind.LocationChanged,
+            Url = "https://example.test/synced",
+        });
+
+        await Task.Delay(200);
+        Assert.Equal(0, client.SyncUrlCount);
     }
 
     [Fact]
@@ -313,7 +391,7 @@ public sealed class LiveSessionTests
         });
 
         var url = await client.WaitSyncUrlAsync(TimeSpan.FromSeconds(2));
-        Assert.Equal("https://example.test/after-empty", url);
+        Assert.Equal("https://speculum.test/after-empty", url);
         Assert.Equal(1, client.SyncUrlCount);
     }
 
@@ -346,7 +424,7 @@ public sealed class LiveSessionTests
         });
 
         var url = await second.WaitSyncUrlAsync(TimeSpan.FromSeconds(2));
-        Assert.Equal("https://example.test/reattached", url);
+        Assert.Equal("https://speculum.test/reattached", url);
     }
 
     [Fact]
@@ -408,6 +486,21 @@ public sealed class LiveSessionTests
         Assert.True(result.IsFailure);
         Assert.Equal("Resolve", liveEvents.LastNavigateFailedPhase);
         Assert.Null(connection.LastNavigatedUrl);
+    }
+
+    [Fact]
+    public async Task GetStatus_ProjectsUrlToClient()
+    {
+        var sessionId = Guid.NewGuid();
+        var connection = new LiveFakeConnection(sessionId)
+        {
+            StatusUrl = "https://example.test/page?q=1",
+        };
+        var live = CreateService().Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
+
+        var status = await live.GetStatusAsync();
+        Assert.True(status.IsSuccess);
+        Assert.Equal("https://speculum.test/page?q=1", status.Value.Url);
     }
 
     [Fact]
@@ -782,6 +875,34 @@ public sealed class LiveSessionTests
         }
     }
 
+    private static DomainPattern ExactDomain(params string[] labels)
+        => new()
+        {
+            Scope = PatternScope.Pattern,
+            Labels = labels
+                .Select(value => new DomainLabelPattern
+                {
+                    Match = PatternPartMatch.Exact,
+                    Value = value,
+                })
+                .ToArray(),
+        };
+
+    private static DomainPattern WildcardDomain(params string[] apexLabels)
+        => new()
+        {
+            Scope = PatternScope.Pattern,
+            Labels =
+            [
+                new DomainLabelPattern { Match = PatternPartMatch.Any },
+                .. apexLabels.Select(value => new DomainLabelPattern
+                {
+                    Match = PatternPartMatch.Exact,
+                    Value = value,
+                }),
+            ],
+        };
+
     private sealed class RecordingUrlResolver : IUrlResolver
     {
         private readonly string _url;
@@ -790,11 +911,27 @@ public sealed class LiveSessionTests
 
         public string? LastRequestHost { get; private set; }
 
+        public string? LastProjectTarget { get; private set; }
+
         public IResult<string> Resolve(string path, string query, string requestHost)
         {
             LastPath = path;
             LastRequestHost = requestHost;
             return Result<string>.Success(_url);
+        }
+
+        public IResult<string> ProjectToClient(string targetUrl, string requestHost)
+        {
+            LastProjectTarget = targetUrl;
+            LastRequestHost = requestHost;
+            if (!Uri.TryCreate(targetUrl, UriKind.Absolute, out var uri)
+                || uri.Scheme is not ("http" or "https"))
+            {
+                return Result<string>.Failure("Target URL must be absolute http(s)");
+            }
+
+            var host = requestHost.Split(':')[0].Trim().ToLowerInvariant();
+            return Result<string>.Success($"https://{host}{uri.PathAndQuery}");
         }
     }
 
@@ -802,6 +939,9 @@ public sealed class LiveSessionTests
     {
         public IResult<string> Resolve(string path, string query, string requestHost)
             => Result<string>.Failure("Navigation path must be absolute and contain no query");
+
+        public IResult<string> ProjectToClient(string targetUrl, string requestHost)
+            => Result<string>.Failure("Target URL must be absolute http(s)");
     }
 
     private sealed class NoOpCollector : ISessionCollector
@@ -973,11 +1113,14 @@ public sealed class LiveSessionTests
         public IResult<ChannelReader<ConsoleOutput>> GetConsoleOutputReader()
             => Result<ChannelReader<ConsoleOutput>>.Success(Console.Reader);
 
+        public string? StatusUrl { get; set; }
+
         public Task<IResult<SessionStatus>> GetStatusAsync(CancellationToken ct = default)
             => Task.FromResult<IResult<SessionStatus>>(Result<SessionStatus>.Success(new SessionStatus
             {
                 SessionId = SessionId.ToString("D"),
                 TabCount = 1,
+                Url = StatusUrl ?? "",
             }));
 
         public IResult<ChannelReader<SessionNotification>> GetNotificationReader()

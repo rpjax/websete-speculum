@@ -137,7 +137,7 @@ The current product binds one live session directly to one SignalR
 | Status | Feature | Current observable behavior | Application model still required |
 |--------|---------|-----------------------------|----------------------------------|
 | ✅ | Stream ownership | Disposable stream handles unregister themselves from the mux | Modeled |
-| ✅ | Reference-counted presence | Explicit `ILiveSession.Attach(IAttachedSessionClient)` / `Detach` retains/releases the whole session (single client slot); streams do not affect presence | Modeled (one attach; SyncUrl/Redirect via attached client; reverse URL map still ○) |
+| ✅ | Reference-counted presence | Explicit `ILiveSession.Attach(IAttachedSessionClient)` / `Detach` retains/releases the whole session (single client slot); streams do not affect presence | Modeled (one attach; SyncUrl/Redirect via attached client + `ProjectToClient`) |
 | ✅ | Context teardown | Releasing a live context disposes mux, unbinds hooks (deny) and drops attachments | Modeled via `ILiveSessionService.Release` → `LiveSession.Release` |
 | ✅ | Transport binding | Maps opaque caller identity to Starting/Live state, attachment and owned pipes without SignalR types in the port | `ISessionBindingRegistry` |
 | ✅ | Second-start replacement | Same caller replaces Live or cancels and awaits Starting teardown before slot admission | `BeginStart` / `TryPromote` / start completion |
@@ -178,7 +178,7 @@ HTTP requests to `/vtransport` are rejected with `426 Upgrade Required`.
 | Status | Feature | Current observable behavior | Application model still required |
 |--------|---------|-----------------------------|----------------------------------|
 | ✅ | Frame stream | CDP JPEG + relay monotonic sequence + API relay-receipt UTC timestamp | Typed `Frame` over disposable mux streams and WebTransport |
-| ◐ | Console/control output | Console and eval results use typed envelopes; location/blocked drive hub SyncUrl/Redirect via attached client; focus/crash still on notification pipe | Reverse URL projection still ○ |
+| ◐ | Console/control output | Console and eval results use typed envelopes; location/blocked drive hub SyncUrl/Redirect via attached client; focus/crash still on notification pipe | — |
 | ✅ | Status poll | Unary status includes engine JsBridge state, session id and relay uptime | `ILiveSession.GetStatusAsync`; fps is measured from relay-observed video frames |
 | ✅ | User input | Hub `SendInputAsync` → `ILiveSession.AdmitUserInput` → DropOldest pump → mux → gRPC; WT UserInput optional/late | Invalid payloads emit `InputRejected` and do not kill the session |
 | ✅ | Input path hops (opt-in) | `Telemetry.Sessions.Input.ControlReceived` (primary) / `WebTransportReceived` / `SidecarPushWritten` / `SidecarAdmitted` | Lab Telemetry event toggles; Wire `client_sent` is a separate localStorage toggle |
@@ -207,13 +207,13 @@ live output stream.
 | Status | Feature | Current observable behavior | Application model still required |
 |--------|---------|-----------------------------|----------------------------------|
 | ✅ | Start navigation | Required for successful start | Resolve → Navigate uses Path, Query and transport host |
-| ◐ | Runtime navigation | Maps client path/query to target URL and commands the active browser | `ILiveSession.NavigateAsync` + host-aware `IUrlResolver`; SyncUrl/Redirect push absolute target URLs (reverse map ○) |
+| ◐ | Runtime navigation | Maps client path/query to target URL and commands the active browser | `ILiveSession.NavigateAsync` + host-aware `IUrlResolver`; SyncUrl uses `ProjectToClient` |
 | ◐ | Scheme validation | Resolve always builds `https://` targets; bad path/host fails | Broader scheme/policy rejection contract |
 | ◐ | URL allowlist | Main-frame **host** allowlist via `Navigation.AllowedMainFrameUrls` | Path-pattern enforcement still open |
 | ◐ | Blocked vs failed | Policy block (`MainFrameNavigationBlocked` → Redirect) distinct from `NavigateFailed` | Named app-layer result types still thin |
 | ◐ | External redirect | Navigation outside the virtualized domain redirects the real client while session remains alive | `IAttachedSessionClient.RedirectAsync` ← `MainFrameNavigationBlocked` (absolute URL) |
-| ○ | Client URL mapping | Target URLs map back to client URLs, preserving path/query and navigation state | Reverse-mapping port; SyncUrl currently pushes absolute browser URL |
-| ◐ | Subdomain mirroring | Host changes map to mirrored session hosts when Hosting domains are configured | Resolve-time mirroring; operational status / edge sync still open |
+| ✅ | Client URL mapping | `IUrlResolver.ProjectToClient` maps browser absolute → session-host SyncUrl (apex NSO / mirroring); status poll uses the same projection | — |
+| ◐ | Subdomain mirroring | Host changes map to mirrored session hosts when Hosting domains are configured | Resolve-time + SyncUrl reverse; operational status / edge sync still open |
 | ○ | Redirect chains / history | Redirects, SPA paths, back/forward and history remain coherent | Navigation-state/history capability |
 | ○ | Asset escape rule | Allowlist applies to main-frame navigation, not assets/XHR/subframes | Explicit policy boundary |
 
@@ -442,23 +442,21 @@ error outcomes.
 
 Immediate modeling gaps still open (chassis already covers much of the former list):
 
-1. **Reverse URL projection** — SyncUrl/Redirect still push absolute browser URLs;
-   client path/query mapping and navigation-state semantics remain open.
-2. **Navigation policy depth** — host allowlist + https resolve exist; path-pattern
+1. **Navigation policy depth** — host allowlist + https resolve exist; path-pattern
    enforcement, asset-escape boundary, and richer blocked-vs-failed app results remain.
-3. **Resize busy/reject contract** — ports + policy validation exist; busy-reject
+2. **Resize busy/reject contract** — ports + policy validation exist; busy-reject
    (vs command-gate queue) and first-class reject/fail results remain thin.
-4. **Config/shutdown drain** — `StopReason.Drain` / `ForceStop` exist; no orchestrator
+3. **Config/shutdown drain** — `StopReason.Drain` / `ForceStop` exist; no orchestrator
    wires them to configuration Apply or host shutdown.
-5. **Tolerant restore / retention purge** — schema + merge exist; dirty-cookie
+4. **Tolerant restore / retention purge** — schema + merge exist; dirty-cookie
    normalize and inactive-profile purge orchestrator remain open.
-6. **Client bootstrap / setup mode** — configuration status is ◐; public client-config
+5. **Client bootstrap / setup mode** — configuration status is ◐; public client-config
    and setup UX flow remain ○.
-7. **Script administration** — scripting models + launch resolve ◐; stored-script
+6. **Script administration** — scripting models + launch resolve ◐; stored-script
    Admin CRUD remains ○.
-8. **Diagnostics operator HTTP** — capability toggles + session telemetry events +
+7. **Diagnostics operator HTTP** — capability toggles + session telemetry events +
    composite samples exist; runtime/overview/timelines/probes/catalog query remain ○.
-9. **Admin Bearer** — Administration section and API-key opacity remain ○.
+8. **Admin Bearer** — Administration section and API-key opacity remain ○.
 
 ---
 
@@ -479,10 +477,10 @@ This order follows user-visible dependencies, not infrastructure dependencies:
 
 4. Live I/O parity ◐→near ✅
    frame + console/control + status + SignalR AdmitUserInput + eval
-   (URL/redirect reverse projection and input ownership scheduling remain)
+   (SyncUrl ProjectToClient ✅; input ownership scheduling remain)
 
 5. Runtime navigation ◐
-   forward resolve/navigate ✅; reverse map + path allowlist + history open
+   forward resolve/navigate ✅; reverse SyncUrl ✅; path allowlist + history open
 
 6. Resize/device ◐
    ports + policy validation; busy-reject / exact-result polish open

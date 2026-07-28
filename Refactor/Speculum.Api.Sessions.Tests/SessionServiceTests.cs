@@ -381,6 +381,12 @@ public sealed class SessionServiceTests
             LastRequestHost = requestHost;
             return Result<string>.Success(url);
         }
+
+        public IResult<string> ProjectToClient(string targetUrl, string requestHost)
+        {
+            LastRequestHost = requestHost;
+            return Result<string>.Success(url);
+        }
     }
 
     private sealed class FixedSessionTokenGenerator(string token) : ISessionTokenGenerator

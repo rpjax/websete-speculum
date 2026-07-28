@@ -3,9 +3,8 @@ using Aidan.Core.Patterns;
 namespace Speculum.Api.Sessions.Services.Contracts;
 
 /// <summary>
-/// Maps a client navigation path to the absolute target URL for sidecar <c>Navigate</c>.
-/// Same port for session start and runtime navigate.
-/// Hosting / Forwarding / NSO / subdomain mirroring are resolved inside the implementation.
+/// Maps client path/query ↔ absolute browser URL for start, navigate, and SyncUrl.
+/// Hosting / Navigation / NSO / subdomain mirroring are resolved inside the implementation.
 /// </summary>
 public interface IUrlResolver
 {
@@ -24,4 +23,12 @@ public interface IUrlResolver
     /// (allowlist / mapping) before a target can be built.
     /// </returns>
     IResult<string> Resolve(string path, string query, string requestHost);
+
+    /// <summary>
+    /// Maps an absolute browser target URL back to a session-host SyncUrl
+    /// (apex + <c>_w7s_nso</c>, or mirrored host remap).
+    /// </summary>
+    /// <param name="targetUrl">Absolute http(s) URL from the sidecar location notification.</param>
+    /// <param name="requestHost">Session transport host (same as start/navigate).</param>
+    IResult<string> ProjectToClient(string targetUrl, string requestHost);
 }

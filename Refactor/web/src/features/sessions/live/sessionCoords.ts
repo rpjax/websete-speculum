@@ -161,8 +161,8 @@ export function parseClientNavigation(input: string): { path: string; query: str
 }
 
 /**
- * Address-bar display for SyncUrl.
- * Reverse host map is still ○ — show the absolute browser URL when present.
+ * Address-bar display for SyncUrl (session-projected absolute or path/query).
+ * Strips `_w7s_nso` so the bar shows the virtualized path without wire state.
  */
 export function toClientAddressBar(syncedUrl: string): string {
   const trimmed = syncedUrl.trim()
@@ -172,13 +172,17 @@ export function toClientAddressBar(syncedUrl: string): string {
   try {
     if (/^https?:\/\//i.test(trimmed)) {
       const url = new URL(trimmed)
-      return `${url.host}${url.pathname}${url.search}`
+      const withoutNso = (url.search.startsWith('?') ? url.search.slice(1) : url.search)
+        .split('&')
+        .filter((part) => part.length > 0 && !part.startsWith('_w7s_nso='))
+        .join('&')
+      const path = url.pathname || '/'
+      return withoutNso ? `${url.host}${path}?${withoutNso}` : `${url.host}${path}`
     }
   } catch {
     // fall through
   }
   const { path, query } = parseClientNavigation(trimmed)
-  // Avoid echoing NSO in the bar when we only have path/query.
   const withoutNso = query
     .split('&')
     .filter((part) => part.length > 0 && !part.startsWith('_w7s_nso='))

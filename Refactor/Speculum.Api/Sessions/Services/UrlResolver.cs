@@ -64,6 +64,209 @@ public sealed class UrlResolver : IUrlResolver
         return Result<string>.Success(uri);
     }
 
+    public IResult<string> ProjectToClient(string targetUrl, string requestHost)
+    {
+        if (!TryNormalizeRequestHost(requestHost, out var clientHost))
+        {
+            return Result<string>.Failure("Request host is invalid");
+        }
+
+        if (!Uri.TryCreate(targetUrl, UriKind.Absolute, out var targetUri)
+            || targetUri.Scheme is not ("http" or "https")
+            || string.IsNullOrWhiteSpace(targetUri.Host))
+        {
+            return Result<string>.Failure("Target URL must be absolute http(s)");
+        }
+
+        var configuration = _configuration.GetCurrent();
+        var defaultTargetHost = configuration.Navigation.DefaultTargetHost.Trim().ToLowerInvariant();
+        if (!IsValidHost(defaultTargetHost))
+        {
+            return Result<string>.Failure("Navigation.DefaultTargetHost is invalid");
+        }
+
+        var targetHost = targetUri.Host.ToLowerInvariant();
+        var allowedUrls = configuration.Navigation.AllowedMainFrameUrls;
+
+        foreach (var profile in configuration.Hosting.Domains)
+        {
+            var sessionDomain = profile.Domain.Trim().ToLowerInvariant();
+            if (!IsValidHost(sessionDomain))
+            {
+                continue;
+            }
+
+            if (!IsRequestOnSessionDomain(clientHost, sessionDomain))
+            {
+                continue;
+            }
+
+            if (profile.IsSubdomainMirroringEnabled)
+            {
+                return ProjectMirroredToClient(
+                    targetUri,
+                    targetHost,
+                    sessionDomain,
+                    defaultTargetHost,
+                    allowedUrls);
+            }
+
+            var sessionHost = ResolveSessionHostForRequest(clientHost, sessionDomain);
+            return ProjectApexToClient(
+                targetUri,
+                targetHost,
+                sessionHost,
+                defaultTargetHost,
+                allowedUrls);
+        }
+
+        // No matching Hosting profile — apex-style projection onto the request host.
+        return ProjectApexToClient(
+            targetUri,
+            targetHost,
+            clientHost,
+            defaultTargetHost,
+            allowedUrls);
+    }
+
+    private static bool IsRequestOnSessionDomain(string requestHost, string sessionDomain)
+    {
+        if (requestHost == sessionDomain || requestHost == $"www.{sessionDomain}")
+        {
+            return true;
+        }
+
+        var suffix = $".{sessionDomain}";
+        return requestHost.EndsWith(suffix, StringComparison.Ordinal)
+            && requestHost.Length > suffix.Length;
+    }
+
+    private static string ResolveSessionHostForRequest(string requestHost, string sessionDomain)
+        => requestHost == $"www.{sessionDomain}" ? requestHost : sessionDomain;
+
+    private static IResult<string> ProjectMirroredToClient(
+        Uri targetUri,
+        string targetHost,
+        string sessionDomain,
+        string defaultTargetHost,
+        IReadOnlyList<UrlMatchRule> allowedUrls)
+    {
+        if (!TryGetTargetApex(defaultTargetHost, allowedUrls, out var targetApex))
+        {
+            return Result<string>.Failure(
+                "Navigation.AllowedMainFrameUrls must define the target apex for subdomain mirroring");
+        }
+
+        string clientHost;
+        if (targetHost == targetApex
+            || targetHost == defaultTargetHost)
+        {
+            if (targetHost == defaultTargetHost
+                && defaultTargetHost != targetApex
+                && defaultTargetHost.EndsWith($".{targetApex}", StringComparison.Ordinal))
+            {
+                var sub = defaultTargetHost[..^(targetApex.Length + 1)];
+                clientHost = string.IsNullOrEmpty(sub) ? sessionDomain : $"{sub}.{sessionDomain}";
+            }
+            else
+            {
+                clientHost = sessionDomain;
+            }
+        }
+        else if (targetHost.EndsWith($".{targetApex}", StringComparison.Ordinal))
+        {
+            var sub = targetHost[..^(targetApex.Length + 1)];
+            clientHost = string.IsNullOrEmpty(sub) ? sessionDomain : $"{sub}.{sessionDomain}";
+        }
+        else
+        {
+            return Result<string>.Failure("Target host is outside the mirrored apex");
+        }
+
+        var builder = new UriBuilder(Uri.UriSchemeHttps, clientHost)
+        {
+            Path = targetUri.AbsolutePath,
+            Query = targetUri.Query.TrimStart('?'),
+        };
+        return Result<string>.Success(builder.Uri.AbsoluteUri);
+    }
+
+    private static IResult<string> ProjectApexToClient(
+        Uri targetUri,
+        string targetHost,
+        string sessionHost,
+        string defaultTargetHost,
+        IReadOnlyList<UrlMatchRule> allowedUrls)
+    {
+        var stateHost = BuildNavigationStateHost(targetHost, defaultTargetHost, allowedUrls);
+        if (stateHost.IsFailure)
+        {
+            return Result<string>.Failure(stateHost.Errors.ToArray());
+        }
+
+        var siteQuery = StripNavigationState(targetUri.Query.TrimStart('?'));
+        var nso = EncodeNavigationState(stateHost.Value);
+        var query = string.IsNullOrEmpty(siteQuery)
+            ? $"{NavigationStateParameter}={nso}"
+            : $"{siteQuery}&{NavigationStateParameter}={nso}";
+
+        var builder = new UriBuilder(Uri.UriSchemeHttps, sessionHost)
+        {
+            Path = targetUri.AbsolutePath,
+            Query = query,
+        };
+        return Result<string>.Success(builder.Uri.AbsoluteUri);
+    }
+
+    private static IResult<string> BuildNavigationStateHost(
+        string targetHost,
+        string defaultTargetHost,
+        IReadOnlyList<UrlMatchRule> allowedUrls)
+    {
+        if (targetHost == defaultTargetHost)
+        {
+            return Result<string>.Success("");
+        }
+
+        if (!TryGetTargetApex(defaultTargetHost, allowedUrls, out var apex))
+        {
+            // Open allowlist / no apex: store the full target host in NSO.
+            if (IsAllowedTargetHost(targetHost, defaultTargetHost, allowedUrls))
+            {
+                return Result<string>.Success(targetHost);
+            }
+
+            return Result<string>.Failure(
+                "Navigation.AllowedMainFrameUrls must define the target apex for navigation state");
+        }
+
+        if (targetHost == apex)
+        {
+            return Result<string>.Success("");
+        }
+
+        var suffix = $".{apex}";
+        if (targetHost.EndsWith(suffix, StringComparison.Ordinal))
+        {
+            var sub = targetHost[..^suffix.Length];
+            return Result<string>.Success(sub);
+        }
+
+        if (IsAllowedTargetHost(targetHost, defaultTargetHost, allowedUrls))
+        {
+            return Result<string>.Success(targetHost);
+        }
+
+        return Result<string>.Failure("Target host is not allowlisted for SyncUrl projection");
+    }
+
+    private static string EncodeNavigationState(string host)
+    {
+        var json = JsonSerializer.Serialize(new { v = 1, h = host });
+        return Uri.EscapeDataString(
+            Convert.ToBase64String(Encoding.UTF8.GetBytes(json)));
+    }
+
     private static IResult<string> ResolveTargetHost(
         string requestHost,
         string defaultTargetHost,

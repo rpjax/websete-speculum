@@ -219,6 +219,118 @@ public sealed class UrlResolverTests
         Assert.True(resolver.Resolve("/", "", "").IsFailure);
     }
 
+    [Fact]
+    public void ProjectToClient_ApexDefaultHost_EmptiesNavigationStateHost()
+    {
+        var configuration = SessionsTestHarness.Engine("www.target.test");
+        configuration.Navigation = Navigation(
+            "www.target.test",
+            ExactDomain("target", "test"),
+            WildcardDomain("target", "test"));
+        configuration.Hosting = new HostingConfiguration
+        {
+            Domains =
+            [
+                new DomainConfiguration
+                {
+                    Domain = "speculum.test",
+                    IsSubdomainMirroringEnabled = false,
+                },
+            ],
+        };
+        var resolver = new UrlResolver(
+            new SessionsTestHarness.StaticConfigurationService(configuration));
+
+        var result = resolver.ProjectToClient(
+            "https://www.target.test/search?q=1",
+            "speculum.test");
+
+        Assert.True(result.IsSuccess);
+        var uri = new Uri(result.Value);
+        Assert.Equal("speculum.test", uri.Host);
+        Assert.Equal("/search", uri.AbsolutePath);
+        Assert.Contains("q=1", uri.Query, StringComparison.Ordinal);
+        Assert.Contains("_w7s_nso=", uri.Query, StringComparison.Ordinal);
+        Assert.Equal("", DecodeNavigationStateHost(uri.Query));
+    }
+
+    [Fact]
+    public void ProjectToClient_ApexLabelHost_RoundTripsWithResolve()
+    {
+        var configuration = SessionsTestHarness.Engine("www.olx.com.br");
+        configuration.Navigation = Navigation(
+            "www.olx.com.br",
+            ExactDomain("www", "olx", "com", "br"),
+            ExactDomain("olx", "com", "br"),
+            WildcardDomain("olx", "com", "br"));
+        configuration.Hosting = new HostingConfiguration
+        {
+            Domains =
+            [
+                new DomainConfiguration
+                {
+                    Domain = "speculum.test",
+                    IsSubdomainMirroringEnabled = false,
+                },
+            ],
+        };
+        var resolver = new UrlResolver(
+            new SessionsTestHarness.StaticConfigurationService(configuration));
+
+        var projected = resolver.ProjectToClient(
+            "https://cars.olx.com.br/listing?q=1",
+            "speculum.test");
+        Assert.True(projected.IsSuccess);
+
+        var clientUri = new Uri(projected.Value);
+        var query = clientUri.Query.TrimStart('?');
+        var resolved = resolver.Resolve(clientUri.AbsolutePath, query, "speculum.test");
+        Assert.True(resolved.IsSuccess);
+        Assert.Equal("https://cars.olx.com.br/listing?q=1", resolved.Value);
+        Assert.Equal("cars", DecodeNavigationStateHost(query));
+    }
+
+    [Fact]
+    public void ProjectToClient_MirroredSubdomain_RemapsHostWithoutNavigationState()
+    {
+        var configuration = SessionsTestHarness.Engine("olx.com.br");
+        configuration.Navigation = Navigation(
+            "olx.com.br",
+            ExactDomain("olx", "com", "br"),
+            WildcardDomain("olx", "com", "br"));
+        configuration.Hosting = new HostingConfiguration
+        {
+            Domains =
+            [
+                new DomainConfiguration
+                {
+                    Domain = "speculum.test",
+                    IsSubdomainMirroringEnabled = true,
+                },
+            ],
+        };
+        var resolver = new UrlResolver(
+            new SessionsTestHarness.StaticConfigurationService(configuration));
+
+        var result = resolver.ProjectToClient(
+            "https://cars.olx.com.br/listing?q=1",
+            "cars.speculum.test");
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("https://cars.speculum.test/listing?q=1", result.Value);
+    }
+
+    [Fact]
+    public void ProjectToClient_MalformedTarget_Fails()
+    {
+        var resolver = new UrlResolver(
+            new SessionsTestHarness.StaticConfigurationService(
+                SessionsTestHarness.Engine("www.target.test")));
+
+        Assert.True(resolver.ProjectToClient("not-a-url", "speculum.test").IsFailure);
+        Assert.True(resolver.ProjectToClient("ftp://example.test/", "speculum.test").IsFailure);
+    }
+
     private static NavigationConfiguration Navigation(
         string defaultTargetHost,
         params DomainPattern[] domains)
@@ -263,5 +375,25 @@ public sealed class UrlResolverTests
         var json = JsonSerializer.Serialize(new { v = 1, h = host });
         return Uri.EscapeDataString(
             Convert.ToBase64String(Encoding.UTF8.GetBytes(json)));
+    }
+
+    private static string DecodeNavigationStateHost(string query)
+    {
+        foreach (var part in query.TrimStart('?')
+                     .Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (!part.StartsWith("_w7s_nso=", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var encoded = part["_w7s_nso=".Length..];
+            var json = Encoding.UTF8.GetString(
+                Convert.FromBase64String(Uri.UnescapeDataString(encoded)));
+            using var document = JsonDocument.Parse(json);
+            return document.RootElement.GetProperty("h").GetString() ?? "";
+        }
+
+        return "";
     }
 }

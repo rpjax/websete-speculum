@@ -197,6 +197,8 @@ export function useLiveSession({
   /** Bumps on each Keyboard tap so SessionViewport can re-focus IME after dismiss. */
   const [keyboardNonce, setKeyboardNonce] = useState(0)
   const [currentUrl, setCurrentUrl] = useState<string | null>(null)
+  /** Path+query wire from last SyncUrl/status — navigate when the bar display is untouched. */
+  const [navigateHref, setNavigateHref] = useState<string | null>(null)
   /** Confirmed remote session viewport (StartSession / ResizeApplied). */
   const [remoteViewport, setRemoteViewport] = useState<LiveSessionViewport>(viewport)
   /** Sessions.ViewportPolicy from StartSession — drives client resize validation. */
@@ -350,9 +352,10 @@ export function useLiveSession({
         log(notification.errorCode ? 'warn' : 'wire', 'notification', notification)
       })
       session.on('syncUrl', (url) => {
-        const { display } = applySyncedBrowserUrl(url)
+        const { display, clientHref } = applySyncedBrowserUrl(url)
         setCurrentUrl(display)
-        log('wire', 'syncUrl', { url, display })
+        setNavigateHref(clientHref)
+        log('wire', 'syncUrl', { url, display, clientHref })
       })
       session.on('redirect', (url) => {
         log('info', 'redirect', { url })
@@ -364,8 +367,9 @@ export function useLiveSession({
         log('warn', 'session ended', event)
       })
       if (session.lastSyncedUrl) {
-        const { display } = applySyncedBrowserUrl(session.lastSyncedUrl)
+        const { display, clientHref } = applySyncedBrowserUrl(session.lastSyncedUrl)
         setCurrentUrl(display)
+        setNavigateHref(clientHref)
       }
       if (
         session.lastRedirectUrl &&
@@ -488,6 +492,8 @@ export function useLiveSession({
       setViewportPolicy(null)
       setEditing(null)
       setKeyboardNonce(0)
+      setCurrentUrl(null)
+      setNavigateHref(null)
       setPhase(client.isConnected ? 'connected' : 'idle')
     }
   }, [client, log])
@@ -561,8 +567,9 @@ export function useLiveSession({
       const snapshot = await session.getStatus()
       setStatus(snapshot)
       if (snapshot.url) {
-        const { display } = applySyncedBrowserUrl(snapshot.url)
+        const { display, clientHref } = applySyncedBrowserUrl(snapshot.url)
         setCurrentUrl(display)
+        setNavigateHref(clientHref)
       }
       log('wire', 'status', snapshot)
     } catch (error) {
@@ -663,6 +670,7 @@ export function useLiveSession({
     profileId,
     sessionId,
     currentUrl,
+    navigateHref,
     entries: debug ? entries : [],
     consoleLines: debug ? consoleLines : [],
     journal: debug ? journal : EMPTY_JOURNAL,

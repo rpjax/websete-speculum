@@ -6,8 +6,8 @@ import {
 } from '@/features/sessions/live/sessionConfig'
 import {
   parseClientNavigation,
-  toClientAddressBar,
 } from '@/features/sessions/live/sessionCoords'
+import { resolveLabNavigateWire } from '@/features/sessions/live/sessionUrlSync'
 import { LabCanvasStage } from './LabCanvasStage'
 import { LabDebugDock } from './LabDebugDock'
 import { LabToolbar } from './LabToolbar'
@@ -30,7 +30,8 @@ export default function SessionLabPage() {
     if (!session.currentUrl || addressFocusedRef.current) {
       return
     }
-    setAddress(toClientAddressBar(session.currentUrl))
+    // currentUrl is already address-bar display (SyncUrl/status projection).
+    setAddress(session.currentUrl)
   }, [session.currentUrl])
 
   const handleStart = () => {
@@ -39,7 +40,12 @@ export default function SessionLabPage() {
   }
 
   const handleNavigate = () => {
-    const { path, query } = parseClientNavigation(address)
+    const wire = resolveLabNavigateWire({
+      address,
+      currentUrl: session.currentUrl,
+      navigateHref: session.navigateHref,
+    })
+    const { path, query } = parseClientNavigation(wire)
     void session.navigate(path, query)
   }
 

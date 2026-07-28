@@ -289,8 +289,19 @@ internal sealed class LiveSession : ILiveSession
                     switch (notification.Kind)
                     {
                         case SessionNotificationKind.LocationChanged:
+                            var projected = _urls.ProjectToClient(url, _requestHost);
+                            if (projected.IsFailure)
+                            {
+                                _logger.LogDebug(
+                                    "Session {SessionId} skipped SyncUrl; ProjectToClient failed: {Errors}",
+                                    SessionId,
+                                    string.Join("; ", projected.Errors.Select(error => error.Message)));
+                                break;
+                            }
+
                             command = "SyncUrl";
-                            await client.SyncUrlAsync(url, cancellationToken).ConfigureAwait(false);
+                            await client.SyncUrlAsync(projected.Value, cancellationToken)
+                                .ConfigureAwait(false);
                             break;
                         case SessionNotificationKind.MainFrameNavigationBlocked:
                             command = "Redirect";
@@ -664,10 +675,20 @@ internal sealed class LiveSession : ILiveSession
         }
 
         var current = status.Value;
+        var url = current.Url;
+        if (!string.IsNullOrWhiteSpace(url))
+        {
+            var projected = _urls.ProjectToClient(url.Trim(), _requestHost);
+            if (projected.IsSuccess)
+            {
+                url = projected.Value;
+            }
+        }
+
         return Result<SessionStatus>.Success(new SessionStatus
         {
             TabCount = current.TabCount,
-            Url = current.Url,
+            Url = url,
             Resizing = current.Resizing,
             Width = current.Width,
             Height = current.Height,

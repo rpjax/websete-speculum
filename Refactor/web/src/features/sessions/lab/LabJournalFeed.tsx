@@ -99,7 +99,7 @@ export function LabJournalFeed({ feed }: { feed: JournalFeed }) {
           not replayed.
         </p>
       ) : (
-        <ol className="max-h-[420px] space-y-1 overflow-y-auto pr-1">
+        <ol className="space-y-1 pr-1">
           {feed.facts.map((fact) => (
             <FactRow key={fact.id} fact={fact} />
           ))}

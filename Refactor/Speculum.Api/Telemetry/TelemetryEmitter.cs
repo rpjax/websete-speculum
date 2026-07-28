@@ -1,6 +1,6 @@
 using Speculum.Api.Configurations.Services.Contracts;
 using Speculum.Api.Journal.Services.Contracts;
-using Speculum.Api.Telemetry.Models;
+using Speculum.Api.Telemetry.Events.Models.Sampling;
 
 namespace Speculum.Api.Telemetry;
 

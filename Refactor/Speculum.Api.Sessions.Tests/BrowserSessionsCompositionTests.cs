@@ -14,6 +14,8 @@ using Speculum.Api.Sessions.Events.Services.Contracts;
 using Speculum.Api.Sessions.Services;
 using Speculum.Api.Sessions.Services.Contracts;
 using Speculum.Api.Shared.Services.Contracts;
+using Speculum.Api.Telemetry;
+using Speculum.Api.Telemetry.Events.Models.Sessions.Capacity;
 
 namespace Speculum.Api.Sessions.Tests;
 
@@ -73,6 +75,7 @@ public sealed class BrowserSessionsCompositionTests
         services.AddJournal();
         services.DiscoverJournalFacts();
         services.AddProfiles();
+        services.AddTelemetry();
         services.AddBrowserSessions();
 
         Assert.Contains(services, d => d.ServiceType == typeof(ILiveSessionService));

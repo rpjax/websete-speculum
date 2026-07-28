@@ -5,6 +5,7 @@ using Grpc.Core;
 using Microsoft.Extensions.Logging;
 using Speculum.Api.Configurations.Models.Sidecar;
 using Speculum.Api.Configurations.Services.Contracts;
+using Speculum.Api.Journal.Services.Contracts;
 using Speculum.Api.Profiles.Aggregates;
 using Speculum.Api.Sessions.Models;
 using Speculum.Api.Sidecar.V1;
@@ -26,6 +27,7 @@ public sealed class GrpcSessionConnection : ISessionConnection
 {
     private readonly BrowserSessionService.BrowserSessionServiceClient _client;
     private readonly IConfigurationService _configuration;
+    private readonly IJournalCatalog _journalCatalog;
     private readonly ILogger _logger;
     private readonly Action<Guid> _onClosed;
     private readonly int _linkRetryCount;
@@ -73,14 +75,17 @@ public sealed class GrpcSessionConnection : ISessionConnection
         Guid sessionId,
         BrowserSessionService.BrowserSessionServiceClient client,
         IConfigurationService configuration,
+        IJournalCatalog journalCatalog,
         SidecarOptions options,
         ILogger logger,
         Action<Guid> onClosed)
     {
         ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(journalCatalog);
         SessionId = sessionId;
         _client = client;
         _configuration = configuration;
+        _journalCatalog = journalCatalog;
         _logger = logger;
         _onClosed = onClosed;
         _linkRetryCount = options.LinkRetryCount;
@@ -142,6 +147,7 @@ public sealed class GrpcSessionConnection : ISessionConnection
         _ = PumpNavigationBlockedAsync(token);
         _ = PumpEditableFocusAsync(token);
         _ = PumpCrashAsync(token);
+        _ = PumpInputPathAsync(token);
         _ = PumpControlAsync(token);
         return Task.CompletedTask;
     }
@@ -502,6 +508,10 @@ public sealed class GrpcSessionConnection : ISessionConnection
                     InputKind = userInput.Type,
                     Phase = TryTouchPhase(userInput),
                 });
+                TryPublishInputPathTrace(
+                    "Telemetry.Sessions.Input.SidecarPushWritten",
+                    "grpc_pushed",
+                    userInput.Type);
             }
             catch (RpcException ex) when (ex.StatusCode == StatusCode.Cancelled)
             {
@@ -864,6 +874,42 @@ public sealed class GrpcSessionConnection : ISessionConnection
                 await Task.CompletedTask.ConfigureAwait(false);
             },
             ct);
+
+    private Task PumpInputPathAsync(CancellationToken ct) =>
+        RunWatchLoopAsync(
+            "WatchInputPath",
+            token => _client.WatchInputPath(
+                new ProtoSessionId { SessionId_ = SessionId.ToString("D") },
+                cancellationToken: token),
+            async (ev, token) =>
+            {
+                TryPublishInputPathTrace(
+                    "Telemetry.Sessions.Input.SidecarAdmitted",
+                    "sidecar_admitted",
+                    ev.Kind);
+                await Task.CompletedTask.ConfigureAwait(false);
+            },
+            ct);
+
+    /// <summary>
+    /// Opt-in input-path hop. Skips the notification (and therefore Journal) when the
+    /// catalog type is disabled — keeps the hot path quiet unless the operator toggles it.
+    /// </summary>
+    private void TryPublishInputPathTrace(string catalogType, string phase, string? inputKind)
+    {
+        if (string.IsNullOrWhiteSpace(inputKind)
+            || !_journalCatalog.IsTypeEnabled(catalogType))
+        {
+            return;
+        }
+
+        TryPublishNotification(new SessionNotification
+        {
+            Kind = SessionNotificationKind.InputPathTrace,
+            InputKind = inputKind.Trim(),
+            Phase = phase,
+        });
+    }
 
     /// <summary>
     /// Queue a notification. After <see cref="SessionNotificationKind.Crashed"/> is queued,

@@ -59,6 +59,12 @@ public interface ILiveSession
         ChannelReader<ConsoleInput> channelReader,
         CancellationToken ct = default);
 
+    /// <summary>
+    /// Opt-in Journal hop: WebTransport UserInput framed message was received.
+    /// No-op when <c>Telemetry.Sessions.Input.WebTransportReceived</c> is disabled in the catalog.
+    /// </summary>
+    void TraceInputPathWtReceived(string kind);
+
     // ── Commands ─────────────────────────────────────────────────────────────
 
     Task<IResult<SessionStatus>> GetStatusAsync(CancellationToken ct = default);

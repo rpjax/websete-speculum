@@ -3,14 +3,12 @@ using Aidan.Core.Errors;
 namespace Speculum.Api.Sessions.Events.Services.Contracts;
 
 /// <summary>
-/// Explicit stop checkpoints and soft failures (teardown still completes).
+/// Domain stop narrative checkpoints and soft failures (teardown still completes).
 /// </summary>
 public interface ISessionStopEvents
 {
     void SessionStatePersisted();
 
-    void PersistSkippedNoConnection();
-    void PersistSkippedProfileNotFound();
     void ExportSessionStateFailed(Error[] errors);
 
     void CloseBrowserFailed(Error[] errors);
@@ -18,5 +16,4 @@ public interface ISessionStopEvents
 
     void BrowserClosed();
     void ConnectionClosed();
-    void SlotReleased();
 }

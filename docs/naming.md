@@ -16,6 +16,7 @@ This document defines vocabulary and naming rules for the API and sidecar codeba
 | **Edge** | Traefik, TLS, CORS | `EdgeSynchronizer`, `TraefikYamlBuilder` |
 | **Diagnostics** | Assertable observability (events, probes, governance) | `IDiagnosticsRuntime`, `/api/admin/diagnostics/v1` |
 | **Journal** | Operational fact log (admission + durable drain); not event-sourcing; not Diagnostics capabilities | `IJournalWriter`, `JournalEntry`, `PublishPolicy` |
+| **Telemetry** | Observability module: **event** hops/infra facts + **sampling** composites; not Sessions domain narrative | `Telemetry.Sessions.Input.*`, `Telemetry.Sampling.SampleCollected`, `ISessionTelemetryEventsFactory` |
 | **Database** | Unified Speculum SQLite store for the API | `SpeculumDbContext`, `AddDatabase`, `EnsureDatabase`, `DatabaseOptions` |
 
 **W7S must not appear** in C# namespaces, internal class names, application logs, or API folder names.

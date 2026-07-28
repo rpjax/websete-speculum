@@ -99,6 +99,7 @@ export const DIAGNOSTICS_PRESETS: Record<
     telemetry: {
       enabled: true,
       intervalSeconds: 15,
+      events: {},
       host: {
         enabled: true,
         procPath: '/proc',
@@ -149,6 +150,7 @@ export const DIAGNOSTICS_PRESETS: Record<
     telemetry: {
       enabled: true,
       intervalSeconds: 30,
+      events: {},
       host: {
         enabled: true,
         procPath: '/host/proc',
@@ -199,6 +201,7 @@ export const DIAGNOSTICS_PRESETS: Record<
     telemetry: {
       enabled: true,
       intervalSeconds: 10,
+      events: {},
       host: {
         enabled: true,
         procPath: '/host/proc',

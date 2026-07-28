@@ -9,6 +9,7 @@ using Speculum.Api.Sessions.Requests;
 using Speculum.Api.Sessions.Responses;
 using Speculum.Api.Sessions.Services.Contracts;
 using Speculum.Api.Shared.Services.Contracts;
+using Speculum.Api.Telemetry.Events.Services.Contracts;
 
 namespace Speculum.Api.Sessions.Services;
 
@@ -24,6 +25,7 @@ public sealed class SessionService : ISessionService
     private readonly ILiveSessionService _liveSessions;
     private readonly IUrlResolver _urls;
     private readonly ISessionEventsFactory _events;
+    private readonly ISessionTelemetryEventsFactory _telemetry;
     private readonly IBrowserClient _browserClient;
     private readonly ISessionTokenGenerator _sessionTokens;
     private readonly IAsyncScopedMutex _lifecycleGate;
@@ -39,6 +41,7 @@ public sealed class SessionService : ISessionService
         ILiveSessionService liveSessions,
         IUrlResolver urls,
         ISessionEventsFactory events,
+        ISessionTelemetryEventsFactory telemetry,
         IBrowserClient browserClient,
         ISessionTokenGenerator sessionTokens,
         IAsyncScopedMutex lifecycleGate,
@@ -53,6 +56,7 @@ public sealed class SessionService : ISessionService
         _liveSessions = liveSessions;
         _urls = urls;
         _events = events;
+        _telemetry = telemetry;
         _browserClient = browserClient;
         _sessionTokens = sessionTokens;
         _lifecycleGate = lifecycleGate;
@@ -83,6 +87,7 @@ public sealed class SessionService : ISessionService
         var profileId = request.ProfileId;
         var startEvents = _events.ForSessionStart(sessionId, profileId);
         var lifecycleEvents = _events.ForSessionLifecycle(sessionId, profileId);
+        var telemetry = _telemetry.ForSession(sessionId, profileId);
         var persisted = false;
 
         var engineConfiguration = _configuration.GetCurrent();
@@ -144,11 +149,11 @@ public sealed class SessionService : ISessionService
             if (!_slotRegistry.TryAquire(sessionId))
             {
                 _bindings.TryCancelStart(request.CallerId, sessionId);
-                startEvents.NoSlotAvailable();
+                telemetry.Capacity.NoSlotAvailable();
                 return Result<StartSessionResponse>.Failure("No session slot available");
             }
 
-            startEvents.SlotAcquired();
+            telemetry.Capacity.SlotAcquired();
             lifecycleEvents.Starting();
 
             try
@@ -196,14 +201,14 @@ public sealed class SessionService : ISessionService
                 var urlResult = _urls.Resolve(request.Path, request.Query, request.RequestHost);
                 if (urlResult.IsFailure)
                 {
-                    startEvents.StartUrlResolveFailed(urlResult.Errors.ToArray());
+                    telemetry.Start.UrlResolveFailed(urlResult.Errors.ToArray());
                     return await AbortStartAsync(
                         request.CallerId, sessionId, profileId, persisted, lifecycleEvents,
                         urlResult, StopReason.Faulted)
                         .ConfigureAwait(false);
                 }
 
-                startEvents.StartUrlResolved(urlResult.Value);
+                telemetry.Start.UrlResolved(urlResult.Value);
 
                 var navigationResult = await connection.NavigateAsync(urlResult.Value, startCt)
                     .ConfigureAwait(false);
@@ -326,11 +331,12 @@ public sealed class SessionService : ISessionService
 
             var lifecycleEvents = _events.ForSessionLifecycle(session);
             var stopEvents = _events.ForSessionStop(session);
+            var telemetry = _telemetry.ForSession(session.Id, session.ProfileId);
 
             lifecycleEvents.Stopping(request.Reason);
 
             // Persist while the sidecar connection is still open.
-            await TryPersistSessionStateAsync(session, stopEvents, CancellationToken.None)
+            await TryPersistSessionStateAsync(session, stopEvents, telemetry, CancellationToken.None)
                 .ConfigureAwait(false);
 
             session.MarkStopped(request.Reason);
@@ -341,7 +347,8 @@ public sealed class SessionService : ISessionService
                     session.ProfileId,
                     CancellationToken.None,
                     emitStopEvents: true,
-                    stopEvents)
+                    stopEvents,
+                    telemetry)
                 .ConfigureAwait(false);
 
             lifecycleEvents.Stopped(request.Reason);
@@ -395,20 +402,21 @@ public sealed class SessionService : ISessionService
     private async Task TryPersistSessionStateAsync(
         Session session,
         ISessionStopEvents stopEvents,
+        ISessionTelemetryEvents telemetry,
         CancellationToken ct)
     {
         var sessionId = session.Id;
 
         if (!_browserClient.TryGetConnection(sessionId, out var connection))
         {
-            stopEvents.PersistSkippedNoConnection();
+            telemetry.Persist.SkippedNoConnection();
             return;
         }
 
         var profile = await _profiles.LoadAsync(session.ProfileId, ct).ConfigureAwait(false);
         if (profile is null)
         {
-            stopEvents.PersistSkippedProfileNotFound();
+            telemetry.Persist.SkippedProfileNotFound();
             return;
         }
 
@@ -437,10 +445,14 @@ public sealed class SessionService : ISessionService
         Guid profileId,
         CancellationToken ct,
         bool emitStopEvents,
-        ISessionStopEvents? stopEvents = null)
+        ISessionStopEvents? stopEvents = null,
+        ISessionTelemetryEvents? telemetry = null)
     {
         stopEvents ??= emitStopEvents
             ? _events.ForSessionStop(sessionId, profileId)
+            : null;
+        telemetry ??= emitStopEvents
+            ? _telemetry.ForSession(sessionId, profileId)
             : null;
 
         _bindings.CloseSession(sessionId);
@@ -491,9 +503,9 @@ public sealed class SessionService : ISessionService
         }
 
         _slotRegistry.Release(sessionId);
-        if (emitStopEvents && stopEvents is not null)
+        if (emitStopEvents && telemetry is not null)
         {
-            stopEvents.SlotReleased();
+            telemetry.Capacity.SlotReleased();
         }
     }
 }

@@ -13,6 +13,8 @@ public enum SessionNotificationKind
     InputRejected = 5,
     /// <summary>Input was pushed to the sidecar successfully (test/debug journal only).</summary>
     InputApplied = 6,
+    /// <summary>Opt-in input-path hop (phase = wt_received | grpc_pushed | sidecar_admitted).</summary>
+    InputPathTrace = 7,
 }
 
 /// <summary>

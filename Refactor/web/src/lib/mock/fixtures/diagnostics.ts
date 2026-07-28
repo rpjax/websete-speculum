@@ -206,7 +206,7 @@ export function eventsList(): DiagnosticsEventRecord[] {
     { diagnosticsSchemaVersion: 2, seq: 23, spanId: 'span-nav-abandon', spanKey: 'motor.navigate', id: eid(), utc: ago(1.4), domain: 'DiagnosticsSelf', name: 'Diagnostics.SpanAbandoned', severity: 'Warning', correlationId: corrSessionLifecycle2, connectionId: conn2, persistedSessionId: null, sidecarSessionId: 'sc-333-444', payload: { spanKey: 'motor.navigate', errorCode: 'span_timeout', phase: 'timeout', openMs: 60_000 }, redaction: 'none' },
 
     // --- Per-session telemetry slice scoped to conn1's story lane ---
-    { diagnosticsSchemaVersion: 2, seq: 24, id: eid(), utc: ago(1), domain: 'Telemetry', name: 'Telemetry.SessionSampleCollected', severity: 'Info', correlationId: corrSessionLifecycle1, connectionId: conn1, persistedSessionId: null, sidecarSessionId: 'sc-111-222', payload: { sessionId: '11111111-1111-1111-1111-111111111111', profileId: '22222222-2222-2222-2222-222222222222', connectionOpen: true, fps: 24, uptimeMs: 660_000, jsBridgeEnabled: false, urlHost: 'www.example.com' }, redaction: 'none' },
+    { diagnosticsSchemaVersion: 2, seq: 24, id: eid(), utc: ago(1), domain: 'Telemetry', name: 'Telemetry.Sampling.SessionSampleCollected', severity: 'Info', correlationId: corrSessionLifecycle1, connectionId: conn1, persistedSessionId: null, sidecarSessionId: 'sc-111-222', payload: { sessionId: '11111111-1111-1111-1111-111111111111', profileId: '22222222-2222-2222-2222-222222222222', connectionOpen: true, fps: 24, uptimeMs: 660_000, jsBridgeEnabled: false, urlHost: 'www.example.com' }, redaction: 'none' },
 
     // --- Cleanup event (system, no correlation) ---
     { diagnosticsSchemaVersion: 1, id: eid(), utc: ago(1.5), domain: 'DiagnosticsSelf', name: 'Diagnostics.CleanupCompleted', severity: 'Info', correlationId: null, connectionId: null, persistedSessionId: null, sidecarSessionId: null, payload: { purgedCount: 12, bytesFreed: 1_048_576 }, redaction: 'none' },
@@ -248,7 +248,7 @@ export const catalog: DiagnosticsCatalogResponse = {
     { name: 'Diagnostics.Recovered', domain: 'DiagnosticsSelf', capability: 'Metric', persist: true },
     { name: 'Diagnostics.ElevateStarted', domain: 'DiagnosticsSelf', capability: 'Metric', persist: true },
     { name: 'Diagnostics.SpanAbandoned', domain: 'DiagnosticsSelf', capability: 'Metric', persist: true, spanRole: 'Close', spanTimeoutSec: 0 },
-    { name: 'Telemetry.SampleCollected', domain: 'Telemetry', capability: 'Metric', persist: true },
+    { name: 'Telemetry.Sampling.SampleCollected', domain: 'Telemetry', capability: 'Metric', persist: true },
   ],
 }
 
@@ -335,7 +335,7 @@ export const persistedList = [
   },
 ]
 
-/* ── Telemetry history (composite Telemetry.SampleCollected series) ──
+/* ── Telemetry history (composite Telemetry.Sampling.SampleCollected series) ──
  * The story we tell in the explorer: host CPU/memory should scale roughly
  * LINEARLY with the number of live motor sessions. We inject three named
  * NON-LINEAR anomaly windows so the Insights panel + divergence detector have
@@ -502,7 +502,7 @@ export function telemetrySamples(): TelemetrySampleRecord[] {
       id: `tele-mock-${String(++idSeq).padStart(6, '0')}`,
       utc,
       domain: 'Telemetry',
-      name: 'Telemetry.SampleCollected',
+      name: 'Telemetry.Sampling.SampleCollected',
       severity: 'Metric',
       correlationId: null,
       connectionId: null,

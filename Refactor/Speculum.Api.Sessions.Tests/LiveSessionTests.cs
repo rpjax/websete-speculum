@@ -12,6 +12,7 @@ using Speculum.Api.Sessions.Models;
 using Speculum.Api.Sessions.Requests;
 using Speculum.Api.Sessions.Services;
 using Speculum.Api.Sessions.Services.Contracts;
+using Speculum.Api.Telemetry.Events.Services.Contracts;
 
 namespace Speculum.Api.Sessions.Tests;
 
@@ -373,7 +374,11 @@ public sealed class LiveSessionTests
         var connection = new LiveFakeConnection(sessionId);
         var urls = new RecordingUrlResolver("https://target.test/");
         var liveEvents = new RecordingSessionLiveEvents();
-        var live = CreateService(urls, liveEvents: liveEvents)
+        var navigateEvents = new RecordingSessionNavigateTelemetryEvents();
+        var live = CreateService(
+                urls,
+                liveEvents: liveEvents,
+                telemetry: new NoOpSessionTelemetryEventsFactory(navigate: navigateEvents))
             .Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true)
             .Value;
 
@@ -383,7 +388,7 @@ public sealed class LiveSessionTests
         Assert.Equal("speculum.test", urls.LastRequestHost);
         Assert.Equal("https://target.test/", connection.LastNavigatedUrl);
         Assert.Equal(("/x", "q=1"), liveEvents.LastNavigateRequested);
-        Assert.Equal("https://target.test/", liveEvents.LastNavigateResolvedUrl);
+        Assert.Equal("https://target.test/", navigateEvents.LastUrlResolved);
         Assert.Equal("https://target.test/", liveEvents.LastNavigateCompletedUrl);
         Assert.Null(liveEvents.LastNavigateFailedPhase);
     }
@@ -534,8 +539,8 @@ public sealed class LiveSessionTests
         var sessionId = Guid.NewGuid();
         var profileId = Guid.NewGuid();
         var connection = new LiveFakeConnection(sessionId);
-        var liveEvents = new RecordingSessionLiveEvents();
-        var service = CreateService(liveEvents: liveEvents);
+        var clientEvents = new RecordingSessionClientTelemetryEvents();
+        var service = CreateService(telemetry: new NoOpSessionTelemetryEventsFactory(clientEvents));
         var live = service.Create(sessionId, profileId, connection, "speculum.test", true).Value;
         Assert.True(live.Attach(new ThrowingAttachedClient()).IsSuccess);
 
@@ -545,15 +550,17 @@ public sealed class LiveSessionTests
             Url = "https://example.test/fail",
         });
 
-        await liveEvents.WaitCommandFailedAsync(TimeSpan.FromSeconds(2));
-        Assert.Equal("SyncUrl", liveEvents.LastCommand);
+        await clientEvents.WaitCommandFailedAsync(TimeSpan.FromSeconds(2));
+        Assert.Equal("SyncUrl", clientEvents.LastCommand);
     }
 
     private static LiveSessionService CreateService(
         IUrlResolver? urls = null,
         IConfigurationService? configuration = null,
         ISessionCollector? collector = null,
-        ISessionLiveEvents? liveEvents = null)
+        ISessionLiveEvents? liveEvents = null,
+        ISessionTelemetryEventsFactory? telemetry = null,
+        Speculum.Api.Journal.Services.JournalCatalog? journalCatalog = null)
     {
         return new LiveSessionService(
             collector ?? new NoOpCollector(),
@@ -569,13 +576,17 @@ public sealed class LiveSessionTests
                 },
             }),
             new NoOpSessionEventsFactory(liveEvents ?? new NoOpSessionLiveEvents()),
+            telemetry ?? new NoOpSessionTelemetryEventsFactory(),
+            journalCatalog ?? new Speculum.Api.Journal.Services.JournalCatalog(),
             NullLoggerFactory.Instance);
     }
 
     private static LiveSessionService CreateService(
         ISessionFaultScheduler faults,
         ISessionCollector? collector = null,
-        ISessionLiveEvents? liveEvents = null)
+        ISessionLiveEvents? liveEvents = null,
+        ISessionTelemetryEventsFactory? telemetry = null,
+        Speculum.Api.Journal.Services.JournalCatalog? journalCatalog = null)
     {
         return new LiveSessionService(
             collector ?? new NoOpCollector(),
@@ -591,7 +602,46 @@ public sealed class LiveSessionTests
                 },
             }),
             new NoOpSessionEventsFactory(liveEvents ?? new NoOpSessionLiveEvents()),
+            telemetry ?? new NoOpSessionTelemetryEventsFactory(),
+            journalCatalog ?? new Speculum.Api.Journal.Services.JournalCatalog(),
             NullLoggerFactory.Instance);
+    }
+
+    [Fact]
+    public void TraceInputPathWtReceived_WhenCatalogDisabled_IsNoOp()
+    {
+        var catalog = new Speculum.Api.Journal.Services.JournalCatalog();
+        catalog.RegisterFromAssemblies(typeof(Speculum.Api.Telemetry.Events.Models.Sampling.SampleCollected).Assembly);
+        var input = new RecordingSessionInputTelemetryEvents();
+        var sessionId = Guid.NewGuid();
+        var live = CreateService(
+                telemetry: new NoOpSessionTelemetryEventsFactory(input: input),
+                journalCatalog: catalog)
+            .Create(sessionId, Guid.NewGuid(), new LiveFakeConnection(sessionId), "speculum.test", true)
+            .Value;
+
+        live.TraceInputPathWtReceived("click");
+
+        Assert.Null(input.LastWebTransportKind);
+    }
+
+    [Fact]
+    public void TraceInputPathWtReceived_WhenCatalogEnabled_JournalsHop()
+    {
+        var catalog = new Speculum.Api.Journal.Services.JournalCatalog();
+        catalog.RegisterFromAssemblies(typeof(Speculum.Api.Telemetry.Events.Models.Sampling.SampleCollected).Assembly);
+        catalog.SetEnabled(Speculum.Api.Telemetry.TelemetryJournalFacts.InputWebTransportReceived, true);
+        var input = new RecordingSessionInputTelemetryEvents();
+        var sessionId = Guid.NewGuid();
+        var live = CreateService(
+                telemetry: new NoOpSessionTelemetryEventsFactory(input: input),
+                journalCatalog: catalog)
+            .Create(sessionId, Guid.NewGuid(), new LiveFakeConnection(sessionId), "speculum.test", true)
+            .Value;
+
+        live.TraceInputPathWtReceived("click");
+
+        Assert.Equal("click", input.LastWebTransportKind);
     }
 
     private sealed class NoOpSessionEventsFactory(ISessionLiveEvents liveEvents) : ISessionEventsFactory
@@ -621,57 +671,17 @@ public sealed class LiveSessionTests
             => liveEvents;
     }
 
-    private sealed class NoOpSessionLiveEvents : ISessionLiveEvents
-    {
-        public void AttachedClientCommandFailed(string command, Exception exception) { }
-        public void FeatureLoopFaulted(Exception exception) { }
-        public void NavigateRequested(string path, string query) { }
-        public void NavigateUrlResolved(string url) { }
-        public void NavigateCompleted(string url) { }
-        public void NavigateFailed(string phase, Aidan.Core.Errors.Error[] errors) { }
-        public void LocationChanged(string url) { }
-        public void MainFrameNavigationBlocked(string url, string? errorCode, string? message) { }
-        public void BrowserCrashed(string? errorCode, string? message, string? phase) { }
-        public void InputRejected(string? errorCode, string? message, string? phase) { }
-        public void InputApplied(string kind, string? phase) { }
-        public void ResizeApplied(int width, int height, string? resizeId) { }
-        public void ResizeRejected(
-            int? width,
-            int? height,
-            string? resizeId,
-            string? errorCode,
-            string? message,
-            string? phase)
-        { }
-        public void LiveSessionAbandoned(string reason, string? errorCode, string? message) { }
-    }
-
     private sealed class RecordingSessionLiveEvents : ISessionLiveEvents
     {
-        private readonly TaskCompletionSource<string> _commandFailed = new(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-
-        public string? LastCommand { get; private set; }
         public (string Path, string Query)? LastNavigateRequested { get; private set; }
-        public string? LastNavigateResolvedUrl { get; private set; }
         public string? LastNavigateCompletedUrl { get; private set; }
         public string? LastNavigateFailedPhase { get; private set; }
-        public string? LastLocationChangedUrl { get; private set; }
         public (string Reason, string? ErrorCode, string? Message)? LastAbandoned { get; private set; }
-
-        public void AttachedClientCommandFailed(string command, Exception exception)
-        {
-            LastCommand = command;
-            _commandFailed.TrySetResult(command);
-        }
 
         public void FeatureLoopFaulted(Exception exception) { }
 
         public void NavigateRequested(string path, string query)
             => LastNavigateRequested = (path, query);
-
-        public void NavigateUrlResolved(string url)
-            => LastNavigateResolvedUrl = url;
 
         public void NavigateCompleted(string url)
             => LastNavigateCompletedUrl = url;
@@ -679,25 +689,25 @@ public sealed class LiveSessionTests
         public void NavigateFailed(string phase, Aidan.Core.Errors.Error[] errors)
             => LastNavigateFailedPhase = phase;
 
-        public void LocationChanged(string url)
-            => LastLocationChangedUrl = url;
-
         public void MainFrameNavigationBlocked(string url, string? errorCode, string? message) { }
         public void BrowserCrashed(string? errorCode, string? message, string? phase) { }
-        public void InputRejected(string? errorCode, string? message, string? phase) { }
-        public void InputApplied(string kind, string? phase) { }
-        public void ResizeApplied(int width, int height, string? resizeId) { }
-        public void ResizeRejected(
-            int? width,
-            int? height,
-            string? resizeId,
-            string? errorCode,
-            string? message,
-            string? phase)
-        { }
 
         public void LiveSessionAbandoned(string reason, string? errorCode, string? message)
             => LastAbandoned = (reason, errorCode, message);
+    }
+
+    private sealed class RecordingSessionClientTelemetryEvents : ISessionClientTelemetryEvents
+    {
+        private readonly TaskCompletionSource<string> _commandFailed = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public string? LastCommand { get; private set; }
+
+        public void AttachedCommandFailed(string command, Exception exception)
+        {
+            LastCommand = command;
+            _commandFailed.TrySetResult(command);
+        }
 
         public async Task WaitCommandFailedAsync(TimeSpan timeout)
         {
@@ -705,6 +715,24 @@ public sealed class LiveSessionTests
             Assert.Same(_commandFailed.Task, completed);
             await _commandFailed.Task;
         }
+    }
+
+    private sealed class RecordingSessionNavigateTelemetryEvents : ISessionNavigateTelemetryEvents
+    {
+        public string? LastUrlResolved { get; private set; }
+
+        public void UrlResolved(string url) => LastUrlResolved = url;
+    }
+
+    private sealed class RecordingSessionInputTelemetryEvents : ISessionInputTelemetryEvents
+    {
+        public string? LastWebTransportKind { get; private set; }
+
+        public void Applied(string kind, string? phase) { }
+        public void Rejected(string? errorCode, string? message, string? phase) { }
+        public void WebTransportReceived(string kind) => LastWebTransportKind = kind;
+        public void SidecarPushWritten(string kind, string? phase) { }
+        public void SidecarAdmitted(string kind) { }
     }
 
     private sealed class ThrowingAttachedClient : IAttachedSessionClient

@@ -46,6 +46,7 @@ public sealed class SessionServiceTests
             live,
             urls,
             new NoOpSessionEventsFactory(),
+            new NoOpSessionTelemetryEventsFactory(),
             browser,
             new FixedSessionTokenGenerator("test-auth-token"),
             new ScopedMutex(),
@@ -96,6 +97,7 @@ public sealed class SessionServiceTests
             live,
             new FixedUrlResolver("https://example.test/"),
             new NoOpSessionEventsFactory(),
+            new NoOpSessionTelemetryEventsFactory(),
             new FakeBrowserClient(),
             new FixedSessionTokenGenerator("tok"),
             new ScopedMutex(),
@@ -132,6 +134,7 @@ public sealed class SessionServiceTests
             live,
             urls,
             new NoOpSessionEventsFactory(),
+            new NoOpSessionTelemetryEventsFactory(),
             browser,
             new FixedSessionTokenGenerator("tok"),
             new ScopedMutex(),
@@ -178,6 +181,7 @@ public sealed class SessionServiceTests
             live,
             urls,
             new NoOpSessionEventsFactory(),
+            new NoOpSessionTelemetryEventsFactory(),
             browser,
             new FixedSessionTokenGenerator("tok"),
             new ScopedMutex(),
@@ -227,6 +231,7 @@ public sealed class SessionServiceTests
             live,
             urls,
             new NoOpSessionEventsFactory(),
+            new NoOpSessionTelemetryEventsFactory(),
             browser,
             new FixedSessionTokenGenerator("tok"),
             new ScopedMutex(),
@@ -263,6 +268,7 @@ public sealed class SessionServiceTests
             live,
             urls,
             new NoOpSessionEventsFactory(),
+            new NoOpSessionTelemetryEventsFactory(),
             browser,
             new FixedSessionTokenGenerator("unused"),
             new ScopedMutex(),
@@ -293,6 +299,7 @@ public sealed class SessionServiceTests
             live,
             urls,
             new NoOpSessionEventsFactory(),
+            new NoOpSessionTelemetryEventsFactory(),
             browser,
             new FixedSessionTokenGenerator("unused"),
             new ScopedMutex(),
@@ -328,6 +335,8 @@ public sealed class SessionServiceTests
                 },
             }),
             new NoOpSessionEventsFactory(),
+            new NoOpSessionTelemetryEventsFactory(),
+            new Speculum.Api.Journal.Services.JournalCatalog(),
             NullLoggerFactory.Instance);
     }
 
@@ -348,7 +357,7 @@ public sealed class SessionServiceTests
             => new NoOpStopEvents();
 
         public ISessionLiveEvents ForSessionLive(Guid sessionId, Guid profileId)
-            => new NoOpLiveEvents();
+            => new NoOpSessionLiveEvents();
 
         public ISessionLifecycleEvents ForSessionLifecycle(Session session)
             => new NoOpLifecycleEvents();
@@ -360,32 +369,7 @@ public sealed class SessionServiceTests
             => new NoOpStopEvents();
 
         public ISessionLiveEvents ForSessionLive(Session session)
-            => new NoOpLiveEvents();
-    }
-
-    private sealed class NoOpLiveEvents : ISessionLiveEvents
-    {
-        public void AttachedClientCommandFailed(string command, Exception exception) { }
-        public void FeatureLoopFaulted(Exception exception) { }
-        public void NavigateRequested(string path, string query) { }
-        public void NavigateUrlResolved(string url) { }
-        public void NavigateCompleted(string url) { }
-        public void NavigateFailed(string phase, Aidan.Core.Errors.Error[] errors) { }
-        public void LocationChanged(string url) { }
-        public void MainFrameNavigationBlocked(string url, string? errorCode, string? message) { }
-        public void BrowserCrashed(string? errorCode, string? message, string? phase) { }
-        public void InputRejected(string? errorCode, string? message, string? phase) { }
-        public void InputApplied(string kind, string? phase) { }
-        public void ResizeApplied(int width, int height, string? resizeId) { }
-        public void ResizeRejected(
-            int? width,
-            int? height,
-            string? resizeId,
-            string? errorCode,
-            string? message,
-            string? phase)
-        { }
-        public void LiveSessionAbandoned(string reason, string? errorCode, string? message) { }
+            => new NoOpSessionLiveEvents();
     }
 
     private sealed class FixedUrlResolver(string url) : IUrlResolver
@@ -416,33 +400,26 @@ public sealed class SessionServiceTests
 
     private sealed class NoOpStartEvents : ISessionStartEvents
     {
-        public void SlotAcquired() { }
         public void ConnectionStarted() { }
         public void BrowserLaunched() { }
         public void ProfileStateRestored() { }
-        public void StartUrlResolved(string url) { }
         public void InitialNavigationCompleted() { }
         public void ProfileNotFound() { }
         public void StartConfigurationRejected(Error[] errors) { }
-        public void NoSlotAvailable() { }
         public void ConnectionStartFailed(Error[] errors) { }
         public void LaunchBrowserFailed(Error[] errors) { }
         public void RestoreProfileStateFailed(Error[] errors) { }
-        public void StartUrlResolveFailed(Error[] errors) { }
         public void InitialNavigationFailed(Error[] errors) { }
     }
 
     private sealed class NoOpStopEvents : ISessionStopEvents
     {
         public void SessionStatePersisted() { }
-        public void PersistSkippedNoConnection() { }
-        public void PersistSkippedProfileNotFound() { }
         public void ExportSessionStateFailed(Error[] errors) { }
         public void CloseBrowserFailed(Error[] errors) { }
         public void CloseConnectionFailed(Error[] errors) { }
         public void BrowserClosed() { }
         public void ConnectionClosed() { }
-        public void SlotReleased() { }
     }
 
     private sealed class InMemorySessionRepository : ISessionRepository

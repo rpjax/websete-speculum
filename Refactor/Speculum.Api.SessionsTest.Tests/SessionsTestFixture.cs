@@ -15,24 +15,18 @@ public sealed class SessionsTestFixture
     {
         using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
         using var response = await http.PutAsJsonAsync(
-            $"{Host.ApiBase}/api/configurations/Journal",
+            $"{Host.ApiBase}/api/configurations/Telemetry",
             new
             {
-                events = new Dictionary<string, bool>
-                {
-                    ["Sessions.InputApplied"] = true,
-                    ["Sessions.InputRejected"] = true,
-                    ["Sessions.ResizeApplied"] = true,
-                    ["Sessions.ResizeRejected"] = true,
-                },
+                events = BaselineTelemetryEvents,
             },
             ct);
         response.EnsureSuccessStatusCode();
     }
 
     /// <summary>
-    /// Opt-in Telemetry for tests that assert <c>Telemetry.SampleCollected</c>.
-    /// Apply maps <c>IsEnabled</c> onto the Journal catalog (Telemetry-owned facts).
+    /// Opt-in Telemetry sampling for tests that assert <c>Telemetry.Sampling.SampleCollected</c>.
+    /// Re-includes baseline event facts (Telemetry section PUT replaces the whole document).
     /// </summary>
     public async Task EnsureTelemetryEnabledAsync(
         bool includePerSession = false,
@@ -57,10 +51,19 @@ public sealed class SessionsTestFixture
                 profiles = new { isEnabled = true },
                 journal = new { isEnabled = true },
                 docker = new { isEnabled = false },
+                events = BaselineTelemetryEvents,
             },
             ct);
         response.EnsureSuccessStatusCode();
     }
+
+    private static Dictionary<string, bool> BaselineTelemetryEvents { get; } = new()
+    {
+        ["Telemetry.Sessions.Input.Applied"] = true,
+        ["Telemetry.Sessions.Input.Rejected"] = true,
+        ["Telemetry.Sessions.Resize.Applied"] = true,
+        ["Telemetry.Sessions.Resize.Rejected"] = true,
+    };
 }
 
 public abstract class SessionsTestBase : IAsyncLifetime

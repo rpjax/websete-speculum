@@ -137,7 +137,7 @@ export function useTelemetryAnalysisConsume(maxSamples = 20_000) {
       let events: TelemetryContextEventRecord[] = []
       try {
         events = await telemetryApi.listEvents({ since: window.since, until: window.until })
-        events = events.filter((e) => e.name !== 'Telemetry.SampleCollected')
+        events = events.filter((e) => e.name !== 'Telemetry.Sampling.SampleCollected')
         dataSources.push('events')
       } catch {
         /* events optional */

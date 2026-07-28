@@ -54,7 +54,7 @@ export function GovernanceTelemetryTab({ config, onChange }: GovernanceTelemetry
           <p className="mt-1 text-xs text-muted-foreground">
             On a fixed interval Speculum builds <strong className="font-medium text-foreground">one composite
             sample</strong> (
-            <code className="rounded bg-muted px-1">Telemetry.SampleCollected</code>
+            <code className="rounded bg-muted px-1">Telemetry.Sampling.SampleCollected</code>
             ) with optional sections for machine, API process, sessions, sidecar, profiles, Journal,
             and Docker. Charts live under Telemetry Monitor; this tab only chooses what goes into each sample.
           </p>
@@ -246,7 +246,7 @@ export function GovernanceTelemetryTab({ config, onChange }: GovernanceTelemetry
               <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               <div>
                 The costly option is <strong className="font-medium text-foreground">Sessions · per-session</strong>.
-                It emits one <code className="rounded bg-muted px-1">Telemetry.SessionSampleCollected</code> per live
+                It emits one <code className="rounded bg-muted px-1">Telemetry.Sampling.SessionSampleCollected</code> per live
                 session every interval. Production usually keeps that off.
               </div>
             </div>
@@ -279,7 +279,7 @@ export function GovernanceTelemetryTab({ config, onChange }: GovernanceTelemetry
               <OptInCard title="API process · GC" body="Include CLR heap and generation counters." checked={t.apiProcess.includeGarbageCollection} disabled={!t.enabled || !t.apiProcess.enabled} onChange={(v) => patchTelemetry({ apiProcess: { ...t.apiProcess, includeGarbageCollection: v } })} />
               <OptInCard title="API process · thread pool" body="Include busy workers and queued work items." checked={t.apiProcess.includeThreadPool} disabled={!t.enabled || !t.apiProcess.enabled} onChange={(v) => patchTelemetry({ apiProcess: { ...t.apiProcess, includeThreadPool: v } })} />
               <OptInCard title="Sessions · session IDs" body="List live session IDs in the sample to correlate charts with sessions." checked={t.sessions.includeSessionIds} disabled={!t.enabled || !t.sessions.enabled} onChange={(v) => patchTelemetry({ sessions: { ...t.sessions, includeSessionIds: v } })} />
-              <OptInCard title="Sessions · per-session rows" body="Emit one Telemetry.SessionSampleCollected per live session on each tick." checked={t.sessions.includePerSession} disabled={!t.enabled || !t.sessions.enabled} onChange={(v) => patchTelemetry({ sessions: { ...t.sessions, includePerSession: v } })} />
+              <OptInCard title="Sessions · per-session rows" body="Emit one Telemetry.Sampling.SessionSampleCollected per live session on each tick." checked={t.sessions.includePerSession} disabled={!t.enabled || !t.sessions.enabled} onChange={(v) => patchTelemetry({ sessions: { ...t.sessions, includePerSession: v } })} />
               <OptInCard title="Sessions · URL host" body="Include each session's current URL hostname." checked={t.sessions.includeUrlHost} disabled={!t.enabled || !t.sessions.enabled} onChange={(v) => patchTelemetry({ sessions: { ...t.sessions, includeUrlHost: v } })} />
               <OptInCard title="Sidecar · process" body="Include sidecar CPU, RSS, heap, PID, and uptime." checked={t.sidecar.includeProcess} disabled={!t.enabled || !t.sidecar.enabled} onChange={(v) => patchTelemetry({ sidecar: { ...t.sidecar, includeProcess: v } })} />
               <OptInCard title="Sidecar · event loop" body="Include sidecar event-loop delay and utilization." checked={t.sidecar.includeEventLoop} disabled={!t.enabled || !t.sidecar.enabled} onChange={(v) => patchTelemetry({ sidecar: { ...t.sidecar, includeEventLoop: v } })} />

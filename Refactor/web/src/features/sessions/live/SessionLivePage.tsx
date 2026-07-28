@@ -25,8 +25,9 @@ export default function SessionLivePage() {
     const { path, query } = parseClientNavigation(
       `${window.location.pathname}${window.location.search}`,
     )
-    // /live is the SPA route — browse the virtual root unless a deeper path is present.
-    const startPath = path === '/live' ? '/' : path
+    // SPA mount paths are not remote browse paths.
+    const startPath =
+      path === '/live' || path === '/' || path === '/lab' ? '/' : path
     void startRef.current(startPath, query)
   }, [])
 

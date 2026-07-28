@@ -2,6 +2,11 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
+import {
+  loadLabInputPathClientTrace,
+  saveLabInputPathClientTrace,
+} from '@/features/sessions/live/sessionConfig'
 import type { LabOrigins } from './labConfig'
 
 interface LabWireSettingsProps {
@@ -29,6 +34,7 @@ export function LabWireSettings({
 }: LabWireSettingsProps) {
   const [hubOrigin, setHubOrigin] = useState(origins.hubOrigin)
   const [transportOrigin, setTransportOrigin] = useState(origins.transportOrigin)
+  const [inputPathClient, setInputPathClient] = useState(loadLabInputPathClientTrace)
   const dirty =
     hubOrigin.trim() !== origins.hubOrigin || transportOrigin.trim() !== origins.transportOrigin
 
@@ -64,6 +70,24 @@ export function LabWireSettings({
           <code>https://localhost:8443</code>; leave hub empty (Traefik) and set that transport
           origin. The client pins the API cert via <code>/health/webtransport-cert</code>.
         </p>
+      </div>
+
+      <div className="flex items-start justify-between gap-3 rounded-md border border-border/60 px-3 py-2.5">
+        <div className="space-y-0.5">
+          <Label htmlFor="lab-input-path-client">Input path · client_sent</Label>
+          <p className="text-[11px] text-muted-foreground">
+            Log every <code>sendInput</code> as hop 0 in this feed. Pair with Config → Telemetry ·
+            Events → Trace input path (server hops 1–3).
+          </p>
+        </div>
+        <Switch
+          id="lab-input-path-client"
+          checked={inputPathClient}
+          onCheckedChange={(checked) => {
+            setInputPathClient(checked)
+            saveLabInputPathClientTrace(checked)
+          }}
+        />
       </div>
 
       <div className="flex flex-wrap items-center gap-2">

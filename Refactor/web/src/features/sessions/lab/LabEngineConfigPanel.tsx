@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { CheckCircle2, Circle, Rocket, Save } from 'lucide-react'
+import { CheckCircle2, Circle, Route, Rocket, Save } from 'lucide-react'
 import {
   Accordion,
   AccordionContent,
@@ -12,9 +12,10 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
+import { loadLabInputPathClientTrace } from '@/features/sessions/live/sessionConfig'
 import {
   LAB_CONFIG_SECTION_LABELS,
-  LAB_JOURNAL_TYPES,
+  LAB_TELEMETRY_EVENT_TYPES,
   createLabReadyNavigation,
   createLabResourceManagementBaseline,
   createLabSessionsBaseline,
@@ -27,7 +28,7 @@ import {
   putLabEngineConfig,
   type LabConfigStatus,
   type LabEngineConfig,
-  type LabJournalType,
+  type LabTelemetryEventType,
   type LabResourceManagementConfig,
   type LabSessionsConfig,
   type LabTelemetryConfig,
@@ -39,12 +40,28 @@ interface LabEngineConfigPanelProps {
   sessionLive: boolean
 }
 
-function emptyJournal(): Record<LabJournalType, boolean> {
+const INPUT_PATH_EVENTS = [
+  'Telemetry.Sessions.Input.WebTransportReceived',
+  'Telemetry.Sessions.Input.SidecarPushWritten',
+  'Telemetry.Sessions.Input.SidecarAdmitted',
+] as const satisfies readonly LabTelemetryEventType[]
+
+const OUTCOME_EVENTS = [
+  'Telemetry.Sessions.Input.Applied',
+  'Telemetry.Sessions.Input.Rejected',
+  'Telemetry.Sessions.Resize.Applied',
+  'Telemetry.Sessions.Resize.Rejected',
+] as const satisfies readonly LabTelemetryEventType[]
+
+function emptyTelemetryEvents(): Record<LabTelemetryEventType, boolean> {
   return {
-    'Sessions.InputApplied': false,
-    'Sessions.InputRejected': false,
-    'Sessions.ResizeApplied': false,
-    'Sessions.ResizeRejected': false,
+    'Telemetry.Sessions.Input.Applied': false,
+    'Telemetry.Sessions.Input.Rejected': false,
+    'Telemetry.Sessions.Input.WebTransportReceived': false,
+    'Telemetry.Sessions.Input.SidecarPushWritten': false,
+    'Telemetry.Sessions.Input.SidecarAdmitted': false,
+    'Telemetry.Sessions.Resize.Applied': false,
+    'Telemetry.Sessions.Resize.Rejected': false,
   }
 }
 
@@ -52,15 +69,18 @@ function sectionLabel(key: string): string {
   return LAB_CONFIG_SECTION_LABELS[key] ?? key
 }
 
-const JOURNAL_HELP: Record<LabJournalType, string> = {
-  'Sessions.InputApplied': 'Record successful clicks / keys',
-  'Sessions.InputRejected': 'Record blocked or failed input',
-  'Sessions.ResizeApplied': 'Record successful viewport resizes',
-  'Sessions.ResizeRejected': 'Record rejected resizes',
+const TELEMETRY_EVENT_HELP: Record<LabTelemetryEventType, string> = {
+  'Telemetry.Sessions.Input.Applied': 'Successful clicks / keys',
+  'Telemetry.Sessions.Input.Rejected': 'Blocked or failed input',
+  'Telemetry.Sessions.Input.WebTransportReceived': 'Hop 1 — WebTransport UserInput received by API',
+  'Telemetry.Sessions.Input.SidecarPushWritten': 'Hop 2 — API wrote PushInput to sidecar',
+  'Telemetry.Sessions.Input.SidecarAdmitted': 'Hop 3 — sidecar admitted into BrowserSession',
+  'Telemetry.Sessions.Resize.Applied': 'Successful viewport resizes',
+  'Telemetry.Sessions.Resize.Rejected': 'Rejected resizes',
 }
 
 /**
- * Lab facilitator to complete mandatory engine config and unblock StartSession.
+ * Lab facilitator: Session readiness to unblock Start, plus Telemetry Sampling / Events.
  */
 export function LabEngineConfigPanel({
   hubOrigin,
@@ -81,8 +101,10 @@ export function LabEngineConfigPanel({
   const [navigationRules, setNavigationRules] = useState<
     LabEngineConfig['navigation']['allowedMainFrameUrls']
   >([])
-  const [journal, setJournal] = useState<Record<LabJournalType, boolean>>(emptyJournal)
-  const [journalAll, setJournalAll] = useState<Record<string, boolean>>({})
+  /** Maps to Telemetry.events on save (lab UI state name). */
+  const [journal, setJournal] = useState<Record<LabTelemetryEventType, boolean>>(emptyTelemetryEvents)
+  /** Non-lab Telemetry.events keys preserved across save (API replaces events wholesale). */
+  const [eventExtras, setEventExtras] = useState<Record<string, boolean>>({})
   const [telemetry, setTelemetry] = useState<LabTelemetryConfig>(createLabTelemetryBaseline())
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -101,12 +123,17 @@ export function LabEngineConfigPanel({
     setSessions(config.sessions)
     setResourceManagement(config.resourceManagement)
     setTelemetry(config.telemetry)
-    setJournalAll({ ...(config.journal ?? {}) })
-    const nextJournal = emptyJournal()
-    for (const type of LAB_JOURNAL_TYPES) {
-      nextJournal[type] = Boolean(config.journal?.[type])
+    const nextJournal = emptyTelemetryEvents()
+    const extras: Record<string, boolean> = {}
+    for (const [key, value] of Object.entries(config.journal ?? {})) {
+      if ((LAB_TELEMETRY_EVENT_TYPES as readonly string[]).includes(key)) {
+        nextJournal[key as LabTelemetryEventType] = Boolean(value)
+      } else {
+        extras[key] = Boolean(value)
+      }
     }
     setJournal(nextJournal)
+    setEventExtras(extras)
   }
 
   useEffect(() => {
@@ -138,7 +165,7 @@ export function LabEngineConfigPanel({
       allowlistText: string
       sessions: LabSessionsConfig
       resourceManagement: LabResourceManagementConfig
-      journal: Record<LabJournalType, boolean>
+      journal: Record<LabTelemetryEventType, boolean>
       telemetry: LabTelemetryConfig
     }>,
   ): LabEngineConfig => {
@@ -163,7 +190,7 @@ export function LabEngineConfigPanel({
       resourceManagement: nextRm,
       telemetry: nextTelemetry,
       journal: {
-        ...journalAll,
+        ...eventExtras,
         ...nextJournal,
       },
     }
@@ -213,6 +240,15 @@ export function LabEngineConfigPanel({
     )
   }
 
+  const enableInputPathTrace = () => {
+    const next = { ...journal }
+    for (const type of INPUT_PATH_EVENTS) {
+      next[type] = true
+    }
+    setJournal(next)
+    void persist(buildBody({ journal: next }))
+  }
+
   if (available === null) {
     return <p className="text-xs text-muted-foreground">Loading configuration…</p>
   }
@@ -235,9 +271,11 @@ export function LabEngineConfigPanel({
   const operational = Boolean(status?.operational)
   const defaultViewport = sessions.viewportPolicy.default
   const canSave = Boolean(defaultTargetHost.trim())
+  const inputPathOn = INPUT_PATH_EVENTS.some((type) => journal[type])
+  const appliedOn = journal['Telemetry.Sessions.Input.Applied']
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4">
+    <div className="flex h-full min-h-0 flex-col gap-4">
       <div className="space-y-3">
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant={operational ? 'success' : 'warning'}>
@@ -249,8 +287,8 @@ export function LabEngineConfigPanel({
         </div>
 
         <p className="text-xs text-muted-foreground">
-          Speculum will not start a browsing session until these settings are applied. Use lab
-          defaults to finish in one step, or edit the sections below and save.
+          Session readiness unblocks Start. Telemetry Sampling and Events are optional probes —
+          leave Events off while casually browsing.
         </p>
 
         {!operational && (
@@ -285,14 +323,14 @@ export function LabEngineConfigPanel({
             </Button>
             <p className="text-[11px] text-muted-foreground">
               Sets browse-anywhere on your default host (or www.google.com), session capacity,
-              and 1280×720 viewport — then applies. Journal probes stay off (they add input lag).
+              and 1280×720 viewport — then applies. Telemetry Events stay off (they add input lag).
             </p>
           </div>
         )}
 
         {operational && (
           <div className="rounded-md border border-border px-3 py-2 text-xs text-muted-foreground">
-            Mandatory settings are applied. You can still tighten the allowlist or capacity below.
+            Mandatory settings are applied. Tighten allowlist or capacity under Session readiness.
           </div>
         )}
 
@@ -304,202 +342,214 @@ export function LabEngineConfigPanel({
         )}
       </div>
 
-      <div className="min-h-0 flex-1 space-y-5 overflow-y-auto pr-1">
-        <section className="space-y-3">
-          <div>
-            <h3 className="text-sm font-medium">Where sessions may browse</h3>
-            <p className="text-[11px] text-muted-foreground">
-              Default site when a session starts, plus which hosts the remote browser is allowed
-              to open as the main page.
-            </p>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="lab-default-host">Default target host</Label>
-            <Input
-              id="lab-default-host"
-              className="font-mono text-xs"
-              value={defaultTargetHost}
-              spellCheck={false}
-              placeholder="www.google.com"
-              onChange={(event) => setDefaultTargetHost(event.target.value)}
-            />
-            <p className="text-[11px] text-muted-foreground">
-              Hostname only — no <code>https://</code> or path.
-            </p>
-          </div>
-
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <Label htmlFor="lab-allow-any">Allow any website</Label>
+      <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+        <Accordion
+          type="multiple"
+          defaultValue={operational ? ['sampling', 'events'] : ['readiness']}
+          className="w-full"
+        >
+          <AccordionItem value="readiness">
+            <AccordionTrigger className="text-sm">Session readiness</AccordionTrigger>
+            <AccordionContent className="space-y-5">
               <p className="text-[11px] text-muted-foreground">
-                Open lab mode — any main-frame host is allowed. Turn off to restrict.
+                Navigation allowlist, capacity / viewport, and optional hosting — what Start needs.
               </p>
-            </div>
-            <Switch id="lab-allow-any" checked={allowAny} onCheckedChange={setAllowAny} />
-          </div>
 
-          {!allowAny && (
-            <div className="space-y-2">
-              <Label htmlFor="lab-allowlist">Allowed hosts (one per line)</Label>
-              <Textarea
-                id="lab-allowlist"
-                className="min-h-[96px] font-mono text-xs"
-                value={allowlistText}
-                spellCheck={false}
-                placeholder={'www.google.com\n*.example.com'}
-                onChange={(event) => setAllowlistText(event.target.value)}
-              />
-              <p className="text-[11px] text-muted-foreground">
-                Exact host or <code>*.apex.com</code> for subdomains. Include your default host.
-              </p>
-            </div>
-          )}
-        </section>
+              <section className="space-y-3">
+                <div>
+                  <h3 className="text-sm font-medium">Where sessions may browse</h3>
+                  <p className="text-[11px] text-muted-foreground">
+                    Default site when a session starts, plus which hosts the remote browser is
+                    allowed to open as the main page.
+                  </p>
+                </div>
 
-        <section className="space-y-3 rounded-md border border-border p-3">
-          <div>
-            <h3 className="text-sm font-medium">Capacity &amp; viewport</h3>
-            <p className="text-[11px] text-muted-foreground">
-              How many sessions can run and the default remote screen size.
-            </p>
-          </div>
+                <div className="space-y-2">
+                  <Label htmlFor="lab-default-host">Default target host</Label>
+                  <Input
+                    id="lab-default-host"
+                    className="font-mono text-xs"
+                    value={defaultTargetHost}
+                    spellCheck={false}
+                    placeholder="www.google.com"
+                    onChange={(event) => setDefaultTargetHost(event.target.value)}
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    Hostname only — no <code>https://</code> or path.
+                  </p>
+                </div>
 
-          <div className="grid grid-cols-2 gap-2">
-            <div className="space-y-1">
-              <Label htmlFor="lab-max-sessions">Max concurrent sessions</Label>
-              <Input
-                id="lab-max-sessions"
-                type="number"
-                min={1}
-                className="font-mono text-xs"
-                value={resourceManagement.sessions.maxConcurrentSessions || ''}
-                onChange={(event) => {
-                  const value = Number(event.target.value)
-                  setResourceManagement((prev) => ({
-                    ...prev,
-                    sessions: {
-                      ...prev.sessions,
-                      maxConcurrentSessions: Number.isFinite(value) ? value : 0,
-                    },
-                  }))
-                }}
-              />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="lab-detached">Detached timeout</Label>
-              <Input
-                id="lab-detached"
-                className="font-mono text-xs"
-                value={sessions.detachedSessionTimeout}
-                spellCheck={false}
-                placeholder="00:05:00"
-                onChange={(event) =>
-                  setSessions((prev) => ({
-                    ...prev,
-                    detachedSessionTimeout: event.target.value,
-                  }))
-                }
-              />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="lab-vp-w">Viewport width</Label>
-              <Input
-                id="lab-vp-w"
-                type="number"
-                min={1}
-                className="font-mono text-xs"
-                value={defaultViewport.width || ''}
-                onChange={(event) => {
-                  const width = Number(event.target.value)
-                  setSessions((prev) => ({
-                    ...prev,
-                    viewportPolicy: {
-                      ...prev.viewportPolicy,
-                      default: {
-                        ...prev.viewportPolicy.default,
-                        width: Number.isFinite(width) ? width : 0,
-                      },
-                    },
-                  }))
-                }}
-              />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="lab-vp-h">Viewport height</Label>
-              <Input
-                id="lab-vp-h"
-                type="number"
-                min={1}
-                className="font-mono text-xs"
-                value={defaultViewport.height || ''}
-                onChange={(event) => {
-                  const height = Number(event.target.value)
-                  setSessions((prev) => ({
-                    ...prev,
-                    viewportPolicy: {
-                      ...prev.viewportPolicy,
-                      default: {
-                        ...prev.viewportPolicy.default,
-                        height: Number.isFinite(height) ? height : 0,
-                      },
-                    },
-                  }))
-                }}
-              />
-            </div>
-          </div>
-        </section>
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <Label htmlFor="lab-allow-any">Allow any website</Label>
+                    <p className="text-[11px] text-muted-foreground">
+                      Open lab mode — any main-frame host is allowed. Turn off to restrict.
+                    </p>
+                  </div>
+                  <Switch id="lab-allow-any" checked={allowAny} onCheckedChange={setAllowAny} />
+                </div>
 
-        <Accordion type="multiple" className="w-full">
-          <AccordionItem value="hosting">
-            <AccordionTrigger className="text-sm">
-              Public session domains (optional)
-            </AccordionTrigger>
-            <AccordionContent className="space-y-3">
-              <p className="text-[11px] text-muted-foreground">
-                Domains Speculum presents to users (certificates / mirroring). Leave empty for
-                plain lab browsing through the default target host.
-              </p>
-              <div className="space-y-2">
-                <Label htmlFor="lab-hosting">Domains (one per line)</Label>
-                <Textarea
-                  id="lab-hosting"
-                  className="min-h-[72px] font-mono text-xs"
-                  value={hostingText}
-                  spellCheck={false}
-                  placeholder={'lab.example.com\nlab.example.com +mirror'}
-                  onChange={(event) => setHostingText(event.target.value)}
-                />
-                <p className="text-[11px] text-muted-foreground">
-                  Append <code>+mirror</code> to mirror subdomains for that entry.
-                </p>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="lab-cert-email">Certificate contact email</Label>
-                <Input
-                  id="lab-cert-email"
-                  className="font-mono text-xs"
-                  value={certificateEmail}
-                  spellCheck={false}
-                  placeholder="optional"
-                  onChange={(event) => setCertificateEmail(event.target.value)}
-                />
-              </div>
+                {!allowAny && (
+                  <div className="space-y-2">
+                    <Label htmlFor="lab-allowlist">Allowed hosts (one per line)</Label>
+                    <Textarea
+                      id="lab-allowlist"
+                      className="min-h-[96px] font-mono text-xs"
+                      value={allowlistText}
+                      spellCheck={false}
+                      placeholder={'www.google.com\n*.example.com'}
+                      onChange={(event) => setAllowlistText(event.target.value)}
+                    />
+                    <p className="text-[11px] text-muted-foreground">
+                      Exact host or <code>*.apex.com</code> for subdomains. Include your default
+                      host.
+                    </p>
+                  </div>
+                )}
+              </section>
+
+              <section className="space-y-3 rounded-md border border-border p-3">
+                <div>
+                  <h3 className="text-sm font-medium">Capacity &amp; viewport</h3>
+                  <p className="text-[11px] text-muted-foreground">
+                    How many sessions can run and the default remote screen size.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <Label htmlFor="lab-max-sessions">Max concurrent sessions</Label>
+                    <Input
+                      id="lab-max-sessions"
+                      type="number"
+                      min={1}
+                      className="font-mono text-xs"
+                      value={resourceManagement.sessions.maxConcurrentSessions || ''}
+                      onChange={(event) => {
+                        const value = Number(event.target.value)
+                        setResourceManagement((prev) => ({
+                          ...prev,
+                          sessions: {
+                            ...prev.sessions,
+                            maxConcurrentSessions: Number.isFinite(value) ? value : 0,
+                          },
+                        }))
+                      }}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="lab-detached">Detached timeout</Label>
+                    <Input
+                      id="lab-detached"
+                      className="font-mono text-xs"
+                      value={sessions.detachedSessionTimeout}
+                      spellCheck={false}
+                      placeholder="00:05:00"
+                      onChange={(event) =>
+                        setSessions((prev) => ({
+                          ...prev,
+                          detachedSessionTimeout: event.target.value,
+                        }))
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="lab-vp-w">Viewport width</Label>
+                    <Input
+                      id="lab-vp-w"
+                      type="number"
+                      min={1}
+                      className="font-mono text-xs"
+                      value={defaultViewport.width || ''}
+                      onChange={(event) => {
+                        const width = Number(event.target.value)
+                        setSessions((prev) => ({
+                          ...prev,
+                          viewportPolicy: {
+                            ...prev.viewportPolicy,
+                            default: {
+                              ...prev.viewportPolicy.default,
+                              width: Number.isFinite(width) ? width : 0,
+                            },
+                          },
+                        }))
+                      }}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="lab-vp-h">Viewport height</Label>
+                    <Input
+                      id="lab-vp-h"
+                      type="number"
+                      min={1}
+                      className="font-mono text-xs"
+                      value={defaultViewport.height || ''}
+                      onChange={(event) => {
+                        const height = Number(event.target.value)
+                        setSessions((prev) => ({
+                          ...prev,
+                          viewportPolicy: {
+                            ...prev.viewportPolicy,
+                            default: {
+                              ...prev.viewportPolicy.default,
+                              height: Number.isFinite(height) ? height : 0,
+                            },
+                          },
+                        }))
+                      }}
+                    />
+                  </div>
+                </div>
+              </section>
+
+              <section className="space-y-3">
+                <div>
+                  <h3 className="text-sm font-medium">Public session domains (optional)</h3>
+                  <p className="text-[11px] text-muted-foreground">
+                    Domains Speculum presents to users (certificates / mirroring). Leave empty for
+                    plain lab browsing through the default target host.
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="lab-hosting">Domains (one per line)</Label>
+                  <Textarea
+                    id="lab-hosting"
+                    className="min-h-[72px] font-mono text-xs"
+                    value={hostingText}
+                    spellCheck={false}
+                    placeholder={'lab.example.com\nlab.example.com +mirror'}
+                    onChange={(event) => setHostingText(event.target.value)}
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    Append <code>+mirror</code> to mirror subdomains for that entry.
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="lab-cert-email">Certificate contact email</Label>
+                  <Input
+                    id="lab-cert-email"
+                    className="font-mono text-xs"
+                    value={certificateEmail}
+                    spellCheck={false}
+                    placeholder="optional"
+                    onChange={(event) => setCertificateEmail(event.target.value)}
+                  />
+                </div>
+              </section>
             </AccordionContent>
           </AccordionItem>
 
-          <AccordionItem value="telemetry">
-            <AccordionTrigger className="text-sm">Telemetry (resource samples)</AccordionTrigger>
+          <AccordionItem value="sampling">
+            <AccordionTrigger className="text-sm">Telemetry · Sampling</AccordionTrigger>
             <AccordionContent className="space-y-3">
               <p className="text-[11px] text-muted-foreground">
-                Periodic host / API / sessions / sidecar snapshots written as{' '}
-                <code className="text-foreground">Telemetry.SampleCollected</code> Journal facts.
-                Apply here enables those facts — no separate Journal toggle.
+                Periodic host / API / sessions / sidecar snapshots as{' '}
+                <code className="text-foreground">Telemetry.Sampling.SampleCollected</code>. Enable
+                here — no separate Journal toggle.
               </p>
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <Label htmlFor="lab-telemetry-enabled">Enable telemetry</Label>
+                  <Label htmlFor="lab-telemetry-enabled">Enable sampling</Label>
                   <p className="text-[11px] text-muted-foreground">
                     Master switch for the sampler and composite Journal fact.
                   </p>
@@ -563,8 +613,8 @@ export function LabEngineConfigPanel({
                 <div>
                   <Label htmlFor="lab-telemetry-per-session">Per-session samples</Label>
                   <p className="text-[11px] text-muted-foreground">
-                    Extra <code>Telemetry.SessionSampleCollected</code> per live session — more RPC
-                    load.
+                    Extra <code>Telemetry.Sampling.SessionSampleCollected</code> per live session —
+                    more RPC load.
                   </p>
                 </div>
                 <Switch
@@ -582,18 +632,27 @@ export function LabEngineConfigPanel({
             </AccordionContent>
           </AccordionItem>
 
-          <AccordionItem value="journal">
-            <AccordionTrigger className="text-sm">
-              Lab journal probes (debug)
-            </AccordionTrigger>
-            <AccordionContent className="space-y-3">
+          <AccordionItem value="events">
+            <AccordionTrigger className="text-sm">Telemetry · Events</AccordionTrigger>
+            <AccordionContent className="space-y-4">
               <p className="text-[11px] text-muted-foreground">
-                Opt-in session facts for Act→Assert. Leave off while browsing — especially
-                Input applied, which records every click/key and slows the input path.
+                Opt-in <code className="text-foreground">Telemetry.Sessions.*</code> facts for
+                Act→Assert. For the client hop, also enable{' '}
+                <strong className="font-medium text-foreground">client_sent</strong> under the Wire
+                tab.
               </p>
-              {journal['Sessions.InputApplied'] && (
+
+              {(inputPathOn || appliedOn) && (
                 <div className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
-                  <p className="font-medium">Input applied is on — expect input lag.</p>
+                  <p className="font-medium">
+                    Input telemetry is on — use only while diagnosing a dead or delayed input stream.
+                  </p>
+                  {inputPathOn && !loadLabInputPathClientTrace() && (
+                    <p className="mt-1 text-warning/90">
+                      Wire tab <code className="text-foreground">client_sent</code> is still off —
+                      enable it for hop 0 on the client.
+                    </p>
+                  )}
                   <Button
                     type="button"
                     size="sm"
@@ -601,7 +660,13 @@ export function LabEngineConfigPanel({
                     className="mt-2"
                     disabled={busy}
                     onClick={() => {
-                      const next = { ...journal, 'Sessions.InputApplied': false }
+                      const next = {
+                        ...journal,
+                        'Telemetry.Sessions.Input.Applied': false,
+                        'Telemetry.Sessions.Input.WebTransportReceived': false,
+                        'Telemetry.Sessions.Input.SidecarPushWritten': false,
+                        'Telemetry.Sessions.Input.SidecarAdmitted': false,
+                      }
                       setJournal(next)
                       void persist(buildBody({ journal: next }))
                     }}
@@ -610,42 +675,71 @@ export function LabEngineConfigPanel({
                   </Button>
                 </div>
               )}
-              <div className="flex items-center justify-between gap-3">
+
+              <section className="space-y-3 rounded-md border border-border p-3">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <h3 className="text-sm font-medium">Input path</h3>
+                    <p className="text-[11px] text-muted-foreground">
+                      Three server hops after Wire <code>client_sent</code>. Watch Journal{' '}
+                      <code>utc</code> / <code>seq</code> for delay.
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={busy}
+                    onClick={enableInputPathTrace}
+                  >
+                    <Route className="h-3.5 w-3.5" />
+                    Trace input path
+                  </Button>
+                </div>
+                {INPUT_PATH_EVENTS.map((type) => (
+                  <div key={type} className="flex items-center justify-between gap-3">
+                    <div>
+                      <Label htmlFor={`lab-telemetry-event-${type}`} className="text-xs">
+                        {TELEMETRY_EVENT_HELP[type]}
+                      </Label>
+                      <p className="font-mono text-[10px] text-muted-foreground">{type}</p>
+                    </div>
+                    <Switch
+                      id={`lab-telemetry-event-${type}`}
+                      checked={journal[type]}
+                      onCheckedChange={(checked) =>
+                        setJournal((prev) => ({ ...prev, [type]: checked }))
+                      }
+                    />
+                  </div>
+                ))}
+              </section>
+
+              <section className="space-y-3">
                 <div>
-                  <Label htmlFor="lab-journal-all">Enable all lab probes</Label>
+                  <h3 className="text-sm font-medium">Outcomes</h3>
                   <p className="text-[11px] text-muted-foreground">
-                    Turns on the four Sessions.* trails below. Prefer off while typing.
+                    Applied / Rejected and resize results. Prefer off while typing.
                   </p>
                 </div>
-                <Switch
-                  id="lab-journal-all"
-                  checked={LAB_JOURNAL_TYPES.every((type) => journal[type])}
-                  onCheckedChange={(checked) => {
-                    const next = emptyJournal()
-                    for (const type of LAB_JOURNAL_TYPES) {
-                      next[type] = checked
-                    }
-                    setJournal(next)
-                  }}
-                />
-              </div>
-              {LAB_JOURNAL_TYPES.map((type) => (
-                <div key={type} className="flex items-center justify-between gap-3">
-                  <div>
-                    <Label htmlFor={`lab-journal-${type}`} className="text-xs">
-                      {JOURNAL_HELP[type]}
-                    </Label>
-                    <p className="font-mono text-[10px] text-muted-foreground">{type}</p>
+                {OUTCOME_EVENTS.map((type) => (
+                  <div key={type} className="flex items-center justify-between gap-3">
+                    <div>
+                      <Label htmlFor={`lab-telemetry-event-${type}`} className="text-xs">
+                        {TELEMETRY_EVENT_HELP[type]}
+                      </Label>
+                      <p className="font-mono text-[10px] text-muted-foreground">{type}</p>
+                    </div>
+                    <Switch
+                      id={`lab-telemetry-event-${type}`}
+                      checked={journal[type]}
+                      onCheckedChange={(checked) =>
+                        setJournal((prev) => ({ ...prev, [type]: checked }))
+                      }
+                    />
                   </div>
-                  <Switch
-                    id={`lab-journal-${type}`}
-                    checked={journal[type]}
-                    onCheckedChange={(checked) =>
-                      setJournal((prev) => ({ ...prev, [type]: checked }))
-                    }
-                  />
-                </div>
-              ))}
+                ))}
+              </section>
             </AccordionContent>
           </AccordionItem>
         </Accordion>

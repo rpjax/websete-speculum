@@ -45,8 +45,8 @@ export const EVENT_DESCRIPTIONS: Record<string, string> = {
   'Diagnostics.StorageOverflow': 'The diagnostics event buffer is full — oldest events are being dropped to make room.',
   'Persistence.StateExportCompleted': 'Browser state (cookies, localStorage, IndexedDB) was persisted to the session store.',
   'Persistence.SessionQueried': 'A persisted session record was queried from the store.',
-  'Telemetry.SampleCollected': 'A composite telemetry sample was collected — host, API process, sessions, sidecar, profiles, journal, and docker sections captured on one time axis.',
-  'Telemetry.SessionSampleCollected': 'A per-session telemetry slice was captured and scoped to a live session, so it plots inside that session\'s story lane.',
+  'Telemetry.Sampling.SampleCollected': 'A composite telemetry sample was collected — host, API process, sessions, sidecar, profiles, journal, and docker sections captured on one time axis.',
+  'Telemetry.Sampling.SessionSampleCollected': 'A per-session telemetry slice was captured and scoped to a live session, so it plots inside that session\'s story lane.',
   'Diagnostics.SpanAbandoned': 'An open span was closed synthetically — it timed out, was torn down on disconnect/drain, or was recovered as orphaned after a restart.',
 }
 

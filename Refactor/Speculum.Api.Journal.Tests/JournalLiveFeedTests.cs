@@ -2,6 +2,8 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Speculum.Api.Journal.Models;
 using Speculum.Api.Journal.Services;
 using Speculum.Api.Sessions.Events.Models;
+using Speculum.Api.Telemetry.Events.Models.Sampling;
+using InputApplied = Speculum.Api.Telemetry.Events.Models.Sessions.Input.Applied;
 
 namespace Speculum.Api.Journal.Tests;
 
@@ -95,9 +97,9 @@ public sealed class JournalLiveFeedTests
         bool enabled)
     {
         var catalog = new JournalCatalog();
-        catalog.RegisterFromAssemblies(typeof(SessionStarted).Assembly);
+        catalog.RegisterFromAssemblies(typeof(SampleCollected).Assembly);
         // InputApplied is JournalFact (off by default); enable only when testing admission.
-        catalog.SetEnabled("Sessions.InputApplied", enabled);
+        catalog.SetEnabled("Telemetry.Sessions.Input.Applied", enabled);
 
         var (created, metrics, health) = JournalTestHarness.CreateQueue(o => o.MaxQueueDepth = 0);
         queue = created;

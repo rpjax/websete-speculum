@@ -24,10 +24,10 @@ import DiagnosticsGovernancePage from '@/features/admin/diagnostics/governance/D
 import NarrativeWorkspacePage from '@/features/admin/diagnostics/timeline/NarrativeWorkspacePage'
 import AnalysisWorkspacePage from '@/features/admin/diagnostics/analysis/AnalysisWorkspacePage'
 
-// Live surfaces for the refactored wire (EnsureProfile → StartSession →
-// WebTransport). Lab (`/`) and immersive (`/live`) share useLiveSession —
-// same client, hub RPCs, IUrlResolver path. Lab adds debug chrome + optional
-// /api/configurations editor. `features/motor/live` is legacy wire only.
+// Live surfaces share useLiveSession (EnsureProfile → StartSession → WebTransport).
+// Production product: immersive canvas only at `/` + `/live` (+ path catch-all).
+// Session lab (debug chrome + config): `/lab`, and `/` only under Vite DEV.
+// `features/motor/live` is legacy wire only.
 const SessionLabPage = lazy(() => import('@/features/sessions/lab/SessionLabPage'))
 const SessionLivePage = lazy(() => import('@/features/sessions/live/SessionLivePage'))
 
@@ -37,6 +37,8 @@ function DiagnosticsSessionRedirect() {
 }
 
 export default function App() {
+  const labAtRoot = import.meta.env.DEV
+
   return (
     <BrowserRouter>
       <Suspense
@@ -45,7 +47,11 @@ export default function App() {
         }
       >
         <Routes>
-          <Route path="/" element={<SessionLabPage />} />
+          <Route
+            path="/"
+            element={labAtRoot ? <SessionLabPage /> : <SessionLivePage />}
+          />
+          <Route path="/lab" element={<SessionLabPage />} />
           <Route path="/live" element={<SessionLivePage />} />
           <Route path="/setup" element={<SetupPage />} />
           <Route path="/admin/login" element={<LoginPage />} />
@@ -84,7 +90,8 @@ export default function App() {
             <Route path="api-key" element={<AdminKeyPage />} />
             <Route path="openapi" element={<OpenApiPage />} />
           </Route>
-          <Route path="*" element={<SessionLabPage />} />
+          {/* Immersive path browsing (NSO) — never Lab chrome. */}
+          <Route path="*" element={<SessionLivePage />} />
         </Routes>
       </Suspense>
     </BrowserRouter>

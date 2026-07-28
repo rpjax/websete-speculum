@@ -3,6 +3,12 @@
 const PROFILE_KEY = 'speculum.session.profileId'
 const LAB_HUB_ORIGIN_KEY = 'speculum.lab.hubOrigin'
 const LAB_TRANSPORT_ORIGIN_KEY = 'speculum.lab.transportOrigin'
+/** Lab-only: log every sendInput to the Wire feed (client hop of input-path tracing). */
+const LAB_INPUT_PATH_CLIENT_KEY = 'speculum.lab.inputPathClient'
+/** Lab DEV: debug dock open (canvas split). */
+const LAB_DEBUG_DOCK_KEY = 'speculum.lab.debugDock'
+/** Lab DEV: last selected debug tools tab. */
+const LAB_DEBUG_TAB_KEY = 'speculum.lab.debugTab'
 
 export interface SessionOrigins {
   /** Origin serving `/vhub`; empty means same-origin (dev proxy or Traefik). */
@@ -59,6 +65,47 @@ export function loadLabOrigins(): SessionOrigins {
 export function saveLabOrigins(origins: SessionOrigins): void {
   persist(LAB_HUB_ORIGIN_KEY, origins.hubOrigin.trim().replace(/\/$/, ''))
   persist(LAB_TRANSPORT_ORIGIN_KEY, origins.transportOrigin.trim().replace(/\/$/, ''))
+}
+
+/** Lab-only Wire toggle: log client `sendInput` as `input_path client_sent`. Off by default. */
+export function loadLabInputPathClientTrace(): boolean {
+  return stored(LAB_INPUT_PATH_CLIENT_KEY) === '1'
+}
+
+export function saveLabInputPathClientTrace(enabled: boolean): void {
+  persist(LAB_INPUT_PATH_CLIENT_KEY, enabled ? '1' : '')
+}
+
+/** Session Lab: whether the debug tools dock is open. */
+export function loadLabDebugDockOpen(): boolean {
+  return stored(LAB_DEBUG_DOCK_KEY) === '1'
+}
+
+export function saveLabDebugDockOpen(open: boolean): void {
+  persist(LAB_DEBUG_DOCK_KEY, open ? '1' : '')
+}
+
+const LAB_DEBUG_TABS = [
+  'stream',
+  'activity',
+  'journal',
+  'console',
+  'eval',
+  'config',
+  'wire',
+] as const
+
+export type LabDebugTab = (typeof LAB_DEBUG_TABS)[number]
+
+export function loadLabDebugTab(): LabDebugTab {
+  const value = stored(LAB_DEBUG_TAB_KEY)
+  return LAB_DEBUG_TABS.includes(value as LabDebugTab)
+    ? (value as LabDebugTab)
+    : 'journal'
+}
+
+export function saveLabDebugTab(tab: LabDebugTab): void {
+  persist(LAB_DEBUG_TAB_KEY, tab)
 }
 
 /** Profile id from EnsureProfile — shared across lab and live (same persisted browser). */

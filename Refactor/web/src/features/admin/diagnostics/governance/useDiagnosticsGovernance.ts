@@ -7,7 +7,7 @@ import {
 } from '@/lib/diagnosticsApi'
 import { api, ConfigSections } from '@/lib/api'
 import { DIAGNOSTICS_PRESETS } from '@/lib/diagnosticsConstants'
-import { DEFAULT_CONFIG, mergeDiagnosticsConfig } from './governanceDefaults'
+import { DEFAULT_CONFIG, mergeDiagnosticsConfig, serializeTelemetryForApi } from './governanceDefaults'
 import { diffDiagnosticsConfig } from './diffDiagnosticsConfig'
 import { waitConfigApplied } from './waitConfigApplied'
 
@@ -60,7 +60,10 @@ export function useDiagnosticsGovernance() {
       ...prev,
       profile,
       domains: preset.domains,
-      telemetry: preset.telemetry,
+      telemetry: {
+        ...preset.telemetry,
+        events: prev.telemetry.events,
+      },
       storage: preset.storage,
       sampling: preset.sampling,
     }))
@@ -79,7 +82,7 @@ export function useDiagnosticsGovernance() {
     const sinceIso = new Date().toISOString()
     try {
       const { telemetry, ...diagnosticsSection } = config
-      await api.putSection(ConfigSections.Telemetry, config.telemetry)
+      await api.putSection(ConfigSections.Telemetry, serializeTelemetryForApi(telemetry))
       await api.putSection(ConfigSections.Diagnostics, diagnosticsSection)
       const confirmed = await waitConfigApplied(sinceIso)
       await refresh()
@@ -117,7 +120,7 @@ export function useDiagnosticsGovernance() {
       // Fallback: PUT Production defaults if DELETE is unavailable.
       try {
         const { telemetry, ...diagnosticsSection } = DEFAULT_CONFIG
-        await api.putSection(ConfigSections.Telemetry, telemetry)
+        await api.putSection(ConfigSections.Telemetry, serializeTelemetryForApi(telemetry))
         await api.putSection(ConfigSections.Diagnostics, diagnosticsSection)
         const confirmed = await waitConfigApplied(sinceIso)
         await refresh()

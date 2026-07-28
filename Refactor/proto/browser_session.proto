@@ -224,6 +224,13 @@ message CrashEvent {
   optional string phase = 3;
 }
 
+// Opt-in input-path hop (API journals Telemetry.Sessions.Input.SidecarAdmitted when enabled).
+message InputPathEvent {
+  string phase = 1; // admit
+  string kind = 2;  // mousedown, keydown, …
+  int64 unix_ms = 3;
+}
+
 // ── Inbound streams (Api → sidecar) ──────────────────────────────────────────
 
 message TouchPoint {
@@ -408,6 +415,7 @@ service BrowserSessionService {
   rpc WatchNavigationBlocked(SessionId) returns (stream NavigationBlockedEvent);
   rpc WatchEditableFocus(SessionId) returns (stream EditableFocusEvent);
   rpc WatchCrash(SessionId) returns (stream CrashEvent);
+  rpc WatchInputPath(SessionId) returns (stream InputPathEvent);
 
   rpc PushInput(stream InputEvent) returns (Empty);
   rpc PushCamera(stream MediaChunk) returns (Empty);

@@ -135,10 +135,11 @@ export interface LabTelemetryDockerConfig extends LabTelemetrySectionToggle {
   timeoutMs?: number
 }
 
-/** Engine Telemetry section — Apply also enables Journal fact types. */
+/** Engine Telemetry section — sampling and opt-in Telemetry event facts. */
 export interface LabTelemetryConfig {
   isEnabled: boolean
   intervalSeconds: number
+  events: Record<string, boolean>
   host: LabTelemetryHostConfig
   apiProcess: LabTelemetryApiProcessConfig
   sessions: LabTelemetrySessionsConfig
@@ -166,19 +167,22 @@ export interface LabEngineConfig {
   resourceManagement: LabResourceManagementConfig
   /** Periodic resource samples → Journal (Telemetry-owned facts). Off unless enabled. */
   telemetry: LabTelemetryConfig
-  /** Opt-in Journal types (test/debug). Off unless explicitly enabled. */
+  /** Telemetry-owned event toggles (test/debug). Off unless explicitly enabled. */
   journal?: Record<string, boolean>
   status?: LabConfigStatus
 }
 
-export const LAB_JOURNAL_TYPES = [
-  'Sessions.InputApplied',
-  'Sessions.InputRejected',
-  'Sessions.ResizeApplied',
-  'Sessions.ResizeRejected',
+export const LAB_TELEMETRY_EVENT_TYPES = [
+  'Telemetry.Sessions.Input.Applied',
+  'Telemetry.Sessions.Input.Rejected',
+  'Telemetry.Sessions.Input.WebTransportReceived',
+  'Telemetry.Sessions.Input.SidecarPushWritten',
+  'Telemetry.Sessions.Input.SidecarAdmitted',
+  'Telemetry.Sessions.Resize.Applied',
+  'Telemetry.Sessions.Resize.Rejected',
 ] as const
 
-export type LabJournalType = (typeof LAB_JOURNAL_TYPES)[number]
+export type LabTelemetryEventType = (typeof LAB_TELEMETRY_EVENT_TYPES)[number]
 
 export const CONFIG_STATUS_PATH = '/api/configurations/status'
 export const CONFIG_BATCH_PATH = '/api/configurations'
@@ -248,14 +252,15 @@ export const LAB_CONFIG_SECTION_LABELS: Record<string, string> = {
   ResourceManagement: 'How many sessions can run',
   Hosting: 'Public session domains',
   Journal: 'Session fact recording',
-  Telemetry: 'Periodic resource samples',
+  Telemetry: 'Sampling + event probes',
 }
 
-/** Lab telemetry starts off — opt-in while browsing; Apply enables Journal facts when on. */
+/** Lab telemetry starts off — opt-in while browsing. */
 export function createLabTelemetryBaseline(): LabTelemetryConfig {
   return {
     isEnabled: false,
     intervalSeconds: 15,
+    events: createLabTelemetryEventsBaseline(),
     host: {
       isEnabled: true,
       procPath: '/proc',
@@ -306,13 +311,16 @@ export function createLabTelemetryBaseline(): LabTelemetryConfig {
   }
 }
 
-/** Lab journal toggles start off — InputApplied is expensive on the input hot path. */
-export function createLabJournalBaseline(): Record<LabJournalType, boolean> {
+/** Telemetry event toggles start off — input path events are expensive on the input hot path. */
+export function createLabTelemetryEventsBaseline(): Record<LabTelemetryEventType, boolean> {
   return {
-    'Sessions.InputApplied': false,
-    'Sessions.InputRejected': false,
-    'Sessions.ResizeApplied': false,
-    'Sessions.ResizeRejected': false,
+    'Telemetry.Sessions.Input.Applied': false,
+    'Telemetry.Sessions.Input.Rejected': false,
+    'Telemetry.Sessions.Input.WebTransportReceived': false,
+    'Telemetry.Sessions.Input.SidecarPushWritten': false,
+    'Telemetry.Sessions.Input.SidecarAdmitted': false,
+    'Telemetry.Sessions.Resize.Applied': false,
+    'Telemetry.Sessions.Resize.Rejected': false,
   }
 }
 
@@ -359,10 +367,6 @@ async function putJson(path: string, body: unknown, hubOrigin: string): Promise<
     const text = await res.text()
     throw new Error(text || `PUT ${path} failed (${res.status})`)
   }
-}
-
-interface JournalEventsPayload {
-  events?: Record<string, boolean>
 }
 
 function normalizeSessions(raw: Partial<LabSessionsConfig> | null | undefined): LabSessionsConfig {
@@ -449,6 +453,7 @@ function normalizeTelemetry(
   return {
     isEnabled: raw.isEnabled ?? baseline.isEnabled,
     intervalSeconds: raw.intervalSeconds ?? baseline.intervalSeconds,
+    events: { ...baseline.events, ...raw.events },
     host: { ...baseline.host, ...raw.host },
     apiProcess: { ...baseline.apiProcess, ...raw.apiProcess },
     sessions: { ...baseline.sessions, ...raw.sessions },
@@ -460,7 +465,7 @@ function normalizeTelemetry(
 }
 
 export async function fetchLabEngineConfig(hubOrigin = ''): Promise<LabEngineConfig> {
-  const [status, hosting, navigation, sessions, resourceManagement, telemetry, journalPayload] =
+  const [status, hosting, navigation, sessions, resourceManagement, telemetry] =
     await Promise.all([
       getJson<LabConfigStatus>(CONFIG_STATUS_PATH, hubOrigin),
       getJson<LabEngineConfig['hosting']>(CONFIG_HOSTING_PATH, hubOrigin),
@@ -471,7 +476,6 @@ export async function fetchLabEngineConfig(hubOrigin = ''): Promise<LabEngineCon
         hubOrigin,
       ),
       getJson<Partial<LabTelemetryConfig>>(CONFIG_TELEMETRY_PATH, hubOrigin),
-      getJson<JournalEventsPayload>(CONFIG_JOURNAL_PATH, hubOrigin),
     ])
 
   return {
@@ -487,12 +491,12 @@ export async function fetchLabEngineConfig(hubOrigin = ''): Promise<LabEngineCon
     sessions: normalizeSessions(sessions),
     resourceManagement: normalizeResourceManagement(resourceManagement),
     telemetry: normalizeTelemetry(telemetry),
-    journal: journalPayload.events ?? {},
+    journal: telemetry.events ?? {},
   }
 }
 
 /**
- * Persist Hosting + Navigation + Sessions + ResourceManagement + Telemetry + Journal in one
+ * Persist Hosting + Navigation + Sessions + ResourceManagement + Telemetry in one
  * validated Apply (no partial mid-save apply).
  */
 export async function putLabEngineConfig(
@@ -506,8 +510,7 @@ export async function putLabEngineConfig(
       Navigation: body.navigation,
       Sessions: body.sessions,
       ResourceManagement: body.resourceManagement,
-      Telemetry: body.telemetry,
-      Journal: { events: body.journal ?? {} },
+      Telemetry: { ...body.telemetry, events: body.journal ?? {} },
     },
     hubOrigin,
   )

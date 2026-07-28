@@ -1,9 +1,27 @@
 # Refactor Telemetry
 
 The Refactor Telemetry runtime is an independent API module under
-`Refactor/Speculum.Api/Telemetry`. It periodically composes operational resource samples and
-publishes them as Journal facts. It does not use the Diagnostics runtime, capability model, or
-Diagnostics event bus.
+`Refactor/Speculum.Api/Telemetry`. It owns two kinds of Journal facts:
+
+1. **Events** — hop/infra observations (capacity, URL resolve, input path, resize, …)
+2. **Sampling** — periodic composite resource snapshots
+
+Domain narrative facts (`Sessions.SessionStarted`, navigate outcomes, …) stay under Sessions /
+Profiles and are emitted by `ISession*Events` / `IProfileEvents`. Sessions depends on Telemetry
+to emit event facts; Telemetry depends only on Journal plus abstract sample ports (adapters live
+in Sessions / Profiles / BrowserClients).
+
+Telemetry does not use the Diagnostics runtime, capability model, or Diagnostics event bus.
+
+## Catalog type strings
+
+| Kind | Pattern | Examples |
+|------|---------|----------|
+| Sampling | `Telemetry.Sampling.*` | `Telemetry.Sampling.SampleCollected`, `Telemetry.Sampling.SessionSampleCollected` |
+| Session events | `Telemetry.Sessions.<subdomain>.*` | `Telemetry.Sessions.Input.WebTransportReceived`, `Telemetry.Sessions.Capacity.SlotAcquired` |
+
+All `Telemetry.*` types are **Telemetry-owned**: they must not appear in the Journal `events` map
+(PUT Journal rejects them). Enablement is driven by the `Telemetry` config section on Apply.
 
 ## Configuration Apply → Journal enablement
 
@@ -11,21 +29,29 @@ Diagnostics event bus.
 
 | Toggle | Journal fact |
 |--------|----------------|
-| `IsEnabled` | `Telemetry.SampleCollected` |
-| `IsEnabled` ∧ `Sessions.IncludePerSession` | `Telemetry.SessionSampleCollected` |
-
-Those fact types are **Telemetry-owned**: they must not appear in the Journal `events` map
-(PUT Journal rejects them). Sampler still no-ops when `IsEnabled` is false; when true, Append
-succeeds because Apply already enabled the catalog entries.
+| `IsEnabled` | `Telemetry.Sampling.SampleCollected` |
+| `IsEnabled` ∧ `Sessions.IncludePerSession` | `Telemetry.Sampling.SessionSampleCollected` |
+| `Events["Telemetry.Sessions.…"] = true` | That event fact (default **off**) |
 
 ### Enabling in tests / dockup
 
-Explicit Apply (same pattern as Sessions Journal seed):
+Sampling:
 
 ```http
 PUT /api/configurations/Telemetry
 {"isEnabled":true,"intervalSeconds":15,"sessions":{"isEnabled":true,"includePerSession":false}}
 ```
+
+Event facts (input / resize probes for SessionsTest):
+
+```http
+PUT /api/configurations/Telemetry
+{"events":{"Telemetry.Sessions.Input.Applied":true,"Telemetry.Sessions.Resize.Applied":true}}
+```
+
+Partial Telemetry PUTs **merge** onto the stored section (sampling toggles and `host.procPath`
+from first-boot env are preserved). When the body includes `events`, that map **replaces** the
+stored event toggles wholesale (so seeds/Lab can deterministically enable a set of facts).
 
 Or first-boot / env overlay (merged into SQLite when `IsFirstBoot`):
 
@@ -38,6 +64,8 @@ Telemetry__Docker__Endpoint=unix:///var/run/docker.sock
 
 ## Runtime flow
 
+### Sampling
+
 `TelemetrySamplerHostedService` reads the current applied
 `EngineConfiguration.Telemetry` section. When `IsEnabled` is false it performs no collection and
 checks again after ten seconds. When enabled, it collects only enabled sections at the configured
@@ -46,11 +74,20 @@ interval and calls `IJournalWriter.Append`.
 `Telemetry.IntervalSeconds` uses one contract everywhere: accepted range `1..3600`, validated on
 Apply and applied by the sampler with that same effective limit.
 
-The composite fact is `Telemetry.SampleCollected` (schema version 1). If per-session sampling is
-enabled, the emitter also appends one indexed `Telemetry.SessionSampleCollected` fact for each live
-session.
+The composite fact is `Telemetry.Sampling.SampleCollected` (schema version 1). If per-session
+sampling is enabled, the emitter also appends one indexed
+`Telemetry.Sampling.SessionSampleCollected` fact for each live session.
 
-## Sections
+Sample sources use Telemetry ports (`ISessionTelemetrySampleSource`,
+`IProfileTelemetrySampleSource`, `ISidecarTelemetrySampleSource`); domain adapters implement them.
+
+### Events
+
+Sessions call `ISessionTelemetryEventsFactory.ForSession(…)` and emit through subdomain contracts
+(`Capacity`, `Start`, `Input`, `Resize`, …). Catalog gating still applies — hot-path facts stay
+quiet until `Telemetry.Events` enables them.
+
+## Sections (sampling)
 
 - `Host`: machine CPU, memory, disk, load, swap, disk I/O, and network data from procfs.
 - `ApiProcess`: Speculum.Api process and CLR resource data.

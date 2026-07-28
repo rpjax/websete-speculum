@@ -102,7 +102,8 @@ public sealed class ConfigurationApplyService : IConfigurationApplyService
         await _applyGate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            await _store.UpsertSectionJsonAsync(key, valueJson, ct).ConfigureAwait(false);
+            var persistedJson = await MergePutJsonAsync(key, valueJson!, ct).ConfigureAwait(false);
+            await _store.UpsertSectionJsonAsync(key, persistedJson, ct).ConfigureAwait(false);
             await ApplyAllFromStoreUnlockedAsync(ct).ConfigureAwait(false);
             return null;
         }
@@ -143,7 +144,8 @@ public sealed class ConfigurationApplyService : IConfigurationApplyService
         {
             foreach (var (key, json) in normalized)
             {
-                await _store.UpsertSectionJsonAsync(key, json, ct).ConfigureAwait(false);
+                var persistedJson = await MergePutJsonAsync(key, json, ct).ConfigureAwait(false);
+                await _store.UpsertSectionJsonAsync(key, persistedJson, ct).ConfigureAwait(false);
             }
 
             await ApplyAllFromStoreUnlockedAsync(ct).ConfigureAwait(false);
@@ -422,7 +424,7 @@ public sealed class ConfigurationApplyService : IConfigurationApplyService
         return null;
     }
 
-    private static string? ValidateTelemetry(string json)
+    private string? ValidateTelemetry(string json)
     {
         var telemetry = JsonSerializer.Deserialize<TelemetryConfiguration>(json, JsonOptions)
             ?? new TelemetryConfiguration();
@@ -443,6 +445,29 @@ public sealed class ConfigurationApplyService : IConfigurationApplyService
         if (telemetry.Docker.TimeoutMs is < 100 or > 60_000)
             return "Telemetry.Docker.TimeoutMs must be between 100 and 60000.";
 
+        foreach (var type in telemetry.Events.Keys)
+        {
+            if (string.IsNullOrWhiteSpace(type))
+                return "Telemetry.Events keys must be non-empty.";
+
+            if (!TelemetryJournalFacts.Owns(type))
+            {
+                return $"Telemetry.Events cannot reference non-Telemetry fact type '{type}'.";
+            }
+
+            if (type is TelemetryJournalFacts.SampleCollected
+                or TelemetryJournalFacts.SessionSampleCollected)
+            {
+                return $"Telemetry.Events cannot toggle sampling fact '{type}'; use IsEnabled / Sessions.IncludePerSession.";
+            }
+
+            if (!_journalCatalog.Types.Any(d =>
+                    string.Equals(d.Type, type, StringComparison.Ordinal)))
+            {
+                return $"Unknown Telemetry event fact type '{type}'.";
+            }
+        }
+
         return null;
     }
 
@@ -456,5 +481,21 @@ public sealed class ConfigurationApplyService : IConfigurationApplyService
             && vp.Maximum.Width == 0
             && vp.Maximum.Height == 0
             && string.IsNullOrWhiteSpace(sessions.ClientEnvironmentPolicy.DefaultLocale);
+    }
+
+    /// <summary>
+    /// Telemetry PUT merges onto the stored section so partial bodies (e.g. events-only seed)
+    /// do not reset sampling toggles or host paths from first-boot env.
+    /// </summary>
+    private async Task<string> MergePutJsonAsync(
+        string key,
+        string valueJson,
+        CancellationToken ct)
+    {
+        if (!string.Equals(key, ConfigSectionKeys.Telemetry, StringComparison.Ordinal))
+            return valueJson;
+
+        var existing = await _store.GetSectionJsonAsync(key, ct).ConfigureAwait(false);
+        return ConfigJsonMerge.MergeTelemetrySectionJson(existing, valueJson);
     }
 }

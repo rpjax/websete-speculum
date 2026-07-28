@@ -1,4 +1,6 @@
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Speculum.Api.Telemetry.Events.Services;
+using Speculum.Api.Telemetry.Events.Services.Contracts;
 using Speculum.Api.Telemetry.Probes;
 using Speculum.Api.Telemetry.Sources;
 
@@ -8,6 +10,8 @@ public static class TelemetryServiceCollectionExtensions
 {
     public static IServiceCollection AddTelemetry(this IServiceCollection services)
     {
+        services.TryAddSingleton<ISessionTelemetryEventsFactory, SessionTelemetryEventsFactory>();
+
         services.TryAddSingleton<MachineResourceProbe>();
         services.TryAddSingleton<ApiProcessResourceProbe>();
         services.TryAddSingleton<IHostTelemetrySource, HostTelemetrySource>();

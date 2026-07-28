@@ -2,6 +2,8 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Speculum.Api.Journal.Models;
 using Speculum.Api.Journal.Services;
 using Speculum.Api.Sessions.Events.Models;
+using Speculum.Api.Telemetry.Events.Models.Sampling;
+using InputApplied = Speculum.Api.Telemetry.Events.Models.Sessions.Input.Applied;
 
 namespace Speculum.Api.Journal.Tests;
 
@@ -11,7 +13,7 @@ public sealed class JournalWriterTests
     public async Task Append_SessionStarted_StampsEnvelopeAndIndexes()
     {
         var catalog = new JournalCatalog();
-        catalog.RegisterFromAssemblies(typeof(SessionStarted).Assembly);
+        catalog.RegisterFromAssemblies(typeof(SampleCollected).Assembly);
 
         var (queue, metrics, health) = JournalTestHarness.CreateQueue(o =>
         {
@@ -58,7 +60,7 @@ public sealed class JournalWriterTests
     {
         var catalog = new JournalCatalog();
         catalog.RegisterFromAssemblies(typeof(SessionStarted).Assembly);
-        catalog.SetEnabled("Sessions.InputApplied", false);
+        catalog.SetEnabled("Telemetry.Sessions.Input.Applied", false);
 
         var (queue, metrics, health) = JournalTestHarness.CreateQueue(o => o.MaxQueueDepth = 0);
         var writer = new JournalWriter(

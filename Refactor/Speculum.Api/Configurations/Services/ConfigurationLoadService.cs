@@ -99,7 +99,7 @@ public sealed class ConfigurationLoadService : IConfigurationLoadService
         var sqliteJson = await _store.GetSectionJsonAsync(storeKey, ct).ConfigureAwait(false);
         var bound = _configuration.GetSection(configurationSection).Get<T>() ?? new T();
         var fromHost = JsonSerializer.SerializeToNode(bound, ConfigSectionStore.SerializerOptions);
-        var merged = MergeJson(ParseObject(sqliteJson), fromHost);
+        var merged = ConfigJsonMerge.Merge(ParseObject(sqliteJson), fromHost);
         var json = merged?.ToJsonString(ConfigSectionStore.SerializerOptions);
         await _store.UpsertSectionJsonAsync(storeKey, json, ct).ConfigureAwait(false);
     }
@@ -117,14 +117,14 @@ public sealed class ConfigurationLoadService : IConfigurationLoadService
         }
 
         if (fromNested is JsonObject nested)
-            overlayEvents = MergeJson(overlayEvents, nested) as JsonObject ?? nested;
+            overlayEvents = ConfigJsonMerge.Merge(overlayEvents, nested) as JsonObject ?? nested;
 
         var sqliteNode = ParseObject(sqliteJson);
         JsonObject? sqliteEvents = null;
         if (sqliteNode is JsonObject so)
             sqliteEvents = so["events"] as JsonObject ?? so;
 
-        var mergedEvents = MergeJson(sqliteEvents, overlayEvents) as JsonObject ?? new JsonObject();
+        var mergedEvents = ConfigJsonMerge.Merge(sqliteEvents, overlayEvents) as JsonObject ?? new JsonObject();
         var wrapper = new JsonObject { ["events"] = mergedEvents };
         await _store.UpsertSectionJsonAsync(
             ConfigSectionKeys.Journal,
@@ -210,66 +210,5 @@ public sealed class ConfigurationLoadService : IConfigurationLoadService
                 System.Globalization.CultureInfo.InvariantCulture, out var d))
             return d;
         return raw;
-    }
-
-    /// <summary>Deep-merge objects; <paramref name="overlay"/> wins. Arrays replaced wholesale.
-    /// Property names match case-insensitively so camelCase SQLite and PascalCase env do not duplicate.</summary>
-    private static JsonNode? MergeJson(JsonNode? baseline, JsonNode? overlay)
-    {
-        if (overlay is null)
-            return baseline?.DeepClone();
-        if (baseline is null)
-            return overlay.DeepClone();
-
-        if (baseline is JsonObject baseObj && overlay is JsonObject overObj)
-        {
-            var result = (JsonObject)baseObj.DeepClone()!;
-            foreach (var (key, value) in overObj)
-            {
-                var existing = FindCaseInsensitive(result, key);
-                RemoveCaseInsensitiveKey(result, key);
-
-                if (value is null)
-                {
-                    result[key] = null;
-                    continue;
-                }
-
-                result[key] = existing is JsonObject && value is JsonObject
-                    ? MergeJson(existing, value)
-                    : value.DeepClone();
-            }
-
-            return result;
-        }
-
-        return overlay.DeepClone();
-    }
-
-    private static JsonNode? FindCaseInsensitive(JsonObject obj, string key)
-    {
-        foreach (var (candidate, value) in obj)
-        {
-            if (string.Equals(candidate, key, StringComparison.OrdinalIgnoreCase))
-                return value;
-        }
-
-        return null;
-    }
-
-    private static void RemoveCaseInsensitiveKey(JsonObject obj, string key)
-    {
-        string? match = null;
-        foreach (var candidate in obj)
-        {
-            if (string.Equals(candidate.Key, key, StringComparison.OrdinalIgnoreCase))
-            {
-                match = candidate.Key;
-                break;
-            }
-        }
-
-        if (match is not null)
-            obj.Remove(match);
     }
 }

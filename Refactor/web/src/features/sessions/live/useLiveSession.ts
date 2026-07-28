@@ -17,6 +17,7 @@ import type { CanvasSize } from './CanvasViewportSync'
 import {
   clearProfileId,
   loadEnvOrigins,
+  loadLabInputPathClientTrace,
   loadLabOrigins,
   loadProfileId,
   saveLabOrigins,
@@ -502,11 +503,17 @@ export function useLiveSession({
       counters.lastInputType = input.type
       counters.lastInputAt = performance.now()
       counters.dirty = true
+      if (labOrigins && loadLabInputPathClientTrace()) {
+        log('wire', 'input_path client_sent', {
+          type: input.type,
+          atMs: Math.round(counters.lastInputAt),
+        })
+      }
       void session.sendInput(input).catch((error: unknown) => {
         log('error', `input ${input.type} failed`, error)
       })
     },
-    [log],
+    [labOrigins, log],
   )
 
   const onCanvasLayout = useCallback((size: CanvasSize) => {

@@ -4,9 +4,11 @@ using Aidan.Core.Patterns;
 using Microsoft.Extensions.Logging;
 using Speculum.Api.BrowserClients;
 using Speculum.Api.Configurations.Services.Contracts;
+using Speculum.Api.Journal.Services.Contracts;
 using Speculum.Api.Sessions.Events.Services.Contracts;
 using Speculum.Api.Sessions.Services.Contracts;
 using Speculum.Api.Shared.Services;
+using Speculum.Api.Telemetry.Events.Services.Contracts;
 
 namespace Speculum.Api.Sessions.Services;
 
@@ -21,6 +23,8 @@ public sealed class LiveSessionService : ILiveSessionService
     private readonly IUrlResolver _urls;
     private readonly IConfigurationService _configuration;
     private readonly ISessionEventsFactory _events;
+    private readonly ISessionTelemetryEventsFactory _telemetry;
+    private readonly IJournalCatalog _journalCatalog;
     private readonly ILoggerFactory _loggerFactory;
     /// <summary>
     /// Registry lock only. Must not be the session lifecycle gate — <c>StopSession</c>
@@ -34,6 +38,8 @@ public sealed class LiveSessionService : ILiveSessionService
         IUrlResolver urls,
         IConfigurationService configuration,
         ISessionEventsFactory events,
+        ISessionTelemetryEventsFactory telemetry,
+        IJournalCatalog journalCatalog,
         ILoggerFactory loggerFactory)
     {
         _collector = collector;
@@ -41,6 +47,8 @@ public sealed class LiveSessionService : ILiveSessionService
         _urls = urls;
         _configuration = configuration;
         _events = events;
+        _telemetry = telemetry;
+        _journalCatalog = journalCatalog;
         _loggerFactory = loggerFactory;
     }
 
@@ -92,6 +100,8 @@ public sealed class LiveSessionService : ILiveSessionService
                 requestHost,
                 jsBridgeEnabled,
                 _events.ForSessionLive(sessionId, profileId),
+                _telemetry.ForSession(sessionId, profileId),
+                _journalCatalog,
                 _loggerFactory.CreateLogger<LiveSession>());
 
             if (!_sessions.TryAdd(sessionId, live))

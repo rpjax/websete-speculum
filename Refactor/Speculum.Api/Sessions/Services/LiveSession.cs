@@ -2,11 +2,14 @@ using System.Threading.Channels;
 using Aidan.Core.Patterns;
 using Aidan.Core.Errors;
 using Speculum.Api.BrowserClients;
+using Speculum.Api.Journal.Services.Contracts;
 using Speculum.Api.Sessions.Events.Services.Contracts;
 using Speculum.Api.Sessions.Models;
 using Speculum.Api.Sessions.Requests;
 using Speculum.Api.Sessions.Services.Contracts;
 using Speculum.Api.Shared.Services;
+using Speculum.Api.Telemetry;
+using Speculum.Api.Telemetry.Events.Services.Contracts;
 
 namespace Speculum.Api.Sessions.Services;
 
@@ -23,6 +26,8 @@ internal sealed class LiveSession : ILiveSession
     private readonly ISessionFaultScheduler _faults;
     private readonly IUrlResolver _urls;
     private readonly ISessionLiveEvents _liveEvents;
+    private readonly ISessionTelemetryEvents _telemetry;
+    private readonly IJournalCatalog _journalCatalog;
     private readonly ILogger _logger;
     private readonly string _requestHost;
     private readonly bool _jsBridgeEnabled;
@@ -53,6 +58,8 @@ internal sealed class LiveSession : ILiveSession
         string requestHost,
         bool jsBridgeEnabled,
         ISessionLiveEvents liveEvents,
+        ISessionTelemetryEvents telemetry,
+        IJournalCatalog journalCatalog,
         ILogger logger)
     {
         SessionId = sessionId;
@@ -66,6 +73,8 @@ internal sealed class LiveSession : ILiveSession
         _requestHost = requestHost;
         _jsBridgeEnabled = jsBridgeEnabled;
         _liveEvents = liveEvents;
+        _telemetry = telemetry;
+        _journalCatalog = journalCatalog;
         _logger = logger;
 
         hooks.BindToConnection(connection);
@@ -299,7 +308,7 @@ internal sealed class LiveSession : ILiveSession
                     {
                         try
                         {
-                            _liveEvents.AttachedClientCommandFailed(command, ex);
+                            _telemetry.Client.AttachedCommandFailed(command, ex);
                         }
                         catch (Exception journalEx)
                         {
@@ -388,7 +397,7 @@ internal sealed class LiveSession : ILiveSession
                     SessionId);
                 try
                 {
-                    _liveEvents.AttachedClientCommandFailed("SessionEnded", ex);
+                    _telemetry.Client.AttachedCommandFailed("SessionEnded", ex);
                 }
                 catch (Exception journalEx)
                 {
@@ -415,7 +424,7 @@ internal sealed class LiveSession : ILiveSession
                 case SessionNotificationKind.LocationChanged:
                     if (!string.IsNullOrWhiteSpace(notification.Url))
                     {
-                        _liveEvents.LocationChanged(notification.Url.Trim());
+                        _telemetry.Browse.LocationChanged(notification.Url.Trim());
                     }
 
                     break;
@@ -436,7 +445,7 @@ internal sealed class LiveSession : ILiveSession
                         notification.Phase);
                     break;
                 case SessionNotificationKind.InputRejected:
-                    _liveEvents.InputRejected(
+                    _telemetry.Input.Rejected(
                         notification.ErrorCode,
                         notification.Message,
                         notification.Phase);
@@ -444,9 +453,31 @@ internal sealed class LiveSession : ILiveSession
                 case SessionNotificationKind.InputApplied:
                     if (!string.IsNullOrWhiteSpace(notification.InputKind))
                     {
-                        _liveEvents.InputApplied(
+                        _telemetry.Input.Applied(
                             notification.InputKind.Trim(),
                             notification.Phase);
+                    }
+
+                    break;
+                case SessionNotificationKind.InputPathTrace:
+                    if (string.IsNullOrWhiteSpace(notification.InputKind)
+                        || string.IsNullOrWhiteSpace(notification.Phase))
+                    {
+                        break;
+                    }
+
+                    var pathKind = notification.InputKind.Trim();
+                    switch (notification.Phase.Trim())
+                    {
+                        case "wt_received":
+                            _telemetry.Input.WebTransportReceived(pathKind);
+                            break;
+                        case "grpc_pushed":
+                            _telemetry.Input.SidecarPushWritten(pathKind, null);
+                            break;
+                        case "sidecar_admitted":
+                            _telemetry.Input.SidecarAdmitted(pathKind);
+                            break;
                     }
 
                     break;
@@ -487,6 +518,27 @@ internal sealed class LiveSession : ILiveSession
         => StartInputPump(
             (consumerId, token) => _mux.StartConsoleInputPump(consumerId, channelReader, token),
             ct);
+
+    public void TraceInputPathWtReceived(string kind)
+    {
+        if (string.IsNullOrWhiteSpace(kind)
+            || !_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.InputWebTransportReceived))
+        {
+            return;
+        }
+
+        try
+        {
+            _telemetry.Input.WebTransportReceived(kind.Trim());
+        }
+        catch (Exception journalEx)
+        {
+            _logger.LogWarning(
+                journalEx,
+                "Session {SessionId} failed to journal Telemetry.Sessions.Input.WebTransportReceived.",
+                SessionId);
+        }
+    }
 
     // ── Commands ─────────────────────────────────────────────────────────────
 
@@ -549,13 +601,13 @@ internal sealed class LiveSession : ILiveSession
                 var url = urlResult.Value;
                 try
                 {
-                    _liveEvents.NavigateUrlResolved(url);
+                    _telemetry.Navigate.UrlResolved(url);
                 }
                 catch (Exception journalEx)
                 {
                     _logger.LogWarning(
                         journalEx,
-                        "Session {SessionId} failed to journal NavigateUrlResolved.",
+                        "Session {SessionId} failed to journal Telemetry.Sessions.Navigate.UrlResolved.",
                         SessionId);
                 }
 
@@ -636,7 +688,7 @@ internal sealed class LiveSession : ILiveSession
         {
             if (result.IsSuccess && result.Value.Applied)
             {
-                _liveEvents.ResizeApplied(
+                _telemetry.Resize.Applied(
                     result.Value.Width,
                     result.Value.Height,
                     result.Value.ResizeId ?? requestId);
@@ -646,7 +698,7 @@ internal sealed class LiveSession : ILiveSession
             if (result.IsFailure)
             {
                 var first = result.Errors.FirstOrDefault();
-                _liveEvents.ResizeRejected(
+                _telemetry.Resize.Rejected(
                     requestedWidth,
                     requestedHeight,
                     requestId,
@@ -656,7 +708,7 @@ internal sealed class LiveSession : ILiveSession
                 return;
             }
 
-            _liveEvents.ResizeRejected(
+            _telemetry.Resize.Rejected(
                 requestedWidth,
                 requestedHeight,
                 result.Value.ResizeId ?? requestId,

@@ -348,7 +348,7 @@ function AnalysisDeepDiveSheet({ refEvidence, onClose }: { refEvidence: Evidence
         let ev: TelemetryContextEventRecord[] = []
         try {
           ev = await telemetryApi.listEvents({ since: refEvidence.since, until: refEvidence.until })
-          ev = ev.filter((e) => e.name !== 'Telemetry.SampleCollected').slice(0, 40)
+          ev = ev.filter((e) => e.name !== 'Telemetry.Sampling.SampleCollected').slice(0, 40)
         } catch { /* optional */ }
         if (cancelled) return
         setSampleCount(samples.length)

@@ -6,7 +6,7 @@ using Speculum.Api.Sessions.Events.Services.Contracts;
 namespace Speculum.Api.Sessions.Events.Services;
 
 /// <summary>
-/// Emits live-session runtime observations to the Journal.
+/// Emits domain live-session runtime observations to the Journal.
 /// </summary>
 public sealed class SessionLiveEvents : ISessionLiveEvents
 {
@@ -22,20 +22,6 @@ public sealed class SessionLiveEvents : ISessionLiveEvents
         _writer = writer;
         _sessionId = sessionId;
         _profileId = profileId;
-    }
-
-    public void AttachedClientCommandFailed(string command, Exception exception)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(command);
-        ArgumentNullException.ThrowIfNull(exception);
-
-        _writer.Append(new AttachedClientCommandFailed
-        {
-            SessionId = _sessionId,
-            ProfileId = _profileId,
-            Command = command,
-            Errors = JournalError.From(exception),
-        });
     }
 
     public void FeatureLoopFaulted(Exception exception)
@@ -58,18 +44,6 @@ public sealed class SessionLiveEvents : ISessionLiveEvents
             ProfileId = _profileId,
             Path = path ?? string.Empty,
             Query = query ?? string.Empty,
-        });
-    }
-
-    public void NavigateUrlResolved(string url)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(url);
-
-        _writer.Append(new NavigateUrlResolved
-        {
-            SessionId = _sessionId,
-            ProfileId = _profileId,
-            Url = url,
         });
     }
 
@@ -99,18 +73,6 @@ public sealed class SessionLiveEvents : ISessionLiveEvents
         });
     }
 
-    public void LocationChanged(string url)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(url);
-
-        _writer.Append(new LocationChanged
-        {
-            SessionId = _sessionId,
-            ProfileId = _profileId,
-            Url = url,
-        });
-    }
-
     public void MainFrameNavigationBlocked(string url, string? errorCode, string? message)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(url);
@@ -131,64 +93,6 @@ public sealed class SessionLiveEvents : ISessionLiveEvents
         {
             SessionId = _sessionId,
             ProfileId = _profileId,
-            ErrorCode = errorCode,
-            Message = message,
-            Phase = phase,
-        });
-    }
-
-    public void InputRejected(string? errorCode, string? message, string? phase)
-    {
-        _writer.Append(new InputRejected
-        {
-            SessionId = _sessionId,
-            ProfileId = _profileId,
-            ErrorCode = errorCode,
-            Message = message,
-            Phase = phase,
-        });
-    }
-
-    public void InputApplied(string kind, string? phase)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(kind);
-
-        _writer.Append(new InputApplied
-        {
-            SessionId = _sessionId,
-            ProfileId = _profileId,
-            Kind = kind.Trim(),
-            Phase = phase,
-        });
-    }
-
-    public void ResizeApplied(int width, int height, string? resizeId)
-    {
-        _writer.Append(new ResizeApplied
-        {
-            SessionId = _sessionId,
-            ProfileId = _profileId,
-            Width = width,
-            Height = height,
-            ResizeId = resizeId,
-        });
-    }
-
-    public void ResizeRejected(
-        int? width,
-        int? height,
-        string? resizeId,
-        string? errorCode,
-        string? message,
-        string? phase)
-    {
-        _writer.Append(new ResizeRejected
-        {
-            SessionId = _sessionId,
-            ProfileId = _profileId,
-            Width = width,
-            Height = height,
-            ResizeId = resizeId,
             ErrorCode = errorCode,
             Message = message,
             Phase = phase,

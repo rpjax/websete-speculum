@@ -3,6 +3,7 @@ import {
   ChevronLeft,
   ChevronRight,
   CornerDownLeft,
+  PanelBottomOpen,
   Play,
   Square,
 } from 'lucide-react'
@@ -23,6 +24,10 @@ interface LabToolbarProps {
   onNavigate: () => void
   onStatus: () => void
   onHistory: (direction: 'goback' | 'goforward') => void
+  /** Session Lab: show Debug dock toggle. */
+  debugAvailable?: boolean
+  debugOpen?: boolean
+  onDebugOpenChange?: (open: boolean) => void
 }
 
 const PHASE_LABEL: Record<LabPhase, string> = {
@@ -55,6 +60,9 @@ export function LabToolbar({
   onNavigate,
   onStatus,
   onHistory,
+  debugAvailable = false,
+  debugOpen = false,
+  onDebugOpenChange,
 }: LabToolbarProps) {
   const live = phase === 'live'
   const busy = phase === 'connecting' || phase === 'starting' || phase === 'stopping'
@@ -129,6 +137,19 @@ export function LabToolbar({
         <Button variant="outline" onClick={onStatus} disabled={!live} title="Pull unary SessionStatus">
           <Activity className="h-4 w-4" /> Status
         </Button>
+
+        {debugAvailable && (
+          <Button
+            type="button"
+            variant={debugOpen ? 'default' : 'outline'}
+            onClick={() => onDebugOpenChange?.(!debugOpen)}
+            aria-pressed={debugOpen}
+            title="Open or hide the debug tools dock"
+          >
+            <PanelBottomOpen className="h-4 w-4" />
+            Debug
+          </Button>
+        )}
 
         <Badge variant={phaseVariant(phase)}>{PHASE_LABEL[phase]}</Badge>
       </div>

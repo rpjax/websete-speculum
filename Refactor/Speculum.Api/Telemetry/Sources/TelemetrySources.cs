@@ -1,16 +1,11 @@
 using System.Net.Sockets;
 using System.Text.Json;
-using Microsoft.Extensions.Options;
-using Speculum.Api.BrowserClients;
 using Speculum.Api.Configurations.Models.Telemetry;
-using Speculum.Api.Configurations.Services.Contracts;
-using Speculum.Api.Database;
 using Speculum.Api.Journal.Models;
 using Speculum.Api.Journal.Services;
 using Speculum.Api.Journal.Services.Contracts;
-using Speculum.Api.Profiles.Services.Contracts;
-using Speculum.Api.Sessions.Services.Contracts;
 using Speculum.Api.Telemetry.Models;
+using Speculum.Api.Telemetry.Ports;
 using Speculum.Api.Telemetry.Probes;
 
 namespace Speculum.Api.Telemetry.Sources;
@@ -45,15 +40,13 @@ public sealed class ApiProcessTelemetrySource(ApiProcessResourceProbe probe) : I
     public ApiProcessTelemetry Collect(ApiProcessTelemetryConfiguration options) => probe.Sample(options);
 }
 
-public sealed class SessionsTelemetrySource(
-    ILiveSessionService liveSessions,
-    IConfigurationService configuration) : ISessionsTelemetrySource
+public sealed class SessionsTelemetrySource(ISessionTelemetrySampleSource sessions) : ISessionsTelemetrySource
 {
     public async Task<SessionsTelemetry> CollectAsync(
         SessionTelemetryConfiguration options,
         CancellationToken ct)
     {
-        var snapshots = liveSessions.ListSnapshots();
+        var snapshots = sessions.ListSnapshots();
         var items = options.IncludePerSession
             ? new List<SessionTelemetryItem>(snapshots.Count)
             : null;
@@ -69,18 +62,16 @@ public sealed class SessionsTelemetrySource(
             {
                 try
                 {
-                    if (!liveSessions.TryGet(snapshot.SessionId, out var session))
+                    var status = await sessions.TryGetStatusAsync(snapshot.SessionId, timeout.Token)
+                        .ConfigureAwait(false);
+                    if (status is null)
                         return;
 
-                    var status = await session.GetStatusAsync(timeout.Token).ConfigureAwait(false);
-                    if (!status.IsSuccess)
-                        return;
-
-                    double? currentFps = status.Value.Fps > 0 ? status.Value.Fps : null;
+                    double? currentFps = status.Fps > 0 ? status.Fps : null;
                     string? urlHost = null;
                     if (options.IncludePerSession
                         && options.IncludeUrlHost
-                        && Uri.TryCreate(status.Value.Url, UriKind.Absolute, out var uri))
+                        && Uri.TryCreate(status.Url, UriKind.Absolute, out var uri))
                     {
                         urlHost = uri.Host;
                     }
@@ -126,9 +117,7 @@ public sealed class SessionsTelemetrySource(
         }
 
         var live = snapshots.Count(snapshot => snapshot.ConnectionOpen);
-        var capacity = Math.Max(
-            0,
-            configuration.GetCurrent().ResourceManagement.Sessions.MaxConcurrentSessions);
+        var capacity = Math.Max(0, sessions.GetConfiguredCapacityMax());
         return new SessionsTelemetry(
             snapshots.Count,
             live,
@@ -144,7 +133,7 @@ public sealed class SessionsTelemetrySource(
     }
 }
 
-public sealed class SidecarTelemetrySource(IBrowserClient browser) : ISidecarTelemetrySource
+public sealed class SidecarTelemetrySource(ISidecarTelemetrySampleSource sidecar) : ISidecarTelemetrySource
 {
     public async Task<SidecarTelemetrySample?> CollectAsync(
         SidecarTelemetryConfiguration options,
@@ -152,7 +141,7 @@ public sealed class SidecarTelemetrySource(IBrowserClient browser) : ISidecarTel
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeout.CancelAfter(Math.Clamp(options.TimeoutMs, 100, 60_000));
-        var result = await browser.CollectTelemetryAsync(
+        return await sidecar.CollectAsync(
             new SidecarTelemetryRequest(
                 options.IncludeProcess,
                 options.IncludeEventLoop,
@@ -161,39 +150,18 @@ public sealed class SidecarTelemetrySource(IBrowserClient browser) : ISidecarTel
                 options.IncludeSessionsSummary,
                 options.IncludeFaultedIds),
             timeout.Token).ConfigureAwait(false);
-        return result.IsSuccess ? result.Value : null;
     }
 }
 
-public sealed class ProfilesTelemetrySource(
-    IServiceScopeFactory scopes,
-    IOptions<DatabaseOptions> database,
-    IHostEnvironment environment) : IProfilesTelemetrySource
+public sealed class ProfilesTelemetrySource(IProfileTelemetrySampleSource profiles) : IProfilesTelemetrySource
 {
     public async Task<ProfilesTelemetry> CollectAsync(
         ProfileTelemetryConfiguration options,
         CancellationToken ct)
     {
-        using var scope = scopes.CreateScope();
-        var repository = scope.ServiceProvider.GetRequiredService<IProfileRepository>();
-        var (_, total) = await repository.ListAsync(0, 1, ct).ConfigureAwait(false);
-        return new ProfilesTelemetry(total, options.IncludeStorageBytes ? GetDatabaseSize() : null);
-    }
-
-    private long? GetDatabaseSize()
-    {
-        try
-        {
-            var path = database.Value.Path;
-            if (!Path.IsPathRooted(path))
-                path = Path.Combine(environment.ContentRootPath, path);
-            var file = new FileInfo(path);
-            return file.Exists ? file.Length : 0;
-        }
-        catch
-        {
-            return null;
-        }
+        var (total, storage) = await profiles.CollectAsync(options.IncludeStorageBytes, ct)
+            .ConfigureAwait(false);
+        return new ProfilesTelemetry(total, storage);
     }
 }
 

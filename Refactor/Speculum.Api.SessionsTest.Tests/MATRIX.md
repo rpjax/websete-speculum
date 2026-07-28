@@ -1,8 +1,8 @@
 # SessionsTest MATRIX (Refactor)
 
 Coverage truth for `Category=SessionsTest` in `Speculum.Api.SessionsTest.Tests`.
-Stack: `Refactor/deploy/compose/docker-compose.sessions-test.yml` + explicit journal seed
-(`PUT /api/configurations/Journal` via `seed-sessions-test.sh`).
+Stack: `Refactor/deploy/compose/docker-compose.sessions-test.yml` + explicit Telemetry event seed
+(`PUT /api/configurations/Telemetry` via `seed-sessions-test.sh`).
 
 **Readiness:** C (input) and D (resize) rows below are **deep** Act→Assert coverage —
 effect probes (fixture DOM / Chrome geometry) plus catalogued journal facts, not HTTP
@@ -10,16 +10,16 @@ smoke. CI job `sessions-test` boots the compose stack with `SPECULUM_BYPASS_API_
 and mandatory Sessions/ResourceManagement/Navigation env so `/health/ready` passes
 before seed + `dotnet test --filter Category=SessionsTest`.
 
-Opt-in journal types (`Sessions.InputApplied`, `Sessions.InputRejected`,
-`Sessions.ResizeApplied`, `Sessions.ResizeRejected`) are **off by default** and enabled
-only via `PUT /api/configurations/Journal` (seed script / test baseline).
+Opt-in Telemetry event types (`Telemetry.Sessions.Input.Applied`, `Telemetry.Sessions.Input.Rejected`,
+`Telemetry.Sessions.Resize.Applied`, `Telemetry.Sessions.Resize.Rejected`) are **off by default** and enabled
+only via `PUT /api/configurations/Telemetry` (seed script / test baseline).
 
 | ID | Depth | Assert | Method |
 |----|-------|--------|--------|
-| C1 | deep | mouse click increments `#out[data-clicks]` + `Sessions.InputApplied` | `C1_mouse_click_increments_fixture_counter` |
+| C1 | deep | mouse click increments `#out[data-clicks]` + `Telemetry.Sessions.Input.Applied` | `C1_mouse_click_increments_fixture_counter` |
 | C2 | deep | keydown → `__SPECULUM_LAST_KEY__` | `C2_keydown_reaches_fixture` |
 | C3 | deep | wheel → `__SPECULUM_WHEEL__` | `C3_wheel_sets_fixture_flag` |
-| C4 | deep | invalid `paste` → `Sessions.InputRejected`; click still works | `C4_invalid_input_type_does_not_mutate_page` |
+| C4 | deep | invalid `paste` → `Telemetry.Sessions.Input.Rejected`; click still works | `C4_invalid_input_type_does_not_mutate_page` |
 | C5 | deep | malformed payload → `InputRejected`; session still accepts click | `C5_malformed_json_input_is_ignored` |
 | C6 | deep | touch tap increments clicks (mobile profile) | `C6_touch_tap_increments_fixture_counter` |
 | C7 | deep | touch cancel → cancels≥1, clicks stay 0 | `C7_touch_cancel_does_not_click` |

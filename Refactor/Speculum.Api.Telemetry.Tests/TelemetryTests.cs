@@ -3,6 +3,7 @@ using Speculum.Api.Configurations.Models.Telemetry;
 using Speculum.Api.Configurations.Services.Contracts;
 using Speculum.Api.Journal.Services.Contracts;
 using Speculum.Api.Telemetry;
+using Speculum.Api.Telemetry.Events.Models.Sampling;
 using Speculum.Api.Telemetry.Models;
 using Speculum.Api.Telemetry.Sources;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -180,7 +181,7 @@ public sealed class TelemetryJournalFactsTests
     [Theory]
     [InlineData(TelemetryJournalFacts.SampleCollected, true)]
     [InlineData(TelemetryJournalFacts.SessionSampleCollected, true)]
-    [InlineData("Sessions.InputApplied", false)]
+    [InlineData("Telemetry.Sessions.Input.Applied", true)]
     public void Owns_TelemetryFactTypesOnly(string type, bool expected)
         => Assert.Equal(expected, TelemetryJournalFacts.Owns(type));
 }

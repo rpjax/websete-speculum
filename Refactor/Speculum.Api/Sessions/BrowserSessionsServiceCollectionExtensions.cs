@@ -58,6 +58,9 @@ public static class BrowserSessionsServiceCollectionExtensions
         // sharing this instance deadlocks StopSession (holds gate → Release tries same key).
         services.TryAddSingleton<IAsyncScopedMutex>(_ => new ScopedMutex());
         services.TryAddSingleton<ILiveSessionService, LiveSessionService>();
+        services.TryAddSingleton<
+            Speculum.Api.Telemetry.Ports.ISessionTelemetrySampleSource,
+            Speculum.Api.Sessions.Telemetry.LiveSessionTelemetrySampleSource>();
 
         return services;
     }

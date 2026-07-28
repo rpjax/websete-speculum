@@ -287,12 +287,21 @@ export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.Un
       }));
     },
 
+    watchInputPath(call: grpc.ServerWritableStream<any, any>): void {
+      watchStream(call, registry, (b) => b.inputPath, (e) => ({
+        phase: e.phase,
+        kind: e.kind,
+        unixMs: e.unixMs,
+      }));
+    },
+
     pushInput(call: grpc.ServerReadableStream<any, any>, callback: grpc.sendUnaryData<any>): void {
       pumpClientStream(call, callback, async (msg) => {
         const sid = requireSessionId(msg);
-        const { session } = registry.get(sid);
+        const { session, bridge } = registry.get(sid);
         const input = toBrowserInput(msg);
         await session.pushInput(input);
+        bridge.onInputPathAdmitted(input.type);
       });
     },
 

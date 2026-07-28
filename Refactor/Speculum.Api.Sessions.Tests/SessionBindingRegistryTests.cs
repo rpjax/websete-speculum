@@ -148,6 +148,8 @@ public sealed class SessionBindingRegistryTests
             CancellationToken ct = default)
             => throw new NotSupportedException();
 
+        public void TraceInputPathWtReceived(string kind) { }
+
         public Task<IResult<SessionStatus>> GetStatusAsync(CancellationToken ct = default)
             => throw new NotSupportedException();
 

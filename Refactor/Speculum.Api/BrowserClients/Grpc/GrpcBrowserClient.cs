@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Speculum.Api.Configurations.Models.Sidecar;
 using Speculum.Api.Configurations.Services.Contracts;
+using Speculum.Api.Journal.Services.Contracts;
 using Speculum.Api.Sidecar.V1;
 using Speculum.Api.Telemetry.Models;
 using TelemetryRequest = Speculum.Api.Telemetry.Models.SidecarTelemetryRequest;
@@ -23,6 +24,7 @@ public sealed class GrpcBrowserClient : IBrowserClient, IDisposable
     private readonly GrpcChannel _channel;
     private readonly BrowserSessionService.BrowserSessionServiceClient _client;
     private readonly IConfigurationService _configuration;
+    private readonly IJournalCatalog _journalCatalog;
     private readonly SidecarOptions _options;
     private readonly ILogger<GrpcSessionConnection> _connectionLogger;
     private bool _disposed;
@@ -30,6 +32,7 @@ public sealed class GrpcBrowserClient : IBrowserClient, IDisposable
     public GrpcBrowserClient(
         IOptions<SidecarOptions> options,
         IConfigurationService configuration,
+        IJournalCatalog journalCatalog,
         ILogger<GrpcSessionConnection> connectionLogger)
     {
         _options = options.Value;
@@ -37,6 +40,7 @@ public sealed class GrpcBrowserClient : IBrowserClient, IDisposable
         _channel = GrpcChannel.ForAddress(address);
         _client = new BrowserSessionService.BrowserSessionServiceClient(_channel);
         _configuration = configuration;
+        _journalCatalog = journalCatalog;
         _connectionLogger = connectionLogger;
     }
 
@@ -141,6 +145,7 @@ public sealed class GrpcBrowserClient : IBrowserClient, IDisposable
                 sessionId,
                 _client,
                 _configuration,
+                _journalCatalog,
                 _options,
                 _connectionLogger,
                 id => _connections.TryRemove(id, out _));

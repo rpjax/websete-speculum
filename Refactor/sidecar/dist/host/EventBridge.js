@@ -12,6 +12,8 @@ class EventBridge {
     navigationBlocked = new DropOldestQueue_1.DropOldestQueue(8);
     editableFocus = new DropOldestQueue_1.DropOldestQueue(1);
     crash = new DropOldestQueue_1.DropOldestQueue(4);
+    /** Opt-in path hops for Telemetry.Sessions.Input.SidecarAdmitted (DropOldest). */
+    inputPath = new DropOldestQueue_1.DropOldestQueue(32);
     faulted = false;
     nextCorrId = 1;
     sinkEpoch = 0;
@@ -68,6 +70,14 @@ class EventBridge {
         this.faulted = true;
         this.crash.tryWrite(fault);
     }
+    /** Fire-and-forget admit hop — never blocks PushInput. */
+    onInputPathAdmitted(kind) {
+        this.inputPath.tryWrite({
+            phase: 'admit',
+            kind,
+            unixMs: Date.now(),
+        });
+    }
     get isFaulted() {
         return this.faulted;
     }
@@ -91,6 +101,7 @@ class EventBridge {
         this.navigationBlocked.close();
         this.editableFocus.close();
         this.crash.close();
+        this.inputPath.close();
         for (const [, w] of this.permissionWaiters) {
             w.resolve('deny');
         }

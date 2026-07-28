@@ -249,7 +249,13 @@ internal static class SessionWebTransportEndpoint
             return;
         }
 
-        await ReadMessagesAsync(stream.Transport.Input, channel.Writer, ct);
+        await foreach (var item in ReadMessagesAsync<UserInput>(stream.Transport.Input, ct))
+        {
+            live.TraceInputPathWtReceived(item.Type);
+            // DropOldest: never block the WT reader waiting for buffer space.
+            _ = channel.Writer.TryWrite(item);
+        }
+
         channel.Writer.TryComplete();
         await ObservePumpAsync(consume.Value);
     }

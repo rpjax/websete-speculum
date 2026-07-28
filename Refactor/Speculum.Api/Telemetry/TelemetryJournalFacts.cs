@@ -9,28 +9,55 @@ namespace Speculum.Api.Telemetry;
 /// </summary>
 public static class TelemetryJournalFacts
 {
-    public const string SampleCollected = "Telemetry.SampleCollected";
-    public const string SessionSampleCollected = "Telemetry.SessionSampleCollected";
+    public const string SampleCollected = "Telemetry.Sampling.SampleCollected";
+    public const string SessionSampleCollected = "Telemetry.Sampling.SessionSampleCollected";
+    public const string InputWebTransportReceived = "Telemetry.Sessions.Input.WebTransportReceived";
 
     public static bool Owns(string type)
-        => string.Equals(type, SampleCollected, StringComparison.Ordinal)
-            || string.Equals(type, SessionSampleCollected, StringComparison.Ordinal);
+        => !string.IsNullOrWhiteSpace(type)
+            && type.StartsWith("Telemetry.", StringComparison.Ordinal);
 
     /// <summary>
-    /// Maps Telemetry toggles onto the Journal catalog.
-    /// <list type="bullet">
-    /// <item><description><see cref="TelemetryConfiguration.IsEnabled"/> → <c>Telemetry.SampleCollected</c></description></item>
-    /// <item><description><c>IsEnabled &amp;&amp; Sessions.IncludePerSession</c> → <c>Telemetry.SessionSampleCollected</c></description></item>
-    /// </list>
+    /// Maps Telemetry toggles onto the Journal catalog (sampling + event facts).
     /// </summary>
     public static void ApplyToCatalog(IJournalCatalog catalog, TelemetryConfiguration telemetry)
     {
         ArgumentNullException.ThrowIfNull(catalog);
         ArgumentNullException.ThrowIfNull(telemetry);
 
+        // Sampling
         catalog.SetEnabled(SampleCollected, telemetry.IsEnabled);
         catalog.SetEnabled(
             SessionSampleCollected,
             telemetry.IsEnabled && telemetry.Sessions.IncludePerSession);
+
+        // Event facts — default off unless explicitly listed true in Events map.
+        foreach (var descriptor in catalog.Types)
+        {
+            if (!Owns(descriptor.Type))
+                continue;
+            if (descriptor.Type is SampleCollected or SessionSampleCollected)
+                continue;
+
+            var enabled = telemetry.Events.TryGetValue(descriptor.Type, out var flag) && flag;
+            catalog.SetEnabled(descriptor.Type, enabled);
+        }
+
+        foreach (var (type, _) in telemetry.Events)
+        {
+            if (string.IsNullOrWhiteSpace(type))
+                continue;
+            if (!Owns(type))
+            {
+                throw new InvalidOperationException(
+                    $"Telemetry.Events cannot enable non-Telemetry fact type '{type}'.");
+            }
+
+            if (!catalog.Types.Any(d => string.Equals(d.Type, type, StringComparison.Ordinal)))
+            {
+                throw new InvalidOperationException(
+                    $"Telemetry.Events references unknown Journal fact type '{type}'.");
+            }
+        }
     }
 }

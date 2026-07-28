@@ -216,12 +216,20 @@ function createBrowserSessionHandlers(registry) {
                 phase: f.phase,
             }));
         },
+        watchInputPath(call) {
+            watchStream(call, registry, (b) => b.inputPath, (e) => ({
+                phase: e.phase,
+                kind: e.kind,
+                unixMs: e.unixMs,
+            }));
+        },
         pushInput(call, callback) {
             pumpClientStream(call, callback, async (msg) => {
                 const sid = (0, validate_1.requireSessionId)(msg);
-                const { session } = registry.get(sid);
+                const { session, bridge } = registry.get(sid);
                 const input = (0, mappers_1.toBrowserInput)(msg);
                 await session.pushInput(input);
+                bridge.onInputPathAdmitted(input.type);
             });
         },
         pushCamera(call, callback) {

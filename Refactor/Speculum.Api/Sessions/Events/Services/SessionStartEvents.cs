@@ -6,7 +6,7 @@ using Speculum.Api.Sessions.Events.Services.Contracts;
 namespace Speculum.Api.Sessions.Events.Services;
 
 /// <summary>
-/// Emits durable start checkpoints and named failures.
+/// Emits durable domain start checkpoints and named failures.
 /// </summary>
 public sealed class SessionStartEvents : ISessionStartEvents
 {
@@ -22,15 +22,6 @@ public sealed class SessionStartEvents : ISessionStartEvents
         _writer = writer;
         _sessionId = sessionId;
         _profileId = profileId;
-    }
-
-    public void SlotAcquired()
-    {
-        _writer.Append(new SlotAcquired
-        {
-            SessionId = _sessionId,
-            ProfileId = _profileId,
-        });
     }
 
     public void ConnectionStarted()
@@ -57,16 +48,6 @@ public sealed class SessionStartEvents : ISessionStartEvents
         {
             SessionId = _sessionId,
             ProfileId = _profileId,
-        });
-    }
-
-    public void StartUrlResolved(string url)
-    {
-        _writer.Append(new StartUrlResolved
-        {
-            SessionId = _sessionId,
-            ProfileId = _profileId,
-            Url = url,
         });
     }
 
@@ -98,15 +79,6 @@ public sealed class SessionStartEvents : ISessionStartEvents
         });
     }
 
-    public void NoSlotAvailable()
-    {
-        _writer.Append(new NoSlotAvailable
-        {
-            SessionId = _sessionId,
-            ProfileId = _profileId,
-        });
-    }
-
     public void ConnectionStartFailed(Error[] errors)
     {
         _writer.Append(new ConnectionStartFailed
@@ -130,16 +102,6 @@ public sealed class SessionStartEvents : ISessionStartEvents
     public void RestoreProfileStateFailed(Error[] errors)
     {
         _writer.Append(new RestoreProfileStateFailed
-        {
-            SessionId = _sessionId,
-            ProfileId = _profileId,
-            Errors = JournalError.From(errors),
-        });
-    }
-
-    public void StartUrlResolveFailed(Error[] errors)
-    {
-        _writer.Append(new StartUrlResolveFailed
         {
             SessionId = _sessionId,
             ProfileId = _profileId,

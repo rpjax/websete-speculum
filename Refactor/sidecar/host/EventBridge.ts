@@ -23,6 +23,8 @@ export class EventBridge implements BrowserSessionEvents {
   readonly navigationBlocked = new DropOldestQueue<string>(8);
   readonly editableFocus = new DropOldestQueue<BrowserEditingState | null>(1);
   readonly crash = new DropOldestQueue<BrowserFault>(4);
+  /** Opt-in path hops for Telemetry.Sessions.Input.SidecarAdmitted (DropOldest). */
+  readonly inputPath = new DropOldestQueue<{ phase: string; kind: string; unixMs: number }>(32);
   private faulted = false;
 
   private nextCorrId = 1;
@@ -96,6 +98,15 @@ export class EventBridge implements BrowserSessionEvents {
     this.crash.tryWrite(fault);
   }
 
+  /** Fire-and-forget admit hop — never blocks PushInput. */
+  onInputPathAdmitted(kind: string): void {
+    this.inputPath.tryWrite({
+      phase: 'admit',
+      kind,
+      unixMs: Date.now(),
+    });
+  }
+
   get isFaulted(): boolean {
     return this.faulted;
   }
@@ -120,6 +131,7 @@ export class EventBridge implements BrowserSessionEvents {
     this.navigationBlocked.close();
     this.editableFocus.close();
     this.crash.close();
+    this.inputPath.close();
     for (const [, w] of this.permissionWaiters) {
       w.resolve('deny');
     }

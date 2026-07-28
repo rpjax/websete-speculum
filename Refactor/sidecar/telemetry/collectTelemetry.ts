@@ -101,7 +101,8 @@ export async function collectTelemetry(
           + bridge.location.droppedCount
           + bridge.navigationBlocked.droppedCount
           + bridge.editableFocus.droppedCount
-          + bridge.crash.droppedCount,
+          + bridge.crash.droppedCount
+          + bridge.inputPath.droppedCount,
       };
       },
       { videoDepth: 0, audioDepth: 0, consoleDepth: 0, inputDepth: 0, droppedTotal: 0 },

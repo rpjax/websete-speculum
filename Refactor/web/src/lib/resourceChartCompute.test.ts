@@ -67,7 +67,7 @@ function hostSample(
   host: Record<string, unknown>,
   apiProcess?: Record<string, unknown>,
 ): DiagnosticsEventRecord {
-  return telemetryEvent(utc, 'Telemetry.SampleCollected', { host, apiProcess })
+  return telemetryEvent(utc, 'Telemetry.Sampling.SampleCollected', { host, apiProcess })
 }
 
 describe('filterByTimeRange', () => {
@@ -153,8 +153,8 @@ describe('telemetryToResourceSamples', () => {
 
   it('keeps sessions-only samples and drops empty payloads', () => {
     const out = telemetryToResourceSamples([
-      telemetryEvent(t1, 'Telemetry.SampleCollected', { sessions: { live: 2, avgFps: 30 } }),
-      telemetryEvent(t2, 'Telemetry.SampleCollected', null),
+      telemetryEvent(t1, 'Telemetry.Sampling.SampleCollected', { sessions: { live: 2, avgFps: 30 } }),
+      telemetryEvent(t2, 'Telemetry.Sampling.SampleCollected', null),
     ])
     expect(out).toHaveLength(1)
     expect(out[0].values?.['sessions.live']).toBe(2)
@@ -162,7 +162,7 @@ describe('telemetryToResourceSamples', () => {
 
   it('keeps an API-process-only sample without inventing machine CPU/mem', () => {
     const out = telemetryToResourceSamples([
-      telemetryEvent(t1, 'Telemetry.SampleCollected', {
+      telemetryEvent(t1, 'Telemetry.Sampling.SampleCollected', {
         apiProcess: { cpuUsage: 14, memoryUsed: 96 * 1024 * 1024, threadCount: 11, gcHeap: 32 * 1024 * 1024 },
       }),
     ])
@@ -175,7 +175,7 @@ describe('telemetryToResourceSamples', () => {
     expect(out[0].values?.['host.cpu']).toBeNull()
   })
 
-  it('ignores events that are not Telemetry.SampleCollected', () => {
+  it('ignores events that are not Telemetry.Sampling.SampleCollected', () => {
     const out = telemetryToResourceSamples([
       telemetryEvent(t1, 'Telemetry.Other', { host: { cpuUsage: 10 } }),
       hostSample(t2, { cpuUsage: 5, memoryUsed: 64 * 1024 * 1024 }, { threadCount: 10 }),
@@ -217,7 +217,7 @@ describe('METRICS', () => {
 describe('telemetryToResourceSamples — composite sections', () => {
   const t1 = '2026-01-01T12:00:00.000Z'
   function composite(host: Record<string, unknown>, sessions?: Record<string, unknown>) {
-    return telemetryEvent(t1, 'Telemetry.SampleCollected', { host, sessions })
+    return telemetryEvent(t1, 'Telemetry.Sampling.SampleCollected', { host, sessions })
   }
 
   it('flattens sessions + derived per-session metrics into values', () => {
@@ -439,7 +439,7 @@ describe('catalog — expanded fields', () => {
   })
 
   it('flattens new fields from composite samples', () => {
-    const evt = telemetryEvent(new Date().toISOString(), 'Telemetry.SampleCollected', {
+    const evt = telemetryEvent(new Date().toISOString(), 'Telemetry.Sampling.SampleCollected', {
       host: { cpuUsage: 40, memoryUsed: 512 * 1024 * 1024, memoryTotal: 1024 * 1024 * 1024 },
       apiProcess: { threadCount: 20 },
       sessions: { live: 4, total: 4, maxFps: 28, avgFps: 20, minFps: 10, capacityUsedPct: 20 },

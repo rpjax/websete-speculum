@@ -16,6 +16,9 @@ public static class BrowserClientsServiceCollectionExtensions
             .ValidateOnStart();
 
         services.AddSingleton<IBrowserClient, GrpcBrowserClient>();
+        services.AddSingleton<
+            Speculum.Api.Telemetry.Ports.ISidecarTelemetrySampleSource,
+            Speculum.Api.BrowserClients.Telemetry.SidecarTelemetrySampleSource>();
         return services;
     }
 }

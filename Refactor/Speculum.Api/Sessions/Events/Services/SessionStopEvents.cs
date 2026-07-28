@@ -6,7 +6,7 @@ using Speculum.Api.Sessions.Events.Services.Contracts;
 namespace Speculum.Api.Sessions.Events.Services;
 
 /// <summary>
-/// Emits durable stop checkpoints and soft failures.
+/// Emits durable domain stop checkpoints and soft failures.
 /// </summary>
 public sealed class SessionStopEvents : ISessionStopEvents
 {
@@ -27,24 +27,6 @@ public sealed class SessionStopEvents : ISessionStopEvents
     public void SessionStatePersisted()
     {
         _writer.Append(new SessionStatePersisted
-        {
-            SessionId = _sessionId,
-            ProfileId = _profileId,
-        });
-    }
-
-    public void PersistSkippedNoConnection()
-    {
-        _writer.Append(new PersistSkippedNoConnection
-        {
-            SessionId = _sessionId,
-            ProfileId = _profileId,
-        });
-    }
-
-    public void PersistSkippedProfileNotFound()
-    {
-        _writer.Append(new PersistSkippedProfileNotFound
         {
             SessionId = _sessionId,
             ProfileId = _profileId,
@@ -93,15 +75,6 @@ public sealed class SessionStopEvents : ISessionStopEvents
     public void ConnectionClosed()
     {
         _writer.Append(new ConnectionClosed
-        {
-            SessionId = _sessionId,
-            ProfileId = _profileId,
-        });
-    }
-
-    public void SlotReleased()
-    {
-        _writer.Append(new SlotReleased
         {
             SessionId = _sessionId,
             ProfileId = _profileId,

@@ -35,6 +35,9 @@ public static class ProfilesServiceCollectionExtensions
         services.TryAddScoped<IProfileRepository, EfProfileRepository>();
         services.TryAddScoped<IProfileService, ProfileService>();
         services.TryAddSingleton<IProfileEventsFactory, ProfileEventsFactory>();
+        services.TryAddSingleton<
+            Speculum.Api.Telemetry.Ports.IProfileTelemetrySampleSource,
+            Speculum.Api.Profiles.Telemetry.ProfileTelemetrySampleSource>();
 
         return services;
     }

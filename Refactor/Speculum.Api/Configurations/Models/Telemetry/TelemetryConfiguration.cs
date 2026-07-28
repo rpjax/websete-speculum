@@ -1,10 +1,9 @@
 namespace Speculum.Api.Configurations.Models.Telemetry;
 
 /// <summary>
-/// Periodic composite sample settings. Applied as engine section <see cref="SectionName"/>.
-/// Independent of Diagnostics — sink is Journal (<c>Telemetry.SampleCollected</c>).
-/// On Apply, <c>IsEnabled</c> / <c>Sessions.IncludePerSession</c> drive Journal catalog
-/// enablement for Telemetry-owned fact types (see <c>TelemetryJournalFacts</c>).
+/// Periodic composite sample settings plus opt-in Telemetry event fact toggles.
+/// Applied as engine section <see cref="SectionName"/>.
+/// Independent of Diagnostics — sink is Journal.
 /// </summary>
 public sealed class TelemetryConfiguration
 {
@@ -25,6 +24,12 @@ public sealed class TelemetryConfiguration
     public ProfileTelemetryConfiguration Profiles { get; init; } = new();
     public JournalTelemetryConfiguration Journal { get; init; } = new();
     public DockerTelemetryConfiguration Docker { get; init; } = new();
+
+    /// <summary>
+    /// Opt-in Telemetry event facts (not sampling). Key = catalog type
+    /// (e.g. <c>Telemetry.Sessions.Input.WebTransportReceived</c>). Omitted = off.
+    /// </summary>
+    public Dictionary<string, bool> Events { get; init; } = new(StringComparer.Ordinal);
 
     public static int ClampIntervalSeconds(int intervalSeconds)
         => Math.Clamp(intervalSeconds, MinIntervalSeconds, MaxIntervalSeconds);

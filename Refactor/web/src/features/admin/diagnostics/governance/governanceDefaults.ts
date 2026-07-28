@@ -1,5 +1,8 @@
 import { DIAGNOSTICS_PRESETS } from '@/lib/diagnosticsConstants'
 import type { DiagnosticsOptions, DiagnosticsProfile } from '@/lib/diagnosticsApi'
+import { normalizeTelemetrySection, serializeTelemetryForApi } from './governanceTelemetry'
+
+export { serializeTelemetryForApi }
 
 export const DEFAULT_CONFIG: DiagnosticsOptions = {
   enabled: true,
@@ -83,17 +86,7 @@ export function mergeDiagnosticsConfig(section: Partial<DiagnosticsOptions> | nu
       browserQuery: { ...DEFAULT_CONFIG.domains.browserQuery, ...section?.domains?.browserQuery },
       persisted: { ...DEFAULT_CONFIG.domains.persisted, ...section?.domains?.persisted },
     },
-    telemetry: {
-      ...DEFAULT_CONFIG.telemetry,
-      ...section?.telemetry,
-      host: { ...DEFAULT_CONFIG.telemetry.host, ...section?.telemetry?.host },
-      apiProcess: { ...DEFAULT_CONFIG.telemetry.apiProcess, ...section?.telemetry?.apiProcess },
-      sessions: { ...DEFAULT_CONFIG.telemetry.sessions, ...section?.telemetry?.sessions },
-      sidecar: { ...DEFAULT_CONFIG.telemetry.sidecar, ...section?.telemetry?.sidecar },
-      profiles: { ...DEFAULT_CONFIG.telemetry.profiles, ...section?.telemetry?.profiles },
-      journal: { ...DEFAULT_CONFIG.telemetry.journal, ...section?.telemetry?.journal },
-      docker: { ...DEFAULT_CONFIG.telemetry.docker, ...section?.telemetry?.docker },
-    },
+    telemetry: normalizeTelemetrySection(section?.telemetry, DEFAULT_CONFIG.telemetry),
     storage: { ...DEFAULT_CONFIG.storage, ...section?.storage },
     sampling: { ...DEFAULT_CONFIG.sampling, ...section?.sampling },
     elevate: { ...DEFAULT_CONFIG.elevate, ...section?.elevate },

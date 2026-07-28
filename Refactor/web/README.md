@@ -39,8 +39,9 @@ React **single-page application** for the Speculum motor, first-run setup, and a
 
 | Path | Feature | Auth |
 |------|---------|------|
-| `/` | Session lab — shared viewport + debug tools (navigate, journal, wire) | — |
-| `/live` | Immersive canvas-only — same session client/viewport as `/`, no debug chrome | — |
+| `/` | **Prod:** immersive canvas only (like a normal site). **Vite DEV:** Session lab | — |
+| `/lab` | Session lab — canvas + debug dock (Journal, Config, Wire, …) | — |
+| `/live` | Immersive canvas-only (alias of prod `/`) | — |
 | `/setup` | Guided first-run wizard | — |
 | `/admin/login` | Admin login | — |
 | `/admin` | Dashboard overview (health + needs attention) | Bearer |

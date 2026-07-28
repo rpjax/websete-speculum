@@ -29,7 +29,7 @@ public sealed class ResizeAssertTests : SessionsTestBase
         Assert.Equal(2160, result.DisplayHeight);
         Assert.NotEqual(result.Width, result.DisplayWidth);
 
-        await act.WaitJournalAsync("Sessions.ResizeApplied", TimeSpan.FromSeconds(15));
+        await act.WaitJournalAsync("Telemetry.Sessions.Resize.Applied", TimeSpan.FromSeconds(15));
         await act.WaitEvaluateContainsAsync(
             "window.innerWidth === 757 && window.innerHeight === 715",
             "true");
@@ -53,7 +53,7 @@ public sealed class ResizeAssertTests : SessionsTestBase
         Assert.NotNull(result.DisplayHeight);
         Assert.Equal(4096, result.DisplayWidth);
         Assert.Equal(2160, result.DisplayHeight);
-        await act.WaitJournalAsync("Sessions.ResizeRejected", TimeSpan.FromSeconds(15));
+        await act.WaitJournalAsync("Telemetry.Sessions.Resize.Rejected", TimeSpan.FromSeconds(15));
 
         // Prior logical size kept exactly — not a weak ≥100 smoke.
         await act.WaitEvaluateContainsAsync(

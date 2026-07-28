@@ -22,7 +22,7 @@ export function LabEventFeed({ entries }: { entries: LabLogEntry[] }) {
   }
 
   return (
-    <ol className="max-h-[420px] space-y-1 overflow-y-auto pr-1">
+    <ol className="space-y-1 pr-1">
       {entries.map((entry) => (
         <li
           key={entry.id}

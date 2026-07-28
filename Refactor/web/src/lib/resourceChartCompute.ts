@@ -476,14 +476,14 @@ const toMb = (bytes: number | null) => (bytes != null ? Math.round(bytes / (1024
 const toGb = (bytes: number | null) => (bytes != null ? Math.round((bytes / 1024 ** 3) * 10) / 10 : null)
 
 /**
- * Flattens `Telemetry.SampleCollected` events into rich {@link ResourceSample}s: every section
+ * Flattens `Telemetry.Sampling.SampleCollected` events into rich {@link ResourceSample}s: every section
  * (machine/API process/sessions/sidecar/profiles/journal/docker) is projected into the `values` map keyed by catalog
  * metric key, plus derived per-session efficiency metrics. A sample is retained when **any** section is
  * present so independently toggled sections still share a time axis.
  */
 export function telemetryToResourceSamples(events: DiagnosticsEventRecord[]): ResourceSample[] {
   return events
-    .filter((e) => e.name === 'Telemetry.SampleCollected')
+    .filter((e) => e.name === 'Telemetry.Sampling.SampleCollected')
     .map((evt): ResourceSample | null => {
       const payload = evt.payload as Record<string, unknown> | null
       const host = (payload?.host ?? null) as Record<string, unknown> | null

@@ -167,7 +167,7 @@ export interface DiagnosticsEventRecord {
   redaction: string
 }
 
-/* ── Telemetry composite sample (payload of Telemetry.SampleCollected) ── */
+/* ── Telemetry composite sample (payload of Telemetry.Sampling.SampleCollected) ── */
 
 /** Machine/VPS resources. Opt-in fields are null/absent when their include* toggle is off. */
 export interface HostTelemetry {
@@ -374,6 +374,8 @@ export interface DiagnosticsDomainToggles {
 export interface DiagnosticsTelemetryOptions {
   enabled: boolean
   intervalSeconds: number
+  /** Opt-in Telemetry event facts (Telemetry.Sessions.*). Omitted/off by default. */
+  events: Record<string, boolean>
   host: {
     enabled: boolean
     procPath: string

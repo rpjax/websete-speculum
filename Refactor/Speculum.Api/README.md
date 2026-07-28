@@ -173,6 +173,7 @@ HTTP requests to `/vtransport` are rejected with `426 Upgrade Required`.
 | ◐ | Console/control output | Console and eval results use typed envelopes; location/blocked drive hub SyncUrl/Redirect via attached client; focus/crash still on notification pipe | Reverse URL projection still ○ |
 | ✅ | Status poll | Unary status includes engine JsBridge state, session id and relay uptime | `ILiveSession.GetStatusAsync`; fps is measured from relay-observed video frames |
 | ✅ | User input | Typed `UserInput` envelopes carry validated mouse, keyboard, wheel, text and touch payloads through mux → gRPC | Invalid payloads emit `InputRejected` and do not kill the session |
+| ✅ | Input path hops (opt-in) | Journal facts `Telemetry.Sessions.Input.WebTransportReceived` / `SidecarPushWritten` / `SidecarAdmitted` locate a dead input stream | Lab Telemetry event toggles; Wire `client_sent` is a separate localStorage toggle |
 | ✅ | Console input | Stable `{ id, code }` eval request and typed eval-result envelope | JsBridge-gated; disabled requests are rejected without stopping the session |
 | ✅ | Input validation | Malformed MessagePack/JSON and blocked input types are rejected; session stays alive | WebTransport framing limits + gRPC input mapping |
 | ◐ | Touch gestures | Touch points/phases reach the sidecar | Exclusive gesture ownership/scheduling remains |
@@ -505,7 +506,7 @@ application-layer orchestration, then mark the feature ✅/◐ here.
   one in-memory context per live connection (typed streams, commands, hooks, Attach/Detach).
   Start success order: persist Live → `Create(sessionId, connection, requestHost, jsBridgeEnabled)` →
   collector `Watch` → `Attach(IAttachedSessionClient)` → binding `TryPromote`.
-  Live runtime push failures journal `Sessions.AttachedClientCommandFailed` (BestEffort)
+  Live runtime push failures journal `Telemetry.Sessions.Client.AttachedCommandFailed` (BestEffort)
   and `Sessions.FeatureLoopFaulted` (Guaranteed); ILogger remains the operational log path.
   Stop order: persist best-effort → MarkStopped → live `Release` → `Unwatch` →
   StopBrowser → Close → slot release. Host registers `ISessionService` with `IUrlResolver`;

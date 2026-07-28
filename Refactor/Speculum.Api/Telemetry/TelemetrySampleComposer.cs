@@ -1,5 +1,5 @@
 using Speculum.Api.Configurations.Models.Telemetry;
-using Speculum.Api.Telemetry.Models;
+using Speculum.Api.Telemetry.Events.Models.Sampling;
 using Speculum.Api.Telemetry.Sources;
 
 namespace Speculum.Api.Telemetry;

@@ -88,6 +88,32 @@ public sealed class SessionBindingRegistry : ISessionBindingRegistry, IDisposabl
         return entry is not null;
     }
 
+    public int CancelAllStarts()
+    {
+        List<Entry> entries;
+        lock (_gate)
+        {
+            entries = [];
+            foreach (var pair in _byCaller.ToArray())
+            {
+                if (pair.Value.IsLive)
+                {
+                    continue;
+                }
+
+                _byCaller.Remove(pair.Key);
+                entries.Add(pair.Value);
+            }
+        }
+
+        foreach (var entry in entries)
+        {
+            CloseEntry(entry);
+        }
+
+        return entries.Count;
+    }
+
     public void CompleteStart(Guid sessionId)
     {
         Entry? entry;

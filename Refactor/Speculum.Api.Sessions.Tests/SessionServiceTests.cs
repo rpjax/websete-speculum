@@ -52,6 +52,7 @@ public sealed class SessionServiceTests
             new ScopedMutex(),
             new SessionBindingRegistry(live),
             new SessionsTestHarness.StaticConfigurationService(SessionsTestHarness.Engine()),
+            new NoOpSessionDrainOrchestrator(),
             new LaunchScriptResolver());
 
         var result = await service.StartSessionAsync(SessionsTestHarness.Start(profileId));
@@ -103,6 +104,7 @@ public sealed class SessionServiceTests
             new ScopedMutex(),
             new SessionBindingRegistry(live),
             configuration,
+            new NoOpSessionDrainOrchestrator(),
             new LaunchScriptResolver());
 
         var result = await service.StartSessionAsync(SessionsTestHarness.Start(profileId));
@@ -111,6 +113,49 @@ public sealed class SessionServiceTests
         Assert.Contains(
             result.Errors,
             e => e.Message?.Contains("Pending config", StringComparison.Ordinal) == true);
+    }
+
+    [Fact]
+    public async Task StartSession_WhenDraining_Fails()
+    {
+        var profileId = Guid.NewGuid();
+        var profiles = new InMemoryProfileRepository();
+        await profiles.SaveAsync(Profile.Create(profileId));
+
+        var live = CreateLiveSessionService(
+            new FixedUrlResolver("https://example.test/"),
+            new RecordingCollector());
+        var service = new SessionService(
+            profiles,
+            new InMemorySessionRepository(),
+            new SessionSlotRegistry(SessionsTestHarness.Configuration()),
+            new RecordingCollector(),
+            live,
+            new FixedUrlResolver("https://example.test/"),
+            new NoOpSessionEventsFactory(),
+            new NoOpSessionTelemetryEventsFactory(),
+            new FakeBrowserClient(),
+            new FixedSessionTokenGenerator("tok"),
+            new ScopedMutex(),
+            new SessionBindingRegistry(live),
+            new SessionsTestHarness.StaticConfigurationService(SessionsTestHarness.Engine()),
+            new AlwaysDrainingOrchestrator(),
+            new LaunchScriptResolver());
+
+        var result = await service.StartSessionAsync(SessionsTestHarness.Start(profileId));
+
+        Assert.True(result.IsFailure);
+        Assert.Contains(
+            result.Errors,
+            e => e.Message?.Contains("draining", StringComparison.OrdinalIgnoreCase) == true);
+    }
+
+    private sealed class AlwaysDrainingOrchestrator : ISessionDrainOrchestrator
+    {
+        public bool IsDraining => true;
+
+        public Task DrainAsync(SessionDrainRequest request, CancellationToken ct = default)
+            => Task.CompletedTask;
     }
 
     [Fact]
@@ -140,6 +185,7 @@ public sealed class SessionServiceTests
             new ScopedMutex(),
             bindings,
             new SessionsTestHarness.StaticConfigurationService(SessionsTestHarness.Engine()),
+            new NoOpSessionDrainOrchestrator(),
             new LaunchScriptResolver());
         var firstRequest = SessionsTestHarness.Start(profileId);
         firstRequest.CallerId = "caller";
@@ -187,6 +233,7 @@ public sealed class SessionServiceTests
             new ScopedMutex(),
             new SessionBindingRegistry(live),
             new SessionsTestHarness.StaticConfigurationService(SessionsTestHarness.Engine()),
+            new NoOpSessionDrainOrchestrator(),
             new LaunchScriptResolver());
 
         var started = await service.StartSessionAsync(SessionsTestHarness.Start(profileId));
@@ -237,6 +284,7 @@ public sealed class SessionServiceTests
             new ScopedMutex(),
             new SessionBindingRegistry(live),
             new SessionsTestHarness.StaticConfigurationService(SessionsTestHarness.Engine()),
+            new NoOpSessionDrainOrchestrator(),
             new LaunchScriptResolver());
 
         var result = await service.StartSessionAsync(SessionsTestHarness.Start(profileId));
@@ -274,6 +322,7 @@ public sealed class SessionServiceTests
             new ScopedMutex(),
             new SessionBindingRegistry(live),
             new SessionsTestHarness.StaticConfigurationService(SessionsTestHarness.Engine()),
+            new NoOpSessionDrainOrchestrator(),
             new LaunchScriptResolver());
 
         var result = await service.StartSessionAsync(SessionsTestHarness.Start(Guid.NewGuid()));
@@ -309,6 +358,7 @@ public sealed class SessionServiceTests
                 Sessions = SessionsTestHarness.Sessions(),
                 ResourceManagement = SessionsTestHarness.ResourceManagement(),
             }),
+            new NoOpSessionDrainOrchestrator(),
             new LaunchScriptResolver());
 
         var result = await service.StartSessionAsync(SessionsTestHarness.Start(profileId));

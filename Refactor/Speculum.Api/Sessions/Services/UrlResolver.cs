@@ -48,7 +48,8 @@ public sealed class UrlResolver : IUrlResolver
             defaultTargetHost,
             configuration.Hosting.Domains,
             configuration.Navigation.AllowedMainFrameUrls,
-            navigationState.Value);
+            navigationState.Value,
+            path);
         if (targetHost.IsFailure)
         {
             return Result<string>.Failure(targetHost.Errors.ToArray());
@@ -198,7 +199,11 @@ public sealed class UrlResolver : IUrlResolver
         string defaultTargetHost,
         IReadOnlyList<UrlMatchRule> allowedUrls)
     {
-        var stateHost = BuildNavigationStateHost(targetHost, defaultTargetHost, allowedUrls);
+        var stateHost = BuildNavigationStateHost(
+            targetHost,
+            targetUri.AbsolutePath,
+            defaultTargetHost,
+            allowedUrls);
         if (stateHost.IsFailure)
         {
             return Result<string>.Failure(stateHost.Errors.ToArray());
@@ -220,6 +225,7 @@ public sealed class UrlResolver : IUrlResolver
 
     private static IResult<string> BuildNavigationStateHost(
         string targetHost,
+        string path,
         string defaultTargetHost,
         IReadOnlyList<UrlMatchRule> allowedUrls)
     {
@@ -231,7 +237,7 @@ public sealed class UrlResolver : IUrlResolver
         if (!TryGetTargetApex(defaultTargetHost, allowedUrls, out var apex))
         {
             // Open allowlist / no apex: store the full target host in NSO.
-            if (IsAllowedTargetHost(targetHost, defaultTargetHost, allowedUrls))
+            if (IsAllowedTarget(targetHost, path, defaultTargetHost, allowedUrls))
             {
                 return Result<string>.Success(targetHost);
             }
@@ -252,7 +258,7 @@ public sealed class UrlResolver : IUrlResolver
             return Result<string>.Success(sub);
         }
 
-        if (IsAllowedTargetHost(targetHost, defaultTargetHost, allowedUrls))
+        if (IsAllowedTarget(targetHost, path, defaultTargetHost, allowedUrls))
         {
             return Result<string>.Success(targetHost);
         }
@@ -272,7 +278,8 @@ public sealed class UrlResolver : IUrlResolver
         string defaultTargetHost,
         IReadOnlyList<DomainConfiguration> hostingDomains,
         IReadOnlyList<UrlMatchRule> allowedUrls,
-        NavigationState? navigationState)
+        NavigationState? navigationState,
+        string path)
     {
         foreach (var profile in hostingDomains)
         {
@@ -293,7 +300,9 @@ public sealed class UrlResolver : IUrlResolver
                 if (isApex)
                 {
                     // Mirroring ignores NSO; the apex session host maps to the bootstrap host.
-                    return Result<string>.Success(defaultTargetHost);
+                    return IsAllowedTarget(defaultTargetHost, path, defaultTargetHost, allowedUrls)
+                        ? Result<string>.Success(defaultTargetHost)
+                        : Result<string>.Failure("Target path is not allowed");
                 }
 
                 if (isWww || isSubdomain)
@@ -301,7 +310,7 @@ public sealed class UrlResolver : IUrlResolver
                     var subdomain = isWww
                         ? "www"
                         : requestHost[..^suffix.Length];
-                    return ResolveMirroredTarget(subdomain, defaultTargetHost, allowedUrls);
+                    return ResolveMirroredTarget(subdomain, defaultTargetHost, allowedUrls, path);
                 }
 
                 continue;
@@ -309,17 +318,18 @@ public sealed class UrlResolver : IUrlResolver
 
             if (isApex || isWww)
             {
-                return ResolveApexTarget(defaultTargetHost, allowedUrls, navigationState);
+                return ResolveApexTarget(defaultTargetHost, allowedUrls, navigationState, path);
             }
         }
 
-        return ResolveApexTarget(defaultTargetHost, allowedUrls, navigationState);
+        return ResolveApexTarget(defaultTargetHost, allowedUrls, navigationState, path);
     }
 
     private static IResult<string> ResolveMirroredTarget(
         string subdomain,
         string defaultTargetHost,
-        IReadOnlyList<UrlMatchRule> allowedUrls)
+        IReadOnlyList<UrlMatchRule> allowedUrls,
+        string path)
     {
         if (!TryGetTargetApex(defaultTargetHost, allowedUrls, out var apex))
         {
@@ -328,20 +338,23 @@ public sealed class UrlResolver : IUrlResolver
         }
 
         var candidate = $"{subdomain}.{apex}";
-        return IsAllowedTargetHost(candidate, defaultTargetHost, allowedUrls)
+        return IsAllowedTarget(candidate, path, defaultTargetHost, allowedUrls)
             ? Result<string>.Success(candidate)
-            : Result<string>.Failure("Mirrored target host is not allowed");
+            : Result<string>.Failure("Mirrored target host or path is not allowed");
     }
 
     private static IResult<string> ResolveApexTarget(
         string defaultTargetHost,
         IReadOnlyList<UrlMatchRule> allowedUrls,
-        NavigationState? navigationState)
+        NavigationState? navigationState,
+        string path)
     {
         var stateHost = navigationState?.Host.Trim().ToLowerInvariant();
         if (string.IsNullOrEmpty(stateHost))
         {
-            return Result<string>.Success(defaultTargetHost);
+            return IsAllowedTarget(defaultTargetHost, path, defaultTargetHost, allowedUrls)
+                ? Result<string>.Success(defaultTargetHost)
+                : Result<string>.Failure("Target path is not allowed");
         }
 
         string candidate;
@@ -361,9 +374,9 @@ public sealed class UrlResolver : IUrlResolver
         }
 
         return IsValidHost(candidate)
-            && IsAllowedTargetHost(candidate, defaultTargetHost, allowedUrls)
+            && IsAllowedTarget(candidate, path, defaultTargetHost, allowedUrls)
                 ? Result<string>.Success(candidate)
-                : Result<string>.Failure("Navigation state target host is invalid or not allowed");
+                : Result<string>.Failure("Navigation state target host or path is invalid or not allowed");
     }
 
     private static string StripNavigationState(string query)
@@ -486,23 +499,83 @@ public sealed class UrlResolver : IUrlResolver
         return IsValidHost(host);
     }
 
-    private static bool IsAllowedTargetHost(
+    private static bool IsAllowedTarget(
         string host,
+        string path,
         string defaultTargetHost,
         IReadOnlyList<UrlMatchRule> allowedUrls)
     {
-        if (host.Equals(defaultTargetHost, StringComparison.OrdinalIgnoreCase))
+        if (allowedUrls.Any(rule => RuleMatches(rule, host, path)))
         {
             return true;
         }
 
-        // Operator-configured open allowlist: Domain.Scope = Any admits any valid host.
-        if (allowedUrls.Any(rule => rule.Domain.Scope == PatternScope.Any))
+        // Bootstrap host: allowed unless a path-scoped rule covers this host (then a rule must match).
+        if (!host.Equals(defaultTargetHost, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return !allowedUrls.Any(rule =>
+            rule.Path.Scope == PatternScope.Pattern
+            && (rule.Domain.Scope == PatternScope.Any || Matches(rule.Domain, host)));
+    }
+
+    private static bool RuleMatches(UrlMatchRule rule, string host, string path)
+    {
+        var domainOk = rule.Domain.Scope == PatternScope.Any || Matches(rule.Domain, host);
+        return domainOk && MatchesPath(rule.Path, path);
+    }
+
+    private static bool MatchesPath(PathPattern pathPattern, string path)
+    {
+        if (pathPattern.Scope != PatternScope.Pattern)
         {
             return true;
         }
 
-        return allowedUrls.Any(rule => Matches(rule.Domain, host));
+        var segments = SplitPathSegments(path);
+        var expected = pathPattern.Segments;
+        if (pathPattern.MatchType == PathMatchType.Exact)
+        {
+            if (segments.Count != expected.Count)
+            {
+                return false;
+            }
+        }
+        else if (segments.Count < expected.Count)
+        {
+            return false;
+        }
+
+        for (var i = 0; i < expected.Count; i++)
+        {
+            var pattern = expected[i];
+            var value = segments[i];
+            if (pattern.Match == PatternPartMatch.Any)
+            {
+                continue;
+            }
+
+            if (pattern.Match != PatternPartMatch.Exact
+                || !string.Equals(pattern.Value.Trim(), value, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static IReadOnlyList<string> SplitPathSegments(string path)
+    {
+        if (string.IsNullOrEmpty(path) || path == "/")
+        {
+            return Array.Empty<string>();
+        }
+
+        return path.Trim('/')
+            .Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
     }
 
     private static bool Matches(DomainPattern domain, string host)

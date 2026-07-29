@@ -220,6 +220,94 @@ public sealed class UrlResolverTests
     }
 
     [Fact]
+    public void Resolve_PathPrefixAllowlist_RejectsOutsidePath()
+    {
+        var configuration = SessionsTestHarness.Engine("www.target.test");
+        configuration.Navigation = new NavigationConfiguration
+        {
+            DefaultTargetHost = "www.target.test",
+            AllowedMainFrameUrls =
+            [
+                new UrlMatchRule
+                {
+                    Domain = ExactDomain("shop", "target", "test"),
+                    Path = new PathPattern
+                    {
+                        Scope = PatternScope.Pattern,
+                        MatchType = PathMatchType.Prefix,
+                        Segments =
+                        [
+                            new PathSegmentPattern
+                            {
+                                Match = PatternPartMatch.Exact,
+                                Value = "catalog",
+                            },
+                        ],
+                    },
+                },
+                ExactDomainRule("target", "test"),
+            ],
+        };
+        var resolver = new UrlResolver(
+            new SessionsTestHarness.StaticConfigurationService(configuration));
+
+        var allowed = resolver.Resolve(
+            "/catalog/item",
+            $"_w7s_nso={EncodeNavigationState("shop.target.test")}",
+            "speculum.test");
+        Assert.True(allowed.IsSuccess);
+        Assert.Equal("https://shop.target.test/catalog/item", allowed.Value);
+
+        var blocked = resolver.Resolve(
+            "/checkout",
+            $"_w7s_nso={EncodeNavigationState("shop.target.test")}",
+            "speculum.test");
+        Assert.True(blocked.IsFailure);
+    }
+
+    [Fact]
+    public void Resolve_PathExactAllowlist_RejectsDeeperPath()
+    {
+        var configuration = SessionsTestHarness.Engine("www.target.test");
+        configuration.Navigation = new NavigationConfiguration
+        {
+            DefaultTargetHost = "www.target.test",
+            AllowedMainFrameUrls =
+            [
+                new UrlMatchRule
+                {
+                    Domain = ExactDomain("shop", "target", "test"),
+                    Path = new PathPattern
+                    {
+                        Scope = PatternScope.Pattern,
+                        MatchType = PathMatchType.Exact,
+                        Segments =
+                        [
+                            new PathSegmentPattern
+                            {
+                                Match = PatternPartMatch.Exact,
+                                Value = "only",
+                            },
+                        ],
+                    },
+                },
+                ExactDomainRule("target", "test"),
+            ],
+        };
+        var resolver = new UrlResolver(
+            new SessionsTestHarness.StaticConfigurationService(configuration));
+
+        Assert.True(resolver.Resolve(
+            "/only",
+            $"_w7s_nso={EncodeNavigationState("shop.target.test")}",
+            "speculum.test").IsSuccess);
+        Assert.True(resolver.Resolve(
+            "/only/nested",
+            $"_w7s_nso={EncodeNavigationState("shop.target.test")}",
+            "speculum.test").IsFailure);
+    }
+
+    [Fact]
     public void ProjectToClient_ApexDefaultHost_EmptiesNavigationStateHost()
     {
         var configuration = SessionsTestHarness.Engine("www.target.test");
@@ -330,6 +418,12 @@ public sealed class UrlResolverTests
         Assert.True(resolver.ProjectToClient("not-a-url", "speculum.test").IsFailure);
         Assert.True(resolver.ProjectToClient("ftp://example.test/", "speculum.test").IsFailure);
     }
+
+    private static UrlMatchRule ExactDomainRule(params string[] labels)
+        => new() { Domain = ExactDomain(labels) };
+
+    private static UrlMatchRule WildcardDomainRule(params string[] apexLabels)
+        => new() { Domain = WildcardDomain(apexLabels) };
 
     private static NavigationConfiguration Navigation(
         string defaultTargetHost,

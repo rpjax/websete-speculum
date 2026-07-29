@@ -26,6 +26,31 @@ public sealed class SessionBindingRegistryTests
     }
 
     [Fact]
+    public void CancelAllStarts_CancelsInFlightStarts_LeavesLiveBindings()
+    {
+        var liveSessionId = Guid.NewGuid();
+        var live = new FakeLiveSession(liveSessionId);
+        var registry = new SessionBindingRegistry(new FakeLiveSessionService(live));
+
+        var startA = registry.BeginStart("caller-a", Guid.NewGuid());
+        var startB = registry.BeginStart("caller-b", Guid.NewGuid());
+        registry.BeginStart("caller-live", liveSessionId);
+        Assert.True(registry.TryPromote(
+            "caller-live",
+            liveSessionId,
+            Guid.NewGuid(),
+            "token"));
+
+        var cancelled = registry.CancelAllStarts();
+
+        Assert.Equal(2, cancelled);
+        Assert.True(startA.CancellationToken.IsCancellationRequested);
+        Assert.True(startB.CancellationToken.IsCancellationRequested);
+        Assert.True(registry.TryGetLive(liveSessionId, "token", out _));
+        Assert.Equal(0, registry.CancelAllStarts());
+    }
+
+    [Fact]
     public void CloseCaller_DisposesPipes_AndDetachesPresence()
     {
         var sessionId = Guid.NewGuid();

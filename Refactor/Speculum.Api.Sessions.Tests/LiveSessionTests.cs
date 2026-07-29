@@ -489,6 +489,42 @@ public sealed class LiveSessionTests
     }
 
     [Fact]
+    public async Task Resize_WhenCommandGateBusy_ReturnsResizeBusy()
+    {
+        var sessionId = Guid.NewGuid();
+        var connection = new LiveFakeConnection(sessionId)
+        {
+            ResizeDelay = TimeSpan.FromMilliseconds(400),
+        };
+        var live = CreateService().Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
+
+        var first = live.ResizeAsync(new ResizeSession
+        {
+            Width = 800,
+            Height = 600,
+            RequestId = "resize-1",
+        });
+        await Task.Delay(50);
+
+        var second = await live.ResizeAsync(new ResizeSession
+        {
+            Width = 900,
+            Height = 700,
+            RequestId = "resize-2",
+        });
+
+        Assert.True(second.IsSuccess);
+        Assert.False(second.Value.Applied);
+        Assert.Equal("resize_busy", second.Value.ErrorCode);
+        Assert.Equal("validate", second.Value.Phase);
+        Assert.Equal("resize-2", second.Value.ResizeId);
+
+        var firstResult = await first;
+        Assert.True(firstResult.IsSuccess);
+        Assert.True(firstResult.Value.Applied);
+    }
+
+    [Fact]
     public async Task GetStatus_ProjectsUrlToClient()
     {
         var sessionId = Guid.NewGuid();
@@ -1088,19 +1124,35 @@ public sealed class LiveSessionTests
         public Task<IResult> RefreshAsync(CancellationToken ct = default)
             => Task.FromResult<IResult>(Result.Success());
 
+        public TimeSpan ResizeDelay { get; set; }
+
         public Task<IResult<ResizeResult>> ResizeAsync(
             string requestId,
             int width,
             int height,
             DeviceProfile device,
             CancellationToken ct = default)
-            => Task.FromResult<IResult<ResizeResult>>(Result<ResizeResult>.Success(new ResizeResult
+            => ResizeDelayedAsync(requestId, width, height, ct);
+
+        private async Task<IResult<ResizeResult>> ResizeDelayedAsync(
+            string requestId,
+            int width,
+            int height,
+            CancellationToken ct)
+        {
+            if (ResizeDelay > TimeSpan.Zero)
+            {
+                await Task.Delay(ResizeDelay, ct).ConfigureAwait(false);
+            }
+
+            return Result<ResizeResult>.Success(new ResizeResult
             {
                 Applied = true,
                 Width = width,
                 Height = height,
                 ResizeId = requestId,
-            }));
+            });
+        }
 
         public Task<IResult<DiagProbeResult>> RequestDiagnosticsAsync(
             DiagProbeRequest request,

@@ -786,25 +786,62 @@ internal sealed class LiveSession : ILiveSession
     public Task<IResult<ResizeResult>> ResizeAsync(ResizeSession request, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(request);
-        return WithCommandGateAsync(
-            async () =>
+        return ResizeWithGateAsync(request, ct);
+    }
+
+    private async Task<IResult<ResizeResult>> ResizeWithGateAsync(
+        ResizeSession request,
+        CancellationToken ct)
+    {
+        if (IsReleased || !_connection.IsOpen)
+        {
+            return Result<ResizeResult>.Failure("Live session is released");
+        }
+
+        var requestId = string.IsNullOrWhiteSpace(request.RequestId)
+            ? Guid.CreateVersion7().ToString("D")
+            : request.RequestId.Trim();
+
+        // Busy-reject: do not queue behind Navigate/Refresh/prior Resize (client retries resize_busy).
+        var lease = await _commandGate.TryAcquireAsync(SessionId, ct).ConfigureAwait(false);
+        if (lease is null)
+        {
+            var busy = new ResizeResult
             {
-                var requestId = string.IsNullOrWhiteSpace(request.RequestId)
-                    ? Guid.CreateVersion7().ToString("D")
-                    : request.RequestId.Trim();
+                Applied = false,
+                Width = request.Width,
+                Height = request.Height,
+                ResizeId = requestId,
+                ErrorCode = "resize_busy",
+                Phase = "validate",
+                Message = "another command is in progress",
+            };
+            TryJournalResize(
+                request.Width,
+                request.Height,
+                requestId,
+                Result<ResizeResult>.Success(busy));
+            return Result<ResizeResult>.Success(busy);
+        }
 
-                // Optional device: empty profile maps to no proto device (size-only resize).
-                var result = await _connection.ResizeAsync(
-                    requestId,
-                    request.Width,
-                    request.Height,
-                    request.Device ?? new DeviceProfile(),
-                    ct).ConfigureAwait(false);
+        await using (lease.ConfigureAwait(false))
+        {
+            if (IsReleased || !_connection.IsOpen)
+            {
+                return Result<ResizeResult>.Failure("Live session is released");
+            }
 
-                TryJournalResize(request.Width, request.Height, requestId, result);
-                return result;
-            },
-            ct);
+            // Optional device: empty profile maps to no proto device (size-only resize).
+            var result = await _connection.ResizeAsync(
+                requestId,
+                request.Width,
+                request.Height,
+                request.Device ?? new DeviceProfile(),
+                ct).ConfigureAwait(false);
+
+            TryJournalResize(request.Width, request.Height, requestId, result);
+            return result;
+        }
     }
 
     private void TryJournalResize(

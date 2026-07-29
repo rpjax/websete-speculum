@@ -13,6 +13,8 @@ using Speculum.Api.Configurations.Models.Telemetry;
 using Speculum.Api.Configurations.Persistence;
 using Speculum.Api.Configurations.Services.Contracts;
 using Speculum.Api.Journal.Services.Contracts;
+using Speculum.Api.Sessions.Services;
+using Speculum.Api.Sessions.Services.Contracts;
 using Speculum.Api.Telemetry;
 
 namespace Speculum.Api.Configurations.Services;
@@ -46,6 +48,7 @@ public sealed class ConfigurationApplyService : IConfigurationApplyService
     private readonly IOptionsMonitor<ProfilesConfiguration> _profiles;
     private readonly IOptionsMonitor<ScriptingConfiguration> _scripting;
     private readonly IOptionsMonitor<DiagnosticsConfiguration> _diagnostics;
+    private readonly ISessionDrainOrchestrator _sessionDrain;
     private readonly ILogger<ConfigurationApplyService> _logger;
 
     public ConfigurationApplyService(
@@ -55,6 +58,7 @@ public sealed class ConfigurationApplyService : IConfigurationApplyService
         IOptionsMonitor<ProfilesConfiguration> profiles,
         IOptionsMonitor<ScriptingConfiguration> scripting,
         IOptionsMonitor<DiagnosticsConfiguration> diagnostics,
+        ISessionDrainOrchestrator sessionDrain,
         ILogger<ConfigurationApplyService> logger)
     {
         _store = store;
@@ -63,6 +67,7 @@ public sealed class ConfigurationApplyService : IConfigurationApplyService
         _profiles = profiles;
         _scripting = scripting;
         _diagnostics = diagnostics;
+        _sessionDrain = sessionDrain;
         _logger = logger;
     }
 
@@ -102,6 +107,9 @@ public sealed class ConfigurationApplyService : IConfigurationApplyService
         await _applyGate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
+            // Drain before persist/apply so a failed drain does not leave store ahead of memory,
+            // and exports still run under the previously applied Navigation/Hosting policy.
+            await DrainIfRequiredAsync([key], ct).ConfigureAwait(false);
             var persistedJson = await MergePutJsonAsync(key, valueJson!, ct).ConfigureAwait(false);
             await _store.UpsertSectionJsonAsync(key, persistedJson, ct).ConfigureAwait(false);
             await ApplyAllFromStoreUnlockedAsync(ct).ConfigureAwait(false);
@@ -142,6 +150,7 @@ public sealed class ConfigurationApplyService : IConfigurationApplyService
         await _applyGate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
+            await DrainIfRequiredAsync(normalized.Select(static s => s.Key), ct).ConfigureAwait(false);
             foreach (var (key, json) in normalized)
             {
                 var persistedJson = await MergePutJsonAsync(key, json, ct).ConfigureAwait(false);
@@ -155,6 +164,26 @@ public sealed class ConfigurationApplyService : IConfigurationApplyService
         {
             _applyGate.Release();
         }
+    }
+
+    private async Task DrainIfRequiredAsync(IEnumerable<string> sectionKeys, CancellationToken ct)
+    {
+        var triggers = sectionKeys
+            .Where(SessionDrainTriggers.RequiresDrain)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(static k => k, StringComparer.Ordinal)
+            .ToArray();
+        if (triggers.Length == 0)
+        {
+            return;
+        }
+
+        await _sessionDrain.DrainAsync(
+                new SessionDrainRequest(
+                    string.Join(',', triggers),
+                    SessionDrainTriggers.ConfigForceAfter),
+                ct)
+            .ConfigureAwait(false);
     }
 
     private async Task ApplyAllFromStoreUnlockedAsync(CancellationToken ct)

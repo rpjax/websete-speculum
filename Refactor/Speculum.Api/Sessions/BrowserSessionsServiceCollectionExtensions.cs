@@ -62,6 +62,11 @@ public static class BrowserSessionsServiceCollectionExtensions
             Speculum.Api.Telemetry.Ports.ISessionTelemetrySampleSource,
             Speculum.Api.Sessions.Telemetry.LiveSessionTelemetrySampleSource>();
 
+        // Override AddEngineConfiguration's NoOp so Apply/shutdown drain live sessions.
+        services.Replace(
+            ServiceDescriptor.Singleton<ISessionDrainOrchestrator, SessionDrainOrchestrator>());
+        services.AddHostedService<SessionDrainHostedService>();
+
         return services;
     }
 }

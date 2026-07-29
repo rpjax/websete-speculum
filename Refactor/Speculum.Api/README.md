@@ -143,7 +143,7 @@ The current product binds one live session directly to one SignalR
 | ✅ | Second-start replacement | Same caller replaces Live or cancels and awaits Starting teardown before slot admission | `BeginStart` / `TryPromote` / start completion |
 | ✅ | Disconnect policy | Hub disconnect closes owned pipes and detaches presence; zero attachments arm detached TTL | `OnDisconnectedAsync` → `CloseCaller`; collector stops with `TimedOut` |
 | ✅ | Sidecar death | Sidecar loss / notification-channel end faults the session via `AbandonAsync(Faulted, …)` and releases capacity | Crash + `sidecar_connection_ended` → `ISessionFaultScheduler` |
-| ◐ | Stop reason | User stop, replacement, cancellation/disconnect, timeout and faults are distinguishable; `Drain` / `ForceStop` exist on the enum | Drain/force-stop orchestration remains item 11 |
+| ◐ | Stop reason | User stop, replacement, cancellation/disconnect, timeout, faults, Drain and ForceStop are distinguishable | — |
 
 Detached TTL is the selected disconnect policy. A transport disconnect never
 calls `StopSession`; collector timeout performs the eventual stop.
@@ -209,13 +209,13 @@ live output stream.
 | ✅ | Start navigation | Required for successful start | Resolve → Navigate uses Path, Query and transport host |
 | ◐ | Runtime navigation | Maps client path/query to target URL and commands the active browser | `ILiveSession.NavigateAsync` + host-aware `IUrlResolver`; SyncUrl uses `ProjectToClient` |
 | ◐ | Scheme validation | Resolve always builds `https://` targets; bad path/host fails | Broader scheme/policy rejection contract |
-| ◐ | URL allowlist | Main-frame **host** allowlist via `Navigation.AllowedMainFrameUrls` | Path-pattern enforcement still open |
+| ✅ | URL allowlist | Main-frame host + optional path (`UrlMatchRule.Path` Exact/Prefix) via `Navigation.AllowedMainFrameUrls` | — |
 | ◐ | Blocked vs failed | Policy block (`MainFrameNavigationBlocked` → Redirect) distinct from `NavigateFailed` | Named app-layer result types still thin |
 | ◐ | External redirect | Navigation outside the virtualized domain redirects the real client while session remains alive | `IAttachedSessionClient.RedirectAsync` ← `MainFrameNavigationBlocked` (absolute URL) |
 | ✅ | Client URL mapping | `IUrlResolver.ProjectToClient` maps browser absolute → session-host SyncUrl (apex NSO / mirroring); status poll uses the same projection | — |
 | ◐ | Subdomain mirroring | Host changes map to mirrored session hosts when Hosting domains are configured | Resolve-time + SyncUrl reverse; operational status / edge sync still open |
 | ○ | Redirect chains / history | Redirects, SPA paths, back/forward and history remain coherent | Navigation-state/history capability |
-| ○ | Asset escape rule | Allowlist applies to main-frame navigation, not assets/XHR/subframes | Explicit policy boundary |
+| ✅ | Asset escape rule | Allowlist gates main-frame Resolve/Navigate only; assets/XHR/subframes are not filtered here (`NavigationConfiguration`) | — |
 
 ---
 
@@ -232,11 +232,11 @@ ResizeAsync(width, height, device?) → ResizeResult
 | Status | Feature | Current observable behavior | Application model still required |
 |--------|---------|-----------------------------|----------------------------------|
 | ✅ | Startup viewport | Client geometry filled/clamped at the edge from `Sessions.ViewportPolicy` | Application and sidecar reject incomplete values |
-| ◐ | Runtime resize | Hub `ResizeAsync` → `ILiveSession.ResizeAsync` | Busy-reject vs queue semantics still open |
+| ✅ | Runtime resize | Hub `ResizeAsync` → `ILiveSession.ResizeAsync`; busy returns `Applied=false` + `resize_busy` | — |
 | ◐ | Exact geometry | `ResizeResult` reports chrome logical viewport and display dims | Display max-allocation policy projection |
 | ◐ | Resize rejection | Bounds come from `ViewportPolicy` (not hard-coded legacy 100/4096 alone) | Explicit app-layer rejection result |
 | ◐ | Resize failure | `Applied` / `errorCode` / `phase` + telemetry Applied/Rejected | Named failure vs rejection first-class results |
-| ◐ | Resize serialization | `_commandGate` serializes commands (queues; does not busy-reject) | Busy-reject / coalesce contract |
+| ✅ | Resize serialization | Resize uses `_commandGate.TryAcquire` (busy-reject); Navigate/Refresh still queue | Coalesce of rapid resizes still open |
 | ◐ | Device profile | Optional `DeviceProfile` on resize request reaches sidecar | Shared device-profile contract completeness |
 
 ---
@@ -283,9 +283,9 @@ The migration must preserve each section's **session effect**, not merely its JS
 | Status | Feature to model |
 |--------|------------------|
 | ✅ | Default target host and main-frame host allowlist (`AllowedMainFrameUrls`) |
-| ◐ | Exact/wildcard domain semantics (host used at resolve; path rules unused) |
+| ✅ | Exact/wildcard domain + optional path Exact/Prefix at resolve |
 | ✅ | Required-for-operation contribution (`ConfigurationCompleteness`) |
-| ○ | Active/starting session drain before change applies |
+| ✅ | Active/starting session drain before change applies (`ISessionDrainOrchestrator`) |
 | ○ | Change events/results |
 
 ### `ResourceManagement.Sessions` (legacy `MaxSessions`)
@@ -294,7 +294,7 @@ The migration must preserve each section's **session effect**, not merely its JS
 |--------|------------------|
 | ✅ | Admission through `ISessionSlotRegistry` |
 | ✅ | Dynamic policy read by start orchestration |
-| ○ | Change does **not** drain current sessions (policy documented; no apply reaction yet) |
+| ✅ | Change does **not** drain current sessions (by design) |
 | ○ | Capacity/status projection |
 
 ### `Hosting`
@@ -306,7 +306,7 @@ The migration must preserve each section's **session effect**, not merely its JS
 | ◐ | Subdomain-mirroring enablement |
 | ○ | Wildcard dependency on Navigation allowlist completeness |
 | ○ | Required-for-operation contribution (Hosting not in mandatory completeness) |
-| ○ | Active/starting session drain before change applies |
+| ✅ | Active/starting session drain before change applies (`ISessionDrainOrchestrator`) |
 | ○ | Edge synchronization application capability |
 
 ### `Scripting` (legacy `ScriptInjection`)
@@ -432,8 +432,8 @@ error outcomes.
 | ◐ | Stop failure | Persist is soft; teardown is best-effort and serialized per session; idempotent for already-stopped | Explicit aggregate stop outcome/reason |
 | ✅ | Sidecar fault | Marks session faulted via abandon, releases capacity | Diagnostics-gone / operator projection still ○ |
 | ◐ | Export on disconnect | Export success/failure/skipped is journalled | Disconnect policy + persistence events completeness |
-| ○ | Config drain | Exports/stops all active and starting sessions | Drain application service |
-| ○ | Graceful shutdown drain | Same preservation guarantees as config drain | Shutdown-triggered drain request |
+| ✅ | Config drain | `ISessionDrainOrchestrator`: drain→persist→apply on Navigation/Hosting PUT; `Drain` then `ForceStop` + final sweep; Start gated while draining | — |
+| ✅ | Graceful shutdown drain | `SessionDrainHostedService` drains on host stop (before Journal flush); soft budget then ForceStop | — |
 | ✅ | Timeout stop | Collector detached TTL → `StopReason.TimedOut` | — |
 
 ---
@@ -442,12 +442,12 @@ error outcomes.
 
 Immediate modeling gaps still open (chassis already covers much of the former list):
 
-1. **Navigation policy depth** — host allowlist + https resolve exist; path-pattern
-   enforcement, asset-escape boundary, and richer blocked-vs-failed app results remain.
-2. **Resize busy/reject contract** — ports + policy validation exist; busy-reject
-   (vs command-gate queue) and first-class reject/fail results remain thin.
-3. **Config/shutdown drain** — `StopReason.Drain` / `ForceStop` exist; no orchestrator
-   wires them to configuration Apply or host shutdown.
+1. **Navigation policy depth** — host + path allowlist + https resolve + main-frame-only
+   boundary exist; richer blocked-vs-failed app result types and history remain.
+2. **Resize busy/reject contract** — Resize busy-rejects via `TryAcquire` (`resize_busy`);
+   first-class reject/fail result types and resize coalesce remain thin.
+3. **Config/shutdown drain** — ✅ `ISessionDrainOrchestrator` wired to Navigation/Hosting
+   Apply and process shutdown (`Drain` → `ForceStop` budget).
 4. **Tolerant restore / retention purge** — schema + merge exist; dirty-cookie
    normalize and inactive-profile purge orchestrator remain open.
 5. **Client bootstrap / setup mode** — configuration status is ◐; public client-config
@@ -480,16 +480,16 @@ This order follows user-visible dependencies, not infrastructure dependencies:
    (SyncUrl ProjectToClient ✅; input ownership scheduling remain)
 
 5. Runtime navigation ◐
-   forward resolve/navigate ✅; reverse SyncUrl ✅; path allowlist + history open
+   forward resolve/navigate ✅; reverse SyncUrl ✅; path allowlist ✅; history open
 
 6. Resize/device ◐
-   ports + policy validation; busy-reject / exact-result polish open
+   ports + policy + resize busy-reject ✅; exact-result / coalesce polish open
 
 7. Persistence/profile administration ◐
    schema + merge ✅; tolerant restore + retention purge open
 
 8. Runtime configuration behavior ◐
-   EngineConfiguration + Apply/CRUD ✅; drain reactions + client projection open
+   EngineConfiguration + Apply/CRUD ✅; Navigation/Hosting drain ✅; client projection open
 
 9. Script administration/injection ○/◐
    launch snapshot ◐; Admin script store ○
@@ -497,8 +497,8 @@ This order follows user-visible dependencies, not infrastructure dependencies:
 10. Diagnostics/operator surface ○/◐
     telemetry samples + session event ports ✅; HTTP/probes/timelines ○
 
-11. Fault/drain recovery paths ◐
-    sidecar fault + timeout ✅; config drain + shutdown drain ○
+11. Fault/drain recovery paths ✅
+    sidecar fault + timeout + config/shutdown drain ✅
 ```
 
 For each item: define interfaces and models, implement only its

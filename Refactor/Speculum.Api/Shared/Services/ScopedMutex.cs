@@ -43,6 +43,29 @@ public sealed class ScopedMutex : IScopedMutex, IAsyncScopedMutex
         return new Lease(this, id, entry);
     }
 
+    /// <summary>
+    /// Non-blocking acquire. Returns <c>null</c> when the gate is held (caller should busy-reject).
+    /// </summary>
+    public async Task<IAsyncDisposable?> TryAcquireAsync(Guid id, CancellationToken ct = default)
+    {
+        var entry = Enter(id);
+        try
+        {
+            if (!await entry.Semaphore.WaitAsync(0, ct).ConfigureAwait(false))
+            {
+                ReleaseRef(id, entry, acquired: false);
+                return null;
+            }
+        }
+        catch
+        {
+            ReleaseRef(id, entry, acquired: false);
+            throw;
+        }
+
+        return new Lease(this, id, entry);
+    }
+
     private Entry Enter(Guid id)
     {
         while (true)

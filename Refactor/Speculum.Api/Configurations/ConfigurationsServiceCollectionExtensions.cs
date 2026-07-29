@@ -12,6 +12,8 @@ using Speculum.Api.Configurations.Models.Telemetry;
 using Speculum.Api.Configurations.Persistence;
 using Speculum.Api.Configurations.Services;
 using Speculum.Api.Configurations.Services.Contracts;
+using Speculum.Api.Sessions.Services;
+using Speculum.Api.Sessions.Services.Contracts;
 
 namespace Speculum.Api.Configurations;
 
@@ -49,6 +51,8 @@ public static class ConfigurationsServiceCollectionExtensions
 
         services.TryAddSingleton<IConfigSectionStore, ConfigSectionStore>();
         services.TryAddSingleton<IConfigurationService, ConfigurationService>();
+        // Replaced by AddBrowserSessions with the real orchestrator.
+        services.TryAddSingleton<ISessionDrainOrchestrator, NoOpSessionDrainOrchestrator>();
         services.TryAddSingleton<IConfigurationApplyService, ConfigurationApplyService>();
         services.TryAddSingleton<IConfigurationLoadService, ConfigurationLoadService>();
 

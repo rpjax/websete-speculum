@@ -31,6 +31,7 @@ public sealed class SessionService : ISessionService
     private readonly IAsyncScopedMutex _lifecycleGate;
     private readonly ISessionBindingRegistry _bindings;
     private readonly IConfigurationService _configuration;
+    private readonly ISessionDrainOrchestrator _drain;
     private readonly SessionConfigAssembler _configAssembler;
 
     public SessionService(
@@ -47,6 +48,7 @@ public sealed class SessionService : ISessionService
         IAsyncScopedMutex lifecycleGate,
         ISessionBindingRegistry bindings,
         IConfigurationService configuration,
+        ISessionDrainOrchestrator drain,
         ILaunchScriptResolver launchScripts)
     {
         _profiles = profiles;
@@ -62,6 +64,7 @@ public sealed class SessionService : ISessionService
         _lifecycleGate = lifecycleGate;
         _bindings = bindings;
         _configuration = configuration;
+        _drain = drain;
         _configAssembler = new SessionConfigAssembler(launchScripts);
     }
 
@@ -74,6 +77,12 @@ public sealed class SessionService : ISessionService
         if (string.IsNullOrWhiteSpace(request.CallerId))
         {
             return Result<StartSessionResponse>.Failure("Caller id is required");
+        }
+
+        if (_drain.IsDraining)
+        {
+            return Result<StartSessionResponse>.Failure(
+                "Sessions are draining; try again shortly.");
         }
 
         if (!_configuration.AreMandatorySettingsSatisfied)
@@ -106,7 +115,20 @@ public sealed class SessionService : ISessionService
             return Result<StartSessionResponse>.Failure("Profile not found");
         }
 
+        if (_drain.IsDraining)
+        {
+            return Result<StartSessionResponse>.Failure(
+                "Sessions are draining; try again shortly.");
+        }
+
         var binding = _bindings.BeginStart(request.CallerId, sessionId);
+        if (_drain.IsDraining)
+        {
+            _bindings.TryCancelStart(request.CallerId, sessionId);
+            return Result<StartSessionResponse>.Failure(
+                "Sessions are draining; try again shortly.");
+        }
+
         try
         {
             if (binding.ReplacedSessionId is { } replacedSessionId)

@@ -14,6 +14,11 @@ public interface ISessionBindingRegistry
 
     bool TryCancelStart(string callerId, Guid sessionId);
 
+    /// <summary>
+    /// Cancels every in-flight start (not yet promoted). Returns how many starts were cancelled.
+    /// </summary>
+    int CancelAllStarts();
+
     void CompleteStart(Guid sessionId);
 
     bool IsAuthorized(string callerId, Guid sessionId, string token);

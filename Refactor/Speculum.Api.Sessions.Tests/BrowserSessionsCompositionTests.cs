@@ -92,6 +92,13 @@ public sealed class BrowserSessionsCompositionTests
         Assert.NotNull(provider.GetService<ISessionFaultScheduler>());
         Assert.NotNull(provider.GetService<ISessionEventsFactory>());
         Assert.NotNull(provider.GetService<ISessionTokenGenerator>());
+        Assert.Contains(
+            services,
+            d => d.ServiceType == typeof(ISessionDrainOrchestrator)
+                && d.ImplementationType == typeof(SessionDrainOrchestrator));
+        Assert.Contains(
+            services,
+            d => d.ImplementationType == typeof(SessionDrainHostedService));
         Assert.Null(provider.GetService<ISessionService>());
         Assert.Null(provider.GetService<IUrlResolver>());
         Assert.Null(provider.GetService<ISessionLifecycleEvents>());
@@ -100,6 +107,8 @@ public sealed class BrowserSessionsCompositionTests
 
         var catalog = provider.GetRequiredService<IJournalCatalog>();
         Assert.True(catalog.TryGet<SessionStopped>(out _));
+        Assert.True(catalog.TryGet<DrainStarted>(out _));
+        Assert.True(catalog.TryGet<DrainCompleted>(out _));
         Assert.True(catalog.TryGet<SessionAborted>(out _));
         Assert.True(catalog.TryGet<SessionTimedOut>(out _));
         Assert.True(catalog.TryGet<SessionStarting>(out _));

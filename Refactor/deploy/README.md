@@ -79,6 +79,22 @@ take a minute before Traefik comes up.
 
 Generated compose lives under `out/dev/` (gitignored). Do not hand-edit it.
 
+## Host resources (admin uncap)
+
+Sidecar Docker `shm_size` starts at **2gb** (Chrome IPC floor). Admins can raise
+live `/dev/shm` (and optional ulimits) without redeploy via:
+
+- UI: **Admin → Capacity → Host resources**
+- API: `GET/POST /api/admin/host-resources` (+ `/preview`, `/apply`)
+
+The API sizes from host procfs (`Telemetry.Host.ProcPath`, typically `/host/proc`)
+using a RAM **budget** (`maxRamBytes` ceiling optional — use this on shared
+developer machines). Sidecar only executes the precomputed remount.
+
+**Caveats:** Docker Desktop reflects the **Linux VM** RAM, not the Windows host.
+Sidecar restart resets shm to the compose floor until Apply is run again (no
+automatic reapply on boot).
+
 ## Prod (no web lab)
 
 Chrome sidecar + API + Traefik (`/vhub` + `/health` + `/api`). No SPA image,

@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.createBrowserSessionHandlers = createBrowserSessionHandlers;
 const collectTelemetry_1 = require("../telemetry/collectTelemetry");
+const hostResources_1 = require("../host/hostResources");
 const mappers_1 = require("./mappers");
 const validate_1 = require("./validate");
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -190,6 +191,41 @@ function createBrowserSessionHandlers(registry) {
         async collectTelemetry(call, callback) {
             try {
                 callback(null, await (0, collectTelemetry_1.collectTelemetry)(call.request, registry));
+            }
+            catch (err) {
+                callback(grpcError(err), null);
+            }
+        },
+        applyHostResources(call, callback) {
+            try {
+                const req = call.request ?? {};
+                const result = (0, hostResources_1.applyHostResources)({
+                    shmSizeBytes: Number(req.shmSizeBytes ?? req.shm_size_bytes ?? 0),
+                    raiseUlimits: Boolean(req.raiseUlimits ?? req.raise_ulimits),
+                    nofile: Number(req.nofile ?? 0),
+                    nproc: Number(req.nproc ?? 0),
+                });
+                callback(null, {
+                    shmBeforeBytes: result.shmBeforeBytes,
+                    shmAppliedBytes: result.shmAppliedBytes,
+                    ulimitsRaised: result.ulimitsRaised,
+                    nofileApplied: result.nofileApplied,
+                    nprocApplied: result.nprocApplied,
+                    warnings: result.warnings,
+                });
+            }
+            catch (err) {
+                callback(grpcError(err), null);
+            }
+        },
+        getHostResources(_call, callback) {
+            try {
+                const status = (0, hostResources_1.getHostResourcesStatus)();
+                callback(null, {
+                    shmSizeBytes: status.shmSizeBytes,
+                    nofile: status.nofile,
+                    nproc: status.nproc,
+                });
             }
             catch (err) {
                 callback(grpcError(err), null);

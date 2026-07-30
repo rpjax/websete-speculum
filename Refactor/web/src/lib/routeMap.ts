@@ -19,6 +19,7 @@ const ROUTE_MAP: Record<string, RouteEntry> = {
   '/admin':                         { label: 'Dashboard' },
   '/admin/forwarding':              { label: 'Forwarding' },
   '/admin/capacity':                { label: 'Capacity & bridges' },
+  '/admin/host-resources':          { label: 'Host resources' },
   '/admin/hosting':                 { label: 'Hosting' },
   '/admin/script-injection':        { label: 'Script injection' },
   '/admin/scripts':                 { label: 'Scripts' },

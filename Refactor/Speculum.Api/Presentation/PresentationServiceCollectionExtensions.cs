@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Speculum.Api.Presentation.Configurations;
+using Speculum.Api.Presentation.HostResources;
 using Speculum.Api.Presentation.Scripts;
 using Speculum.Api.Presentation.Sessions;
 using Speculum.Api.Sessions.Services.Contracts;
@@ -53,6 +54,7 @@ public static class PresentationServiceCollectionExtensions
         SessionWebTransportEndpoint.Map(endpoints);
         endpoints.MapConfigurationEndpoints();
         endpoints.MapScriptEndpoints();
+        endpoints.MapHostResourceEndpoints();
         endpoints.MapSessionHarness();
 
         return endpoints;

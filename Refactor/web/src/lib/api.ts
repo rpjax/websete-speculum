@@ -52,6 +52,70 @@ export interface ScriptListResponse {
   total: number
 }
 
+export interface HostResourceProvisionParams {
+  maxRamBytes?: number | null
+  reservePercent?: number
+  reserveMinBytes?: number
+  shmMinBytes?: number
+  shmMaxPercentOfBudget?: number
+  raiseUlimits?: boolean
+  nofile?: number
+  nproc?: number
+}
+
+export interface HostResourceProvisionPlan {
+  hostMemoryTotalBytes: number
+  hostCpuCount: number
+  hostSource: string
+  budgetBytes: number
+  reserveBytes: number
+  shmTargetBytes: number
+  raiseUlimits: boolean
+  nofile: number
+  nproc: number
+  params: HostResourceProvisionParams
+}
+
+export interface HostResourceApplyResult {
+  plan: HostResourceProvisionPlan
+  shmBeforeBytes: number
+  shmAppliedBytes: number
+  ulimitsRaised: boolean
+  nofileApplied?: number | null
+  nprocApplied?: number | null
+  warnings: string[]
+  appliedAtUtc: string
+}
+
+export interface HostResourceStatus {
+  host?: {
+    memoryTotalBytes: number
+    memoryAvailableBytes: number
+    cpuCount: number
+    source: string
+  } | null
+  sidecar?: {
+    shmSizeBytes?: number | null
+    nofile?: number | null
+    nproc?: number | null
+    error?: string | null
+  } | null
+  lastApply?: {
+    params: HostResourceProvisionParams
+    budgetBytes: number
+    reserveBytes: number
+    shmTargetBytes: number
+    shmAppliedBytes: number
+    hostMemoryTotalBytes: number
+    hostCpuCount: number
+    hostSource: string
+    ulimitsRaised: boolean
+    warnings: string[]
+    appliedAtUtc: string
+  } | null
+  hostError?: string | null
+}
+
 export interface ScriptTargetRule {
   domain: {
     scope: 'Any' | 'Pattern'
@@ -190,6 +254,19 @@ const realApi = {
       body: JSON.stringify({ injections: [] }),
     }),
   getOpenApi: () => request<unknown>('/openapi/v1.json'),
+
+  getHostResources: () =>
+    request<HostResourceStatus>('/api/admin/host-resources'),
+  previewHostResources: (body: HostResourceProvisionParams) =>
+    request<HostResourceProvisionPlan>('/api/admin/host-resources/preview', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  applyHostResources: (body: HostResourceProvisionParams) =>
+    request<HostResourceApplyResult>('/api/admin/host-resources/apply', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
 }
 
 export const api: typeof realApi = MOCK_MODE ? mockApi : realApi

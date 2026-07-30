@@ -58,6 +58,7 @@ public static class DatabaseServiceCollectionExtensions
         var db = sp.GetRequiredService<SpeculumDbContext>();
         db.Database.EnsureCreated();
         EnsureScriptsTable(db);
+        EnsureHostResourceAppliesTable(db);
 
         try
         {
@@ -90,6 +91,34 @@ public static class DatabaseServiceCollectionExtensions
             );
             CREATE INDEX IF NOT EXISTS IX_scripts_name ON scripts (name);
             CREATE INDEX IF NOT EXISTS IX_scripts_sha256 ON scripts (sha256);
+            """);
+    }
+
+    private static void EnsureHostResourceAppliesTable(SpeculumDbContext db)
+    {
+        db.Database.ExecuteSqlRaw(
+            """
+            CREATE TABLE IF NOT EXISTS host_resource_applies (
+                id INTEGER NOT NULL CONSTRAINT PK_host_resource_applies PRIMARY KEY,
+                max_ram_bytes INTEGER NULL,
+                reserve_percent REAL NOT NULL,
+                reserve_min_bytes INTEGER NOT NULL,
+                shm_min_bytes INTEGER NOT NULL,
+                shm_max_percent_of_budget REAL NOT NULL,
+                raise_ulimits INTEGER NOT NULL,
+                nofile INTEGER NOT NULL,
+                nproc INTEGER NOT NULL,
+                budget_bytes INTEGER NOT NULL,
+                reserve_bytes INTEGER NOT NULL,
+                shm_target_bytes INTEGER NOT NULL,
+                shm_applied_bytes INTEGER NOT NULL,
+                host_memory_total_bytes INTEGER NOT NULL,
+                host_cpu_count INTEGER NOT NULL,
+                host_source TEXT NOT NULL,
+                ulimits_raised INTEGER NOT NULL,
+                warnings_json TEXT NOT NULL,
+                applied_at TEXT NOT NULL
+            );
             """);
     }
 

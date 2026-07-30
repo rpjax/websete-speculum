@@ -145,6 +145,60 @@ public sealed class GrpcBrowserClient : IBrowserClient, IDisposable
         }
     }
 
+    public async Task<IResult<HostResourcesApplyOutcome>> ApplyHostResourcesAsync(
+        long shmSizeBytes,
+        bool raiseUlimits,
+        long nofile,
+        long nproc,
+        CancellationToken ct = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (shmSizeBytes <= 0)
+            return Result<HostResourcesApplyOutcome>.Failure("shmSizeBytes must be greater than 0");
+
+        try
+        {
+            var response = await _client.ApplyHostResourcesAsync(
+                new ApplyHostResourcesRequest
+                {
+                    ShmSizeBytes = shmSizeBytes,
+                    RaiseUlimits = raiseUlimits,
+                    Nofile = nofile,
+                    Nproc = nproc,
+                },
+                cancellationToken: ct);
+
+            return Result<HostResourcesApplyOutcome>.Success(new HostResourcesApplyOutcome(
+                response.ShmBeforeBytes,
+                response.ShmAppliedBytes,
+                response.UlimitsRaised,
+                response.HasNofileApplied ? response.NofileApplied : null,
+                response.HasNprocApplied ? response.NprocApplied : null,
+                response.Warnings.ToArray()));
+        }
+        catch (Exception ex)
+        {
+            return Result<HostResourcesApplyOutcome>.Failure(ex.Message);
+        }
+    }
+
+    public async Task<IResult<HostResourcesLiveStatus>> GetHostResourcesAsync(CancellationToken ct = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        try
+        {
+            var response = await _client.GetHostResourcesAsync(new Empty(), cancellationToken: ct);
+            return Result<HostResourcesLiveStatus>.Success(new HostResourcesLiveStatus(
+                response.ShmSizeBytes,
+                response.HasNofile ? response.Nofile : null,
+                response.HasNproc ? response.Nproc : null));
+        }
+        catch (Exception ex)
+        {
+            return Result<HostResourcesLiveStatus>.Failure(ex.Message);
+        }
+    }
+
     public async Task<IResult<ISessionConnection>> StartConnectionAsync(
         Guid sessionId,
         CancellationToken ct = default)

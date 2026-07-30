@@ -297,6 +297,19 @@ The migration must preserve each section's **session effect**, not merely its JS
 | ✅ | Change does **not** drain current sessions (by design) |
 | ○ | Capacity/status projection |
 
+### Host resources (admin infra uncap)
+
+Manual sidecar `/dev/shm` (and optional ulimit) provision — **not** session capacity.
+
+| Endpoint | Role |
+|----------|------|
+| `GET /api/admin/host-resources` | Host probe + sidecar shm snapshot + last apply |
+| `POST /api/admin/host-resources/preview` | Formula only (`maxRamBytes` ceiling, reserve %, caps) |
+| `POST /api/admin/host-resources/apply` | Preview → gRPC `ApplyHostResources` → persist last apply |
+
+Formula lives in `HostResourceCalculator`. Sidecar executes precomputed bytes (remount).
+No auto-apply on boot; sidecar restart resets shm to Docker `shm_size` floor.
+
 ### `Hosting`
 
 | Status | Feature to model |

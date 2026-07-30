@@ -17,6 +17,7 @@ import { DropOldestQueue } from './host/DropOldestQueue';
 import { isBenignBrowserRace } from './host/browserRace';
 import type { CDPSession } from 'patchright';
 import { collectTelemetry } from './telemetry/collectTelemetry';
+import { applyHostResources } from './host/hostResources';
 
 /** Test stand-in for Sessions.ViewportPolicy — production gets this on Launch. */
 const POLICY = {
@@ -1025,7 +1026,24 @@ async function main(): Promise<void> {
   await testTelemetryQueuesReportInputDepthAndDrops();
   await testTelemetryFaultStateSurvivesCrashConsumption();
   await testTelemetryAllocationsSummaryAndSessions();
+  testHostResourcesApplySkipsRemountOffLinux();
   console.log('[unit] all passed');
+}
+
+function testHostResourcesApplySkipsRemountOffLinux(): void {
+  if (process.platform === 'linux') {
+    console.log('[unit] host resources remount skip (linux — exercised in container)');
+    return;
+  }
+  const result = applyHostResources({
+    shmSizeBytes: 4 * 1024 * 1024 * 1024,
+    raiseUlimits: true,
+    nofile: 4096,
+    nproc: 1024,
+  });
+  assert.ok(result.warnings.some((w) => /shm remount skipped/i.test(w)));
+  assert.strictEqual(result.ulimitsRaised, false);
+  console.log('[unit] host resources apply skip off-linux ok');
 }
 
 main().catch((err) => {

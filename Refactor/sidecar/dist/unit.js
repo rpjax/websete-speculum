@@ -46,6 +46,7 @@ const EventBridge_1 = require("./host/EventBridge");
 const DropOldestQueue_1 = require("./host/DropOldestQueue");
 const browserRace_1 = require("./host/browserRace");
 const collectTelemetry_1 = require("./telemetry/collectTelemetry");
+const hostResources_1 = require("./host/hostResources");
 /** Test stand-in for Sessions.ViewportPolicy — production gets this on Launch. */
 const POLICY = {
     minWidth: 100,
@@ -884,7 +885,23 @@ async function main() {
     await testTelemetryQueuesReportInputDepthAndDrops();
     await testTelemetryFaultStateSurvivesCrashConsumption();
     await testTelemetryAllocationsSummaryAndSessions();
+    testHostResourcesApplySkipsRemountOffLinux();
     console.log('[unit] all passed');
+}
+function testHostResourcesApplySkipsRemountOffLinux() {
+    if (process.platform === 'linux') {
+        console.log('[unit] host resources remount skip (linux — exercised in container)');
+        return;
+    }
+    const result = (0, hostResources_1.applyHostResources)({
+        shmSizeBytes: 4 * 1024 * 1024 * 1024,
+        raiseUlimits: true,
+        nofile: 4096,
+        nproc: 1024,
+    });
+    assert_1.default.ok(result.warnings.some((w) => /shm remount skipped/i.test(w)));
+    assert_1.default.strictEqual(result.ulimitsRaised, false);
+    console.log('[unit] host resources apply skip off-linux ok');
 }
 main().catch((err) => {
     console.error(err);

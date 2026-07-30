@@ -33,9 +33,13 @@ Build from `Refactor/`:
 
 ```bash
 docker build -f sidecar/Dockerfile -t speculum-sidecar-grpc .
-docker run --rm -p 50051:50051 -p 3001:3001 --shm-size=2g speculum-sidecar-grpc
+docker run --rm -p 50051:50051 -p 3001:3001 --shm-size=2g --cap-add=SYS_ADMIN speculum-sidecar-grpc
 # then: SPECULUM_SMOKE_TARGET=127.0.0.1:50051 npm run smoke:remote
 ```
+
+`--shm-size=2g` is the create-time floor. Admins can remount a larger `/dev/shm`
+at runtime via API `ApplyHostResources` (requires `SYS_ADMIN`, already set in
+dockup). Restart returns to the floor until Apply is run again.
 
 Compose (Api + sidecar, gRPC only — no WS):
 

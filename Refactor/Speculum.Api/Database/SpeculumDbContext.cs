@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Speculum.Api.HostResources.Storage;
 using Speculum.Api.Profiles.Storage;
 using Speculum.Api.Scripts.Storage;
 using Speculum.Api.Sessions.Storage;
@@ -21,6 +22,8 @@ public sealed class SpeculumDbContext : DbContext
     public DbSet<ProfileRecord> Profiles => Set<ProfileRecord>();
 
     public DbSet<ScriptRecord> Scripts => Set<ScriptRecord>();
+
+    public DbSet<HostResourceApplyRecord> HostResourceApplies => Set<HostResourceApplyRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

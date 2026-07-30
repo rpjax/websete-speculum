@@ -3,6 +3,7 @@ import type { SessionRegistry } from '../host/SessionRegistry';
 import type { DropOldestQueue } from '../host/DropOldestQueue';
 import type { EventBridge, PermissionKind } from '../host/EventBridge';
 import { collectTelemetry } from '../telemetry/collectTelemetry';
+import { applyHostResources, getHostResourcesStatus } from '../host/hostResources';
 import {
   editingToProto,
   fromBrowserState,
@@ -252,6 +253,47 @@ export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.Un
     ): Promise<void> {
       try {
         callback(null, await collectTelemetry(call.request, registry));
+      } catch (err) {
+        callback(grpcError(err), null);
+      }
+    },
+
+    applyHostResources(
+      call: grpc.ServerUnaryCall<any, any>,
+      callback: grpc.sendUnaryData<any>,
+    ): void {
+      try {
+        const req = call.request ?? {};
+        const result = applyHostResources({
+          shmSizeBytes: Number(req.shmSizeBytes ?? req.shm_size_bytes ?? 0),
+          raiseUlimits: Boolean(req.raiseUlimits ?? req.raise_ulimits),
+          nofile: Number(req.nofile ?? 0),
+          nproc: Number(req.nproc ?? 0),
+        });
+        callback(null, {
+          shmBeforeBytes: result.shmBeforeBytes,
+          shmAppliedBytes: result.shmAppliedBytes,
+          ulimitsRaised: result.ulimitsRaised,
+          nofileApplied: result.nofileApplied,
+          nprocApplied: result.nprocApplied,
+          warnings: result.warnings,
+        });
+      } catch (err) {
+        callback(grpcError(err), null);
+      }
+    },
+
+    getHostResources(
+      _call: grpc.ServerUnaryCall<any, any>,
+      callback: grpc.sendUnaryData<any>,
+    ): void {
+      try {
+        const status = getHostResourcesStatus();
+        callback(null, {
+          shmSizeBytes: status.shmSizeBytes,
+          nofile: status.nofile,
+          nproc: status.nproc,
+        });
       } catch (err) {
         callback(grpcError(err), null);
       }

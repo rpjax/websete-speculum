@@ -49,6 +49,19 @@ public interface IBrowserClient
         CancellationToken ct = default);
 
     /// <summary>
+    /// Applies precomputed host-resource targets on the sidecar (shm remount / ulimits).
+    /// </summary>
+    Task<IResult<HostResourcesApplyOutcome>> ApplyHostResourcesAsync(
+        long shmSizeBytes,
+        bool raiseUlimits,
+        long nofile,
+        long nproc,
+        CancellationToken ct = default);
+
+    /// <summary>Reads current sidecar shm / ulimit snapshot.</summary>
+    Task<IResult<HostResourcesLiveStatus>> GetHostResourcesAsync(CancellationToken ct = default);
+
+    /// <summary>
     /// Opens and registers the internal sidecar connection for <paramref name="sessionId"/>
     /// (<c>StartConnection</c> phase). Does not launch the browser.
     /// </summary>

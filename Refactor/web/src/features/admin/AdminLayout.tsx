@@ -40,7 +40,10 @@ const NAV_GROUPS: NavGroup[] = [
   },
   {
     title: 'Capacity',
-    items: [{ to: '/admin/capacity', label: 'Capacity & bridges' }],
+    items: [
+      { to: '/admin/capacity', label: 'Capacity & bridges' },
+      { to: '/admin/host-resources', label: 'Host resources' },
+    ],
   },
   {
     title: 'Automation',

@@ -6,6 +6,7 @@ import LoginPage from '@/features/admin/LoginPage'
 import DashboardPage from '@/features/admin/DashboardPage'
 import ForwardingPage from '@/features/admin/ForwardingPage'
 import CapacityPage from '@/features/admin/CapacityPage'
+import HostResourcesPage from '@/features/admin/HostResourcesPage'
 import HostingPage from '@/features/admin/HostingPage'
 import ScriptInjectionPage from '@/features/admin/ScriptInjectionPage'
 import ScriptsPage from '@/features/admin/ScriptsPage'
@@ -55,6 +56,7 @@ export default function App() {
             <Route index element={<DashboardPage />} />
             <Route path="forwarding" element={<ForwardingPage />} />
             <Route path="capacity" element={<CapacityPage />} />
+            <Route path="host-resources" element={<HostResourcesPage />} />
             <Route path="max-sessions" element={<Navigate to="/admin/capacity" replace />} />
             <Route path="js-bridge" element={<Navigate to="/admin/capacity" replace />} />
             <Route path="session-policy" element={<Navigate to="/admin/capacity" replace />} />

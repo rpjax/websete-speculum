@@ -77,7 +77,8 @@ public sealed class ApiAuthMiddleware
         return value.StartsWith("/api/configurations", StringComparison.OrdinalIgnoreCase)
             || value.StartsWith("/api/journal", StringComparison.OrdinalIgnoreCase)
             || value.StartsWith("/api/scripts", StringComparison.OrdinalIgnoreCase)
-            || value.StartsWith("/api/sessions", StringComparison.OrdinalIgnoreCase);
+            || value.StartsWith("/api/sessions", StringComparison.OrdinalIgnoreCase)
+            || value.StartsWith("/api/admin/host-resources", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool TryGetBearerToken(HttpRequest request, out string token)

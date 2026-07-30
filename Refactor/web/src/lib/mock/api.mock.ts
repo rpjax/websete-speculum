@@ -6,6 +6,10 @@ import type {
   ScriptMeta,
   ConfigSectionName,
   ScriptingConfiguration,
+  HostResourceStatus,
+  HostResourceProvisionParams,
+  HostResourceProvisionPlan,
+  HostResourceApplyResult,
 } from '@/lib/api'
 import { ApiError } from '@/lib/errors'
 import { delay } from './delay'
@@ -123,6 +127,62 @@ export const mockApi = {
     info: { title: 'Speculum', version: '0.0.0-mock' },
     paths: {},
   }),
+
+  getHostResources: () =>
+    delay<HostResourceStatus>({
+      host: {
+        memoryTotalBytes: 16 * 1024 ** 3,
+        memoryAvailableBytes: 10 * 1024 ** 3,
+        cpuCount: 8,
+        source: 'machine',
+      },
+      sidecar: {
+        shmSizeBytes: 2 * 1024 ** 3,
+      },
+      lastApply: null,
+      hostError: null,
+    }),
+
+  previewHostResources: (body: HostResourceProvisionParams) => {
+    const hostTotal = 16 * 1024 ** 3
+    const budget = body.maxRamBytes != null ? Math.min(hostTotal, body.maxRamBytes) : hostTotal
+    const reservePct = body.reservePercent ?? 15
+    const reserveMin = body.reserveMinBytes ?? 2 * 1024 ** 3
+    const reserve = Math.max(reserveMin, Math.ceil(budget * (reservePct / 100)))
+    const shmMin = body.shmMinBytes ?? 2 * 1024 ** 3
+    const capPct = body.shmMaxPercentOfBudget ?? 75
+    const cap = Math.floor(budget * (capPct / 100))
+    const raw = Math.max(0, budget - reserve)
+    const shmTargetBytes = Math.min(Math.max(raw, shmMin), Math.max(shmMin, cap))
+    const plan: HostResourceProvisionPlan = {
+      hostMemoryTotalBytes: hostTotal,
+      hostCpuCount: 8,
+      hostSource: 'machine',
+      budgetBytes: budget,
+      reserveBytes: reserve,
+      shmTargetBytes,
+      raiseUlimits: body.raiseUlimits ?? true,
+      nofile: body.nofile ?? 1_048_576,
+      nproc: body.nproc ?? 65_535,
+      params: body,
+    }
+    return delay(plan)
+  },
+
+  applyHostResources: async (body: HostResourceProvisionParams) => {
+    const plan = await mockApi.previewHostResources(body)
+    const result: HostResourceApplyResult = {
+      plan,
+      shmBeforeBytes: 2 * 1024 ** 3,
+      shmAppliedBytes: plan.shmTargetBytes,
+      ulimitsRaised: plan.raiseUlimits,
+      nofileApplied: plan.raiseUlimits ? plan.nofile : null,
+      nprocApplied: plan.raiseUlimits ? plan.nproc : null,
+      warnings: [],
+      appliedAtUtc: new Date().toISOString(),
+    }
+    return delay(result)
+  },
 }
 
 export function _resetMockApi() {

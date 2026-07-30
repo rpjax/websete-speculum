@@ -629,6 +629,19 @@ public sealed class SessionServiceTests
             => Task.FromResult<IResult<Speculum.Api.Telemetry.Models.SidecarTelemetrySample>>(
                 Result<Speculum.Api.Telemetry.Models.SidecarTelemetrySample>.Failure("not supported"));
 
+        public Task<IResult<HostResourcesApplyOutcome>> ApplyHostResourcesAsync(
+            long shmSizeBytes,
+            bool raiseUlimits,
+            long nofile,
+            long nproc,
+            CancellationToken ct = default)
+            => Task.FromResult<IResult<HostResourcesApplyOutcome>>(
+                Result<HostResourcesApplyOutcome>.Failure("not supported"));
+
+        public Task<IResult<HostResourcesLiveStatus>> GetHostResourcesAsync(CancellationToken ct = default)
+            => Task.FromResult<IResult<HostResourcesLiveStatus>>(
+                Result<HostResourcesLiveStatus>.Failure("not supported"));
+
         public Task<IResult<ISessionConnection>> StartConnectionAsync(
             Guid sessionId,
             CancellationToken ct = default)

@@ -472,6 +472,30 @@ message SidecarTelemetryResponse {
   optional SidecarAllocationsTelemetry allocations = 6;
 }
 
+// ── Host resources (admin-driven uncap; formula lives in API) ─────────────────
+
+message ApplyHostResourcesRequest {
+  int64 shm_size_bytes = 1;
+  bool raise_ulimits = 2;
+  int64 nofile = 3;
+  int64 nproc = 4;
+}
+
+message ApplyHostResourcesResponse {
+  int64 shm_before_bytes = 1;
+  int64 shm_applied_bytes = 2;
+  bool ulimits_raised = 3;
+  optional int64 nofile_applied = 4;
+  optional int64 nproc_applied = 5;
+  repeated string warnings = 6;
+}
+
+message HostResourcesStatusResponse {
+  int64 shm_size_bytes = 1;
+  optional int64 nofile = 2;
+  optional int64 nproc = 3;
+}
+
 // ── Service ──────────────────────────────────────────────────────────────────
 
 service BrowserSessionService {
@@ -508,4 +532,8 @@ service BrowserSessionService {
 
   // Process-wide composite sample — not scoped to a session id.
   rpc CollectTelemetry(SidecarTelemetryRequest) returns (SidecarTelemetryResponse);
+
+  // Admin host-resource provision — applies precomputed shm/ulimit targets.
+  rpc ApplyHostResources(ApplyHostResourcesRequest) returns (ApplyHostResourcesResponse);
+  rpc GetHostResources(Empty) returns (HostResourcesStatusResponse);
 }

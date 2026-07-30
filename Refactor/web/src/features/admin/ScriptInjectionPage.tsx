@@ -10,7 +10,16 @@ import {
   ShieldAlert,
   Trash2,
 } from 'lucide-react'
-import { api, ConfigSections, type ScriptMeta } from '@/lib/api'
+import {
+  api,
+  type ScriptMeta,
+} from '@/lib/api'
+import {
+  formatTargetRules,
+  normalizeScriptingConfiguration,
+  parseTargetRules,
+} from '@/features/admin/scriptingConfig'
+import { ScriptTargetRulesEditor } from '@/features/admin/ScriptTargetRulesEditor'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -26,20 +35,44 @@ import { ConfirmDestructiveButton } from '@/components/admin/ConfirmDestructive'
 import { cn } from '@/lib/utils'
 
 interface InjectionEntry {
-  scriptId?: string | null
-  url?: string | null
-  position: string
-  type: string
+  scriptId: string | null
+  url: string
+  sourceType: 'Stored' | 'Remote'
+  position: 'HeadStart' | 'HeadEnd' | 'BodyStart' | 'BodyEnd'
+  executionType: 'Classic' | 'Module'
+  targetRulesText: string
 }
 
-const POSITIONS = ['HeaderTop', 'HeaderBottom', 'BodyTop', 'BodyBottom'] as const
+const POSITIONS = ['HeadStart', 'HeadEnd', 'BodyStart', 'BodyEnd'] as const
 const TYPES = ['Classic', 'Module'] as const
 
 const POSITION_LABELS: Record<string, string> = {
-  HeaderTop: 'Head (top)',
-  HeaderBottom: 'Head (bottom)',
-  BodyTop: 'Body (top)',
-  BodyBottom: 'Body (bottom)',
+  HeadStart: 'Head (top)',
+  HeadEnd: 'Head (bottom)',
+  BodyStart: 'Body (top)',
+  BodyEnd: 'Body (bottom)',
+}
+
+function createEmptyEntry(scriptId?: string): InjectionEntry {
+  return {
+    scriptId: scriptId ?? null,
+    url: '',
+    sourceType: 'Stored',
+    position: 'HeadStart',
+    executionType: 'Classic',
+    targetRulesText: '* /',
+  }
+}
+
+function toEntry(config: ReturnType<typeof normalizeScriptingConfiguration>['injections'][number]): InjectionEntry {
+  return {
+    scriptId: config.source.storedScriptId ?? null,
+    url: config.source.remoteUrl ?? '',
+    sourceType: config.source.sourceType,
+    position: config.position,
+    executionType: config.executionType,
+    targetRulesText: formatTargetRules(config.targetRules ?? []),
+  }
 }
 
 export default function ScriptInjectionPage() {
@@ -54,12 +87,12 @@ export default function ScriptInjectionPage() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [scriptsList, section] = await Promise.all([
-        api.listScripts().catch(() => [] as ScriptMeta[]),
-        api.getSection<InjectionEntry[]>(ConfigSections.ScriptInjection).catch(() => []),
+      const [scriptsPage, scripting] = await Promise.all([
+        api.listScripts('', 0, 200).catch(() => ({ items: [] as ScriptMeta[], total: 0 })),
+        api.getScripting().catch(() => ({ injections: [] })),
       ])
-      setScripts(scriptsList)
-      setEntries(Array.isArray(section) ? section : [])
+      setScripts(scriptsPage.items)
+      setEntries(normalizeScriptingConfiguration(scripting).injections.map(toEntry))
     } finally {
       setLoading(false)
     }
@@ -86,12 +119,7 @@ export default function ScriptInjectionPage() {
   }
 
   function addEntry() {
-    const newEntry: InjectionEntry = {
-      scriptId: scripts[0]?.id ?? null,
-      url: null,
-      position: 'HeaderTop',
-      type: 'Classic',
-    }
+    const newEntry = createEmptyEntry(scripts[0]?.id)
     setEntries((prev) => [...prev, newEntry])
     setExpandedEntry(entries.length)
   }
@@ -106,13 +134,18 @@ export default function ScriptInjectionPage() {
     setMessage(null)
     setError(null)
     try {
-      const body = entries.map((e) => ({
-        scriptId: e.url ? null : e.scriptId || null,
-        url: e.scriptId ? null : e.url || null,
-        position: e.position,
-        type: e.type,
-      }))
-      await api.putSection(ConfigSections.ScriptInjection, body)
+      await api.putScripting({
+        injections: entries.map((entry) => ({
+          source: {
+            sourceType: entry.sourceType,
+            storedScriptId: entry.sourceType === 'Stored' ? entry.scriptId : null,
+            remoteUrl: entry.sourceType === 'Remote' ? entry.url : null,
+          },
+          position: entry.position,
+          executionType: entry.executionType,
+          targetRules: parseTargetRules(entry.targetRulesText),
+        })),
+      })
       setMessage('Script injection saved')
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Save failed')
@@ -126,7 +159,7 @@ export default function ScriptInjectionPage() {
     setMessage(null)
     setError(null)
     try {
-      await api.deleteSection(ConfigSections.ScriptInjection)
+      await api.clearScripting()
       setEntries([])
       setExpandedEntry(null)
       setMessage('Script injection cleared')
@@ -138,7 +171,7 @@ export default function ScriptInjectionPage() {
   }
 
   function getEntryLabel(entry: InjectionEntry): string {
-    if (entry.url) return entry.url
+    if (entry.sourceType === 'Remote' && entry.url) return entry.url
     if (entry.scriptId) {
       const s = scripts.find((x) => x.id === entry.scriptId)
       return s?.name ?? entry.scriptId
@@ -150,7 +183,7 @@ export default function ScriptInjectionPage() {
     <div className="mx-auto max-w-2xl space-y-6">
       <PageHeader
         title="Script injection"
-        description="Inject scripts into motor pages. Each entry adds a stored asset or remote URL at a chosen position in the document."
+        description="Inject scripts into Sessions main-frame documents. Each entry chooses a source, document position, and domain/path rules."
         actions={
           <Button asChild variant="outline" size="sm" className="gap-1.5">
             <Link to="/admin/scripts">
@@ -172,7 +205,7 @@ export default function ScriptInjectionPage() {
       ) : entries.length === 0 ? (
         <EmptyState
           title="No injection entries"
-          description="Add scripts or remote URLs to inject into every motor page. Use the diagram above to understand where scripts appear."
+          description="Add scripts or remote URLs to inject into matching Session pages. Use domain and path rules to scope each entry."
           action={
             <Button size="sm" className="gap-1.5" onClick={addEntry}>
               <Plus className="h-3.5 w-3.5" />
@@ -197,7 +230,7 @@ export default function ScriptInjectionPage() {
           <div className="space-y-1.5">
             {entries.map((entry, index) => {
               const isExpanded = expandedEntry === index
-              const isUrl = !!entry.url
+              const isUrl = entry.sourceType === 'Remote'
               const label = getEntryLabel(entry)
 
               return (
@@ -255,7 +288,7 @@ export default function ScriptInjectionPage() {
                           {POSITION_LABELS[entry.position] ?? entry.position}
                         </Badge>
                         <Badge variant="muted" className="text-[10px]">
-                          {entry.type}
+                          {entry.executionType}
                         </Badge>
                       </div>
 
@@ -272,11 +305,11 @@ export default function ScriptInjectionPage() {
                       <div className="space-y-2">
                         <Label>Source type</Label>
                         <Select
-                          value={entry.url != null ? 'url' : 'script'}
+                          value={entry.sourceType === 'Remote' ? 'url' : 'script'}
                           onValueChange={(mode) =>
                             update(index, mode === 'url'
-                              ? { url: entry.url || 'https://', scriptId: null }
-                              : { scriptId: scripts[0]?.id ?? '', url: null })
+                              ? { sourceType: 'Remote', url: entry.url || 'https://', scriptId: null }
+                              : { sourceType: 'Stored', scriptId: scripts[0]?.id ?? '', url: '' })
                           }
                         >
                           <SelectTrigger><SelectValue /></SelectTrigger>
@@ -287,7 +320,7 @@ export default function ScriptInjectionPage() {
                         </Select>
                       </div>
 
-                      {entry.url != null ? (
+                      {entry.sourceType === 'Remote' ? (
                         <div className="space-y-2">
                           <Label htmlFor={`url-${index}`}>URL</Label>
                           <Input
@@ -305,7 +338,7 @@ export default function ScriptInjectionPage() {
                           <Label>Script</Label>
                           <Select
                             value={entry.scriptId ?? ''}
-                            onValueChange={(scriptId) => update(index, { scriptId, url: null })}
+                            onValueChange={(scriptId) => update(index, { scriptId, url: '' })}
                           >
                             <SelectTrigger><SelectValue placeholder="Select script" /></SelectTrigger>
                             <SelectContent>
@@ -329,7 +362,10 @@ export default function ScriptInjectionPage() {
                       <div className="grid gap-3 sm:grid-cols-2">
                         <div className="space-y-2">
                           <Label>Position</Label>
-                          <Select value={entry.position} onValueChange={(position) => update(index, { position })}>
+                          <Select
+                            value={entry.position}
+                            onValueChange={(position) => update(index, { position: position as InjectionEntry['position'] })}
+                          >
                             <SelectTrigger><SelectValue /></SelectTrigger>
                             <SelectContent>
                               {POSITIONS.map((p) => (
@@ -340,7 +376,10 @@ export default function ScriptInjectionPage() {
                         </div>
                         <div className="space-y-2">
                           <Label>Type</Label>
-                          <Select value={entry.type} onValueChange={(type) => update(index, { type })}>
+                          <Select
+                            value={entry.executionType}
+                            onValueChange={(executionType) => update(index, { executionType: executionType as InjectionEntry['executionType'] })}
+                          >
                             <SelectTrigger><SelectValue /></SelectTrigger>
                             <SelectContent>
                               {TYPES.map((t) => (
@@ -349,6 +388,18 @@ export default function ScriptInjectionPage() {
                             </SelectContent>
                           </Select>
                         </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label>Where to inject</Label>
+                        <ScriptTargetRulesEditor
+                          idPrefix={`admin-inj-${index}`}
+                          rules={parseTargetRules(entry.targetRulesText)}
+                          disabled={pending}
+                          onChange={(rules) =>
+                            update(index, { targetRulesText: formatTargetRules(rules) })
+                          }
+                        />
                       </div>
 
                       <div className="flex items-center justify-between pt-1">
@@ -443,10 +494,10 @@ function InjectionPositionDiagram({
   getLabel: (e: InjectionEntry) => string
 }) {
   const byPosition: Record<string, { label: string; index: number }[]> = {
-    HeaderTop: [],
-    HeaderBottom: [],
-    BodyTop: [],
-    BodyBottom: [],
+    HeadStart: [],
+    HeadEnd: [],
+    BodyStart: [],
+    BodyEnd: [],
   }
 
   entries.forEach((e, i) => {
@@ -473,19 +524,17 @@ function InjectionPositionDiagram({
         <div className="ml-4">
           <div className="text-muted-foreground/50">&lt;head&gt;</div>
 
-          {/* HeaderTop slot */}
           <PositionSlot
-            position="HeaderTop"
-            entries={byPosition.HeaderTop}
+            position="HeadStart"
+            entries={byPosition.HeadStart}
             hasEntries={hasEntries}
           />
 
           <div className="ml-4 text-muted-foreground/30">… meta, title, styles …</div>
 
-          {/* HeaderBottom slot */}
           <PositionSlot
-            position="HeaderBottom"
-            entries={byPosition.HeaderBottom}
+            position="HeadEnd"
+            entries={byPosition.HeadEnd}
             hasEntries={hasEntries}
           />
 
@@ -496,19 +545,17 @@ function InjectionPositionDiagram({
         <div className="ml-4">
           <div className="text-muted-foreground/50">&lt;body&gt;</div>
 
-          {/* BodyTop slot */}
           <PositionSlot
-            position="BodyTop"
-            entries={byPosition.BodyTop}
+            position="BodyStart"
+            entries={byPosition.BodyStart}
             hasEntries={hasEntries}
           />
 
           <div className="ml-4 text-muted-foreground/30">… page content …</div>
 
-          {/* BodyBottom slot */}
           <PositionSlot
-            position="BodyBottom"
-            entries={byPosition.BodyBottom}
+            position="BodyEnd"
+            entries={byPosition.BodyEnd}
             hasEntries={hasEntries}
           />
 

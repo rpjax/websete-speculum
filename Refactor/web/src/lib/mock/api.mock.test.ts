@@ -80,11 +80,11 @@ describe('mockApi', () => {
     expect(Array.isArray(detail.history)).toBe(true)
   })
 
-  it('listScripts returns script array', async () => {
+  it('listScripts returns paged scripts', async () => {
     const scripts = await mockApi.listScripts()
-    expect(scripts.length).toBeGreaterThan(0)
-    expect(scripts[0].id).toBeTruthy()
-    expect(scripts[0].sha256).toHaveLength(64)
+    expect(scripts.total).toBeGreaterThan(0)
+    expect(scripts.items[0].id).toBeTruthy()
+    expect(scripts.items[0].sha256).toHaveLength(64)
   })
 
   it('uploadScript adds to list', async () => {
@@ -94,15 +94,15 @@ describe('mockApi', () => {
     expect(meta.name).toBe('test-script.js')
     expect(meta.size).toBe(file.size)
     const after = await mockApi.listScripts()
-    expect(after.length).toBe(before.length + 1)
+    expect(after.total).toBe(before.total + 1)
   })
 
   it('deleteScript removes from list', async () => {
     const before = await mockApi.listScripts()
-    const target = before[0].id
+    const target = before.items[0].id
     await mockApi.deleteScript(target)
     const after = await mockApi.listScripts()
-    expect(after.find((s) => s.id === target)).toBeUndefined()
+    expect(after.items.find((s) => s.id === target)).toBeUndefined()
   })
 
   it('_resetMockApi restores initial state', async () => {

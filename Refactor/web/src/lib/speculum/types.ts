@@ -122,6 +122,10 @@ export interface SessionStatus {
   resizing: boolean
   width: number
   height: number
+  displayWidth: number
+  displayHeight: number
+  chromeWidth: number
+  chromeHeight: number
   fps: number
   uptimeMs: number
   sessionId: string

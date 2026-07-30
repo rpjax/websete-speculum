@@ -57,6 +57,7 @@ public static class DatabaseServiceCollectionExtensions
         var sp = scope.ServiceProvider;
         var db = sp.GetRequiredService<SpeculumDbContext>();
         db.Database.EnsureCreated();
+        EnsureScriptsTable(db);
 
         try
         {
@@ -69,6 +70,27 @@ public static class DatabaseServiceCollectionExtensions
                 ?.CreateLogger("Speculum.Api.Database")
                 .LogWarning(ex, "Failed to apply Speculum SQLite WAL settings.");
         }
+    }
+
+    /// <summary>
+    /// EnsureCreated is a no-op when the SQLite file already exists — add tables introduced after first boot.
+    /// </summary>
+    private static void EnsureScriptsTable(SpeculumDbContext db)
+    {
+        db.Database.ExecuteSqlRaw(
+            """
+            CREATE TABLE IF NOT EXISTS scripts (
+                id TEXT NOT NULL CONSTRAINT PK_scripts PRIMARY KEY,
+                name TEXT NOT NULL,
+                content TEXT NOT NULL,
+                sha256 TEXT NOT NULL,
+                size_bytes INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS IX_scripts_name ON scripts (name);
+            CREATE INDEX IF NOT EXISTS IX_scripts_sha256 ON scripts (sha256);
+            """);
     }
 
     private static string ResolveDatabasePath(IServiceProvider sp, string path)

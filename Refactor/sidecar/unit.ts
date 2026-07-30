@@ -1,5 +1,13 @@
 import assert from 'assert';
-import { matchesAllowedDomain } from './browser/patchright/Navigation';
+import {
+  domainMatches,
+  injectPermissiveMainFrameCsp,
+  matchesAllowedDomain,
+  pathMatches,
+  relaxMainFrameCspHeaders,
+  scriptMatchesUrl,
+} from './browser/patchright/Navigation';
+import type { BrowserScriptInjection } from './browser/BrowserSession';
 import { isInputTouchPrimary, resolveDeviceProfile, deviceProfilesEqual, touchEmulationParams, DEFAULT_DESKTOP_DEVICE, applyLogicalViewport } from './browser/patchright/device-emulation';
 import { validateLaunchViewport, validateResizeViewport, requireViewportPolicy } from './browser/patchright/viewport-bounds';
 import { shouldEmitContextCrash } from './browser/patchright/contextCrash';
@@ -24,6 +32,101 @@ function testDomainMatch(): void {
   assert.strictEqual(matchesAllowedDomain('evil.com', ['example.com']), false);
   assert.strictEqual(matchesAllowedDomain('example.com', ['*.example.com']), false);
   console.log('[unit] domain match ok');
+}
+
+function testScriptTargetRuleMatch(): void {
+  const anyAny: BrowserScriptInjection = {
+    position: 'HeaderTop',
+    type: 'Classic',
+    file: '/s.js',
+    content: '1',
+    targetRules: [{
+      domain: { scope: 'Any', labels: [] },
+      path: { scope: 'Any', matchType: 'Prefix', segments: [] },
+    }],
+  };
+  assert.strictEqual(scriptMatchesUrl(anyAny, new URL('https://a.example.com/x')), true);
+
+  const emptyRules: BrowserScriptInjection = {
+    position: 'HeaderTop',
+    type: 'Classic',
+    file: '/s.js',
+    content: '1',
+    targetRules: [],
+  };
+  assert.strictEqual(scriptMatchesUrl(emptyRules, new URL('https://a.example.com/x')), false);
+
+  const wildcard = {
+    scope: 'Pattern',
+    labels: [
+      { match: 'Any', value: '' },
+      { match: 'Exact', value: 'example' },
+      { match: 'Exact', value: 'com' },
+    ],
+  };
+  assert.strictEqual(domainMatches(wildcard, 'www.example.com'), true);
+  assert.strictEqual(domainMatches(wildcard, 'a.b.example.com'), true);
+  assert.strictEqual(domainMatches(wildcard, 'example.com'), false);
+  assert.strictEqual(domainMatches(wildcard, 'evil.com'), false);
+
+  const exact = {
+    scope: 'Pattern',
+    labels: [
+      { match: 'Exact', value: 'www' },
+      { match: 'Exact', value: 'example' },
+      { match: 'Exact', value: 'com' },
+    ],
+  };
+  assert.strictEqual(domainMatches(exact, 'www.example.com'), true);
+  assert.strictEqual(domainMatches(exact, 'a.www.example.com'), false);
+
+  const midWildcard = {
+    scope: 'Pattern',
+    labels: [
+      { match: 'Exact', value: 'api' },
+      { match: 'Any', value: '' },
+      { match: 'Exact', value: 'com' },
+    ],
+  };
+  assert.strictEqual(domainMatches(midWildcard, 'api.x.com'), false);
+
+  assert.strictEqual(
+    pathMatches({ scope: 'Pattern', matchType: 'Prefix', segments: [{ match: 'Exact', value: 'app' }] }, '/app/x'),
+    true,
+  );
+  assert.strictEqual(
+    pathMatches({ scope: 'Pattern', matchType: 'Exact', segments: [{ match: 'Exact', value: 'app' }] }, '/app/x'),
+    false,
+  );
+  assert.strictEqual(
+    pathMatches({ scope: 'Pattern', matchType: 'Exact', segments: [{ match: 'Exact', value: 'app' }] }, '/app'),
+    true,
+  );
+
+  // camelCase wire tolerance
+  assert.strictEqual(
+    domainMatches({ scope: 'any', labels: [] } as never, 'x.com'),
+    true,
+  );
+  console.log('[unit] script target rule match ok');
+}
+
+function testPermissiveMainFrameCspRewrite(): void {
+  const headers = relaxMainFrameCspHeaders([
+    { name: 'Content-Type', value: 'text/html; charset=utf-8' },
+    { name: 'Content-Security-Policy', value: "default-src 'self'" },
+    { name: 'Content-Security-Policy-Report-Only', value: "script-src 'none'" },
+  ]);
+  assert.strictEqual(headers.some((h) => h.name.toLowerCase() === 'content-security-policy-report-only'), false);
+  assert.strictEqual(headers.filter((h) => h.name.toLowerCase() === 'content-security-policy').length, 1);
+  assert.ok(headers.some((h) => h.name === 'Content-Security-Policy' && h.value.includes('connect-src *')));
+
+  const html = '<html><head><title>x</title></head><body>ok</body></html>';
+  const patched = injectPermissiveMainFrameCsp(html);
+  assert.ok(patched.includes('http-equiv="Content-Security-Policy"'));
+  assert.ok(patched.includes("script-src * data: blob: 'unsafe-inline' 'unsafe-eval'"));
+  assert.ok(patched.includes('connect-src * data: blob: ws: wss:'));
+  console.log('[unit] permissive main-frame csp rewrite ok');
 }
 
 function testViewportBounds(): void {
@@ -94,7 +197,7 @@ function testResolveDeviceProfileDefaults(): void {
   console.log('[unit] resolve device profile defaults ok');
 }
 
-async function testApplyLogicalViewportUsesNormalBounds(): Promise<void> {
+async function testApplyLogicalViewportUsesDeviceMetricsOnly(): Promise<void> {
   const calls: Array<{ method: string; params: unknown }> = [];
   const cdp = {
     send: async (method: string, params?: unknown) => {
@@ -111,12 +214,10 @@ async function testApplyLogicalViewportUsesNormalBounds(): Promise<void> {
   assert.strictEqual(profile.deviceScaleFactor, 1);
   assert.strictEqual(profile.mobile, false);
 
-  const bounds = calls.find((c) => c.method === 'Browser.setWindowBounds');
-  assert.ok(bounds, 'must set window bounds');
-  assert.deepStrictEqual(bounds!.params, {
-    windowId: 7,
-    bounds: { left: 0, top: 0, width: 1024, height: 768, windowState: 'normal' },
-  });
+  assert.ok(
+    !calls.some((c) => c.method === 'Browser.setWindowBounds'),
+    'soft logical viewport must not mutate native window bounds',
+  );
 
   const metrics = calls.find((c) => c.method === 'Emulation.setDeviceMetricsOverride');
   assert.ok(metrics, 'must apply device metrics');
@@ -125,15 +226,6 @@ async function testApplyLogicalViewportUsesNormalBounds(): Promise<void> {
   assert.strictEqual((metrics!.params as { deviceScaleFactor: number }).deviceScaleFactor, 1);
   assert.strictEqual((metrics!.params as { screenWidth: number }).screenWidth, 1024);
   assert.strictEqual((metrics!.params as { screenHeight: number }).screenHeight, 768);
-
-  // Soft resize path must never imply fullscreen-on-max display.
-  assert.ok(
-    !calls.some(
-      (c) =>
-        c.method === 'Browser.setWindowBounds'
-        && (c.params as { bounds?: { windowState?: string } })?.bounds?.windowState === 'fullscreen',
-    ),
-  );
 
   // Desktop apply must clear UA (even after prior mobile) — no early-return skip.
   const ua = calls.find((c) => c.method === 'Emulation.setUserAgentOverride');
@@ -156,7 +248,7 @@ async function testApplyLogicalViewportUsesNormalBounds(): Promise<void> {
       ),
     /did not return userAgent/,
   );
-  console.log('[unit] apply logical viewport uses normal bounds ok');
+  console.log('[unit] apply logical viewport uses device metrics only ok');
 }
 
 async function testScreencastRestartThrowsAfterStop(): Promise<void> {
@@ -373,112 +465,287 @@ async function testPermissionClearRespectsEpoch(): Promise<void> {
 }
 
 async function testInputFireAndForgetAndMoveCoalesce(): Promise<void> {
-  const sent: Array<{ method: string; params: Record<string, unknown> }> = [];
+  const ops: string[] = [];
   let resolveSlow: (() => void) | null = null;
-  const slow = new Promise<void>((r) => {
-    resolveSlow = r;
-  });
+  const slow = new Promise<void>((r) => { resolveSlow = r; });
 
+  let moveCount = 0;
+  let lastMoveX = 0;
+  let lastMoveY = 0;
+
+  const page = {
+    mouse: {
+      move: async () => { throw new Error('page.mouse must not be used'); },
+      down: async () => { throw new Error('page.mouse must not be used'); },
+      up:   async () => { throw new Error('page.mouse must not be used'); },
+      wheel: async () => { throw new Error('page.mouse must not be used'); },
+    },
+    keyboard: {
+      down: async (_k: string) => { ops.push('kdown'); },
+      up:   async (_k: string) => { ops.push('kup'); },
+      type: async () => { throw new Error('keyboard.type must not be used'); },
+    },
+    goBack:    () => Promise.reject(new Error('should not block')),
+    goForward: () => Promise.reject(new Error('should not block')),
+    evaluate:  async () => null,
+  };
   const cdp = {
-    send(method: string, params?: object): Promise<unknown> {
-      sent.push({ method, params: (params ?? {}) as Record<string, unknown> });
-      if (method === 'Input.dispatchMouseEvent' && (params as { type?: string })?.type === 'mousePressed') {
-        return slow;
+    send: async (method: string, params?: { type?: string; x?: number; y?: number }) => {
+      if (method !== 'Input.dispatchMouseEvent') return;
+      if (params?.type === 'mouseMoved') {
+        ops.push('move');
+        moveCount++;
+        lastMoveX = params.x ?? 0;
+        lastMoveY = params.y ?? 0;
+        return;
       }
-      return Promise.resolve({});
+      if (params?.type === 'mousePressed') {
+        ops.push('down');
+        await slow;
+        return;
+      }
+      if (params?.type === 'mouseReleased') {
+        ops.push('up');
+      }
     },
   };
 
-  const page = {
-    goBack: () => Promise.reject(new Error('should not block')),
-    goForward: () => Promise.reject(new Error('should not block')),
-  };
-
   const { InputController } = await import('./browser/patchright/Input');
-  const input = new InputController(page as never, cdp as never);
+  const { PatchrightInputBackend } = await import('./browser/patchright/input/PatchrightInputBackend');
+  const input = new InputController(page as never, new PatchrightInputBackend(page as never, cdp as never));
 
-  // Admission must return while a prior CDP call is still in flight.
   input.enqueue({ type: 'mousedown', x: 1, y: 2, button: 0 });
-  assert.strictEqual(input.pendingCount, 1, 'in-flight CDP must be visible in telemetry');
-  input.enqueue({ type: 'mouseup', x: 1, y: 2, button: 0 });
-  input.enqueue({ type: 'keydown', key: 'a' });
-  assert.strictEqual(sent.length, 3, 'second/third CDP must not wait for first');
+  input.enqueue({ type: 'mouseup',   x: 1, y: 2, button: 0 });
+  input.enqueue({ type: 'keydown',   key: 'a' });
 
-  // mousemove coalesces to last point via setImmediate
+  for (let i = 0; i < 8; i++) await Promise.resolve();
+  assert.ok(ops.includes('down'), 'mousedown must have started');
+  assert.ok(!ops.includes('up'),  'mouseup must be held behind slow mousedown');
+
   input.enqueue({ type: 'mousemove', x: 10, y: 10 });
   input.enqueue({ type: 'mousemove', x: 20, y: 20 });
   input.enqueue({ type: 'mousemove', x: 30, y: 30 });
-  assert.ok(input.pendingCount >= 2, 'coalesced pending move must count until flushed');
+  const movesBeforeFlush = moveCount;
   await new Promise<void>((r) => setImmediate(r));
-  const moves = sent.filter(
-    (s) => s.method === 'Input.dispatchMouseEvent' && s.params.type === 'mouseMoved',
-  );
-  assert.strictEqual(moves.length, 1);
-  assert.strictEqual(moves[0]!.params.x, 30);
-  assert.strictEqual(moves[0]!.params.y, 30);
+  assert.strictEqual(moveCount, movesBeforeFlush, 'coalesced move must not flush while chain is held');
 
-  // history must not throw / block admission
   input.enqueue({ type: 'goback' });
   input.enqueue({ type: 'goforward' });
 
   resolveSlow!();
-  await slow;
-  await Promise.resolve();
-  assert.strictEqual(input.pendingCount, 0, 'telemetry input depth must drain after completion');
-  console.log('[unit] input fire-and-forget + move coalesce ok');
+  for (let i = 0; i < 30; i++) await Promise.resolve();
+  await new Promise<void>((r) => setImmediate(r));
+  for (let i = 0; i < 30; i++) await Promise.resolve();
+
+  assert.ok(ops.indexOf('down') < ops.indexOf('up'),   'down before up');
+  assert.ok(ops.indexOf('up')   < ops.indexOf('kdown'), 'up before keydown');
+  assert.ok(moveCount > movesBeforeFlush, 'coalesced move must flush after chain drains');
+  assert.strictEqual(lastMoveX, 30, 'coalesced to last move x=30');
+  assert.strictEqual(lastMoveY, 30, 'coalesced to last move y=30');
+  assert.strictEqual(input.pendingCount, 0, 'pendingCount must drain after completion');
+  console.log('[unit] input admit-sync + chain + move coalesce ok');
 }
 
 async function testInputKeyDefsIncludeEditingKeys(): Promise<void> {
-  const sent: Array<{ method: string; params: Record<string, unknown> }> = [];
+  const downs: string[] = [];
+  const ups: string[] = [];
+  const inserts: string[] = [];
+
+  const page = {
+    mouse: { move: async () => {}, down: async () => {}, up: async () => {}, wheel: async () => {} },
+    keyboard: {
+      down: async (k: string) => { downs.push(k); },
+      up:   async (k: string) => { ups.push(k); },
+      type: async () => { throw new Error('keyboard.type must not be used'); },
+    },
+    goBack:    () => Promise.resolve(null),
+    goForward: () => Promise.resolve(null),
+    evaluate:  async () => null,
+  };
   const cdp = {
-    send: async (method: string, params?: object) => {
-      sent.push({ method, params: (params ?? {}) as Record<string, unknown> });
+    send: async (method: string, params?: { text?: string }) => {
+      if (method === 'Input.insertText' && params?.text) inserts.push(params.text);
     },
   };
-  const page = {
-    goBack: () => Promise.resolve(null),
-    goForward: () => Promise.resolve(null),
-  };
   const { InputController } = await import('./browser/patchright/Input');
-  const input = new InputController(page as never, cdp as never);
+  const { PatchrightInputBackend } = await import('./browser/patchright/input/PatchrightInputBackend');
+  const input = new InputController(page as never, new PatchrightInputBackend(page as never, cdp as never));
 
   input.enqueue({ type: 'keydown', key: 'Backspace' });
-  input.enqueue({ type: 'keyup', key: 'Backspace' });
+  input.enqueue({ type: 'keyup',   key: 'Backspace' });
   input.enqueue({ type: 'keydown', key: 'Delete' });
   input.enqueue({ type: 'keydown', key: 'ArrowLeft' });
   input.enqueue({ type: 'keydown', key: 'Home' });
   input.enqueue({ type: 'keydown', key: 'Enter' });
+  input.enqueue({ type: 'keydown', key: 'ã' });
+  input.enqueue({ type: 'text', text: 'olá' });
+  await new Promise<void>((r) => setTimeout(r, 30));
 
-  const keys = sent.filter((s) => s.method === 'Input.dispatchKeyEvent');
-  const backspace = keys.find((s) => s.params.key === 'Backspace' && s.params.type === 'rawKeyDown');
-  assert.ok(backspace, 'Backspace must use rawKeyDown');
-  assert.strictEqual(backspace!.params.windowsVirtualKeyCode, 8);
-  assert.strictEqual(backspace!.params.code, 'Backspace');
+  assert.ok(downs.includes('Backspace'), 'Backspace routed to keyboard.down');
+  assert.ok(ups.includes('Backspace'),   'Backspace keyup routed to keyboard.up');
+  assert.ok(downs.includes('Delete'),    'Delete routed');
+  assert.ok(downs.includes('ArrowLeft'), 'ArrowLeft routed');
+  assert.ok(downs.includes('Home'),      'Home routed');
+  assert.ok(downs.includes('Enter'),     'Enter routed');
+  assert.ok(inserts.includes('ã'),       'non-ASCII keydown via Input.insertText');
+  assert.ok(inserts.includes('olá'),     'text via Input.insertText');
 
-  const del = keys.find((s) => s.params.key === 'Delete' && s.params.type === 'rawKeyDown');
-  assert.strictEqual(del?.params.windowsVirtualKeyCode, 46);
+  const upsBefore = ups.length;
+  input.enqueue({ type: 'keyup', key: 'ã' });
+  await new Promise<void>((r) => setTimeout(r, 20));
+  assert.strictEqual(ups.length, upsBefore, 'keyup of non-ASCII must be ignored');
 
-  const arrow = keys.find((s) => s.params.key === 'ArrowLeft');
-  assert.strictEqual(arrow?.params.windowsVirtualKeyCode, 37);
-  assert.strictEqual(arrow?.params.code, 'ArrowLeft');
+  console.log('[unit] input key routing (keyboard.down/up + insertText) ok');
+}
 
-  const home = keys.find((s) => s.params.key === 'Home');
-  assert.strictEqual(home?.params.windowsVirtualKeyCode, 36);
+async function testTouchMoveCoalesceAndStormWrites(): Promise<void> {
+  const { InputController } = await import('./browser/patchright/Input');
+  const { TouchMoveCoalescer } = await import('./browser/patchright/input/TouchMoveCoalescer');
 
-  const enter = keys.find((s) => s.params.key === 'Enter' && s.params.type === 'keyDown');
-  assert.strictEqual(enter?.params.text, '\r');
-  assert.strictEqual(enter?.params.windowsVirtualKeyCode, 13);
+  let flushes = 0;
+  let lastLen = 0;
+  const coalescer = new TouchMoveCoalescer((pts) => {
+    flushes++;
+    lastLen = pts.length;
+  });
+  coalescer.queue([{ id: 1, x: 1, y: 1 }]);
+  coalescer.queue([{ id: 1, x: 2, y: 2 }, { id: 2, x: 3, y: 3 }]);
+  coalescer.queue([{ id: 1, x: 9, y: 9 }]);
+  await new Promise<void>((r) => setImmediate(r));
+  assert.strictEqual(flushes, 1, 'touchmove must coalesce to one flush per turn');
+  assert.strictEqual(lastLen, 1, 'latest touchmove sample wins');
 
-  // Shift must set modifiers on subsequent keys (selection / uppercase path).
-  input.enqueue({ type: 'keydown', key: 'Shift' });
-  input.enqueue({ type: 'keydown', key: 'ArrowRight' });
-  const shiftArrow = sent
-    .filter((s) => s.method === 'Input.dispatchKeyEvent' && s.params.key === 'ArrowRight')
-    .at(-1);
-  assert.strictEqual(shiftArrow?.params.modifiers, 8, 'Shift bitmask must be set');
-  assert.strictEqual(shiftArrow?.params.type, 'rawKeyDown');
+  const stolen = (() => {
+    const c = new TouchMoveCoalescer(() => {
+      throw new Error('cancelled flush must not run');
+    });
+    c.queue([{ id: 1, x: 1, y: 1 }]);
+    const pending = c.takePending();
+    assert.ok(pending && pending[0]!.x === 1);
+    return pending;
+  })();
+  await new Promise<void>((r) => setImmediate(r));
+  assert.ok(stolen);
 
-  console.log('[unit] input key defs (Backspace/Delete/nav/modifiers) ok');
+  let moves = 0;
+  let downs = 0;
+  let evaluates = 0;
+  const page = {
+    mouse: { move: async () => {}, down: async () => {}, up: async () => {}, wheel: async () => {} },
+    keyboard: { down: async () => {}, up: async () => {}, type: async () => {} },
+    goBack: () => Promise.resolve(null),
+    goForward: () => Promise.resolve(null),
+    evaluate: async () => {
+      evaluates++;
+      return null;
+    },
+  };
+  const backend = {
+    move: async () => {
+      moves++;
+    },
+    down: async () => {
+      downs++;
+    },
+    up: async () => {},
+    wheel: async () => {},
+    keyDown: async () => {},
+    keyUp: async () => {},
+    typeText: async () => {},
+    touch: async () => {},
+    dispose: async () => {},
+  };
+  const input = new InputController(page as never, backend);
+  for (let i = 0; i < 200; i++) {
+    input.enqueue({ type: 'mousemove', x: i, y: i });
+  }
+  input.enqueue({ type: 'mousedown', x: 1, y: 1, button: 0 });
+  assert.strictEqual(moves, 0, 'admit path must stay sync (no await on enqueue)');
+  assert.strictEqual(downs, 0, 'admit path must not await inject');
+  await new Promise<void>((r) => setImmediate(r));
+  for (let i = 0; i < 40; i++) await Promise.resolve();
+  assert.ok(moves <= 2, `move storm must coalesce (got ${moves} writes)`);
+  assert.strictEqual(downs, 1, 'mousedown still injects once');
+  assert.strictEqual(evaluates, 0, 'production hot path must not page.evaluate');
+  console.log('[unit] touch coalesce + move-storm write bound ok');
+}
+
+async function testInputMousePressReleaseOrdered(): Promise<void> {
+  const order: string[] = [];
+  let resolveDown: (() => void) | null = null;
+  const slowDown = new Promise<void>((r) => { resolveDown = r; });
+
+  const page = {
+    mouse: {
+      move: async () => { throw new Error('page.mouse must not be used'); },
+      down: async () => { throw new Error('page.mouse must not be used'); },
+      up:   async () => { throw new Error('page.mouse must not be used'); },
+      wheel: async () => {},
+    },
+    keyboard: { down: async () => {}, up: async () => {}, type: async () => {} },
+    goBack:    () => Promise.resolve(null),
+    goForward: () => Promise.resolve(null),
+    evaluate:  async () => null,
+  };
+  const cdp = {
+    send: async (_method: string, params?: { type?: string }) => {
+      if (params?.type === 'mousePressed') {
+        order.push('down');
+        await slowDown;
+        return;
+      }
+      if (params?.type === 'mouseReleased') order.push('up');
+    },
+  };
+  const { InputController } = await import('./browser/patchright/Input');
+  const { PatchrightInputBackend } = await import('./browser/patchright/input/PatchrightInputBackend');
+  const input = new InputController(page as never, new PatchrightInputBackend(page as never, cdp as never));
+
+  input.enqueue({ type: 'mousedown', x: 10, y: 10, button: 0 });
+  input.enqueue({ type: 'mouseup',   x: 10, y: 10, button: 0 });
+
+  for (let i = 0; i < 8; i++) await Promise.resolve();
+  assert.ok(order.includes('down'), 'mousedown must have started');
+  assert.ok(!order.includes('up'),  'mouseup must be held until mousedown completes');
+
+  resolveDown!();
+  await new Promise((r) => setTimeout(r, 40));
+  assert.ok(order.indexOf('down') < order.indexOf('up'), 'down must precede up');
+  console.log('[unit] input mouse press/release order ok');
+}
+
+async function testInputPendingCountIncludesChainDepth(): Promise<void> {
+  let resolveDown: (() => void) | null = null;
+  const slowDown = new Promise<void>((r) => { resolveDown = r; });
+  const page = {
+    mouse: { move: async () => {}, down: async () => {}, up: async () => {}, wheel: async () => {} },
+    keyboard: { down: async () => {}, up: async () => {}, type: async () => {} },
+    goBack: () => Promise.resolve(null),
+    goForward: () => Promise.resolve(null),
+    evaluate: async () => null,
+  };
+  const backend = {
+    move: async () => {},
+    down: async () => { await slowDown; },
+    up: async () => {},
+    wheel: async () => {},
+    keyDown: async () => {},
+    keyUp: async () => {},
+    typeText: async () => {},
+    touch: async () => {},
+    dispose: async () => {},
+  };
+  const { InputController } = await import('./browser/patchright/Input');
+  const input = new InputController(page as never, backend);
+  input.enqueue({ type: 'mousedown', x: 1, y: 1, button: 0 });
+  input.enqueue({ type: 'mouseup', x: 1, y: 1, button: 0 });
+  await Promise.resolve();
+  assert.strictEqual(input.pendingCount, 2, 'pendingCount must include queued chain work');
+  assert.strictEqual(input.chainDepth, 2, 'chainDepth must reflect queued inject operations');
+  resolveDown!();
+  await new Promise((r) => setTimeout(r, 40));
+  assert.strictEqual(input.pendingCount, 0, 'pendingCount must drain after inject completes');
+  console.log('[unit] input pending count includes chain depth ok');
 }
 
 async function testTelemetryToggleOmission(): Promise<void> {
@@ -495,12 +762,13 @@ async function testTelemetryToggleOmission(): Promise<void> {
 
   const sectioned = await collectTelemetry({ includeChrome: true, includeQueues: true }, registry as never) as {
     chrome?: { totalJsHeapUsed?: number };
-    queues?: { inputDepth?: number; droppedTotal?: number };
+    queues?: { inputDepth?: number; inputChainDepth?: number; droppedTotal?: number };
   };
   assert.ok(sectioned.chrome);
   assert.ok(sectioned.queues);
   assert.strictEqual('totalJsHeapUsed' in sectioned.chrome!, false);
   assert.strictEqual(sectioned.queues!.inputDepth, 0);
+  assert.strictEqual(sectioned.queues!.inputChainDepth, 0);
   assert.strictEqual(sectioned.queues!.droppedTotal, 0);
   console.log('[unit] telemetry toggles omit sections ok');
 }
@@ -516,20 +784,45 @@ async function testTelemetryQueuesReportInputDepthAndDrops(): Promise<void> {
         bridge,
         session: {
           sessionId: 'telemetry-session',
-          getStatus: async () => ({ isOpen: true, tabCount: 1, url: 'about:blank', resizing: false, width: 1, height: 1 }),
-          getTelemetrySnapshot: () => ({ inputPendingCount: 2 }),
+          getStatus: async () => ({
+            isOpen: true,
+            tabCount: 1,
+            url: 'about:blank',
+            resizing: false,
+            width: 390,
+            height: 844,
+            displayWidth: 4096,
+            displayHeight: 2160,
+            chromeWidth: 390,
+            chromeHeight: 844,
+          }),
+          getTelemetrySnapshot: () => ({
+            inputPendingCount: 2,
+            inputChainDepth: 1,
+            displayAllocated: true,
+            displayWidth: 4096,
+            displayHeight: 2160,
+            logicalWidth: 390,
+            logicalHeight: 844,
+            chromeWidth: 390,
+            chromeHeight: 844,
+            inputBackend: 'os',
+            touchPrimary: true,
+            userDataDirPresent: true,
+          }),
         },
       },
     ],
   };
   const sample = await collectTelemetry({ includeQueues: true }, registry as never) as {
-    queues?: { videoDepth: number; inputDepth?: number; droppedTotal?: number };
+    queues?: { videoDepth: number; inputDepth?: number; inputChainDepth?: number; droppedTotal?: number };
   };
   assert.deepStrictEqual(sample.queues, {
     videoDepth: 2,
     audioDepth: 0,
     consoleDepth: 0,
     inputDepth: 2,
+    inputChainDepth: 1,
     droppedTotal: 1,
   });
   console.log('[unit] telemetry queues report input depth and drops ok');
@@ -568,11 +861,146 @@ async function testTelemetryFaultStateSurvivesCrashConsumption(): Promise<void> 
   console.log('[unit] telemetry fault state survives crash consumption ok');
 }
 
+async function testTelemetryAllocationsSummaryAndSessions(): Promise<void> {
+  const bridge = new EventBridge('alloc-session');
+  const registry = {
+    list: () => [{
+      bridge,
+      session: {
+        sessionId: 'alloc-session',
+        getStatus: async () => ({
+          isOpen: true,
+          tabCount: 1,
+          url: 'about:blank',
+          resizing: false,
+          width: 390,
+          height: 844,
+          displayWidth: 4096,
+          displayHeight: 2160,
+          chromeWidth: 390,
+          chromeHeight: 844,
+        }),
+        getTelemetrySnapshot: () => ({
+          displayAllocated: true,
+          displayWidth: 4096,
+          displayHeight: 2160,
+          logicalWidth: 390,
+          logicalHeight: 844,
+          chromeWidth: 390,
+          chromeHeight: 844,
+          inputBackend: 'os',
+          touchPrimary: false,
+          userDataDirPresent: true,
+        }),
+      },
+    }],
+  };
+
+  const summaryOnly = await collectTelemetry(
+    { includeAllocationsSummary: true },
+    registry as never,
+  ) as {
+    allocations?: {
+      summary?: {
+        allocatedSessions: number;
+        allocatedDisplayPixels: number;
+        osInputSessions: number;
+      };
+      sessions?: unknown[];
+    };
+  };
+  assert.strictEqual(summaryOnly.allocations?.summary?.allocatedSessions, 1);
+  assert.strictEqual(summaryOnly.allocations?.summary?.allocatedDisplayPixels, 4096 * 2160);
+  assert.strictEqual(summaryOnly.allocations?.summary?.osInputSessions, 1);
+  assert.strictEqual(summaryOnly.allocations?.sessions, undefined);
+
+  const withSessions = await collectTelemetry(
+    { includeAllocationsSummary: true, includeAllocationSessions: true },
+    registry as never,
+  ) as {
+    allocations?: {
+      sessions?: Array<{ sessionId: string; displayAllocated: boolean; inputBackend: string }>;
+    };
+  };
+  assert.strictEqual(withSessions.allocations?.sessions?.length, 1);
+  assert.strictEqual(withSessions.allocations?.sessions?.[0]?.sessionId, 'alloc-session');
+  assert.strictEqual(withSessions.allocations?.sessions?.[0]?.displayAllocated, true);
+  assert.strictEqual(withSessions.allocations?.sessions?.[0]?.inputBackend, 'os');
+  console.log('[unit] telemetry allocations summary and sessions ok');
+}
+
+function testLogicalToDeviceTransform(): void {
+  const { createCoordTransform, mapLogicalToAbs } = require('./browser/patchright/input/logical-to-device') as typeof import('./browser/patchright/input/logical-to-device');
+  const t = createCoordTransform(100, 200, 999, 1999);
+  assert.deepStrictEqual(mapLogicalToAbs(t, 0, 0), { x: 0, y: 0 });
+  assert.deepStrictEqual(mapLogicalToAbs(t, 100, 200), { x: 999, y: 1999 });
+  assert.deepStrictEqual(mapLogicalToAbs(t, 50, 100), { x: 500, y: 1000 });
+  assert.deepStrictEqual(mapLogicalToAbs(t, -10, 500), { x: 0, y: 1999 });
+  console.log('[unit] logical-to-device transform ok');
+}
+
+function testKeycodeResolve(): void {
+  const { resolveKeyStroke, KEY } = require('./browser/patchright/input/keycodes') as typeof import('./browser/patchright/input/keycodes');
+  assert.strictEqual(resolveKeyStroke('Enter')?.code, KEY.ENTER);
+  assert.strictEqual(resolveKeyStroke('a')?.code, KEY.A);
+  assert.strictEqual(resolveKeyStroke('A')?.shift, true);
+  assert.strictEqual(resolveKeyStroke(''), null);
+  assert.strictEqual(resolveKeyStroke('Unobtanium'), null);
+  console.log('[unit] keycode resolve ok');
+}
+
+function testXorgInputIsolationFlags(): void {
+  const { buildXorgDummyConfigForTest } = require('./browser/patchright/Display') as typeof import('./browser/patchright/Display');
+  const config = buildXorgDummyConfigForTest(1280, 720);
+  assert.ok(config.includes('Option "AutoAddDevices" "true"'), 'uinput hotplug must stay on');
+  assert.ok(config.includes('Option "AutoEnableDevices" "false"'), 'foreign uinput must not auto-enable');
+  console.log('[unit] xorg input isolation flags ok');
+}
+
+async function testDisplayIsolationRegistry(): Promise<void> {
+  const iso = require('./browser/patchright/input/display-isolation') as typeof import('./browser/patchright/input/display-isolation');
+  // Clear any leftover by unregistering known test ids
+  await iso.unregisterIsolatedInput('iso-a');
+  await iso.unregisterIsolatedInput('iso-b');
+  assert.strictEqual(iso.listLiveInputSessions().length, 0);
+
+  await iso.registerIsolatedInput({
+    sessionId: 'iso-a',
+    displayEnv: ':199',
+    deviceNames: ['speculum-ptr-a', 'speculum-mt-a'],
+  });
+  await iso.registerIsolatedInput({
+    sessionId: 'iso-b',
+    displayEnv: ':200',
+    deviceNames: ['speculum-ptr-b', 'speculum-mt-b'],
+  });
+  const live = iso.listLiveInputSessions();
+  assert.strictEqual(live.length, 2);
+  assert.ok(live.some((s) => s.sessionId === 'iso-a'));
+  assert.ok(live.some((s) => s.sessionId === 'iso-b'));
+
+  // New display before its own register — foreign devices must be targetable
+  await iso.disableForeignDevicesOnDisplay(':201');
+
+  await iso.unregisterIsolatedInput('iso-a');
+  assert.strictEqual(iso.listLiveInputSessions().length, 1);
+  assert.strictEqual(iso.listLiveInputSessions()[0]!.sessionId, 'iso-b');
+  await iso.unregisterIsolatedInput('iso-b');
+  assert.strictEqual(iso.listLiveInputSessions().length, 0);
+  console.log('[unit] display isolation registry ok');
+}
+
 async function main(): Promise<void> {
+  // Debug instrumentation posts to the ingest server; don't hang unit runs on it.
+  (globalThis as { fetch: typeof fetch }).fetch = (async () =>
+    new Response('{}', { status: 204 })) as typeof fetch;
+
   testDomainMatch();
+  testScriptTargetRuleMatch();
+  testPermissiveMainFrameCspRewrite();
   testViewportBounds();
   testResolveDeviceProfileDefaults();
-  await testApplyLogicalViewportUsesNormalBounds();
+  await testApplyLogicalViewportUsesDeviceMetricsOnly();
   await testScreencastRestartThrowsAfterStop();
   testLaunchEnvironmentIsRequired();
   testTouchEmulationParams();
@@ -584,11 +1012,19 @@ async function main(): Promise<void> {
   await testAbortDoesNotStealQueuedCrash();
   testDropOldestQueueTracksDroppedCount();
   await testPermissionClearRespectsEpoch();
+  testLogicalToDeviceTransform();
+  testKeycodeResolve();
+  testXorgInputIsolationFlags();
+  await testDisplayIsolationRegistry();
   await testInputFireAndForgetAndMoveCoalesce();
   await testInputKeyDefsIncludeEditingKeys();
+  await testTouchMoveCoalesceAndStormWrites();
+  await testInputMousePressReleaseOrdered();
+  await testInputPendingCountIncludesChainDepth();
   await testTelemetryToggleOmission();
   await testTelemetryQueuesReportInputDepthAndDrops();
   await testTelemetryFaultStateSurvivesCrashConsumption();
+  await testTelemetryAllocationsSummaryAndSessions();
   console.log('[unit] all passed');
 }
 

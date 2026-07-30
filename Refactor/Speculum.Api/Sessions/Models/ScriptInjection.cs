@@ -1,3 +1,5 @@
+using Speculum.Api.Configurations.Models.Patterns;
+
 namespace Speculum.Api.Sessions.Models;
 
 /// <summary>
@@ -13,4 +15,6 @@ public sealed class ScriptInjection
     public required string File { get; init; }
 
     public required string Content { get; init; }
+
+    public IReadOnlyList<UrlMatchRule> TargetRules { get; init; } = Array.Empty<UrlMatchRule>();
 }

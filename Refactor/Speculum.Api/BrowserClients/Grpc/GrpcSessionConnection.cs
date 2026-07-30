@@ -1,4 +1,4 @@
-using System.Text.Json;
+using Speculum.Api.Sessions.Services.Streaming;
 using System.Threading.Channels;
 using Aidan.Core.Patterns;
 using Grpc.Core;
@@ -148,6 +148,7 @@ public sealed class GrpcSessionConnection : ISessionConnection
         _ = PumpEditableFocusAsync(token);
         _ = PumpCrashAsync(token);
         _ = PumpInputPathAsync(token);
+        _ = PumpAllocationLifecycleAsync(token);
         _ = PumpControlAsync(token);
         return Task.CompletedTask;
     }
@@ -502,16 +503,20 @@ public sealed class GrpcSessionConnection : ISessionConnection
             try
             {
                 await WriteInputWithRetryAsync(input, ct).ConfigureAwait(false);
-                TryPublishNotification(new SessionNotification
+                // High-frequency moves: skip journal/trace per sample.
+                if (!UserInputAdmitPolicy.IsHighFrequency(userInput))
                 {
-                    Kind = SessionNotificationKind.InputApplied,
-                    InputKind = userInput.Type,
-                    Phase = TryTouchPhase(userInput),
-                });
-                TryPublishInputPathTrace(
-                    "Telemetry.Sessions.Input.SidecarPushWritten",
-                    "grpc_pushed",
-                    userInput.Type);
+                    TryPublishNotification(new SessionNotification
+                    {
+                        Kind = SessionNotificationKind.InputApplied,
+                        InputKind = userInput.Type,
+                        Phase = UserInputAdmitPolicy.TryTouchPhase(userInput),
+                    });
+                    TryPublishInputPathTrace(
+                        "Telemetry.Sessions.Input.SidecarPushWritten",
+                        "grpc_pushed",
+                        userInput.Type);
+                }
             }
             catch (RpcException ex) when (ex.StatusCode == StatusCode.Cancelled)
             {
@@ -563,31 +568,6 @@ public sealed class GrpcSessionConnection : ISessionConnection
                 break;
             }
         }
-    }
-
-    private static string? TryTouchPhase(UserInput userInput)
-    {
-        if (!string.Equals(userInput.Type, "touch", StringComparison.Ordinal)
-            || string.IsNullOrWhiteSpace(userInput.Payload))
-        {
-            return null;
-        }
-
-        try
-        {
-            using var doc = JsonDocument.Parse(userInput.Payload);
-            if (doc.RootElement.TryGetProperty("phase", out var phase)
-                && phase.ValueKind == JsonValueKind.String)
-            {
-                return phase.GetString();
-            }
-        }
-        catch (JsonException)
-        {
-            // Ignore — phase is optional metadata for journal.
-        }
-
-        return null;
     }
 
     private async Task WriteInputWithRetryAsync(InputEvent input, CancellationToken ct)
@@ -890,6 +870,56 @@ public sealed class GrpcSessionConnection : ISessionConnection
                 await Task.CompletedTask.ConfigureAwait(false);
             },
             ct);
+
+    private Task PumpAllocationLifecycleAsync(CancellationToken ct) =>
+        RunWatchLoopAsync(
+            "WatchAllocationLifecycle",
+            token => _client.WatchAllocationLifecycle(
+                new ProtoSessionId { SessionId_ = SessionId.ToString("D") },
+                cancellationToken: token),
+            async (ev, token) =>
+            {
+                TryPublishAllocationLifecycle(ev);
+                await Task.CompletedTask.ConfigureAwait(false);
+            },
+            ct);
+
+    private void TryPublishAllocationLifecycle(AllocationLifecycleEvent ev)
+    {
+        if (string.IsNullOrWhiteSpace(ev.Kind))
+        {
+            return;
+        }
+
+        var catalogType = ev.Kind.Trim() switch
+        {
+            "session_allocated" => "Telemetry.Sessions.Sidecar.SessionAllocated",
+            "session_released" => "Telemetry.Sessions.Sidecar.SessionReleased",
+            "display_allocated" => "Telemetry.Sessions.Sidecar.DisplayAllocated",
+            "display_released" => "Telemetry.Sessions.Sidecar.DisplayReleased",
+            "allocation_faulted" => "Telemetry.Sessions.Sidecar.AllocationFaulted",
+            _ => null,
+        };
+
+        if (catalogType is null || !_journalCatalog.IsTypeEnabled(catalogType))
+        {
+            return;
+        }
+
+        TryPublishNotification(new SessionNotification
+        {
+            Kind = SessionNotificationKind.AllocationLifecycle,
+            AllocationKind = ev.Kind.Trim(),
+            DisplayWidth = ev.HasDisplayWidth ? ev.DisplayWidth : null,
+            DisplayHeight = ev.HasDisplayHeight ? ev.DisplayHeight : null,
+            LogicalWidth = ev.HasLogicalWidth ? ev.LogicalWidth : null,
+            LogicalHeight = ev.HasLogicalHeight ? ev.LogicalHeight : null,
+            InputBackend = ev.HasInputBackend ? ev.InputBackend : null,
+            ErrorCode = ev.HasErrorCode ? ev.ErrorCode : null,
+            Phase = ev.HasPhase ? ev.Phase : null,
+            Reason = ev.HasReason ? ev.Reason : null,
+        });
+    }
 
     /// <summary>
     /// Opt-in input-path hop. Skips the notification (and therefore Journal) when the

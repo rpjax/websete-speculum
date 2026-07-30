@@ -29,15 +29,22 @@
         "init": true,
         "capAdd": ["SYS_ADMIN"],
         "shmSize": "2gb",
+        "compose": {
+          "device_cgroup_rules": [
+            "c 10:223 rwm",
+            "c 13:* rwm"
+          ]
+        },
         "env": [
           { "name": "NODE_ENV", "value": "production" },
           { "name": "SPECULUM_BROWSER", "value": "patchright" },
           { "name": "CHROME_EXECUTABLE", "value": "/usr/bin/google-chrome" },
           { "name": "SPECULUM_GRPC_PORT", "value": "50051" },
-          { "name": "SPECULUM_HEALTH_PORT", "value": "3001" }
+          { "name": "SPECULUM_HEALTH_PORT", "value": "3001" },
+          { "name": "SPECULUM_INPUT_BACKEND", "value": "patchright" }
         ],
         "healthcheck": {
-          "test": ["CMD", "curl", "-sf", "http://localhost:3001/ready"],
+          "test": ["CMD", "curl", "-sf", "http://localhost:3001/health"],
           "interval": "15s",
           "timeout": "5s",
           "startPeriod": "60s",
@@ -167,6 +174,12 @@
         "init": true,
         "capAdd": ["SYS_ADMIN"],
         "shmSize": "2gb",
+        "compose": {
+          "device_cgroup_rules": [
+            "c 10:223 rwm",
+            "c 13:* rwm"
+          ]
+        },
         "env": [
           { "name": "NODE_ENV", "value": "production" },
           { "name": "SPECULUM_BROWSER", "value": "patchright" },
@@ -175,7 +188,7 @@
           { "name": "SPECULUM_HEALTH_PORT", "value": "3001" }
         ],
         "healthcheck": {
-          "test": ["CMD", "curl", "-sf", "http://localhost:3001/ready"],
+          "test": ["CMD", "curl", "-sf", "http://localhost:3001/health"],
           "interval": "15s",
           "timeout": "5s",
           "startPeriod": "60s",
@@ -284,6 +297,12 @@
         "init": true,
         "capAdd": ["SYS_ADMIN"],
         "shmSize": "2gb",
+        "compose": {
+          "device_cgroup_rules": [
+            "c 10:223 rwm",
+            "c 13:* rwm"
+          ]
+        },
         "env": [
           { "name": "NODE_ENV", "value": "production" },
           { "name": "SPECULUM_BROWSER", "value": "patchright" },
@@ -293,7 +312,7 @@
           { "name": "SPECULUM_IGNORE_CERT_ERRORS", "value": "1" }
         ],
         "healthcheck": {
-          "test": ["CMD", "curl", "-sf", "http://localhost:3001/ready"],
+          "test": ["CMD", "curl", "-sf", "http://localhost:3001/health"],
           "interval": "15s",
           "timeout": "5s",
           "startPeriod": "60s",

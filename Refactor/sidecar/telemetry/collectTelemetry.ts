@@ -1,4 +1,5 @@
 import { monitorEventLoopDelay, performance } from 'perf_hooks';
+import type { BrowserTelemetrySnapshot } from '../browser/BrowserSession';
 import type { SessionRegistry } from '../host/SessionRegistry';
 
 export interface CollectTelemetryRequest {
@@ -8,6 +9,8 @@ export interface CollectTelemetryRequest {
   includeQueues?: boolean;
   includeSessionsSummary?: boolean;
   includeFaultedIds?: boolean;
+  includeAllocationsSummary?: boolean;
+  includeAllocationSessions?: boolean;
 }
 
 let loopDelay: ReturnType<typeof monitorEventLoopDelay> | null = null;
@@ -93,6 +96,7 @@ export async function collectTelemetry(
         audioDepth: total.audioDepth + bridge.audio.pendingCount,
         consoleDepth: total.consoleDepth + bridge.consoleQ.pendingCount,
         inputDepth: total.inputDepth + (sessionTelemetry?.inputPendingCount ?? 0),
+        inputChainDepth: total.inputChainDepth + (sessionTelemetry?.inputChainDepth ?? 0),
         droppedTotal:
           total.droppedTotal
           + bridge.video.droppedCount
@@ -102,10 +106,11 @@ export async function collectTelemetry(
           + bridge.navigationBlocked.droppedCount
           + bridge.editableFocus.droppedCount
           + bridge.crash.droppedCount
-          + bridge.inputPath.droppedCount,
+          + bridge.inputPath.droppedCount
+          + bridge.allocationLifecycle.droppedCount,
       };
       },
-      { videoDepth: 0, audioDepth: 0, consoleDepth: 0, inputDepth: 0, droppedTotal: 0 },
+      { videoDepth: 0, audioDepth: 0, consoleDepth: 0, inputDepth: 0, inputChainDepth: 0, droppedTotal: 0 },
     );
   }
 
@@ -118,6 +123,88 @@ export async function collectTelemetry(
       faulted: faulted.length,
       faultedSessionIds: request.includeFaultedIds ? faulted.map((status) => status.id) : [],
     };
+  }
+
+  if (request.includeAllocationsSummary || request.includeAllocationSessions) {
+    const allocationRows = await Promise.all(
+      entries.map(async ({ session, bridge }) => {
+        let open = false;
+        let faulted = bridge.isFaulted;
+        try {
+          const status = await session.getStatus();
+          open = status.isOpen;
+        } catch {
+          open = false;
+          faulted = true;
+        }
+        const snap: BrowserTelemetrySnapshot = session.getTelemetrySnapshot?.() ?? {};
+        return {
+          sessionId: session.sessionId,
+          open,
+          faulted,
+          snap,
+        };
+      }),
+    );
+
+    if (request.includeAllocationsSummary) {
+      let allocatedDisplayPixels = 0;
+      let displayCount = 0;
+      let osInputSessions = 0;
+      let patchrightInputSessions = 0;
+      let touchPrimarySessions = 0;
+      let userDataDirsPresent = 0;
+      let allocatedSessions = 0;
+
+      for (const row of allocationRows) {
+        const snap = row.snap;
+        if (snap.displayAllocated) {
+          allocatedSessions += 1;
+          displayCount += 1;
+          allocatedDisplayPixels += (snap.displayWidth ?? 0) * (snap.displayHeight ?? 0);
+        }
+        if (snap.inputBackend === 'os') osInputSessions += 1;
+        if (snap.inputBackend === 'patchright') patchrightInputSessions += 1;
+        if (snap.touchPrimary) touchPrimarySessions += 1;
+        if (snap.userDataDirPresent) userDataDirsPresent += 1;
+      }
+
+      response.allocations = {
+        summary: {
+          allocatedSessions,
+          openSessions: allocationRows.filter((row) => row.open).length,
+          faultedSessions: allocationRows.filter((row) => row.faulted).length,
+          displayCount,
+          allocatedDisplayPixels,
+          osInputSessions,
+          patchrightInputSessions,
+          touchPrimarySessions,
+          userDataDirsPresent,
+        },
+      };
+    }
+
+    if (request.includeAllocationSessions) {
+      const sessions = allocationRows.map((row) => ({
+        sessionId: row.sessionId,
+        open: row.open,
+        faulted: row.faulted,
+        displayAllocated: row.snap.displayAllocated ?? false,
+        displayWidth: row.snap.displayWidth ?? 0,
+        displayHeight: row.snap.displayHeight ?? 0,
+        logicalWidth: row.snap.logicalWidth ?? 0,
+        logicalHeight: row.snap.logicalHeight ?? 0,
+        chromeWidth: row.snap.chromeWidth ?? 0,
+        chromeHeight: row.snap.chromeHeight ?? 0,
+        inputBackend: row.snap.inputBackend ?? '',
+        touchPrimary: row.snap.touchPrimary ?? false,
+        userDataDirPresent: row.snap.userDataDirPresent ?? false,
+      }));
+      response.allocations = {
+        ...(response.allocations as Record<string, unknown> | undefined),
+        sessions,
+      };
+    }
   }
 
   return response;

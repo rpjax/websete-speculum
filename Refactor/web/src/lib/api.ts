@@ -44,6 +44,39 @@ export interface ScriptMeta {
   sha256: string
   size: number
   uploadedAt: string
+  updatedAt?: string
+}
+
+export interface ScriptListResponse {
+  items: ScriptMeta[]
+  total: number
+}
+
+export interface ScriptTargetRule {
+  domain: {
+    scope: 'Any' | 'Pattern'
+    labels: Array<{ match: 'Exact' | 'Any'; value: string }>
+  }
+  path: {
+    scope: 'Any' | 'Pattern'
+    matchType: 'Exact' | 'Prefix'
+    segments: Array<{ match: 'Exact' | 'Any'; value: string }>
+  }
+}
+
+export interface ScriptingInjectionEntry {
+  source: {
+    sourceType: 'Stored' | 'Remote'
+    storedScriptId?: string | null
+    remoteUrl?: string | null
+  }
+  position: 'HeadStart' | 'HeadEnd' | 'BodyStart' | 'BodyEnd'
+  executionType: 'Classic' | 'Module'
+  targetRules: ScriptTargetRule[]
+}
+
+export interface ScriptingConfiguration {
+  injections: ScriptingInjectionEntry[]
 }
 
 type RequestInitEx = RequestInit & { auth?: boolean }
@@ -53,6 +86,18 @@ function formatApiError(status: number, body: unknown): string {
     const record = body as Record<string, unknown>
     if (Array.isArray(record.errors) && record.errors.length > 0) {
       return record.errors.map(String).join('; ')
+    }
+    if (record.errors && typeof record.errors === 'object' && !Array.isArray(record.errors)) {
+      const parts = Object.entries(record.errors as Record<string, unknown>)
+        .flatMap(([key, value]) => {
+          if (Array.isArray(value)) return value.map((item) => `${key}: ${String(item)}`)
+          if (value != null) return [`${key}: ${String(value)}`]
+          return []
+        })
+      if (parts.length > 0) return parts.join('; ')
+    }
+    if (typeof record.title === 'string' && typeof record.detail === 'string') {
+      return `${record.title}: ${record.detail}`
     }
     if (typeof record.error === 'string') return record.error
   }
@@ -97,6 +142,7 @@ export const ConfigSections = {
   Hosting: 'Hosting',
   Diagnostics: 'Diagnostics',
   Telemetry: 'Telemetry',
+  Scripting: 'Scripting',
 } as const
 
 export type ConfigSectionName = (typeof ConfigSections)[keyof typeof ConfigSections]
@@ -119,15 +165,30 @@ const realApi = {
   getSession: (sessionId: string) => request<SessionDetail>(`/api/admin/sessions/${sessionId}`),
   deleteSession: (sessionId: string) =>
     request(`/api/admin/sessions/${sessionId}`, { method: 'DELETE' }),
-  listScripts: () => request<ScriptMeta[]>('/api/admin/scripts'),
+  listScripts: (query = '', skip = 0, take = 50) => {
+    const params = new URLSearchParams()
+    if (query.trim()) params.set('query', query.trim())
+    if (skip > 0) params.set('skip', String(skip))
+    if (take > 0) params.set('take', String(take))
+    const suffix = params.size > 0 ? `?${params.toString()}` : ''
+    return request<ScriptListResponse>(`/api/scripts${suffix}`)
+  },
   uploadScript: (file: File, name?: string) => {
     const form = new FormData()
     form.append('file', file)
     if (name) form.append('name', name)
-    return request<ScriptMeta>('/api/admin/scripts', { method: 'POST', body: form })
+    return request<ScriptMeta>('/api/scripts', { method: 'POST', body: form })
   },
   deleteScript: (id: string) =>
-    request(`/api/admin/scripts/${id}`, { method: 'DELETE' }),
+    request(`/api/scripts/${id}`, { method: 'DELETE' }),
+  getScripting: () => request<ScriptingConfiguration>('/api/configurations/Scripting'),
+  putScripting: (body: ScriptingConfiguration) =>
+    request('/api/configurations/Scripting', { method: 'PUT', body: JSON.stringify(body) }),
+  clearScripting: () =>
+    request('/api/configurations/Scripting', {
+      method: 'PUT',
+      body: JSON.stringify({ injections: [] }),
+    }),
   getOpenApi: () => request<unknown>('/openapi/v1.json'),
 }
 

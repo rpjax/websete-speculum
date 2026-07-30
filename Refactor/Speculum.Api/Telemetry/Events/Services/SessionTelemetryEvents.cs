@@ -6,6 +6,7 @@ using Speculum.Api.Telemetry.Events.Models.Sessions.Capacity;
 using Speculum.Api.Telemetry.Events.Models.Sessions.Client;
 using Speculum.Api.Telemetry.Events.Models.Sessions.Input;
 using Speculum.Api.Telemetry.Events.Models.Sessions.Persist;
+using Speculum.Api.Telemetry.Events.Models.Sessions.Sidecar;
 using Speculum.Api.Telemetry.Events.Services.Contracts;
 using NavigateUrlResolved = Speculum.Api.Telemetry.Events.Models.Sessions.Navigate.UrlResolved;
 using ResizeApplied = Speculum.Api.Telemetry.Events.Models.Sessions.Resize.Applied;
@@ -27,6 +28,7 @@ internal sealed class SessionTelemetryEvents : ISessionTelemetryEvents
         Resize = new ResizeEvents(writer, sessionId, profileId);
         Browse = new BrowseEvents(writer, sessionId, profileId);
         Client = new ClientEvents(writer, sessionId, profileId);
+        Sidecar = new SidecarEvents(writer, sessionId, profileId);
     }
 
     public ISessionCapacityTelemetryEvents Capacity { get; }
@@ -37,6 +39,7 @@ internal sealed class SessionTelemetryEvents : ISessionTelemetryEvents
     public ISessionResizeTelemetryEvents Resize { get; }
     public ISessionBrowseTelemetryEvents Browse { get; }
     public ISessionClientTelemetryEvents Client { get; }
+    public ISessionSidecarTelemetryEvents Sidecar { get; }
 
     private abstract class Scoped(IJournalWriter writer, Guid sessionId, Guid profileId)
     {
@@ -237,6 +240,89 @@ internal sealed class SessionTelemetryEvents : ISessionTelemetryEvents
                 ProfileId = ProfileId,
                 Command = command.Trim(),
                 Errors = TelemetryJournalError.From(exception),
+            });
+        }
+    }
+
+    private sealed class SidecarEvents(IJournalWriter writer, Guid sessionId, Guid profileId)
+        : Scoped(writer, sessionId, profileId), ISessionSidecarTelemetryEvents
+    {
+        public void SessionAllocated(string? inputBackend)
+            => Writer.Append(new SessionAllocated
+            {
+                SessionId = SessionId,
+                ProfileId = ProfileId,
+                InputBackend = inputBackend,
+            });
+
+        public void SessionReleased(string? reason)
+            => Writer.Append(new SessionReleased
+            {
+                SessionId = SessionId,
+                ProfileId = ProfileId,
+                Reason = reason,
+            });
+
+        public void DisplayAllocated(
+            int? displayWidth,
+            int? displayHeight,
+            int? logicalWidth,
+            int? logicalHeight,
+            string? inputBackend)
+            => Writer.Append(new DisplayAllocated
+            {
+                SessionId = SessionId,
+                ProfileId = ProfileId,
+                DisplayWidth = displayWidth,
+                DisplayHeight = displayHeight,
+                LogicalWidth = logicalWidth,
+                LogicalHeight = logicalHeight,
+                InputBackend = inputBackend,
+            });
+
+        public void DisplayReleased(
+            int? displayWidth,
+            int? displayHeight,
+            int? logicalWidth,
+            int? logicalHeight,
+            string? inputBackend,
+            string? reason)
+            => Writer.Append(new DisplayReleased
+            {
+                SessionId = SessionId,
+                ProfileId = ProfileId,
+                DisplayWidth = displayWidth,
+                DisplayHeight = displayHeight,
+                LogicalWidth = logicalWidth,
+                LogicalHeight = logicalHeight,
+                InputBackend = inputBackend,
+                Reason = reason,
+            });
+
+        public void AllocationFaulted(
+            int? displayWidth,
+            int? displayHeight,
+            int? logicalWidth,
+            int? logicalHeight,
+            string? inputBackend,
+            string errorCode,
+            string phase,
+            string? reason)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(errorCode);
+            ArgumentException.ThrowIfNullOrWhiteSpace(phase);
+            Writer.Append(new AllocationFaulted
+            {
+                SessionId = SessionId,
+                ProfileId = ProfileId,
+                DisplayWidth = displayWidth,
+                DisplayHeight = displayHeight,
+                LogicalWidth = logicalWidth,
+                LogicalHeight = logicalHeight,
+                InputBackend = inputBackend,
+                ErrorCode = errorCode.Trim(),
+                Phase = phase.Trim(),
+                Reason = reason,
             });
         }
     }

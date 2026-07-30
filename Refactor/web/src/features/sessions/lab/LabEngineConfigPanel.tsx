@@ -12,6 +12,7 @@ import {
   LAB_TELEMETRY_EVENT_TYPES,
   createLabReadyNavigation,
   createLabResourceManagementBaseline,
+  createLabScriptingBaseline,
   createLabSessionsBaseline,
   createLabTelemetryBaseline,
   emptyLabTelemetryEvents,
@@ -25,10 +26,12 @@ import {
   type LabEngineConfig,
   type LabTelemetryEventType,
   type LabResourceManagementConfig,
+  type LabScriptingConfig,
   type LabSessionsConfig,
   type LabTelemetryConfig,
 } from './labEngineConfig'
 import { LabSessionReadinessPanel } from './LabSessionReadinessPanel'
+import { LabScriptsPanel } from './LabScriptsPanel'
 import { LabTelemetryEventsPanel } from './LabTelemetryEventsPanel'
 import { LabTelemetrySamplingPanel } from './LabTelemetrySamplingPanel'
 
@@ -39,7 +42,7 @@ interface LabEngineConfigPanelProps {
 }
 
 /**
- * Lab Config tab: readiness (Start) · Telemetry sampling · Telemetry event probes.
+ * Lab Config tab: readiness · Telemetry sampling · event probes · Scripts.
  * Composes focused panels — full Telemetry.Sessions.* catalog lives in Events.
  */
 export function LabEngineConfigPanel({
@@ -68,6 +71,7 @@ export function LabEngineConfigPanel({
   /** Unknown Telemetry.events keys preserved (API replaces events wholesale). */
   const [eventExtras, setEventExtras] = useState<Record<string, boolean>>({})
   const [telemetry, setTelemetry] = useState<LabTelemetryConfig>(createLabTelemetryBaseline())
+  const [scripting, setScripting] = useState<LabScriptingConfig>(createLabScriptingBaseline())
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [savedAt, setSavedAt] = useState<string | null>(null)
@@ -85,6 +89,7 @@ export function LabEngineConfigPanel({
     setSessions(config.sessions)
     setResourceManagement(config.resourceManagement)
     setTelemetry(config.telemetry)
+    setScripting(config.scripting)
     const nextJournal = emptyLabTelemetryEvents()
     const extras: Record<string, boolean> = {}
     for (const [key, value] of Object.entries(config.journal ?? {})) {
@@ -129,6 +134,7 @@ export function LabEngineConfigPanel({
       resourceManagement: LabResourceManagementConfig
       journal: Record<LabTelemetryEventType, boolean>
       telemetry: LabTelemetryConfig
+      scripting: LabScriptingConfig
     }>,
   ): LabEngineConfig => {
     const host = (overrides?.defaultTargetHost ?? defaultTargetHost).trim()
@@ -138,6 +144,7 @@ export function LabEngineConfigPanel({
     const nextRm = overrides?.resourceManagement ?? resourceManagement
     const nextJournal = overrides?.journal ?? journal
     const nextTelemetry = overrides?.telemetry ?? telemetry
+    const nextScripting = overrides?.scripting ?? scripting
 
     return {
       hosting: {
@@ -151,6 +158,7 @@ export function LabEngineConfigPanel({
       sessions: nextSessions,
       resourceManagement: nextRm,
       telemetry: nextTelemetry,
+      scripting: nextScripting,
       journal: {
         ...eventExtras,
         ...nextJournal,
@@ -223,6 +231,7 @@ export function LabEngineConfigPanel({
   const operational = Boolean(status?.operational)
   const canSave = Boolean(defaultTargetHost.trim())
   const eventsOn = LAB_TELEMETRY_EVENT_TYPES.filter((type) => journal[type]).length
+  const injectionCount = scripting.injections.length
 
   return (
     <div className="flex flex-col gap-4">
@@ -239,13 +248,17 @@ export function LabEngineConfigPanel({
           <Badge variant={eventsOn > 0 ? 'warning' : 'muted'}>
             {eventsOn}/{LAB_TELEMETRY_EVENT_TYPES.length} events
           </Badge>
+          <Badge variant={injectionCount > 0 ? 'warning' : 'muted'}>
+            {injectionCount} injection{injectionCount === 1 ? '' : 's'}
+          </Badge>
           {savedAt ? (
             <span className="text-[11px] text-muted-foreground">Last applied {savedAt}</span>
           ) : null}
         </div>
         <p className="text-xs text-muted-foreground">
           Readiness unblocks Start. Sampling writes composite resource facts. Events are opt-in
-          Act→Assert probes — leave off while casually browsing.
+          Act→Assert probes — leave off while casually browsing. Scripts inject on new sessions after
+          Save &amp; apply.
         </p>
       </div>
 
@@ -320,6 +333,25 @@ export function LabEngineConfigPanel({
                 setJournal(next)
                 void persist(buildBody({ journal: next }))
               }}
+            />
+          </AccordionContent>
+        </AccordionItem>
+
+        <AccordionItem value="scripts">
+          <AccordionTrigger className="text-sm">
+            <span className="flex flex-wrap items-center gap-2">
+              Scripts
+              <Badge variant={injectionCount > 0 ? 'warning' : 'muted'} className="font-normal">
+                {injectionCount}
+              </Badge>
+            </span>
+          </AccordionTrigger>
+          <AccordionContent>
+            <LabScriptsPanel
+              hubOrigin={hubOrigin}
+              scripting={scripting}
+              busy={busy}
+              onChange={setScripting}
             />
           </AccordionContent>
         </AccordionItem>

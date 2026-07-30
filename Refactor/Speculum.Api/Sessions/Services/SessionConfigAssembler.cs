@@ -18,9 +18,10 @@ internal sealed class SessionConfigAssembler
         _scripts = scripts;
     }
 
-    public IResult<SessionConfig> Assemble(
+    public async Task<IResult<SessionConfig>> AssembleAsync(
         StartSession request,
-        EngineConfiguration configuration)
+        EngineConfiguration configuration,
+        CancellationToken ct = default)
     {
         var validation = Validate(request, configuration);
         if (validation.IsFailure)
@@ -28,7 +29,7 @@ internal sealed class SessionConfigAssembler
             return Result<SessionConfig>.Failure(validation.Errors.ToArray());
         }
 
-        var scripts = _scripts.Resolve(configuration.Scripting);
+        var scripts = await _scripts.ResolveAsync(configuration.Scripting, ct).ConfigureAwait(false);
         if (scripts.IsFailure)
         {
             return Result<SessionConfig>.Failure(scripts.Errors.ToArray());

@@ -12,7 +12,7 @@ SPECULUM_BROWSER=mock npm run smoke
 # units (domain allowlist + viewport bounds)
 npm run unit
 
-# production host (requires Chrome + Xvfb on Linux)
+# production host (requires Chrome + Xorg+dummy + /dev/uinput on Linux)
 SPECULUM_BROWSER=patchright SPECULUM_GRPC_PORT=50051 SPECULUM_HEALTH_PORT=3001 npm start
 ```
 
@@ -57,6 +57,30 @@ docker compose -f deploy/compose/docker-compose.refactor-grpc.yml up --build
 | `CHROME_EXECUTABLE` | `/usr/bin/google-chrome` | Chrome binary (patchright only) |
 | `SPECULUM_GL_FALLBACK` | unset | Ops-only SwiftShader / webgl-spoof |
 | `SPECULUM_V4L2_DEVICE` | unset | Reserved — media ingress not implemented |
+| `SPECULUM_INPUT_BACKEND` | `os` | `os` (uinput, prod) or `patchright` (lab CDP) |
+
+## Multi-session input isolation (manual)
+
+When running **multiple live sessions on the same sidecar** (`MaxSessions` > 1), verify OS input stays per-session:
+
+1. Deploy with `SPECULUM_INPUT_BACKEND=os` on Linux with `/dev/uinput` (not Docker Desktop WSL2).
+2. Open two sessions in parallel (two browser tabs / clients).
+3. Click, type, and touch in session A — session B must not move cursor, receive keys, or see touch contacts.
+4. Repeat after starting session B while A is already live (hotplug path).
+5. Stop one session — the other must keep accepting input normally.
+
+Unit coverage: `npm run unit` (`xorg input isolation flags`, `display isolation registry`).
+
+## Input telemetry
+
+The sidecar exposes input pressure through pull/sample telemetry, not per-input events:
+
+- `sidecar.queues.inputDepth`: admitted input still in flight inside the sidecar
+  (coalesced pending move/touch flushes + serialized inject backlog)
+- `sidecar.queues.inputChainDepth`: just the serialized inject-chain backlog
+- `sidecar.queues.droppedTotal`: cumulative DropOldest loss on bounded sidecar bridge queues
+
+This is sampled by `CollectTelemetry`; it is outside the input hot path.
 
 ## Media ingress (TODO)
 

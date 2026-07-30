@@ -48,6 +48,29 @@ export function clientToFramePointFill(
 }
 
 /**
+ * Like {@link clientToFramePointFill} but clamps outside the CSS box to the
+ * nearest frame edge — used while dragging so pointer capture outside the
+ * canvas still moves the remote cursor.
+ */
+export function clientToFramePointFillClamped(
+  clientX: number,
+  clientY: number,
+  rect: { left: number; top: number; width: number; height: number },
+  frameW: number,
+  frameH: number,
+): { x: number; y: number } | null {
+  if (rect.width <= 0 || rect.height <= 0 || frameW <= 0 || frameH <= 0) {
+    return null
+  }
+  const localX = clientX - rect.left
+  const localY = clientY - rect.top
+  return {
+    x: Math.round(Math.min(frameW - 1, Math.max(0, (localX / rect.width) * frameW))),
+    y: Math.round(Math.min(frameH - 1, Math.max(0, (localY / rect.height) * frameH))),
+  }
+}
+
+/**
  * Maps a client pointer into session/frame pixel space, accounting for
  * CSS `object-contain` letterboxing. Returns `null` when the hit is in the
  * letterbox gutter (outside the drawn frame) so callers can ignore it.

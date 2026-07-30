@@ -68,9 +68,9 @@ function buildTiles(
       id: 'scriptInjection',
       label: 'Script injection',
       href: '/admin/script-injection',
-      configured: (config.scriptInjection?.length ?? 0) > 0,
-      summary: config.scriptInjection?.length
-        ? `${config.scriptInjection.length} entr${config.scriptInjection.length !== 1 ? 'ies' : 'y'}`
+      configured: (config.scriptInjection?.injections.length ?? 0) > 0,
+      summary: config.scriptInjection?.injections.length
+        ? `${config.scriptInjection.injections.length} entr${config.scriptInjection.injections.length !== 1 ? 'ies' : 'y'}`
         : 'None',
     },
     {

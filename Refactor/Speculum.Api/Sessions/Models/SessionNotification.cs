@@ -15,6 +15,8 @@ public enum SessionNotificationKind
     InputApplied = 6,
     /// <summary>Opt-in input-path hop (phase = wt_received | grpc_pushed | sidecar_admitted).</summary>
     InputPathTrace = 7,
+    /// <summary>Opt-in allocation lifecycle from sidecar WatchAllocationLifecycle.</summary>
+    AllocationLifecycle = 8,
 }
 
 /// <summary>
@@ -47,4 +49,26 @@ public sealed class SessionNotification
     /// <summary>Wire input type for <see cref="SessionNotificationKind.InputApplied"/>.</summary>
     [Key("inputKind")]
     public string? InputKind { get; init; }
+
+    /// <summary>Allocation lifecycle kind for <see cref="SessionNotificationKind.AllocationLifecycle"/>.</summary>
+    [Key("allocationKind")]
+    public string? AllocationKind { get; init; }
+
+    [Key("displayWidth")]
+    public int? DisplayWidth { get; init; }
+
+    [Key("displayHeight")]
+    public int? DisplayHeight { get; init; }
+
+    [Key("logicalWidth")]
+    public int? LogicalWidth { get; init; }
+
+    [Key("logicalHeight")]
+    public int? LogicalHeight { get; init; }
+
+    [Key("inputBackend")]
+    public string? InputBackend { get; init; }
+
+    [Key("reason")]
+    public string? Reason { get; init; }
 }

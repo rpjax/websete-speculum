@@ -68,6 +68,14 @@ export class MockBrowserSession implements BrowserSession {
     this.height = options.height;
     this.viewportPolicy = options.viewportPolicy;
     this.open = true;
+    this.events.onAllocationLifecycle?.({
+      kind: 'display_allocated',
+      displayWidth: options.viewportPolicy.maxWidth,
+      displayHeight: options.viewportPolicy.maxHeight,
+      logicalWidth: this.width,
+      logicalHeight: this.height,
+      inputBackend: 'patchright',
+    });
     this.scene = new HarnessScene(this.width, this.height, {
       onLocationChanged: (url) => this.events.onLocationChanged(url),
       onMainFrameNavigationBlocked: (url) => this.events.onMainFrameNavigationBlocked(url),
@@ -83,6 +91,16 @@ export class MockBrowserSession implements BrowserSession {
   }
 
   async stop(): Promise<void> {
+    if (this.open && this.viewportPolicy) {
+      this.events.onAllocationLifecycle?.({
+        kind: 'display_released',
+        displayWidth: this.viewportPolicy.maxWidth,
+        displayHeight: this.viewportPolicy.maxHeight,
+        logicalWidth: this.width,
+        logicalHeight: this.height,
+        inputBackend: 'patchright',
+      });
+    }
     this.stopFrames();
     this.open = false;
     this.scene = null;
@@ -94,6 +112,7 @@ export class MockBrowserSession implements BrowserSession {
   }
 
   async getStatus(): Promise<BrowserStatus> {
+    const dims = this.displayDims();
     return {
       isOpen: this.open,
       tabCount: 1,
@@ -101,12 +120,28 @@ export class MockBrowserSession implements BrowserSession {
       resizing: this.resizing,
       width: this.width,
       height: this.height,
+      displayWidth: dims.displayWidth,
+      displayHeight: dims.displayHeight,
+      chromeWidth: this.open ? this.width : 0,
+      chromeHeight: this.open ? this.height : 0,
     };
   }
 
   getTelemetrySnapshot(): BrowserTelemetrySnapshot {
+    const dims = this.displayDims();
     return {
       inputPendingCount: this.movePending ? 1 : 0,
+      inputChainDepth: 0,
+      displayAllocated: this.open && this.viewportPolicy !== null,
+      displayWidth: dims.displayWidth,
+      displayHeight: dims.displayHeight,
+      logicalWidth: this.width,
+      logicalHeight: this.height,
+      chromeWidth: this.open ? this.width : 0,
+      chromeHeight: this.open ? this.height : 0,
+      inputBackend: 'patchright',
+      touchPrimary: false,
+      userDataDirPresent: false,
     };
   }
 

@@ -180,8 +180,8 @@ HTTP requests to `/vtransport` are rejected with `426 Upgrade Required`.
 | ✅ | Frame stream | CDP JPEG + relay monotonic sequence + API relay-receipt UTC timestamp | Typed `Frame` over disposable mux streams and WebTransport |
 | ◐ | Console/control output | Console and eval results use typed envelopes; location/blocked drive hub SyncUrl/Redirect via attached client; focus/crash still on notification pipe | — |
 | ✅ | Status poll | Unary status includes engine JsBridge state, session id and relay uptime | `ILiveSession.GetStatusAsync`; fps is measured from relay-observed video frames |
-| ✅ | User input | Hub `SendInputAsync` → `ILiveSession.AdmitUserInput` → DropOldest pump → mux → gRPC; WT UserInput optional/late | Invalid payloads emit `InputRejected` and do not kill the session |
-| ✅ | Input path hops (opt-in) | `Telemetry.Sessions.Input.ControlReceived` (primary) / `WebTransportReceived` / `SidecarPushWritten` / `SidecarAdmitted` | Lab Telemetry event toggles; Wire `client_sent` is a separate localStorage toggle |
+| ✅ | User input | Hub `SendInputAsync` → `ILiveSession.AdmitUserInput` → HF-first bounded admit → bounded mux → gRPC; WT UserInput optional/late | Invalid payloads emit `InputRejected` and do not kill the session |
+| ✅ | Input path hops (opt-in) | `Telemetry.Sessions.Input.ControlReceived` (primary) / `WebTransportReceived` / `SidecarPushWritten` / `SidecarAdmitted` | Lab Telemetry event toggles; sidecar pull telemetry also exposes `inputDepth` / `inputChainDepth`; Wire `client_sent` is a separate localStorage toggle |
 | ✅ | Console input | Stable `{ id, code }` eval request and typed eval-result envelope | JsBridge-gated; disabled requests are rejected without stopping the session |
 | ✅ | Input validation | Malformed JSON/MessagePack and blocked input types are rejected; session stays alive | Hub admit + gRPC input mapping; optional WT framing limits |
 | ◐ | Touch gestures | Touch points/phases reach the sidecar | Exclusive gesture ownership/scheduling remains |

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Speculum.Api.Configurations.Models.Diagnostics;
@@ -13,6 +14,7 @@ using Speculum.Api.Configurations.Models.Telemetry;
 using Speculum.Api.Configurations.Persistence;
 using Speculum.Api.Configurations.Services.Contracts;
 using Speculum.Api.Journal.Services.Contracts;
+using Speculum.Api.Scripts.Services.Contracts;
 using Speculum.Api.Sessions.Services;
 using Speculum.Api.Sessions.Services.Contracts;
 using Speculum.Api.Telemetry;
@@ -50,6 +52,7 @@ public sealed class ConfigurationApplyService : IConfigurationApplyService
     private readonly IOptionsMonitor<DiagnosticsConfiguration> _diagnostics;
     private readonly ISessionDrainOrchestrator _sessionDrain;
     private readonly ILogger<ConfigurationApplyService> _logger;
+    private readonly IServiceScopeFactory? _scopeFactory;
 
     public ConfigurationApplyService(
         IConfigSectionStore store,
@@ -59,7 +62,8 @@ public sealed class ConfigurationApplyService : IConfigurationApplyService
         IOptionsMonitor<ScriptingConfiguration> scripting,
         IOptionsMonitor<DiagnosticsConfiguration> diagnostics,
         ISessionDrainOrchestrator sessionDrain,
-        ILogger<ConfigurationApplyService> logger)
+        ILogger<ConfigurationApplyService> logger,
+        IServiceScopeFactory? scopeFactory = null)
     {
         _store = store;
         _configuration = configuration;
@@ -69,6 +73,7 @@ public sealed class ConfigurationApplyService : IConfigurationApplyService
         _diagnostics = diagnostics;
         _sessionDrain = sessionDrain;
         _logger = logger;
+        _scopeFactory = scopeFactory;
     }
 
     public async Task ApplyAllFromStoreAsync(CancellationToken ct = default)
@@ -100,7 +105,7 @@ public sealed class ConfigurationApplyService : IConfigurationApplyService
         if (key is null)
             return $"Unknown configuration section '{sectionKey}'.";
 
-        var error = ValidateSectionJson(key, valueJson);
+        var error = await ValidateSectionJsonAsync(key, valueJson, ct).ConfigureAwait(false);
         if (error is not null)
             return error;
 
@@ -140,7 +145,7 @@ public sealed class ConfigurationApplyService : IConfigurationApplyService
             if (key is null)
                 return $"Unknown configuration section '{sectionKey}'.";
 
-            var error = ValidateSectionJson(key, valueJson);
+            var error = await ValidateSectionJsonAsync(key, valueJson, ct).ConfigureAwait(false);
             if (error is not null)
                 return $"{key}: {error}";
 
@@ -256,6 +261,8 @@ public sealed class ConfigurationApplyService : IConfigurationApplyService
             ConfigSectionKeys.Sessions, ct).ConfigureAwait(false);
         var resources = await DeserializeOrThrowAsync<ResourceManagementConfiguration>(
             ConfigSectionKeys.ResourceManagement, ct).ConfigureAwait(false);
+        var scripting = await DeserializeOrThrowAsync<ScriptingConfiguration>(
+            ConfigSectionKeys.Scripting, ct).ConfigureAwait(false);
         var journal = await DeserializeOrThrowAsync<JournalEventsConfiguration>(
             ConfigSectionKeys.Journal, ct).ConfigureAwait(false);
         var telemetry = await DeserializeOrThrowAsync<TelemetryConfiguration>(
@@ -269,7 +276,7 @@ public sealed class ConfigurationApplyService : IConfigurationApplyService
                 Sessions = sessions,
                 ResourceManagement = resources,
                 Profiles = _profiles.CurrentValue,
-                Scripting = _scripting.CurrentValue,
+                Scripting = scripting,
                 Diagnostics = _diagnostics.CurrentValue,
                 Telemetry = telemetry,
             },
@@ -353,7 +360,10 @@ public sealed class ConfigurationApplyService : IConfigurationApplyService
         return null;
     }
 
-    private string? ValidateSectionJson(string key, string? valueJson)
+    private async Task<string?> ValidateSectionJsonAsync(
+        string key,
+        string? valueJson,
+        CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(valueJson))
             return null;
@@ -366,6 +376,7 @@ public sealed class ConfigurationApplyService : IConfigurationApplyService
                 ConfigSectionKeys.Navigation => ValidateNavigation(valueJson),
                 ConfigSectionKeys.Sessions => ValidateSessions(valueJson),
                 ConfigSectionKeys.ResourceManagement => ValidateResources(valueJson),
+                ConfigSectionKeys.Scripting => await ValidateScriptingAsync(valueJson, ct).ConfigureAwait(false),
                 ConfigSectionKeys.Journal => ValidateJournal(valueJson),
                 ConfigSectionKeys.Telemetry => ValidateTelemetry(valueJson),
                 _ => "Unknown section.",
@@ -421,6 +432,48 @@ public sealed class ConfigurationApplyService : IConfigurationApplyService
             ?? new ResourceManagementConfiguration();
         if (resources.Sessions.MaxConcurrentSessions < 0)
             return "ResourceManagement.Sessions.MaxConcurrentSessions must be >= 0.";
+        return null;
+    }
+
+    private async Task<string?> ValidateScriptingAsync(string json, CancellationToken ct)
+    {
+        var scripting = JsonSerializer.Deserialize<ScriptingConfiguration>(json, JsonOptions)
+            ?? new ScriptingConfiguration();
+        var result = new ScriptingConfigurationValidator()
+            .Validate(Options.DefaultName, scripting);
+        if (!result.Succeeded)
+        {
+            return string.Join("; ", result.Failures ?? Array.Empty<string>());
+        }
+
+        if (_scopeFactory is null)
+        {
+            return null;
+        }
+
+        using var scope = _scopeFactory.CreateScope();
+        var scripts = scope.ServiceProvider.GetService<IScriptRepository>();
+        if (scripts is null)
+        {
+            return null;
+        }
+
+        for (var i = 0; i < scripting.Injections.Count; i++)
+        {
+            var injection = scripting.Injections[i];
+            if (injection.Source.SourceType != ScriptSourceType.Stored
+                || injection.Source.StoredScriptId is not { } scriptId
+                || scriptId == Guid.Empty)
+            {
+                continue;
+            }
+
+            if (!await scripts.ExistsAsync(scriptId, ct).ConfigureAwait(false))
+            {
+                return $"Scripting.Injections[{i}].Source.StoredScriptId '{scriptId:D}' was not found.";
+            }
+        }
+
         return null;
     }
 

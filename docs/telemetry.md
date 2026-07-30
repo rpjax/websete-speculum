@@ -111,8 +111,18 @@ The sidecar omits response sections whose toggles are false. This RPC is not sco
 session and is handled outside normal browser operations.
 
 `sidecar.queues.inputDepth` is the current number of admitted input operations still in flight
-inside the sidecar. `sidecar.queues.droppedTotal` is the cumulative DropOldest loss across bounded
-sidecar fan-out queues.
+inside the sidecar (coalesced pending move/touch flushes plus serialized inject work).
+`sidecar.queues.inputChainDepth` isolates just the serialized inject chain backlog.
+`sidecar.queues.droppedTotal` is the cumulative DropOldest loss across bounded sidecar fan-out queues.
+
+`sidecar.allocations.summary` aggregates display/input footprint across registered sessions
+(allocated session count, open/faulted counts, display pixels, input backend mix).
+`sidecar.allocations.sessions` is opt-in per-session allocation rows (same scalar fields as the
+session telemetry snapshot). Enable via `IncludeAllocationSessions` on the CollectTelemetry request.
+
+Sidecar allocation lifecycle events (`Telemetry.Sessions.Sidecar.*`) are opt-in Journal facts
+emitted from `WatchAllocationLifecycle` when enabled in `Telemetry.Events` — never on input/frame
+hot paths.
 
 For host and Docker visibility in containers, mount host procfs read-only at `/host/proc` and the
 Docker socket read-only at `/var/run/docker.sock`, then configure:

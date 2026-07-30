@@ -1,4 +1,5 @@
 import {
+  type AllocationLifecycleSignal,
   type BrowserEditingState,
   type BrowserFault,
   type BrowserPermissionDecision,
@@ -25,6 +26,10 @@ export class EventBridge implements BrowserSessionEvents {
   readonly crash = new DropOldestQueue<BrowserFault>(4);
   /** Opt-in path hops for Telemetry.Sessions.Input.SidecarAdmitted (DropOldest). */
   readonly inputPath = new DropOldestQueue<{ phase: string; kind: string; unixMs: number }>(32);
+  /** Opt-in allocation lifecycle for Telemetry.Sessions.Sidecar.* (DropOldest). */
+  readonly allocationLifecycle = new DropOldestQueue<
+    AllocationLifecycleSignal & { unixMs: number }
+  >(16);
   private faulted = false;
 
   private nextCorrId = 1;
@@ -107,6 +112,13 @@ export class EventBridge implements BrowserSessionEvents {
     });
   }
 
+  onAllocationLifecycle(signal: AllocationLifecycleSignal): void {
+    this.allocationLifecycle.tryWrite({
+      ...signal,
+      unixMs: Date.now(),
+    });
+  }
+
   get isFaulted(): boolean {
     return this.faulted;
   }
@@ -132,6 +144,7 @@ export class EventBridge implements BrowserSessionEvents {
     this.editableFocus.close();
     this.crash.close();
     this.inputPath.close();
+    this.allocationLifecycle.close();
     for (const [, w] of this.permissionWaiters) {
       w.resolve('deny');
     }

@@ -27,6 +27,7 @@ export class SessionRegistry {
     const session = this.factory.create(sessionId, bridge);
     const entry = { session, bridge };
     this.sessions.set(sessionId, entry);
+    bridge.onAllocationLifecycle({ kind: 'session_allocated' });
     for (const listener of this.createListeners) {
       listener(entry);
     }
@@ -62,6 +63,7 @@ export class SessionRegistry {
     const entry = this.sessions.get(sessionId);
     if (!entry) return;
     this.sessions.delete(sessionId);
+    entry.bridge.onAllocationLifecycle({ kind: 'session_released' });
     entry.bridge.close();
     await entry.session.dispose();
   }

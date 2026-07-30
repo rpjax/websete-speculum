@@ -18,7 +18,7 @@ export function OverviewPlatformCards({
   scriptsCount,
 }: OverviewPlatformCardsProps) {
   const profiles = status?.hosting?.profiles ?? []
-  const injectionCount = config.scriptInjection?.length ?? 0
+  const injectionCount = config.scriptInjection?.injections.length ?? 0
 
   return (
     <section className="space-y-3">
@@ -127,7 +127,7 @@ export function OverviewPlatformCards({
             </div>
             {injectionCount > 0 && config.scriptInjection && (
               <p className="text-[11px] text-muted-foreground pt-1">
-                {config.scriptInjection.map((e) => e.position).join(', ')}
+                {config.scriptInjection.injections.map((e) => e.position).join(', ')}
               </p>
             )}
             <Link

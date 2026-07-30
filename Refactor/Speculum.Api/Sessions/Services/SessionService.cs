@@ -100,7 +100,9 @@ public sealed class SessionService : ISessionService
         var persisted = false;
 
         var engineConfiguration = _configuration.GetCurrent();
-        var sessionConfiguration = _configAssembler.Assemble(request, engineConfiguration);
+        var sessionConfiguration = await _configAssembler
+            .AssembleAsync(request, engineConfiguration, ct)
+            .ConfigureAwait(false);
         if (sessionConfiguration.IsFailure)
         {
             startEvents.StartConfigurationRejected(sessionConfiguration.Errors.ToArray());

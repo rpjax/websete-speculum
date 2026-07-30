@@ -45,6 +45,8 @@ public static class ConfigurationsServiceCollectionExtensions
         services.TryAddEnumerable(
             ServiceDescriptor.Singleton<IValidateOptions<NavigationConfiguration>, NavigationConfigurationValidator>());
         services.TryAddEnumerable(
+            ServiceDescriptor.Singleton<IValidateOptions<ScriptingConfiguration>, ScriptingConfigurationValidator>());
+        services.TryAddEnumerable(
             ServiceDescriptor.Singleton<IValidateOptions<SessionsConfiguration>, SessionsConfigurationValidator>());
         services.TryAddEnumerable(
             ServiceDescriptor.Singleton<IValidateOptions<ResourceManagementConfiguration>, ResourceManagementConfigurationValidator>());

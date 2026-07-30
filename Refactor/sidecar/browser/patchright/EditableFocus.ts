@@ -82,7 +82,7 @@ export class EditableFocus {
       if (key === this.lastKey) return;
       this.lastKey = key;
       this.events.onEditableFocusChanged(sample?.editing ?? null);
-    } catch {
+    } catch (err) {
       /* page gone */
     }
   }

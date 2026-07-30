@@ -13,4 +13,5 @@ public interface ISessionTelemetryEvents
     ISessionResizeTelemetryEvents Resize { get; }
     ISessionBrowseTelemetryEvents Browse { get; }
     ISessionClientTelemetryEvents Client { get; }
+    ISessionSidecarTelemetryEvents Sidecar { get; }
 }

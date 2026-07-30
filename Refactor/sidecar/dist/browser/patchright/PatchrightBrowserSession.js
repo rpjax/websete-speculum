@@ -7,6 +7,9 @@ const device_emulation_1 = require("./device-emulation");
 const EditableFocus_1 = require("./EditableFocus");
 const Evaluate_1 = require("./Evaluate");
 const Input_1 = require("./Input");
+const OsInputBackend_1 = require("./input/OsInputBackend");
+const PatchrightInputBackend_1 = require("./input/PatchrightInputBackend");
+const display_isolation_1 = require("./input/display-isolation");
 const contextCrash_1 = require("./contextCrash");
 const MediaIngress_1 = require("./MediaIngress");
 const Navigation_1 = require("./Navigation");
@@ -49,6 +52,9 @@ class PatchrightBrowserSession {
     suppressContextCrash = false;
     /** Bumped to retire stale context 'close' listeners across stop. */
     crashEpoch = 0;
+    inputBackend = null;
+    chromeWidth = 0;
+    chromeHeight = 0;
     /**
      * Serializes navigate / refresh / soft resize so CDP metrics and page.goto
      * cannot interleave. Settles even when the op rejects.
@@ -97,6 +103,16 @@ class PatchrightBrowserSession {
         try {
             // Capacity only — logical client size applied via Chrome window + metrics.
             this.display = await Display_1.Display.start(displayNum, maxW, maxH);
+            this.emitAllocationLifecycle({
+                kind: 'display_allocated',
+                displayWidth: maxW,
+                displayHeight: maxH,
+                logicalWidth: width,
+                logicalHeight: height,
+            });
+            // Existing uinput devices are host-global; keep them off this new Xorg
+            // before Chrome attaches (isolation register happens later at OsInput create).
+            await (0, display_isolation_1.disableForeignDevicesOnDisplay)(this.display.displayEnv);
             this.chrome = await (0, ChromeRuntime_1.launchChrome)({
                 sessionId: this.sessionId,
                 displayEnv: this.display.displayEnv,
@@ -124,8 +140,17 @@ class PatchrightBrowserSession {
                 throw Object.assign(new Error(`chrome viewport ${chromeVp.width}×${chromeVp.height} != logical ${width}×${height}`), { code: 'FAILED_PRECONDITION', errorCode: 'viewport_unproven', phase: 'launch' });
             }
             this.viewport.confirm(width, height, device);
-            this.input = new Input_1.InputController(this.chrome.page, this.chrome.cdp);
+            const inputBackend = await this.createInputBackend({
+                maxW,
+                maxH,
+                width,
+                height,
+            });
+            this.inputBackend = inputBackend instanceof OsInputBackend_1.OsInputBackend ? 'os' : 'patchright';
+            this.input = new Input_1.InputController(this.chrome.page, inputBackend);
             this.input.setTouchPrimary(touchPrimary(device));
+            this.chromeWidth = chromeVp.width;
+            this.chromeHeight = chromeVp.height;
             this.evaluateCap.attachConsole(this.chrome.page);
             this.editableFocus.start(this.chrome.page);
             this.screencast = await Screencast_1.Screencast.start(this.chrome.cdp, width, height, (jpeg) => this.events.onVideoFrame(jpeg));
@@ -138,6 +163,18 @@ class PatchrightBrowserSession {
             return { width, height };
         }
         catch (err) {
+            const fault = err;
+            this.emitAllocationLifecycle({
+                kind: 'allocation_faulted',
+                displayWidth: maxW,
+                displayHeight: maxH,
+                logicalWidth: width,
+                logicalHeight: height,
+                inputBackend: this.inputBackend ?? undefined,
+                errorCode: fault.errorCode ?? 'launch_failed',
+                phase: fault.phase ?? 'launch',
+                reason: fault.message?.slice(0, 256),
+            });
             // Partial launch must not leak Xvfb/Chrome — API may keep the session id until dispose.
             await this.teardownBrowserResources({ removeUserDataDir: true });
             this.viewport = null;
@@ -156,6 +193,7 @@ class PatchrightBrowserSession {
         await this.media.dispose();
     }
     async getStatus() {
+        const dims = this.displayDimsOrZero();
         return {
             isOpen: this.open && !this.disposed,
             tabCount: this.chrome?.context.pages().length ?? 0,
@@ -163,11 +201,28 @@ class PatchrightBrowserSession {
             resizing: this.viewport?.isResizing ?? false,
             width: this.viewport?.width ?? 0,
             height: this.viewport?.height ?? 0,
+            displayWidth: dims.displayWidth,
+            displayHeight: dims.displayHeight,
+            chromeWidth: this.chromeWidth,
+            chromeHeight: this.chromeHeight,
         };
     }
     getTelemetrySnapshot() {
+        const dims = this.displayDimsOrZero();
+        const device = this.viewport?.device ?? null;
         return {
             inputPendingCount: this.input?.pendingCount ?? 0,
+            inputChainDepth: this.input?.chainDepth ?? 0,
+            displayAllocated: this.display !== null,
+            displayWidth: dims.displayWidth,
+            displayHeight: dims.displayHeight,
+            logicalWidth: this.viewport?.width ?? 0,
+            logicalHeight: this.viewport?.height ?? 0,
+            chromeWidth: this.chromeWidth,
+            chromeHeight: this.chromeHeight,
+            inputBackend: this.inputBackend ?? undefined,
+            touchPrimary: touchPrimary(device),
+            userDataDirPresent: Boolean(this.chrome?.userDataDir),
         };
     }
     async restoreState(state) {
@@ -343,6 +398,12 @@ class PatchrightBrowserSession {
             }
             this.viewport.confirm(nextW, nextH, nextDevice);
             this.input?.setTouchPrimary(touchPrimary(nextDevice));
+            this.chromeWidth = chromeVp.width;
+            this.chromeHeight = chromeVp.height;
+            const backend = this.input?.backend;
+            if (backend instanceof OsInputBackend_1.OsInputBackend) {
+                backend.setLogicalSize(nextW, nextH);
+            }
             return {
                 ok: true,
                 width: nextW,
@@ -377,6 +438,10 @@ class PatchrightBrowserSession {
                 }
                 this.viewport.confirm(previous.width, previous.height, previous.device ?? undefined);
                 this.input?.setTouchPrimary(touchPrimary(previous.device));
+                const backend = this.input?.backend;
+                if (backend instanceof OsInputBackend_1.OsInputBackend) {
+                    backend.setLogicalSize(previous.width, previous.height);
+                }
             }
             catch (compErr) {
                 const message = compErr.message?.slice(0, 512) ?? 'compensate failed';
@@ -431,6 +496,32 @@ class PatchrightBrowserSession {
             });
         });
     }
+    /**
+     * Production default is OS uinput (fail closed).
+     * SPECULUM_INPUT_BACKEND=patchright is an explicit lab escape for hosts
+     * without /dev/uinput (e.g. Docker Desktop WSL2) — never a silent fallback.
+     */
+    async createInputBackend(args) {
+        const mode = (process.env['SPECULUM_INPUT_BACKEND'] ?? 'os').trim().toLowerCase();
+        if (mode === 'patchright') {
+            console.warn(`[sidecar] SPECULUM_INPUT_BACKEND=patchright — using CDP input (lab only; not production OS path)`);
+            return new PatchrightInputBackend_1.PatchrightInputBackend(this.chrome.page, this.chrome.cdp);
+        }
+        if (mode !== 'os') {
+            throw Object.assign(new Error(`SPECULUM_INPUT_BACKEND must be "os" or "patchright" (got "${mode}")`), { code: 'FAILED_PRECONDITION', errorCode: 'invalid_input_backend', phase: 'launch' });
+        }
+        return OsInputBackend_1.OsInputBackend.create({
+            sessionId: this.sessionId,
+            displayEnv: this.display.displayEnv,
+            displayWidth: args.maxW,
+            displayHeight: args.maxH,
+            logicalWidth: args.width,
+            logicalHeight: args.height,
+            insertText: async (text) => {
+                await this.chrome.cdp.send('Input.insertText', { text });
+            },
+        });
+    }
     /** Stop screencast/Chrome/display and clear handles — no Xvfb leak. */
     async teardownBrowserResources(options) {
         // Stay suppressed after teardown so a deferred context 'close' cannot emit a false onCrash.
@@ -439,6 +530,15 @@ class PatchrightBrowserSession {
         this.crashEpoch++;
         this.open = false;
         this.editableFocus.stop();
+        if (this.input) {
+            try {
+                await this.input.dispose();
+            }
+            catch {
+                /* */
+            }
+            this.input = null;
+        }
         if (this.screencast) {
             try {
                 await this.screencast.stop();
@@ -460,6 +560,15 @@ class PatchrightBrowserSession {
             this.chrome = null;
         }
         if (this.display) {
+            const dims = this.displayDimsOrZero();
+            this.emitAllocationLifecycle({
+                kind: 'display_released',
+                displayWidth: dims.displayWidth,
+                displayHeight: dims.displayHeight,
+                logicalWidth: this.viewport?.width,
+                logicalHeight: this.viewport?.height,
+                inputBackend: this.inputBackend ?? undefined,
+            });
             try {
                 await this.display.dispose();
             }
@@ -468,7 +577,9 @@ class PatchrightBrowserSession {
             }
             this.display = null;
         }
-        this.input = null;
+        this.inputBackend = null;
+        this.chromeWidth = 0;
+        this.chromeHeight = 0;
         this.viewportPolicy = null;
     }
     async probe(request) {
@@ -494,6 +605,20 @@ class PatchrightBrowserSession {
     }
     async pushMicrophoneAudio(chunk) {
         await this.media.pushMicrophoneAudio(chunk);
+    }
+    displayDimsOrZero() {
+        if (this.display) {
+            return { displayWidth: this.display.width, displayHeight: this.display.height };
+        }
+        try {
+            return this.displayDims();
+        }
+        catch {
+            return { displayWidth: 0, displayHeight: 0 };
+        }
+    }
+    emitAllocationLifecycle(signal) {
+        this.events.onAllocationLifecycle?.(signal);
     }
     ensureLive() {
         this.ensureNotDisposed();

@@ -1,6 +1,7 @@
 import type { SessionInput, TouchPointInput } from '@/lib/speculum'
 import {
   clientToFramePointFill,
+  clientToFramePointFillClamped,
   isLocalBrowserShortcut,
   normalizeWheelDeltas,
   shouldThrottleMove,
@@ -43,6 +44,9 @@ const IME_NAV_KEYS = new Set([
   'Escape',
 ])
 
+/** Modifier keys tracked while the IME shell owns focus. */
+const IME_MODIFIER_KEYS = new Set(['Shift', 'Control', 'Alt', 'Meta'])
+
 /**
  * Pointer/keyboard/wheel/IME capture bound to the session canvas.
  * Coordinates use object-fill 1:1 mapping ({@link clientToFramePointFill}) —
@@ -50,12 +54,14 @@ const IME_NAV_KEYS = new Set([
  */
 export class SessionInputController {
   private heldKeys = new Set<string>()
+  private imeHeldKeys = new Set<string>()
   private pressedMouseButtons = new Set<number>()
   private activeTouches = new Map<number, ActiveTouch>()
   private lastMousePage = { x: 0, y: 0 }
   private cachedRect: DOMRect | null = null
-  private lastTouchMoveTime = 0
+  private lastTouchMoveTime = new Map<number, number>()
   private lastMouseMoveTime = 0
+  private lastWheelTime = 0
   private suppressMouseUntil = 0
   private cleanupFns: Array<() => void> = []
   private canvas: HTMLCanvasElement | null = null
@@ -169,8 +175,9 @@ export class SessionInputController {
         if (!this.activeTouches.has(ev.pointerId)) return
         this.trackTouch(ev)
         const now = performance.now()
-        if (shouldThrottleMove(now, this.lastTouchMoveTime)) return
-        this.lastTouchMoveTime = now
+        const lastMove = this.lastTouchMoveTime.get(ev.pointerId) ?? 0
+        if (shouldThrottleMove(now, lastMove)) return
+        this.lastTouchMoveTime.set(ev.pointerId, now)
         this.emitTouch('move', [ev.pointerId])
         return
       }
@@ -182,11 +189,16 @@ export class SessionInputController {
       if (touchPrimary && !dragging) return
 
       const now = performance.now()
+      const point =
+        dragging
+          ? this.framePointDrag(ev.clientX, ev.clientY)
+          : this.framePoint(ev.clientX, ev.clientY)
+      if (point) {
+        this.lastMousePage = point
+      }
       if (shouldThrottleMove(now, this.lastMouseMoveTime)) return
       this.lastMouseMoveTime = now
-      const point = this.framePoint(ev.clientX, ev.clientY)
       if (!point) return
-      this.lastMousePage = point
       this.send({ type: 'mousemove', x: point.x, y: point.y })
     })
 
@@ -279,6 +291,9 @@ export class SessionInputController {
         const ev = e as WheelEvent
         ev.preventDefault()
         this.invalidateRect()
+        const now = performance.now()
+        if (shouldThrottleMove(now, this.lastWheelTime)) return
+        this.lastWheelTime = now
         const point = this.framePoint(ev.clientX, ev.clientY)
         if (!point) return
         const { width, height } = this.deps.getFrameSize()
@@ -350,6 +365,8 @@ export class SessionInputController {
     this.pressedMouseButtons.clear()
     this.activeTouches.clear()
     this.heldKeys.clear()
+    this.imeHeldKeys.clear()
+    this.lastTouchMoveTime.clear()
   }
 
   private bindIme(
@@ -367,6 +384,8 @@ export class SessionInputController {
     })
     on(ime, 'blur', () => {
       this.invalidateRect()
+      this.composing = false
+      this.releaseImeKeys(true)
       this.deps.onImeFocusChange?.(false)
     })
     on(ime, 'compositionstart', () => {
@@ -408,8 +427,9 @@ export class SessionInputController {
     on(ime, 'keydown', (e) => {
       const ev = e as KeyboardEvent
       if (this.composing) return
-      if (IME_NAV_KEYS.has(ev.key)) {
+      if (this.isImeTrackedKey(ev.key)) {
         ev.preventDefault()
+        this.imeHeldKeys.add(ev.key)
         this.send({ type: 'keydown', key: ev.key })
         return
       }
@@ -426,10 +446,23 @@ export class SessionInputController {
     })
     on(ime, 'keyup', (e) => {
       const ev = e as KeyboardEvent
-      if (IME_NAV_KEYS.has(ev.key)) {
-        this.send({ type: 'keyup', key: ev.key })
-      }
+      if (!this.isImeTrackedKey(ev.key)) return
+      if (!this.imeHeldKeys.has(ev.key)) return
+      this.imeHeldKeys.delete(ev.key)
+      this.send({ type: 'keyup', key: ev.key })
     })
+  }
+
+  private isImeTrackedKey(key: string): boolean {
+    return IME_NAV_KEYS.has(key) || IME_MODIFIER_KEYS.has(key)
+  }
+
+  private releaseImeKeys(force = false) {
+    if (this.imeHeldKeys.size === 0) return
+    for (const key of this.imeHeldKeys) {
+      this.send({ type: 'keyup', key }, force)
+    }
+    this.imeHeldKeys.clear()
   }
 
   private releaseAllPointers() {
@@ -449,6 +482,7 @@ export class SessionInputController {
       this.send({ type: 'keyup', key }, true)
     }
     this.heldKeys.clear()
+    this.releaseImeKeys(true)
   }
 
   private classifyPointer(ev: PointerEvent): 'touch' | 'mouse' {
@@ -533,6 +567,17 @@ export class SessionInputController {
     const { width, height } = this.deps.getFrameSize()
     if (!this.cachedRect) this.cachedRect = this.canvas.getBoundingClientRect()
     return clientToFramePointFill(clientX, clientY, this.cachedRect, width, height)
+  }
+
+  /** Drag path: clamp outside the CSS box so capture outside the canvas still tracks. */
+  private framePointDrag(clientX: number, clientY: number): { x: number; y: number } | null {
+    if (!this.canvas) return null
+    const { width, height } = this.deps.getFrameSize()
+    if (!this.cachedRect) this.cachedRect = this.canvas.getBoundingClientRect()
+    return (
+      clientToFramePointFillClamped(clientX, clientY, this.cachedRect, width, height) ??
+      this.lastMousePage
+    )
   }
 
   /** @param force — deliver release events even after setEnabled(false). */

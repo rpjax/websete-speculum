@@ -13,6 +13,8 @@ public sealed class SidecarTelemetryConfiguration
     public bool IncludeQueues { get; init; } = true;
     public bool IncludeSessionsSummary { get; init; } = true;
     public bool IncludeFaultedIds { get; init; } = true;
+    public bool IncludeAllocationsSummary { get; init; } = true;
+    public bool IncludeAllocationSessions { get; init; } = false;
 
     /// <summary>Unary RPC timeout (milliseconds).</summary>
     public int TimeoutMs { get; init; } = 2_000;

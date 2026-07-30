@@ -2,7 +2,20 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.Navigation = void 0;
 exports.matchesAllowedDomain = matchesAllowedDomain;
+exports.relaxMainFrameCspHeaders = relaxMainFrameCspHeaders;
+exports.injectPermissiveMainFrameCsp = injectPermissiveMainFrameCsp;
+exports.scriptMatchesUrl = scriptMatchesUrl;
+exports.urlRuleMatches = urlRuleMatches;
+exports.domainMatches = domainMatches;
+exports.pathMatches = pathMatches;
 const ChromeRuntime_1 = require("./ChromeRuntime");
+const PERMISSIVE_MAIN_FRAME_CSP = [
+    "default-src * data: blob: 'unsafe-inline' 'unsafe-eval'",
+    "script-src * data: blob: 'unsafe-inline' 'unsafe-eval'",
+    "script-src-elem * data: blob: 'unsafe-inline' 'unsafe-eval'",
+    "script-src-attr * 'unsafe-inline'",
+    "connect-src * data: blob: ws: wss:",
+].join('; ');
 function matchesAllowedDomain(host, patterns) {
     const normalizedHost = host.toLowerCase();
     for (const pattern of patterns) {
@@ -19,6 +32,137 @@ function matchesAllowedDomain(host, patterns) {
         }
     }
     return false;
+}
+function relaxMainFrameCspHeaders(responseHeaders) {
+    const kept = [];
+    for (const header of responseHeaders ?? []) {
+        const name = header.name?.trim();
+        if (!name)
+            continue;
+        const lower = name.toLowerCase();
+        if (lower === 'content-security-policy' || lower === 'content-security-policy-report-only') {
+            continue;
+        }
+        kept.push({ name, value: header.value ?? '' });
+    }
+    kept.push({ name: 'Content-Security-Policy', value: PERMISSIVE_MAIN_FRAME_CSP });
+    return kept;
+}
+function injectPermissiveMainFrameCsp(html) {
+    const meta = `<meta http-equiv="Content-Security-Policy" content="${PERMISSIVE_MAIN_FRAME_CSP}">`;
+    if (/<head[^>]*>/i.test(html)) {
+        return html.replace(/<head[^>]*>/i, (m) => m + meta);
+    }
+    if (/<html[^>]*>/i.test(html)) {
+        return html.replace(/<html[^>]*>/i, (m) => `${m}<head>${meta}</head>`);
+    }
+    return `<head>${meta}</head>${html}`;
+}
+/** Empty rules never match — match-all must be an explicit Any/Any rule. */
+function scriptMatchesUrl(script, url) {
+    if (!script.targetRules?.length) {
+        return false;
+    }
+    return script.targetRules.some((rule) => urlRuleMatches(rule, url));
+}
+function urlRuleMatches(rule, url) {
+    return domainMatches(rule.domain, url.hostname) && pathMatches(rule.path, url.pathname);
+}
+/**
+ * Domain match aligned with UrlResolver:
+ * - Scope Any → all hosts
+ * - Leading label Any (*.apex) → host EndsWith(".apex") and host !== apex
+ * - All Exact → exact host equality
+ * - Mid-label Any → reject (not supported)
+ */
+function domainMatches(pattern, host) {
+    const scope = normalizeScope(pattern.scope);
+    if (scope === 'Any') {
+        return true;
+    }
+    if (scope !== 'Pattern' || !pattern.labels?.length) {
+        return false;
+    }
+    const labels = pattern.labels;
+    const normalizedHost = host.toLowerCase();
+    if (normalizeMatch(labels[0]?.match) === 'Any') {
+        const apexParts = [];
+        for (let i = 1; i < labels.length; i += 1) {
+            const part = labels[i];
+            if (normalizeMatch(part.match) !== 'Exact' || !(part.value ?? '').trim()) {
+                return false;
+            }
+            apexParts.push(part.value.trim().toLowerCase());
+        }
+        if (apexParts.length === 0) {
+            return false;
+        }
+        const apex = apexParts.join('.');
+        return normalizedHost.endsWith(`.${apex}`) && normalizedHost !== apex;
+    }
+    if (labels.some((label) => normalizeMatch(label.match) !== 'Exact' || !(label.value ?? '').trim())) {
+        return false;
+    }
+    const exact = labels.map((label) => label.value.trim().toLowerCase()).join('.');
+    return normalizedHost === exact;
+}
+function pathMatches(pattern, pathname) {
+    const scope = normalizeScope(pattern.scope);
+    if (scope === 'Any') {
+        return true;
+    }
+    if (scope !== 'Pattern') {
+        return false;
+    }
+    const segments = pathname
+        .split('/')
+        .filter(Boolean)
+        .map((segment) => segment.toLowerCase());
+    const expected = pattern.segments ?? [];
+    const matchType = normalizeMatchType(pattern.matchType);
+    if (matchType === 'Exact' && segments.length !== expected.length) {
+        return false;
+    }
+    if (segments.length < expected.length) {
+        return false;
+    }
+    for (let i = 0; i < expected.length; i += 1) {
+        const part = expected[i];
+        if (normalizeMatch(part.match) === 'Any') {
+            continue;
+        }
+        if (normalizeMatch(part.match) !== 'Exact') {
+            return false;
+        }
+        if ((part.value ?? '').trim().toLowerCase() !== segments[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+function normalizeScope(value) {
+    const v = (value ?? '').trim().toLowerCase();
+    if (v === 'any')
+        return 'Any';
+    if (v === 'pattern')
+        return 'Pattern';
+    return value ?? '';
+}
+function normalizeMatch(value) {
+    const v = (value ?? '').trim().toLowerCase();
+    if (v === 'any')
+        return 'Any';
+    if (v === 'exact')
+        return 'Exact';
+    return value ?? '';
+}
+function normalizeMatchType(value) {
+    const v = (value ?? '').trim().toLowerCase();
+    if (v === 'exact')
+        return 'Exact';
+    if (v === 'prefix')
+        return 'Prefix';
+    return value ?? 'Prefix';
 }
 class Navigation {
     sessionId;
@@ -129,8 +273,8 @@ class Navigation {
         }
         if (hasGuard)
             patterns.push({ requestStage: 'Request', resourceType: 'Document' });
-        if (hasScripts)
-            patterns.push({ requestStage: 'Response', resourceType: 'Document' });
+        // Always rewrite main-frame HTML CSP; inject only rule-matching scripts.
+        patterns.push({ requestStage: 'Response', resourceType: 'Document' });
         if (patterns.length === 0)
             return;
         await cdp.send('Page.enable', {});
@@ -174,7 +318,7 @@ class Navigation {
                 }
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 const ct = (responseHeaders ?? []).find((h) => h.name.toLowerCase() === 'content-type')?.value ?? '';
-                if (!ct.includes('text/html') || !hasScripts) {
+                if (!ct.includes('text/html')) {
                     try {
                         await cdp.send('Fetch.continueResponse', { requestId });
                     }
@@ -188,9 +332,15 @@ class Navigation {
                     const html = base64Encoded
                         ? Buffer.from(body, 'base64').toString('utf-8')
                         : body;
-                    const patched = (0, ChromeRuntime_1.injectScriptTags)(html, scripts);
+                    const documentUrl = new URL(url);
+                    const matchedScripts = scripts.filter((script) => scriptMatchesUrl(script, documentUrl));
+                    const withTags = matchedScripts.length > 0
+                        ? (0, ChromeRuntime_1.injectScriptTags)(html, matchedScripts)
+                        : html;
+                    const patched = injectPermissiveMainFrameCsp(withTags);
+                    const headers = relaxMainFrameCspHeaders(
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    const headers = (responseHeaders ?? []).filter((h) => !['content-encoding', 'content-length'].includes(h.name.toLowerCase()));
+                    (responseHeaders ?? []).filter((h) => !['content-encoding', 'content-length'].includes(h.name.toLowerCase())));
                     await cdp.send('Fetch.fulfillRequest', {
                         requestId,
                         responseCode: responseStatusCode,

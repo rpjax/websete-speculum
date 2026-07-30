@@ -52,6 +52,14 @@ class MockBrowserSession {
         this.height = options.height;
         this.viewportPolicy = options.viewportPolicy;
         this.open = true;
+        this.events.onAllocationLifecycle?.({
+            kind: 'display_allocated',
+            displayWidth: options.viewportPolicy.maxWidth,
+            displayHeight: options.viewportPolicy.maxHeight,
+            logicalWidth: this.width,
+            logicalHeight: this.height,
+            inputBackend: 'patchright',
+        });
         this.scene = new HarnessScene_1.HarnessScene(this.width, this.height, {
             onLocationChanged: (url) => this.events.onLocationChanged(url),
             onMainFrameNavigationBlocked: (url) => this.events.onMainFrameNavigationBlocked(url),
@@ -66,6 +74,16 @@ class MockBrowserSession {
         return { width: this.width, height: this.height };
     }
     async stop() {
+        if (this.open && this.viewportPolicy) {
+            this.events.onAllocationLifecycle?.({
+                kind: 'display_released',
+                displayWidth: this.viewportPolicy.maxWidth,
+                displayHeight: this.viewportPolicy.maxHeight,
+                logicalWidth: this.width,
+                logicalHeight: this.height,
+                inputBackend: 'patchright',
+            });
+        }
         this.stopFrames();
         this.open = false;
         this.scene = null;
@@ -75,6 +93,7 @@ class MockBrowserSession {
         await this.stop();
     }
     async getStatus() {
+        const dims = this.displayDims();
         return {
             isOpen: this.open,
             tabCount: 1,
@@ -82,11 +101,27 @@ class MockBrowserSession {
             resizing: this.resizing,
             width: this.width,
             height: this.height,
+            displayWidth: dims.displayWidth,
+            displayHeight: dims.displayHeight,
+            chromeWidth: this.open ? this.width : 0,
+            chromeHeight: this.open ? this.height : 0,
         };
     }
     getTelemetrySnapshot() {
+        const dims = this.displayDims();
         return {
             inputPendingCount: this.movePending ? 1 : 0,
+            inputChainDepth: 0,
+            displayAllocated: this.open && this.viewportPolicy !== null,
+            displayWidth: dims.displayWidth,
+            displayHeight: dims.displayHeight,
+            logicalWidth: this.width,
+            logicalHeight: this.height,
+            chromeWidth: this.open ? this.width : 0,
+            chromeHeight: this.open ? this.height : 0,
+            inputBackend: 'patchright',
+            touchPrimary: false,
+            userDataDirPresent: false,
         };
     }
     async restoreState(state) {

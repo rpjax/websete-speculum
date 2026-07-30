@@ -101,10 +101,18 @@ export function LabTelemetryPanel({ stats, status, live }: LabTelemetryPanelProp
           <dd className={status.tabCount === 1 ? 'tabular-nums' : 'text-destructive tabular-nums'}>
             {status.tabCount}
           </dd>
-          <dt className="text-muted-foreground">Viewport</dt>
+          <dt className="text-muted-foreground">Logical</dt>
           <dd className="tabular-nums">
             {status.width}×{status.height}
             {status.resizing ? ' (resizing)' : ''}
+          </dd>
+          <dt className="text-muted-foreground">Render</dt>
+          <dd className="tabular-nums">
+            {status.chromeWidth}×{status.chromeHeight}
+          </dd>
+          <dt className="text-muted-foreground">Display</dt>
+          <dd className="tabular-nums">
+            {status.displayWidth}×{status.displayHeight}
           </dd>
           <dt className="text-muted-foreground">Relay fps</dt>
           <dd className="tabular-nums">{status.fps.toFixed(1)}</dd>

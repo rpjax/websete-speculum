@@ -7,6 +7,7 @@ public static class ConfigSectionKeys
     public const string Navigation = "Navigation";
     public const string Sessions = "Sessions";
     public const string ResourceManagement = "ResourceManagement";
+    public const string Scripting = "Scripting";
     public const string Journal = "Journal";
     public const string Telemetry = "Telemetry";
 
@@ -18,6 +19,7 @@ public static class ConfigSectionKeys
         Navigation,
         Sessions,
         ResourceManagement,
+        Scripting,
         Journal,
         Telemetry,
     ];
@@ -29,8 +31,9 @@ public static class ConfigSectionKeys
         ("navigation", Navigation),
         ("sessions", Sessions),
         ("resourceManagement", ResourceManagement),
+        ("scripting", Scripting),
         ("journal", Journal),
         ("telemetry", Telemetry),
     ];
 }
-
+

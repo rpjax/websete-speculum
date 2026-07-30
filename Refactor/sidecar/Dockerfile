@@ -15,8 +15,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       fonts-liberation \
       fonts-noto-color-emoji \
       fonts-noto-cjk \
-      xvfb \
+      xserver-xorg-core \
+      xserver-xorg-video-dummy \
+      xserver-xorg-input-evdev \
+      xserver-xorg-input-libinput \
       x11-xserver-utils \
+      xinput \
+      udev \
       matchbox-window-manager \
       mesa-utils \
       libnss3 \
@@ -48,13 +53,17 @@ COPY sidecar/grpc ./grpc
 COPY sidecar/host ./host
 COPY sidecar/telemetry ./telemetry
 COPY sidecar/index.ts sidecar/smoke.ts sidecar/smoke-remote.ts sidecar/unit.ts ./
+COPY sidecar/docker-entrypoint.sh /docker-entrypoint.sh
 COPY proto /proto
 
-RUN npm run build
+RUN npm run build \
+ && sed -i 's/\r$//' /docker-entrypoint.sh \
+ && chmod +x /docker-entrypoint.sh
 
 EXPOSE 50051 3001
 
 HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=3 \
-  CMD curl -fsS http://127.0.0.1:3001/ready || exit 1
+  CMD curl -fsS http://127.0.0.1:3001/health || exit 1
 
+ENTRYPOINT ["/bin/sh", "/docker-entrypoint.sh"]
 CMD ["node", "dist/index.js"]

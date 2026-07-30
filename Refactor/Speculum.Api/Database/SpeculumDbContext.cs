@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Speculum.Api.Profiles.Storage;
+using Speculum.Api.Scripts.Storage;
 using Speculum.Api.Sessions.Storage;
 
 namespace Speculum.Api.Database;
@@ -18,6 +19,8 @@ public sealed class SpeculumDbContext : DbContext
     public DbSet<SessionRecord> Sessions => Set<SessionRecord>();
 
     public DbSet<ProfileRecord> Profiles => Set<ProfileRecord>();
+
+    public DbSet<ScriptRecord> Scripts => Set<ScriptRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

@@ -23,23 +23,37 @@ public sealed record SessionTelemetryItem(
 
 public sealed record SidecarTelemetryRequest(
     bool IncludeProcess, bool IncludeEventLoop, bool IncludeChrome, bool IncludeQueues,
-    bool IncludeSessionsSummary, bool IncludeFaultedIds);
+    bool IncludeSessionsSummary, bool IncludeFaultedIds,
+    bool IncludeAllocationsSummary, bool IncludeAllocationSessions);
 
 public sealed record SidecarTelemetrySample(
     SidecarProcessTelemetry? Process,
     SidecarEventLoopTelemetry? EventLoop,
     SidecarChromeTelemetry? Chrome,
     SidecarQueueTelemetry? Queues,
-    SidecarSessionsSummary? Sessions);
+    SidecarSessionsSummary? Sessions,
+    SidecarAllocationsTelemetry? Allocations);
 
 public sealed record SidecarProcessTelemetry(
     double CpuUsage, long MemoryRss, long MemoryHeapUsed, long MemoryHeapTotal, int Pid, double UptimeSec);
 public sealed record SidecarEventLoopTelemetry(double DelayMsP50, double DelayMsP99, double Utilization);
 public sealed record SidecarChromeTelemetry(int BrowserCount, int PageCount, long? TotalJsHeapUsed);
 public sealed record SidecarQueueTelemetry(
-    int VideoDepth, int AudioDepth, int ConsoleDepth, int? InputDepth, long? DroppedTotal);
+    int VideoDepth, int AudioDepth, int ConsoleDepth, int? InputDepth, long? DroppedTotal,
+    int? InputChainDepth);
 public sealed record SidecarSessionsSummary(
     int Registered, int Open, int Faulted, IReadOnlyList<string>? FaultedSessionIds);
+public sealed record SidecarAllocationsSummary(
+    int AllocatedSessions, int OpenSessions, int FaultedSessions, int DisplayCount,
+    long AllocatedDisplayPixels, int OsInputSessions, int PatchrightInputSessions,
+    int TouchPrimarySessions, int UserDataDirsPresent);
+public sealed record SidecarAllocationSession(
+    string SessionId, bool Open, bool Faulted, bool DisplayAllocated,
+    int DisplayWidth, int DisplayHeight, int LogicalWidth, int LogicalHeight,
+    int ChromeWidth, int ChromeHeight, string InputBackend, bool TouchPrimary,
+    bool UserDataDirPresent);
+public sealed record SidecarAllocationsTelemetry(
+    SidecarAllocationsSummary? Summary, IReadOnlyList<SidecarAllocationSession>? Sessions);
 
 public sealed record ProfilesTelemetry(int Total, long? StorageBytes);
 

@@ -121,6 +121,8 @@ export interface LabTelemetrySidecarConfig extends LabTelemetrySectionToggle {
   includeQueues?: boolean
   includeSessionsSummary?: boolean
   includeFaultedIds?: boolean
+  includeAllocationsSummary?: boolean
+  includeAllocationSessions?: boolean
   timeoutMs?: number
 }
 
@@ -171,9 +173,52 @@ export interface LabEngineConfig {
   resourceManagement: LabResourceManagementConfig
   /** Periodic resource samples → Journal (Telemetry-owned facts). Off unless enabled. */
   telemetry: LabTelemetryConfig
+  /** Main-frame script injections (Stored / Remote + domain/path rules). */
+  scripting: LabScriptingConfig
   /** Telemetry-owned event toggles (test/debug). Off unless explicitly enabled. */
   journal?: Record<string, boolean>
   status?: LabConfigStatus
+}
+
+export interface LabScriptTargetRule {
+  domain: {
+    scope: 'Any' | 'Pattern'
+    labels: Array<{ match: 'Exact' | 'Any'; value: string }>
+  }
+  path: {
+    scope: 'Any' | 'Pattern'
+    matchType: 'Exact' | 'Prefix'
+    segments: Array<{ match: 'Exact' | 'Any'; value: string }>
+  }
+}
+
+export interface LabScriptInjection {
+  source: {
+    sourceType: 'Stored' | 'Remote'
+    storedScriptId?: string | null
+    remoteUrl?: string | null
+  }
+  position: 'HeadStart' | 'HeadEnd' | 'BodyStart' | 'BodyEnd'
+  executionType: 'Classic' | 'Module'
+  targetRules: LabScriptTargetRule[]
+}
+
+export interface LabScriptingConfig {
+  injections: LabScriptInjection[]
+}
+
+export interface LabScriptMeta {
+  id: string
+  name: string
+  sha256: string
+  size: number
+  uploadedAt: string
+  updatedAt?: string
+}
+
+export interface LabScriptPage {
+  items: LabScriptMeta[]
+  total: number
 }
 
 export {
@@ -195,6 +240,8 @@ export const CONFIG_SESSIONS_PATH = '/api/configurations/Sessions'
 export const CONFIG_RESOURCE_MANAGEMENT_PATH = '/api/configurations/ResourceManagement'
 export const CONFIG_TELEMETRY_PATH = '/api/configurations/Telemetry'
 export const CONFIG_JOURNAL_PATH = '/api/configurations/Journal'
+export const CONFIG_SCRIPTING_PATH = '/api/configurations/Scripting'
+export const SCRIPTS_PATH = '/api/scripts'
 
 /** Explicit lab-complete Sessions snapshot (operator-chosen, not product defaults). */
 export function createLabSessionsBaseline(): LabSessionsConfig {
@@ -256,6 +303,12 @@ export const LAB_CONFIG_SECTION_LABELS: Record<string, string> = {
   Hosting: 'Public session domains',
   Journal: 'Session fact recording',
   Telemetry: 'Sampling + event probes',
+  Scripting: 'Main-frame script injections',
+}
+
+/** Empty Scripting section — injections are opt-in in the lab. */
+export function createLabScriptingBaseline(): LabScriptingConfig {
+  return { injections: [] }
 }
 
 /** Lab telemetry starts off — opt-in while browsing. */
@@ -294,6 +347,8 @@ export function createLabTelemetryBaseline(): LabTelemetryConfig {
       includeQueues: true,
       includeSessionsSummary: true,
       includeFaultedIds: true,
+      includeAllocationsSummary: true,
+      includeAllocationSessions: false,
       timeoutMs: 2000,
     },
     profiles: {
@@ -358,6 +413,113 @@ async function putJson(path: string, body: unknown, hubOrigin: string): Promise<
     throw new Error(text || `PUT ${path} failed (${res.status})`)
   }
 }
+
+async function deleteJson(path: string, hubOrigin: string): Promise<void> {
+  const res = await fetch(`${configBase(hubOrigin)}${path}`, {
+    method: 'DELETE',
+    headers: { Accept: 'application/json' },
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(text || `DELETE ${path} failed (${res.status})`)
+  }
+}
+
+function formatHttpError(status: number, bodyText: string): string {
+  if (!bodyText) return `Request failed (${status})`
+  try {
+    const body = JSON.parse(bodyText) as Record<string, unknown>
+    if (typeof body.error === 'string') return body.error
+    if (Array.isArray(body.errors) && body.errors.length > 0) {
+      return body.errors.map(String).join('; ')
+    }
+  } catch {
+    /* plain text */
+  }
+  return bodyText
+}
+
+/** List stored scripts via the lab hub origin (auth bypass / same-origin). */
+export async function listLabScripts(
+  hubOrigin = '',
+  query = '',
+  skip = 0,
+  take = 50,
+): Promise<LabScriptPage> {
+  const params = new URLSearchParams()
+  if (query.trim()) params.set('query', query.trim())
+  if (skip > 0) params.set('skip', String(skip))
+  if (take !== 50) params.set('take', String(take))
+  const suffix = params.size > 0 ? `?${params}` : ''
+  return getJson<LabScriptPage>(`${SCRIPTS_PATH}${suffix}`, hubOrigin)
+}
+
+/** Upload a .js script into the stored library. */
+export async function uploadLabScript(
+  hubOrigin: string,
+  file: File,
+  name?: string,
+): Promise<LabScriptMeta> {
+  const form = new FormData()
+  form.append('file', file)
+  if (name?.trim()) form.append('name', name.trim())
+  const res = await fetch(`${configBase(hubOrigin)}${SCRIPTS_PATH}`, {
+    method: 'POST',
+    headers: { Accept: 'application/json' },
+    body: form,
+  })
+  if (!res.ok) {
+    throw new Error(formatHttpError(res.status, await res.text()))
+  }
+  return (await res.json()) as LabScriptMeta
+}
+
+/** Delete a stored script (fails if referenced by Scripting.Injections). */
+export async function deleteLabScript(hubOrigin: string, id: string): Promise<void> {
+  await deleteJson(`${SCRIPTS_PATH}/${encodeURIComponent(id)}`, hubOrigin)
+}
+
+function normalizeLabScripting(
+  raw: Partial<LabScriptingConfig> | null | undefined,
+): LabScriptingConfig {
+  const injections = Array.isArray(raw?.injections) ? raw.injections : []
+  return {
+    injections: injections.map((injection) => {
+      const sourceType =
+        String(injection.source?.sourceType ?? 'Stored').toLowerCase() === 'remote'
+          ? 'Remote'
+          : 'Stored'
+      const positionRaw = String(injection.position ?? 'HeadStart')
+      const position =
+        (['HeadStart', 'HeadEnd', 'BodyStart', 'BodyEnd'] as const).find(
+          (p) => p.toLowerCase() === positionRaw.toLowerCase(),
+        ) ?? 'HeadStart'
+      const executionRaw = String(injection.executionType ?? 'Classic')
+      const executionType =
+        executionRaw.toLowerCase() === 'module' ? 'Module' : 'Classic'
+      const rules = Array.isArray(injection.targetRules) ? injection.targetRules : []
+      return {
+        source: {
+          sourceType,
+          storedScriptId: injection.source?.storedScriptId ?? null,
+          remoteUrl: injection.source?.remoteUrl ?? null,
+        },
+        position,
+        executionType,
+        targetRules:
+          rules.length > 0
+            ? rules
+            : [
+                {
+                  domain: { scope: 'Any', labels: [] },
+                  path: { scope: 'Any', matchType: 'Prefix', segments: [] },
+                },
+              ],
+      }
+    }),
+  }
+}
+
 
 function normalizeSessions(raw: Partial<LabSessionsConfig> | null | undefined): LabSessionsConfig {
   const baseline = createLabSessionsBaseline()
@@ -455,7 +617,7 @@ function normalizeTelemetry(
 }
 
 export async function fetchLabEngineConfig(hubOrigin = ''): Promise<LabEngineConfig> {
-  const [status, hosting, navigation, sessions, resourceManagement, telemetry] =
+  const [status, hosting, navigation, sessions, resourceManagement, telemetry, scripting] =
     await Promise.all([
       getJson<LabConfigStatus>(CONFIG_STATUS_PATH, hubOrigin),
       getJson<LabEngineConfig['hosting']>(CONFIG_HOSTING_PATH, hubOrigin),
@@ -466,6 +628,7 @@ export async function fetchLabEngineConfig(hubOrigin = ''): Promise<LabEngineCon
         hubOrigin,
       ),
       getJson<Partial<LabTelemetryConfig>>(CONFIG_TELEMETRY_PATH, hubOrigin),
+      getJson<Partial<LabScriptingConfig>>(CONFIG_SCRIPTING_PATH, hubOrigin),
     ])
 
   return {
@@ -481,13 +644,14 @@ export async function fetchLabEngineConfig(hubOrigin = ''): Promise<LabEngineCon
     sessions: normalizeSessions(sessions),
     resourceManagement: normalizeResourceManagement(resourceManagement),
     telemetry: normalizeTelemetry(telemetry),
+    scripting: normalizeLabScripting(scripting),
     journal: telemetry.events ?? {},
   }
 }
 
 /**
- * Persist Hosting + Navigation + Sessions + ResourceManagement + Telemetry in one
- * validated Apply (no partial mid-save apply).
+ * Persist Hosting + Navigation + Sessions + ResourceManagement + Telemetry + Scripting
+ * in one validated Apply (no partial mid-save apply).
  */
 export async function putLabEngineConfig(
   body: LabEngineConfig,
@@ -501,6 +665,7 @@ export async function putLabEngineConfig(
       Sessions: body.sessions,
       ResourceManagement: body.resourceManagement,
       Telemetry: { ...body.telemetry, events: body.journal ?? {} },
+      Scripting: body.scripting,
     },
     hubOrigin,
   )

@@ -148,7 +148,9 @@ public sealed class SidecarTelemetrySource(ISidecarTelemetrySampleSource sidecar
                 options.IncludeChrome,
                 options.IncludeQueues,
                 options.IncludeSessionsSummary,
-                options.IncludeFaultedIds),
+                options.IncludeFaultedIds,
+                options.IncludeAllocationsSummary,
+                options.IncludeAllocationSessions),
             timeout.Token).ConfigureAwait(false);
     }
 }

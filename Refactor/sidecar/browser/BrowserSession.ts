@@ -66,6 +66,9 @@ export interface BrowserSessionEvents {
 
   /** Unrecoverable fault; subsequent {@link BrowserSession.getStatus} reports isOpen false. */
   onCrash(fault: BrowserFault): void;
+
+  /** Allocation lifecycle (session/display alloc, release, fault) — never on input/frame hot paths. */
+  onAllocationLifecycle?(signal: AllocationLifecycleSignal): void;
 }
 
 export interface BrowserFault {
@@ -91,8 +94,38 @@ export interface BrowserStatus {
   tabCount: number;
   url: string;
   resizing: boolean;
+  /** Logical viewport width (px). */
   width: number;
+  /** Logical viewport height (px). */
   height: number;
+  /** Allocated X display width (px); 0 when no display. */
+  displayWidth: number;
+  /** Allocated X display height (px); 0 when no display. */
+  displayHeight: number;
+  /** Chrome render viewport width (px); 0 when browser not open. */
+  chromeWidth: number;
+  /** Chrome render viewport height (px); 0 when browser not open. */
+  chromeHeight: number;
+}
+
+export type AllocationLifecycleKind =
+  | 'session_allocated'
+  | 'session_released'
+  | 'display_allocated'
+  | 'display_released'
+  | 'allocation_faulted';
+
+/** Low-volume allocation lifecycle signal (opt-in journal on API). */
+export interface AllocationLifecycleSignal {
+  kind: AllocationLifecycleKind;
+  displayWidth?: number;
+  displayHeight?: number;
+  logicalWidth?: number;
+  logicalHeight?: number;
+  inputBackend?: 'os' | 'patchright';
+  errorCode?: string;
+  phase?: string;
+  reason?: string;
 }
 
 /**
@@ -101,6 +134,17 @@ export interface BrowserStatus {
  */
 export interface BrowserTelemetrySnapshot {
   inputPendingCount?: number;
+  inputChainDepth?: number;
+  displayAllocated?: boolean;
+  displayWidth?: number;
+  displayHeight?: number;
+  logicalWidth?: number;
+  logicalHeight?: number;
+  chromeWidth?: number;
+  chromeHeight?: number;
+  inputBackend?: 'os' | 'patchright';
+  touchPrimary?: boolean;
+  userDataDirPresent?: boolean;
 }
 
 // ── Launch / device / scripts ────────────────────────────────────────────────
@@ -148,6 +192,28 @@ export interface BrowserScriptInjection {
   type: string;
   file: string;
   content: string;
+  targetRules?: BrowserUrlMatchRule[];
+}
+
+export interface BrowserUrlMatchRule {
+  domain: BrowserDomainPattern;
+  path: BrowserPathPattern;
+}
+
+export interface BrowserDomainPattern {
+  scope: string;
+  labels: BrowserLabelPattern[];
+}
+
+export interface BrowserPathPattern {
+  scope: string;
+  matchType: string;
+  segments: BrowserLabelPattern[];
+}
+
+export interface BrowserLabelPattern {
+  match: string;
+  value: string;
 }
 
 export interface BrowserReadyInfo {

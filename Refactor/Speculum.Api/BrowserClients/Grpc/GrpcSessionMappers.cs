@@ -1,7 +1,9 @@
 using System.Text.Json;
+using Speculum.Api.Configurations.Models.Patterns;
 using Speculum.Api.Profiles.Aggregates;
 using Speculum.Api.Sessions.Models;
 using Speculum.Api.Sidecar.V1;
+using DomainUrlMatchRule = Speculum.Api.Configurations.Models.Patterns.UrlMatchRule;
 using DomainDeviceProfile = Speculum.Api.Sessions.Models.DeviceProfile;
 using DomainEditingState = Speculum.Api.Sessions.Models.EditingState;
 using DomainResizeResult = Speculum.Api.Sessions.Models.ResizeResult;
@@ -70,6 +72,7 @@ internal static class GrpcSessionMappers
                     File = s.File,
                     Content = s.Content,
                 });
+                request.Scripts[^1].TargetRules.AddRange(s.TargetRules.Select(ToProtoUrlMatchRule));
             }
         }
 
@@ -113,6 +116,29 @@ internal static class GrpcSessionMappers
 
         return proto;
     }
+
+    private static Sidecar.V1.UrlMatchRule ToProtoUrlMatchRule(DomainUrlMatchRule rule) => new()
+    {
+        Domain = new Sidecar.V1.DomainPattern
+        {
+            Scope = rule.Domain.Scope.ToString(),
+            Labels = { rule.Domain.Labels.Select(label => new Sidecar.V1.DomainLabelPattern
+            {
+                Match = label.Match.ToString(),
+                Value = label.Value,
+            }) },
+        },
+        Path = new Sidecar.V1.PathPattern
+        {
+            Scope = rule.Path.Scope.ToString(),
+            MatchType = rule.Path.MatchType.ToString(),
+            Segments = { rule.Path.Segments.Select(segment => new Sidecar.V1.PathSegmentPattern
+            {
+                Match = segment.Match.ToString(),
+                Value = segment.Value,
+            }) },
+        },
+    };
 
     public static BrowserReadyInfo ToReadyInfo(ReadyInfo ready) => new()
     {
@@ -263,6 +289,10 @@ internal static class GrpcSessionMappers
         Resizing = status.Resizing,
         Width = status.Width,
         Height = status.Height,
+        DisplayWidth = status.DisplayWidth,
+        DisplayHeight = status.DisplayHeight,
+        ChromeWidth = status.ChromeWidth,
+        ChromeHeight = status.ChromeHeight,
         Fps = fps,
         SessionId = sessionId.ToString("D"),
         Editing = editing,

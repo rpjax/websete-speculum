@@ -14,6 +14,8 @@ class EventBridge {
     crash = new DropOldestQueue_1.DropOldestQueue(4);
     /** Opt-in path hops for Telemetry.Sessions.Input.SidecarAdmitted (DropOldest). */
     inputPath = new DropOldestQueue_1.DropOldestQueue(32);
+    /** Opt-in allocation lifecycle for Telemetry.Sessions.Sidecar.* (DropOldest). */
+    allocationLifecycle = new DropOldestQueue_1.DropOldestQueue(16);
     faulted = false;
     nextCorrId = 1;
     sinkEpoch = 0;
@@ -78,6 +80,12 @@ class EventBridge {
             unixMs: Date.now(),
         });
     }
+    onAllocationLifecycle(signal) {
+        this.allocationLifecycle.tryWrite({
+            ...signal,
+            unixMs: Date.now(),
+        });
+    }
     get isFaulted() {
         return this.faulted;
     }
@@ -102,6 +110,7 @@ class EventBridge {
         this.editableFocus.close();
         this.crash.close();
         this.inputPath.close();
+        this.allocationLifecycle.close();
         for (const [, w] of this.permissionWaiters) {
             w.resolve('deny');
         }

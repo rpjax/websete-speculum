@@ -18,8 +18,8 @@ internal sealed class SessionInputMerger
     private readonly Func<Guid, bool> _isPipeAttached;
     private readonly object _ownershipGate = new();
 
-    private readonly Channel<UserInput> _userInputMerge = Channel.CreateUnbounded<UserInput>(
-        new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
+    private readonly Channel<UserInput> _userInputMerge = DropOldestChannels.Create<UserInput>(
+        UserInputAdmissionChannel.DefaultCapacity);
 
     private readonly Channel<ConsoleInput> _consoleInputMerge = Channel.CreateUnbounded<ConsoleInput>(
         new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });

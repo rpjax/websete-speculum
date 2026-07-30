@@ -39,6 +39,22 @@ public sealed class SessionStatus
     [Key("height")]
     public int Height { get; init; }
 
+    /// <summary>Allocated X display width (px).</summary>
+    [Key("displayWidth")]
+    public int DisplayWidth { get; init; }
+
+    /// <summary>Allocated X display height (px).</summary>
+    [Key("displayHeight")]
+    public int DisplayHeight { get; init; }
+
+    /// <summary>Chrome render viewport width (px).</summary>
+    [Key("chromeWidth")]
+    public int ChromeWidth { get; init; }
+
+    /// <summary>Chrome render viewport height (px).</summary>
+    [Key("chromeHeight")]
+    public int ChromeHeight { get; init; }
+
     // ── .NET relay-side ───────────────────────────────────────────────────────
 
     /// <summary>

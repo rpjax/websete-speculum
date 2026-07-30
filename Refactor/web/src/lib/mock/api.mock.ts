@@ -1,4 +1,12 @@
-import type { ConfigStatus, SessionMeta, SessionDetail, ScriptMeta, ConfigSectionName } from '@/lib/api'
+import type {
+  ConfigStatus,
+  SessionMeta,
+  SessionDetail,
+  ScriptListResponse,
+  ScriptMeta,
+  ConfigSectionName,
+  ScriptingConfiguration,
+} from '@/lib/api'
 import { ApiError } from '@/lib/errors'
 import { delay } from './delay'
 import {
@@ -62,7 +70,21 @@ export const mockApi = {
     return delay(undefined as void)
   },
 
-  listScripts: () => delay<ScriptMeta[]>(structuredClone(scripts)),
+  listScripts: (query = '', skip = 0, take = 50) => {
+    const normalized = query.trim().toLowerCase()
+    const filtered = normalized
+      ? scripts.filter((script) =>
+          script.name.toLowerCase().includes(normalized)
+          || script.id.toLowerCase().includes(normalized)
+          || script.sha256.toLowerCase().includes(normalized),
+        )
+      : scripts
+    const page: ScriptListResponse = {
+      items: structuredClone(filtered.slice(skip, skip + take)),
+      total: filtered.length,
+    }
+    return delay(page)
+  },
 
   uploadScript: (_file: File, name?: string) => {
     const meta: ScriptMeta = {
@@ -78,6 +100,21 @@ export const mockApi = {
 
   deleteScript: (id: string) => {
     scripts = scripts.filter((s) => s.id !== id)
+    return delay(undefined as void)
+  },
+
+  getScripting: () =>
+    delay<ScriptingConfiguration>(
+      structuredClone((sections.Scripting as ScriptingConfiguration | undefined) ?? { injections: [] }),
+    ),
+
+  putScripting: (body: ScriptingConfiguration) => {
+    sections.Scripting = structuredClone(body)
+    return delay(undefined as void)
+  },
+
+  clearScripting: () => {
+    sections.Scripting = { injections: [] }
     return delay(undefined as void)
   },
 

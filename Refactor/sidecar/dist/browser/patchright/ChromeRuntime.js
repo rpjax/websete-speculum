@@ -59,6 +59,7 @@ function buildChromeArgs(width, height) {
         `--window-size=${width},${height}`,
         '--window-position=0,0',
         '--disable-features=ExclusiveAccessBubble',
+        '--touch-events=enabled',
         '--no-first-run',
         '--mute-audio',
     ];
@@ -122,7 +123,10 @@ async function launchChrome(args) {
             accuracy: args.geolocation.accuracy,
         });
     }
-    // Logical window + metrics — display is overallocated to policy max separately.
+    // Match the legacy sidecar: fullscreen only at launch; logical viewport changes
+    // later use device emulation only and do not mutate native window bounds.
+    const { windowId } = (await cdp.send('Browser.getWindowForTarget', {}));
+    await cdp.send('Browser.setWindowBounds', { windowId, bounds: { windowState: 'fullscreen' } });
     await (0, device_emulation_1.applyLogicalViewport)(cdp, args.width, args.height, args.device);
     return { context, page, cdp, userDataDir };
 }

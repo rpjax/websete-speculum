@@ -35,6 +35,9 @@ function formatDate(iso: string): string {
 
 export default function ScriptsPage() {
   const [scripts, setScripts] = useState<ScriptMeta[]>([])
+  const [queryInput, setQueryInput] = useState('')
+  const [query, setQuery] = useState('')
+  const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [showUpload, setShowUpload] = useState(false)
   const [file, setFile] = useState<File | null>(null)
@@ -43,21 +46,32 @@ export default function ScriptsPage() {
   const [message, setMessage] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+  const loadSeq = useRef(0)
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (activeQuery: string) => {
+    const seq = ++loadSeq.current
     setLoading(true)
     try {
-      setScripts(await api.listScripts())
+      const page = await api.listScripts(activeQuery)
+      if (seq !== loadSeq.current) return
+      setScripts(page.items)
+      setTotal(page.total)
     } catch (e: unknown) {
+      if (seq !== loadSeq.current) return
       setError(e instanceof Error ? e.message : 'Failed to load scripts')
     } finally {
-      setLoading(false)
+      if (seq === loadSeq.current) setLoading(false)
     }
   }, [])
 
   useEffect(() => {
-    void load()
-  }, [load])
+    const handle = window.setTimeout(() => setQuery(queryInput.trim()), 250)
+    return () => window.clearTimeout(handle)
+  }, [queryInput])
+
+  useEffect(() => {
+    void load(query)
+  }, [load, query])
 
   async function upload() {
     if (!file) {
@@ -74,7 +88,7 @@ export default function ScriptsPage() {
       if (fileRef.current) fileRef.current.value = ''
       setMessage('Script uploaded successfully')
       setShowUpload(false)
-      await load()
+      await load(query)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Upload failed')
     } finally {
@@ -88,7 +102,7 @@ export default function ScriptsPage() {
     try {
       await api.deleteScript(id)
       setMessage(`"${scriptName}" deleted`)
-      await load()
+      await load(query)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Delete failed')
     }
@@ -184,11 +198,24 @@ export default function ScriptsPage() {
 
       {/* Script library */}
       <section className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-medium">Script library</h2>
-          <span className="text-xs text-muted-foreground">
-            {scripts.length} script{scripts.length !== 1 ? 's' : ''}
-          </span>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-sm font-medium">Script library</h2>
+            <p className="text-xs text-muted-foreground">
+              Search by script name, id, or SHA-256.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Input
+              value={queryInput}
+              onChange={(e) => setQueryInput(e.target.value)}
+              placeholder="Search scripts"
+              className="w-full sm:w-64"
+            />
+            <span className="text-xs text-muted-foreground">
+              {total} result{total !== 1 ? 's' : ''}
+            </span>
+          </div>
         </div>
 
         {loading ? (

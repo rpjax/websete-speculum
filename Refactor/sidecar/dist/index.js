@@ -100,6 +100,22 @@ function chromePresent() {
         return false;
     }
 }
+function uinputPresent() {
+    if (resolveBrowserMode() === 'mock')
+        return true;
+    // Lab escape: patchright input does not need /dev/uinput.
+    if ((process.env['SPECULUM_INPUT_BACKEND'] ?? 'os').trim().toLowerCase() === 'patchright') {
+        return true;
+    }
+    try {
+        const fd = fs.openSync('/dev/uinput', fs.constants.O_RDWR);
+        fs.closeSync(fd);
+        return true;
+    }
+    catch {
+        return false;
+    }
+}
 function startHealthServer(port) {
     const server = http.createServer((req, res) => {
         if (req.url === '/health') {
@@ -108,13 +124,16 @@ function startHealthServer(port) {
             return;
         }
         if (req.url === '/ready') {
-            const ready = chromePresent();
+            const chromeOk = chromePresent();
+            const uinputOk = uinputPresent();
+            const ready = chromeOk && uinputOk;
             const chromeExecutable = process.env['CHROME_EXECUTABLE'] ?? '';
             res.writeHead(ready ? 200 : 503, { 'content-type': 'application/json' });
             res.end(JSON.stringify({
                 status: ready ? 'ready' : 'not_ready',
                 chrome: chromeExecutable,
-                chromePresent: ready,
+                chromePresent: chromeOk,
+                uinputPresent: uinputOk,
                 browser: process.env['SPECULUM_BROWSER'] ?? '',
             }));
             return;

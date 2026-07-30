@@ -20,10 +20,10 @@ export interface HostingProfile {
 }
 
 export interface InjectionEntry {
-  scriptId?: string | null
-  url?: string | null
+  sourceType?: string
   position: string
-  type: string
+  executionType?: string
+  type?: string
 }
 
 export interface MotorOverviewConfig {
@@ -32,7 +32,7 @@ export interface MotorOverviewConfig {
   sessionPolicy: { ttlDays: number } | null
   jsBridge: { enable: boolean } | null
   hosting: { acmeEmail: string; profiles: HostingProfile[] } | null
-  scriptInjection: InjectionEntry[] | null
+  scriptInjection: { injections: InjectionEntry[] } | null
 }
 
 export interface MotorOverview {
@@ -71,7 +71,7 @@ function countConfigured(
   if (config.maxSessions != null) count++
   if (config.sessionPolicy != null) count++
   if (config.jsBridge != null) count++
-  if ((config.scriptInjection?.length ?? 0) > 0) count++
+  if ((config.scriptInjection?.injections.length ?? 0) > 0) count++
   if (scriptsCount > 0) count++
   if (diagnostics?.enabled) count++
   return count
@@ -129,7 +129,7 @@ export function useMotorOverview(): MotorOverview {
         sessionPolicyRes,
         jsBridgeRes,
         hostingRes,
-        scriptInjectionRes,
+        scriptingRes,
       ] = await Promise.allSettled([
         api.getStatus(),
         diagnosticsApi.getOverview(),
@@ -142,7 +142,7 @@ export function useMotorOverview(): MotorOverview {
         getSectionSafe<{ ttlDays: number }>(ConfigSections.SessionPolicy),
         getSectionSafe<{ enable: boolean }>(ConfigSections.JsBridge),
         getSectionSafe<{ acmeEmail: string; profiles: HostingProfile[] }>(ConfigSections.Hosting),
-        getSectionSafe<InjectionEntry[]>(ConfigSections.ScriptInjection),
+        api.getScripting().catch(() => ({ injections: [] })),
       ])
 
       if (statusRes.status === 'fulfilled') setStatus(statusRes.value)
@@ -151,7 +151,7 @@ export function useMotorOverview(): MotorOverview {
       setDiagnostics(diagRes.status === 'fulfilled' ? diagRes.value : null)
       setLiveSessions(liveRes.status === 'fulfilled' ? liveRes.value.sessions : [])
       setPersistedCount(persistedRes.status === 'fulfilled' ? persistedRes.value.length : 0)
-      setScriptsCount(scriptsRes.status === 'fulfilled' ? scriptsRes.value.length : 0)
+      setScriptsCount(scriptsRes.status === 'fulfilled' ? scriptsRes.value.total : 0)
 
       if (eventsRes.status === 'fulfilled') {
         setRecentEvents(eventsRes.value.slice(-8).reverse())
@@ -165,7 +165,7 @@ export function useMotorOverview(): MotorOverview {
         sessionPolicy: sessionPolicyRes.status === 'fulfilled' ? sessionPolicyRes.value : null,
         jsBridge: jsBridgeRes.status === 'fulfilled' ? jsBridgeRes.value : null,
         hosting: hostingRes.status === 'fulfilled' ? hostingRes.value : null,
-        scriptInjection: scriptInjectionRes.status === 'fulfilled' ? scriptInjectionRes.value : null,
+        scriptInjection: scriptingRes.status === 'fulfilled' ? scriptingRes.value : null,
       })
 
       setLastUpdated(new Date())

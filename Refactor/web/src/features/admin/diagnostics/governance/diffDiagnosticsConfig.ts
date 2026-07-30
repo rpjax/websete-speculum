@@ -108,6 +108,8 @@ export function diffDiagnosticsConfig(current: DiagnosticsOptions, pending: Diag
   diffToggle(changes, 'Sidecar · queues', current.telemetry.sidecar.includeQueues, pending.telemetry.sidecar.includeQueues)
   diffToggle(changes, 'Sidecar · sessions summary', current.telemetry.sidecar.includeSessionsSummary, pending.telemetry.sidecar.includeSessionsSummary)
   diffToggle(changes, 'Sidecar · faulted IDs', current.telemetry.sidecar.includeFaultedIds, pending.telemetry.sidecar.includeFaultedIds)
+  diffToggle(changes, 'Sidecar · allocations summary', current.telemetry.sidecar.includeAllocationsSummary, pending.telemetry.sidecar.includeAllocationsSummary)
+  diffToggle(changes, 'Sidecar · allocation sessions', current.telemetry.sidecar.includeAllocationSessions, pending.telemetry.sidecar.includeAllocationSessions)
   diffNumber(changes, 'Sidecar timeout', current.telemetry.sidecar.timeoutMs, pending.telemetry.sidecar.timeoutMs, (v) => `${v}ms`)
   diffToggle(changes, 'Profiles · storage bytes', current.telemetry.profiles.includeStorageBytes, pending.telemetry.profiles.includeStorageBytes)
   diffToggle(changes, 'Journal · pressure detail', current.telemetry.journal.includePressure, pending.telemetry.journal.includePressure)

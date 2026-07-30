@@ -23,6 +23,11 @@ export const LAB_TELEMETRY_EVENT_TYPES = [
   'Telemetry.Sessions.Persist.SkippedNoConnection',
   'Telemetry.Sessions.Persist.SkippedProfileNotFound',
   'Telemetry.Sessions.Client.AttachedCommandFailed',
+  'Telemetry.Sessions.Sidecar.SessionAllocated',
+  'Telemetry.Sessions.Sidecar.SessionReleased',
+  'Telemetry.Sessions.Sidecar.DisplayAllocated',
+  'Telemetry.Sessions.Sidecar.DisplayReleased',
+  'Telemetry.Sessions.Sidecar.AllocationFaulted',
 ] as const
 
 export type LabTelemetryEventType = (typeof LAB_TELEMETRY_EVENT_TYPES)[number]
@@ -36,6 +41,7 @@ export type LabTelemetryEventGroupId =
   | 'browse'
   | 'persist'
   | 'client'
+  | 'sidecar-alloc'
 
 export interface LabTelemetryEventDef {
   type: LabTelemetryEventType
@@ -205,6 +211,38 @@ export const LAB_TELEMETRY_EVENT_GROUPS: LabTelemetryEventGroup[] = [
         type: 'Telemetry.Sessions.Client.AttachedCommandFailed',
         label: 'Attached command failed',
         help: 'Pushing a command to the attached browser client failed.',
+      },
+    ],
+  },
+  {
+    id: 'sidecar-alloc',
+    title: 'Sidecar allocations',
+    blurb: 'Low-volume lifecycle for session/display alloc, release, and faults.',
+    events: [
+      {
+        type: 'Telemetry.Sessions.Sidecar.SessionAllocated',
+        label: 'Session allocated',
+        help: 'Sidecar registered a browser session object.',
+      },
+      {
+        type: 'Telemetry.Sessions.Sidecar.SessionReleased',
+        label: 'Session released',
+        help: 'Sidecar disposed a browser session object.',
+      },
+      {
+        type: 'Telemetry.Sessions.Sidecar.DisplayAllocated',
+        label: 'Display allocated',
+        help: 'Sidecar started an X display for a session.',
+      },
+      {
+        type: 'Telemetry.Sessions.Sidecar.DisplayReleased',
+        label: 'Display released',
+        help: 'Sidecar tore down an X display for a session.',
+      },
+      {
+        type: 'Telemetry.Sessions.Sidecar.AllocationFaulted',
+        label: 'Allocation faulted',
+        help: 'Sidecar failed to allocate or prove session/display resources.',
       },
     ],
   },

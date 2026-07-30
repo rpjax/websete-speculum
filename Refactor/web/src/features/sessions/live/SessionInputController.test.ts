@@ -145,4 +145,61 @@ describe('SessionInputController object-fill binding', () => {
   it('isLocalBrowserShortcut still detects F12', () => {
     expect(isLocalBrowserShortcut('F12', false)).toBe(true)
   })
+
+  it('releases IME nav keys on blur', () => {
+    const sent: unknown[] = []
+    const canvas = document.createElement('canvas')
+    const ime = document.createElement('textarea')
+    Object.defineProperty(canvas, 'getBoundingClientRect', {
+      value: () => ({ left: 0, top: 0, width: 100, height: 100, right: 100, bottom: 100 }),
+    })
+    const controller = new SessionInputController({
+      getFrameSize: () => ({ width: 100, height: 100 }),
+      onInput: (input) => sent.push(input),
+    })
+    controller.bind(canvas, ime)
+    controller.setEnabled(true)
+    ime.focus()
+
+    ime.dispatchEvent(
+      new KeyboardEvent('keydown', { bubbles: true, key: 'ArrowLeft', cancelable: true }),
+    )
+    ime.dispatchEvent(new FocusEvent('blur', { bubbles: true }))
+
+    expect(sent).toEqual([
+      { type: 'keydown', key: 'ArrowLeft' },
+      { type: 'keyup', key: 'ArrowLeft' },
+    ])
+    controller.unbind()
+  })
+
+  it('clears composing on IME blur so beforeinput is not blocked', () => {
+    const sent: unknown[] = []
+    const canvas = document.createElement('canvas')
+    const ime = document.createElement('textarea')
+    Object.defineProperty(canvas, 'getBoundingClientRect', {
+      value: () => ({ left: 0, top: 0, width: 100, height: 100, right: 100, bottom: 100 }),
+    })
+    const controller = new SessionInputController({
+      getFrameSize: () => ({ width: 100, height: 100 }),
+      onInput: (input) => sent.push(input),
+    })
+    controller.bind(canvas, ime)
+    controller.setEnabled(true)
+    ime.focus()
+
+    ime.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }))
+    ime.dispatchEvent(new FocusEvent('blur', { bubbles: true }))
+    ime.dispatchEvent(
+      new InputEvent('beforeinput', {
+        bubbles: true,
+        cancelable: true,
+        inputType: 'insertText',
+        data: 'x',
+      }),
+    )
+
+    expect(sent).toEqual([{ type: 'text', text: 'x', source: 'insert' }])
+    controller.unbind()
+  })
 })

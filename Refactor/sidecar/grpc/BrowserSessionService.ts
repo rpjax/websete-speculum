@@ -126,6 +126,10 @@ export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.Un
           resizing: status.resizing,
           width: status.width,
           height: status.height,
+          displayWidth: status.displayWidth,
+          displayHeight: status.displayHeight,
+          chromeWidth: status.chromeWidth,
+          chromeHeight: status.chromeHeight,
         });
       } catch (err) {
         callback(grpcError(err), null);
@@ -295,13 +299,31 @@ export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.Un
       }));
     },
 
+    watchAllocationLifecycle(call: grpc.ServerWritableStream<any, any>): void {
+      watchStream(call, registry, (b) => b.allocationLifecycle, (e) => ({
+        kind: e.kind,
+        displayWidth: e.displayWidth,
+        displayHeight: e.displayHeight,
+        logicalWidth: e.logicalWidth,
+        logicalHeight: e.logicalHeight,
+        inputBackend: e.inputBackend,
+        errorCode: e.errorCode,
+        phase: e.phase,
+        reason: e.reason,
+        unixMs: e.unixMs,
+      }));
+    },
+
     pushInput(call: grpc.ServerReadableStream<any, any>, callback: grpc.sendUnaryData<any>): void {
       pumpClientStream(call, callback, async (msg) => {
         const sid = requireSessionId(msg);
         const { session, bridge } = registry.get(sid);
         const input = toBrowserInput(msg);
         await session.pushInput(input);
-        bridge.onInputPathAdmitted(input.type);
+        // Skip admit-path fanout for move samples (high frequency).
+        if (input.type !== 'mousemove' && !(input.type === 'touch' && input.phase === 'move')) {
+          bridge.onInputPathAdmitted(input.type);
+        }
       });
     },
 

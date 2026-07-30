@@ -76,7 +76,7 @@ class EditableFocus {
             this.lastKey = key;
             this.events.onEditableFocusChanged(sample?.editing ?? null);
         }
-        catch {
+        catch (err) {
             /* page gone */
         }
     }

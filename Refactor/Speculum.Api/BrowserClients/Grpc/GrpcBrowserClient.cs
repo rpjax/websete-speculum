@@ -77,6 +77,8 @@ public sealed class GrpcBrowserClient : IBrowserClient, IDisposable
                     IncludeQueues = request.IncludeQueues,
                     IncludeSessionsSummary = request.IncludeSessionsSummary,
                     IncludeFaultedIds = request.IncludeFaultedIds,
+                    IncludeAllocationsSummary = request.IncludeAllocationsSummary,
+                    IncludeAllocationSessions = request.IncludeAllocationSessions,
                 },
                 cancellationToken: ct);
 
@@ -102,7 +104,8 @@ public sealed class GrpcBrowserClient : IBrowserClient, IDisposable
                         response.Queues.VideoDepth, response.Queues.AudioDepth,
                         response.Queues.ConsoleDepth,
                         response.Queues.HasInputDepth ? response.Queues.InputDepth : null,
-                        response.Queues.HasDroppedTotal ? response.Queues.DroppedTotal : null)
+                        response.Queues.HasDroppedTotal ? response.Queues.DroppedTotal : null,
+                        response.Queues.HasInputChainDepth ? response.Queues.InputChainDepth : null)
                     : null,
                 response.Sessions is not null
                     ? new Speculum.Api.Telemetry.Models.SidecarSessionsSummary(
@@ -110,6 +113,29 @@ public sealed class GrpcBrowserClient : IBrowserClient, IDisposable
                         response.Sessions.Faulted,
                         request.IncludeFaultedIds
                             ? response.Sessions.FaultedSessionIds.ToArray()
+                            : null)
+                    : null,
+                response.Allocations is not null
+                    ? new Speculum.Api.Telemetry.Models.SidecarAllocationsTelemetry(
+                        response.Allocations.Summary is not null
+                            ? new Speculum.Api.Telemetry.Models.SidecarAllocationsSummary(
+                                response.Allocations.Summary.AllocatedSessions,
+                                response.Allocations.Summary.OpenSessions,
+                                response.Allocations.Summary.FaultedSessions,
+                                response.Allocations.Summary.DisplayCount,
+                                response.Allocations.Summary.AllocatedDisplayPixels,
+                                response.Allocations.Summary.OsInputSessions,
+                                response.Allocations.Summary.PatchrightInputSessions,
+                                response.Allocations.Summary.TouchPrimarySessions,
+                                response.Allocations.Summary.UserDataDirsPresent)
+                            : null,
+                        request.IncludeAllocationSessions
+                            ? response.Allocations.Sessions.Select(s =>
+                                new Speculum.Api.Telemetry.Models.SidecarAllocationSession(
+                                    s.SessionId, s.Open, s.Faulted, s.DisplayAllocated,
+                                    s.DisplayWidth, s.DisplayHeight, s.LogicalWidth, s.LogicalHeight,
+                                    s.ChromeWidth, s.ChromeHeight, s.InputBackend, s.TouchPrimary,
+                                    s.UserDataDirPresent)).ToArray()
                             : null)
                     : null));
         }

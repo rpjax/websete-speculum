@@ -253,9 +253,38 @@ export interface SidecarTelemetry {
     audioDepth: number
     consoleDepth: number
     inputDepth?: number | null
+    inputChainDepth?: number | null
     droppedTotal?: number | null
   } | null
   sessions?: { registered: number; open: number; faulted: number; faultedSessionIds?: string[] | null } | null
+  allocations?: {
+    summary?: {
+      allocatedSessions: number
+      openSessions: number
+      faultedSessions: number
+      displayCount: number
+      allocatedDisplayPixels: number
+      osInputSessions: number
+      patchrightInputSessions: number
+      touchPrimarySessions: number
+      userDataDirsPresent: number
+    } | null
+    sessions?: Array<{
+      sessionId: string
+      open: boolean
+      faulted: boolean
+      displayAllocated: boolean
+      displayWidth: number
+      displayHeight: number
+      logicalWidth: number
+      logicalHeight: number
+      chromeWidth: number
+      chromeHeight: number
+      inputBackend: string
+      touchPrimary: boolean
+      userDataDirPresent: boolean
+    }> | null
+  } | null
 }
 
 export interface ProfilesTelemetry {
@@ -402,6 +431,8 @@ export interface DiagnosticsTelemetryOptions {
     includeQueues: boolean
     includeSessionsSummary: boolean
     includeFaultedIds: boolean
+    includeAllocationsSummary: boolean
+    includeAllocationSessions: boolean
     timeoutMs: number
   }
   profiles: { enabled: boolean; includeStorageBytes: boolean }

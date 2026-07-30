@@ -76,6 +76,7 @@ public sealed class ApiAuthMiddleware
         var value = path.Value ?? string.Empty;
         return value.StartsWith("/api/configurations", StringComparison.OrdinalIgnoreCase)
             || value.StartsWith("/api/journal", StringComparison.OrdinalIgnoreCase)
+            || value.StartsWith("/api/scripts", StringComparison.OrdinalIgnoreCase)
             || value.StartsWith("/api/sessions", StringComparison.OrdinalIgnoreCase);
     }
 

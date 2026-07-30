@@ -45,7 +45,7 @@ internal sealed class LiveSession : ILiveSession
     private int _released;
     private int _abandoned;
     private int _userInputAdmissionStarted;
-    private Channel<UserInput>? _userInputAdmission;
+    private UserInputAdmissionChannel? _userInputAdmission;
 
     public Guid SessionId { get; }
 
@@ -126,7 +126,7 @@ internal sealed class LiveSession : ILiveSession
         _featureNotifications = null;
         _hooks.Unbind(_connection.IsOpen ? _connection : null);
         var admission = Interlocked.Exchange(ref _userInputAdmission, null);
-        admission?.Writer.TryComplete();
+        admission?.Complete();
         _mux.Dispose();
     }
 
@@ -497,6 +497,56 @@ internal sealed class LiveSession : ILiveSession
                     }
 
                     break;
+                case SessionNotificationKind.AllocationLifecycle:
+                    if (string.IsNullOrWhiteSpace(notification.AllocationKind))
+                    {
+                        break;
+                    }
+
+                    switch (notification.AllocationKind.Trim())
+                    {
+                        case "session_allocated":
+                            _telemetry.Sidecar.SessionAllocated(notification.InputBackend);
+                            break;
+                        case "session_released":
+                            _telemetry.Sidecar.SessionReleased(notification.Reason);
+                            break;
+                        case "display_allocated":
+                            _telemetry.Sidecar.DisplayAllocated(
+                                notification.DisplayWidth,
+                                notification.DisplayHeight,
+                                notification.LogicalWidth,
+                                notification.LogicalHeight,
+                                notification.InputBackend);
+                            break;
+                        case "display_released":
+                            _telemetry.Sidecar.DisplayReleased(
+                                notification.DisplayWidth,
+                                notification.DisplayHeight,
+                                notification.LogicalWidth,
+                                notification.LogicalHeight,
+                                notification.InputBackend,
+                                notification.Reason);
+                            break;
+                        case "allocation_faulted":
+                            if (!string.IsNullOrWhiteSpace(notification.ErrorCode)
+                                && !string.IsNullOrWhiteSpace(notification.Phase))
+                            {
+                                _telemetry.Sidecar.AllocationFaulted(
+                                    notification.DisplayWidth,
+                                    notification.DisplayHeight,
+                                    notification.LogicalWidth,
+                                    notification.LogicalHeight,
+                                    notification.InputBackend,
+                                    notification.ErrorCode.Trim(),
+                                    notification.Phase.Trim(),
+                                    notification.Reason);
+                            }
+
+                            break;
+                    }
+
+                    break;
                 // EditableFocusChanged — omitted (high churn, low narrative value).
             }
         }
@@ -542,14 +592,13 @@ internal sealed class LiveSession : ILiveSession
             return ensure;
         }
 
-        var channel = Volatile.Read(ref _userInputAdmission);
-        if (channel is null)
+        var admission = Volatile.Read(ref _userInputAdmission);
+        if (admission is null)
         {
             return Result.Failure("User input admission is not ready");
         }
 
-        // DropOldest: TryWrite always succeeds (may drop the oldest queued item).
-        _ = channel.Writer.TryWrite(new UserInput
+        admission.Admit(new UserInput
         {
             Type = input.Type.Trim(),
             Payload = input.Payload,
@@ -628,9 +677,9 @@ internal sealed class LiveSession : ILiveSession
                 : Result.Success();
         }
 
-        var channel = DropOldestChannels.Create<UserInput>(64);
-        Volatile.Write(ref _userInputAdmission, channel);
-        var pump = ConsumeUserInputAsync(channel.Reader);
+        var admission = UserInputAdmissionChannel.Create();
+        Volatile.Write(ref _userInputAdmission, admission);
+        var pump = ConsumeUserInputAsync(admission.Reader);
         if (pump.IsFailure)
         {
             Volatile.Write(ref _userInputAdmission, null);
@@ -692,6 +741,10 @@ internal sealed class LiveSession : ILiveSession
             Resizing = current.Resizing,
             Width = current.Width,
             Height = current.Height,
+            DisplayWidth = current.DisplayWidth,
+            DisplayHeight = current.DisplayHeight,
+            ChromeWidth = current.ChromeWidth,
+            ChromeHeight = current.ChromeHeight,
             Fps = current.Fps,
             UptimeMs = Math.Max(1, Environment.TickCount64 - _startedTimestamp),
             SessionId = SessionId.ToString("D"),

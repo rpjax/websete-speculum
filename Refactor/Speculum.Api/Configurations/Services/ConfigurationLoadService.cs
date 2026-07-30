@@ -7,6 +7,7 @@ using Speculum.Api.Configurations.Models.Journal;
 using Speculum.Api.Configurations.Models.Navigation;
 using Speculum.Api.Configurations.Models.ResourceManagement;
 using Speculum.Api.Configurations.Models.Sessions;
+using Speculum.Api.Configurations.Models.Scripting;
 using Speculum.Api.Configurations.Models.Telemetry;
 using Speculum.Api.Configurations.Persistence;
 using Speculum.Api.Configurations.Services.Contracts;
@@ -80,6 +81,11 @@ public sealed class ConfigurationLoadService : IConfigurationLoadService
         await MergeTypedSectionAsync<ResourceManagementConfiguration>(
             ConfigSectionKeys.ResourceManagement,
             ResourceManagementConfiguration.SectionName,
+            ct).ConfigureAwait(false);
+
+        await MergeTypedSectionAsync<ScriptingConfiguration>(
+            ConfigSectionKeys.Scripting,
+            ScriptingConfiguration.SectionName,
             ct).ConfigureAwait(false);
 
         await MergeJournalEventsAsync(ct).ConfigureAwait(false);

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   createLabReadyNavigation,
+  createLabScriptingBaseline,
   createLabTelemetryBaseline,
   formatAllowlistLines,
   parseAllowlistLines,
@@ -91,6 +92,12 @@ describe('createLabReadyNavigation', () => {
   })
 })
 
+describe('createLabScriptingBaseline', () => {
+  it('starts with no injections', () => {
+    expect(createLabScriptingBaseline()).toEqual({ injections: [] })
+  })
+})
+
 describe('createLabTelemetryBaseline', () => {
   it('starts disabled with lab-friendly section defaults', () => {
     const baseline = createLabTelemetryBaseline()
@@ -121,6 +128,11 @@ describe('createLabTelemetryBaseline', () => {
         'Telemetry.Sessions.Persist.SkippedProfileNotFound',
         'Telemetry.Sessions.Resize.Applied',
         'Telemetry.Sessions.Resize.Rejected',
+        'Telemetry.Sessions.Sidecar.AllocationFaulted',
+        'Telemetry.Sessions.Sidecar.DisplayAllocated',
+        'Telemetry.Sessions.Sidecar.DisplayReleased',
+        'Telemetry.Sessions.Sidecar.SessionAllocated',
+        'Telemetry.Sessions.Sidecar.SessionReleased',
         'Telemetry.Sessions.Start.UrlResolveFailed',
         'Telemetry.Sessions.Start.UrlResolved',
       ].sort(),

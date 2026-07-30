@@ -6,6 +6,7 @@ using Speculum.Api.Configurations.Models.Hosting;
 using Speculum.Api.Configurations.Models.Journal;
 using Speculum.Api.Configurations.Models.Navigation;
 using Speculum.Api.Configurations.Models.ResourceManagement;
+using Speculum.Api.Configurations.Models.Scripting;
 using Speculum.Api.Configurations.Models.Sessions;
 using Speculum.Api.Configurations.Persistence;
 using Speculum.Api.Configurations.Services;
@@ -202,6 +203,7 @@ public static class ConfigurationEndpoints
         ConfigSectionKeys.Navigation => new NavigationConfiguration(),
         ConfigSectionKeys.Sessions => new SessionsConfiguration(),
         ConfigSectionKeys.ResourceManagement => new ResourceManagementConfiguration(),
+        ConfigSectionKeys.Scripting => new ScriptingConfiguration(),
         _ => new { },
     };
 

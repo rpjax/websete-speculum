@@ -40,6 +40,7 @@ function toLaunchOptions(req) {
                 type: s.type,
                 file: s.file,
                 content: s.content,
+                targetRules: toTargetRules(s),
             }))
             : [],
         allowedNavigationDomains: req.allowedNavigationDomains?.length
@@ -66,6 +67,31 @@ function toDevice(d) {
         userAgentProfile: d.userAgentProfile,
         screenOrientation: d.screenOrientation,
     };
+}
+function toTargetRules(s) {
+    return Array.isArray(s.targetRules)
+        ? s.targetRules.map((rule) => ({
+            domain: {
+                scope: String(rule.domain?.scope ?? ''),
+                labels: Array.isArray(rule.domain?.labels)
+                    ? rule.domain.labels.map((label) => ({
+                        match: String(label.match ?? ''),
+                        value: String(label.value ?? ''),
+                    }))
+                    : [],
+            },
+            path: {
+                scope: String(rule.path?.scope ?? ''),
+                matchType: String(rule.path?.matchType ?? ''),
+                segments: Array.isArray(rule.path?.segments)
+                    ? rule.path.segments.map((segment) => ({
+                        match: String(segment.match ?? ''),
+                        value: String(segment.value ?? ''),
+                    }))
+                    : [],
+            },
+        }))
+        : [];
 }
 function toBrowserState(s) {
     return {

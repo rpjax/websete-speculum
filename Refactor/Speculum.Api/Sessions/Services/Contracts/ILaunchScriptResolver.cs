@@ -6,5 +6,7 @@ namespace Speculum.Api.Sessions.Services.Contracts;
 
 public interface ILaunchScriptResolver
 {
-    IResult<IReadOnlyList<ScriptInjection>> Resolve(ScriptingConfiguration configuration);
+    Task<IResult<IReadOnlyList<ScriptInjection>>> ResolveAsync(
+        ScriptingConfiguration configuration,
+        CancellationToken ct = default);
 }

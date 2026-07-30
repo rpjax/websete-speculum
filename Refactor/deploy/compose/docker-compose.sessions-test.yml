@@ -30,6 +30,9 @@ services:
     init: true
     cap_add:
       - SYS_ADMIN
+    device_cgroup_rules:
+      - "c 10:223 rwm"
+      - "c 13:* rwm"
     shm_size: 2gb
     environment:
       NODE_ENV: production

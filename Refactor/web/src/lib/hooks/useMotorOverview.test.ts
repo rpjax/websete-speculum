@@ -10,6 +10,7 @@ vi.mock('@/lib/api', async (importOriginal) => {
       getSection: vi.fn(),
       listSessions: vi.fn(),
       listScripts: vi.fn(),
+      getScripting: vi.fn(),
     },
   }
 })
@@ -76,7 +77,8 @@ beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(api.getStatus).mockResolvedValue({ operational: true, missing: [] })
   vi.mocked(api.listSessions).mockResolvedValue([])
-  vi.mocked(api.listScripts).mockResolvedValue([])
+  vi.mocked(api.listScripts).mockResolvedValue({ items: [], total: 0 })
+  vi.mocked(api.getScripting).mockResolvedValue({ injections: [] })
   setSections({})
   vi.mocked(diagnosticsApi.getOverview).mockResolvedValue(overview())
   vi.mocked(diagnosticsApi.listSessions).mockResolvedValue({ activeCount: 0, startingCount: 0, sessions: [] })
@@ -130,9 +132,11 @@ describe('useMotorOverview', () => {
       SessionPolicy: { ttlDays: 7 },
       JsBridge: { enable: true },
       Hosting: { acmeEmail: 'a@b.c', profiles: [{ domain: 'a.com', subdomainMirroringEnabled: false }] },
-      ScriptInjection: [{ position: 'HeaderTop', type: 'Classic' }],
     })
-    vi.mocked(api.listScripts).mockResolvedValue([{}] as never)
+    vi.mocked(api.getScripting).mockResolvedValue({
+      injections: [{ position: 'HeadStart', executionType: 'Classic', source: { sourceType: 'Stored' }, targetRules: [] }],
+    } as never)
+    vi.mocked(api.listScripts).mockResolvedValue({ items: [{} as never], total: 1 })
     vi.mocked(diagnosticsApi.getOverview).mockResolvedValue(overview({ enabled: true }))
 
     const { result } = await renderLoaded()
@@ -146,9 +150,11 @@ describe('useMotorOverview', () => {
       SessionPolicy: { ttlDays: 7 },
       JsBridge: { enable: true },
       Hosting: { acmeEmail: 'a@b.c', profiles: [{ domain: 'a.com', subdomainMirroringEnabled: false }] },
-      ScriptInjection: [{ position: 'HeaderTop', type: 'Classic' }],
     })
-    vi.mocked(api.listScripts).mockResolvedValue([{}] as never)
+    vi.mocked(api.getScripting).mockResolvedValue({
+      injections: [{ position: 'HeadStart', executionType: 'Classic', source: { sourceType: 'Stored' }, targetRules: [] }],
+    } as never)
+    vi.mocked(api.listScripts).mockResolvedValue({ items: [{} as never], total: 1 })
     vi.mocked(diagnosticsApi.getOverview).mockResolvedValue(overview({ enabled: false }))
 
     const { result } = await renderLoaded()

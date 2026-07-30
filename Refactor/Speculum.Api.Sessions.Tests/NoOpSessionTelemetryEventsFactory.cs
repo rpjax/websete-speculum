@@ -29,6 +29,7 @@ internal sealed class NoOpSessionTelemetryEventsFactory(
         public ISessionResizeTelemetryEvents Resize { get; } = NoOp<ISessionResizeTelemetryEvents>();
         public ISessionBrowseTelemetryEvents Browse { get; } = NoOp<ISessionBrowseTelemetryEvents>();
         public ISessionClientTelemetryEvents Client { get; } = client;
+        public ISessionSidecarTelemetryEvents Sidecar { get; } = NoOp<ISessionSidecarTelemetryEvents>();
     }
 
     private static T NoOp<T>() where T : class

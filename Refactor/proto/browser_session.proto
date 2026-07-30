@@ -26,6 +26,33 @@ message ScriptInjection {
   string type = 2;
   string file = 3;
   string content = 4;
+  repeated UrlMatchRule target_rules = 5;
+}
+
+message UrlMatchRule {
+  DomainPattern domain = 1;
+  PathPattern path = 2;
+}
+
+message DomainPattern {
+  string scope = 1;
+  repeated DomainLabelPattern labels = 2;
+}
+
+message DomainLabelPattern {
+  string match = 1;
+  string value = 2;
+}
+
+message PathPattern {
+  string scope = 1;
+  string match_type = 2;
+  repeated PathSegmentPattern segments = 3;
+}
+
+message PathSegmentPattern {
+  string match = 1;
+  string value = 2;
 }
 
 message Geolocation {
@@ -83,6 +110,10 @@ message Status {
   bool resizing = 4;
   int32 width = 5;
   int32 height = 6;
+  int32 display_width = 7;
+  int32 display_height = 8;
+  int32 chrome_width = 9;
+  int32 chrome_height = 10;
 }
 
 // ── Durable state ────────────────────────────────────────────────────────────
@@ -231,6 +262,20 @@ message InputPathEvent {
   int64 unix_ms = 3;
 }
 
+// Opt-in allocation lifecycle (API journals Telemetry.Sessions.Sidecar.* when enabled).
+message AllocationLifecycleEvent {
+  string kind = 1; // session_allocated | session_released | display_allocated | display_released | allocation_faulted
+  optional int32 display_width = 2;
+  optional int32 display_height = 3;
+  optional int32 logical_width = 4;
+  optional int32 logical_height = 5;
+  optional string input_backend = 6; // os | patchright
+  optional string error_code = 7;
+  optional string phase = 8;
+  optional string reason = 9;
+  int64 unix_ms = 10;
+}
+
 // ── Inbound streams (Api → sidecar) ──────────────────────────────────────────
 
 message TouchPoint {
@@ -344,6 +389,8 @@ message SidecarTelemetryRequest {
   bool include_queues = 4;
   bool include_sessions_summary = 5;
   bool include_faulted_ids = 6;
+  bool include_allocations_summary = 7;
+  bool include_allocation_sessions = 8;
 }
 
 message SidecarProcessTelemetry {
@@ -373,6 +420,40 @@ message SidecarQueueTelemetry {
   int32 console_depth = 3;
   optional int32 input_depth = 4;
   optional int64 dropped_total = 5;
+  optional int32 input_chain_depth = 6;
+}
+
+message SidecarAllocationsSummary {
+  int32 allocated_sessions = 1;
+  int32 open_sessions = 2;
+  int32 faulted_sessions = 3;
+  int32 display_count = 4;
+  int64 allocated_display_pixels = 5;
+  int32 os_input_sessions = 6;
+  int32 patchright_input_sessions = 7;
+  int32 touch_primary_sessions = 8;
+  int32 user_data_dirs_present = 9;
+}
+
+message SidecarAllocationSession {
+  string session_id = 1;
+  bool open = 2;
+  bool faulted = 3;
+  bool display_allocated = 4;
+  int32 display_width = 5;
+  int32 display_height = 6;
+  int32 logical_width = 7;
+  int32 logical_height = 8;
+  int32 chrome_width = 9;
+  int32 chrome_height = 10;
+  string input_backend = 11;
+  bool touch_primary = 12;
+  bool user_data_dir_present = 13;
+}
+
+message SidecarAllocationsTelemetry {
+  optional SidecarAllocationsSummary summary = 1;
+  repeated SidecarAllocationSession sessions = 2;
 }
 
 message SidecarSessionsSummary {
@@ -388,6 +469,7 @@ message SidecarTelemetryResponse {
   optional SidecarChromeTelemetry chrome = 3;
   optional SidecarQueueTelemetry queues = 4;
   optional SidecarSessionsSummary sessions = 5;
+  optional SidecarAllocationsTelemetry allocations = 6;
 }
 
 // ── Service ──────────────────────────────────────────────────────────────────
@@ -416,6 +498,7 @@ service BrowserSessionService {
   rpc WatchEditableFocus(SessionId) returns (stream EditableFocusEvent);
   rpc WatchCrash(SessionId) returns (stream CrashEvent);
   rpc WatchInputPath(SessionId) returns (stream InputPathEvent);
+  rpc WatchAllocationLifecycle(SessionId) returns (stream AllocationLifecycleEvent);
 
   rpc PushInput(stream InputEvent) returns (Empty);
   rpc PushCamera(stream MediaChunk) returns (Empty);

@@ -88,6 +88,10 @@ function createBrowserSessionHandlers(registry) {
                     resizing: status.resizing,
                     width: status.width,
                     height: status.height,
+                    displayWidth: status.displayWidth,
+                    displayHeight: status.displayHeight,
+                    chromeWidth: status.chromeWidth,
+                    chromeHeight: status.chromeHeight,
                 });
             }
             catch (err) {
@@ -223,13 +227,30 @@ function createBrowserSessionHandlers(registry) {
                 unixMs: e.unixMs,
             }));
         },
+        watchAllocationLifecycle(call) {
+            watchStream(call, registry, (b) => b.allocationLifecycle, (e) => ({
+                kind: e.kind,
+                displayWidth: e.displayWidth,
+                displayHeight: e.displayHeight,
+                logicalWidth: e.logicalWidth,
+                logicalHeight: e.logicalHeight,
+                inputBackend: e.inputBackend,
+                errorCode: e.errorCode,
+                phase: e.phase,
+                reason: e.reason,
+                unixMs: e.unixMs,
+            }));
+        },
         pushInput(call, callback) {
             pumpClientStream(call, callback, async (msg) => {
                 const sid = (0, validate_1.requireSessionId)(msg);
                 const { session, bridge } = registry.get(sid);
                 const input = (0, mappers_1.toBrowserInput)(msg);
                 await session.pushInput(input);
-                bridge.onInputPathAdmitted(input.type);
+                // Skip admit-path fanout for move samples (high frequency).
+                if (input.type !== 'mousemove' && !(input.type === 'touch' && input.phase === 'move')) {
+                    bridge.onInputPathAdmitted(input.type);
+                }
             });
         },
         pushCamera(call, callback) {

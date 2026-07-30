@@ -99,6 +99,8 @@ export function serializeTelemetryForApi(
       includeQueues: telemetry.sidecar.includeQueues,
       includeSessionsSummary: telemetry.sidecar.includeSessionsSummary,
       includeFaultedIds: telemetry.sidecar.includeFaultedIds,
+      includeAllocationsSummary: telemetry.sidecar.includeAllocationsSummary,
+      includeAllocationSessions: telemetry.sidecar.includeAllocationSessions,
       timeoutMs: telemetry.sidecar.timeoutMs,
     },
     profiles: {

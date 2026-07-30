@@ -90,6 +90,10 @@ async function applyDeviceEmulation(cdp, width, height, device) {
             : undefined,
     });
     await cdp.send('Emulation.setTouchEmulationEnabled', touchEmulationParams(device));
+    // Xvfb/headless pages are often unfocused; without this, CDP mouse hits the right
+    // elementFromPoint target but never activates focus or click handlers (ML cookie
+    // banner / search input stayed inert with activeElement === body).
+    await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true });
     const version = (await cdp.send('Browser.getVersion'));
     if (device.userAgentProfile === 'mobile' || device.mobile) {
         if (!version.product) {
@@ -126,22 +130,11 @@ async function applyDeviceEmulation(cdp, width, height, device) {
     await cdp.send('Emulation.setUserAgentOverride', { userAgent: version.userAgent });
 }
 /**
- * Soft logical viewport: window bounds at W×H (not fullscreen-on-max display)
- * plus device metrics so layout/paint track the client size.
+ * Soft logical viewport: apply only device metrics so layout/paint track the
+ * client size without mutating the native Chrome window during session resizes.
  */
 async function applyLogicalViewport(cdp, width, height, device) {
     const profile = resolveDeviceProfile(device);
-    const { windowId } = (await cdp.send('Browser.getWindowForTarget', {}));
-    await cdp.send('Browser.setWindowBounds', {
-        windowId,
-        bounds: {
-            left: 0,
-            top: 0,
-            width,
-            height,
-            windowState: 'normal',
-        },
-    });
     await applyDeviceEmulation(cdp, width, height, profile);
     return profile;
 }

@@ -7,7 +7,7 @@ using Speculum.Api.Sessions.Services;
 namespace Speculum.Api.Presentation.Bootstrap;
 
 /// <summary>
-/// Public bootstrap endpoints (no Bearer). V1 client-config + ready alias.
+/// Public bootstrap endpoints (no Bearer). V1 client-config.
 /// </summary>
 public static class PublicBootstrapEndpoints
 {
@@ -59,21 +59,6 @@ public static class PublicBootstrapEndpoints
                     currentDomain = matched?.domain,
                 },
             });
-        }).WithTags("Public");
-
-        // Legacy-friendly alias used by older web probes; deploy Traefik uses /health/ready.
-        endpoints.MapGet("/ready", (IConfigurationService configuration) =>
-        {
-            if (configuration.AreMandatorySettingsSatisfied)
-                return Results.Ok(new { ready = true });
-
-            return Results.Json(
-                new
-                {
-                    ready = false,
-                    missing = configuration.MissingRequired,
-                },
-                statusCode: StatusCodes.Status503ServiceUnavailable);
         }).WithTags("Public");
 
         return endpoints;

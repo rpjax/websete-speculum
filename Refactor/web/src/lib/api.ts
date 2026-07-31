@@ -218,7 +218,7 @@ export const ConfigSections = {
 export type ConfigSectionName = (typeof ConfigSections)[keyof typeof ConfigSections]
 
 const realApi = {
-  getStatus: () => request<ConfigStatus>('/api/configurations/status', { auth: false }),
+  getStatus: () => request<ConfigStatus>('/api/configurations/status'),
   getReady: async () => {
     const res = await fetch(`${API_URL}/health/ready`, { credentials: 'include' })
     return res.ok

@@ -45,5 +45,13 @@ public sealed class NavigationAssertTests : SessionsTestBase
         // Click the _blank link; sidecar single-tab should navigate the main page (no separate tab).
         await act.EvaluateAsync("document.getElementById('blank').click(); 'ok'");
         await act.WaitEvaluateContainsAsync("location.pathname", "/nav/b", TimeSpan.FromSeconds(30));
+
+        // Still one live evaluate surface on the main page (popup pages are closed by interception).
+        var page = await act.EvaluateAsync(
+            "document.querySelector('#speculum-probe')?.getAttribute('data-page') ?? location.pathname");
+        Assert.True(
+            page.Contains("nav/b", StringComparison.OrdinalIgnoreCase)
+            || page.Contains("/nav/b", StringComparison.Ordinal),
+            $"expected main frame on /nav/b, got: {page}");
     }
 }

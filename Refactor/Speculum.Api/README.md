@@ -46,7 +46,7 @@ Current public surface:
 | ✅ | Session readiness | `/health/ready` + client-config `operational`/`missing` (Nav/Sessions/RM) | — |
 | ✅ | Configuration status | Operational + optional Hosting domains (no `mirroringOperational` — 1.1) | — |
 | ✅ | Client bootstrap | V1 `GET /api/public/client-config` (nsoParamName, navigation, sessions, RM, hosting optional) | — |
-| ✅ | Setup mode | Hub connects; EnsureProfile allowed; StartSession fails with `Pending config` until mandatory complete | — |
+| ✅ | Setup mode | Hub connects; EnsureProfile allowed; StartSession fails with `Pending config` until mandatory complete; Lab/Live → `/setup` when not-ready (`/lab?configure=1` for apply-defaults) | — |
 
 Required sections in the refactor are `Navigation`, `Sessions` and
 `ResourceManagement` (legacy names were `Forwarding` / `MaxSessions` /
@@ -456,7 +456,8 @@ error outcomes.
 Immediate modeling gaps still open (chassis already covers much of the former list):
 
 1. **Navigation / Live I/O polish** — ✅ ownership/scheduling wiring, Navigate/Resize
-   outcomes, history + single-tab; coalesce remains client-side where documented.
+   outcomes, history + single-tab; output default **Broadcast** (Exclusive is opt-in);
+   RoundRobin Shared remains arrival-order merge.
 2. **Resize busy** — ✅ `resize_busy` / `Outcome=Busy` (unit + MATRIX D3).
 3. **Config/shutdown drain** — ✅ `ISessionDrainOrchestrator` wired to Navigation/Hosting
    Apply and process shutdown (`Drain` → `ForceStop` budget).

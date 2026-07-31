@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { TooltipProvider } from '@/components/ui/tooltip'
+import { API_URL } from '@/lib/env'
+import { fetchClientConfig } from '@/lib/clientConfig'
 import {
   loadLabDebugDockOpen,
   saveLabDebugDockOpen,
@@ -19,12 +22,33 @@ const VIEWPORT = { width: 1280, height: 720 }
  * Session lab (`/` / `/lab`): canvas + Debug dock.
  * Dock sizes to its content (page scrolls) — no clipped inner pane.
  * Immersive prod preview (canvas only) is `/live`.
+ * Not-ready → `/setup` unless `?configure=1` (setup guide → Lab apply-defaults path).
  */
 export default function SessionLabPage() {
   const [address, setAddress] = useState('www.google.com')
   const [debugOpen, setDebugOpen] = useState(loadLabDebugDockOpen)
   const addressFocusedRef = useRef(false)
   const session = useLabSession(VIEWPORT)
+  const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const allowConfigure = searchParams.has('configure')
+
+  useEffect(() => {
+    if (allowConfigure) return
+    let cancelled = false
+    void fetchClientConfig(API_URL, true)
+      .then((config) => {
+        if (!cancelled && !config.operational) {
+          navigate('/setup', { replace: true })
+        }
+      })
+      .catch(() => {
+        /* hub Pending config still redirects on Start */
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [allowConfigure, navigate])
 
   useEffect(() => {
     if (!session.currentUrl || addressFocusedRef.current) {

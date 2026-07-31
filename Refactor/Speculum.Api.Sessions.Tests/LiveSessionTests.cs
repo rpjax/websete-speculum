@@ -63,6 +63,51 @@ public sealed class LiveSessionTests
     }
 
     [Fact]
+    public async Task AttachThenFrameStream_DefaultPolicy_DeliversFramesToFramePipe()
+    {
+        // Regression: Exclusive default used to pin output to the Attach notification pipe,
+        // starving the later WebTransport frame pipe.
+        var sessionId = Guid.NewGuid();
+        var connection = new LiveFakeConnection(sessionId);
+        var live = CreateService().Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
+
+        Assert.True(live.Attach(new RecordingAttachedClient()).IsSuccess);
+        var frames = live.OpenFrameStream().Value;
+
+        await connection.Frames.Writer.WriteAsync(new Frame { Sequence = 42 });
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        var frame = await frames.GetFramesChannel().Value.ReadAsync(cts.Token);
+        Assert.Equal(42, frame.Sequence);
+    }
+
+    [Fact]
+    public async Task ExclusiveOutput_DeliversFramesOnlyToFirstPipe()
+    {
+        var sessionId = Guid.NewGuid();
+        var connection = new LiveFakeConnection(sessionId);
+        var live = CreateService(configuration: SessionsTestHarness.Configuration(new SessionsConfiguration
+        {
+            IsJsBridgeEnabled = true,
+            DetachedSessionTimeout = TimeSpan.FromMinutes(5),
+            InputMultiplexingPolicy = new InputMultiplexingPolicy { Access = InputAccessPolicy.Shared },
+            OutputMultiplexingPolicy = new OutputMultiplexingPolicy
+            {
+                Delivery = OutputDeliveryPolicy.Exclusive,
+            },
+        })).Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
+
+        var first = live.OpenFrameStream().Value;
+        var second = live.OpenFrameStream().Value;
+
+        await connection.Frames.Writer.WriteAsync(new Frame { Sequence = 9 });
+        Assert.Equal(9, (await first.GetFramesChannel().Value.ReadAsync()).Sequence);
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(200));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+            await second.GetFramesChannel().Value.ReadAsync(cts.Token));
+    }
+
+    [Fact]
     public async Task DisposeFrameStream_SiblingStillReceives()
     {
         var sessionId = Guid.NewGuid();

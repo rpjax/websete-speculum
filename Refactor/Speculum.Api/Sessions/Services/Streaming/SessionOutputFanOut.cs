@@ -51,6 +51,10 @@ internal sealed class SessionOutputFanOut
         _ = PumpNotificationsAsync();
     }
 
+    /// <summary>
+    /// Exclusive delivery: first registered pipe wins (FirstClaim). Ownership enums are
+    /// reserved for a future exclusive-owner remap; Broadcast remains the production default.
+    /// </summary>
     private IEnumerable<PipeStreamChannels> ResolveTargets()
     {
         if (_policy.Delivery != OutputDeliveryPolicy.Exclusive)
@@ -66,7 +70,6 @@ internal sealed class SessionOutputFanOut
                 return [owned];
             }
 
-            // FirstAttached / FirstClaim: first registered pipe wins.
             foreach (var pair in _pipes)
             {
                 _exclusivePipeOwner = pair.Key;

@@ -143,7 +143,7 @@ export default function SetupPage() {
           </CardHeader>
           <CardContent className="flex flex-wrap gap-2">
             <Button asChild>
-              <Link to="/lab">Open Lab (apply defaults)</Link>
+              <Link to="/lab?configure=1">Open Lab (apply defaults)</Link>
             </Button>
             <Button asChild variant="outline">
               <Link to={current.href}>Admin</Link>
@@ -164,7 +164,7 @@ export default function SetupPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-wrap gap-2">
-            <Button asChild><Link to="/lab">Open Lab</Link></Button>
+            <Button asChild><Link to="/lab?configure=1">Open Lab</Link></Button>
             <Button asChild variant="outline"><Link to="/live">Live</Link></Button>
             <Button asChild variant="outline"><Link to="/admin">Admin</Link></Button>
           </CardContent>

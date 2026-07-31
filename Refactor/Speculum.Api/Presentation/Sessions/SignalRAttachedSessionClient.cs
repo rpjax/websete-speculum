@@ -1,4 +1,5 @@
 using Speculum.Api.Presentation.Sessions.Dtos;
+using Speculum.Api.Sessions.Models;
 using Speculum.Api.Sessions.Services.Contracts;
 
 namespace Speculum.Api.Presentation.Sessions;
@@ -28,6 +29,14 @@ internal sealed class SignalRAttachedSessionClient : IAttachedSessionClient
         cancellationToken.ThrowIfCancellationRequested();
         var normalized = NormalizeUrl(url);
         return _caller.Redirect(new RedirectHubEvent { Url = normalized });
+    }
+
+    public Task EditableFocusChangedAsync(
+        EditingState? editing,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return _caller.EditableFocusChanged(new EditableFocusChangedHubEvent { Editing = editing });
     }
 
     public Task SessionEndedAsync(

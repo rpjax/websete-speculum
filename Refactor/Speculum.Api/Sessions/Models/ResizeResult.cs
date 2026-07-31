@@ -2,12 +2,30 @@ using MessagePack;
 
 namespace Speculum.Api.Sessions.Models;
 
-/// <summary>Hub return for <c>ResizeAsync</c> — confirmed geometry or explicit failure.</summary>
+/// <summary>
+/// Outcome of a resize attempt — soft rejects stay Success(IResult) with Applied=false.
+/// </summary>
+public enum ResizeOutcome
+{
+    Applied = 0,
+    /// <summary>Policy or validation reject (session keeps prior geometry).</summary>
+    Rejected = 1,
+    /// <summary>Another command holds the session gate.</summary>
+    Busy = 2,
+    /// <summary>Sidecar/transport failure after validation.</summary>
+    Failed = 3,
+}
+
+/// <summary>Hub return for <c>ResizeAsync</c> — confirmed geometry or explicit soft failure.</summary>
 [MessagePackObject]
 public sealed class ResizeResult
 {
     [Key("applied")]
     public bool Applied { get; set; }
+
+    /// <summary>Named outcome (Applied / Rejected / Busy / Failed).</summary>
+    [Key("outcome")]
+    public ResizeOutcome Outcome { get; set; }
 
     [Key("width")]
     public int Width { get; set; }

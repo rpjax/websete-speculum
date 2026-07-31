@@ -125,6 +125,11 @@ internal static class SessionsTestHarness
         public Task RedirectAsync(string url, CancellationToken cancellationToken = default)
             => Task.CompletedTask;
 
+        public Task EditableFocusChangedAsync(
+            Speculum.Api.Sessions.Models.EditingState? editing,
+            CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
         public Task SessionEndedAsync(
             Guid sessionId,
             string reason,

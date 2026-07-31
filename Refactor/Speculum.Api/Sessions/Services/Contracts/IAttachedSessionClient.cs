@@ -1,3 +1,5 @@
+using Speculum.Api.Sessions.Models;
+
 namespace Speculum.Api.Sessions.Services.Contracts;
 
 /// <summary>
@@ -9,6 +11,11 @@ public interface IAttachedSessionClient
     Task SyncUrlAsync(string url, CancellationToken cancellationToken = default);
 
     Task RedirectAsync(string url, CancellationToken cancellationToken = default);
+
+    /// <summary>Editable focus changed in the virtual browser (null = blur).</summary>
+    Task EditableFocusChangedAsync(
+        EditingState? editing,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Authoritative signal that the live session ended (fault, crash, or transport loss).

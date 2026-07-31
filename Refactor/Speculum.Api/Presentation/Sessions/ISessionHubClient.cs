@@ -11,5 +11,7 @@ public interface ISessionHubClient
 
     Task Redirect(RedirectHubEvent message);
 
+    Task EditableFocusChanged(EditableFocusChangedHubEvent message);
+
     Task SessionEnded(SessionEndedHubEvent message);
 }

@@ -182,7 +182,7 @@ public sealed class SessionBindingRegistryTests
         public Task<IResult<SessionStatus>> GetStatusAsync(CancellationToken ct = default)
             => throw new NotSupportedException();
 
-        public Task<IResult> NavigateAsync(
+        public Task<IResult<NavigateResult>> NavigateAsync(
             NavigateSession request,
             CancellationToken ct = default)
             => throw new NotSupportedException();

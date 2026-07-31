@@ -250,6 +250,25 @@ public sealed class SessionsActClient : IAsyncDisposable
             $"Evaluate '{expression}' did not contain '{expectedSubstring}'. Last={last}");
     }
 
+    public async Task<NavigateSessionHubResponse> NavigateAsync(
+        string path,
+        string query = "",
+        CancellationToken ct = default)
+    {
+        EnsureConnected();
+        EnsureSession();
+        return await _connection!.InvokeAsync<NavigateSessionHubResponse>(
+            "NavigateAsync",
+            new NavigateSessionHubRequest
+            {
+                SessionId = _sessionId,
+                Token = _token,
+                Path = path,
+                Query = query,
+            },
+            ct);
+    }
+
     public async Task<ResizeResult> ResizeAsync(
         int width,
         int height,

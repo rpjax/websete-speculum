@@ -136,6 +136,29 @@ public sealed class NavigateSessionHubRequest
     public string Query { get; set; } = string.Empty;
 }
 
+/// <summary>Wire result for hub <c>NavigateAsync</c>.</summary>
+[MessagePackObject]
+public sealed class NavigateSessionHubResponse
+{
+    [Key("applied")]
+    public bool Applied { get; set; }
+
+    [Key("outcome")]
+    public string Outcome { get; set; } = nameof(NavigateOutcome.Applied);
+
+    [Key("url")]
+    public string? Url { get; set; }
+
+    [Key("errorCode")]
+    public string? ErrorCode { get; set; }
+
+    [Key("phase")]
+    public string? Phase { get; set; }
+
+    [Key("message")]
+    public string? Message { get; set; }
+}
+
 /// <summary>Wire DTO for hub <c>ResizeAsync</c> (canvas 1:1 viewport sync).</summary>
 [MessagePackObject]
 public sealed class ResizeSessionHubRequest
@@ -165,6 +188,9 @@ public sealed class ResizeSessionHubResponse
 {
     [Key("applied")]
     public bool Applied { get; set; }
+
+    [Key("outcome")]
+    public string Outcome { get; set; } = nameof(ResizeOutcome.Applied);
 
     [Key("width")]
     public int Width { get; set; }
@@ -238,6 +264,14 @@ public sealed class RedirectHubEvent
     public string Url { get; set; } = string.Empty;
 }
 
+/// <summary>Server→client: editable focus in the virtual browser (null editing = blur).</summary>
+[MessagePackObject]
+public sealed class EditableFocusChangedHubEvent
+{
+    [Key("editing")]
+    public EditingState? Editing { get; set; }
+}
+
 /// <summary>Server→client: live session ended; client must clear local live state.</summary>
 [MessagePackObject]
 public sealed class SessionEndedHubEvent
@@ -282,6 +316,7 @@ internal static class SessionHubRequestMapper
     public static ResizeSessionHubResponse ToResizeResponse(ResizeResult result) => new()
     {
         Applied = result.Applied,
+        Outcome = result.Outcome.ToString(),
         Width = result.Width,
         Height = result.Height,
         ChromeWidth = result.ChromeWidth,
@@ -289,6 +324,16 @@ internal static class SessionHubRequestMapper
         DisplayWidth = result.DisplayWidth,
         DisplayHeight = result.DisplayHeight,
         ResizeId = result.ResizeId,
+        ErrorCode = result.ErrorCode,
+        Phase = result.Phase,
+        Message = result.Message,
+    };
+
+    public static NavigateSessionHubResponse ToNavigateResponse(NavigateResult result) => new()
+    {
+        Applied = result.Applied,
+        Outcome = result.Outcome.ToString(),
+        Url = result.Url,
         ErrorCode = result.ErrorCode,
         Phase = result.Phase,
         Message = result.Message,

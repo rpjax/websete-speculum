@@ -2,28 +2,34 @@ using System.Collections.Concurrent;
 using System.Threading.Channels;
 using Aidan.Core.Patterns;
 using Speculum.Api.BrowserClients;
+using Speculum.Api.Configurations.Models.Sessions;
 using Speculum.Api.Sessions.Models;
 
 namespace Speculum.Api.Sessions.Services.Streaming;
 
 /// <summary>
 /// Single-reader fan-out from <see cref="ISessionConnection"/> outbound streams
-/// onto per-pipe <see cref="PipeStreamChannels"/>.
+/// onto per-pipe <see cref="PipeStreamChannels"/>, applying output delivery policy.
 /// </summary>
 internal sealed class SessionOutputFanOut
 {
     private readonly ISessionConnection _connection;
     private readonly ConcurrentDictionary<Guid, PipeStreamChannels> _pipes;
+    private readonly OutputMultiplexingPolicy _policy;
     private readonly CancellationToken _lifetime;
+    private readonly object _ownerGate = new();
+    private Guid? _exclusivePipeOwner;
     private int _started;
 
     public SessionOutputFanOut(
         ISessionConnection connection,
         ConcurrentDictionary<Guid, PipeStreamChannels> pipes,
+        OutputMultiplexingPolicy policy,
         CancellationToken lifetime)
     {
         _connection = connection;
         _pipes = pipes;
+        _policy = policy ?? new OutputMultiplexingPolicy();
         _lifetime = lifetime;
     }
 
@@ -45,6 +51,32 @@ internal sealed class SessionOutputFanOut
         _ = PumpNotificationsAsync();
     }
 
+    private IEnumerable<PipeStreamChannels> ResolveTargets()
+    {
+        if (_policy.Delivery != OutputDeliveryPolicy.Exclusive)
+        {
+            return _pipes.Values;
+        }
+
+        lock (_ownerGate)
+        {
+            if (_exclusivePipeOwner is Guid owner
+                && _pipes.TryGetValue(owner, out var owned))
+            {
+                return [owned];
+            }
+
+            // FirstAttached / FirstClaim: first registered pipe wins.
+            foreach (var pair in _pipes)
+            {
+                _exclusivePipeOwner = pair.Key;
+                return [pair.Value];
+            }
+        }
+
+        return [];
+    }
+
     private async Task PumpNotificationsAsync()
     {
         var crashSeen = false;
@@ -64,11 +96,10 @@ internal sealed class SessionOutputFanOut
                 }
                 else if (crashSeen)
                 {
-                    // Do not enqueue post-crash churn that could DropOldest-evict Crashed.
                     continue;
                 }
 
-                foreach (var channels in _pipes.Values)
+                foreach (var channels in ResolveTargets())
                 {
                     channels.Notifications.Writer.TryWrite(item);
                 }
@@ -104,7 +135,7 @@ internal sealed class SessionOutputFanOut
 
             await foreach (var item in opened.Value.ReadAllAsync(_lifetime).ConfigureAwait(false))
             {
-                foreach (var channels in _pipes.Values)
+                foreach (var channels in ResolveTargets())
                 {
                     write(channels, item);
                 }
@@ -118,7 +149,6 @@ internal sealed class SessionOutputFanOut
         }
         finally
         {
-            // Propagate source end to consumers so feature loops / WT pipes observe loss.
             foreach (var channels in _pipes.Values)
             {
                 complete(channels);

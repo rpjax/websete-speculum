@@ -68,6 +68,9 @@ public sealed class SignalRAttachedSessionClientTests
             return Task.CompletedTask;
         }
 
+        public Task EditableFocusChanged(EditableFocusChangedHubEvent message)
+            => Task.CompletedTask;
+
         public Task SessionEnded(SessionEndedHubEvent message)
         {
             LastSessionEnded = message;

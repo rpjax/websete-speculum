@@ -131,6 +131,15 @@ class MockBrowserSession {
             idbRecords: [...state.idbRecords],
             history: [...state.history],
         };
+        const total = state.cookies.length;
+        const skipped = state.cookies.filter((c) => !c.name?.trim()).length;
+        return {
+            total,
+            skipped,
+            normalized: 0,
+            applied: total - skipped,
+            failedIndividual: 0,
+        };
     }
     async exportState() {
         return {

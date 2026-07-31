@@ -25,14 +25,19 @@ internal sealed class SessionStreamMultiplexer : ISessionStreamMultiplexer
 
     public SessionStreamMultiplexer(
         ISessionConnection connection,
-        InputAccessPolicy inputAccess,
+        InputMultiplexingPolicy inputPolicy,
+        OutputMultiplexingPolicy outputPolicy,
         bool jsBridgeEnabled)
     {
         _connection = connection;
-        _fanOut = new SessionOutputFanOut(connection, _pipes, _lifetime.Token);
+        _fanOut = new SessionOutputFanOut(
+            connection,
+            _pipes,
+            outputPolicy ?? new OutputMultiplexingPolicy(),
+            _lifetime.Token);
         _input = new SessionInputMerger(
             connection,
-            inputAccess,
+            inputPolicy ?? new InputMultiplexingPolicy(),
             jsBridgeEnabled,
             IsInputConsumerAttached);
     }

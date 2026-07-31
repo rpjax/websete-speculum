@@ -227,9 +227,10 @@ class PatchrightBrowserSession {
     }
     async restoreState(state) {
         this.pendingState = state;
-        if (!this.chrome)
-            return;
-        await this.pageState.restore(this.chrome.cdp, this.chrome.page, state);
+        if (!this.chrome) {
+            return this.pageState.normalizeStats(state);
+        }
+        return this.pageState.restore(this.chrome.cdp, this.chrome.page, state);
     }
     async exportState() {
         if (!this.chrome) {

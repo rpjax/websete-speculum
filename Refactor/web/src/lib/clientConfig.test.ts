@@ -2,16 +2,21 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import {
   CLIENT_TOKEN_COOKIE,
   clearClientToken,
+  isPendingConfigError,
   loadClientToken,
   saveClientToken,
   type ClientConfig,
 } from '@/lib/clientConfig'
 
 const baseConfig: ClientConfig = {
+  schemaVersion: 1,
+  operational: true,
+  missing: [],
   nsoParamName: '_w7s_nso',
-  forwardingHost: 'www.example.com',
-  mirroringEnabled: false,
-  profiles: [],
+  navigation: { defaultTargetHost: 'www.example.com' },
+  sessions: { detachedSessionTimeoutSeconds: 300 },
+  resourceManagement: { maxConcurrentSessions: 8 },
+  hosting: { required: false, domains: [] },
 }
 
 describe('clientConfig token cookie', () => {
@@ -40,5 +45,10 @@ describe('clientConfig token cookie', () => {
     saveClientToken('tok-abc', baseConfig)
     clearClientToken(baseConfig)
     expect(loadClientToken()).toBeNull()
+  })
+
+  it('detects Pending config hub errors', () => {
+    expect(isPendingConfigError(new Error('Pending config: mandatory settings incomplete (Navigation).'))).toBe(true)
+    expect(isPendingConfigError(new Error('resize_busy'))).toBe(false)
   })
 })

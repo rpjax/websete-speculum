@@ -144,8 +144,16 @@ export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.Un
       try {
         const { session } = registry.get(requireSessionId(call.request));
         requireState(call.request.state);
-        await session.restoreState(toBrowserState(call.request.state));
-        callback(null, {});
+        const stats = await session.restoreState(toBrowserState(call.request.state));
+        callback(null, {
+          cookieNormalize: {
+            total: stats.total,
+            skipped: stats.skipped,
+            normalized: stats.normalized,
+            applied: stats.applied,
+            failedIndividual: stats.failedIndividual,
+          },
+        });
       } catch (err) {
         callback(grpcError(err), null);
       }

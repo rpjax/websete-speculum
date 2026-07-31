@@ -103,8 +103,16 @@ function createBrowserSessionHandlers(registry) {
             try {
                 const { session } = registry.get((0, validate_1.requireSessionId)(call.request));
                 (0, validate_1.requireState)(call.request.state);
-                await session.restoreState((0, mappers_1.toBrowserState)(call.request.state));
-                callback(null, {});
+                const stats = await session.restoreState((0, mappers_1.toBrowserState)(call.request.state));
+                callback(null, {
+                    cookieNormalize: {
+                        total: stats.total,
+                        skipped: stats.skipped,
+                        normalized: stats.normalized,
+                        applied: stats.applied,
+                        failedIndividual: stats.failedIndividual,
+                    },
+                });
             }
             catch (err) {
                 callback(grpcError(err), null);

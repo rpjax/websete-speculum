@@ -9,6 +9,7 @@ using Speculum.Api.Journal.Services.Contracts;
 using Speculum.Api.Profiles.Aggregates;
 using Speculum.Api.Sessions.Models;
 using Speculum.Api.Sidecar.V1;
+using DomainCookieNormalizeStats = Speculum.Api.Sessions.Models.CookieNormalizeStats;
 using DomainDeviceProfile = Speculum.Api.Sessions.Models.DeviceProfile;
 using DomainEditingState = Speculum.Api.Sessions.Models.EditingState;
 using DomainResizeResult = Speculum.Api.Sessions.Models.ResizeResult;
@@ -260,18 +261,19 @@ public sealed class GrpcSessionConnection : ISessionConnection
         });
     }
 
-    public async Task<IResult> RestoreProfileStateAsync(
+    public async Task<IResult<DomainCookieNormalizeStats>> RestoreProfileStateAsync(
         ProfileState state,
         CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(state);
-        return await CallAsync(async () =>
+        return await CallValueAsync(async () =>
         {
-            await WithLinkedAsync(ct, token =>
+            var response = await WithLinkedAsync(ct, token =>
                 _client.RestoreStateAsync(
                     GrpcSessionMappers.ToRestoreRequest(SessionId, state),
                     cancellationToken: token).ResponseAsync);
-            return Result.Success();
+            return Result<DomainCookieNormalizeStats>.Success(
+                GrpcSessionMappers.ToCookieNormalizeStats(response?.CookieNormalize));
         });
     }
 

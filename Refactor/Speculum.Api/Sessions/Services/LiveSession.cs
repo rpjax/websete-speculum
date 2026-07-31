@@ -277,7 +277,45 @@ internal sealed class LiveSession : ILiveSession
                     client = _attachedClient;
                 }
 
-                if (client is null || string.IsNullOrWhiteSpace(notification.Url))
+                if (client is null)
+                {
+                    continue;
+                }
+
+                if (notification.Kind == SessionNotificationKind.EditableFocusChanged)
+                {
+                    try
+                    {
+                        await client.EditableFocusChangedAsync(notification.Editing, cancellationToken)
+                            .ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug(
+                            ex,
+                            "Session {SessionId} failed to push EditableFocusChanged to attached client.",
+                            SessionId);
+                        try
+                        {
+                            _telemetry.Client.AttachedCommandFailed("EditableFocusChanged", ex);
+                        }
+                        catch (Exception journalEx)
+                        {
+                            _logger.LogWarning(
+                                journalEx,
+                                "Session {SessionId} failed to journal AttachedClientCommandFailed.",
+                                SessionId);
+                        }
+                    }
+
+                    continue;
+                }
+
+                if (string.IsNullOrWhiteSpace(notification.Url))
                 {
                     continue;
                 }
@@ -753,10 +791,10 @@ internal sealed class LiveSession : ILiveSession
         });
     }
 
-    public Task<IResult> NavigateAsync(NavigateSession request, CancellationToken ct = default)
+    public Task<IResult<NavigateResult>> NavigateAsync(NavigateSession request, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(request);
-        return WithCommandGateAsync(
+        return WithCommandGateAsync<NavigateResult>(
             async () =>
             {
                 var path = request.Path ?? string.Empty;
@@ -777,7 +815,15 @@ internal sealed class LiveSession : ILiveSession
                 if (urlResult.IsFailure)
                 {
                     TryJournalNavigateFailed("Resolve", urlResult.Errors.ToArray());
-                    return Result.Failure(urlResult.Errors.ToArray());
+                    var first = urlResult.Errors.FirstOrDefault();
+                    return Result<NavigateResult>.Success(new NavigateResult
+                    {
+                        Applied = false,
+                        Outcome = NavigateOutcome.ResolveFailed,
+                        ErrorCode = first?.Code ?? "url_resolve_failed",
+                        Phase = "Resolve",
+                        Message = first?.Message ?? string.Join("; ", urlResult.Errors.Select(e => e.Message)),
+                    });
                 }
 
                 var url = urlResult.Value;
@@ -797,7 +843,16 @@ internal sealed class LiveSession : ILiveSession
                 if (navigated.IsFailure)
                 {
                     TryJournalNavigateFailed("Navigate", navigated.Errors.ToArray());
-                    return navigated;
+                    var first = navigated.Errors.FirstOrDefault();
+                    return Result<NavigateResult>.Success(new NavigateResult
+                    {
+                        Applied = false,
+                        Outcome = NavigateOutcome.NavigateFailed,
+                        Url = url,
+                        ErrorCode = first?.Code ?? "navigate_failed",
+                        Phase = "Navigate",
+                        Message = first?.Message ?? string.Join("; ", navigated.Errors.Select(e => e.Message)),
+                    });
                 }
 
                 try
@@ -812,7 +867,12 @@ internal sealed class LiveSession : ILiveSession
                         SessionId);
                 }
 
-                return navigated;
+                return Result<NavigateResult>.Success(new NavigateResult
+                {
+                    Applied = true,
+                    Outcome = NavigateOutcome.Applied,
+                    Url = url,
+                });
             },
             ct);
     }
@@ -862,6 +922,7 @@ internal sealed class LiveSession : ILiveSession
             var busy = new ResizeResult
             {
                 Applied = false,
+                Outcome = ResizeOutcome.Busy,
                 Width = request.Width,
                 Height = request.Height,
                 ResizeId = requestId,
@@ -891,6 +952,17 @@ internal sealed class LiveSession : ILiveSession
                 request.Height,
                 request.Device ?? new DeviceProfile(),
                 ct).ConfigureAwait(false);
+
+            if (result.IsSuccess && result.Value.Outcome == ResizeOutcome.Applied && !result.Value.Applied)
+            {
+                // Mapper may only set Applied; normalize Outcome for soft rejects/fails.
+                result.Value.Outcome = string.Equals(
+                        result.Value.ErrorCode,
+                        "resize_busy",
+                        StringComparison.Ordinal)
+                    ? ResizeOutcome.Busy
+                    : ResizeOutcome.Rejected;
+            }
 
             TryJournalResize(request.Width, request.Height, requestId, result);
             return result;

@@ -24,6 +24,7 @@ import {
   saveProfileId,
   type SessionOrigins,
 } from './sessionConfig'
+import { isPendingConfigError } from '@/lib/clientConfig'
 import { applySyncedBrowserUrl } from './sessionUrlSync'
 import {
   inputConsoleLine,
@@ -470,6 +471,9 @@ export function useLiveSession({
       } catch (error) {
         setPhase(client.isConnected ? 'connected' : 'idle')
         log('error', 'start failed', error)
+        if (isPendingConfigError(error)) {
+          window.location.replace('/setup')
+        }
       }
     },
     [bind, client, connect, log, origins.transportOrigin, viewport.height, viewport.width],

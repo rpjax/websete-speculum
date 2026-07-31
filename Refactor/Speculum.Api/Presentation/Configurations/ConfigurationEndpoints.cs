@@ -23,10 +23,30 @@ public static class ConfigurationEndpoints
 
         endpoints.MapGet("/api/configurations/status", (IConfigurationService configuration) =>
         {
+            var hosting = configuration.GetCurrent().Hosting;
+            var domains = hosting.Domains.Select(d => new
+            {
+                domain = d.Domain,
+                subdomainMirroringEnabled = d.IsSubdomainMirroringEnabled,
+            }).ToList();
+
             return Results.Ok(new
             {
                 operational = configuration.AreMandatorySettingsSatisfied,
                 missing = configuration.MissingRequired,
+                hosting = new
+                {
+                    required = false,
+                    domains,
+                    // Soft Admin projection — mirroringOperational is 1.1.
+                    profiles = domains.Select(d => new
+                    {
+                        d.domain,
+                        d.subdomainMirroringEnabled,
+                        mirroringOperational = false,
+                        missing = Array.Empty<string>(),
+                    }).ToList(),
+                },
             });
         }).WithTags("Configurations");
 

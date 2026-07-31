@@ -63,6 +63,51 @@ public sealed class LiveSessionTests
     }
 
     [Fact]
+    public async Task AttachThenFrameStream_DefaultPolicy_DeliversFramesToFramePipe()
+    {
+        // Regression: Exclusive default used to pin output to the Attach notification pipe,
+        // starving the later WebTransport frame pipe.
+        var sessionId = Guid.NewGuid();
+        var connection = new LiveFakeConnection(sessionId);
+        var live = CreateService().Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
+
+        Assert.True(live.Attach(new RecordingAttachedClient()).IsSuccess);
+        var frames = live.OpenFrameStream().Value;
+
+        await connection.Frames.Writer.WriteAsync(new Frame { Sequence = 42 });
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        var frame = await frames.GetFramesChannel().Value.ReadAsync(cts.Token);
+        Assert.Equal(42, frame.Sequence);
+    }
+
+    [Fact]
+    public async Task ExclusiveOutput_DeliversFramesOnlyToFirstPipe()
+    {
+        var sessionId = Guid.NewGuid();
+        var connection = new LiveFakeConnection(sessionId);
+        var live = CreateService(configuration: SessionsTestHarness.Configuration(new SessionsConfiguration
+        {
+            IsJsBridgeEnabled = true,
+            DetachedSessionTimeout = TimeSpan.FromMinutes(5),
+            InputMultiplexingPolicy = new InputMultiplexingPolicy { Access = InputAccessPolicy.Shared },
+            OutputMultiplexingPolicy = new OutputMultiplexingPolicy
+            {
+                Delivery = OutputDeliveryPolicy.Exclusive,
+            },
+        })).Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
+
+        var first = live.OpenFrameStream().Value;
+        var second = live.OpenFrameStream().Value;
+
+        await connection.Frames.Writer.WriteAsync(new Frame { Sequence = 9 });
+        Assert.Equal(9, (await first.GetFramesChannel().Value.ReadAsync()).Sequence);
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(200));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+            await second.GetFramesChannel().Value.ReadAsync(cts.Token));
+    }
+
+    [Fact]
     public async Task DisposeFrameStream_SiblingStillReceives()
     {
         var sessionId = Guid.NewGuid();
@@ -462,6 +507,8 @@ public sealed class LiveSessionTests
 
         var result = await live.NavigateAsync(new NavigateSession { Path = "/x", Query = "q=1" });
         Assert.True(result.IsSuccess);
+        Assert.True(result.Value.Applied);
+        Assert.Equal(NavigateOutcome.Applied, result.Value.Outcome);
         Assert.Equal("/x", urls.LastPath);
         Assert.Equal("speculum.test", urls.LastRequestHost);
         Assert.Equal("https://target.test/", connection.LastNavigatedUrl);
@@ -483,7 +530,9 @@ public sealed class LiveSessionTests
             .Value;
 
         var result = await live.NavigateAsync(new NavigateSession { Path = "bad", Query = "" });
-        Assert.True(result.IsFailure);
+        Assert.True(result.IsSuccess);
+        Assert.False(result.Value.Applied);
+        Assert.Equal(NavigateOutcome.ResolveFailed, result.Value.Outcome);
         Assert.Equal("Resolve", liveEvents.LastNavigateFailedPhase);
         Assert.Null(connection.LastNavigatedUrl);
     }
@@ -515,6 +564,7 @@ public sealed class LiveSessionTests
 
         Assert.True(second.IsSuccess);
         Assert.False(second.Value.Applied);
+        Assert.Equal(ResizeOutcome.Busy, second.Value.Outcome);
         Assert.Equal("resize_busy", second.Value.ErrorCode);
         Assert.Equal("validate", second.Value.Phase);
         Assert.Equal("resize-2", second.Value.ResizeId);
@@ -522,6 +572,33 @@ public sealed class LiveSessionTests
         var firstResult = await first;
         Assert.True(firstResult.IsSuccess);
         Assert.True(firstResult.Value.Applied);
+        Assert.Equal(ResizeOutcome.Applied, firstResult.Value.Outcome);
+    }
+
+    [Fact]
+    public async Task ExclusiveInput_PreemptiveClaim_StealsOwnership()
+    {
+        var sessionId = Guid.NewGuid();
+        var connection = new LiveFakeConnection(sessionId);
+        var configuration = SessionsTestHarness.Configuration(new SessionsConfiguration
+        {
+            IsJsBridgeEnabled = true,
+            DetachedSessionTimeout = TimeSpan.FromMinutes(5),
+            InputMultiplexingPolicy = new InputMultiplexingPolicy
+            {
+                Access = InputAccessPolicy.Exclusive,
+                Ownership = InputOwnershipPolicy.PreemptiveClaim,
+                Scheduling = InputSchedulingPolicy.ArrivalOrder,
+            },
+        });
+
+        var service = CreateService(new RecordingUrlResolver("https://x.test/"), configuration);
+        var live = service.Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
+
+        var inputA = Channel.CreateUnbounded<UserInput>();
+        var inputB = Channel.CreateUnbounded<UserInput>();
+        Assert.True(live.ConsumeUserInputAsync(inputA.Reader).IsSuccess);
+        Assert.True(live.ConsumeUserInputAsync(inputB.Reader).IsSuccess);
     }
 
     [Fact]
@@ -873,6 +950,11 @@ public sealed class LiveSessionTests
         public Task RedirectAsync(string url, CancellationToken cancellationToken = default)
             => throw new InvalidOperationException("redirect failed");
 
+        public Task EditableFocusChangedAsync(
+            EditingState? editing,
+            CancellationToken cancellationToken = default)
+            => throw new InvalidOperationException("focus push failed");
+
         public Task SessionEndedAsync(
             Guid sessionId,
             string reason,
@@ -1023,6 +1105,11 @@ public sealed class LiveSessionTests
             return Task.CompletedTask;
         }
 
+        public Task EditableFocusChangedAsync(
+            EditingState? editing,
+            CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
         public Task SessionEndedAsync(
             Guid sessionId,
             string reason,
@@ -1112,8 +1199,8 @@ public sealed class LiveSessionTests
         public Task<IResult<SessionState>> ExportSessionStateAsync(CancellationToken ct = default)
             => Task.FromResult<IResult<SessionState>>(Result<SessionState>.Success(new SessionState()));
 
-        public Task<IResult> RestoreProfileStateAsync(ProfileState state, CancellationToken ct = default)
-            => Task.FromResult<IResult>(Result.Success());
+        public Task<IResult<CookieNormalizeStats>> RestoreProfileStateAsync(ProfileState state, CancellationToken ct = default)
+            => Task.FromResult<IResult<CookieNormalizeStats>>(Result<CookieNormalizeStats>.Success(CookieNormalizeStats.Empty));
 
         public Task<IResult> NavigateAsync(string url, CancellationToken ct = default)
         {
@@ -1148,6 +1235,7 @@ public sealed class LiveSessionTests
             return Result<ResizeResult>.Success(new ResizeResult
             {
                 Applied = true,
+                Outcome = ResizeOutcome.Applied,
                 Width = width,
                 Height = height,
                 ResizeId = requestId,

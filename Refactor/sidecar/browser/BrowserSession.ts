@@ -230,6 +230,15 @@ export interface BrowserState {
   history: readonly BrowserHistoryState[];
 }
 
+/** Cookie sanitize + optional CDP apply counts from {@link BrowserSession.restoreState}. */
+export interface CookieNormalizeStats {
+  total: number;
+  skipped: number;
+  normalized: number;
+  applied: number;
+  failedIndividual: number;
+}
+
 export interface BrowserCookieState {
   name: string;
   value: string;
@@ -361,7 +370,7 @@ export interface BrowserSession {
   getStatus(): Promise<BrowserStatus>;
   getTelemetrySnapshot?(): BrowserTelemetrySnapshot;
 
-  restoreState(state: BrowserState): Promise<void>;
+  restoreState(state: BrowserState): Promise<CookieNormalizeStats>;
   exportState(): Promise<BrowserState>;
 
   navigate(url: string): Promise<void>;

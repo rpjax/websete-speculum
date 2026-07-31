@@ -113,4 +113,26 @@ public sealed class ProfileService : IProfileService
         facts.Deleted(request.ProfileId, request.Reason);
         return Result.Success();
     }
+
+    public async Task<IResult> ReplaceProfileStateAsync(
+        ReplaceProfileState request,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(request.State);
+
+        if (request.ProfileId == Guid.Empty)
+            return Result.Failure("Profile id is required");
+
+        var profile = await _profiles.LoadAsync(request.ProfileId, ct).ConfigureAwait(false);
+        if (profile is null)
+            return Result.Failure("Profile not found");
+
+        profile.ReplaceState(request.State);
+        await _profiles.SaveAsync(profile, ct).ConfigureAwait(false);
+
+        var facts = _events.ForProfileOperation(request.CorrelationId);
+        facts.StateReplaced(request.ProfileId, request.State.Cookies.Count);
+        return Result.Success();
+    }
 }

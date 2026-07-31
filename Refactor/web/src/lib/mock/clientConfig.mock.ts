@@ -2,14 +2,21 @@ import type { ClientConfig } from '@/lib/clientConfig'
 import { delay } from './delay'
 
 const mockConfig: ClientConfig = {
+  schemaVersion: 1,
+  operational: true,
+  missing: [],
   nsoParamName: '_w7s_nso',
-  forwardingHost: 'www.example.com',
-  mirroringEnabled: true,
-  currentDomain: 'browse.example.com',
-  profiles: [
-    { domain: 'browse.example.com', mirroringEnabled: true },
-    { domain: 'demo.example.com', mirroringEnabled: false },
-  ],
+  navigation: { defaultTargetHost: 'www.example.com' },
+  sessions: { detachedSessionTimeoutSeconds: 300 },
+  resourceManagement: { maxConcurrentSessions: 8 },
+  hosting: {
+    required: false,
+    domains: [
+      { domain: 'browse.example.com', subdomainMirroringEnabled: true },
+      { domain: 'demo.example.com', subdomainMirroringEnabled: false },
+    ],
+    currentDomain: 'browse.example.com',
+  },
 }
 
 export function invalidateClientConfigCache(): void {

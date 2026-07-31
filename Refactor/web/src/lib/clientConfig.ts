@@ -10,12 +10,27 @@ import {
 
 const COOKIE_NAME = 'speculum_client_token'
 
+/** V1 public client-config — Refactor contract (no legacy forwardingHost alias). */
 export interface ClientConfig {
+  schemaVersion: 1
+  operational: boolean
+  missing: string[]
+  /** W7S wire query param for navigation-state projection. */
   nsoParamName: string
-  forwardingHost: string
-  mirroringEnabled: boolean
-  currentDomain?: string
-  profiles: Array<{ domain: string; mirroringEnabled: boolean }>
+  navigation: {
+    defaultTargetHost: string
+  }
+  sessions: {
+    detachedSessionTimeoutSeconds: number
+  }
+  resourceManagement: {
+    maxConcurrentSessions: number
+  }
+  hosting: {
+    required: false
+    domains: Array<{ domain: string; subdomainMirroringEnabled: boolean }>
+    currentDomain?: string
+  }
 }
 
 let cachedConfig: ClientConfig | null = null
@@ -33,11 +48,10 @@ async function realFetchClientConfig(apiUrl: string, force = false): Promise<Cli
   return cachedConfig
 }
 
-function cookieDomain(config: ClientConfig): string | undefined {
+function cookieDomain(_config: ClientConfig): string | undefined {
   const host = window.location.hostname
   if (host === 'localhost' || host.endsWith('.localhost')) return host
-  if (config.mirroringEnabled && config.currentDomain)
-    return `.${config.currentDomain}`
+  // Subdomain mirroring cookie scope is 1.1 — stay host-default until then.
   return undefined
 }
 
@@ -77,3 +91,9 @@ export const clearClientToken = MOCK_MODE ? mockClearClientToken : realClearClie
 
 /** @internal Exported for tests — cookie name used by client token helpers. */
 export const CLIENT_TOKEN_COOKIE = MOCK_MODE ? MOCK_CLIENT_TOKEN_COOKIE : COOKIE_NAME
+
+/** Shared pending-config detector for Lab/Live/Motor → /setup. */
+export function isPendingConfigError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err)
+  return /Pending config|não configurado|not configured|Motor não configurado/i.test(msg)
+}

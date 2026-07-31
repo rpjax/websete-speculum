@@ -220,7 +220,7 @@ public sealed class SessionService : ISessionService
                         .ConfigureAwait(false);
                 }
 
-                startEvents.ProfileStateRestored();
+                startEvents.ProfileStateRestored(restoreResult.Value);
 
                 var urlResult = _urls.Resolve(request.Path, request.Query, request.RequestHost);
                 if (urlResult.IsFailure)

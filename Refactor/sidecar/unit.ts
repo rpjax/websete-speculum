@@ -16,6 +16,11 @@ import { EventBridge } from './host/EventBridge';
 import { DropOldestQueue } from './host/DropOldestQueue';
 import { isBenignBrowserRace } from './host/browserRace';
 import type { CDPSession } from 'patchright';
+import {
+  sanitizeCookieForCdp,
+  sanitizeCookieBatch,
+} from './browser/patchright/PageState';
+import type { BrowserCookieState } from './browser/BrowserSession';
 import { collectTelemetry } from './telemetry/collectTelemetry';
 import { applyHostResources } from './host/hostResources';
 
@@ -1027,7 +1032,63 @@ async function main(): Promise<void> {
   await testTelemetryFaultStateSurvivesCrashConsumption();
   await testTelemetryAllocationsSummaryAndSessions();
   testHostResourcesApplySkipsRemountOffLinux();
+  testCookieSanitizeMatrix();
   console.log('[unit] all passed');
+}
+
+function testCookieSanitizeMatrix(): void {
+  const dirty: BrowserCookieState = {
+    name: 'sf_marker',
+    value: 'state-cookie',
+    domain: 'fixture.test',
+    path: '/',
+    expires: -1,
+    httpOnly: false,
+    secure: true,
+    sameSite: '',
+  };
+  const clean = sanitizeCookieForCdp(dirty);
+  assert.ok(clean);
+  assert.strictEqual(clean!.name, 'sf_marker');
+  assert.strictEqual('expires' in clean!, false);
+  assert.strictEqual('sameSite' in clean!, false);
+
+  const ms = sanitizeCookieForCdp({
+    name: 'ms',
+    value: 'v',
+    domain: 'd.com',
+    path: '/',
+    expires: 1_700_000_000_000,
+  });
+  assert.strictEqual(ms!.expires, 1_700_000_000);
+
+  const none = sanitizeCookieForCdp({
+    name: 'x',
+    value: '1',
+    domain: 'd.com',
+    path: '/',
+    secure: false,
+    sameSite: 'none',
+  });
+  assert.strictEqual(none!.sameSite, 'None');
+  assert.strictEqual(none!.secure, true);
+
+  assert.strictEqual(sanitizeCookieForCdp({
+    name: '',
+    value: '1',
+    domain: 'd.com',
+    path: '/',
+  }), null);
+
+  const batch = sanitizeCookieBatch([
+    { name: 'good', value: '1', domain: 'd.com', path: '/' },
+    { name: '', value: 'bad', domain: 'd.com', path: '/' },
+    { name: 'ok', value: '2', domain: 'd.com', path: '/', sameSite: 'LAX', expires: -1 },
+  ]);
+  assert.strictEqual(batch.valid.length, 2);
+  assert.strictEqual(batch.skippedCount, 1);
+  assert.ok(batch.normalizedCount >= 1);
+  console.log('[unit] cookie sanitize ok');
 }
 
 function testHostResourcesApplySkipsRemountOffLinux(): void {

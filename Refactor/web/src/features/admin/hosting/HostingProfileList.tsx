@@ -7,7 +7,7 @@ import type { HostingProfile } from './HostingProfileSheet'
 import { profileBadge } from '@/lib/hostingStatus'
 import type { ConfigStatus } from '@/lib/api'
 
-type ProfileStatusEntry = NonNullable<ConfigStatus['hosting']>['profiles'][number]
+type ProfileStatusEntry = NonNullable<NonNullable<ConfigStatus['hosting']>['profiles']>[number]
 
 interface HostingProfileListProps {
   profiles: HostingProfile[]

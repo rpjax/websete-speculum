@@ -8,12 +8,12 @@ namespace Speculum.Api.Sessions.Services.Streaming;
 
 /// <summary>
 /// Merges inbound pipe pumps into a single connection consume path,
-/// with Shared/Exclusive access and JsBridge gating for console input.
+/// applying <see cref="InputMultiplexingPolicy"/> (Access / Ownership / Scheduling).
 /// </summary>
 internal sealed class SessionInputMerger
 {
     private readonly ISessionConnection _connection;
-    private readonly InputAccessPolicy _inputAccess;
+    private readonly InputMultiplexingPolicy _policy;
     private readonly bool _jsBridgeEnabled;
     private readonly Func<Guid, bool> _isPipeAttached;
     private readonly object _ownershipGate = new();
@@ -31,12 +31,12 @@ internal sealed class SessionInputMerger
 
     public SessionInputMerger(
         ISessionConnection connection,
-        InputAccessPolicy inputAccess,
+        InputMultiplexingPolicy policy,
         bool jsBridgeEnabled,
         Func<Guid, bool> isPipeAttached)
     {
         _connection = connection;
-        _inputAccess = inputAccess;
+        _policy = policy ?? new InputMultiplexingPolicy();
         _jsBridgeEnabled = jsBridgeEnabled;
         _isPipeAttached = isPipeAttached;
     }
@@ -51,7 +51,7 @@ internal sealed class SessionInputMerger
             return Result<Task>.Failure("Pipe is closed");
         }
 
-        if (_inputAccess == InputAccessPolicy.Exclusive
+        if (RequiresExclusiveOwnership()
             && !TryClaimOwnership(ref _userInputOwner, pipeId))
         {
             return Result<Task>.Failure("Input owned by another pipe");
@@ -76,7 +76,7 @@ internal sealed class SessionInputMerger
             return Result<Task>.Failure("Pipe is closed");
         }
 
-        if (_inputAccess == InputAccessPolicy.Exclusive
+        if (RequiresExclusiveOwnership()
             && !TryClaimOwnership(ref _consoleInputOwner, pipeId))
         {
             return Result<Task>.Failure("Input owned by another pipe");
@@ -88,7 +88,7 @@ internal sealed class SessionInputMerger
 
     public void ReleaseOwnership(Guid pipeId)
     {
-        if (_inputAccess != InputAccessPolicy.Exclusive)
+        if (!RequiresExclusiveOwnership())
         {
             return;
         }
@@ -113,17 +113,37 @@ internal sealed class SessionInputMerger
         _consoleInputMerge.Writer.TryComplete();
     }
 
+    /// <summary>
+    /// Exclusive access uses ownership. Shared ignores Ownership/Scheduling for claim
+    /// (merge channel is arrival-order; RoundRobin Shared is arrival-order today — single merge queue).
+    /// </summary>
+    private bool RequiresExclusiveOwnership()
+        => _policy.Access == InputAccessPolicy.Exclusive;
+
     private bool TryClaimOwnership(ref Guid? ownerSlot, Guid pipeId)
     {
         lock (_ownershipGate)
         {
-            if (ownerSlot is not null)
+            if (ownerSlot is null)
             {
-                return false;
+                ownerSlot = pipeId;
+                return true;
             }
 
-            ownerSlot = pipeId;
-            return true;
+            if (ownerSlot == pipeId)
+            {
+                return true;
+            }
+
+            // FirstAttached / FirstClaim: first owner wins.
+            // PreemptiveClaim: new pipe steals ownership.
+            if (_policy.Ownership == InputOwnershipPolicy.PreemptiveClaim)
+            {
+                ownerSlot = pipeId;
+                return true;
+            }
+
+            return false;
         }
     }
 
@@ -133,6 +153,11 @@ internal sealed class SessionInputMerger
         {
             return;
         }
+
+        // Scheduling.ArrivalOrder = natural channel write order.
+        // Scheduling.RoundRobin with Shared still drains one merge channel (arrival order);
+        // exclusive ownership already serializes a single owner pipe.
+        _ = _policy.Scheduling;
 
         var start = _connection.ConsumeUserInputAsync(_userInputMerge.Reader);
         if (start.IsFailure)
@@ -151,6 +176,8 @@ internal sealed class SessionInputMerger
         {
             return;
         }
+
+        _ = _policy.Scheduling;
 
         var start = _connection.ConsumeConsoleInputAsync(_consoleInputMerge.Reader);
         if (start.IsFailure)

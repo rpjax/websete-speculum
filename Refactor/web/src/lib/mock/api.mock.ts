@@ -31,6 +31,21 @@ export const mockApi = {
 
   getReady: () => delay(true),
 
+  getClientConfig: () =>
+    delay({
+      schemaVersion: 1 as const,
+      operational: statusState.operational,
+      missing: [...statusState.missing],
+      nsoParamName: '_w7s_nso',
+      navigation: { defaultTargetHost: 'www.example.com' },
+      sessions: { detachedSessionTimeoutSeconds: 300 },
+      resourceManagement: { maxConcurrentSessions: 8 },
+      hosting: {
+        required: false as const,
+        domains: statusState.hosting?.domains ?? [],
+      },
+    }),
+
   getSection: <T = unknown>(section: ConfigSectionName | string): Promise<T> => {
     const data = sections[section]
     if (data === undefined) {

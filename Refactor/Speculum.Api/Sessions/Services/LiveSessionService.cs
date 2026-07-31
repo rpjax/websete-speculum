@@ -85,7 +85,8 @@ public sealed class LiveSessionService : ILiveSessionService
             var options = _configuration.GetCurrent().Sessions;
             var mux = new SessionStreamMultiplexer(
                 connection,
-                options.InputMultiplexingPolicy.Access,
+                options.InputMultiplexingPolicy,
+                options.OutputMultiplexingPolicy,
                 jsBridgeEnabled);
             var hooks = new SessionHooks(sessionId);
             var live = new LiveSession(

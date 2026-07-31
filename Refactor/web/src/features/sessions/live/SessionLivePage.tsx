@@ -1,5 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { Button } from '@/components/ui/button'
+import { API_URL } from '@/lib/env'
+import { fetchClientConfig } from '@/lib/clientConfig'
 import { SessionViewport } from '@/features/sessions/live/SessionViewport'
 import { parseClientNavigation } from '@/features/sessions/live/sessionCoords'
 import { useLiveSession } from '@/features/sessions/live/useLiveSession'
@@ -22,13 +24,23 @@ export default function SessionLivePage() {
       return
     }
     startedRef.current = true
-    const { path, query } = parseClientNavigation(
-      `${window.location.pathname}${window.location.search}`,
-    )
-    // SPA mount paths are not remote browse paths.
-    const startPath =
-      path === '/live' || path === '/' || path === '/lab' ? '/' : path
-    void startRef.current(startPath, query)
+    void (async () => {
+      try {
+        const config = await fetchClientConfig(API_URL, true)
+        if (!config.operational) {
+          window.location.replace('/setup')
+          return
+        }
+      } catch {
+        // Fall through to start — hub Pending config still redirects.
+      }
+      const { path, query } = parseClientNavigation(
+        `${window.location.pathname}${window.location.search}`,
+      )
+      const startPath =
+        path === '/live' || path === '/' || path === '/lab' ? '/' : path
+      void startRef.current(startPath, query)
+    })()
   }, [])
 
   return (

@@ -25,7 +25,7 @@ describe('profileBadge', () => {
 })
 
 describe('SECTION_HELP', () => {
-  it('maps MaxSessions to capacity route', () => {
-    expect(SECTION_HELP.MaxSessions.href).toBe('/admin/capacity')
+  it('maps ResourceManagement to admin', () => {
+    expect(SECTION_HELP.ResourceManagement.href).toBe('/admin')
   })
 })

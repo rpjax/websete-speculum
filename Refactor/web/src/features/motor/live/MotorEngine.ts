@@ -25,6 +25,10 @@ import type {
   StateListener,
 } from './types'
 
+function hasSubdomainMirroring(config: ClientConfig | null | undefined): boolean {
+  return !!config?.hosting.domains.some((d) => d.subdomainMirroringEnabled)
+}
+
 export type { MotorStatus, MotorUiState } from './types'
 
 export class MotorEngine {
@@ -283,7 +287,7 @@ export class MotorEngine {
     this.emit({ status: 'connecting', statusText: 'Connecting...', showOverlay: true })
 
     try {
-      const readyRes = await fetch(`${API_URL}/ready`, { credentials: 'include' })
+      const readyRes = await fetch(`${API_URL}/health/ready`, { credentials: 'include' })
       if (!this.isActive()) return
       if (!readyRes.ok) {
         window.location.replace('/setup')
@@ -402,7 +406,7 @@ export class MotorEngine {
       this.elements.urlBar.value = mapped
       this.emit({ url: mapped })
     }
-    syncClientLocation(mapped, !!this.clientConfig?.mirroringEnabled)
+    syncClientLocation(mapped, hasSubdomainMirroring(this.clientConfig))
   }
 
   private onSessionStatus(s: SessionStatusPayload) {
@@ -417,7 +421,7 @@ export class MotorEngine {
       this.currentUrl = s.url
       this.elements.urlBar.value = s.url
       this.emit({ url: s.url })
-      syncClientLocation(s.url, !!this.clientConfig?.mirroringEnabled)
+      syncClientLocation(s.url, hasSubdomainMirroring(this.clientConfig))
     }
 
     // Status geometry must never drive CSS or remote resize targets.

@@ -1,4 +1,5 @@
 using Aidan.Core.Errors;
+using Speculum.Api.Sessions.Models;
 
 namespace Speculum.Api.Sessions.Events.Services.Contracts;
 
@@ -9,7 +10,7 @@ public interface ISessionStartEvents
 {
     void ConnectionStarted();
     void BrowserLaunched();
-    void ProfileStateRestored();
+    void ProfileStateRestored(CookieNormalizeStats cookieNormalize);
     void InitialNavigationCompleted();
 
     void ProfileNotFound();

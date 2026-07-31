@@ -12,4 +12,6 @@ public interface IProfileEvents
     void Deleted(Guid profileId, ProfileDeletionReason reason);
 
     void DeleteRejectedSessionLive(Guid profileId);
+
+    void StateReplaced(Guid profileId, int cookieCount);
 }

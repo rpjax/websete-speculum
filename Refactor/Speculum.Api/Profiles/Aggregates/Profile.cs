@@ -20,4 +20,13 @@ public sealed class Profile
     {
         State.MergeFrom(export);
     }
+
+    /// <summary>
+    /// Operator/diagnostics full replacement of the durable browser-state bucket.
+    /// </summary>
+    public void ReplaceState(ProfileState state)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        State = state;
+    }
 }

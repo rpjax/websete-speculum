@@ -82,7 +82,7 @@ public interface ILiveSession
 
     Task<IResult<SessionStatus>> GetStatusAsync(CancellationToken ct = default);
 
-    Task<IResult> NavigateAsync(NavigateSession request, CancellationToken ct = default);
+    Task<IResult<NavigateResult>> NavigateAsync(NavigateSession request, CancellationToken ct = default);
 
     Task<IResult> RefreshAsync(CancellationToken ct = default);
 

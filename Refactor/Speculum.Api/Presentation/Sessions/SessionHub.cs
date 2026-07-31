@@ -71,7 +71,8 @@ public sealed class SessionHub : Hub<ISessionHubClient>
         EnsureProfileHubRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
-        EnsureOperational();
+        // Setup mode: profile ensure stays available while mandatory config is pending.
+        // StartSession remains gated via EnsureOperational.
 
         var result = await _profiles.EnsureProfileAsync(
             new EnsureProfile
@@ -187,7 +188,7 @@ public sealed class SessionHub : Hub<ISessionHubClient>
     /// <summary>
     /// Runtime navigation against the caller's bound live session (path/query → target URL).
     /// </summary>
-    public async Task NavigateAsync(NavigateSessionHubRequest request)
+    public async Task<NavigateSessionHubResponse> NavigateAsync(NavigateSessionHubRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
 
@@ -210,6 +211,8 @@ public sealed class SessionHub : Hub<ISessionHubClient>
         {
             throw new HubException(SessionHubRequestMapper.FormatErrors(result));
         }
+
+        return SessionHubRequestMapper.ToNavigateResponse(result.Value);
     }
 
     /// <summary>

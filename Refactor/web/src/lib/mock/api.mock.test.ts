@@ -11,8 +11,8 @@ describe('mockApi', () => {
     const status = await mockApi.getStatus()
     expect(status.operational).toBe(true)
     expect(status.missing).toEqual([])
-    expect(status.hosting?.profiles.length).toBeGreaterThan(0)
-    expect(status.hosting?.profiles[0].domain).toBeTruthy()
+    expect(status.hosting?.domains?.length).toBeGreaterThan(0)
+    expect(status.hosting?.domains?.[0].domain).toBeTruthy()
   })
 
   it('getReady returns true', async () => {

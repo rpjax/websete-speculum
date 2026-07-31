@@ -33,24 +33,24 @@ databases, protocols, DI, transport mechanics and tests are deliberately omitted
 
 Current public surface:
 
-- `GET /health`
-- `GET /ready`
-- `GET /api/admin/config/status`
-- `GET /api/public/client-config`
+- `GET /health/live` / `GET /health/ready`
+- `GET /ready` (alias of mandatory completeness)
+- `GET /api/configurations/status`
+- `GET /api/public/client-config` (V1)
 - `/vhub` negotiation remains available during setup mode
 
 ### Features to preserve
 
 | Status | Feature | Current observable behavior | Application model still required |
 |--------|---------|-----------------------------|----------------------------------|
-| ◐ | Session readiness | Reports whether required live-session configuration is present and names missing sections | `ConfigurationCompleteness` + pending-config health; public readiness UX still open |
-| ◐ | Configuration status | Reports operational state plus Hosting profile/mirroring status | `GET /api/configurations/status`; Hosting mirroring status projection still thin |
-| ○ | Client bootstrap | Returns forwarding host, navigation-state parameter name, Hosting profiles, current domain and effective mirroring | Client-bootstrap query port/result |
-| ○ | Setup mode | Session UI can determine that setup is required while Admin/config surfaces remain available | Explicit bootstrap/setup application flow |
+| ✅ | Session readiness | `/health/ready` + client-config `operational`/`missing` (Nav/Sessions/RM) | — |
+| ✅ | Configuration status | Operational + optional Hosting domains (no `mirroringOperational` — 1.1) | — |
+| ✅ | Client bootstrap | V1 `GET /api/public/client-config` (nsoParamName, navigation, sessions, RM, hosting optional) | — |
+| ✅ | Setup mode | Hub connects; EnsureProfile allowed; StartSession fails with `Pending config` until mandatory complete | — |
 
 Required sections in the refactor are `Navigation`, `Sessions` and
 `ResourceManagement` (legacy names were `Forwarding` / `MaxSessions` /
-`Hosting`). Hosting domains still drive mirroring at resolve time.
+`Hosting`). Hosting is **optional** for ready; subdomain mirroring ops are **1.1**.
 
 ---
 
@@ -178,16 +178,16 @@ HTTP requests to `/vtransport` are rejected with `426 Upgrade Required`.
 | Status | Feature | Current observable behavior | Application model still required |
 |--------|---------|-----------------------------|----------------------------------|
 | ✅ | Frame stream | CDP JPEG + relay monotonic sequence + API relay-receipt UTC timestamp | Typed `Frame` over disposable mux streams and WebTransport |
-| ◐ | Console/control output | Console and eval results use typed envelopes; location/blocked drive hub SyncUrl/Redirect via attached client; focus/crash still on notification pipe | — |
+| ✅ | Console/control output | Console and eval results use typed envelopes; location/blocked drive hub SyncUrl/Redirect; EditableFocusChanged and crash→SessionEnded via attached client | — |
 | ✅ | Status poll | Unary status includes engine JsBridge state, session id and relay uptime | `ILiveSession.GetStatusAsync`; fps is measured from relay-observed video frames |
 | ✅ | User input | Hub `SendInputAsync` → `ILiveSession.AdmitUserInput` → HF-first bounded admit → bounded mux → gRPC; WT UserInput optional/late | Invalid payloads emit `InputRejected` and do not kill the session |
 | ✅ | Input path hops (opt-in) | `Telemetry.Sessions.Input.ControlReceived` (primary) / `WebTransportReceived` / `SidecarPushWritten` / `SidecarAdmitted` | Lab Telemetry event toggles; sidecar pull telemetry also exposes `inputDepth` / `inputChainDepth`; Wire `client_sent` is a separate localStorage toggle |
 | ✅ | Console input | Stable `{ id, code }` eval request and typed eval-result envelope | JsBridge-gated; disabled requests are rejected without stopping the session |
 | ✅ | Input validation | Malformed JSON/MessagePack and blocked input types are rejected; session stays alive | Hub admit + gRPC input mapping; optional WT framing limits |
-| ◐ | Touch gestures | Touch points/phases reach the sidecar | Exclusive gesture ownership/scheduling remains |
-| ○ | Single-tab enforcement | Popup and `_blank` navigation remain in one controlled tab | Browser-window policy capability |
-| ✅ | Multi-pipe output | One session can supply equivalent output to N consumers | Fan-out via `SessionStreamMultiplexer`; disposable per-consumer streams |
-| ◐ | Multi-pipe input authority | Defines who may control a session when multiple pipes exist | Shared/Exclusive access on mux; ownership/scheduling pending |
+| ◐ | Touch gestures | Touch points/phases reach the sidecar | Exclusive gesture ownership beyond Access Exclusive remains thin |
+| ✅ | Single-tab enforcement | Sidecar `setupSingleTab` + tab interception keep popup/`_blank` on one main tab | Assert via SessionsTest / sidecar units |
+| ✅ | Multi-pipe output | One session can supply equivalent output to N consumers | Fan-out via `SessionStreamMultiplexer`; Exclusive delivery uses first-attached pipe |
+| ✅ | Multi-pipe input authority | Shared/Exclusive Access; Ownership FirstAttached/FirstClaim/PreemptiveClaim; Scheduling read (ArrivalOrder drain; RoundRobin Shared = arrival-order merge) | Wired in `SessionInputMerger` / `SessionOutputFanOut` |
 
 ---
 
@@ -207,14 +207,14 @@ live output stream.
 | Status | Feature | Current observable behavior | Application model still required |
 |--------|---------|-----------------------------|----------------------------------|
 | ✅ | Start navigation | Required for successful start | Resolve → Navigate uses Path, Query and transport host |
-| ◐ | Runtime navigation | Maps client path/query to target URL and commands the active browser | `ILiveSession.NavigateAsync` + host-aware `IUrlResolver`; SyncUrl uses `ProjectToClient` |
-| ◐ | Scheme validation | Resolve always builds `https://` targets; bad path/host fails | Broader scheme/policy rejection contract |
+| ✅ | Runtime navigation | `NavigateAsync` → `NavigateResult` (Applied / ResolveFailed / NavigateFailed); SyncUrl via `ProjectToClient` | — |
+| ✅ | Scheme validation | Resolve always builds `https://` targets; bad path/host → ResolveFailed outcome | — |
 | ✅ | URL allowlist | Main-frame host + optional path (`UrlMatchRule.Path` Exact/Prefix) via `Navigation.AllowedMainFrameUrls` | — |
-| ◐ | Blocked vs failed | Policy block (`MainFrameNavigationBlocked` → Redirect) distinct from `NavigateFailed` | Named app-layer result types still thin |
-| ◐ | External redirect | Navigation outside the virtualized domain redirects the real client while session remains alive | `IAttachedSessionClient.RedirectAsync` ← `MainFrameNavigationBlocked` (absolute URL) |
+| ✅ | Blocked vs failed | Policy block (`MainFrameNavigationBlocked` → Redirect hub) distinct from NavigateFailed outcome | — |
+| ✅ | External redirect | `IAttachedSessionClient.RedirectAsync` ← `MainFrameNavigationBlocked` (absolute URL) | — |
 | ✅ | Client URL mapping | `IUrlResolver.ProjectToClient` maps browser absolute → session-host SyncUrl (apex NSO / mirroring); status poll uses the same projection | — |
-| ◐ | Subdomain mirroring | Host changes map to mirrored session hosts when Hosting domains are configured | Resolve-time + SyncUrl reverse; operational status / edge sync still open |
-| ○ | Redirect chains / history | Redirects, SPA paths, back/forward and history remain coherent | Navigation-state/history capability |
+| ◐ | Subdomain mirroring | Resolve-time + SyncUrl reverse in `UrlResolver` | Operational status / edge sync → **1.1** |
+| ✅ | History nav | `goback` / `goforward` user-input → sidecar `page.goBack` / `goForward` | SessionsTest effect row |
 | ✅ | Asset escape rule | Allowlist gates main-frame Resolve/Navigate only; assets/XHR/subframes are not filtered here (`NavigationConfiguration`) | — |
 
 ---
@@ -232,12 +232,12 @@ ResizeAsync(width, height, device?) → ResizeResult
 | Status | Feature | Current observable behavior | Application model still required |
 |--------|---------|-----------------------------|----------------------------------|
 | ✅ | Startup viewport | Client geometry filled/clamped at the edge from `Sessions.ViewportPolicy` | Application and sidecar reject incomplete values |
-| ✅ | Runtime resize | Hub `ResizeAsync` → `ILiveSession.ResizeAsync`; busy returns `Applied=false` + `resize_busy` | — |
-| ◐ | Exact geometry | `ResizeResult` reports chrome logical viewport and display dims | Display max-allocation policy projection |
-| ◐ | Resize rejection | Bounds come from `ViewportPolicy` (not hard-coded legacy 100/4096 alone) | Explicit app-layer rejection result |
-| ◐ | Resize failure | `Applied` / `errorCode` / `phase` + telemetry Applied/Rejected | Named failure vs rejection first-class results |
-| ✅ | Resize serialization | Resize uses `_commandGate.TryAcquire` (busy-reject); Navigate/Refresh still queue | Coalesce of rapid resizes still open |
-| ◐ | Device profile | Optional `DeviceProfile` on resize request reaches sidecar | Shared device-profile contract completeness |
+| ✅ | Runtime resize | Hub `ResizeAsync` → `ILiveSession.ResizeAsync`; busy returns `Applied=false` + `Outcome=Busy` + `resize_busy` | — |
+| ✅ | Exact geometry | `ResizeResult` reports chrome logical viewport and display dims (SessionsTest D1) | — |
+| ✅ | Resize rejection | Bounds from `ViewportPolicy`; `Outcome=Rejected` + telemetry Rejected (SessionsTest D2) | — |
+| ✅ | Resize failure | `Outcome` Applied/Rejected/Busy/Failed + `errorCode`/`phase` + telemetry | — |
+| ✅ | Resize serialization | Resize uses `_commandGate.TryAcquire` (busy-reject); Navigate/Refresh still queue | Rapid coalesce remains client-side (`CanvasViewportSync`) |
+| ✅ | Device profile | Optional `DeviceProfile` on resize request reaches sidecar (SessionsTest C11) | — |
 
 ---
 
@@ -261,12 +261,12 @@ Diagnostics also exposes persisted list/detail and state replacement.
 | ◐ | Restore/export orchestration | Start restores; stop exports best-effort | Flow modeled |
 | ✅ | State schema | Cookies, localStorage, IndexedDB and history have real contracts | — |
 | ✅ | State merge | New exports merge continuity/history across live generations | `ProfileState.MergeFrom` |
-| ○ | Tolerant cookie restore | Dirty SameSite/expiry fields do not prevent start | State normalization policy/result |
+| ✅ | Tolerant cookie restore | Dirty SameSite/expiry fields sanitize; journal `ProfileStateRestored` carries normalize stats | Sidecar `PageState` + proto `CookieNormalizeStats` |
 | ◐ | Export failure | Soft persist; export/skipped events exist without blocking teardown | Explicit persistence outcome completeness |
 | ✅ | Profile list/detail | Operator can inspect persisted identities and state metadata | Admin HTTP mapping deferred until Admin auth (§9) |
 | ✅ | Profile deletion | Operator deletes a persisted identity; live sessions reject delete | Admin HTTP mapping deferred until Admin auth (§9) |
-| ○ | Manual state replacement | Diagnostics can replace persisted browser state | Controlled profile-state update command |
-| ○ | Retention policy | Profile inactive retention exists in config; purge orchestrator does not | Profile-retention purge flow |
+| ✅ | Manual state replacement | `PUT /api/admin/diagnostics/v1/profiles/{id}/state` (E8b path) | `IProfileService.ReplaceProfileStateAsync` |
+| ◐ | Retention policy | `InactiveRetentionPeriod` in config; Cleaner+Enforcer hosted scaffolds registered (no purge yet) | Future SQLite-only purge via `IProfileRepository.Delete` |
 
 ---
 
@@ -455,21 +455,30 @@ error outcomes.
 
 Immediate modeling gaps still open (chassis already covers much of the former list):
 
-1. **Navigation policy depth** — host + path allowlist + https resolve + main-frame-only
-   boundary exist; richer blocked-vs-failed app result types and history remain.
-2. **Resize busy/reject contract** — Resize busy-rejects via `TryAcquire` (`resize_busy`);
-   first-class reject/fail result types and resize coalesce remain thin.
+1. **Navigation / Live I/O polish** — ✅ ownership/scheduling wiring, Navigate/Resize
+   outcomes, history + single-tab; coalesce remains client-side where documented.
+2. **Resize busy** — ✅ `resize_busy` / `Outcome=Busy` (unit + MATRIX D3).
 3. **Config/shutdown drain** — ✅ `ISessionDrainOrchestrator` wired to Navigation/Hosting
    Apply and process shutdown (`Drain` → `ForceStop` budget).
-4. **Tolerant restore / retention purge** — schema + merge exist; dirty-cookie
-   normalize and inactive-profile purge orchestrator remain open.
-5. **Client bootstrap / setup mode** — configuration status is ◐; public client-config
-   and setup UX flow remain ○.
+4. **Tolerant restore / retention purge** — ✅ dirty-cookie sanitize + journal
+   normalize stats + diagnostics PUT state; retention Cleaner/Enforcer scaffolds
+   registered (purge = SQLite-only future, not enabled).
+5. **Client bootstrap / setup mode** — ✅ public V1 client-config + setup UI +
+   hub setup-mode (StartSession still gated); Hosting optional; mirroring ops 1.1.
 6. **Script administration** — scripting models + launch resolve ◐; stored-script
    Admin CRUD remains ○.
 7. **Diagnostics operator HTTP** — capability toggles + session telemetry events +
-   composite samples exist; runtime/overview/timelines/probes/catalog query remain ○.
-8. **Admin Bearer** — Administration section and API-key opacity remain ○.
+   composite samples exist; runtime/overview/timelines/probes/catalog query remain ○
+   (still 1.0 later; out of this gap plan).
+8. **Admin Bearer** — Administration section and API-key opacity remain ○
+   (still 1.0 later; out of this gap plan).
+
+### Post-1.0 / 1.1 (explicitly deferred)
+
+- EdgeSynchronizer / Traefik dynamic YAML / dockup file provider
+- `mirroringOperational` + J7 DnsChallenge + B8 + K1–K3
+- UI Hosting `edgeTls` → mirroring ops
+- Subdomain mirroring “operacional” beyond unit `UrlResolver` coverage
 
 ---
 
@@ -498,11 +507,12 @@ This order follows user-visible dependencies, not infrastructure dependencies:
 6. Resize/device ◐
    ports + policy + resize busy-reject ✅; exact-result / coalesce polish open
 
-7. Persistence/profile administration ◐
-   schema + merge ✅; tolerant restore + retention purge open
+7. Persistence/profile administration ✅/◐
+   schema + merge ✅; tolerant restore + E8b PUT ✅; retention purge scaffold only
 
-8. Runtime configuration behavior ◐
-   EngineConfiguration + Apply/CRUD ✅; Navigation/Hosting drain ✅; client projection open
+8. Runtime configuration / bootstrap ✅
+   EngineConfiguration + Apply/CRUD ✅; V1 client-config + setup mode ✅;
+   Hosting optional; mirroring ops → 1.1
 
 9. Script administration/injection ○/◐
    launch snapshot ◐; Admin script store ○
@@ -512,6 +522,9 @@ This order follows user-visible dependencies, not infrastructure dependencies:
 
 11. Fault/drain recovery paths ✅
     sidecar fault + timeout + config/shutdown drain ✅
+
+12. Edge / subdomain mirroring ops → **1.1**
+    EdgeSynchronizer, Traefik file sync, mirroringOperational, J7/B8/K*
 ```
 
 For each item: define interfaces and models, implement only its

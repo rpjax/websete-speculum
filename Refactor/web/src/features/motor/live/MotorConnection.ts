@@ -10,7 +10,7 @@ import type {
 
 function isSetupRequiredError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err)
-  return /não configurado|not configured|Motor não configurado/i.test(msg)
+  return /Pending config|não configurado|not configured|Motor não configurado/i.test(msg)
 }
 
 export interface MotorConnectionHandlers {

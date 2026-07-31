@@ -1,94 +1,113 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { api, type ConfigStatus } from '@/lib/api'
+import { API_URL } from '@/lib/env'
+import { fetchClientConfig, type ClientConfig } from '@/lib/clientConfig'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { PageHeader } from '@/components/admin/PageHeader'
-import { profileBadge } from '@/lib/hostingStatus'
 
-type StepId = 'hosting' | 'forwarding' | 'capacity' | 'done'
+type StepId = 'navigation' | 'sessions' | 'capacity' | 'hosting' | 'done'
 
-const STEPS: { id: StepId; title: string; body: string; href: string }[] = [
+const STEPS: { id: StepId; title: string; body: string; href: string; optional?: boolean }[] = [
   {
-    id: 'hosting',
-    title: 'Hosting',
-    body: 'Add the motor domain, TLS email, and optional mirroring.',
-    href: '/admin/hosting',
+    id: 'navigation',
+    title: 'Navigation',
+    body: 'Set the default target host and main-frame allowlist.',
+    href: '/admin',
   },
   {
-    id: 'forwarding',
-    title: 'Forwarding',
-    body: 'Set the target site host and navigation allowlist.',
-    href: '/admin/forwarding',
+    id: 'sessions',
+    title: 'Sessions',
+    body: 'Confirm detached timeout and viewport policy.',
+    href: '/admin',
   },
   {
     id: 'capacity',
     title: 'Capacity',
-    body: 'Confirm concurrent session limits and retention policy.',
-    href: '/admin/capacity',
+    body: 'Set max concurrent sessions under ResourceManagement.',
+    href: '/admin',
+  },
+  {
+    id: 'hosting',
+    title: 'Hosting',
+    body: 'Optional — session domains. Subdomain mirroring ops are 1.1.',
+    href: '/admin',
+    optional: true,
   },
 ]
 
+function recommendedStepIndex(config: ClientConfig | null): number {
+  if (!config) return 0
+  const missing = config.missing
+  if (missing.includes('Navigation')) return 0
+  if (missing.includes('Sessions')) return 1
+  if (missing.includes('ResourceManagement')) return 2
+  if (config.operational) return STEPS.length
+  return 0
+}
+
 export default function SetupPage() {
-  const [status, setStatus] = useState<ConfigStatus | null>(null)
+  const [config, setConfig] = useState<ClientConfig | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [stepIndex, setStepIndex] = useState(0)
 
   useEffect(() => {
-    api.getStatus()
-      .then(setStatus)
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Failed to load status'))
+    fetchClientConfig(API_URL, true)
+      .then(setConfig)
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Failed to load client config'))
   }, [])
 
   const current = STEPS[stepIndex] ?? STEPS[0]
-
-  const recommendedIndex = useMemo(() => {
-    if (!status) return 0
-    const missing = status.missing
-    if (missing.includes('Hosting') || (status.hosting?.profiles.length ?? 0) === 0) return 0
-    if (missing.includes('Forwarding')) return 1
-    if (missing.includes('MaxSessions')) return 2
-    return 3
-  }, [status])
+  const recommendedIndex = useMemo(() => recommendedStepIndex(config), [config])
 
   useEffect(() => {
-    if (recommendedIndex < STEPS.length) setStepIndex(recommendedIndex)
+    if (recommendedIndex <= STEPS.length) setStepIndex(recommendedIndex)
   }, [recommendedIndex])
 
   return (
     <div className="mx-auto max-w-2xl px-6 py-12">
       <PageHeader
         title="Speculum setup"
-        description="Guided first-run — one job per step. Sign in to Admin to apply each configuration."
+        description="Mandatory: Navigation, Sessions, and ResourceManagement. Hosting is optional (mirroring ops in 1.1)."
       />
 
       {error && <p className="mb-4 text-destructive">{error}</p>}
-      {!status && !error && <Skeleton className="mb-6 h-24 w-full" />}
+      {!config && !error && <Skeleton className="mb-6 h-24 w-full" />}
 
-      {status && (
+      {config && (
         <Card className="mb-6">
           <CardHeader>
             <CardTitle>Status</CardTitle>
-            <CardDescription>Public motor readiness</CardDescription>
+            <CardDescription>Public client-config readiness</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="flex items-center gap-2">
               <span>Operational</span>
-              <Badge variant={status.operational ? 'success' : 'warning'}>
-                {status.operational ? 'yes' : 'no'}
+              <Badge variant={config.operational ? 'success' : 'warning'}>
+                {config.operational ? 'yes' : 'no'}
               </Badge>
             </div>
-            {(status.hosting?.profiles ?? []).map((p) => {
-              const b = profileBadge(p)
-              return (
-                <div key={p.domain} className="flex items-center justify-between rounded-md border border-border px-3 py-2 text-sm">
-                  <span>{p.domain}</span>
-                  <Badge variant={b.tone}>{b.label}</Badge>
-                </div>
-              )
-            })}
+            {config.missing.length > 0 && (
+              <p className="text-sm text-muted-foreground">
+                Missing: {config.missing.join(', ')}
+              </p>
+            )}
+            <p className="text-sm text-muted-foreground">
+              Default host: {config.navigation.defaultTargetHost || '(unset)'}
+            </p>
+            {config.hosting.domains.map((d) => (
+              <div
+                key={d.domain}
+                className="flex items-center justify-between rounded-md border border-border px-3 py-2 text-sm"
+              >
+                <span>{d.domain}</span>
+                <Badge variant="muted">
+                  {d.subdomainMirroringEnabled ? 'mirroring enabled (1.1)' : 'no mirroring'}
+                </Badge>
+              </div>
+            ))}
           </CardContent>
         </Card>
       )}
@@ -102,6 +121,7 @@ export default function SetupPage() {
             onClick={() => setStepIndex(i)}
           >
             {i + 1}. {s.title}
+            {s.optional ? ' (opt)' : ''}
           </Button>
         ))}
         <Button
@@ -123,10 +143,10 @@ export default function SetupPage() {
           </CardHeader>
           <CardContent className="flex flex-wrap gap-2">
             <Button asChild>
-              <Link to="/admin/login">Sign in &amp; configure</Link>
+              <Link to="/lab">Open Lab (apply defaults)</Link>
             </Button>
             <Button asChild variant="outline">
-              <Link to={current.href}>Open {current.title}</Link>
+              <Link to={current.href}>Admin</Link>
             </Button>
             <Button variant="ghost" onClick={() => setStepIndex((i) => Math.min(i + 1, STEPS.length))}>
               Next
@@ -138,14 +158,15 @@ export default function SetupPage() {
           <CardHeader>
             <CardTitle>Ready to browse</CardTitle>
             <CardDescription>
-              {status?.operational
-                ? 'Motor reports operational. Open the Motor surface to start a session.'
-                : 'Finish missing sections in Admin, then return here.'}
+              {config?.operational
+                ? 'Mandatory config is satisfied. Open Lab or Live to start a session.'
+                : 'Finish missing mandatory sections, then return here.'}
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-wrap gap-2">
-            <Button asChild><Link to="/">Open Motor</Link></Button>
-            <Button asChild variant="outline"><Link to="/admin">Admin dashboard</Link></Button>
+            <Button asChild><Link to="/lab">Open Lab</Link></Button>
+            <Button asChild variant="outline"><Link to="/live">Live</Link></Button>
+            <Button asChild variant="outline"><Link to="/admin">Admin</Link></Button>
           </CardContent>
         </Card>
       )}

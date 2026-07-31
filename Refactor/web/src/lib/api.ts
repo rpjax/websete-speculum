@@ -9,7 +9,13 @@ export interface ConfigStatus {
   operational: boolean
   missing: string[]
   hosting?: {
-    profiles: Array<{
+    required?: boolean
+    domains?: Array<{
+      domain: string
+      subdomainMirroringEnabled: boolean
+    }>
+    /** Soft projection for Admin UI; mirroringOperational stays false until 1.1. */
+    profiles?: Array<{
       domain: string
       subdomainMirroringEnabled: boolean
       mirroringOperational: boolean
@@ -212,17 +218,21 @@ export const ConfigSections = {
 export type ConfigSectionName = (typeof ConfigSections)[keyof typeof ConfigSections]
 
 const realApi = {
-  getStatus: () => request<ConfigStatus>('/api/admin/config/status', { auth: false }),
+  getStatus: () => request<ConfigStatus>('/api/configurations/status', { auth: false }),
   getReady: async () => {
-    const res = await fetch(`${API_URL}/ready`, { credentials: 'include' })
+    const res = await fetch(`${API_URL}/health/ready`, { credentials: 'include' })
     return res.ok
   },
+  getClientConfig: () => request<import('@/lib/clientConfig').ClientConfig>(
+    '/api/public/client-config',
+    { auth: false },
+  ),
   getSection: <T = unknown>(section: ConfigSectionName | string) =>
-    request<T>(`/api/admin/config/${section}`),
+    request<T>(`/api/configurations/${section}`),
   putSection: (section: ConfigSectionName | string, body: unknown) =>
-    request(`/api/admin/config/${section}`, { method: 'PUT', body: JSON.stringify(body) }),
+    request(`/api/configurations/${section}`, { method: 'PUT', body: JSON.stringify(body) }),
   deleteSection: (section: ConfigSectionName | string) =>
-    request(`/api/admin/config/${section}`, { method: 'DELETE' }),
+    request(`/api/configurations/${section}`, { method: 'DELETE' }),
   get: <T = unknown>(path: string) => request<T>(path),
   delete: (path: string) => request(path, { method: 'DELETE' }),
   listSessions: () => request<SessionMeta[]>('/api/admin/sessions'),

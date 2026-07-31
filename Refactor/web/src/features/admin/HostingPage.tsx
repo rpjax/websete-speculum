@@ -127,7 +127,7 @@ export default function HostingPage() {
 
   const editingProfile = editingIndex !== null ? profiles[editingIndex] ?? null : null
   const editingStatus = editingProfile
-    ? status?.profiles.find((s) => s.domain === editingProfile.domain)
+    ? status?.profiles?.find((s) => s.domain === editingProfile.domain)
     : undefined
 
   return (

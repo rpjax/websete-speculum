@@ -387,7 +387,7 @@ export default function HostResourcesPage() {
           {message && !error && <p className="text-sm text-muted-foreground">{message}</p>}
 
           <div className="flex flex-wrap gap-2">
-            <Button variant="secondary" disabled={pending || loading} onClick={() => void runPreview()}>
+            <Button variant="outline" disabled={pending || loading} onClick={() => void runPreview()}>
               Preview
             </Button>
             <ConfirmDestructive

@@ -11,6 +11,9 @@ namespace Speculum.Api.Sessions.Services;
 public sealed class UrlResolver : IUrlResolver
 {
     private const string NavigationStateParameter = "_w7s_nso";
+
+    /// <summary>W7S wire query parameter for navigation-state projection.</summary>
+    public const string NavigationStateParameterName = NavigationStateParameter;
     private readonly IConfigurationService _configuration;
 
     public UrlResolver(IConfigurationService configuration)

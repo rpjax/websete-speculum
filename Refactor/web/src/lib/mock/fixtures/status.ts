@@ -4,11 +4,16 @@ export const operationalStatus: ConfigStatus = {
   operational: true,
   missing: [],
   hosting: {
+    required: false,
+    domains: [
+      { domain: 'browse.example.com', subdomainMirroringEnabled: true },
+      { domain: 'demo.example.com', subdomainMirroringEnabled: false },
+    ],
     profiles: [
       {
         domain: 'browse.example.com',
         subdomainMirroringEnabled: true,
-        mirroringOperational: true,
+        mirroringOperational: false,
         missing: [],
       },
       {
@@ -23,14 +28,18 @@ export const operationalStatus: ConfigStatus = {
 
 export const needsSetupStatus: ConfigStatus = {
   operational: false,
-  missing: ['Forwarding', 'MaxSessions'],
+  missing: ['Navigation', 'ResourceManagement'],
   hosting: {
+    required: false,
+    domains: [
+      { domain: 'browse.example.com', subdomainMirroringEnabled: true },
+    ],
     profiles: [
       {
         domain: 'browse.example.com',
         subdomainMirroringEnabled: true,
         mirroringOperational: false,
-        missing: ['edgeTls.apiToken'],
+        missing: [],
       },
     ],
   },

@@ -33,7 +33,7 @@ describe('describeEvent', () => {
   })
 
   it('returns fallback for unknown events', () => {
-    expect(describeEvent('Custom.Unknown')).toBe('Diagnostic event: Custom.Unknown')
+    expect(describeEvent('Custom.Unknown')).toBe('Catalog event: Custom.Unknown')
   })
 
   it('covers all Motor events', () => {
@@ -43,7 +43,7 @@ describe('describeEvent', () => {
       'Motor.SessionStopped', 'Motor.SessionFailed',
     ]
     for (const name of motorEvents) {
-      expect(describeEvent(name)).not.toContain('Diagnostic event:')
+      expect(describeEvent(name)).not.toContain('Catalog event:')
     }
   })
 })

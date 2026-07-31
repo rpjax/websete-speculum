@@ -37,9 +37,11 @@ One SPA: [`web/`](../web/) (`speculum-web`). Three surfaces, different density:
 
 | Surface | Routes | Job | Density |
 |---------|--------|-----|---------|
-| **Motor** | `/` | Immersive remote browser (canvas + chrome) | Minimal chrome; reveal connection/status detail on need |
-| **Setup** | `/setup` | Guided first-run / not-ready status | Wizard / one job per step |
+| **Motor** | `/`, `/lab`, `/live` | Immersive / lab remote browser | Minimal chrome; reveal connection/status detail on need |
+| **Setup** | `/setup`, `/setup/configure` | Guided first-run / not-ready | Wizard / one job per step |
 | **Admin** | `/admin/*` | Operator control plane | Revealing forms + rich visualization; drill-down over mega-pages |
+
+**Admin UI build-contract:** implement from [`frontend/wireframe/`](../frontend/wireframe/) (DNA) + Refactor APIs — do not invent routes, copy, fields, or flows. Legacy API-key Admin was removed.
 
 **Stack lock (non-negotiable):**
 

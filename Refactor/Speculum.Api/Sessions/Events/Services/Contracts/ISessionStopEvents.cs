@@ -11,6 +11,8 @@ public interface ISessionStopEvents
 
     void ExportSessionStateFailed(Error[] errors);
 
+    void ExportSessionStateSkipped(string reason);
+
     void CloseBrowserFailed(Error[] errors);
     void CloseConnectionFailed(Error[] errors);
 

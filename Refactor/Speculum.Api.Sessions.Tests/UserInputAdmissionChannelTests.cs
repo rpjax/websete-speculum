@@ -6,27 +6,17 @@ namespace Speculum.Api.Sessions.Tests;
 public sealed class UserInputAdmissionChannelTests
 {
     [Fact]
-    public async Task Admit_PrefersDroppingHighFrequencyOverRelease()
+    public void Admit_PrefersDroppingHighFrequencyOverRelease()
     {
-        var admission = UserInputAdmissionChannel.Create(capacity: 2);
+        var admission = UserInputAdmissionChannel.CreateQueueOnly(capacity: 2);
         try
         {
             admission.Admit(Move(1));
             admission.Admit(Move(2));
             admission.Admit(KeyUp("Shift"));
 
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
-            var received = new List<UserInput>();
-            await foreach (var item in admission.Reader.ReadAllAsync(cts.Token))
-            {
-                received.Add(item);
-                if (received.Count >= 2)
-                {
-                    break;
-                }
-            }
-
-            Assert.Equal(2, received.Count);
+            var received = admission.SnapshotQueueForTests();
+            Assert.Equal(2, received.Length);
             Assert.DoesNotContain(received, i => UserInputAdmitPolicy.IsHighFrequency(i) && MovePayload(i) == 1);
             Assert.Contains(received, i => i.Type == "keyup");
         }
@@ -37,27 +27,17 @@ public sealed class UserInputAdmissionChannelTests
     }
 
     [Fact]
-    public async Task Admit_DropsOldestWhenOnlyGestureEdgesQueued()
+    public void Admit_DropsOldestWhenOnlyGestureEdgesQueued()
     {
-        var admission = UserInputAdmissionChannel.Create(capacity: 2);
+        var admission = UserInputAdmissionChannel.CreateQueueOnly(capacity: 2);
         try
         {
             admission.Admit(MouseDown());
             admission.Admit(MouseUp());
             admission.Admit(KeyDown("a"));
 
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
-            var received = new List<UserInput>();
-            await foreach (var item in admission.Reader.ReadAllAsync(cts.Token))
-            {
-                received.Add(item);
-                if (received.Count >= 2)
-                {
-                    break;
-                }
-            }
-
-            Assert.Equal(2, received.Count);
+            var received = admission.SnapshotQueueForTests();
+            Assert.Equal(2, received.Length);
             Assert.Equal("mouseup", received[0].Type);
             Assert.Equal("keydown", received[1].Type);
         }

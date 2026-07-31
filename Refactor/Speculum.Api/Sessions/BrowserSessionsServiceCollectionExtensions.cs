@@ -42,15 +42,6 @@ public static class BrowserSessionsServiceCollectionExtensions
 
         // Sessions/ResourceManagement bind + Apply live in AddEngineConfiguration /
         // IConfigurationService — do not re-bind with ValidateOnStart here.
-        services.AddHttpClient(RemoteScriptFetcher.HttpClientName)
-            .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
-            {
-                AllowAutoRedirect = false,
-            })
-            .ConfigureHttpClient(client =>
-            {
-                client.Timeout = TimeSpan.FromSeconds(15);
-            });
 
         services.TryAddScoped<ISessionRepository, EfSessionRepository>();
         // Keep TryAdd so composition tests that only call AddBrowserSessions still resolve
@@ -62,7 +53,6 @@ public static class BrowserSessionsServiceCollectionExtensions
         services.TryAddSingleton<ISessionBindingRegistry, SessionBindingRegistry>();
         services.TryAddSingleton<ISessionEventsFactory, SessionEventsFactory>();
         services.TryAddSingleton<ISessionTokenGenerator, SessionTokenGenerator>();
-        services.TryAddSingleton<IRemoteScriptFetcher, RemoteScriptFetcher>();
         services.TryAddSingleton<ILaunchScriptResolver, LaunchScriptResolver>();
         // Session lifecycle gate only. LiveSessionService owns a separate registry lock —
         // sharing this instance deadlocks StopSession (holds gate → Release tries same key).

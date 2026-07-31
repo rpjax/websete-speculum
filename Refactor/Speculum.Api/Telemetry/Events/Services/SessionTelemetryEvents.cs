@@ -107,6 +107,9 @@ internal sealed class SessionTelemetryEvents : ISessionTelemetryEvents
 
         public void SkippedProfileNotFound()
             => Writer.Append(new SkippedProfileNotFound { SessionId = SessionId, ProfileId = ProfileId });
+
+        public void Succeeded()
+            => Writer.Append(new Succeeded { SessionId = SessionId, ProfileId = ProfileId });
     }
 
     private sealed class InputEvents(IJournalWriter writer, Guid sessionId, Guid profileId)

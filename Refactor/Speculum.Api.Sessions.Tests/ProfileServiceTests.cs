@@ -203,6 +203,79 @@ public sealed class ProfileServiceTests
     }
 
     [Fact]
+    public async Task MergeSessionExport_ExpandsRecordWithoutWipingOmittedKeys()
+    {
+        await using var harness = await Harness.CreateAsync();
+        var profileId = Guid.NewGuid();
+        var profile = Profile.Create(profileId);
+        profile.ApplySessionExport(new SessionState
+        {
+            Cookies =
+            [
+                new BrowserCookieState
+                {
+                    Name = "a",
+                    Value = "1",
+                    Domain = "example.test",
+                    Path = "/",
+                },
+            ],
+            LocalStorage =
+            [
+                new BrowserLocalStorageState
+                {
+                    Origin = "https://example.test",
+                    Key = "keep",
+                    Value = "old",
+                },
+            ],
+        });
+        await harness.Profiles.SaveAsync(profile);
+
+        var merged = await harness.Profiles.MergeSessionExportAsync(
+            profileId,
+            new SessionState
+            {
+                Cookies =
+                [
+                    new BrowserCookieState
+                    {
+                        Name = "b",
+                        Value = "2",
+                        Domain = "example.test",
+                        Path = "/",
+                    },
+                    new BrowserCookieState
+                    {
+                        Name = "a",
+                        Value = "updated",
+                        Domain = "example.test",
+                        Path = "/",
+                    },
+                ],
+                LocalStorage =
+                [
+                    new BrowserLocalStorageState
+                    {
+                        Origin = "https://example.test",
+                        Key = "new",
+                        Value = "n",
+                    },
+                ],
+            });
+
+        Assert.True(merged);
+        var loaded = await harness.Profiles.LoadAsync(profileId);
+        Assert.NotNull(loaded);
+        Assert.Equal(2, loaded!.State.Cookies.Count);
+        Assert.Contains(loaded.State.Cookies, c => c.Name == "a" && c.Value == "updated");
+        Assert.Contains(loaded.State.Cookies, c => c.Name == "b" && c.Value == "2");
+        Assert.Equal(2, loaded.State.LocalStorage.Count);
+        Assert.Contains(loaded.State.LocalStorage, e => e.Key == "keep" && e.Value == "old");
+        Assert.Contains(loaded.State.LocalStorage, e => e.Key == "new" && e.Value == "n");
+    }
+
+    [Fact]
     public async Task Delete_RemovesProfileRow()
     {
         await using var harness = await Harness.CreateAsync();

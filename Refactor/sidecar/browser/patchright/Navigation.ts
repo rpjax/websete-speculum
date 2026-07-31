@@ -276,12 +276,13 @@ export class Navigation {
     scripts: readonly BrowserScriptInjection[],
     allowedNavigationDomains: readonly string[] | undefined,
   ): Promise<void> {
-    const scriptMap = new Map(scripts.map((s) => [s.file, s] as const));
-    const hasScripts = scripts.length > 0;
+    const storedScripts = scripts.filter((s) => !s.remoteUrl);
+    const scriptMap = new Map(storedScripts.map((s) => [s.file, s] as const));
+    const hasScripts = storedScripts.length > 0;
     const hasGuard = !!allowedNavigationDomains && allowedNavigationDomains.length > 0;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const patterns: any[] = [];
-    for (const s of scripts) {
+    for (const s of storedScripts) {
       patterns.push({ requestStage: 'Request', urlPattern: `*${s.file}*` });
     }
     if (hasGuard) patterns.push({ requestStage: 'Request', resourceType: 'Document' });

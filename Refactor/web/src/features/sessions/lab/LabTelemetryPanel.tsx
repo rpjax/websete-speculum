@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
-import { Sparkline } from '@/components/admin/Sparkline'
+import { Sparkline } from '@/features/sessions/lab/Sparkline'
 import type { SessionStatus } from '@/lib/speculum'
 import type { LabStats } from './useLabSession'
 

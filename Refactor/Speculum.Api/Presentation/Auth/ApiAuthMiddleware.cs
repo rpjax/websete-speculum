@@ -1,19 +1,19 @@
-using System.Security.Cryptography;
-using System.Text;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Speculum.Api.Auth.Services.Contracts;
 
 namespace Speculum.Api.Presentation.Auth;
 
 /// <summary>
-/// When <c>SPECULUM_BYPASS_API_AUTH</c> is not true, configuration / journal catalog /
-/// and session harness HTTP APIs require <c>Authorization: Bearer &lt;token&gt;</c>
-/// matching <c>SPECULUM_API_AUTH_TOKEN</c>. Hub and WebTransport stay open:
-/// browsers cannot attach custom headers to WebTransport; session tokens gate the data plane.
+/// Control-plane HTTP requires <c>Authorization: Bearer &lt;accessToken&gt;</c> from
+/// <c>/api/auth/login</c> or <c>/api/auth/refresh</c>, unless
+/// <c>SPECULUM_BYPASS_API_AUTH</c> is set (lab/CI only). Hub and WebTransport stay open.
+/// Default for <c>/api/*</c> is require auth; only an explicit public set is open.
 /// </summary>
 public sealed class ApiAuthMiddleware
 {
     public const string BypassEnvironmentVariable = "SPECULUM_BYPASS_API_AUTH";
-    public const string TokenEnvironmentVariable = "SPECULUM_API_AUTH_TOKEN";
+    public const string OperatorItemKey = "Speculum.Operator";
 
     private readonly RequestDelegate _next;
 
@@ -29,57 +29,75 @@ public sealed class ApiAuthMiddleware
             || string.Equals(value, "1", StringComparison.OrdinalIgnoreCase);
     }
 
-    public static string? GetConfiguredToken()
+    public async Task InvokeAsync(HttpContext context, IAuthService auth)
     {
-        var token = Environment.GetEnvironmentVariable(TokenEnvironmentVariable);
-        return string.IsNullOrWhiteSpace(token) ? null : token.Trim();
-    }
+        var path = context.Request.Path.Value ?? string.Empty;
 
-    public async Task InvokeAsync(HttpContext context)
-    {
-        if (IsBypassEnabled() || !RequiresAuth(context.Request.Path))
+        // change-password always needs a real operator identity (even under lab bypass).
+        var forceAuth = path.StartsWith("/api/auth/change-password", StringComparison.OrdinalIgnoreCase);
+
+        if (!forceAuth && (IsBypassEnabled() || IsPublicPath(path)))
         {
             await _next(context).ConfigureAwait(false);
             return;
         }
 
-        var expected = GetConfiguredToken();
-        if (expected is null)
+        if (!forceAuth && !RequiresAuth(path))
         {
-            context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
-            await context.Response.WriteAsJsonAsync(new
-            {
-                error = "auth_not_configured",
-                message =
-                    $"Set {TokenEnvironmentVariable} (Bearer token) or enable {BypassEnvironmentVariable} for lab/test only.",
-            }).ConfigureAwait(false);
+            await _next(context).ConfigureAwait(false);
             return;
         }
 
-        if (!TryGetBearerToken(context.Request, out var provided)
-            || !FixedTimeEqualsUtf8(provided, expected))
+        if (!TryGetBearerToken(context.Request, out var accessToken))
         {
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
             await context.Response.WriteAsJsonAsync(new
             {
                 error = "authorization_required",
-                message = "Authorization: Bearer <token> required when SPECULUM_BYPASS_API_AUTH is not enabled.",
+                message = "Authorization: Bearer <accessToken> required. POST /api/auth/login first.",
             }).ConfigureAwait(false);
             return;
         }
 
+        var validated = await auth.ValidateAccessTokenAsync(accessToken, context.RequestAborted)
+            .ConfigureAwait(false);
+        if (validated.IsFailure)
+        {
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            await context.Response.WriteAsJsonAsync(new
+            {
+                error = "authorization_required",
+                message = "Invalid or expired access token.",
+            }).ConfigureAwait(false);
+            return;
+        }
+
+        context.Items[OperatorItemKey] = validated.Value;
         await _next(context).ConfigureAwait(false);
     }
 
-    private static bool RequiresAuth(PathString path)
+    private static bool IsPublicPath(string path)
+        => IsExactOrChild(path, "/api/auth/login")
+            || IsExactOrChild(path, "/api/auth/refresh")
+            || path.StartsWith("/api/public/", StringComparison.OrdinalIgnoreCase)
+            || path.StartsWith("/health", StringComparison.OrdinalIgnoreCase)
+            || path.Equals("/vhub", StringComparison.OrdinalIgnoreCase)
+            || path.StartsWith("/vhub/", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsExactOrChild(string path, string root)
+        => path.Equals(root, StringComparison.OrdinalIgnoreCase)
+            || path.StartsWith(root + "/", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Deny-by-default for /api/* except public auth/bootstrap paths.</summary>
+    private static bool RequiresAuth(string path)
     {
-        var value = path.Value ?? string.Empty;
-        return value.StartsWith("/api/configurations", StringComparison.OrdinalIgnoreCase)
-            || value.StartsWith("/api/journal", StringComparison.OrdinalIgnoreCase)
-            || value.StartsWith("/api/scripts", StringComparison.OrdinalIgnoreCase)
-            || value.StartsWith("/api/sessions", StringComparison.OrdinalIgnoreCase)
-            || value.StartsWith("/api/admin/host-resources", StringComparison.OrdinalIgnoreCase)
-            || value.StartsWith("/api/admin/diagnostics", StringComparison.OrdinalIgnoreCase);
+        if (!path.StartsWith("/api/", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        if (IsPublicPath(path))
+            return false;
+
+        return true;
     }
 
     private static bool TryGetBearerToken(HttpRequest request, out string token)
@@ -95,14 +113,6 @@ public sealed class ApiAuthMiddleware
 
         token = header[prefix.Length..].Trim();
         return token.Length > 0;
-    }
-
-    private static bool FixedTimeEqualsUtf8(string left, string right)
-    {
-        var leftBytes = Encoding.UTF8.GetBytes(left);
-        var rightBytes = Encoding.UTF8.GetBytes(right);
-        return leftBytes.Length == rightBytes.Length
-            && CryptographicOperations.FixedTimeEquals(leftBytes, rightBytes);
     }
 }
 

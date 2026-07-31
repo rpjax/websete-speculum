@@ -1,0 +1,6 @@
+import type { ReactNode } from 'react'
+import { Button } from '@/components/ui/button'
+
+export function StepWizard({ steps, currentIndex, onBack, onContinue, continueDisabled = false, allowAbandon = false, onAbandon, continueLabel = 'Continue', children }: { steps: { id: string; title: string }[]; currentIndex: number; onBack?: () => void; onContinue?: () => void; continueDisabled?: boolean; allowAbandon?: boolean; onAbandon?: () => void; continueLabel?: string; children?: ReactNode }) {
+  return <div><nav aria-label="Progress" className="mb-6 flex flex-wrap gap-2">{steps.map((step, index) => <span key={step.id} aria-current={index === currentIndex ? 'step' : undefined} className={`rounded-full border px-3 py-1 text-sm ${index === currentIndex ? 'border-primary bg-primary text-primary-foreground' : 'text-muted-foreground'}`}>{index + 1}. {step.title}</span>)}</nav>{children}<div className="mt-6 flex items-center gap-2">{currentIndex > 0 && onBack ? <Button variant="outline" onClick={onBack}>Back</Button> : null}{allowAbandon && onAbandon ? <Button variant="ghost" onClick={onAbandon}>Cancel</Button> : null}{onContinue ? <Button className="ml-auto" onClick={onContinue} disabled={continueDisabled}>{continueLabel}</Button> : null}</div></div>
+}

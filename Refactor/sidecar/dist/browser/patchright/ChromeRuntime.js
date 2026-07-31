@@ -146,6 +146,14 @@ async function closeChrome(handle, options) {
         /* best-effort */
     }
 }
+function escapeHtmlAttr(value) {
+    return value
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+}
 /** Inject script tags into HTML by position (used by Navigation fetch fulfill). */
 function injectScriptTags(html, scripts) {
     const groups = {
@@ -160,7 +168,9 @@ function injectScriptTags(html, scripts) {
     }
     const tag = (s) => {
         const typeAttr = s.type === 'Module' ? ' type="module"' : '';
-        return `<script${typeAttr} src="${s.file}"></script>`;
+        const raw = s.remoteUrl && s.remoteUrl.length > 0 ? s.remoteUrl : s.file;
+        const src = escapeHtmlAttr(raw);
+        return `<script${typeAttr} src="${src}"></script>`;
     };
     let out = html;
     if (groups.HeaderTop.length) {

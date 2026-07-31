@@ -11,7 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { ScriptTargetRulesEditor } from '@/features/admin/ScriptTargetRulesEditor'
+import { ScriptTargetRulesEditor } from '@/features/sessions/lab/scripting/ScriptTargetRulesEditor'
 import {
   deleteLabScript,
   listLabScripts,

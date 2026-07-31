@@ -18,6 +18,7 @@ internal sealed class SessionOutputFanOut
     private readonly OutputMultiplexingPolicy _policy;
     private readonly CancellationToken _lifetime;
     private readonly object _ownerGate = new();
+    private readonly List<Guid> _pipeOrder = [];
     private Guid? _exclusivePipeOwner;
     private int _started;
 
@@ -31,6 +32,25 @@ internal sealed class SessionOutputFanOut
         _pipes = pipes;
         _policy = policy ?? new OutputMultiplexingPolicy();
         _lifetime = lifetime;
+    }
+
+    public void OnPipeRegistered(Guid pipeId)
+    {
+        lock (_ownerGate)
+        {
+            if (!_pipeOrder.Contains(pipeId))
+                _pipeOrder.Add(pipeId);
+        }
+    }
+
+    public void OnPipeUnregistered(Guid pipeId)
+    {
+        lock (_ownerGate)
+        {
+            _pipeOrder.Remove(pipeId);
+            if (_exclusivePipeOwner == pipeId)
+                _exclusivePipeOwner = null;
+        }
     }
 
     public void EnsureStarted()
@@ -70,10 +90,13 @@ internal sealed class SessionOutputFanOut
                 return [owned];
             }
 
-            foreach (var pair in _pipes)
+            foreach (var pipeId in _pipeOrder)
             {
-                _exclusivePipeOwner = pair.Key;
-                return [pair.Value];
+                if (!_pipes.TryGetValue(pipeId, out var channels))
+                    continue;
+
+                _exclusivePipeOwner = pipeId;
+                return [channels];
             }
         }
 

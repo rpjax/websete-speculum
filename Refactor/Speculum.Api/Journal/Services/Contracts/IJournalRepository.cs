@@ -21,4 +21,29 @@ public interface IJournalRepository
     Task<IReadOnlyList<JournalEntry>> ReadAsync(
         JournalQuery query,
         CancellationToken cancellationToken = default);
+
+    /// <summary>Approximate durable journal payload bytes (payload lengths + envelope overhead).</summary>
+    Task<long> EstimateStoredBytesAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Deletes oldest entries with a <c>session</c> index key published before <paramref name="olderThan"/>.
+    /// </summary>
+    Task<int> DeleteSessionIndexedOlderThanAsync(
+        DateTimeOffset olderThan,
+        int take,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Deletes oldest <c>Telemetry.Sampling.SampleCollected</c> rows before cutoff.</summary>
+    Task<int> DeleteTelemetrySamplesOlderThanAsync(
+        DateTimeOffset olderThan,
+        int take,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Deletes remaining journal facts older than cutoff (excludes session-indexed and SampleCollected).
+    /// </summary>
+    Task<int> DeleteRemainingFactsOlderThanAsync(
+        DateTimeOffset olderThan,
+        int take,
+        CancellationToken cancellationToken = default);
 }

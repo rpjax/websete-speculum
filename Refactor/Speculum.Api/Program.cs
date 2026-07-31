@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Speculum.Api;
+using Speculum.Api.Auth;
+using Speculum.Api.Auth.Services.Contracts;
 using Speculum.Api.BrowserClients;
 using Speculum.Api.Configurations;
 using Speculum.Api.Configurations.Services;
@@ -27,6 +29,7 @@ var webTransportCertificate = WebTransportHosting.Configure(builder);
 builder.Host.UseWolverine();
 builder.Services.AddEngineConfiguration();
 builder.Services.AddDatabase();
+builder.Services.AddOperatorAuth();
 builder.Services.AddJournal();
 builder.Services.DiscoverJournalFacts();
 builder.Services.AddProfiles();
@@ -42,6 +45,13 @@ builder.Services.AddPresentation();
 var app = builder.Build();
 
 app.Services.EnsureDatabase();
+await using (var authScope = app.Services.CreateAsyncScope())
+{
+    await authScope.ServiceProvider.GetRequiredService<IAuthService>()
+        .EnsureDefaultOperatorAsync()
+        .ConfigureAwait(false);
+}
+
 await app.Services.GetRequiredService<IConfigurationLoadService>()
     .LoadAndApplyAsync()
     .ConfigureAwait(false);

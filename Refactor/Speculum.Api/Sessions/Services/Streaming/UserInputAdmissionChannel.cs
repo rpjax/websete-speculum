@@ -20,7 +20,22 @@ internal sealed class UserInputAdmissionChannel : IDisposable
     private readonly Task _pump;
     private int _disposed;
 
-    private UserInputAdmissionChannel(int capacity)
+    public static UserInputAdmissionChannel Create(int capacity = DefaultCapacity)
+        => new(capacity, enablePump: true);
+
+    /// <summary>Test seam: queue-only (no async pump) so eviction can be asserted without races.</summary>
+    internal static UserInputAdmissionChannel CreateQueueOnly(int capacity)
+        => new(capacity, enablePump: false);
+
+    internal UserInput[] SnapshotQueueForTests()
+    {
+        lock (_gate)
+        {
+            return _queue.ToArray();
+        }
+    }
+
+    private UserInputAdmissionChannel(int capacity, bool enablePump)
     {
         _capacity = capacity;
         _pipe = Channel.CreateBounded<UserInput>(new BoundedChannelOptions(1)
@@ -29,13 +44,10 @@ internal sealed class UserInputAdmissionChannel : IDisposable
             SingleReader = true,
             SingleWriter = true,
         });
-        _pump = PumpAsync(_cts.Token);
+        _pump = enablePump ? PumpAsync(_cts.Token) : Task.CompletedTask;
     }
 
     public ChannelReader<UserInput> Reader => _pipe.Reader;
-
-    public static UserInputAdmissionChannel Create(int capacity = DefaultCapacity)
-        => new(capacity);
 
     public void Admit(UserInput input)
     {

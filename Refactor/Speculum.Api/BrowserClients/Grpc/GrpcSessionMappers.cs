@@ -72,7 +72,8 @@ internal static class GrpcSessionMappers
                     Position = s.Position,
                     Type = s.Type,
                     File = s.File,
-                    Content = s.Content,
+                    Content = s.Content ?? "",
+                    RemoteUrl = s.RemoteUrl ?? "",
                 });
                 request.Scripts[^1].TargetRules.AddRange(s.TargetRules.Select(ToProtoUrlMatchRule));
             }

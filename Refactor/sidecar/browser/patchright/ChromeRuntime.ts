@@ -10,6 +10,15 @@ import type {
 } from '../BrowserSession';
 import { applyLogicalViewport } from './device-emulation';
 
+function escapeHtmlAttr(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
 function requireChromeExecutable(): string {
   const path = process.env['CHROME_EXECUTABLE'];
   if (!path?.trim()) {
@@ -158,7 +167,9 @@ export function injectScriptTags(html: string, scripts: readonly BrowserScriptIn
   }
   const tag = (s: BrowserScriptInjection): string => {
     const typeAttr = s.type === 'Module' ? ' type="module"' : '';
-    return `<script${typeAttr} src="${s.file}"></script>`;
+    const raw = s.remoteUrl && s.remoteUrl.length > 0 ? s.remoteUrl : s.file;
+    const src = escapeHtmlAttr(raw);
+    return `<script${typeAttr} src="${src}"></script>`;
   };
   let out = html;
   if (groups.HeaderTop.length) {

@@ -4,22 +4,19 @@ using Speculum.Api.Configurations.Models.Scripting;
 using Speculum.Api.Scripts.Services.Contracts;
 using Speculum.Api.Scripts.Storage;
 using Speculum.Api.Sessions.Services;
-using Speculum.Api.Sessions.Services.Contracts;
 
 namespace Speculum.Api.Sessions.Tests;
 
 public sealed class LaunchScriptResolverTests
 {
     [Fact]
-    public async Task ResolveAsync_MapsStoredAndRemoteSources_WithTargetRules()
+    public async Task ResolveAsync_StoredLiteral_RemoteUrlOnly_NoFetch()
     {
         var storedId = Guid.NewGuid();
         var services = new ServiceCollection();
         services.AddScoped<IScriptRepository>(_ => new FakeScriptRepository(storedId, "console.log('stored');"));
         var provider = services.BuildServiceProvider();
-        var resolver = new LaunchScriptResolver(
-            provider.GetRequiredService<IServiceScopeFactory>(),
-            new FakeRemoteScriptFetcher("console.log('remote');"));
+        var resolver = new LaunchScriptResolver(provider.GetRequiredService<IServiceScopeFactory>());
 
         var config = new ScriptingConfiguration
         {
@@ -38,24 +35,8 @@ public sealed class LaunchScriptResolverTests
                     [
                         new UrlMatchRule
                         {
-                            Domain = new DomainPattern
-                            {
-                                Scope = PatternScope.Pattern,
-                                Labels =
-                                [
-                                    new DomainLabelPattern { Match = PatternPartMatch.Exact, Value = "example" },
-                                    new DomainLabelPattern { Match = PatternPartMatch.Exact, Value = "com" },
-                                ],
-                            },
-                            Path = new PathPattern
-                            {
-                                Scope = PatternScope.Pattern,
-                                MatchType = PathMatchType.Prefix,
-                                Segments =
-                                [
-                                    new PathSegmentPattern { Match = PatternPartMatch.Exact, Value = "app" },
-                                ],
-                            },
+                            Domain = new DomainPattern { Scope = PatternScope.Any },
+                            Path = new PathPattern { Scope = PatternScope.Any },
                         },
                     ],
                 },
@@ -82,21 +63,50 @@ public sealed class LaunchScriptResolverTests
 
         var resolved = await resolver.ResolveAsync(config);
 
-        Assert.True(resolved.IsSuccess);
+        Assert.True(resolved.IsSuccess, string.Join("; ", resolved.Errors));
         Assert.Equal(2, resolved.Value.Count);
-        Assert.Equal("HeaderTop", resolved.Value[0].Position);
-        Assert.Equal("Classic", resolved.Value[0].Type);
         Assert.Equal("console.log('stored');", resolved.Value[0].Content);
-        Assert.Single(resolved.Value[0].TargetRules);
+        Assert.Null(resolved.Value[0].RemoteUrl);
+        Assert.Equal("", resolved.Value[1].Content);
+        Assert.Equal("https://cdn.example.com/script.js", resolved.Value[1].RemoteUrl);
         Assert.Equal("BodyBottom", resolved.Value[1].Position);
-        Assert.Equal("Module", resolved.Value[1].Type);
-        Assert.Equal("console.log('remote');", resolved.Value[1].Content);
     }
 
-    private sealed class FakeRemoteScriptFetcher(string content) : IRemoteScriptFetcher
+    [Fact]
+    public async Task ResolveAsync_StoredMissing_FailsMotor()
     {
-        public Task<Aidan.Core.Patterns.IResult<string>> FetchAsync(Uri remoteUrl, CancellationToken ct = default)
-            => Task.FromResult<Aidan.Core.Patterns.IResult<string>>(Aidan.Core.Patterns.Result<string>.Success(content));
+        var services = new ServiceCollection();
+        services.AddScoped<IScriptRepository>(_ => new FakeScriptRepository(Guid.NewGuid(), "x"));
+        var provider = services.BuildServiceProvider();
+        var resolver = new LaunchScriptResolver(provider.GetRequiredService<IServiceScopeFactory>());
+
+        var config = new ScriptingConfiguration
+        {
+            Injections =
+            [
+                new ScriptInjectionConfiguration
+                {
+                    Source = new ScriptSourceConfiguration
+                    {
+                        SourceType = ScriptSourceType.Stored,
+                        StoredScriptId = Guid.NewGuid(),
+                    },
+                    Position = ScriptInjectionPosition.BodyEnd,
+                    ExecutionType = ScriptExecutionType.Classic,
+                    TargetRules =
+                    [
+                        new UrlMatchRule
+                        {
+                            Domain = new DomainPattern { Scope = PatternScope.Any },
+                            Path = new PathPattern { Scope = PatternScope.Any },
+                        },
+                    ],
+                },
+            ],
+        };
+
+        var resolved = await resolver.ResolveAsync(config);
+        Assert.True(resolved.IsFailure);
     }
 
     private sealed class FakeScriptRepository(Guid scriptId, string content) : IScriptRepository

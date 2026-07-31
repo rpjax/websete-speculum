@@ -1,49 +1,38 @@
 /**
- * Centralized route metadata registry.
- *
- * Every admin route declares its display label and optional parent path.
- * Dynamic segments (`:id`, `:connectionId`) are resolved at render time
- * via `resolveLabel`.
- *
- * Used by `<PageBreadcrumbs />` to build navigation trails automatically.
+ * Admin route metadata for breadcrumbs / command palette helpers.
+ * Keep aligned with frontend/wireframe/ia-map.md.
  */
 
 export interface RouteEntry {
-  /** Human-readable label shown in breadcrumbs */
   label: string
-  /** Absolute parent path (omit for top-level admin pages) */
   parent?: string
 }
 
 const ROUTE_MAP: Record<string, RouteEntry> = {
-  '/admin':                         { label: 'Dashboard' },
-  '/admin/forwarding':              { label: 'Forwarding' },
-  '/admin/capacity':                { label: 'Capacity & bridges' },
-  '/admin/host-resources':          { label: 'Host resources' },
-  '/admin/hosting':                 { label: 'Hosting' },
-  '/admin/script-injection':        { label: 'Script injection' },
-  '/admin/scripts':                 { label: 'Scripts' },
-  '/admin/sessions':                { label: 'Sessions' },
-  '/admin/sessions/:id':            { label: ':id', parent: '/admin/sessions' },
-  '/admin/diagnostics':             { label: 'Diagnostics' },
-  '/admin/diagnostics/health':      { label: 'Health', parent: '/admin/diagnostics' },
-  '/admin/diagnostics/telemetry':   { label: 'Telemetry', parent: '/admin/diagnostics' },
-  '/admin/diagnostics/telemetry/explore': { label: 'Monitor expanded', parent: '/admin/diagnostics/telemetry' },
-  '/admin/diagnostics/telemetry/analysis': { label: 'Telemetry analysis', parent: '/admin/diagnostics/telemetry' },
-  '/admin/diagnostics/timeline':    { label: 'Timeline', parent: '/admin/diagnostics' },
-  '/admin/diagnostics/analysis':    { label: 'Analysis', parent: '/admin/diagnostics' },
+  '/admin': { label: 'Home' },
+  '/admin/sessions': { label: 'Sessions' },
+  '/admin/sessions/:sessionId': { label: ':sessionId', parent: '/admin/sessions' },
+  '/admin/profiles': { label: 'Profiles' },
+  '/admin/profiles/:profileId': { label: ':profileId', parent: '/admin/profiles' },
+  '/admin/profiles/:profileId/delete': { label: 'Delete', parent: '/admin/profiles/:profileId' },
+  '/admin/scripts': { label: 'Scripts' },
+  '/admin/scripts/upload': { label: 'Upload', parent: '/admin/scripts' },
+  '/admin/scripts/injections/new': { label: 'Add injection', parent: '/admin/scripts' },
+  '/admin/scripts/injections/:index/edit': { label: 'Edit injection', parent: '/admin/scripts' },
+  '/admin/scripts/injections/:index/remove': { label: 'Remove injection', parent: '/admin/scripts' },
+  '/admin/configurations': { label: 'Configurations' },
+  '/admin/configurations/:section': { label: ':section', parent: '/admin/configurations' },
+  '/admin/host-resources': { label: 'Host resources' },
+  '/admin/host-resources/preview': { label: 'Preview', parent: '/admin/host-resources' },
+  '/admin/host-resources/apply': { label: 'Apply', parent: '/admin/host-resources' },
+  '/admin/diagnostics': { label: 'Diagnostics' },
+  '/admin/diagnostics/health': { label: 'Health', parent: '/admin/diagnostics' },
+  '/admin/diagnostics/timeline': { label: 'Timeline', parent: '/admin/diagnostics' },
   '/admin/diagnostics/investigate': { label: 'Investigate', parent: '/admin/diagnostics' },
-  '/admin/diagnostics/governance':  { label: 'Governance', parent: '/admin/diagnostics' },
-  '/admin/api-key':                 { label: 'API key' },
-  '/admin/openapi':                 { label: 'OpenAPI' },
+  '/admin/diagnostics/governance': { label: 'Governance', parent: '/admin/diagnostics' },
+  '/admin/change-password': { label: 'Change password' },
 }
 
-/**
- * Match a concrete path like `/admin/sessions/conn-abc` against
- * route patterns like `/admin/sessions/:id`.
- *
- * Returns the entry and a map of resolved params.
- */
 export function resolveRoute(pathname: string): { entry: RouteEntry; params: Record<string, string> } | null {
   const segments = pathname.replace(/\/$/, '').split('/')
 
@@ -71,23 +60,12 @@ export interface BreadcrumbSegment {
   to?: string
 }
 
-/**
- * Build a breadcrumb trail for a given pathname.
- *
- * Walks up the `parent` chain from the matched route, producing
- * an array from root → leaf. The leaf segment has no `to` (it's the
- * current page).
- *
- * @param labelOverrides - map of param name → display string,
- *   e.g. `{ id: 'Session AAAA-111' }` to replace `:id` in the label.
- */
 export function buildBreadcrumbs(
   pathname: string,
   labelOverrides?: Record<string, string>,
 ): BreadcrumbSegment[] {
   const result: BreadcrumbSegment[] = []
   let current = pathname.replace(/\/$/, '')
-
   const visited = new Set<string>()
 
   while (current) {
@@ -98,7 +76,6 @@ export function buildBreadcrumbs(
     if (!resolved) break
 
     let label = resolved.entry.label
-    // Replace `:param` references in label with overrides or raw values
     for (const [param, value] of Object.entries(resolved.params)) {
       if (label === `:${param}`) {
         label = labelOverrides?.[param] ?? value
@@ -107,7 +84,9 @@ export function buildBreadcrumbs(
 
     result.unshift({ label, to: result.length > 0 ? current : undefined })
 
-    current = resolved.entry.parent ?? ''
+    const parent = resolved.entry.parent
+    if (!parent) break
+    current = parent.replace(/:([A-Za-z]+)/g, (_, key: string) => resolved.params[key] ?? _)
   }
 
   return result

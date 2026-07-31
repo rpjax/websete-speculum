@@ -191,7 +191,10 @@ export interface BrowserScriptInjection {
   position: string;
   type: string;
   file: string;
+  /** Inline JS for stored scripts; empty when remoteUrl is set. */
   content: string;
+  /** Absolute http(s) URL — browser loads via src (no Fetch fulfill). */
+  remoteUrl?: string;
   targetRules?: BrowserUrlMatchRule[];
 }
 

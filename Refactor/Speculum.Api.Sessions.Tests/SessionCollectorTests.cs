@@ -231,6 +231,24 @@ public sealed class SessionCollectorTests
         public Task<bool> AnyLiveByProfileAsync(Guid profileId, CancellationToken ct = default)
             => Task.FromResult(_sessions.Values.Any(
                 s => s.ProfileId == profileId && s.State == LifecycleState.Live));
+
+        public Task<IReadOnlySet<Guid>> ListLiveProfileIdsAsync(CancellationToken ct = default)
+            => Task.FromResult<IReadOnlySet<Guid>>(
+                _sessions.Values
+                    .Where(s => s.State == LifecycleState.Live)
+                    .Select(s => s.ProfileId)
+                    .ToHashSet());
+
+        public Task<int> DeleteNonLiveByProfileAsync(Guid profileId, CancellationToken ct = default)
+        {
+            var remove = _sessions.Values
+                .Where(s => s.ProfileId == profileId && s.State != LifecycleState.Live)
+                .Select(s => s.Id)
+                .ToArray();
+            foreach (var id in remove)
+                _sessions.Remove(id);
+            return Task.FromResult(remove.Length);
+        }
     }
 
     private sealed class FakeSessionService : ISessionService

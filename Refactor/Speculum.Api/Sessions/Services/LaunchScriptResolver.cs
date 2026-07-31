@@ -7,17 +7,17 @@ using Speculum.Api.Sessions.Services.Contracts;
 
 namespace Speculum.Api.Sessions.Services;
 
+/// <summary>
+/// Builds the session script snapshot at Start: stored → literal content from SQLite;
+/// remote → URL only (no HTTP fetch — sidecar injects src).
+/// </summary>
 public sealed class LaunchScriptResolver : ILaunchScriptResolver
 {
     private readonly IServiceScopeFactory? _scopeFactory;
-    private readonly IRemoteScriptFetcher? _remoteScripts;
 
-    public LaunchScriptResolver(
-        IServiceScopeFactory? scopeFactory = null,
-        IRemoteScriptFetcher? remoteScripts = null)
+    public LaunchScriptResolver(IServiceScopeFactory? scopeFactory = null)
     {
         _scopeFactory = scopeFactory;
-        _remoteScripts = remoteScripts;
     }
 
     public async Task<IResult<IReadOnlyList<ScriptInjection>>> ResolveAsync(
@@ -35,13 +35,6 @@ public sealed class LaunchScriptResolver : ILaunchScriptResolver
         for (var i = 0; i < configuration.Injections.Count; i++)
         {
             var injection = configuration.Injections[i];
-            var content = await ResolveContentAsync(injection.Source, ct).ConfigureAwait(false);
-            if (content.IsFailure)
-            {
-                return Result<IReadOnlyList<ScriptInjection>>.Failure(
-                    $"Failed to resolve Scripting.Injections[{i}]: {content.Errors.FirstOrDefault() ?? "unknown error"}");
-            }
-
             if (!Enum.IsDefined(injection.Position) || !Enum.IsDefined(injection.ExecutionType))
             {
                 return Result<IReadOnlyList<ScriptInjection>>.Failure(
@@ -54,29 +47,55 @@ public sealed class LaunchScriptResolver : ILaunchScriptResolver
                     $"Failed to resolve Scripting.Injections[{i}]: TargetRules must contain at least one rule");
             }
 
-            scripts.Add(new ScriptInjection
+            switch (injection.Source.SourceType)
             {
-                Position = MapPosition(injection.Position),
-                Type = MapType(injection.ExecutionType),
-                File = BuildVirtualFile(injection.Source, i),
-                Content = content.Value,
-                TargetRules = injection.TargetRules.ToArray(),
-            });
+                case ScriptSourceType.Stored:
+                {
+                    var content = await ResolveStoredAsync(injection.Source, ct).ConfigureAwait(false);
+                    if (content.IsFailure)
+                    {
+                        return Result<IReadOnlyList<ScriptInjection>>.Failure(
+                            $"Failed to resolve Scripting.Injections[{i}]: {content.Errors.FirstOrDefault() ?? "unknown error"}");
+                    }
+
+                    scripts.Add(new ScriptInjection
+                    {
+                        Position = MapPosition(injection.Position),
+                        Type = MapType(injection.ExecutionType),
+                        File = BuildStoredVirtualFile(injection.Source, i),
+                        Content = content.Value,
+                        RemoteUrl = null,
+                        TargetRules = injection.TargetRules.ToArray(),
+                    });
+                    break;
+                }
+                case ScriptSourceType.Remote:
+                {
+                    if (injection.Source.RemoteUrl is null)
+                    {
+                        return Result<IReadOnlyList<ScriptInjection>>.Failure(
+                            $"Failed to resolve Scripting.Injections[{i}]: Remote script url is required");
+                    }
+
+                    var remote = injection.Source.RemoteUrl.ToString();
+                    scripts.Add(new ScriptInjection
+                    {
+                        Position = MapPosition(injection.Position),
+                        Type = MapType(injection.ExecutionType),
+                        File = remote,
+                        Content = "",
+                        RemoteUrl = remote,
+                        TargetRules = injection.TargetRules.ToArray(),
+                    });
+                    break;
+                }
+                default:
+                    return Result<IReadOnlyList<ScriptInjection>>.Failure(
+                        $"Failed to resolve Scripting.Injections[{i}]: unsupported source type");
+            }
         }
 
         return Result<IReadOnlyList<ScriptInjection>>.Success(scripts);
-    }
-
-    private async Task<IResult<string>> ResolveContentAsync(
-        ScriptSourceConfiguration source,
-        CancellationToken ct)
-    {
-        return source.SourceType switch
-        {
-            ScriptSourceType.Stored => await ResolveStoredAsync(source, ct).ConfigureAwait(false),
-            ScriptSourceType.Remote => await ResolveRemoteAsync(source, ct).ConfigureAwait(false),
-            _ => Result<string>.Failure($"Unsupported script source type '{source.SourceType}'"),
-        };
     }
 
     private async Task<IResult<string>> ResolveStoredAsync(
@@ -106,43 +125,15 @@ public sealed class LaunchScriptResolver : ILaunchScriptResolver
             : Result<string>.Success(record.Content);
     }
 
-    private async Task<IResult<string>> ResolveRemoteAsync(
-        ScriptSourceConfiguration source,
-        CancellationToken ct)
+    private static string BuildStoredVirtualFile(ScriptSourceConfiguration source, int index)
     {
-        if (source.RemoteUrl is null)
-        {
-            return Result<string>.Failure("Remote script url is required");
-        }
-
-        if (_remoteScripts is null)
-        {
-            return Result<string>.Failure("Remote script resolution is unavailable");
-        }
-
-        return await _remoteScripts.FetchAsync(source.RemoteUrl, ct).ConfigureAwait(false);
-    }
-
-    private static string BuildVirtualFile(ScriptSourceConfiguration source, int index)
-    {
-        return source.SourceType switch
-        {
-            ScriptSourceType.Stored when source.StoredScriptId is { } scriptId
-                => $"/__speculum/scripts/stored/{scriptId:D}.js",
-            ScriptSourceType.Remote when source.RemoteUrl is { } remoteUrl
-                => $"/__speculum/scripts/remote/{index + 1}-{Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(remoteUrl.ToString()))).ToLowerInvariant()}.js",
-            _ => $"/__speculum/scripts/{index + 1}.js",
-        };
+        return source.StoredScriptId is { } scriptId
+            ? $"/__speculum/scripts/stored/{scriptId:D}.js"
+            : $"/__speculum/scripts/{index + 1}.js";
     }
 
     private static string MapPosition(ScriptInjectionPosition position)
-    {
-        if (!Enum.IsDefined(position))
-        {
-            throw new ArgumentOutOfRangeException(nameof(position), position, "Invalid script injection position");
-        }
-
-        return position switch
+        => position switch
         {
             ScriptInjectionPosition.HeadStart => "HeaderTop",
             ScriptInjectionPosition.HeadEnd => "HeaderBottom",
@@ -150,20 +141,12 @@ public sealed class LaunchScriptResolver : ILaunchScriptResolver
             ScriptInjectionPosition.BodyEnd => "BodyBottom",
             _ => throw new ArgumentOutOfRangeException(nameof(position), position, "Invalid script injection position"),
         };
-    }
 
     private static string MapType(ScriptExecutionType executionType)
-    {
-        if (!Enum.IsDefined(executionType))
-        {
-            throw new ArgumentOutOfRangeException(nameof(executionType), executionType, "Invalid script execution type");
-        }
-
-        return executionType switch
+        => executionType switch
         {
             ScriptExecutionType.Module => "Module",
             ScriptExecutionType.Classic => "Classic",
             _ => throw new ArgumentOutOfRangeException(nameof(executionType), executionType, "Invalid script execution type"),
         };
-    }
 }

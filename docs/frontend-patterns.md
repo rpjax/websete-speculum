@@ -90,13 +90,15 @@ Card
     Label + control
     Helper text (muted): consequence / units / default
     … more primary fields
-  Footer / strip:
-    [Save] disabled while pending
-    success (muted green / semantic) | error (destructive)
+  Sticky footer (AdminPage, editor width):
+    Compact inset action dock — not a tall full-bleed tray
+    [Save] (sm) disabled while pending · status on the same strip (right):
+      pending copy | strip-success | strip-error
 ```
 
 - Controlled inputs; PascalCase section keys via `ConfigSections`.
 - Do not leave Save without pending/disabled and without error surfacing.
+- Status lives **on the sticky bar** with the primary action (`SaveFeedbackStrip`); do not orphan a lone Save button in empty sticky chrome.
 
 ### 2.4 List → detail drill-down
 

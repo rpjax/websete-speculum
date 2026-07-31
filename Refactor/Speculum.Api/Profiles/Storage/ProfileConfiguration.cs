@@ -20,7 +20,7 @@ public sealed class ProfileConfiguration : IEntityTypeConfiguration<ProfileRecor
             .HasConversion(IsoOffsetConverter)
             .IsRequired();
 
-        builder.Property(p => p.UpdatedAt)
+        builder.Property(p => p.LastUsedAt)
             .HasConversion(IsoOffsetConverter)
             .IsRequired();
     }

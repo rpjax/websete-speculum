@@ -118,6 +118,9 @@ public sealed class RemoteScriptFetcherValidationTests
     [InlineData("http://192.168.1.2/x.js")]
     [InlineData("http://169.254.1.1/x.js")]
     [InlineData("http://localhost/x.js")]
+    [InlineData("http://0.0.0.0/x.js")]
+    [InlineData("http://100.64.1.1/x.js")]
+    [InlineData("http://[::ffff:10.0.0.1]/x.js")]
     public async Task ValidatePublicHttpUrl_RejectsPrivateHosts(string url)
     {
         var result = await RemoteScriptFetcher.ValidatePublicHttpUrlAsync(new Uri(url));
@@ -127,9 +130,21 @@ public sealed class RemoteScriptFetcherValidationTests
     [Fact]
     public void IsPublicIp_RejectsRfc1918()
     {
-        Assert.False(RemoteScriptFetcher.IsPublicIp(System.Net.IPAddress.Parse("10.1.2.3")));
-        Assert.False(RemoteScriptFetcher.IsPublicIp(System.Net.IPAddress.Parse("172.16.0.1")));
-        Assert.False(RemoteScriptFetcher.IsPublicIp(System.Net.IPAddress.Parse("192.168.0.1")));
-        Assert.True(RemoteScriptFetcher.IsPublicIp(System.Net.IPAddress.Parse("8.8.8.8")));
+        Assert.False(PublicHttpUrlPolicy.IsPublicIp(System.Net.IPAddress.Parse("10.1.2.3")));
+        Assert.False(PublicHttpUrlPolicy.IsPublicIp(System.Net.IPAddress.Parse("172.16.0.1")));
+        Assert.False(PublicHttpUrlPolicy.IsPublicIp(System.Net.IPAddress.Parse("192.168.0.1")));
+        Assert.False(PublicHttpUrlPolicy.IsPublicIp(System.Net.IPAddress.Parse("0.0.0.0")));
+        Assert.False(PublicHttpUrlPolicy.IsPublicIp(System.Net.IPAddress.Parse("100.64.0.1")));
+        Assert.False(PublicHttpUrlPolicy.IsPublicIp(System.Net.IPAddress.Parse("::ffff:10.0.0.1")));
+        Assert.True(PublicHttpUrlPolicy.IsPublicIp(System.Net.IPAddress.Parse("8.8.8.8")));
+    }
+
+    [Fact]
+    public void ValidateRemoteUrl_RejectsMappedPrivateLiteral()
+    {
+        var failure = ScriptingConfigurationValidator.ValidateRemoteUrl(
+            new Uri("http://[::ffff:192.168.0.1]/a.js"),
+            0);
+        Assert.NotNull(failure);
     }
 }

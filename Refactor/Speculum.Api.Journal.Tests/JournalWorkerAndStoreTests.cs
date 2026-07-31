@@ -406,6 +406,21 @@ public sealed class JournalWorkerAndStoreTests
             LastQuery = query;
             return Task.FromResult<IReadOnlyList<JournalEntry>>(Array.Empty<JournalEntry>());
         }
+
+        public Task<long> EstimateStoredBytesAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult(0L);
+
+        public Task<int> DeleteSessionIndexedOlderThanAsync(
+            DateTimeOffset olderThan, int take, CancellationToken cancellationToken = default)
+            => Task.FromResult(0);
+
+        public Task<int> DeleteTelemetrySamplesOlderThanAsync(
+            DateTimeOffset olderThan, int take, CancellationToken cancellationToken = default)
+            => Task.FromResult(0);
+
+        public Task<int> DeleteRemainingFactsOlderThanAsync(
+            DateTimeOffset olderThan, int take, CancellationToken cancellationToken = default)
+            => Task.FromResult(0);
     }
 
     private sealed class FailingThenSucceedingRepository : IJournalRepository
@@ -432,6 +447,21 @@ public sealed class JournalWorkerAndStoreTests
 
         public Task<IReadOnlyList<JournalEntry>> ReadAsync(JournalQuery query, CancellationToken cancellationToken = default)
             => Task.FromResult<IReadOnlyList<JournalEntry>>(Array.Empty<JournalEntry>());
+
+        public Task<long> EstimateStoredBytesAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult(0L);
+
+        public Task<int> DeleteSessionIndexedOlderThanAsync(
+            DateTimeOffset olderThan, int take, CancellationToken cancellationToken = default)
+            => Task.FromResult(0);
+
+        public Task<int> DeleteTelemetrySamplesOlderThanAsync(
+            DateTimeOffset olderThan, int take, CancellationToken cancellationToken = default)
+            => Task.FromResult(0);
+
+        public Task<int> DeleteRemainingFactsOlderThanAsync(
+            DateTimeOffset olderThan, int take, CancellationToken cancellationToken = default)
+            => Task.FromResult(0);
     }
 
     private sealed class CrashingTakeBatchQueue : IJournalQueue

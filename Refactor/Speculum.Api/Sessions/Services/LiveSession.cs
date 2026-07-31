@@ -36,6 +36,7 @@ internal sealed class LiveSession : ILiveSession
     private readonly long _startedTimestamp = Environment.TickCount64;
     private readonly ScopedMutex _commandGate = new();
     private readonly object _attachmentGate = new();
+    private readonly SessionResizeCoalescer _resizeCoalescer = new();
 
     private Guid? _attachmentId;
     private IAttachedSessionClient? _attachedClient;
@@ -899,7 +900,7 @@ internal sealed class LiveSession : ILiveSession
     public Task<IResult<ResizeResult>> ResizeAsync(ResizeSession request, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(request);
-        return ResizeWithGateAsync(request, ct);
+        return _resizeCoalescer.SubmitAsync(request, ResizeWithGateAsync, ct);
     }
 
     private async Task<IResult<ResizeResult>> ResizeWithGateAsync(

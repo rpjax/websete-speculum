@@ -43,6 +43,17 @@ public sealed class SessionStopEvents : ISessionStopEvents
         });
     }
 
+    public void ExportSessionStateSkipped(string reason)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(reason);
+        _writer.Append(new ExportSessionStateSkipped
+        {
+            SessionId = _sessionId,
+            ProfileId = _profileId,
+            Reason = reason.Trim(),
+        });
+    }
+
     public void CloseBrowserFailed(Error[] errors)
     {
         _writer.Append(new CloseBrowserFailed

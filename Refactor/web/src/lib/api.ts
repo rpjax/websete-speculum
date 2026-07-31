@@ -210,7 +210,11 @@ export const ConfigSections = {
   SessionPolicy: 'SessionPolicy',
   JsBridge: 'JsBridge',
   Hosting: 'Hosting',
+  Navigation: 'Navigation',
+  Sessions: 'Sessions',
+  ResourceManagement: 'ResourceManagement',
   Diagnostics: 'Diagnostics',
+  Journal: 'Journal',
   Telemetry: 'Telemetry',
   Scripting: 'Scripting',
 } as const

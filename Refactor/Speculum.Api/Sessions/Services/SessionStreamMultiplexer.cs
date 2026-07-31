@@ -67,6 +67,7 @@ internal sealed class SessionStreamMultiplexer : ISessionStreamMultiplexer
             return Result.Failure("Pipe already registered");
         }
 
+        _fanOut.OnPipeRegistered(pipeId);
         _fanOut.EnsureStarted();
         return Result.Success();
     }
@@ -78,6 +79,7 @@ internal sealed class SessionStreamMultiplexer : ISessionStreamMultiplexer
             return;
         }
 
+        _fanOut.OnPipeUnregistered(pipeId);
         channels.Complete();
     }
 

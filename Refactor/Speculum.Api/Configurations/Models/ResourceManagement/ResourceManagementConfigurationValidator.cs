@@ -15,6 +15,26 @@ public sealed class ResourceManagementConfigurationValidator
                 "ResourceManagement.Sessions.MaxConcurrentSessions must be >= 0.");
         }
 
+        if (options.Profiles.InactiveRetentionPeriod <= TimeSpan.Zero)
+        {
+            return ValidateOptionsResult.Fail(
+                "ResourceManagement.Profiles.InactiveRetentionPeriod must be > 0.");
+        }
+
+        if (options.Storage.BudgetBytes <= 0)
+        {
+            return ValidateOptionsResult.Fail(
+                "ResourceManagement.Storage.BudgetBytes must be > 0.");
+        }
+
+        if (options.Storage.SessionTelemetryRetention <= TimeSpan.Zero
+            || options.Storage.TelemetrySampleRetention <= TimeSpan.Zero
+            || options.Storage.JournalFactRetention <= TimeSpan.Zero)
+        {
+            return ValidateOptionsResult.Fail(
+                "ResourceManagement.Storage retention periods must be > 0.");
+        }
+
         return ValidateOptionsResult.Success;
     }
 }

@@ -472,6 +472,7 @@ public sealed class SessionServiceTests
     {
         public void SessionStatePersisted() { }
         public void ExportSessionStateFailed(Error[] errors) { }
+        public void ExportSessionStateSkipped(string reason) { }
         public void CloseBrowserFailed(Error[] errors) { }
         public void CloseConnectionFailed(Error[] errors) { }
         public void BrowserClosed() { }
@@ -497,6 +498,24 @@ public sealed class SessionServiceTests
         public Task<bool> AnyLiveByProfileAsync(Guid profileId, CancellationToken ct = default)
             => Task.FromResult(_sessions.Values.Any(
                 s => s.ProfileId == profileId && s.State == LifecycleState.Live));
+
+        public Task<IReadOnlySet<Guid>> ListLiveProfileIdsAsync(CancellationToken ct = default)
+            => Task.FromResult<IReadOnlySet<Guid>>(
+                _sessions.Values
+                    .Where(s => s.State == LifecycleState.Live)
+                    .Select(s => s.ProfileId)
+                    .ToHashSet());
+
+        public Task<int> DeleteNonLiveByProfileAsync(Guid profileId, CancellationToken ct = default)
+        {
+            var remove = _sessions.Values
+                .Where(s => s.ProfileId == profileId && s.State != LifecycleState.Live)
+                .Select(s => s.Id)
+                .ToArray();
+            foreach (var id in remove)
+                _sessions.Remove(id);
+            return Task.FromResult(remove.Length);
+        }
     }
 
     private sealed class RecordingCollector : ISessionCollector
@@ -569,6 +588,28 @@ public sealed class SessionServiceTests
             return Task.CompletedTask;
         }
 
+        public Task<bool> MergeSessionExportAsync(
+            Guid profileId,
+            SessionState export,
+            CancellationToken ct = default)
+        {
+            if (!_profiles.TryGetValue(profileId, out var profile))
+                return Task.FromResult(false);
+
+            profile.ApplySessionExport(export);
+            return Task.FromResult(true);
+        }
+
+        public Task TouchLastUsedAsync(Guid profileId, CancellationToken ct = default)
+            => Task.CompletedTask;
+
+        public Task<IReadOnlyList<Guid>> ListExpiredInactiveAsync(
+            DateTimeOffset olderThan,
+            int take,
+            IReadOnlySet<Guid> excludeLiveProfileIds,
+            CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<Guid>>(Array.Empty<Guid>());
+
         public Task<ProfileSummary?> GetSummaryAsync(Guid profileId, CancellationToken ct = default)
         {
             if (!_profiles.TryGetValue(profileId, out var profile))
@@ -578,7 +619,7 @@ public sealed class SessionServiceTests
             {
                 ProfileId = profile.Id,
                 CreatedAt = DateTimeOffset.UtcNow,
-                UpdatedAt = DateTimeOffset.UtcNow,
+                LastUsedAt = DateTimeOffset.UtcNow,
                 CookieCount = profile.State.Cookies.Count,
                 LocalStorageCount = profile.State.LocalStorage.Count,
                 IdbRecordCount = profile.State.IdbRecords.Count,
@@ -596,7 +637,7 @@ public sealed class SessionServiceTests
                 {
                     ProfileId = p.Id,
                     CreatedAt = DateTimeOffset.UtcNow,
-                    UpdatedAt = DateTimeOffset.UtcNow,
+                    LastUsedAt = DateTimeOffset.UtcNow,
                 })
                 .ToList();
             return Task.FromResult<(IReadOnlyList<ProfileListItem>, int)>((

@@ -17,13 +17,14 @@ npm install -g @rodrigopjax/dockup
 | Env | Sidecar browser | Purpose |
 |-----|-----------------|---------|
 | **`dev`** | `patchright` (Chrome) | Local lab — Traefik + web + API; `SPECULUM_BYPASS_API_AUTH` |
-| **`prod`** | `patchright` (Chrome) | Production posture — no web lab, no auth bypass |
+| **`prod`** | `patchright` (Chrome) | VPS production — Traefik `:80`/`:443`, web admin SPA, no auth bypass; images push to Docker Hub `websete/*` |
 | **`test`** | `patchright` + motor-fixture | Act→Assert `SessionsTest` (CI also uses compose) |
 
-`dev` and `prod` publish Traefik on host **`:8080`** and WebTransport on **`:8443`** — run only one at a time.
+`dev` publishes Traefik on host **`:8080`**; `prod` on **`:80`/`:443`**. Both publish
+WebTransport on **`:8443`** — run only one at a time.
 `test` / compose sessions-test uses **`:18090`** (API) so it can run beside local stacks.
 Sidecar uses Docker `init: true` (reaps Chrome/Xvfb zombies). Volumes are env-scoped
-(`speculum-refactor-dev-data` / `speculum-refactor-prod-data` / `speculum-refactor-test-data`).
+(`speculum-refactor-dev-data` / `speculum-data` / `speculum-refactor-test-data`).
 
 First-boot mandatory config: `dev` / `test` seed Sessions + ResourceManagement +
 Navigation via env so `/health/ready` can pass. `prod` seeds Sessions +
@@ -60,8 +61,8 @@ and `/api` to the api (nginx in the web image also proxies them same-origin).
 `dev` keeps `ASPNETCORE_ENVIRONMENT=Production` (container has no ASP.NET
 dev cert) and sets `SPECULUM_BYPASS_API_AUTH=true` so lab/harness and
 configurations API work without a Bearer token. Local `dotnet run` also needs
-`SPECULUM_BYPASS_API_AUTH=true` (or `SPECULUM_API_AUTH_TOKEN` +
-`Authorization: Bearer …`) — Development alone does not bypass auth. First-boot
+`SPECULUM_BYPASS_API_AUTH=true` (or login via `POST /api/auth/login` and
+`Authorization: Bearer <accessToken>`) — Development alone does not bypass auth. First-boot
 env (or lab PUT) must supply Navigation + Sessions + ResourceManagement before
 StartSession / `/health/ready`. Container health for Traefik depends on
 `/health/live`, not ready.
@@ -95,42 +96,55 @@ developer machines). Sidecar only executes the precomputed remount.
 Sidecar restart resets shm to the compose floor until Apply is run again (no
 automatic reapply on boot).
 
-## Prod (no web lab)
+## Prod (VPS)
 
-Chrome sidecar + API + Traefik (`/vhub` + `/health` + `/api`). No SPA image,
-no `SPECULUM_BYPASS_API_AUTH`, no Dev backdoor.
+Chrome sidecar + API + Traefik + admin SPA. No `SPECULUM_BYPASS_API_AUTH`.
+Images build/push to Docker Hub under namespace `websete` (`:prod` tag). Traefik
+publishes **`:80`/`:443`**; WebTransport **`:8443`** (TCP+UDP).
 
-**Auth (required):** set `SPECULUM_API_AUTH_TOKEN` in the generated compose /
-`.env` before `up`. Configuration / journal / session harness APIs accept only
-`Authorization: Bearer <token>` (constant-time compare). Without the env var,
-those routes return `503 auth_not_configured` (fail closed).
+**Auth (required):** default operator is `admin` / `admin` (seeded on first boot).
+Obtain tokens via `POST /api/auth/login`, then send
+`Authorization: Bearer <accessToken>` on configuration / journal / session harness
+APIs. Refresh with `POST /api/auth/refresh`. Do **not** set
+`SPECULUM_BYPASS_API_AUTH` in prod. Change the password after first boot
+(`POST /api/auth/change-password`).
 
 **Pending Navigation:** prod does **not** seed `Navigation` (no
 `www.example.com` / open allowlist). After first boot, `/health/ready` stays
 unhealthy and StartSession is blocked until an operator Applies Navigation
 (and confirms Sessions / ResourceManagement) via
-`PUT /api/configurations` with the Bearer token.
+`PUT /api/configurations` with a Bearer access token.
 
-**TLS:** dockup prod is production *posture* on HTTP `:8080` for local/private
-networks. For internet exposure, terminate TLS at your edge (or extend Traefik
-with an HTTPS entrypoint + certificates). WebTransport remains direct
+**TLS:** Traefik exposes `:443` but routers currently bind the `web` entrypoint
+(HTTP `:80`). Terminate TLS at your edge or extend Traefik with an ACME
+certresolver + `websecure` router labels. WebTransport remains direct
 `https://…:8443` with a cert pin fetched from `/health/webtransport-cert`.
+Set `PUBLIC_HOST` in `dockup.json` prod `env` so the web image bakes
+`VITE_SPECULUM_TRANSPORT_ORIGIN`.
 
 ```bash
 dockup validate -c dockup.json --root ..
+dockup deploy --env prod -c dockup.json --root ..
+# compose + .env under out/prod/ — deploy that compose to the VPS (Hostinger Docker Manager)
+```
+
+Local dry-run without registry push:
+
+```bash
 dockup deploy --env prod -c dockup.json --root .. --skip-push
 cd out/prod
-# Required — choose a strong secret before first up:
-#   echo SPECULUM_API_AUTH_TOKEN=… >> .env
-#   (or export into the api service environment in compose)
 docker compose --env-file .env up -d
 ```
 
-Then Apply Navigation (example):
+Then login and Apply Navigation (example):
 
 ```bash
-curl -sf -X PUT http://127.0.0.1:8080/api/configurations/Navigation \
-  -H "Authorization: Bearer $SPECULUM_API_AUTH_TOKEN" \
+TOKENS=$(curl -sf -X POST http://127.0.0.1/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"admin","password":"admin"}')
+ACCESS=$(echo "$TOKENS" | jq -r .accessToken)
+curl -sf -X PUT http://127.0.0.1/api/configurations/Navigation \
+  -H "Authorization: Bearer $ACCESS" \
   -H 'Content-Type: application/json' \
   -d '{"defaultTargetHost":"www.example.com","allowedMainFrameUrls":[{"domain":{"scope":"Any","labels":[]}}]}'
 ```

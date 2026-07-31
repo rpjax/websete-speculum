@@ -430,9 +430,11 @@ public sealed class ConfigurationApplyService : IConfigurationApplyService
     {
         var resources = JsonSerializer.Deserialize<ResourceManagementConfiguration>(json, JsonOptions)
             ?? new ResourceManagementConfiguration();
-        if (resources.Sessions.MaxConcurrentSessions < 0)
-            return "ResourceManagement.Sessions.MaxConcurrentSessions must be >= 0.";
-        return null;
+        var result = new ResourceManagementConfigurationValidator()
+            .Validate(Options.DefaultName, resources);
+        return result.Succeeded
+            ? null
+            : string.Join("; ", result.Failures ?? Array.Empty<string>());
     }
 
     private async Task<string?> ValidateScriptingAsync(string json, CancellationToken ct)
@@ -446,22 +448,40 @@ public sealed class ConfigurationApplyService : IConfigurationApplyService
             return string.Join("; ", result.Failures ?? Array.Empty<string>());
         }
 
+        var hasStored = scripting.Injections.Any(i =>
+            i.Source.SourceType == ScriptSourceType.Stored
+            && i.Source.StoredScriptId is { } id
+            && id != Guid.Empty);
+
         if (_scopeFactory is null)
         {
-            return null;
+            return hasStored
+                ? "Script repository is unavailable; cannot validate StoredScriptId references."
+                : null;
         }
 
         using var scope = _scopeFactory.CreateScope();
         var scripts = scope.ServiceProvider.GetService<IScriptRepository>();
-        if (scripts is null)
+        if (scripts is null && hasStored)
         {
-            return null;
+            return "Script repository is unavailable; cannot validate StoredScriptId references.";
         }
 
         for (var i = 0; i < scripting.Injections.Count; i++)
         {
             var injection = scripting.Injections[i];
-            if (injection.Source.SourceType != ScriptSourceType.Stored
+            if (injection.Source.SourceType == ScriptSourceType.Remote
+                && injection.Source.RemoteUrl is { } remoteUrl)
+            {
+                var urlCheck = await PublicHttpUrlPolicy.ValidateAsync(remoteUrl, ct).ConfigureAwait(false);
+                if (urlCheck.IsFailure)
+                {
+                    return $"Scripting.Injections[{i}].Source.RemoteUrl: {urlCheck.Errors.FirstOrDefault() ?? "host is not allowed"}.";
+                }
+            }
+
+            if (scripts is null
+                || injection.Source.SourceType != ScriptSourceType.Stored
                 || injection.Source.StoredScriptId is not { } scriptId
                 || scriptId == Guid.Empty)
             {

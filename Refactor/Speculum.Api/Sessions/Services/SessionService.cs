@@ -293,6 +293,7 @@ public sealed class SessionService : ISessionService
                 }
 
                 lifecycleEvents.Started();
+                await _profiles.TouchLastUsedAsync(profileId, ct).ConfigureAwait(false);
                 return Result<StartSessionResponse>.Success(new StartSessionResponse
                 {
                     SessionId = sessionId,
@@ -434,13 +435,7 @@ public sealed class SessionService : ISessionService
         if (!_browserClient.TryGetConnection(sessionId, out var connection))
         {
             telemetry.Persist.SkippedNoConnection();
-            return;
-        }
-
-        var profile = await _profiles.LoadAsync(session.ProfileId, ct).ConfigureAwait(false);
-        if (profile is null)
-        {
-            telemetry.Persist.SkippedProfileNotFound();
+            stopEvents.ExportSessionStateSkipped("no_connection");
             return;
         }
 
@@ -451,9 +446,16 @@ public sealed class SessionService : ISessionService
             return;
         }
 
-        profile.ApplySessionExport(exportResult.Value);
-        await _profiles.SaveAsync(profile, ct).ConfigureAwait(false);
+        if (!await _profiles.MergeSessionExportAsync(session.ProfileId, exportResult.Value, ct)
+                .ConfigureAwait(false))
+        {
+            telemetry.Persist.SkippedProfileNotFound();
+            stopEvents.ExportSessionStateSkipped("profile_not_found");
+            return;
+        }
+
         stopEvents.SessionStatePersisted();
+        telemetry.Persist.Succeeded();
     }
 
     /// <summary>

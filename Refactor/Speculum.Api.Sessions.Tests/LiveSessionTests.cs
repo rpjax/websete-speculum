@@ -100,7 +100,9 @@ public sealed class LiveSessionTests
         var second = live.OpenFrameStream().Value;
 
         await connection.Frames.Writer.WriteAsync(new Frame { Sequence = 9 });
-        Assert.Equal(9, (await first.GetFramesChannel().Value.ReadAsync()).Sequence);
+
+        using var firstCts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        Assert.Equal(9, (await first.GetFramesChannel().Value.ReadAsync(firstCts.Token)).Sequence);
 
         using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(200));
         await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>

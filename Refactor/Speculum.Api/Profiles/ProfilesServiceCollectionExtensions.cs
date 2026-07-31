@@ -40,7 +40,8 @@ public static class ProfilesServiceCollectionExtensions
             Speculum.Api.Telemetry.Ports.IProfileTelemetrySampleSource,
             Speculum.Api.Profiles.Telemetry.ProfileTelemetrySampleSource>();
 
-        // Retention purge scaffolds (no-op until SQLite InactiveRetentionPeriod purge lands).
+        services.TryAddSingleton<IRetentionWorkGate, RetentionWorkGate>();
+        services.TryAddSingleton<IRetentionPurgeExecutor, RetentionPurgeExecutor>();
         services.AddHostedService<ProfileRetentionCleanerHostedService>();
         services.AddHostedService<ProfileRetentionEnforcerHostedService>();
 

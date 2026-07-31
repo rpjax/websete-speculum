@@ -115,7 +115,7 @@ internal sealed class SessionInputMerger
 
     /// <summary>
     /// Exclusive access uses ownership. Shared ignores Ownership/Scheduling for claim
-    /// (merge channel is arrival-order; RoundRobin Shared is arrival-order today — single merge queue).
+    /// (merge channel is arrival-order). True RoundRobin Shared scheduling is deferred to 1.1.
     /// </summary>
     private bool RequiresExclusiveOwnership()
         => _policy.Access == InputAccessPolicy.Exclusive;
@@ -155,8 +155,8 @@ internal sealed class SessionInputMerger
         }
 
         // Scheduling.ArrivalOrder = natural channel write order.
-        // Scheduling.RoundRobin with Shared still drains one merge channel (arrival order);
-        // exclusive ownership already serializes a single owner pipe.
+        // Scheduling.RoundRobin with Shared still drains one merge channel (arrival order) — 1.1.
+        // Exclusive ownership already serializes a single owner pipe.
         _ = _policy.Scheduling;
 
         var start = _connection.ConsumeUserInputAsync(_userInputMerge.Reader);

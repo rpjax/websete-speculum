@@ -14,6 +14,8 @@ public enum ResizeOutcome
     Busy = 2,
     /// <summary>Sidecar/transport failure after validation.</summary>
     Failed = 3,
+    /// <summary>Superseded by a newer resize in the server coalesce window (rare — usually waiters share Applied).</summary>
+    Coalesced = 4,
 }
 
 /// <summary>Hub return for <c>ResizeAsync</c> — confirmed geometry or explicit soft failure.</summary>

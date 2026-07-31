@@ -145,22 +145,30 @@
     "volumes": [{ "name": "speculum-refactor-dev-data" }]
   },
   "prod": {
-    "namespace": "speculum-refactor",
-    "network": "speculum-refactor-prod",
+    "namespace": "websete",
+    "network": "speculum",
+    "tag": "prod",
+    "env": [
+      { "name": "PUBLIC_HOST", "value": "179.197.69.156" },
+      { "name": "TRANSPORT_ORIGIN", "value": "https://${PUBLIC_HOST}:8443" }
+    ],
     "containers": [
       {
         "id": "traefik",
         "imageRef": "traefik:v3.6.1",
+        "restart": "unless-stopped",
         "dependsOn": [{ "id": "api", "condition": "service_healthy" }],
         "command": [
           "--api.dashboard=false",
           "--providers.docker=true",
           "--providers.docker.exposedbydefault=false",
-          "--providers.docker.network=speculum-refactor-prod",
-          "--entrypoints.web.address=:80"
+          "--providers.docker.network=speculum",
+          "--entrypoints.web.address=:80",
+          "--entrypoints.websecure.address=:443"
         ],
         "ports": [
-          { "host": 8080, "container": 80 }
+          { "host": 80, "container": 80 },
+          { "host": 443, "container": 443 }
         ],
         "volumes": [
           { "host": "/var/run/docker.sock", "container": "/var/run/docker.sock:ro" }
@@ -168,9 +176,10 @@
       },
       {
         "id": "sidecar",
-        "image": "speculum-refactor-sidecar",
+        "image": "speculum-sidecar",
         "context": ".",
         "dockerfile": "sidecar/Dockerfile",
+        "restart": "unless-stopped",
         "init": true,
         "capAdd": ["SYS_ADMIN"],
         "shmSize": "2gb",
@@ -185,7 +194,8 @@
           { "name": "SPECULUM_BROWSER", "value": "patchright" },
           { "name": "CHROME_EXECUTABLE", "value": "/usr/bin/google-chrome" },
           { "name": "SPECULUM_GRPC_PORT", "value": "50051" },
-          { "name": "SPECULUM_HEALTH_PORT", "value": "3001" }
+          { "name": "SPECULUM_HEALTH_PORT", "value": "3001" },
+          { "name": "SPECULUM_INPUT_BACKEND", "value": "patchright" }
         ],
         "healthcheck": {
           "test": ["CMD", "curl", "-sf", "http://localhost:3001/health"],
@@ -197,9 +207,10 @@
       },
       {
         "id": "api",
-        "image": "speculum-refactor-api",
+        "image": "speculum-api",
         "context": ".",
         "dockerfile": "Speculum.Api/Dockerfile",
+        "restart": "unless-stopped",
         "dependsOn": [{ "id": "sidecar", "condition": "service_healthy" }],
         "healthcheck": {
           "test": ["CMD", "curl", "-sf", "http://localhost:8080/health/live"],
@@ -241,7 +252,7 @@
           { "name": "Sessions__DeviceEmulationPolicy__MobileUserAgentProfile", "value": "mobile" }
         ],
         "volumes": [
-          { "name": "speculum-refactor-prod-data", "container": "/data" },
+          { "name": "speculum-data", "container": "/data" },
           { "host": "/proc", "container": "/host/proc:ro" },
           { "host": "/var/run/docker.sock", "container": "/var/run/docker.sock:ro" }
         ],
@@ -250,15 +261,41 @@
         },
         "labels": [
           "traefik.enable=true",
-          "traefik.http.routers.refactor-api.rule=PathPrefix(`/vhub`) || PathPrefix(`/health`) || PathPrefix(`/api`)",
-          "traefik.http.routers.refactor-api.entrypoints=web",
-          "traefik.http.routers.refactor-api.priority=100",
-          "traefik.http.routers.refactor-api.service=refactor-api",
-          "traefik.http.services.refactor-api.loadbalancer.server.port=8080"
+          "traefik.http.routers.speculum-api.rule=PathPrefix(`/vhub`) || PathPrefix(`/health`) || PathPrefix(`/api`)",
+          "traefik.http.routers.speculum-api.entrypoints=web",
+          "traefik.http.routers.speculum-api.priority=100",
+          "traefik.http.routers.speculum-api.service=speculum-api",
+          "traefik.http.services.speculum-api.loadbalancer.server.port=8080"
+        ]
+      },
+      {
+        "id": "web",
+        "image": "speculum-web",
+        "context": "web",
+        "dockerfile": "Dockerfile",
+        "restart": "unless-stopped",
+        "buildArgs": [
+          { "name": "VITE_SPECULUM_TRANSPORT_ORIGIN", "value": "${TRANSPORT_ORIGIN}" }
+        ],
+        "dependsOn": [{ "id": "api", "condition": "service_healthy" }],
+        "healthcheck": {
+          "test": ["CMD", "wget", "-qO-", "http://localhost/"],
+          "interval": "15s",
+          "timeout": "5s",
+          "startPeriod": "15s",
+          "retries": 3
+        },
+        "labels": [
+          "traefik.enable=true",
+          "traefik.http.routers.speculum-web.rule=PathPrefix(`/`)",
+          "traefik.http.routers.speculum-web.entrypoints=web",
+          "traefik.http.routers.speculum-web.priority=1",
+          "traefik.http.routers.speculum-web.service=speculum-web",
+          "traefik.http.services.speculum-web.loadbalancer.server.port=80"
         ]
       }
     ],
-    "volumes": [{ "name": "speculum-refactor-prod-data" }]
+    "volumes": [{ "name": "speculum-data" }]
   },
   "test": {
     "namespace": "speculum-refactor",

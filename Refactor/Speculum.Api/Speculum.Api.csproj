@@ -11,6 +11,7 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Speculum.Api.Sessions.Tests" />
     <InternalsVisibleTo Include="Speculum.Api.Journal.Tests" />
+    <InternalsVisibleTo Include="Speculum.Api.Auth.Tests" />
   </ItemGroup>
 
   <ItemGroup>

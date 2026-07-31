@@ -25,7 +25,7 @@ internal static class ProfileMapper
             Id = profile.Id,
             StateJson = JsonSerializer.Serialize(ProfileStateSnapshot.From(profile.State), JsonOptions),
             CreatedAt = now,
-            UpdatedAt = now,
+            LastUsedAt = now,
         };
 
     public static ProfileListItem ToListItem(ProfileRecord record)
@@ -33,7 +33,7 @@ internal static class ProfileMapper
         {
             ProfileId = record.Id,
             CreatedAt = record.CreatedAt,
-            UpdatedAt = record.UpdatedAt,
+            LastUsedAt = record.LastUsedAt,
         };
 
     public static ProfileSummary ToSummary(ProfileRecord record)
@@ -45,7 +45,7 @@ internal static class ProfileMapper
         {
             ProfileId = record.Id,
             CreatedAt = record.CreatedAt,
-            UpdatedAt = record.UpdatedAt,
+            LastUsedAt = record.LastUsedAt,
             CookieCount = snapshot.Cookies.Count,
             LocalStorageCount = snapshot.LocalStorage.Count,
             IdbRecordCount = snapshot.IdbRecords.Count,

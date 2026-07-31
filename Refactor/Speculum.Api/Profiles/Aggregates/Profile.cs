@@ -14,7 +14,7 @@ public sealed class Profile
         => new() { Id = id, State = state };
 
     /// <summary>
-    /// Merges a live-session export into accumulated profile state.
+    /// Merges a live-session export into accumulated profile state (complementary upsert).
     /// </summary>
     public void ApplySessionExport(SessionState export)
     {

@@ -1,10 +1,12 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
+using Speculum.Api.Presentation.Auth;
 using Speculum.Api.Presentation.Bootstrap;
 using Speculum.Api.Presentation.Configurations;
 using Speculum.Api.Presentation.Diagnostics;
 using Speculum.Api.Presentation.HostResources;
+using Speculum.Api.Presentation.Profiles;
 using Speculum.Api.Presentation.Scripts;
 using Speculum.Api.Presentation.Sessions;
 using Speculum.Api.Sessions.Services.Contracts;
@@ -54,9 +56,12 @@ public static class PresentationServiceCollectionExtensions
             options.ApplicationMaxBufferSize = 512 * 1024;
         });
         SessionWebTransportEndpoint.Map(endpoints);
+        endpoints.MapAuthEndpoints();
         endpoints.MapConfigurationEndpoints();
         endpoints.MapPublicBootstrapEndpoints();
         endpoints.MapScriptEndpoints();
+        endpoints.MapProfileEndpoints();
+        endpoints.MapSessionEndpoints();
         endpoints.MapHostResourceEndpoints();
         endpoints.MapDiagnosticsProfileEndpoints();
         endpoints.MapSessionHarness();

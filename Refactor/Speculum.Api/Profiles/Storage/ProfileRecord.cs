@@ -17,6 +17,7 @@ public sealed class ProfileRecord
     [Column("created_at")]
     public DateTimeOffset CreatedAt { get; set; }
 
+    /// <summary>Retention clock — last real use (start/stop/export). Column kept as updated_at.</summary>
     [Column("updated_at")]
-    public DateTimeOffset UpdatedAt { get; set; }
+    public DateTimeOffset LastUsedAt { get; set; }
 }

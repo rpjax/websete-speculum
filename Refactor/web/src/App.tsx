@@ -1,97 +1,71 @@
 import { lazy, Suspense } from 'react'
-import { BrowserRouter, Navigate, Route, Routes, useParams } from 'react-router-dom'
-import SetupPage from '@/features/setup/SetupPage'
-import AdminLayout from '@/features/admin/AdminLayout'
-import LoginPage from '@/features/admin/LoginPage'
-import DashboardPage from '@/features/admin/DashboardPage'
-import ForwardingPage from '@/features/admin/ForwardingPage'
-import CapacityPage from '@/features/admin/CapacityPage'
-import HostResourcesPage from '@/features/admin/HostResourcesPage'
-import HostingPage from '@/features/admin/HostingPage'
-import ScriptInjectionPage from '@/features/admin/ScriptInjectionPage'
-import ScriptsPage from '@/features/admin/ScriptsPage'
-import SessionsPage from '@/features/admin/SessionsPage'
-import SessionDetailPage from '@/features/admin/sessions/SessionDetailPage'
-import AdminKeyPage from '@/features/admin/AdminKeyPage'
-import OpenApiPage from '@/features/admin/OpenApiPage'
-import DiagnosticsLayout from '@/features/admin/diagnostics/DiagnosticsLayout'
-import DiagnosticsHealthPage from '@/features/admin/diagnostics/DiagnosticsHealthPage'
-import DiagnosticsSystemHealthPage from '@/features/admin/diagnostics/DiagnosticsSystemHealthPage'
-import TelemetryMonitorPage from '@/features/admin/diagnostics/TelemetryMonitorPage'
-import TelemetryMonitorExplorePage from '@/features/admin/diagnostics/TelemetryMonitorExplorePage'
-import TelemetryAnalysisPage from '@/features/admin/diagnostics/telemetry/analysis/TelemetryAnalysisPage'
-import DiagnosticsInvestigatePage from '@/features/admin/diagnostics/DiagnosticsInvestigatePage'
-import DiagnosticsGovernancePage from '@/features/admin/diagnostics/governance/DiagnosticsGovernancePage'
-import NarrativeWorkspacePage from '@/features/admin/diagnostics/timeline/NarrativeWorkspacePage'
-import AnalysisWorkspacePage from '@/features/admin/diagnostics/analysis/AnalysisWorkspacePage'
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { ReadinessGatePage } from '@/features/setup/ReadinessGatePage'
+import { GuidedFirstConfigPage } from '@/features/setup/GuidedFirstConfigPage'
+import { OperatorHomePage } from '@/features/admin/home/OperatorHomePage'
+import { LiveSessionsPage } from '@/features/admin/sessions/LiveSessionsPage'
+import { LiveSessionDetailPage } from '@/features/admin/sessions/LiveSessionDetailPage'
+import { ProfilesListPage } from '@/features/admin/profiles/ProfilesListPage'
+import { ProfileDetailPage } from '@/features/admin/profiles/ProfileDetailPage'
+import { ProfileDeletePage } from '@/features/admin/profiles/ProfileDeletePage'
+import { ChangePasswordPage } from '@/features/admin/auth/ChangePasswordPage'
+import { LoginPage } from '@/features/admin/auth/LoginPage'
+import { SessionExpiredPage } from '@/features/admin/auth/SessionExpiredPage'
+import { AdminShell } from '@/features/admin/shell/AdminShell'
+import { RequireAuth } from '@/features/admin/shell/RequireAuth'
+import { ScriptsLayout } from '@/features/admin/scripts/ScriptsLayout'
+import { ScriptsIndexPage } from '@/features/admin/scripts/ScriptsIndexPage'
+import { UploadScriptPage } from '@/features/admin/scripts/UploadScriptPage'
+import { InjectionFlow } from '@/features/admin/scripts/injection-flow/InjectionFlow'
+import { RemoveInjectionPage } from '@/features/admin/scripts/RemoveInjectionPage'
+import { ConfigurationsHubPage } from '@/features/admin/configurations/ConfigurationsHubPage'
+import { ConfigurationSectionPage } from '@/features/admin/configurations/ConfigurationSectionPage'
+import { HostResourcesPage } from '@/features/admin/host-resources/HostResourcesPage'
+import { DiagnosticsHubPage } from '@/features/admin/diagnostics/DiagnosticsHubPage'
+import { DiagnosticsHealthPage } from '@/features/admin/diagnostics/DiagnosticsHealthPage'
+import { DiagnosticsTimelinePage } from '@/features/admin/diagnostics/DiagnosticsTimelinePage'
+import { DiagnosticsInvestigatePage } from '@/features/admin/diagnostics/DiagnosticsInvestigatePage'
+import { DiagnosticsGovernancePage } from '@/features/admin/diagnostics/DiagnosticsGovernancePage'
 
-// Live surfaces share useLiveSession (EnsureProfile → StartSession → WebTransport).
-// This web package is the local Session Lab (`/` + `/lab`) with debug chrome.
-// Immersive product preview (canvas only, like a normal site): `/live` (+ path catch-all).
-// Real prod deployments omit this lab SPA; do not gate Lab on Vite `import.meta.env.DEV`
-// — dockup `dev` still ships a production Vite build.
 const SessionLabPage = lazy(() => import('@/features/sessions/lab/SessionLabPage'))
 const SessionLivePage = lazy(() => import('@/features/sessions/live/SessionLivePage'))
 
-function DiagnosticsSessionRedirect() {
-  const { connectionId } = useParams<{ connectionId: string }>()
-  return <Navigate to={`/admin/sessions/${connectionId}`} replace />
-}
-
 export default function App() {
-  return (
-    <BrowserRouter>
-      <Suspense
-        fallback={
-          <div className="flex h-screen items-center justify-center text-muted-foreground">Loading…</div>
-        }
-      >
-        <Routes>
-          <Route path="/" element={<SessionLabPage />} />
-          <Route path="/lab" element={<SessionLabPage />} />
-          <Route path="/live" element={<SessionLivePage />} />
-          <Route path="/setup" element={<SetupPage />} />
-          <Route path="/admin/login" element={<LoginPage />} />
-          <Route path="/admin" element={<AdminLayout />}>
-            <Route index element={<DashboardPage />} />
-            <Route path="forwarding" element={<ForwardingPage />} />
-            <Route path="capacity" element={<CapacityPage />} />
-            <Route path="host-resources" element={<HostResourcesPage />} />
-            <Route path="max-sessions" element={<Navigate to="/admin/capacity" replace />} />
-            <Route path="js-bridge" element={<Navigate to="/admin/capacity" replace />} />
-            <Route path="session-policy" element={<Navigate to="/admin/capacity" replace />} />
-            <Route path="hosting" element={<HostingPage />} />
-            <Route path="script-injection" element={<ScriptInjectionPage />} />
-            <Route path="scripts" element={<ScriptsPage />} />
-            <Route path="sessions" element={<SessionsPage />} />
-            <Route path="sessions/:id" element={<SessionDetailPage />} />
-            <Route path="diagnostics" element={<DiagnosticsLayout />}>
-              <Route index element={<DiagnosticsHealthPage />} />
-              <Route path="health" element={<DiagnosticsSystemHealthPage />} />
-              <Route path="telemetry" element={<TelemetryMonitorPage />} />
-              <Route path="telemetry/analysis" element={<TelemetryAnalysisPage />} />
-              <Route path="telemetry/report" element={<Navigate to="/admin/diagnostics/telemetry/analysis" replace />} />
-              <Route path="resources" element={<Navigate to="/admin/diagnostics/telemetry" replace />} />
-              <Route path="timeline" element={<NarrativeWorkspacePage />} />
-              <Route path="analysis" element={<AnalysisWorkspacePage />} />
-              <Route path="activity" element={<Navigate to="/admin/diagnostics/timeline" replace />} />
-              <Route path="sessions" element={<Navigate to="/admin/sessions" replace />} />
-              <Route path="investigate" element={<DiagnosticsInvestigatePage />} />
-              <Route path="governance" element={<DiagnosticsGovernancePage />} />
-              <Route path="events" element={<Navigate to="/admin/diagnostics/timeline" replace />} />
-              <Route path="live" element={<Navigate to="/admin/sessions" replace />} />
-              <Route path="probes" element={<Navigate to="/admin/diagnostics/investigate" replace />} />
-              <Route path="config" element={<Navigate to="/admin/diagnostics/governance" replace />} />
-            </Route>
-            <Route path="diagnostics/telemetry/explore" element={<TelemetryMonitorExplorePage />} />
-            <Route path="diagnostics/sessions/:connectionId" element={<DiagnosticsSessionRedirect />} />
-            <Route path="api-key" element={<AdminKeyPage />} />
-            <Route path="openapi" element={<OpenApiPage />} />
-          </Route>
-          {/* Immersive path browsing (NSO) — never Lab chrome. */}
-          <Route path="*" element={<SessionLivePage />} />
-        </Routes>
-      </Suspense>
-    </BrowserRouter>
-  )
+  return <BrowserRouter><Suspense fallback={<div className="flex h-screen items-center justify-center text-muted-foreground">Loading…</div>}><Routes>
+    <Route path="/" element={<SessionLabPage />} />
+    <Route path="/lab" element={<SessionLabPage />} />
+    <Route path="/live" element={<SessionLivePage />} />
+    <Route path="/setup" element={<ReadinessGatePage />} />
+    <Route path="/setup/configure" element={<GuidedFirstConfigPage />} />
+    <Route path="/admin/login" element={<LoginPage />} />
+    <Route path="/admin/session-expired" element={<SessionExpiredPage />} />
+    <Route element={<RequireAuth />}><Route path="/admin" element={<AdminShell />}>
+      <Route index element={<OperatorHomePage />} />
+      <Route path="sessions" element={<LiveSessionsPage />} />
+      <Route path="sessions/:sessionId" element={<LiveSessionDetailPage />} />
+      <Route path="profiles" element={<ProfilesListPage />} />
+      <Route path="profiles/:profileId" element={<ProfileDetailPage />} />
+      <Route path="profiles/:profileId/delete" element={<ProfileDeletePage />} />
+      <Route path="scripts" element={<ScriptsLayout />}>
+        <Route index element={<ScriptsIndexPage />} />
+        <Route path="upload" element={<UploadScriptPage />} />
+        <Route path="injections/new" element={<InjectionFlow />} />
+        <Route path="injections/:index/edit" element={<InjectionFlow />} />
+        <Route path="injections/:index/remove" element={<RemoveInjectionPage />} />
+      </Route>
+      <Route path="script-injection" element={<Navigate to="/admin/scripts?tab=injections" replace />} />
+      <Route path="configurations" element={<ConfigurationsHubPage />} />
+      <Route path="configurations/:section" element={<ConfigurationSectionPage />} />
+      <Route path="host-resources" element={<HostResourcesPage />} />
+      <Route path="host-resources/preview" element={<HostResourcesPage />} />
+      <Route path="host-resources/apply" element={<HostResourcesPage />} />
+      <Route path="diagnostics" element={<DiagnosticsHubPage />} />
+      <Route path="diagnostics/health" element={<DiagnosticsHealthPage />} />
+      <Route path="diagnostics/timeline" element={<DiagnosticsTimelinePage />} />
+      <Route path="diagnostics/investigate" element={<DiagnosticsInvestigatePage />} />
+      <Route path="diagnostics/governance" element={<DiagnosticsGovernancePage />} />
+      <Route path="change-password" element={<ChangePasswordPage />} />
+    </Route></Route>
+    <Route path="*" element={<SessionLivePage />} />
+  </Routes></Suspense></BrowserRouter>
 }

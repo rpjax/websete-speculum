@@ -120,6 +120,75 @@ public sealed class JournalRepository : IJournalRepository
         return records.Select(JournalEntryMapper.ToEntry).ToArray();
     }
 
+    public async Task<long> EstimateStoredBytesAsync(CancellationToken cancellationToken = default)
+    {
+        // Payload UTF-8 length proxy + fixed envelope overhead per row.
+        var payload = await Entries.AsNoTracking()
+            .SumAsync(e => (long)(e.Payload == null ? 0 : e.Payload.Length), cancellationToken)
+            .ConfigureAwait(false);
+        var count = await Entries.AsNoTracking().LongCountAsync(cancellationToken).ConfigureAwait(false);
+        return payload + (count * 128);
+    }
+
+    public Task<int> DeleteSessionIndexedOlderThanAsync(
+        DateTimeOffset olderThan,
+        int take,
+        CancellationToken cancellationToken = default)
+        => DeleteBySequencesAsync(
+            Entries.AsNoTracking()
+                .Where(e => e.PublishedAt < olderThan
+                    && e.IndexKeys.Any(k => k.Type == "session"))
+                .OrderBy(e => e.PublishedAt)
+                .ThenBy(e => e.Sequence)
+                .Select(e => e.Sequence)
+                .Take(take),
+            cancellationToken);
+
+    public Task<int> DeleteTelemetrySamplesOlderThanAsync(
+        DateTimeOffset olderThan,
+        int take,
+        CancellationToken cancellationToken = default)
+        => DeleteBySequencesAsync(
+            Entries.AsNoTracking()
+                .Where(e => e.PublishedAt < olderThan
+                    && e.Type == "Telemetry.Sampling.SampleCollected")
+                .OrderBy(e => e.PublishedAt)
+                .ThenBy(e => e.Sequence)
+                .Select(e => e.Sequence)
+                .Take(take),
+            cancellationToken);
+
+    public Task<int> DeleteRemainingFactsOlderThanAsync(
+        DateTimeOffset olderThan,
+        int take,
+        CancellationToken cancellationToken = default)
+        => DeleteBySequencesAsync(
+            Entries.AsNoTracking()
+                .Where(e => e.PublishedAt < olderThan
+                    && e.Type != "Telemetry.Sampling.SampleCollected"
+                    && !e.IndexKeys.Any(k => k.Type == "session"))
+                .OrderBy(e => e.PublishedAt)
+                .ThenBy(e => e.Sequence)
+                .Select(e => e.Sequence)
+                .Take(take),
+            cancellationToken);
+
+    private async Task<int> DeleteBySequencesAsync(
+        IQueryable<long> sequenceQuery,
+        CancellationToken cancellationToken)
+    {
+        var sequences = await sequenceQuery.ToListAsync(cancellationToken).ConfigureAwait(false);
+        if (sequences.Count == 0)
+            return 0;
+
+        var deleted = await Entries
+            .Where(e => sequences.Contains(e.Sequence))
+            .ExecuteDeleteAsync(cancellationToken)
+            .ConfigureAwait(false);
+        _db.ChangeTracker.Clear();
+        return deleted;
+    }
+
     private static bool IsUniqueConstraint(DbUpdateException ex)
     {
         for (Exception? e = ex; e is not null; e = e.InnerException)

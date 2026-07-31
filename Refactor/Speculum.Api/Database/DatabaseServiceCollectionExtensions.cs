@@ -59,6 +59,7 @@ public static class DatabaseServiceCollectionExtensions
         db.Database.EnsureCreated();
         EnsureScriptsTable(db);
         EnsureHostResourceAppliesTable(db);
+        EnsureAuthTables(db);
 
         try
         {
@@ -119,6 +120,34 @@ public static class DatabaseServiceCollectionExtensions
                 warnings_json TEXT NOT NULL,
                 applied_at TEXT NOT NULL
             );
+            """);
+    }
+
+    private static void EnsureAuthTables(SpeculumDbContext db)
+    {
+        db.Database.ExecuteSqlRaw(
+            """
+            CREATE TABLE IF NOT EXISTS operator_users (
+                id TEXT NOT NULL CONSTRAINT PK_operator_users PRIMARY KEY,
+                username TEXT NOT NULL,
+                password_hash TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS IX_operator_users_username ON operator_users (username);
+
+            CREATE TABLE IF NOT EXISTS auth_tokens (
+                id TEXT NOT NULL CONSTRAINT PK_auth_tokens PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                token_hash TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                revoked_at TEXT NULL,
+                created_at TEXT NOT NULL,
+                family_id TEXT NOT NULL
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS IX_auth_tokens_token_hash ON auth_tokens (token_hash);
+            CREATE INDEX IF NOT EXISTS IX_auth_tokens_user_kind ON auth_tokens (user_id, kind);
             """);
     }
 

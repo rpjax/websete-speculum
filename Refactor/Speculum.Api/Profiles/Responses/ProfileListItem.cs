@@ -7,5 +7,5 @@ public sealed class ProfileListItem
 
     public DateTimeOffset CreatedAt { get; init; }
 
-    public DateTimeOffset UpdatedAt { get; init; }
+    public DateTimeOffset LastUsedAt { get; init; }
 }

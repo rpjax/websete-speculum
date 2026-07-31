@@ -10,10 +10,10 @@ describe('resolveRoute', () => {
   })
 
   it('matches a dynamic route and extracts params', () => {
-    const result = resolveRoute('/admin/sessions/conn-abc-123')
+    const result = resolveRoute('/admin/sessions/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee')
     expect(result).not.toBeNull()
-    expect(result!.entry.label).toBe(':id')
-    expect(result!.params).toEqual({ id: 'conn-abc-123' })
+    expect(result!.entry.label).toBe(':sessionId')
+    expect(result!.params).toEqual({ sessionId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' })
     expect(result!.entry.parent).toBe('/admin/sessions')
   })
 
@@ -24,14 +24,23 @@ describe('resolveRoute', () => {
     expect(result!.entry.parent).toBe('/admin/diagnostics')
   })
 
-  it('matches analysis route', () => {
-    const result = resolveRoute('/admin/diagnostics/analysis')
+  it('matches host-resources wizard steps', () => {
+    const preview = resolveRoute('/admin/host-resources/preview')
+    expect(preview).not.toBeNull()
+    expect(preview!.entry.label).toBe('Preview')
+    expect(preview!.entry.parent).toBe('/admin/host-resources')
+    expect(resolveRoute('/admin/host-resources/apply')!.entry.label).toBe('Apply')
+  })
+
+  it('matches profiles delete route', () => {
+    const result = resolveRoute('/admin/profiles/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/delete')
     expect(result).not.toBeNull()
-    expect(result!.entry.label).toBe('Analysis')
+    expect(result!.entry.label).toBe('Delete')
   })
 
   it('returns null for unknown paths', () => {
     expect(resolveRoute('/admin/nonexistent')).toBeNull()
+    expect(resolveRoute('/admin/api-key')).toBeNull()
     expect(resolveRoute('/random')).toBeNull()
   })
 
@@ -60,7 +69,7 @@ describe('buildBreadcrumbs', () => {
   })
 
   it('resolves dynamic param labels from overrides', () => {
-    const crumbs = buildBreadcrumbs('/admin/sessions/conn-xyz', { id: 'Session XYZ' })
+    const crumbs = buildBreadcrumbs('/admin/sessions/conn-xyz', { sessionId: 'Session XYZ' })
     expect(crumbs).toHaveLength(2)
     expect(crumbs[0]).toEqual({ label: 'Sessions', to: '/admin/sessions' })
     expect(crumbs[1]).toEqual({ label: 'Session XYZ' })

@@ -1,5 +1,7 @@
+using System.Net;
 using Microsoft.Extensions.Options;
 using Speculum.Api.Configurations.Models.Patterns;
+using Speculum.Api.Sessions.Services;
 
 namespace Speculum.Api.Configurations.Models.Scripting;
 
@@ -17,19 +19,13 @@ public sealed class ScriptingConfigurationValidator : IValidateOptions<Scripting
             var hasRemote = injection.Source.RemoteUrl is not null;
 
             if (!Enum.IsDefined(injection.Position))
-            {
                 failures.Add($"Scripting.Injections[{i}].Position is invalid.");
-            }
 
             if (!Enum.IsDefined(injection.ExecutionType))
-            {
                 failures.Add($"Scripting.Injections[{i}].ExecutionType is invalid.");
-            }
 
             if (!Enum.IsDefined(injection.Source.SourceType))
-            {
                 failures.Add($"Scripting.Injections[{i}].Source.SourceType is invalid.");
-            }
 
             switch (injection.Source.SourceType)
             {
@@ -48,17 +44,9 @@ public sealed class ScriptingConfigurationValidator : IValidateOptions<Scripting
                     }
                     else
                     {
-                        var url = injection.Source.RemoteUrl!;
-                        if (!url.IsAbsoluteUri || url.Scheme is not ("http" or "https"))
-                        {
-                            failures.Add(
-                                $"Scripting.Injections[{i}].Source.RemoteUrl must be absolute http/https.");
-                        }
-                        else if (!string.IsNullOrEmpty(url.UserInfo))
-                        {
-                            failures.Add(
-                                $"Scripting.Injections[{i}].Source.RemoteUrl must not include user info.");
-                        }
+                        var urlFailure = ValidateRemoteUrl(injection.Source.RemoteUrl!, i);
+                        if (urlFailure is not null)
+                            failures.Add(urlFailure);
                     }
                     break;
                 default:
@@ -76,15 +64,39 @@ public sealed class ScriptingConfigurationValidator : IValidateOptions<Scripting
             {
                 var ruleFailure = ValidateRule(injection.TargetRules[r], i, r);
                 if (ruleFailure is not null)
-                {
                     failures.Add(ruleFailure);
-                }
             }
         }
 
         return failures.Count == 0
             ? ValidateOptionsResult.Success
             : ValidateOptionsResult.Fail(failures);
+    }
+
+    /// <summary>Validate remote URL shape + literal IP policy at options validate.</summary>
+    internal static string? ValidateRemoteUrl(Uri url, int injectionIndex)
+    {
+        if (!url.IsAbsoluteUri || url.Scheme is not ("http" or "https"))
+            return $"Scripting.Injections[{injectionIndex}].Source.RemoteUrl must be absolute http/https.";
+
+        if (!string.IsNullOrEmpty(url.UserInfo))
+            return $"Scripting.Injections[{injectionIndex}].Source.RemoteUrl must not include user info.";
+
+        var host = url.DnsSafeHost;
+        if (string.IsNullOrWhiteSpace(host)
+            || string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase)
+            || host.EndsWith(".localhost", StringComparison.OrdinalIgnoreCase)
+            || host.EndsWith(".local", StringComparison.OrdinalIgnoreCase))
+        {
+            return $"Scripting.Injections[{injectionIndex}].Source.RemoteUrl host is not publicly routable.";
+        }
+
+        if (IPAddress.TryParse(host, out var ip) && !PublicHttpUrlPolicy.IsPublicIp(ip))
+        {
+            return $"Scripting.Injections[{injectionIndex}].Source.RemoteUrl must not target private/loopback addresses.";
+        }
+
+        return null;
     }
 
     private static string? ValidateRule(UrlMatchRule rule, int injectionIndex, int ruleIndex)
@@ -98,27 +110,19 @@ public sealed class ScriptingConfigurationValidator : IValidateOptions<Scripting
         if (rule.Domain.Scope == PatternScope.Pattern)
         {
             if (rule.Domain.Labels.Count == 0)
-            {
                 return $"Scripting.Injections[{injectionIndex}].TargetRules[{ruleIndex}].Domain labels are required.";
-            }
 
             for (var i = 0; i < rule.Domain.Labels.Count; i++)
             {
                 var label = rule.Domain.Labels[i];
                 if (!Enum.IsDefined(label.Match))
-                {
                     return $"Scripting.Injections[{injectionIndex}].TargetRules[{ruleIndex}].Domain.Labels[{i}] is invalid.";
-                }
 
                 if (label.Match == PatternPartMatch.Any && i != 0)
-                {
                     return $"Scripting.Injections[{injectionIndex}].TargetRules[{ruleIndex}].Domain only leading '*' is supported.";
-                }
 
                 if (label.Match == PatternPartMatch.Exact && string.IsNullOrWhiteSpace(label.Value))
-                {
                     return $"Scripting.Injections[{injectionIndex}].TargetRules[{ruleIndex}].Domain.Labels[{i}] value is required.";
-                }
             }
         }
 
@@ -128,14 +132,10 @@ public sealed class ScriptingConfigurationValidator : IValidateOptions<Scripting
             {
                 var segment = rule.Path.Segments[i];
                 if (!Enum.IsDefined(segment.Match))
-                {
                     return $"Scripting.Injections[{injectionIndex}].TargetRules[{ruleIndex}].Path.Segments[{i}] is invalid.";
-                }
 
                 if (segment.Match == PatternPartMatch.Exact && string.IsNullOrWhiteSpace(segment.Value))
-                {
                     return $"Scripting.Injections[{injectionIndex}].TargetRules[{ruleIndex}].Path.Segments[{i}] value is required.";
-                }
             }
         }
 

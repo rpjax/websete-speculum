@@ -1,37 +1,96 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.PageState = void 0;
+exports.emptyCookieNormalizeStats = emptyCookieNormalizeStats;
+exports.sanitizeCookieForCdp = sanitizeCookieForCdp;
+exports.sanitizeCookieBatch = sanitizeCookieBatch;
 const CDP_SAME_SITE = {
     strict: 'Strict',
     lax: 'Lax',
     none: 'None',
 };
 const EPOCH_MS_THRESHOLD = 9_999_999_999;
-function sanitizeCookie(c) {
+function emptyCookieNormalizeStats(total = 0) {
+    return { total, skipped: 0, normalized: 0, applied: 0, failedIndividual: 0 };
+}
+/**
+ * Tolerant CDP cookie shape: drop empty names, omit non-positive expires /
+ * unknown SameSite, ms→s conversion, SameSite=None forces secure.
+ */
+function sanitizeCookieForCdp(c) {
+    return sanitizeCookieDetailed(c)?.cookie ?? null;
+}
+function sanitizeCookieDetailed(c) {
     if (!c.name?.trim())
         return null;
+    let normalized = false;
+    const trimmedName = c.name.trim();
+    if (trimmedName !== c.name)
+        normalized = true;
     const cookie = {
-        name: c.name.trim(),
+        name: trimmedName,
         value: c.value ?? '',
         httpOnly: !!c.httpOnly,
         secure: !!c.secure,
     };
-    if (c.domain?.trim())
-        cookie.domain = c.domain.trim();
+    if (c.domain?.trim()) {
+        const domain = c.domain.trim();
+        cookie.domain = domain;
+        if (domain !== c.domain)
+            normalized = true;
+    }
+    else if (c.domain) {
+        normalized = true; // empty/whitespace domain omitted
+    }
     if (c.path?.trim())
         cookie.path = c.path;
     if (typeof c.expires === 'number' && c.expires > 0) {
-        cookie.expires = c.expires > EPOCH_MS_THRESHOLD ? Math.round(c.expires / 1000) : c.expires;
-    }
-    if (c.sameSite?.trim()) {
-        const normalized = CDP_SAME_SITE[c.sameSite.trim().toLowerCase()];
-        if (normalized) {
-            cookie.sameSite = normalized;
-            if (normalized === 'None')
-                cookie.secure = true;
+        if (c.expires > EPOCH_MS_THRESHOLD) {
+            cookie.expires = Math.round(c.expires / 1000);
+            normalized = true;
+        }
+        else {
+            cookie.expires = c.expires;
         }
     }
-    return cookie;
+    else if (typeof c.expires === 'number') {
+        normalized = true; // non-positive expires omitted
+    }
+    if (c.sameSite?.trim()) {
+        const mapped = CDP_SAME_SITE[c.sameSite.trim().toLowerCase()];
+        if (mapped) {
+            cookie.sameSite = mapped;
+            if (mapped !== c.sameSite)
+                normalized = true;
+            if (mapped === 'None' && !cookie.secure) {
+                cookie.secure = true;
+                normalized = true;
+            }
+        }
+        else {
+            normalized = true; // unrecognized sameSite omitted
+        }
+    }
+    else if (c.sameSite != null && c.sameSite !== '') {
+        normalized = true;
+    }
+    return { cookie, normalized };
+}
+function sanitizeCookieBatch(cookies) {
+    const valid = [];
+    let skippedCount = 0;
+    let normalizedCount = 0;
+    for (const c of cookies) {
+        const result = sanitizeCookieDetailed(c);
+        if (!result) {
+            skippedCount++;
+            continue;
+        }
+        if (result.normalized)
+            normalizedCount++;
+        valid.push(result.cookie);
+    }
+    return { valid, skippedCount, normalizedCount };
 }
 class PageState {
     async export(cdp, page) {
@@ -42,18 +101,27 @@ class PageState {
         return { cookies, localStorage, idbRecords, history };
     }
     async restore(cdp, page, state) {
-        const valid = state.cookies.map(sanitizeCookie).filter((c) => !!c);
+        const { valid, skippedCount, normalizedCount } = sanitizeCookieBatch(state.cookies);
+        const stats = {
+            total: state.cookies.length,
+            skipped: skippedCount,
+            normalized: normalizedCount,
+            applied: 0,
+            failedIndividual: 0,
+        };
         if (valid.length > 0) {
             try {
                 await cdp.send('Network.setCookies', { cookies: valid });
+                stats.applied = valid.length;
             }
             catch {
                 for (const cookie of valid) {
                     try {
                         await cdp.send('Network.setCookies', { cookies: [cookie] });
+                        stats.applied++;
                     }
                     catch {
-                        /* */
+                        stats.failedIndividual++;
                     }
                 }
             }
@@ -62,6 +130,18 @@ class PageState {
         await this.importIndexedDbForPage(page, state);
         // History restore is a no-op — CDP cannot reliably rewrite history.
         void state.history;
+        return stats;
+    }
+    /** Sanitize-only stats when CDP is not yet available (queued restore). */
+    normalizeStats(state) {
+        const { skippedCount, normalizedCount } = sanitizeCookieBatch(state.cookies);
+        return {
+            total: state.cookies.length,
+            skipped: skippedCount,
+            normalized: normalizedCount,
+            applied: 0,
+            failedIndividual: 0,
+        };
     }
     async importLocalStorage(page, state) {
         let pageOrigin;

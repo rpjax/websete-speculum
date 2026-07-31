@@ -51,4 +51,14 @@ public sealed class ProfileEvents : IProfileEvents
             CorrelationId = _correlationId,
         });
     }
+
+    public void StateReplaced(Guid profileId, int cookieCount)
+    {
+        _writer.Append(new ProfileStateReplaced
+        {
+            ProfileId = profileId,
+            CorrelationId = _correlationId,
+            CookieCount = cookieCount,
+        });
+    }
 }

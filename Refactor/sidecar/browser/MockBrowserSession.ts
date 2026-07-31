@@ -13,6 +13,7 @@ import {
   type BrowserState,
   type BrowserStatus,
   type BrowserTelemetrySnapshot,
+  type CookieNormalizeStats,
 } from './BrowserSession';
 import { HarnessRenderer } from './mock/HarnessRenderer';
 import { HarnessScene } from './mock/HarnessScene';
@@ -145,12 +146,21 @@ export class MockBrowserSession implements BrowserSession {
     };
   }
 
-  async restoreState(state: BrowserState): Promise<void> {
+  async restoreState(state: BrowserState): Promise<CookieNormalizeStats> {
     this.state = {
       cookies: [...state.cookies],
       localStorage: [...state.localStorage],
       idbRecords: [...state.idbRecords],
       history: [...state.history],
+    };
+    const total = state.cookies.length;
+    const skipped = state.cookies.filter((c) => !c.name?.trim()).length;
+    return {
+      total,
+      skipped,
+      normalized: 0,
+      applied: total - skipped,
+      failedIndividual: 0,
     };
   }
 

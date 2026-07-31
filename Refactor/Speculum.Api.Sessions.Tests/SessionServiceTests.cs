@@ -458,7 +458,7 @@ public sealed class SessionServiceTests
     {
         public void ConnectionStarted() { }
         public void BrowserLaunched() { }
-        public void ProfileStateRestored() { }
+        public void ProfileStateRestored(CookieNormalizeStats cookieNormalize) { }
         public void InitialNavigationCompleted() { }
         public void ProfileNotFound() { }
         public void StartConfigurationRejected(Error[] errors) { }
@@ -516,6 +516,11 @@ public sealed class SessionServiceTests
             => Task.CompletedTask;
 
         public Task RedirectAsync(string url, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task EditableFocusChangedAsync(
+            EditingState? editing,
+            CancellationToken cancellationToken = default)
             => Task.CompletedTask;
 
         public Task SessionEndedAsync(
@@ -688,8 +693,8 @@ public sealed class SessionServiceTests
         public Task<IResult> RefreshAsync(CancellationToken ct = default)
             => Task.FromResult<IResult>(Result.Success());
 
-        public Task<IResult> RestoreProfileStateAsync(ProfileState state, CancellationToken ct = default)
-            => Task.FromResult<IResult>(Result.Success());
+        public Task<IResult<CookieNormalizeStats>> RestoreProfileStateAsync(ProfileState state, CancellationToken ct = default)
+            => Task.FromResult<IResult<CookieNormalizeStats>>(Result<CookieNormalizeStats>.Success(CookieNormalizeStats.Empty));
 
         public Task<IResult<SessionState>> ExportSessionStateAsync(CancellationToken ct = default)
             => Task.FromResult<IResult<SessionState>>(Result<SessionState>.Success(new SessionState()));

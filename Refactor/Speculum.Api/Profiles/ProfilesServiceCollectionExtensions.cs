@@ -4,6 +4,7 @@ using Speculum.Api.Database;
 using Speculum.Api.Journal.Services.Contracts;
 using Speculum.Api.Profiles.Events.Services;
 using Speculum.Api.Profiles.Events.Services.Contracts;
+using Speculum.Api.Profiles.Retention;
 using Speculum.Api.Profiles.Services;
 using Speculum.Api.Profiles.Services.Contracts;
 using Speculum.Api.Profiles.Storage;
@@ -38,6 +39,10 @@ public static class ProfilesServiceCollectionExtensions
         services.TryAddSingleton<
             Speculum.Api.Telemetry.Ports.IProfileTelemetrySampleSource,
             Speculum.Api.Profiles.Telemetry.ProfileTelemetrySampleSource>();
+
+        // Retention purge scaffolds (no-op until SQLite InactiveRetentionPeriod purge lands).
+        services.AddHostedService<ProfileRetentionCleanerHostedService>();
+        services.AddHostedService<ProfileRetentionEnforcerHostedService>();
 
         return services;
     }

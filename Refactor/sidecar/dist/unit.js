@@ -45,6 +45,7 @@ const mappers_1 = require("./grpc/mappers");
 const EventBridge_1 = require("./host/EventBridge");
 const DropOldestQueue_1 = require("./host/DropOldestQueue");
 const browserRace_1 = require("./host/browserRace");
+const PageState_1 = require("./browser/patchright/PageState");
 const collectTelemetry_1 = require("./telemetry/collectTelemetry");
 const hostResources_1 = require("./host/hostResources");
 /** Test stand-in for Sessions.ViewportPolicy — production gets this on Launch. */
@@ -886,7 +887,58 @@ async function main() {
     await testTelemetryFaultStateSurvivesCrashConsumption();
     await testTelemetryAllocationsSummaryAndSessions();
     testHostResourcesApplySkipsRemountOffLinux();
+    testCookieSanitizeMatrix();
     console.log('[unit] all passed');
+}
+function testCookieSanitizeMatrix() {
+    const dirty = {
+        name: 'sf_marker',
+        value: 'state-cookie',
+        domain: 'fixture.test',
+        path: '/',
+        expires: -1,
+        httpOnly: false,
+        secure: true,
+        sameSite: '',
+    };
+    const clean = (0, PageState_1.sanitizeCookieForCdp)(dirty);
+    assert_1.default.ok(clean);
+    assert_1.default.strictEqual(clean.name, 'sf_marker');
+    assert_1.default.strictEqual('expires' in clean, false);
+    assert_1.default.strictEqual('sameSite' in clean, false);
+    const ms = (0, PageState_1.sanitizeCookieForCdp)({
+        name: 'ms',
+        value: 'v',
+        domain: 'd.com',
+        path: '/',
+        expires: 1_700_000_000_000,
+    });
+    assert_1.default.strictEqual(ms.expires, 1_700_000_000);
+    const none = (0, PageState_1.sanitizeCookieForCdp)({
+        name: 'x',
+        value: '1',
+        domain: 'd.com',
+        path: '/',
+        secure: false,
+        sameSite: 'none',
+    });
+    assert_1.default.strictEqual(none.sameSite, 'None');
+    assert_1.default.strictEqual(none.secure, true);
+    assert_1.default.strictEqual((0, PageState_1.sanitizeCookieForCdp)({
+        name: '',
+        value: '1',
+        domain: 'd.com',
+        path: '/',
+    }), null);
+    const batch = (0, PageState_1.sanitizeCookieBatch)([
+        { name: 'good', value: '1', domain: 'd.com', path: '/' },
+        { name: '', value: 'bad', domain: 'd.com', path: '/' },
+        { name: 'ok', value: '2', domain: 'd.com', path: '/', sameSite: 'LAX', expires: -1 },
+    ]);
+    assert_1.default.strictEqual(batch.valid.length, 2);
+    assert_1.default.strictEqual(batch.skippedCount, 1);
+    assert_1.default.ok(batch.normalizedCount >= 1);
+    console.log('[unit] cookie sanitize ok');
 }
 function testHostResourcesApplySkipsRemountOffLinux() {
     if (process.platform === 'linux') {

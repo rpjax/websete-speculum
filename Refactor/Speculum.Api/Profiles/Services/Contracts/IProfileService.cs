@@ -26,4 +26,11 @@ public interface IProfileService
     Task<IResult> DeleteProfileAsync(
         DeleteProfile request,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Replaces the durable browser-state bucket for an existing profile (diagnostics E8b path).
+    /// </summary>
+    Task<IResult> ReplaceProfileStateAsync(
+        ReplaceProfileState request,
+        CancellationToken ct = default);
 }

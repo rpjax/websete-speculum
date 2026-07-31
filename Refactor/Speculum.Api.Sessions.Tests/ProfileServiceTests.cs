@@ -103,6 +103,60 @@ public sealed class ProfileServiceTests
     }
 
     [Fact]
+    public async Task ReplaceState_WithDirtyCookies_PersistsBucket()
+    {
+        await using var harness = await Harness.CreateAsync();
+        var profile = Profile.Create(Guid.NewGuid());
+        profile.State.Cookies.Add(new BrowserCookieState
+        {
+            Name = "sf_marker",
+            Value = "state-cookie",
+            Domain = "fixture.test",
+            Path = "/",
+            Expires = 1_900_000_000,
+            SameSite = "Lax",
+        });
+        await harness.Profiles.SaveAsync(profile);
+
+        var dirty = new ProfileState();
+        dirty.Cookies.Add(new BrowserCookieState
+        {
+            Name = "sf_marker",
+            Value = "state-cookie",
+            Domain = "fixture.test",
+            Path = "/",
+            Expires = -1,
+            Secure = true,
+            SameSite = "",
+        });
+        dirty.Cookies.Add(new BrowserCookieState
+        {
+            Name = "",
+            Value = "drop-me",
+            Domain = "fixture.test",
+            Path = "/",
+        });
+
+        var result = await harness.Service.ReplaceProfileStateAsync(new ReplaceProfileState
+        {
+            ProfileId = profile.Id,
+            State = dirty,
+            CorrelationId = "e8b-unit",
+        });
+
+        Assert.True(result.IsSuccess);
+        var loaded = await harness.Profiles.LoadAsync(profile.Id);
+        Assert.NotNull(loaded);
+        Assert.Equal(2, loaded.State.Cookies.Count);
+        Assert.Equal(-1, loaded.State.Cookies[0].Expires);
+        Assert.Equal("", loaded.State.Cookies[0].SameSite);
+        Assert.Contains(harness.Journal.Appended, e => e is ProfileStateReplaced replaced
+            && replaced.ProfileId == profile.Id
+            && replaced.CookieCount == 2
+            && replaced.CorrelationId == "e8b-unit");
+    }
+
+    [Fact]
     public async Task Get_ReturnsCountsAfterExport()
     {
         await using var harness = await Harness.CreateAsync();

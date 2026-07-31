@@ -102,7 +102,8 @@ public interface ISessionConnection
     /// Applies profile state into the live browser (<c>RestoreProfileState</c> phase).
     /// </summary>
     /// <param name="state">State carried by the resolved <see cref="Profile"/>.</param>
-    Task<IResult> RestoreProfileStateAsync(
+    /// <returns>Cookie normalize/apply stats from the sidecar when restore succeeds.</returns>
+    Task<IResult<CookieNormalizeStats>> RestoreProfileStateAsync(
         ProfileState state,
         CancellationToken ct = default);
 

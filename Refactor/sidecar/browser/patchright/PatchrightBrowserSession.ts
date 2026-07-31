@@ -14,6 +14,7 @@ import type {
   BrowserState,
   BrowserStatus,
   BrowserTelemetrySnapshot,
+  CookieNormalizeStats,
 } from '../BrowserSession';
 import { closeChrome, launchChrome, type ChromeHandle } from './ChromeRuntime';
 import { Display, type DisplayAllocator } from './Display';
@@ -285,10 +286,12 @@ export class PatchrightBrowserSession implements BrowserSession {
     };
   }
 
-  async restoreState(state: BrowserState): Promise<void> {
+  async restoreState(state: BrowserState): Promise<CookieNormalizeStats> {
     this.pendingState = state;
-    if (!this.chrome) return;
-    await this.pageState.restore(this.chrome.cdp, this.chrome.page, state);
+    if (!this.chrome) {
+      return this.pageState.normalizeStats(state);
+    }
+    return this.pageState.restore(this.chrome.cdp, this.chrome.page, state);
   }
 
   async exportState(): Promise<BrowserState> {

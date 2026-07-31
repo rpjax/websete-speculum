@@ -163,6 +163,18 @@ message RestoreStateRequest {
   BrowserState state = 2;
 }
 
+message CookieNormalizeStats {
+  int32 total = 1;
+  int32 skipped = 2;
+  int32 normalized = 3;
+  int32 applied = 4;
+  int32 failed_individual = 5;
+}
+
+message RestoreStateResponse {
+  CookieNormalizeStats cookie_normalize = 1;
+}
+
 message ExportStateRequest {
   string session_id = 1;
 }
@@ -505,7 +517,7 @@ service BrowserSessionService {
   rpc Dispose(SessionId) returns (Empty);
 
   rpc GetStatus(SessionId) returns (Status);
-  rpc RestoreState(RestoreStateRequest) returns (Empty);
+  rpc RestoreState(RestoreStateRequest) returns (RestoreStateResponse);
   rpc ExportState(ExportStateRequest) returns (BrowserState);
 
   rpc Navigate(NavigateRequest) returns (Empty);

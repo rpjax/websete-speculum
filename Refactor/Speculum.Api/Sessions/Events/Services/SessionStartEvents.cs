@@ -2,6 +2,7 @@ using Aidan.Core.Errors;
 using Speculum.Api.Journal.Services.Contracts;
 using Speculum.Api.Sessions.Events.Models;
 using Speculum.Api.Sessions.Events.Services.Contracts;
+using Speculum.Api.Sessions.Models;
 
 namespace Speculum.Api.Sessions.Events.Services;
 
@@ -42,12 +43,18 @@ public sealed class SessionStartEvents : ISessionStartEvents
         });
     }
 
-    public void ProfileStateRestored()
+    public void ProfileStateRestored(CookieNormalizeStats cookieNormalize)
     {
+        cookieNormalize ??= CookieNormalizeStats.Empty;
         _writer.Append(new ProfileStateRestored
         {
             SessionId = _sessionId,
             ProfileId = _profileId,
+            CookieTotal = cookieNormalize.Total,
+            CookieSkipped = cookieNormalize.Skipped,
+            CookieNormalized = cookieNormalize.Normalized,
+            CookieApplied = cookieNormalize.Applied,
+            CookieFailedIndividual = cookieNormalize.FailedIndividual,
         });
     }
 

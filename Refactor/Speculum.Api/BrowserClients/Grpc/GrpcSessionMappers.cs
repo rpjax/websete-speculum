@@ -12,6 +12,8 @@ using ProtoResizeResult = Speculum.Api.Sidecar.V1.ResizeResult;
 using ProtoScript = Speculum.Api.Sidecar.V1.ScriptInjection;
 using ProtoState = Speculum.Api.Sidecar.V1.BrowserState;
 using ProtoGeolocation = Speculum.Api.Sidecar.V1.Geolocation;
+using DomainCookieNormalizeStats = Speculum.Api.Sessions.Models.CookieNormalizeStats;
+using ProtoCookieNormalizeStats = Speculum.Api.Sidecar.V1.CookieNormalizeStats;
 
 namespace Speculum.Api.BrowserClients.Grpc;
 
@@ -146,20 +148,33 @@ internal static class GrpcSessionMappers
         Height = ready.Height,
     };
 
-    public static DomainResizeResult ToResizeResult(string requestId, ProtoResizeResult r) => new()
+    public static DomainResizeResult ToResizeResult(string requestId, ProtoResizeResult r)
     {
-        Applied = r.Ok,
-        Width = r.Width,
-        Height = r.Height,
-        ChromeWidth = r.HasChromeWidth ? r.ChromeWidth : null,
-        ChromeHeight = r.HasChromeHeight ? r.ChromeHeight : null,
-        DisplayWidth = r.HasDisplayWidth ? r.DisplayWidth : null,
-        DisplayHeight = r.HasDisplayHeight ? r.DisplayHeight : null,
-        ResizeId = requestId,
-        ErrorCode = r.HasErrorCode ? r.ErrorCode : null,
-        Phase = r.HasPhase ? r.Phase : null,
-        Message = r.HasMessage ? r.Message : null,
-    };
+        var applied = r.Ok;
+        var outcome = applied
+            ? ResizeOutcome.Applied
+            : string.Equals(r.HasErrorCode ? r.ErrorCode : null, "resize_busy", StringComparison.Ordinal)
+                ? ResizeOutcome.Busy
+                : string.IsNullOrWhiteSpace(r.HasErrorCode ? r.ErrorCode : null)
+                    ? ResizeOutcome.Failed
+                    : ResizeOutcome.Rejected;
+
+        return new()
+        {
+            Applied = applied,
+            Outcome = outcome,
+            Width = r.Width,
+            Height = r.Height,
+            ChromeWidth = r.HasChromeWidth ? r.ChromeWidth : null,
+            ChromeHeight = r.HasChromeHeight ? r.ChromeHeight : null,
+            DisplayWidth = r.HasDisplayWidth ? r.DisplayWidth : null,
+            DisplayHeight = r.HasDisplayHeight ? r.DisplayHeight : null,
+            ResizeId = requestId,
+            ErrorCode = r.HasErrorCode ? r.ErrorCode : null,
+            Phase = r.HasPhase ? r.Phase : null,
+            Message = r.HasMessage ? r.Message : null,
+        };
+    }
 
     public static DiagProbeResult ToProbeResult(ProbeResult r)
     {
@@ -184,6 +199,21 @@ internal static class GrpcSessionMappers
         SessionId = sessionId.ToString("D"),
         State = ToProtoState(state),
     };
+
+    public static DomainCookieNormalizeStats ToCookieNormalizeStats(ProtoCookieNormalizeStats? proto)
+    {
+        if (proto is null)
+            return DomainCookieNormalizeStats.Empty;
+
+        return new DomainCookieNormalizeStats
+        {
+            Total = proto.Total,
+            Skipped = proto.Skipped,
+            Normalized = proto.Normalized,
+            Applied = proto.Applied,
+            FailedIndividual = proto.FailedIndividual,
+        };
+    }
 
     public static SessionState ToSessionState(ProtoState state) => new()
     {

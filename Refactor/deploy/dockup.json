@@ -149,7 +149,8 @@
     "network": "speculum",
     "tag": "prod",
     "env": [
-      { "name": "PUBLIC_HOST", "value": "179.197.69.156" },
+      { "name": "PUBLIC_HOST", "value": "betano.digital" },
+      { "name": "ACME_EMAIL", "value": "admin@betano.digital" },
       { "name": "TRANSPORT_ORIGIN", "value": "https://${PUBLIC_HOST}:8443" }
     ],
     "containers": [
@@ -164,14 +165,21 @@
           "--providers.docker.exposedbydefault=false",
           "--providers.docker.network=speculum",
           "--entrypoints.web.address=:80",
-          "--entrypoints.websecure.address=:443"
+          "--entrypoints.web.http.redirections.entrypoint.to=websecure",
+          "--entrypoints.web.http.redirections.entrypoint.scheme=https",
+          "--entrypoints.websecure.address=:443",
+          "--certificatesresolvers.le.acme.email=${ACME_EMAIL}",
+          "--certificatesresolvers.le.acme.storage=/letsencrypt/acme.json",
+          "--certificatesresolvers.le.acme.httpchallenge=true",
+          "--certificatesresolvers.le.acme.httpchallenge.entrypoint=web"
         ],
         "ports": [
           { "host": 80, "container": 80 },
           { "host": 443, "container": 443 }
         ],
         "volumes": [
-          { "host": "/var/run/docker.sock", "container": "/var/run/docker.sock:ro" }
+          { "host": "/var/run/docker.sock", "container": "/var/run/docker.sock:ro" },
+          { "name": "traefik-letsencrypt", "container": "/letsencrypt" }
         ]
       },
       {
@@ -261,8 +269,9 @@
         },
         "labels": [
           "traefik.enable=true",
-          "traefik.http.routers.speculum-api.rule=PathPrefix(`/vhub`) || PathPrefix(`/health`) || PathPrefix(`/api`)",
-          "traefik.http.routers.speculum-api.entrypoints=web",
+          "traefik.http.routers.speculum-api.rule=Host(`${PUBLIC_HOST}`) && (PathPrefix(`/vhub`) || PathPrefix(`/health`) || PathPrefix(`/api`))",
+          "traefik.http.routers.speculum-api.entrypoints=websecure",
+          "traefik.http.routers.speculum-api.tls.certresolver=le",
           "traefik.http.routers.speculum-api.priority=100",
           "traefik.http.routers.speculum-api.service=speculum-api",
           "traefik.http.services.speculum-api.loadbalancer.server.port=8080"
@@ -287,15 +296,19 @@
         },
         "labels": [
           "traefik.enable=true",
-          "traefik.http.routers.speculum-web.rule=PathPrefix(`/`)",
-          "traefik.http.routers.speculum-web.entrypoints=web",
+          "traefik.http.routers.speculum-web.rule=Host(`${PUBLIC_HOST}`) && PathPrefix(`/`)",
+          "traefik.http.routers.speculum-web.entrypoints=websecure",
+          "traefik.http.routers.speculum-web.tls.certresolver=le",
           "traefik.http.routers.speculum-web.priority=1",
           "traefik.http.routers.speculum-web.service=speculum-web",
           "traefik.http.services.speculum-web.loadbalancer.server.port=80"
         ]
       }
     ],
-    "volumes": [{ "name": "speculum-refactor-data" }]
+    "volumes": [
+      { "name": "speculum-refactor-data" },
+      { "name": "traefik-letsencrypt" }
+    ]
   },
   "test": {
     "namespace": "speculum-refactor",

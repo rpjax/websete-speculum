@@ -115,12 +115,11 @@ unhealthy and StartSession is blocked until an operator Applies Navigation
 (and confirms Sessions / ResourceManagement) via
 `PUT /api/configurations` with a Bearer access token.
 
-**TLS:** Traefik exposes `:443` but routers currently bind the `web` entrypoint
-(HTTP `:80`). Terminate TLS at your edge or extend Traefik with an ACME
-certresolver + `websecure` router labels. WebTransport remains direct
-`https://…:8443` with a cert pin fetched from `/health/webtransport-cert`.
-Set `PUBLIC_HOST` in `dockup.json` prod `env` so the web image bakes
-`VITE_SPECULUM_TRANSPORT_ORIGIN`.
+**TLS:** Traefik terminates HTTPS on `:443` with Let's Encrypt (HTTP-01 via
+entrypoint `web`, resolver `le`). HTTP `:80` redirects to HTTPS. Set
+`PUBLIC_HOST` / `ACME_EMAIL` in `dockup.json` prod `env` (routers are
+`Host(\`${PUBLIC_HOST}\`)`). WebTransport remains direct `https://…:8443`
+with a cert pin fetched from `/health/webtransport-cert`.
 
 ```bash
 dockup validate -c dockup.json --root ..

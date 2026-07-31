@@ -252,7 +252,7 @@
           { "name": "Sessions__DeviceEmulationPolicy__MobileUserAgentProfile", "value": "mobile" }
         ],
         "volumes": [
-          { "name": "speculum-data", "container": "/data" },
+          { "name": "speculum-refactor-data", "container": "/data" },
           { "host": "/proc", "container": "/host/proc:ro" },
           { "host": "/var/run/docker.sock", "container": "/var/run/docker.sock:ro" }
         ],
@@ -295,7 +295,7 @@
         ]
       }
     ],
-    "volumes": [{ "name": "speculum-data" }]
+    "volumes": [{ "name": "speculum-refactor-data" }]
   },
   "test": {
     "namespace": "speculum-refactor",

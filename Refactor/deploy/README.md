@@ -24,7 +24,7 @@ npm install -g @rodrigopjax/dockup
 WebTransport on **`:8443`** — run only one at a time.
 `test` / compose sessions-test uses **`:18090`** (API) so it can run beside local stacks.
 Sidecar uses Docker `init: true` (reaps Chrome/Xvfb zombies). Volumes are env-scoped
-(`speculum-refactor-dev-data` / `speculum-data` / `speculum-refactor-test-data`).
+(`speculum-refactor-dev-data` / `speculum-refactor-data` / `speculum-refactor-test-data`).
 
 First-boot mandatory config: `dev` / `test` seed Sessions + ResourceManagement +
 Navigation via env so `/health/ready` can pass. `prod` seeds Sessions +

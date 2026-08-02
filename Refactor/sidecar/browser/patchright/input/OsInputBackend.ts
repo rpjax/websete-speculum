@@ -1,9 +1,9 @@
 import { createHash } from 'crypto';
-import { execFile } from 'child_process';
+import { execFile, execFileSync } from 'child_process';
+import * as fs from 'fs';
 import { promisify } from 'util';
 import type { BrowserTouchPoint } from '../../BrowserSession';
 import type { InputBackend } from './InputBackend';
-import { registerIsolatedInput, unregisterIsolatedInput, enableNamedDevices } from './display-isolation';
 import { allKeyboardKeyCodes, KEY, resolveKeyStroke } from './keycodes';
 import {
   createCoordTransform,
@@ -28,6 +28,8 @@ import {
   EV_REL,
   REL_HWHEEL,
   REL_WHEEL,
+  REL_X,
+  REL_Y,
   UinputDevice,
   uinputAvailable,
 } from './uinput';
@@ -35,14 +37,22 @@ import {
 const execFileAsync = promisify(execFile);
 
 const MAX_SLOTS = 10;
+/** Xorg already binds our InputDevice sections — assert should be near-instant. */
+const ATTACH_TIMEOUT_MS = 3_000;
+const ATTACH_POLL_MS = 10;
+/** Evdev relative deltas are typically int8/int16-safe; chunk large warps. */
+const REL_CHUNK = 127;
 
-export type OsInputBackendOptions = {
+export type OsInputBackendOpenOptions = {
   sessionId: string;
-  displayEnv: string;
   displayWidth: number;
   displayHeight: number;
   logicalWidth: number;
   logicalHeight: number;
+};
+
+export type OsInputBackendOptions = OsInputBackendOpenOptions & {
+  displayEnv: string;
   /**
    * Text-entry escape for characters with no EV_KEY mapping (e.g. ã).
    * Pointer/touch/ASCII keys stay on uinput — never used as a general CDP fallback.
@@ -52,14 +62,17 @@ export type OsInputBackendOptions = {
 
 /**
  * Production OS input: dual persistent uinput devices (pointer+kbd, multitouch)
- * bound to the session X display.
+ * bound into the session Xorg via explicit InputDevice sections.
+ *
+ * Open kernel nodes *before* Display.start, then attach asserts xinput visibility.
  */
 export class OsInputBackend implements InputBackend {
   private readonly _pointer: UinputDevice;
+  private readonly _keyboard: UinputDevice;
   private readonly _touch: UinputDevice;
-  private readonly _displayEnv: string;
+  private _displayEnv: string;
   private readonly _sessionId: string;
-  private readonly _insertText?: (text: string) => Promise<void>;
+  private _insertText?: (text: string) => Promise<void>;
   private _transform: CoordTransform;
   private readonly _slotById = new Map<number, number>();
   private readonly _idBySlot = new Map<number, number>();
@@ -71,10 +84,14 @@ export class OsInputBackend implements InputBackend {
    */
   private _shiftOwnedByChar = false;
   private _disposed = false;
-  private _registered = false;
+  private _attached = false;
+  /** Software cursor in display ABS space — relative mouse needs a known origin. */
+  private _curX = 0;
+  private _curY = 0;
 
   private constructor(
     pointer: UinputDevice,
+    keyboard: UinputDevice,
     touch: UinputDevice,
     displayEnv: string,
     sessionId: string,
@@ -82,6 +99,7 @@ export class OsInputBackend implements InputBackend {
     insertText?: (text: string) => Promise<void>,
   ) {
     this._pointer = pointer;
+    this._keyboard = keyboard;
     this._touch = touch;
     this._displayEnv = displayEnv;
     this._sessionId = sessionId;
@@ -89,7 +107,38 @@ export class OsInputBackend implements InputBackend {
     this._insertText = insertText;
   }
 
-  static async create(opts: OsInputBackendOptions): Promise<OsInputBackend> {
+  get deviceNames(): readonly string[] {
+    return [this._pointer.name, this._keyboard.name, this._touch.name];
+  }
+
+  /** Resolve /dev/input/eventN paths for xorg.conf InputDevice sections. */
+  resolveEventPaths(): {
+    pointerEventPath: string;
+    keyboardEventPath: string;
+    touchEventPath: string;
+  } {
+    ensureInputEventNodes(this._pointer.name, this._keyboard.name, this._touch.name);
+    const handlers = listInputHandlers(this._pointer.name, this._keyboard.name, this._touch.name);
+    const ptr = handlers.find((h) => h.name === this._pointer.name);
+    const kbd = handlers.find((h) => h.name === this._keyboard.name);
+    const mt = handlers.find((h) => h.name === this._touch.name);
+    if (!ptr || !kbd || !mt) {
+      throw Object.assign(
+        new Error(
+          `uinput event nodes missing after create (${this._pointer.name}, ${this._keyboard.name}, ${this._touch.name})`,
+        ),
+        { code: 'FAILED_PRECONDITION', errorCode: 'uinput_event_missing', phase: 'launch' },
+      );
+    }
+    return {
+      pointerEventPath: `/dev/input/${ptr.event}`,
+      keyboardEventPath: `/dev/input/${kbd.event}`,
+      touchEventPath: `/dev/input/${mt.event}`,
+    };
+  }
+
+  /** Create kernel uinput nodes + /dev/input event nodes — call before Display.start. */
+  static async open(opts: OsInputBackendOpenOptions): Promise<OsInputBackend> {
     if (!uinputAvailable()) {
       throw Object.assign(new Error('/dev/uinput is not available'), {
         code: 'FAILED_PRECONDITION',
@@ -100,12 +149,14 @@ export class OsInputBackend implements InputBackend {
     const absMaxX = Math.max(0, opts.displayWidth - 1);
     const absMaxY = Math.max(0, opts.displayHeight - 1);
     const shortId = createHash('sha1').update(opts.sessionId).digest('hex').slice(0, 12);
-    const pointer = UinputDevice.openPointerKeyboard(
-      `speculum-ptr-${shortId}`,
-      allKeyboardKeyCodes(),
-      absMaxX,
-      absMaxY,
-    );
+    const pointer = UinputDevice.openPointer(`speculum-ptr-${shortId}`);
+    let keyboard: UinputDevice;
+    try {
+      keyboard = UinputDevice.openKeyboard(`speculum-kbd-${shortId}`, allKeyboardKeyCodes());
+    } catch (err) {
+      pointer.destroy();
+      throw err;
+    }
     let touch: UinputDevice;
     try {
       touch = UinputDevice.openMultitouch(
@@ -116,32 +167,50 @@ export class OsInputBackend implements InputBackend {
       );
     } catch (err) {
       pointer.destroy();
+      keyboard.destroy();
       throw err;
     }
 
     const backend = new OsInputBackend(
       pointer,
+      keyboard,
       touch,
-      opts.displayEnv,
+      '',
       opts.sessionId,
       createCoordTransform(opts.logicalWidth, opts.logicalHeight, absMaxX, absMaxY),
-      opts.insertText,
     );
+    ensureInputEventNodes(pointer.name, keyboard.name, touch.name);
+    return backend;
+  }
 
-    const deviceNames = [pointer.name, touch.name];
+  setInsertText(insertText: (text: string) => Promise<void>): void {
+    this._insertText = insertText;
+  }
+
+  /** After Display.start: assert our InputDevice identifiers appear on this DISPLAY. */
+  async attachToDisplay(displayEnv: string): Promise<void> {
+    if (this._attached) {
+      this._displayEnv = displayEnv;
+      return;
+    }
+    this._displayEnv = displayEnv;
     try {
-      await registerIsolatedInput({
-        sessionId: opts.sessionId,
-        displayEnv: opts.displayEnv,
-        deviceNames,
-      });
-      backend._registered = true;
-      await backend._awaitDevicesVisible();
-      await enableNamedDevices(opts.displayEnv, deviceNames);
+      await this._awaitDevicesVisible();
+      // Relative mouse: pin software cursor to top-left so later deltas are absolute.
+      this._emitRel(-this._transform.absMaxX - 64, -this._transform.absMaxY - 64);
+      this._curX = 0;
+      this._curY = 0;
+      this._attached = true;
     } catch (err) {
-      await backend.dispose();
+      await this.dispose();
       throw err;
     }
+  }
+
+  static async create(opts: OsInputBackendOptions): Promise<OsInputBackend> {
+    const backend = await OsInputBackend.open(opts);
+    if (opts.insertText) backend.setInsertText(opts.insertText);
+    await backend.attachToDisplay(opts.displayEnv);
     return backend;
   }
 
@@ -192,7 +261,7 @@ export class OsInputBackend implements InputBackend {
     if (key === 'Shift') {
       this._shiftHeld = true;
       this._shiftOwnedByChar = false;
-      this._pointer.emit([{ type: EV_KEY, code: KEY.LEFTSHIFT, value: 1 }]);
+      this._keyboard.emit([{ type: EV_KEY, code: KEY.LEFTSHIFT, value: 1 }]);
       return;
     }
     const stroke = resolveKeyStroke(key);
@@ -209,7 +278,7 @@ export class OsInputBackend implements InputBackend {
       this._shiftOwnedByChar = true;
     }
     events.push({ type: EV_KEY, code: stroke.code, value: 1 });
-    this._pointer.emit(events);
+    this._keyboard.emit(events);
   }
 
   async keyUp(key: string): Promise<void> {
@@ -218,7 +287,7 @@ export class OsInputBackend implements InputBackend {
     if (key === 'Shift') {
       this._shiftHeld = false;
       this._shiftOwnedByChar = false;
-      this._pointer.emit([{ type: EV_KEY, code: KEY.LEFTSHIFT, value: 0 }]);
+      this._keyboard.emit([{ type: EV_KEY, code: KEY.LEFTSHIFT, value: 0 }]);
       return;
     }
     const stroke = resolveKeyStroke(key);
@@ -232,7 +301,7 @@ export class OsInputBackend implements InputBackend {
       this._shiftHeld = false;
       this._shiftOwnedByChar = false;
     }
-    this._pointer.emit(events);
+    this._keyboard.emit(events);
   }
 
   async typeText(text: string): Promise<void> {
@@ -255,12 +324,12 @@ export class OsInputBackend implements InputBackend {
       const down: Array<{ type: number; code: number; value: number }> = [];
       if (needShift) down.push({ type: EV_KEY, code: KEY.LEFTSHIFT, value: 1 });
       down.push({ type: EV_KEY, code: stroke.code, value: 1 });
-      this._pointer.emit(down);
+      this._keyboard.emit(down);
       const up: Array<{ type: number; code: number; value: number }> = [
         { type: EV_KEY, code: stroke.code, value: 0 },
       ];
       if (needShift) up.push({ type: EV_KEY, code: KEY.LEFTSHIFT, value: 0 });
-      this._pointer.emit(up);
+      this._keyboard.emit(up);
     }
     await flushPending();
   }
@@ -280,20 +349,13 @@ export class OsInputBackend implements InputBackend {
   async dispose(): Promise<void> {
     if (this._disposed) return;
     this._disposed = true;
-    if (this._registered) {
-      this._registered = false;
-      try {
-        await unregisterIsolatedInput(this._sessionId);
-      } catch {
-        /* */
-      }
-    }
     try {
       this._releaseAllTouches();
     } catch {
       /* */
     }
     this._pointer.destroy();
+    this._keyboard.destroy();
     this._touch.destroy();
   }
 
@@ -307,10 +369,29 @@ export class OsInputBackend implements InputBackend {
 
   private _pointerAbsMove(x: number, y: number): void {
     const p = mapLogicalToAbs(this._transform, x, y);
-    this._pointer.emit([
-      { type: EV_ABS, code: ABS_X, value: p.x },
-      { type: EV_ABS, code: ABS_Y, value: p.y },
-    ]);
+    const dx = p.x - this._curX;
+    const dy = p.y - this._curY;
+    if (dx === 0 && dy === 0) return;
+    this._emitRel(dx, dy);
+    this._curX = p.x;
+    this._curY = p.y;
+  }
+
+  private _emitRel(dx: number, dy: number): void {
+    let remainX = dx;
+    let remainY = dy;
+    while (remainX !== 0 || remainY !== 0) {
+      const stepX =
+        remainX === 0 ? 0 : Math.sign(remainX) * Math.min(Math.abs(remainX), REL_CHUNK);
+      const stepY =
+        remainY === 0 ? 0 : Math.sign(remainY) * Math.min(Math.abs(remainY), REL_CHUNK);
+      remainX -= stepX;
+      remainY -= stepY;
+      const events: Array<{ type: number; code: number; value: number }> = [];
+      if (stepX !== 0) events.push({ type: EV_REL, code: REL_X, value: stepX });
+      if (stepY !== 0) events.push({ type: EV_REL, code: REL_Y, value: stepY });
+      if (events.length > 0) this._pointer.emit(events);
+    }
   }
 
   private _applyTouchPoints(points: readonly BrowserTouchPoint[]): void {
@@ -376,29 +457,32 @@ export class OsInputBackend implements InputBackend {
     throw new Error('no free multitouch slots');
   }
 
-  private async _awaitDevicesVisible(timeoutMs = 5_000): Promise<void> {
+  private async _awaitDevicesVisible(timeoutMs = ATTACH_TIMEOUT_MS): Promise<void> {
     const deadline = Date.now() + timeoutMs;
     const env = { ...process.env as Record<string, string>, DISPLAY: this._displayEnv };
-    let nudged = false;
     while (Date.now() < deadline) {
-      if (!nudged) {
-        nudged = true;
-        await nudgeInputHotplug();
-      }
       try {
-        const { stdout } = await execFileAsync('xinput', ['list'], { env });
-        if (stdout.includes(this._pointer.name) && stdout.includes(this._touch.name)) {
+        const { stdout } = await execFileAsync('xinput', ['list', '--name-only'], { env });
+        if (
+          stdout.includes(this._pointer.name) &&
+          stdout.includes(this._keyboard.name) &&
+          stdout.includes(this._touch.name)
+        ) {
           return;
         }
       } catch {
-        /* xinput may not be ready yet */
+        /* Xorg may still be coming up */
       }
-      await new Promise<void>((r) => setTimeout(r, 50));
+      await new Promise<void>((r) => setTimeout(r, ATTACH_POLL_MS));
     }
+    console.error(
+      `[OsInput] attach failed display=${this._displayEnv} ` +
+        `ptr=${this._pointer.name} kbd=${this._keyboard.name} mt=${this._touch.name} session=${this._sessionId}`,
+    );
     throw Object.assign(
       new Error(
         `uinput devices not visible on ${this._displayEnv} within ${timeoutMs}ms ` +
-          `(${this._pointer.name}, ${this._touch.name})`,
+          `(${this._pointer.name}, ${this._keyboard.name}, ${this._touch.name})`,
       ),
       { code: 'FAILED_PRECONDITION', errorCode: 'uinput_not_attached', phase: 'launch' },
     );
@@ -422,12 +506,59 @@ function wheelSteps(delta: number): number {
   return delta < 0 ? 1 : -1;
 }
 
-/** Best-effort: wake container/host udev so Xorg AutoAddDevices sees new uinput nodes. */
-async function nudgeInputHotplug(): Promise<void> {
+type InputHandlerRef = { name: string; event: string };
+
+function listInputHandlers(...deviceNames: string[]): InputHandlerRef[] {
+  const wanted = new Set(deviceNames.filter((n) => n.length > 0));
+  if (wanted.size === 0) return [];
+  let text: string;
   try {
-    await execFileAsync('udevadm', ['trigger', '--subsystem-match=input', '--action=add']);
-    await execFileAsync('udevadm', ['settle', '--timeout=2']);
+    text = fs.readFileSync('/proc/bus/input/devices', 'utf8');
   } catch {
-    /* udev optional when /run/udev is mounted from the host */
+    return [];
+  }
+  const out: InputHandlerRef[] = [];
+  for (const block of text.split('\n\n')) {
+    const nameMatch = block.match(/^N: Name="([^"]+)"/m);
+    const handlersMatch = block.match(/^H: Handlers=([^\n]+)/m);
+    if (!nameMatch || !handlersMatch) continue;
+    if (!wanted.has(nameMatch[1]!)) continue;
+    for (const token of handlersMatch[1]!.trim().split(/\s+/)) {
+      if (!/^event\d+$/.test(token)) continue;
+      out.push({ name: nameMatch[1]!, event: token });
+    }
+  }
+  return out;
+}
+
+/**
+ * Docker does not auto-create /dev/input/eventN for container-born uinput.
+ * With device_cgroup_rules c 13:* we mknod from sysfs so Xorg Option "Device" works.
+ */
+function ensureInputEventNodes(...deviceNames: string[]): void {
+  try {
+    fs.mkdirSync('/dev/input', { recursive: true });
+  } catch {
+    /* */
+  }
+  for (const { event } of listInputHandlers(...deviceNames)) {
+    const node = `/dev/input/${event}`;
+    if (fs.existsSync(node)) continue;
+    let majMin: string;
+    try {
+      majMin = fs.readFileSync(`/sys/class/input/${event}/dev`, 'utf8').trim();
+    } catch {
+      continue;
+    }
+    const [majS, minS] = majMin.split(':');
+    const major = Number(majS);
+    const minor = Number(minS);
+    if (!Number.isInteger(major) || !Number.isInteger(minor)) continue;
+    try {
+      execFileSync('mknod', [node, 'c', String(major), String(minor)]);
+      fs.chmodSync(node, 0o666);
+    } catch {
+      /* host may already own the node */
+    }
   }
 }

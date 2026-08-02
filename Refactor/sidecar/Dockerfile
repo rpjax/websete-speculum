@@ -21,9 +21,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       xserver-xorg-input-libinput \
       x11-xserver-utils \
       xinput \
+      xdotool \
       udev \
       matchbox-window-manager \
       mesa-utils \
+      libgl1 \
+      libgl1-mesa-dri \
       libnss3 \
       libatk-bridge2.0-0 \
       libgtk-3-0 \
@@ -52,6 +55,7 @@ COPY sidecar/browser ./browser
 COPY sidecar/grpc ./grpc
 COPY sidecar/host ./host
 COPY sidecar/telemetry ./telemetry
+COPY sidecar/extensions ./extensions
 COPY sidecar/index.ts sidecar/smoke.ts sidecar/smoke-remote.ts sidecar/unit.ts ./
 COPY sidecar/docker-entrypoint.sh /docker-entrypoint.sh
 COPY proto /proto

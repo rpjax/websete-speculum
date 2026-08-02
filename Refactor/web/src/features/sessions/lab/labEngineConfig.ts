@@ -254,10 +254,10 @@ export function createLabSessionsBaseline(): LabSessionsConfig {
       maximum: { width: 4096, height: 2160 },
     },
     clientEnvironmentPolicy: {
-      defaultLocale: 'en-US',
-      defaultLanguage: 'en-US',
-      defaultTimeZoneId: 'America/New_York',
-      defaultColorScheme: 'dark',
+      defaultLocale: 'pt-BR',
+      defaultLanguage: 'pt-BR',
+      defaultTimeZoneId: 'America/Sao_Paulo',
+      defaultColorScheme: 'light',
     },
     deviceEmulationPolicy: {
       default: {

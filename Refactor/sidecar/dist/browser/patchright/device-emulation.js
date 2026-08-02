@@ -6,6 +6,8 @@ exports.touchEmulationParams = touchEmulationParams;
 exports.resolveDeviceProfile = resolveDeviceProfile;
 exports.deviceProfilesEqual = deviceProfilesEqual;
 exports.applyDeviceEmulation = applyDeviceEmulation;
+exports.buildChromeUserAgentMetadata = buildChromeUserAgentMetadata;
+exports.desktopPlatformFromUa = desktopPlatformFromUa;
 exports.applyLogicalViewport = applyLogicalViewport;
 exports.readChromeViewport = readChromeViewport;
 /** Desktop fallback when the client omits a device profile (dpr=1, no touch). */
@@ -108,18 +110,16 @@ async function applyDeviceEmulation(cdp, width, height, device) {
             `Chrome/${chromeVer} Mobile Safari/537.36`;
         await cdp.send('Emulation.setUserAgentOverride', {
             userAgent: ua,
-            userAgentMetadata: {
-                brands: [
-                    { brand: 'Chromium', version: major },
-                    { brand: 'Google Chrome', version: major },
-                ],
-                fullVersion: chromeVer,
+            userAgentMetadata: buildChromeUserAgentMetadata({
+                chromeVer,
+                major,
+                mobile: true,
                 platform: 'Android',
                 platformVersion: '13.0.0',
                 architecture: '',
                 model: 'Pixel 7',
-                mobile: true,
-            },
+                bitness: '',
+            }),
         });
         return;
     }
@@ -127,7 +127,95 @@ async function applyDeviceEmulation(cdp, width, height, device) {
     if (!version.userAgent) {
         throw new Error('Browser.getVersion did not return userAgent');
     }
-    await cdp.send('Emulation.setUserAgentOverride', { userAgent: version.userAgent });
+    if (!version.product) {
+        throw new Error('Browser.getVersion did not return product');
+    }
+    const chromeVer = version.product.replace(/^Chrome\//, '');
+    const major = chromeVer.split('.')[0];
+    if (!major) {
+        throw new Error('Unable to parse Chrome version from product string');
+    }
+    const desktopMeta = desktopPlatformFromUa(version.userAgent);
+    await cdp.send('Emulation.setUserAgentOverride', {
+        userAgent: version.userAgent,
+        userAgentMetadata: buildChromeUserAgentMetadata({
+            chromeVer,
+            major,
+            mobile: false,
+            platform: desktopMeta.platform,
+            platformVersion: desktopMeta.platformVersion,
+            architecture: desktopMeta.architecture,
+            model: '',
+            bitness: desktopMeta.bitness,
+        }),
+    });
+}
+/** Greasy Client Hints brands matching current Chrome (sec-ch-ua consistency). */
+function buildChromeUserAgentMetadata(args) {
+    const greasyBrand = greasyNotABrand(args.major);
+    const brands = [
+        { brand: greasyBrand.brand, version: greasyBrand.version },
+        { brand: 'Chromium', version: args.major },
+        { brand: 'Google Chrome', version: args.major },
+    ];
+    const fullVersionList = [
+        { brand: greasyBrand.brand, version: greasyBrand.fullVersion },
+        { brand: 'Chromium', version: args.chromeVer },
+        { brand: 'Google Chrome', version: args.chromeVer },
+    ];
+    return {
+        brands,
+        fullVersionList,
+        fullVersion: args.chromeVer,
+        platform: args.platform,
+        platformVersion: args.platformVersion,
+        architecture: args.architecture,
+        model: args.model,
+        mobile: args.mobile,
+        bitness: args.bitness,
+        wow64: false,
+    };
+}
+/** Derive desktop CH platform fields from Chrome's native Linux/Windows/macOS UA. */
+function desktopPlatformFromUa(userAgent) {
+    if (/Windows NT/i.test(userAgent)) {
+        return {
+            platform: 'Windows',
+            platformVersion: '15.0.0',
+            architecture: 'x86',
+            bitness: '64',
+        };
+    }
+    if (/Mac OS X/i.test(userAgent)) {
+        return {
+            platform: 'macOS',
+            platformVersion: '14.0.0',
+            architecture: 'x86',
+            bitness: '64',
+        };
+    }
+    // Container Chrome is Linux x86_64.
+    return {
+        platform: 'Linux',
+        platformVersion: '6.5.0',
+        architecture: 'x86',
+        bitness: '64',
+    };
+}
+/**
+ * Chrome rotates a "Not_A Brand" / greasy brand to poison UA-CH parsers.
+ * Seed from major so the set stays stable within a Chrome version.
+ */
+function greasyNotABrand(major) {
+    const n = Number.parseInt(major, 10);
+    const seed = Number.isFinite(n) ? n % 3 : 0;
+    if (seed === 0) {
+        return { brand: 'Not_A Brand', version: '8', fullVersion: '10.0.0.0' };
+    }
+    if (seed === 1) {
+        return { brand: 'Not)A;Brand', version: '24', fullVersion: '24.0.0.0' };
+    }
+    return { brand: 'Not A(Brand', version: '99', fullVersion: '99.0.0.0' };
 }
 /**
  * Soft logical viewport: apply only device metrics so layout/paint track the

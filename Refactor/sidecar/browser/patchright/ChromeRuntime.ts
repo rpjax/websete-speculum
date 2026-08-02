@@ -1,6 +1,8 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 import { chromium, type BrowserContext, type Page, type CDPSession } from 'patchright';
 import type {
   BrowserColorScheme,
@@ -9,6 +11,8 @@ import type {
   BrowserScriptInjection,
 } from '../BrowserSession';
 import { applyLogicalViewport } from './device-emulation';
+
+const execFileAsync = promisify(execFile);
 
 function escapeHtmlAttr(value: string): string {
   return value
@@ -38,24 +42,47 @@ export function profileDirForSession(sessionId: string): string {
   return path.join(os.tmpdir(), 'speculum-profiles', sessionId);
 }
 
-function buildChromeArgs(width: number, height: number): string[] {
+/** Path to webgl-spoof from compiled `dist/browser/patchright` (and Docker `/app`). */
+export function webglSpoofExtensionPath(): string {
+  return path.resolve(__dirname, '../../../extensions/webgl-spoof');
+}
+
+/**
+ * Chrome launch flags. WebGL spoof is always on (SwiftShader + extension), matching
+ * the original motor — opt out only with SPECULUM_GL_FALLBACK=0 (lab escape).
+ */
+export function buildChromeArgs(width: number, height: number): string[] {
+  const disableFeatures = ['ExclusiveAccessBubble'];
+  const glEnabled = process.env['SPECULUM_GL_FALLBACK'] !== '0';
+  if (glEnabled) {
+    // Chrome ≥137 may ignore --load-extension unless this feature is disabled.
+    disableFeatures.push('DisableLoadExtensionCommandLineSwitch');
+  }
+
   const args = [
     '--no-sandbox',
     '--disable-blink-features=AutomationControlled',
     `--window-size=${width},${height}`,
     '--window-position=0,0',
-    '--disable-features=ExclusiveAccessBubble',
+    `--disable-features=${disableFeatures.join(',')}`,
     '--touch-events=enabled',
     '--no-first-run',
     '--mute-audio',
   ];
 
-  if (process.env['SPECULUM_GL_FALLBACK'] === '1') {
-    const extensionPath = path.resolve(__dirname, '../../../../sidecar/extensions/webgl-spoof');
-    args.push('--use-gl=swiftshader');
-    if (fs.existsSync(extensionPath)) {
-      args.push(`--load-extension=${extensionPath}`, `--disable-extensions-except=${extensionPath}`);
+  if (glEnabled) {
+    const extensionPath = webglSpoofExtensionPath();
+    if (!fs.existsSync(extensionPath)) {
+      throw Object.assign(
+        new Error(`webgl-spoof extension missing at ${extensionPath}`),
+        { code: 'FAILED_PRECONDITION', errorCode: 'webgl_spoof_missing', phase: 'launch' },
+      );
     }
+    args.push(
+      '--use-gl=swiftshader',
+      `--load-extension=${extensionPath}`,
+      `--disable-extensions-except=${extensionPath}`,
+    );
   }
 
   if (process.env['SPECULUM_IGNORE_CERT_ERRORS'] === '1') {
@@ -133,8 +160,27 @@ export async function launchChrome(args: {
   const { windowId } = (await cdp.send('Browser.getWindowForTarget', {})) as { windowId: number };
   await cdp.send('Browser.setWindowBounds', { windowId, bounds: { windowState: 'fullscreen' } });
   await applyLogicalViewport(cdp, args.width, args.height, args.device);
+  await ensureChromeXFocus(args.displayEnv);
 
   return { context, page, cdp, userDataDir };
+}
+
+/** Best-effort: raise Chrome so OS CorePointer/CoreKeyboard events hit the window. */
+async function ensureChromeXFocus(displayEnv: string): Promise<void> {
+  const env = { ...process.env as Record<string, string>, DISPLAY: displayEnv };
+  const classes = ['Google-chrome', 'google-chrome', 'Chromium', 'chromium'];
+  for (const cls of classes) {
+    try {
+      await execFileAsync(
+        'xdotool',
+        ['search', '--onlyvisible', '--class', cls, 'windowactivate', '--sync'],
+        { env, timeout: 2_000 },
+      );
+      return;
+    } catch {
+      /* try next class */
+    }
+  }
 }
 
 export async function closeChrome(

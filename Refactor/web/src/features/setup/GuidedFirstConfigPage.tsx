@@ -18,7 +18,7 @@ const mandatory: Section[] = ['Navigation', 'Sessions', 'ResourceManagement']
 const sessionsBaseline = {
   detachedSessionTimeout: '00:30:00', isJsBridgeEnabled: true,
   viewportPolicy: { minimum: { width: 100, height: 100 }, default: { width: 1280, height: 720 }, maximum: { width: 4096, height: 2160 } },
-  clientEnvironmentPolicy: { defaultLocale: 'en-US', defaultLanguage: 'en-US', defaultTimeZoneId: 'UTC', defaultColorScheme: 'light' },
+  clientEnvironmentPolicy: { defaultLocale: 'pt-BR', defaultLanguage: 'pt-BR', defaultTimeZoneId: 'America/Sao_Paulo', defaultColorScheme: 'light' },
   deviceEmulationPolicy: { default: { mobile: false, touch: false, deviceScaleFactor: 1, maxTouchPoints: 0, userAgentProfile: 'desktop', screenOrientation: 'landscapePrimary' }, minDeviceScaleFactor: 1, maxDeviceScaleFactor: 2, maxTouchPoints: 10, defaultTouchPointsWhenTouch: 5, desktopUserAgentProfile: 'desktop', mobileUserAgentProfile: 'mobile' },
   inputMultiplexingPolicy: { access: 'shared', ownership: 'firstAttached', scheduling: 'arrivalOrder' },
   outputMultiplexingPolicy: { delivery: 'broadcast', ownership: 'firstAttached' },

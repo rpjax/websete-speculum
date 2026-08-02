@@ -34,14 +34,27 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.profileDirForSession = profileDirForSession;
+exports.webglSpoofExtensionPath = webglSpoofExtensionPath;
+exports.buildChromeArgs = buildChromeArgs;
 exports.launchChrome = launchChrome;
 exports.closeChrome = closeChrome;
 exports.injectScriptTags = injectScriptTags;
 const fs = __importStar(require("fs"));
 const os = __importStar(require("os"));
 const path = __importStar(require("path"));
+const child_process_1 = require("child_process");
+const util_1 = require("util");
 const patchright_1 = require("patchright");
 const device_emulation_1 = require("./device-emulation");
+const execFileAsync = (0, util_1.promisify)(child_process_1.execFile);
+function escapeHtmlAttr(value) {
+    return value
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+}
 function requireChromeExecutable() {
     const path = process.env['CHROME_EXECUTABLE'];
     if (!path?.trim()) {
@@ -52,23 +65,37 @@ function requireChromeExecutable() {
 function profileDirForSession(sessionId) {
     return path.join(os.tmpdir(), 'speculum-profiles', sessionId);
 }
+/** Path to webgl-spoof from compiled `dist/browser/patchright` (and Docker `/app`). */
+function webglSpoofExtensionPath() {
+    return path.resolve(__dirname, '../../../extensions/webgl-spoof');
+}
+/**
+ * Chrome launch flags. WebGL spoof is always on (SwiftShader + extension), matching
+ * the original motor — opt out only with SPECULUM_GL_FALLBACK=0 (lab escape).
+ */
 function buildChromeArgs(width, height) {
+    const disableFeatures = ['ExclusiveAccessBubble'];
+    const glEnabled = process.env['SPECULUM_GL_FALLBACK'] !== '0';
+    if (glEnabled) {
+        // Chrome ≥137 may ignore --load-extension unless this feature is disabled.
+        disableFeatures.push('DisableLoadExtensionCommandLineSwitch');
+    }
     const args = [
         '--no-sandbox',
         '--disable-blink-features=AutomationControlled',
         `--window-size=${width},${height}`,
         '--window-position=0,0',
-        '--disable-features=ExclusiveAccessBubble',
+        `--disable-features=${disableFeatures.join(',')}`,
         '--touch-events=enabled',
         '--no-first-run',
         '--mute-audio',
     ];
-    if (process.env['SPECULUM_GL_FALLBACK'] === '1') {
-        const extensionPath = path.resolve(__dirname, '../../../../sidecar/extensions/webgl-spoof');
-        args.push('--use-gl=swiftshader');
-        if (fs.existsSync(extensionPath)) {
-            args.push(`--load-extension=${extensionPath}`, `--disable-extensions-except=${extensionPath}`);
+    if (glEnabled) {
+        const extensionPath = webglSpoofExtensionPath();
+        if (!fs.existsSync(extensionPath)) {
+            throw Object.assign(new Error(`webgl-spoof extension missing at ${extensionPath}`), { code: 'FAILED_PRECONDITION', errorCode: 'webgl_spoof_missing', phase: 'launch' });
         }
+        args.push('--use-gl=swiftshader', `--load-extension=${extensionPath}`, `--disable-extensions-except=${extensionPath}`);
     }
     if (process.env['SPECULUM_IGNORE_CERT_ERRORS'] === '1') {
         args.push('--ignore-certificate-errors');
@@ -128,7 +155,22 @@ async function launchChrome(args) {
     const { windowId } = (await cdp.send('Browser.getWindowForTarget', {}));
     await cdp.send('Browser.setWindowBounds', { windowId, bounds: { windowState: 'fullscreen' } });
     await (0, device_emulation_1.applyLogicalViewport)(cdp, args.width, args.height, args.device);
+    await ensureChromeXFocus(args.displayEnv);
     return { context, page, cdp, userDataDir };
+}
+/** Best-effort: raise Chrome so OS CorePointer/CoreKeyboard events hit the window. */
+async function ensureChromeXFocus(displayEnv) {
+    const env = { ...process.env, DISPLAY: displayEnv };
+    const classes = ['Google-chrome', 'google-chrome', 'Chromium', 'chromium'];
+    for (const cls of classes) {
+        try {
+            await execFileAsync('xdotool', ['search', '--onlyvisible', '--class', cls, 'windowactivate', '--sync'], { env, timeout: 2_000 });
+            return;
+        }
+        catch {
+            /* try next class */
+        }
+    }
 }
 async function closeChrome(handle, options) {
     try {
@@ -145,14 +187,6 @@ async function closeChrome(handle, options) {
     catch {
         /* best-effort */
     }
-}
-function escapeHtmlAttr(value) {
-    return value
-        .replace(/&/g, '&amp;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
 }
 /** Inject script tags into HTML by position (used by Navigation fetch fulfill). */
 function injectScriptTags(html, scripts) {

@@ -16,15 +16,20 @@ npm install -g @rodrigopjax/dockup
 
 | Env | Sidecar browser | Purpose |
 |-----|-----------------|---------|
-| **`dev`** | `patchright` (Chrome) | Local lab — Traefik + web + API; `SPECULUM_BYPASS_API_AUTH` |
-| **`prod`** | `patchright` (Chrome) | VPS production — Traefik `:80`/`:443`, web admin SPA, no auth bypass; images push to Docker Hub `websete/*` |
-| **`test`** | `patchright` + motor-fixture | Act→Assert `SessionsTest` (CI also uses compose) |
+| **`dev`** | `patchright` (Chrome); input defaults to **uinput** (`os`) | Local lab — Traefik + web + API; `SPECULUM_BYPASS_API_AUTH`. WSL/no-uinput: set `SPECULUM_INPUT_BACKEND=patchright`. |
+| **`prod`** | `patchright` + **`SPECULUM_INPUT_BACKEND=patchright`** | VPS production — Traefik `:80`/`:443`, web admin SPA, no auth bypass; images push to Docker Hub `websete/*`. CDP input until OS→Chrome X11 delivery is proven. |
+| **`test`** | `patchright` + motor-fixture + **`SPECULUM_INPUT_BACKEND=patchright`** | Act→Assert `SessionsTest` (CI also uses compose) |
 
 `dev` publishes Traefik on host **`:8080`**; `prod` on **`:80`/`:443`**. Both publish
 WebTransport on **`:8443`** — run only one at a time.
 `test` / compose sessions-test uses **`:18090`** (API) so it can run beside local stacks.
 Sidecar uses Docker `init: true` (reaps Chrome/Xvfb zombies). Volumes are env-scoped
 (`speculum-refactor-dev-data` / `speculum-refactor-data` / `speculum-refactor-test-data`).
+Sidecar compose mounts `/dev/uinput` (OS path WIP). **`prod` / `test` force CDP input**
+(`SPECULUM_INPUT_BACKEND=patchright`) so Session input Act→Assert and VPS sessions work
+while Chrome under Patchright still ignores X11 CorePointer/CoreKeyboard events.
+`dev` leaves the backend unset (`os`) for Linux hosts developing the uinput path.
+After deploy, sidecar `/ready` is 200 when Chrome (+ uinput when backend=`os`) is present.
 
 First-boot mandatory config: `dev` / `test` seed Sessions + ResourceManagement +
 Navigation via env so `/health/ready` can pass. `prod` seeds Sessions +

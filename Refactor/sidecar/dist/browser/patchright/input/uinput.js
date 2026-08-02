@@ -36,7 +36,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.UinputDevice = exports.INPUT_PROP_DIRECT = exports.INPUT_PROP_POINTER = exports.ABS_MT_PRESSURE = exports.ABS_MT_TRACKING_ID = exports.ABS_MT_POSITION_Y = exports.ABS_MT_POSITION_X = exports.ABS_MT_TOUCH_MAJOR = exports.ABS_MT_SLOT = exports.ABS_Y = exports.ABS_X = exports.REL_HWHEEL = exports.REL_WHEEL = exports.BTN_TOUCH = exports.BTN_TOOL_PEN = exports.BTN_MIDDLE = exports.BTN_RIGHT = exports.BTN_LEFT = exports.SYN_REPORT = exports.EV_ABS = exports.EV_REL = exports.EV_KEY = exports.EV_SYN = void 0;
+exports.UinputDevice = exports.INPUT_PROP_DIRECT = exports.INPUT_PROP_POINTER = exports.ABS_MT_PRESSURE = exports.ABS_MT_TRACKING_ID = exports.ABS_MT_POSITION_Y = exports.ABS_MT_POSITION_X = exports.ABS_MT_TOUCH_MAJOR = exports.ABS_MT_SLOT = exports.ABS_Y = exports.ABS_X = exports.REL_HWHEEL = exports.REL_WHEEL = exports.REL_Y = exports.REL_X = exports.BTN_TOUCH = exports.BTN_TOOL_PEN = exports.BTN_MIDDLE = exports.BTN_RIGHT = exports.BTN_LEFT = exports.SYN_REPORT = exports.EV_ABS = exports.EV_REL = exports.EV_KEY = exports.EV_SYN = void 0;
 exports.uinputAvailable = uinputAvailable;
 const fs = __importStar(require("fs"));
 const koffi_1 = __importDefault(require("koffi"));
@@ -51,6 +51,8 @@ exports.BTN_RIGHT = 0x111;
 exports.BTN_MIDDLE = 0x112;
 exports.BTN_TOOL_PEN = 0x140;
 exports.BTN_TOUCH = 0x14a;
+exports.REL_X = 0x00;
+exports.REL_Y = 0x01;
 exports.REL_WHEEL = 0x08;
 exports.REL_HWHEEL = 0x06;
 exports.ABS_X = 0x00;
@@ -76,10 +78,17 @@ const UI_SET_PROPBIT = 0x4004556e;
 const EVENT_SIZE = 24; // timeval(16) + type(2) + code(2) + value(4) on 64-bit Linux
 const UDEV_SIZE = 80 + 8 + 4 + ABS_CNT * 4 * 4; // name + id + ff + absmax/min/fuzz/flat
 let ioctlFn = null;
+/**
+ * UI_SET_* take an int; UI_DEV_CREATE/DESTROY ignore the third arg.
+ * Use a fixed 3-arg prototype — koffi's variadic `...` form requires
+ * alternating type/value pairs (`ioctl(fd, req, 'int', arg)`). Calling
+ * `ioctl(fd, req, arg)` throws "Missing value argument for variadic call"
+ * and aborts StartSession.
+ */
 function ioctl(fd, request, arg) {
     if (!ioctlFn) {
         const libc = koffi_1.default.load('libc.so.6');
-        ioctlFn = libc.func('int ioctl(int fd, unsigned long request, ...)');
+        ioctlFn = libc.func('int ioctl(int fd, unsigned long request, int arg)');
     }
     const rc = ioctlFn(fd, request, arg);
     if (rc < 0) {
@@ -113,44 +122,53 @@ class UinputDevice {
         this.fd = fd;
         this.name = name;
     }
-    static openPointerKeyboard(name, keyCodes, absMaxX, absMaxY) {
+    static openPointer(name) {
         const fd = openUinputFd();
         try {
             ioctl(fd, UI_SET_EVBIT, exports.EV_KEY);
             ioctl(fd, UI_SET_EVBIT, exports.EV_REL);
-            ioctl(fd, UI_SET_EVBIT, exports.EV_ABS);
             ioctl(fd, UI_SET_EVBIT, exports.EV_SYN);
             ioctl(fd, UI_SET_KEYBIT, exports.BTN_LEFT);
             ioctl(fd, UI_SET_KEYBIT, exports.BTN_RIGHT);
             ioctl(fd, UI_SET_KEYBIT, exports.BTN_MIDDLE);
-            // Absolute pointers are tablets to libinput — keep a pen tool in proximity
-            // (BTN_TOOL_FINGER would classify as a touchpad and drop ABS clicks).
-            ioctl(fd, UI_SET_KEYBIT, exports.BTN_TOOL_PEN);
-            for (const code of keyCodes) {
-                ioctl(fd, UI_SET_KEYBIT, code);
-            }
+            // Relative mouse only. Absolute ABS under xf86-input-evdev often fails to
+            // deliver core pointer clicks to Chrome. Keyboard is a separate uinput
+            // device (openKeyboard) so X can bind a real CoreKeyboard.
+            ioctl(fd, UI_SET_RELBIT, exports.REL_X);
+            ioctl(fd, UI_SET_RELBIT, exports.REL_Y);
             ioctl(fd, UI_SET_RELBIT, exports.REL_WHEEL);
             ioctl(fd, UI_SET_RELBIT, exports.REL_HWHEEL);
-            ioctl(fd, UI_SET_ABSBIT, exports.ABS_X);
-            ioctl(fd, UI_SET_ABSBIT, exports.ABS_Y);
             try {
                 ioctl(fd, UI_SET_PROPBIT, exports.INPUT_PROP_POINTER);
             }
             catch {
                 /* optional */
             }
-            const absmax = new Int32Array(ABS_CNT);
-            absmax[exports.ABS_X] = absMaxX;
-            absmax[exports.ABS_Y] = absMaxY;
-            writeUserDev(fd, name, 
-            /*bustype*/ 0x03, 
-            /*vendor*/ 0x0001, 
-            /*product*/ 0x0001, new Int32Array(ABS_CNT), absmax);
+            writeUserDev(fd, name, /*bustype*/ 0x03, /*vendor*/ 0x0001, /*product*/ 0x0001);
             ioctl(fd, UI_DEV_CREATE, 0);
-            const device = new UinputDevice(fd, name);
-            // Keep tool in proximity for the session lifetime so ABS clicks are accepted.
-            device.emit([{ type: exports.EV_KEY, code: exports.BTN_TOOL_PEN, value: 1 }]);
-            return device;
+            return new UinputDevice(fd, name);
+        }
+        catch (err) {
+            try {
+                fs.closeSync(fd);
+            }
+            catch {
+                /* */
+            }
+            throw err;
+        }
+    }
+    static openKeyboard(name, keyCodes) {
+        const fd = openUinputFd();
+        try {
+            ioctl(fd, UI_SET_EVBIT, exports.EV_KEY);
+            ioctl(fd, UI_SET_EVBIT, exports.EV_SYN);
+            for (const code of keyCodes) {
+                ioctl(fd, UI_SET_KEYBIT, code);
+            }
+            writeUserDev(fd, name, /*bustype*/ 0x03, /*vendor*/ 0x0001, /*product*/ 0x0003);
+            ioctl(fd, UI_DEV_CREATE, 0);
+            return new UinputDevice(fd, name);
         }
         catch (err) {
             try {

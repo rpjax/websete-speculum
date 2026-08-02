@@ -27,9 +27,10 @@
         "context": ".",
         "dockerfile": "sidecar/Dockerfile",
         "init": true,
-        "capAdd": ["SYS_ADMIN"],
+        "capAdd": ["SYS_ADMIN", "MKNOD"],
         "shmSize": "2gb",
         "compose": {
+          "devices": ["/dev/uinput:/dev/uinput"],
           "device_cgroup_rules": [
             "c 10:223 rwm",
             "c 13:* rwm"
@@ -40,8 +41,7 @@
           { "name": "SPECULUM_BROWSER", "value": "patchright" },
           { "name": "CHROME_EXECUTABLE", "value": "/usr/bin/google-chrome" },
           { "name": "SPECULUM_GRPC_PORT", "value": "50051" },
-          { "name": "SPECULUM_HEALTH_PORT", "value": "3001" },
-          { "name": "SPECULUM_INPUT_BACKEND", "value": "patchright" }
+          { "name": "SPECULUM_HEALTH_PORT", "value": "3001" }
         ],
         "healthcheck": {
           "test": ["CMD", "curl", "-sf", "http://localhost:3001/health"],
@@ -85,10 +85,10 @@
           { "name": "Sessions__ViewportPolicy__Minimum__Height", "value": "100" },
           { "name": "Sessions__ViewportPolicy__Maximum__Width", "value": "4096" },
           { "name": "Sessions__ViewportPolicy__Maximum__Height", "value": "2160" },
-          { "name": "Sessions__ClientEnvironmentPolicy__DefaultLocale", "value": "en-US" },
-          { "name": "Sessions__ClientEnvironmentPolicy__DefaultLanguage", "value": "en-US" },
-          { "name": "Sessions__ClientEnvironmentPolicy__DefaultTimeZoneId", "value": "America/New_York" },
-          { "name": "Sessions__ClientEnvironmentPolicy__DefaultColorScheme", "value": "dark" },
+          { "name": "Sessions__ClientEnvironmentPolicy__DefaultLocale", "value": "pt-BR" },
+          { "name": "Sessions__ClientEnvironmentPolicy__DefaultLanguage", "value": "pt-BR" },
+          { "name": "Sessions__ClientEnvironmentPolicy__DefaultTimeZoneId", "value": "America/Sao_Paulo" },
+          { "name": "Sessions__ClientEnvironmentPolicy__DefaultColorScheme", "value": "light" },
           { "name": "Sessions__DeviceEmulationPolicy__Default__DeviceScaleFactor", "value": "1" },
           { "name": "Sessions__DeviceEmulationPolicy__Default__UserAgentProfile", "value": "desktop" },
           { "name": "Sessions__DeviceEmulationPolicy__Default__ScreenOrientation", "value": "landscapePrimary" },
@@ -189,9 +189,10 @@
         "dockerfile": "sidecar/Dockerfile",
         "restart": "unless-stopped",
         "init": true,
-        "capAdd": ["SYS_ADMIN"],
+        "capAdd": ["SYS_ADMIN", "MKNOD"],
         "shmSize": "2gb",
         "compose": {
+          "devices": ["/dev/uinput:/dev/uinput"],
           "device_cgroup_rules": [
             "c 10:223 rwm",
             "c 13:* rwm"
@@ -200,13 +201,13 @@
         "env": [
           { "name": "NODE_ENV", "value": "production" },
           { "name": "SPECULUM_BROWSER", "value": "patchright" },
+          { "name": "SPECULUM_INPUT_BACKEND", "value": "patchright" },
           { "name": "CHROME_EXECUTABLE", "value": "/usr/bin/google-chrome" },
           { "name": "SPECULUM_GRPC_PORT", "value": "50051" },
-          { "name": "SPECULUM_HEALTH_PORT", "value": "3001" },
-          { "name": "SPECULUM_INPUT_BACKEND", "value": "patchright" }
+          { "name": "SPECULUM_HEALTH_PORT", "value": "3001" }
         ],
         "healthcheck": {
-          "test": ["CMD", "curl", "-sf", "http://localhost:3001/health"],
+          "test": ["CMD", "curl", "-sf", "http://localhost:3001/ready"],
           "interval": "15s",
           "timeout": "5s",
           "startPeriod": "60s",
@@ -245,10 +246,10 @@
           { "name": "Sessions__ViewportPolicy__Minimum__Height", "value": "100" },
           { "name": "Sessions__ViewportPolicy__Maximum__Width", "value": "4096" },
           { "name": "Sessions__ViewportPolicy__Maximum__Height", "value": "2160" },
-          { "name": "Sessions__ClientEnvironmentPolicy__DefaultLocale", "value": "en-US" },
-          { "name": "Sessions__ClientEnvironmentPolicy__DefaultLanguage", "value": "en-US" },
-          { "name": "Sessions__ClientEnvironmentPolicy__DefaultTimeZoneId", "value": "America/New_York" },
-          { "name": "Sessions__ClientEnvironmentPolicy__DefaultColorScheme", "value": "dark" },
+          { "name": "Sessions__ClientEnvironmentPolicy__DefaultLocale", "value": "pt-BR" },
+          { "name": "Sessions__ClientEnvironmentPolicy__DefaultLanguage", "value": "pt-BR" },
+          { "name": "Sessions__ClientEnvironmentPolicy__DefaultTimeZoneId", "value": "America/Sao_Paulo" },
+          { "name": "Sessions__ClientEnvironmentPolicy__DefaultColorScheme", "value": "light" },
           { "name": "Sessions__DeviceEmulationPolicy__Default__DeviceScaleFactor", "value": "1" },
           { "name": "Sessions__DeviceEmulationPolicy__Default__UserAgentProfile", "value": "desktop" },
           { "name": "Sessions__DeviceEmulationPolicy__Default__ScreenOrientation", "value": "landscapePrimary" },
@@ -345,9 +346,10 @@
         "context": ".",
         "dockerfile": "sidecar/Dockerfile",
         "init": true,
-        "capAdd": ["SYS_ADMIN"],
+        "capAdd": ["SYS_ADMIN", "MKNOD"],
         "shmSize": "2gb",
         "compose": {
+          "devices": ["/dev/uinput:/dev/uinput"],
           "device_cgroup_rules": [
             "c 10:223 rwm",
             "c 13:* rwm"
@@ -356,13 +358,14 @@
         "env": [
           { "name": "NODE_ENV", "value": "production" },
           { "name": "SPECULUM_BROWSER", "value": "patchright" },
+          { "name": "SPECULUM_INPUT_BACKEND", "value": "patchright" },
           { "name": "CHROME_EXECUTABLE", "value": "/usr/bin/google-chrome" },
           { "name": "SPECULUM_GRPC_PORT", "value": "50051" },
           { "name": "SPECULUM_HEALTH_PORT", "value": "3001" },
           { "name": "SPECULUM_IGNORE_CERT_ERRORS", "value": "1" }
         ],
         "healthcheck": {
-          "test": ["CMD", "curl", "-sf", "http://localhost:3001/health"],
+          "test": ["CMD", "curl", "-sf", "http://localhost:3001/ready"],
           "interval": "15s",
           "timeout": "5s",
           "startPeriod": "60s",
@@ -417,10 +420,10 @@
           { "name": "Sessions__ViewportPolicy__Minimum__Height", "value": "100" },
           { "name": "Sessions__ViewportPolicy__Maximum__Width", "value": "4096" },
           { "name": "Sessions__ViewportPolicy__Maximum__Height", "value": "2160" },
-          { "name": "Sessions__ClientEnvironmentPolicy__DefaultLocale", "value": "en-US" },
-          { "name": "Sessions__ClientEnvironmentPolicy__DefaultLanguage", "value": "en-US" },
-          { "name": "Sessions__ClientEnvironmentPolicy__DefaultTimeZoneId", "value": "America/New_York" },
-          { "name": "Sessions__ClientEnvironmentPolicy__DefaultColorScheme", "value": "dark" },
+          { "name": "Sessions__ClientEnvironmentPolicy__DefaultLocale", "value": "pt-BR" },
+          { "name": "Sessions__ClientEnvironmentPolicy__DefaultLanguage", "value": "pt-BR" },
+          { "name": "Sessions__ClientEnvironmentPolicy__DefaultTimeZoneId", "value": "America/Sao_Paulo" },
+          { "name": "Sessions__ClientEnvironmentPolicy__DefaultColorScheme", "value": "light" },
           { "name": "Sessions__DeviceEmulationPolicy__Default__DeviceScaleFactor", "value": "1" },
           { "name": "Sessions__DeviceEmulationPolicy__Default__UserAgentProfile", "value": "desktop" },
           { "name": "Sessions__DeviceEmulationPolicy__Default__ScreenOrientation", "value": "landscapePrimary" },

@@ -46,8 +46,8 @@ const execFileAsync = (0, util_1.promisify)(child_process_1.execFile);
  * Allocated once at policy max (display capacity). Runtime logical viewport
  * changes do not recreate the display — Chrome window + CDP metrics adapt instead.
  *
- * Xorg (not Xvfb) so per-session uinput devices attach and Chrome receives
- * real OS multitouch / absolute pointer events.
+ * OS input path passes DisplayInputDevices so Xorg binds uinput event nodes via
+ * explicit InputDevice (evdev) sections — Chrome then sees real OS pointer/touch.
  */
 class Display {
     number;
@@ -73,7 +73,7 @@ class Display {
     get height() {
         return this._height;
     }
-    static async start(number, width, height) {
+    static async start(number, width, height, inputs) {
         const lockFile = `/tmp/.X${number}-lock`;
         try {
             fs.unlinkSync(lockFile);
@@ -83,7 +83,7 @@ class Display {
         }
         fs.mkdirSync('/tmp/.X11-unix', { recursive: true });
         const configPath = path.join(os.tmpdir(), `speculum-xorg-${number}.conf`);
-        fs.writeFileSync(configPath, buildXorgDummyConfig(width, height), 'utf8');
+        fs.writeFileSync(configPath, buildXorgDummyConfig(width, height, inputs), 'utf8');
         const xorg = (0, child_process_1.spawn)('Xorg', [
             `:${number}`,
             '-config',
@@ -253,25 +253,66 @@ class Display {
     }
 }
 exports.Display = Display;
-function buildXorgDummyConfig(width, height) {
+function buildXorgDummyConfig(width, height, inputs) {
     const modeName = `${width}x${height}`;
     const modeline = buildCvtModelineLine(width, height);
     // VideoRam is KiB; need ≥ width*height*4 bytes for 24/32-bpp framebuffer.
     const videoRamKiB = Math.max(256000, Math.ceil((width * height * 4) / 1024) + 16384);
-    return `
-Section "ServerFlags"
-  Option "AutoAddDevices" "true"
-  Option "AutoEnableDevices" "false"
-  Option "AllowEmptyInput" "true"
+    // Bind session uinput nodes before Xorg starts via Option "Device".
+    // Use evdev (not libinput): libinput InputDevice still needs udev ID_INPUT_*
+    // tags and fails closed here; evdev opens the node directly.
+    // Separate relative mouse (CorePointer) and keyboard (CoreKeyboard) devices —
+    // a combined node never becomes a reliable CoreKeyboard under Xorg.
+    const autoAdd = inputs ? 'false' : 'true';
+    const inputSections = inputs
+        ? `
+Section "InputDevice"
+  Identifier "${inputs.pointerName}"
+  Driver "evdev"
+  Option "Device" "${inputs.pointerEventPath}"
+  Option "GrabDevice" "false"
+  Option "AccelerationProfile" "-1"
+  Option "AccelerationScheme" "none"
+  Option "ConstantDeceleration" "1"
 EndSection
 
+Section "InputDevice"
+  Identifier "${inputs.keyboardName}"
+  Driver "evdev"
+  Option "Device" "${inputs.keyboardEventPath}"
+  Option "GrabDevice" "false"
+EndSection
+
+Section "InputDevice"
+  Identifier "${inputs.touchName}"
+  Driver "evdev"
+  Option "Device" "${inputs.touchEventPath}"
+  Option "Mode" "Absolute"
+  Option "GrabDevice" "false"
+EndSection
+`
+        : `
 Section "InputClass"
   Identifier "speculum-libinput"
   MatchDevicePath "/dev/input/event*"
   Driver "libinput"
   Option "Floating" "false"
 EndSection
-
+`;
+    const layoutInputs = inputs
+        ? `
+  InputDevice "${inputs.pointerName}" "CorePointer"
+  InputDevice "${inputs.keyboardName}" "CoreKeyboard"
+  InputDevice "${inputs.touchName}" "SendCoreEvents"
+`
+        : '';
+    return `
+Section "ServerFlags"
+  Option "AutoAddDevices" "${autoAdd}"
+  Option "AutoEnableDevices" "${inputs ? 'true' : 'false'}"
+  Option "AllowEmptyInput" "true"
+EndSection
+${inputSections}
 Section "Device"
   Identifier "speculum-dummy"
   Driver "dummy"
@@ -299,13 +340,13 @@ EndSection
 
 Section "ServerLayout"
   Identifier "speculum-layout"
-  Screen "speculum-screen"
+  Screen "speculum-screen"${layoutInputs}
 EndSection
 `.trimStart();
 }
 /** @internal Exported for unit tests (Xorg ServerFlags policy). */
-function buildXorgDummyConfigForTest(width, height) {
-    return buildXorgDummyConfig(width, height);
+function buildXorgDummyConfigForTest(width, height, inputs) {
+    return buildXorgDummyConfig(width, height, inputs);
 }
 /** CVT-like modeline line for xorg.conf Monitor section. */
 function buildCvtModelineLine(width, height) {

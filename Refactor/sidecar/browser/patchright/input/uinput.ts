@@ -14,6 +14,8 @@ export const BTN_MIDDLE = 0x112;
 export const BTN_TOOL_PEN = 0x140;
 export const BTN_TOUCH = 0x14a;
 
+export const REL_X = 0x00;
+export const REL_Y = 0x01;
 export const REL_WHEEL = 0x08;
 export const REL_HWHEEL = 0x06;
 
@@ -46,14 +48,17 @@ const UDEV_SIZE = 80 + 8 + 4 + ABS_CNT * 4 * 4; // name + id + ff + absmax/min/f
 
 let ioctlFn: ((fd: number, request: number, arg: number) => number) | null = null;
 
+/**
+ * UI_SET_* take an int; UI_DEV_CREATE/DESTROY ignore the third arg.
+ * Use a fixed 3-arg prototype — koffi's variadic `...` form requires
+ * alternating type/value pairs (`ioctl(fd, req, 'int', arg)`). Calling
+ * `ioctl(fd, req, arg)` throws "Missing value argument for variadic call"
+ * and aborts StartSession.
+ */
 function ioctl(fd: number, request: number, arg: number): void {
   if (!ioctlFn) {
     const libc = koffi.load('libc.so.6');
-    ioctlFn = libc.func('int ioctl(int fd, unsigned long request, ...)') as unknown as (
-      fd: number,
-      request: number,
-      arg: number,
-    ) => number;
+    ioctlFn = libc.func('int ioctl(int fd, unsigned long request, int arg)');
   }
   const rc = ioctlFn(fd, request, arg);
   if (rc < 0) {
@@ -93,53 +98,51 @@ export class UinputDevice {
     this.name = name;
   }
 
-  static openPointerKeyboard(
-    name: string,
-    keyCodes: readonly number[],
-    absMaxX: number,
-    absMaxY: number,
-  ): UinputDevice {
+  static openPointer(name: string): UinputDevice {
     const fd = openUinputFd();
     try {
       ioctl(fd, UI_SET_EVBIT, EV_KEY);
       ioctl(fd, UI_SET_EVBIT, EV_REL);
-      ioctl(fd, UI_SET_EVBIT, EV_ABS);
       ioctl(fd, UI_SET_EVBIT, EV_SYN);
       ioctl(fd, UI_SET_KEYBIT, BTN_LEFT);
       ioctl(fd, UI_SET_KEYBIT, BTN_RIGHT);
       ioctl(fd, UI_SET_KEYBIT, BTN_MIDDLE);
-      // Absolute pointers are tablets to libinput — keep a pen tool in proximity
-      // (BTN_TOOL_FINGER would classify as a touchpad and drop ABS clicks).
-      ioctl(fd, UI_SET_KEYBIT, BTN_TOOL_PEN);
-      for (const code of keyCodes) {
-        ioctl(fd, UI_SET_KEYBIT, code);
-      }
+      // Relative mouse only. Absolute ABS under xf86-input-evdev often fails to
+      // deliver core pointer clicks to Chrome. Keyboard is a separate uinput
+      // device (openKeyboard) so X can bind a real CoreKeyboard.
+      ioctl(fd, UI_SET_RELBIT, REL_X);
+      ioctl(fd, UI_SET_RELBIT, REL_Y);
       ioctl(fd, UI_SET_RELBIT, REL_WHEEL);
       ioctl(fd, UI_SET_RELBIT, REL_HWHEEL);
-      ioctl(fd, UI_SET_ABSBIT, ABS_X);
-      ioctl(fd, UI_SET_ABSBIT, ABS_Y);
       try {
         ioctl(fd, UI_SET_PROPBIT, INPUT_PROP_POINTER);
       } catch {
         /* optional */
       }
-      const absmax = new Int32Array(ABS_CNT);
-      absmax[ABS_X] = absMaxX;
-      absmax[ABS_Y] = absMaxY;
-      writeUserDev(
-        fd,
-        name,
-        /*bustype*/ 0x03,
-        /*vendor*/ 0x0001,
-        /*product*/ 0x0001,
-        new Int32Array(ABS_CNT),
-        absmax,
-      );
+      writeUserDev(fd, name, /*bustype*/ 0x03, /*vendor*/ 0x0001, /*product*/ 0x0001);
       ioctl(fd, UI_DEV_CREATE, 0);
-      const device = new UinputDevice(fd, name);
-      // Keep tool in proximity for the session lifetime so ABS clicks are accepted.
-      device.emit([{ type: EV_KEY, code: BTN_TOOL_PEN, value: 1 }]);
-      return device;
+      return new UinputDevice(fd, name);
+    } catch (err) {
+      try {
+        fs.closeSync(fd);
+      } catch {
+        /* */
+      }
+      throw err;
+    }
+  }
+
+  static openKeyboard(name: string, keyCodes: readonly number[]): UinputDevice {
+    const fd = openUinputFd();
+    try {
+      ioctl(fd, UI_SET_EVBIT, EV_KEY);
+      ioctl(fd, UI_SET_EVBIT, EV_SYN);
+      for (const code of keyCodes) {
+        ioctl(fd, UI_SET_KEYBIT, code);
+      }
+      writeUserDev(fd, name, /*bustype*/ 0x03, /*vendor*/ 0x0001, /*product*/ 0x0003);
+      ioctl(fd, UI_DEV_CREATE, 0);
+      return new UinputDevice(fd, name);
     } catch (err) {
       try {
         fs.closeSync(fd);

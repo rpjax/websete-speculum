@@ -75,7 +75,7 @@ describe('sessionsHelpers', () => {
     expect(next.detachedSessionTimeout).toBe('01:00:00')
     expect(next.isJsBridgeEnabled).toBe(false)
     expect(next.viewportPolicy).toEqual({ default: { width: 800, height: 600 } })
-    expect(asObject(next.clientEnvironmentPolicy).defaultLocale).toBe('en-US')
+    expect(asObject(next.clientEnvironmentPolicy).defaultLocale).toBe('pt-BR')
     expect(asObject(next.inputMultiplexingPolicy).access).toBe('shared')
   })
 
@@ -85,7 +85,7 @@ describe('sessionsHelpers', () => {
       {
         detachedSessionTimeout: '00:05:00',
         customOperatorNote: 'keep-me',
-        clientEnvironmentPolicy: { defaultLocale: 'pt-BR', customTag: 'x' },
+        clientEnvironmentPolicy: { defaultLocale: 'en-US', customTag: 'x' },
         deviceEmulationPolicy: { default: { mobile: true }, extraBound: 1 },
       },
       lab,
@@ -93,7 +93,7 @@ describe('sessionsHelpers', () => {
     expect(next.customOperatorNote).toBe('keep-me')
     expect(next.detachedSessionTimeout).toBe('00:15:00')
     expect(next.isJsBridgeEnabled).toBe(true)
-    expect(asObject(next.clientEnvironmentPolicy).defaultLocale).toBe('en-US')
+    expect(asObject(next.clientEnvironmentPolicy).defaultLocale).toBe('pt-BR')
     expect(asObject(next.clientEnvironmentPolicy).customTag).toBe('x')
     expect(asObject(next.deviceEmulationPolicy).extraBound).toBe(1)
     expect(asObject(asObject(next.deviceEmulationPolicy).default).mobile).toBe(false)

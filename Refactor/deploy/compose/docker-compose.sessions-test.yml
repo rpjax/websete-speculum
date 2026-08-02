@@ -30,6 +30,9 @@ services:
     init: true
     cap_add:
       - SYS_ADMIN
+      - MKNOD
+    devices:
+      - /dev/uinput:/dev/uinput
     device_cgroup_rules:
       - "c 10:223 rwm"
       - "c 13:* rwm"
@@ -37,6 +40,7 @@ services:
     environment:
       NODE_ENV: production
       SPECULUM_BROWSER: patchright
+      SPECULUM_INPUT_BACKEND: patchright
       CHROME_EXECUTABLE: /usr/bin/google-chrome
       SPECULUM_GRPC_PORT: "50051"
       SPECULUM_HEALTH_PORT: "3001"
@@ -73,10 +77,10 @@ services:
       Sessions__ViewportPolicy__Minimum__Height: "100"
       Sessions__ViewportPolicy__Maximum__Width: "4096"
       Sessions__ViewportPolicy__Maximum__Height: "2160"
-      Sessions__ClientEnvironmentPolicy__DefaultLocale: en-US
-      Sessions__ClientEnvironmentPolicy__DefaultLanguage: en-US
-      Sessions__ClientEnvironmentPolicy__DefaultTimeZoneId: America/New_York
-      Sessions__ClientEnvironmentPolicy__DefaultColorScheme: dark
+      Sessions__ClientEnvironmentPolicy__DefaultLocale: pt-BR
+      Sessions__ClientEnvironmentPolicy__DefaultLanguage: pt-BR
+      Sessions__ClientEnvironmentPolicy__DefaultTimeZoneId: America/Sao_Paulo
+      Sessions__ClientEnvironmentPolicy__DefaultColorScheme: light
       Sessions__DeviceEmulationPolicy__Default__DeviceScaleFactor: "1"
       Sessions__DeviceEmulationPolicy__Default__UserAgentProfile: desktop
       Sessions__DeviceEmulationPolicy__Default__ScreenOrientation: landscapePrimary

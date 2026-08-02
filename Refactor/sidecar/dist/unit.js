@@ -37,8 +37,10 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 const assert_1 = __importDefault(require("assert"));
+const fs = __importStar(require("fs"));
 const Navigation_1 = require("./browser/patchright/Navigation");
 const device_emulation_1 = require("./browser/patchright/device-emulation");
+const ChromeRuntime_1 = require("./browser/patchright/ChromeRuntime");
 const viewport_bounds_1 = require("./browser/patchright/viewport-bounds");
 const contextCrash_1 = require("./browser/patchright/contextCrash");
 const mappers_1 = require("./grpc/mappers");
@@ -206,6 +208,12 @@ async function testApplyLogicalViewportUsesDeviceMetricsOnly() {
     const ua = calls.find((c) => c.method === 'Emulation.setUserAgentOverride');
     assert_1.default.ok(ua, 'desktop apply must set/clear user agent');
     assert_1.default.strictEqual(ua.params.userAgent, 'Mozilla/5.0 Desktop');
+    const meta = ua.params
+        .userAgentMetadata;
+    assert_1.default.ok(meta, 'desktop apply must send userAgentMetadata');
+    assert_1.default.strictEqual(meta.mobile, false);
+    assert_1.default.strictEqual(meta.platform, 'Linux');
+    assert_1.default.ok(Array.isArray(meta.brands) && meta.brands.length >= 3, 'greasy brands required');
     await assert_1.default.rejects(() => (0, device_emulation_1.applyLogicalViewport)({
         send: async (method) => {
             if (method === 'Browser.getWindowForTarget')
@@ -216,6 +224,28 @@ async function testApplyLogicalViewportUsesDeviceMetricsOnly() {
         },
     }, 800, 600, null), /did not return userAgent/);
     console.log('[unit] apply logical viewport uses device metrics only ok');
+}
+function testBuildChromeArgsIncludesWebglSpoof() {
+    const prev = process.env['SPECULUM_GL_FALLBACK'];
+    try {
+        delete process.env['SPECULUM_GL_FALLBACK'];
+        const extensionPath = (0, ChromeRuntime_1.webglSpoofExtensionPath)();
+        assert_1.default.ok(fs.existsSync(extensionPath), `extension must exist at ${extensionPath}`);
+        const args = (0, ChromeRuntime_1.buildChromeArgs)(1280, 720);
+        assert_1.default.ok(args.includes('--use-gl=swiftshader'), 'swiftshader required');
+        assert_1.default.ok(args.some((a) => a.startsWith('--load-extension=') && a.includes('webgl-spoof')), 'load-extension webgl-spoof required');
+        assert_1.default.ok(args.some((a) => a.includes('DisableLoadExtensionCommandLineSwitch')), 'Chrome ≥137 load-extension feature flag required');
+        process.env['SPECULUM_GL_FALLBACK'] = '0';
+        const off = (0, ChromeRuntime_1.buildChromeArgs)(800, 600);
+        assert_1.default.ok(!off.includes('--use-gl=swiftshader'), 'SPECULUM_GL_FALLBACK=0 disables GL spoof');
+    }
+    finally {
+        if (prev === undefined)
+            delete process.env['SPECULUM_GL_FALLBACK'];
+        else
+            process.env['SPECULUM_GL_FALLBACK'] = prev;
+    }
+    console.log('[unit] buildChromeArgs webgl spoof ok');
 }
 async function testScreencastRestartThrowsAfterStop() {
     const { Screencast } = await Promise.resolve().then(() => __importStar(require('./browser/patchright/Screencast')));
@@ -819,39 +849,46 @@ function testKeycodeResolve() {
 }
 function testXorgInputIsolationFlags() {
     const { buildXorgDummyConfigForTest } = require('./browser/patchright/Display');
-    const config = buildXorgDummyConfigForTest(1280, 720);
-    assert_1.default.ok(config.includes('Option "AutoAddDevices" "true"'), 'uinput hotplug must stay on');
-    assert_1.default.ok(config.includes('Option "AutoEnableDevices" "false"'), 'foreign uinput must not auto-enable');
+    const hotplug = buildXorgDummyConfigForTest(1280, 720);
+    assert_1.default.ok(hotplug.includes('Option "AutoAddDevices" "true"'), 'patchright path keeps AutoAdd');
+    assert_1.default.ok(hotplug.includes('Option "AutoEnableDevices" "false"'), 'foreign devices not auto-enable');
+    const bound = buildXorgDummyConfigForTest(1280, 720, {
+        pointerEventPath: '/dev/input/event4',
+        keyboardEventPath: '/dev/input/event6',
+        touchEventPath: '/dev/input/event5',
+        pointerName: 'speculum-ptr-test',
+        keyboardName: 'speculum-kbd-test',
+        touchName: 'speculum-mt-test',
+    });
+    assert_1.default.ok(bound.includes('Option "AutoAddDevices" "false"'), 'os path disables AutoAdd');
+    assert_1.default.ok(bound.includes('Driver "evdev"'), 'os path binds evdev');
+    assert_1.default.ok(bound.includes('Option "Device" "/dev/input/event4"'), 'pointer event bound');
+    assert_1.default.ok(bound.includes('Option "Device" "/dev/input/event6"'), 'keyboard event bound');
+    assert_1.default.ok(bound.includes('Option "Device" "/dev/input/event5"'), 'touch event bound');
+    assert_1.default.ok(bound.includes('InputDevice "speculum-ptr-test" "CorePointer"'), 'pointer in layout');
+    assert_1.default.ok(bound.includes('InputDevice "speculum-kbd-test" "CoreKeyboard"'), 'keyboard in layout');
+    const ptrSection = bound
+        .split(/Section "InputDevice"/)
+        .find((s) => s.includes('Identifier "speculum-ptr-test"'));
+    assert_1.default.ok(ptrSection && !ptrSection.includes('Mode" "Absolute"'), 'pointer is relative');
+    assert_1.default.ok(ptrSection.includes('AccelerationScheme" "none"'), 'pointer acceleration disabled for software cursor');
     console.log('[unit] xorg input isolation flags ok');
 }
-async function testDisplayIsolationRegistry() {
-    const iso = require('./browser/patchright/input/display-isolation');
-    // Clear any leftover by unregistering known test ids
-    await iso.unregisterIsolatedInput('iso-a');
-    await iso.unregisterIsolatedInput('iso-b');
-    assert_1.default.strictEqual(iso.listLiveInputSessions().length, 0);
-    await iso.registerIsolatedInput({
-        sessionId: 'iso-a',
-        displayEnv: ':199',
-        deviceNames: ['speculum-ptr-a', 'speculum-mt-a'],
-    });
-    await iso.registerIsolatedInput({
-        sessionId: 'iso-b',
-        displayEnv: ':200',
-        deviceNames: ['speculum-ptr-b', 'speculum-mt-b'],
-    });
-    const live = iso.listLiveInputSessions();
-    assert_1.default.strictEqual(live.length, 2);
-    assert_1.default.ok(live.some((s) => s.sessionId === 'iso-a'));
-    assert_1.default.ok(live.some((s) => s.sessionId === 'iso-b'));
-    // New display before its own register — foreign devices must be targetable
-    await iso.disableForeignDevicesOnDisplay(':201');
-    await iso.unregisterIsolatedInput('iso-a');
-    assert_1.default.strictEqual(iso.listLiveInputSessions().length, 1);
-    assert_1.default.strictEqual(iso.listLiveInputSessions()[0].sessionId, 'iso-b');
-    await iso.unregisterIsolatedInput('iso-b');
-    assert_1.default.strictEqual(iso.listLiveInputSessions().length, 0);
-    console.log('[unit] display isolation registry ok');
+/** Regression: koffi variadic ioctl(fd, req, arg) throws; fixed 3-arg prototype must not. */
+function testIoctlKoffiPrototype() {
+    if (process.platform !== 'linux') {
+        console.log('[unit] ioctl koffi prototype skip (non-linux)');
+        return;
+    }
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const koffi = require('koffi');
+    const libc = koffi.load('libc.so.6');
+    const bad = libc.func('int ioctl(int fd, unsigned long request, ...)');
+    assert_1.default.throws(() => bad(0, 0x5501, 0), (err) => err instanceof Error && /Missing value argument for variadic call/.test(err.message));
+    const good = libc.func('int ioctl(int fd, unsigned long request, int arg)');
+    const rc = good(0, 0x5501, 0);
+    assert_1.default.strictEqual(typeof rc, 'number');
+    console.log('[unit] ioctl koffi prototype ok');
 }
 async function main() {
     // Debug instrumentation posts to the ingest server; don't hang unit runs on it.
@@ -862,6 +899,7 @@ async function main() {
     testViewportBounds();
     testResolveDeviceProfileDefaults();
     await testApplyLogicalViewportUsesDeviceMetricsOnly();
+    testBuildChromeArgsIncludesWebglSpoof();
     await testScreencastRestartThrowsAfterStop();
     testLaunchEnvironmentIsRequired();
     testTouchEmulationParams();
@@ -876,7 +914,7 @@ async function main() {
     testLogicalToDeviceTransform();
     testKeycodeResolve();
     testXorgInputIsolationFlags();
-    await testDisplayIsolationRegistry();
+    testIoctlKoffiPrototype();
     await testInputFireAndForgetAndMoveCoalesce();
     await testInputKeyDefsIncludeEditingKeys();
     await testTouchMoveCoalesceAndStormWrites();

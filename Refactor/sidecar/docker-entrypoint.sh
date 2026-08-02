@@ -6,12 +6,10 @@ set -eu
 
 ensure_uinput() {
   if [ -e /dev/uinput ]; then
-    # Node present — still may be unusable without the driver; leave as-is.
     return 0
   fi
   if command -v modprobe >/dev/null 2>&1; then
     if modprobe uinput 2>/dev/null; then
-      # udev may create the node; if not, mknod only after module loaded.
       if [ ! -e /dev/uinput ]; then
         mknod /dev/uinput c 10 223 2>/dev/null || true
         chmod 666 /dev/uinput 2>/dev/null || true

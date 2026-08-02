@@ -29,9 +29,9 @@ export const SESSIONS_BASELINE: JsonObject = {
     maximum: { width: 4096, height: 2160 },
   },
   clientEnvironmentPolicy: {
-    defaultLocale: 'en-US',
-    defaultLanguage: 'en-US',
-    defaultTimeZoneId: 'UTC',
+    defaultLocale: 'pt-BR',
+    defaultLanguage: 'pt-BR',
+    defaultTimeZoneId: 'America/Sao_Paulo',
     defaultColorScheme: 'light',
   },
   deviceEmulationPolicy: {

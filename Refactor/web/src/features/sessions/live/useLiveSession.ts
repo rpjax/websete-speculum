@@ -26,6 +26,7 @@ import {
 } from './sessionConfig'
 import { isPendingConfigError } from '@/lib/clientConfig'
 import { applySyncedBrowserUrl } from './sessionUrlSync'
+import { detectClientEnvironment } from './detectClientEnvironment'
 import {
   inputConsoleLine,
   lineFromConsoleOutput,
@@ -454,6 +455,7 @@ export function useLiveSession({
           viewportWidth,
           viewportHeight,
           device,
+          clientEnvironment: detectClientEnvironment(),
         })
         bind(session)
         setSessionId(session.sessionId)

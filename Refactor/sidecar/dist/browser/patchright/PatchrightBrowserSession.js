@@ -9,7 +9,6 @@ const Evaluate_1 = require("./Evaluate");
 const Input_1 = require("./Input");
 const OsInputBackend_1 = require("./input/OsInputBackend");
 const PatchrightInputBackend_1 = require("./input/PatchrightInputBackend");
-const display_isolation_1 = require("./input/display-isolation");
 const contextCrash_1 = require("./contextCrash");
 const MediaIngress_1 = require("./MediaIngress");
 const Navigation_1 = require("./Navigation");
@@ -100,9 +99,29 @@ class PatchrightBrowserSession {
         const displayNum = this.displays.allocate();
         const maxW = options.viewportPolicy.maxWidth;
         const maxH = options.viewportPolicy.maxHeight;
+        let osInput = null;
         try {
+            const inputMode = (process.env['SPECULUM_INPUT_BACKEND'] ?? 'os').trim().toLowerCase();
+            if (inputMode === 'os') {
+                // uinput nodes must exist before Xorg starts (no reliable hotplug without logind).
+                osInput = await OsInputBackend_1.OsInputBackend.open({
+                    sessionId: this.sessionId,
+                    displayWidth: maxW,
+                    displayHeight: maxH,
+                    logicalWidth: width,
+                    logicalHeight: height,
+                });
+            }
             // Capacity only — logical client size applied via Chrome window + metrics.
-            this.display = await Display_1.Display.start(displayNum, maxW, maxH);
+            const displayInputs = osInput
+                ? {
+                    ...osInput.resolveEventPaths(),
+                    pointerName: osInput.deviceNames[0],
+                    keyboardName: osInput.deviceNames[1],
+                    touchName: osInput.deviceNames[2],
+                }
+                : undefined;
+            this.display = await Display_1.Display.start(displayNum, maxW, maxH, displayInputs);
             this.emitAllocationLifecycle({
                 kind: 'display_allocated',
                 displayWidth: maxW,
@@ -110,9 +129,9 @@ class PatchrightBrowserSession {
                 logicalWidth: width,
                 logicalHeight: height,
             });
-            // Existing uinput devices are host-global; keep them off this new Xorg
-            // before Chrome attaches (isolation register happens later at OsInput create).
-            await (0, display_isolation_1.disableForeignDevicesOnDisplay)(this.display.displayEnv);
+            if (osInput) {
+                await osInput.attachToDisplay(this.display.displayEnv);
+            }
             this.chrome = await (0, ChromeRuntime_1.launchChrome)({
                 sessionId: this.sessionId,
                 displayEnv: this.display.displayEnv,
@@ -145,6 +164,7 @@ class PatchrightBrowserSession {
                 maxH,
                 width,
                 height,
+                preopenedOs: osInput,
             });
             this.inputBackend = inputBackend instanceof OsInputBackend_1.OsInputBackend ? 'os' : 'patchright';
             this.input = new Input_1.InputController(this.chrome.page, inputBackend);
@@ -176,6 +196,14 @@ class PatchrightBrowserSession {
                 reason: fault.message?.slice(0, 256),
             });
             // Partial launch must not leak Xvfb/Chrome — API may keep the session id until dispose.
+            if (osInput && !this.input) {
+                try {
+                    await osInput.dispose();
+                }
+                catch {
+                    /* best-effort */
+                }
+            }
             await this.teardownBrowserResources({ removeUserDataDir: true });
             this.viewport = null;
             throw err;
@@ -511,17 +539,19 @@ class PatchrightBrowserSession {
         if (mode !== 'os') {
             throw Object.assign(new Error(`SPECULUM_INPUT_BACKEND must be "os" or "patchright" (got "${mode}")`), { code: 'FAILED_PRECONDITION', errorCode: 'invalid_input_backend', phase: 'launch' });
         }
-        return OsInputBackend_1.OsInputBackend.create({
-            sessionId: this.sessionId,
-            displayEnv: this.display.displayEnv,
-            displayWidth: args.maxW,
-            displayHeight: args.maxH,
-            logicalWidth: args.width,
-            logicalHeight: args.height,
-            insertText: async (text) => {
-                await this.chrome.cdp.send('Input.insertText', { text });
-            },
+        const backend = args.preopenedOs ??
+            (await OsInputBackend_1.OsInputBackend.create({
+                sessionId: this.sessionId,
+                displayEnv: this.display.displayEnv,
+                displayWidth: args.maxW,
+                displayHeight: args.maxH,
+                logicalWidth: args.width,
+                logicalHeight: args.height,
+            }));
+        backend.setInsertText(async (text) => {
+            await this.chrome.cdp.send('Input.insertText', { text });
         });
+        return backend;
     }
     /** Stop screencast/Chrome/display and clear handles — no Xvfb leak. */
     async teardownBrowserResources(options) {

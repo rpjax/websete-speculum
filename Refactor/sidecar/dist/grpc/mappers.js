@@ -39,7 +39,8 @@ function toLaunchOptions(req) {
                 position: s.position,
                 type: s.type,
                 file: s.file,
-                content: s.content,
+                content: s.content ?? '',
+                remoteUrl: s.remoteUrl || s.remote_url || undefined,
                 targetRules: toTargetRules(s),
             }))
             : [],

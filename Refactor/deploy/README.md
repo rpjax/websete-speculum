@@ -105,7 +105,8 @@ automatic reapply on boot).
 
 Chrome sidecar + API + Traefik + admin SPA. No `SPECULUM_BYPASS_API_AUTH`.
 Images build/push to Docker Hub under namespace `websete` (`:prod` tag). Traefik
-publishes **`:80`/`:443`**; WebTransport **`:8443`** (TCP+UDP).
+publishes **`:80`/TCP `:443`**; WebTransport **UDP `:443`** (→ Kestrel `:8443`)
+plus fallback **`:8443`** TCP+UDP.
 
 **Auth (required):** default operator is `admin` / `admin` (seeded on first boot).
 Obtain tokens via `POST /api/auth/login`, then send
@@ -120,11 +121,14 @@ unhealthy and StartSession is blocked until an operator Applies Navigation
 (and confirms Sessions / ResourceManagement) via
 `PUT /api/configurations` with a Bearer access token.
 
-**TLS:** Traefik terminates HTTPS on `:443` with Let's Encrypt (HTTP-01 via
+**TLS:** Traefik terminates HTTPS **TCP** `:443` with Let's Encrypt (HTTP-01 via
 entrypoint `web`, resolver `le`). HTTP `:80` redirects to HTTPS. Set
 `PUBLIC_HOST` / `ACME_EMAIL` in `dockup.json` prod `env` (routers are
-`Host(\`${PUBLIC_HOST}\`)`). WebTransport remains direct `https://…:8443`
-with a cert pin fetched from `/health/webtransport-cert`.
+`Host(\`${PUBLIC_HOST}\`)`). WebTransport cannot pass Traefik/nginx: prod
+publishes Kestrel QUIC on host **UDP `:443`** (`443:8443/udp`) so the client
+uses same-origin `https://${PUBLIC_HOST}/vtransport` (mobile-friendly). Cert
+pin still comes from `/health/webtransport-cert` on Traefik TCP `:443`. Host
+`:8443` TCP+UDP stays published as a lab/fallback edge.
 
 ```bash
 dockup validate -c dockup.json --root ..
@@ -157,11 +161,14 @@ Generated compose lives under `out/prod/` (gitignored). Do not hand-edit it.
 
 ## WebTransport (frames)
 
-WebTransport is HTTPS + HTTP/3 only and cannot pass through Traefik/nginx. Both
-dockup envs that publish a data plane use **`https://localhost:8443`** (TCP+UDP)
-with an ephemeral ECDSA cert. The web image (dev) is built with
-`VITE_SPECULUM_TRANSPORT_ORIGIN=https://localhost:8443`; the client fetches
-`/health/webtransport-cert` (via Traefik on `:8080`) and pins the cert with
+WebTransport is HTTPS + HTTP/3 only and cannot pass through Traefik/nginx.
+**dev** publishes **`https://localhost:8443`** (TCP+UDP) with an ephemeral
+ECDSA cert (`VITE_SPECULUM_TRANSPORT_ORIGIN=https://localhost:8443`).
+**prod** maps host **UDP `:443` → Kestrel `:8443`** and builds the web image
+with `VITE_SPECULUM_TRANSPORT_ORIGIN=https://${PUBLIC_HOST}` so Chromium dials
+QUIC on the standard HTTPS port (works on cellular where UDP `:8443` is often
+blocked). The client fetches `/health/webtransport-cert` (via Traefik TCP
+`:443` → api `:8080`) and pins the cert with
 `serverCertificateHashes`.
 
 If you cleared Wire overrides in localStorage, hard-refresh so the baked transport

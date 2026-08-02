@@ -151,7 +151,7 @@
     "env": [
       { "name": "PUBLIC_HOST", "value": "betano.digital" },
       { "name": "ACME_EMAIL", "value": "admin@betano.digital" },
-      { "name": "TRANSPORT_ORIGIN", "value": "https://${PUBLIC_HOST}:8443" }
+      { "name": "TRANSPORT_ORIGIN", "value": "https://${PUBLIC_HOST}" }
     ],
     "containers": [
       {
@@ -173,10 +173,9 @@
           "--certificatesresolvers.le.acme.httpchallenge=true",
           "--certificatesresolvers.le.acme.httpchallenge.entrypoint=web"
         ],
-        "ports": [
-          { "host": 80, "container": 80 },
-          { "host": 443, "container": 443 }
-        ],
+        "compose": {
+          "ports": ["80:80", "443:443/tcp"]
+        },
         "volumes": [
           { "host": "/var/run/docker.sock", "container": "/var/run/docker.sock:ro" },
           { "name": "traefik-letsencrypt", "container": "/letsencrypt" }
@@ -266,7 +265,11 @@
           { "host": "/var/run/docker.sock", "container": "/var/run/docker.sock:ro" }
         ],
         "compose": {
-          "ports": ["8443:8443/tcp", "8443:8443/udp"]
+          "ports": [
+            "443:8443/udp",
+            "8443:8443/tcp",
+            "8443:8443/udp"
+          ]
         },
         "labels": [
           "traefik.enable=true",

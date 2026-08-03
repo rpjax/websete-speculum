@@ -18,6 +18,10 @@ export interface DeviceKit {
   minMaxTouchPoints: number;
   hardwareConcurrency: number;
   deviceMemory: number;
+  /** WebGL UNMASKED_VENDOR_WEBGL — kit story (same with/without real GPU). */
+  webglUnmaskedVendor: string;
+  /** WebGL UNMASKED_RENDERER_WEBGL — Linux/Android coherent (never D3D11/Windows). */
+  webglUnmaskedRenderer: string;
   /** Build UA with live Chrome version from Browser.getVersion. */
   buildUserAgent: (chromeVer: string) => string;
 }
@@ -35,6 +39,8 @@ const PHONE_KIT: DeviceKit = {
   minMaxTouchPoints: 5,
   hardwareConcurrency: 8,
   deviceMemory: 4,
+  webglUnmaskedVendor: 'Qualcomm',
+  webglUnmaskedRenderer: 'ANGLE (Qualcomm, Adreno (TM) 730, OpenGL ES 3.2)',
   buildUserAgent: (chromeVer) =>
     `Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) `
     + `Chrome/${chromeVer} Mobile Safari/537.36`,
@@ -53,6 +59,8 @@ const TABLET_KIT: DeviceKit = {
   minMaxTouchPoints: 5,
   hardwareConcurrency: 8,
   deviceMemory: 4,
+  webglUnmaskedVendor: 'Qualcomm',
+  webglUnmaskedRenderer: 'ANGLE (Qualcomm, Adreno (TM) 740, OpenGL ES 3.2)',
   buildUserAgent: (chromeVer) =>
     `Mozilla/5.0 (Linux; Android 14; Pixel Tablet) AppleWebKit/537.36 (KHTML, like Gecko) `
     + `Chrome/${chromeVer} Safari/537.36`,
@@ -71,6 +79,9 @@ const PC_KIT: DeviceKit = {
   minMaxTouchPoints: 0,
   hardwareConcurrency: 8,
   deviceMemory: 8,
+  webglUnmaskedVendor: 'Google Inc. (Intel)',
+  webglUnmaskedRenderer:
+    'ANGLE (Intel, Mesa Intel(R) UHD Graphics 620 (CFL GT2), OpenGL 4.5)',
   // Desktop uses Chrome's native UA from Browser.getVersion (Linux container).
   buildUserAgent: () => '',
 };
@@ -107,24 +118,210 @@ export function resolveDeviceKit(
   return DEVICE_KITS[resolveDeviceCategory(device)];
 }
 
-/** Init-script source: navigator.hardwareConcurrency / deviceMemory from kit. */
-export function kitHardwareSpoofSource(kit: DeviceKit): string {
+function jsonString(value: string): string {
+  return JSON.stringify(value);
+}
+
+/**
+ * Main-world init: kit HW, WebGL UNMASKED, classic Worker/SharedWorker wrap.
+ * Same identity with or without real GPU underneath.
+ */
+export function kitStealthInitSource(args: {
+  kit: DeviceKit;
+  userAgent: string;
+}): string {
+  const { kit, userAgent } = args;
   const cores = kit.hardwareConcurrency;
   const mem = kit.deviceMemory;
+  const platform = jsonString(kit.navigatorPlatform);
+  const ua = jsonString(userAgent);
+  const vendor = jsonString(kit.webglUnmaskedVendor);
+  const renderer = jsonString(kit.webglUnmaskedRenderer);
+  const uaChPlatform = jsonString(kit.uaChPlatform);
+  const uaChMobile = kit.mobile ? 'true' : 'false';
+
   return `(() => {
   const cores = ${cores};
   const mem = ${mem};
-  try {
-    Object.defineProperty(Navigator.prototype, 'hardwareConcurrency', {
-      get: () => cores,
+  const platform = ${platform};
+  const ua = ${ua};
+  const webglVendor = ${vendor};
+  const webglRenderer = ${renderer};
+  const uaChPlatform = ${uaChPlatform};
+  const uaChMobile = ${uaChMobile};
+
+  function spoofNavigator(navProto) {
+    if (!navProto) return;
+    try {
+      Object.defineProperty(navProto, 'hardwareConcurrency', {
+        get: () => cores,
+        configurable: true,
+      });
+    } catch (_) {}
+    try {
+      Object.defineProperty(navProto, 'deviceMemory', {
+        get: () => mem,
+        configurable: true,
+      });
+    } catch (_) {}
+    if (ua) {
+      try {
+        Object.defineProperty(navProto, 'userAgent', {
+          get: () => ua,
+          configurable: true,
+        });
+      } catch (_) {}
+      try {
+        Object.defineProperty(navProto, 'appVersion', {
+          get: () => ua.replace(/^Mozilla\\//, ''),
+          configurable: true,
+        });
+      } catch (_) {}
+    }
+    try {
+      Object.defineProperty(navProto, 'platform', {
+        get: () => platform,
+        configurable: true,
+      });
+    } catch (_) {}
+    try {
+      const uaData = navProto.userAgentData;
+      if (uaData && typeof uaData === 'object') {
+        Object.defineProperty(navProto, 'userAgentData', {
+          get: () => ({
+            ...uaData,
+            mobile: uaChMobile,
+            platform: uaChPlatform,
+            get brands() { return uaData.brands; },
+            getHighEntropyValues: uaData.getHighEntropyValues
+              ? uaData.getHighEntropyValues.bind(uaData)
+              : undefined,
+            toJSON: uaData.toJSON ? uaData.toJSON.bind(uaData) : undefined,
+          }),
+          configurable: true,
+        });
+      }
+    } catch (_) {}
+  }
+
+  spoofNavigator(typeof Navigator !== 'undefined' ? Navigator.prototype : null);
+  spoofNavigator(typeof WorkerNavigator !== 'undefined' ? WorkerNavigator.prototype : null);
+
+  const UNMASKED_VENDOR_WEBGL = 0x9245;
+  const UNMASKED_RENDERER_WEBGL = 0x9246;
+  function patchWebGl(proto) {
+    if (!proto || proto.__speculumWebglPatched) return;
+    const origGetParam = proto.getParameter;
+    const origGetExt = proto.getExtension;
+    Object.defineProperty(proto, 'getParameter', {
+      value: function (param) {
+        if (param === UNMASKED_VENDOR_WEBGL) return webglVendor;
+        if (param === UNMASKED_RENDERER_WEBGL) return webglRenderer;
+        return origGetParam.call(this, param);
+      },
+      writable: true,
       configurable: true,
     });
+    Object.defineProperty(proto, 'getExtension', {
+      value: function (name) {
+        const ext = origGetExt.call(this, name);
+        if (name === 'WEBGL_debug_renderer_info') {
+          return ext || {
+            UNMASKED_VENDOR_WEBGL,
+            UNMASKED_RENDERER_WEBGL,
+          };
+        }
+        return ext;
+      },
+      writable: true,
+      configurable: true,
+    });
+    try {
+      Object.defineProperty(proto, '__speculumWebglPatched', {
+        value: true,
+        configurable: true,
+      });
+    } catch (_) {}
+  }
+  if (typeof WebGLRenderingContext !== 'undefined') {
+    patchWebGl(WebGLRenderingContext.prototype);
+  }
+  if (typeof WebGL2RenderingContext !== 'undefined') {
+    patchWebGl(WebGL2RenderingContext.prototype);
+  }
+
+  const workerPreamble =
+    'self.__speculumKit={' +
+    'cores:' + cores + ',' +
+    'mem:' + mem + ',' +
+    'platform:' + JSON.stringify(platform) + ',' +
+    'ua:' + JSON.stringify(ua) +
+    '};' +
+    '(function(){var k=self.__speculumKit;' +
+    'function spoof(nav){if(!nav)return;' +
+    'try{Object.defineProperty(nav,"hardwareConcurrency",{get:function(){return k.cores},configurable:true});}catch(e){}' +
+    'try{Object.defineProperty(nav,"deviceMemory",{get:function(){return k.mem},configurable:true});}catch(e){}' +
+    'try{Object.defineProperty(nav,"platform",{get:function(){return k.platform},configurable:true});}catch(e){}' +
+    'if(k.ua){try{Object.defineProperty(nav,"userAgent",{get:function(){return k.ua},configurable:true});}catch(e){}' +
+    'try{Object.defineProperty(nav,"appVersion",{get:function(){return String(k.ua).replace("Mozilla/","")},configurable:true});}catch(e){}}' +
+    '}' +
+    'spoof(self.navigator);' +
+    'try{spoof(WorkerNavigator&&WorkerNavigator.prototype);}catch(e){}' +
+    'try{spoof(Navigator&&Navigator.prototype);}catch(e){}' +
+    '})();';
+
+  function resolveWorkerUrl(scriptURL) {
+    const raw = String(scriptURL);
+    try {
+      return new URL(raw, self.location && self.location.href ? self.location.href : undefined).href;
+    } catch (_) {
+      return raw;
+    }
+  }
+
+  function wrapWorker(Orig, displayName) {
+    if (typeof Orig !== 'function') return Orig;
+    function Wrapped(scriptURL, options) {
+      if (options && typeof options === 'object' && options.type === 'module') {
+        return new Orig(scriptURL, options);
+      }
+      try {
+        const resolved = resolveWorkerUrl(scriptURL);
+        const blob = new Blob(
+          [workerPreamble + '\\nimportScripts(' + JSON.stringify(resolved) + ');'],
+          { type: 'text/javascript' },
+        );
+        const blobUrl = URL.createObjectURL(blob);
+        try {
+          return new Orig(blobUrl, options);
+        } finally {
+          setTimeout(function () { URL.revokeObjectURL(blobUrl); }, 60_000);
+        }
+      } catch (_) {
+        return new Orig(scriptURL, options);
+      }
+    }
+    Wrapped.prototype = Orig.prototype;
+    try {
+      Object.defineProperty(Wrapped, 'name', { value: displayName });
+    } catch (_) {}
+    return Wrapped;
+  }
+
+  try {
+    if (typeof Worker === 'function') {
+      window.Worker = wrapWorker(Worker, 'Worker');
+    }
   } catch (_) {}
   try {
-    Object.defineProperty(Navigator.prototype, 'deviceMemory', {
-      get: () => mem,
-      configurable: true,
-    });
+    if (typeof SharedWorker === 'function') {
+      window.SharedWorker = wrapWorker(SharedWorker, 'SharedWorker');
+    }
   } catch (_) {}
 })();`;
+}
+
+/** @deprecated Use kitStealthInitSource — kept for call-site clarity aliases. */
+export function kitHardwareSpoofSource(kit: DeviceKit): string {
+  return kitStealthInitSource({ kit, userAgent: '' });
 }

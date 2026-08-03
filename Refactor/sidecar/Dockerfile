@@ -13,6 +13,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       curl \
       gnupg \
       fonts-liberation \
+      fonts-dejavu-core \
+      fonts-noto-core \
       fonts-noto-color-emoji \
       fonts-noto-cjk \
       xserver-xorg-core \
@@ -27,6 +29,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       mesa-utils \
       libgl1 \
       libgl1-mesa-dri \
+      libegl1 \
+      libgles2 \
       libnss3 \
       libatk-bridge2.0-0 \
       libgtk-3-0 \

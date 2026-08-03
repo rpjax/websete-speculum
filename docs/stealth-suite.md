@@ -31,23 +31,25 @@ Remote Chrome is always Chromium — **never** paste Safari/iOS/WebKit UA or `pl
 | DPR | Mimic **clamped** to kit/policy | |
 | locale, language, languages, TZ, colorScheme | Mimic; policy fills blanks | |
 | geolocation | Mimic or **omit** | Never invent |
-| WebGL strings | Preset **after** GL context works | **P0** score gap |
-| Fonts | Preset list per kit | **P1** score gap (Android claim + Linux fonts) |
-| `pc` Windows kit (full) | Future | V1 easy = Linux pc kit (consistent, weak vs Win) |
+| WebGL context | Auto: GPU if present, else SwiftShader — **no env knob** |
+| WebGL UNMASKED strings | **Preset kit** (Adreno Android / Intel Mesa Linux) — same with or without GPU |
+| Fonts | Docker packages (Liberation/DejaVu/Noto) — no JS spoof |
+| Worker / SharedWorker | Kit HW + UA/platform via init wrap |
+| `pc` Windows kit (full) | Future | V1 = Linux pc kit (honest container) |
 
 ### Kits (V1)
 
-| Category | Identity | HW defaults |
-|----------|----------|-------------|
-| `phone` | Chrome Android Pixel-class; `platform=Linux armv8l` | concurrency 8, deviceMemory 4 |
-| `tablet` | Chrome Android tablet-class; arm platform | concurrency 8, deviceMemory 4 |
-| `pc` | Chrome Linux matching container binary | concurrency 8, deviceMemory 8 |
+| Category | Identity | HW defaults | WebGL UNMASKED |
+|----------|----------|-------------|----------------|
+| `phone` | Chrome Android Pixel-class; `platform=Linux armv8l` | concurrency 8, deviceMemory 4 | Adreno |
+| `tablet` | Chrome Android tablet-class; arm platform | concurrency 8, deviceMemory 4 | Adreno |
+| `pc` | Chrome Linux matching container binary | concurrency 8, deviceMemory 8 | Intel Mesa Linux (never D3D11) |
 
 ### Score backlog (after easy consistency)
 
-1. **P0** — WebGL context recovery (string spoof is useless if `getContext` is null).
-2. **P1** — Font kit for phone/tablet; full Windows `pc` kit (UA+platform+UA-CH+GPU together).
-3. Worker UA patch if CreepJS still lies after platform CDP.
+1. CreepJS **ServiceWorker** / non-classic worker realm still reports host cores (classic Worker wrap is kit-correct).
+2. Soft: TZ vs egress IP (network).
+3. Full Windows `pc` kit only if pack is complete (UA+platform+UA-CH+GPU together).
 4. Deploy: keep sidecar images in sync (stale image → mobile 980 prove fail).
 
 ---
@@ -101,7 +103,7 @@ From **CreepJS** (required):
 
 - Headless / automation indicators (any red/fail).
 - UA / User-Agent Client Hints vs platform mismatch.
-- WebGL / GPU / renderer notes (SwiftShader is expected today — note it explicitly).
+- WebGL / GPU / renderer notes (kit UNMASKED; backend is auto HW-or-SwiftShader).
 - Canvas / audio / worker discrepancies called out as “lie” or “noise”.
 - Screen / viewport / devicePixelRatio vs session logical size (expect logical W×H; outer Chrome window may differ — CSS viewport is the contract).
 

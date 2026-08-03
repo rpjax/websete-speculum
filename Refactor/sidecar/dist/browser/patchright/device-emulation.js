@@ -1,11 +1,12 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.DEFAULT_DESKTOP_DEVICE = exports.MOBILE_VIEWPORT_META_CONTENT = exports.kitHardwareSpoofSource = exports.DEVICE_KITS = exports.resolveDeviceKit = exports.resolveDeviceCategory = void 0;
+exports.DEFAULT_DESKTOP_DEVICE = exports.MOBILE_VIEWPORT_META_CONTENT = exports.kitHardwareSpoofSource = exports.kitStealthInitSource = exports.DEVICE_KITS = exports.resolveDeviceKit = exports.resolveDeviceCategory = void 0;
 exports.isInputTouchPrimary = isInputTouchPrimary;
 exports.touchEmulationParams = touchEmulationParams;
 exports.resolveDeviceProfile = resolveDeviceProfile;
 exports.deviceProfilesEqual = deviceProfilesEqual;
 exports.applyDeviceEmulation = applyDeviceEmulation;
+exports.applyKitStealthInit = applyKitStealthInit;
 exports.applyKitHardwareSpoof = applyKitHardwareSpoof;
 exports.buildChromeUserAgentMetadata = buildChromeUserAgentMetadata;
 exports.desktopPlatformFromUa = desktopPlatformFromUa;
@@ -23,6 +24,7 @@ var device_kits_2 = require("./device-kits");
 Object.defineProperty(exports, "resolveDeviceCategory", { enumerable: true, get: function () { return device_kits_2.resolveDeviceCategory; } });
 Object.defineProperty(exports, "resolveDeviceKit", { enumerable: true, get: function () { return device_kits_2.resolveDeviceKit; } });
 Object.defineProperty(exports, "DEVICE_KITS", { enumerable: true, get: function () { return device_kits_2.DEVICE_KITS; } });
+Object.defineProperty(exports, "kitStealthInitSource", { enumerable: true, get: function () { return device_kits_2.kitStealthInitSource; } });
 Object.defineProperty(exports, "kitHardwareSpoofSource", { enumerable: true, get: function () { return device_kits_2.kitHardwareSpoofSource; } });
 /** Viewport meta content used for mobile CSS layout (avoids legacy ~980px width). */
 exports.MOBILE_VIEWPORT_META_CONTENT = 'width=device-width, initial-scale=1';
@@ -136,6 +138,7 @@ async function applyDeviceEmulation(cdp, width, height, device) {
                 bitness: kit.uaChBitness,
             }),
         });
+        await applyKitStealthInit(cdp, kit, ua);
     }
     else {
         // Always clear mobile UA on desktop apply — soft resize must not leave prior override.
@@ -157,8 +160,8 @@ async function applyDeviceEmulation(cdp, width, height, device) {
                 bitness: desktopMeta.bitness,
             }),
         });
+        await applyKitStealthInit(cdp, kit, version.userAgent);
     }
-    await applyKitHardwareSpoof(cdp, kit);
     await cdp.send('Emulation.setTouchEmulationEnabled', touchEmulationParams(device));
     // Xvfb/headless pages are often unfocused; without this, CDP mouse hits the right
     // elementFromPoint target but never activates focus or click handlers (ML cookie
@@ -182,14 +185,18 @@ async function applyDeviceEmulation(cdp, width, height, device) {
             : undefined,
     });
 }
-/** Spoof hardwareConcurrency / deviceMemory to kit defaults (never host 22). */
-async function applyKitHardwareSpoof(cdp, kit) {
-    const source = (0, device_kits_1.kitHardwareSpoofSource)(kit);
+/** Kit HW + WebGL UNMASKED + classic Worker wrap (never host cores / GPU strings). */
+async function applyKitStealthInit(cdp, kit, userAgent) {
+    const source = (0, device_kits_1.kitStealthInitSource)({ kit, userAgent });
     await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source });
     await cdp.send('Runtime.evaluate', {
         expression: source,
         returnByValue: true,
     });
+}
+/** @deprecated Prefer applyKitStealthInit with UA. */
+async function applyKitHardwareSpoof(cdp, kit) {
+    await applyKitStealthInit(cdp, kit, '');
 }
 /** Greasy Client Hints brands matching current Chrome (sec-ch-ua consistency). */
 function buildChromeUserAgentMetadata(args) {

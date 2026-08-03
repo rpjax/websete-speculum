@@ -1,14 +1,20 @@
 import type { CDPSession, Page } from 'patchright';
 import type { BrowserDeviceProfile } from '../BrowserSession';
 import {
-  kitHardwareSpoofSource,
+  kitStealthInitSource,
   resolveDeviceCategory,
   resolveDeviceKit,
   type DeviceCategory,
 } from './device-kits';
 
 export type { DeviceCategory };
-export { resolveDeviceCategory, resolveDeviceKit, DEVICE_KITS, kitHardwareSpoofSource } from './device-kits';
+export {
+  resolveDeviceCategory,
+  resolveDeviceKit,
+  DEVICE_KITS,
+  kitStealthInitSource,
+  kitHardwareSpoofSource,
+} from './device-kits';
 
 /** Viewport meta content used for mobile CSS layout (avoids legacy ~980px width). */
 export const MOBILE_VIEWPORT_META_CONTENT = 'width=device-width, initial-scale=1';
@@ -157,6 +163,7 @@ export async function applyDeviceEmulation(
         bitness: kit.uaChBitness,
       }),
     });
+    await applyKitStealthInit(cdp, kit, ua);
   } else {
     // Always clear mobile UA on desktop apply — soft resize must not leave prior override.
     if (!version.userAgent) {
@@ -177,9 +184,8 @@ export async function applyDeviceEmulation(
         bitness: desktopMeta.bitness,
       }),
     });
+    await applyKitStealthInit(cdp, kit, version.userAgent);
   }
-
-  await applyKitHardwareSpoof(cdp, kit);
 
   await cdp.send('Emulation.setTouchEmulationEnabled', touchEmulationParams(device));
 
@@ -207,17 +213,26 @@ export async function applyDeviceEmulation(
   });
 }
 
-/** Spoof hardwareConcurrency / deviceMemory to kit defaults (never host 22). */
-export async function applyKitHardwareSpoof(
+/** Kit HW + WebGL UNMASKED + classic Worker wrap (never host cores / GPU strings). */
+export async function applyKitStealthInit(
   cdp: CDPSession,
   kit: ReturnType<typeof resolveDeviceKit>,
+  userAgent: string,
 ): Promise<void> {
-  const source = kitHardwareSpoofSource(kit);
+  const source = kitStealthInitSource({ kit, userAgent });
   await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source });
   await cdp.send('Runtime.evaluate', {
     expression: source,
     returnByValue: true,
   });
+}
+
+/** @deprecated Prefer applyKitStealthInit with UA. */
+export async function applyKitHardwareSpoof(
+  cdp: CDPSession,
+  kit: ReturnType<typeof resolveDeviceKit>,
+): Promise<void> {
+  await applyKitStealthInit(cdp, kit, '');
 }
 
 /** Greasy Client Hints brands matching current Chrome (sec-ch-ua consistency). */

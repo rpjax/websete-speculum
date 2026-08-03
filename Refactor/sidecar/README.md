@@ -59,7 +59,6 @@ docker compose -f deploy/compose/docker-compose.refactor-grpc.yml up --build
 | `SPECULUM_GRPC_PORT` | `50051` | gRPC listen port |
 | `SPECULUM_HEALTH_PORT` | `3001` | `GET /health`, `GET /ready` |
 | `CHROME_EXECUTABLE` | `/usr/bin/google-chrome` | Chrome binary (patchright only) |
-| `SPECULUM_GL_FALLBACK` | unset (on) | Always-on SwiftShader + `extensions/webgl-spoof`. Set `0` to disable (lab only). |
 | `SPECULUM_V4L2_DEVICE` | unset | Reserved — media ingress not implemented |
 | `SPECULUM_INPUT_BACKEND` | `os` | `os` (uinput / X11 — Linux lab) or `patchright` (CDP). **Prod/test dockup force `patchright`** until OS→Chrome delivery is proven. |
 

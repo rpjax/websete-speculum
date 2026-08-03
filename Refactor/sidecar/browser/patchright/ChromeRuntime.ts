@@ -48,15 +48,23 @@ export function webglSpoofExtensionPath(): string {
 }
 
 /**
- * Chrome launch flags. WebGL spoof is always on (SwiftShader + extension), matching
- * the original motor — opt out only with SPECULUM_GL_FALLBACK=0 (lab escape).
+ * Chrome launch flags. WebGL is always enabled with automatic backend selection:
+ * real GPU when present, SwiftShader software fallback otherwise (no env knobs).
+ * Kit UNMASKED spoof is applied in-page via device-kits init script.
  */
 export function buildChromeArgs(width: number, height: number): string[] {
-  const disableFeatures = ['ExclusiveAccessBubble'];
-  const glEnabled = process.env['SPECULUM_GL_FALLBACK'] !== '0';
-  if (glEnabled) {
-    // Chrome ≥137 may ignore --load-extension unless this feature is disabled.
-    disableFeatures.push('DisableLoadExtensionCommandLineSwitch');
+  // Chrome ≥137 may ignore --load-extension unless this feature is disabled.
+  const disableFeatures = [
+    'ExclusiveAccessBubble',
+    'DisableLoadExtensionCommandLineSwitch',
+  ];
+
+  const extensionPath = webglSpoofExtensionPath();
+  if (!fs.existsSync(extensionPath)) {
+    throw Object.assign(
+      new Error(`webgl-spoof extension missing at ${extensionPath}`),
+      { code: 'FAILED_PRECONDITION', errorCode: 'webgl_spoof_missing', phase: 'launch' },
+    );
   }
 
   const args = [
@@ -68,22 +76,14 @@ export function buildChromeArgs(width: number, height: number): string[] {
     '--touch-events=enabled',
     '--no-first-run',
     '--mute-audio',
+    // Prefer hardware ANGLE when available; allow SwiftShader when not.
+    '--use-gl=angle',
+    '--enable-webgl',
+    '--ignore-gpu-blocklist',
+    '--enable-unsafe-swiftshader',
+    `--load-extension=${extensionPath}`,
+    `--disable-extensions-except=${extensionPath}`,
   ];
-
-  if (glEnabled) {
-    const extensionPath = webglSpoofExtensionPath();
-    if (!fs.existsSync(extensionPath)) {
-      throw Object.assign(
-        new Error(`webgl-spoof extension missing at ${extensionPath}`),
-        { code: 'FAILED_PRECONDITION', errorCode: 'webgl_spoof_missing', phase: 'launch' },
-      );
-    }
-    args.push(
-      '--use-gl=swiftshader',
-      `--load-extension=${extensionPath}`,
-      `--disable-extensions-except=${extensionPath}`,
-    );
-  }
 
   if (process.env['SPECULUM_IGNORE_CERT_ERRORS'] === '1') {
     args.push('--ignore-certificate-errors');

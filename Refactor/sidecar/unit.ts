@@ -10,6 +10,7 @@ import {
 } from './browser/patchright/Navigation';
 import type { BrowserScriptInjection } from './browser/BrowserSession';
 import { isInputTouchPrimary, resolveDeviceProfile, deviceProfilesEqual, touchEmulationParams, DEFAULT_DESKTOP_DEVICE, applyLogicalViewport, proveLogicalViewport, readChromeViewport, viewportMetricsClose } from './browser/patchright/device-emulation';
+import { kitStealthInitSource, resolveDeviceKit } from './browser/patchright/device-kits';
 import { buildChromeArgs, webglSpoofExtensionPath } from './browser/patchright/ChromeRuntime';
 import { validateLaunchViewport, validateResizeViewport, requireViewportPolicy } from './browser/patchright/viewport-bounds';
 import { shouldEmitContextCrash } from './browser/patchright/contextCrash';
@@ -280,10 +281,13 @@ async function testApplyLogicalViewportUsesBoundsAndMetrics(): Promise<void> {
     'kit hardware spoof must register on new documents',
   );
   const hwInit = calls.find((c) => c.method === 'Page.addScriptToEvaluateOnNewDocument');
-  assert.ok(
-    String((hwInit!.params as { source?: string }).source).includes('hardwareConcurrency'),
-    'hardwareConcurrency spoof required',
-  );
+  const hwSource = String((hwInit!.params as { source?: string }).source);
+  assert.ok(hwSource.includes('hardwareConcurrency'), 'hardwareConcurrency spoof required');
+  assert.ok(hwSource.includes('webglVendor') || hwSource.includes('UNMASKED_VENDOR'), 'WebGL UNMASKED spoof required');
+  assert.ok(hwSource.includes('Intel') || hwSource.includes('Mesa'), 'pc kit WebGL must be Linux Intel/Mesa');
+  assert.ok(!hwSource.includes('Direct3D'), 'pc kit must not claim D3D11/Windows');
+  assert.ok(hwSource.includes('window.Worker'), 'Worker wrap required');
+  assert.ok(hwSource.includes('SharedWorker'), 'SharedWorker wrap required');
 
   const boundsIdx = calls.findIndex((c) => c.method === 'Browser.setWindowBounds');
   const metricsIdx = calls.findIndex((c) => c.method === 'Emulation.setDeviceMetricsOverride');
@@ -421,30 +425,62 @@ async function testProveLogicalViewportUsesCssLayoutMetrics(): Promise<void> {
 }
 
 function testBuildChromeArgsIncludesWebglSpoof(): void {
-  const prev = process.env['SPECULUM_GL_FALLBACK'];
-  try {
-    delete process.env['SPECULUM_GL_FALLBACK'];
-    const extensionPath = webglSpoofExtensionPath();
-    assert.ok(fs.existsSync(extensionPath), `extension must exist at ${extensionPath}`);
-    const args = buildChromeArgs(1280, 720);
-    assert.ok(args.includes('--use-gl=swiftshader'), 'swiftshader required');
-    assert.ok(
-      args.some((a) => a.startsWith('--load-extension=') && a.includes('webgl-spoof')),
-      'load-extension webgl-spoof required',
-    );
-    assert.ok(
-      args.some((a) => a.includes('DisableLoadExtensionCommandLineSwitch')),
-      'Chrome ≥137 load-extension feature flag required',
-    );
-
-    process.env['SPECULUM_GL_FALLBACK'] = '0';
-    const off = buildChromeArgs(800, 600);
-    assert.ok(!off.includes('--use-gl=swiftshader'), 'SPECULUM_GL_FALLBACK=0 disables GL spoof');
-  } finally {
-    if (prev === undefined) delete process.env['SPECULUM_GL_FALLBACK'];
-    else process.env['SPECULUM_GL_FALLBACK'] = prev;
-  }
+  const extensionPath = webglSpoofExtensionPath();
+  assert.ok(fs.existsSync(extensionPath), `extension must exist at ${extensionPath}`);
+  const args = buildChromeArgs(1280, 720);
+  assert.ok(args.includes('--use-gl=angle'), 'ANGLE required for HW-or-software path');
+  assert.ok(args.includes('--enable-webgl'), 'webgl must be enabled');
+  assert.ok(args.includes('--ignore-gpu-blocklist'), 'gpu blocklist bypass required');
+  assert.ok(args.includes('--enable-unsafe-swiftshader'), 'software fallback must be allowed');
+  assert.ok(
+    !args.includes('--use-gl=swiftshader'),
+    'must not force swiftshader (blocks real GPU)',
+  );
+  assert.ok(
+    !args.includes('--use-angle=swiftshader'),
+    'must not force angle=swiftshader (blocks real GPU)',
+  );
+  assert.ok(
+    args.some((a) => a.startsWith('--load-extension=') && a.includes('webgl-spoof')),
+    'load-extension webgl-spoof required',
+  );
+  assert.ok(
+    args.some((a) => a.includes('DisableLoadExtensionCommandLineSwitch')),
+    'Chrome ≥137 load-extension feature flag required',
+  );
+  // Product path must not gate on SPECULUM_GL* env.
+  process.env['SPECULUM_GL_FALLBACK'] = '0';
+  const stillOn = buildChromeArgs(800, 600);
+  assert.ok(stillOn.includes('--enable-webgl'), 'GL must stay on without env knobs');
+  delete process.env['SPECULUM_GL_FALLBACK'];
   console.log('[unit] buildChromeArgs webgl spoof ok');
+}
+
+function testKitStealthInitSource(): void {
+  const phone = resolveDeviceKit({ deviceCategory: 'phone' });
+  const phoneSrc = kitStealthInitSource({
+    kit: phone,
+    userAgent: phone.buildUserAgent('120.0.0.0'),
+  });
+  assert.ok(phoneSrc.includes('Adreno'), 'phone WebGL must claim Adreno');
+  assert.ok(phoneSrc.includes('Linux armv8l'), 'phone platform in init');
+  assert.ok(phoneSrc.includes('Android 13'), 'phone UA in worker wrap');
+  assert.ok(phoneSrc.includes('importScripts'), 'worker wrap must use importScripts');
+  assert.ok(phoneSrc.includes('spoof(self.navigator)'), 'worker must spoof live navigator');
+  assert.ok(phoneSrc.includes('JSON.stringify(platform)'), 'worker preamble must quote platform');
+  assert.ok(phoneSrc.includes('JSON.stringify(ua)'), 'worker preamble must quote ua');
+  assert.ok(phoneSrc.includes('window.Worker'), 'Worker wrap');
+  assert.ok(!phoneSrc.includes('Direct3D'), 'never D3D11');
+
+  const pc = resolveDeviceKit({ deviceCategory: 'pc' });
+  const pcSrc = kitStealthInitSource({
+    kit: pc,
+    userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
+  });
+  assert.ok(pcSrc.includes('Intel') || pcSrc.includes('Mesa'), 'pc WebGL Linux GPU story');
+  assert.ok(pcSrc.includes('Linux x86_64'), 'pc platform');
+  assert.ok(!pcSrc.includes('Direct3D'), 'pc never D3D11/Windows');
+  console.log('[unit] kitStealthInitSource ok');
 }
 
 async function testScreencastRestartThrowsAfterStop(): Promise<void> {
@@ -1222,6 +1258,7 @@ async function main(): Promise<void> {
   await testApplyLogicalViewportUsesBoundsAndMetrics();
   await testProveLogicalViewportUsesCssLayoutMetrics();
   testBuildChromeArgsIncludesWebglSpoof();
+  testKitStealthInitSource();
   await testScreencastRestartThrowsAfterStop();
   testLaunchEnvironmentIsRequired();
   testTouchEmulationParams();

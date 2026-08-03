@@ -233,7 +233,7 @@ public sealed class StealthSuiteCollectTests
     private static async Task<string> CaptureFingerprintAsync(SessionsActClient act)
     {
         const string expr = """
-(() => {
+(async () => {
   const out = {
     href: location.href,
     ua: navigator.userAgent,
@@ -272,6 +272,17 @@ public sealed class StealthSuiteCollectTests
       brands: navigator.userAgentData.brands,
     } : null;
   } catch (e) { out.uaDataError = String(e); }
+  try {
+    out.worker = await new Promise((resolve) => {
+      const code = 'postMessage({ua:navigator.userAgent,platform:navigator.platform,cores:navigator.hardwareConcurrency,mem:navigator.deviceMemory})';
+      const blob = new Blob([code], { type: 'text/javascript' });
+      const url = URL.createObjectURL(blob);
+      const w = new Worker(url);
+      const t = setTimeout(() => { try { w.terminate(); } catch (_) {} URL.revokeObjectURL(url); resolve({ error: 'timeout' }); }, 3000);
+      w.onmessage = (ev) => { clearTimeout(t); try { w.terminate(); } catch (_) {} URL.revokeObjectURL(url); resolve(ev.data); };
+      w.onerror = (err) => { clearTimeout(t); try { w.terminate(); } catch (_) {} URL.revokeObjectURL(url); resolve({ error: String(err && err.message || err) }); };
+    });
+  } catch (e) { out.workerError = String(e); }
   return JSON.stringify(out);
 })()
 """;

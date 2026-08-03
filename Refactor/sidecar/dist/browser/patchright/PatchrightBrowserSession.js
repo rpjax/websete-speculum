@@ -150,15 +150,16 @@ class PatchrightBrowserSession {
             this.navigation.setupTabInterception(this.chrome.context, this.chrome.page);
             this.navigation.setupLocationSync(this.chrome.page);
             await this.navigation.setupFetchGuard(this.chrome.cdp, options.scripts ?? [], options.allowedNavigationDomains);
-            const chromeVp = await (0, device_emulation_1.readChromeViewport)(this.chrome.page);
+            // Re-prove after tab/guard setup — mobile about:blank + innerWidth is unreliable;
+            // proveLogicalViewport uses CDP cssLayoutViewport after fresh metrics apply.
+            const proven = await (0, device_emulation_1.proveLogicalViewport)(this.chrome.cdp, width, height, device, {
+                phase: 'launch',
+            });
             const active = await this.display.readActiveGeometry();
             if (active.width !== maxW || active.height !== maxH) {
                 throw new Error(`display ${active.width}×${active.height} != allocated ${maxW}×${maxH}`);
             }
-            if (!viewportClose(chromeVp.width, chromeVp.height, width, height)) {
-                throw Object.assign(new Error(`chrome viewport ${chromeVp.width}×${chromeVp.height} != logical ${width}×${height}`), { code: 'FAILED_PRECONDITION', errorCode: 'viewport_unproven', phase: 'launch' });
-            }
-            this.viewport.confirm(width, height, device);
+            this.viewport.confirm(width, height, proven.device);
             const inputBackend = await this.createInputBackend({
                 maxW,
                 maxH,
@@ -169,8 +170,8 @@ class PatchrightBrowserSession {
             this.inputBackend = inputBackend instanceof OsInputBackend_1.OsInputBackend ? 'os' : 'patchright';
             this.input = new Input_1.InputController(this.chrome.page, inputBackend);
             this.input.setTouchPrimary(touchPrimary(device));
-            this.chromeWidth = chromeVp.width;
-            this.chromeHeight = chromeVp.height;
+            this.chromeWidth = width;
+            this.chromeHeight = height;
             this.evaluateCap.attachConsole(this.chrome.page);
             this.editableFocus.start(this.chrome.page);
             this.screencast = await Screencast_1.Screencast.start(this.chrome.cdp, width, height, (jpeg) => this.events.onVideoFrame(jpeg));
@@ -417,18 +418,16 @@ class PatchrightBrowserSession {
                 screencastTouched = true;
                 await this.screencast.pauseForRestart();
             }
-            await (0, device_emulation_1.applyLogicalViewport)(this.chrome.cdp, nextW, nextH, nextDevice);
-            const chromeVp = await (0, device_emulation_1.readChromeViewport)(this.chrome.page);
-            if (!viewportClose(chromeVp.width, chromeVp.height, nextW, nextH)) {
-                throw new Error(`chrome viewport ${chromeVp.width}×${chromeVp.height} != logical ${nextW}×${nextH}`);
-            }
+            await (0, device_emulation_1.proveLogicalViewport)(this.chrome.cdp, nextW, nextH, nextDevice, {
+                phase: 'resize_apply',
+            });
             if (sizeChanged) {
                 await this.screencast.completeRestart(nextW, nextH, (jpeg) => this.events.onVideoFrame(jpeg), this.chrome.cdp);
             }
             this.viewport.confirm(nextW, nextH, nextDevice);
             this.input?.setTouchPrimary(touchPrimary(nextDevice));
-            this.chromeWidth = chromeVp.width;
-            this.chromeHeight = chromeVp.height;
+            this.chromeWidth = nextW;
+            this.chromeHeight = nextH;
             const backend = this.input?.backend;
             if (backend instanceof OsInputBackend_1.OsInputBackend) {
                 backend.setLogicalSize(nextW, nextH);
@@ -437,8 +436,8 @@ class PatchrightBrowserSession {
                 ok: true,
                 width: nextW,
                 height: nextH,
-                chromeWidth: chromeVp.width,
-                chromeHeight: chromeVp.height,
+                chromeWidth: nextW,
+                chromeHeight: nextH,
                 ...this.displayDims(),
             };
         }
@@ -456,11 +455,7 @@ class PatchrightBrowserSession {
                 };
             }
             try {
-                await (0, device_emulation_1.applyLogicalViewport)(this.chrome.cdp, previous.width, previous.height, previous.device);
-                const chromeVp = await (0, device_emulation_1.readChromeViewport)(this.chrome.page);
-                if (!viewportClose(chromeVp.width, chromeVp.height, previous.width, previous.height)) {
-                    throw new Error(`compensate chrome viewport ${chromeVp.width}×${chromeVp.height} != ${previous.width}×${previous.height}`);
-                }
+                await (0, device_emulation_1.proveLogicalViewport)(this.chrome.cdp, previous.width, previous.height, previous.device, { phase: 'compensate' });
                 // Only reattach screencast if the forward path already paused it.
                 if (screencastTouched && this.screencast) {
                     await this.screencast.completeRestart(previous.width, previous.height, (jpeg) => this.events.onVideoFrame(jpeg), this.chrome.cdp);
@@ -471,6 +466,8 @@ class PatchrightBrowserSession {
                 if (backend instanceof OsInputBackend_1.OsInputBackend) {
                     backend.setLogicalSize(previous.width, previous.height);
                 }
+                this.chromeWidth = previous.width;
+                this.chromeHeight = previous.height;
             }
             catch (compErr) {
                 const message = compErr.message?.slice(0, 512) ?? 'compensate failed';
@@ -666,10 +663,6 @@ class PatchrightBrowserSession {
 exports.PatchrightBrowserSession = PatchrightBrowserSession;
 function touchPrimary(device) {
     return (0, device_emulation_1.isInputTouchPrimary)(device);
-}
-/** Tolerate 2px Chrome settle jitter when proving logical viewport. */
-function viewportClose(aW, aH, bW, bH, epsilon = 2) {
-    return Math.abs(aW - bW) <= epsilon && Math.abs(aH - bH) <= epsilon;
 }
 function safeUrl(page) {
     try {

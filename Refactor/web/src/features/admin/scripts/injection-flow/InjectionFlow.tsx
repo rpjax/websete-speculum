@@ -37,7 +37,7 @@ export function InjectionFlow() {
         const existing = section.injections[index]
         if (!existing) throw new Error('This injection no longer exists.')
         if (active) { setDraft(clone(existing)); setEntry(clone(existing)) }
-      } catch (err) { if (active) { setError(err instanceof Error ? err.message : 'Could not load injection.'); navigate('/admin/scripts?tab=injections', { replace: true }) } }
+      } catch (err) { if (active) { setError(err instanceof Error ? err.message : 'Could not load injection.'); navigate('/w7s/admin/scripts?tab=injections', { replace: true }) } }
     }
     void initialise(); return () => { active = false }
   }, [editing, index, key, navigate])
@@ -48,7 +48,7 @@ export function InjectionFlow() {
   const valid = !draft ? false : stepId === 'source'
     ? draft.source.sourceType === 'stored' ? Boolean(draft.source.storedScriptId) : /^https?:\/\/.+/i.test(draft.source.remoteUrl ?? '')
     : stepId === 'targets' ? draft.targetRules.length > 0 : true
-  const abandon = () => { if (dirty) setConfirmAbandon(true); else { sessionStorage.removeItem(key); navigate('/admin/scripts?tab=injections') } }
+  const abandon = () => { if (dirty) setConfirmAbandon(true); else { sessionStorage.removeItem(key); navigate('/w7s/admin/scripts?tab=injections') } }
   const apply = async () => {
     if (!draft) return
     setPending(true); setError('')
@@ -58,7 +58,7 @@ export function InjectionFlow() {
       if (editing) { if (!injections[index]) throw new Error('This injection no longer exists.'); injections[index] = draft } else injections.push(draft)
       const body: ScriptingSection = { ...current, injections }
       await adminJson('/api/configurations/Scripting', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-      sessionStorage.removeItem(key); navigate('/admin/scripts?tab=injections')
+      sessionStorage.removeItem(key); navigate('/w7s/admin/scripts?tab=injections')
     } catch (err) { setError(err instanceof Error ? err.message : 'Could not apply Scripting configuration.') }
     finally { setPending(false) }
   }
@@ -70,6 +70,6 @@ export function InjectionFlow() {
       {stepId === 'targets' ? <TargetsStep draft={draft} onChange={change} /> : null}
       {stepId === 'review' ? <ReviewApplyStep draft={draft} scripts={scripts} pending={pending} error={error} onApply={() => void apply()} /> : null}
     </StepWizard>
-    <ConfirmDestructive open={confirmAbandon} onOpenChange={setConfirmAbandon} title="Discard injection changes?" body="Your edits will be lost." confirmLabel="Discard" onConfirm={() => { sessionStorage.removeItem(key); navigate('/admin/scripts?tab=injections') }} />
+    <ConfirmDestructive open={confirmAbandon} onOpenChange={setConfirmAbandon} title="Discard injection changes?" body="Your edits will be lost." confirmLabel="Discard" onConfirm={() => { sessionStorage.removeItem(key); navigate('/w7s/admin/scripts?tab=injections') }} />
   </section>
 }

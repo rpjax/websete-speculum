@@ -5,16 +5,17 @@ import { fetchClientConfig } from '@/lib/clientConfig'
 import { SessionViewport } from '@/features/sessions/live/SessionViewport'
 import { parseClientNavigation } from '@/features/sessions/live/sessionCoords'
 import { useLiveSession } from '@/features/sessions/live/useLiveSession'
+import { W7S_PREFIX, isW7sPath } from '@/lib/w7s'
 
 const VIEWPORT = { width: 1280, height: 720 }
 
 /**
  * Immersive live surface: same {@link useLiveSession} + {@link SessionViewport}
- * as the session lab — no debug chrome, no lab origin overrides, no Journal stream.
- * Starts from the current browser path/query (official path+query / NSO wire).
+ * as the session lab — no debug chrome, no Journal stream.
+ * Default / catch-all route: browser path/query feeds StartSession as-is.
  */
 export default function SessionLivePage() {
-  const session = useLiveSession({ viewport: VIEWPORT, debug: false, labOrigins: false })
+  const session = useLiveSession({ viewport: VIEWPORT, debug: false })
   const startedRef = useRef(false)
   const startRef = useRef(session.start)
   startRef.current = session.start
@@ -28,7 +29,7 @@ export default function SessionLivePage() {
       try {
         const config = await fetchClientConfig(API_URL, true)
         if (!config.operational) {
-          window.location.replace('/setup')
+          window.location.replace(`${W7S_PREFIX}/setup`)
           return
         }
       } catch {
@@ -37,9 +38,11 @@ export default function SessionLivePage() {
       const { path, query } = parseClientNavigation(
         `${window.location.pathname}${window.location.search}`,
       )
-      const startPath =
-        path === '/live' || path === '/' || path === '/lab' ? '/' : path
-      void startRef.current(startPath, query)
+      // Fail-closed: /w7s/* is the control plane (should be matched by explicit routes).
+      if (isW7sPath(path)) {
+        return
+      }
+      void startRef.current(path, query)
     })()
   }, [])
 
@@ -83,9 +86,8 @@ export default function SessionLivePage() {
 }
 
 const PHASE_HINT: Record<string, string> = {
-  connecting: 'Connecting hub…',
-  connected: 'Starting session…',
+  idle: 'Starting…',
+  connecting: 'Connecting…',
   starting: 'Starting session…',
-  stopping: 'Stopping…',
-  idle: 'Connecting…',
+  error: 'Session failed — check configuration.',
 }

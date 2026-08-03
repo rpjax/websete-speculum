@@ -22,7 +22,7 @@ export function LabDebugDock({ onCollapse, className, ...tools }: LabDebugDockPr
         <div className="min-w-0">
           <p className="text-xs font-semibold tracking-wide text-foreground">Debug tools</p>
           <p className="hidden text-[11px] text-muted-foreground sm:block">
-            Same session as the canvas — stream, Journal, config, wire.
+            Same session as the canvas — stream, Journal, config.
           </p>
         </div>
         <Button

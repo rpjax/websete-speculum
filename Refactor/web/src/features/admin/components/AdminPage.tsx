@@ -18,20 +18,43 @@ export function AdminPage({
   footer?: ReactNode
   className?: string
 }) {
-  return (
-    <div className={cn('mx-auto w-full space-y-4', widths[width], className)}>
-      {children}
-      {footer ? (
-        <div className="sticky bottom-0 z-10 pt-3">
+  // Fill the shell main and scroll the body so a pinned save
+  // strip never covers fields (Sessions was clipped by sticky-over-hidden).
+  // Shell main uses overflow-y-auto as a safety net for pages without AdminPage.
+  if (footer) {
+    return (
+      <div
+        className={cn(
+          'mx-auto flex h-full min-h-0 w-full flex-1 flex-col',
+          widths[width],
+          className,
+        )}
+      >
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain pb-2">
+          {children}
+        </div>
+        <div className="shrink-0 border-t border-border/60 bg-background pt-3">
           <div
             role="region"
             aria-label="Save actions"
-            className="rounded-lg border border-border bg-card/95 px-3 py-2 shadow-sm backdrop-blur-sm"
+            className="rounded-lg border border-border bg-card px-3 py-2 shadow-sm"
           >
             {footer}
           </div>
         </div>
-      ) : null}
+      </div>
+    )
+  }
+
+  return (
+    <div
+      className={cn(
+        'mx-auto h-full min-h-0 w-full flex-1 space-y-4 overflow-y-auto overscroll-contain',
+        widths[width],
+        className,
+      )}
+    >
+      {children}
     </div>
   )
 }

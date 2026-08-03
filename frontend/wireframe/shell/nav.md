@@ -18,7 +18,9 @@ Grouped under subtle section labels (routes unchanged):
 |---------|--------|
 | Operate | Home, Sessions, Profiles, Scripts |
 | Configure | Configurations, Host resources |
-| Observe | Diagnostics |
+| Diagnostics | Health, Resources, Signals, Timeline, Investigate, Reports, Governance |
+
+`/admin/diagnostics` (hub) redirects to Health — Diagnostics is a **section**, not a single dispatch page.
 
 Desktop rail footer: quiet “Speculum / Operator console” wordmark (no version stub unless product exposes one).
 
@@ -36,7 +38,13 @@ Active rules:
 - Scripts: `/admin/scripts` prefix
 - Configurations: `/admin/configurations` prefix
 - Host resources: `/admin/host-resources` prefix
-- Diagnostics: `/admin/diagnostics` prefix
+- Health: `/admin/diagnostics/health` prefix
+- Resources: `/admin/diagnostics/resources` prefix
+- Signals: `/admin/diagnostics/signals` prefix
+- Timeline: `/admin/diagnostics/timeline` prefix
+- Investigate: `/admin/diagnostics/investigate` prefix
+- Reports: `/admin/diagnostics/reports` prefix
+- Governance: `/admin/diagnostics/governance` prefix
 
 ## Copy
 Labels as in app-shell inventory (English).

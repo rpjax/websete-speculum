@@ -20,9 +20,9 @@ describe('adminAuth', () => {
   })
 
   it('allowlists returnUrl', () => {
-    expect(safeReturnUrl('/admin/sessions')).toBe('/admin/sessions')
-    expect(safeReturnUrl('/setup')).toBe('/setup')
-    expect(safeReturnUrl('https://evil')).toBe('/admin')
-    expect(safeReturnUrl('//evil')).toBe('/admin')
+    expect(safeReturnUrl('/w7s/admin/sessions')).toBe('/w7s/admin/sessions')
+    expect(safeReturnUrl('/w7s/setup')).toBe('/w7s/setup')
+    expect(safeReturnUrl('https://evil')).toBe('/w7s/admin')
+    expect(safeReturnUrl('//evil')).toBe('/w7s/admin')
   })
 })

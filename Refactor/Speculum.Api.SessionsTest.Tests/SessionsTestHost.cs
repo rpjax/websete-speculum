@@ -10,7 +10,8 @@ public sealed class SessionsTestHost
 
     public SessionsTestHost()
     {
+        // Control plane is PathBase-mounted at /w7s (hub + REST + health).
         ApiBase = (Environment.GetEnvironmentVariable("SESSIONS_TEST_API_BASE")
-            ?? "http://127.0.0.1:18090").TrimEnd('/');
+            ?? "http://127.0.0.1:18090/w7s").TrimEnd('/');
     }
 }

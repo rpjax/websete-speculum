@@ -55,7 +55,7 @@ public interface ILiveSession
 
     /// <summary>
     /// Ensures a single DropOldest admission pump and enqueues one user-input event.
-    /// Used by SignalR (primary) and optional late WebTransport UserInput streams.
+    /// Product path: data-plane UserInput stream; harness HTTP may also admit.
     /// </summary>
     IResult AdmitUserInput(UserInput input);
 
@@ -67,13 +67,13 @@ public interface ILiveSession
         CancellationToken ct = default);
 
     /// <summary>
-    /// Opt-in Journal hop: WebTransport UserInput framed message was received.
+    /// Opt-in Journal hop: data-plane UserInput framed message was received.
     /// No-op when <c>Telemetry.Sessions.Input.WebTransportReceived</c> is disabled in the catalog.
     /// </summary>
     void TraceInputPathWtReceived(string kind);
 
     /// <summary>
-    /// Opt-in Journal hop: user input admitted on the SignalR control plane.
+    /// Opt-in Journal hop: user input admitted outside the framed data plane (e.g. harness).
     /// No-op when <c>Telemetry.Sessions.Input.ControlReceived</c> is disabled in the catalog.
     /// </summary>
     void TraceInputPathControlReceived(string kind);

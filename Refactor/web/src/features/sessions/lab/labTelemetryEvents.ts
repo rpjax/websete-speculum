@@ -65,18 +65,18 @@ export const LAB_TELEMETRY_EVENT_GROUPS: LabTelemetryEventGroup[] = [
   {
     id: 'input-path',
     title: 'Input path',
-    blurb: 'Server hops after Wire client_sent. Hot path — enable only while diagnosing delay.',
+    blurb: 'Server hops after Activity client_sent. Hot path — enable only while diagnosing delay.',
     events: [
       {
         type: 'Telemetry.Sessions.Input.ControlReceived',
         label: 'Hop 1 · Control received',
-        help: 'User input admitted on SignalR (product path).',
+        help: 'Harness/admin admit outside the framed data plane (not the product path).',
         hotPath: true,
       },
       {
         type: 'Telemetry.Sessions.Input.WebTransportReceived',
-        label: 'Hop 1b · WebTransport received',
-        help: 'Optional late WT UserInput pipe (lab/debug). Not the product path.',
+        label: 'Hop 1 · Data-plane received',
+        help: 'UserInput framed message on the data plane (product path).',
         hotPath: true,
       },
       {

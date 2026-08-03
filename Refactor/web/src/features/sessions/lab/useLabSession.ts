@@ -10,9 +10,9 @@ export type LabStats = LiveSessionStats
 export type LabViewport = LiveSessionViewport
 
 /**
- * Lab session hook — identical application path to `/live`
- * ({@link useLiveSession}); enables debug observation + lab Wire origins only.
+ * Lab session hook — identical application path to `/w7s/live`
+ * ({@link useLiveSession}); enables debug observation only.
  */
 export function useLabSession(viewport: LiveSessionViewport) {
-  return useLiveSession({ viewport, debug: true, labOrigins: true })
+  return useLiveSession({ viewport, debug: true })
 }

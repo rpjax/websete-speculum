@@ -1,38 +1,74 @@
 # Diagnostics timeline
+
 ## Job
-Read scoped diagnostic evidence as a narrative timeline.
+Read the Motor/Journal **story** — chronological, multi-lane, semantic — not dump a raw event list.
+
 ## Route / params / auth gate
-- Route: `/admin/diagnostics/timeline`
-- Params: future scope and period
+- Route: `/w7s/admin/diagnostics/timeline`
+- Params: `?sessionId=` · `?connectionId=` (alias) · `?from=` · `?to=`
 - Auth: Bearer access
+
 ## Entrada (pré-condições, deep-link)
-Opened from Investigate; future deep-links carry scope and period.
+Diagnostics nav · command palette · session deep-link · Investigate overflow.
+
 ## Layout (ASCII regiões)
-`[Timeline title] [availability callout] [honest empty state]`.
+
+```
+[ title + one-line job ]
+[ compact strip: Scope | Period | Detail | Zoom± Fit | Options ▸ | Refresh | ⋯ ]
+[ canvas ≥60% viewport — sticky TimeRail ]
+  Lane | labeled chapters on shared time axis …
+  Beat ribbon (Detail = Full beats) · empty-lane Jump
+[ Sheet on selection — prose first, Technical details / payload last ]
+```
+
 ## Inventory de controlos
-| id | tipo | label | helper | default | required | validation |
-| scope | future selector | Scope | Evidence boundary | none | future | known scope |
-| period | future range | Period | Narrative time window | none | future | valid range |
+
+| id | tipo | label | helper |
+|----|------|-------|--------|
+| scope | select | Scope | Platform or live session |
+| period | select | Period | 15m / 1h / 6h / 24h / custom |
+| granularity | select | Detail | Chapters → +spans → Full beats |
+| zoom | buttons | Zoom± / Fit | View domain only (no CSS transform) |
+| options | disclosure | Reading options | Domains, severity, search, layers |
+| live | layer | Live | Journal tail by sequence |
+| chapter | canvas | Chapter | Semantic label + outcome + duration |
+| beat | canvas | •(N) | Cluster → Sheet list |
+| sheet | sheet | Selection | Prose first; payload under Technical details |
+
 ## Copy (strings)
-“Diagnostics timeline”; “No timeline to read”; “Timeline data is not available yet.”
+- Title: `Timeline`
+- Description: `Narrative reader over durable Journal facts — lanes, chapters, and beats. Payload stays in the sheet.`
+- Empty: `No narrative in this period`
+- Overflow: `Investigate this period…`
+
 ## Inteligência UX nesta view
-Timeline is a reader, not a telemetry dump; it waits for catalogued evidence contracts.
-## Path feliz (passos numerados)
-1. Select scope and period when available. 2. Load events. 3. Read chapters and drill into evidence.
-## Reveals
-Technical payloads appear only after narrative event selection.
-## Estados (loading/empty/error/success/blocked)
-Current empty state explains API expansion; future errors preserve selected scope.
+Primary job is **reading a story**. Canvas first; list/Feed is not the primary UX. Charts/signal overlays stay optional under Options. Payload is reveal-only in the Sheet.
+
+## Path feliz
+1. Open Timeline → canvas fills most of the viewport.  
+2. Pan/zoom TimeRail; Fit when lost.  
+3. Click a chapter / cluster → Sheet with prose.  
+4. Expand Technical details only when raw Journal payload is needed.
+
 ## Dados / API
-| ação UI | método | path | request | response usada |
-| future query | GET | diagnostics timeline endpoint | scope, period | catalogued events |
-## Components usados
-`PageHeader`, `HelperCallout`, `EmptyState`.
-## Navegação (vem de / sai para)
-From Diagnostics hub; future link to Investigate uses selected period.
-## Teclado / a11y notas
-Future timeline keyboard navigation follows chronological order.
+
+| ação UI | método | path |
+|---------|--------|------|
+| load / earlier / live | GET | `/api/admin/diagnostics/v1/timeline?since&until&sessionId&afterSequence&beforeSequence&limit` |
+| scope sessions | GET | `/api/sessions` |
+
+Response: `{ items[], latestSequence, nextBeforeSequence, truncated }` — mapped client-side into narrative lanes/chapters/beats.
+
 ## Aceite de build
-- No legacy telemetry feed substitutes for the timeline.
+- First viewport ≥60% narrative canvas; Options collapsed by default.
+- Chapters show label + outcome + duration; hover prose works.
+- Empty-in-view lanes coach + Jump; Zoom± / Fit work.
+- No raw full-page event list as the landing experience.
+- Payload only under Sheet Technical details.
+
 ## Explicitamente fora
-Charts as the primary timeline experience.
+- Legacy Diagnostics ring `/events` as the Timeline primary source.
+- Charts / heatmap / histogram as the primary timeline.
+- Sessions/Stories/Feed list views as the Timeline primary UX.
+- Prominent Analysis CTA in chrome (overflow Investigate only).

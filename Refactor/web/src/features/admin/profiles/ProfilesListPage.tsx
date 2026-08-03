@@ -89,7 +89,7 @@ export function ProfilesListPage() {
             </TableHeader>
             <TableBody>
               {filtered.map((profile) => {
-                const href = `/admin/profiles/${encodeURIComponent(profile.profileId)}`
+                const href = `/w7s/admin/profiles/${encodeURIComponent(profile.profileId)}`
                 return (
                   <TableRow key={profile.profileId} className="group">
                     <TableCell className="px-3 py-2.5">

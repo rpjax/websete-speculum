@@ -20,9 +20,23 @@ export function asNumber(value: unknown, fallback = 0): number {
 }
 
 /** Wire baseline matching engine-safe empty fill (validator completeness). */
+export const DATA_STREAM_TRANSPORT_OPTIONS: Array<[string, string, string]> = [
+  [
+    'webTransport',
+    'WebTransport',
+    'HTTP/3 data plane (/w7s/vtransport). Requires UDP to the API in production.',
+  ],
+  [
+    'webSocket',
+    'WebSocket',
+    'Muxed data plane (/w7s/vstream). Same-origin proxyable like the control hub.',
+  ],
+]
+
 export const SESSIONS_BASELINE: JsonObject = {
   detachedSessionTimeout: '00:30:00',
   isJsBridgeEnabled: true,
+  dataStreamTransport: 'webTransport',
   viewportPolicy: {
     minimum: { width: 100, height: 100 },
     default: { width: 1280, height: 720 },
@@ -379,6 +393,8 @@ export function fillSessionsGaps(current: JsonObject): JsonObject {
       typeof current.isJsBridgeEnabled === 'boolean'
         ? current.isJsBridgeEnabled
         : Boolean(SESSIONS_BASELINE.isJsBridgeEnabled),
+    dataStreamTransport:
+      text(current.dataStreamTransport) === 'webSocket' ? 'webSocket' : 'webTransport',
     viewportPolicy: current.viewportPolicy ?? SESSIONS_BASELINE.viewportPolicy,
     clientEnvironmentPolicy:
       current.clientEnvironmentPolicy ?? SESSIONS_BASELINE.clientEnvironmentPolicy,
@@ -445,6 +461,8 @@ export function summarizeSessions(value: JsonObject) {
   const timeout = text(value.detachedSessionTimeout)
   const parsed = parseDotNetTimeSpan(timeout)
   const jsBridge = Boolean(value.isJsBridgeEnabled)
+  const dataStreamTransport =
+    text(value.dataStreamTransport) === 'webSocket' ? 'webSocket' : 'webTransport'
   const viewport = asObject(asObject(value.viewportPolicy).default)
   const width = asNumber(viewport.width)
   const height = asNumber(viewport.height)
@@ -466,6 +484,11 @@ export function summarizeSessions(value: JsonObject) {
     timeoutOk,
     jsBridge,
     jsBridgeLabel: jsBridge ? 'JS bridge on' : 'JS bridge off',
+    dataStreamTransport,
+    dataStreamTransportLabel: describeEnumLabel(
+      DATA_STREAM_TRANSPORT_OPTIONS,
+      dataStreamTransport,
+    ),
     viewportWidth: width,
     viewportHeight: height,
     viewportLabel: hasViewport ? `${width}×${height}` : 'Not set',

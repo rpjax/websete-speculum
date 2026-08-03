@@ -46,7 +46,7 @@ export function LiveSessionDetailPage() {
         <EmptyState
           title="This session is not live or was not found."
           body="Live sessions disappear when they end."
-          cta={{ label: 'Back to sessions', href: '/admin/sessions' }}
+          cta={{ label: 'Back to sessions', href: '/w7s/admin/sessions' }}
         />
       </AdminPage>
     )
@@ -72,7 +72,7 @@ export function LiveSessionDetailPage() {
         description="Live remote browser session."
         actions={
           <Button asChild variant="outline">
-            <Link to={`/admin/profiles/${encodeURIComponent(session.profileId)}`}>View profile</Link>
+            <Link to={`/w7s/admin/profiles/${encodeURIComponent(session.profileId)}`}>View profile</Link>
           </Button>
         }
       />
@@ -85,7 +85,7 @@ export function LiveSessionDetailPage() {
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Profile</p>
-              <IdChip id={session.profileId} href={`/admin/profiles/${encodeURIComponent(session.profileId)}`} />
+              <IdChip id={session.profileId} href={`/w7s/admin/profiles/${encodeURIComponent(session.profileId)}`} />
             </div>
           </div>
           <div className="space-y-2 sm:text-right">
@@ -117,7 +117,7 @@ export function LiveSessionDetailPage() {
           </div>
         </FieldGrid>
       </DataCard>
-      <Link className="inline-block text-sm underline" to="/admin/sessions">
+      <Link className="inline-block text-sm underline" to="/w7s/admin/sessions">
         Back to sessions
       </Link>
     </AdminPage>

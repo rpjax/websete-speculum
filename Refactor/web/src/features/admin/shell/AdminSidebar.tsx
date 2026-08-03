@@ -1,5 +1,18 @@
 import type { LucideIcon } from 'lucide-react'
-import { Activity, Boxes, FileCode2, House, Server, Settings2, UsersRound } from 'lucide-react'
+import {
+  Activity,
+  FileBarChart2,
+  FileCode2,
+  History,
+  House,
+  LineChart,
+  SearchCheck,
+  Server,
+  Settings2,
+  ShieldCheck,
+  Siren,
+  UsersRound,
+} from 'lucide-react'
 import { NavLink } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 
@@ -22,10 +35,10 @@ const NAV_SECTIONS: NavSection[] = [
     id: 'operate',
     label: 'Operate',
     items: [
-      { label: 'Home', href: '/admin', icon: House, end: true, helper: 'Operator overview' },
-      { label: 'Sessions', href: '/admin/sessions', icon: Activity, helper: 'Live sessions' },
-      { label: 'Profiles', href: '/admin/profiles', icon: UsersRound, helper: 'Persisted identities' },
-      { label: 'Scripts', href: '/admin/scripts', icon: FileCode2, helper: 'Library and injections' },
+      { label: 'Home', href: '/w7s/admin', icon: House, end: true, helper: 'Operator overview' },
+      { label: 'Sessions', href: '/w7s/admin/sessions', icon: Activity, helper: 'Live sessions' },
+      { label: 'Profiles', href: '/w7s/admin/profiles', icon: UsersRound, helper: 'Persisted identities' },
+      { label: 'Scripts', href: '/w7s/admin/scripts', icon: FileCode2, helper: 'Library and injections' },
     ],
   },
   {
@@ -34,27 +47,63 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       {
         label: 'Configurations',
-        href: '/admin/configurations',
+        href: '/w7s/admin/configurations',
         icon: Settings2,
         helper: 'Engine sections',
       },
       {
         label: 'Host resources',
-        href: '/admin/host-resources',
+        href: '/w7s/admin/host-resources',
         icon: Server,
         helper: 'Capacity / shm',
       },
     ],
   },
   {
-    id: 'observe',
-    label: 'Observe',
+    id: 'diagnostics',
+    label: 'Diagnostics',
     items: [
       {
-        label: 'Diagnostics',
-        href: '/admin/diagnostics',
-        icon: Boxes,
-        helper: 'Observe and govern',
+        label: 'Health',
+        href: '/w7s/admin/diagnostics/health',
+        icon: Activity,
+        helper: 'Runtime and degraded state',
+      },
+      {
+        label: 'Resources',
+        href: '/w7s/admin/diagnostics/resources',
+        icon: LineChart,
+        helper: 'CPU / memory / disk series',
+      },
+      {
+        label: 'Signals',
+        href: '/w7s/admin/diagnostics/signals',
+        icon: Siren,
+        helper: 'Active leaks and anomalies',
+      },
+      {
+        label: 'Journal',
+        href: '/w7s/admin/diagnostics/timeline',
+        icon: History,
+        helper: 'Narrative evidence reader',
+      },
+      {
+        label: 'Investigate',
+        href: '/w7s/admin/diagnostics/investigate',
+        icon: SearchCheck,
+        helper: 'Scoped probes and resolve',
+      },
+      {
+        label: 'Reports',
+        href: '/w7s/admin/diagnostics/reports',
+        icon: FileBarChart2,
+        helper: 'Journal-backed reports',
+      },
+      {
+        label: 'Governance',
+        href: '/w7s/admin/diagnostics/governance',
+        icon: ShieldCheck,
+        helper: 'Elevate, recover, toggles',
       },
     ],
   },

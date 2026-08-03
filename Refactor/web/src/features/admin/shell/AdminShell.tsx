@@ -3,6 +3,7 @@ import { Link, Outlet, useNavigate } from 'react-router-dom'
 import { adminJson } from '@/lib/adminFetch'
 import { clearAdminAuth, getAdminAuth } from '@/lib/adminAuth'
 import { Button } from '@/components/ui/button'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import { AdminToastProvider } from './AdminToastContext'
 import { AdminTopBar } from './AdminTopBar'
 import { AdminNav, AdminSidebar } from './AdminSidebar'
@@ -38,44 +39,49 @@ export function AdminShell() {
 
   const signOut = () => {
     clearAdminAuth()
-    navigate('/admin/login', { replace: true })
+    navigate('/w7s/admin/login', { replace: true })
   }
 
   return (
-    <AdminToastProvider>
-      <a
-        href="#admin-content"
-        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded focus:bg-background focus:p-2"
-      >
-        Skip to content
-      </a>
-      <div className="min-h-screen bg-background">
-        <AdminTopBar
-          username={username}
-          navOpen={navOpen}
-          onNavOpenChange={setNavOpen}
-          onOpenPalette={() => setPaletteOpen(true)}
-          onSignOut={signOut}
-          nav={<AdminNav variant="sheet" onNavigate={() => setNavOpen(false)} />}
-        />
+    <TooltipProvider>
+      <AdminToastProvider>
+        <a
+          href="#admin-content"
+          className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded focus:bg-background focus:p-2"
+        >
+          Skip to content
+        </a>
+        <div className="flex h-dvh flex-col bg-background">
+          <AdminTopBar
+            username={username}
+            navOpen={navOpen}
+            onNavOpenChange={setNavOpen}
+            onOpenPalette={() => setPaletteOpen(true)}
+            onSignOut={signOut}
+            nav={<AdminNav variant="sheet" onNavigate={() => setNavOpen(false)} />}
+          />
 
-        {operational === false ? (
-          <div className="flex items-center justify-between gap-3 border-b border-warning/30 bg-warning/5 px-4 py-2 text-sm">
-            <span>This environment is not ready to start sessions.</span>
-            <Button asChild size="sm" variant="outline">
-              <Link to="/setup">Continue setup</Link>
-            </Button>
+          {operational === false ? (
+            <div className="flex shrink-0 items-center justify-between gap-3 border-b border-warning/30 bg-warning/5 px-4 py-2 text-sm">
+              <span>This environment is not ready to start sessions.</span>
+              <Button asChild size="sm" variant="outline">
+                <Link to="/w7s/setup">Continue setup</Link>
+              </Button>
+            </div>
+          ) : null}
+
+          <div className="flex min-h-0 flex-1">
+            <AdminSidebar />
+            <main
+              id="admin-content"
+              className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto p-4 md:px-6 md:py-5"
+            >
+              <Outlet />
+            </main>
           </div>
-        ) : null}
-
-        <div className="flex min-h-[calc(100vh-3.5rem)]">
-          <AdminSidebar />
-          <main id="admin-content" className="min-w-0 flex-1 p-4 md:px-6 md:py-5">
-            <Outlet />
-          </main>
         </div>
-      </div>
-      <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} onSignOut={signOut} />
-    </AdminToastProvider>
+        <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} onSignOut={signOut} />
+      </AdminToastProvider>
+    </TooltipProvider>
   )
 }

@@ -54,4 +54,22 @@ describe('syncClientLocation', () => {
   it('ignores invalid URLs', () => {
     expect(() => syncClientLocation('not-a-url', false)).not.toThrow()
   })
+
+  it('skips control-plane /w7s paths', () => {
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: {
+        host: 'speculum.localhost',
+        hostname: 'speculum.localhost',
+        pathname: '/',
+        search: '',
+        href: 'http://speculum.localhost/',
+        protocol: 'http:',
+      },
+    })
+
+    syncClientLocation('http://speculum.localhost/w7s/admin', false)
+
+    expect(window.history.pushState).not.toHaveBeenCalled()
+  })
 })

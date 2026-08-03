@@ -19,10 +19,10 @@ import { useLabSession } from './useLabSession'
 const VIEWPORT = { width: 1280, height: 720 }
 
 /**
- * Session lab (`/` / `/lab`): canvas + Debug dock.
+ * Session lab (`/` / `/w7s/lab`): canvas + Debug dock.
  * Dock sizes to its content (page scrolls) — no clipped inner pane.
- * Immersive prod preview (canvas only) is `/live`.
- * Not-ready → `/setup` unless `?configure=1` (setup guide → Lab apply-defaults path).
+ * Immersive prod preview (canvas only) is `/w7s/live`.
+ * Not-ready → `/w7s/setup` unless `?configure=1` (setup guide → Lab apply-defaults path).
  */
 export default function SessionLabPage() {
   const [address, setAddress] = useState('www.google.com')
@@ -39,7 +39,7 @@ export default function SessionLabPage() {
     void fetchClientConfig(API_URL, true)
       .then((config) => {
         if (!cancelled && !config.operational) {
-          navigate('/setup', { replace: true })
+          navigate('/w7s/setup', { replace: true })
         }
       })
       .catch(() => {
@@ -89,11 +89,9 @@ export default function SessionLabPage() {
     connectionId: session.connectionId,
     profileId: session.profileId,
     sessionId: session.sessionId,
-    wireDisabled: session.isLive,
     onRunConsoleCommand: session.runConsoleCommand,
     onClearConsole: session.clearConsole,
     onEvaluate: session.evaluate,
-    onApplyOrigins: session.applyOrigins,
     onForgetProfile: session.forgetProfile,
   }
 
@@ -115,7 +113,7 @@ export default function SessionLabPage() {
               <h1 className="text-base font-semibold">Session lab</h1>
             </div>
             <p className="text-[11px] text-muted-foreground">
-              Canvas is the product surface — Debug opens Journal, Config, Wire, and the rest.
+              Canvas is the product surface — Debug opens Journal, Config, and the rest.
             </p>
           </div>
           <LabToolbar

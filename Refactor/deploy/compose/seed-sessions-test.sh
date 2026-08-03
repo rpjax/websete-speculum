@@ -2,7 +2,7 @@
 # Explicitly enable opt-in Telemetry event facts for SessionsTest (never auto-on).
 set -euo pipefail
 
-API_BASE="${SESSIONS_TEST_API_BASE:-http://127.0.0.1:18090}"
+API_BASE="${SESSIONS_TEST_API_BASE:-http://127.0.0.1:18090/w7s}"
 
 echo "Seeding SessionsTest Telemetry events at ${API_BASE}…"
 

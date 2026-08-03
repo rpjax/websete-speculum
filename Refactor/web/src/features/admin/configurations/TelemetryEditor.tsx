@@ -614,7 +614,7 @@ export function TelemetryEditor({
 
       <HelperCallout
         title="Inspect live samples"
-        action={{ label: 'Open Telemetry monitor', href: '/admin/diagnostics/telemetry' }}
+        action={{ label: 'Open Telemetry monitor', href: '/w7s/admin/diagnostics/telemetry' }}
       >
         After save, composites land in the Journal. Use the monitor to chart SampleCollected without leaving Admin.
       </HelperCallout>

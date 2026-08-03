@@ -29,7 +29,7 @@ export function UploadScriptPage() {
       const data = new FormData(); data.append('file', file); data.append('name', name.trim())
       const response = await adminFetch('/api/scripts', { method: 'POST', body: data })
       if (!response.ok) throw new Error(`Upload failed (${response.status}).`)
-      navigate(returnUrl?.startsWith('/admin/') ? returnUrl : '/admin/scripts?tab=library', { replace: true })
+      navigate(returnUrl?.startsWith('/w7s/admin/') ? returnUrl : '/w7s/admin/scripts?tab=library', { replace: true })
     } catch (err) { setError(err instanceof Error ? err.message : 'Could not upload the script.') }
     finally { setPending(false) }
   }
@@ -38,6 +38,6 @@ export function UploadScriptPage() {
     <div className="space-y-2"><Label htmlFor="script-file">Script file</Label><Input id="script-file" type="file" accept=".js,application/javascript,text/javascript" onChange={(event) => selectFile(event.target.files?.[0] ?? null)} /><p className="text-sm text-muted-foreground">.js only, maximum 512 KB.</p></div>
     <div className="space-y-2"><Label htmlFor="script-name">Name</Label><Input id="script-name" value={name} onChange={(event) => setName(event.target.value)} placeholder="Shown in library and pickers" /></div>
     {error ? <><InlineValidation message={error} /><SaveFeedback mode="inline-error" message={error} /></> : null}
-    <div className="flex justify-end gap-2"><Button variant="outline" onClick={() => navigate(returnUrl?.startsWith('/admin/') ? returnUrl : '/admin/scripts?tab=library')}>Cancel</Button><Button disabled={pending} onClick={() => void upload()}>{pending ? 'Uploading…' : 'Upload'}</Button></div>
+    <div className="flex justify-end gap-2"><Button variant="outline" onClick={() => navigate(returnUrl?.startsWith('/w7s/admin/') ? returnUrl : '/w7s/admin/scripts?tab=library')}>Cancel</Button><Button disabled={pending} onClick={() => void upload()}>{pending ? 'Uploading…' : 'Upload'}</Button></div>
   </section>
 }

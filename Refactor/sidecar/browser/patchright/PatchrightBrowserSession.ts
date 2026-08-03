@@ -19,10 +19,9 @@ import type {
 import { closeChrome, launchChrome, type ChromeHandle } from './ChromeRuntime';
 import { Display, type DisplayAllocator } from './Display';
 import {
-  applyLogicalViewport,
   deviceProfilesEqual,
   isInputTouchPrimary,
-  readChromeViewport,
+  proveLogicalViewport,
   resolveDeviceProfile,
 } from './device-emulation';
 import { EditableFocus } from './EditableFocus';
@@ -194,20 +193,16 @@ export class PatchrightBrowserSession implements BrowserSession {
         options.allowedNavigationDomains,
       );
 
-      const chromeVp = await readChromeViewport(this.chrome.page);
+      // Re-prove after tab/guard setup — mobile about:blank + innerWidth is unreliable;
+      // proveLogicalViewport uses CDP cssLayoutViewport after fresh metrics apply.
+      const proven = await proveLogicalViewport(this.chrome.cdp, width, height, device, {
+        phase: 'launch',
+      });
       const active = await this.display.readActiveGeometry();
       if (active.width !== maxW || active.height !== maxH) {
         throw new Error(`display ${active.width}×${active.height} != allocated ${maxW}×${maxH}`);
       }
-      if (!viewportClose(chromeVp.width, chromeVp.height, width, height)) {
-        throw Object.assign(
-          new Error(
-            `chrome viewport ${chromeVp.width}×${chromeVp.height} != logical ${width}×${height}`,
-          ),
-          { code: 'FAILED_PRECONDITION', errorCode: 'viewport_unproven', phase: 'launch' },
-        );
-      }
-      this.viewport.confirm(width, height, device);
+      this.viewport.confirm(width, height, proven.device);
 
       const inputBackend = await this.createInputBackend({
         maxW,
@@ -219,8 +214,8 @@ export class PatchrightBrowserSession implements BrowserSession {
       this.inputBackend = inputBackend instanceof OsInputBackend ? 'os' : 'patchright';
       this.input = new InputController(this.chrome.page, inputBackend);
       this.input.setTouchPrimary(touchPrimary(device));
-      this.chromeWidth = chromeVp.width;
-      this.chromeHeight = chromeVp.height;
+      this.chromeWidth = width;
+      this.chromeHeight = height;
       this.evaluateCap.attachConsole(this.chrome.page);
       this.editableFocus.start(this.chrome.page);
 
@@ -497,13 +492,9 @@ export class PatchrightBrowserSession implements BrowserSession {
         screencastTouched = true;
         await this.screencast.pauseForRestart();
       }
-      await applyLogicalViewport(this.chrome!.cdp, nextW, nextH, nextDevice);
-      const chromeVp = await readChromeViewport(this.chrome!.page);
-      if (!viewportClose(chromeVp.width, chromeVp.height, nextW, nextH)) {
-        throw new Error(
-          `chrome viewport ${chromeVp.width}×${chromeVp.height} != logical ${nextW}×${nextH}`,
-        );
-      }
+      await proveLogicalViewport(this.chrome!.cdp, nextW, nextH, nextDevice, {
+        phase: 'resize_apply',
+      });
       if (sizeChanged) {
         await this.screencast!.completeRestart(
           nextW,
@@ -514,8 +505,8 @@ export class PatchrightBrowserSession implements BrowserSession {
       }
       this.viewport!.confirm(nextW, nextH, nextDevice);
       this.input?.setTouchPrimary(touchPrimary(nextDevice));
-      this.chromeWidth = chromeVp.width;
-      this.chromeHeight = chromeVp.height;
+      this.chromeWidth = nextW;
+      this.chromeHeight = nextH;
       const backend = this.input?.backend;
       if (backend instanceof OsInputBackend) {
         backend.setLogicalSize(nextW, nextH);
@@ -524,8 +515,8 @@ export class PatchrightBrowserSession implements BrowserSession {
         ok: true,
         width: nextW,
         height: nextH,
-        chromeWidth: chromeVp.width,
-        chromeHeight: chromeVp.height,
+        chromeWidth: nextW,
+        chromeHeight: nextH,
         ...this.displayDims(),
       };
     } catch (err) {
@@ -542,18 +533,13 @@ export class PatchrightBrowserSession implements BrowserSession {
         };
       }
       try {
-        await applyLogicalViewport(
+        await proveLogicalViewport(
           this.chrome.cdp,
           previous.width,
           previous.height,
           previous.device,
+          { phase: 'compensate' },
         );
-        const chromeVp = await readChromeViewport(this.chrome.page);
-        if (!viewportClose(chromeVp.width, chromeVp.height, previous.width, previous.height)) {
-          throw new Error(
-            `compensate chrome viewport ${chromeVp.width}×${chromeVp.height} != ${previous.width}×${previous.height}`,
-          );
-        }
         // Only reattach screencast if the forward path already paused it.
         if (screencastTouched && this.screencast) {
           await this.screencast.completeRestart(
@@ -569,6 +555,8 @@ export class PatchrightBrowserSession implements BrowserSession {
         if (backend instanceof OsInputBackend) {
           backend.setLogicalSize(previous.width, previous.height);
         }
+        this.chromeWidth = previous.width;
+        this.chromeHeight = previous.height;
       } catch (compErr) {
         const message = (compErr as Error).message?.slice(0, 512) ?? 'compensate failed';
         await this.teardownBrowserResources({ removeUserDataDir: true });
@@ -785,11 +773,6 @@ export class PatchrightBrowserSession implements BrowserSession {
 
 function touchPrimary(device?: BrowserDeviceProfile | null): boolean {
   return isInputTouchPrimary(device);
-}
-
-/** Tolerate 2px Chrome settle jitter when proving logical viewport. */
-function viewportClose(aW: number, aH: number, bW: number, bH: number, epsilon = 2): boolean {
-  return Math.abs(aW - bW) <= epsilon && Math.abs(aH - bH) <= epsilon;
 }
 
 function safeUrl(page: { url(): string }): string {

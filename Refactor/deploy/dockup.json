@@ -58,7 +58,7 @@
         "dockerfile": "Speculum.Api/Dockerfile",
         "dependsOn": [{ "id": "sidecar", "condition": "service_healthy" }],
         "healthcheck": {
-          "test": ["CMD", "curl", "-sf", "http://localhost:8080/health/live"],
+          "test": ["CMD", "curl", "-sf", "http://localhost:8080/w7s/health/live"],
           "interval": "15s",
           "timeout": "5s",
           "startPeriod": "25s",
@@ -109,7 +109,7 @@
         },
         "labels": [
           "traefik.enable=true",
-          "traefik.http.routers.refactor-api.rule=PathPrefix(`/vhub`) || PathPrefix(`/health`) || PathPrefix(`/api`)",
+          "traefik.http.routers.refactor-api.rule=PathPrefix(`/w7s/api`) || PathPrefix(`/w7s/vhub`) || PathPrefix(`/w7s/vstream`) || PathPrefix(`/w7s/health`)",
           "traefik.http.routers.refactor-api.entrypoints=web",
           "traefik.http.routers.refactor-api.priority=100",
           "traefik.http.routers.refactor-api.service=refactor-api",
@@ -221,7 +221,7 @@
         "restart": "unless-stopped",
         "dependsOn": [{ "id": "sidecar", "condition": "service_healthy" }],
         "healthcheck": {
-          "test": ["CMD", "curl", "-sf", "http://localhost:8080/health/live"],
+          "test": ["CMD", "curl", "-sf", "http://localhost:8080/w7s/health/live"],
           "interval": "15s",
           "timeout": "5s",
           "startPeriod": "25s",
@@ -273,7 +273,7 @@
         },
         "labels": [
           "traefik.enable=true",
-          "traefik.http.routers.speculum-api.rule=Host(`${PUBLIC_HOST}`) && (PathPrefix(`/vhub`) || PathPrefix(`/health`) || PathPrefix(`/api`))",
+          "traefik.http.routers.speculum-api.rule=Host(`${PUBLIC_HOST}`) && (PathPrefix(`/w7s/api`) || PathPrefix(`/w7s/vhub`) || PathPrefix(`/w7s/vstream`) || PathPrefix(`/w7s/health`))",
           "traefik.http.routers.speculum-api.entrypoints=websecure",
           "traefik.http.routers.speculum-api.tls.certresolver=le",
           "traefik.http.routers.speculum-api.priority=100",
@@ -385,7 +385,7 @@
           { "id": "fixture", "condition": "service_healthy" }
         ],
         "healthcheck": {
-          "test": ["CMD", "curl", "-sf", "http://localhost:8080/health/ready"],
+          "test": ["CMD", "curl", "-sf", "http://localhost:8080/w7s/health/ready"],
           "interval": "15s",
           "timeout": "5s",
           "startPeriod": "25s",

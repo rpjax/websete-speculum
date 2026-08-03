@@ -1,5 +1,4 @@
 import {
-  Cable,
   Code2,
   Gauge,
   ListTree,
@@ -8,6 +7,7 @@ import {
   TerminalSquare,
 } from 'lucide-react'
 import { useState } from 'react'
+import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   loadLabDebugTab,
@@ -20,7 +20,6 @@ import { LabEvalPanel } from './LabEvalPanel'
 import { LabEventFeed } from './LabEventFeed'
 import { LabJournalFeed } from './LabJournalFeed'
 import { LabTelemetryPanel } from './LabTelemetryPanel'
-import { LabWireSettings } from './LabWireSettings'
 import type { JournalFeed } from './useJournalFeed'
 import type { LabOrigins } from './labConfig'
 import type { LabConsoleLine } from './labConsole'
@@ -39,11 +38,9 @@ export interface LabDebugToolsProps {
   connectionId: string | null
   profileId: string | null
   sessionId: string | null
-  wireDisabled: boolean
   onRunConsoleCommand: (code: string) => Promise<void>
   onClearConsole: () => void
   onEvaluate: (code: string) => Promise<EvalResult | void>
-  onApplyOrigins: (next: LabOrigins) => void
   onForgetProfile: () => void
 }
 
@@ -89,12 +86,6 @@ const TOOLS: {
     icon: Settings2,
     blurb: 'Session readiness, Telemetry sampling, and the full Telemetry.Sessions event catalog.',
   },
-  {
-    value: 'wire',
-    label: 'Wire',
-    icon: Cable,
-    blurb: 'Hub / transport origins, identity, and client_sent input-path hop.',
-  },
 ]
 
 /**
@@ -112,11 +103,9 @@ export function LabDebugTools({
   connectionId,
   profileId,
   sessionId,
-  wireDisabled,
   onRunConsoleCommand,
   onClearConsole,
   onEvaluate,
-  onApplyOrigins,
   onForgetProfile,
 }: LabDebugToolsProps) {
   const [tab, setTab] = useState<LabDebugTab>(loadLabDebugTab)
@@ -180,18 +169,22 @@ export function LabDebugTools({
             />
           )}
           {tool.value === 'config' && (
-            <LabEngineConfigPanel hubOrigin={origins.hubOrigin} sessionLive={live} />
-          )}
-          {tool.value === 'wire' && (
-            <LabWireSettings
-              origins={origins}
-              connectionId={connectionId}
-              profileId={profileId}
-              sessionId={sessionId}
-              disabled={wireDisabled}
-              onApply={onApplyOrigins}
-              onForgetProfile={onForgetProfile}
-            />
+            <div className="space-y-4">
+              <LabEngineConfigPanel hubOrigin={origins.hubOrigin} sessionLive={live} />
+              <div className="space-y-3 border-t border-border pt-3">
+                <dl className="grid grid-cols-[7rem_1fr] gap-x-3 gap-y-1 text-xs">
+                  <dt className="text-muted-foreground">Connection</dt>
+                  <dd className="truncate font-mono">{connectionId ?? '—'}</dd>
+                  <dt className="text-muted-foreground">Profile</dt>
+                  <dd className="truncate font-mono">{profileId ?? 'created on first start'}</dd>
+                  <dt className="text-muted-foreground">Session</dt>
+                  <dd className="truncate font-mono">{sessionId ?? '—'}</dd>
+                </dl>
+                <Button size="sm" variant="outline" onClick={onForgetProfile} disabled={live}>
+                  Forget profile
+                </Button>
+              </div>
+            </div>
           )}
         </TabsContent>
       ))}

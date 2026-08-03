@@ -47,7 +47,7 @@ function MockMotorPage() {
               Use the Admin and Setup surfaces to develop UI with mocked data.
             </p>
           </div>
-          <Button variant="outline" onClick={() => { window.location.href = '/admin' }}>
+          <Button variant="outline" onClick={() => { window.location.href = '/w7s/admin' }}>
             Go to Admin
           </Button>
         </div>

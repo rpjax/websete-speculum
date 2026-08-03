@@ -383,6 +383,74 @@ public sealed class JournalWorkerAndStoreTests
         }
     }
 
+    [Fact]
+    public async Task Repository_ReadAsync_PublishedSince_FiltersInMemory_OnSqlite()
+    {
+        // Regression: SQLite EF cannot translate DateTimeOffset range on PublishedAt.
+        // Resource signal detector queries Type + PublishedSince; must not throw.
+        await using var connection = new SqliteConnection("DataSource=:memory:");
+        await connection.OpenAsync();
+
+        var services = new ServiceCollection();
+        services.AddDbContext<SpeculumDbContext>(o => o.UseSqlite(connection));
+        services.AddScoped<IJournalRepository, JournalRepository>();
+        services.AddLogging();
+
+        await using var provider = services.BuildServiceProvider();
+        await using (var boot = provider.CreateAsyncScope())
+        {
+            var db = boot.ServiceProvider.GetRequiredService<SpeculumDbContext>();
+            await db.Database.EnsureCreatedAsync();
+        }
+
+        await using var scope = provider.CreateAsyncScope();
+        var repo = scope.ServiceProvider.GetRequiredService<IJournalRepository>();
+        var now = DateTimeOffset.Parse("2026-08-02T12:00:00Z");
+
+        await repo.SaveBatchAsync(
+        [
+            EntryAt(now.AddHours(-3), "Telemetry.Sampling.SampleCollected"),
+            EntryAt(now.AddMinutes(-30), "Telemetry.Sampling.SampleCollected"),
+            EntryAt(now.AddMinutes(-10), "Other.Fact"),
+            EntryAt(now.AddMinutes(-5), "Telemetry.Sampling.SampleCollected"),
+        ]);
+
+        var rows = await repo.ReadAsync(new JournalQuery
+        {
+            Limit = 60,
+            Filter = new JournalQueryFilter
+            {
+                Type = "Telemetry.Sampling.SampleCollected",
+                PublishedSince = now.AddHours(-2),
+                PublishedUntil = now,
+            },
+            Orders =
+            [
+                new JournalQueryOrder
+                {
+                    Property = JournalOrderProperty.PublishedAt,
+                    Direction = JournalSortDirection.Ascending,
+                },
+            ],
+        });
+
+        Assert.Equal(2, rows.Count);
+        Assert.All(rows, r => Assert.Equal("Telemetry.Sampling.SampleCollected", r.Type));
+        Assert.All(rows, r => Assert.True(r.PublishedAt >= now.AddHours(-2)));
+    }
+
+    private static JournalEntry EntryAt(DateTimeOffset publishedAt, string type)
+        => new()
+        {
+            Id = Guid.CreateVersion7(publishedAt),
+            Type = type,
+            SchemaVersion = 1,
+            PublishPolicy = PublishPolicy.BestEffort,
+            PublishedAt = publishedAt,
+            IndexKeys = Array.Empty<JournalIndexKey>(),
+            Payload = "{}",
+        };
+
     private static async Task WaitForAsync(Func<bool> condition, TimeSpan timeout)
     {
         var start = DateTime.UtcNow;

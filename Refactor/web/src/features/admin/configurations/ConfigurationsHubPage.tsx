@@ -96,7 +96,7 @@ export function ConfigurationsHubPage() {
                 </span>
                 <Button asChild variant={isScripting ? 'default' : 'outline'} size="sm">
                   <Link
-                    to={isScripting ? '/admin/scripts?tab=injections' : `/admin/configurations/${section.key}`}
+                    to={isScripting ? '/w7s/admin/scripts?tab=injections' : `/w7s/admin/configurations/${section.key}`}
                   >
                     {isScripting ? <Braces className="h-4 w-4" /> : null}
                     {isScripting ? 'Open injections' : 'Open section'}

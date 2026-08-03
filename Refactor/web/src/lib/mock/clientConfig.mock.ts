@@ -7,7 +7,10 @@ const mockConfig: ClientConfig = {
   missing: [],
   nsoParamName: '_w7s_nso',
   navigation: { defaultTargetHost: 'www.example.com' },
-  sessions: { detachedSessionTimeoutSeconds: 300 },
+  sessions: {
+    detachedSessionTimeoutSeconds: 300,
+    dataStreamTransport: 'webTransport',
+  },
   resourceManagement: { maxConcurrentSessions: 8 },
   hosting: {
     required: false,

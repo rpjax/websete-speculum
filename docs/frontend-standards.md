@@ -37,9 +37,12 @@ One SPA: [`web/`](../web/) (`speculum-web`). Three surfaces, different density:
 
 | Surface | Routes | Job | Density |
 |---------|--------|-----|---------|
-| **Motor** | `/`, `/lab`, `/live` | Immersive / lab remote browser | Minimal chrome; reveal connection/status detail on need |
-| **Setup** | `/setup`, `/setup/configure` | Guided first-run / not-ready | Wizard / one job per step |
-| **Admin** | `/admin/*` | Operator control plane | Revealing forms + rich visualization; drill-down over mega-pages |
+| **Live (default)** | `*` (any path outside `/w7s`) | Immersive remote browser; path → StartSession | Minimal chrome; URL mirrors virtual navigation |
+| **Lab** | `/w7s/lab` | Debug / wire lab | Minimal chrome + reveal panels |
+| **Setup** | `/w7s/setup`, `/w7s/setup/configure` | Guided first-run / not-ready | Wizard / one job per step |
+| **Admin** | `/w7s/admin/*` | Operator control plane | Revealing forms + rich visualization; drill-down over mega-pages |
+
+Control-plane HTTP (API, SignalR, health, WT, Vite assets) is also under **`/w7s/*`**.
 
 **Admin UI build-contract:** implement from [`frontend/wireframe/`](../frontend/wireframe/) (DNA) + Refactor APIs — do not invent routes, copy, fields, or flows. Legacy API-key Admin was removed.
 

@@ -15,15 +15,15 @@ export function ProfileDetailPage() {
   const load = useCallback(async () => { setError(null); setNotFound(false); try { const data = await adminJson<ProfileDetail>(`/api/profiles/${encodeURIComponent(profileId)}`); setProfile(data); if (typeof data.hasLiveSession === 'boolean') setLive(data.hasLiveSession); else { const sessions = await adminJson<{ items: Session[] }>('/api/sessions'); setLive(sessions.items.some((session) => session.profileId === data.profileId)) } } catch (cause) { if (cause instanceof AdminApiError && cause.status === 404) setNotFound(true); else setError(cause instanceof Error ? cause.message : 'Unable to load profile.') } }, [profileId])
   useEffect(() => { load() }, [load])
   if (!profile && !notFound && !error) return <AdminPage width="editor"><Skeleton className="h-64 w-full" /></AdminPage>
-  if (notFound) return <AdminPage width="editor"><EmptyState title="Profile not found" body="This persisted browser identity is no longer available." cta={{ label: 'Back to profiles', href: '/admin/profiles' }} /></AdminPage>
+  if (notFound) return <AdminPage width="editor"><EmptyState title="Profile not found" body="This persisted browser identity is no longer available." cta={{ label: 'Back to profiles', href: '/w7s/admin/profiles' }} /></AdminPage>
   if (error) return <AdminPage width="editor"><HelperCallout tone="danger" title="Profile unavailable">{error}<Button size="sm" variant="outline" className="mt-3" onClick={() => void load()}>Retry</Button></HelperCallout></AdminPage>
   if (!profile) return null
   const counts = [['Cookies', profile.cookieCount], ['Local storage', profile.localStorageCount], ['IndexedDB records', profile.idbRecordCount], ['History entries', profile.historyCount]]
   return <AdminPage width="editor" className="space-y-6">
-    <PageHeader title="Profile" description="Persisted browser identity and state summary." actions={<Button asChild variant="destructive" disabled={live}><Link to={`/admin/profiles/${encodeURIComponent(profile.profileId)}/delete`}>Delete profile</Link></Button>} />
+    <PageHeader title="Profile" description="Persisted browser identity and state summary." actions={<Button asChild variant="destructive" disabled={live}><Link to={`/w7s/admin/profiles/${encodeURIComponent(profile.profileId)}/delete`}>Delete profile</Link></Button>} />
     <DataCard className="p-4"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-sm text-muted-foreground">Profile</p><IdChip id={profile.profileId} /></div><MetaRow><StatusPill label={live ? 'Live session attached' : 'No live session'} tone={live ? 'warning' : 'success'} /></MetaRow></div><div className="mt-4 grid gap-3 text-sm sm:grid-cols-2"><div><p className="text-muted-foreground">Created</p><p className="mt-1">{date(profile.createdAt)}</p></div><div><p className="text-muted-foreground">Last used</p><p className="mt-1">{date(profile.lastUsedAt)}</p></div></div></DataCard>
-    {live ? <HelperCallout tone="warning" title="This profile has a live session. Stop the session before deleting." action={{ label: 'View sessions', href: '/admin/sessions' }}>Deletion is unavailable while this identity is live.</HelperCallout> : null}
+    {live ? <HelperCallout tone="warning" title="This profile has a live session. Stop the session before deleting." action={{ label: 'View sessions', href: '/w7s/admin/sessions' }}>Deletion is unavailable while this identity is live.</HelperCallout> : null}
     <section><h2 className="mb-3 text-lg font-semibold">State summary</h2><div className="grid grid-cols-2 gap-3 sm:grid-cols-4">{counts.map(([label, count]) => <StatCard key={String(label)} label={String(label)} value={Number(count)} />)}</div></section>
-    <Link className="inline-block text-sm underline" to="/admin/profiles">Back to profiles</Link>
+    <Link className="inline-block text-sm underline" to="/w7s/admin/profiles">Back to profiles</Link>
   </AdminPage>
 }

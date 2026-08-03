@@ -1,36 +1,47 @@
 /**
  * Admin route metadata for breadcrumbs / command palette helpers.
- * Keep aligned with frontend/wireframe/ia-map.md.
+ * Keep aligned with frontend/wireframe/ia-map.md (paths under `/w7s`).
  */
+
+import { W7S_PREFIX } from '@/lib/w7s'
 
 export interface RouteEntry {
   label: string
   parent?: string
 }
 
+const A = `${W7S_PREFIX}/admin`
+
 const ROUTE_MAP: Record<string, RouteEntry> = {
-  '/admin': { label: 'Home' },
-  '/admin/sessions': { label: 'Sessions' },
-  '/admin/sessions/:sessionId': { label: ':sessionId', parent: '/admin/sessions' },
-  '/admin/profiles': { label: 'Profiles' },
-  '/admin/profiles/:profileId': { label: ':profileId', parent: '/admin/profiles' },
-  '/admin/profiles/:profileId/delete': { label: 'Delete', parent: '/admin/profiles/:profileId' },
-  '/admin/scripts': { label: 'Scripts' },
-  '/admin/scripts/upload': { label: 'Upload', parent: '/admin/scripts' },
-  '/admin/scripts/injections/new': { label: 'Add injection', parent: '/admin/scripts' },
-  '/admin/scripts/injections/:index/edit': { label: 'Edit injection', parent: '/admin/scripts' },
-  '/admin/scripts/injections/:index/remove': { label: 'Remove injection', parent: '/admin/scripts' },
-  '/admin/configurations': { label: 'Configurations' },
-  '/admin/configurations/:section': { label: ':section', parent: '/admin/configurations' },
-  '/admin/host-resources': { label: 'Host resources' },
-  '/admin/host-resources/preview': { label: 'Preview', parent: '/admin/host-resources' },
-  '/admin/host-resources/apply': { label: 'Apply', parent: '/admin/host-resources' },
-  '/admin/diagnostics': { label: 'Diagnostics' },
-  '/admin/diagnostics/health': { label: 'Health', parent: '/admin/diagnostics' },
-  '/admin/diagnostics/timeline': { label: 'Timeline', parent: '/admin/diagnostics' },
-  '/admin/diagnostics/investigate': { label: 'Investigate', parent: '/admin/diagnostics' },
-  '/admin/diagnostics/governance': { label: 'Governance', parent: '/admin/diagnostics' },
-  '/admin/change-password': { label: 'Change password' },
+  [A]: { label: 'Home' },
+  [`${A}/sessions`]: { label: 'Sessions' },
+  [`${A}/sessions/:sessionId`]: { label: ':sessionId', parent: `${A}/sessions` },
+  [`${A}/profiles`]: { label: 'Profiles' },
+  [`${A}/profiles/:profileId`]: { label: ':profileId', parent: `${A}/profiles` },
+  [`${A}/profiles/:profileId/delete`]: { label: 'Delete', parent: `${A}/profiles/:profileId` },
+  [`${A}/scripts`]: { label: 'Scripts' },
+  [`${A}/scripts/upload`]: { label: 'Upload', parent: `${A}/scripts` },
+  [`${A}/scripts/injections/new`]: { label: 'Add injection', parent: `${A}/scripts` },
+  [`${A}/scripts/injections/:index/edit`]: { label: 'Edit injection', parent: `${A}/scripts` },
+  [`${A}/scripts/injections/:index/remove`]: { label: 'Remove injection', parent: `${A}/scripts` },
+  [`${A}/configurations`]: { label: 'Configurations' },
+  [`${A}/configurations/:section`]: { label: ':section', parent: `${A}/configurations` },
+  [`${A}/host-resources`]: { label: 'Host resources' },
+  [`${A}/host-resources/preview`]: { label: 'Preview', parent: `${A}/host-resources` },
+  [`${A}/host-resources/apply`]: { label: 'Apply', parent: `${A}/host-resources` },
+  // Hub redirects to Health — kept so breadcrumbs can show the Diagnostics section.
+  [`${A}/diagnostics`]: { label: 'Diagnostics' },
+  [`${A}/diagnostics/health`]: { label: 'Health', parent: `${A}/diagnostics` },
+  [`${A}/diagnostics/resources`]: { label: 'Resources', parent: `${A}/diagnostics` },
+  [`${A}/diagnostics/resources/explore`]: { label: 'Explore', parent: `${A}/diagnostics/resources` },
+  [`${A}/diagnostics/signals`]: { label: 'Signals', parent: `${A}/diagnostics` },
+  [`${A}/diagnostics/timeline`]: { label: 'Journal', parent: `${A}/diagnostics` },
+  [`${A}/diagnostics/investigate`]: { label: 'Investigate', parent: `${A}/diagnostics` },
+  [`${A}/diagnostics/reports`]: { label: 'Reports', parent: `${A}/diagnostics` },
+  [`${A}/diagnostics/reports/new`]: { label: 'Generate report', parent: `${A}/diagnostics/reports` },
+  [`${A}/diagnostics/reports/:reportId`]: { label: ':reportId', parent: `${A}/diagnostics/reports` },
+  [`${A}/diagnostics/governance`]: { label: 'Governance', parent: `${A}/diagnostics` },
+  [`${A}/change-password`]: { label: 'Change password' },
 }
 
 export function resolveRoute(pathname: string): { entry: RouteEntry; params: Record<string, string> } | null {

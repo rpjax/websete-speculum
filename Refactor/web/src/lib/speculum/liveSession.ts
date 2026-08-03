@@ -1,6 +1,7 @@
 import type { ControlPlane } from './control'
+import { DataStreams } from './dataStreams'
+import type { DataStreamTransport } from './dataStreamTransport'
 import { Emitter } from './emitter'
-import { DataPlane } from './transport'
 import type {
   NavigateSessionRequest,
   ResizeSessionRequest,
@@ -20,13 +21,15 @@ export interface LiveSessionOptions {
   viewportMaxWidth: number
   viewportMaxHeight: number
   baseUrl?: string
-  /** Hub origin for `/health/webtransport-cert` pin fetch. */
+  /** Hub origin for `/w7s/health/webtransport-cert` pin fetch. */
   certificateHashBaseUrl?: string
   transportPath?: string
+  /** Defaults to WebTransport. */
+  transport?: DataStreamTransport
 }
 
 /**
- * One live browsing session: hub lifecycle + WebTransport I/O.
+ * One live browsing session: hub lifecycle + data streams I/O.
  * Events: frame, console, notification, syncUrl, redirect, ended, error, close.
  */
 export class LiveSession extends Emitter<SessionEventMap> {
@@ -37,7 +40,7 @@ export class LiveSession extends Emitter<SessionEventMap> {
   readonly viewportMaxWidth: number
   readonly viewportMaxHeight: number
   private readonly control: ControlPlane
-  private readonly data: DataPlane
+  private readonly data: DataStreams
   private disposers: Array<() => void> = []
   private stopped = false
   private _lastSyncedUrl: string | null = null
@@ -52,12 +55,13 @@ export class LiveSession extends Emitter<SessionEventMap> {
     this.viewportMaxWidth = options.viewportMaxWidth
     this.viewportMaxHeight = options.viewportMaxHeight
     this.control = options.control
-    this.data = new DataPlane({
+    this.data = new DataStreams({
       baseUrl: options.baseUrl,
       certificateHashBaseUrl: options.certificateHashBaseUrl,
       transportPath: options.transportPath,
       sessionId: options.sessionId,
       token: options.token,
+      transport: options.transport,
     })
   }
 
@@ -65,17 +69,14 @@ export class LiveSession extends Emitter<SessionEventMap> {
     return !this.stopped && this.data.isOpen
   }
 
-  /** Last SyncUrl seen (including events before listeners were bound). */
   get lastSyncedUrl(): string | null {
     return this._lastSyncedUrl
   }
 
-  /** Last Redirect seen (including events before listeners were bound). */
   get lastRedirectUrl(): string | null {
     return this._lastRedirectUrl
   }
 
-  /** Applies a hub SyncUrl (from SessionClient wiring). */
   receiveSyncUrl(url: string): void {
     const normalized = normalizeHttpUrl(url)
     if (!normalized) {
@@ -85,7 +86,6 @@ export class LiveSession extends Emitter<SessionEventMap> {
     this.emit('syncUrl', normalized)
   }
 
-  /** Applies a hub Redirect (from SessionClient wiring). */
   receiveRedirect(url: string): void {
     const normalized = normalizeHttpUrl(url)
     if (!normalized) {
@@ -95,10 +95,6 @@ export class LiveSession extends Emitter<SessionEventMap> {
     this.emit('redirect', normalized)
   }
 
-  /**
-   * Applies hub SessionEnded: emit, then close the data plane without calling Stop
-   * (the server already tore the session down or is doing so).
-   */
   receiveSessionEnded(event: SessionEndedEvent): void {
     if (event.sessionId && event.sessionId !== this.sessionId) {
       return
@@ -117,12 +113,7 @@ export class LiveSession extends Emitter<SessionEventMap> {
   }
 
   sendInput(input: SessionInput): Promise<void> {
-    return this.control.sendInput({
-      sessionId: this.sessionId,
-      token: this.token,
-      type: input.type,
-      payload: JSON.stringify(input),
-    })
+    return this.data.sendInput(input)
   }
 
   evaluate(code: string) {
@@ -133,7 +124,6 @@ export class LiveSession extends Emitter<SessionEventMap> {
     return this.data.getStatus()
   }
 
-  /** Runtime navigation via hub (path/query resolved server-side). */
   navigate(request: NavigateSessionRequest): Promise<void> {
     return this.control.navigateSession({
       sessionId: this.sessionId,
@@ -143,7 +133,6 @@ export class LiveSession extends Emitter<SessionEventMap> {
     })
   }
 
-  /** Runtime canvas 1:1 resize via hub. */
   resize(request: ResizeSessionRequest): Promise<ResizeSessionResult> {
     return this.control.resizeSession({
       sessionId: this.sessionId,
@@ -155,7 +144,6 @@ export class LiveSession extends Emitter<SessionEventMap> {
     })
   }
 
-  /** Stops the session via hub and closes the data plane. */
   async stop(options: { skipHub?: boolean } = {}): Promise<void> {
     if (this.stopped) {
       return
@@ -184,7 +172,6 @@ export class LiveSession extends Emitter<SessionEventMap> {
   }
 }
 
-/** Accepts only absolute http(s) URLs for hub-driven navigation/sync. */
 function normalizeHttpUrl(url: string): string | null {
   const trimmed = url.trim()
   if (!trimmed) {

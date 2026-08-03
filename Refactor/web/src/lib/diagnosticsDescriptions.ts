@@ -48,6 +48,18 @@ export const EVENT_DESCRIPTIONS: Record<string, string> = {
   'Telemetry.Sampling.SampleCollected': 'A composite telemetry sample was collected — host, API process, sessions, sidecar, profiles, journal, and docker sections captured on one time axis.',
   'Telemetry.Sampling.SessionSampleCollected': 'A per-session telemetry slice was captured and scoped to a live session, so it plots inside that session\'s story lane.',
   'Diagnostics.SpanAbandoned': 'An open span was closed synthetically — it timed out, was torn down on disconnect/drain, or was recovered as orphaned after a restart.',
+  'Sessions.SessionStarting': 'A remote browser session is starting — allocating resources and launching the browser.',
+  'Sessions.SessionStarted': 'Session is live and streaming.',
+  'Sessions.SessionTimedOut': 'Natural lifecycle close: detached session hit DetachedSessionTimeout with no client pipes. Collection ended — not an operator fault.',
+  'Sessions.SessionStopping': 'Session is shutting down and releasing resources.',
+  'Sessions.SessionStopped': 'Session stopped cleanly.',
+  'Sessions.SessionStatePersisted': 'Session state was written for later restore.',
+  'Sessions.BrowserLaunched': 'Sidecar browser process launched for this session.',
+  'Sessions.BrowserClosed': 'Sidecar browser process closed.',
+  'Sessions.ConnectionStarted': 'Client/hub connection attached to the session.',
+  'Sessions.ConnectionClosed': 'Client/hub connection closed.',
+  'Sessions.ProfileStateRestored': 'Persisted profile state was restored into the browser.',
+  'Sessions.InitialNavigationCompleted': 'Initial navigation finished after session start.',
 }
 
 export const ERROR_EXPLANATIONS: Record<string, { summary: string; detail: string; action?: string }> = {
@@ -129,7 +141,12 @@ export function describeErrorCode(code: string): { summary: string; detail: stri
 export function narrateStory(story: CorrelationStory): string {
   const events = story.events
   const payloads = events.map((e) => e.payload as Record<string, unknown> | null).filter(Boolean)
-  const failed = events.find((e) => e.severity === 'Error' || e.name.includes('Rejected') || e.name.includes('Failed') || e.name.includes('TimedOut'))
+  const timedOut = events.find((e) => /SessionTimedOut$/i.test(e.name))
+  const failed = events.find(
+    (e) =>
+      !/SessionTimedOut$/i.test(e.name) &&
+      (e.severity === 'Error' || e.name.includes('Rejected') || e.name.includes('Failed')),
+  )
 
   switch (story.type) {
     case 'session-lifecycle': {
@@ -141,6 +158,11 @@ export function narrateStory(story: CorrelationStory): string {
         const errorCode = fp?.errorCode ? String(fp.errorCode) : 'an unknown error'
         const explained = describeErrorCode(errorCode)
         return `A remote browser session attempted to start but failed: ${explained.summary}. ${explained.detail}`
+      }
+      if (timedOut) {
+        const fp = timedOut.payload as Record<string, unknown> | null
+        const reason = fp?.reason ? String(fp.reason) : 'TimedOut'
+        return `Session lifecycle completed via detached timeout (${reason}) — normal collection when no client pipes remain before DetachedSessionTimeout.`
       }
       if (restored) {
         return `A returning user reconnected and their previous session was restored${cookies ? ` with ${cookies} cookies` : ''}. The browser is ready for use.`

@@ -1,4 +1,11 @@
 import { ControlPlane, type ControlPlaneOptions } from './control'
+import {
+  createDataStreamTransport,
+  defaultPathForDataStreamTransport,
+  normalizeDataStreamTransportKind,
+} from './createDataStreamTransport'
+import type { DataStreamTransportKind } from './constants'
+import type { DataStreamTransport } from './dataStreamTransport'
 import { Emitter } from './emitter'
 import { LiveSession } from './liveSession'
 import type {
@@ -12,11 +19,15 @@ import type {
 export interface SessionClientOptions extends ControlPlaneOptions {
   transportPath?: string
   /**
-   * Origin for the WebTransport data plane when it differs from the hub origin.
-   * WebTransport is HTTP/3-only, so dev proxies can forward `/vhub` but never
-   * `/vtransport` — point this at the API's HTTPS origin in that case.
+   * Origin for the data plane when it differs from the hub origin.
+   * WebTransport is HTTP/3-only (often a separate API origin). WebSocket mux
+   * can stay same-origin via `/w7s/vstream` proxy.
    */
   transportBaseUrl?: string
+  /** From client-config `sessions.dataStreamTransport`. Default webTransport. */
+  dataStreamTransport?: DataStreamTransportKind
+  /** Explicit carrier; wins over {@link dataStreamTransport}. */
+  transport?: DataStreamTransport
 }
 
 interface SessionClientEventMap {
@@ -37,7 +48,7 @@ interface SessionClientEventMap {
  * await session.stop()
  */
 export class SessionClient extends Emitter<SessionClientEventMap> {
-  private readonly options: SessionClientOptions
+  private options: SessionClientOptions
   private readonly control: ControlPlane
   private active: LiveSession | null = null
 
@@ -45,6 +56,19 @@ export class SessionClient extends Emitter<SessionClientEventMap> {
     super()
     this.options = options
     this.control = new ControlPlane(options)
+  }
+
+  /**
+   * Update data-plane carrier selection before {@link startSession}
+   * (e.g. after client-config refresh).
+   */
+  applyDataStreamConfig(config: {
+    dataStreamTransport?: DataStreamTransportKind
+    transportBaseUrl?: string
+    transportPath?: string
+    transport?: DataStreamTransport
+  }): void {
+    this.options = { ...this.options, ...config }
   }
 
   get connectionId(): string | null {
@@ -84,7 +108,7 @@ export class SessionClient extends Emitter<SessionClientEventMap> {
     return this.control.streamJournalFacts(observer)
   }
 
-  /** Starts a session and opens the WebTransport data plane. */
+  /** Starts a session and opens the configured data-stream carrier. */
   async startSession(request: StartSessionRequest): Promise<LiveSession> {
     if (this.active) {
       await this.active.stop().catch(() => {})
@@ -133,6 +157,11 @@ export class SessionClient extends Emitter<SessionClientEventMap> {
 
     try {
       const started = await this.control.startSession(request)
+      const kind = normalizeDataStreamTransportKind(this.options.dataStreamTransport)
+      const transport =
+        this.options.transport ?? createDataStreamTransport(kind)
+      const transportPath =
+        this.options.transportPath ?? defaultPathForDataStreamTransport(kind)
       session = new LiveSession({
         control: this.control,
         sessionId: started.sessionId,
@@ -143,7 +172,8 @@ export class SessionClient extends Emitter<SessionClientEventMap> {
         viewportMaxHeight: started.viewportMaxHeight,
         baseUrl: this.options.transportBaseUrl ?? this.options.baseUrl,
         certificateHashBaseUrl: this.options.baseUrl,
-        transportPath: this.options.transportPath,
+        transportPath,
+        transport,
       })
       if (pendingSync) {
         session.receiveSyncUrl(pendingSync)

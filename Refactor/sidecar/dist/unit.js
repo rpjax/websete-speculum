@@ -214,6 +214,9 @@ async function testApplyLogicalViewportUsesDeviceMetricsOnly() {
     assert_1.default.strictEqual(meta.mobile, false);
     assert_1.default.strictEqual(meta.platform, 'Linux');
     assert_1.default.ok(Array.isArray(meta.brands) && meta.brands.length >= 3, 'greasy brands required');
+    const metricsIdx = calls.findIndex((c) => c.method === 'Emulation.setDeviceMetricsOverride');
+    const uaIdx = calls.findIndex((c) => c.method === 'Emulation.setUserAgentOverride');
+    assert_1.default.ok(uaIdx >= 0 && metricsIdx > uaIdx, 'device metrics must apply after user-agent override');
     await assert_1.default.rejects(() => (0, device_emulation_1.applyLogicalViewport)({
         send: async (method) => {
             if (method === 'Browser.getWindowForTarget')
@@ -224,6 +227,55 @@ async function testApplyLogicalViewportUsesDeviceMetricsOnly() {
         },
     }, 800, 600, null), /did not return userAgent/);
     console.log('[unit] apply logical viewport uses device metrics only ok');
+}
+async function testProveLogicalViewportUsesCssLayoutMetrics() {
+    const calls = [];
+    const cdp = {
+        send: async (method, params) => {
+            calls.push({ method, params });
+            if (method === 'Browser.getVersion') {
+                return {
+                    product: 'Chrome/120.0.0.0',
+                    userAgent: 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+                };
+            }
+            if (method === 'Page.getLayoutMetrics') {
+                // Simulate the mobile about:blank trap: JS innerWidth would be 980, but CDP
+                // cssLayoutViewport reflects Emulation.setDeviceMetricsOverride.
+                return {
+                    cssLayoutViewport: { clientWidth: 414, clientHeight: 713 },
+                    layoutViewport: { clientWidth: 980, clientHeight: 1688 },
+                };
+            }
+            return {};
+        },
+    };
+    const proven = await (0, device_emulation_1.proveLogicalViewport)(cdp, 414, 713, { mobile: true, touch: true, deviceScaleFactor: 2, maxTouchPoints: 5 }, { phase: 'launch' });
+    assert_1.default.strictEqual(proven.width, 414);
+    assert_1.default.strictEqual(proven.height, 713);
+    assert_1.default.strictEqual(proven.device.deviceScaleFactor, 2);
+    assert_1.default.ok(calls.some((c) => c.method === 'Emulation.setDeviceMetricsOverride'));
+    assert_1.default.ok(calls.some((c) => c.method === 'Page.getLayoutMetrics'));
+    const metricsIdx = calls.findIndex((c) => c.method === 'Emulation.setDeviceMetricsOverride');
+    const uaIdx = calls.findIndex((c) => c.method === 'Emulation.setUserAgentOverride');
+    assert_1.default.ok(uaIdx >= 0 && metricsIdx > uaIdx, 'mobile metrics must apply after UA (avoid 980px trap)');
+    await assert_1.default.rejects(() => (0, device_emulation_1.proveLogicalViewport)({
+        send: async (method) => {
+            if (method === 'Browser.getVersion') {
+                return { product: 'Chrome/120.0.0.0', userAgent: 'Mozilla/5.0 Desktop' };
+            }
+            if (method === 'Page.getLayoutMetrics') {
+                return { cssLayoutViewport: { clientWidth: 980, clientHeight: 1688 } };
+            }
+            return {};
+        },
+    }, 414, 713, null), /css layout viewport 980×1688 != logical 414×713/);
+    await assert_1.default.rejects(() => (0, device_emulation_1.readChromeViewport)({
+        send: async () => ({}),
+    }), /did not return cssLayoutViewport/);
+    assert_1.default.ok((0, device_emulation_1.viewportMetricsClose)(414, 713, 415, 712));
+    assert_1.default.ok(!(0, device_emulation_1.viewportMetricsClose)(414, 713, 980, 1688));
+    console.log('[unit] prove logical viewport uses css layout metrics ok');
 }
 function testBuildChromeArgsIncludesWebglSpoof() {
     const prev = process.env['SPECULUM_GL_FALLBACK'];
@@ -899,6 +951,7 @@ async function main() {
     testViewportBounds();
     testResolveDeviceProfileDefaults();
     await testApplyLogicalViewportUsesDeviceMetricsOnly();
+    await testProveLogicalViewportUsesCssLayoutMetrics();
     testBuildChromeArgsIncludesWebglSpoof();
     await testScreencastRestartThrowsAfterStop();
     testLaunchEnvironmentIsRequired();

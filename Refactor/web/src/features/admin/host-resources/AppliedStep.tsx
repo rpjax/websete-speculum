@@ -54,7 +54,7 @@ export function AppliedStep({
         title="Tune admission next"
         body="Shared memory is provisioned. Set concurrent session slots and storage budget under Resource Management before admitting more load."
         ctaLabel="Open Resource Management"
-        href="/admin/configurations/ResourceManagement"
+        href="/w7s/admin/configurations/ResourceManagement"
       />
 
       <NextBestAction
@@ -62,7 +62,7 @@ export function AppliedStep({
         title="Admit sessions carefully"
         body="Refresh status above and confirm shm and host headroom look healthy before opening additional sessions on this host."
         ctaLabel="Back to parameters"
-        href="/admin/host-resources"
+        href="/w7s/admin/host-resources"
       />
     </div>
   )

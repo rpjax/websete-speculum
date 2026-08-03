@@ -372,7 +372,7 @@ export function ResourceManagementEditor({
 
       <HelperCallout
         title="Host memory and /dev/shm"
-        action={{ label: 'Open Host resources', href: '/admin/host-resources' }}
+        action={{ label: 'Open Host resources', href: '/w7s/admin/host-resources' }}
       >
         This section caps admission and storage policy. Shared-memory sizing for the sidecar is planned separately
         under Host resources.
@@ -519,7 +519,7 @@ export function ResourceManagementEditor({
             <Timer className="h-3.5 w-3.5" />
             <span>
               Need live capacity on the machine itself?{' '}
-              <Link className="font-medium underline" to="/admin/host-resources">
+              <Link className="font-medium underline" to="/w7s/admin/host-resources">
                 Plan Host resources
               </Link>
               .

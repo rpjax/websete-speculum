@@ -61,12 +61,12 @@ export function HostResourcesPage() {
   useEffect(() => {
     const next = stepFromPath(location.pathname)
     if (next === 1 && !sessionStorage.getItem(PLAN_KEY) && !plan) {
-      navigate('/admin/host-resources', { replace: true })
+      navigate('/w7s/admin/host-resources', { replace: true })
       setStep(0)
       return
     }
     if (next === 2 && !sessionStorage.getItem(RESULT_KEY) && !applyResult && !success) {
-      navigate('/admin/host-resources', { replace: true })
+      navigate('/w7s/admin/host-resources', { replace: true })
       setStep(0)
       return
     }
@@ -86,9 +86,9 @@ export function HostResourcesPage() {
 
   const goStep = (next: number) => {
     setStep(next)
-    if (next === 0) navigate('/admin/host-resources')
-    else if (next === 1) navigate('/admin/host-resources/preview')
-    else navigate('/admin/host-resources/apply')
+    if (next === 0) navigate('/w7s/admin/host-resources')
+    else if (next === 1) navigate('/w7s/admin/host-resources/preview')
+    else navigate('/w7s/admin/host-resources/apply')
   }
 
   const preview = async () => {

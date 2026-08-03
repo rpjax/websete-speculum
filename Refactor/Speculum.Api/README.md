@@ -33,20 +33,20 @@ databases, protocols, DI, transport mechanics and tests are deliberately omitted
 
 Current public surface:
 
-- `GET /health/live` / `GET /health/ready`
-- `GET /ready` (alias of mandatory completeness)
-- `GET /api/configurations/status`
-- `GET /api/public/client-config` (V1)
-- `/vhub` negotiation remains available during setup mode
+- Public mount: ASP.NET `UsePathBase("/w7s")` — clients use `/w7s/…`
+- `GET /w7s/health/live` / `GET /w7s/health/ready`
+- `GET /w7s/api/configurations/status`
+- `GET /w7s/api/public/client-config` (V1)
+- `/w7s/vhub` negotiation remains available during setup mode
 
 ### Features to preserve
 
 | Status | Feature | Current observable behavior | Application model still required |
 |--------|---------|-----------------------------|----------------------------------|
-| ✅ | Session readiness | `/health/ready` + client-config `operational`/`missing` (Nav/Sessions/RM) | — |
+| ✅ | Session readiness | `/w7s/health/ready` + client-config `operational`/`missing` (Nav/Sessions/RM) | — |
 | ✅ | Configuration status | Operational + optional Hosting domains (no `mirroringOperational` — 1.1) | — |
-| ✅ | Client bootstrap | V1 `GET /api/public/client-config` (nsoParamName, navigation, sessions, RM, hosting optional) | — |
-| ✅ | Setup mode | Hub connects; EnsureProfile allowed; StartSession fails with `Pending config` until mandatory complete; Lab/Live → `/setup` when not-ready (`/lab?configure=1` for apply-defaults) | — |
+| ✅ | Client bootstrap | V1 `GET /w7s/api/public/client-config` (nsoParamName, navigation, sessions, RM, hosting optional) | — |
+| ✅ | Setup mode | Hub connects; EnsureProfile allowed; StartSession fails with `Pending config` until mandatory complete; Lab/Live → `/w7s/setup` when not-ready (`/w7s/lab?configure=1` for apply-defaults) | — |
 
 Required sections in the refactor are `Navigation`, `Sessions` and
 `ResourceManagement` (legacy names were `Forwarding` / `MaxSessions` /
@@ -153,35 +153,38 @@ calls `StopSession`; collector timeout performs the eventual stop.
 ## 5. Streaming and input
 
 SignalR `/vhub` is the **control plane**: `EnsureProfileAsync`, `StartSessionAsync`,
-`StopSessionAsync`, `SendInputAsync` (user input admission), `NavigateAsync`,
-`ResizeAsync`, lifecycle hooks, `StreamJournalAsync` (live Journal observation —
-catalogued facts as the Journal admits them, no replay, not session data), and
-typed server→client `SyncUrl` / `Redirect` (`ISessionHubClient`) to the attached
-session client.
+`StopSessionAsync`, `NavigateAsync`, `ResizeAsync`, lifecycle hooks,
+`StreamJournalAsync` (live Journal observation — catalogued facts as the Journal
+admits them, no replay, not session data), and typed server→client `SyncUrl` /
+`Redirect` (`ISessionHubClient`) to the attached session client. User input is
+**not** admitted on the hub.
 
-WebTransport `/vtransport?sessionId=…&token=…` is the **data plane** (frames,
-console/eval, notifications). Each stream starts with a one-byte kind followed by
-big-endian length-prefixed MessagePack messages:
+WebTransport `/vtransport?sessionId=…&token=…` and WebSocket `/vstream?sessionId=…&token=…`
+are the **data plane** carriers (`DataStreams` on the client). Sessions config
+`dataStreamTransport` (`webTransport` | `webSocket`) is projected on
+`GET /api/public/client-config`; browsers pick it up after refresh. Logical
+pipes share the same framing: one-byte kind, then big-endian length-prefixed
+MessagePack messages:
 
 - server→client: frame, console/eval output, notification
-- client→server: console/eval input, unary status; optional late UserInput streams
-  still feed the same `AdmitUserInput` pump (product path is SignalR)
+- client→server: UserInput (product path), console/eval input, unary status
 
-Kestrel does not implement WebTransport datagrams; client-initiated UserInput
-streams are unreliable on some Docker Desktop lab paths — hence SignalR admit.
-
-The host must expose an HTTPS HTTP/3 Kestrel endpoint for WebTransport; ordinary
-HTTP requests to `/vtransport` are rejected with `426 Upgrade Required`.
+WebSocket uses a stream-id mux (OPEN/DATA/CLOSE) on one socket; WebTransport
+uses native uni/bi streams. The host must expose HTTPS HTTP/3 for WebTransport;
+ordinary HTTP to `/vtransport` is rejected with `426 Upgrade Required`.
+`/vstream` is a normal WebSocket upgrade (nginx/Vite-proxyable like `/vhub`).
+Sessions tests may admit input via harness HTTP (`AdmitUserInput`) without a
+data-plane client.
 
 ### Features to preserve
 
 | Status | Feature | Current observable behavior | Application model still required |
 |--------|---------|-----------------------------|----------------------------------|
-| ✅ | Frame stream | CDP JPEG + relay monotonic sequence + API relay-receipt UTC timestamp | Typed `Frame` over disposable mux streams and WebTransport |
+| ✅ | Frame stream | CDP JPEG + relay monotonic sequence + API relay-receipt UTC timestamp | Typed `Frame` over disposable mux streams and WT/WS carriers |
 | ✅ | Console/control output | Console and eval results use typed envelopes; location/blocked drive hub SyncUrl/Redirect; EditableFocusChanged and crash→SessionEnded via attached client | — |
 | ✅ | Status poll | Unary status includes engine JsBridge state, session id and relay uptime | `ILiveSession.GetStatusAsync`; fps is measured from relay-observed video frames |
-| ✅ | User input | Hub `SendInputAsync` → `ILiveSession.AdmitUserInput` → HF-first bounded admit → bounded mux → gRPC; WT UserInput optional/late | Invalid payloads emit `InputRejected` and do not kill the session |
-| ✅ | Input path hops (opt-in) | `Telemetry.Sessions.Input.ControlReceived` (primary) / `WebTransportReceived` / `SidecarPushWritten` / `SidecarAdmitted` | Lab Telemetry event toggles; sidecar pull telemetry also exposes `inputDepth` / `inputChainDepth`; Wire `client_sent` is a separate localStorage toggle |
+| ✅ | User input | Data-plane UserInput → `ILiveSession.AdmitUserInput` → HF-first bounded admit → bounded mux → gRPC | Invalid payloads emit `InputRejected` and do not kill the session |
+| ✅ | Input path hops (opt-in) | `Telemetry.Sessions.Input.WebTransportReceived` (product) / `ControlReceived` (harness) / `SidecarPushWritten` / `SidecarAdmitted` | Lab Telemetry event toggles; sidecar pull telemetry also exposes `inputDepth` / `inputChainDepth`; Wire `client_sent` is a separate localStorage toggle |
 | ✅ | Console input | Stable `{ id, code }` eval request and typed eval-result envelope | JsBridge-gated; disabled requests are rejected without stopping the session |
 | ✅ | Input validation | Malformed JSON/MessagePack and blocked input types are rejected; session stays alive | Hub admit + gRPC input mapping; optional WT framing limits |
 | ◐ | Touch gestures | Touch points/phases reach the sidecar | Exclusive gesture ownership beyond Access Exclusive remains thin |
@@ -499,7 +502,7 @@ This order follows user-visible dependencies, not infrastructure dependencies:
    start replacement + startup cancellation + disconnect + sidecar fault + timeout
 
 4. Live I/O parity ◐→near ✅
-   frame + console/control + status + SignalR AdmitUserInput + eval
+   frame + console/control + status + data-plane AdmitUserInput + eval
    (SyncUrl ProjectToClient ✅; input ownership scheduling remain)
 
 5. Runtime navigation ◐

@@ -2,6 +2,7 @@ import { getApiKey } from '@/lib/auth'
 import { API_URL, MOCK_MODE } from '@/lib/env'
 import { ApiError } from '@/lib/errors'
 import { mockApi } from '@/lib/mock/api.mock'
+import { w7sPath } from '@/lib/w7s'
 
 export { ApiError }
 
@@ -185,7 +186,7 @@ async function request<T>(path: string, init: RequestInitEx = {}): Promise<T> {
     if (key) headers.set('Authorization', `Bearer ${key}`)
   }
 
-  const res = await fetch(`${API_URL}${path}`, {
+  const res = await fetch(`${API_URL}${w7sPath(path)}`, {
     ...init,
     headers,
     credentials: 'include',
@@ -224,7 +225,7 @@ export type ConfigSectionName = (typeof ConfigSections)[keyof typeof ConfigSecti
 const realApi = {
   getStatus: () => request<ConfigStatus>('/api/configurations/status'),
   getReady: async () => {
-    const res = await fetch(`${API_URL}/health/ready`, { credentials: 'include' })
+    const res = await fetch(`${API_URL}${w7sPath('/health/ready')}`, { credentials: 'include' })
     return res.ok
   },
   getClientConfig: () => request<import('@/lib/clientConfig').ClientConfig>(

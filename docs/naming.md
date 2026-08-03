@@ -10,16 +10,17 @@ This document defines vocabulary and naming rules for the API and sidecar codeba
 |------|----------|----------|
 | **Speculum** | Platform, config, infrastructure, docs | `ConfigService`, `ISpeculumConfigStore`, `SpeculumRuntimeConfig` |
 | **Sessions** | Live remote browsing (control, transport, URL mapping) | `SessionHub`, `LiveSession`, `UrlResolver` |
-| **W7S** | **Wire/client boundary only** | `_w7s_nso`, `docs/w7s-sidecar-protocol.md` |
+| **W7S** | **Wire/client boundary only** | `_w7s_nso`, public HTTP prefix `/w7s/*`, `docs/w7s-sidecar-protocol.md` |
 | **Browser persistence** | Chrome state in SQLite (not live relay) | `BrowserSessionStore`, `BrowserPersistence/` |
 | **Sidecar** | Node process hosting Chrome | `SidecarClient`, `sidecar/` |
 | **Edge** | Traefik, TLS, CORS | `EdgeSynchronizer`, `TraefikYamlBuilder` |
-| **Diagnostics** | Assertable observability (events, probes, governance) | `IDiagnosticsRuntime`, `/api/admin/diagnostics/v1` |
+| **Diagnostics** | Assertable observability (events, probes, governance) | `IDiagnosticsRuntime`, `/w7s/api/admin/diagnostics/v1` |
 | **Journal** | Operational fact log (admission + durable drain); not event-sourcing; not Diagnostics capabilities | `IJournalWriter`, `JournalEntry`, `PublishPolicy` |
 | **Telemetry** | Observability module: **event** hops/infra facts + **sampling** composites; not Sessions domain narrative | `Telemetry.Sessions.Input.*`, `Telemetry.Sampling.SampleCollected`, `ISessionTelemetryEventsFactory` |
 | **Database** | Unified Speculum SQLite store for the API | `SpeculumDbContext`, `AddDatabase`, `EnsureDatabase`, `DatabaseOptions` |
 
 **W7S must not appear** in C# namespaces, internal class names, application logs, or API folder names.
+The public HTTP mount **`/w7s`** (PathBase + SPA surfaces) and the query param **`_w7s_nso`** are wire/UI boundary only — not domain vocabulary.
 
 **Motor is legacy vocabulary.** It remains only where an existing artifact
 still has that proper name (for example `MotorHub`,

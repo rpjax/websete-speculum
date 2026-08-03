@@ -52,11 +52,14 @@ export function isAdminAuthenticated(): boolean {
   return Boolean(getAdminAuth()?.accessToken)
 }
 
-/** Same-origin Admin/Setup paths only. */
-export function safeReturnUrl(candidate: string | null | undefined, fallback = '/admin'): string {
+/** Same-origin Admin/Setup paths only (under `/w7s`). */
+export function safeReturnUrl(
+  candidate: string | null | undefined,
+  fallback = '/w7s/admin',
+): string {
   if (!candidate) return fallback
   if (!candidate.startsWith('/')) return fallback
   if (candidate.startsWith('//')) return fallback
-  if (!(candidate.startsWith('/admin') || candidate.startsWith('/setup'))) return fallback
+  if (!(candidate.startsWith('/w7s/admin') || candidate.startsWith('/w7s/setup'))) return fallback
   return candidate
 }

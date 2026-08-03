@@ -9,6 +9,7 @@ namespace Speculum.Api.Presentation.Auth;
 /// <c>/api/auth/login</c> or <c>/api/auth/refresh</c>, unless
 /// <c>SPECULUM_BYPASS_API_AUTH</c> is set (lab/CI only). Hub and WebTransport stay open.
 /// Default for <c>/api/*</c> is require auth; only an explicit public set is open.
+/// Paths are compared after <c>UsePathBase("/w7s")</c> — public host uses <c>/w7s/…</c>.
 /// </summary>
 public sealed class ApiAuthMiddleware
 {

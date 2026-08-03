@@ -90,7 +90,7 @@ public sealed class SessionsActClient : IAsyncDisposable
         }
     }
 
-    public async Task StartFixturePageAsync(
+    public async Task<StartSessionHubResponse> StartFixturePageAsync(
         string path,
         int width = 1280,
         int height = 720,
@@ -127,6 +127,7 @@ public sealed class SessionsActClient : IAsyncDisposable
             "complete",
             TimeSpan.FromSeconds(45),
             ct);
+        return started;
     }
 
     public async Task SendClickAsync(double x, double y, CancellationToken ct = default)

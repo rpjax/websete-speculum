@@ -1,10 +1,10 @@
 # Diagnostics hub
 
 ## Job
-Route an operator to Observe, Investigate, or Govern — with honest available-now chrome for Resources / Signals / Reports contracts.
+~~Dispatch hub~~ — **retired as a nav landing**. Diagnostics is a **sidebar section** with direct pages (Health, Resources, Signals, Timeline, Investigate, Reports, Governance). `/admin/diagnostics` redirects to Health.
 
 ## Route / params / auth gate
-- Route: `/admin/diagnostics`
+- Route: `/admin/diagnostics` → redirect to `/admin/diagnostics/health`
 - Auth: Bearer access
 
 ## Entrada (pré-condições, deep-link)

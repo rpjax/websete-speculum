@@ -44,7 +44,7 @@ public static class PresentationServiceCollectionExtensions
     }
 
     /// <summary>
-    /// Maps the session SignalR control hub at <c>/vhub</c>, WebTransport, and domain HTTP APIs.
+    /// Maps the session SignalR control hub at <c>/vhub</c>, WebTransport/WebSocket data edges, and domain HTTP APIs.
     /// </summary>
     public static IEndpointRouteBuilder MapPresentation(this IEndpointRouteBuilder endpoints)
     {
@@ -56,6 +56,7 @@ public static class PresentationServiceCollectionExtensions
             options.ApplicationMaxBufferSize = 512 * 1024;
         });
         SessionWebTransportEndpoint.Map(endpoints);
+        SessionWebSocketEndpoint.Map(endpoints);
         endpoints.MapAuthEndpoints();
         endpoints.MapConfigurationEndpoints();
         endpoints.MapPublicBootstrapEndpoints();
@@ -64,6 +65,8 @@ public static class PresentationServiceCollectionExtensions
         endpoints.MapSessionEndpoints();
         endpoints.MapHostResourceEndpoints();
         endpoints.MapDiagnosticsProfileEndpoints();
+        endpoints.MapResourceMonitoringEndpoints();
+        endpoints.MapTimelineEndpoints();
         endpoints.MapSessionHarness();
 
         return endpoints;

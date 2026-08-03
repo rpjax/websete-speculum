@@ -8,9 +8,9 @@ import { parseClientNavigation, toClientAddressBar } from './sessionCoords'
  * or mirrored host). Trust path + query for `clientHref` — do not re-encode
  * hostname into NSO (that would overwrite server state with the session host).
  *
- * History pushState is intentionally not done here: the SPA still mounts live
- * at `/` (prod) / `/live` (and lab at `/lab` or DEV `/`); replacing pathname would
- * leave that route.
+ * History pushState is owned by {@link syncClientLocation} / the live session
+ * path: Live is the catch-all default, so the operator URL mirrors the remote
+ * path. Control-plane `/w7s/*` is never projected.
  */
 export function applySyncedBrowserUrl(absoluteSyncedUrl: string): {
   display: string

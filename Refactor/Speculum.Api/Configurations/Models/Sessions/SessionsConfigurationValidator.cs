@@ -16,6 +16,12 @@ public sealed class SessionsConfigurationValidator : IValidateOptions<SessionsCo
                 "Sessions.DetachedSessionTimeout must be greater than zero.");
         }
 
+        if (!Enum.IsDefined(options.DataStreamTransport))
+        {
+            return ValidateOptionsResult.Fail(
+                "Sessions.DataStreamTransport must be webTransport or webSocket.");
+        }
+
         var viewport = options.ViewportPolicy;
         if (!IsPositive(viewport.Minimum)
             || !IsPositive(viewport.Default)

@@ -1,8 +1,12 @@
 import { Route } from 'lucide-react'
+import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
-import { loadLabInputPathClientTrace } from '@/features/sessions/live/sessionConfig'
+import {
+  loadLabInputPathClientTrace,
+  saveLabInputPathClientTrace,
+} from '@/features/sessions/live/sessionConfig'
 import {
   LAB_TELEMETRY_EVENT_GROUPS,
   LAB_TELEMETRY_EVENT_TYPES,
@@ -32,6 +36,7 @@ export function LabTelemetryEventsPanel({
   onChange,
   onApply,
 }: LabTelemetryEventsPanelProps) {
+  const [inputPathClient, setInputPathClient] = useState(loadLabInputPathClientTrace)
   const onCount = countOn(events)
   const inputPathOn = LAB_TELEMETRY_INPUT_PATH_TYPES.some((type) => events[type])
   const hotOn = LAB_TELEMETRY_EVENT_GROUPS.some((group) =>
@@ -91,7 +96,7 @@ export function LabTelemetryEventsPanel({
           <span className="font-medium text-foreground">{onCount}</span>
           {' / '}
           {LAB_TELEMETRY_EVENT_TYPES.length} event probes on. Sampling facts are under Sampling —
-          not here. Pair input path with Wire <code>client_sent</code>.
+          not here. Pair input path with Activity <code>client_sent</code> (toggle below).
         </p>
         <div className="flex flex-wrap gap-1.5">
           <Button type="button" size="sm" variant="outline" disabled={busy} onClick={enableAll}>
@@ -103,15 +108,33 @@ export function LabTelemetryEventsPanel({
         </div>
       </div>
 
+      <div className="flex items-start justify-between gap-3 rounded-md border border-border/60 px-3 py-2.5">
+        <div className="space-y-0.5">
+          <Label htmlFor="lab-input-path-client">Input path · client_sent</Label>
+          <p className="text-[11px] text-muted-foreground">
+            Log every <code>sendInput</code> as hop 0 in Activity. Pair with Trace input path
+            (server hops 1–3).
+          </p>
+        </div>
+        <Switch
+          id="lab-input-path-client"
+          checked={inputPathClient}
+          onCheckedChange={(checked) => {
+            setInputPathClient(checked)
+            saveLabInputPathClientTrace(checked)
+          }}
+        />
+      </div>
+
       {hotOn && (
         <div className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
           <p className="font-medium">
             Hot-path telemetry is on — use only while diagnosing delay or a dead input stream.
           </p>
-          {inputPathOn && !loadLabInputPathClientTrace() && (
+          {inputPathOn && !inputPathClient && (
             <p className="mt-1 text-warning/90">
-              Wire <code className="text-foreground">client_sent</code> is still off — enable hop 0
-              on the Wire tab.
+              Activity <code className="text-foreground">client_sent</code> is still off — enable
+              hop 0 above.
             </p>
           )}
           <Button

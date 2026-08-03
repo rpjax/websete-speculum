@@ -60,6 +60,7 @@ public static class DatabaseServiceCollectionExtensions
         EnsureScriptsTable(db);
         EnsureHostResourceAppliesTable(db);
         EnsureAuthTables(db);
+        EnsureResourceMonitoringTables(db);
 
         try
         {
@@ -148,6 +149,45 @@ public static class DatabaseServiceCollectionExtensions
             );
             CREATE UNIQUE INDEX IF NOT EXISTS IX_auth_tokens_token_hash ON auth_tokens (token_hash);
             CREATE INDEX IF NOT EXISTS IX_auth_tokens_user_kind ON auth_tokens (user_id, kind);
+            """);
+    }
+
+    private static void EnsureResourceMonitoringTables(SpeculumDbContext db)
+    {
+        db.Database.ExecuteSqlRaw(
+            """
+            CREATE TABLE IF NOT EXISTS resource_signals (
+                id TEXT NOT NULL CONSTRAINT PK_resource_signals PRIMARY KEY,
+                kind TEXT NOT NULL,
+                severity TEXT NOT NULL,
+                status TEXT NOT NULL,
+                phase TEXT NOT NULL,
+                summary TEXT NOT NULL,
+                detected_at TEXT NOT NULL,
+                resolved_at TEXT NULL,
+                evidence_sample_ids_json TEXT NOT NULL,
+                metrics_json TEXT NOT NULL,
+                chart_hint_json TEXT NULL
+            );
+            CREATE INDEX IF NOT EXISTS IX_resource_signals_status_detected
+                ON resource_signals (status, detected_at);
+            CREATE INDEX IF NOT EXISTS IX_resource_signals_kind_status
+                ON resource_signals (kind, status);
+
+            CREATE TABLE IF NOT EXISTS resource_reports (
+                id TEXT NOT NULL CONSTRAINT PK_resource_reports PRIMARY KEY,
+                kind TEXT NOT NULL,
+                status TEXT NOT NULL,
+                from_utc TEXT NOT NULL,
+                to_utc TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                ready_at TEXT NULL,
+                summary TEXT NOT NULL,
+                chapters_json TEXT NOT NULL,
+                error_json TEXT NULL
+            );
+            CREATE INDEX IF NOT EXISTS IX_resource_reports_created_at
+                ON resource_reports (created_at);
             """);
     }
 

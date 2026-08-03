@@ -9,7 +9,9 @@ exports.applyDeviceEmulation = applyDeviceEmulation;
 exports.buildChromeUserAgentMetadata = buildChromeUserAgentMetadata;
 exports.desktopPlatformFromUa = desktopPlatformFromUa;
 exports.applyLogicalViewport = applyLogicalViewport;
+exports.viewportMetricsClose = viewportMetricsClose;
 exports.readChromeViewport = readChromeViewport;
+exports.proveLogicalViewport = proveLogicalViewport;
 /** Desktop fallback when the client omits a device profile (dpr=1, no touch). */
 exports.DEFAULT_DESKTOP_DEVICE = {
     mobile: false,
@@ -74,28 +76,9 @@ async function applyDeviceEmulation(cdp, width, height, device) {
     if (device.maxTouchPoints === undefined || device.maxTouchPoints < 0) {
         throw new Error('device.maxTouchPoints must be provided and non-negative');
     }
-    await cdp.send('Emulation.setDeviceMetricsOverride', {
-        width,
-        height,
-        deviceScaleFactor: device.deviceScaleFactor,
-        mobile: !!device.mobile,
-        // Match logical viewport — Xvfb is overallocated; screen.* must not report capacity max.
-        screenWidth: width,
-        screenHeight: height,
-        screenOrientation: device.screenOrientation
-            ? {
-                type: device.screenOrientation.includes('landscape')
-                    ? 'landscapePrimary'
-                    : 'portraitPrimary',
-                angle: device.screenOrientation.includes('landscape') ? 90 : 0,
-            }
-            : undefined,
-    });
-    await cdp.send('Emulation.setTouchEmulationEnabled', touchEmulationParams(device));
-    // Xvfb/headless pages are often unfocused; without this, CDP mouse hits the right
-    // elementFromPoint target but never activates focus or click handlers (ML cookie
-    // banner / search input stayed inert with activeElement === body).
-    await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true });
+    // UA / touch / focus first — then metrics last. Mobile UA applied after metrics
+    // leaves the legacy 980px layout viewport (cssLayoutViewport stays 980×…),
+    // which is exactly the LaunchBrowserFailed we saw on iPhone Safari.
     const version = (await cdp.send('Browser.getVersion'));
     if (device.userAgentProfile === 'mobile' || device.mobile) {
         if (!version.product) {
@@ -121,33 +104,56 @@ async function applyDeviceEmulation(cdp, width, height, device) {
                 bitness: '',
             }),
         });
-        return;
     }
-    // Always clear mobile UA on desktop apply — soft resize must not leave prior override.
-    if (!version.userAgent) {
-        throw new Error('Browser.getVersion did not return userAgent');
+    else {
+        // Always clear mobile UA on desktop apply — soft resize must not leave prior override.
+        if (!version.userAgent) {
+            throw new Error('Browser.getVersion did not return userAgent');
+        }
+        if (!version.product) {
+            throw new Error('Browser.getVersion did not return product');
+        }
+        const chromeVer = version.product.replace(/^Chrome\//, '');
+        const major = chromeVer.split('.')[0];
+        if (!major) {
+            throw new Error('Unable to parse Chrome version from product string');
+        }
+        const desktopMeta = desktopPlatformFromUa(version.userAgent);
+        await cdp.send('Emulation.setUserAgentOverride', {
+            userAgent: version.userAgent,
+            userAgentMetadata: buildChromeUserAgentMetadata({
+                chromeVer,
+                major,
+                mobile: false,
+                platform: desktopMeta.platform,
+                platformVersion: desktopMeta.platformVersion,
+                architecture: desktopMeta.architecture,
+                model: '',
+                bitness: desktopMeta.bitness,
+            }),
+        });
     }
-    if (!version.product) {
-        throw new Error('Browser.getVersion did not return product');
-    }
-    const chromeVer = version.product.replace(/^Chrome\//, '');
-    const major = chromeVer.split('.')[0];
-    if (!major) {
-        throw new Error('Unable to parse Chrome version from product string');
-    }
-    const desktopMeta = desktopPlatformFromUa(version.userAgent);
-    await cdp.send('Emulation.setUserAgentOverride', {
-        userAgent: version.userAgent,
-        userAgentMetadata: buildChromeUserAgentMetadata({
-            chromeVer,
-            major,
-            mobile: false,
-            platform: desktopMeta.platform,
-            platformVersion: desktopMeta.platformVersion,
-            architecture: desktopMeta.architecture,
-            model: '',
-            bitness: desktopMeta.bitness,
-        }),
+    await cdp.send('Emulation.setTouchEmulationEnabled', touchEmulationParams(device));
+    // Xvfb/headless pages are often unfocused; without this, CDP mouse hits the right
+    // elementFromPoint target but never activates focus or click handlers (ML cookie
+    // banner / search input stayed inert with activeElement === body).
+    await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true });
+    await cdp.send('Emulation.setDeviceMetricsOverride', {
+        width,
+        height,
+        deviceScaleFactor: device.deviceScaleFactor,
+        mobile: !!device.mobile,
+        // Match logical viewport — Xvfb is overallocated; screen.* must not report capacity max.
+        screenWidth: width,
+        screenHeight: height,
+        screenOrientation: device.screenOrientation
+            ? {
+                type: device.screenOrientation.includes('landscape')
+                    ? 'landscapePrimary'
+                    : 'portraitPrimary',
+                angle: device.screenOrientation.includes('landscape') ? 90 : 0,
+            }
+            : undefined,
     });
 }
 /** Greasy Client Hints brands matching current Chrome (sec-ch-ua consistency). */
@@ -226,11 +232,47 @@ async function applyLogicalViewport(cdp, width, height, device) {
     await applyDeviceEmulation(cdp, width, height, profile);
     return profile;
 }
-async function readChromeViewport(page) {
-    const dims = (await page.evaluate(`(() => ({
-        width: window.innerWidth,
-        height: window.innerHeight,
-    }))()`));
-    return { width: Math.round(dims.width), height: Math.round(dims.height) };
+/** Tolerate small Chrome settle jitter when proving logical CSS size. */
+function viewportMetricsClose(aW, aH, bW, bH, epsilon = 2) {
+    return Math.abs(aW - bW) <= epsilon && Math.abs(aH - bH) <= epsilon;
+}
+/**
+ * Read Chrome's CSS layout viewport after device-metrics override.
+ *
+ * Prefer CDP `Page.getLayoutMetrics.cssLayoutViewport` over `window.innerWidth`:
+ * on mobile emulation + about:blank, `innerWidth` often reports the legacy 980px
+ * layout width and does not reflect `Emulation.setDeviceMetricsOverride`.
+ */
+async function readChromeViewport(cdp) {
+    const metrics = (await cdp.send('Page.getLayoutMetrics'));
+    const css = metrics.cssLayoutViewport;
+    const width = css?.clientWidth;
+    const height = css?.clientHeight;
+    if (width === undefined
+        || height === undefined
+        || !Number.isFinite(width)
+        || !Number.isFinite(height)
+        || width <= 0
+        || height <= 0) {
+        throw Object.assign(new Error('Page.getLayoutMetrics did not return cssLayoutViewport client size'), { code: 'FAILED_PRECONDITION', errorCode: 'viewport_unproven' });
+    }
+    return { width: Math.round(width), height: Math.round(height) };
+}
+/**
+ * Apply logical device metrics and prove the CSS layout viewport matches.
+ * Call immediately before treating a size as confirmed (launch / resize / compensate).
+ */
+async function proveLogicalViewport(cdp, width, height, device, options) {
+    const profile = await applyLogicalViewport(cdp, width, height, device);
+    const chrome = await readChromeViewport(cdp);
+    const epsilon = options?.epsilon ?? 2;
+    if (!viewportMetricsClose(chrome.width, chrome.height, width, height, epsilon)) {
+        throw Object.assign(new Error(`chrome css layout viewport ${chrome.width}×${chrome.height} != logical ${width}×${height}`), {
+            code: 'FAILED_PRECONDITION',
+            errorCode: 'viewport_unproven',
+            phase: options?.phase ?? 'prove',
+        });
+    }
+    return { width, height, device: profile };
 }
 //# sourceMappingURL=device-emulation.js.map

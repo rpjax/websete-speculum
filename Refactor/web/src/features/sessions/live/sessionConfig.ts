@@ -1,9 +1,7 @@
 /** Shared session client config — same for lab and immersive live. */
 
 const PROFILE_KEY = 'speculum.session.profileId'
-const LAB_HUB_ORIGIN_KEY = 'speculum.lab.hubOrigin'
-const LAB_TRANSPORT_ORIGIN_KEY = 'speculum.lab.transportOrigin'
-/** Lab-only: log every sendInput to the Wire feed (client hop of input-path tracing). */
+/** Lab-only: log every sendInput to the Activity feed (client hop of input-path tracing). */
 const LAB_INPUT_PATH_CLIENT_KEY = 'speculum.lab.inputPathClient'
 /** Lab DEV: debug dock open (canvas split). */
 const LAB_DEBUG_DOCK_KEY = 'speculum.lab.debugDock'
@@ -42,7 +40,7 @@ function persist(key: string, value: string): void {
   }
 }
 
-/** Env-only origins — production `/live` never reads lab localStorage overrides. */
+/** Bake-time / env origins — hub + WT edge from deploy (`VITE_SPECULUM_*`). */
 export function loadEnvOrigins(): SessionOrigins {
   return {
     hubOrigin: envValue('VITE_SPECULUM_HUB_ORIGIN'),
@@ -50,24 +48,7 @@ export function loadEnvOrigins(): SessionOrigins {
   }
 }
 
-/**
- * Lab may override hub/transport in localStorage (Wire tab).
- * Same createSessionClient + hub RPCs; only the endpoint strings differ.
- */
-export function loadLabOrigins(): SessionOrigins {
-  const env = loadEnvOrigins()
-  return {
-    hubOrigin: stored(LAB_HUB_ORIGIN_KEY) ?? env.hubOrigin,
-    transportOrigin: stored(LAB_TRANSPORT_ORIGIN_KEY) ?? env.transportOrigin,
-  }
-}
-
-export function saveLabOrigins(origins: SessionOrigins): void {
-  persist(LAB_HUB_ORIGIN_KEY, origins.hubOrigin.trim().replace(/\/$/, ''))
-  persist(LAB_TRANSPORT_ORIGIN_KEY, origins.transportOrigin.trim().replace(/\/$/, ''))
-}
-
-/** Lab-only Wire toggle: log client `sendInput` as `input_path client_sent`. Off by default. */
+/** Lab-only: log client `sendInput` as `input_path client_sent`. Off by default. */
 export function loadLabInputPathClientTrace(): boolean {
   return stored(LAB_INPUT_PATH_CLIENT_KEY) === '1'
 }
@@ -92,7 +73,6 @@ const LAB_DEBUG_TABS = [
   'console',
   'eval',
   'config',
-  'wire',
 ] as const
 
 export type LabDebugTab = (typeof LAB_DEBUG_TABS)[number]

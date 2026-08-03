@@ -59,7 +59,7 @@ export function AdminTopBar({
         </Sheet>
 
         <Link
-          to="/admin"
+          to="/w7s/admin"
           className="flex min-w-0 items-center gap-2.5 rounded-md outline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
           aria-label="Speculum Admin home"
         >
@@ -115,7 +115,7 @@ export function AdminTopBar({
               <div className="my-1 h-px bg-border" />
               <Link
                 className="block rounded-md px-2.5 py-2 text-sm hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
-                to="/admin/change-password"
+                to="/w7s/admin/change-password"
               >
                 Change password
               </Link>

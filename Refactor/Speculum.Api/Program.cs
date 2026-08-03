@@ -11,6 +11,7 @@ using Speculum.Api.Journal;
 using Speculum.Api.Presentation;
 using Speculum.Api.Presentation.Auth;
 using Speculum.Api.Profiles;
+using Speculum.Api.ResourceMonitoring;
 using Speculum.Api.Scripts;
 using Speculum.Api.Sessions;
 using Speculum.Api.Sessions.Services;
@@ -38,6 +39,7 @@ builder.Services.AddHostResources();
 builder.Services.AddBrowserSessions();
 builder.Services.AddGrpcBrowserClient();
 builder.Services.AddTelemetry();
+builder.Services.AddResourceMonitoring();
 builder.Services.AddSingleton<IUrlResolver, UrlResolver>();
 builder.Services.AddScoped<ISessionService, SessionService>();
 builder.Services.AddPresentation();
@@ -56,6 +58,11 @@ await app.Services.GetRequiredService<IConfigurationLoadService>()
     .LoadAndApplyAsync()
     .ConfigureAwait(false);
 
+// Public control plane is mounted at /w7s/* (wire prefix). Internal maps stay
+// /api, /vhub, /health, /vtransport, /vstream — PathBase strips /w7s before routing/auth.
+app.UsePathBase("/w7s");
+
+app.UseWebSockets();
 app.UseSpeculumApiAuth();
 
 // Process-up only — Docker/Traefik depends_on must not wait on pending-config,

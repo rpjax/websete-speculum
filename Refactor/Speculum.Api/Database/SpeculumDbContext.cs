@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Speculum.Api.Auth.Storage;
 using Speculum.Api.HostResources.Storage;
 using Speculum.Api.Profiles.Storage;
+using Speculum.Api.ResourceMonitoring.Storage;
 using Speculum.Api.Scripts.Storage;
 using Speculum.Api.Sessions.Storage;
 
@@ -29,6 +30,10 @@ public sealed class SpeculumDbContext : DbContext
     public DbSet<OperatorUserRecord> OperatorUsers => Set<OperatorUserRecord>();
 
     public DbSet<AuthTokenRecord> AuthTokens => Set<AuthTokenRecord>();
+
+    public DbSet<ResourceSignalRecord> ResourceSignals => Set<ResourceSignalRecord>();
+
+    public DbSet<ResourceReportRecord> ResourceReports => Set<ResourceReportRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

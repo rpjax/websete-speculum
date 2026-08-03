@@ -97,7 +97,7 @@ export function LabSessionReadinessPanel({
             Apply lab defaults &amp; save
           </Button>
           <Button type="button" size="sm" variant="outline" className="w-full sm:w-auto" asChild>
-            <Link to="/setup">Open setup guide</Link>
+            <Link to="/w7s/setup">Open setup guide</Link>
           </Button>
           <p className="text-[11px] text-muted-foreground">
             Sets browse-anywhere on your default host (or www.google.com), session capacity, and

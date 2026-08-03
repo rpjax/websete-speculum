@@ -1,0 +1,8 @@
+# Docker Desktop / hosts without /dev/uinput — apply with out/dev compose:
+#   docker compose -f docker-compose.yml -f ../../compose/docker-compose.dev.nouinput.yml --env-file .env up -d
+# Forces CDP input and drops the uinput device mount (compose !reset).
+services:
+  sidecar:
+    devices: !reset []
+    environment:
+      SPECULUM_INPUT_BACKEND: patchright

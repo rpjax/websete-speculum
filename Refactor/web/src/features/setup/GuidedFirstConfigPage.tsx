@@ -45,13 +45,13 @@ export function GuidedFirstConfigPage() {
     adminJson<Record<string, unknown>>(`/api/configurations/${current}`).then(setSectionValue).catch((cause: unknown) => setError(cause instanceof Error ? cause.message : `Unable to load ${current}.`)).finally(() => setLoading(false))
   }, [current])
 
-  if (queue && queue.length === 0 && !complete) return <Navigate to="/admin" replace />
-  if (complete) return <main className="mx-auto max-w-2xl px-6 py-12"><PageHeader title="Setup complete" /><Card className="mt-6"><CardHeader><CardTitle>Setup complete</CardTitle><CardDescription>Mandatory configuration is valid and sessions can start.</CardDescription></CardHeader><CardContent><Button asChild><Link to="/admin">Go to Home</Link></Button></CardContent></Card></main>
+  if (queue && queue.length === 0 && !complete) return <Navigate to="/w7s/admin" replace />
+  if (complete) return <main className="mx-auto max-w-2xl px-6 py-12"><PageHeader title="Setup complete" /><Card className="mt-6"><CardHeader><CardTitle>Setup complete</CardTitle><CardDescription>Mandatory configuration is valid and sessions can start.</CardDescription></CardHeader><CardContent><Button asChild><Link to="/w7s/admin">Go to Home</Link></Button></CardContent></Card></main>
   if (!queue || !current) return <main className="mx-auto max-w-2xl px-6 py-12"><PageHeader title="Setup" /><Skeleton className="mt-6 h-64 w-full" /></main>
 
   const update = (patch: Record<string, unknown>) => setSectionValue((value) => ({ ...(value ?? {}), ...patch }))
   const apply = async () => {
-    if (!getAdminAuth()) { window.location.assign('/admin/login?returnUrl=%2Fsetup%2Fconfigure'); return }
+    if (!getAdminAuth()) { window.location.assign('/w7s/admin/login?returnUrl=%2Fsetup%2Fconfigure'); return }
     if (!sectionValue) return
     setPending(true); setError(null)
     try {
@@ -113,7 +113,7 @@ function SessionsFields({ timeout, value, onChange }: { timeout: string; value: 
   return <><div className="space-y-2"><Label htmlFor="detachedSessionTimeout">Detached session timeout</Label><Input id="detachedSessionTimeout" value={timeout} onChange={(event) => onChange({ detachedSessionTimeout: event.target.value })} placeholder="00:30:00" /><p className="text-sm text-muted-foreground">TimeSpan JSON, e.g. 00:30:00</p></div>
     <GuidedPreset presets={[{ id: 'recommended', label: 'Apply recommended session defaults', apply: () => onChange({ ...sessionsBaseline, detachedSessionTimeout: timeout || sessionsBaseline.detachedSessionTimeout }) }]} />
     {!value.viewportPolicy ? <HelperCallout tone="warning" title="Recommended defaults required">Apply recommended session defaults before this empty section can be saved.</HelperCallout> : null}
-    <RevealPanel title="Advanced"><p className="text-sm text-muted-foreground">Nested policies are included in the recommended baseline. Full editing is available in the configurations editor.</p><Link className="mt-3 inline-block text-sm underline" to="/admin/configurations/Sessions">Open full editor</Link></RevealPanel>
+    <RevealPanel title="Advanced"><p className="text-sm text-muted-foreground">Nested policies are included in the recommended baseline. Full editing is available in the configurations editor.</p><Link className="mt-3 inline-block text-sm underline" to="/w7s/admin/configurations/Sessions">Open full editor</Link></RevealPanel>
   </>
 }
 function ResourceManagementFields({ maxSessions, onChange }: { maxSessions: number; onChange: (value: number) => void }) {

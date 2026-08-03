@@ -7,6 +7,7 @@ import {
   clearClientToken as mockClearClientToken,
   CLIENT_TOKEN_COOKIE as MOCK_CLIENT_TOKEN_COOKIE,
 } from '@/lib/mock/clientConfig.mock'
+import { w7sPath } from '@/lib/w7s'
 
 const COOKIE_NAME = 'speculum_client_token'
 
@@ -22,6 +23,8 @@ export interface ClientConfig {
   }
   sessions: {
     detachedSessionTimeoutSeconds: number
+    /** Data-plane carrier — Apply Sessions + refresh to pick up. */
+    dataStreamTransport: 'webTransport' | 'webSocket'
   }
   resourceManagement: {
     maxConcurrentSessions: number
@@ -42,7 +45,7 @@ function realInvalidateClientConfigCache(): void {
 async function realFetchClientConfig(apiUrl: string, force = false): Promise<ClientConfig> {
   if (cachedConfig && !force) return cachedConfig
   const base = apiUrl.replace(/\/$/, '')
-  const res = await fetch(`${base}/api/public/client-config`)
+  const res = await fetch(`${base}${w7sPath('/api/public/client-config')}`)
   if (!res.ok) throw new Error('Failed to load client config')
   cachedConfig = await res.json() as ClientConfig
   return cachedConfig

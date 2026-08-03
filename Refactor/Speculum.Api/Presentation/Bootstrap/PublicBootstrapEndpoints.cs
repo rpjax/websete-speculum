@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Speculum.Api.Configurations.Models.Sessions;
 using Speculum.Api.Configurations.Services.Contracts;
 using Speculum.Api.Sessions.Services;
 
@@ -46,6 +47,7 @@ public static class PublicBootstrapEndpoints
                 {
                     detachedSessionTimeoutSeconds =
                         (int)Math.Clamp(engine.Sessions.DetachedSessionTimeout.TotalSeconds, 0, int.MaxValue),
+                    dataStreamTransport = ToClientTransport(engine.Sessions.DataStreamTransport),
                 },
                 resourceManagement = new
                 {
@@ -63,4 +65,7 @@ public static class PublicBootstrapEndpoints
 
         return endpoints;
     }
+
+    private static string ToClientTransport(DataStreamTransportKind kind)
+        => kind == DataStreamTransportKind.WebSocket ? "webSocket" : "webTransport";
 }

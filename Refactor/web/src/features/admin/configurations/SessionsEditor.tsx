@@ -19,6 +19,7 @@ import {
   COLOR_SCHEME_OPTIONS,
   DETACHED_TIMEOUT_PRESETS,
   DEVICE_EMULATION_PRESETS,
+  DATA_STREAM_TRANSPORT_OPTIONS,
   INPUT_ACCESS_OPTIONS,
   INPUT_OWNERSHIP_OPTIONS,
   INPUT_SCHEDULING_OPTIONS,
@@ -262,7 +263,7 @@ export function SessionsEditor({
           <p className="text-sm font-medium">Current posture</p>
           <p className="text-sm text-muted-foreground">
             {summary.complete
-              ? `Sessions keep running ${summary.timeoutLabel} after the last disconnect, start at ${summary.viewportLabel}, ${summary.jsBridge ? 'with' : 'without'} the JS bridge, and ${summary.access === 'exclusive' ? 'limit typing to one owner' : 'let attached clients share typing'} while ${summary.delivery === 'broadcast' ? 'sending video to every attached client' : 'sending video only to the owning client'}.`
+              ? `Sessions keep running ${summary.timeoutLabel} after the last disconnect, start at ${summary.viewportLabel}, ${summary.jsBridge ? 'with' : 'without'} the JS bridge, use ${summary.dataStreamTransportLabel} for frames/input, and ${summary.access === 'exclusive' ? 'limit typing to one owner' : 'let attached clients share typing'} while ${summary.delivery === 'broadcast' ? 'sending video to every attached client' : 'sending video only to the owning client'}.`
               : 'Some required settings are missing. Choose a starting posture or Keep my values before saving.'}
           </p>
         </div>
@@ -282,6 +283,10 @@ export function SessionsEditor({
           <StatusPill
             label={`${summary.access === 'exclusive' ? 'Exclusive' : 'Shared'} in · ${summary.delivery === 'broadcast' ? 'Broadcast' : 'Exclusive'} out`}
             tone={exclusiveFrames ? 'warning' : 'neutral'}
+          />
+          <StatusPill
+            label={`Data · ${summary.dataStreamTransportLabel}`}
+            tone="info"
           />
         </div>
       </div>
@@ -438,6 +443,22 @@ export function SessionsEditor({
 
           <ControlStep
             step={3}
+            title="Which data-stream transport should new sessions use?"
+            helper="Frames, input, and console ride this carrier. Save applies immediately for new sessions; open browsers must refresh. WebSocket is same-origin proxyable; WebTransport needs HTTP/3 to the API."
+          >
+            <EnumSelect
+              id="dataStreamTransport"
+              label="Data stream transport"
+              value={
+                text(value.dataStreamTransport) === 'webSocket' ? 'webSocket' : 'webTransport'
+              }
+              options={DATA_STREAM_TRANSPORT_OPTIONS}
+              onChange={(v) => patchField(['dataStreamTransport'], v)}
+            />
+          </ControlStep>
+
+          <ControlStep
+            step={4}
             title="What default screen size should new sessions open at?"
             helper="This is the starting viewport operators land on. Clients can still resize within the limits in the reveal below."
           >

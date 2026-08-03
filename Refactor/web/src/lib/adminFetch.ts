@@ -6,6 +6,12 @@ import {
   safeReturnUrl,
   type AdminAuthTokens,
 } from '@/lib/adminAuth'
+import { W7S_PREFIX, w7sPath } from '@/lib/w7s'
+
+function controlUrl(path: string): string {
+  if (path.startsWith('http://') || path.startsWith('https://')) return path
+  return `${API_URL}${w7sPath(path)}`
+}
 
 export class AdminApiError extends Error {
   readonly status: number
@@ -29,7 +35,7 @@ type RefreshResponse = {
 let refreshInFlight: Promise<boolean> | null = null
 
 async function postRefresh(refreshToken: string): Promise<AdminAuthTokens | null> {
-  const res = await fetch(`${API_URL}/api/auth/refresh`, {
+  const res = await fetch(controlUrl('/api/auth/refresh'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify({ refreshToken }),
@@ -62,14 +68,16 @@ function ensureRefresh(): Promise<boolean> {
 }
 
 function hardExpire() {
-  const path = typeof window !== 'undefined' ? window.location.pathname + window.location.search : '/admin'
+  const path = typeof window !== 'undefined'
+    ? window.location.pathname + window.location.search
+    : `${W7S_PREFIX}/admin`
   const returnUrl = encodeURIComponent(safeReturnUrl(path))
   clearAdminAuth()
   if (typeof window !== 'undefined') {
-    const onExpired = window.location.pathname.startsWith('/admin/session-expired')
-    const onLogin = window.location.pathname.startsWith('/admin/login')
+    const onExpired = window.location.pathname.startsWith(`${W7S_PREFIX}/admin/session-expired`)
+    const onLogin = window.location.pathname.startsWith(`${W7S_PREFIX}/admin/login`)
     if (!onExpired && !onLogin) {
-      window.location.assign(`/admin/session-expired?returnUrl=${returnUrl}`)
+      window.location.assign(`${W7S_PREFIX}/admin/session-expired?returnUrl=${returnUrl}`)
     }
   }
 }
@@ -82,7 +90,7 @@ export type AdminFetchOptions = RequestInit & {
 }
 
 export async function adminFetch(path: string, init: AdminFetchOptions = {}): Promise<Response> {
-  const url = path.startsWith('http') ? path : `${API_URL}${path}`
+  const url = controlUrl(path)
   const headers = new Headers(init.headers)
   if (!headers.has('Accept')) headers.set('Accept', 'application/json')
 

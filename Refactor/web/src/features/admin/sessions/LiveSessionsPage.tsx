@@ -103,14 +103,14 @@ export function LiveSessionsPage() {
             </TableHeader>
             <TableBody>
               {filtered.map((item) => {
-                const href = `/admin/sessions/${encodeURIComponent(item.sessionId)}`
+                const href = `/w7s/admin/sessions/${encodeURIComponent(item.sessionId)}`
                 return (
                   <TableRow key={item.sessionId} className="group">
                     <TableCell className="px-3 py-2.5">
                       <IdChip id={item.sessionId} href={href} />
                     </TableCell>
                     <TableCell className="px-3 py-2.5">
-                      <IdChip id={item.profileId} href={`/admin/profiles/${encodeURIComponent(item.profileId)}`} />
+                      <IdChip id={item.profileId} href={`/w7s/admin/profiles/${encodeURIComponent(item.profileId)}`} />
                     </TableCell>
                     <TableCell className="px-3 py-2.5">
                       <StatusPill

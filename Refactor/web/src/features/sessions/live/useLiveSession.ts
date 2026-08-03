@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { createSessionClient, NotificationKind } from '@/lib/speculum'
+import {
+  createSessionClient,
+  normalizeDataStreamTransportKind,
+  NotificationKind,
+} from '@/lib/speculum'
 import type { LiveSession, SessionClient } from '@/lib/speculum'
 import type {
   EditingState,
@@ -18,15 +22,16 @@ import {
   clearProfileId,
   loadEnvOrigins,
   loadLabInputPathClientTrace,
-  loadLabOrigins,
   loadProfileId,
-  saveLabOrigins,
   saveProfileId,
   type SessionOrigins,
 } from './sessionConfig'
-import { isPendingConfigError } from '@/lib/clientConfig'
+import { fetchClientConfig, isPendingConfigError } from '@/lib/clientConfig'
+import { API_URL } from '@/lib/env'
+import { resolveDataStreamForPage } from './resolveDataStream'
 import { applySyncedBrowserUrl } from './sessionUrlSync'
 import { detectClientEnvironment } from './detectClientEnvironment'
+import { syncClientLocation } from '@/features/motor/mapping/syncClientLocation'
 import {
   inputConsoleLine,
   lineFromConsoleOutput,
@@ -77,12 +82,9 @@ export interface UseLiveSessionOptions {
   /**
    * Lab-only observation: Activity log, console feed, stats tick, Journal stream.
    * Does not change start/navigate/input/evaluate — same hub + LiveSession client.
+   * Also skips syncing the operator address bar (lab keeps its own toolbar).
    */
   debug?: boolean
-  /**
-   * Lab-only Wire overrides (localStorage). Production live uses env origins only.
-   */
-  labOrigins?: boolean
 }
 
 const EMPTY_STATS: LiveSessionStats = {
@@ -175,17 +177,14 @@ async function waitForCanvasLayout(
 
 /**
  * Shared session controller for lab and immersive live.
- * One path: createSessionClient → EnsureProfile → StartSession → WebTransport
- * → NavigateAsync(path/query) → hub → ILiveSession → IUrlResolver.
+ * One path: createSessionClient → EnsureProfile → StartSession → DataStreams
+ * (WebTransport or WebSocket from client-config) → NavigateAsync → hub.
  */
 export function useLiveSession({
   viewport,
   debug = false,
-  labOrigins = false,
 }: UseLiveSessionOptions) {
-  const [origins, setOriginsState] = useState<SessionOrigins>(() =>
-    labOrigins ? loadLabOrigins() : loadEnvOrigins(),
-  )
+  const [origins] = useState<SessionOrigins>(() => loadEnvOrigins())
   const [phase, setPhase] = useState<LiveSessionPhase>('idle')
   const [connectionId, setConnectionId] = useState<string | null>(null)
   const [profileId, setProfileId] = useState<string | null>(() => loadProfileId())
@@ -357,6 +356,10 @@ export function useLiveSession({
         const { display, clientHref } = applySyncedBrowserUrl(url)
         setCurrentUrl(display)
         setNavigateHref(clientHref)
+        // Live catch-all: mirror remote path into the operator address bar.
+        if (!debugRef.current) {
+          syncClientLocation(url, false)
+        }
         log('wire', 'syncUrl', { url, display, clientHref })
       })
       session.on('redirect', (url) => {
@@ -372,6 +375,9 @@ export function useLiveSession({
         const { display, clientHref } = applySyncedBrowserUrl(session.lastSyncedUrl)
         setCurrentUrl(display)
         setNavigateHref(clientHref)
+        if (!debugRef.current) {
+          syncClientLocation(session.lastSyncedUrl, false)
+        }
       }
       if (
         session.lastRedirectUrl &&
@@ -448,6 +454,28 @@ export function useLiveSession({
           device,
           viewport: { width: viewportWidth, height: viewportHeight },
         })
+        let configured = normalizeDataStreamTransportKind(undefined)
+        try {
+          const config = await fetchClientConfig(API_URL)
+          configured = normalizeDataStreamTransportKind(
+            config.sessions?.dataStreamTransport,
+          )
+        } catch {
+          // Default webTransport when client-config is unreachable.
+        }
+        const resolved = resolveDataStreamForPage({
+          configured,
+          hubOrigin: origins.hubOrigin,
+          transportOrigin: origins.transportOrigin,
+        })
+        client.applyDataStreamConfig({
+          dataStreamTransport: resolved.kind,
+          transportBaseUrl: resolved.transportBaseUrl,
+        })
+        log('info', 'data stream transport', {
+          dataStreamTransport: resolved.kind,
+          transportBaseUrl: resolved.transportBaseUrl || '(same origin)',
+        })
         const session = await client.startSession({
           profileId: ensured.profileId,
           path: normalizedPath,
@@ -474,11 +502,11 @@ export function useLiveSession({
         setPhase(client.isConnected ? 'connected' : 'idle')
         log('error', 'start failed', error)
         if (isPendingConfigError(error)) {
-          window.location.replace('/setup')
+          window.location.replace('/w7s/setup')
         }
       }
     },
-    [bind, client, connect, log, origins.transportOrigin, viewport.height, viewport.width],
+    [bind, client, connect, log, origins.hubOrigin, origins.transportOrigin, viewport.height, viewport.width],
   )
 
   const stop = useCallback(async () => {
@@ -515,7 +543,7 @@ export function useLiveSession({
       counters.lastInputType = input.type
       counters.lastInputAt = performance.now()
       counters.dirty = true
-      if (labOrigins && loadLabInputPathClientTrace()) {
+      if (debug && loadLabInputPathClientTrace()) {
         log('wire', 'input_path client_sent', {
           type: input.type,
           atMs: Math.round(counters.lastInputAt),
@@ -525,7 +553,7 @@ export function useLiveSession({
         log('error', `input ${input.type} failed`, error)
       })
     },
-    [labOrigins, log],
+    [debug, log],
   )
 
   const onCanvasLayout = useCallback((size: CanvasSize) => {
@@ -641,24 +669,6 @@ export function useLiveSession({
     setConsoleLines([])
   }, [])
 
-  const applyOrigins = useCallback(
-    (next: SessionOrigins) => {
-      if (!labOrigins) {
-        return
-      }
-      saveLabOrigins(next)
-      setOriginsState({
-        hubOrigin: next.hubOrigin.trim().replace(/\/$/, ''),
-        transportOrigin: next.transportOrigin.trim().replace(/\/$/, ''),
-      })
-      setPhase('idle')
-      setConnectionId(null)
-      setSessionId(null)
-      log('info', 'origins updated', next)
-    },
-    [labOrigins, log],
-  )
-
   const forgetProfile = useCallback(() => {
     clearProfileId()
     setProfileId(null)
@@ -702,7 +712,6 @@ export function useLiveSession({
     evaluate,
     runConsoleCommand,
     clearConsole,
-    applyOrigins,
     forgetProfile,
   }
 }

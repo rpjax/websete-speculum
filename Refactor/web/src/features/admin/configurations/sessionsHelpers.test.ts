@@ -77,6 +77,7 @@ describe('sessionsHelpers', () => {
     expect(next.viewportPolicy).toEqual({ default: { width: 800, height: 600 } })
     expect(asObject(next.clientEnvironmentPolicy).defaultLocale).toBe('pt-BR')
     expect(asObject(next.inputMultiplexingPolicy).access).toBe('shared')
+    expect(next.dataStreamTransport).toBe('webTransport')
   })
 
   it('applies guided presets without wiping unrelated keys', () => {
@@ -113,6 +114,7 @@ describe('sessionsHelpers', () => {
     expect(ready.delivery).toBe('broadcast')
     expect(ready.viewportLabel).toBe('1280×720')
     expect(ready.timeoutLabel).toBe('15 min')
+    expect(ready.dataStreamTransport).toBe('webTransport')
   })
 
   it('exposes when/effect copy on guided postures', () => {

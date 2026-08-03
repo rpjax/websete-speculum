@@ -110,14 +110,67 @@ public sealed class JournalRepository : IJournalRepository
         q = ApplyFilter(q, query.Filter);
         q = ApplyOrders(q, query.Orders);
 
-        if (query.Offset > 0)
-            q = q.Skip(query.Offset);
+        var publishedSince = query.Filter?.PublishedSince;
+        var publishedUntil = query.Filter?.PublishedUntil;
+        var hasPublishedBounds = publishedSince is not null || publishedUntil is not null;
 
-        if (query.Limit is { } limit)
-            q = q.Take(limit);
+        // SQLite EF cannot translate DateTimeOffset range predicates on PublishedAt.
+        // Apply those bounds in memory after ordered SQL materialization.
+        if (!hasPublishedBounds)
+        {
+            if (query.Offset > 0)
+                q = q.Skip(query.Offset);
 
-        var records = await q.ToListAsync(cancellationToken).ConfigureAwait(false);
-        return records.Select(JournalEntryMapper.ToEntry).ToArray();
+            if (query.Limit is { } limit)
+                q = q.Take(limit);
+
+            var records = await q.ToListAsync(cancellationToken).ConfigureAwait(false);
+            return records.Select(JournalEntryMapper.ToEntry).ToArray();
+        }
+
+        var take = query.Limit ?? 500;
+        var offset = Math.Max(0, query.Offset);
+        var matched = new List<JournalEntryRecord>(take);
+        var skipped = 0;
+        var scanned = 0;
+        const int maxScan = 50_000;
+        var batchSize = Math.Clamp(Math.Max(take * 4, 200), 200, 2_000);
+        var descendingSequence = IsDescendingSequenceOrder(query.Orders);
+
+        while (matched.Count < take && scanned < maxScan)
+        {
+            var batch = await q.Skip(scanned).Take(batchSize).ToListAsync(cancellationToken)
+                .ConfigureAwait(false);
+            if (batch.Count == 0)
+                break;
+
+            scanned += batch.Count;
+            foreach (var row in batch)
+            {
+                if (publishedSince is { } since && row.PublishedAt < since)
+                {
+                    // Newest-first scans can stop once we pass the lower bound.
+                    if (descendingSequence)
+                        return matched.Select(JournalEntryMapper.ToEntry).ToArray();
+                    continue;
+                }
+
+                if (publishedUntil is { } until && row.PublishedAt > until)
+                    continue;
+
+                if (skipped < offset)
+                {
+                    skipped++;
+                    continue;
+                }
+
+                matched.Add(row);
+                if (matched.Count >= take)
+                    break;
+            }
+        }
+
+        return matched.Select(JournalEntryMapper.ToEntry).ToArray();
     }
 
     public async Task<long> EstimateStoredBytesAsync(CancellationToken cancellationToken = default)
@@ -134,44 +187,68 @@ public sealed class JournalRepository : IJournalRepository
         DateTimeOffset olderThan,
         int take,
         CancellationToken cancellationToken = default)
-        => DeleteBySequencesAsync(
+        => DeleteOlderThanAsync(
             Entries.AsNoTracking()
-                .Where(e => e.PublishedAt < olderThan
-                    && e.IndexKeys.Any(k => k.Type == "session"))
-                .OrderBy(e => e.PublishedAt)
-                .ThenBy(e => e.Sequence)
-                .Select(e => e.Sequence)
-                .Take(take),
+                .Where(e => e.IndexKeys.Any(k => k.Type == "session")),
+            olderThan,
+            take,
             cancellationToken);
 
     public Task<int> DeleteTelemetrySamplesOlderThanAsync(
         DateTimeOffset olderThan,
         int take,
         CancellationToken cancellationToken = default)
-        => DeleteBySequencesAsync(
+        => DeleteOlderThanAsync(
             Entries.AsNoTracking()
-                .Where(e => e.PublishedAt < olderThan
-                    && e.Type == "Telemetry.Sampling.SampleCollected")
-                .OrderBy(e => e.PublishedAt)
-                .ThenBy(e => e.Sequence)
-                .Select(e => e.Sequence)
-                .Take(take),
+                .Where(e => e.Type == "Telemetry.Sampling.SampleCollected"),
+            olderThan,
+            take,
             cancellationToken);
 
     public Task<int> DeleteRemainingFactsOlderThanAsync(
         DateTimeOffset olderThan,
         int take,
         CancellationToken cancellationToken = default)
-        => DeleteBySequencesAsync(
+        => DeleteOlderThanAsync(
             Entries.AsNoTracking()
-                .Where(e => e.PublishedAt < olderThan
-                    && e.Type != "Telemetry.Sampling.SampleCollected"
-                    && !e.IndexKeys.Any(k => k.Type == "session"))
-                .OrderBy(e => e.PublishedAt)
-                .ThenBy(e => e.Sequence)
-                .Select(e => e.Sequence)
-                .Take(take),
+                .Where(e => e.Type != "Telemetry.Sampling.SampleCollected"
+                    && !e.IndexKeys.Any(k => k.Type == "session")),
+            olderThan,
+            take,
             cancellationToken);
+
+    private async Task<int> DeleteOlderThanAsync(
+        IQueryable<JournalEntryRecord> source,
+        DateTimeOffset olderThan,
+        int take,
+        CancellationToken cancellationToken)
+    {
+        // PublishedAt range predicates are not SQLite-translatable; order + client filter.
+        // SQLite cannot ORDER BY DateTimeOffset (or UtcTicks) — Sequence is the durable publish order.
+        var candidates = await source
+            .AsNoTracking()
+            .OrderBy(e => e.Sequence)
+            .Take(Math.Max(take * 4, take))
+            .Select(e => new { e.Sequence, e.PublishedAt })
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        var sequences = candidates
+            .Where(e => e.PublishedAt < olderThan)
+            .Select(e => e.Sequence)
+            .Take(take)
+            .ToArray();
+
+        if (sequences.Length == 0)
+            return 0;
+
+        var deleted = await Entries
+            .Where(e => sequences.Contains(e.Sequence))
+            .ExecuteDeleteAsync(cancellationToken)
+            .ConfigureAwait(false);
+        _db.ChangeTracker.Clear();
+        return deleted;
+    }
 
     private async Task<int> DeleteBySequencesAsync(
         IQueryable<long> sequenceQuery,
@@ -187,6 +264,17 @@ public sealed class JournalRepository : IJournalRepository
             .ConfigureAwait(false);
         _db.ChangeTracker.Clear();
         return deleted;
+    }
+
+    private static bool IsDescendingSequenceOrder(IReadOnlyList<JournalQueryOrder> orders)
+    {
+        if (orders.Count == 0)
+            return false;
+        var primary = orders[0];
+        // PublishedAt sorts by Sequence (SQLite cannot ORDER BY DateTimeOffset).
+        return (primary.Property == JournalOrderProperty.Sequence
+                || primary.Property == JournalOrderProperty.PublishedAt)
+            && primary.Direction == JournalSortDirection.Descending;
     }
 
     private static bool IsUniqueConstraint(DbUpdateException ex)
@@ -235,11 +323,7 @@ public sealed class JournalRepository : IJournalRepository
         if (filter.PublishPolicy is { } policy)
             query = query.Where(e => e.PublishPolicy == policy);
 
-        if (filter.PublishedSince is { } since)
-            query = query.Where(e => e.PublishedAt >= since);
-
-        if (filter.PublishedUntil is { } until)
-            query = query.Where(e => e.PublishedAt <= until);
+        // PublishedSince/Until are applied in ReadAsync (SQLite cannot translate them).
 
         foreach (var key in filter.IndexKeys)
         {
@@ -281,8 +365,10 @@ public sealed class JournalRepository : IJournalRepository
                 {
                     JournalOrderProperty.Sequence => ApplyOrder(
                         ordered, query, order.Direction, e => e.Sequence),
+                    // SQLite cannot ORDER BY DateTimeOffset / UtcTicks. Sequence is assigned
+                    // at publish time and is the durable chronological key in this store.
                     JournalOrderProperty.PublishedAt => ApplyOrder(
-                        ordered, query, order.Direction, e => e.PublishedAt),
+                        ordered, query, order.Direction, e => e.Sequence),
                     _ => throw new ArgumentOutOfRangeException(
                         nameof(orders),
                         property,

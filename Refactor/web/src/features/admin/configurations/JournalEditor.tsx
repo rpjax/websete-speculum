@@ -178,7 +178,7 @@ export function JournalEditor({
 
       <HelperCallout
         title="Canonical facts stay on"
-        action={{ label: 'Open Diagnostics timeline', href: '/admin/diagnostics/timeline' }}
+        action={{ label: 'Open Journal', href: '/w7s/admin/diagnostics/timeline' }}
       >
         Canonical lifecycle facts are always recorded. Journal opt-ins add retention and noise cost — enable only
         what helps an investigation. Telemetry event facts are configured under Telemetry, not here.
@@ -210,7 +210,7 @@ export function JournalEditor({
         {summary.telemetryOwnedCount ? (
           <p className="text-xs text-muted-foreground">
             {summary.telemetryOwnedCount} Telemetry-owned catalog facts are browse-only here —{' '}
-            <Link className="font-medium underline" to="/admin/configurations/Telemetry">
+            <Link className="font-medium underline" to="/w7s/admin/configurations/Telemetry">
               open Telemetry controls
             </Link>
             .

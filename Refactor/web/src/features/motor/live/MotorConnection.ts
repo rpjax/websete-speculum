@@ -2,6 +2,7 @@ import * as signalR from '@microsoft/signalr'
 import * as msgpack from '@microsoft/signalr-protocol-msgpack'
 import { API_URL } from '@/lib/env'
 import { loadClientToken } from '@/lib/clientConfig'
+import { DefaultHubPath } from '@/lib/speculum/constants'
 import type {
   ConsoleOutputPayload,
   FramePayload,
@@ -54,7 +55,7 @@ export class MotorConnection {
     await this.stop()
     this.intentionalStop = false
     this.connection = new signalR.HubConnectionBuilder()
-      .withUrl(`${API_URL}/vhub`, {
+      .withUrl(`${API_URL}${DefaultHubPath}`, {
         withCredentials: true,
         transport: signalR.HttpTransportType.WebSockets,
       })
@@ -105,7 +106,7 @@ export class MotorConnection {
       )
     } catch (err) {
       if (isSetupRequiredError(err)) {
-        window.location.replace('/setup')
+        window.location.replace('/w7s/setup')
         return null
       }
       throw err

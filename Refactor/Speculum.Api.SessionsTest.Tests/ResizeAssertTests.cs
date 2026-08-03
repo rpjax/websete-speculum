@@ -1,3 +1,5 @@
+using Speculum.Api.Sessions.Models;
+
 namespace Speculum.SessionsTest.Tests;
 
 /// <summary>Resize effect asserts (MATRIX D) — Chrome logical viewport + policy display capacity.</summary>
@@ -6,6 +8,15 @@ namespace Speculum.SessionsTest.Tests;
 public sealed class ResizeAssertTests : SessionsTestBase
 {
     public ResizeAssertTests(SessionsTestFixture fixture) : base(fixture) { }
+
+    private static DeviceProfile MobileDevice => new()
+    {
+        Mobile = true,
+        Touch = true,
+        DeviceScaleFactor = 2,
+        MaxTouchPoints = 5,
+        UserAgentProfile = "mobile",
+    };
 
     /// <summary>
     /// Soft resize: logical Chrome geometry changes; display* reports Sessions.ViewportPolicy Maximum
@@ -59,5 +70,41 @@ public sealed class ResizeAssertTests : SessionsTestBase
         await act.WaitEvaluateContainsAsync(
             "window.innerWidth === 1280 && window.innerHeight === 720",
             "true");
+    }
+
+    /// <summary>
+    /// iPhone-class launch: logical 414×711 + mobile device must prove CSS layout viewport.
+    /// Regression for LaunchBrowserFailed when fullscreen + metrics leave Chrome at ~980px.
+    /// </summary>
+    [SessionsTestFact]
+    public async Task D4_mobile_iphone_logical_viewport_at_launch()
+    {
+        await using var act = new SessionsActClient(Fx.Host);
+        await act.ConnectAsync();
+        var started = await act.StartFixturePageAsync(
+            "/click-target",
+            width: 414,
+            height: 711,
+            device: MobileDevice);
+
+        Assert.Equal(4096, started.ViewportMaxWidth);
+        Assert.Equal(2160, started.ViewportMaxHeight);
+        Assert.NotEqual(414, started.ViewportMaxWidth);
+
+        await act.WaitEvaluateContainsAsync(
+            "window.innerWidth === 414 && window.innerHeight === 711",
+            "true");
+        await act.WaitEvaluateContainsAsync(
+            "window.screen.width === 414 && window.screen.height === 711",
+            "true");
+
+        var capacity = await act.ResizeAsync(414, 711, MobileDevice);
+        Assert.True(capacity.Applied);
+        Assert.Equal(414, capacity.Width);
+        Assert.Equal(711, capacity.Height);
+        Assert.NotNull(capacity.DisplayWidth);
+        Assert.NotNull(capacity.DisplayHeight);
+        Assert.Equal(4096, capacity.DisplayWidth);
+        Assert.Equal(2160, capacity.DisplayHeight);
     }
 }

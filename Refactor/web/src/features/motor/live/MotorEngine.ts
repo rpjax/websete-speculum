@@ -290,7 +290,7 @@ export class MotorEngine {
       const readyRes = await fetch(`${API_URL}/health/ready`, { credentials: 'include' })
       if (!this.isActive()) return
       if (!readyRes.ok) {
-        window.location.replace('/setup')
+        window.location.replace('/w7s/setup')
         return
       }
       this.clientConfig = await fetchClientConfig(API_URL, true)

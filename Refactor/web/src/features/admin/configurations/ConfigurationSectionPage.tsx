@@ -120,7 +120,7 @@ export function ConfigurationSectionPage() {
           title={title || 'Configuration'}
           actions={
             <Button asChild variant="outline" size="sm">
-              <Link to="/admin/configurations">
+              <Link to="/w7s/admin/configurations">
                 <ArrowLeft className="h-4 w-4" />
                 All sections
               </Link>
@@ -161,7 +161,7 @@ export function ConfigurationSectionPage() {
         description={description}
         actions={
           <Button asChild variant="outline" size="sm">
-            <Link to="/admin/configurations">
+            <Link to="/w7s/admin/configurations">
               <ArrowLeft className="h-4 w-4" />
               All sections
             </Link>
@@ -175,7 +175,7 @@ export function ConfigurationSectionPage() {
         <>
           <HelperCallout title="Why this matters">
             {section === 'Sessions'
-              ? 'Pick a posture that matches how people use live sessions here, tune the three primary answers, then save. Advanced options stay collapsed.'
+              ? 'Pick a posture that matches how people use live sessions here, tune hold / bridge / data transport / viewport, then save. Advanced options stay collapsed.'
               : 'Changes apply to new sessions after save. Keep rare options collapsed until you need them.'}
           </HelperCallout>
           <Card>
@@ -185,7 +185,7 @@ export function ConfigurationSectionPage() {
               </CardTitle>
               <CardDescription>
                 {section === 'Sessions'
-                  ? 'Start from a guided posture, then answer hold / bridge / viewport. Rare options stay collapsed.'
+                  ? 'Start from a guided posture, then answer hold / bridge / data transport / viewport. Rare options stay collapsed.'
                   : 'Facilitated fields only — no JSON wall.'}
               </CardDescription>
             </CardHeader>

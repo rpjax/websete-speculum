@@ -215,25 +215,6 @@ export class ControlPlane {
     }
   }
 
-  /**
-   * Admits one user-input event on the hub (product path). Uses send() so the caller
-   * only waits for the socket write — not server processing.
-   */
-  async sendInput(request: {
-    sessionId: string
-    token: string
-    type: string
-    payload: string
-  }): Promise<void> {
-    const connection = this.requireConnection()
-    await connection.send('SendInputAsync', {
-      sessionId: request.sessionId,
-      token: request.token,
-      type: request.type,
-      payload: request.payload,
-    })
-  }
-
   private onHubEvent(method: string, handler: (url: string) => void): () => void {
     const connection = this.requireConnection()
     const listener = (payload: unknown) => {

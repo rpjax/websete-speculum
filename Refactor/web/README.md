@@ -10,39 +10,42 @@ React **single-page application** for Speculum: Session Lab / Live (Motor surfac
 
 ## Routes
 
+Control plane is under **`/w7s/*`**. Any other path is **Live** (path → StartSession).
+
 | Path | Feature | Auth |
 |------|---------|------|
-| `/` | Session lab | — |
-| `/lab` | Same as `/` | — |
-| `/live` | Immersive canvas (no lab chrome) | — |
-| `/setup` | Readiness gate | setup / public status |
-| `/setup/configure` | Guided first-config wizard | bearer to apply |
-| `/admin/login` | Username/password sign-in | public |
-| `/admin/session-expired` | Soft landing after refresh fail | public |
-| `/admin` | Operator home (ready + NBA + shortcuts) | Bearer |
-| `/admin/change-password` | Change password | Bearer |
-| `/admin/sessions` | Live sessions list | Bearer |
-| `/admin/sessions/:sessionId` | Live session detail | Bearer |
-| `/admin/profiles` | Persisted profiles list | Bearer |
-| `/admin/profiles/:profileId` | Profile detail | Bearer |
-| `/admin/profiles/:profileId/delete` | Delete confirm | Bearer |
-| `/admin/scripts` | Scripts (library \| injections) | Bearer |
-| `/admin/scripts/upload` | Upload stored `.js` (max 512 KB) | Bearer |
-| `/admin/scripts/injections/new` | Injection create flow | Bearer |
-| `/admin/scripts/injections/:index/edit` | Injection edit flow | Bearer |
-| `/admin/scripts/injections/:index/remove` | Remove + apply | Bearer |
-| `/admin/configurations` | Engine sections hub | Bearer |
-| `/admin/configurations/:section` | Section editor / apply | Bearer |
-| `/admin/host-resources` | Host capacity status + preview/apply | Bearer |
-| `/admin/diagnostics` | Diagnostics job hub | Bearer |
-| `/admin/diagnostics/health` | Observe health | Bearer |
-| `/admin/diagnostics/timeline` | Investigate timeline | Bearer |
-| `/admin/diagnostics/investigate` | Investigate probes | Bearer |
-| `/admin/diagnostics/governance` | Govern | Bearer |
+| `*` (not `/w7s…`) | Immersive Live — browser path is the virtual start URL | — |
+| `/w7s/lab` | Session lab (debug / wire) | — |
+| `/w7s/setup` | Readiness gate | setup / public status |
+| `/w7s/setup/configure` | Guided first-config wizard | bearer to apply |
+| `/w7s/admin/login` | Username/password sign-in | public |
+| `/w7s/admin/session-expired` | Soft landing after refresh fail | public |
+| `/w7s/admin` | Operator home (ready + NBA + shortcuts) | Bearer |
+| `/w7s/admin/change-password` | Change password | Bearer |
+| `/w7s/admin/sessions` | Live sessions list | Bearer |
+| `/w7s/admin/sessions/:sessionId` | Live session detail | Bearer |
+| `/w7s/admin/profiles` | Persisted profiles list | Bearer |
+| `/w7s/admin/profiles/:profileId` | Profile detail | Bearer |
+| `/w7s/admin/profiles/:profileId/delete` | Delete confirm | Bearer |
+| `/w7s/admin/scripts` | Scripts (library \| injections) | Bearer |
+| `/w7s/admin/scripts/upload` | Upload stored `.js` (max 512 KB) | Bearer |
+| `/w7s/admin/scripts/injections/new` | Injection create flow | Bearer |
+| `/w7s/admin/scripts/injections/:index/edit` | Injection edit flow | Bearer |
+| `/w7s/admin/scripts/injections/:index/remove` | Remove + apply | Bearer |
+| `/w7s/admin/configurations` | Engine sections hub | Bearer |
+| `/w7s/admin/configurations/:section` | Section editor / apply | Bearer |
+| `/w7s/admin/host-resources` | Host capacity status + preview/apply | Bearer |
+| `/w7s/admin/diagnostics` | Diagnostics job hub | Bearer |
+| `/w7s/admin/diagnostics/health` | Observe health | Bearer |
+| `/w7s/admin/diagnostics/timeline` | Investigate timeline | Bearer |
+| `/w7s/admin/diagnostics/investigate` | Investigate probes | Bearer |
+| `/w7s/admin/diagnostics/governance` | Govern | Bearer |
 
-Bookmark redirect: `/admin/script-injection` → `/admin/scripts?tab=injections`.
+HTTP: `/w7s/api/*`, `/w7s/vhub`, `/w7s/health/*`, `/w7s/vtransport`, `/w7s/assets/*`.
 
-Removed (no redirects): `/admin/api-key`, `/admin/openapi`, `/admin/forwarding`, `/admin/capacity`, `/admin/hosting`, legacy diagnostics god-tree.
+Bookmark redirect: `/w7s/admin/script-injection` → `/w7s/admin/scripts?tab=injections`.
+
+Hard cut (no redirects): former `/admin`, `/lab`, `/live`, `/setup`, `/api`, `/vhub`, `/health`.
 
 ---
 
@@ -53,10 +56,10 @@ web (nginx in prod)
   ├─ static assets (Vite build)
   └─ SPA fallback → index.html
 
-Browser ──► same host (relative `/api`, `/vhub`)
+Browser ──► same host (relative `/w7s/api`, `/w7s/vhub`)
   ├─ Admin: Bearer access + refresh (sessionStorage)
-  ├─ Lab/Live: SignalR /vhub + WebTransport
-  └─ Public: /api/public/client-config
+  ├─ Lab/Live: SignalR /w7s/vhub + WebTransport /w7s/vtransport
+  └─ Public: /w7s/api/public/client-config
 ```
 
 Same-origin by default (`API_URL = ''`). Optional `VITE_API_URL` for cross-origin Vite dev.

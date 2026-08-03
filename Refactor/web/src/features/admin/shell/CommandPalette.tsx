@@ -19,13 +19,19 @@ type CommandPaletteProps = {
 }
 
 const goTo = [
-  { label: 'Home', href: '/admin' },
-  { label: 'Sessions', href: '/admin/sessions' },
-  { label: 'Profiles', href: '/admin/profiles' },
-  { label: 'Scripts', href: '/admin/scripts' },
-  { label: 'Configurations', href: '/admin/configurations' },
-  { label: 'Host resources', href: '/admin/host-resources' },
-  { label: 'Diagnostics', href: '/admin/diagnostics' },
+  { label: 'Home', href: '/w7s/admin' },
+  { label: 'Sessions', href: '/w7s/admin/sessions' },
+  { label: 'Profiles', href: '/w7s/admin/profiles' },
+  { label: 'Scripts', href: '/w7s/admin/scripts' },
+  { label: 'Configurations', href: '/w7s/admin/configurations' },
+  { label: 'Host resources', href: '/w7s/admin/host-resources' },
+  { label: 'Health', href: '/w7s/admin/diagnostics/health' },
+  { label: 'Resources', href: '/w7s/admin/diagnostics/resources' },
+  { label: 'Signals', href: '/w7s/admin/diagnostics/signals' },
+  { label: 'Journal', href: '/w7s/admin/diagnostics/timeline' },
+  { label: 'Investigate', href: '/w7s/admin/diagnostics/investigate' },
+  { label: 'Reports', href: '/w7s/admin/diagnostics/reports' },
+  { label: 'Governance', href: '/w7s/admin/diagnostics/governance' },
 ]
 
 function shortcutLabel(): string {
@@ -50,7 +56,7 @@ export function CommandPalette({ open, onOpenChange, onSignOut }: CommandPalette
       actions: [
         {
           label: 'Change password',
-          action: () => navigate('/admin/change-password'),
+          action: () => navigate('/w7s/admin/change-password'),
           icon: KeyRound,
         },
         { label: 'Sign out', action: onSignOut, icon: LogOut },

@@ -346,7 +346,7 @@ function ScriptingFields({ value }: { value: JsonObject }) {
     <div className="space-y-4">
       <HelperCallout
         title="Manage injections in Scripts"
-        action={{ label: 'Open injections', href: '/admin/scripts?tab=injections' }}
+        action={{ label: 'Open injections', href: '/w7s/admin/scripts?tab=injections' }}
       >
         Injection rules have a safer focused flow. This section currently has {injections.length} injection
         {injections.length === 1 ? '' : 's'}.
@@ -359,10 +359,10 @@ function ScriptingFields({ value }: { value: JsonObject }) {
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
           <Button asChild size="sm">
-            <Link to="/admin/scripts?tab=injections">Open injections</Link>
+            <Link to="/w7s/admin/scripts?tab=injections">Open injections</Link>
           </Button>
           <Button asChild size="sm" variant="outline">
-            <Link to="/admin/scripts?tab=library">Open library</Link>
+            <Link to="/w7s/admin/scripts?tab=library">Open library</Link>
           </Button>
         </div>
       </DataCard>

@@ -42,12 +42,12 @@ export function LibraryPage() {
   }
   return <section className="space-y-4">
     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-      <Button asChild><Link to="/admin/scripts/upload"><Upload className="h-4 w-4" />Upload script</Link></Button>
+      <Button asChild><Link to="/w7s/admin/scripts/upload"><Upload className="h-4 w-4" />Upload script</Link></Button>
       <SearchFilter value={query} onChange={setQuery} placeholder="Search scripts" />
     </div>
     {error ? <SaveFeedback mode="inline-error" message={error} /> : null}
     {loading ? <p className="text-sm text-muted-foreground">Loading script library…</p> : scripts.length === 0
-      ? <EmptyState title="No scripts in the library" body="Upload a .js file to use as a stored injection source." cta={{ label: 'Upload script', href: '/admin/scripts/upload' }} />
+      ? <EmptyState title="No scripts in the library" body="Upload a .js file to use as a stored injection source." cta={{ label: 'Upload script', href: '/w7s/admin/scripts/upload' }} />
       : <DataCard><Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Size</TableHead><TableHead>Updated</TableHead><TableHead><span className="sr-only">Actions</span></TableHead></TableRow></TableHeader><TableBody>{scripts.map((script) => <TableRow key={script.id}><TableCell><p className="font-medium">{script.name}</p><MetaRow className="mt-1 text-xs text-muted-foreground"><span>SHA-256</span><code className="font-mono">{script.sha256}</code></MetaRow></TableCell><TableCell className="whitespace-nowrap text-sm text-muted-foreground">{bytes(script.size)}</TableCell><TableCell className="whitespace-nowrap text-sm text-muted-foreground">{date(script.updatedAt ?? script.uploadedAt)}</TableCell><TableCell className="text-right"><Button size="sm" variant="outline" onClick={() => setDeleting(script)}><Trash2 className="h-4 w-4" />Delete</Button></TableCell></TableRow>)}</TableBody></Table></DataCard>}
     <ConfirmDestructive open={Boolean(deleting)} onOpenChange={(open) => !open && setDeleting(null)} title={deleting ? `Delete “${deleting.name}”?` : 'Delete script?'} body="Injections that reference it will fail apply until updated." confirmLabel="Delete" onConfirm={() => void deleteScript()} submitting={pending} />
   </section>

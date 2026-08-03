@@ -15,9 +15,8 @@ namespace Speculum.Api.Presentation.Sessions;
 
 /// <summary>
 /// SignalR control plane for live sessions: RPCs plus the Journal observation stream.
-/// Screencast frames stay on WebTransport. User input is admitted here (SignalR) because
-/// Kestrel does not implement WT datagrams yet and client-initiated WT UserInput streams
-/// are delayed ~60s on some Docker Desktop lab paths.
+/// Data streams (frames, user input, console) use the data-plane carrier (/vtransport or /vstream).
+/// StartSession attaches the hub client before return (detached timeout holds while attached).
 /// </summary>
 public sealed class SessionHub : Hub<ISessionHubClient>
 {
@@ -243,47 +242,6 @@ public sealed class SessionHub : Hub<ISessionHubClient>
         }
 
         return SessionHubRequestMapper.ToResizeResponse(result.Value);
-    }
-
-    /// <summary>
-    /// Admits one user-input event into the bound live session (mouse/key/wheel/touch).
-    /// Fire-and-forget friendly: returns after queue; mux drains DropOldest.
-    /// </summary>
-    public Task SendInputAsync(SendInputHubRequest request)
-    {
-        ArgumentNullException.ThrowIfNull(request);
-
-        if (!_bindings.IsAuthorized(
-                Context.ConnectionId,
-                request.SessionId,
-                request.Token ?? string.Empty))
-        {
-            throw new HubException("Session binding is not authorized");
-        }
-
-        if (!_liveSessions.TryGet(request.SessionId, out var live))
-        {
-            throw new HubException("Live session not found");
-        }
-
-        if (string.IsNullOrWhiteSpace(request.Type) || string.IsNullOrWhiteSpace(request.Payload))
-        {
-            throw new HubException("Type and Payload are required");
-        }
-
-        var kind = request.Type.Trim();
-        var admit = live.AdmitUserInput(new UserInput
-        {
-            Type = kind,
-            Payload = request.Payload,
-        });
-        if (admit.IsFailure)
-        {
-            throw new HubException(SessionHubRequestMapper.FormatErrors(admit));
-        }
-
-        live.TraceInputPathControlReceived(kind);
-        return Task.CompletedTask;
     }
 
     public override async Task OnDisconnectedAsync(Exception? exception)

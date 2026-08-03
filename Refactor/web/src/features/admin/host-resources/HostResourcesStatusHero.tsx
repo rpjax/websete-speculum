@@ -122,7 +122,7 @@ export function HostResourcesStatusHero({
           title="Shared memory looks low"
           body={`The sidecar reports ${formatGibLabel(shm)}, below the planned minimum of ${formatGibLabel(params.shmMinBytes)}. Review and apply a resource plan before admitting more sessions.`}
           ctaLabel="Stay on parameters"
-          href="/admin/host-resources"
+          href="/w7s/admin/host-resources"
         />
       ) : null}
 
@@ -146,6 +146,13 @@ export function HostResourcesStatusHero({
           ) : null}
         </DataCard>
       ) : null}
+
+      <NextBestAction
+        title="Watch live resources"
+        body="Continuous CPU, memory, and disk series live under Diagnostics."
+        ctaLabel="Open resources"
+        href="/w7s/admin/diagnostics/resources"
+      />
     </div>
   )
 }

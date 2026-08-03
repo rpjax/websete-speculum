@@ -58,12 +58,13 @@ public sealed class SessionStartEvents : ISessionStartEvents
         });
     }
 
-    public void InitialNavigationCompleted()
+    public void InitialNavigationCompleted(string url)
     {
         _writer.Append(new InitialNavigationCompleted
         {
             SessionId = _sessionId,
             ProfileId = _profileId,
+            Url = url,
         });
     }
 
@@ -116,12 +117,14 @@ public sealed class SessionStartEvents : ISessionStartEvents
         });
     }
 
-    public void InitialNavigationFailed(Error[] errors)
+    public void InitialNavigationFailed(Error[] errors, string phase, string? url = null)
     {
         _writer.Append(new InitialNavigationFailed
         {
             SessionId = _sessionId,
             ProfileId = _profileId,
+            Phase = phase,
+            Url = url,
             Errors = JournalError.From(errors),
         });
     }

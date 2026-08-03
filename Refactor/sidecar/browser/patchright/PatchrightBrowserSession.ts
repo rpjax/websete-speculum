@@ -20,8 +20,10 @@ import { closeChrome, launchChrome, type ChromeHandle } from './ChromeRuntime';
 import { Display, type DisplayAllocator } from './Display';
 import {
   deviceProfilesEqual,
+  installMobileViewportMetaInit,
   isInputTouchPrimary,
   proveLogicalViewport,
+  reassertLogicalViewportAfterNavigation,
   resolveDeviceProfile,
 } from './device-emulation';
 import { EditableFocus } from './EditableFocus';
@@ -184,6 +186,9 @@ export class PatchrightBrowserSession implements BrowserSession {
 
       const device = resolveDeviceProfile(options.device);
       this.viewport = new Viewport(width, height, device);
+      if (device.mobile) {
+        await installMobileViewportMetaInit(this.chrome.page);
+      }
       await this.navigation.setupSingleTab(this.chrome.context);
       this.navigation.setupTabInterception(this.chrome.context, this.chrome.page);
       this.navigation.setupLocationSync(this.chrome.page);
@@ -193,8 +198,8 @@ export class PatchrightBrowserSession implements BrowserSession {
         options.allowedNavigationDomains,
       );
 
-      // Re-prove after tab/guard setup — mobile about:blank + innerWidth is unreliable;
-      // proveLogicalViewport uses CDP cssLayoutViewport after fresh metrics apply.
+      // Re-prove after tab/guard setup — bounds + metrics must stick for mobile.
+      // proveLogicalViewport uses CDP cssLayoutViewport after fresh apply.
       const proven = await proveLogicalViewport(this.chrome.cdp, width, height, device, {
         phase: 'launch',
       });
@@ -331,6 +336,14 @@ export class PatchrightBrowserSession implements BrowserSession {
       this.editableFocus.stop();
       try {
         await this.chrome!.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+        // Navigation can drop mobile CSS layout back to the legacy ~980px width
+        // when the page lacks viewport meta — reinject + re-apply metrics.
+        await reassertLogicalViewportAfterNavigation(
+          this.chrome!.cdp,
+          this.viewport!.width,
+          this.viewport!.height,
+          this.viewport!.device,
+        );
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         // Detached frames / closed targets are session faults, not process crashes.
@@ -366,6 +379,12 @@ export class PatchrightBrowserSession implements BrowserSession {
       this.editableFocus.stop();
       try {
         await this.chrome!.page.reload({ waitUntil: 'domcontentloaded', timeout: 30_000 });
+        await reassertLogicalViewportAfterNavigation(
+          this.chrome!.cdp,
+          this.viewport!.width,
+          this.viewport!.height,
+          this.viewport!.device,
+        );
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         // Same class as navigate: detached frames / closed targets are session faults.

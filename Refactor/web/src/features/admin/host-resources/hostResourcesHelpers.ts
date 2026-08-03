@@ -18,6 +18,8 @@ export type HostResourceHostSnapshot = {
   memoryAvailableBytes?: number
   cpuCount?: number
   source?: string
+  diskTotalBytes?: number
+  diskFreeBytes?: number
 }
 
 export type HostResourceSidecarSnapshot = {
@@ -78,7 +80,7 @@ export type EstimatedPlan = {
   availableForShmBytes: number
 }
 
-export type PlanPresetId = 'shared-desktop' | 'dedicated' | 'conservative-reserve' | 'aggressive-shm'
+export type PlanPresetId = 'dev-machine' | 'prod-vps' | 'balanced'
 
 export type PlanPreset = {
   id: PlanPresetId
@@ -89,12 +91,15 @@ export type PlanPreset = {
   effect: string
 }
 
+/** Soft defaults that still fit a ~4 GiB host; presets scale further to the live total.
+ * shmMaxPercent 100% = after OS reserve, the rest of the budget goes to browsers (no idle remainder).
+ */
 export const DEFAULT_PARAMS: HostResourceProvisionParams = {
   maxRamBytes: null,
   reservePercent: 15,
-  reserveMinBytes: 2 * GIB,
-  shmMinBytes: 2 * GIB,
-  shmMaxPercentOfBudget: 75,
+  reserveMinBytes: 1 * GIB,
+  shmMinBytes: 1 * GIB,
+  shmMaxPercentOfBudget: 100,
   raiseUlimits: true,
   nofile: 1_048_576,
   nproc: 65_535,
@@ -102,36 +107,34 @@ export const DEFAULT_PARAMS: HostResourceProvisionParams = {
 
 export const PLAN_PRESETS: PlanPreset[] = [
   {
-    id: 'shared-desktop',
-    label: 'Shared desktop',
+    id: 'dev-machine',
+    label: 'Dev machine',
     description: 'This PC also runs your IDE, browser, and other apps.',
-    effect: 'Caps the RAM budget so Speculum leaves room for everything else.',
+    effect:
+      'Caps Speculum’s RAM budget so the rest of the host stays for your IDE. Inside that budget, OS reserve is taken first and browsers get everything left.',
   },
   {
-    id: 'dedicated',
-    label: 'Dedicated host',
-    description: 'This machine is mostly Speculum.',
-    effect: 'Plans against the full host RAM total (no budget cap).',
+    id: 'prod-vps',
+    label: 'Production VPS',
+    description: 'Dedicated Speculum box — unlock the hardware.',
+    effect:
+      'Uses the full host RAM, a low OS reserve, and gives browsers everything left in the budget.',
   },
   {
-    id: 'conservative-reserve',
-    label: 'Safer for the OS',
-    description: 'You want a larger cushion for the operating system.',
-    effect: 'Raises host reserve to 25% with a 4 GiB floor.',
-  },
-  {
-    id: 'aggressive-shm',
-    label: 'More session memory',
-    description: 'You expect heavier or more concurrent browser sessions.',
-    effect: 'Raises shared-memory floor to 4 GiB and the ceiling to 90%.',
+    id: 'balanced',
+    label: 'Balanced',
+    description: 'Semi-dedicated host without going aggressive.',
+    effect: 'Full host budget, a middle OS reserve, and browsers get everything left after that.',
   },
 ]
 
-export const RESERVE_PERCENT_CHIPS = [10, 15, 20, 25, 30] as const
-export const SHM_PERCENT_CHIPS = [50, 60, 75, 85, 90] as const
-export const RAM_GIB_CHIP_CANDIDATES = [4, 8, 16, 24, 32, 48, 64] as const
-export const RESERVE_MIN_GIB_CHIPS = [1, 2, 4, 8] as const
-export const SHM_MIN_GIB_CHIPS = [1, 2, 4, 8] as const
+export const RESERVE_PERCENT_CHIPS = [5, 10, 15, 20, 25, 30] as const
+export const SHM_PERCENT_CHIPS = [50, 60, 75, 85, 90, 100] as const
+export const RAM_GIB_CHIP_CANDIDATES = [2, 4, 8, 16, 24, 32, 48, 64] as const
+export const RESERVE_MIN_GIB_CHIPS = [0.5, 1, 2, 4, 8] as const
+export const SHM_MIN_GIB_CHIPS = [0.5, 1, 2, 4, 8] as const
+
+export const MIB = 1024 ** 2
 
 export function bytesToGibInput(bytes?: number | null): string {
   if (bytes == null || !Number.isFinite(bytes) || bytes < 0) return ''
@@ -163,47 +166,125 @@ export function formatCompactCount(value?: number | null): string {
   return value.toLocaleString()
 }
 
+/** Floor bytes that always leave room for shm on this host total (not free RAM). */
+export function scaledHostFloors(hostMemoryTotalBytes: number): {
+  reserveMinBytes: number
+  shmMinBytes: number
+} {
+  const host = Math.max(0, hostMemoryTotalBytes)
+  const maxSum = Math.floor(host * 0.85)
+  let reserveMin = Math.min(2 * GIB, Math.max(512 * MIB, Math.floor(host * 0.12)))
+  let shmMin = Math.min(2 * GIB, Math.max(512 * MIB, Math.floor(host * 0.25)))
+  if (reserveMin + shmMin > maxSum && maxSum > 0) {
+    reserveMin = Math.floor(maxSum * 0.35)
+    shmMin = Math.max(512 * MIB, maxSum - reserveMin)
+  }
+  return { reserveMinBytes: reserveMin, shmMinBytes: shmMin }
+}
+
 /** Suggested RAM cap for a shared / multi-workload host (never exceeds host total). */
 export function suggestedSharedDesktopCapBytes(hostMemoryTotalBytes?: number | null): number {
   const fallback = 8 * GIB
   if (hostMemoryTotalBytes == null || hostMemoryTotalBytes <= 0) return fallback
   if (hostMemoryTotalBytes <= 8 * GIB) {
-    // Leave room for OS when the machine is already small.
-    return Math.max(4 * GIB, Math.floor(hostMemoryTotalBytes / 2))
+    // Half the box, but never above the host and at least 2 GiB when the host allows it.
+    return Math.min(
+      hostMemoryTotalBytes,
+      Math.max(Math.min(2 * GIB, hostMemoryTotalBytes), Math.floor(hostMemoryTotalBytes / 2)),
+    )
   }
   if (hostMemoryTotalBytes <= 16 * GIB) return 8 * GIB
   return 16 * GIB
 }
 
 /**
- * Merge a plan preset into current params without wiping process limits
- * unless the preset intentionally changes memory knobs only.
+ * Clamp floors so reserve + shmMin fit the planning budget from host *total*
+ * (never from currently free RAM — the engine already holds memory).
+ */
+export function fitParamsToHost(
+  parameters: HostResourceProvisionParams,
+  hostMemoryTotalBytes: number,
+): HostResourceProvisionParams {
+  if (!Number.isFinite(hostMemoryTotalBytes) || hostMemoryTotalBytes <= 0) return parameters
+  const next = { ...parameters }
+  const budget =
+    next.maxRamBytes != null && next.maxRamBytes > 0
+      ? Math.min(hostMemoryTotalBytes, next.maxRamBytes)
+      : hostMemoryTotalBytes
+  const floors = scaledHostFloors(budget)
+  const reserveMin = next.reserveMinBytes ?? DEFAULT_PARAMS.reserveMinBytes!
+  const shmMin = next.shmMinBytes ?? DEFAULT_PARAMS.shmMinBytes!
+  if (reserveMin + shmMin > budget) {
+    next.reserveMinBytes = floors.reserveMinBytes
+    next.shmMinBytes = floors.shmMinBytes
+  } else if (validateAgainstHost(next, hostMemoryTotalBytes)) {
+    // Percent reserve alone can still starve shm — drop floors to scaled values.
+    next.reserveMinBytes = Math.min(reserveMin, floors.reserveMinBytes)
+    next.shmMinBytes = Math.min(shmMin, floors.shmMinBytes)
+    if (validateAgainstHost(next, hostMemoryTotalBytes)) {
+      next.reservePercent = Math.min(next.reservePercent ?? 15, 10)
+      next.reserveMinBytes = floors.reserveMinBytes
+      next.shmMinBytes = floors.shmMinBytes
+    }
+  }
+  return next
+}
+
+/**
+ * Merge a plan preset into current params without wiping process limits.
  */
 export function applyPlanPreset(
   current: HostResourceProvisionParams,
   presetId: PlanPresetId,
   hostMemoryTotalBytes?: number | null,
 ): HostResourceProvisionParams {
+  const host = hostMemoryTotalBytes != null && hostMemoryTotalBytes > 0 ? hostMemoryTotalBytes : null
+  const floors = host != null ? scaledHostFloors(host) : null
+
   switch (presetId) {
-    case 'shared-desktop':
-      return {
+    case 'dev-machine': {
+      // Headroom for the IDE is the budget cap vs host total — not idle remainder inside the budget.
+      const next: HostResourceProvisionParams = {
         ...current,
-        maxRamBytes: suggestedSharedDesktopCapBytes(hostMemoryTotalBytes),
+        maxRamBytes: suggestedSharedDesktopCapBytes(host),
+        reservePercent: 20,
+        reserveMinBytes: floors?.reserveMinBytes ?? 1 * GIB,
+        shmMinBytes: floors?.shmMinBytes ?? 1 * GIB,
+        shmMaxPercentOfBudget: 100,
       }
-    case 'dedicated':
-      return { ...current, maxRamBytes: null }
-    case 'conservative-reserve':
-      return {
+      return host != null ? fitParamsToHost(next, host) : next
+    }
+    case 'prod-vps': {
+      const next: HostResourceProvisionParams = {
         ...current,
-        reservePercent: 25,
-        reserveMinBytes: 4 * GIB,
+        maxRamBytes: null,
+        reservePercent: 8,
+        reserveMinBytes:
+          host != null && host >= 16 * GIB
+            ? 1 * GIB
+            : (floors?.reserveMinBytes ?? 512 * MIB),
+        shmMinBytes:
+          host != null && host >= 16 * GIB
+            ? 4 * GIB
+            : host != null && host >= 8 * GIB
+              ? 2 * GIB
+              : (floors?.shmMinBytes ?? 1 * GIB),
+        shmMaxPercentOfBudget: 100,
+        raiseUlimits: true,
       }
-    case 'aggressive-shm':
-      return {
+      return host != null ? fitParamsToHost(next, host) : next
+    }
+    case 'balanced': {
+      const next: HostResourceProvisionParams = {
         ...current,
-        shmMinBytes: 4 * GIB,
-        shmMaxPercentOfBudget: 90,
+        maxRamBytes: null,
+        reservePercent: 15,
+        reserveMinBytes: floors?.reserveMinBytes ?? 1 * GIB,
+        shmMinBytes: floors?.shmMinBytes ?? 1 * GIB,
+        shmMaxPercentOfBudget: 100,
       }
+      return host != null ? fitParamsToHost(next, host) : next
+    }
     default:
       return current
   }
@@ -296,7 +377,12 @@ export function validateAgainstHost(
   if (!estimate) return null
   const shmMin = parameters.shmMinBytes ?? DEFAULT_PARAMS.shmMinBytes!
   if (estimate.availableForShmBytes < shmMin) {
-    return `Budget after reserve (${formatGibLabel(estimate.availableForShmBytes)}) is below the shared-memory minimum (${formatGibLabel(shmMin)}). Raise the RAM cap or lower the reserve.`
+    return (
+      `Planning uses host RAM total (${formatGibLabel(hostMemoryTotalBytes)}), not free RAM right now ` +
+      `(the engine already holds memory). After keeping ${formatGibLabel(estimate.reserveBytes)} for the OS, ` +
+      `${formatGibLabel(estimate.availableForShmBytes)} remains for shared memory, but the minimum is ` +
+      `${formatGibLabel(shmMin)}. Lower the reserve, lower the shm minimum, or pick Production VPS / Dev machine.`
+    )
   }
   return null
 }
@@ -327,6 +413,14 @@ export function memoryUsePercent(
   return (1 - availableBytes / totalBytes) * 100
 }
 
+export function diskUsePercent(
+  totalBytes?: number | null,
+  freeBytes?: number | null,
+): number | null {
+  if (totalBytes == null || freeBytes == null || totalBytes <= 0) return null
+  return (1 - freeBytes / totalBytes) * 100
+}
+
 export function planBreakdownPercents(plan: {
   budgetBytes: number
   reserveBytes: number
@@ -351,7 +445,7 @@ export function describePlanRecipe(
   if (estimate.availableForShmBytes <= 0) {
     return `Speculum plans against ${capped}, but the host reserve currently consumes the whole budget. Lower the reserve percent or the minimum reserve so shared memory can fit.`
   }
-  return `Speculum plans against ${capped}. It keeps ${formatGibLabel(estimate.reserveBytes)} free for the operating system, then targets ${formatGibLabel(estimate.shmTargetBytes)} of shared memory for browser sessions.`
+  return `Speculum plans against ${capped} (host total — not free RAM). It keeps ${formatGibLabel(estimate.reserveBytes)} for the operating system, then targets ${formatGibLabel(estimate.shmTargetBytes)} of shared memory for browser sessions.`
 }
 
 /** True when `current` is not represented by any chip (within a small GiB/percent epsilon). */

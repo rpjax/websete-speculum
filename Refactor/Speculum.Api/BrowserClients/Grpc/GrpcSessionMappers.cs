@@ -112,6 +112,11 @@ internal static class GrpcSessionMappers
             proto.UserAgentProfile = device.UserAgentProfile;
         }
 
+        if (!string.IsNullOrWhiteSpace(device.DeviceCategory))
+        {
+            proto.DeviceCategory = device.DeviceCategory;
+        }
+
         if (!string.IsNullOrWhiteSpace(device.ScreenOrientation))
         {
             proto.ScreenOrientation = device.ScreenOrientation;

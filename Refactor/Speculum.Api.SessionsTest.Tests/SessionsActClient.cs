@@ -90,8 +90,20 @@ public sealed class SessionsActClient : IAsyncDisposable
         }
     }
 
-    public async Task<StartSessionHubResponse> StartFixturePageAsync(
+    public Task<StartSessionHubResponse> StartFixturePageAsync(
         string path,
+        int width = 1280,
+        int height = 720,
+        DeviceProfile? device = null,
+        CancellationToken ct = default)
+        => StartSessionAsync(path, query: "", width, height, device, ct);
+
+    /// <summary>
+    /// Start a live session at arbitrary path/query (use <c>_w7s_nso</c> for external hosts).
+    /// </summary>
+    public async Task<StartSessionHubResponse> StartSessionAsync(
+        string path,
+        string query = "",
         int width = 1280,
         int height = 720,
         DeviceProfile? device = null,
@@ -111,7 +123,7 @@ public sealed class SessionsActClient : IAsyncDisposable
             {
                 ProfileId = ensured.ProfileId,
                 Path = path,
-                Query = "",
+                Query = query,
                 ViewportWidth = width,
                 ViewportHeight = height,
                 Device = device,
@@ -270,7 +282,7 @@ public sealed class SessionsActClient : IAsyncDisposable
             ct);
     }
 
-    public async Task<ResizeResult> ResizeAsync(
+    public async Task<ResizeSessionHubResponse> ResizeAsync(
         int width,
         int height,
         DeviceProfile? device = null,
@@ -278,7 +290,7 @@ public sealed class SessionsActClient : IAsyncDisposable
     {
         EnsureConnected();
         EnsureSession();
-        return await _connection!.InvokeAsync<ResizeResult>(
+        return await _connection!.InvokeAsync<ResizeSessionHubResponse>(
             "ResizeAsync",
             new ResizeSessionHubRequest
             {

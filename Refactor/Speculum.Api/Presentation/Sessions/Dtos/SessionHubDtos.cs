@@ -70,6 +70,9 @@ public sealed class ClientEnvironmentHubRequest
     [Key("colorScheme")]
     public string? ColorScheme { get; set; }
 
+    [Key("languages")]
+    public List<string>? Languages { get; set; }
+
     [Key("geolocation")]
     public GeolocationHubRequest? Geolocation { get; set; }
 }

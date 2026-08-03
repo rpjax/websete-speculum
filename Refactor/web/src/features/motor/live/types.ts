@@ -44,6 +44,7 @@ export interface DeviceProfilePayload {
   deviceScaleFactor: number
   maxTouchPoints: number
   userAgentProfile?: string
+  deviceCategory?: 'phone' | 'tablet' | 'pc'
   screenOrientation?: string
 }
 

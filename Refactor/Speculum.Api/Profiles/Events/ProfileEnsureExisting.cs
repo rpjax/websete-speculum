@@ -3,15 +3,15 @@ using Speculum.Api.Journal.Models;
 
 namespace Speculum.Api.Profiles.Events;
 
-/// <summary>Journal fact: an existing profile id was resolved on ensure.</summary>
+/// <summary>Journal fact: ensure resolved a known profile id without creating a new identity.</summary>
 [CanonicalFact(
-    "Profiles.ProfileReused",
+    "Profiles.ProfileEnsureExisting",
     schemaVersion: 1,
-    Name = "Profile reused",
+    Name = "Profile ensure (existing)",
     Description = "Ensure resolved a known profile id without creating a new identity.",
     Owner = "profiles",
     PublishPolicy = PublishPolicy.Guaranteed)]
-public sealed class ProfileReused
+public sealed class ProfileEnsureExisting
 {
     [JournalIndex("profile")]
     public required Guid ProfileId { get; init; }

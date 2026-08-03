@@ -25,6 +25,7 @@ import {
   bytesToGibInput,
   describePlanRecipe,
   estimatePlan,
+  fitParamsToHost,
   formatGibLabel,
   gibInputToBytes,
   isCustomChipValue,
@@ -86,8 +87,9 @@ export function ParametersStep({
   return (
     <div className="space-y-5">
       <HelperCallout title="What you are planning">
-        Speculum browsers need shared memory on the host. Pick a starting plan that matches this machine, confirm the
-        live estimate, then review. Open the three steps only when you need a custom split.
+        Speculum sizes shared memory from the host <span className="font-medium text-foreground">RAM total</span>, not
+        from free RAM right now (the engine already holds memory). Pick Dev machine for a shared laptop, or Production
+        VPS to unlock a dedicated box.
       </HelperCallout>
 
       <DataCard className="space-y-4 p-4">
@@ -143,8 +145,8 @@ export function ParametersStep({
           </div>
         ) : (
           <p className="text-xs text-muted-foreground">
-            Not sure? Start with <span className="font-medium text-foreground">Shared desktop</span> on a laptop, or{' '}
-            <span className="font-medium text-foreground">Dedicated host</span> on a Speculum-only box.
+            Not sure? Start with <span className="font-medium text-foreground">Dev machine</span> on a laptop, or{' '}
+            <span className="font-medium text-foreground">Production VPS</span> on a Speculum-only box.
           </p>
         )}
       </DataCard>
@@ -201,8 +203,8 @@ export function ParametersStep({
             title="How much RAM may Speculum use?"
             body={
               hostMemoryTotalBytes != null
-                ? `This is the planning budget — not a hard lock of the whole machine. Host total today: ${formatGibLabel(hostMemoryTotalBytes)}.`
-                : 'This is the planning budget — not a hard lock of the whole machine.'
+                ? `Planning budget from host total (${formatGibLabel(hostMemoryTotalBytes)}) — not free RAM. Cap Speculum below the full box on a shared machine.`
+                : 'Planning budget from host total — not free RAM. Cap Speculum below the full box on a shared machine.'
             }
           >
             <ChipRow
@@ -306,6 +308,10 @@ export function ParametersStep({
               </div>
               <div className="space-y-2">
                 <p className="text-xs font-medium text-foreground">Ceiling as % of the budget</p>
+                <p className="text-[11px] text-muted-foreground">
+                  Caps how much of the budget browsers may claim. Presets use 100% so everything left after the OS
+                  reserve goes to shm — lower this only if you want idle headroom inside the budget.
+                </p>
                 <ChipRow
                   values={SHM_PERCENT_CHIPS}
                   current={shmCapPercent}
@@ -315,7 +321,7 @@ export function ParametersStep({
                 <CustomValue
                   id="shmMaxPercentOfBudget"
                   label="Custom ceiling (%)"
-                  helper="Shared memory is clamped between the minimum and this percent of the planning budget."
+                  helper="100% = browsers get everything left after OS reserve. Lower only for intentional idle headroom inside the budget."
                   value={String(shmCapPercent)}
                   suffix="%"
                   forceOpen={isCustomChipValue(shmCapPercent, SHM_PERCENT_CHIPS)}
@@ -372,19 +378,27 @@ export function ParametersStep({
                 type="button"
                 size="sm"
                 variant="outline"
-                onClick={() =>
+                onClick={() => {
+                  if (hostMemoryTotalBytes != null && hostMemoryTotalBytes > 0) {
+                    onChange(fitParamsToHost(params, hostMemoryTotalBytes))
+                    setPickedPreset(null)
+                    return
+                  }
                   patch({
                     reservePercent: 10,
-                    reserveMinBytes: 1 * (1024 ** 3),
+                    reserveMinBytes: 0.5 * (1024 ** 3),
                     shmMinBytes: 1 * (1024 ** 3),
-                    shmMaxPercentOfBudget: 75,
+                    shmMaxPercentOfBudget: 100,
                   })
-                }
+                }}
               >
-                Use a small-host split
+                Fit to this host
               </Button>
-              <Button type="button" size="sm" variant="outline" onClick={() => applyPreset('shared-desktop')}>
-                Apply Shared desktop
+              <Button type="button" size="sm" variant="outline" onClick={() => applyPreset('dev-machine')}>
+                Apply Dev machine
+              </Button>
+              <Button type="button" size="sm" variant="outline" onClick={() => applyPreset('prod-vps')}>
+                Apply Production VPS
               </Button>
             </div>
           </HelperCallout>

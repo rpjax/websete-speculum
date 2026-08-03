@@ -71,6 +71,7 @@ export function toDevice(d: any): BrowserDeviceProfile {
     deviceScaleFactor: d.deviceScaleFactor,
     maxTouchPoints: d.maxTouchPoints,
     userAgentProfile: d.userAgentProfile,
+    deviceCategory: d.deviceCategory,
     screenOrientation: d.screenOrientation,
   };
 }

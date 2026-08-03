@@ -21,6 +21,8 @@ Technical documentation for the **Speculum** remote browser isolation platform (
 | [architecture.md](architecture.md) | Architects, operators | System design, data flows, security boundaries |
 | [naming.md](naming.md) | Developers / agents | Speculum / Sessions / W7S vocabulary |
 | [diagnostics.md](diagnostics.md) | Backend / QA | Assertable observability contracts + Assert Cookbook |
+| [stealth-suite.md](stealth-suite.md) | Agents / QA | In-session antibot fingerprint suite (CreepJS etc.) + report template |
+| [stealth-suite-results.md](stealth-suite-results.md) | Agents / product | Latest objective stealth capture + priority backlog |
 | [assert-failure-policy.md](assert-failure-policy.md) | CI / QA | Never weaken hardened asserts — triage product vs harness |
 | [motor-reference.md](motor-reference.md) | Backend / motor developers | Session lifecycle, forwarding model, binary protocol |
 | [../deploy/README.md](../deploy/README.md) | DevOps | **Canonical deploy** via [dockup](https://github.com/rpjax/npm-dockup) |

@@ -1,5 +1,17 @@
-import type { CDPSession } from 'patchright';
+import type { CDPSession, Page } from 'patchright';
 import type { BrowserDeviceProfile } from '../BrowserSession';
+import {
+  kitHardwareSpoofSource,
+  resolveDeviceCategory,
+  resolveDeviceKit,
+  type DeviceCategory,
+} from './device-kits';
+
+export type { DeviceCategory };
+export { resolveDeviceCategory, resolveDeviceKit, DEVICE_KITS, kitHardwareSpoofSource } from './device-kits';
+
+/** Viewport meta content used for mobile CSS layout (avoids legacy ~980px width). */
+export const MOBILE_VIEWPORT_META_CONTENT = 'width=device-width, initial-scale=1';
 
 /** Desktop fallback when the client omits a device profile (dpr=1, no touch). */
 export const DEFAULT_DESKTOP_DEVICE: BrowserDeviceProfile = {
@@ -7,6 +19,8 @@ export const DEFAULT_DESKTOP_DEVICE: BrowserDeviceProfile = {
   touch: false,
   deviceScaleFactor: 1,
   maxTouchPoints: 0,
+  deviceCategory: 'pc',
+  userAgentProfile: 'desktop',
 };
 
 /**
@@ -40,21 +54,38 @@ export function touchEmulationParams(
   return { enabled: true, maxTouchPoints: points };
 }
 
-/** Normalize optional wire device into a complete profile for CDP metrics. */
+/**
+ * Normalize optional wire device: kit floors for mobile/touch/mtp + category.
+ * DPR stays client-driven (caller already clamped via API policy).
+ */
 export function resolveDeviceProfile(
   device?: BrowserDeviceProfile | null,
 ): BrowserDeviceProfile {
   if (!device) {
     return { ...DEFAULT_DESKTOP_DEVICE };
   }
+  const kit = resolveDeviceKit(device);
   const dpr = device.deviceScaleFactor;
-  const points = device.maxTouchPoints;
+  let points = device.maxTouchPoints;
+  if (points === undefined || points < 0) {
+    points = 0;
+  }
+  if (kit.minMaxTouchPoints > 0) {
+    points = Math.max(points, kit.minMaxTouchPoints);
+  }
+
+  const defaultProfile =
+    kit.category === 'phone' ? 'mobile' : kit.category === 'tablet' ? 'tablet' : 'desktop';
+
   return {
-    mobile: !!device.mobile,
-    touch: !!device.touch,
+    mobile: kit.mobile,
+    touch: kit.category === 'pc' ? !!device.touch : (kit.touch || !!device.touch),
     deviceScaleFactor: dpr !== undefined && dpr > 0 ? dpr : 1,
-    maxTouchPoints: points !== undefined && points >= 0 ? points : 0,
-    userAgentProfile: device.userAgentProfile,
+    maxTouchPoints: kit.minMaxTouchPoints > 0
+      ? Math.max(points, kit.minMaxTouchPoints)
+      : points,
+    userAgentProfile: device.userAgentProfile ?? defaultProfile,
+    deviceCategory: kit.category,
     screenOrientation: device.screenOrientation,
   };
 }
@@ -72,6 +103,7 @@ export function deviceProfilesEqual(
     && left.deviceScaleFactor === right.deviceScaleFactor
     && left.maxTouchPoints === right.maxTouchPoints
     && left.userAgentProfile === right.userAgentProfile
+    && left.deviceCategory === right.deviceCategory
     && left.screenOrientation === right.screenOrientation
   );
 }
@@ -90,6 +122,8 @@ export async function applyDeviceEmulation(
     throw new Error('device.maxTouchPoints must be provided and non-negative');
   }
 
+  const kit = resolveDeviceKit(device);
+
   // UA / touch / focus first — then metrics last. Mobile UA applied after metrics
   // leaves the legacy 980px layout viewport (cssLayoutViewport stays 980×…),
   // which is exactly the LaunchBrowserFailed we saw on iPhone Safari.
@@ -98,29 +132,29 @@ export async function applyDeviceEmulation(
     userAgent?: string;
   };
 
-  if (device.userAgentProfile === 'mobile' || device.mobile) {
-    if (!version.product) {
-      throw new Error('Browser.getVersion did not return product');
-    }
-    const chromeVer = version.product.replace(/^Chrome\//, '');
-    const major = chromeVer.split('.')[0];
-    if (!major) {
-      throw new Error('Unable to parse Chrome version from product string');
-    }
-    const ua =
-      `Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) ` +
-      `Chrome/${chromeVer} Mobile Safari/537.36`;
+  if (!version.product) {
+    throw new Error('Browser.getVersion did not return product');
+  }
+  const chromeVer = version.product.replace(/^Chrome\//, '');
+  const major = chromeVer.split('.')[0];
+  if (!major) {
+    throw new Error('Unable to parse Chrome version from product string');
+  }
+
+  if (kit.category === 'phone' || kit.category === 'tablet') {
+    const ua = kit.buildUserAgent(chromeVer);
     await cdp.send('Emulation.setUserAgentOverride', {
       userAgent: ua,
+      platform: kit.navigatorPlatform,
       userAgentMetadata: buildChromeUserAgentMetadata({
         chromeVer,
         major,
         mobile: true,
-        platform: 'Android',
-        platformVersion: '13.0.0',
-        architecture: '',
-        model: 'Pixel 7',
-        bitness: '',
+        platform: kit.uaChPlatform,
+        platformVersion: kit.uaChPlatformVersion,
+        architecture: kit.uaChArchitecture,
+        model: kit.uaChModel,
+        bitness: kit.uaChBitness,
       }),
     });
   } else {
@@ -128,17 +162,10 @@ export async function applyDeviceEmulation(
     if (!version.userAgent) {
       throw new Error('Browser.getVersion did not return userAgent');
     }
-    if (!version.product) {
-      throw new Error('Browser.getVersion did not return product');
-    }
-    const chromeVer = version.product.replace(/^Chrome\//, '');
-    const major = chromeVer.split('.')[0];
-    if (!major) {
-      throw new Error('Unable to parse Chrome version from product string');
-    }
     const desktopMeta = desktopPlatformFromUa(version.userAgent);
     await cdp.send('Emulation.setUserAgentOverride', {
       userAgent: version.userAgent,
+      platform: kit.navigatorPlatform,
       userAgentMetadata: buildChromeUserAgentMetadata({
         chromeVer,
         major,
@@ -151,6 +178,8 @@ export async function applyDeviceEmulation(
       }),
     });
   }
+
+  await applyKitHardwareSpoof(cdp, kit);
 
   await cdp.send('Emulation.setTouchEmulationEnabled', touchEmulationParams(device));
 
@@ -175,6 +204,19 @@ export async function applyDeviceEmulation(
           angle: device.screenOrientation.includes('landscape') ? 90 : 0,
         }
       : undefined,
+  });
+}
+
+/** Spoof hardwareConcurrency / deviceMemory to kit defaults (never host 22). */
+export async function applyKitHardwareSpoof(
+  cdp: CDPSession,
+  kit: ReturnType<typeof resolveDeviceKit>,
+): Promise<void> {
+  const source = kitHardwareSpoofSource(kit);
+  await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source });
+  await cdp.send('Runtime.evaluate', {
+    expression: source,
+    returnByValue: true,
   });
 }
 
@@ -274,8 +316,51 @@ function greasyNotABrand(major: string): { brand: string; version: string; fullV
 }
 
 /**
- * Soft logical viewport: apply only device metrics so layout/paint track the
- * client size without mutating the native Chrome window during session resizes.
+ * Size the native Chrome window to the logical viewport (no fullscreen).
+ * Soft resize reuses this so layout does not depend on metrics alone.
+ * Verifies bounds stuck (bare Xorg — no maximizing WM).
+ */
+export async function applyNativeWindowBounds(
+  cdp: CDPSession,
+  width: number,
+  height: number,
+): Promise<void> {
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    throw new Error('applyNativeWindowBounds requires positive width and height');
+  }
+  const targetW = Math.round(width);
+  const targetH = Math.round(height);
+  const { windowId } = (await cdp.send('Browser.getWindowForTarget', {})) as {
+    windowId: number;
+  };
+  const bounds = {
+    windowState: 'normal' as const,
+    left: 0,
+    top: 0,
+    width: targetW,
+    height: targetH,
+  };
+  await cdp.send('Browser.setWindowBounds', { windowId, bounds });
+  const after = (await cdp.send('Browser.getWindowBounds', { windowId })) as {
+    bounds?: { windowState?: string; width?: number; height?: number };
+  };
+  const got = after.bounds;
+  const w = got?.width ?? 0;
+  const h = got?.height ?? 0;
+  // Outer window may include browser chrome; reject only fullscreen / capacity-sized.
+  const stuckWrong =
+    !got
+    || got.windowState === 'fullscreen'
+    || w >= targetW * 3
+    || h >= targetH * 3;
+  if (stuckWrong) {
+    await cdp.send('Browser.setWindowBounds', { windowId, bounds });
+  }
+}
+
+/**
+ * Soft logical viewport: native window bounds + device metrics so layout/paint
+ * track the client size without recreating Chrome/Xvfb.
  */
 export async function applyLogicalViewport(
   cdp: CDPSession,
@@ -284,8 +369,99 @@ export async function applyLogicalViewport(
   device?: BrowserDeviceProfile | null,
 ): Promise<BrowserDeviceProfile> {
   const profile = resolveDeviceProfile(device);
+  await applyNativeWindowBounds(cdp, width, height);
   await applyDeviceEmulation(cdp, width, height, profile);
   return profile;
+}
+
+/**
+ * about:blank ignores mobile device-metrics for CSS layout (stays ~980px) until a
+ * real document with a viewport meta exists. Seed one before proving launch geometry.
+ * No-op when the page already has a non-about URL (resize / post-navigate).
+ */
+export async function ensureViewportMetaDocument(cdp: CDPSession): Promise<boolean> {
+  await cdp.send('Page.enable');
+  const evalResult = (await cdp.send('Runtime.evaluate', {
+    expression: 'location.href',
+    returnByValue: true,
+  })) as { result?: { value?: string } };
+  const href = evalResult.result?.value ?? '';
+  if (href !== 'about:blank' && !href.startsWith('about:blank')) {
+    return false;
+  }
+
+  const tree = (await cdp.send('Page.getFrameTree')) as {
+    frameTree?: { frame?: { id?: string } };
+  };
+  const frameId = tree.frameTree?.frame?.id;
+  if (!frameId) {
+    throw Object.assign(new Error('Page.getFrameTree did not return main frame id'), {
+      code: 'FAILED_PRECONDITION',
+      errorCode: 'viewport_unproven',
+    });
+  }
+
+  await cdp.send('Page.setDocumentContent', {
+    frameId,
+    html:
+      '<!doctype html><html><head>'
+      + `<meta name="viewport" content="${MOBILE_VIEWPORT_META_CONTENT}">`
+      + '</head><body></body></html>',
+  });
+  return true;
+}
+
+/**
+ * Install once per mobile session: every document gets a viewport meta before layout
+ * when the site omitted one (otherwise CSS stays at the legacy ~980px width).
+ */
+export async function installMobileViewportMetaInit(page: Page): Promise<void> {
+  const content = JSON.stringify(MOBILE_VIEWPORT_META_CONTENT);
+  await page.addInitScript(`(() => {
+    const content = ${content};
+    const ensure = () => {
+      if (document.querySelector('meta[name="viewport"]')) return;
+      const m = document.createElement('meta');
+      m.setAttribute('name', 'viewport');
+      m.setAttribute('content', content);
+      (document.head || document.documentElement)?.appendChild(m);
+    };
+    ensure();
+    document.addEventListener('DOMContentLoaded', ensure);
+  })()`);
+}
+
+/**
+ * Pages without a viewport meta keep the legacy ~980px mobile layout even when
+ * device metrics override screen.*. Inject meta when missing (mobile sessions).
+ */
+export async function ensurePageHasViewportMeta(cdp: CDPSession): Promise<boolean> {
+  const result = (await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      if (document.querySelector('meta[name="viewport"]')) return false;
+      const m = document.createElement('meta');
+      m.setAttribute('name', 'viewport');
+      m.setAttribute('content', ${JSON.stringify(MOBILE_VIEWPORT_META_CONTENT)});
+      (document.head || document.documentElement).appendChild(m);
+      return true;
+    })()`,
+    returnByValue: true,
+  })) as { result?: { value?: boolean } };
+  return result.result?.value === true;
+}
+
+/** After navigate/reload: ensure viewport meta (mobile) + re-apply device metrics. */
+export async function reassertLogicalViewportAfterNavigation(
+  cdp: CDPSession,
+  width: number,
+  height: number,
+  device?: BrowserDeviceProfile | null,
+): Promise<void> {
+  const profile = resolveDeviceProfile(device);
+  if (profile.mobile) {
+    await ensurePageHasViewportMeta(cdp);
+  }
+  await applyDeviceEmulation(cdp, width, height, profile);
 }
 
 /** Tolerate small Chrome settle jitter when proving logical CSS size. */
@@ -345,6 +521,15 @@ export async function proveLogicalViewport(
   options?: { epsilon?: number; phase?: string },
 ): Promise<{ width: number; height: number; device: BrowserDeviceProfile }> {
   const profile = await applyLogicalViewport(cdp, width, height, device);
+  // Mobile metrics on raw about:blank leave cssLayoutViewport at the legacy ~980px
+  // width; seed a viewport-meta document then re-apply metrics before reading.
+  // Live pages without viewport meta hit the same 980 trap — inject meta when mobile.
+  if (await ensureViewportMetaDocument(cdp)) {
+    await applyDeviceEmulation(cdp, width, height, profile);
+  } else if (profile.mobile) {
+    await ensurePageHasViewportMeta(cdp);
+    await applyDeviceEmulation(cdp, width, height, profile);
+  }
   const chrome = await readChromeViewport(cdp);
   const epsilon = options?.epsilon ?? 2;
   if (!viewportMetricsClose(chrome.width, chrome.height, width, height, epsilon)) {

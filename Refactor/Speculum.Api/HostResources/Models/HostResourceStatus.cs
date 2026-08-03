@@ -4,7 +4,9 @@ public sealed record HostResourceHostSnapshot(
     long MemoryTotalBytes,
     long MemoryAvailableBytes,
     int CpuCount,
-    string Source);
+    string Source,
+    long DiskTotalBytes,
+    long DiskFreeBytes);
 
 public sealed record HostResourceSidecarSnapshot(
     long? ShmSizeBytes,

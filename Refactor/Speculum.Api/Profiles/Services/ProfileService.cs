@@ -36,7 +36,7 @@ public sealed class ProfileService : IProfileService
             && requested != Guid.Empty
             && await _profiles.ExistsAsync(requested, ct).ConfigureAwait(false))
         {
-            facts.Reused(requested);
+            facts.EnsureExisting(requested);
             return Result<EnsuredProfile>.Success(new EnsuredProfile
             {
                 ProfileId = requested,
@@ -100,9 +100,10 @@ public sealed class ProfileService : IProfileService
 
         var facts = _events.ForProfileOperation(request.CorrelationId);
 
-        if (await _sessions.AnyLiveByProfileAsync(request.ProfileId, ct).ConfigureAwait(false))
+        if (await _sessions.TryGetLiveSessionIdByProfileAsync(request.ProfileId, ct).ConfigureAwait(false)
+            is { } liveSessionId)
         {
-            facts.DeleteRejectedSessionLive(request.ProfileId);
+            facts.DeleteRejectedSessionLive(request.ProfileId, liveSessionId);
             return Result.Failure("Profile has a live session");
         }
 

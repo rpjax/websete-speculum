@@ -83,12 +83,17 @@ export function ResourceGauge({
   label,
   usedLabel,
   percent,
+  resource = 'ram',
 }: {
   label: string
   usedLabel: string
   percent: number
+  /** RAM bars use primary; disk storage uses success. */
+  resource?: 'ram' | 'storage'
 }) {
   const clamped = Math.min(100, Math.max(0, percent))
+  const fill =
+    clamped > 90 ? 'bg-destructive' : clamped > 70 ? 'bg-warning' : resource === 'storage' ? 'bg-success' : 'bg-primary'
   return (
     <div className="rounded-lg border border-border bg-card px-3 py-2.5">
       <div className="mb-1 flex items-center justify-between text-xs">
@@ -96,10 +101,7 @@ export function ResourceGauge({
         <span className="tabular-nums text-foreground/80">{usedLabel}</span>
       </div>
       <div className="h-2 rounded-full bg-muted/50">
-        <div
-          className={`h-full rounded-full ${clamped > 90 ? 'bg-destructive' : clamped > 70 ? 'bg-warning' : 'bg-primary'}`}
-          style={{ width: `${clamped}%` }}
-        />
+        <div className={`h-full rounded-full ${fill}`} style={{ width: `${clamped}%` }} />
       </div>
     </div>
   )

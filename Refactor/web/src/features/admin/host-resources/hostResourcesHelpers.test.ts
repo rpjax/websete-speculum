@@ -2,19 +2,24 @@ import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_PARAMS,
   GIB,
+  MIB,
   PLAN_PRESETS,
   RESERVE_PERCENT_CHIPS,
   applyPlanPreset,
   bytesToGibInput,
   describeLastApply,
   describePlanRecipe,
+  diskUsePercent,
   estimatePlan,
+  fitParamsToHost,
   formatGibLabel,
   gibInputToBytes,
   isCustomChipValue,
   isShmBelowFloor,
+  memoryUsePercent,
   planBreakdownPercents,
   ramGibChips,
+  scaledHostFloors,
   suggestedSharedDesktopCapBytes,
   validateAgainstHost,
   validateParams,
@@ -53,59 +58,81 @@ describe('hostResourcesHelpers', () => {
     const expectedReserve = Math.ceil(host * 0.15)
     const plan = estimatePlan({ ...DEFAULT_PARAMS, maxRamBytes: null }, host)
     expect(plan?.reserveBytes).toBe(expectedReserve)
-    const raw = host - expectedReserve
-    const cap = Math.floor(host * 0.75)
-    expect(plan?.shmTargetBytes).toBe(Math.min(Math.max(raw, 2 * GIB), Math.max(2 * GIB, cap)))
+    // Default shm ceiling is 100% → browsers get everything left after reserve.
+    expect(plan?.shmTargetBytes).toBe(host - expectedReserve)
+    expect(plan?.availableForShmBytes).toBe(host - expectedReserve)
   })
 
-  it('validates params and host budget headroom', () => {
+  it('validates against host total — not free RAM — and explains the starvation case', () => {
     expect(validateParams({ ...DEFAULT_PARAMS, reservePercent: 95 })).toMatch(/reserve/i)
-    expect(
-      validateAgainstHost(
-        {
-          ...DEFAULT_PARAMS,
-          maxRamBytes: 3 * GIB,
-          reserveMinBytes: 2 * GIB,
-          shmMinBytes: 2 * GIB,
-        },
-        32 * GIB,
-      ),
-    ).toMatch(/shared-memory minimum/i)
+    const msg = validateAgainstHost(
+      {
+        ...DEFAULT_PARAMS,
+        maxRamBytes: 3 * GIB,
+        reserveMinBytes: 2 * GIB,
+        shmMinBytes: 2 * GIB,
+      },
+      32 * GIB,
+    )
+    expect(msg).toMatch(/host RAM total/i)
+    expect(msg).toMatch(/not free RAM/i)
     expect(validateAgainstHost(DEFAULT_PARAMS, 32 * GIB)).toBeNull()
+    expect(validateAgainstHost(DEFAULT_PARAMS, 3.8 * GIB)).toBeNull()
   })
 
-  it('applies presets without wiping process limits', () => {
+  it('scales floors and fits impossible knobs to a small host', () => {
+    const host = Math.round(3.8 * GIB)
+    const floors = scaledHostFloors(host)
+    expect(floors.reserveMinBytes + floors.shmMinBytes).toBeLessThanOrEqual(Math.floor(host * 0.85) + 1)
+
+    const broken = {
+      ...DEFAULT_PARAMS,
+      reserveMinBytes: 2 * GIB,
+      shmMinBytes: 2 * GIB,
+    }
+    expect(validateAgainstHost(broken, host)).not.toBeNull()
+    const fitted = fitParamsToHost(broken, host)
+    expect(validateAgainstHost(fitted, host)).toBeNull()
+  })
+
+  it('applies Dev / Production / Balanced presets without wiping process limits', () => {
     const base = {
       ...DEFAULT_PARAMS,
       nofile: 2_000_000,
       nproc: 99_000,
       raiseUlimits: true,
     }
-    const shared = applyPlanPreset(base, 'shared-desktop', 64 * GIB)
-    expect(shared.maxRamBytes).toBe(16 * GIB)
-    expect(shared.nofile).toBe(2_000_000)
-    expect(shared.nproc).toBe(99_000)
+    const dev = applyPlanPreset(base, 'dev-machine', 64 * GIB)
+    expect(dev.maxRamBytes).toBe(16 * GIB)
+    expect(dev.nofile).toBe(2_000_000)
+    expect(dev.shmMaxPercentOfBudget).toBe(100)
 
-    const dedicated = applyPlanPreset(shared, 'dedicated', 64 * GIB)
-    expect(dedicated.maxRamBytes).toBeNull()
-    expect(dedicated.nofile).toBe(2_000_000)
+    const prod = applyPlanPreset(dev, 'prod-vps', 64 * GIB)
+    expect(prod.maxRamBytes).toBeNull()
+    expect(prod.shmMaxPercentOfBudget).toBe(100)
+    expect(prod.reservePercent).toBe(8)
+    expect(prod.shmMinBytes).toBe(4 * GIB)
+    expect(prod.nofile).toBe(2_000_000)
 
-    const conservative = applyPlanPreset(dedicated, 'conservative-reserve')
-    expect(conservative.reservePercent).toBe(25)
-    expect(conservative.reserveMinBytes).toBe(4 * GIB)
-    expect(conservative.maxRamBytes).toBeNull()
-
-    const aggressive = applyPlanPreset(conservative, 'aggressive-shm')
-    expect(aggressive.shmMaxPercentOfBudget).toBe(90)
-    expect(aggressive.shmMinBytes).toBe(4 * GIB)
-    expect(aggressive.reservePercent).toBe(25)
+    const balanced = applyPlanPreset(prod, 'balanced', 64 * GIB)
+    expect(balanced.maxRamBytes).toBeNull()
+    expect(balanced.shmMaxPercentOfBudget).toBe(100)
+    expect(validateAgainstHost(applyPlanPreset(base, 'prod-vps', 3.8 * GIB), 3.8 * GIB)).toBeNull()
+    expect(validateAgainstHost(applyPlanPreset(base, 'dev-machine', 3.8 * GIB), 3.8 * GIB)).toBeNull()
   })
 
   it('suggests shared-desktop caps and filters RAM chips by host size', () => {
     expect(suggestedSharedDesktopCapBytes(64 * GIB)).toBe(16 * GIB)
     expect(suggestedSharedDesktopCapBytes(12 * GIB)).toBe(8 * GIB)
-    expect(ramGibChips(10 * GIB)).toEqual([4, 8])
+    expect(suggestedSharedDesktopCapBytes(3.8 * GIB)).toBeLessThanOrEqual(3.8 * GIB)
+    expect(ramGibChips(10 * GIB)).toEqual([2, 4, 8])
     expect(ramGibChips(null).length).toBeGreaterThan(3)
+  })
+
+  it('computes RAM and disk use percents', () => {
+    expect(memoryUsePercent(10 * GIB, 4 * GIB)).toBeCloseTo(60)
+    expect(diskUsePercent(10 * GIB, 2.5 * GIB)).toBeCloseTo(75)
+    expect(diskUsePercent(0, 0)).toBeNull()
   })
 
   it('describes last apply and shm floor checks', () => {
@@ -144,7 +171,7 @@ describe('hostResourcesHelpers', () => {
       32 * GIB,
     )!
     expect(describePlanRecipe(estimate, 32 * GIB)).toMatch(/capped at 8 GiB/)
-    expect(describePlanRecipe(estimate, 32 * GIB)).toMatch(/keeps 2 GiB/)
+    expect(describePlanRecipe(estimate, 32 * GIB)).toMatch(/host total/)
     expect(describePlanRecipe(estimate, 32 * GIB)).toMatch(/targets 6 GiB/)
     expect(isCustomChipValue(15, RESERVE_PERCENT_CHIPS)).toBe(false)
     expect(isCustomChipValue(17, RESERVE_PERCENT_CHIPS)).toBe(true)
@@ -163,17 +190,23 @@ describe('hostResourcesHelpers', () => {
     expect(describePlanRecipe(tight, 4 * GIB)).toMatch(/consumes the whole budget/)
   })
 
-  it('exposes didactic plan presets with when/effect copy', () => {
-    expect(PLAN_PRESETS.map((p) => p.id)).toEqual([
-      'shared-desktop',
-      'dedicated',
-      'conservative-reserve',
-      'aggressive-shm',
-    ])
+  it('Dev preset leaves no idle remainder inside the budget — IDE headroom is the budget cap', () => {
+    const host = Math.round(3.8 * GIB)
+    const params = applyPlanPreset(DEFAULT_PARAMS, 'dev-machine', host)
+    const plan = estimatePlan(params, host)!
+    const remainder = plan.budgetBytes - plan.reserveBytes - plan.shmTargetBytes
+    expect(remainder).toBeLessThanOrEqual(1024 ** 2)
+    expect(plan.budgetBytes).toBeLessThan(host)
+    expect(plan.shmTargetBytes).toBe(plan.budgetBytes - plan.reserveBytes)
+  })
+
+  it('exposes Dev / Production / Balanced presets with when/effect copy', () => {
+    expect(PLAN_PRESETS.map((p) => p.id)).toEqual(['dev-machine', 'prod-vps', 'balanced'])
     for (const preset of PLAN_PRESETS) {
       expect(preset.label.length).toBeGreaterThan(3)
       expect(preset.description.length).toBeGreaterThan(10)
       expect(preset.effect.length).toBeGreaterThan(10)
     }
+    expect(MIB).toBe(1024 ** 2)
   })
 })

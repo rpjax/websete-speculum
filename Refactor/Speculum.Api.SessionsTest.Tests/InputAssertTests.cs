@@ -20,6 +20,7 @@ public sealed class InputAssertTests : SessionsTestBase
         DeviceScaleFactor = 2,
         MaxTouchPoints = 5,
         UserAgentProfile = "mobile",
+        DeviceCategory = "phone",
     };
 
     [SessionsTestFact]

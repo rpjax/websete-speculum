@@ -23,7 +23,7 @@ ${body}
 </body>
 </html>`.replace(
     'HEAD_REPLACED',
-    `<head><meta charset="utf-8"><title>${title}</title></head>`,
+    `<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${title}</title></head>`,
   );
 }
 
@@ -123,7 +123,6 @@ function route(req, res) {
     case '/touch-scroll': {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       res.end(html('Touch scroll', `
-<meta name="viewport" content="width=device-width, initial-scale=1" />
 <div id="scroller" style="position:fixed;inset:0;overflow:auto;-webkit-overflow-scrolling:touch">
   <div style="height:3000px;padding:24px">
     <div id="speculum-probe" data-page="touch-scroll">touch-scroll</div>

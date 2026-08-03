@@ -24,9 +24,9 @@ public sealed class ProfileEvents : IProfileEvents
         });
     }
 
-    public void Reused(Guid profileId)
+    public void EnsureExisting(Guid profileId)
     {
-        _writer.Append(new ProfileReused
+        _writer.Append(new ProfileEnsureExisting
         {
             ProfileId = profileId,
             CorrelationId = _correlationId,
@@ -43,11 +43,12 @@ public sealed class ProfileEvents : IProfileEvents
         });
     }
 
-    public void DeleteRejectedSessionLive(Guid profileId)
+    public void DeleteRejectedSessionLive(Guid profileId, Guid sessionId)
     {
         _writer.Append(new ProfileDeleteRejectedSessionLive
         {
             ProfileId = profileId,
+            SessionId = sessionId,
             CorrelationId = _correlationId,
         });
     }

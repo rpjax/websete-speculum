@@ -228,9 +228,12 @@ public sealed class SessionCollectorTests
             return Task.CompletedTask;
         }
 
-        public Task<bool> AnyLiveByProfileAsync(Guid profileId, CancellationToken ct = default)
-            => Task.FromResult(_sessions.Values.Any(
-                s => s.ProfileId == profileId && s.State == LifecycleState.Live));
+        public Task<Guid?> TryGetLiveSessionIdByProfileAsync(Guid profileId, CancellationToken ct = default)
+            => Task.FromResult(
+                _sessions.Values
+                    .Where(s => s.ProfileId == profileId && s.State == LifecycleState.Live)
+                    .Select(s => (Guid?)s.Id)
+                    .FirstOrDefault());
 
         public Task<IReadOnlySet<Guid>> ListLiveProfileIdsAsync(CancellationToken ct = default)
             => Task.FromResult<IReadOnlySet<Guid>>(

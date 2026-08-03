@@ -8,6 +8,8 @@ export function StatCard({
   sub,
   progress,
   tone = 'default',
+  /** Visual family: RAM (primary) vs disk storage (success) vs compute. */
+  resource,
   className,
 }: {
   label: string
@@ -16,14 +18,31 @@ export function StatCard({
   sub?: ReactNode
   progress?: number
   tone?: 'default' | 'success' | 'warning' | 'destructive'
+  resource?: 'ram' | 'storage' | 'compute'
   className?: string
 }) {
-  const iconTone = {
-    success: 'bg-success/15 text-success',
-    warning: 'bg-warning/15 text-warning',
-    destructive: 'bg-destructive/15 text-destructive',
-    default: 'bg-primary/15 text-primary',
-  }[tone]
+  const iconTone =
+    tone !== 'default'
+      ? {
+          success: 'bg-success/15 text-success',
+          warning: 'bg-warning/15 text-warning',
+          destructive: 'bg-destructive/15 text-destructive',
+          default: 'bg-primary/15 text-primary',
+        }[tone]
+      : resource === 'storage'
+        ? 'bg-success/15 text-success'
+        : resource === 'compute'
+          ? 'bg-muted text-muted-foreground'
+          : 'bg-primary/15 text-primary'
+
+  const barClass =
+    progress != null && progress > 90
+      ? 'bg-destructive'
+      : progress != null && progress > 70
+        ? 'bg-warning'
+        : resource === 'storage'
+          ? 'bg-success'
+          : 'bg-primary'
 
   return (
     <div className={cn('rounded-lg border border-border bg-card px-4 py-3', className)}>
@@ -38,10 +57,7 @@ export function StatCard({
       {progress != null ? (
         <div className="mt-2 h-1.5 w-full rounded-full bg-muted/50">
           <div
-            className={cn(
-              'h-full rounded-full transition-all',
-              progress > 90 ? 'bg-destructive' : progress > 70 ? 'bg-warning' : 'bg-primary',
-            )}
+            className={cn('h-full rounded-full transition-all', barClass)}
             style={{ width: `${Math.min(100, Math.max(0, progress))}%` }}
           />
         </div>

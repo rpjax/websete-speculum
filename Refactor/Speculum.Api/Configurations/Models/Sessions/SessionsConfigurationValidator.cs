@@ -68,7 +68,15 @@ public sealed class SessionsConfigurationValidator : IValidateOptions<SessionsCo
                     StringComparison.OrdinalIgnoreCase)
                 && !device.Default.UserAgentProfile.Equals(
                     device.MobileUserAgentProfile,
-                    StringComparison.OrdinalIgnoreCase)))
+                    StringComparison.OrdinalIgnoreCase)
+                && !device.Default.UserAgentProfile.Equals(
+                    string.IsNullOrWhiteSpace(device.TabletUserAgentProfile)
+                        ? "tablet"
+                        : device.TabletUserAgentProfile,
+                    StringComparison.OrdinalIgnoreCase)
+                && !device.Default.UserAgentProfile.Equals("phone", StringComparison.OrdinalIgnoreCase)
+                && !device.Default.UserAgentProfile.Equals("pc", StringComparison.OrdinalIgnoreCase)
+                && !device.Default.UserAgentProfile.Equals("tablet", StringComparison.OrdinalIgnoreCase)))
         {
             return ValidateOptionsResult.Fail(
                 "Sessions.DeviceEmulationPolicy is incomplete or has invalid bounds.");

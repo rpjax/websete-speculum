@@ -184,6 +184,8 @@ export interface BrowserDeviceProfile {
   deviceScaleFactor?: number;
   maxTouchPoints?: number;
   userAgentProfile?: string;
+  /** Antibot kit: phone | tablet | pc (preferred over userAgentProfile aliases). */
+  deviceCategory?: string;
   screenOrientation?: string;
 }
 

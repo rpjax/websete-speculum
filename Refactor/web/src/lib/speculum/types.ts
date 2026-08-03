@@ -6,6 +6,8 @@ export interface SessionDeviceProfile {
   deviceScaleFactor?: number
   maxTouchPoints?: number
   userAgentProfile?: string
+  /** Antibot kit: phone | tablet | pc */
+  deviceCategory?: 'phone' | 'tablet' | 'pc' | string
   screenOrientation?: string
 }
 
@@ -20,6 +22,8 @@ export interface SessionClientEnvironment {
   language?: string
   timeZoneId?: string
   colorScheme?: 'light' | 'dark' | 'no-preference'
+  /** BCP-47 tags for Accept-Language (soft mimic). */
+  languages?: string[]
   geolocation?: SessionGeolocation
 }
 

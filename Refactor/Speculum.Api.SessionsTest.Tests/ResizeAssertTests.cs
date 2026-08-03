@@ -16,6 +16,7 @@ public sealed class ResizeAssertTests : SessionsTestBase
         DeviceScaleFactor = 2,
         MaxTouchPoints = 5,
         UserAgentProfile = "mobile",
+        DeviceCategory = "phone",
     };
 
     /// <summary>
@@ -106,5 +107,38 @@ public sealed class ResizeAssertTests : SessionsTestBase
         Assert.NotNull(capacity.DisplayHeight);
         Assert.Equal(4096, capacity.DisplayWidth);
         Assert.Equal(2160, capacity.DisplayHeight);
+    }
+
+    /// <summary>
+    /// Mobile soft resize: 414×711 → 390×844 keeps logical Chrome geometry; display* = policy max.
+    /// </summary>
+    [SessionsTestFact]
+    public async Task D5_mobile_soft_resize_keeps_logical_geometry()
+    {
+        await using var act = new SessionsActClient(Fx.Host);
+        await act.ConnectAsync();
+        await act.StartFixturePageAsync(
+            "/click-target",
+            width: 414,
+            height: 711,
+            device: MobileDevice);
+
+        var result = await act.ResizeAsync(390, 844, MobileDevice);
+        Assert.True(result.Applied);
+        Assert.Equal(390, result.Width);
+        Assert.Equal(844, result.Height);
+        Assert.NotNull(result.DisplayWidth);
+        Assert.NotNull(result.DisplayHeight);
+        Assert.Equal(4096, result.DisplayWidth);
+        Assert.Equal(2160, result.DisplayHeight);
+        Assert.NotEqual(result.Width, result.DisplayWidth);
+
+        await act.WaitJournalAsync("Telemetry.Sessions.Resize.Applied", TimeSpan.FromSeconds(15));
+        await act.WaitEvaluateContainsAsync(
+            "window.innerWidth === 390 && window.innerHeight === 844",
+            "true");
+        await act.WaitEvaluateContainsAsync(
+            "window.screen.width === 390 && window.screen.height === 844",
+            "true");
     }
 }

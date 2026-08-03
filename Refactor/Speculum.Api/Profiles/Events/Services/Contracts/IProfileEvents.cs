@@ -7,11 +7,11 @@ public interface IProfileEvents
 {
     void Created(Guid profileId);
 
-    void Reused(Guid profileId);
+    void EnsureExisting(Guid profileId);
 
     void Deleted(Guid profileId, ProfileDeletionReason reason);
 
-    void DeleteRejectedSessionLive(Guid profileId);
+    void DeleteRejectedSessionLive(Guid profileId, Guid sessionId);
 
     void StateReplaced(Guid profileId, int cookieCount);
 }

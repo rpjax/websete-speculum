@@ -22,5 +22,6 @@ public sealed class BrowserCrashed
 
     public string? Message { get; init; }
 
+    [JournalIndex("phase")]
     public string? Phase { get; init; }
 }

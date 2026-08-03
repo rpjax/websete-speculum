@@ -8,9 +8,9 @@ public interface ISessionRepository
     Task SaveAsync(Session session, CancellationToken ct = default);
 
     /// <summary>
-    /// True when any session row for <paramref name="profileId"/> is still Live.
+    /// Id of a Live session for <paramref name="profileId"/>, or null when none.
     /// </summary>
-    Task<bool> AnyLiveByProfileAsync(Guid profileId, CancellationToken ct = default);
+    Task<Guid?> TryGetLiveSessionIdByProfileAsync(Guid profileId, CancellationToken ct = default);
 
     /// <summary>Distinct profile ids that currently have at least one Live session row.</summary>
     Task<IReadOnlySet<Guid>> ListLiveProfileIdsAsync(CancellationToken ct = default);

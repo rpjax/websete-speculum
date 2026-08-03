@@ -47,12 +47,12 @@ public sealed class EfSessionRepository : ISessionRepository
         await _db.SaveChangesAsync(ct).ConfigureAwait(false);
     }
 
-    public async Task<bool> AnyLiveByProfileAsync(Guid profileId, CancellationToken ct = default)
+    public async Task<Guid?> TryGetLiveSessionIdByProfileAsync(Guid profileId, CancellationToken ct = default)
         => await _db.Sessions
             .AsNoTracking()
-            .AnyAsync(
-                s => s.ProfileId == profileId && s.State == LifecycleState.Live,
-                ct)
+            .Where(s => s.ProfileId == profileId && s.State == LifecycleState.Live)
+            .Select(s => (Guid?)s.Id)
+            .FirstOrDefaultAsync(ct)
             .ConfigureAwait(false);
 
     public async Task<IReadOnlySet<Guid>> ListLiveProfileIdsAsync(CancellationToken ct = default)

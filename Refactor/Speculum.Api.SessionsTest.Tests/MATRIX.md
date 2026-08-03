@@ -32,6 +32,7 @@ only via `PUT /api/configurations/Telemetry` (seed script / test baseline).
 | D2 | deep | resize &lt;policy min rejected + prior 1280×720 kept + display* on reject | `D2_resize_below_policy_minimum_is_rejected` |
 | D3 | unit+ | concurrent resize → `resize_busy` / `Outcome=Busy` (LiveSession unit; compose optional) | `Resize_WhenCommandGateBusy_ReturnsResizeBusy` |
 | D4 | deep | launch 414×711 + mobile → Chrome inner + screen + display*=policy max (iPhone CSS) | `D4_mobile_iphone_logical_viewport_at_launch` |
+| D5 | deep | mobile soft resize 414×711→390×844 + journal + Chrome inner + screen + display*=max | `D5_mobile_soft_resize_keeps_logical_geometry` |
 | B1 | deep | Navigate path → location + SyncUrl journal path | `B1_navigate_updates_location` |
 | H1 | deep | goback after two navigations updates location | `H1_goback_updates_location` |
 | N1 | deep | window.open/_blank stays single main tab | `N1_blank_stays_single_tab` |

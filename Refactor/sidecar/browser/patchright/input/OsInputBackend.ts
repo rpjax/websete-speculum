@@ -6,7 +6,7 @@ import type { BrowserTouchPoint } from '../../BrowserSession';
 import type { InputBackend } from './InputBackend';
 import { allKeyboardKeyCodes, KEY, resolveKeyStroke } from './keycodes';
 import {
-  createCoordTransform,
+  createLogicalWindowTransform,
   mapLogicalToAbs,
   type CoordTransform,
 } from './logical-to-device';
@@ -74,6 +74,9 @@ export class OsInputBackend implements InputBackend {
   private readonly _sessionId: string;
   private _insertText?: (text: string) => Promise<void>;
   private _transform: CoordTransform;
+  /** Display capacity for relative-pointer home reset (window may be smaller). */
+  private readonly _displayAbsMaxX: number;
+  private readonly _displayAbsMaxY: number;
   private readonly _slotById = new Map<number, number>();
   private readonly _idBySlot = new Map<number, number>();
   /** Explicit Shift key from the client (keydown Shift) — sticky until keyup Shift. */
@@ -96,6 +99,8 @@ export class OsInputBackend implements InputBackend {
     displayEnv: string,
     sessionId: string,
     transform: CoordTransform,
+    displayAbsMaxX: number,
+    displayAbsMaxY: number,
     insertText?: (text: string) => Promise<void>,
   ) {
     this._pointer = pointer;
@@ -104,6 +109,8 @@ export class OsInputBackend implements InputBackend {
     this._displayEnv = displayEnv;
     this._sessionId = sessionId;
     this._transform = transform;
+    this._displayAbsMaxX = displayAbsMaxX;
+    this._displayAbsMaxY = displayAbsMaxY;
     this._insertText = insertText;
   }
 
@@ -177,7 +184,9 @@ export class OsInputBackend implements InputBackend {
       touch,
       '',
       opts.sessionId,
-      createCoordTransform(opts.logicalWidth, opts.logicalHeight, absMaxX, absMaxY),
+      createLogicalWindowTransform(opts.logicalWidth, opts.logicalHeight),
+      absMaxX,
+      absMaxY,
     );
     ensureInputEventNodes(pointer.name, keyboard.name, touch.name);
     return backend;
@@ -197,7 +206,7 @@ export class OsInputBackend implements InputBackend {
     try {
       await this._awaitDevicesVisible();
       // Relative mouse: pin software cursor to top-left so later deltas are absolute.
-      this._emitRel(-this._transform.absMaxX - 64, -this._transform.absMaxY - 64);
+      this._emitRel(-this._displayAbsMaxX - 64, -this._displayAbsMaxY - 64);
       this._curX = 0;
       this._curY = 0;
       this._attached = true;
@@ -215,12 +224,7 @@ export class OsInputBackend implements InputBackend {
   }
 
   setLogicalSize(logicalWidth: number, logicalHeight: number): void {
-    this._transform = createCoordTransform(
-      logicalWidth,
-      logicalHeight,
-      this._transform.absMaxX,
-      this._transform.absMaxY,
-    );
+    this._transform = createLogicalWindowTransform(logicalWidth, logicalHeight);
   }
 
   async move(x: number, y: number): Promise<void> {

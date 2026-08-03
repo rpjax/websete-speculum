@@ -459,13 +459,13 @@ public sealed class SessionServiceTests
         public void ConnectionStarted() { }
         public void BrowserLaunched() { }
         public void ProfileStateRestored(CookieNormalizeStats cookieNormalize) { }
-        public void InitialNavigationCompleted() { }
+        public void InitialNavigationCompleted(string url) { }
         public void ProfileNotFound() { }
         public void StartConfigurationRejected(Error[] errors) { }
         public void ConnectionStartFailed(Error[] errors) { }
         public void LaunchBrowserFailed(Error[] errors) { }
         public void RestoreProfileStateFailed(Error[] errors) { }
-        public void InitialNavigationFailed(Error[] errors) { }
+        public void InitialNavigationFailed(Error[] errors, string phase, string? url = null) { }
     }
 
     private sealed class NoOpStopEvents : ISessionStopEvents
@@ -495,9 +495,12 @@ public sealed class SessionServiceTests
             return Task.CompletedTask;
         }
 
-        public Task<bool> AnyLiveByProfileAsync(Guid profileId, CancellationToken ct = default)
-            => Task.FromResult(_sessions.Values.Any(
-                s => s.ProfileId == profileId && s.State == LifecycleState.Live));
+        public Task<Guid?> TryGetLiveSessionIdByProfileAsync(Guid profileId, CancellationToken ct = default)
+            => Task.FromResult(
+                _sessions.Values
+                    .Where(s => s.ProfileId == profileId && s.State == LifecycleState.Live)
+                    .Select(s => (Guid?)s.Id)
+                    .FirstOrDefault());
 
         public Task<IReadOnlySet<Guid>> ListLiveProfileIdsAsync(CancellationToken ct = default)
             => Task.FromResult<IReadOnlySet<Guid>>(

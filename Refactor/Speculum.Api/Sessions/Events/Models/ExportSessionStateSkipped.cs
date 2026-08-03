@@ -19,5 +19,6 @@ public sealed class ExportSessionStateSkipped
     public required Guid SessionId { get; init; }
 
     /// <summary>no_connection | profile_not_found</summary>
+    [JournalIndex("reason")]
     public required string Reason { get; init; }
 }

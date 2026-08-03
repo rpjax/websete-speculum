@@ -172,21 +172,35 @@ function testResolveDeviceProfileDefaults() {
     assert_1.default.strictEqual(partial.mobile, true);
     assert_1.default.strictEqual(partial.deviceScaleFactor, 2);
     assert_1.default.strictEqual(partial.maxTouchPoints, 5);
+    assert_1.default.strictEqual(partial.deviceCategory, 'phone');
+    const tablet = (0, device_emulation_1.resolveDeviceProfile)({
+        deviceCategory: 'tablet',
+        deviceScaleFactor: 2,
+        maxTouchPoints: 1,
+    });
+    assert_1.default.strictEqual(tablet.deviceCategory, 'tablet');
+    assert_1.default.strictEqual(tablet.mobile, true);
+    assert_1.default.strictEqual(tablet.touch, true);
+    assert_1.default.ok((tablet.maxTouchPoints ?? 0) >= 5, 'tablet kit floors mtp');
     const missingDpr = (0, device_emulation_1.resolveDeviceProfile)({ mobile: false, touch: false });
     assert_1.default.strictEqual(missingDpr.deviceScaleFactor, 1);
     assert_1.default.strictEqual(missingDpr.maxTouchPoints, 0);
+    assert_1.default.strictEqual(missingDpr.deviceCategory, 'pc');
     assert_1.default.strictEqual((0, device_emulation_1.deviceProfilesEqual)(null, undefined), true);
     assert_1.default.strictEqual((0, device_emulation_1.deviceProfilesEqual)({ mobile: false, touch: false, deviceScaleFactor: 1, maxTouchPoints: 0 }, device_emulation_1.DEFAULT_DESKTOP_DEVICE), true);
     assert_1.default.strictEqual((0, device_emulation_1.deviceProfilesEqual)({ mobile: true, touch: true, deviceScaleFactor: 2, maxTouchPoints: 5 }, device_emulation_1.DEFAULT_DESKTOP_DEVICE), false);
     console.log('[unit] resolve device profile defaults ok');
 }
-async function testApplyLogicalViewportUsesDeviceMetricsOnly() {
+async function testApplyLogicalViewportUsesBoundsAndMetrics() {
     const calls = [];
     const cdp = {
         send: async (method, params) => {
             calls.push({ method, params });
             if (method === 'Browser.getWindowForTarget')
                 return { windowId: 7 };
+            if (method === 'Browser.getWindowBounds') {
+                return { bounds: { windowState: 'normal', left: 0, top: 0, width: 1024, height: 768 } };
+            }
             if (method === 'Browser.getVersion') {
                 return { product: 'Chrome/120.0.0.0', userAgent: 'Mozilla/5.0 Desktop' };
             }
@@ -196,7 +210,16 @@ async function testApplyLogicalViewportUsesDeviceMetricsOnly() {
     const profile = await (0, device_emulation_1.applyLogicalViewport)(cdp, 1024, 768, null);
     assert_1.default.strictEqual(profile.deviceScaleFactor, 1);
     assert_1.default.strictEqual(profile.mobile, false);
-    assert_1.default.ok(!calls.some((c) => c.method === 'Browser.setWindowBounds'), 'soft logical viewport must not mutate native window bounds');
+    const bounds = calls.find((c) => c.method === 'Browser.setWindowBounds');
+    assert_1.default.ok(bounds, 'soft logical viewport must set native window bounds');
+    const b = bounds.params.bounds;
+    assert_1.default.strictEqual(b.windowState, 'normal');
+    assert_1.default.strictEqual(b.width, 1024);
+    assert_1.default.strictEqual(b.height, 768);
+    assert_1.default.strictEqual(b.left, 0);
+    assert_1.default.strictEqual(b.top, 0);
+    assert_1.default.ok(!calls.some((c) => c.method === 'Browser.setWindowBounds'
+        && c.params?.bounds?.windowState === 'fullscreen'), 'must not use fullscreen for logical viewport');
     const metrics = calls.find((c) => c.method === 'Emulation.setDeviceMetricsOverride');
     assert_1.default.ok(metrics, 'must apply device metrics');
     assert_1.default.strictEqual(metrics.params.width, 1024);
@@ -208,14 +231,20 @@ async function testApplyLogicalViewportUsesDeviceMetricsOnly() {
     const ua = calls.find((c) => c.method === 'Emulation.setUserAgentOverride');
     assert_1.default.ok(ua, 'desktop apply must set/clear user agent');
     assert_1.default.strictEqual(ua.params.userAgent, 'Mozilla/5.0 Desktop');
+    assert_1.default.strictEqual(ua.params.platform, 'Linux x86_64', 'pc kit must set navigator platform');
     const meta = ua.params
         .userAgentMetadata;
     assert_1.default.ok(meta, 'desktop apply must send userAgentMetadata');
     assert_1.default.strictEqual(meta.mobile, false);
     assert_1.default.strictEqual(meta.platform, 'Linux');
     assert_1.default.ok(Array.isArray(meta.brands) && meta.brands.length >= 3, 'greasy brands required');
+    assert_1.default.ok(calls.some((c) => c.method === 'Page.addScriptToEvaluateOnNewDocument'), 'kit hardware spoof must register on new documents');
+    const hwInit = calls.find((c) => c.method === 'Page.addScriptToEvaluateOnNewDocument');
+    assert_1.default.ok(String(hwInit.params.source).includes('hardwareConcurrency'), 'hardwareConcurrency spoof required');
+    const boundsIdx = calls.findIndex((c) => c.method === 'Browser.setWindowBounds');
     const metricsIdx = calls.findIndex((c) => c.method === 'Emulation.setDeviceMetricsOverride');
     const uaIdx = calls.findIndex((c) => c.method === 'Emulation.setUserAgentOverride');
+    assert_1.default.ok(boundsIdx >= 0 && uaIdx > boundsIdx, 'window bounds before UA');
     assert_1.default.ok(uaIdx >= 0 && metricsIdx > uaIdx, 'device metrics must apply after user-agent override');
     await assert_1.default.rejects(() => (0, device_emulation_1.applyLogicalViewport)({
         send: async (method) => {
@@ -226,25 +255,43 @@ async function testApplyLogicalViewportUsesDeviceMetricsOnly() {
             return {};
         },
     }, 800, 600, null), /did not return userAgent/);
-    console.log('[unit] apply logical viewport uses device metrics only ok');
+    console.log('[unit] apply logical viewport uses bounds and metrics ok');
 }
 async function testProveLogicalViewportUsesCssLayoutMetrics() {
     const calls = [];
+    let href = 'about:blank';
+    let cssW = 980;
+    let cssH = 1688;
     const cdp = {
         send: async (method, params) => {
             calls.push({ method, params });
+            if (method === 'Browser.getWindowForTarget')
+                return { windowId: 3 };
+            if (method === 'Browser.getWindowBounds') {
+                return { bounds: { windowState: 'normal', left: 0, top: 0, width: 414, height: 713 } };
+            }
             if (method === 'Browser.getVersion') {
                 return {
                     product: 'Chrome/120.0.0.0',
                     userAgent: 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
                 };
             }
+            if (method === 'Runtime.evaluate') {
+                return { result: { value: href } };
+            }
+            if (method === 'Page.getFrameTree') {
+                return { frameTree: { frame: { id: 'frame-1' } } };
+            }
+            if (method === 'Page.setDocumentContent') {
+                href = 'about:blank#seeded';
+                cssW = 414;
+                cssH = 713;
+                return {};
+            }
             if (method === 'Page.getLayoutMetrics') {
-                // Simulate the mobile about:blank trap: JS innerWidth would be 980, but CDP
-                // cssLayoutViewport reflects Emulation.setDeviceMetricsOverride.
                 return {
-                    cssLayoutViewport: { clientWidth: 414, clientHeight: 713 },
-                    layoutViewport: { clientWidth: 980, clientHeight: 1688 },
+                    cssLayoutViewport: { clientWidth: cssW, clientHeight: cssH },
+                    layoutViewport: { clientWidth: cssW, clientHeight: cssH },
                 };
             }
             return {};
@@ -254,15 +301,28 @@ async function testProveLogicalViewportUsesCssLayoutMetrics() {
     assert_1.default.strictEqual(proven.width, 414);
     assert_1.default.strictEqual(proven.height, 713);
     assert_1.default.strictEqual(proven.device.deviceScaleFactor, 2);
+    assert_1.default.ok(calls.some((c) => c.method === 'Browser.setWindowBounds'));
+    assert_1.default.ok(calls.some((c) => c.method === 'Page.setDocumentContent'), 'about:blank must seed viewport meta');
     assert_1.default.ok(calls.some((c) => c.method === 'Emulation.setDeviceMetricsOverride'));
     assert_1.default.ok(calls.some((c) => c.method === 'Page.getLayoutMetrics'));
     const metricsIdx = calls.findIndex((c) => c.method === 'Emulation.setDeviceMetricsOverride');
     const uaIdx = calls.findIndex((c) => c.method === 'Emulation.setUserAgentOverride');
     assert_1.default.ok(uaIdx >= 0 && metricsIdx > uaIdx, 'mobile metrics must apply after UA (avoid 980px trap)');
+    const mobileUa = calls[uaIdx];
+    assert_1.default.strictEqual(mobileUa.params.platform, 'Linux armv8l', 'phone kit navigator.platform must be Linux armv8l');
+    assert_1.default.ok(String(mobileUa.params.userAgent).includes('Android 13; Pixel 7'), 'phone kit UA');
     await assert_1.default.rejects(() => (0, device_emulation_1.proveLogicalViewport)({
         send: async (method) => {
+            if (method === 'Browser.getWindowForTarget')
+                return { windowId: 1 };
+            if (method === 'Browser.getWindowBounds') {
+                return { bounds: { windowState: 'normal', width: 414, height: 713 } };
+            }
             if (method === 'Browser.getVersion') {
                 return { product: 'Chrome/120.0.0.0', userAgent: 'Mozilla/5.0 Desktop' };
+            }
+            if (method === 'Runtime.evaluate') {
+                return { result: { value: 'https://fixture.test/' } };
             }
             if (method === 'Page.getLayoutMetrics') {
                 return { cssLayoutViewport: { clientWidth: 980, clientHeight: 1688 } };
@@ -882,12 +942,20 @@ async function testTelemetryAllocationsSummaryAndSessions() {
     console.log('[unit] telemetry allocations summary and sessions ok');
 }
 function testLogicalToDeviceTransform() {
-    const { createCoordTransform, mapLogicalToAbs } = require('./browser/patchright/input/logical-to-device');
-    const t = createCoordTransform(100, 200, 999, 1999);
+    const { createLogicalWindowTransform, mapLogicalToAbs } = require('./browser/patchright/input/logical-to-device');
+    // 1:1 into logical window region (absMax = logical-1), not stretch-to-display.
+    const t = createLogicalWindowTransform(414, 711);
+    assert_1.default.strictEqual(t.logicalWidth, 414);
+    assert_1.default.strictEqual(t.logicalHeight, 711);
+    assert_1.default.strictEqual(t.absMaxX, 413);
+    assert_1.default.strictEqual(t.absMaxY, 710);
     assert_1.default.deepStrictEqual(mapLogicalToAbs(t, 0, 0), { x: 0, y: 0 });
-    assert_1.default.deepStrictEqual(mapLogicalToAbs(t, 100, 200), { x: 999, y: 1999 });
-    assert_1.default.deepStrictEqual(mapLogicalToAbs(t, 50, 100), { x: 500, y: 1000 });
-    assert_1.default.deepStrictEqual(mapLogicalToAbs(t, -10, 500), { x: 0, y: 1999 });
+    assert_1.default.deepStrictEqual(mapLogicalToAbs(t, 414, 711), { x: 413, y: 710 });
+    assert_1.default.deepStrictEqual(mapLogicalToAbs(t, 200, 350), { x: 200, y: 350 });
+    assert_1.default.deepStrictEqual(mapLogicalToAbs(t, -10, 5000), { x: 0, y: 710 });
+    // Must not stretch mid-canvas toward Xvfb capacity (4096×2160).
+    assert_1.default.notDeepStrictEqual(mapLogicalToAbs(t, 207, 355), { x: 2048, y: 1080 });
+    assert_1.default.throws(() => createLogicalWindowTransform(0, 100), /positive/);
     console.log('[unit] logical-to-device transform ok');
 }
 function testKeycodeResolve() {
@@ -950,7 +1018,7 @@ async function main() {
     testPermissiveMainFrameCspRewrite();
     testViewportBounds();
     testResolveDeviceProfileDefaults();
-    await testApplyLogicalViewportUsesDeviceMetricsOnly();
+    await testApplyLogicalViewportUsesBoundsAndMetrics();
     await testProveLogicalViewportUsesCssLayoutMetrics();
     testBuildChromeArgsIncludesWebglSpoof();
     await testScreencastRestartThrowsAfterStop();

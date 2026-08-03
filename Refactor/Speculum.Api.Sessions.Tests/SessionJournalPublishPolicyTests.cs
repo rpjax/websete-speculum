@@ -27,7 +27,7 @@ public sealed class SessionJournalPublishPolicyTests
         catalog.RegisterFromAssemblies(typeof(SampleCollected).Assembly);
 
         Assert.True(catalog.TryGet<SessionStarted>(out _));
-        Assert.True(catalog.TryGet<ProfileReused>(out _));
+        Assert.True(catalog.TryGet<ProfileEnsureExisting>(out _));
 
         var soft = catalog.Types
             .Where(d => d.Type.StartsWith("Sessions.", StringComparison.Ordinal)

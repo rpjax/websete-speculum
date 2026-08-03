@@ -94,7 +94,15 @@ internal sealed class SessionConfigAssembler
                     StringComparison.OrdinalIgnoreCase)
                 && !device.UserAgentProfile.Equals(
                     policy.MobileUserAgentProfile,
-                    StringComparison.OrdinalIgnoreCase))
+                    StringComparison.OrdinalIgnoreCase)
+                && !device.UserAgentProfile.Equals(
+                    string.IsNullOrWhiteSpace(policy.TabletUserAgentProfile)
+                        ? "tablet"
+                        : policy.TabletUserAgentProfile,
+                    StringComparison.OrdinalIgnoreCase)
+                && !device.UserAgentProfile.Equals("phone", StringComparison.OrdinalIgnoreCase)
+                && !device.UserAgentProfile.Equals("tablet", StringComparison.OrdinalIgnoreCase)
+                && !device.UserAgentProfile.Equals("pc", StringComparison.OrdinalIgnoreCase))
             || string.IsNullOrWhiteSpace(device.ScreenOrientation))
         {
             return Result.Failure("Start device mimicry is incomplete or invalid");

@@ -25,6 +25,10 @@ public sealed class DeviceProfile
     [Key("userAgentProfile")]
     public string? UserAgentProfile { get; init; }
 
+    /// <summary>Antibot kit category: phone | tablet | pc.</summary>
+    [Key("deviceCategory")]
+    public string? DeviceCategory { get; init; }
+
     [Key("screenOrientation")]
     public string? ScreenOrientation { get; init; }
 }

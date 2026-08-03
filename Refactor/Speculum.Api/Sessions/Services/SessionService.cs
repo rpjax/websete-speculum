@@ -226,6 +226,7 @@ public sealed class SessionService : ISessionService
                 if (urlResult.IsFailure)
                 {
                     telemetry.Start.UrlResolveFailed(urlResult.Errors.ToArray());
+                    startEvents.InitialNavigationFailed(urlResult.Errors.ToArray(), phase: "Resolve");
                     return await AbortStartAsync(
                         request.CallerId, sessionId, profileId, persisted, lifecycleEvents,
                         urlResult, StopReason.Faulted)
@@ -238,14 +239,17 @@ public sealed class SessionService : ISessionService
                     .ConfigureAwait(false);
                 if (navigationResult.IsFailure)
                 {
-                    startEvents.InitialNavigationFailed(navigationResult.Errors.ToArray());
+                    startEvents.InitialNavigationFailed(
+                        navigationResult.Errors.ToArray(),
+                        phase: "Navigate",
+                        url: urlResult.Value);
                     return await AbortStartAsync(
                         request.CallerId, sessionId, profileId, persisted, lifecycleEvents,
                         navigationResult, StopReason.Faulted)
                         .ConfigureAwait(false);
                 }
 
-                startEvents.InitialNavigationCompleted();
+                startEvents.InitialNavigationCompleted(urlResult.Value);
 
                 var token = _sessionTokens.GetRandom();
                 await _sessions.SaveAsync(Session.Create(sessionId, profileId, token), startCt)

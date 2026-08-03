@@ -61,9 +61,9 @@ public sealed class ProfileServiceTests
         Assert.NotNull(loaded);
         Assert.Single(loaded.State.Cookies);
         Assert.Equal("keep-me", loaded.State.Cookies[0].Value);
-        Assert.Contains(harness.Journal.Appended, e => e is ProfileReused reused
-            && reused.ProfileId == profile.Id
-            && reused.CorrelationId == "corr-1");
+        Assert.Contains(harness.Journal.Appended, e => e is ProfileEnsureExisting ensured
+            && ensured.ProfileId == profile.Id
+            && ensured.CorrelationId == "corr-1");
     }
 
     [Fact]
@@ -313,7 +313,8 @@ public sealed class ProfileServiceTests
         Assert.True(deleted.IsFailure);
         Assert.True(await harness.Profiles.ExistsAsync(profile.Id));
         Assert.Contains(harness.Journal.Appended, e => e is ProfileDeleteRejectedSessionLive rejected
-            && rejected.ProfileId == profile.Id);
+            && rejected.ProfileId == profile.Id
+            && rejected.SessionId == session.Id);
     }
 
     private sealed class Harness : IAsyncDisposable

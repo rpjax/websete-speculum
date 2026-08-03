@@ -237,18 +237,11 @@ export class Display {
   }
 
   private static tryStartWm(displayNumber: number): ChildProcess | null {
-    try {
-      const wm = spawn('matchbox-window-manager', ['-use_titlebar', 'no'], {
-        env: { ...process.env as Record<string, string>, DISPLAY: `:${displayNumber}` },
-        stdio: ['ignore', 'pipe', 'pipe'],
-      });
-      wm.stdout?.resume();
-      wm.stderr?.resume();
-      wm.on('error', () => {});
-      return wm;
-    } catch {
-      return null;
-    }
+    // Do not start matchbox: it forces clients to fill the display, which breaks
+    // Browser.setWindowBounds to the logical viewport. Chrome runs fine on bare Xorg;
+    // focus is handled via xdotool in ChromeRuntime.ensureChromeXFocus.
+    void displayNumber;
+    return null;
   }
 
   private static waitForExit(proc: ChildProcess, timeoutMs: number): Promise<void> {

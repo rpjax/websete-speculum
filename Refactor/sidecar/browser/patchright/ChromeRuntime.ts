@@ -155,10 +155,8 @@ export async function launchChrome(args: {
       accuracy: args.geolocation.accuracy,
     });
   }
-  // Match the legacy sidecar: fullscreen only at launch; logical viewport changes
-  // later use device emulation only and do not mutate native window bounds.
-  const { windowId } = (await cdp.send('Browser.getWindowForTarget', {})) as { windowId: number };
-  await cdp.send('Browser.setWindowBounds', { windowId, bounds: { windowState: 'fullscreen' } });
+  // Native window at logical W×H + device metrics (no fullscreen — that left
+  // mobile cssLayoutViewport stuck at the legacy ~980px width).
   await applyLogicalViewport(cdp, args.width, args.height, args.device);
   await ensureChromeXFocus(args.displayEnv);
 

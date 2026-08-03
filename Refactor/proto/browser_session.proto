@@ -19,6 +19,8 @@ message DeviceProfile {
   optional int32 max_touch_points = 4;
   optional string user_agent_profile = 5;
   optional string screen_orientation = 6;
+  // Antibot kit: phone | tablet | pc
+  optional string device_category = 7;
 }
 
 message ScriptInjection {

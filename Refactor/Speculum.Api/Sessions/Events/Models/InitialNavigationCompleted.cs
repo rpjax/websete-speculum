@@ -5,7 +5,7 @@ namespace Speculum.Api.Sessions.Events.Models;
 
 [CanonicalFact(
     "Sessions.InitialNavigationCompleted",
-    schemaVersion: 1,
+    schemaVersion: 2,
     Name = "Initial navigation completed",
     Description = "Initial navigation finished successfully.",
     Owner = "sessions",
@@ -17,4 +17,6 @@ public sealed class InitialNavigationCompleted
 
     [JournalIndex("session")]
     public required Guid SessionId { get; init; }
+
+    public required string Url { get; init; }
 }

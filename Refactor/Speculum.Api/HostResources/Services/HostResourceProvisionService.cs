@@ -31,7 +31,9 @@ public sealed class HostResourceProvisionService(
                     sample.MemoryTotal,
                     sample.MemoryAvailable,
                     sample.CpuCount,
-                    sample.Source);
+                    sample.Source,
+                    sample.DiskTotalBytes,
+                    sample.DiskFreeBytes);
             }
         }
         catch (Exception ex)

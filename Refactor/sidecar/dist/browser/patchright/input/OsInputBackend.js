@@ -62,6 +62,9 @@ class OsInputBackend {
     _sessionId;
     _insertText;
     _transform;
+    /** Display capacity for relative-pointer home reset (window may be smaller). */
+    _displayAbsMaxX;
+    _displayAbsMaxY;
     _slotById = new Map();
     _idBySlot = new Map();
     /** Explicit Shift key from the client (keydown Shift) — sticky until keyup Shift. */
@@ -76,13 +79,15 @@ class OsInputBackend {
     /** Software cursor in display ABS space — relative mouse needs a known origin. */
     _curX = 0;
     _curY = 0;
-    constructor(pointer, keyboard, touch, displayEnv, sessionId, transform, insertText) {
+    constructor(pointer, keyboard, touch, displayEnv, sessionId, transform, displayAbsMaxX, displayAbsMaxY, insertText) {
         this._pointer = pointer;
         this._keyboard = keyboard;
         this._touch = touch;
         this._displayEnv = displayEnv;
         this._sessionId = sessionId;
         this._transform = transform;
+        this._displayAbsMaxX = displayAbsMaxX;
+        this._displayAbsMaxY = displayAbsMaxY;
         this._insertText = insertText;
     }
     get deviceNames() {
@@ -134,7 +139,7 @@ class OsInputBackend {
             keyboard.destroy();
             throw err;
         }
-        const backend = new OsInputBackend(pointer, keyboard, touch, '', opts.sessionId, (0, logical_to_device_1.createCoordTransform)(opts.logicalWidth, opts.logicalHeight, absMaxX, absMaxY));
+        const backend = new OsInputBackend(pointer, keyboard, touch, '', opts.sessionId, (0, logical_to_device_1.createLogicalWindowTransform)(opts.logicalWidth, opts.logicalHeight), absMaxX, absMaxY);
         ensureInputEventNodes(pointer.name, keyboard.name, touch.name);
         return backend;
     }
@@ -151,7 +156,7 @@ class OsInputBackend {
         try {
             await this._awaitDevicesVisible();
             // Relative mouse: pin software cursor to top-left so later deltas are absolute.
-            this._emitRel(-this._transform.absMaxX - 64, -this._transform.absMaxY - 64);
+            this._emitRel(-this._displayAbsMaxX - 64, -this._displayAbsMaxY - 64);
             this._curX = 0;
             this._curY = 0;
             this._attached = true;
@@ -169,7 +174,7 @@ class OsInputBackend {
         return backend;
     }
     setLogicalSize(logicalWidth, logicalHeight) {
-        this._transform = (0, logical_to_device_1.createCoordTransform)(logicalWidth, logicalHeight, this._transform.absMaxX, this._transform.absMaxY);
+        this._transform = (0, logical_to_device_1.createLogicalWindowTransform)(logicalWidth, logicalHeight);
     }
     async move(x, y) {
         this._ensureLive();

@@ -224,19 +224,11 @@ class Display {
         throw new Error(`Xorg :${number} not ready for clients within ${timeoutMs} ms.`);
     }
     static tryStartWm(displayNumber) {
-        try {
-            const wm = (0, child_process_1.spawn)('matchbox-window-manager', ['-use_titlebar', 'no'], {
-                env: { ...process.env, DISPLAY: `:${displayNumber}` },
-                stdio: ['ignore', 'pipe', 'pipe'],
-            });
-            wm.stdout?.resume();
-            wm.stderr?.resume();
-            wm.on('error', () => { });
-            return wm;
-        }
-        catch {
-            return null;
-        }
+        // Do not start matchbox: it forces clients to fill the display, which breaks
+        // Browser.setWindowBounds to the logical viewport. Chrome runs fine on bare Xorg;
+        // focus is handled via xdotool in ChromeRuntime.ensureChromeXFocus.
+        void displayNumber;
+        return null;
     }
     static waitForExit(proc, timeoutMs) {
         return new Promise((resolve) => {

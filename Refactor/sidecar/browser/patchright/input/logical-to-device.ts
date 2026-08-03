@@ -1,10 +1,9 @@
 /**
  * Maps logical CSS viewport coordinates into absolute device axes.
  *
- * Chrome is fullscreen on the capacity display while CDP metrics keep the
- * logical viewport — stretch-map CSS → display ABS so OS hits match the
- * scaled content (same model as a fullscreen window filling the X screen).
- * Transform is refreshed on launch / soft resize only — hot path is multiply + clamp.
+ * Chrome window is sized to the logical viewport at (0,0) on the capacity
+ * display — map 1:1 into that window region (no fullscreen stretch).
+ * Transform is refreshed on launch / soft resize only — hot path is clamp.
  */
 export type CoordTransform = {
   logicalWidth: number;
@@ -25,16 +24,30 @@ export function createCoordTransform(
   return { logicalWidth, logicalHeight, absMaxX, absMaxY };
 }
 
+/**
+ * Transform for a Chrome window at (0,0) sized to the logical CSS viewport.
+ * Absolute extent is logical-1 (inclusive ABS range), not Xvfb capacity.
+ */
+export function createLogicalWindowTransform(
+  logicalWidth: number,
+  logicalHeight: number,
+): CoordTransform {
+  const w = Math.round(logicalWidth);
+  const h = Math.round(logicalHeight);
+  if (w <= 0 || h <= 0) {
+    throw new Error('logical window transform requires positive width and height');
+  }
+  return createCoordTransform(w, h, Math.max(0, w - 1), Math.max(0, h - 1));
+}
+
 export function mapLogicalToAbs(
   t: CoordTransform,
   x: number,
   y: number,
 ): { x: number; y: number } {
-  const nx = Math.round((x / t.logicalWidth) * t.absMaxX);
-  const ny = Math.round((y / t.logicalHeight) * t.absMaxY);
   return {
-    x: clamp(nx, 0, t.absMaxX),
-    y: clamp(ny, 0, t.absMaxY),
+    x: clamp(Math.round(x), 0, t.absMaxX),
+    y: clamp(Math.round(y), 0, t.absMaxY),
   };
 }
 

@@ -11,12 +11,12 @@ public interface ISessionStartEvents
     void ConnectionStarted();
     void BrowserLaunched();
     void ProfileStateRestored(CookieNormalizeStats cookieNormalize);
-    void InitialNavigationCompleted();
+    void InitialNavigationCompleted(string url);
 
     void ProfileNotFound();
     void StartConfigurationRejected(Error[] errors);
     void ConnectionStartFailed(Error[] errors);
     void LaunchBrowserFailed(Error[] errors);
     void RestoreProfileStateFailed(Error[] errors);
-    void InitialNavigationFailed(Error[] errors);
+    void InitialNavigationFailed(Error[] errors, string phase, string? url = null);
 }

@@ -121,7 +121,7 @@ public sealed class SessionStarted
 Emit: `writer.Append(new SessionStarted { ... });`
 
 Session start/stop narrative facts under `Sessions.*` (and profile ensure
-`Profiles.ProfileCreated` / `Profiles.ProfileReused`) use
+`Profiles.ProfileCreated` / `Profiles.ProfileEnsureExisting`) use
 `PublishPolicy.Guaranteed` so Act→Assert beats are not shed under queue pressure.
 
 ---

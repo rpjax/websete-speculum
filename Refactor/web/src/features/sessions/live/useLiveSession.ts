@@ -435,7 +435,7 @@ export function useLiveSession({
         const ensured = await client.ensureProfile(loadProfileId())
         saveProfileId(ensured.profileId)
         setProfileId(ensured.profileId)
-        log('info', ensured.created ? 'profile created' : 'profile reused', ensured)
+        log('info', ensured.created ? 'profile created' : 'profile ensure existing', ensured)
 
         const normalizedPath = path.startsWith('/') ? path : `/${path}`
         const device = detectDeviceProfile()

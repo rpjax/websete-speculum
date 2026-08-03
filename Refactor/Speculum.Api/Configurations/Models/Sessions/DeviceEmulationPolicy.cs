@@ -9,4 +9,6 @@ public sealed class DeviceEmulationPolicy
     public int DefaultTouchPointsWhenTouch { get; init; }
     public string DesktopUserAgentProfile { get; init; } = "";
     public string MobileUserAgentProfile { get; init; } = "";
+    /// <summary>Optional tablet kit id (default <c>tablet</c> when empty at normalize).</summary>
+    public string TabletUserAgentProfile { get; init; } = "tablet";
 }

@@ -8,7 +8,7 @@ namespace Speculum.Api.Profiles.Events;
 /// </summary>
 [CanonicalFact(
     "Profiles.ProfileDeleteRejectedSessionLive",
-    schemaVersion: 1,
+    schemaVersion: 2,
     Name = "Profile delete rejected (session live)",
     Description = "Delete refused while a session in Live still references the profile.",
     Owner = "profiles",
@@ -17,6 +17,9 @@ public sealed class ProfileDeleteRejectedSessionLive
 {
     [JournalIndex("profile")]
     public required Guid ProfileId { get; init; }
+
+    [JournalIndex("session")]
+    public required Guid SessionId { get; init; }
 
     [JournalIndex("correlation")]
     public string? CorrelationId { get; init; }

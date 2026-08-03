@@ -14,6 +14,8 @@ import { ParametersStep } from './ParametersStep'
 import { ReviewStep } from './ReviewStep'
 import {
   DEFAULT_PARAMS,
+  fitParamsToHost,
+  validateAgainstHost,
   type HostResourceApplyResult,
   type HostResourceProvisionParams,
   type HostResourceProvisionPlan,
@@ -83,6 +85,14 @@ export function HostResourcesPage() {
   useEffect(() => {
     void refresh()
   }, [])
+
+  // If stored/default knobs cannot fit host *total* RAM, clamp floors once (never use free RAM).
+  useEffect(() => {
+    const total = status?.host?.memoryTotalBytes
+    if (total == null || total <= 0) return
+    if (validateAgainstHost(params, total) == null) return
+    setParams((prev) => fitParamsToHost(prev, total))
+  }, [status?.host?.memoryTotalBytes]) // eslint-disable-line react-hooks/exhaustive-deps -- fit once when host total arrives
 
   const goStep = (next: number) => {
     setStep(next)
@@ -175,7 +185,13 @@ export function HostResourcesPage() {
         />
       ) : null}
       {step === 1 && plan ? (
-        <ReviewStep plan={plan} onBack={() => goStep(0)} onApply={() => void apply()} pending={pending} />
+        <ReviewStep
+          plan={plan}
+          status={status}
+          onBack={() => goStep(0)}
+          onApply={() => void apply()}
+          pending={pending}
+        />
       ) : null}
       {step === 2 ? <AppliedStep result={applyResult} fallbackMessage={success} /> : null}
     </AdminPage>

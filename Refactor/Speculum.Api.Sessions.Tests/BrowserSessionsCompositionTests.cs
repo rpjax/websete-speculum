@@ -114,7 +114,7 @@ public sealed class BrowserSessionsCompositionTests
         Assert.True(catalog.TryGet<SessionStarting>(out _));
         Assert.True(catalog.TryGet<SlotAcquired>(out _));
         Assert.True(catalog.TryGet<ProfileCreated>(out _));
-        Assert.True(catalog.TryGet<ProfileReused>(out _));
+        Assert.True(catalog.TryGet<ProfileEnsureExisting>(out _));
         Assert.True(catalog.TryGet<ProfileDeleted>(out _));
         Assert.True(catalog.TryGet<ProfileDeleteRejectedSessionLive>(out _));
     }

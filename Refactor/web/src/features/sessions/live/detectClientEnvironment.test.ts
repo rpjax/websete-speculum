@@ -7,7 +7,10 @@ describe('detectClientEnvironment', () => {
   })
 
   it('reads navigator language, timezone, and color scheme', () => {
-    vi.stubGlobal('navigator', { language: 'pt-BR' })
+    vi.stubGlobal('navigator', {
+      language: 'pt-BR',
+      languages: ['pt-BR', 'pt', 'en-US'],
+    })
     vi.stubGlobal('matchMedia', (query: string) => ({
       matches: query.includes('dark'),
       media: query,
@@ -17,6 +20,7 @@ describe('detectClientEnvironment', () => {
     const env = detectClientEnvironment()
     expect(env.locale).toBe('pt-BR')
     expect(env.language).toBe('pt-BR')
+    expect(env.languages).toEqual(['pt-BR', 'pt', 'en-US'])
     expect(env.timeZoneId).toBeTruthy()
     expect(env.colorScheme).toBe('dark')
   })

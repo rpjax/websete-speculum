@@ -95,17 +95,22 @@ export function detectDeviceProfile(): DeviceProfilePayload {
 
   // Prefer platform signals over CSS width — landscape phones often exceed 900px.
   let uaMobile = false
+  let uaTablet = false
   try {
     const uaData = (navigator as Navigator & { userAgentData?: { mobile?: boolean } }).userAgentData
+    const ua = typeof navigator !== 'undefined' ? (navigator.userAgent || '') : ''
     if (typeof uaData?.mobile === 'boolean') uaMobile = uaData.mobile
-    else if (typeof navigator !== 'undefined') {
-      uaMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '')
-    }
+    else uaMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(ua)
+    uaTablet = /iPad|Tablet|Android(?!.*Mobile)/i.test(ua)
+      || (uaMobile === false && touchCapable && Math.min(window.screen?.width ?? 0, window.screen?.height ?? 0) >= 600
+        && Math.max(window.screen?.width ?? 0, window.screen?.height ?? 0) >= 900)
   } catch { /* ignore */ }
 
-  // Phone-like only when UA says mobile, or primary pointer is coarse without hover.
+  // Phone-like only when UA says mobile phone, or primary pointer is coarse without hover.
   // Do NOT use maxTouchPoints alone — that killed desktop mouse on hybrid PCs.
-  const mobile = uaMobile || (coarse && hoverNone)
+  const phone = (uaMobile && !uaTablet) || (coarse && hoverNone && !uaTablet)
+  const tablet = uaTablet || (!phone && coarse && hoverNone && maxTouch > 0)
+  const mobile = phone || tablet
   const touch = touchCapable || mobile
   let dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
   if (!Number.isFinite(dpr) || dpr < 1) dpr = 1
@@ -116,12 +121,19 @@ export function detectDeviceProfile(): DeviceProfilePayload {
     orientation = window.screen?.orientation?.type
   } catch { /* ignore */ }
 
+  const deviceCategory: DeviceProfilePayload['deviceCategory'] = phone
+    ? 'phone'
+    : tablet
+      ? 'tablet'
+      : 'pc'
+
   return {
     mobile,
     touch,
     deviceScaleFactor: dpr,
     maxTouchPoints: Math.min(10, maxTouch || (touch ? 5 : 0)),
-    userAgentProfile: mobile ? 'mobile' : 'desktop',
+    userAgentProfile: deviceCategory === 'pc' ? 'desktop' : deviceCategory === 'phone' ? 'mobile' : 'tablet',
+    deviceCategory,
     screenOrientation: orientation,
   }
 }
@@ -133,5 +145,6 @@ export function deviceProfilesEqual(a: DeviceProfilePayload, b: DeviceProfilePay
     && a.deviceScaleFactor === b.deviceScaleFactor
     && a.maxTouchPoints === b.maxTouchPoints
     && a.userAgentProfile === b.userAgentProfile
+    && a.deviceCategory === b.deviceCategory
     && a.screenOrientation === b.screenOrientation
 }

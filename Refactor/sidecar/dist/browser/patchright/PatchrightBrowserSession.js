@@ -146,12 +146,15 @@ class PatchrightBrowserSession {
             });
             const device = (0, device_emulation_1.resolveDeviceProfile)(options.device);
             this.viewport = new Viewport_1.Viewport(width, height, device);
+            if (device.mobile) {
+                await (0, device_emulation_1.installMobileViewportMetaInit)(this.chrome.page);
+            }
             await this.navigation.setupSingleTab(this.chrome.context);
             this.navigation.setupTabInterception(this.chrome.context, this.chrome.page);
             this.navigation.setupLocationSync(this.chrome.page);
             await this.navigation.setupFetchGuard(this.chrome.cdp, options.scripts ?? [], options.allowedNavigationDomains);
-            // Re-prove after tab/guard setup — mobile about:blank + innerWidth is unreliable;
-            // proveLogicalViewport uses CDP cssLayoutViewport after fresh metrics apply.
+            // Re-prove after tab/guard setup — bounds + metrics must stick for mobile.
+            // proveLogicalViewport uses CDP cssLayoutViewport after fresh apply.
             const proven = await (0, device_emulation_1.proveLogicalViewport)(this.chrome.cdp, width, height, device, {
                 phase: 'launch',
             });
@@ -274,6 +277,9 @@ class PatchrightBrowserSession {
             this.editableFocus.stop();
             try {
                 await this.chrome.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+                // Navigation can drop mobile CSS layout back to the legacy ~980px width
+                // when the page lacks viewport meta — reinject + re-apply metrics.
+                await (0, device_emulation_1.reassertLogicalViewportAfterNavigation)(this.chrome.cdp, this.viewport.width, this.viewport.height, this.viewport.device);
             }
             catch (err) {
                 const message = err instanceof Error ? err.message : String(err);
@@ -311,6 +317,7 @@ class PatchrightBrowserSession {
             this.editableFocus.stop();
             try {
                 await this.chrome.page.reload({ waitUntil: 'domcontentloaded', timeout: 30_000 });
+                await (0, device_emulation_1.reassertLogicalViewportAfterNavigation)(this.chrome.cdp, this.viewport.width, this.viewport.height, this.viewport.device);
             }
             catch (err) {
                 const message = err instanceof Error ? err.message : String(err);

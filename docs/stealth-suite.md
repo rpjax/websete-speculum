@@ -32,25 +32,25 @@ Remote Chrome is always Chromium — **never** paste Safari/iOS/WebKit UA or `pl
 | locale, language, languages, TZ, colorScheme | Mimic; policy fills blanks | |
 | geolocation | Mimic or **omit** | Never invent |
 | WebGL context | Auto: GPU if present, else SwiftShader — **no env knob** |
-| WebGL UNMASKED strings | **Preset kit** (Adreno Android / Intel Mesa Linux) — same with or without GPU |
+| WebGL VENDOR / RENDERER / UNMASKED | **Preset kit** (masked WebKit + UNMASKED Adreno or Intel Mesa Linux) — never Mesa/X.org alone, never D3D11 |
 | Fonts | Docker packages (Liberation/DejaVu/Noto) — no JS spoof |
 | Worker / SharedWorker / ServiceWorker | Kit HW + UA/platform — main init wrap + **CDP autoAttach inject** (session-wide, any origin) |
 | `pc` Windows kit (full) | Future | V1 = Linux pc kit (honest container) |
 
 ### Kits (V1)
 
-| Category | Identity | HW defaults | WebGL UNMASKED |
-|----------|----------|-------------|----------------|
-| `phone` | Chrome Android Pixel-class; `platform=Linux armv8l` | concurrency 8, deviceMemory 4 | Adreno |
-| `tablet` | Chrome Android tablet-class; arm platform | concurrency 8, deviceMemory 4 | Adreno |
-| `pc` | Chrome Linux matching container binary | concurrency 8, deviceMemory 8 | Intel Mesa Linux (never D3D11) |
+| Category | Identity | HW defaults | WebGL |
+|----------|----------|-------------|-------|
+| `phone` | Chrome Android Pixel-class; `platform=Linux armv8l` | concurrency 8, deviceMemory 4 | WebKit masked + Adreno UNMASKED |
+| `tablet` | Chrome Android tablet-class; arm platform | concurrency 8, deviceMemory 4 | WebKit masked + Adreno UNMASKED |
+| `pc` | Chrome Linux matching container binary | concurrency 8, deviceMemory 8 | WebKit masked + Intel Mesa Linux UNMASKED |
 
-### Score backlog (after realm consistency)
+### Score backlog
 
-1. CreepJS **like-headless ~44%** — browser-wide only; suite hosts are measurement, never product branches.
-2. Soft: TZ vs egress IP (network).
-3. Full Windows `pc` kit only if pack is complete (UA+platform+UA-CH+GPU together).
-4. Deploy: keep sidecar images in sync (stale image → mobile 980 prove fail).
+1. **Attribute Creep Mesa/llvmpipe** (likely non-main WebGL realm) — then extend the same kit `getParameter` story there if proven.
+2. Like-headless ~44% — diagnose hypotheses in [stealth-suite-results.md](stealth-suite-results.md); **no** mitigations until attributed.
+3. Soft: TZ vs egress IP (network).
+4. Deploy: keep sidecar images in sync.
 
 **Hard rule:** never special-case stealth suite hostnames in sidecar product code.
 

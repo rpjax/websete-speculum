@@ -1,52 +1,47 @@
 ## Stealth suite results
 
-- When (UTC): 2026-08-03 ~10:40 (browser-wide worker-target CDP inject)
+- When (UTC): 2026-08-03 ~11:05 (WebGL VENDOR/RENDERER + UNMASKED; like-headless diagnose-only)
 - Env: **dev** (`http://127.0.0.1:8080/w7s`)
-- Sidecar image / git SHA: `speculum-refactor/speculum-refactor-sidecar:dev` / `5f669cf`
-- SPECULUM_INPUT_BACKEND: `patchright`
-- Navigation allowlist note: `Any` (dev seed)
-- Method: SessionHub + harness evaluate (remote Chrome)
-- Policy: [stealth-suite.md](stealth-suite.md) — identity is **session/browser-wide**, suite is measure-only
+- Sidecar: `speculum-refactor/speculum-refactor-sidecar:dev`
+- Policy: browser-wide kit; suite = measure only
 - Raw: [`stealth-suite-raw.json`](stealth-suite-raw.json)
 
-### Delta vs prior (WebGL-auto + classic Worker wrap)
+### Delta — WebGL (P1)
 
-| Signal | Before | After (this run) |
-|--------|--------|------------------|
-| Harness classic Worker | kit (8) | kit (8) |
-| CreepJS Worker line | **cores: 22** | **cores: 8** (pc mem 8 / phone mem 4) |
-| CreepJS like-headless / stealth | 44% / 20% | **44% / 20%** (unchanged) |
-| WebGL | kit UNMASKED | unchanged ok |
-| Blob SW harness probe | n/a | register rejected on google.com (blob protocol) — Creep SW path still kit cores |
+| Signal | Before | After |
+|--------|--------|-------|
+| Harness `VENDOR` / `RENDERER` | WebKit / WebKit WebGL (often) or leak | **WebKit / WebKit WebGL** (forced kit) |
+| Harness UNMASKED pc | Intel Mesa UHD | unchanged kit |
+| Harness UNMASKED phone | Adreno | unchanged kit |
+| `Mesa/X.org` in harness | yes (prior noise) | **gone** |
+| Creep GPU lines | Mesa/X.org + kit UNMASKED | **still** Mesa/X.org **llvmpipe** *and* kit UNMASKED |
 
-### Executive snapshot
+### Snapshot
 
-| Axis | Desktop (`pc`) | Phone 414×711 |
-|------|----------------|---------------|
-| Main HW / platform | 8 / Linux x86_64 | 8 / Linux armv8l |
-| Harness Worker | cores 8 mem 8 | cores 8 mem 4 + Android UA |
-| Creep Worker | **cores: 8, ram: 8** | **cores: 8, ram: 4** |
-| WebGL UNMASKED | Intel Mesa | Adreno |
-| CreepJS | 44% like headless / 20% stealth | same |
-| Sannysoft WebDriver | passed | passed |
+| Axis | Desktop | Phone |
+|------|---------|-------|
+| Main WebGL (harness) | WebKit + Intel UNMASKED | WebKit + Adreno UNMASKED |
+| Worker HW | cores 8 | cores 8 |
+| Creep like-headless / stealth | 44% / 20% | 44% / 20% |
 
-### Illustrative browser-side score: **76 / 100** (was ~68)
-
-Realm consistency closed the Worker leak; like-headless band and network/TLS remain the ceiling.
+Illustrative score: **~76–78** (main WebGL story clean; Creep dual-GPU residual + 44% band remain).
 
 ---
 
-### Priority backlog (objective)
+### Like-headless diagnose (P2 — no fixes this wave)
 
-1. Like-headless ~44% — multicausal; next only with **browser-wide** mitigations (no URL patches).
-2. Soft: TZ vs egress IP (deploy/network).
-3. Full Windows `pc` kit only as a complete pack (out of V1).
+Creep still **44% like headless / 20% stealth / 0% headless**. Closing main WebGL + Worker cores did **not** move the band.
 
-### Explicitly out of scope this run
+**What still shows (ordered hypotheses for a later fix leva):**
 
-- Cpuset/affinity, SW script byte rewrite, Chromium fork, suite-host special-cases, JA3/CF ML.
+1. **Dual GPU string in Creep** — harness is kit-clean; Creep still prints `Google Inc. (Mesa/X.org)` + `llvmpipe`. Likely WebGL (or GPU read) in a **non-main** realm (worker / OffscreenCanvas) or a path that bypasses prototype `getParameter`. Highest-confidence leftover GPU tell.
+2. **Like-headless composite** — not explained by cores-22 anymore (already fixed). Candidates: software GL/llvmpipe tell, X11/container traits, canvas, prototype smell — **unproven**; need targeted attribute next wave, not flags.
+3. **Network / TZ / TLS** — out of browser; unchanged.
 
-### Method note
+**Next step (not this wave):** attribute where Creep reads Mesa/llvmpipe (worker WebGL vs other); only then extend the **same** getParameter kit story to that realm — still browser-wide, no site hacks.
 
-- Product: `Target.setAutoAttach` + `sendMessageToTarget` inject of kit navigator spoof into `worker` / `shared_worker` / `service_worker` for the whole session (any site).
-- Classic Worker wrap + main init remain defense-in-depth.
+---
+
+### Explicitly not shipped
+
+- Like-headless mitigations, Chrome “stealth” flags, `toString` hygiene, CDP WebGL inject, Windows kit.

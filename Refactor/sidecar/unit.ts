@@ -290,8 +290,11 @@ async function testApplyLogicalViewportUsesBoundsAndMetrics(): Promise<void> {
   const hwInit = calls.find((c) => c.method === 'Page.addScriptToEvaluateOnNewDocument');
   const hwSource = String((hwInit!.params as { source?: string }).source);
   assert.ok(hwSource.includes('hardwareConcurrency'), 'hardwareConcurrency spoof required');
-  assert.ok(hwSource.includes('webglVendor') || hwSource.includes('UNMASKED_VENDOR'), 'WebGL UNMASKED spoof required');
-  assert.ok(hwSource.includes('Intel') || hwSource.includes('Mesa'), 'pc kit WebGL must be Linux Intel/Mesa');
+  assert.ok(hwSource.includes('webglUnmaskedVendor') || hwSource.includes('UNMASKED_VENDOR'), 'WebGL UNMASKED spoof required');
+  assert.ok(hwSource.includes('0x1f00') || hwSource.includes('0x1F00') || hwSource.includes('GL_VENDOR'), 'WebGL VENDOR spoof required');
+  assert.ok(hwSource.includes('WebKit WebGL'), 'masked RENDERER must be WebKit WebGL');
+  assert.ok(hwSource.includes('Intel') || hwSource.includes('Mesa Intel'), 'pc kit WebGL must be Linux Intel');
+  assert.ok(!hwSource.includes('Mesa/X.org'), 'pc kit must not claim Mesa/X.org');
   assert.ok(!hwSource.includes('Direct3D'), 'pc kit must not claim D3D11/Windows');
   assert.ok(hwSource.includes('window.Worker'), 'Worker wrap required');
   assert.ok(hwSource.includes('SharedWorker'), 'SharedWorker wrap required');
@@ -479,6 +482,9 @@ function testKitStealthInitSource(): void {
     userAgent: phone.buildUserAgent('120.0.0.0'),
   });
   assert.ok(phoneSrc.includes('Adreno'), 'phone WebGL must claim Adreno');
+  assert.ok(phoneSrc.includes('WebKit WebGL'), 'phone masked RENDERER');
+  assert.ok(phoneSrc.includes('0x1F00') || phoneSrc.includes('GL_VENDOR'), 'phone must spoof VENDOR');
+  assert.ok(!phoneSrc.includes('Mesa/X.org'), 'phone must not claim Mesa/X.org');
   assert.ok(phoneSrc.includes('Linux armv8l'), 'phone platform in init');
   assert.ok(phoneSrc.includes('Android 13'), 'phone UA in worker wrap');
   assert.ok(phoneSrc.includes('importScripts'), 'worker wrap must use importScripts');
@@ -493,9 +499,18 @@ function testKitStealthInitSource(): void {
     kit: pc,
     userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
   });
-  assert.ok(pcSrc.includes('Intel') || pcSrc.includes('Mesa'), 'pc WebGL Linux GPU story');
+  assert.ok(pcSrc.includes('Intel') || pcSrc.includes('Mesa Intel'), 'pc WebGL Linux GPU story');
+  assert.ok(pcSrc.includes('WebKit WebGL'), 'pc masked RENDERER');
+  assert.ok(!pcSrc.includes('Mesa/X.org'), 'pc never Mesa/X.org');
   assert.ok(pcSrc.includes('Linux x86_64'), 'pc platform');
   assert.ok(!pcSrc.includes('Direct3D'), 'pc never D3D11/Windows');
+  const extJs = fs.readFileSync(
+    require('path').join(webglSpoofExtensionPath(), 'content.js'),
+    'utf8',
+  );
+  assert.ok(extJs.includes('WebKit WebGL'), 'extension masked RENDERER');
+  assert.ok(extJs.includes('0x1F00') || extJs.includes('GL_VENDOR'), 'extension spoofs VENDOR');
+  assert.ok(!extJs.includes('Mesa/X.org'), 'extension never Mesa/X.org');
 
   const nav = kitNavigatorSpoofSource({
     kit: phone,

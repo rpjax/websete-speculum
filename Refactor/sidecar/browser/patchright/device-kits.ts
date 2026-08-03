@@ -18,6 +18,10 @@ export interface DeviceKit {
   minMaxTouchPoints: number;
   hardwareConcurrency: number;
   deviceMemory: number;
+  /** WebGL VENDOR (0x1F00) — masked; Chromium-typical, never Mesa/X.org alone. */
+  webglVendor: string;
+  /** WebGL RENDERER (0x1F01) — masked; Chromium-typical. */
+  webglRenderer: string;
   /** WebGL UNMASKED_VENDOR_WEBGL — kit story (same with/without real GPU). */
   webglUnmaskedVendor: string;
   /** WebGL UNMASKED_RENDERER_WEBGL — Linux/Android coherent (never D3D11/Windows). */
@@ -39,6 +43,8 @@ const PHONE_KIT: DeviceKit = {
   minMaxTouchPoints: 5,
   hardwareConcurrency: 8,
   deviceMemory: 4,
+  webglVendor: 'WebKit',
+  webglRenderer: 'WebKit WebGL',
   webglUnmaskedVendor: 'Qualcomm',
   webglUnmaskedRenderer: 'ANGLE (Qualcomm, Adreno (TM) 730, OpenGL ES 3.2)',
   buildUserAgent: (chromeVer) =>
@@ -59,6 +65,8 @@ const TABLET_KIT: DeviceKit = {
   minMaxTouchPoints: 5,
   hardwareConcurrency: 8,
   deviceMemory: 4,
+  webglVendor: 'WebKit',
+  webglRenderer: 'WebKit WebGL',
   webglUnmaskedVendor: 'Qualcomm',
   webglUnmaskedRenderer: 'ANGLE (Qualcomm, Adreno (TM) 740, OpenGL ES 3.2)',
   buildUserAgent: (chromeVer) =>
@@ -79,6 +87,8 @@ const PC_KIT: DeviceKit = {
   minMaxTouchPoints: 0,
   hardwareConcurrency: 8,
   deviceMemory: 8,
+  webglVendor: 'WebKit',
+  webglRenderer: 'WebKit WebGL',
   webglUnmaskedVendor: 'Google Inc. (Intel)',
   webglUnmaskedRenderer:
     'ANGLE (Intel, Mesa Intel(R) UHD Graphics 620 (CFL GT2), OpenGL 4.5)',
@@ -224,8 +234,10 @@ export function kitStealthInitSource(args: {
   const mem = kit.deviceMemory;
   const platform = jsonString(kit.navigatorPlatform);
   const ua = jsonString(userAgent);
-  const vendor = jsonString(kit.webglUnmaskedVendor);
-  const renderer = jsonString(kit.webglUnmaskedRenderer);
+  const maskedVendor = jsonString(kit.webglVendor);
+  const maskedRenderer = jsonString(kit.webglRenderer);
+  const unmaskedVendor = jsonString(kit.webglUnmaskedVendor);
+  const unmaskedRenderer = jsonString(kit.webglUnmaskedRenderer);
   const uaChPlatform = jsonString(kit.uaChPlatform);
   const uaChMobile = kit.mobile ? 'true' : 'false';
 
@@ -234,8 +246,10 @@ export function kitStealthInitSource(args: {
   const mem = ${mem};
   const platform = ${platform};
   const ua = ${ua};
-  const webglVendor = ${vendor};
-  const webglRenderer = ${renderer};
+  const webglVendor = ${maskedVendor};
+  const webglRenderer = ${maskedRenderer};
+  const webglUnmaskedVendor = ${unmaskedVendor};
+  const webglUnmaskedRenderer = ${unmaskedRenderer};
   const uaChPlatform = ${uaChPlatform};
   const uaChMobile = ${uaChMobile};
 
@@ -296,16 +310,34 @@ export function kitStealthInitSource(args: {
   spoofNavigator(typeof Navigator !== 'undefined' ? Navigator.prototype : null);
   spoofNavigator(typeof WorkerNavigator !== 'undefined' ? WorkerNavigator.prototype : null);
 
+  const GL_VENDOR = 0x1F00;
+  const GL_RENDERER = 0x1F01;
   const UNMASKED_VENDOR_WEBGL = 0x9245;
   const UNMASKED_RENDERER_WEBGL = 0x9246;
   function patchWebGl(proto) {
-    if (!proto || proto.__speculumWebglPatched) return;
-    const origGetParam = proto.getParameter;
-    const origGetExt = proto.getExtension;
+    if (!proto) return;
+    if (!proto.__speculumWebglOrigGetParam) {
+      try {
+        Object.defineProperty(proto, '__speculumWebglOrigGetParam', {
+          value: proto.getParameter,
+          configurable: true,
+        });
+        Object.defineProperty(proto, '__speculumWebglOrigGetExt', {
+          value: proto.getExtension,
+          configurable: true,
+        });
+      } catch (_) {
+        return;
+      }
+    }
+    const origGetParam = proto.__speculumWebglOrigGetParam;
+    const origGetExt = proto.__speculumWebglOrigGetExt;
     Object.defineProperty(proto, 'getParameter', {
       value: function (param) {
-        if (param === UNMASKED_VENDOR_WEBGL) return webglVendor;
-        if (param === UNMASKED_RENDERER_WEBGL) return webglRenderer;
+        if (param === GL_VENDOR) return webglVendor;
+        if (param === GL_RENDERER) return webglRenderer;
+        if (param === UNMASKED_VENDOR_WEBGL) return webglUnmaskedVendor;
+        if (param === UNMASKED_RENDERER_WEBGL) return webglUnmaskedRenderer;
         return origGetParam.call(this, param);
       },
       writable: true,
@@ -325,12 +357,6 @@ export function kitStealthInitSource(args: {
       writable: true,
       configurable: true,
     });
-    try {
-      Object.defineProperty(proto, '__speculumWebglPatched', {
-        value: true,
-        configurable: true,
-      });
-    } catch (_) {}
   }
   if (typeof WebGLRenderingContext !== 'undefined') {
     patchWebGl(WebGLRenderingContext.prototype);

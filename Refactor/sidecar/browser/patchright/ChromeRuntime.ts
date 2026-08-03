@@ -157,7 +157,7 @@ export async function launchChrome(args: {
   }
   // Native window at logical W×H + device metrics (no fullscreen — that left
   // mobile cssLayoutViewport stuck at the legacy ~980px width).
-  await applyLogicalViewport(cdp, args.width, args.height, args.device);
+  await applyLogicalViewport(cdp, args.width, args.height, args.device, context);
   await ensureChromeXFocus(args.displayEnv);
 
   return { context, page, cdp, userDataDir };

@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.DEVICE_KITS = void 0;
 exports.resolveDeviceCategory = resolveDeviceCategory;
 exports.resolveDeviceKit = resolveDeviceKit;
+exports.kitNavigatorSpoofSource = kitNavigatorSpoofSource;
 exports.kitStealthInitSource = kitStealthInitSource;
 exports.kitHardwareSpoofSource = kitHardwareSpoofSource;
 const PHONE_KIT = {
@@ -86,6 +87,90 @@ function resolveDeviceKit(device) {
 }
 function jsonString(value) {
     return JSON.stringify(value);
+}
+/**
+ * Navigator identity spoof for any execution realm (main, Worker, ServiceWorker).
+ * No Worker constructor wrap / no WebGL — safe to Runtime.evaluate in worker targets.
+ */
+function kitNavigatorSpoofSource(args) {
+    const { kit, userAgent } = args;
+    const cores = kit.hardwareConcurrency;
+    const mem = kit.deviceMemory;
+    const platform = jsonString(kit.navigatorPlatform);
+    const ua = jsonString(userAgent);
+    const uaChPlatform = jsonString(kit.uaChPlatform);
+    const uaChMobile = kit.mobile ? 'true' : 'false';
+    return `(() => {
+  const cores = ${cores};
+  const mem = ${mem};
+  const platform = ${platform};
+  const ua = ${ua};
+  const uaChPlatform = ${uaChPlatform};
+  const uaChMobile = ${uaChMobile};
+
+  function spoof(nav) {
+    if (!nav) return;
+    try {
+      Object.defineProperty(nav, 'hardwareConcurrency', {
+        get: function () { return cores; },
+        configurable: true,
+      });
+    } catch (_) {}
+    try {
+      Object.defineProperty(nav, 'deviceMemory', {
+        get: function () { return mem; },
+        configurable: true,
+      });
+    } catch (_) {}
+    try {
+      Object.defineProperty(nav, 'platform', {
+        get: function () { return platform; },
+        configurable: true,
+      });
+    } catch (_) {}
+    if (ua) {
+      try {
+        Object.defineProperty(nav, 'userAgent', {
+          get: function () { return ua; },
+          configurable: true,
+        });
+      } catch (_) {}
+      try {
+        Object.defineProperty(nav, 'appVersion', {
+          get: function () { return String(ua).replace('Mozilla/', ''); },
+          configurable: true,
+        });
+      } catch (_) {}
+    }
+    try {
+      const uaData = nav.userAgentData;
+      if (uaData && typeof uaData === 'object') {
+        Object.defineProperty(nav, 'userAgentData', {
+          get: function () {
+            return {
+              brands: uaData.brands,
+              mobile: uaChMobile,
+              platform: uaChPlatform,
+              getHighEntropyValues: uaData.getHighEntropyValues
+                ? uaData.getHighEntropyValues.bind(uaData)
+                : undefined,
+              toJSON: uaData.toJSON ? uaData.toJSON.bind(uaData) : undefined,
+            };
+          },
+          configurable: true,
+        });
+      }
+    } catch (_) {}
+  }
+
+  try { spoof(typeof self !== 'undefined' ? self.navigator : null); } catch (_) {}
+  try {
+    spoof(typeof WorkerNavigator !== 'undefined' ? WorkerNavigator.prototype : null);
+  } catch (_) {}
+  try {
+    spoof(typeof Navigator !== 'undefined' ? Navigator.prototype : null);
+  } catch (_) {}
+})();`;
 }
 /**
  * Main-world init: kit HW, WebGL UNMASKED, classic Worker/SharedWorker wrap.

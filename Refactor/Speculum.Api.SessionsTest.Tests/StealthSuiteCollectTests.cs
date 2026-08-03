@@ -283,6 +283,54 @@ public sealed class StealthSuiteCollectTests
       w.onerror = (err) => { clearTimeout(t); try { w.terminate(); } catch (_) {} URL.revokeObjectURL(url); resolve({ error: String(err && err.message || err) }); };
     });
   } catch (e) { out.workerError = String(e); }
+  try {
+    out.serviceWorker = await new Promise(async (resolve) => {
+      if (!('serviceWorker' in navigator)) {
+        resolve({ skipped: 'unsupported' });
+        return;
+      }
+      const code = `self.addEventListener('message', (ev) => {
+        if (ev.data !== 'probe') return;
+        ev.source.postMessage({
+          ua: self.navigator.userAgent,
+          platform: self.navigator.platform,
+          cores: self.navigator.hardwareConcurrency,
+          mem: self.navigator.deviceMemory,
+          scope: 'serviceworker'
+        });
+      });`;
+      const blob = new Blob([code], { type: 'text/javascript' });
+      const url = URL.createObjectURL(blob);
+      const t = setTimeout(() => { URL.revokeObjectURL(url); resolve({ error: 'timeout' }); }, 5000);
+      try {
+        const reg = await navigator.serviceWorker.register(url, { scope: './' });
+        const sw = reg.installing || reg.waiting || reg.active;
+        if (!sw) {
+          clearTimeout(t);
+          URL.revokeObjectURL(url);
+          resolve({ error: 'no_worker' });
+          return;
+        }
+        const onMsg = (ev) => {
+          clearTimeout(t);
+          navigator.serviceWorker.removeEventListener('message', onMsg);
+          URL.revokeObjectURL(url);
+          resolve(ev.data);
+          try { reg.unregister(); } catch (_) {}
+        };
+        navigator.serviceWorker.addEventListener('message', onMsg);
+        const send = () => { try { sw.postMessage('probe'); } catch (_) {} };
+        if (sw.state === 'activated') send();
+        else sw.addEventListener('statechange', () => { if (sw.state === 'activated') send(); });
+        // Also try after install settles.
+        setTimeout(send, 500);
+      } catch (err) {
+        clearTimeout(t);
+        URL.revokeObjectURL(url);
+        resolve({ error: String(err && err.message || err) });
+      }
+    });
+  } catch (e) { out.serviceWorkerError = String(e); }
   return JSON.stringify(out);
 })()
 """;

@@ -34,7 +34,7 @@ Remote Chrome is always Chromium — **never** paste Safari/iOS/WebKit UA or `pl
 | WebGL context | Auto: GPU if present, else SwiftShader — **no env knob** |
 | WebGL UNMASKED strings | **Preset kit** (Adreno Android / Intel Mesa Linux) — same with or without GPU |
 | Fonts | Docker packages (Liberation/DejaVu/Noto) — no JS spoof |
-| Worker / SharedWorker | Kit HW + UA/platform via init wrap |
+| Worker / SharedWorker / ServiceWorker | Kit HW + UA/platform — main init wrap + **CDP autoAttach inject** (session-wide, any origin) |
 | `pc` Windows kit (full) | Future | V1 = Linux pc kit (honest container) |
 
 ### Kits (V1)
@@ -45,12 +45,14 @@ Remote Chrome is always Chromium — **never** paste Safari/iOS/WebKit UA or `pl
 | `tablet` | Chrome Android tablet-class; arm platform | concurrency 8, deviceMemory 4 | Adreno |
 | `pc` | Chrome Linux matching container binary | concurrency 8, deviceMemory 8 | Intel Mesa Linux (never D3D11) |
 
-### Score backlog (after easy consistency)
+### Score backlog (after realm consistency)
 
-1. CreepJS **ServiceWorker** / non-classic worker realm still reports host cores (classic Worker wrap is kit-correct).
+1. CreepJS **like-headless ~44%** — browser-wide only; suite hosts are measurement, never product branches.
 2. Soft: TZ vs egress IP (network).
 3. Full Windows `pc` kit only if pack is complete (UA+platform+UA-CH+GPU together).
 4. Deploy: keep sidecar images in sync (stale image → mobile 980 prove fail).
+
+**Hard rule:** never special-case stealth suite hostnames in sidecar product code.
 
 ---
 

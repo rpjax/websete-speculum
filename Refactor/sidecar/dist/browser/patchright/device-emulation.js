@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.DEFAULT_DESKTOP_DEVICE = exports.MOBILE_VIEWPORT_META_CONTENT = exports.kitHardwareSpoofSource = exports.kitStealthInitSource = exports.DEVICE_KITS = exports.resolveDeviceKit = exports.resolveDeviceCategory = void 0;
+exports.DEFAULT_DESKTOP_DEVICE = exports.MOBILE_VIEWPORT_META_CONTENT = exports.WORKER_TARGET_TYPES = exports.isWorkerLikeTargetType = exports.ensureWorkerTargetStealth = exports.kitHardwareSpoofSource = exports.kitNavigatorSpoofSource = exports.kitStealthInitSource = exports.DEVICE_KITS = exports.resolveDeviceKit = exports.resolveDeviceCategory = void 0;
 exports.isInputTouchPrimary = isInputTouchPrimary;
 exports.touchEmulationParams = touchEmulationParams;
 exports.resolveDeviceProfile = resolveDeviceProfile;
@@ -20,12 +20,18 @@ exports.viewportMetricsClose = viewportMetricsClose;
 exports.readChromeViewport = readChromeViewport;
 exports.proveLogicalViewport = proveLogicalViewport;
 const device_kits_1 = require("./device-kits");
+const worker_target_stealth_1 = require("./worker-target-stealth");
 var device_kits_2 = require("./device-kits");
 Object.defineProperty(exports, "resolveDeviceCategory", { enumerable: true, get: function () { return device_kits_2.resolveDeviceCategory; } });
 Object.defineProperty(exports, "resolveDeviceKit", { enumerable: true, get: function () { return device_kits_2.resolveDeviceKit; } });
 Object.defineProperty(exports, "DEVICE_KITS", { enumerable: true, get: function () { return device_kits_2.DEVICE_KITS; } });
 Object.defineProperty(exports, "kitStealthInitSource", { enumerable: true, get: function () { return device_kits_2.kitStealthInitSource; } });
+Object.defineProperty(exports, "kitNavigatorSpoofSource", { enumerable: true, get: function () { return device_kits_2.kitNavigatorSpoofSource; } });
 Object.defineProperty(exports, "kitHardwareSpoofSource", { enumerable: true, get: function () { return device_kits_2.kitHardwareSpoofSource; } });
+var worker_target_stealth_2 = require("./worker-target-stealth");
+Object.defineProperty(exports, "ensureWorkerTargetStealth", { enumerable: true, get: function () { return worker_target_stealth_2.ensureWorkerTargetStealth; } });
+Object.defineProperty(exports, "isWorkerLikeTargetType", { enumerable: true, get: function () { return worker_target_stealth_2.isWorkerLikeTargetType; } });
+Object.defineProperty(exports, "WORKER_TARGET_TYPES", { enumerable: true, get: function () { return worker_target_stealth_2.WORKER_TARGET_TYPES; } });
 /** Viewport meta content used for mobile CSS layout (avoids legacy ~980px width). */
 exports.MOBILE_VIEWPORT_META_CONTENT = 'width=device-width, initial-scale=1';
 /** Desktop fallback when the client omits a device profile (dpr=1, no touch). */
@@ -102,7 +108,7 @@ function deviceProfilesEqual(a, b) {
         && left.deviceCategory === right.deviceCategory
         && left.screenOrientation === right.screenOrientation);
 }
-async function applyDeviceEmulation(cdp, width, height, device) {
+async function applyDeviceEmulation(cdp, width, height, device, context) {
     if (device.deviceScaleFactor === undefined || device.deviceScaleFactor <= 0) {
         throw new Error('device.deviceScaleFactor must be a positive number');
     }
@@ -138,7 +144,7 @@ async function applyDeviceEmulation(cdp, width, height, device) {
                 bitness: kit.uaChBitness,
             }),
         });
-        await applyKitStealthInit(cdp, kit, ua);
+        await applyKitStealthInit(cdp, kit, ua, context);
     }
     else {
         // Always clear mobile UA on desktop apply — soft resize must not leave prior override.
@@ -160,7 +166,7 @@ async function applyDeviceEmulation(cdp, width, height, device) {
                 bitness: desktopMeta.bitness,
             }),
         });
-        await applyKitStealthInit(cdp, kit, version.userAgent);
+        await applyKitStealthInit(cdp, kit, version.userAgent, context);
     }
     await cdp.send('Emulation.setTouchEmulationEnabled', touchEmulationParams(device));
     // Xvfb/headless pages are often unfocused; without this, CDP mouse hits the right
@@ -186,12 +192,18 @@ async function applyDeviceEmulation(cdp, width, height, device) {
     });
 }
 /** Kit HW + WebGL UNMASKED + classic Worker wrap (never host cores / GPU strings). */
-async function applyKitStealthInit(cdp, kit, userAgent) {
+async function applyKitStealthInit(cdp, kit, userAgent, context) {
     const source = (0, device_kits_1.kitStealthInitSource)({ kit, userAgent });
     await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source });
     await cdp.send('Runtime.evaluate', {
         expression: source,
         returnByValue: true,
+    });
+    // Browser-wide: every worker-like target (any site) gets kit navigator identity.
+    await (0, worker_target_stealth_1.ensureWorkerTargetStealth)({
+        pageCdp: cdp,
+        source: (0, device_kits_1.kitNavigatorSpoofSource)({ kit, userAgent }),
+        context: context ?? null,
     });
 }
 /** @deprecated Prefer applyKitStealthInit with UA. */
@@ -302,10 +314,10 @@ async function applyNativeWindowBounds(cdp, width, height) {
  * Soft logical viewport: native window bounds + device metrics so layout/paint
  * track the client size without recreating Chrome/Xvfb.
  */
-async function applyLogicalViewport(cdp, width, height, device) {
+async function applyLogicalViewport(cdp, width, height, device, context) {
     const profile = resolveDeviceProfile(device);
     await applyNativeWindowBounds(cdp, width, height);
-    await applyDeviceEmulation(cdp, width, height, profile);
+    await applyDeviceEmulation(cdp, width, height, profile, context);
     return profile;
 }
 /**
@@ -377,12 +389,12 @@ async function ensurePageHasViewportMeta(cdp) {
     return result.result?.value === true;
 }
 /** After navigate/reload: ensure viewport meta (mobile) + re-apply device metrics. */
-async function reassertLogicalViewportAfterNavigation(cdp, width, height, device) {
+async function reassertLogicalViewportAfterNavigation(cdp, width, height, device, context) {
     const profile = resolveDeviceProfile(device);
     if (profile.mobile) {
         await ensurePageHasViewportMeta(cdp);
     }
-    await applyDeviceEmulation(cdp, width, height, profile);
+    await applyDeviceEmulation(cdp, width, height, profile, context);
 }
 /** Tolerate small Chrome settle jitter when proving logical CSS size. */
 function viewportMetricsClose(aW, aH, bW, bH, epsilon = 2) {
@@ -415,16 +427,17 @@ async function readChromeViewport(cdp) {
  * Call immediately before treating a size as confirmed (launch / resize / compensate).
  */
 async function proveLogicalViewport(cdp, width, height, device, options) {
-    const profile = await applyLogicalViewport(cdp, width, height, device);
+    const context = options?.context ?? null;
+    const profile = await applyLogicalViewport(cdp, width, height, device, context);
     // Mobile metrics on raw about:blank leave cssLayoutViewport at the legacy ~980px
     // width; seed a viewport-meta document then re-apply metrics before reading.
     // Live pages without viewport meta hit the same 980 trap — inject meta when mobile.
     if (await ensureViewportMetaDocument(cdp)) {
-        await applyDeviceEmulation(cdp, width, height, profile);
+        await applyDeviceEmulation(cdp, width, height, profile, context);
     }
     else if (profile.mobile) {
         await ensurePageHasViewportMeta(cdp);
-        await applyDeviceEmulation(cdp, width, height, profile);
+        await applyDeviceEmulation(cdp, width, height, profile, context);
     }
     const chrome = await readChromeViewport(cdp);
     const epsilon = options?.epsilon ?? 2;

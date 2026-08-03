@@ -157,6 +157,7 @@ class PatchrightBrowserSession {
             // proveLogicalViewport uses CDP cssLayoutViewport after fresh apply.
             const proven = await (0, device_emulation_1.proveLogicalViewport)(this.chrome.cdp, width, height, device, {
                 phase: 'launch',
+                context: this.chrome.context,
             });
             const active = await this.display.readActiveGeometry();
             if (active.width !== maxW || active.height !== maxH) {
@@ -279,7 +280,7 @@ class PatchrightBrowserSession {
                 await this.chrome.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 });
                 // Navigation can drop mobile CSS layout back to the legacy ~980px width
                 // when the page lacks viewport meta — reinject + re-apply metrics.
-                await (0, device_emulation_1.reassertLogicalViewportAfterNavigation)(this.chrome.cdp, this.viewport.width, this.viewport.height, this.viewport.device);
+                await (0, device_emulation_1.reassertLogicalViewportAfterNavigation)(this.chrome.cdp, this.viewport.width, this.viewport.height, this.viewport.device, this.chrome.context);
             }
             catch (err) {
                 const message = err instanceof Error ? err.message : String(err);
@@ -317,7 +318,7 @@ class PatchrightBrowserSession {
             this.editableFocus.stop();
             try {
                 await this.chrome.page.reload({ waitUntil: 'domcontentloaded', timeout: 30_000 });
-                await (0, device_emulation_1.reassertLogicalViewportAfterNavigation)(this.chrome.cdp, this.viewport.width, this.viewport.height, this.viewport.device);
+                await (0, device_emulation_1.reassertLogicalViewportAfterNavigation)(this.chrome.cdp, this.viewport.width, this.viewport.height, this.viewport.device, this.chrome.context);
             }
             catch (err) {
                 const message = err instanceof Error ? err.message : String(err);
@@ -427,6 +428,7 @@ class PatchrightBrowserSession {
             }
             await (0, device_emulation_1.proveLogicalViewport)(this.chrome.cdp, nextW, nextH, nextDevice, {
                 phase: 'resize_apply',
+                context: this.chrome.context,
             });
             if (sizeChanged) {
                 await this.screencast.completeRestart(nextW, nextH, (jpeg) => this.events.onVideoFrame(jpeg), this.chrome.cdp);
@@ -462,7 +464,7 @@ class PatchrightBrowserSession {
                 };
             }
             try {
-                await (0, device_emulation_1.proveLogicalViewport)(this.chrome.cdp, previous.width, previous.height, previous.device, { phase: 'compensate' });
+                await (0, device_emulation_1.proveLogicalViewport)(this.chrome.cdp, previous.width, previous.height, previous.device, { phase: 'compensate', context: this.chrome.context });
                 // Only reattach screencast if the forward path already paused it.
                 if (screencastTouched && this.screencast) {
                     await this.screencast.completeRestart(previous.width, previous.height, (jpeg) => this.events.onVideoFrame(jpeg), this.chrome.cdp);

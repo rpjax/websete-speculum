@@ -41,6 +41,7 @@ const fs = __importStar(require("fs"));
 const Navigation_1 = require("./browser/patchright/Navigation");
 const device_emulation_1 = require("./browser/patchright/device-emulation");
 const device_kits_1 = require("./browser/patchright/device-kits");
+const worker_target_stealth_1 = require("./browser/patchright/worker-target-stealth");
 const ChromeRuntime_1 = require("./browser/patchright/ChromeRuntime");
 const viewport_bounds_1 = require("./browser/patchright/viewport-bounds");
 const contextCrash_1 = require("./browser/patchright/contextCrash");
@@ -205,8 +206,12 @@ async function testApplyLogicalViewportUsesBoundsAndMetrics() {
             if (method === 'Browser.getVersion') {
                 return { product: 'Chrome/120.0.0.0', userAgent: 'Mozilla/5.0 Desktop' };
             }
+            if (method === 'Target.getTargets')
+                return { targetInfos: [] };
             return {};
         },
+        on: () => { },
+        off: () => { },
     };
     const profile = await (0, device_emulation_1.applyLogicalViewport)(cdp, 1024, 768, null);
     assert_1.default.strictEqual(profile.deviceScaleFactor, 1);
@@ -248,6 +253,7 @@ async function testApplyLogicalViewportUsesBoundsAndMetrics() {
     assert_1.default.ok(!hwSource.includes('Direct3D'), 'pc kit must not claim D3D11/Windows');
     assert_1.default.ok(hwSource.includes('window.Worker'), 'Worker wrap required');
     assert_1.default.ok(hwSource.includes('SharedWorker'), 'SharedWorker wrap required');
+    assert_1.default.ok(calls.some((c) => c.method === 'Target.setAutoAttach'), 'worker-target stealth must enable Target.setAutoAttach');
     const boundsIdx = calls.findIndex((c) => c.method === 'Browser.setWindowBounds');
     const metricsIdx = calls.findIndex((c) => c.method === 'Emulation.setDeviceMetricsOverride');
     const uaIdx = calls.findIndex((c) => c.method === 'Emulation.setUserAgentOverride');
@@ -301,8 +307,12 @@ async function testProveLogicalViewportUsesCssLayoutMetrics() {
                     layoutViewport: { clientWidth: cssW, clientHeight: cssH },
                 };
             }
+            if (method === 'Target.getTargets')
+                return { targetInfos: [] };
             return {};
         },
+        on: () => { },
+        off: () => { },
     };
     const proven = await (0, device_emulation_1.proveLogicalViewport)(cdp, 414, 713, { mobile: true, touch: true, deviceScaleFactor: 2, maxTouchPoints: 5 }, { phase: 'launch' });
     assert_1.default.strictEqual(proven.width, 414);
@@ -336,6 +346,8 @@ async function testProveLogicalViewportUsesCssLayoutMetrics() {
             }
             return {};
         },
+        on: () => { },
+        off: () => { },
     }, 414, 713, null), /css layout viewport 980×1688 != logical 414×713/);
     await assert_1.default.rejects(() => (0, device_emulation_1.readChromeViewport)({
         send: async () => ({}),
@@ -386,7 +398,76 @@ function testKitStealthInitSource() {
     assert_1.default.ok(pcSrc.includes('Intel') || pcSrc.includes('Mesa'), 'pc WebGL Linux GPU story');
     assert_1.default.ok(pcSrc.includes('Linux x86_64'), 'pc platform');
     assert_1.default.ok(!pcSrc.includes('Direct3D'), 'pc never D3D11/Windows');
+    const nav = (0, device_kits_1.kitNavigatorSpoofSource)({
+        kit: phone,
+        userAgent: phone.buildUserAgent('120.0.0.0'),
+    });
+    assert_1.default.ok(nav.includes('hardwareConcurrency'), 'nav spoof cores');
+    assert_1.default.ok(nav.includes('Linux armv8l'), 'nav spoof platform');
+    assert_1.default.ok(!nav.includes('window.Worker'), 'nav spoof must not wrap Worker ctor');
+    assert_1.default.ok(!nav.includes('webglVendor'), 'nav spoof must not patch WebGL');
     console.log('[unit] kitStealthInitSource ok');
+}
+async function testWorkerTargetStealthAutoAttach() {
+    assert_1.default.ok((0, worker_target_stealth_1.isWorkerLikeTargetType)('worker'));
+    assert_1.default.ok((0, worker_target_stealth_1.isWorkerLikeTargetType)('shared_worker'));
+    assert_1.default.ok((0, worker_target_stealth_1.isWorkerLikeTargetType)('service_worker'));
+    assert_1.default.ok(!(0, worker_target_stealth_1.isWorkerLikeTargetType)('page'));
+    assert_1.default.ok(!(0, worker_target_stealth_1.isWorkerLikeTargetType)('iframe'));
+    const calls = [];
+    const handlers = new Map();
+    const cdp = {
+        send: async (method, params) => {
+            calls.push({ method, params });
+            if (method === 'Target.getTargets')
+                return { targetInfos: [] };
+            return {};
+        },
+        on: (event, fn) => {
+            handlers.set(event, fn);
+        },
+        off: (event) => {
+            handlers.delete(event);
+        },
+    };
+    const phone = (0, device_kits_1.resolveDeviceKit)({ deviceCategory: 'phone' });
+    const source = (0, device_kits_1.kitNavigatorSpoofSource)({
+        kit: phone,
+        userAgent: phone.buildUserAgent('120.0.0.0'),
+    });
+    const handle = await (0, worker_target_stealth_1.ensureWorkerTargetStealth)({
+        pageCdp: cdp,
+        source,
+    });
+    assert_1.default.ok(calls.some((c) => c.method === 'Target.setAutoAttach'
+        && c.params
+            .autoAttach === true
+        && c.params.waitForDebuggerOnStart === true
+        && c.params.flatten === false), 'must autoAttach workers with waitForDebugger, flatten false');
+    assert_1.default.ok(handlers.has('Target.attachedToTarget'), 'must listen for attachedToTarget');
+    const onAttached = handlers.get('Target.attachedToTarget');
+    await onAttached({
+        sessionId: 'sess-worker-1',
+        waitingForDebugger: true,
+        targetInfo: { type: 'service_worker', url: 'https://example.invalid/sw.js' },
+    });
+    const sent = calls.filter((c) => c.method === 'Target.sendMessageToTarget');
+    assert_1.default.ok(sent.length >= 2, 'must evaluate + resume on worker target');
+    const payloads = sent.map((c) => JSON.parse(c.params.message));
+    assert_1.default.ok(payloads.some((p) => p.method === 'Runtime.evaluate' && String(p.params.expression).includes('hardwareConcurrency')), 'must inject navigator spoof into worker session');
+    assert_1.default.ok(payloads.some((p) => p.method === 'Runtime.runIfWaitingForDebugger'), 'must resume paused worker target');
+    // Non-worker paused target must still resume (never hang iframes).
+    calls.length = 0;
+    await onAttached({
+        sessionId: 'sess-other',
+        waitingForDebugger: true,
+        targetInfo: { type: 'iframe', url: 'https://example.invalid/' },
+    });
+    const other = calls.filter((c) => c.method === 'Target.sendMessageToTarget');
+    assert_1.default.ok(other.length >= 1, 'non-worker must resume');
+    assert_1.default.ok(!other.some((c) => JSON.parse(c.params.message).method === 'Runtime.evaluate'), 'must not inject kit into non-worker targets');
+    handle.dispose();
+    console.log('[unit] worker target stealth autoAttach ok');
 }
 async function testScreencastRestartThrowsAfterStop() {
     const { Screencast } = await Promise.resolve().then(() => __importStar(require('./browser/patchright/Screencast')));
@@ -1051,6 +1132,7 @@ async function main() {
     await testProveLogicalViewportUsesCssLayoutMetrics();
     testBuildChromeArgsIncludesWebglSpoof();
     testKitStealthInitSource();
+    await testWorkerTargetStealthAutoAttach();
     await testScreencastRestartThrowsAfterStop();
     testLaunchEnvironmentIsRequired();
     testTouchEmulationParams();

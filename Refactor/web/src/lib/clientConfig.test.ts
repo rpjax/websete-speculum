@@ -14,7 +14,11 @@ const baseConfig: ClientConfig = {
   missing: [],
   nsoParamName: '_w7s_nso',
   navigation: { defaultTargetHost: 'www.example.com' },
-  sessions: { detachedSessionTimeoutSeconds: 300, dataStreamTransport: 'webTransport' },
+  sessions: {
+    detachedSessionTimeoutSeconds: 300,
+    dataStreamTransport: 'webTransport',
+    screencastMaxEncodeScale: 2,
+  },
   resourceManagement: { maxConcurrentSessions: 8 },
   hosting: { required: false, domains: [] },
 }

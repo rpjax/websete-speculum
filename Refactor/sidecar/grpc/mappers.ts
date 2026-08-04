@@ -50,7 +50,18 @@ export function toLaunchOptions(req: any): BrowserLaunchOptions {
     allowedNavigationDomains: req.allowedNavigationDomains?.length
       ? req.allowedNavigationDomains
       : undefined,
+    screencastMaxEncodeScale: resolveScreencastMaxEncodeScale(
+      req.screencastMaxEncodeScale ?? req.screencast_max_encode_scale,
+    ),
   };
+}
+
+function resolveScreencastMaxEncodeScale(raw: unknown): number {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) {
+    return 2;
+  }
+  return Math.min(2, Math.max(1, n));
 }
 
 export function toDevice(d: any): BrowserDeviceProfile {

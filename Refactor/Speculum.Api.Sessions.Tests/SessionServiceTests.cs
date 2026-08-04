@@ -12,6 +12,7 @@ using Speculum.Api.Profiles.Aggregates;
 using Speculum.Api.Profiles.Responses;
 using Speculum.Api.Profiles.Services.Contracts;
 using Speculum.Api.Sessions.Aggregates;
+using Speculum.Api.Sessions.Events.Models;
 using Speculum.Api.Sessions.Events.Services.Contracts;
 using Speculum.Api.Sessions.Models;
 using Speculum.Api.Sessions.Requests;
@@ -451,7 +452,7 @@ public sealed class SessionServiceTests
         public void Stopping(StopReason reason) { }
         public void Stopped(StopReason reason) { }
         public void TimedOut(StopReason reason) { }
-        public void Aborted(StopReason reason) { }
+        public void Aborted(StopReason reason, JournalError[]? errors = null) { }
     }
 
     private sealed class NoOpStartEvents : ISessionStartEvents
@@ -462,6 +463,7 @@ public sealed class SessionServiceTests
         public void InitialNavigationCompleted(string url) { }
         public void ProfileNotFound() { }
         public void StartConfigurationRejected(Error[] errors) { }
+        public void StartRefused(string reason, Error[]? errors = null) { }
         public void ConnectionStartFailed(Error[] errors) { }
         public void LaunchBrowserFailed(Error[] errors) { }
         public void RestoreProfileStateFailed(Error[] errors) { }

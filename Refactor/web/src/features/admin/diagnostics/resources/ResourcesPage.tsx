@@ -7,12 +7,10 @@ import {
   AdminPage,
   EmptyState,
   HelperCallout,
-  NextBestAction,
   PageHeader,
   RevealPanel,
   StatusPill,
 } from '@/features/admin/components'
-import { MACHINE_MONITOR_DEFAULT_KEYS } from '@/lib/resourceChartCompute'
 import {
   historyToResourceSamples,
   resourceMonitoringApi,
@@ -20,6 +18,12 @@ import {
   type ResourceSignal,
 } from '@/lib/resourceMonitoringApi'
 import { AdminApiError } from '@/lib/adminFetch'
+import { api, ConfigSections } from '@/lib/api'
+import {
+  applyTelemetryPreset,
+  TELEMETRY_PRESETS,
+  type JsonObject,
+} from '@/features/admin/configurations/telemetryHelpers'
 import { MetricOverlayPicker } from './MetricOverlayPicker'
 import { ResourceSeriesChart } from './ResourceSeriesChart'
 import { ResourceSystemStrip } from './ResourceSystemStrip'
@@ -42,16 +46,20 @@ export function ResourcesPage() {
   const [preset, setPreset] = useState<Preset>('1h')
   const [from, setFrom] = useState(() => windowForPreset('1h').from)
   const [to, setTo] = useState(() => windowForPreset('1h').to)
-  const [metricKeys, setMetricKeys] = useState<string[]>([...MACHINE_MONITOR_DEFAULT_KEYS])
-  const [live, setLive] = useState(searchParams.get('live') === '1')
+  const [metricKeys, setMetricKeys] = useState<string[]>(['host.cpu', 'host.memory'])
+  const [live, setLive] = useState(searchParams.get('live') !== '0')
   const [latest, setLatest] = useState<ResourceLatestResponse | null>(null)
   const [samples, setSamples] = useState(historyToResourceSamples([]))
   const [signals, setSignals] = useState<ResourceSignal[]>([])
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [enabling, setEnabling] = useState(false)
+  const [enableError, setEnableError] = useState<string | null>(null)
 
-  const load = useCallback(async () => {
-    setError(null)
+  const load = useCallback(async (opts?: { quiet?: boolean }) => {
+    if (!opts?.quiet) setError(null)
+    setRefreshing(true)
     try {
       const [lat, hist, sig] = await Promise.all([
         resourceMonitoringApi.latest(),
@@ -66,9 +74,10 @@ export function ResourcesPage() {
       setSamples(historyToResourceSamples(hist.items))
       setSignals(sig.items)
     } catch (e) {
-      setError(e instanceof AdminApiError ? e.message : 'Could not load resource history')
+      setError(e instanceof AdminApiError ? e.message : 'Could not load resources')
     } finally {
       setLoading(false)
+      setRefreshing(false)
     }
   }, [from, to])
 
@@ -82,7 +91,7 @@ export function ResourcesPage() {
       const w = windowForPreset(preset)
       setFrom(w.from)
       setTo(w.to)
-    }, 10_000)
+    }, 8_000)
     return () => window.clearInterval(id)
   }, [live, preset])
 
@@ -96,6 +105,7 @@ export function ResourcesPage() {
           setTo(new Date(signal.chartHint.to))
           if (signal.chartHint.metricKeys?.length)
             setMetricKeys(signal.chartHint.metricKeys)
+          setLive(false)
         }
       } catch {
         /* ignore missing signal */
@@ -104,7 +114,10 @@ export function ResourcesPage() {
   }, [signalId])
 
   const activeCount = signals.length
-  const telemetryOff = latest && !latest.telemetryEnabled
+  const historyOff = latest != null && !latest.telemetryEnabled
+  const historyTone = latest == null ? 'neutral' : historyOff ? 'warning' : 'success'
+  const historyLabel =
+    latest == null ? 'History…' : historyOff ? 'History sampling off' : 'History sampling on'
 
   const reportHref = useMemo(() => {
     const q = new URLSearchParams({
@@ -115,32 +128,61 @@ export function ResourcesPage() {
     return `/w7s/admin/diagnostics/reports/new?${q}`
   }, [from, to])
 
+  const exploreHref = useMemo(
+    () =>
+      `/w7s/admin/diagnostics/resources/explore?from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}&metrics=${metricKeys.join(',')}`,
+    [from, to, metricKeys],
+  )
+
+  async function startHistoryCollection() {
+    setEnabling(true)
+    setEnableError(null)
+    try {
+      const current = (await api.getSection(ConfigSections.Telemetry)) as JsonObject
+      const lean = TELEMETRY_PRESETS.find((p) => p.id === 'lean')
+      if (!lean) throw new Error('Lean preset missing')
+      const next = applyTelemetryPreset(current, lean)
+      await api.putSection(ConfigSections.Telemetry, next)
+      await load()
+    } catch (e) {
+      setEnableError(e instanceof Error ? e.message : 'Could not enable Telemetry sampling')
+    } finally {
+      setEnabling(false)
+    }
+  }
+
   return (
     <AdminPage width="overview">
       <PageHeader
         title="Resources"
-        description="Watch machine and process series from Telemetry samples in Journal."
+        description="Live machine probe now. Journal SampleCollected series for the past."
         actions={
-          <div className="flex flex-wrap gap-2">
-            <Button asChild variant="outline" size="sm">
-              <Link to={`/w7s/admin/diagnostics/resources/explore?from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}&metrics=${metricKeys.join(',')}`}>
-                Expand
-              </Link>
-            </Button>
-            <Button asChild size="sm">
-              <Link to={reportHref}>Generate report</Link>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-2 rounded-md border border-border/70 px-2.5 py-1.5">
+              <Switch id="live" checked={live} onCheckedChange={setLive} />
+              <Label htmlFor="live" className="text-xs font-medium">
+                Live
+              </Label>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={refreshing}
+              onClick={() => void load()}
+            >
+              Refresh
             </Button>
           </div>
         }
       />
 
-      {telemetryOff && (
-        <HelperCallout title="Telemetry sampling is off">
-          Enable SampleCollected under Telemetry to collect resource series.
-        </HelperCallout>
-      )}
-
       <div className="flex flex-wrap items-center gap-2">
+        <StatusPill
+          label={live ? 'Auto-refresh on' : 'Paused'}
+          tone={live ? 'success' : 'neutral'}
+        />
+        <StatusPill label={historyLabel} tone={historyTone} />
         {activeCount === 0 ? (
           <StatusPill label="No active signals" tone="success" />
         ) : (
@@ -150,37 +192,8 @@ export function ResourcesPage() {
         )}
       </div>
 
-      <ResourceSystemStrip latest={latest} />
-
-      <div className="flex flex-wrap items-center gap-2">
-        {(['15m', '1h', '6h', '24h'] as Preset[]).map((p) => (
-          <Button
-            key={p}
-            type="button"
-            size="sm"
-            variant={preset === p ? 'default' : 'outline'}
-            onClick={() => {
-              setPreset(p)
-              const w = windowForPreset(p)
-              setFrom(w.from)
-              setTo(w.to)
-            }}
-          >
-            {p}
-          </Button>
-        ))}
-        <div className="flex items-center gap-2 pl-2">
-          <Switch id="live" checked={live} onCheckedChange={setLive} />
-          <Label htmlFor="live">Live</Label>
-        </div>
-        <Button type="button" size="sm" variant="ghost" onClick={() => void load()}>
-          Refresh
-        </Button>
-        <MetricOverlayPicker selected={metricKeys} onChange={setMetricKeys} />
-      </div>
-
       {error && (
-        <HelperCallout title="Could not load resource history">
+        <HelperCallout tone="danger" title="Could not load resources">
           {error}{' '}
           <Button type="button" size="sm" variant="outline" onClick={() => void load()}>
             Retry
@@ -188,67 +201,153 @@ export function ResourcesPage() {
         </HelperCallout>
       )}
 
-      {loading ? (
-        <div className="h-64 animate-pulse rounded-md border bg-muted/30" />
-      ) : samples.length === 0 && !error ? (
-        <EmptyState
-          title="No samples in this window"
-          body={telemetryOff ? 'Enable Telemetry sampling to collect samples.' : 'Widen the time preset or wait for the next sample.'}
-          cta={
-            telemetryOff
-              ? { label: 'Configure Telemetry', href: '/w7s/admin/configurations/Telemetry' }
-              : undefined
-          }
-        />
-      ) : (
-        <ResourceSeriesChart samples={samples} metricKeys={metricKeys} />
-      )}
-
-      <RevealPanel title="Raw samples">
-        <div className="max-h-48 overflow-auto text-xs">
-          <table className="w-full text-left">
-            <thead>
-              <tr className="border-b text-muted-foreground">
-                <th className="py-1 pr-2">Time</th>
-                <th className="py-1 pr-2">CPU</th>
-                <th className="py-1 pr-2">Mem MB</th>
-              </tr>
-            </thead>
-            <tbody>
-              {samples.slice(-25).reverse().map((s) => (
-                <tr key={s.utc + s.timestamp} className="border-b border-border/50">
-                  <td className="py-1 pr-2">{new Date(s.utc).toLocaleTimeString()}</td>
-                  <td className="py-1 pr-2">{s.cpu ?? '—'}</td>
-                  <td className="py-1 pr-2">{s.memoryMb ?? '—'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      <section className="space-y-2">
+        <div className="flex items-baseline gap-2">
+          <h2 className="text-[11px] font-semibold uppercase tracking-wider text-primary">Now</h2>
+          <p className="text-[11px] text-muted-foreground">
+            On-demand probe — works even when history sampling is off
+          </p>
         </div>
-      </RevealPanel>
-
-      <div className="grid gap-3 sm:grid-cols-3">
-        {activeCount > 0 && (
-          <NextBestAction
-            title="Open signals"
-            body="Review active leaks and anomalies."
-            ctaLabel="Open signals"
-            href="/w7s/admin/diagnostics/signals"
-          />
+        {loading && !latest ? (
+          <div className="h-40 animate-pulse rounded-md border bg-muted/30" />
+        ) : (
+          <ResourceSystemStrip latest={latest} refreshing={refreshing} />
         )}
-        <NextBestAction
-          title="Generate report for this window"
-          body="Materialize a Journal-backed report."
-          ctaLabel="Generate report"
-          href={reportHref}
-        />
-        <NextBestAction
-          title="Host resources"
-          body="Capacity and shm provisioning."
-          ctaLabel="Host resources"
-          href="/w7s/admin/host-resources"
-        />
-      </div>
+      </section>
+
+      <section className="space-y-3">
+        <div className="flex flex-wrap items-end justify-between gap-2">
+          <div>
+            <h2 className="text-[11px] font-semibold uppercase tracking-wider text-primary">History</h2>
+            <p className="text-[11px] text-muted-foreground">
+              Series from Journal SampleCollected in this window
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {(['15m', '1h', '6h', '24h'] as Preset[]).map((p) => (
+              <Button
+                key={p}
+                type="button"
+                size="sm"
+                variant={preset === p ? 'default' : 'outline'}
+                onClick={() => {
+                  setPreset(p)
+                  const w = windowForPreset(p)
+                  setFrom(w.from)
+                  setTo(w.to)
+                }}
+              >
+                {p}
+              </Button>
+            ))}
+            <MetricOverlayPicker selected={metricKeys} onChange={setMetricKeys} />
+          </div>
+        </div>
+
+        {historyOff && samples.length === 0 && (
+          <HelperCallout tone="warning" title="History needs the Telemetry sampler">
+            Live probe above still works. Turn on Lean sampling to record CPU / RAM / disk over time.
+            <div className="mt-2 flex flex-wrap gap-2">
+              <Button
+                type="button"
+                size="sm"
+                disabled={enabling}
+                onClick={() => void startHistoryCollection()}
+              >
+                {enabling ? 'Starting…' : 'Start Lean sampling'}
+              </Button>
+              <Button asChild type="button" size="sm" variant="outline">
+                <Link to="/w7s/admin/configurations/Telemetry">Open Telemetry</Link>
+              </Button>
+            </div>
+            {enableError ? <p className="mt-2 text-xs text-destructive">{enableError}</p> : null}
+          </HelperCallout>
+        )}
+
+        {historyOff && samples.length > 0 && (
+          <HelperCallout tone="warning" title="Sampling paused — showing journaled past">
+            Chart below is older SampleCollected data. Resume Lean sampling to keep filling this window.
+            <div className="mt-2 flex flex-wrap gap-2">
+              <Button
+                type="button"
+                size="sm"
+                disabled={enabling}
+                onClick={() => void startHistoryCollection()}
+              >
+                {enabling ? 'Starting…' : 'Resume Lean sampling'}
+              </Button>
+              <Button asChild type="button" size="sm" variant="outline">
+                <Link to="/w7s/admin/configurations/Telemetry">Open Telemetry</Link>
+              </Button>
+            </div>
+            {enableError ? <p className="mt-2 text-xs text-destructive">{enableError}</p> : null}
+          </HelperCallout>
+        )}
+
+        {loading ? (
+          <div className="h-64 animate-pulse rounded-md border bg-muted/30" />
+        ) : samples.length === 0 && !error ? (
+          <EmptyState
+            title="No samples in this window"
+            body={
+              historyOff
+                ? 'Start Lean sampling to fill this chart, or widen the window after it has been collecting.'
+                : 'Widen the time preset or wait for the next SampleCollected.'
+            }
+            cta={
+              historyOff
+                ? undefined
+                : { label: 'Open Journal', href: '/w7s/admin/diagnostics/timeline' }
+            }
+          />
+        ) : (
+          <ResourceSeriesChart samples={samples} metricKeys={metricKeys} />
+        )}
+
+        <RevealPanel title="Raw samples">
+          <div className="max-h-48 overflow-auto text-xs">
+            {samples.length === 0 ? (
+              <p className="text-muted-foreground">No rows in this window.</p>
+            ) : (
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="border-b text-muted-foreground">
+                    <th className="py-1 pr-2">Time</th>
+                    <th className="py-1 pr-2">CPU</th>
+                    <th className="py-1 pr-2">Mem MB</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {samples.slice(-25).reverse().map((s) => (
+                    <tr key={s.utc + s.timestamp} className="border-b border-border/50">
+                      <td className="py-1 pr-2">{new Date(s.utc).toLocaleTimeString()}</td>
+                      <td className="py-1 pr-2">{s.cpu ?? '—'}</td>
+                      <td className="py-1 pr-2">{s.memoryMb ?? '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </RevealPanel>
+
+        <RevealPanel title="More actions">
+          <div className="flex flex-wrap gap-2">
+            <Button asChild size="sm" variant="outline">
+              <Link to={exploreHref}>Expand chart</Link>
+            </Button>
+            <Button asChild size="sm" variant="outline">
+              <Link to={reportHref}>Generate report</Link>
+            </Button>
+            <Button asChild size="sm" variant="outline">
+              <Link to="/w7s/admin/host-resources">Host resources (capacity)</Link>
+            </Button>
+            <Button asChild size="sm" variant="outline">
+              <Link to="/w7s/admin/configurations/Telemetry">Telemetry config</Link>
+            </Button>
+          </div>
+        </RevealPanel>
+      </section>
     </AdminPage>
   )
 }

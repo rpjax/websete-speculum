@@ -15,6 +15,7 @@ public interface ISessionStartEvents
 
     void ProfileNotFound();
     void StartConfigurationRejected(Error[] errors);
+    void StartRefused(string reason, Error[]? errors = null);
     void ConnectionStartFailed(Error[] errors);
     void LaunchBrowserFailed(Error[] errors);
     void RestoreProfileStateFailed(Error[] errors);

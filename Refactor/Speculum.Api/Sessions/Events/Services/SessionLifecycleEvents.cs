@@ -72,13 +72,14 @@ public sealed class SessionLifecycleEvents : ISessionLifecycleEvents
         });
     }
 
-    public void Aborted(StopReason reason)
+    public void Aborted(StopReason reason, JournalError[]? errors = null)
     {
         _writer.Append(new SessionAborted
         {
             SessionId = _sessionId,
             ProfileId = _profileId,
             Reason = reason.ToStableString(),
+            Errors = errors is { Length: > 0 } ? errors : null,
         });
     }
 }

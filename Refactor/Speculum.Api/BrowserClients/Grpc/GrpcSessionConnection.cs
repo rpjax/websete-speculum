@@ -214,7 +214,8 @@ public sealed class GrpcSessionConnection : ISessionConnection
         SessionConfig? configuration,
         CancellationToken ct = default)
     {
-        var policy = _configuration.GetCurrent().Sessions.ViewportPolicy;
+        var sessions = _configuration.GetCurrent().Sessions;
+        var policy = sessions.ViewportPolicy;
         var validated = GrpcRequestValidation.ValidateLaunch(configuration, policy);
         if (validated.IsFailure)
         {
@@ -231,7 +232,8 @@ public sealed class GrpcSessionConnection : ISessionConnection
                         width,
                         height,
                         configuration!,
-                        policy),
+                        policy,
+                        sessions.ScreencastPolicy.MaxEncodeScale),
                     cancellationToken: token).ResponseAsync);
             return Result<BrowserReadyInfo>.Success(GrpcSessionMappers.ToReadyInfo(ready));
         });
@@ -314,7 +316,8 @@ public sealed class GrpcSessionConnection : ISessionConnection
         DomainDeviceProfile device,
         CancellationToken ct = default)
     {
-        var policy = _configuration.GetCurrent().Sessions.ViewportPolicy;
+        var sessions = _configuration.GetCurrent().Sessions;
+        var policy = sessions.ViewportPolicy;
         var validated = GrpcRequestValidation.ValidateResize(width, height, policy);
         if (validated.IsFailure)
         {
@@ -343,6 +346,8 @@ public sealed class GrpcSessionConnection : ISessionConnection
                 SessionId = SessionId.ToString("D"),
                 Width = width,
                 Height = height,
+                ScreencastMaxEncodeScale = GrpcSessionMappers.ClampScreencastMaxEncodeScale(
+                    sessions.ScreencastPolicy.MaxEncodeScale),
             };
             if (GrpcSessionMappers.TryToProtoDevice(device) is { } protoDevice)
             {

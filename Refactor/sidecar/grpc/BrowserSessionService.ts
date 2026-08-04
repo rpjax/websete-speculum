@@ -208,6 +208,9 @@ export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.Un
           width: call.request.width,
           height: call.request.height,
           device: call.request.device ? toDevice(call.request.device) : undefined,
+          screencastMaxEncodeScale:
+            call.request.screencastMaxEncodeScale
+            ?? call.request.screencast_max_encode_scale,
         });
         callback(null, result);
       } catch (err) {

@@ -1,5 +1,4 @@
 import { useEffect, useRef } from 'react'
-import { Button } from '@/components/ui/button'
 import { API_URL } from '@/lib/env'
 import { fetchClientConfig } from '@/lib/clientConfig'
 import { SessionViewport } from '@/features/sessions/live/SessionViewport'
@@ -11,7 +10,7 @@ const VIEWPORT = { width: 1280, height: 720 }
 
 /**
  * Immersive live surface: same {@link useLiveSession} + {@link SessionViewport}
- * as the session lab — no debug chrome, no Journal stream.
+ * as the session lab — no debug chrome, no Journal stream, no session vocabulary.
  * Default / catch-all route: browser path/query feeds StartSession as-is.
  */
 export default function SessionLivePage() {
@@ -46,8 +45,10 @@ export default function SessionLivePage() {
     })()
   }, [])
 
+  const failed = session.phase === 'error'
+
   return (
-    <div className="fixed inset-0 bg-background">
+    <div className="fixed inset-0 bg-white">
       <SessionViewport
         width={session.remoteViewport.width}
         height={session.remoteViewport.height}
@@ -61,33 +62,19 @@ export default function SessionLivePage() {
         touchPrimary={session.touchPrimary}
         editingActive={session.editing != null}
         keyboardNonce={session.keyboardNonce}
+        deviceScaleFactor={session.deviceScaleFactor}
+        maxEncodeScale={session.screencastMaxEncodeScale}
+        presentation="immersive"
         className="h-full w-full"
-        label="Live session"
+        label="Page"
       />
-      {!session.isLive && (
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-          <p className="rounded-md bg-background/90 px-4 py-3 text-sm text-muted-foreground">
-            {PHASE_HINT[session.phase] ?? 'Connecting…'}
+      {failed ? (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-white">
+          <p className="max-w-sm px-6 text-center text-sm text-neutral-600">
+            This page isn’t available right now.
           </p>
         </div>
-      )}
-      {session.isLive && session.touchPrimary && (
-        <Button
-          type="button"
-          size="sm"
-          className="absolute bottom-4 right-4 shadow"
-          onClick={() => session.openKeyboard()}
-        >
-          Keyboard
-        </Button>
-      )}
+      ) : null}
     </div>
   )
-}
-
-const PHASE_HINT: Record<string, string> = {
-  idle: 'Starting…',
-  connecting: 'Connecting…',
-  starting: 'Starting session…',
-  error: 'Session failed — check configuration.',
 }

@@ -34,7 +34,7 @@ Remote Chrome is always Chromium — **never** paste Safari/iOS/WebKit UA or `pl
 | WebGL context | Auto: GPU if present, else SwiftShader — **no env knob** |
 | WebGL VENDOR / RENDERER / UNMASKED | **Preset kit** (masked WebKit + UNMASKED Adreno or Intel Mesa Linux) — never Mesa/X.org alone, never D3D11 |
 | Fonts | Docker packages (Liberation/DejaVu/Noto) — no JS spoof |
-| Worker / SharedWorker / ServiceWorker | Kit HW + UA/platform — main init wrap + **CDP autoAttach inject** (session-wide, any origin) |
+| Worker / SharedWorker / ServiceWorker | Kit HW + UA/platform **and** same WebGL `getParameter` — main init wrap + **CDP autoAttach inject** (`kitNavigatorSpoofSource`, session-wide, any origin) |
 | `pc` Windows kit (full) | Future | V1 = Linux pc kit (honest container) |
 
 ### Kits (V1)
@@ -47,8 +47,8 @@ Remote Chrome is always Chromium — **never** paste Safari/iOS/WebKit UA or `pl
 
 ### Score backlog
 
-1. **Attribute Creep Mesa/llvmpipe** (likely non-main WebGL realm) — then extend the same kit `getParameter` story there if proven.
-2. Like-headless ~44% — diagnose hypotheses in [stealth-suite-results.md](stealth-suite-results.md); **no** mitigations until attributed.
+1. ~~Creep Mesa/llvmpipe dual~~ — **closed**: worker-like CDP inject now carries kit WebGL (see [stealth-suite-results.md](stealth-suite-results.md)).
+2. Like-headless ~44% — **unchanged** after GPU fix; diagnose hypotheses in results; **no** mitigations until attributed.
 3. Soft: TZ vs egress IP (network).
 4. Deploy: keep sidecar images in sync.
 

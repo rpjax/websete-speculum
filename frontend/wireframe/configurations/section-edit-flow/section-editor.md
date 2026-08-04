@@ -44,10 +44,11 @@ Sticky footer (contained in editor width, compact dock — not a full-bleed empt
 | detachedSessionTimeout | duration facilitator (5m/15m/30m/1h/custom) | Detached session timeout |
 | isJsBridgeEnabled | switch + consequence copy | Enable JavaScript bridge |
 | viewportPolicy.default | size chips + width/height | Default viewport |
-| Reveal: viewport min/max | numbers | Limits (Minimum ≤ Default ≤ Maximum) |
-| Reveal: clientEnvironmentPolicy | locale/language/timezone/colorScheme + env chips | Client environment |
-| Reveal: deviceEmulationPolicy | desktop/mobile presets + defaults + bounds/UA | Device emulation |
-| Reveal: input/output multiplexing | enums + plain-language helpers | Access, ownership, scheduling, delivery |
+| Reveal: viewport min/max | numbers | How small/large clients may resize |
+| ControlStep: stream sharpness | Sharp / Lean chips | Screencast encode density (MaxEncodeScale 2/1) |
+| Reveal: clientEnvironmentPolicy | locale/language/timezone/colorScheme + env chips | What locale sessions pretend |
+| Reveal: deviceEmulationPolicy | desktop/mobile presets + defaults + bounds/UA | Phone vs desktop |
+| Reveal: input/output multiplexing | enums + plain-language helpers | Who can type / who gets frames |
 
 ### ResourceManagement
 | id | tipo | label |

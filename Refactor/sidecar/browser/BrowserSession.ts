@@ -159,6 +159,8 @@ export interface BrowserLaunchOptions {
     maxWidth: number;
     maxHeight: number;
   };
+  /** Sessions.ScreencastPolicy.MaxEncodeScale (1..2). */
+  screencastMaxEncodeScale: number;
   locale: string;
   language: string;
   timeZoneId: string;
@@ -283,6 +285,8 @@ export interface BrowserResizeRequest {
   width: number;
   height: number;
   device?: BrowserDeviceProfile;
+  /** Sessions.ScreencastPolicy.MaxEncodeScale when provided on resize. */
+  screencastMaxEncodeScale?: number;
 }
 
 export interface BrowserResizeResult {

@@ -87,6 +87,17 @@ public sealed class SessionStartEvents : ISessionStartEvents
         });
     }
 
+    public void StartRefused(string reason, Error[]? errors = null)
+    {
+        _writer.Append(new SessionStartRefused
+        {
+            SessionId = _sessionId,
+            ProfileId = _profileId,
+            Reason = reason,
+            Errors = errors is { Length: > 0 } ? JournalError.From(errors) : null,
+        });
+    }
+
     public void ConnectionStartFailed(Error[] errors)
     {
         _writer.Append(new ConnectionStartFailed

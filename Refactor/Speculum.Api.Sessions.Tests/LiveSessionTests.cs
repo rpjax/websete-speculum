@@ -447,7 +447,9 @@ public sealed class LiveSessionTests
     {
         var sessionId = Guid.NewGuid();
         var connection = new LiveFakeConnection(sessionId);
-        var live = CreateService().Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
+        var browse = new RecordingSessionBrowseTelemetryEvents();
+        var live = CreateService(telemetry: new NoOpSessionTelemetryEventsFactory(browse: browse))
+            .Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
         var first = new RecordingAttachedClient();
         var attachmentId = live.Attach(first).Value;
 
@@ -459,7 +461,9 @@ public sealed class LiveSessionTests
             Url = "https://example.test/while-detached",
         });
 
-        await Task.Delay(100);
+        // Journal still runs while detached; wait for drain before reattach (no Task.Delay race).
+        var drained = await browse.WaitLocationChangedAsync(TimeSpan.FromSeconds(2));
+        Assert.Equal("https://example.test/while-detached", drained);
         Assert.Equal(0, first.SyncUrlCount);
 
         var second = new RecordingAttachedClient();
@@ -930,6 +934,22 @@ public sealed class LiveSessionTests
         public string? LastUrlResolved { get; private set; }
 
         public void UrlResolved(string url) => LastUrlResolved = url;
+    }
+
+    private sealed class RecordingSessionBrowseTelemetryEvents : ISessionBrowseTelemetryEvents
+    {
+        private readonly TaskCompletionSource<string> _locationChanged = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public void LocationChanged(string url)
+            => _locationChanged.TrySetResult(url);
+
+        public async Task<string> WaitLocationChangedAsync(TimeSpan timeout)
+        {
+            var completed = await Task.WhenAny(_locationChanged.Task, Task.Delay(timeout));
+            Assert.Same(_locationChanged.Task, completed);
+            return await _locationChanged.Task;
+        }
     }
 
     private sealed class RecordingSessionInputTelemetryEvents : ISessionInputTelemetryEvents

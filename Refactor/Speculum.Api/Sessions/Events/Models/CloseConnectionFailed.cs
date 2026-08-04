@@ -6,8 +6,8 @@ namespace Speculum.Api.Sessions.Events.Models;
 [CanonicalFact(
     "Sessions.CloseConnectionFailed",
     schemaVersion: 1,
-    Name = "Close connection failed",
-    Description = "Connection close failed during teardown.",
+    Name = "Close browser connection failed",
+    Description = "Closing the Api↔sidecar browser connection failed during teardown.",
     Owner = "sessions",
     PublishPolicy = PublishPolicy.Guaranteed)]
 public sealed class CloseConnectionFailed

@@ -78,6 +78,7 @@ describe('sessionsHelpers', () => {
     expect(asObject(next.clientEnvironmentPolicy).defaultLocale).toBe('pt-BR')
     expect(asObject(next.inputMultiplexingPolicy).access).toBe('shared')
     expect(next.dataStreamTransport).toBe('webTransport')
+    expect(asObject(next.screencastPolicy).maxEncodeScale).toBe(2)
   })
 
   it('applies guided presets without wiping unrelated keys', () => {

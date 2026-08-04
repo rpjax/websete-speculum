@@ -74,14 +74,25 @@ export function validateResizeViewport(
 }
 
 /**
- * True when Motor should treat the client as phone-like: suppress remote hover
- * mouse and prefer touch. Hybrid Windows (maxTouchPoints>0 + mouse) must stay false.
+ * True when the session is phone-like: suppress remote hover mouse and prefer
+ * touch as the primary pointer. Hybrid Windows/Linux laptops (touchscreen +
+ * mouse, maxTouchPoints>0) must stay false — capability ≠ primary mode.
+ *
+ * Sidecar mirrors this for CDP touch emulation (`touchEmulationParams` enables
+ * only when mobile). Real finger contacts on a hybrid PC still travel as touch
+ * events; mouse hover stays live.
  */
 export function isTouchPrimaryProfile(profile: Pick<DeviceProfilePayload, 'mobile'>): boolean {
   return !!profile.mobile
 }
 
-/** Build a DeviceProfile from the local browser environment (capped DPR 1–2). */
+/**
+ * Build a DeviceProfile from the local browser environment (capped DPR 1–2).
+ *
+ * `touch` / `maxTouchPoints` report **capability** (finger can contact).
+ * `mobile` / `deviceCategory` decide **primary mode** (phone vs PC). A Galaxy
+ * Book-class hybrid is `touch: true`, `mobile: false`, `deviceCategory: 'pc'`.
+ */
 export function detectDeviceProfile(): DeviceProfilePayload {
   const coarse = typeof window !== 'undefined'
     && typeof window.matchMedia === 'function'

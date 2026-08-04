@@ -74,6 +74,9 @@ export interface LabSessionsConfig {
   }
   inputMultiplexingPolicy: LabInputMultiplexingPolicy
   outputMultiplexingPolicy: LabOutputMultiplexingPolicy
+  screencastPolicy: {
+    maxEncodeScale: number
+  }
 }
 
 export interface LabResourceManagementConfig {
@@ -279,6 +282,9 @@ export function createLabSessionsBaseline(): LabSessionsConfig {
       access: 'Shared',
     },
     outputMultiplexingPolicy: {},
+    screencastPolicy: {
+      maxEncodeScale: 2,
+    },
   }
 }
 
@@ -576,6 +582,11 @@ function normalizeSessions(raw: Partial<LabSessionsConfig> | null | undefined): 
     outputMultiplexingPolicy: {
       delivery: raw.outputMultiplexingPolicy?.delivery,
       ownership: raw.outputMultiplexingPolicy?.ownership,
+    },
+    screencastPolicy: {
+      maxEncodeScale:
+        raw.screencastPolicy?.maxEncodeScale
+        ?? baseline.screencastPolicy.maxEncodeScale,
     },
   }
 }

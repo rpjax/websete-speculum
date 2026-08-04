@@ -24,7 +24,8 @@ internal static class GrpcSessionMappers
         int width,
         int height,
         SessionConfig configuration,
-        Speculum.Api.Configurations.Models.Sessions.ViewportPolicy policy)
+        Speculum.Api.Configurations.Models.Sessions.ViewportPolicy policy,
+        double screencastMaxEncodeScale = 2)
     {
         ArgumentNullException.ThrowIfNull(configuration);
         ArgumentNullException.ThrowIfNull(policy);
@@ -37,6 +38,7 @@ internal static class GrpcSessionMappers
             MinHeight = policy.Minimum.Height,
             DisplayWidth = policy.Maximum.Width,
             DisplayHeight = policy.Maximum.Height,
+            ScreencastMaxEncodeScale = ClampScreencastMaxEncodeScale(screencastMaxEncodeScale),
         };
 
         var environment = configuration.ClientEnvironment
@@ -85,6 +87,16 @@ internal static class GrpcSessionMappers
         }
 
         return request;
+    }
+
+    public static double ClampScreencastMaxEncodeScale(double value)
+    {
+        if (!double.IsFinite(value) || value <= 0)
+        {
+            return 2;
+        }
+
+        return Math.Clamp(value, 1, 2);
     }
 
     public static ProtoDevice? TryToProtoDevice(DomainDeviceProfile device)

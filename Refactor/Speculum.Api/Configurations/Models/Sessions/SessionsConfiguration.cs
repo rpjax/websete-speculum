@@ -17,6 +17,7 @@ public class SessionsConfiguration
     public ViewportPolicy ViewportPolicy { get; set; } = new();
     public ClientEnvironmentPolicy ClientEnvironmentPolicy { get; init; } = new();
     public DeviceEmulationPolicy DeviceEmulationPolicy { get; init; } = new();
+    public ScreencastPolicy ScreencastPolicy { get; init; } = new();
     public InputMultiplexingPolicy InputMultiplexingPolicy { get; init; } = new();
     public OutputMultiplexingPolicy OutputMultiplexingPolicy { get; init; } = new();
 }

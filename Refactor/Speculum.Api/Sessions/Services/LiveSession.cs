@@ -878,6 +878,12 @@ internal sealed class LiveSession : ILiveSession
             ct);
     }
 
+    public Task<IResult> NavigateToAbsoluteUrlAsync(string url, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(url);
+        return WithCommandGateAsync(() => _connection.NavigateAsync(url, ct), ct);
+    }
+
     private void TryJournalNavigateFailed(string phase, Error[] errors)
     {
         try

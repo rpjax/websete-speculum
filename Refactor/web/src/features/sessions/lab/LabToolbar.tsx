@@ -37,10 +37,12 @@ const PHASE_LABEL: Record<LabPhase, string> = {
   starting: 'starting session',
   live: 'live',
   stopping: 'stopping',
+  error: 'error',
 }
 
-function phaseVariant(phase: LabPhase): 'success' | 'warning' | 'muted' {
+function phaseVariant(phase: LabPhase): 'success' | 'warning' | 'muted' | 'destructive' {
   if (phase === 'live') return 'success'
+  if (phase === 'error') return 'destructive'
   if (phase === 'idle') return 'muted'
   return 'warning'
 }

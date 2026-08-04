@@ -36,6 +36,11 @@ describe('chapterSheetModel', () => {
     expect(shortEventLabel('Telemetry.Sampling.SampleCollected')).toBe('Sample Collected')
   })
 
+  it('labels Connection* as browser/sidecar connection', () => {
+    expect(shortEventLabel('Sessions.ConnectionStarted')).toBe('Browser Connection Started')
+    expect(shortEventLabel('Sessions.ConnectionClosed')).toBe('Browser Connection Closed')
+  })
+
   it('groups consecutive identical name+severity', () => {
     const runs = groupBeatRuns([
       beat({ id: '1', name: 'A.Sample', ms: 1000, seq: 1 }),

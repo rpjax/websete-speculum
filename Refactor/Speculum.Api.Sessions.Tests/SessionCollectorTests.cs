@@ -3,6 +3,7 @@ using Aidan.Core.Patterns;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Speculum.Api.Sessions.Aggregates;
+using Speculum.Api.Sessions.Events.Models;
 using Speculum.Api.Sessions.Events.Services.Contracts;
 using Speculum.Api.Sessions.Models;
 using Speculum.Api.Sessions.Requests;
@@ -207,7 +208,7 @@ public sealed class SessionCollectorTests
         public void Stopping(StopReason reason) { }
         public void Stopped(StopReason reason) { }
         public void TimedOut(StopReason reason) => TimedOutIds.Add(_sessionId);
-        public void Aborted(StopReason reason) { }
+        public void Aborted(StopReason reason, JournalError[]? errors = null) { }
     }
 
     private sealed class InMemorySessionRepository : ISessionRepository

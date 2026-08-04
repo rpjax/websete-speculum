@@ -5,13 +5,13 @@ namespace Speculum.Api.Sessions.Events.Models;
 
 /// <summary>
 /// Journal fact: a browser session reached Live
-/// (Chrome ready, profile state restored, initial navigation completed).
+/// (Chrome ready, profile state restored; initial navigation may still be in flight).
 /// </summary>
 [CanonicalFact(
     "Sessions.SessionStarted",
     schemaVersion: 1,
     Name = "Session started",
-    Description = "Session entered Live after provision, restore, and initial navigation.",
+    Description = "Session entered Live after provision and restore. Initial navigation is fire-and-forget and may complete after this fact.",
     Owner = "sessions",
     PublishPolicy = PublishPolicy.Guaranteed)]
 public sealed class SessionStarted

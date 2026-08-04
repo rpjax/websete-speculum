@@ -160,7 +160,8 @@ export default function SessionLabPage() {
             touchPrimary={session.touchPrimary}
             editingActive={session.editing != null}
             keyboardNonce={session.keyboardNonce}
-            onOpenKeyboard={() => session.openKeyboard()}
+            deviceScaleFactor={session.deviceScaleFactor}
+            maxEncodeScale={session.screencastMaxEncodeScale}
           />
 
           {debugOpen && (

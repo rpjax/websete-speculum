@@ -64,6 +64,9 @@ export const SESSIONS_BASELINE: JsonObject = {
     desktopUserAgentProfile: 'desktop',
     mobileUserAgentProfile: 'mobile',
   },
+  screencastPolicy: {
+    maxEncodeScale: 2,
+  },
   inputMultiplexingPolicy: {
     access: 'shared',
     ownership: 'firstAttached',
@@ -167,6 +170,37 @@ export const OUTPUT_OWNERSHIP_OPTIONS: Array<[string, string, string]> = [
   ['preemptiveClaim', 'Preemptive claim', 'A new claim can take output ownership.'],
 ]
 
+/** Operator-facing screencast sharpness — maps to ScreencastPolicy.MaxEncodeScale. */
+export const SCREEENCAST_SHARPNESS_PRESETS = [
+  {
+    id: 'sharp',
+    scale: 2,
+    label: 'Sharp',
+    blurb: 'Retina-ready. Uses up to 2× pixels when the client screen is HiDPI. Costs more CPU and bandwidth.',
+  },
+  {
+    id: 'lean',
+    scale: 1,
+    label: 'Lean',
+    blurb: 'One pixel per CSS pixel. Soft on Retina, lighter on CPU and network. Prefer on busy hosts.',
+  },
+] as const
+
+export function screencastSharpnessId(maxEncodeScale: unknown): 'sharp' | 'lean' | 'custom' {
+  const n = asNumber(maxEncodeScale, 2)
+  if (n === 2) return 'sharp'
+  if (n === 1) return 'lean'
+  return 'custom'
+}
+
+export function validateScreencastScale(value: JsonObject): string | undefined {
+  const n = asNumber(asObject(value.screencastPolicy).maxEncodeScale, NaN)
+  if (!Number.isFinite(n) || n < 1 || n > 2) {
+    return 'Stream sharpness must be Sharp (2) or Lean (1).'
+  }
+  return undefined
+}
+
 export type SessionsGuidedPresetId = 'lab' | 'shared' | 'locked-down'
 
 export type SessionsGuidedPreset = {
@@ -183,6 +217,7 @@ export type SessionsGuidedPreset = {
   deviceEmulationPolicy: JsonObject
   inputMultiplexingPolicy: JsonObject
   outputMultiplexingPolicy: JsonObject
+  screencastPolicy: JsonObject
 }
 
 const desktopDevice = asObject(SESSIONS_BASELINE.deviceEmulationPolicy)
@@ -192,7 +227,7 @@ export const SESSIONS_GUIDED_PRESETS: SessionsGuidedPreset[] = [
     id: 'lab',
     label: 'Lab',
     description: 'You are trying things locally and want a short, scriptable session.',
-    effect: '15 min hold · JS bridge on · 720p · shared input · broadcast frames.',
+    effect: '15 min hold · JS bridge on · 720p · Sharp stream · shared input · broadcast frames.',
     detachedSessionTimeout: '00:15:00',
     isJsBridgeEnabled: true,
     viewportPolicy: {
@@ -211,12 +246,13 @@ export const SESSIONS_GUIDED_PRESETS: SessionsGuidedPreset[] = [
       delivery: 'broadcast',
       ownership: 'firstAttached',
     },
+    screencastPolicy: { maxEncodeScale: 2 },
   },
   {
     id: 'shared',
     label: 'Shared viewing',
     description: 'Several people may attach and watch or drive the same live session.',
-    effect: '30 min hold · bridge on · 1080p · shared input · broadcast frames.',
+    effect: '30 min hold · bridge on · 1080p · Sharp stream · shared input · broadcast frames.',
     detachedSessionTimeout: '00:30:00',
     isJsBridgeEnabled: true,
     viewportPolicy: {
@@ -235,12 +271,13 @@ export const SESSIONS_GUIDED_PRESETS: SessionsGuidedPreset[] = [
       delivery: 'broadcast',
       ownership: 'firstAttached',
     },
+    screencastPolicy: { maxEncodeScale: 2 },
   },
   {
     id: 'locked-down',
     label: 'Locked-down',
     description: 'One operator should control the session; pages must not get a scripting bridge.',
-    effect: '15 min hold · bridge off · exclusive input · broadcast frames kept on.',
+    effect: '15 min hold · bridge off · Lean stream · exclusive input · broadcast frames kept on.',
     detachedSessionTimeout: '00:15:00',
     isJsBridgeEnabled: false,
     viewportPolicy: {
@@ -264,6 +301,7 @@ export const SESSIONS_GUIDED_PRESETS: SessionsGuidedPreset[] = [
       delivery: 'broadcast',
       ownership: 'firstAttached',
     },
+    screencastPolicy: { maxEncodeScale: 1 },
   },
 ]
 
@@ -379,6 +417,10 @@ export function applySessionsGuidedPreset(
       asObject(current.outputMultiplexingPolicy),
       preset.outputMultiplexingPolicy,
     ),
+    screencastPolicy: mergeObject(
+      asObject(current.screencastPolicy),
+      preset.screencastPolicy,
+    ),
   }
 }
 
@@ -399,6 +441,7 @@ export function fillSessionsGaps(current: JsonObject): JsonObject {
     clientEnvironmentPolicy:
       current.clientEnvironmentPolicy ?? SESSIONS_BASELINE.clientEnvironmentPolicy,
     deviceEmulationPolicy: current.deviceEmulationPolicy ?? SESSIONS_BASELINE.deviceEmulationPolicy,
+    screencastPolicy: current.screencastPolicy ?? SESSIONS_BASELINE.screencastPolicy,
     inputMultiplexingPolicy:
       current.inputMultiplexingPolicy ?? SESSIONS_BASELINE.inputMultiplexingPolicy,
     outputMultiplexingPolicy:
@@ -475,6 +518,10 @@ export function summarizeSessions(value: JsonObject) {
   const output = asObject(value.outputMultiplexingPolicy)
   const access = text(input.access || 'shared')
   const delivery = text(output.delivery || 'broadcast')
+  const maxEncodeScale = asNumber(asObject(value.screencastPolicy).maxEncodeScale, 2)
+  const sharpnessId = screencastSharpnessId(maxEncodeScale)
+  const sharpnessLabel =
+    sharpnessId === 'sharp' ? 'Sharp' : sharpnessId === 'lean' ? 'Lean' : `Scale ${maxEncodeScale}`
   const timeoutOk = parsed != null && parsed.totalSeconds > 0
   const complete = timeoutOk && hasViewport && hasClient && hasDevice
 
@@ -496,6 +543,9 @@ export function summarizeSessions(value: JsonObject) {
     access,
     delivery,
     multiplexingLabel: `${describeEnumLabel(INPUT_ACCESS_OPTIONS, access)} · ${describeEnumLabel(OUTPUT_DELIVERY_OPTIONS, delivery)}`,
+    maxEncodeScale,
+    sharpnessId,
+    sharpnessLabel,
     hasClient,
     hasDevice,
     complete,

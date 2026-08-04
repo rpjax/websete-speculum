@@ -1,5 +1,5 @@
 import type { ResourceLatestResponse } from '@/lib/resourceMonitoringApi'
-import { StatusPill } from '@/features/admin/components'
+import { DataCard, ResourceGauge, StatusPill } from '@/features/admin/components'
 
 function formatBytes(n: number | null | undefined): string {
   if (n == null) return '—'
@@ -9,81 +9,159 @@ function formatBytes(n: number | null | undefined): string {
   return `${(n / 1024 ** 3).toFixed(1)} GiB`
 }
 
-type Props = {
-  latest: ResourceLatestResponse | null
+function num(v: unknown): number | null {
+  return typeof v === 'number' && Number.isFinite(v) ? v : null
 }
 
-export function ResourceSystemStrip({ latest }: Props) {
+function str(v: unknown): string | null {
+  return typeof v === 'string' && v.length > 0 ? v : null
+}
+
+type Props = {
+  latest: ResourceLatestResponse | null
+  refreshing?: boolean
+}
+
+export function ResourceSystemStrip({ latest, refreshing }: Props) {
   const host = (latest?.sample?.host ?? null) as Record<string, unknown> | null
-  if (!latest?.telemetryEnabled) {
+  const api = (latest?.sample?.apiProcess ?? null) as Record<string, unknown> | null
+  const sessions = (latest?.sample?.sessions ?? null) as Record<string, unknown> | null
+
+  if (!latest) {
     return (
-      <div className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
-        Host sample unavailable — Telemetry sampling is off.
-      </div>
-    )
-  }
-  if (!host) {
-    return (
-      <div className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
-        Host sample unavailable
+      <div className="rounded-md border border-dashed px-3 py-4 text-sm text-muted-foreground">
+        {refreshing ? 'Probing host…' : 'Host sample unavailable'}
       </div>
     )
   }
 
-  const cpu = typeof host.cpuUsage === 'number' ? host.cpuUsage : null
-  const memUsed = typeof host.memoryUsed === 'number' ? host.memoryUsed : null
-  const memTotal = typeof host.memoryTotal === 'number' ? host.memoryTotal : null
+  if (!host && !api) {
+    return (
+      <div className="rounded-md border border-dashed px-3 py-4 text-sm text-muted-foreground">
+        Live probe returned no host or API sections — enable those sections under Telemetry.
+      </div>
+    )
+  }
+
+  const cpu = num(host?.cpuUsage)
+  const memUsed = num(host?.memoryUsed)
+  const memTotal = num(host?.memoryTotal)
   const memPct = memUsed != null && memTotal && memTotal > 0 ? (100 * memUsed) / memTotal : null
-  const diskFree = typeof host.diskFreeBytes === 'number' ? host.diskFreeBytes : null
-  const diskTotal = typeof host.diskTotalBytes === 'number' ? host.diskTotalBytes : null
-  const load = typeof host.loadAverage1m === 'number' ? host.loadAverage1m : null
-  const uptime = typeof host.uptimeSec === 'number' ? host.uptimeSec : null
-  const hostname = typeof host.hostname === 'string' ? host.hostname : '—'
-  const source = typeof host.source === 'string' ? host.source : ''
+  const diskFree = num(host?.diskFreeBytes)
+  const diskTotal = num(host?.diskTotalBytes)
+  const diskUsed =
+    diskFree != null && diskTotal != null && diskTotal > 0 ? diskTotal - diskFree : null
+  const diskPct =
+    diskUsed != null && diskTotal && diskTotal > 0 ? (100 * diskUsed) / diskTotal : null
+  const load = num(host?.loadAverage1m)
+  const uptime = num(host?.uptimeSec)
+  const hostname = str(host?.hostname) ?? '—'
+  const source = str(host?.source) ?? ''
+  const cpuCount = num(host?.cpuCount)
 
-  const cpuTone = cpu != null && cpu >= 95 ? 'danger' : cpu != null && cpu >= 85 ? 'warning' : 'success'
-  const memTone = memPct != null && memPct >= 95 ? 'danger' : memPct != null && memPct >= 85 ? 'warning' : 'success'
+  const apiCpu = num(api?.cpuUsage)
+  const apiMem = num(api?.memoryUsed)
+  const apiThreads = num(api?.threadCount)
+  const liveSessions = num(sessions?.live)
+
+  const collectedLabel = new Date(latest.collectedAt).toLocaleTimeString()
 
   return (
-    <div className="grid gap-2 rounded-md border bg-card px-3 py-3 sm:grid-cols-2 lg:grid-cols-6" aria-label="Live host">
-      <div>
-        <div className="text-xs text-muted-foreground">Host</div>
-        <div className="truncate text-sm font-medium">{hostname}</div>
-        <div className="text-xs text-muted-foreground">{source}</div>
-      </div>
-      <div>
-        <div className="text-xs text-muted-foreground">Up</div>
-        <div className="text-sm font-medium">
-          {uptime == null ? '—' : `${Math.floor(uptime / 3600)}h ${Math.floor((uptime % 3600) / 60)}m`}
-        </div>
-      </div>
-      <div>
-        <div className="mb-1 flex items-center gap-2 text-xs text-muted-foreground">
-          CPU <StatusPill label={cpu == null ? '—' : `${cpu.toFixed(0)}%`} tone={cpuTone} />
-        </div>
-      </div>
-      <div>
-        <div className="mb-1 flex items-center gap-2 text-xs text-muted-foreground">
-          Memory{' '}
+    <div className="space-y-3" aria-label="Live host">
+      <div className="flex flex-wrap items-center gap-2">
+        <StatusPill label={`Now · ${collectedLabel}`} tone="info" />
+        {source ? <StatusPill label={source} tone="neutral" /> : null}
+        {liveSessions != null ? (
           <StatusPill
-            label={memPct == null ? '—' : `${memPct.toFixed(0)}%`}
-            tone={memTone}
+            label={`${liveSessions} live session${liveSessions === 1 ? '' : 's'}`}
+            tone={liveSessions > 0 ? 'success' : 'neutral'}
           />
-        </div>
-        <div className="text-xs text-muted-foreground">
-          {formatBytes(memUsed)} / {formatBytes(memTotal)}
-        </div>
+        ) : null}
+        {refreshing ? <StatusPill label="Refreshing…" tone="neutral" /> : null}
       </div>
-      <div>
-        <div className="text-xs text-muted-foreground">Disk</div>
-        <div className="text-sm font-medium">
-          {formatBytes(diskFree)} free
-        </div>
-        <div className="text-xs text-muted-foreground">of {formatBytes(diskTotal)}</div>
-      </div>
-      <div>
-        <div className="text-xs text-muted-foreground">Load</div>
-        <div className="text-sm font-medium">{load == null ? '—' : load.toFixed(2)}</div>
+
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+        <DataCard className="space-y-3 p-4">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-xs font-medium text-muted-foreground">Host</p>
+              <p className="truncate text-lg font-semibold tracking-tight">{hostname}</p>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">
+                {uptime == null
+                  ? 'Uptime unknown'
+                  : `Up ${Math.floor(uptime / 3600)}h ${Math.floor((uptime % 3600) / 60)}m`}
+                {cpuCount != null ? ` · ${cpuCount} CPU` : ''}
+                {load != null ? ` · load ${load.toFixed(2)}` : ''}
+              </p>
+            </div>
+            {cpu != null ? (
+              <StatusPill
+                label={`CPU ${cpu.toFixed(0)}%`}
+                tone={cpu >= 95 ? 'danger' : cpu >= 85 ? 'warning' : 'success'}
+              />
+            ) : null}
+          </div>
+
+          <div className="grid gap-2 sm:grid-cols-2">
+            {memPct != null ? (
+              <ResourceGauge
+                label="RAM"
+                usedLabel={`${memPct.toFixed(0)}% · ${formatBytes(memUsed)} / ${formatBytes(memTotal)}`}
+                percent={memPct}
+                resource="ram"
+              />
+            ) : (
+              <div className="rounded-lg border border-dashed px-3 py-2.5 text-xs text-muted-foreground">
+                RAM not in this sample
+              </div>
+            )}
+            {diskPct != null ? (
+              <ResourceGauge
+                label="Disk"
+                usedLabel={`${diskPct.toFixed(0)}% · ${formatBytes(diskFree)} free`}
+                percent={diskPct}
+                resource="storage"
+              />
+            ) : (
+              <div className="rounded-lg border border-dashed px-3 py-2.5 text-xs text-muted-foreground">
+                Disk not in this sample
+              </div>
+            )}
+          </div>
+        </DataCard>
+
+        <DataCard className="space-y-3 p-4">
+          <div>
+            <p className="text-xs font-medium text-muted-foreground">API process</p>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">
+              Speculum.Api on this node — same live probe
+            </p>
+          </div>
+          {api ? (
+            <dl className="grid grid-cols-3 gap-2 text-center">
+              <div className="rounded-md border border-border/60 bg-background/40 px-2 py-2">
+                <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">CPU</dt>
+                <dd className="mt-0.5 text-sm font-semibold tabular-nums">
+                  {apiCpu == null ? '—' : `${apiCpu.toFixed(0)}%`}
+                </dd>
+              </div>
+              <div className="rounded-md border border-border/60 bg-background/40 px-2 py-2">
+                <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">Mem</dt>
+                <dd className="mt-0.5 text-sm font-semibold tabular-nums">{formatBytes(apiMem)}</dd>
+              </div>
+              <div className="rounded-md border border-border/60 bg-background/40 px-2 py-2">
+                <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">Threads</dt>
+                <dd className="mt-0.5 text-sm font-semibold tabular-nums">
+                  {apiThreads == null ? '—' : apiThreads}
+                </dd>
+              </div>
+            </dl>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              API section off — turn it on under Telemetry to include process pressure here.
+            </p>
+          )}
+        </DataCard>
       </div>
     </div>
   )

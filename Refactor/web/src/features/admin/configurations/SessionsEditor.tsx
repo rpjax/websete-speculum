@@ -27,6 +27,7 @@ import {
   OUTPUT_OWNERSHIP_OPTIONS,
   SESSIONS_FILL_GAPS_POSTURE,
   SESSIONS_GUIDED_PRESETS,
+  SCREEENCAST_SHARPNESS_PRESETS,
   VIEWPORT_SIZE_PRESETS,
   applySessionsGuidedPreset,
   asNumber,
@@ -34,10 +35,12 @@ import {
   detachedTimeoutPresetId,
   fillSessionsGaps,
   mergeDeviceEmulation,
+  screencastSharpnessId,
   summarizeSessions,
   text,
   validateClientEnvironment,
   validateDetachedTimeout,
+  validateScreencastScale,
   validateViewportOrdering,
   viewportSizePresetId,
   type JsonObject,
@@ -55,6 +58,7 @@ function Field({
   onChange,
   type = 'text',
   min,
+  max,
   step,
   placeholder,
   error,
@@ -66,6 +70,7 @@ function Field({
   onChange: (value: string) => void
   type?: string
   min?: number
+  max?: number
   step?: number
   placeholder?: string
   error?: string
@@ -77,6 +82,7 @@ function Field({
         id={id}
         type={type}
         min={min}
+        max={max}
         step={step}
         placeholder={placeholder}
         value={value}
@@ -200,6 +206,8 @@ export function SessionsEditor({
   const timeoutError = validateDetachedTimeout(timeoutRaw)
   const viewportError = validateViewportOrdering(value)
   const clientError = validateClientEnvironment(value)
+  const screencastError = validateScreencastScale(value)
+  const sharpnessId = screencastSharpnessId(asObject(value.screencastPolicy).maxEncodeScale)
   const needsBootstrap =
     !value.viewportPolicy || !value.clientEnvironmentPolicy || !value.deviceEmulationPolicy
 
@@ -263,7 +271,7 @@ export function SessionsEditor({
           <p className="text-sm font-medium">Current posture</p>
           <p className="text-sm text-muted-foreground">
             {summary.complete
-              ? `Sessions keep running ${summary.timeoutLabel} after the last disconnect, start at ${summary.viewportLabel}, ${summary.jsBridge ? 'with' : 'without'} the JS bridge, use ${summary.dataStreamTransportLabel} for frames/input, and ${summary.access === 'exclusive' ? 'limit typing to one owner' : 'let attached clients share typing'} while ${summary.delivery === 'broadcast' ? 'sending video to every attached client' : 'sending video only to the owning client'}.`
+              ? `Sessions keep running ${summary.timeoutLabel} after the last disconnect, start at ${summary.viewportLabel}, stream ${summary.sharpnessLabel.toLowerCase()}, ${summary.jsBridge ? 'with' : 'without'} the JS bridge, use ${summary.dataStreamTransportLabel} for frames/input, and ${summary.access === 'exclusive' ? 'limit typing to one owner' : 'let attached clients share typing'} while ${summary.delivery === 'broadcast' ? 'sending video to every attached client' : 'sending video only to the owning client'}.`
               : 'Some required settings are missing. Choose a starting posture or Keep my values before saving.'}
           </p>
         </div>
@@ -287,6 +295,10 @@ export function SessionsEditor({
           <StatusPill
             label={`Data · ${summary.dataStreamTransportLabel}`}
             tone="info"
+          />
+          <StatusPill
+            label={`Stream · ${summary.sharpnessLabel}`}
+            tone={summary.sharpnessId === 'lean' ? 'neutral' : 'success'}
           />
         </div>
       </div>
@@ -362,8 +374,8 @@ export function SessionsEditor({
         <div className="space-y-1">
           <h3 className="text-sm font-medium">Primary session answers</h3>
           <p className="text-xs text-muted-foreground">
-            Answer in order. Locale, device profile, resize limits, and multi-client sharing stay collapsed until you
-            need them.
+            Five decisions most operators need. Locale, device profile, resize limits, and multi-client sharing stay
+            collapsed until you open them below.
           </p>
         </div>
 
@@ -514,6 +526,54 @@ export function SessionsEditor({
             ) : null}
             <InlineValidation message={viewportError} />
           </ControlStep>
+
+          <ControlStep
+            step={5}
+            title="How sharp should the live video look?"
+            helper="This only changes JPEG pixel density — not click targeting. Input always maps to the CSS viewport. Sharp costs more CPU and bandwidth on HiDPI clients; Lean stays light."
+          >
+            <div className="grid gap-2 sm:grid-cols-2">
+              {SCREEENCAST_SHARPNESS_PRESETS.map((preset) => {
+                const selected = sharpnessId === preset.id
+                return (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    onClick={() => patchField(['screencastPolicy', 'maxEncodeScale'], preset.scale)}
+                    className={cn(
+                      'rounded-lg border p-3 text-left transition-colors',
+                      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                      selected
+                        ? 'border-primary bg-primary/5'
+                        : 'border-border bg-background/40 hover:bg-muted/40',
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="text-sm font-medium text-foreground">{preset.label}</p>
+                      {selected ? (
+                        <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                          <Check className="h-3 w-3" aria-hidden />
+                        </span>
+                      ) : (
+                        <span
+                          className="mt-0.5 inline-flex h-5 w-5 shrink-0 rounded-full border border-border"
+                          aria-hidden
+                        />
+                      )}
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">{preset.blurb}</p>
+                  </button>
+                )
+              })}
+            </div>
+            <HelperCallout tone="info" title="Safe defaults">
+              Prefer <span className="font-medium text-foreground">Sharp</span> for operator laptops.
+              Switch to <span className="font-medium text-foreground">Lean</span> if the host is
+              CPU-bound or many sessions run at once. Encode never exceeds the viewport maximum
+              (Xvfb / display ceiling).
+            </HelperCallout>
+            <InlineValidation message={screencastError} />
+          </ControlStep>
         </ol>
       </DataCard>
 
@@ -578,9 +638,10 @@ export function SessionsEditor({
         </div>
       </RevealPanel>
 
-      <RevealPanel title="Viewport limits" defaultOpen={Boolean(viewportError)}>
+      <RevealPanel title="How small or large may clients resize?" defaultOpen={Boolean(viewportError)}>
         <p className="mb-3 text-sm text-muted-foreground">
-          Clients may resize within these bounds. The engine requires Minimum ≤ Default ≤ Maximum.
+          Live clients may only resize within these bounds. Speculum rejects sizes outside Minimum…Maximum.
+          The display ceiling (Maximum) also caps how sharp Retina encode can get.
         </p>
         <FieldGrid>
           <Field
@@ -618,10 +679,9 @@ export function SessionsEditor({
         </FieldGrid>
       </RevealPanel>
 
-      <RevealPanel title="Client environment">
+      <RevealPanel title="What locale and time zone should new sessions pretend?">
         <p className="mb-3 text-sm text-muted-foreground">
-          Default browser locale, language, time zone, and color scheme when a client does not supply its own
-          preference.
+          Defaults when a client does not send its own preference. Pick a chip, then tweak if needed.
         </p>
         <div className="mb-3 flex flex-wrap gap-2">
           {CLIENT_ENV_PRESETS.map((preset) => (
@@ -671,10 +731,10 @@ export function SessionsEditor({
         <InlineValidation message={clientError} />
       </RevealPanel>
 
-      <RevealPanel title="Device emulation">
+      <RevealPanel title="Should sessions look like a phone or a desktop?">
         <p className="mb-3 text-sm text-muted-foreground">
-          Default input and display characteristics for sessions without a device override. UA profile must match
-          desktop or mobile profile names below.
+          Default input and display characteristics for sessions without a device override. Prefer Desktop unless you
+          are testing mobile — wrong touch settings make clicks feel broken even when video looks fine.
         </p>
         <div className="mb-3 flex flex-wrap gap-2">
           {DEVICE_EMULATION_PRESETS.map((preset) => (

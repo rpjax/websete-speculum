@@ -247,16 +247,33 @@ public sealed class SessionsActClient : IAsyncDisposable
     {
         var deadline = DateTime.UtcNow + (timeout ?? TimeSpan.FromSeconds(30));
         string? last = null;
+        Exception? lastError = null;
         while (DateTime.UtcNow < deadline)
         {
             ct.ThrowIfCancellationRequested();
-            last = await EvaluateAsync(expression, ct);
-            if (last.Contains(expectedSubstring, StringComparison.OrdinalIgnoreCase))
+            try
             {
-                return;
+                last = await EvaluateAsync(expression, ct);
+                lastError = null;
+                if (last.Contains(expectedSubstring, StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+            }
+            catch (HttpRequestException ex)
+            {
+                // Mid-navigation (e.g. goback) can 400 evaluate until the main frame settles.
+                lastError = ex;
             }
 
             await Task.Delay(250, ct);
+        }
+
+        if (lastError is not null)
+        {
+            throw new TimeoutException(
+                $"Evaluate '{expression}' did not contain '{expectedSubstring}'. Last error={lastError.Message}",
+                lastError);
         }
 
         throw new TimeoutException(

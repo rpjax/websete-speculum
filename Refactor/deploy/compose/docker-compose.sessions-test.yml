@@ -90,6 +90,7 @@ services:
       Sessions__DeviceEmulationPolicy__DefaultTouchPointsWhenTouch: "5"
       Sessions__DeviceEmulationPolicy__DesktopUserAgentProfile: desktop
       Sessions__DeviceEmulationPolicy__MobileUserAgentProfile: mobile
+      Sessions__ScreencastPolicy__MaxEncodeScale: "2"
       Navigation__DefaultTargetHost: fixture.test
       Navigation__AllowedMainFrameUrls__0__Domain__Scope: Pattern
       Navigation__AllowedMainFrameUrls__0__Domain__Labels__0__Match: Exact

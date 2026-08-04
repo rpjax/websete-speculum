@@ -41,6 +41,7 @@ export const mockApi = {
       sessions: {
         detachedSessionTimeoutSeconds: 300,
         dataStreamTransport: 'webTransport' as const,
+        screencastMaxEncodeScale: 2,
       },
       resourceManagement: { maxConcurrentSessions: 8 },
       hosting: {

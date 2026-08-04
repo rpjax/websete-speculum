@@ -6,8 +6,8 @@ namespace Speculum.Api.Sessions.Events.Models;
 [CanonicalFact(
     "Sessions.ConnectionClosed",
     schemaVersion: 1,
-    Name = "Connection closed",
-    Description = "Browser client connection was closed.",
+    Name = "Browser connection closed",
+    Description = "Api↔sidecar browser connection was closed (not the SignalR hub).",
     Owner = "sessions",
     PublishPolicy = PublishPolicy.Guaranteed)]
 public sealed class ConnectionClosed

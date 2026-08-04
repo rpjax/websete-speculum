@@ -1,3 +1,4 @@
+using Speculum.Api.Sessions.Events.Models;
 using Speculum.Api.Sessions.Models;
 
 namespace Speculum.Api.Sessions.Events.Services.Contracts;
@@ -14,5 +15,5 @@ public interface ISessionLifecycleEvents
     void Stopped(StopReason reason);
 
     void TimedOut(StopReason reason);
-    void Aborted(StopReason reason);
+    void Aborted(StopReason reason, JournalError[]? errors = null);
 }

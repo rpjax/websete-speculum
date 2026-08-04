@@ -155,6 +155,8 @@ function createBrowserSessionHandlers(registry) {
                     width: call.request.width,
                     height: call.request.height,
                     device: call.request.device ? (0, mappers_1.toDevice)(call.request.device) : undefined,
+                    screencastMaxEncodeScale: call.request.screencastMaxEncodeScale
+                        ?? call.request.screencast_max_encode_scale,
                 });
                 callback(null, result);
             }

@@ -46,6 +46,7 @@ const ChromeRuntime_1 = require("./browser/patchright/ChromeRuntime");
 const viewport_bounds_1 = require("./browser/patchright/viewport-bounds");
 const contextCrash_1 = require("./browser/patchright/contextCrash");
 const mappers_1 = require("./grpc/mappers");
+const screencast_encode_1 = require("./browser/patchright/screencast-encode");
 const EventBridge_1 = require("./host/EventBridge");
 const DropOldestQueue_1 = require("./host/DropOldestQueue");
 const browserRace_1 = require("./host/browserRace");
@@ -417,7 +418,10 @@ function testKitStealthInitSource() {
     assert_1.default.ok(nav.includes('hardwareConcurrency'), 'nav spoof cores');
     assert_1.default.ok(nav.includes('Linux armv8l'), 'nav spoof platform');
     assert_1.default.ok(!nav.includes('window.Worker'), 'nav spoof must not wrap Worker ctor');
-    assert_1.default.ok(!nav.includes('webglVendor'), 'nav spoof must not patch WebGL');
+    assert_1.default.ok(nav.includes('0x1F00') || nav.includes('GL_VENDOR'), 'worker-realm source must spoof WebGL VENDOR');
+    assert_1.default.ok(nav.includes('Adreno'), 'worker-realm WebGL must claim Adreno for phone');
+    assert_1.default.ok(nav.includes('WebKit WebGL'), 'worker-realm masked RENDERER');
+    assert_1.default.ok(!nav.includes('Mesa/X.org'), 'worker-realm must not claim Mesa/X.org');
     console.log('[unit] kitStealthInitSource ok');
 }
 async function testWorkerTargetStealthAutoAttach() {
@@ -528,12 +532,105 @@ function testLaunchEnvironmentIsRequired() {
         maxWidth: 2048,
         maxHeight: 1080,
     });
+    assert_1.default.strictEqual(options.screencastMaxEncodeScale, 2);
+    const scaled = (0, mappers_1.toLaunchOptions)({
+        width: 800,
+        height: 600,
+        minWidth: 100,
+        minHeight: 100,
+        displayWidth: 2048,
+        displayHeight: 1080,
+        locale: 'en-US',
+        language: 'en-US',
+        timezoneId: 'UTC',
+        colorScheme: 'light',
+        screencastMaxEncodeScale: 1,
+    });
+    assert_1.default.strictEqual(scaled.screencastMaxEncodeScale, 1);
     console.log('[unit] launch environment ok');
+}
+function testScreencastEncodeSize() {
+    const cssOnly = (0, screencast_encode_1.computeScreencastEncodeSize)({
+        cssWidth: 1280,
+        cssHeight: 720,
+        deviceScaleFactor: 2,
+        displayWidth: 4096,
+        displayHeight: 2160,
+        maxEncodeScale: 1,
+    });
+    assert_1.default.strictEqual(cssOnly.scale, 1);
+    assert_1.default.strictEqual(cssOnly.width, 1280);
+    assert_1.default.strictEqual(cssOnly.height, 720);
+    const retina = (0, screencast_encode_1.computeScreencastEncodeSize)({
+        cssWidth: 1280,
+        cssHeight: 720,
+        deviceScaleFactor: 2,
+        displayWidth: 4096,
+        displayHeight: 2160,
+        maxEncodeScale: 2,
+    });
+    assert_1.default.strictEqual(retina.scale, 2);
+    assert_1.default.strictEqual(retina.width, 2560);
+    assert_1.default.strictEqual(retina.height, 1440);
+    const dprCapped = (0, screencast_encode_1.computeScreencastEncodeSize)({
+        cssWidth: 1280,
+        cssHeight: 720,
+        deviceScaleFactor: 3,
+        displayWidth: 4096,
+        displayHeight: 2160,
+        maxEncodeScale: 2,
+    });
+    assert_1.default.strictEqual(dprCapped.scale, 2);
+    assert_1.default.strictEqual(dprCapped.width, 2560);
+    const xvfbCap = (0, screencast_encode_1.computeScreencastEncodeSize)({
+        cssWidth: 1920,
+        cssHeight: 1080,
+        deviceScaleFactor: 2,
+        displayWidth: 2560,
+        displayHeight: 1440,
+        maxEncodeScale: 2,
+    });
+    assert_1.default.ok(xvfbCap.scale < 2);
+    assert_1.default.strictEqual(xvfbCap.width, 2560);
+    assert_1.default.strictEqual(xvfbCap.height, 1440);
+    console.log('[unit] screencast encode size ok');
+}
+async function testScreencastAcceptsCssOrEncodeJpeg() {
+    const { Screencast } = await Promise.resolve().then(() => __importStar(require('./browser/patchright/Screencast')));
+    const { readJpegDimensions } = await Promise.resolve().then(() => __importStar(require('./browser/patchright/jpeg-geometry')));
+    // Minimal 2×2 JPEG (SOF0) — write a tiny buffer with known dims via canvas-less fixture.
+    // Build SOF0 manually: FF D8 … FF C0 … height/width …
+    function jpegWithSize(width, height) {
+        // Minimal valid-ish JPEG for readJpegDimensions (SOF0 only path).
+        const sof = Buffer.alloc(19);
+        sof[0] = 0xff;
+        sof[1] = 0xc0;
+        sof.writeUInt16BE(17, 2); // segment length
+        sof[4] = 8; // precision
+        sof.writeUInt16BE(height, 5);
+        sof.writeUInt16BE(width, 7);
+        return Buffer.concat([Buffer.from([0xff, 0xd8]), sof, Buffer.from([0xff, 0xd9])]);
+    }
+    const cdp = {
+        on: () => { },
+        off: () => { },
+        send: async () => ({}),
+    };
+    const sc = await Screencast.start(cdp, 2560, 1440, () => { }, 1280, 720);
+    assert_1.default.deepStrictEqual(readJpegDimensions(jpegWithSize(1280, 720)), { width: 1280, height: 720 });
+    assert_1.default.strictEqual(sc._jpegMatchesExpected(jpegWithSize(1280, 720)), true, 'CSS-sized frames must pass');
+    assert_1.default.strictEqual(sc._jpegMatchesExpected(jpegWithSize(2560, 1440)), true, 'encode-sized frames must pass');
+    assert_1.default.strictEqual(sc._jpegMatchesExpected(jpegWithSize(800, 600)), false, 'stale size must drop');
+    await sc.stop();
+    console.log('[unit] screencast accepts css or encode jpeg ok');
 }
 function testTouchEmulationParams() {
     assert_1.default.deepStrictEqual((0, device_emulation_1.touchEmulationParams)({ touch: false, mobile: false, maxTouchPoints: 0 }), { enabled: false });
-    assert_1.default.deepStrictEqual((0, device_emulation_1.touchEmulationParams)({ touch: true, mobile: false, maxTouchPoints: 5 }), { enabled: true, maxTouchPoints: 5 });
-    assert_1.default.throws(() => (0, device_emulation_1.touchEmulationParams)({ touch: true, mobile: false, maxTouchPoints: 0 }), /between 1 and 16/);
+    // Hybrid desktop (Galaxy Book / Surface): touch capable but mouse-primary —
+    // must NOT enable CDP touch emulation or :hover dies.
+    assert_1.default.deepStrictEqual((0, device_emulation_1.touchEmulationParams)({ touch: true, mobile: false, maxTouchPoints: 5 }), { enabled: false });
+    assert_1.default.deepStrictEqual((0, device_emulation_1.touchEmulationParams)({ touch: true, mobile: true, maxTouchPoints: 5 }), { enabled: true, maxTouchPoints: 5 });
+    assert_1.default.throws(() => (0, device_emulation_1.touchEmulationParams)({ touch: true, mobile: true, maxTouchPoints: 0 }), /between 1 and 16/);
     // Hybrid desktop: touch capability must NOT suppress mouse input.
     assert_1.default.strictEqual((0, device_emulation_1.isInputTouchPrimary)({ mobile: false }), false);
     assert_1.default.strictEqual((0, device_emulation_1.isInputTouchPrimary)({ mobile: true }), true);
@@ -1147,6 +1244,8 @@ async function main() {
     await testWorkerTargetStealthAutoAttach();
     await testScreencastRestartThrowsAfterStop();
     testLaunchEnvironmentIsRequired();
+    testScreencastEncodeSize();
+    await testScreencastAcceptsCssOrEncodeJpeg();
     testTouchEmulationParams();
     testStopDoesNotEnqueueCrash();
     testUnexpectedContextCloseEnqueuesCrash();

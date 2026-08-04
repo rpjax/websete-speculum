@@ -17,9 +17,10 @@ namespace Speculum.Api.Sessions.Services.Contracts;
 public interface ISessionService
 {
     /// <summary>
-    /// Starts a live session. Fail-fast on any provisioning step (including initial navigation).
+    /// Starts a live session. Fail-fast on provisioning (config, profile, connection, launch, restore).
+    /// URL resolve remains synchronous; initial navigation is fire-and-forget after Live so TTFF is not blocked.
     /// On failure, partially acquired resources are released and a persisted row is marked Aborted.
-    /// Success order: persist Live → <see cref="ILiveSessionService.Create"/> → watch collector.
+    /// Success order: persist Live → <see cref="ILiveSessionService.Create"/> → watch collector → start initial nav in background.
     /// Returns session id and auth token on success.
     /// </summary>
     Task<IResult<StartSessionResponse>> StartSessionAsync(

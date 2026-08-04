@@ -133,8 +133,8 @@ function jsonString(value: string): string {
 }
 
 /**
- * Navigator identity spoof for any execution realm (main, Worker, ServiceWorker).
- * No Worker constructor wrap / no WebGL — safe to Runtime.evaluate in worker targets.
+ * Identity spoof for worker-like CDP targets (and safe Runtime.evaluate anywhere).
+ * Navigator + WebGL getParameter (same kit literals as main). No Worker constructor wrap.
  */
 export function kitNavigatorSpoofSource(args: {
   kit: DeviceKit;
@@ -147,6 +147,10 @@ export function kitNavigatorSpoofSource(args: {
   const ua = jsonString(userAgent);
   const uaChPlatform = jsonString(kit.uaChPlatform);
   const uaChMobile = kit.mobile ? 'true' : 'false';
+  const maskedVendor = jsonString(kit.webglVendor);
+  const maskedRenderer = jsonString(kit.webglRenderer);
+  const unmaskedVendor = jsonString(kit.webglUnmaskedVendor);
+  const unmaskedRenderer = jsonString(kit.webglUnmaskedRenderer);
 
   return `(() => {
   const cores = ${cores};
@@ -155,6 +159,10 @@ export function kitNavigatorSpoofSource(args: {
   const ua = ${ua};
   const uaChPlatform = ${uaChPlatform};
   const uaChMobile = ${uaChMobile};
+  const webglVendor = ${maskedVendor};
+  const webglRenderer = ${maskedRenderer};
+  const webglUnmaskedVendor = ${unmaskedVendor};
+  const webglUnmaskedRenderer = ${unmaskedRenderer};
 
   function spoof(nav) {
     if (!nav) return;
@@ -218,6 +226,61 @@ export function kitNavigatorSpoofSource(args: {
   try {
     spoof(typeof Navigator !== 'undefined' ? Navigator.prototype : null);
   } catch (_) {}
+
+  const GL_VENDOR = 0x1F00;
+  const GL_RENDERER = 0x1F01;
+  const UNMASKED_VENDOR_WEBGL = 0x9245;
+  const UNMASKED_RENDERER_WEBGL = 0x9246;
+  function patchWebGl(proto) {
+    if (!proto) return;
+    if (!proto.__speculumWebglOrigGetParam) {
+      try {
+        Object.defineProperty(proto, '__speculumWebglOrigGetParam', {
+          value: proto.getParameter,
+          configurable: true,
+        });
+        Object.defineProperty(proto, '__speculumWebglOrigGetExt', {
+          value: proto.getExtension,
+          configurable: true,
+        });
+      } catch (_) {
+        return;
+      }
+    }
+    const origGetParam = proto.__speculumWebglOrigGetParam;
+    const origGetExt = proto.__speculumWebglOrigGetExt;
+    Object.defineProperty(proto, 'getParameter', {
+      value: function (param) {
+        if (param === GL_VENDOR) return webglVendor;
+        if (param === GL_RENDERER) return webglRenderer;
+        if (param === UNMASKED_VENDOR_WEBGL) return webglUnmaskedVendor;
+        if (param === UNMASKED_RENDERER_WEBGL) return webglUnmaskedRenderer;
+        return origGetParam.call(this, param);
+      },
+      writable: true,
+      configurable: true,
+    });
+    Object.defineProperty(proto, 'getExtension', {
+      value: function (name) {
+        const ext = origGetExt.call(this, name);
+        if (name === 'WEBGL_debug_renderer_info') {
+          return ext || {
+            UNMASKED_VENDOR_WEBGL,
+            UNMASKED_RENDERER_WEBGL,
+          };
+        }
+        return ext;
+      },
+      writable: true,
+      configurable: true,
+    });
+  }
+  if (typeof WebGLRenderingContext !== 'undefined') {
+    patchWebGl(WebGLRenderingContext.prototype);
+  }
+  if (typeof WebGL2RenderingContext !== 'undefined') {
+    patchWebGl(WebGL2RenderingContext.prototype);
+  }
 })();`;
 }
 

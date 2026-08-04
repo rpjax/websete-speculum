@@ -40,21 +40,12 @@ public sealed class ResourceHistoryService(
             Docker = telemetry.Docker.IsEnabled,
         };
 
-        if (!telemetry.IsEnabled)
-        {
-            return new ResourceLatestResponse
-            {
-                TelemetryEnabled = false,
-                Sample = null,
-                Sections = readiness,
-                CollectedAt = collectedAt,
-            };
-        }
-
+        // On-demand live probe — always compose for operators investigating "now".
+        // TelemetryEnabled only reflects whether the sampler is journaling SampleCollected for history.
         var sample = await composer.ComposeAsync(telemetry, ct).ConfigureAwait(false);
         return new ResourceLatestResponse
         {
-            TelemetryEnabled = true,
+            TelemetryEnabled = telemetry.IsEnabled,
             Sample = sample,
             Sections = readiness,
             CollectedAt = collectedAt,

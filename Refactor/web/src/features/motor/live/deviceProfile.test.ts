@@ -80,3 +80,19 @@ describe('isTouchPrimaryProfile', () => {
     expect(isTouchPrimaryProfile({ mobile: true })).toBe(true)
   })
 })
+
+describe('hybrid desktop device profile shape', () => {
+  it('documents capability vs primary: touch can be true while mobile is false', () => {
+    // Galaxy Book / Surface class — mirrors detectDeviceProfile on hybrid PCs.
+    const hybrid = {
+      mobile: false,
+      touch: true,
+      deviceScaleFactor: 1,
+      maxTouchPoints: 10,
+      userAgentProfile: 'desktop' as const,
+      deviceCategory: 'pc' as const,
+    }
+    expect(isTouchPrimaryProfile(hybrid)).toBe(false)
+    expect(hybrid.touch).toBe(true)
+  })
+})

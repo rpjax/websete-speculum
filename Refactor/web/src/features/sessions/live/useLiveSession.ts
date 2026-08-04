@@ -52,6 +52,7 @@ export type LiveSessionPhase =
   | 'starting'
   | 'live'
   | 'stopping'
+  | 'error'
 
 export interface LiveSessionStats {
   frames: number
@@ -195,6 +196,10 @@ export function useLiveSession({
   const [status, setStatus] = useState<SessionStatus | null>(null)
   const [editing, setEditing] = useState<EditingState | null>(null)
   const [touchPrimary, setTouchPrimary] = useState(false)
+  /** Client DPR from StartSession device profile (canvas encode buffer). */
+  const [deviceScaleFactor, setDeviceScaleFactor] = useState(1)
+  /** Sessions.ScreencastPolicy.MaxEncodeScale from client-config. */
+  const [screencastMaxEncodeScale, setScreencastMaxEncodeScale] = useState(2)
   /** Bumps on each Keyboard tap so SessionViewport can re-focus IME after dismiss. */
   const [keyboardNonce, setKeyboardNonce] = useState(0)
   const [currentUrl, setCurrentUrl] = useState<string | null>(null)
@@ -414,7 +419,7 @@ export function useLiveSession({
       log('info', 'hub connected', { connectionId: client.connectionId })
       return true
     } catch (error) {
-      setPhase('idle')
+      setPhase('error')
       log('error', 'hub connect failed', error)
       return false
     }
@@ -441,6 +446,7 @@ export function useLiveSession({
         const device = detectDeviceProfile()
         const primary = isTouchPrimaryProfile(device)
         setTouchPrimary(primary)
+        setDeviceScaleFactor(device.deviceScaleFactor)
         // Wait for client surface layout — StartSession must use measured size, not a fallback
         // that forces an immediate ResizeAsync.
         const layout = await waitForCanvasLayout(canvasLayoutRef, viewport)
@@ -460,6 +466,10 @@ export function useLiveSession({
           configured = normalizeDataStreamTransportKind(
             config.sessions?.dataStreamTransport,
           )
+          const scale = Number(config.sessions?.screencastMaxEncodeScale)
+          if (Number.isFinite(scale) && scale >= 1 && scale <= 2) {
+            setScreencastMaxEncodeScale(scale)
+          }
         } catch {
           // Default webTransport when client-config is unreachable.
         }
@@ -499,11 +509,12 @@ export function useLiveSession({
         setPhase('live')
         log('info', 'session live', { sessionId: session.sessionId, touchPrimary: primary })
       } catch (error) {
-        setPhase(client.isConnected ? 'connected' : 'idle')
-        log('error', 'start failed', error)
         if (isPendingConfigError(error)) {
           window.location.replace('/w7s/setup')
+          return
         }
+        setPhase('error')
+        log('error', 'start failed', error)
       }
     },
     [bind, client, connect, log, origins.hubOrigin, origins.transportOrigin, viewport.height, viewport.width],
@@ -526,6 +537,8 @@ export function useLiveSession({
       setViewportPolicy(null)
       setEditing(null)
       setKeyboardNonce(0)
+      setDeviceScaleFactor(1)
+      setScreencastMaxEncodeScale(2)
       setCurrentUrl(null)
       setNavigateHref(null)
       setPhase(client.isConnected ? 'connected' : 'idle')
@@ -694,6 +707,8 @@ export function useLiveSession({
     status,
     editing,
     touchPrimary,
+    deviceScaleFactor,
+    screencastMaxEncodeScale,
     keyboardNonce,
     openKeyboard,
     isLive: phase === 'live',

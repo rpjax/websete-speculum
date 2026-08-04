@@ -38,6 +38,7 @@ import { Navigation } from './Navigation';
 import { PageState } from './PageState';
 import { Probe as ProbeCapability } from './Probe';
 import { Screencast } from './Screencast';
+import { computeScreencastEncodeSize } from './screencast-encode';
 import { Viewport } from './Viewport';
 import {
   validateLaunchViewport,
@@ -72,6 +73,10 @@ export class PatchrightBrowserSession implements BrowserSession {
   private launchOptions: BrowserLaunchOptions | null = null;
   /** Sessions.ViewportPolicy bounds from Launch — set before Display.start. */
   private viewportPolicy: ViewportPolicyBounds | null = null;
+  /** Sessions.ScreencastPolicy.MaxEncodeScale from Launch/Resize. */
+  private screencastMaxEncodeScale = 2;
+  private lastEncodeWidth = 0;
+  private lastEncodeHeight = 0;
   /** When true, context 'close' is an intentional teardown — do not emit onCrash. */
   private suppressContextCrash = false;
   /** Bumped to retire stale context 'close' listeners across stop. */
@@ -106,6 +111,23 @@ export class PatchrightBrowserSession implements BrowserSession {
     return { displayWidth: policy.maxWidth, displayHeight: policy.maxHeight };
   }
 
+  private resolveEncodeSize(
+    cssW: number,
+    cssH: number,
+    device: BrowserDeviceProfile,
+  ): { width: number; height: number } {
+    const dims = this.displayDims();
+    const enc = computeScreencastEncodeSize({
+      cssWidth: cssW,
+      cssHeight: cssH,
+      deviceScaleFactor: device.deviceScaleFactor ?? 1,
+      displayWidth: dims.displayWidth,
+      displayHeight: dims.displayHeight,
+      maxEncodeScale: this.screencastMaxEncodeScale,
+    });
+    return { width: enc.width, height: enc.height };
+  }
+
   /** Run exclusive browser mutation (navigate / refresh / resize). */
   private runBrowserOp<T>(fn: () => Promise<T>): Promise<T> {
     const run = this.browserOpTail.then(fn, fn);
@@ -120,6 +142,7 @@ export class PatchrightBrowserSession implements BrowserSession {
     this.ensureNotDisposed();
     this.launchOptions = options;
     this.viewportPolicy = options.viewportPolicy;
+    this.screencastMaxEncodeScale = options.screencastMaxEncodeScale;
     const validated = validateLaunchViewport(
       options.width,
       options.height,
@@ -210,6 +233,8 @@ export class PatchrightBrowserSession implements BrowserSession {
       }
       this.viewport.confirm(width, height, proven.device);
 
+      const encode = this.resolveEncodeSize(width, height, proven.device);
+
       const inputBackend = await this.createInputBackend({
         maxW,
         maxH,
@@ -227,10 +252,14 @@ export class PatchrightBrowserSession implements BrowserSession {
 
       this.screencast = await Screencast.start(
         this.chrome.cdp,
+        encode.width,
+        encode.height,
+        (jpeg) => this.events.onVideoFrame(jpeg),
         width,
         height,
-        (jpeg) => this.events.onVideoFrame(jpeg),
       );
+      this.lastEncodeWidth = encode.width;
+      this.lastEncodeHeight = encode.height;
 
       if (this.pendingState) {
         await this.pageState.restore(this.chrome.cdp, this.chrome.page, this.pendingState);
@@ -409,6 +438,16 @@ export class PatchrightBrowserSession implements BrowserSession {
 
   async resize(request: BrowserResizeRequest): Promise<BrowserResizeResult> {
     this.ensureLive();
+    if (
+      request.screencastMaxEncodeScale !== undefined
+      && Number.isFinite(request.screencastMaxEncodeScale)
+      && request.screencastMaxEncodeScale > 0
+    ) {
+      this.screencastMaxEncodeScale = Math.min(
+        2,
+        Math.max(1, request.screencastMaxEncodeScale),
+      );
+    }
     const validated = validateResizeViewport(
       request.width,
       request.height,
@@ -504,10 +543,16 @@ export class PatchrightBrowserSession implements BrowserSession {
 
     this.viewport!.setResizing(true);
     let screencastTouched = false;
+    const prevEncodeW = this.lastEncodeWidth;
+    const prevEncodeH = this.lastEncodeHeight;
+    const nextEncode = this.resolveEncodeSize(nextW, nextH, nextDevice);
     const sizeChanged = nextW !== previous.width || nextH !== previous.height;
+    const encodeChanged =
+      nextEncode.width !== prevEncodeW || nextEncode.height !== prevEncodeH;
+    const screencastNeedsRestart = sizeChanged || encodeChanged;
     try {
       // Pause encode before metrics so old-size frames are not filtered into a black gap.
-      if (sizeChanged) {
+      if (screencastNeedsRestart) {
         if (!this.screencast) {
           throw new Error('screencast missing during resize');
         }
@@ -518,13 +563,17 @@ export class PatchrightBrowserSession implements BrowserSession {
         phase: 'resize_apply',
         context: this.chrome!.context,
       });
-      if (sizeChanged) {
+      if (screencastNeedsRestart) {
         await this.screencast!.completeRestart(
-          nextW,
-          nextH,
+          nextEncode.width,
+          nextEncode.height,
           (jpeg) => this.events.onVideoFrame(jpeg),
           this.chrome!.cdp,
+          nextW,
+          nextH,
         );
+        this.lastEncodeWidth = nextEncode.width;
+        this.lastEncodeHeight = nextEncode.height;
       }
       this.viewport!.confirm(nextW, nextH, nextDevice);
       this.input?.setTouchPrimary(touchPrimary(nextDevice));
@@ -566,11 +615,15 @@ export class PatchrightBrowserSession implements BrowserSession {
         // Only reattach screencast if the forward path already paused it.
         if (screencastTouched && this.screencast) {
           await this.screencast.completeRestart(
-            previous.width,
-            previous.height,
+            prevEncodeW,
+            prevEncodeH,
             (jpeg) => this.events.onVideoFrame(jpeg),
             this.chrome.cdp,
+            previous.width,
+            previous.height,
           );
+          this.lastEncodeWidth = prevEncodeW;
+          this.lastEncodeHeight = prevEncodeH;
         }
         this.viewport!.confirm(previous.width, previous.height, previous.device ?? undefined);
         this.input?.setTouchPrimary(touchPrimary(previous.device));

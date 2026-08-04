@@ -6,8 +6,8 @@ namespace Speculum.Api.Sessions.Events.Models;
 [CanonicalFact(
     "Sessions.ConnectionStartFailed",
     schemaVersion: 1,
-    Name = "Connection start failed",
-    Description = "Browser client connection could not be started.",
+    Name = "Browser connection start failed",
+    Description = "Api↔sidecar browser connection could not be started.",
     Owner = "sessions",
     PublishPolicy = PublishPolicy.Guaranteed)]
 public sealed class ConnectionStartFailed

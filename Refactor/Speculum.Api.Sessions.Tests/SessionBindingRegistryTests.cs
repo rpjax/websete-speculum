@@ -187,6 +187,9 @@ public sealed class SessionBindingRegistryTests
             CancellationToken ct = default)
             => throw new NotSupportedException();
 
+        public Task<IResult> NavigateToAbsoluteUrlAsync(string url, CancellationToken ct = default)
+            => throw new NotSupportedException();
+
         public Task<IResult> RefreshAsync(CancellationToken ct = default)
             => throw new NotSupportedException();
 

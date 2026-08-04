@@ -101,6 +101,8 @@ message LaunchRequest {
   int32 min_height = 13;
   int32 display_width = 14;
   int32 display_height = 15;
+  // Sessions.ScreencastPolicy.MaxEncodeScale — CSS→JPEG scale cap (1..2), also capped by display_*.
+  double screencast_max_encode_scale = 16;
 }
 
 message ReadyInfo {
@@ -196,6 +198,8 @@ message ResizeRequest {
   int32 width = 2;
   int32 height = 3;
   DeviceProfile device = 4;
+  // Sessions.ScreencastPolicy.MaxEncodeScale — same semantics as LaunchRequest.
+  double screencast_max_encode_scale = 5;
 }
 
 message ResizeResult {

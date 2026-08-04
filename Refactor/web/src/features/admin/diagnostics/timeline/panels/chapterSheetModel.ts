@@ -1,7 +1,17 @@
 import type { NarrativeBeat, NarrativeChapter } from '../model/narrativeTypes'
 
+/** Prefer explicit labels when the leaf name alone is ambiguous (e.g. Connection*). */
+const EVENT_LABELS: Record<string, string> = {
+  'Sessions.ConnectionStarted': 'Browser Connection Started',
+  'Sessions.ConnectionClosed': 'Browser Connection Closed',
+  'Sessions.ConnectionStartFailed': 'Browser Connection Start Failed',
+  'Sessions.CloseConnectionFailed': 'Close Browser Connection Failed',
+}
+
 /** Last segment of a dotted catalog name, spaced for scan. */
 export function shortEventLabel(name: string): string {
+  const mapped = EVENT_LABELS[name]
+  if (mapped) return mapped
   const leaf = name.includes('.') ? name.slice(name.lastIndexOf('.') + 1) : name
   return leaf.replace(/([a-z\d])([A-Z])/g, '$1 $2')
 }

@@ -48,6 +48,13 @@ public static class PublicBootstrapEndpoints
                     detachedSessionTimeoutSeconds =
                         (int)Math.Clamp(engine.Sessions.DetachedSessionTimeout.TotalSeconds, 0, int.MaxValue),
                     dataStreamTransport = ToClientTransport(engine.Sessions.DataStreamTransport),
+                    screencastMaxEncodeScale = Math.Clamp(
+                        double.IsFinite(engine.Sessions.ScreencastPolicy.MaxEncodeScale)
+                            && engine.Sessions.ScreencastPolicy.MaxEncodeScale > 0
+                            ? engine.Sessions.ScreencastPolicy.MaxEncodeScale
+                            : 2,
+                        1,
+                        2),
                 },
                 resourceManagement = new
                 {

@@ -84,6 +84,12 @@ public interface ILiveSession
 
     Task<IResult<NavigateResult>> NavigateAsync(NavigateSession request, CancellationToken ct = default);
 
+    /// <summary>
+    /// Absolute-URL navigate under the command gate without NavigateRequested journal.
+    /// Used for fire-and-forget initial navigation after the session is Live.
+    /// </summary>
+    Task<IResult> NavigateToAbsoluteUrlAsync(string url, CancellationToken ct = default);
+
     Task<IResult> RefreshAsync(CancellationToken ct = default);
 
     Task<IResult<ResizeResult>> ResizeAsync(ResizeSession request, CancellationToken ct = default);

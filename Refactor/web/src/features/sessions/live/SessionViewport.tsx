@@ -8,6 +8,7 @@ import {
   type CanvasSize,
 } from './CanvasViewportSync'
 import { SessionInputController } from './SessionInputController'
+import { computeScreencastEncodeSize } from './screencastEncode'
 
 export interface SessionViewportProps {
   /**
@@ -42,6 +43,15 @@ export interface SessionViewportProps {
    * stuck `true` after dismiss and blocks re-focus — nonce always re-runs focus.
    */
   keyboardNonce?: number
+  /** Client devicePixelRatio (already clamped by detectDeviceProfile). */
+  deviceScaleFactor?: number
+  /** Sessions.ScreencastPolicy.MaxEncodeScale from client-config (1..2). */
+  maxEncodeScale?: number
+  /**
+   * `immersive` — end-user live catch-all (no session chrome tells).
+   * `lab` — operator lab surface (muted boot, crosshair, opacity when idle).
+   */
+  presentation?: 'immersive' | 'lab'
   className?: string
   /** Accessible name for the stream surface. */
   label?: string
@@ -65,6 +75,9 @@ export function SessionViewport({
   touchPrimary = false,
   editingActive = false,
   keyboardNonce = 0,
+  deviceScaleFactor = 1,
+  maxEncodeScale = 2,
+  presentation = 'lab',
   className,
   label = 'Session frame stream',
 }: SessionViewportProps) {
@@ -105,6 +118,19 @@ export function SessionViewport({
     }
   }, [])
 
+  const resolveEncodeSize = useCallback(
+    (cssW: number, cssH: number) =>
+      computeScreencastEncodeSize({
+        cssWidth: cssW,
+        cssHeight: cssH,
+        deviceScaleFactor,
+        displayWidth: viewportPolicy?.maxWidth ?? cssW,
+        displayHeight: viewportPolicy?.maxHeight ?? cssH,
+        maxEncodeScale,
+      }),
+    [deviceScaleFactor, maxEncodeScale, viewportPolicy?.maxWidth, viewportPolicy?.maxHeight],
+  )
+
   const paint = useCallback(async (jpeg: Uint8Array) => {
     const canvas = canvasRef.current
     if (!canvas) {
@@ -122,23 +148,30 @@ export function SessionViewport({
       bitmap.close()
       return
     }
-    // Buffer + input space follow confirmed remote viewport — not JPEG dimensions
-    // (those lag after ResizeApplied and would desync hit-testing).
-    const targetW = frameSizeRef.current.width
-    const targetH = frameSizeRef.current.height
-    if (targetW > 0 && targetH > 0) {
-      applyBufferSize(targetW, targetH)
-      context.drawImage(bitmap, 0, 0, targetW, targetH)
+    // Hit-test / input stay on confirmed remote CSS viewport.
+    // Buffer follows the JPEG pixels Chrome actually sent (CSS or encode).
+    const cssW = frameSizeRef.current.width
+    const cssH = frameSizeRef.current.height
+    if (cssW > 0 && cssH > 0) {
+      const encode = resolveEncodeSize(cssW, cssH)
+      const bufW = bitmap.width > 0 ? bitmap.width : encode.width
+      const bufH = bitmap.height > 0 ? bitmap.height : encode.height
+      applyBufferSize(bufW, bufH)
+      context.imageSmoothingEnabled = false
+      context.drawImage(bitmap, 0, 0, bufW, bufH)
     }
     bitmap.close()
-  }, [applyBufferSize])
+  }, [applyBufferSize, resolveEncodeSize])
 
   useEffect(() => {
     frameSizeRef.current = { width, height }
     controllerRef.current?.setFrameSize(width, height)
-    applyBufferSize(width, height)
+    if (width > 0 && height > 0) {
+      const encode = resolveEncodeSize(width, height)
+      applyBufferSize(encode.width, encode.height)
+    }
     controllerRef.current?.invalidateRect()
-  }, [width, height, applyBufferSize])
+  }, [width, height, applyBufferSize, resolveEncodeSize])
 
   useEffect(() => {
     const pump = async (jpeg: Uint8Array): Promise<void> => {
@@ -311,8 +344,13 @@ export function SessionViewport({
         aria-label={label}
         className={cn(
           // Out of flow + explicit max: bitmap attrs never inflate the CSS host.
-          'absolute inset-0 block h-full w-full max-h-full max-w-full min-h-0 min-w-0 touch-none bg-muted outline-none focus-visible:ring-2 focus-visible:ring-ring',
-          live ? 'cursor-crosshair' : 'cursor-not-allowed opacity-60',
+          'absolute inset-0 block h-full w-full max-h-full max-w-full min-h-0 min-w-0 touch-none outline-none',
+          presentation === 'immersive'
+            ? 'cursor-default bg-white'
+            : cn(
+                'bg-muted focus-visible:ring-2 focus-visible:ring-ring',
+                live ? 'cursor-crosshair' : 'cursor-not-allowed opacity-60',
+              ),
         )}
         style={{ touchAction: 'none', width: '100%', height: '100%' }}
       />

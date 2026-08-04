@@ -10,6 +10,7 @@ const mockConfig: ClientConfig = {
   sessions: {
     detachedSessionTimeoutSeconds: 300,
     dataStreamTransport: 'webTransport',
+    screencastMaxEncodeScale: 2,
   },
   resourceManagement: { maxConcurrentSessions: 8 },
   hosting: {

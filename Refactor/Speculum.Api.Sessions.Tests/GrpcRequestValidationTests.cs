@@ -222,6 +222,50 @@ public sealed class GrpcRequestValidationTests
         Assert.Equal(100, request.MinHeight);
         Assert.Equal(4096, request.DisplayWidth);
         Assert.Equal(2160, request.DisplayHeight);
+        Assert.Equal(2, request.ScreencastMaxEncodeScale);
+
+        var capped = GrpcSessionMappers.ToLaunchRequest(
+            Guid.NewGuid(),
+            800,
+            600,
+            configuration,
+            SessionsTestHarness.Sessions().ViewportPolicy,
+            screencastMaxEncodeScale: 1);
+        Assert.Equal(1, capped.ScreencastMaxEncodeScale);
+        Assert.Equal(1, GrpcSessionMappers.ClampScreencastMaxEncodeScale(0.5));
+        Assert.Equal(2, GrpcSessionMappers.ClampScreencastMaxEncodeScale(3));
+    }
+
+    [Fact]
+    public void SessionsConfigurationValidator_ScreencastMaxEncodeScale_Bounds()
+    {
+        var validator = new Configurations.Models.Sessions.SessionsConfigurationValidator();
+
+        Assert.False(validator.Validate(null, SessionsWithEncodeScale(1)).Failed);
+        Assert.False(validator.Validate(null, SessionsWithEncodeScale(2)).Failed);
+        Assert.True(validator.Validate(null, SessionsWithEncodeScale(0.5)).Failed);
+        Assert.True(validator.Validate(null, SessionsWithEncodeScale(3)).Failed);
+    }
+
+    private static Configurations.Models.Sessions.SessionsConfiguration SessionsWithEncodeScale(
+        double maxEncodeScale)
+    {
+        var baseline = SessionsTestHarness.Sessions();
+        return new Configurations.Models.Sessions.SessionsConfiguration
+        {
+            DetachedSessionTimeout = baseline.DetachedSessionTimeout,
+            IsJsBridgeEnabled = baseline.IsJsBridgeEnabled,
+            DataStreamTransport = baseline.DataStreamTransport,
+            ViewportPolicy = baseline.ViewportPolicy,
+            ClientEnvironmentPolicy = baseline.ClientEnvironmentPolicy,
+            DeviceEmulationPolicy = baseline.DeviceEmulationPolicy,
+            InputMultiplexingPolicy = baseline.InputMultiplexingPolicy,
+            OutputMultiplexingPolicy = baseline.OutputMultiplexingPolicy,
+            ScreencastPolicy = new Configurations.Models.Sessions.ScreencastPolicy
+            {
+                MaxEncodeScale = maxEncodeScale,
+            },
+        };
     }
 
     [Fact]

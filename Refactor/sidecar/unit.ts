@@ -19,6 +19,7 @@ import { buildChromeArgs, webglSpoofExtensionPath } from './browser/patchright/C
 import { validateLaunchViewport, validateResizeViewport, requireViewportPolicy } from './browser/patchright/viewport-bounds';
 import { shouldEmitContextCrash } from './browser/patchright/contextCrash';
 import { toLaunchOptions } from './grpc/mappers';
+import { computeScreencastEncodeSize } from './browser/patchright/screencast-encode';
 import { EventBridge } from './host/EventBridge';
 import { DropOldestQueue } from './host/DropOldestQueue';
 import { isBenignBrowserRace } from './host/browserRace';
@@ -519,7 +520,10 @@ function testKitStealthInitSource(): void {
   assert.ok(nav.includes('hardwareConcurrency'), 'nav spoof cores');
   assert.ok(nav.includes('Linux armv8l'), 'nav spoof platform');
   assert.ok(!nav.includes('window.Worker'), 'nav spoof must not wrap Worker ctor');
-  assert.ok(!nav.includes('webglVendor'), 'nav spoof must not patch WebGL');
+  assert.ok(nav.includes('0x1F00') || nav.includes('GL_VENDOR'), 'worker-realm source must spoof WebGL VENDOR');
+  assert.ok(nav.includes('Adreno'), 'worker-realm WebGL must claim Adreno for phone');
+  assert.ok(nav.includes('WebKit WebGL'), 'worker-realm masked RENDERER');
+  assert.ok(!nav.includes('Mesa/X.org'), 'worker-realm must not claim Mesa/X.org');
   console.log('[unit] kitStealthInitSource ok');
 }
 
@@ -666,7 +670,105 @@ function testLaunchEnvironmentIsRequired(): void {
     maxWidth: 2048,
     maxHeight: 1080,
   });
+  assert.strictEqual(options.screencastMaxEncodeScale, 2);
+
+  const scaled = toLaunchOptions({
+    width: 800,
+    height: 600,
+    minWidth: 100,
+    minHeight: 100,
+    displayWidth: 2048,
+    displayHeight: 1080,
+    locale: 'en-US',
+    language: 'en-US',
+    timezoneId: 'UTC',
+    colorScheme: 'light',
+    screencastMaxEncodeScale: 1,
+  });
+  assert.strictEqual(scaled.screencastMaxEncodeScale, 1);
   console.log('[unit] launch environment ok');
+}
+
+function testScreencastEncodeSize(): void {
+  const cssOnly = computeScreencastEncodeSize({
+    cssWidth: 1280,
+    cssHeight: 720,
+    deviceScaleFactor: 2,
+    displayWidth: 4096,
+    displayHeight: 2160,
+    maxEncodeScale: 1,
+  });
+  assert.strictEqual(cssOnly.scale, 1);
+  assert.strictEqual(cssOnly.width, 1280);
+  assert.strictEqual(cssOnly.height, 720);
+
+  const retina = computeScreencastEncodeSize({
+    cssWidth: 1280,
+    cssHeight: 720,
+    deviceScaleFactor: 2,
+    displayWidth: 4096,
+    displayHeight: 2160,
+    maxEncodeScale: 2,
+  });
+  assert.strictEqual(retina.scale, 2);
+  assert.strictEqual(retina.width, 2560);
+  assert.strictEqual(retina.height, 1440);
+
+  const dprCapped = computeScreencastEncodeSize({
+    cssWidth: 1280,
+    cssHeight: 720,
+    deviceScaleFactor: 3,
+    displayWidth: 4096,
+    displayHeight: 2160,
+    maxEncodeScale: 2,
+  });
+  assert.strictEqual(dprCapped.scale, 2);
+  assert.strictEqual(dprCapped.width, 2560);
+
+  const xvfbCap = computeScreencastEncodeSize({
+    cssWidth: 1920,
+    cssHeight: 1080,
+    deviceScaleFactor: 2,
+    displayWidth: 2560,
+    displayHeight: 1440,
+    maxEncodeScale: 2,
+  });
+  assert.ok(xvfbCap.scale < 2);
+  assert.strictEqual(xvfbCap.width, 2560);
+  assert.strictEqual(xvfbCap.height, 1440);
+  console.log('[unit] screencast encode size ok');
+}
+
+async function testScreencastAcceptsCssOrEncodeJpeg(): Promise<void> {
+  const { Screencast } = await import('./browser/patchright/Screencast');
+  const { readJpegDimensions } = await import('./browser/patchright/jpeg-geometry');
+
+  // Minimal 2×2 JPEG (SOF0) — write a tiny buffer with known dims via canvas-less fixture.
+  // Build SOF0 manually: FF D8 … FF C0 … height/width …
+  function jpegWithSize(width: number, height: number): Buffer {
+    // Minimal valid-ish JPEG for readJpegDimensions (SOF0 only path).
+    const sof = Buffer.alloc(19);
+    sof[0] = 0xff;
+    sof[1] = 0xc0;
+    sof.writeUInt16BE(17, 2); // segment length
+    sof[4] = 8; // precision
+    sof.writeUInt16BE(height, 5);
+    sof.writeUInt16BE(width, 7);
+    return Buffer.concat([Buffer.from([0xff, 0xd8]), sof, Buffer.from([0xff, 0xd9])]);
+  }
+
+  const cdp = {
+    on: () => {},
+    off: () => {},
+    send: async () => ({}),
+  } as unknown as CDPSession;
+  const sc = await Screencast.start(cdp, 2560, 1440, () => {}, 1280, 720);
+  assert.deepStrictEqual(readJpegDimensions(jpegWithSize(1280, 720)), { width: 1280, height: 720 });
+  assert.strictEqual(sc._jpegMatchesExpected(jpegWithSize(1280, 720)), true, 'CSS-sized frames must pass');
+  assert.strictEqual(sc._jpegMatchesExpected(jpegWithSize(2560, 1440)), true, 'encode-sized frames must pass');
+  assert.strictEqual(sc._jpegMatchesExpected(jpegWithSize(800, 600)), false, 'stale size must drop');
+  await sc.stop();
+  console.log('[unit] screencast accepts css or encode jpeg ok');
 }
 
 function testTouchEmulationParams(): void {
@@ -674,12 +776,18 @@ function testTouchEmulationParams(): void {
     touchEmulationParams({ touch: false, mobile: false, maxTouchPoints: 0 }),
     { enabled: false },
   );
+  // Hybrid desktop (Galaxy Book / Surface): touch capable but mouse-primary —
+  // must NOT enable CDP touch emulation or :hover dies.
   assert.deepStrictEqual(
     touchEmulationParams({ touch: true, mobile: false, maxTouchPoints: 5 }),
+    { enabled: false },
+  );
+  assert.deepStrictEqual(
+    touchEmulationParams({ touch: true, mobile: true, maxTouchPoints: 5 }),
     { enabled: true, maxTouchPoints: 5 },
   );
   assert.throws(
-    () => touchEmulationParams({ touch: true, mobile: false, maxTouchPoints: 0 }),
+    () => touchEmulationParams({ touch: true, mobile: true, maxTouchPoints: 0 }),
     /between 1 and 16/,
   );
   // Hybrid desktop: touch capability must NOT suppress mouse input.
@@ -1385,6 +1493,8 @@ async function main(): Promise<void> {
   await testWorkerTargetStealthAutoAttach();
   await testScreencastRestartThrowsAfterStop();
   testLaunchEnvironmentIsRequired();
+  testScreencastEncodeSize();
+  await testScreencastAcceptsCssOrEncodeJpeg();
   testTouchEmulationParams();
   testStopDoesNotEnqueueCrash();
   testUnexpectedContextCloseEnqueuesCrash();

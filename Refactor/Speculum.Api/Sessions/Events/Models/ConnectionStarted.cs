@@ -6,8 +6,8 @@ namespace Speculum.Api.Sessions.Events.Models;
 [CanonicalFact(
     "Sessions.ConnectionStarted",
     schemaVersion: 1,
-    Name = "Connection started",
-    Description = "Browser client connection was established.",
+    Name = "Browser connection started",
+    Description = "Api↔sidecar browser connection was established (not the SignalR hub).",
     Owner = "sessions",
     PublishPolicy = PublishPolicy.Guaranteed)]
 public sealed class ConnectionStarted

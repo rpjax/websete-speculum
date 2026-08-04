@@ -82,6 +82,15 @@ public sealed class SessionsConfigurationValidator : IValidateOptions<SessionsCo
                 "Sessions.DeviceEmulationPolicy is incomplete or has invalid bounds.");
         }
 
+        var screencast = options.ScreencastPolicy;
+        if (!double.IsFinite(screencast.MaxEncodeScale)
+            || screencast.MaxEncodeScale < 1
+            || screencast.MaxEncodeScale > 2)
+        {
+            return ValidateOptionsResult.Fail(
+                "Sessions.ScreencastPolicy.MaxEncodeScale must be a finite number in [1, 2].");
+        }
+
         return ValidateOptionsResult.Success;
     }
 

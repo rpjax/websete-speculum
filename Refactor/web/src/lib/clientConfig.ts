@@ -25,6 +25,8 @@ export interface ClientConfig {
     detachedSessionTimeoutSeconds: number
     /** Data-plane carrier — Apply Sessions + refresh to pick up. */
     dataStreamTransport: 'webTransport' | 'webSocket'
+    /** Sessions.ScreencastPolicy.MaxEncodeScale — CSS→JPEG scale cap (1..2). */
+    screencastMaxEncodeScale: number
   }
   resourceManagement: {
     maxConcurrentSessions: number

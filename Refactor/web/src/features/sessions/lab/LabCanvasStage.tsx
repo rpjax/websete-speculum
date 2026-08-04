@@ -1,4 +1,3 @@
-import { Button } from '@/components/ui/button'
 import {
   SessionViewport,
   type SessionViewportProps,
@@ -18,8 +17,9 @@ type LabCanvasStageProps = Pick<
   | 'touchPrimary'
   | 'editingActive'
   | 'keyboardNonce'
+  | 'deviceScaleFactor'
+  | 'maxEncodeScale'
 > & {
-  onOpenKeyboard: () => void
   /** Extra class on the stage shell (flex sizing from parent). */
   className?: string
 }
@@ -40,7 +40,8 @@ export function LabCanvasStage({
   touchPrimary,
   editingActive,
   keyboardNonce,
-  onOpenKeyboard,
+  deviceScaleFactor,
+  maxEncodeScale,
   className,
 }: LabCanvasStageProps) {
   return (
@@ -63,6 +64,8 @@ export function LabCanvasStage({
         touchPrimary={touchPrimary}
         editingActive={editingActive}
         keyboardNonce={keyboardNonce}
+        deviceScaleFactor={deviceScaleFactor}
+        maxEncodeScale={maxEncodeScale}
       />
       {!live && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
@@ -71,16 +74,6 @@ export function LabCanvasStage({
             touch — inputs share the production data plane.
           </p>
         </div>
-      )}
-      {live && touchPrimary && (
-        <Button
-          type="button"
-          size="sm"
-          className="absolute bottom-3 right-3 shadow"
-          onClick={onOpenKeyboard}
-        >
-          Keyboard
-        </Button>
       )}
     </div>
   )

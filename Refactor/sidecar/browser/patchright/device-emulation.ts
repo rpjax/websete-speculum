@@ -36,7 +36,7 @@ export const DEFAULT_DESKTOP_DEVICE: BrowserDeviceProfile = {
 /**
  * Drop hover-mouse input only for phone-like profiles.
  * Must match web `isTouchPrimaryProfile` — never use `touch` alone (hybrid
- * desktops report maxTouchPoints>0 and would silently lose mouse clicks).
+ * desktops report maxTouchPoints>0 and would silently lose mouse clicks/hover).
  */
 export function isInputTouchPrimary(
   device?: Pick<BrowserDeviceProfile, 'mobile'> | null,
@@ -45,14 +45,22 @@ export function isInputTouchPrimary(
 }
 
 /**
- * Chrome CDP rejects `maxTouchPoints: 0` even when touch is disabled.
- * Omit the field when disabled; require 1–16 when enabled.
+ * CDP `Emulation.setTouchEmulationEnabled` parameters.
+ *
+ * Capability (`device.touch` / maxTouchPoints) ≠ touch-primary emulation:
+ * - Phone/tablet (`mobile`): enable emulation so Chrome behaves as a touch device.
+ * - Hybrid PC (touchscreen laptop, `touch: true` but `mobile: false`): keep
+ *   emulation **off** so `:hover` / mouseenter work; real finger contacts still
+ *   arrive via `Input.dispatchTouchEvent` when the client sends touch pointers.
+ *
+ * Chrome rejects `maxTouchPoints: 0` when enabled — omit the field when off;
+ * require 1–16 when on.
  */
 export function touchEmulationParams(
   device: Pick<BrowserDeviceProfile, 'touch' | 'mobile' | 'maxTouchPoints'>,
 ): { enabled: boolean; maxTouchPoints?: number } {
-  const enabled = !!(device.touch || device.mobile);
-  if (!enabled) {
+  // Align with isInputTouchPrimary — only phone/tablet sessions force touch mode.
+  if (!device.mobile) {
     return { enabled: false };
   }
 

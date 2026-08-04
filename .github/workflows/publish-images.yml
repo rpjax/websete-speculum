@@ -1,12 +1,28 @@
 name: Publish images
 
+# Bot path: Release Please dispatches this after creating a GitHub Release
+# (GITHUB_TOKEN release events do not chain into other workflows).
+# Human path: publishing a Release in the UI / `gh release create` still works.
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to publish (e.g. v0.2.1)
+        required: true
+        type: string
+
+concurrency:
+  group: publish-images-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
   actions: read
+
+env:
+  RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
 
 jobs:
   wait-ci:
@@ -17,9 +33,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
-          TAG: ${{ github.event.release.tag_name }}
+          TAG: ${{ env.RELEASE_TAG }}
         run: |
           set -euo pipefail
+          if [ -z "${TAG}" ]; then
+            echo "RELEASE_TAG is empty" >&2
+            exit 1
+          fi
           REF_JSON=$(gh api "repos/${GH_REPO}/git/ref/tags/${TAG}")
           OBJ_TYPE=$(echo "$REF_JSON" | jq -r .object.type)
           OBJ_SHA=$(echo "$REF_JSON" | jq -r .object.sha)
@@ -74,7 +94,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
-          TAG: ${{ github.event.release.tag_name }}
+          TAG: ${{ env.RELEASE_TAG }}
         run: |
           set -euo pipefail
           VERSION="${TAG#v}"

@@ -148,6 +148,7 @@ public sealed class SessionHub : Hub<ISessionHubClient>
             ViewportMinHeight = viewport.Minimum.Height,
             ViewportMaxWidth = viewport.Maximum.Width,
             ViewportMaxHeight = viewport.Maximum.Height,
+            MirrorMode = result.Value.MirrorMode,
         };
     }
 

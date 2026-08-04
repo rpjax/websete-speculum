@@ -53,7 +53,12 @@ export function toLaunchOptions(req: any): BrowserLaunchOptions {
     screencastMaxEncodeScale: resolveScreencastMaxEncodeScale(
       req.screencastMaxEncodeScale ?? req.screencast_max_encode_scale,
     ),
+    mirrorMode: resolveMirrorMode(req.mirrorMode ?? req.mirror_mode),
   };
+}
+
+function resolveMirrorMode(raw: unknown): 'videoStreaming' | 'domProjection' {
+  return raw === 'domProjection' ? 'domProjection' : 'videoStreaming';
 }
 
 function resolveScreencastMaxEncodeScale(raw: unknown): number {

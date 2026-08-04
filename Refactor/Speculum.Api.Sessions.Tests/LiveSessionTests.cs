@@ -11,6 +11,7 @@ using Speculum.Api.Configurations.Models.Sessions;
 using Speculum.Api.Profiles.Aggregates;
 using Speculum.Api.Sessions.Aggregates;
 using Speculum.Api.Sessions.Events.Services.Contracts;
+using Speculum.Api.Sessions.Mirror.DomProjection;
 using Speculum.Api.Sessions.Models;
 using Speculum.Api.Sessions.Requests;
 using Speculum.Api.Sessions.Services;
@@ -138,6 +139,100 @@ public sealed class LiveSessionTests
         var second = live.OpenFrameStream().Value;
         await connection.Frames.Writer.WriteAsync(new Frame { Sequence = 99 });
         Assert.Equal(99, (await second.GetFramesChannel().Value.ReadAsync()).Sequence);
+    }
+
+    [Fact]
+    public void MirrorMode_VideoStreaming_GatesDomContracts()
+    {
+        var sessionId = Guid.NewGuid();
+        var connection = new LiveFakeConnection(sessionId);
+        var live = CreateService().Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
+
+        Assert.Equal(MirrorMode.VideoStreaming, live.MirrorMode);
+        Assert.True(live.OpenFrameStream().IsSuccess);
+        Assert.True(live.OpenDomDiffStream().IsFailure);
+        Assert.Contains(
+            LiveSession.MirrorModeDomProjectionRequiredMessage,
+            live.OpenDomDiffStream().Errors.Select(e => e.Message));
+        Assert.True(live.AdmitVideoStreamingInput(new VideoStreamingInput
+        {
+            Type = "mousemove",
+            Payload = """{"type":"mousemove","x":1,"y":2}""",
+        }).IsSuccess);
+        Assert.True(live.AdmitDomProjectionInput(new DomProjectionInput
+        {
+            Type = "click",
+            Payload = "{}",
+        }).IsFailure);
+        Assert.Contains(
+            LiveSession.MirrorModeDomProjectionRequiredMessage,
+            live.AdmitDomProjectionInput(new DomProjectionInput
+            {
+                Type = "click",
+                Payload = "{}",
+            }).Errors.Select(e => e.Message));
+    }
+
+    [Fact]
+    public async Task MirrorMode_DomProjection_GatesVideoAndOpensDomStream()
+    {
+        var baseline = SessionsTestHarness.Sessions();
+        var sessions = new SessionsConfiguration
+        {
+            DetachedSessionTimeout = baseline.DetachedSessionTimeout,
+            IsJsBridgeEnabled = baseline.IsJsBridgeEnabled,
+            DataStreamTransport = baseline.DataStreamTransport,
+            MirrorMode = MirrorMode.DomProjection,
+            ViewportPolicy = baseline.ViewportPolicy,
+            ClientEnvironmentPolicy = baseline.ClientEnvironmentPolicy,
+            DeviceEmulationPolicy = baseline.DeviceEmulationPolicy,
+            ScreencastPolicy = baseline.ScreencastPolicy,
+            InputMultiplexingPolicy = baseline.InputMultiplexingPolicy,
+            OutputMultiplexingPolicy = baseline.OutputMultiplexingPolicy,
+        };
+        var sessionId = Guid.NewGuid();
+        var connection = new LiveFakeConnection(sessionId);
+        var live = CreateService(configuration: SessionsTestHarness.Configuration(sessions))
+            .Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true)
+            .Value;
+
+        Assert.Equal(MirrorMode.DomProjection, live.MirrorMode);
+        Assert.True(live.OpenFrameStream().IsFailure);
+        Assert.Contains(
+            LiveSession.MirrorModeVideoStreamingRequiredMessage,
+            live.OpenFrameStream().Errors.Select(e => e.Message));
+        Assert.True(live.AdmitVideoStreamingInput(new VideoStreamingInput
+        {
+            Type = "mousemove",
+            Payload = """{"type":"mousemove","x":1,"y":2}""",
+        }).IsFailure);
+
+        var openDom = live.OpenDomDiffStream();
+        Assert.True(openDom.IsSuccess);
+
+        var admitDom = live.AdmitDomProjectionInput(new DomProjectionInput
+        {
+            Type = "click",
+            TargetId = 1,
+            Payload = "{}",
+        });
+        Assert.True(admitDom.IsSuccess);
+
+        connection.DomAsset = new DomAsset { Body = [1, 2, 3], ContentType = "text/css" };
+        var assetOk = await live.GetDomAssetAsync("deadbeef");
+        Assert.True(assetOk.IsSuccess);
+        Assert.Equal("text/css", assetOk.Value.ContentType);
+        Assert.Equal(new byte[] { 1, 2, 3 }, assetOk.Value.Body);
+
+        var videoSessionId = Guid.NewGuid();
+        var videoCreated = CreateService()
+            .Create(videoSessionId, Guid.NewGuid(), new LiveFakeConnection(videoSessionId), "speculum.test", true);
+        Assert.True(videoCreated.IsSuccess);
+        var videoAsset = await videoCreated.Value.GetDomAssetAsync("abc");
+        Assert.True(videoAsset.IsFailure);
+        Assert.Contains(
+            LiveSession.MirrorModeDomProjectionRequiredMessage,
+            videoAsset.Errors.Select(e => e.Message));
     }
 
     [Fact]
@@ -601,10 +696,10 @@ public sealed class LiveSessionTests
         var service = CreateService(new RecordingUrlResolver("https://x.test/"), configuration);
         var live = service.Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
 
-        var inputA = Channel.CreateUnbounded<UserInput>();
-        var inputB = Channel.CreateUnbounded<UserInput>();
-        Assert.True(live.ConsumeUserInputAsync(inputA.Reader).IsSuccess);
-        Assert.True(live.ConsumeUserInputAsync(inputB.Reader).IsSuccess);
+        var inputA = Channel.CreateUnbounded<VideoStreamingInput>();
+        var inputB = Channel.CreateUnbounded<VideoStreamingInput>();
+        Assert.True(live.ConsumeVideoStreamingInputAsync(inputA.Reader).IsSuccess);
+        Assert.True(live.ConsumeVideoStreamingInputAsync(inputB.Reader).IsSuccess);
     }
 
     [Fact]
@@ -710,10 +805,10 @@ public sealed class LiveSessionTests
         var service = CreateService(new RecordingUrlResolver("https://x.test/"), configuration);
         var live = service.Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
 
-        var inputA = Channel.CreateUnbounded<UserInput>();
-        var inputB = Channel.CreateUnbounded<UserInput>();
-        Assert.True(live.ConsumeUserInputAsync(inputA.Reader).IsSuccess);
-        var second = live.ConsumeUserInputAsync(inputB.Reader);
+        var inputA = Channel.CreateUnbounded<VideoStreamingInput>();
+        var inputB = Channel.CreateUnbounded<VideoStreamingInput>();
+        Assert.True(live.ConsumeVideoStreamingInputAsync(inputA.Reader).IsSuccess);
+        var second = live.ConsumeVideoStreamingInputAsync(inputB.Reader);
         Assert.True(second.IsFailure);
     }
 
@@ -735,14 +830,14 @@ public sealed class LiveSessionTests
         var service = CreateService(new RecordingUrlResolver("https://x.test/"), configuration);
         var live = service.Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
 
-        var inputA = Channel.CreateUnbounded<UserInput>();
-        var first = live.ConsumeUserInputAsync(inputA.Reader);
+        var inputA = Channel.CreateUnbounded<VideoStreamingInput>();
+        var first = live.ConsumeVideoStreamingInputAsync(inputA.Reader);
         Assert.True(first.IsSuccess);
         inputA.Writer.TryComplete();
         await first.Value;
 
-        var inputB = Channel.CreateUnbounded<UserInput>();
-        Assert.True(live.ConsumeUserInputAsync(inputB.Reader).IsSuccess);
+        var inputB = Channel.CreateUnbounded<VideoStreamingInput>();
+        Assert.True(live.ConsumeVideoStreamingInputAsync(inputB.Reader).IsSuccess);
     }
 
     [Fact]
@@ -1183,18 +1278,22 @@ public sealed class LiveSessionTests
         {
             SessionId = sessionId;
             Frames = Channel.CreateUnbounded<Frame>();
+            DomDiffs = Channel.CreateUnbounded<DomDiff>();
             Console = Channel.CreateUnbounded<ConsoleOutput>();
             Notifications = Channel.CreateUnbounded<SessionNotification>();
-            UserInputReceived = Channel.CreateUnbounded<UserInput>();
+            VideoStreamingInputReceived = Channel.CreateUnbounded<VideoStreamingInput>();
+            DomProjectionInputReceived = Channel.CreateUnbounded<DomProjectionInput>();
             ConsoleInputReceived = Channel.CreateUnbounded<ConsoleInput>();
         }
 
         public Guid SessionId { get; }
         public bool IsOpen { get; set; } = true;
         public Channel<Frame> Frames { get; }
+        public Channel<DomDiff> DomDiffs { get; }
         public Channel<ConsoleOutput> Console { get; }
         public Channel<SessionNotification> Notifications { get; }
-        public Channel<UserInput> UserInputReceived { get; }
+        public Channel<VideoStreamingInput> VideoStreamingInputReceived { get; }
+        public Channel<DomProjectionInput> DomProjectionInputReceived { get; }
         public Channel<ConsoleInput> ConsoleInputReceived { get; }
         public string? LastNavigatedUrl { get; private set; }
         public Func<CancellationToken, Task<PermissionDecision>>? CameraHandler { get; private set; }
@@ -1272,6 +1371,9 @@ public sealed class LiveSessionTests
         public IResult<ChannelReader<Frame>> GetFrameReader()
             => Result<ChannelReader<Frame>>.Success(Frames.Reader);
 
+        public IResult<ChannelReader<DomDiff>> GetDomDiffReader()
+            => Result<ChannelReader<DomDiff>>.Success(DomDiffs.Reader);
+
         public IResult<ChannelReader<ConsoleOutput>> GetConsoleOutputReader()
             => Result<ChannelReader<ConsoleOutput>>.Success(Console.Reader);
 
@@ -1294,8 +1396,18 @@ public sealed class LiveSessionTests
         public void SetMicrophonePermissionHandler(Func<CancellationToken, Task<PermissionDecision>> handler)
             => MicrophoneHandler = handler;
 
-        public IResult<Task> ConsumeUserInputAsync(ChannelReader<UserInput> channelReader)
-            => Result<Task>.Success(DrainAsync(channelReader, UserInputReceived.Writer));
+        public IResult<Task> ConsumeVideoStreamingInputAsync(ChannelReader<VideoStreamingInput> channelReader)
+            => Result<Task>.Success(DrainAsync(channelReader, VideoStreamingInputReceived.Writer));
+
+        public IResult<Task> ConsumeDomProjectionInputAsync(ChannelReader<DomProjectionInput> channelReader)
+            => Result<Task>.Success(DrainAsync(channelReader, DomProjectionInputReceived.Writer));
+
+        public DomAsset? DomAsset { get; set; }
+
+        public Task<IResult<DomAsset>> GetDomAssetAsync(string hash, CancellationToken ct = default)
+            => DomAsset is null
+                ? Task.FromResult<IResult<DomAsset>>(Result<DomAsset>.Failure("not implemented"))
+                : Task.FromResult<IResult<DomAsset>>(Result<DomAsset>.Success(DomAsset));
 
         public IResult<Task> ConsumeConsoleInputAsync(ChannelReader<ConsoleInput> channelReader)
             => Result<Task>.Success(DrainAsync(channelReader, ConsoleInputReceived.Writer));

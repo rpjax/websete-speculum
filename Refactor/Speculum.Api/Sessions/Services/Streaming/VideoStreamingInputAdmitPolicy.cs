@@ -4,12 +4,12 @@ using Speculum.Api.Sessions.Models;
 namespace Speculum.Api.Sessions.Services.Streaming;
 
 /// <summary>
-/// Admission policy for inbound user input: high-frequency samples are droppable;
+/// Admission policy for inbound video-streaming input: high-frequency samples are droppable;
 /// gesture edges (releases) are preserved when the queue is under pressure.
 /// </summary>
-internal static class UserInputAdmitPolicy
+internal static class VideoStreamingInputAdmitPolicy
 {
-    public static bool IsHighFrequency(UserInput input)
+    public static bool IsHighFrequency(VideoStreamingInput input)
     {
         if (string.Equals(input.Type, "mousemove", StringComparison.Ordinal))
         {
@@ -24,7 +24,7 @@ internal static class UserInputAdmitPolicy
         return string.Equals(TryTouchPhase(input), "move", StringComparison.Ordinal);
     }
 
-    public static bool IsReleaseEdge(UserInput input)
+    public static bool IsReleaseEdge(VideoStreamingInput input)
     {
         if (string.Equals(input.Type, "mouseup", StringComparison.Ordinal)
             || string.Equals(input.Type, "keyup", StringComparison.Ordinal))
@@ -42,7 +42,7 @@ internal static class UserInputAdmitPolicy
             || string.Equals(phase, "cancel", StringComparison.Ordinal);
     }
 
-    public static string? TryTouchPhase(UserInput input)
+    public static string? TryTouchPhase(VideoStreamingInput input)
     {
         if (!string.Equals(input.Type, "touch", StringComparison.Ordinal)
             || string.IsNullOrWhiteSpace(input.Payload))

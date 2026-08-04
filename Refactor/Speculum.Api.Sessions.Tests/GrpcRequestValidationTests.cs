@@ -10,7 +10,7 @@ public sealed class GrpcRequestValidationTests
     {
         var result = GrpcSessionMappers.TryParseInputEvent(
             Guid.NewGuid(),
-            new UserInput
+            new VideoStreamingInput
             {
                 Type = "mousemove",
                 Payload = """{"type":"mousemove","x":"invalid"}""",
@@ -223,6 +223,7 @@ public sealed class GrpcRequestValidationTests
         Assert.Equal(4096, request.DisplayWidth);
         Assert.Equal(2160, request.DisplayHeight);
         Assert.Equal(2, request.ScreencastMaxEncodeScale);
+        Assert.Equal("videoStreaming", request.MirrorMode);
 
         var capped = GrpcSessionMappers.ToLaunchRequest(
             Guid.NewGuid(),
@@ -232,8 +233,19 @@ public sealed class GrpcRequestValidationTests
             SessionsTestHarness.Sessions().ViewportPolicy,
             screencastMaxEncodeScale: 1);
         Assert.Equal(1, capped.ScreencastMaxEncodeScale);
+        Assert.Equal("videoStreaming", capped.MirrorMode);
         Assert.Equal(1, GrpcSessionMappers.ClampScreencastMaxEncodeScale(0.5));
         Assert.Equal(2, GrpcSessionMappers.ClampScreencastMaxEncodeScale(3));
+
+        var domLaunch = GrpcSessionMappers.ToLaunchRequest(
+            Guid.NewGuid(),
+            800,
+            600,
+            configuration,
+            SessionsTestHarness.Sessions().ViewportPolicy,
+            screencastMaxEncodeScale: 2,
+            mirrorMode: Configurations.Models.Sessions.MirrorMode.DomProjection);
+        Assert.Equal("domProjection", domLaunch.MirrorMode);
     }
 
     [Fact]
@@ -247,6 +259,19 @@ public sealed class GrpcRequestValidationTests
         Assert.True(validator.Validate(null, SessionsWithEncodeScale(3)).Failed);
     }
 
+    [Fact]
+    public void SessionsConfigurationValidator_MirrorMode_DefinedValues()
+    {
+        var validator = new Configurations.Models.Sessions.SessionsConfigurationValidator();
+
+        Assert.False(validator.Validate(null, SessionsWithMirrorMode(
+            Configurations.Models.Sessions.MirrorMode.VideoStreaming)).Failed);
+        Assert.False(validator.Validate(null, SessionsWithMirrorMode(
+            Configurations.Models.Sessions.MirrorMode.DomProjection)).Failed);
+        Assert.True(validator.Validate(null, SessionsWithMirrorMode(
+            (Configurations.Models.Sessions.MirrorMode)99)).Failed);
+    }
+
     private static Configurations.Models.Sessions.SessionsConfiguration SessionsWithEncodeScale(
         double maxEncodeScale)
     {
@@ -256,6 +281,7 @@ public sealed class GrpcRequestValidationTests
             DetachedSessionTimeout = baseline.DetachedSessionTimeout,
             IsJsBridgeEnabled = baseline.IsJsBridgeEnabled,
             DataStreamTransport = baseline.DataStreamTransport,
+            MirrorMode = baseline.MirrorMode,
             ViewportPolicy = baseline.ViewportPolicy,
             ClientEnvironmentPolicy = baseline.ClientEnvironmentPolicy,
             DeviceEmulationPolicy = baseline.DeviceEmulationPolicy,
@@ -265,6 +291,25 @@ public sealed class GrpcRequestValidationTests
             {
                 MaxEncodeScale = maxEncodeScale,
             },
+        };
+    }
+
+    private static Configurations.Models.Sessions.SessionsConfiguration SessionsWithMirrorMode(
+        Configurations.Models.Sessions.MirrorMode mirrorMode)
+    {
+        var baseline = SessionsTestHarness.Sessions();
+        return new Configurations.Models.Sessions.SessionsConfiguration
+        {
+            DetachedSessionTimeout = baseline.DetachedSessionTimeout,
+            IsJsBridgeEnabled = baseline.IsJsBridgeEnabled,
+            DataStreamTransport = baseline.DataStreamTransport,
+            MirrorMode = mirrorMode,
+            ViewportPolicy = baseline.ViewportPolicy,
+            ClientEnvironmentPolicy = baseline.ClientEnvironmentPolicy,
+            DeviceEmulationPolicy = baseline.DeviceEmulationPolicy,
+            InputMultiplexingPolicy = baseline.InputMultiplexingPolicy,
+            OutputMultiplexingPolicy = baseline.OutputMultiplexingPolicy,
+            ScreencastPolicy = baseline.ScreencastPolicy,
         };
     }
 
@@ -319,7 +364,7 @@ public sealed class GrpcRequestValidationTests
     }
 
     [Fact]
-    public void UserInput_MessagePack_RoundTripsCamelCaseMapFromJsClient()
+    public void VideoStreamingInput_MessagePack_RoundTripsCamelCaseMapFromJsClient()
     {
         // Mirrors @msgpack/msgpack encode({ type, payload }) on the web data plane.
         var options = Speculum.Api.Presentation.SessionHubMessagePack.Options;
@@ -329,7 +374,7 @@ public sealed class GrpcRequestValidationTests
             ["payload"] = """{"type":"mousedown","x":640,"y":360,"button":0}""",
         };
         var bytes = MessagePack.MessagePackSerializer.Serialize(map, options);
-        var decoded = MessagePack.MessagePackSerializer.Deserialize<UserInput>(bytes, options);
+        var decoded = MessagePack.MessagePackSerializer.Deserialize<VideoStreamingInput>(bytes, options);
 
         Assert.Equal("mousedown", decoded.Type);
         Assert.Contains("640", decoded.Payload);

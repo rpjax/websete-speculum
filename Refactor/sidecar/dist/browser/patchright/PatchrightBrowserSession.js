@@ -14,10 +14,12 @@ const MediaIngress_1 = require("./MediaIngress");
 const Navigation_1 = require("./Navigation");
 const PageState_1 = require("./PageState");
 const Probe_1 = require("./Probe");
-const Screencast_1 = require("./Screencast");
 const screencast_encode_1 = require("./screencast-encode");
 const Viewport_1 = require("./Viewport");
 const viewport_bounds_1 = require("./viewport-bounds");
+const DomProjection_1 = require("./mirror/dom/DomProjection");
+const DomElementInput_1 = require("./mirror/dom/DomElementInput");
+const VideoMirror_1 = require("./mirror/video/VideoMirror");
 /**
  * Production BrowserSession: composes Patchright capabilities.
  * No transport / WS / wire codecs.
@@ -36,6 +38,10 @@ class PatchrightBrowserSession {
     chrome = null;
     viewport = null;
     screencast = null;
+    videoMirror = null;
+    domProjection = null;
+    domElementInput = null;
+    detachDomAssets = null;
     input = null;
     navigation;
     pageState = new PageState_1.PageState();
@@ -50,6 +56,8 @@ class PatchrightBrowserSession {
     viewportPolicy = null;
     /** Sessions.ScreencastPolicy.MaxEncodeScale from Launch/Resize. */
     screencastMaxEncodeScale = 2;
+    /** Sessions.MirrorMode from Launch — selects Video vs Dom mirror stack. */
+    mirrorMode = 'videoStreaming';
     lastEncodeWidth = 0;
     lastEncodeHeight = 0;
     /** When true, context 'close' is an intentional teardown — do not emit onCrash. */
@@ -105,6 +113,7 @@ class PatchrightBrowserSession {
         this.launchOptions = options;
         this.viewportPolicy = options.viewportPolicy;
         this.screencastMaxEncodeScale = options.screencastMaxEncodeScale;
+        this.mirrorMode = options.mirrorMode;
         const validated = (0, viewport_bounds_1.validateLaunchViewport)(options.width, options.height, options.viewportPolicy);
         if (!validated.ok) {
             throw Object.assign(new Error(validated.message), {
@@ -118,9 +127,11 @@ class PatchrightBrowserSession {
         const maxW = options.viewportPolicy.maxWidth;
         const maxH = options.viewportPolicy.maxHeight;
         let osInput = null;
+        const isDom = options.mirrorMode === 'domProjection';
         try {
             const inputMode = (process.env['SPECULUM_INPUT_BACKEND'] ?? 'os').trim().toLowerCase();
-            if (inputMode === 'os') {
+            // Dom Projection never opens uinput — CDP element input only.
+            if (!isDom && inputMode === 'os') {
                 // uinput nodes must exist before Xorg starts (no reliable hotplug without logind).
                 osInput = await OsInputBackend_1.OsInputBackend.open({
                     sessionId: this.sessionId,
@@ -183,23 +194,36 @@ class PatchrightBrowserSession {
             }
             this.viewport.confirm(width, height, proven.device);
             const encode = this.resolveEncodeSize(width, height, proven.device);
-            const inputBackend = await this.createInputBackend({
-                maxW,
-                maxH,
-                width,
-                height,
-                preopenedOs: osInput,
-            });
-            this.inputBackend = inputBackend instanceof OsInputBackend_1.OsInputBackend ? 'os' : 'patchright';
-            this.input = new Input_1.InputController(this.chrome.page, inputBackend);
+            if (isDom) {
+                const patchrightBackend = new PatchrightInputBackend_1.PatchrightInputBackend(this.chrome.page, this.chrome.cdp);
+                this.inputBackend = 'patchright';
+                this.input = new Input_1.InputController(this.chrome.page, patchrightBackend);
+                this.domProjection = await DomProjection_1.DomProjection.start(this.chrome.page, {
+                    onDomDiff: (diff) => this.events.onDomDiff?.(diff),
+                });
+                this.domElementInput = new DomElementInput_1.DomElementInput(this.chrome.page, this.domProjection);
+                // Asset Fetch intercept deferred — Navigation.setupFetchGuard owns Fetch.enable.
+            }
+            else {
+                const inputBackend = await this.createInputBackend({
+                    maxW,
+                    maxH,
+                    width,
+                    height,
+                    preopenedOs: osInput,
+                });
+                this.inputBackend = inputBackend instanceof OsInputBackend_1.OsInputBackend ? 'os' : 'patchright';
+                this.input = new Input_1.InputController(this.chrome.page, inputBackend);
+                this.videoMirror = await VideoMirror_1.VideoMirror.start(this.chrome.cdp, encode.width, encode.height, (jpeg) => this.events.onVideoFrame(jpeg), width, height);
+                this.screencast = this.videoMirror.underlying;
+                this.lastEncodeWidth = encode.width;
+                this.lastEncodeHeight = encode.height;
+            }
             this.input.setTouchPrimary(touchPrimary(device));
             this.chromeWidth = width;
             this.chromeHeight = height;
             this.evaluateCap.attachConsole(this.chrome.page);
             this.editableFocus.start(this.chrome.page);
-            this.screencast = await Screencast_1.Screencast.start(this.chrome.cdp, encode.width, encode.height, (jpeg) => this.events.onVideoFrame(jpeg), width, height);
-            this.lastEncodeWidth = encode.width;
-            this.lastEncodeHeight = encode.height;
             if (this.pendingState) {
                 await this.pageState.restore(this.chrome.cdp, this.chrome.page, this.pendingState);
                 this.pendingState = null;
@@ -450,7 +474,8 @@ class PatchrightBrowserSession {
         const screencastNeedsRestart = sizeChanged || encodeChanged;
         try {
             // Pause encode before metrics so old-size frames are not filtered into a black gap.
-            if (screencastNeedsRestart) {
+            // Dom Projection has no screencast — skip restart.
+            if (screencastNeedsRestart && this.mirrorMode === 'videoStreaming') {
                 if (!this.screencast) {
                     throw new Error('screencast missing during resize');
                 }
@@ -461,7 +486,7 @@ class PatchrightBrowserSession {
                 phase: 'resize_apply',
                 context: this.chrome.context,
             });
-            if (screencastNeedsRestart) {
+            if (screencastNeedsRestart && this.screencast) {
                 await this.screencast.completeRestart(nextEncode.width, nextEncode.height, (jpeg) => this.events.onVideoFrame(jpeg), this.chrome.cdp, nextW, nextH);
                 this.lastEncodeWidth = nextEncode.width;
                 this.lastEncodeHeight = nextEncode.height;
@@ -620,6 +645,26 @@ class PatchrightBrowserSession {
             }
             this.screencast = null;
         }
+        this.videoMirror = null;
+        if (this.detachDomAssets) {
+            try {
+                await this.detachDomAssets();
+            }
+            catch {
+                /* */
+            }
+            this.detachDomAssets = null;
+        }
+        if (this.domProjection) {
+            try {
+                await this.domProjection.stop();
+            }
+            catch {
+                /* */
+            }
+            this.domProjection = null;
+        }
+        this.domElementInput = null;
         if (this.chrome) {
             try {
                 await (0, ChromeRuntime_1.closeChrome)(this.chrome, {
@@ -671,6 +716,24 @@ class PatchrightBrowserSession {
     async pushInput(input) {
         this.ensureLive();
         this.input.enqueue(input);
+    }
+    async pushDomInput(input) {
+        this.ensureLive();
+        if (this.mirrorMode !== 'domProjection' || !this.domElementInput) {
+            throw Object.assign(new Error('DomProjection input requires MirrorMode.DomProjection'), {
+                code: 'FAILED_PRECONDITION',
+                errorCode: 'mirror_mode_mismatch',
+                phase: 'input',
+            });
+        }
+        await this.domElementInput.dispatch(input);
+    }
+    async getDomAsset(hash) {
+        this.ensureLive();
+        const hit = this.domProjection?.getAsset(hash);
+        if (!hit)
+            return null;
+        return { body: hit.body, contentType: hit.contentType };
     }
     async pushCameraFrame(frame) {
         await this.media.pushCameraFrame(frame);

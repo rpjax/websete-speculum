@@ -170,6 +170,7 @@ export class SessionClient extends Emitter<SessionClientEventMap> {
         viewportMinHeight: started.viewportMinHeight,
         viewportMaxWidth: started.viewportMaxWidth,
         viewportMaxHeight: started.viewportMaxHeight,
+        mirrorMode: started.mirrorMode,
         baseUrl: this.options.transportBaseUrl ?? this.options.baseUrl,
         certificateHashBaseUrl: this.options.baseUrl,
         transportPath,

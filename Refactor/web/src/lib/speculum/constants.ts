@@ -1,13 +1,17 @@
 import { w7sPath } from '@/lib/w7s'
 
-/** Wire pipe kinds — must match SessionWebTransportEndpoint.SessionPipeKind. */
+/** Wire pipe kinds — must match SessionDataStreamsHost.SessionPipeKind. */
 export const PipeKind = {
   Frame: 1,
   ConsoleOutput: 2,
   Notification: 3,
-  UserInput: 4,
+  VideoStreamingInput: 4,
   ConsoleInput: 5,
   Status: 6,
+  /** Dom Projection outbound diffs. */
+  DomDiff: 7,
+  /** Dom Projection element input. */
+  DomProjectionInput: 8,
 } as const
 
 export type PipeKindValue = (typeof PipeKind)[keyof typeof PipeKind]

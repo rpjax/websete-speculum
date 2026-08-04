@@ -244,6 +244,15 @@ function createBrowserSessionHandlers(registry) {
         watchVideo(call) {
             watchStream(call, registry, (b) => b.video, (jpeg) => ({ jpeg }));
         },
+        watchDom(call) {
+            watchStream(call, registry, (b) => b.dom, (d) => ({
+                sequence: d.sequence,
+                generation: d.generation,
+                kind: d.kind,
+                timestampMs: d.timestampMs,
+                body: d.body,
+            }));
+        },
         watchAudio(call) {
             watchStream(call, registry, (b) => b.audio, (chunk) => ({ chunk }));
         },
@@ -298,6 +307,41 @@ function createBrowserSessionHandlers(registry) {
                     bridge.onInputPathAdmitted(input.type);
                 }
             });
+        },
+        pushDomInput(call, callback) {
+            pumpClientStream(call, callback, async (msg) => {
+                const sid = (0, validate_1.requireSessionId)(msg);
+                const { session } = registry.get(sid);
+                if (!session.pushDomInput) {
+                    throw Object.assign(new Error('DomProjection input not supported'), {
+                        code: 'FAILED_PRECONDITION',
+                    });
+                }
+                await session.pushDomInput({
+                    type: String(msg.type ?? ''),
+                    targetId: Number(msg.targetId ?? msg.target_id ?? 0),
+                    payloadJson: msg.payloadJson ?? msg.payload_json ?? '{}',
+                });
+            });
+        },
+        async getDomAsset(call, callback) {
+            try {
+                const { session } = registry.get((0, validate_1.requireSessionId)(call.request));
+                const hash = String(call.request.hash ?? '');
+                if (!hash || !session.getDomAsset) {
+                    callback(null, { body: Buffer.alloc(0), contentType: 'application/octet-stream' });
+                    return;
+                }
+                const hit = await session.getDomAsset(hash);
+                if (!hit) {
+                    callback(null, { body: Buffer.alloc(0), contentType: 'application/octet-stream' });
+                    return;
+                }
+                callback(null, { body: hit.body, contentType: hit.contentType });
+            }
+            catch (err) {
+                callback(grpcError(err), null);
+            }
         },
         pushCamera(call, callback) {
             pumpClientStream(call, callback, async (msg) => {

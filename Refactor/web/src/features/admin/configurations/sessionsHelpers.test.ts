@@ -78,7 +78,13 @@ describe('sessionsHelpers', () => {
     expect(asObject(next.clientEnvironmentPolicy).defaultLocale).toBe('pt-BR')
     expect(asObject(next.inputMultiplexingPolicy).access).toBe('shared')
     expect(next.dataStreamTransport).toBe('webTransport')
+    expect(next.mirrorMode).toBe('videoStreaming')
     expect(asObject(next.screencastPolicy).maxEncodeScale).toBe(2)
+  })
+
+  it('preserves domProjection mirror mode when filling gaps', () => {
+    const next = fillSessionsGaps({ mirrorMode: 'domProjection' })
+    expect(next.mirrorMode).toBe('domProjection')
   })
 
   it('applies guided presets without wiping unrelated keys', () => {
@@ -116,6 +122,16 @@ describe('sessionsHelpers', () => {
     expect(ready.viewportLabel).toBe('1280×720')
     expect(ready.timeoutLabel).toBe('15 min')
     expect(ready.dataStreamTransport).toBe('webTransport')
+    expect(ready.mirrorMode).toBe('videoStreaming')
+    expect(ready.mirrorModeLabel).toBe('Video streaming')
+  })
+
+  it('summarizes domProjection mirror mode', () => {
+    const ready = summarizeSessions(
+      applySessionsGuidedPreset({ mirrorMode: 'domProjection' }, SESSIONS_GUIDED_PRESETS[0]!),
+    )
+    expect(ready.mirrorMode).toBe('domProjection')
+    expect(ready.mirrorModeLabel).toBe('DOM projection')
   })
 
   it('exposes when/effect copy on guided postures', () => {

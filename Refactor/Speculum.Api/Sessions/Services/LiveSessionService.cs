@@ -87,7 +87,8 @@ public sealed class LiveSessionService : ILiveSessionService
                 connection,
                 options.InputMultiplexingPolicy,
                 options.OutputMultiplexingPolicy,
-                jsBridgeEnabled);
+                jsBridgeEnabled,
+                options.MirrorMode);
             var hooks = new SessionHooks(sessionId);
             var live = new LiveSession(
                 sessionId,
@@ -100,6 +101,7 @@ public sealed class LiveSessionService : ILiveSessionService
                 _urls,
                 requestHost,
                 jsBridgeEnabled,
+                options.MirrorMode,
                 _events.ForSessionLive(sessionId, profileId),
                 _telemetry.ForSession(sessionId, profileId),
                 _journalCatalog,

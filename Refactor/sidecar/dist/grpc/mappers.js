@@ -48,7 +48,11 @@ function toLaunchOptions(req) {
             ? req.allowedNavigationDomains
             : undefined,
         screencastMaxEncodeScale: resolveScreencastMaxEncodeScale(req.screencastMaxEncodeScale ?? req.screencast_max_encode_scale),
+        mirrorMode: resolveMirrorMode(req.mirrorMode ?? req.mirror_mode),
     };
+}
+function resolveMirrorMode(raw) {
+    return raw === 'domProjection' ? 'domProjection' : 'videoStreaming';
 }
 function resolveScreencastMaxEncodeScale(raw) {
     const n = Number(raw);

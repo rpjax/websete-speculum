@@ -25,7 +25,7 @@ public static class SessionHarnessEndpoints
 
         endpoints.MapPost(InputPath, async (
             Guid sessionId,
-            SessionHarnessUserInputRequest body,
+            SessionHarnessVideoStreamingInputRequest body,
             ILiveSessionService liveSessions,
             ISessionBindingRegistry bindings,
             CancellationToken ct) =>
@@ -48,7 +48,7 @@ public static class SessionHarnessEndpoints
                 return Results.NotFound(new { errorCode = "session_gone" });
             }
 
-            var admit = live.AdmitUserInput(new UserInput
+            var admit = live.AdmitVideoStreamingInput(new VideoStreamingInput
             {
                 Type = body.Type.Trim(),
                 Payload = body.Payload,
@@ -191,7 +191,7 @@ public static class SessionHarnessEndpoints
     }
 }
 
-public sealed class SessionHarnessUserInputRequest
+public sealed class SessionHarnessVideoStreamingInputRequest
 {
     public required string Token { get; init; }
     public required string Type { get; init; }

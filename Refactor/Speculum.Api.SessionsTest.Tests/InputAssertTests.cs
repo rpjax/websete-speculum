@@ -4,8 +4,8 @@ namespace Speculum.SessionsTest.Tests;
 
 /// <summary>
 /// MATRIX C1–C12 input effect asserts against motor-fixture via Refactor SessionHub +
-/// sessions harness HTTP admit (product input is data-plane UserInput; harness
-/// calls AdmitUserInput directly). Journal InputApplied enabled only via explicit seed.
+/// sessions harness HTTP admit (product input is data-plane VideoStreamingInput; harness
+/// calls AdmitVideoStreamingInput directly). Journal InputApplied enabled only via explicit seed.
 /// </summary>
 [Collection(nameof(SessionsTestCollection))]
 [Trait("Category", "SessionsTest")]

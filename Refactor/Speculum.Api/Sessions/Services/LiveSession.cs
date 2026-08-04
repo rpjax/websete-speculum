@@ -2,8 +2,10 @@ using System.Threading.Channels;
 using Aidan.Core.Patterns;
 using Aidan.Core.Errors;
 using Speculum.Api.BrowserClients;
+using Speculum.Api.Configurations.Models.Sessions;
 using Speculum.Api.Journal.Services.Contracts;
 using Speculum.Api.Sessions.Events.Services.Contracts;
+using Speculum.Api.Sessions.Mirror.DomProjection;
 using Speculum.Api.Sessions.Models;
 using Speculum.Api.Sessions.Requests;
 using Speculum.Api.Sessions.Services.Contracts;
@@ -20,6 +22,11 @@ namespace Speculum.Api.Sessions.Services;
 /// </summary>
 internal sealed class LiveSession : ILiveSession
 {
+    internal const string MirrorModeVideoStreamingRequiredMessage =
+        "MirrorMode.VideoStreaming is required";
+    internal const string MirrorModeDomProjectionRequiredMessage =
+        "MirrorMode.DomProjection is required";
+
     private readonly ISessionConnection _connection;
     private readonly ISessionStreamMultiplexer _mux;
     private readonly SessionHooks _hooks;
@@ -38,6 +45,7 @@ internal sealed class LiveSession : ILiveSession
     private readonly object _attachmentGate = new();
     private readonly SessionResizeCoalescer _resizeCoalescer = new();
 
+    private readonly MirrorMode _mirrorMode;
     private Guid? _attachmentId;
     private IAttachedSessionClient? _attachedClient;
     private INotificationStream? _featureNotifications;
@@ -45,10 +53,14 @@ internal sealed class LiveSession : ILiveSession
     private CancellationTokenSource? _lifetime = new();
     private int _released;
     private int _abandoned;
-    private int _userInputAdmissionStarted;
-    private UserInputAdmissionChannel? _userInputAdmission;
+    private int _videoStreamingInputAdmissionStarted;
+    private VideoStreamingInputAdmissionChannel? _videoStreamingInputAdmission;
+    private int _domProjectionInputAdmissionStarted;
+    private DomProjectionInputAdmissionChannel? _domProjectionInputAdmission;
 
     public Guid SessionId { get; }
+
+    public MirrorMode MirrorMode => _mirrorMode;
 
     internal LiveSession(
         Guid sessionId,
@@ -61,6 +73,7 @@ internal sealed class LiveSession : ILiveSession
         IUrlResolver urls,
         string requestHost,
         bool jsBridgeEnabled,
+        MirrorMode mirrorMode,
         ISessionLiveEvents liveEvents,
         ISessionTelemetryEvents telemetry,
         IJournalCatalog journalCatalog,
@@ -76,6 +89,7 @@ internal sealed class LiveSession : ILiveSession
         _urls = urls;
         _requestHost = requestHost;
         _jsBridgeEnabled = jsBridgeEnabled;
+        _mirrorMode = mirrorMode;
         _liveEvents = liveEvents;
         _telemetry = telemetry;
         _journalCatalog = journalCatalog;
@@ -126,8 +140,10 @@ internal sealed class LiveSession : ILiveSession
         _featureNotifications?.Dispose();
         _featureNotifications = null;
         _hooks.Unbind(_connection.IsOpen ? _connection : null);
-        var admission = Interlocked.Exchange(ref _userInputAdmission, null);
+        var admission = Interlocked.Exchange(ref _videoStreamingInputAdmission, null);
         admission?.Complete();
+        var domAdmission = Interlocked.Exchange(ref _domProjectionInputAdmission, null);
+        domAdmission?.Complete();
         _mux.Dispose();
     }
 
@@ -602,7 +618,24 @@ internal sealed class LiveSession : ILiveSession
     // ── Streams ──────────────────────────────────────────────────────────────
 
     public IResult<IFrameStream> OpenFrameStream()
-        => OpenStream(static (id, mux) => (IFrameStream)new FrameStream(id, mux));
+    {
+        if (_mirrorMode != MirrorMode.VideoStreaming)
+        {
+            return Result<IFrameStream>.Failure(MirrorModeVideoStreamingRequiredMessage);
+        }
+
+        return OpenStream(static (id, mux) => (IFrameStream)new FrameStream(id, mux));
+    }
+
+    public IResult<IDomDiffStream> OpenDomDiffStream()
+    {
+        if (_mirrorMode != MirrorMode.DomProjection)
+        {
+            return Result<IDomDiffStream>.Failure(MirrorModeDomProjectionRequiredMessage);
+        }
+
+        return OpenStream(static (id, mux) => (IDomDiffStream)new DomDiffStream(id, mux));
+    }
 
     public IResult<IConsoleOutputStream> OpenConsoleOutputStream()
         => OpenStream(static (id, mux) => (IConsoleOutputStream)new ConsoleOutputStream(id, mux));
@@ -610,39 +643,115 @@ internal sealed class LiveSession : ILiveSession
     public IResult<INotificationStream> OpenNotificationStream()
         => OpenStream(static (id, mux) => (INotificationStream)new NotificationStream(id, mux));
 
-    public IResult<Task> ConsumeUserInputAsync(
-        ChannelReader<UserInput> channelReader,
+    public IResult<Task> ConsumeVideoStreamingInputAsync(
+        ChannelReader<VideoStreamingInput> channelReader,
         CancellationToken ct = default)
-        => StartInputPump(
-            (consumerId, token) => _mux.StartUserInputPump(consumerId, channelReader, token),
-            ct);
-
-    public IResult AdmitUserInput(UserInput input)
     {
-        ArgumentNullException.ThrowIfNull(input);
-        if (string.IsNullOrWhiteSpace(input.Type) || string.IsNullOrWhiteSpace(input.Payload))
+        if (_mirrorMode != MirrorMode.VideoStreaming)
         {
-            return Result.Failure("UserInput type and payload are required");
+            return Result<Task>.Failure(MirrorModeVideoStreamingRequiredMessage);
         }
 
-        var ensure = EnsureUserInputAdmission();
+        return StartInputPump(
+            (consumerId, token) => _mux.StartVideoStreamingInputPump(consumerId, channelReader, token),
+            ct);
+    }
+
+    public IResult AdmitVideoStreamingInput(VideoStreamingInput input)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+        if (_mirrorMode != MirrorMode.VideoStreaming)
+        {
+            return Result.Failure(MirrorModeVideoStreamingRequiredMessage);
+        }
+
+        if (string.IsNullOrWhiteSpace(input.Type) || string.IsNullOrWhiteSpace(input.Payload))
+        {
+            return Result.Failure("VideoStreamingInput type and payload are required");
+        }
+
+        var ensure = EnsureVideoStreamingInputAdmission();
         if (ensure.IsFailure)
         {
             return ensure;
         }
 
-        var admission = Volatile.Read(ref _userInputAdmission);
+        var admission = Volatile.Read(ref _videoStreamingInputAdmission);
         if (admission is null)
         {
-            return Result.Failure("User input admission is not ready");
+            return Result.Failure("Video streaming input admission is not ready");
         }
 
-        admission.Admit(new UserInput
+        admission.Admit(new VideoStreamingInput
         {
             Type = input.Type.Trim(),
             Payload = input.Payload,
         });
         return Result.Success();
+    }
+
+    public IResult AdmitDomProjectionInput(DomProjectionInput input)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+        if (_mirrorMode != MirrorMode.DomProjection)
+        {
+            return Result.Failure(MirrorModeDomProjectionRequiredMessage);
+        }
+
+        if (string.IsNullOrWhiteSpace(input.Type))
+        {
+            return Result.Failure("DomProjectionInput type is required");
+        }
+
+        var ensure = EnsureDomProjectionInputAdmission();
+        if (ensure.IsFailure)
+        {
+            return ensure;
+        }
+
+        var admission = Volatile.Read(ref _domProjectionInputAdmission);
+        if (admission is null)
+        {
+            return Result.Failure("Dom projection input admission is not ready");
+        }
+
+        admission.Admit(new DomProjectionInput
+        {
+            Type = input.Type.Trim(),
+            TargetId = input.TargetId,
+            Payload = string.IsNullOrWhiteSpace(input.Payload) ? "{}" : input.Payload,
+        });
+        return Result.Success();
+    }
+
+    public IResult<Task> ConsumeDomProjectionInputAsync(
+        ChannelReader<DomProjectionInput> channelReader,
+        CancellationToken ct = default)
+    {
+        if (_mirrorMode != MirrorMode.DomProjection)
+        {
+            return Result<Task>.Failure(MirrorModeDomProjectionRequiredMessage);
+        }
+
+        if (IsReleased)
+        {
+            return Result<Task>.Failure("Live session is released");
+        }
+
+        if (!TryGetLifetimeToken(out var lifetimeToken))
+        {
+            return Result<Task>.Failure("Live session is released");
+        }
+
+        var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, lifetimeToken);
+        var pump = _connection.ConsumeDomProjectionInputAsync(channelReader);
+        if (pump.IsFailure)
+        {
+            linked.Dispose();
+            return pump;
+        }
+
+        return Result<Task>.Success(ObserveDomProjectionPumpAsync(pump.Value, linked));
     }
 
     public IResult<Task> ConsumeConsoleInputAsync(
@@ -694,41 +803,88 @@ internal sealed class LiveSession : ILiveSession
         }
     }
 
-    private IResult EnsureUserInputAdmission()
+    private IResult EnsureVideoStreamingInputAdmission()
     {
         if (IsReleased)
         {
             return Result.Failure("Live session is released");
         }
 
-        if (Interlocked.CompareExchange(ref _userInputAdmissionStarted, 1, 0) != 0)
+        if (Interlocked.CompareExchange(ref _videoStreamingInputAdmissionStarted, 1, 0) != 0)
         {
             // Another caller is starting or already started — wait briefly for the channel.
             var spun = 0;
-            while (Volatile.Read(ref _userInputAdmission) is null && !IsReleased && spun < 200)
+            while (Volatile.Read(ref _videoStreamingInputAdmission) is null && !IsReleased && spun < 200)
             {
                 Thread.SpinWait(20);
                 spun++;
             }
 
-            return Volatile.Read(ref _userInputAdmission) is null
+            return Volatile.Read(ref _videoStreamingInputAdmission) is null
                 ? Result.Failure("User input admission failed to start")
                 : Result.Success();
         }
 
-        var admission = UserInputAdmissionChannel.Create();
-        Volatile.Write(ref _userInputAdmission, admission);
-        var pump = ConsumeUserInputAsync(admission.Reader);
+        var admission = VideoStreamingInputAdmissionChannel.Create();
+        Volatile.Write(ref _videoStreamingInputAdmission, admission);
+        var pump = ConsumeVideoStreamingInputAsync(admission.Reader);
         if (pump.IsFailure)
         {
-            Volatile.Write(ref _userInputAdmission, null);
-            Interlocked.Exchange(ref _userInputAdmissionStarted, 0);
+            Volatile.Write(ref _videoStreamingInputAdmission, null);
+            Interlocked.Exchange(ref _videoStreamingInputAdmissionStarted, 0);
             return Result.Failure(pump.Errors.ToArray());
         }
 
         // Pump runs until admission completes (Release) or the session lifetime cancels.
         _ = ObserveAdmissionPumpAsync(pump.Value);
         return Result.Success();
+    }
+
+    private IResult EnsureDomProjectionInputAdmission()
+    {
+        if (IsReleased)
+        {
+            return Result.Failure("Live session is released");
+        }
+
+        if (Interlocked.CompareExchange(ref _domProjectionInputAdmissionStarted, 1, 0) != 0)
+        {
+            var spun = 0;
+            while (Volatile.Read(ref _domProjectionInputAdmission) is null && !IsReleased && spun < 200)
+            {
+                Thread.SpinWait(20);
+                spun++;
+            }
+
+            return Volatile.Read(ref _domProjectionInputAdmission) is null
+                ? Result.Failure("Dom projection input admission failed to start")
+                : Result.Success();
+        }
+
+        var admission = DomProjectionInputAdmissionChannel.Create();
+        Volatile.Write(ref _domProjectionInputAdmission, admission);
+        var pump = ConsumeDomProjectionInputAsync(admission.Reader);
+        if (pump.IsFailure)
+        {
+            Volatile.Write(ref _domProjectionInputAdmission, null);
+            Interlocked.Exchange(ref _domProjectionInputAdmissionStarted, 0);
+            return Result.Failure(pump.Errors.ToArray());
+        }
+
+        _ = ObserveAdmissionPumpAsync(pump.Value);
+        return Result.Success();
+    }
+
+    private async Task ObserveDomProjectionPumpAsync(Task pump, CancellationTokenSource linked)
+    {
+        try
+        {
+            await pump.ConfigureAwait(false);
+        }
+        finally
+        {
+            linked.Dispose();
+        }
     }
 
     private async Task ObserveAdmissionPumpAsync(Task pump)
@@ -1038,6 +1194,26 @@ internal sealed class LiveSession : ILiveSession
         }
 
         return _connection.RequestDiagnosticsAsync(request.Probe, ct);
+    }
+
+    public async Task<IResult<DomAsset>> GetDomAssetAsync(string hash, CancellationToken ct = default)
+    {
+        if (_mirrorMode != MirrorMode.DomProjection)
+        {
+            return Result<DomAsset>.Failure(MirrorModeDomProjectionRequiredMessage);
+        }
+
+        if (string.IsNullOrWhiteSpace(hash))
+        {
+            return Result<DomAsset>.Failure("Asset hash is required");
+        }
+
+        if (IsReleased || !_connection.IsOpen)
+        {
+            return Result<DomAsset>.Failure("Live session is released");
+        }
+
+        return await _connection.GetDomAssetAsync(hash.Trim(), ct).ConfigureAwait(false);
     }
 
     // ── Hooks ────────────────────────────────────────────────────────────────

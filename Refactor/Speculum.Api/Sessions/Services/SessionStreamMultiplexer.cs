@@ -3,6 +3,7 @@ using System.Threading.Channels;
 using Aidan.Core.Patterns;
 using Speculum.Api.BrowserClients;
 using Speculum.Api.Configurations.Models.Sessions;
+using Speculum.Api.Sessions.Mirror.DomProjection;
 using Speculum.Api.Sessions.Models;
 using Speculum.Api.Sessions.Services.Contracts;
 using Speculum.Api.Sessions.Services.Streaming;
@@ -27,13 +28,15 @@ internal sealed class SessionStreamMultiplexer : ISessionStreamMultiplexer
         ISessionConnection connection,
         InputMultiplexingPolicy inputPolicy,
         OutputMultiplexingPolicy outputPolicy,
-        bool jsBridgeEnabled)
+        bool jsBridgeEnabled,
+        MirrorMode mirrorMode)
     {
         _connection = connection;
         _fanOut = new SessionOutputFanOut(
             connection,
             _pipes,
             outputPolicy ?? new OutputMultiplexingPolicy(),
+            mirrorMode,
             _lifetime.Token);
         _input = new SessionInputMerger(
             connection,
@@ -58,6 +61,7 @@ internal sealed class SessionStreamMultiplexer : ISessionStreamMultiplexer
 
         var channels = new PipeStreamChannels(
             DropOldestChannels.Create<Frame>(capacity: 2),
+            DropOldestChannels.Create<DomDiff>(capacity: 4),
             DropOldestChannels.Create<ConsoleOutput>(capacity: 256),
             DropOldestChannels.Create<SessionNotification>(capacity: 32));
 
@@ -143,6 +147,16 @@ internal sealed class SessionStreamMultiplexer : ISessionStreamMultiplexer
         return Result<ChannelReader<Frame>>.Success(channels.Frames.Reader);
     }
 
+    public IResult<ChannelReader<DomDiff>> GetDomDiffsChannel(Guid pipeId)
+    {
+        if (!_pipes.TryGetValue(pipeId, out var channels))
+        {
+            return Result<ChannelReader<DomDiff>>.Failure("Pipe is not registered");
+        }
+
+        return Result<ChannelReader<DomDiff>>.Success(channels.DomDiffs.Reader);
+    }
+
     public IResult<ChannelReader<ConsoleOutput>> GetConsoleOutputChannel(Guid pipeId)
     {
         if (!_pipes.TryGetValue(pipeId, out var channels))
@@ -163,11 +177,11 @@ internal sealed class SessionStreamMultiplexer : ISessionStreamMultiplexer
         return Result<ChannelReader<SessionNotification>>.Success(channels.Notifications.Reader);
     }
 
-    public IResult<Task> StartUserInputPump(
+    public IResult<Task> StartVideoStreamingInputPump(
         Guid consumerId,
-        ChannelReader<UserInput> channelReader,
+        ChannelReader<VideoStreamingInput> channelReader,
         CancellationToken ct)
-        => _input.StartUserInputPump(consumerId, channelReader, ct);
+        => _input.StartVideoStreamingInputPump(consumerId, channelReader, ct);
 
     public IResult<Task> StartConsoleInputPump(
         Guid consumerId,

@@ -148,11 +148,16 @@ export default function SessionLabPage() {
                 ? 'relative h-[min(45dvh,22rem)] w-full shrink-0 overflow-hidden rounded-lg border border-border bg-card lg:sticky lg:top-3 lg:h-[calc(100dvh-5.5rem)] lg:min-w-0 lg:flex-[3]'
                 : 'relative min-h-0 min-w-0 flex-1 overflow-hidden rounded-lg border border-border bg-card'
             }
+            mirrorMode={session.mirrorMode}
+            sessionId={session.sessionId}
+            token={session.sessionToken}
             width={session.remoteViewport.width}
             height={session.remoteViewport.height}
             live={session.isLive}
             attachFrameSink={session.attachFrameSink}
+            attachDomDiffSink={session.attachDomDiffSink}
             onInput={session.sendInput}
+            onDomInput={session.sendDomInput}
             requestRemoteResize={session.requestRemoteResize}
             viewportPolicy={session.viewportPolicy ?? undefined}
             onCanvasLayout={session.onCanvasLayout}

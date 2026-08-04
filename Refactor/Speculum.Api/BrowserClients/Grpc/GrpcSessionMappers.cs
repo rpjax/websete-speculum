@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Speculum.Api.Configurations.Models.Patterns;
 using Speculum.Api.Profiles.Aggregates;
+using Speculum.Api.Sessions.Mirror.DomProjection;
 using Speculum.Api.Sessions.Models;
 using Speculum.Api.Sidecar.V1;
 using DomainUrlMatchRule = Speculum.Api.Configurations.Models.Patterns.UrlMatchRule;
@@ -25,7 +26,9 @@ internal static class GrpcSessionMappers
         int height,
         SessionConfig configuration,
         Speculum.Api.Configurations.Models.Sessions.ViewportPolicy policy,
-        double screencastMaxEncodeScale = 2)
+        double screencastMaxEncodeScale = 2,
+        Speculum.Api.Configurations.Models.Sessions.MirrorMode mirrorMode =
+            Speculum.Api.Configurations.Models.Sessions.MirrorMode.VideoStreaming)
     {
         ArgumentNullException.ThrowIfNull(configuration);
         ArgumentNullException.ThrowIfNull(policy);
@@ -39,6 +42,7 @@ internal static class GrpcSessionMappers
             DisplayWidth = policy.Maximum.Width,
             DisplayHeight = policy.Maximum.Height,
             ScreencastMaxEncodeScale = ClampScreencastMaxEncodeScale(screencastMaxEncodeScale),
+            MirrorMode = ToMirrorModeWire(mirrorMode),
         };
 
         var environment = configuration.ClientEnvironment
@@ -98,6 +102,15 @@ internal static class GrpcSessionMappers
 
         return Math.Clamp(value, 1, 2);
     }
+
+    /// <summary>Wire form for LaunchRequest.mirror_mode (camelCase enum name).</summary>
+    public static string ToMirrorModeWire(
+        Speculum.Api.Configurations.Models.Sessions.MirrorMode mode)
+        => mode switch
+        {
+            Speculum.Api.Configurations.Models.Sessions.MirrorMode.DomProjection => "domProjection",
+            _ => "videoStreaming",
+        };
 
     public static ProtoDevice? TryToProtoDevice(DomainDeviceProfile device)
     {
@@ -364,7 +377,7 @@ internal static class GrpcSessionMappers
 
     public static bool TryParseInputEvent(
         Guid sessionId,
-        UserInput userInput,
+        VideoStreamingInput userInput,
         out InputEvent? input)
     {
         input = null;
@@ -513,4 +526,202 @@ internal static class GrpcSessionMappers
 
         return new InputEvent { SessionId = sid, Touch = touch };
     }
+
+    public static DomDiff? ToDomDiff(DomDiffFrame frame)
+    {
+        if (string.IsNullOrWhiteSpace(frame.Kind))
+        {
+            return null;
+        }
+
+        DomNode? root = null;
+        List<DomOp>? ops = null;
+        List<DomAssetHint>? assetHints = null;
+
+        if (!frame.Body.IsEmpty)
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(frame.Body.ToByteArray());
+                var body = doc.RootElement;
+                if (body.TryGetProperty("assetHints", out var hintsEl)
+                    && hintsEl.ValueKind == JsonValueKind.Array)
+                {
+                    assetHints = ParseAssetHints(hintsEl);
+                }
+
+                if (string.Equals(frame.Kind, "snapshot", StringComparison.Ordinal)
+                    && body.TryGetProperty("root", out var rootEl))
+                {
+                    root = ParseDomNode(rootEl);
+                }
+                else if (string.Equals(frame.Kind, "patch", StringComparison.Ordinal)
+                    && body.TryGetProperty("ops", out var opsEl)
+                    && opsEl.ValueKind == JsonValueKind.Array)
+                {
+                    ops = ParseDomOps(opsEl);
+                }
+            }
+            catch (JsonException)
+            {
+                return null;
+            }
+        }
+
+        return new DomDiff
+        {
+            Sequence = frame.Sequence,
+            Generation = frame.Generation,
+            Timestamp = frame.TimestampMs,
+            Kind = frame.Kind,
+            Root = root,
+            Ops = ops,
+            AssetHints = assetHints,
+        };
+    }
+
+    public static bool TryParseDomInputEvent(
+        Guid sessionId,
+        DomProjectionInput input,
+        out DomInputEvent? domInput)
+    {
+        domInput = null;
+        if (string.IsNullOrWhiteSpace(input.Type))
+        {
+            return false;
+        }
+
+        domInput = new DomInputEvent
+        {
+            SessionId = sessionId.ToString("D"),
+            Type = input.Type.Trim(),
+            TargetId = input.TargetId,
+            PayloadJson = string.IsNullOrWhiteSpace(input.Payload) ? "{}" : input.Payload,
+        };
+        return true;
+    }
+
+    public static DomAsset ToDomAsset(GetDomAssetResponse response) => new()
+    {
+        Body = response.Body.ToByteArray(),
+        ContentType = string.IsNullOrWhiteSpace(response.ContentType)
+            ? "application/octet-stream"
+            : response.ContentType,
+    };
+
+    private static List<DomAssetHint>? ParseAssetHints(JsonElement hintsEl)
+    {
+        var hints = new List<DomAssetHint>();
+        foreach (var hint in hintsEl.EnumerateArray())
+        {
+            if (!hint.TryGetProperty("hash", out var hashEl)
+                || hashEl.ValueKind != JsonValueKind.String
+                || string.IsNullOrWhiteSpace(hashEl.GetString()))
+            {
+                continue;
+            }
+
+            hints.Add(new DomAssetHint
+            {
+                Hash = hashEl.GetString()!,
+                ContentType = hint.TryGetProperty("contentType", out var ctEl)
+                    && ctEl.ValueKind == JsonValueKind.String
+                    && !string.IsNullOrWhiteSpace(ctEl.GetString())
+                    ? ctEl.GetString()!
+                    : "application/octet-stream",
+            });
+        }
+
+        return hints.Count == 0 ? null : hints;
+    }
+
+    private static List<DomOp> ParseDomOps(JsonElement opsEl)
+    {
+        var ops = new List<DomOp>();
+        foreach (var opEl in opsEl.EnumerateArray())
+        {
+            if (!opEl.TryGetProperty("op", out var opKindEl)
+                || opKindEl.ValueKind != JsonValueKind.String
+                || string.IsNullOrWhiteSpace(opKindEl.GetString()))
+            {
+                continue;
+            }
+
+            ops.Add(new DomOp
+            {
+                Op = opKindEl.GetString()!,
+                Id = opEl.TryGetProperty("id", out var idEl) && idEl.TryGetInt32(out var id) ? id : 0,
+                ParentId = opEl.TryGetProperty("parentId", out var parentEl) && parentEl.TryGetInt32(out var parentId)
+                    ? parentId
+                    : null,
+                Index = opEl.TryGetProperty("index", out var indexEl) && indexEl.TryGetInt32(out var index)
+                    ? index
+                    : null,
+                Tag = ReadOptionalString(opEl, "tag"),
+                Name = ReadOptionalString(opEl, "name"),
+                Value = ReadOptionalString(opEl, "value"),
+                Text = ReadOptionalString(opEl, "text"),
+                Node = opEl.TryGetProperty("node", out var nodeEl) ? ParseDomNode(nodeEl) : null,
+            });
+        }
+
+        return ops;
+    }
+
+    private static DomNode? ParseDomNode(JsonElement nodeEl)
+    {
+        if (nodeEl.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        if (!nodeEl.TryGetProperty("id", out var idEl) || !idEl.TryGetInt32(out var id))
+        {
+            return null;
+        }
+
+        var tag = nodeEl.TryGetProperty("tag", out var tagEl) && tagEl.ValueKind == JsonValueKind.String
+            ? tagEl.GetString() ?? ""
+            : "";
+
+        Dictionary<string, string>? attrs = null;
+        if (nodeEl.TryGetProperty("attrs", out var attrsEl) && attrsEl.ValueKind == JsonValueKind.Object)
+        {
+            attrs = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var prop in attrsEl.EnumerateObject())
+            {
+                if (prop.Value.ValueKind == JsonValueKind.String)
+                {
+                    attrs[prop.Name] = prop.Value.GetString() ?? "";
+                }
+            }
+        }
+
+        List<DomNode>? children = null;
+        if (nodeEl.TryGetProperty("children", out var childrenEl) && childrenEl.ValueKind == JsonValueKind.Array)
+        {
+            children = [];
+            foreach (var childEl in childrenEl.EnumerateArray())
+            {
+                if (ParseDomNode(childEl) is { } child)
+                {
+                    children.Add(child);
+                }
+            }
+        }
+
+        return new DomNode
+        {
+            Id = id,
+            Tag = tag,
+            Attrs = attrs,
+            Text = ReadOptionalString(nodeEl, "text"),
+            Children = children,
+        };
+    }
+
+    private static string? ReadOptionalString(JsonElement element, string name)
+        => element.TryGetProperty(name, out var valueEl) && valueEl.ValueKind == JsonValueKind.String
+            ? valueEl.GetString()
+            : null;
 }

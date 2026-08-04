@@ -1,6 +1,7 @@
 using System.Threading.Channels;
 using Aidan.Core.Patterns;
 using Speculum.Api.Profiles.Aggregates;
+using Speculum.Api.Sessions.Mirror.DomProjection;
 using Speculum.Api.Sessions.Models;
 
 namespace Speculum.Api.BrowserClients;
@@ -41,7 +42,7 @@ namespace Speculum.Api.BrowserClients;
 /// Not on this port: connection registry (<see cref="IBrowserClient"/>), session slots/pipes,
 /// client↔target URL mapping / business allowlist, profile merge/persist, Journal emit,
 /// Diagnostics capability gating, or hub/SignalR binding. History (<c>goback</c>/<c>goforward</c>)
-/// travels as validated user-input JSON via <see cref="ConsumeUserInputAsync"/>.
+/// travels as validated user-input JSON via <see cref="ConsumeVideoStreamingInputAsync"/>.
 /// </para>
 /// <para>
 /// Informative sidecar signals (location, navigation blocked, editable focus, crash) arrive on
@@ -139,6 +140,9 @@ public interface ISessionConnection
     /// <summary>Frame stream from the sidecar screencast path.</summary>
     IResult<ChannelReader<Frame>> GetFrameReader();
 
+    /// <summary>Dom Projection diff stream from the sidecar (MirrorMode.DomProjection).</summary>
+    IResult<ChannelReader<DomDiff>> GetDomDiffReader();
+
     /// <summary>Console output stream from the live browser.</summary>
     IResult<ChannelReader<ConsoleOutput>> GetConsoleOutputReader();
 
@@ -164,7 +168,15 @@ public interface ISessionConnection
     /// Pumps opaque user-input JSON from <paramref name="channelReader"/> into the sidecar
     /// until the channel completes or the connection closes.
     /// </summary>
-    IResult<Task> ConsumeUserInputAsync(ChannelReader<UserInput> channelReader);
+    IResult<Task> ConsumeVideoStreamingInputAsync(ChannelReader<VideoStreamingInput> channelReader);
+
+    /// <summary>
+    /// Pumps Dom Projection element input until the channel completes or the connection closes.
+    /// </summary>
+    IResult<Task> ConsumeDomProjectionInputAsync(ChannelReader<DomProjectionInput> channelReader);
+
+    /// <summary>Fetches a hashed Dom Projection asset from the sidecar cache.</summary>
+    Task<IResult<DomAsset>> GetDomAssetAsync(string hash, CancellationToken ct = default);
 
     /// <summary>
     /// Pumps console input from <paramref name="channelReader"/> into the sidecar until the

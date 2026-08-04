@@ -3,6 +3,8 @@ import { DataStreams } from './dataStreams'
 import type { DataStreamTransport } from './dataStreamTransport'
 import { Emitter } from './emitter'
 import type {
+  DomProjectionInput,
+  MirrorMode,
   NavigateSessionRequest,
   ResizeSessionRequest,
   ResizeSessionResult,
@@ -20,6 +22,8 @@ export interface LiveSessionOptions {
   viewportMinHeight: number
   viewportMaxWidth: number
   viewportMaxHeight: number
+  /** Sessions.MirrorMode from StartSession. */
+  mirrorMode?: MirrorMode
   baseUrl?: string
   /** Hub origin for `/w7s/health/webtransport-cert` pin fetch. */
   certificateHashBaseUrl?: string
@@ -30,7 +34,7 @@ export interface LiveSessionOptions {
 
 /**
  * One live browsing session: hub lifecycle + data streams I/O.
- * Events: frame, console, notification, syncUrl, redirect, ended, error, close.
+ * Events: frame, domDiff, console, notification, syncUrl, redirect, ended, error, close.
  */
 export class LiveSession extends Emitter<SessionEventMap> {
   readonly sessionId: string
@@ -39,6 +43,7 @@ export class LiveSession extends Emitter<SessionEventMap> {
   readonly viewportMinHeight: number
   readonly viewportMaxWidth: number
   readonly viewportMaxHeight: number
+  readonly mirrorMode: MirrorMode
   private readonly control: ControlPlane
   private readonly data: DataStreams
   private disposers: Array<() => void> = []
@@ -54,6 +59,8 @@ export class LiveSession extends Emitter<SessionEventMap> {
     this.viewportMinHeight = options.viewportMinHeight
     this.viewportMaxWidth = options.viewportMaxWidth
     this.viewportMaxHeight = options.viewportMaxHeight
+    this.mirrorMode =
+      options.mirrorMode === 'domProjection' ? 'domProjection' : 'videoStreaming'
     this.control = options.control
     this.data = new DataStreams({
       baseUrl: options.baseUrl,
@@ -61,6 +68,7 @@ export class LiveSession extends Emitter<SessionEventMap> {
       transportPath: options.transportPath,
       sessionId: options.sessionId,
       token: options.token,
+      mirrorMode: this.mirrorMode,
       transport: options.transport,
     })
   }
@@ -105,6 +113,7 @@ export class LiveSession extends Emitter<SessionEventMap> {
 
   async open(): Promise<void> {
     this.forward('frame')
+    this.forward('domDiff')
     this.forward('console')
     this.forward('notification')
     this.forward('error')
@@ -114,6 +123,10 @@ export class LiveSession extends Emitter<SessionEventMap> {
 
   sendInput(input: SessionInput): Promise<void> {
     return this.data.sendInput(input)
+  }
+
+  sendDomProjectionInput(input: DomProjectionInput): Promise<void> {
+    return this.data.sendDomProjectionInput(input)
   }
 
   evaluate(code: string) {

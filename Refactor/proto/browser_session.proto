@@ -103,6 +103,8 @@ message LaunchRequest {
   int32 display_height = 15;
   // Sessions.ScreencastPolicy.MaxEncodeScale — CSS→JPEG scale cap (1..2), also capped by display_*.
   double screencast_max_encode_scale = 16;
+  // Sessions.MirrorMode — videoStreaming | domProjection (admin engine config; Launch-scoped).
+  string mirror_mode = 17;
 }
 
 message ReadyInfo {
@@ -295,6 +297,32 @@ message AllocationLifecycleEvent {
   optional string phase = 8;
   optional string reason = 9;
   int64 unix_ms = 10;
+}
+
+// Dom Projection outbound (sidecar → Api). body is UTF-8 JSON (snapshot tree or ops[]).
+message DomDiffFrame {
+  int64 sequence = 1;
+  int64 generation = 2;
+  string kind = 3; // snapshot | patch
+  int64 timestamp_ms = 4;
+  bytes body = 5;
+}
+
+message DomInputEvent {
+  string session_id = 1;
+  string type = 2; // click | input | keydown | keyup | scroll
+  int32 target_id = 3;
+  string payload_json = 4; // type-specific fields
+}
+
+message GetDomAssetRequest {
+  string session_id = 1;
+  string hash = 2;
+}
+
+message GetDomAssetResponse {
+  bytes body = 1;
+  string content_type = 2;
 }
 
 // ── Inbound streams (Api → sidecar) ──────────────────────────────────────────
@@ -536,6 +564,7 @@ service BrowserSessionService {
   rpc Evaluate(EvaluateRequest) returns (EvaluateResult);
 
   rpc WatchVideo(SessionId) returns (stream VideoFrame);
+  rpc WatchDom(SessionId) returns (stream DomDiffFrame);
   rpc WatchAudio(SessionId) returns (stream AudioFrame);
   rpc WatchConsole(SessionId) returns (stream ConsoleEvent);
   rpc WatchLocation(SessionId) returns (stream LocationEvent);
@@ -546,8 +575,11 @@ service BrowserSessionService {
   rpc WatchAllocationLifecycle(SessionId) returns (stream AllocationLifecycleEvent);
 
   rpc PushInput(stream InputEvent) returns (Empty);
+  rpc PushDomInput(stream DomInputEvent) returns (Empty);
   rpc PushCamera(stream MediaChunk) returns (Empty);
   rpc PushMicrophone(stream MediaChunk) returns (Empty);
+
+  rpc GetDomAsset(GetDomAssetRequest) returns (GetDomAssetResponse);
 
   rpc Control(stream ControlToSidecar) returns (stream ControlFromSidecar);
 

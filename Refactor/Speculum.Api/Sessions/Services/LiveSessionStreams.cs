@@ -1,5 +1,6 @@
 using System.Threading.Channels;
 using Aidan.Core.Patterns;
+using Speculum.Api.Sessions.Mirror.DomProjection;
 using Speculum.Api.Sessions.Models;
 using Speculum.Api.Sessions.Services.Contracts;
 
@@ -54,6 +55,17 @@ internal sealed class FrameStream : MuxBoundStream, IFrameStream
 
     public IResult<ChannelReader<Frame>> GetFramesChannel()
         => GetChannel(Mux.GetFramesChannel);
+}
+
+internal sealed class DomDiffStream : MuxBoundStream, IDomDiffStream
+{
+    public DomDiffStream(Guid id, ISessionStreamMultiplexer mux)
+        : base(id, mux)
+    {
+    }
+
+    public IResult<ChannelReader<DomDiff>> GetDomDiffsChannel()
+        => GetChannel(Mux.GetDomDiffsChannel);
 }
 
 internal sealed class ConsoleOutputStream : MuxBoundStream, IConsoleOutputStream

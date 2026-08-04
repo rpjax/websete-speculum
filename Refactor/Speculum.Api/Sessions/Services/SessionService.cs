@@ -1,5 +1,6 @@
 using Aidan.Core.Patterns;
 using Speculum.Api.BrowserClients;
+using Speculum.Api.BrowserClients.Grpc;
 using Speculum.Api.Configurations.Services.Contracts;
 using Speculum.Api.Profiles.Services.Contracts;
 using Speculum.Api.Sessions.Aggregates;
@@ -301,6 +302,7 @@ public sealed class SessionService : ISessionService
                 {
                     SessionId = sessionId,
                     Token = token,
+                    MirrorMode = GrpcSessionMappers.ToMirrorModeWire(live.Value.MirrorMode),
                 });
             }
             catch (OperationCanceledException)

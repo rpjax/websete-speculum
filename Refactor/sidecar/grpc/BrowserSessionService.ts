@@ -314,6 +314,16 @@ export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.Un
       watchStream(call, registry, (b) => b.video, (jpeg) => ({ jpeg }));
     },
 
+    watchDom(call: grpc.ServerWritableStream<any, any>): void {
+      watchStream(call, registry, (b) => b.dom, (d) => ({
+        sequence: d.sequence,
+        generation: d.generation,
+        kind: d.kind,
+        timestampMs: d.timestampMs,
+        body: d.body,
+      }));
+    },
+
     watchAudio(call: grpc.ServerWritableStream<any, any>): void {
       watchStream(call, registry, (b) => b.audio, (chunk) => ({ chunk }));
     },
@@ -378,6 +388,45 @@ export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.Un
           bridge.onInputPathAdmitted(input.type);
         }
       });
+    },
+
+    pushDomInput(call: grpc.ServerReadableStream<any, any>, callback: grpc.sendUnaryData<any>): void {
+      pumpClientStream(call, callback, async (msg) => {
+        const sid = requireSessionId(msg);
+        const { session } = registry.get(sid);
+        if (!session.pushDomInput) {
+          throw Object.assign(new Error('DomProjection input not supported'), {
+            code: 'FAILED_PRECONDITION',
+          });
+        }
+        await session.pushDomInput({
+          type: String(msg.type ?? ''),
+          targetId: Number(msg.targetId ?? msg.target_id ?? 0),
+          payloadJson: msg.payloadJson ?? msg.payload_json ?? '{}',
+        });
+      });
+    },
+
+    async getDomAsset(
+      call: grpc.ServerUnaryCall<any, any>,
+      callback: grpc.sendUnaryData<any>,
+    ): Promise<void> {
+      try {
+        const { session } = registry.get(requireSessionId(call.request));
+        const hash = String(call.request.hash ?? '');
+        if (!hash || !session.getDomAsset) {
+          callback(null, { body: Buffer.alloc(0), contentType: 'application/octet-stream' });
+          return;
+        }
+        const hit = await session.getDomAsset(hash);
+        if (!hit) {
+          callback(null, { body: Buffer.alloc(0), contentType: 'application/octet-stream' });
+          return;
+        }
+        callback(null, { body: hit.body, contentType: hit.contentType });
+      } catch (err) {
+        callback(grpcError(err), null);
+      }
     },
 
     pushCamera(call: grpc.ServerReadableStream<any, any>, callback: grpc.sendUnaryData<any>): void {

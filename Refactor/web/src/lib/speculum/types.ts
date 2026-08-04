@@ -54,7 +54,12 @@ export interface StartSessionResult {
   viewportMinHeight: number
   viewportMaxWidth: number
   viewportMaxHeight: number
+  /** Sessions.MirrorMode from StartSession (`videoStreaming` | `domProjection`). */
+  mirrorMode: MirrorMode
 }
+
+/** Admin engine Sessions.MirrorMode — read-only on the live session. */
+export type MirrorMode = 'videoStreaming' | 'domProjection'
 
 /** Runtime navigation (hub <c>NavigateAsync</c>) — client path/query, not absolute target. */
 export interface NavigateSessionRequest {
@@ -89,6 +94,51 @@ export interface SessionFrame {
   jpeg: Uint8Array
   sequence: number
   timestamp: number
+}
+
+/** Compact projected DOM node (main-frame V1). */
+export interface DomNode {
+  id: number
+  tag: string
+  attrs?: Record<string, string>
+  text?: string
+  children?: DomNode[]
+}
+
+/** Incremental Dom Projection operation. */
+export interface DomOp {
+  op: 'insert' | 'remove' | 'setAttr' | 'removeAttr' | 'setText' | 'move' | string
+  id: number
+  parentId?: number | null
+  index?: number | null
+  tag?: string
+  name?: string
+  value?: string
+  text?: string
+  node?: DomNode
+}
+
+export interface DomAssetHint {
+  hash: string
+  contentType: string
+}
+
+/** Dom Projection outbound unit (`DomDiff` DTO). */
+export interface DomDiff {
+  sequence: number
+  generation: number
+  timestamp: number
+  kind: 'snapshot' | 'patch' | string
+  root?: DomNode | null
+  ops?: DomOp[] | null
+  assetHints?: DomAssetHint[] | null
+}
+
+/** Element-targeted Dom Projection input. */
+export interface DomProjectionInput {
+  type: string
+  targetId: number
+  payload?: string
 }
 
 export interface EditingState {
@@ -198,6 +248,7 @@ export interface JournalStreamSubscription {
 
 export interface SessionEventMap {
   frame: SessionFrame
+  domDiff: DomDiff
   console: SessionConsoleOutput
   notification: SessionNotification
   syncUrl: string

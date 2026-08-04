@@ -20,6 +20,7 @@ import {
   DETACHED_TIMEOUT_PRESETS,
   DEVICE_EMULATION_PRESETS,
   DATA_STREAM_TRANSPORT_OPTIONS,
+  MIRROR_MODE_OPTIONS,
   INPUT_ACCESS_OPTIONS,
   INPUT_OWNERSHIP_OPTIONS,
   INPUT_SCHEDULING_OPTIONS,
@@ -271,7 +272,7 @@ export function SessionsEditor({
           <p className="text-sm font-medium">Current posture</p>
           <p className="text-sm text-muted-foreground">
             {summary.complete
-              ? `Sessions keep running ${summary.timeoutLabel} after the last disconnect, start at ${summary.viewportLabel}, stream ${summary.sharpnessLabel.toLowerCase()}, ${summary.jsBridge ? 'with' : 'without'} the JS bridge, use ${summary.dataStreamTransportLabel} for frames/input, and ${summary.access === 'exclusive' ? 'limit typing to one owner' : 'let attached clients share typing'} while ${summary.delivery === 'broadcast' ? 'sending video to every attached client' : 'sending video only to the owning client'}.`
+              ? `Sessions keep running ${summary.timeoutLabel} after the last disconnect, start at ${summary.viewportLabel}, stream ${summary.sharpnessLabel.toLowerCase()}, ${summary.jsBridge ? 'with' : 'without'} the JS bridge, use ${summary.dataStreamTransportLabel} for frames/input, mirror as ${summary.mirrorModeLabel}, and ${summary.access === 'exclusive' ? 'limit typing to one owner' : 'let attached clients share typing'} while ${summary.delivery === 'broadcast' ? 'sending video to every attached client' : 'sending video only to the owning client'}.`
               : 'Some required settings are missing. Choose a starting posture or Keep my values before saving.'}
           </p>
         </div>
@@ -295,6 +296,10 @@ export function SessionsEditor({
           <StatusPill
             label={`Data · ${summary.dataStreamTransportLabel}`}
             tone="info"
+          />
+          <StatusPill
+            label={`Mirror · ${summary.mirrorModeLabel}`}
+            tone={summary.mirrorMode === 'domProjection' ? 'warning' : 'info'}
           />
           <StatusPill
             label={`Stream · ${summary.sharpnessLabel}`}
@@ -471,6 +476,22 @@ export function SessionsEditor({
 
           <ControlStep
             step={4}
+            title="Which mirror mode should new sessions use?"
+            helper="Admin-only. Saved to Sessions config and sent on Launch. Session clients cannot choose this. DOM projection is accepted and stored; runtime still follows video streaming until that plugin lands."
+          >
+            <EnumSelect
+              id="mirrorMode"
+              label="Mirror mode"
+              value={
+                text(value.mirrorMode) === 'domProjection' ? 'domProjection' : 'videoStreaming'
+              }
+              options={MIRROR_MODE_OPTIONS}
+              onChange={(v) => patchField(['mirrorMode'], v)}
+            />
+          </ControlStep>
+
+          <ControlStep
+            step={5}
             title="What default screen size should new sessions open at?"
             helper="This is the starting viewport operators land on. Clients can still resize within the limits in the reveal below."
           >
@@ -528,7 +549,7 @@ export function SessionsEditor({
           </ControlStep>
 
           <ControlStep
-            step={5}
+            step={6}
             title="How sharp should the live video look?"
             helper="This only changes JPEG pixel density — not click targeting. Input always maps to the CSS viewport. Sharp costs more CPU and bandwidth on HiDPI clients; Lean stays light."
           >

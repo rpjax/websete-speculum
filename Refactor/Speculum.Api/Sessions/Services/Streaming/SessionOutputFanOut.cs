@@ -16,6 +16,7 @@ internal sealed class SessionOutputFanOut
     private readonly ISessionConnection _connection;
     private readonly ConcurrentDictionary<Guid, PipeStreamChannels> _pipes;
     private readonly OutputMultiplexingPolicy _policy;
+    private readonly MirrorMode _mirrorMode;
     private readonly CancellationToken _lifetime;
     private readonly object _ownerGate = new();
     private readonly List<Guid> _pipeOrder = [];
@@ -26,11 +27,13 @@ internal sealed class SessionOutputFanOut
         ISessionConnection connection,
         ConcurrentDictionary<Guid, PipeStreamChannels> pipes,
         OutputMultiplexingPolicy policy,
+        MirrorMode mirrorMode,
         CancellationToken lifetime)
     {
         _connection = connection;
         _pipes = pipes;
         _policy = policy ?? new OutputMultiplexingPolicy();
+        _mirrorMode = mirrorMode;
         _lifetime = lifetime;
     }
 
@@ -60,10 +63,21 @@ internal sealed class SessionOutputFanOut
             return;
         }
 
-        _ = PumpAsync(
-            () => _connection.GetFrameReader(),
-            static (c, item) => c.Frames.Writer.TryWrite(item),
-            static c => c.Frames.Writer.TryComplete());
+        if (_mirrorMode == MirrorMode.VideoStreaming)
+        {
+            _ = PumpAsync(
+                () => _connection.GetFrameReader(),
+                static (c, item) => c.Frames.Writer.TryWrite(item),
+                static c => c.Frames.Writer.TryComplete());
+        }
+        else
+        {
+            _ = PumpAsync(
+                () => _connection.GetDomDiffReader(),
+                static (c, item) => c.DomDiffs.Writer.TryWrite(item),
+                static c => c.DomDiffs.Writer.TryComplete());
+        }
+
         _ = PumpAsync(
             () => _connection.GetConsoleOutputReader(),
             static (c, item) => c.Console.Writer.TryWrite(item),

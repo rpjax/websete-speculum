@@ -6,8 +6,11 @@ import {
 } from '@/lib/speculum'
 import type { LiveSession, SessionClient } from '@/lib/speculum'
 import type {
+  DomDiff,
+  DomProjectionInput,
   EditingState,
   EvalResult,
+  MirrorMode,
   SessionFrame,
   SessionInput,
   SessionStatus,
@@ -111,6 +114,7 @@ const EMPTY_JOURNAL: JournalFeed = {
 }
 
 type FrameSink = (frame: SessionFrame) => void
+type DomDiffSink = (diff: DomDiff) => void
 
 interface FrameCounters {
   frames: number
@@ -190,6 +194,8 @@ export function useLiveSession({
   const [connectionId, setConnectionId] = useState<string | null>(null)
   const [profileId, setProfileId] = useState<string | null>(() => loadProfileId())
   const [sessionId, setSessionId] = useState<string | null>(null)
+  const [sessionToken, setSessionToken] = useState<string | null>(null)
+  const [mirrorMode, setMirrorMode] = useState<MirrorMode>('videoStreaming')
   const [entries, setEntries] = useState<LabLogEntry[]>([])
   const [consoleLines, setConsoleLines] = useState<LabConsoleLine[]>([])
   const [stats, setStats] = useState<LiveSessionStats>(EMPTY_STATS)
@@ -217,6 +223,7 @@ export function useLiveSession({
   const clientRef = useRef<SessionClient | null>(null)
   const sessionRef = useRef<LiveSession | null>(null)
   const sinksRef = useRef(new Set<FrameSink>())
+  const domDiffSinksRef = useRef(new Set<DomDiffSink>())
   const countersRef = useRef<FrameCounters>(freshCounters())
   const logIdRef = useRef(0)
   const consoleIdRef = useRef(0)
@@ -310,6 +317,13 @@ export function useLiveSession({
     }
   }, [])
 
+  const attachDomDiffSink = useCallback((sink: DomDiffSink) => {
+    domDiffSinksRef.current.add(sink)
+    return () => {
+      domDiffSinksRef.current.delete(sink)
+    }
+  }, [])
+
   const onFrame = useCallback((frame: SessionFrame) => {
     const counters = countersRef.current
     const sequence = Number(frame.sequence ?? 0)
@@ -334,10 +348,17 @@ export function useLiveSession({
     }
   }, [])
 
+  const onDomDiff = useCallback((diff: DomDiff) => {
+    for (const sink of domDiffSinksRef.current) {
+      sink(diff)
+    }
+  }, [])
+
   const bind = useCallback(
     (session: LiveSession) => {
       sessionRef.current = session
       session.on('frame', onFrame)
+      session.on('domDiff', onDomDiff)
       session.on('console', (message) => {
         countersRef.current.consoleMessages += 1
         countersRef.current.dirty = true
@@ -397,6 +418,8 @@ export function useLiveSession({
         if (sessionRef.current === session) {
           sessionRef.current = null
           setSessionId(null)
+          setSessionToken(null)
+          setMirrorMode('videoStreaming')
           setEditing(null)
           setKeyboardNonce(0)
           setPhase(client.isConnected ? 'connected' : 'idle')
@@ -404,7 +427,7 @@ export function useLiveSession({
         log('info', 'session closed')
       })
     },
-    [client, log, onFrame],
+    [client, log, onFrame, onDomDiff],
   )
 
   const connect = useCallback(async () => {
@@ -497,6 +520,8 @@ export function useLiveSession({
         })
         bind(session)
         setSessionId(session.sessionId)
+        setSessionToken(session.token)
+        setMirrorMode(session.mirrorMode)
         setRemoteViewport({ width: viewportWidth, height: viewportHeight })
         setViewportPolicy({
           minWidth: session.viewportMinWidth,
@@ -507,7 +532,11 @@ export function useLiveSession({
         setEditing(null)
         setKeyboardNonce(0)
         setPhase('live')
-        log('info', 'session live', { sessionId: session.sessionId, touchPrimary: primary })
+        log('info', 'session live', {
+          sessionId: session.sessionId,
+          touchPrimary: primary,
+          mirrorMode: session.mirrorMode,
+        })
       } catch (error) {
         if (isPendingConfigError(error)) {
           window.location.replace('/w7s/setup')
@@ -534,6 +563,8 @@ export function useLiveSession({
     } finally {
       sessionRef.current = null
       setSessionId(null)
+      setSessionToken(null)
+      setMirrorMode('videoStreaming')
       setViewportPolicy(null)
       setEditing(null)
       setKeyboardNonce(0)
@@ -567,6 +598,24 @@ export function useLiveSession({
       })
     },
     [debug, log],
+  )
+
+  const sendDomInput = useCallback(
+    (input: DomProjectionInput) => {
+      const session = sessionRef.current
+      if (!session) {
+        return
+      }
+      const counters = countersRef.current
+      counters.inputsSent += 1
+      counters.lastInputType = input.type
+      counters.lastInputAt = performance.now()
+      counters.dirty = true
+      void session.sendDomProjectionInput(input).catch((error: unknown) => {
+        log('error', `dom input ${input.type} failed`, error)
+      })
+    },
+    [log],
   )
 
   const onCanvasLayout = useCallback((size: CanvasSize) => {
@@ -698,6 +747,8 @@ export function useLiveSession({
     connectionId,
     profileId,
     sessionId,
+    sessionToken,
+    mirrorMode,
     currentUrl,
     navigateHref,
     entries: debug ? entries : [],
@@ -715,10 +766,12 @@ export function useLiveSession({
     remoteViewport,
     viewportPolicy,
     attachFrameSink,
+    attachDomDiffSink,
     connect,
     start,
     stop,
     sendInput,
+    sendDomInput,
     onCanvasLayout,
     onRemoteViewportApplied,
     requestRemoteResize,

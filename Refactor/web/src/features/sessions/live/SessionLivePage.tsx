@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { API_URL } from '@/lib/env'
 import { fetchClientConfig } from '@/lib/clientConfig'
-import { SessionViewport } from '@/features/sessions/live/SessionViewport'
+import { SessionMirrorSurface } from '@/features/sessions/live/SessionMirrorSurface'
 import { parseClientNavigation } from '@/features/sessions/live/sessionCoords'
 import { useLiveSession } from '@/features/sessions/live/useLiveSession'
 import { W7S_PREFIX, isW7sPath } from '@/lib/w7s'
@@ -9,7 +9,7 @@ import { W7S_PREFIX, isW7sPath } from '@/lib/w7s'
 const VIEWPORT = { width: 1280, height: 720 }
 
 /**
- * Immersive live surface: same {@link useLiveSession} + {@link SessionViewport}
+ * Immersive live surface: same {@link useLiveSession} + {@link SessionMirrorSurface}
  * as the session lab — no debug chrome, no Journal stream, no session vocabulary.
  * Default / catch-all route: browser path/query feeds StartSession as-is.
  */
@@ -49,12 +49,18 @@ export default function SessionLivePage() {
 
   return (
     <div className="fixed inset-0 bg-white">
-      <SessionViewport
+      <SessionMirrorSurface
+        mirrorMode={session.mirrorMode}
+        sessionId={session.sessionId}
+        token={session.sessionToken}
+        assetBaseUrl={API_URL}
         width={session.remoteViewport.width}
         height={session.remoteViewport.height}
         live={session.isLive}
         attachFrameSink={session.attachFrameSink}
+        attachDomDiffSink={session.attachDomDiffSink}
         onInput={session.sendInput}
+        onDomInput={session.sendDomInput}
         requestRemoteResize={session.requestRemoteResize}
         viewportPolicy={session.viewportPolicy ?? undefined}
         onCanvasLayout={session.onCanvasLayout}

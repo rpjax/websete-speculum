@@ -81,9 +81,25 @@ public sealed class ApiAuthMiddleware
         => IsExactOrChild(path, "/api/auth/login")
             || IsExactOrChild(path, "/api/auth/refresh")
             || path.StartsWith("/api/public/", StringComparison.OrdinalIgnoreCase)
+            // Dom Projection asset GETs are gated by session token query param
+            // (see DomAssetEndpoints) — not operator Bearer auth.
+            || IsDomAssetPath(path)
             || path.StartsWith("/health", StringComparison.OrdinalIgnoreCase)
             || path.Equals("/vhub", StringComparison.OrdinalIgnoreCase)
             || path.StartsWith("/vhub/", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// <c>/api/sessions/{guid}/dom-assets/{hash}</c> — live-session asset proxy.
+    /// </summary>
+    private static bool IsDomAssetPath(string path)
+    {
+        const string prefix = "/api/sessions/";
+        const string marker = "/dom-assets/";
+        if (!path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            return false;
+        var markerIndex = path.IndexOf(marker, prefix.Length, StringComparison.OrdinalIgnoreCase);
+        return markerIndex > prefix.Length;
+    }
 
     private static bool IsExactOrChild(string path, string root)
         => path.Equals(root, StringComparison.OrdinalIgnoreCase)

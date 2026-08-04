@@ -7,7 +7,7 @@ namespace Speculum.Api.Telemetry.Events.Models.Sessions.Input;
     "Telemetry.Sessions.Input.WebTransportReceived",
     schemaVersion: 1,
     Name = "Input WebTransport received",
-    Description = "User input framed message was received on the WebTransport UserInput pipe.",
+    Description = "User input framed message was received on the WebTransport VideoStreamingInput pipe.",
     Owner = "telemetry",
     PublishPolicy = PublishPolicy.BestEffort)]
 public sealed class WebTransportReceived

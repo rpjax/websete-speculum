@@ -76,7 +76,7 @@ export const LAB_TELEMETRY_EVENT_GROUPS: LabTelemetryEventGroup[] = [
       {
         type: 'Telemetry.Sessions.Input.WebTransportReceived',
         label: 'Hop 1 · Data-plane received',
-        help: 'UserInput framed message on the data plane (product path).',
+        help: 'VideoStreamingInput framed message on the data plane (product path).',
         hotPath: true,
       },
       {

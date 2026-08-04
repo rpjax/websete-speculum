@@ -5,7 +5,7 @@ namespace Speculum.Api.Telemetry.Events.Models.Sessions.Input;
 
 /// <summary>
 /// Hop 1 when input arrives on the control plane (SignalR). Used while client-initiated
-/// WebTransport UserInput streams are unreliable on some lab paths (~60s Accept delay).
+/// WebTransport VideoStreamingInput streams are unreliable on some lab paths (~60s Accept delay).
 /// </summary>
 [JournalFact(
     "Telemetry.Sessions.Input.ControlReceived",

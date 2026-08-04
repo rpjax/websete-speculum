@@ -230,6 +230,10 @@ public sealed class StartSessionHubResponse
 
     [Key("viewportMaxHeight")]
     public int ViewportMaxHeight { get; set; }
+
+    /// <summary>Sessions.MirrorMode wire form (<c>videoStreaming</c> | <c>domProjection</c>).</summary>
+    [Key("mirrorMode")]
+    public string MirrorMode { get; set; } = "videoStreaming";
 }
 
 /// <summary>Server→client: sync the SPA address bar to the virtual browser URL.</summary>

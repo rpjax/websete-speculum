@@ -28,6 +28,11 @@ import {
   sanitizeCookieForCdp,
   sanitizeCookieBatch,
 } from './browser/patchright/PageState';
+import { DomAssetCache } from './browser/patchright/mirror/dom/DomAssetCache';
+import {
+  decodeDomBody,
+  encodeDomBody,
+} from './browser/patchright/mirror/dom/DomTreeSerializer';
 import type { BrowserCookieState } from './browser/BrowserSession';
 import { collectTelemetry } from './telemetry/collectTelemetry';
 import { applyHostResources } from './host/hostResources';
@@ -671,6 +676,7 @@ function testLaunchEnvironmentIsRequired(): void {
     maxHeight: 1080,
   });
   assert.strictEqual(options.screencastMaxEncodeScale, 2);
+  assert.strictEqual(options.mirrorMode, 'videoStreaming');
 
   const scaled = toLaunchOptions({
     width: 800,
@@ -686,6 +692,22 @@ function testLaunchEnvironmentIsRequired(): void {
     screencastMaxEncodeScale: 1,
   });
   assert.strictEqual(scaled.screencastMaxEncodeScale, 1);
+  assert.strictEqual(scaled.mirrorMode, 'videoStreaming');
+
+  const dom = toLaunchOptions({
+    width: 800,
+    height: 600,
+    minWidth: 100,
+    minHeight: 100,
+    displayWidth: 2048,
+    displayHeight: 1080,
+    locale: 'en-US',
+    language: 'en-US',
+    timezoneId: 'UTC',
+    colorScheme: 'light',
+    mirrorMode: 'domProjection',
+  });
+  assert.strictEqual(dom.mirrorMode, 'domProjection');
   console.log('[unit] launch environment ok');
 }
 
@@ -1519,7 +1541,33 @@ async function main(): Promise<void> {
   await testTelemetryAllocationsSummaryAndSessions();
   testHostResourcesApplySkipsRemountOffLinux();
   testCookieSanitizeMatrix();
+  testDomAssetCacheAndBodyCodec();
   console.log('[unit] all passed');
+}
+
+function testDomAssetCacheAndBodyCodec(): void {
+  const cache = new DomAssetCache(1024, 2);
+  const a = cache.put(Buffer.from('aaa'), 'text/css');
+  const b = cache.put(Buffer.from('bbb'), 'image/png');
+  assert.ok(a);
+  assert.ok(b);
+  assert.strictEqual(cache.get(a!)?.contentType, 'text/css');
+  const c = cache.put(Buffer.from('ccc'), 'font/woff2');
+  assert.ok(c);
+  assert.strictEqual(cache.size, 2);
+  assert.strictEqual(cache.get(a!), undefined);
+
+  const body = encodeDomBody({
+    kind: 'snapshot',
+    root: { id: 1, tag: 'html', children: [{ id: 2, tag: '#text', text: 'hi' }] },
+  });
+  const decoded = decodeDomBody(body);
+  assert.strictEqual(decoded.kind, 'snapshot');
+  if (decoded.kind === 'snapshot') {
+    assert.strictEqual(decoded.root.tag, 'html');
+    assert.strictEqual(decoded.root.children?.[0]?.text, 'hi');
+  }
+  console.log('[unit] DomAssetCache + Dom body codec ok');
 }
 
 function testCookieSanitizeMatrix(): void {

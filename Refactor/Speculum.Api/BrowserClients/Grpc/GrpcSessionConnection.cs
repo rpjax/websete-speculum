@@ -3,10 +3,12 @@ using System.Threading.Channels;
 using Aidan.Core.Patterns;
 using Grpc.Core;
 using Microsoft.Extensions.Logging;
+using Speculum.Api.Configurations.Models.Sessions;
 using Speculum.Api.Configurations.Models.Sidecar;
 using Speculum.Api.Configurations.Services.Contracts;
 using Speculum.Api.Journal.Services.Contracts;
 using Speculum.Api.Profiles.Aggregates;
+using Speculum.Api.Sessions.Mirror.DomProjection;
 using Speculum.Api.Sessions.Models;
 using Speculum.Api.Sidecar.V1;
 using DomainCookieNormalizeStats = Speculum.Api.Sessions.Models.CookieNormalizeStats;
@@ -44,6 +46,13 @@ public sealed class GrpcSessionConnection : ISessionConnection
         SingleWriter = false,
     });
 
+    private readonly Channel<DomDiff> _domDiffs = Channel.CreateBounded<DomDiff>(new BoundedChannelOptions(4)
+    {
+        FullMode = BoundedChannelFullMode.DropOldest,
+        SingleReader = false,
+        SingleWriter = false,
+    });
+
     private readonly Channel<ConsoleOutput> _console = Channel.CreateBounded<ConsoleOutput>(
         new BoundedChannelOptions(256)
         {
@@ -61,7 +70,9 @@ public sealed class GrpcSessionConnection : ISessionConnection
         });
 
     private AsyncClientStreamingCall<InputEvent, ProtoEmpty>? _pushInput;
+    private AsyncClientStreamingCall<DomInputEvent, ProtoEmpty>? _pushDomInput;
     private AsyncDuplexStreamingCall<ControlToSidecar, ControlFromSidecar>? _control;
+    private MirrorMode _mirrorMode = MirrorMode.VideoStreaming;
     private DomainEditingState? _editing;
     private Func<CancellationToken, Task<PermissionDecision>>? _cameraPermissionHandler;
     private Func<CancellationToken, Task<PermissionDecision>>? _microphonePermissionHandler;
@@ -139,10 +150,20 @@ public sealed class GrpcSessionConnection : ISessionConnection
         ct.ThrowIfCancellationRequested();
         var token = _lifetime.Token;
 
-        _pushInput = _client.PushInput(cancellationToken: token);
+        _mirrorMode = _configuration.GetCurrent().Sessions.MirrorMode;
+        if (_mirrorMode == MirrorMode.VideoStreaming)
+        {
+            _pushInput = _client.PushInput(cancellationToken: token);
+            _ = PumpVideoAsync(token);
+        }
+        else
+        {
+            _pushDomInput = _client.PushDomInput(cancellationToken: token);
+            _ = PumpDomAsync(token);
+        }
+
         _control = _client.Control(headers: CreateSessionMetadata(), cancellationToken: token);
 
-        _ = PumpVideoAsync(token);
         _ = PumpConsoleAsync(token);
         _ = PumpLocationAsync(token);
         _ = PumpNavigationBlockedAsync(token);
@@ -166,11 +187,14 @@ public sealed class GrpcSessionConnection : ISessionConnection
             _lifetime.Cancel();
 
             AsyncClientStreamingCall<InputEvent, ProtoEmpty>? push;
+            AsyncClientStreamingCall<DomInputEvent, ProtoEmpty>? pushDom;
             AsyncDuplexStreamingCall<ControlToSidecar, ControlFromSidecar>? control;
             lock (_linkGate)
             {
                 push = _pushInput;
                 _pushInput = null;
+                pushDom = _pushDomInput;
+                _pushDomInput = null;
                 control = _control;
                 _control = null;
             }
@@ -179,6 +203,12 @@ public sealed class GrpcSessionConnection : ISessionConnection
             {
                 try { await push.RequestStream.CompleteAsync(); } catch { /* */ }
                 try { push.Dispose(); } catch { /* */ }
+            }
+
+            if (pushDom is not null)
+            {
+                try { await pushDom.RequestStream.CompleteAsync(); } catch { /* */ }
+                try { pushDom.Dispose(); } catch { /* */ }
             }
 
             if (control is not null)
@@ -201,6 +231,7 @@ public sealed class GrpcSessionConnection : ISessionConnection
         finally
         {
             _frames.Writer.TryComplete();
+            _domDiffs.Writer.TryComplete();
             _console.Writer.TryComplete();
             _notifications.Writer.TryComplete();
             _onClosed(SessionId);
@@ -215,6 +246,7 @@ public sealed class GrpcSessionConnection : ISessionConnection
         CancellationToken ct = default)
     {
         var sessions = _configuration.GetCurrent().Sessions;
+        _mirrorMode = sessions.MirrorMode;
         var policy = sessions.ViewportPolicy;
         var validated = GrpcRequestValidation.ValidateLaunch(configuration, policy);
         if (validated.IsFailure)
@@ -233,7 +265,8 @@ public sealed class GrpcSessionConnection : ISessionConnection
                         height,
                         configuration!,
                         policy,
-                        sessions.ScreencastPolicy.MaxEncodeScale),
+                        sessions.ScreencastPolicy.MaxEncodeScale,
+                        sessions.MirrorMode),
                     cancellationToken: token).ResponseAsync);
             return Result<BrowserReadyInfo>.Success(GrpcSessionMappers.ToReadyInfo(ready));
         });
@@ -396,6 +429,12 @@ public sealed class GrpcSessionConnection : ISessionConnection
         return Result<ChannelReader<Frame>>.Success(_frames.Reader);
     }
 
+    public IResult<ChannelReader<DomDiff>> GetDomDiffReader()
+    {
+        if (!IsOpen) return Result<ChannelReader<DomDiff>>.Failure("Connection closed");
+        return Result<ChannelReader<DomDiff>>.Success(_domDiffs.Reader);
+    }
+
     public IResult<ChannelReader<ConsoleOutput>> GetConsoleOutputReader()
     {
         if (!IsOpen) return Result<ChannelReader<ConsoleOutput>>.Failure("Connection closed");
@@ -447,7 +486,7 @@ public sealed class GrpcSessionConnection : ISessionConnection
         _microphonePermissionHandler = handler;
     }
 
-    public IResult<Task> ConsumeUserInputAsync(ChannelReader<UserInput> channelReader)
+    public IResult<Task> ConsumeVideoStreamingInputAsync(ChannelReader<VideoStreamingInput> channelReader)
     {
         CancellationToken lifetime;
         lock (_linkGate)
@@ -467,7 +506,51 @@ public sealed class GrpcSessionConnection : ISessionConnection
             }
         }
 
-        return Result<Task>.Success(PumpUserInputAsync(channelReader, lifetime));
+        return Result<Task>.Success(PumpVideoStreamingInputAsync(channelReader, lifetime));
+    }
+
+    public IResult<Task> ConsumeDomProjectionInputAsync(ChannelReader<DomProjectionInput> channelReader)
+    {
+        CancellationToken lifetime;
+        lock (_linkGate)
+        {
+            if (!IsOpen || _pushDomInput is null)
+            {
+                return Result<Task>.Failure("Connection closed");
+            }
+
+            try
+            {
+                lifetime = _lifetime.Token;
+            }
+            catch (ObjectDisposedException)
+            {
+                return Result<Task>.Failure("Connection closed");
+            }
+        }
+
+        return Result<Task>.Success(PumpDomProjectionInputAsync(channelReader, lifetime));
+    }
+
+    public async Task<IResult<DomAsset>> GetDomAssetAsync(string hash, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(hash))
+        {
+            return Result<DomAsset>.Failure("Asset hash is required");
+        }
+
+        return await CallValueAsync(async () =>
+        {
+            var response = await WithLinkedAsync(ct, token =>
+                _client.GetDomAssetAsync(
+                    new GetDomAssetRequest
+                    {
+                        SessionId = SessionId.ToString("D"),
+                        Hash = hash.Trim(),
+                    },
+                    cancellationToken: token).ResponseAsync);
+            return Result<DomAsset>.Success(GrpcSessionMappers.ToDomAsset(response));
+        });
     }
 
     public IResult<Task> ConsumeConsoleInputAsync(ChannelReader<ConsoleInput> channelReader)
@@ -490,7 +573,7 @@ public sealed class GrpcSessionConnection : ISessionConnection
         return Result<Task>.Success(PumpConsoleInputAsync(channelReader, lifetime));
     }
 
-    private async Task PumpUserInputAsync(ChannelReader<UserInput> reader, CancellationToken ct)
+    private async Task PumpVideoStreamingInputAsync(ChannelReader<VideoStreamingInput> reader, CancellationToken ct)
     {
         await foreach (var userInput in reader.ReadAllAsync(ct))
         {
@@ -511,13 +594,13 @@ public sealed class GrpcSessionConnection : ISessionConnection
             {
                 await WriteInputWithRetryAsync(input, ct).ConfigureAwait(false);
                 // High-frequency moves: skip journal/trace per sample.
-                if (!UserInputAdmitPolicy.IsHighFrequency(userInput))
+                if (!VideoStreamingInputAdmitPolicy.IsHighFrequency(userInput))
                 {
                     TryPublishNotification(new SessionNotification
                     {
                         Kind = SessionNotificationKind.InputApplied,
                         InputKind = userInput.Type,
-                        Phase = UserInputAdmitPolicy.TryTouchPhase(userInput),
+                        Phase = VideoStreamingInputAdmitPolicy.TryTouchPhase(userInput),
                     });
                     TryPublishInputPathTrace(
                         "Telemetry.Sessions.Input.SidecarPushWritten",
@@ -546,6 +629,82 @@ public sealed class GrpcSessionConnection : ISessionConnection
                 _logger.LogWarning(
                     ex,
                     "PushInput faulted for session {SessionId} after retries (link kept for WatchCrash)",
+                    SessionId);
+                TryPublishNotification(new SessionNotification
+                {
+                    Kind = SessionNotificationKind.InputRejected,
+                    ErrorCode = "input_push_failed",
+                    Phase = "push",
+                    Message = ex.Status.Detail ?? ex.Message,
+                });
+                continue;
+            }
+            catch (RpcException ex)
+            {
+                TryPublishNotification(new SessionNotification
+                {
+                    Kind = SessionNotificationKind.InputRejected,
+                    ErrorCode = "input_push_failed",
+                    Phase = "push",
+                    Message = ex.Status.Detail ?? ex.Message,
+                });
+            }
+            catch (ObjectDisposedException)
+            {
+                break;
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+        }
+    }
+
+    private async Task PumpDomProjectionInputAsync(ChannelReader<DomProjectionInput> reader, CancellationToken ct)
+    {
+        await foreach (var domInput in reader.ReadAllAsync(ct))
+        {
+            if (!GrpcSessionMappers.TryParseDomInputEvent(SessionId, domInput, out var input)
+                || input is null)
+            {
+                TryPublishNotification(new SessionNotification
+                {
+                    Kind = SessionNotificationKind.InputRejected,
+                    ErrorCode = "input_invalid",
+                    Phase = "validate",
+                    Message = $"Invalid dom input: {domInput.Type}",
+                });
+                continue;
+            }
+
+            try
+            {
+                await WriteDomInputWithRetryAsync(input, ct).ConfigureAwait(false);
+                TryPublishNotification(new SessionNotification
+                {
+                    Kind = SessionNotificationKind.InputApplied,
+                    InputKind = domInput.Type,
+                    Phase = "push",
+                });
+            }
+            catch (RpcException ex) when (ex.StatusCode == StatusCode.Cancelled)
+            {
+                break;
+            }
+            catch (RpcException ex) when (IsSessionGone(ex))
+            {
+                _logger.LogWarning(
+                    ex,
+                    "PushDomInput session gone for session {SessionId}",
+                    SessionId);
+                await FaultSidecarConnectionAsync().ConfigureAwait(false);
+                break;
+            }
+            catch (RpcException ex) when (ShouldRetry(ex))
+            {
+                _logger.LogWarning(
+                    ex,
+                    "PushDomInput faulted for session {SessionId} after retries (link kept for WatchCrash)",
                     SessionId);
                 TryPublishNotification(new SessionNotification
                 {
@@ -652,6 +811,81 @@ public sealed class GrpcSessionConnection : ISessionConnection
         }
     }
 
+    private async Task WriteDomInputWithRetryAsync(DomInputEvent input, CancellationToken ct)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            IClientStreamWriter<DomInputEvent>? stream;
+            lock (_linkGate)
+            {
+                stream = _pushDomInput?.RequestStream;
+            }
+
+            if (stream is null || !IsOpen)
+            {
+                throw new RpcException(new global::Grpc.Core.Status(StatusCode.Unavailable, "PushDomInput stream closed"));
+            }
+
+            try
+            {
+                await stream.WriteAsync(input, ct).ConfigureAwait(false);
+                return;
+            }
+            catch (RpcException ex) when (ex.StatusCode == StatusCode.Cancelled)
+            {
+                throw;
+            }
+            catch (RpcException ex) when (ShouldRetry(ex) && attempt < _linkRetryCount && IsOpen)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "PushDomInput retry {Attempt}/{Retries} (reopen stream) for session {SessionId}",
+                    attempt + 1,
+                    _linkRetryCount,
+                    SessionId);
+                await DelayLinkBackoffAsync(ct).ConfigureAwait(false);
+                ReopenPushDomInput();
+            }
+        }
+    }
+
+    private void ReopenPushDomInput()
+    {
+        lock (_linkGate)
+        {
+            if (!IsOpen)
+            {
+                return;
+            }
+
+            CancellationToken lifetime;
+            try
+            {
+                lifetime = _lifetime.Token;
+            }
+            catch (ObjectDisposedException)
+            {
+                return;
+            }
+
+            var previous = _pushDomInput;
+            _pushDomInput = null;
+            if (previous is not null)
+            {
+                try { previous.Dispose(); } catch { /* */ }
+            }
+
+            try
+            {
+                _pushDomInput = _client.PushDomInput(cancellationToken: lifetime);
+            }
+            catch (ObjectDisposedException)
+            {
+                /* Close raced */
+            }
+        }
+    }
+
     private async Task PumpConsoleInputAsync(ChannelReader<ConsoleInput> reader, CancellationToken ct)
     {
         await foreach (var input in reader.ReadAllAsync(ct))
@@ -738,6 +972,23 @@ public sealed class GrpcSessionConnection : ISessionConnection
                     Timestamp = nowMs,
                 };
                 await _frames.Writer.WriteAsync(item, token).ConfigureAwait(false);
+            },
+            ct);
+
+    private Task PumpDomAsync(CancellationToken ct) =>
+        RunWatchLoopAsync(
+            "WatchDom",
+            token => _client.WatchDom(
+                new ProtoSessionId { SessionId_ = SessionId.ToString("D") },
+                cancellationToken: token),
+            async (frame, token) =>
+            {
+                if (GrpcSessionMappers.ToDomDiff(frame) is not { } diff)
+                {
+                    return;
+                }
+
+                await _domDiffs.Writer.WriteAsync(diff, token).ConfigureAwait(false);
             },
             ct);
 

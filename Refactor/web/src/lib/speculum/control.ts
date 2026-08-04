@@ -118,6 +118,10 @@ export class ControlPlane {
       viewportMinHeight: Number(response.viewportMinHeight),
       viewportMaxWidth: Number(response.viewportMaxWidth),
       viewportMaxHeight: Number(response.viewportMaxHeight),
+      mirrorMode:
+        String(response.mirrorMode ?? '') === 'domProjection'
+          ? 'domProjection'
+          : 'videoStreaming',
     }
   }
 

@@ -51,6 +51,8 @@ const EventBridge_1 = require("./host/EventBridge");
 const DropOldestQueue_1 = require("./host/DropOldestQueue");
 const browserRace_1 = require("./host/browserRace");
 const PageState_1 = require("./browser/patchright/PageState");
+const DomAssetCache_1 = require("./browser/patchright/mirror/dom/DomAssetCache");
+const DomTreeSerializer_1 = require("./browser/patchright/mirror/dom/DomTreeSerializer");
 const collectTelemetry_1 = require("./telemetry/collectTelemetry");
 const hostResources_1 = require("./host/hostResources");
 /** Test stand-in for Sessions.ViewportPolicy — production gets this on Launch. */
@@ -533,6 +535,7 @@ function testLaunchEnvironmentIsRequired() {
         maxHeight: 1080,
     });
     assert_1.default.strictEqual(options.screencastMaxEncodeScale, 2);
+    assert_1.default.strictEqual(options.mirrorMode, 'videoStreaming');
     const scaled = (0, mappers_1.toLaunchOptions)({
         width: 800,
         height: 600,
@@ -547,6 +550,21 @@ function testLaunchEnvironmentIsRequired() {
         screencastMaxEncodeScale: 1,
     });
     assert_1.default.strictEqual(scaled.screencastMaxEncodeScale, 1);
+    assert_1.default.strictEqual(scaled.mirrorMode, 'videoStreaming');
+    const dom = (0, mappers_1.toLaunchOptions)({
+        width: 800,
+        height: 600,
+        minWidth: 100,
+        minHeight: 100,
+        displayWidth: 2048,
+        displayHeight: 1080,
+        locale: 'en-US',
+        language: 'en-US',
+        timezoneId: 'UTC',
+        colorScheme: 'light',
+        mirrorMode: 'domProjection',
+    });
+    assert_1.default.strictEqual(dom.mirrorMode, 'domProjection');
     console.log('[unit] launch environment ok');
 }
 function testScreencastEncodeSize() {
@@ -1270,7 +1288,31 @@ async function main() {
     await testTelemetryAllocationsSummaryAndSessions();
     testHostResourcesApplySkipsRemountOffLinux();
     testCookieSanitizeMatrix();
+    testDomAssetCacheAndBodyCodec();
     console.log('[unit] all passed');
+}
+function testDomAssetCacheAndBodyCodec() {
+    const cache = new DomAssetCache_1.DomAssetCache(1024, 2);
+    const a = cache.put(Buffer.from('aaa'), 'text/css');
+    const b = cache.put(Buffer.from('bbb'), 'image/png');
+    assert_1.default.ok(a);
+    assert_1.default.ok(b);
+    assert_1.default.strictEqual(cache.get(a)?.contentType, 'text/css');
+    const c = cache.put(Buffer.from('ccc'), 'font/woff2');
+    assert_1.default.ok(c);
+    assert_1.default.strictEqual(cache.size, 2);
+    assert_1.default.strictEqual(cache.get(a), undefined);
+    const body = (0, DomTreeSerializer_1.encodeDomBody)({
+        kind: 'snapshot',
+        root: { id: 1, tag: 'html', children: [{ id: 2, tag: '#text', text: 'hi' }] },
+    });
+    const decoded = (0, DomTreeSerializer_1.decodeDomBody)(body);
+    assert_1.default.strictEqual(decoded.kind, 'snapshot');
+    if (decoded.kind === 'snapshot') {
+        assert_1.default.strictEqual(decoded.root.tag, 'html');
+        assert_1.default.strictEqual(decoded.root.children?.[0]?.text, 'hi');
+    }
+    console.log('[unit] DomAssetCache + Dom body codec ok');
 }
 function testCookieSanitizeMatrix() {
     const dirty = {

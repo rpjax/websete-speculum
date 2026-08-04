@@ -3,7 +3,10 @@ import type { DataStreamTransport } from './dataStreamTransport'
 import { Emitter } from './emitter'
 import { FramedReader, writeMessage } from './framing'
 import type {
+  DomDiff,
+  DomProjectionInput,
   EvalResult,
+  MirrorMode,
   SessionConsoleOutput,
   SessionEventMap,
   SessionInput,
@@ -18,12 +21,14 @@ export interface DataStreamsOptions {
   transportPath?: string
   sessionId: string
   token: string
+  /** Defaults to videoStreaming — gates which input pipe is opened. */
+  mirrorMode?: MirrorMode
   /** Defaults to {@link WebTransportDataStreamTransport}. */
   transport?: DataStreamTransport
 }
 
 /**
- * Logical data streams for a live session (frames, input, console, notifications, status).
+ * Logical data streams for a live session (frames, DomDiffs, input, console, notifications, status).
  * Carrier is pluggable via {@link DataStreamTransport}.
  */
 export class DataStreams extends Emitter<SessionEventMap> {
@@ -32,10 +37,13 @@ export class DataStreams extends Emitter<SessionEventMap> {
   private readonly transportPath: string
   private readonly sessionId: string
   private readonly token: string
+  private readonly mirrorMode: MirrorMode
   private readonly transport: DataStreamTransport
   private userInput: WritableStreamDefaultWriter<Uint8Array> | null = null
+  private domProjectionInput: WritableStreamDefaultWriter<Uint8Array> | null = null
   private consoleInput: WritableStreamDefaultWriter<Uint8Array> | null = null
   private userInputWriteChain: Promise<void> = Promise.resolve()
+  private domProjectionInputWriteChain: Promise<void> = Promise.resolve()
   private consoleInputWriteChain: Promise<void> = Promise.resolve()
   private lifetime: AbortController | null = null
   private readonly pendingEval = new Map<
@@ -53,11 +61,16 @@ export class DataStreams extends Emitter<SessionEventMap> {
     this.transportPath = options.transportPath ?? DefaultTransportPath
     this.sessionId = options.sessionId
     this.token = options.token
+    this.mirrorMode = options.mirrorMode === 'domProjection' ? 'domProjection' : 'videoStreaming'
     this.transport = options.transport ?? new WebTransportDataStreamTransport()
   }
 
   get isOpen(): boolean {
     return !this.closed && this.connected
+  }
+
+  get mode(): MirrorMode {
+    return this.mirrorMode
   }
 
   async open(): Promise<void> {
@@ -74,7 +87,11 @@ export class DataStreams extends Emitter<SessionEventMap> {
     })
     this.connected = true
 
-    this.userInput = await this.openOutgoingWriter(PipeKind.UserInput)
+    if (this.mirrorMode === 'domProjection') {
+      this.domProjectionInput = await this.openOutgoingWriter(PipeKind.DomProjectionInput)
+    } else {
+      this.userInput = await this.openOutgoingWriter(PipeKind.VideoStreamingInput)
+    }
     this.consoleInput = await this.openOutgoingWriter(PipeKind.ConsoleInput)
     this.pumpIncoming()
     this.watchClosed()
@@ -82,7 +99,11 @@ export class DataStreams extends Emitter<SessionEventMap> {
 
   async sendInput(input: SessionInput): Promise<void> {
     if (!this.userInput) {
-      throw new Error('Data streams are not open')
+      throw new Error(
+        this.mirrorMode === 'domProjection'
+          ? 'VideoStreamingInput is not available in DomProjection mode'
+          : 'Data streams are not open',
+      )
     }
     const writer = this.userInput
     const write = this.userInputWriteChain.then(() =>
@@ -92,6 +113,29 @@ export class DataStreams extends Emitter<SessionEventMap> {
       }),
     )
     this.userInputWriteChain = write.then(
+      () => undefined,
+      () => undefined,
+    )
+    await write
+  }
+
+  async sendDomProjectionInput(input: DomProjectionInput): Promise<void> {
+    if (!this.domProjectionInput) {
+      throw new Error(
+        this.mirrorMode !== 'domProjection'
+          ? 'DomProjectionInput is not available in VideoStreaming mode'
+          : 'Data streams are not open',
+      )
+    }
+    const writer = this.domProjectionInput
+    const write = this.domProjectionInputWriteChain.then(() =>
+      writeMessage(writer, {
+        type: input.type,
+        targetId: input.targetId,
+        payload: input.payload ?? '{}',
+      }),
+    )
+    this.domProjectionInputWriteChain = write.then(
       () => undefined,
       () => undefined,
     )
@@ -160,6 +204,9 @@ export class DataStreams extends Emitter<SessionEventMap> {
     await closeWriter(this.userInput)
     this.userInput = null
     this.userInputWriteChain = Promise.resolve()
+    await closeWriter(this.domProjectionInput)
+    this.domProjectionInput = null
+    this.domProjectionInputWriteChain = Promise.resolve()
     await closeWriter(this.consoleInput)
     this.consoleInput = null
     this.consoleInputWriteChain = Promise.resolve()
@@ -169,7 +216,10 @@ export class DataStreams extends Emitter<SessionEventMap> {
   }
 
   private async openOutgoingWriter(
-    kind: typeof PipeKind.UserInput | typeof PipeKind.ConsoleInput,
+    kind:
+      | typeof PipeKind.VideoStreamingInput
+      | typeof PipeKind.DomProjectionInput
+      | typeof PipeKind.ConsoleInput,
   ): Promise<WritableStreamDefaultWriter<Uint8Array>> {
     const pipe = await this.transport.openPipe(kind)
     if (!pipe.writable) {
@@ -230,6 +280,9 @@ export class DataStreams extends Emitter<SessionEventMap> {
           case PipeKind.Frame:
             this.emit('frame', message as SessionEventMap['frame'])
             break
+          case PipeKind.DomDiff:
+            this.emit('domDiff', normalizeDomDiff(message))
+            break
           case PipeKind.ConsoleOutput:
             this.onConsole(message as SessionConsoleOutput)
             break
@@ -277,6 +330,19 @@ export class DataStreams extends Emitter<SessionEventMap> {
       () => this.close(),
       () => this.close(),
     )
+  }
+}
+
+function normalizeDomDiff(message: unknown): DomDiff {
+  const raw = (message ?? {}) as Record<string, unknown>
+  return {
+    sequence: Number(raw.sequence ?? 0),
+    generation: Number(raw.generation ?? 0),
+    timestamp: Number(raw.timestamp ?? 0),
+    kind: String(raw.kind ?? ''),
+    root: (raw.root as DomDiff['root']) ?? null,
+    ops: (raw.ops as DomDiff['ops']) ?? null,
+    assetHints: (raw.assetHints as DomDiff['assetHints']) ?? null,
   }
 }
 

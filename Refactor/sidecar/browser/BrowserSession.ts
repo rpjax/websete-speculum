@@ -42,6 +42,15 @@ export interface BrowserSessionEvents {
   onVideoFrame(jpeg: Uint8Array): void;
   onAudioFrame(chunk: Uint8Array): void;
 
+  /** Dom Projection diff (only when MirrorMode is DomProjection). */
+  onDomDiff?(diff: {
+    sequence: number;
+    generation: number;
+    kind: string;
+    timestampMs: number;
+    body: Uint8Array;
+  }): void;
+
   // page console (side effects of page scripts / evaluate; not the eval return value)
   onConsole(level: number, text: string): void;
 
@@ -161,6 +170,8 @@ export interface BrowserLaunchOptions {
   };
   /** Sessions.ScreencastPolicy.MaxEncodeScale (1..2). */
   screencastMaxEncodeScale: number;
+  /** Sessions.MirrorMode from Launch (admin engine config). */
+  mirrorMode: 'videoStreaming' | 'domProjection';
   locale: string;
   language: string;
   timeZoneId: string;
@@ -400,6 +411,18 @@ export interface BrowserSession {
    * Validation and product policy live above this port.
    */
   pushInput(input: BrowserInput): Promise<void>;
+
+  /**
+   * Dom Projection element input. No-op / throw when MirrorMode is not DomProjection.
+   */
+  pushDomInput?(input: {
+    type: string;
+    targetId: number;
+    payloadJson?: string;
+  }): Promise<void>;
+
+  /** Dom Projection asset bytes by hash (session-scoped cache). */
+  getDomAsset?(hash: string): Promise<{ body: Uint8Array; contentType: string } | null>;
 
   /** Client camera frame → virtual browser capture / getUserMedia path. */
   pushCameraFrame(frame: Uint8Array): Promise<void>;

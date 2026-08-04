@@ -19,6 +19,13 @@ export interface PermissionRequestMsg {
 export class EventBridge implements BrowserSessionEvents {
   readonly video = new DropOldestQueue<Uint8Array>(2);
   readonly audio = new DropOldestQueue<Uint8Array>(2);
+  readonly dom = new DropOldestQueue<{
+    sequence: number;
+    generation: number;
+    kind: string;
+    timestampMs: number;
+    body: Uint8Array;
+  }>(4);
   readonly consoleQ = new DropOldestQueue<{ level: number; text: string }>(64);
   readonly location = new DropOldestQueue<string>(1);
   readonly navigationBlocked = new DropOldestQueue<string>(8);
@@ -68,6 +75,16 @@ export class EventBridge implements BrowserSessionEvents {
 
   onVideoFrame(jpeg: Uint8Array): void {
     this.video.tryWrite(jpeg);
+  }
+
+  onDomDiff(diff: {
+    sequence: number;
+    generation: number;
+    kind: string;
+    timestampMs: number;
+    body: Uint8Array;
+  }): void {
+    this.dom.tryWrite(diff);
   }
 
   onAudioFrame(chunk: Uint8Array): void {

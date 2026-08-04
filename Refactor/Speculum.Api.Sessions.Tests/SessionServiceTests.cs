@@ -14,6 +14,7 @@ using Speculum.Api.Profiles.Services.Contracts;
 using Speculum.Api.Sessions.Aggregates;
 using Speculum.Api.Sessions.Events.Models;
 using Speculum.Api.Sessions.Events.Services.Contracts;
+using Speculum.Api.Sessions.Mirror.DomProjection;
 using Speculum.Api.Sessions.Models;
 using Speculum.Api.Sessions.Requests;
 using Speculum.Api.Sessions.Services;
@@ -708,6 +709,7 @@ public sealed class SessionServiceTests
         private readonly Action _onClose;
         private bool _open = true;
         private readonly Channel<Frame> _frames = Channel.CreateUnbounded<Frame>();
+        private readonly Channel<DomDiff> _domDiffs = Channel.CreateUnbounded<DomDiff>();
         private readonly Channel<ConsoleOutput> _console = Channel.CreateUnbounded<ConsoleOutput>();
         private readonly Channel<SessionNotification> _notifications = Channel.CreateUnbounded<SessionNotification>();
 
@@ -771,6 +773,9 @@ public sealed class SessionServiceTests
         public IResult<ChannelReader<Frame>> GetFrameReader()
             => Result<ChannelReader<Frame>>.Success(_frames.Reader);
 
+        public IResult<ChannelReader<DomDiff>> GetDomDiffReader()
+            => Result<ChannelReader<DomDiff>>.Success(_domDiffs.Reader);
+
         public IResult<ChannelReader<ConsoleOutput>> GetConsoleOutputReader()
             => Result<ChannelReader<ConsoleOutput>>.Success(_console.Reader);
 
@@ -787,8 +792,14 @@ public sealed class SessionServiceTests
 
         public void SetMicrophonePermissionHandler(Func<CancellationToken, Task<PermissionDecision>> handler) { }
 
-        public IResult<Task> ConsumeUserInputAsync(ChannelReader<UserInput> channelReader)
+        public IResult<Task> ConsumeVideoStreamingInputAsync(ChannelReader<VideoStreamingInput> channelReader)
             => Result<Task>.Success(Task.CompletedTask);
+
+        public IResult<Task> ConsumeDomProjectionInputAsync(ChannelReader<DomProjectionInput> channelReader)
+            => Result<Task>.Success(Task.CompletedTask);
+
+        public Task<IResult<DomAsset>> GetDomAssetAsync(string hash, CancellationToken ct = default)
+            => Task.FromResult<IResult<DomAsset>>(Result<DomAsset>.Failure("not implemented"));
 
         public IResult<Task> ConsumeConsoleInputAsync(ChannelReader<ConsoleInput> channelReader)
             => Result<Task>.Success(Task.CompletedTask);

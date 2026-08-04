@@ -33,10 +33,25 @@ export const DATA_STREAM_TRANSPORT_OPTIONS: Array<[string, string, string]> = [
   ],
 ]
 
+/** Admin-only Sessions.MirrorMode — Launch-scoped; not chosen by the session client. */
+export const MIRROR_MODE_OPTIONS: Array<[string, string, string]> = [
+  [
+    'videoStreaming',
+    'Video streaming',
+    'JPEG screencast frames and coordinate input (current product path).',
+  ],
+  [
+    'domProjection',
+    'DOM projection',
+    'Projected DOM diffs and element input (plugin not wired yet; stored for Launch).',
+  ],
+]
+
 export const SESSIONS_BASELINE: JsonObject = {
   detachedSessionTimeout: '00:30:00',
   isJsBridgeEnabled: true,
   dataStreamTransport: 'webTransport',
+  mirrorMode: 'videoStreaming',
   viewportPolicy: {
     minimum: { width: 100, height: 100 },
     default: { width: 1280, height: 720 },
@@ -437,6 +452,8 @@ export function fillSessionsGaps(current: JsonObject): JsonObject {
         : Boolean(SESSIONS_BASELINE.isJsBridgeEnabled),
     dataStreamTransport:
       text(current.dataStreamTransport) === 'webSocket' ? 'webSocket' : 'webTransport',
+    mirrorMode:
+      text(current.mirrorMode) === 'domProjection' ? 'domProjection' : 'videoStreaming',
     viewportPolicy: current.viewportPolicy ?? SESSIONS_BASELINE.viewportPolicy,
     clientEnvironmentPolicy:
       current.clientEnvironmentPolicy ?? SESSIONS_BASELINE.clientEnvironmentPolicy,
@@ -506,6 +523,8 @@ export function summarizeSessions(value: JsonObject) {
   const jsBridge = Boolean(value.isJsBridgeEnabled)
   const dataStreamTransport =
     text(value.dataStreamTransport) === 'webSocket' ? 'webSocket' : 'webTransport'
+  const mirrorMode =
+    text(value.mirrorMode) === 'domProjection' ? 'domProjection' : 'videoStreaming'
   const viewport = asObject(asObject(value.viewportPolicy).default)
   const width = asNumber(viewport.width)
   const height = asNumber(viewport.height)
@@ -536,6 +555,8 @@ export function summarizeSessions(value: JsonObject) {
       DATA_STREAM_TRANSPORT_OPTIONS,
       dataStreamTransport,
     ),
+    mirrorMode,
+    mirrorModeLabel: describeEnumLabel(MIRROR_MODE_OPTIONS, mirrorMode),
     viewportWidth: width,
     viewportHeight: height,
     viewportLabel: hasViewport ? `${width}×${height}` : 'Not set',

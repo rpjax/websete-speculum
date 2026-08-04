@@ -2,6 +2,8 @@ using System.Diagnostics.CodeAnalysis;
 using System.Threading.Channels;
 using Aidan.Core.Patterns;
 using Speculum.Api.BrowserClients;
+using Speculum.Api.Configurations.Models.Sessions;
+using Speculum.Api.Sessions.Mirror.DomProjection;
 using Speculum.Api.Sessions.Models;
 using Speculum.Api.Sessions.Requests;
 using Speculum.Api.Sessions.Services;
@@ -148,6 +150,7 @@ public sealed class SessionBindingRegistryTests
         }
 
         public Guid SessionId { get; }
+        public MirrorMode MirrorMode => Configurations.Models.Sessions.MirrorMode.VideoStreaming;
         public Guid? DetachedAttachmentId { get; private set; }
 
         public IResult<Guid> Attach(IAttachedSessionClient client)
@@ -160,15 +163,19 @@ public sealed class SessionBindingRegistryTests
         }
 
         public IResult<IFrameStream> OpenFrameStream() => throw new NotSupportedException();
+        public IResult<IDomDiffStream> OpenDomDiffStream() => throw new NotSupportedException();
         public IResult<IConsoleOutputStream> OpenConsoleOutputStream() => throw new NotSupportedException();
         public IResult<INotificationStream> OpenNotificationStream() => throw new NotSupportedException();
 
-        public IResult<Task> ConsumeUserInputAsync(
-            ChannelReader<UserInput> channelReader,
+        public IResult<Task> ConsumeVideoStreamingInputAsync(
+            ChannelReader<VideoStreamingInput> channelReader,
             CancellationToken ct = default)
             => throw new NotSupportedException();
 
-        public IResult AdmitUserInput(UserInput input) => Result.Success();
+        public IResult AdmitVideoStreamingInput(VideoStreamingInput input) => Result.Success();
+
+        public IResult AdmitDomProjectionInput(DomProjectionInput input)
+            => Result.Success();
 
         public IResult<Task> ConsumeConsoleInputAsync(
             ChannelReader<ConsoleInput> channelReader,
@@ -201,6 +208,9 @@ public sealed class SessionBindingRegistryTests
         public Task<IResult<DiagProbeResult>> RequestDiagnosticsAsync(
             ProbeSession request,
             CancellationToken ct = default)
+            => throw new NotSupportedException();
+
+        public Task<IResult<DomAsset>> GetDomAssetAsync(string hash, CancellationToken ct = default)
             => throw new NotSupportedException();
 
         public IResult<Guid> RegisterCameraPermission(

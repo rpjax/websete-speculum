@@ -3,6 +3,7 @@ using System.Buffers.Binary;
 using System.IO.Pipelines;
 using System.Threading.Channels;
 using MessagePack;
+using Speculum.Api.Sessions.Mirror.DomProjection;
 using Speculum.Api.Sessions.Models;
 using Speculum.Api.Sessions.Services.Contracts;
 using Speculum.Api.Sessions.Services.Streaming;
@@ -35,6 +36,7 @@ internal static class SessionDataStreamsHost
             {
                 acceptTask,
                 PumpFramesAsync(session, live, ct),
+                PumpDomDiffsAsync(session, live, ct),
                 PumpConsoleAsync(session, live, ct),
                 PumpNotificationsAsync(session, live, ct),
             };
@@ -94,6 +96,28 @@ internal static class SessionDataStreamsHost
         }
 
         await PumpOutputAsync(session, SessionPipeKind.Frame, channel.Value, ct)
+            .ConfigureAwait(false);
+    }
+
+    private static async Task PumpDomDiffsAsync(
+        IDataStreamSession session,
+        ILiveSession live,
+        CancellationToken ct)
+    {
+        var opened = live.OpenDomDiffStream();
+        if (opened.IsFailure)
+        {
+            return;
+        }
+
+        using var source = opened.Value;
+        var channel = source.GetDomDiffsChannel();
+        if (channel.IsFailure)
+        {
+            return;
+        }
+
+        await PumpOutputAsync(session, SessionPipeKind.DomDiff, channel.Value, ct)
             .ConfigureAwait(false);
     }
 
@@ -186,8 +210,11 @@ internal static class SessionDataStreamsHost
             var kind = (SessionPipeKind)kindBytes[0];
             switch (kind)
             {
-                case SessionPipeKind.UserInput:
-                    await HandleUserInputAsync(pipe.Input, live, ct).ConfigureAwait(false);
+                case SessionPipeKind.VideoStreamingInput:
+                    await HandleVideoStreamingInputAsync(pipe.Input, live, ct).ConfigureAwait(false);
+                    break;
+                case SessionPipeKind.DomProjectionInput:
+                    await HandleDomProjectionInputAsync(pipe.Input, live, ct).ConfigureAwait(false);
                     break;
                 case SessionPipeKind.ConsoleInput:
                     await HandleConsoleInputAsync(pipe, live, ct).ConfigureAwait(false);
@@ -199,15 +226,26 @@ internal static class SessionDataStreamsHost
         }
     }
 
-    private static async Task HandleUserInputAsync(
+    private static async Task HandleVideoStreamingInputAsync(
         PipeReader input,
         ILiveSession live,
         CancellationToken ct)
     {
-        await foreach (var item in ReadMessagesAsync<UserInput>(input, ct).ConfigureAwait(false))
+        await foreach (var item in ReadMessagesAsync<VideoStreamingInput>(input, ct).ConfigureAwait(false))
         {
             live.TraceInputPathWtReceived(item.Type);
-            _ = live.AdmitUserInput(item);
+            _ = live.AdmitVideoStreamingInput(item);
+        }
+    }
+
+    private static async Task HandleDomProjectionInputAsync(
+        PipeReader input,
+        ILiveSession live,
+        CancellationToken ct)
+    {
+        await foreach (var item in ReadMessagesAsync<DomProjectionInput>(input, ct).ConfigureAwait(false))
+        {
+            _ = live.AdmitDomProjectionInput(item);
         }
     }
 
@@ -387,8 +425,10 @@ internal static class SessionDataStreamsHost
         Frame = 1,
         ConsoleOutput = 2,
         Notification = 3,
-        UserInput = 4,
+        VideoStreamingInput = 4,
         ConsoleInput = 5,
         Status = 6,
+        DomDiff = 7,
+        DomProjectionInput = 8,
     }
 }

@@ -54,7 +54,7 @@ function concat(chunks: Uint8Array[]): Uint8Array {
 }
 
 describe('DataStreams.sendInput', () => {
-  it('writes PipeKind.UserInput header then a framed type/payload message', async () => {
+  it('writes PipeKind.VideoStreamingInput header then a framed type/payload message', async () => {
     const transport = new MockDataStreamTransport()
     const streams = new DataStreams({
       sessionId: '00000000-0000-0000-0000-000000000001',
@@ -65,10 +65,10 @@ describe('DataStreams.sendInput', () => {
     await streams.open()
     await streams.sendInput({ type: 'mousedown', x: 10, y: 20, button: 0 })
 
-    const chunks = transport.pipes.get(PipeKind.UserInput)
+    const chunks = transport.pipes.get(PipeKind.VideoStreamingInput)
     expect(chunks).toBeDefined()
     const bytes = concat(chunks!)
-    expect(bytes[0]).toBe(PipeKind.UserInput)
+    expect(bytes[0]).toBe(PipeKind.VideoStreamingInput)
 
     const reader = new ReadableStream<Uint8Array>({
       start(controller) {
@@ -91,6 +91,37 @@ describe('DataStreams.sendInput', () => {
       y: 20,
       button: 0,
     })
+
+    await streams.close()
+  })
+
+  it('opens DomProjectionInput only in DomProjection mode', async () => {
+    const transport = new MockDataStreamTransport()
+    const streams = new DataStreams({
+      sessionId: '00000000-0000-0000-0000-000000000002',
+      token: 'test-token',
+      mirrorMode: 'domProjection',
+      transport,
+    })
+
+    await streams.open()
+    expect(transport.pipes.has(PipeKind.VideoStreamingInput)).toBe(false)
+    expect(transport.pipes.has(PipeKind.DomProjectionInput)).toBe(true)
+
+    await streams.sendDomProjectionInput({
+      type: 'click',
+      targetId: 7,
+      payload: '{}',
+    })
+
+    const chunks = transport.pipes.get(PipeKind.DomProjectionInput)
+    expect(chunks).toBeDefined()
+    const bytes = concat(chunks!)
+    expect(bytes[0]).toBe(PipeKind.DomProjectionInput)
+
+    await expect(
+      streams.sendInput({ type: 'mousedown', x: 1, y: 2, button: 0 }),
+    ).rejects.toThrow(/VideoStreamingInput is not available/)
 
     await streams.close()
   })

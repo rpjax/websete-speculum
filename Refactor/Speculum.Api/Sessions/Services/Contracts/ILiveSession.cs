@@ -1,5 +1,7 @@
 using System.Threading.Channels;
 using Aidan.Core.Patterns;
+using Speculum.Api.Configurations.Models.Sessions;
+using Speculum.Api.Sessions.Mirror.DomProjection;
 using Speculum.Api.Sessions.Models;
 using Speculum.Api.Sessions.Requests;
 
@@ -14,10 +16,17 @@ namespace Speculum.Api.Sessions.Services.Contracts;
 /// sidecar connection. Presentation calls this port; it must not inject
 /// <c>IBrowserClient</c> / <c>ISessionConnection</c>.
 /// Stream handles are <see cref="IDisposable"/> — dispose to unregister; no close-by-id API.
+/// Visual and input streams are MirrorMode-gated: VideoStreaming uses frame + coordinate
+/// input; DomProjection uses DomDiff + element input.
 /// </remarks>
 public interface ILiveSession
 {
     Guid SessionId { get; }
+
+    /// <summary>
+    /// Sessions.MirrorMode captured at create (admin engine config). Immutable for this live.
+    /// </summary>
+    MirrorMode MirrorMode { get; }
 
     // ── Caller attachment ────────────────────────────────────────────────────
 
@@ -35,8 +44,11 @@ public interface ILiveSession
 
     // ── Streams ──────────────────────────────────────────────────────────────
 
-    /// <summary>Opens a screencast frame stream.</summary>
+    /// <summary>Opens a screencast frame stream (MirrorMode.VideoStreaming only).</summary>
     IResult<IFrameStream> OpenFrameStream();
+
+    /// <summary>Opens a Dom Projection diff stream (MirrorMode.DomProjection only).</summary>
+    IResult<IDomDiffStream> OpenDomDiffStream();
 
     /// <summary>Opens a console output stream.</summary>
     IResult<IConsoleOutputStream> OpenConsoleOutputStream();
@@ -45,19 +57,26 @@ public interface ILiveSession
     IResult<INotificationStream> OpenNotificationStream();
 
     /// <summary>
-    /// Pumps user input into the live session until the channel completes,
+    /// Pumps video-streaming input until the channel completes,
     /// <paramref name="ct"/> cancels, or the live session is released.
-    /// Prefer <see cref="AdmitUserInput"/> for the product path (shared admission).
+    /// Prefer <see cref="AdmitVideoStreamingInput"/> for the product path (shared admission).
+    /// MirrorMode.VideoStreaming only.
     /// </summary>
-    IResult<Task> ConsumeUserInputAsync(
-        ChannelReader<UserInput> channelReader,
+    IResult<Task> ConsumeVideoStreamingInputAsync(
+        ChannelReader<VideoStreamingInput> channelReader,
         CancellationToken ct = default);
 
     /// <summary>
-    /// Ensures a single DropOldest admission pump and enqueues one user-input event.
-    /// Product path: data-plane UserInput stream; harness HTTP may also admit.
+    /// Ensures a single DropOldest admission pump and enqueues one video-streaming input event.
+    /// Product path: data-plane VideoStreamingInput stream; harness HTTP may also admit.
+    /// MirrorMode.VideoStreaming only.
     /// </summary>
-    IResult AdmitUserInput(UserInput input);
+    IResult AdmitVideoStreamingInput(VideoStreamingInput input);
+
+    /// <summary>
+    /// Admits one Dom Projection input event. MirrorMode.DomProjection only.
+    /// </summary>
+    IResult AdmitDomProjectionInput(DomProjectionInput input);
 
     /// <summary>
     /// Pumps console input into the live session (JsBridge-gated by mux policy).
@@ -67,13 +86,13 @@ public interface ILiveSession
         CancellationToken ct = default);
 
     /// <summary>
-    /// Opt-in Journal hop: data-plane UserInput framed message was received.
+    /// Opt-in Journal hop: data-plane VideoStreamingInput framed message was received.
     /// No-op when <c>Telemetry.Sessions.Input.WebTransportReceived</c> is disabled in the catalog.
     /// </summary>
     void TraceInputPathWtReceived(string kind);
 
     /// <summary>
-    /// Opt-in Journal hop: user input admitted outside the framed data plane (e.g. harness).
+    /// Opt-in Journal hop: video-streaming input admitted outside the framed data plane (e.g. harness).
     /// No-op when <c>Telemetry.Sessions.Input.ControlReceived</c> is disabled in the catalog.
     /// </summary>
     void TraceInputPathControlReceived(string kind);
@@ -97,6 +116,11 @@ public interface ILiveSession
     Task<IResult<DiagProbeResult>> RequestDiagnosticsAsync(
         ProbeSession request,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Fetches a Dom Projection asset by hash (MirrorMode.DomProjection only).
+    /// </summary>
+    Task<IResult<DomAsset>> GetDomAssetAsync(string hash, CancellationToken ct = default);
 
     // ── Hooks ────────────────────────────────────────────────────────────────
 

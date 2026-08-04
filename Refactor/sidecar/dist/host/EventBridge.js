@@ -7,6 +7,7 @@ class EventBridge {
     sessionId;
     video = new DropOldestQueue_1.DropOldestQueue(2);
     audio = new DropOldestQueue_1.DropOldestQueue(2);
+    dom = new DropOldestQueue_1.DropOldestQueue(4);
     consoleQ = new DropOldestQueue_1.DropOldestQueue(64);
     location = new DropOldestQueue_1.DropOldestQueue(1);
     navigationBlocked = new DropOldestQueue_1.DropOldestQueue(8);
@@ -46,6 +47,9 @@ class EventBridge {
     }
     onVideoFrame(jpeg) {
         this.video.tryWrite(jpeg);
+    }
+    onDomDiff(diff) {
+        this.dom.tryWrite(diff);
     }
     onAudioFrame(chunk) {
         this.audio.tryWrite(chunk);

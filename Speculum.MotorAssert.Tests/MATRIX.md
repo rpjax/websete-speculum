@@ -76,6 +76,7 @@ Constitution: [docs/engineering-standards.md](../docs/engineering-standards.md) 
 | O4 | deep | casing/validation matrix | `O4_section_casing_validation` |
 | T1 | deep | composite `Telemetry.SampleCollected` carries all sections (host/apiProcess/motor/sidecar/persistence/pipeline) + story fields | `T1_composite_sample_has_all_sections` |
 | T2 | deep | live session reflected in `motor.total`/`liveSessionIds`/`sessions` + `sidecar.connected` | `T2_live_session_reflected_in_motor_and_sidecar_aggregates` |
+| P1 | contract | MirrorMode DomProjection gates (no Frame/VideoInput; DomDiff/DomInput/GetDomAsset) — chassis unit path | `LiveSessionTests.MirrorMode_*` (Sessions.Tests); full Dom E2E deferred until harness MirrorMode seed |
 
 ## Organization
 

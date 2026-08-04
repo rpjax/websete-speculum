@@ -3,12 +3,12 @@ using Speculum.Api.Sessions.Services.Streaming;
 
 namespace Speculum.Api.Sessions.Tests;
 
-public sealed class UserInputAdmissionChannelTests
+public sealed class VideoStreamingInputAdmissionChannelTests
 {
     [Fact]
     public void Admit_PrefersDroppingHighFrequencyOverRelease()
     {
-        var admission = UserInputAdmissionChannel.CreateQueueOnly(capacity: 2);
+        var admission = VideoStreamingInputAdmissionChannel.CreateQueueOnly(capacity: 2);
         try
         {
             admission.Admit(Move(1));
@@ -17,7 +17,7 @@ public sealed class UserInputAdmissionChannelTests
 
             var received = admission.SnapshotQueueForTests();
             Assert.Equal(2, received.Length);
-            Assert.DoesNotContain(received, i => UserInputAdmitPolicy.IsHighFrequency(i) && MovePayload(i) == 1);
+            Assert.DoesNotContain(received, i => VideoStreamingInputAdmitPolicy.IsHighFrequency(i) && MovePayload(i) == 1);
             Assert.Contains(received, i => i.Type == "keyup");
         }
         finally
@@ -29,7 +29,7 @@ public sealed class UserInputAdmissionChannelTests
     [Fact]
     public void Admit_DropsOldestWhenOnlyGestureEdgesQueued()
     {
-        var admission = UserInputAdmissionChannel.CreateQueueOnly(capacity: 2);
+        var admission = VideoStreamingInputAdmissionChannel.CreateQueueOnly(capacity: 2);
         try
         {
             admission.Admit(MouseDown());
@@ -47,14 +47,14 @@ public sealed class UserInputAdmissionChannelTests
         }
     }
 
-    private static UserInput Move(int n)
+    private static VideoStreamingInput Move(int n)
         => new()
         {
             Type = "mousemove",
             Payload = $"{{\"type\":\"mousemove\",\"x\":{n},\"y\":{n}}}",
         };
 
-    private static int MovePayload(UserInput input)
+    private static int MovePayload(VideoStreamingInput input)
     {
         var marker = "\"x\":";
         var start = input.Payload.IndexOf(marker, StringComparison.Ordinal);
@@ -68,15 +68,15 @@ public sealed class UserInputAdmissionChannelTests
         return int.Parse(input.Payload[start..end], System.Globalization.CultureInfo.InvariantCulture);
     }
 
-    private static UserInput MouseDown()
+    private static VideoStreamingInput MouseDown()
         => new() { Type = "mousedown", Payload = "{\"type\":\"mousedown\",\"x\":1,\"y\":1,\"button\":0}" };
 
-    private static UserInput MouseUp()
+    private static VideoStreamingInput MouseUp()
         => new() { Type = "mouseup", Payload = "{\"type\":\"mouseup\",\"x\":1,\"y\":1,\"button\":0}" };
 
-    private static UserInput KeyDown(string key)
+    private static VideoStreamingInput KeyDown(string key)
         => new() { Type = "keydown", Payload = $"{{\"type\":\"keydown\",\"key\":\"{key}\"}}" };
 
-    private static UserInput KeyUp(string key)
+    private static VideoStreamingInput KeyUp(string key)
         => new() { Type = "keyup", Payload = $"{{\"type\":\"keyup\",\"key\":\"{key}\"}}" };
 }

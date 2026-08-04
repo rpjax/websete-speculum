@@ -18,8 +18,8 @@ internal sealed class SessionInputMerger
     private readonly Func<Guid, bool> _isPipeAttached;
     private readonly object _ownershipGate = new();
 
-    private readonly Channel<UserInput> _userInputMerge = DropOldestChannels.Create<UserInput>(
-        UserInputAdmissionChannel.DefaultCapacity);
+    private readonly Channel<VideoStreamingInput> _videoStreamingInputMerge = DropOldestChannels.Create<VideoStreamingInput>(
+        VideoStreamingInputAdmissionChannel.DefaultCapacity);
 
     private readonly Channel<ConsoleInput> _consoleInputMerge = Channel.CreateUnbounded<ConsoleInput>(
         new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
@@ -41,9 +41,9 @@ internal sealed class SessionInputMerger
         _isPipeAttached = isPipeAttached;
     }
 
-    public IResult<Task> StartUserInputPump(
+    public IResult<Task> StartVideoStreamingInputPump(
         Guid pipeId,
-        ChannelReader<UserInput> channelReader,
+        ChannelReader<VideoStreamingInput> channelReader,
         CancellationToken ct)
     {
         if (!_isPipeAttached(pipeId))
@@ -57,8 +57,8 @@ internal sealed class SessionInputMerger
             return Result<Task>.Failure("Input owned by another pipe");
         }
 
-        EnsureUserInputDrainStarted();
-        return Result<Task>.Success(PumpIntoAsync(channelReader, _userInputMerge.Writer, ct));
+        EnsureVideoStreamingInputDrainStarted();
+        return Result<Task>.Success(PumpIntoAsync(channelReader, _videoStreamingInputMerge.Writer, ct));
     }
 
     public IResult<Task> StartConsoleInputPump(
@@ -109,7 +109,7 @@ internal sealed class SessionInputMerger
 
     public void Complete()
     {
-        _userInputMerge.Writer.TryComplete();
+        _videoStreamingInputMerge.Writer.TryComplete();
         _consoleInputMerge.Writer.TryComplete();
     }
 
@@ -147,7 +147,7 @@ internal sealed class SessionInputMerger
         }
     }
 
-    private void EnsureUserInputDrainStarted()
+    private void EnsureVideoStreamingInputDrainStarted()
     {
         if (Interlocked.Exchange(ref _userInputDrainStarted, 1) != 0)
         {
@@ -159,11 +159,11 @@ internal sealed class SessionInputMerger
         // Exclusive ownership already serializes a single owner pipe.
         _ = _policy.Scheduling;
 
-        var start = _connection.ConsumeUserInputAsync(_userInputMerge.Reader);
+        var start = _connection.ConsumeVideoStreamingInputAsync(_videoStreamingInputMerge.Reader);
         if (start.IsFailure)
         {
             Interlocked.Exchange(ref _userInputDrainStarted, 0);
-            _userInputMerge.Writer.TryComplete();
+            _videoStreamingInputMerge.Writer.TryComplete();
             return;
         }
 

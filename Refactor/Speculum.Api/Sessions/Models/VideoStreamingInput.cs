@@ -2,9 +2,11 @@ using MessagePack;
 
 namespace Speculum.Api.Sessions.Models;
 
-/// <summary>Evento de input do usuário (mouse, teclado, wheel, resize).</summary>
+/// <summary>
+/// Coordinate-space user input for <see cref="Configurations.Models.Sessions.MirrorMode.VideoStreaming"/>.
+/// </summary>
 [MessagePackObject]
-public sealed class UserInput
+public sealed class VideoStreamingInput
 {
     /// <summary>Tipo do evento — ex: <c>"mousemove"</c>, <c>"keydown"</c>.</summary>
     [Key("type")]

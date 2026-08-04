@@ -22,6 +22,12 @@ public sealed class SessionsConfigurationValidator : IValidateOptions<SessionsCo
                 "Sessions.DataStreamTransport must be webTransport or webSocket.");
         }
 
+        if (!Enum.IsDefined(options.MirrorMode))
+        {
+            return ValidateOptionsResult.Fail(
+                "Sessions.MirrorMode must be videoStreaming or domProjection.");
+        }
+
         var viewport = options.ViewportPolicy;
         if (!IsPositive(viewport.Minimum)
             || !IsPositive(viewport.Default)

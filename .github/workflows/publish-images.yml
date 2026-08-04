@@ -16,14 +16,15 @@ jobs:
         id: sha
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
           TAG: ${{ github.event.release.tag_name }}
         run: |
           set -euo pipefail
-          REF_JSON=$(gh api "repos/${{ github.repository }}/git/ref/tags/${TAG}")
+          REF_JSON=$(gh api "repos/${GH_REPO}/git/ref/tags/${TAG}")
           OBJ_TYPE=$(echo "$REF_JSON" | jq -r .object.type)
           OBJ_SHA=$(echo "$REF_JSON" | jq -r .object.sha)
           if [ "$OBJ_TYPE" = "tag" ]; then
-            SHA=$(gh api "repos/${{ github.repository }}/git/tags/${OBJ_SHA}" --jq .object.sha)
+            SHA=$(gh api "repos/${GH_REPO}/git/tags/${OBJ_SHA}" --jq .object.sha)
           else
             SHA="$OBJ_SHA"
           fi
@@ -33,12 +34,13 @@ jobs:
       - name: Wait for CI success on release commit
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
           SHA: ${{ steps.sha.outputs.sha }}
         run: |
           set -euo pipefail
           echo "Waiting for workflow CI on ${SHA}…"
           for _ in $(seq 1 90); do
-            ROW=$(gh run list --workflow=CI --commit "$SHA" --limit 1 \
+            ROW=$(gh run list -R "$GH_REPO" --workflow=CI --commit "$SHA" --limit 1 \
               --json databaseId,status,conclusion,url)
             COUNT=$(echo "$ROW" | jq 'length')
             if [ "$COUNT" -eq 0 ]; then
@@ -71,15 +73,16 @@ jobs:
         id: meta
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
           TAG: ${{ github.event.release.tag_name }}
         run: |
           set -euo pipefail
           VERSION="${TAG#v}"
-          REF_JSON=$(gh api "repos/${{ github.repository }}/git/ref/tags/${TAG}")
+          REF_JSON=$(gh api "repos/${GH_REPO}/git/ref/tags/${TAG}")
           OBJ_TYPE=$(echo "$REF_JSON" | jq -r .object.type)
           OBJ_SHA=$(echo "$REF_JSON" | jq -r .object.sha)
           if [ "$OBJ_TYPE" = "tag" ]; then
-            SHA=$(gh api "repos/${{ github.repository }}/git/tags/${OBJ_SHA}" --jq .object.sha)
+            SHA=$(gh api "repos/${GH_REPO}/git/tags/${OBJ_SHA}" --jq .object.sha)
           else
             SHA="$OBJ_SHA"
           fi

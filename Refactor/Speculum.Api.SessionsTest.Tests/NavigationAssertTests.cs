@@ -47,11 +47,12 @@ public sealed class NavigationAssertTests : SessionsTestBase
         await act.WaitEvaluateContainsAsync("location.pathname", "/nav/b", TimeSpan.FromSeconds(30));
 
         // Still one live evaluate surface on the main page (popup pages are closed by interception).
+        // Fixture /nav/b stamps data-page="nav-b" (hyphen), not the path slash form.
         var page = await act.EvaluateAsync(
             "document.querySelector('#speculum-probe')?.getAttribute('data-page') ?? location.pathname");
         Assert.True(
-            page.Contains("nav/b", StringComparison.OrdinalIgnoreCase)
+            page.Contains("nav-b", StringComparison.OrdinalIgnoreCase)
             || page.Contains("/nav/b", StringComparison.Ordinal),
-            $"expected main frame on /nav/b, got: {page}");
+            $"expected main frame on /nav/b (probe nav-b), got: {page}");
     }
 }

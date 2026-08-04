@@ -242,15 +242,20 @@ Hub images published by CI (not by local `dockup deploy` on a laptop):
 | `websete/speculum-web` | `X.Y.Z` and `latest` |
 
 Flow: Conventional Commits on `main` → Release Please **Release PR** → merge →
-tag `vX.Y.Z` → workflow **Publish images** waits for **CI** green on that SHA →
-`dockup deploy --env prod` with a runner-only tag patch to `X.Y.Z`, then retags
-`:latest`. Traefik stays on Docker Hub `traefik:…` (`imageRef`) and is not
-republished.
+Release Please creates tag/release `vX.Y.Z` → **dispatches** workflow
+**Publish images** (`workflow_dispatch` with that tag; bot `GITHUB_TOKEN`
+cannot chain a `release` event into another workflow) → waits for **CI** green
+on that SHA → `dockup deploy --env prod` with a runner-only tag patch to
+`X.Y.Z`, then retags `:latest`. Human-published GitHub Releases still trigger
+publish via `on: release`. Traefik stays on Docker Hub `traefik:…` (`imageRef`)
+and is not republished.
 
-**VPS:** pull/redeploy remains **manual**. After a release, regenerate compose
-(`dockup deploy --env prod …`, or pull `:latest` / a pinned version on the host)
-and restart the stack when you choose — no Watchtower / auto-update from CI.
+**VPS:** pull/redeploy remains **manual**. After Hub publish finishes,
+regenerate compose (`dockup deploy --env prod …`, or pull `:latest` / a pinned
+version on the host) and restart the stack when you choose — no Watchtower /
+auto-update from CI.
 
 **Secrets (repo):** `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN` (`gh secret set …`).
-Branch protection should require CI + PR title; prefer squash merges. See
+Branch protection should require CI + PR title; prefer squash merges. Actions
+must allow GITHUB_TOKEN to create PRs (Release Please). See
 [CONTRIBUTING.md](../../CONTRIBUTING.md).

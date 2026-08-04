@@ -68,7 +68,7 @@ Refactor-only (legacy root `Speculum.sln` / MotorAssert / root `web`+`sidecar` a
 
 **Branch protection on `main` is mandatory** — require every CI job above **and** the PR title check. Prefer **squash merge** so the merge commit subject is the PR title (Release Please reads conventional commits on `main` only after merge).
 
-Release Please runs only after **CI succeeds** on a **push** to `main` (not on red CI, not on PR branches). Docker Hub publish waits for CI green on the release SHA. Without branch protection, a force-merge of a red PR can still land commits on `main` that later enter a release — set protection before relying on the release flow.
+Release Please runs only after **CI succeeds** on a **push** to `main` (not on red CI, not on PR branches). After it creates a GitHub Release it **dispatches** Docker Hub publish (`workflow_dispatch`); publish still waits for CI green on the release SHA. Without branch protection, a force-merge of a red PR can still land commits on `main` that later enter a release — set protection before relying on the release flow.
 
 ### Code principles
 
@@ -135,18 +135,21 @@ Feature merges only run CI. Version bumps happen via the bot **Release PR** (cha
 
 ## Releases and Docker Hub
 
-Single-repo semver starts at **`0.1.0`** (see `.release-please-manifest.json` / `version.txt`). Pre-1.0 until the product is ready for a major launch.
+Single-repo semver (see `.release-please-manifest.json` / `version.txt`). Pre-1.0 until the product is ready for a major launch. Current baseline is whatever `main` last released (e.g. `0.2.0`).
 
 | Step | What happens |
 |------|----------------|
 | Feature PR → `main` | CI only |
-| Release Please on `main` | Opens/updates a **Release PR** |
-| Merge Release PR | Creates GitHub Release + tag `vX.Y.Z` |
-| `Publish images` workflow | Waits for CI green on that SHA, then `dockup deploy --env prod` pushes `websete/speculum-{api,sidecar,web}:X.Y.Z` and retags `:latest` |
+| Release Please on `main` | Opens/updates a **Release PR** (after CI green on the push) |
+| Merge Release PR | Bumps `version.txt` / manifest / changelog; next Release Please run creates GitHub Release + tag `vX.Y.Z` |
+| Release Please → `Publish images` | On `release_created`, dispatches **Publish images** via `workflow_dispatch` with that tag (required: `GITHUB_TOKEN` release events do **not** start other workflows) |
+| `Publish images` | Waits for CI green on that SHA, then `dockup deploy --env prod` pushes `websete/speculum-{api,sidecar,web}:X.Y.Z` and retags `:latest` |
 
-**Gates:** red CI blocks merge to `main` (branch protection), blocks Release Please (only runs after CI success on push to `main`), and blocks Docker Hub publish (`wait-ci`). PR branch commits never bump the version — only squash-merges onto `main` feed Release Please; the version tag only ships when the **Release PR** merges.
+**Gates:** red CI blocks merge to `main` (branch protection), blocks Release Please (only runs after CI success on push to `main`), and blocks Docker Hub publish (`wait-ci`). PR branch commits never bump the version — only squash-merges onto `main` feed Release Please; the version tag only ships when the **Release PR** merges and Release Please creates the GitHub Release.
 
-VPS redeploy stays **manual** (no Watchtower / CI→Hostinger). Prod dockup pull tag is `:latest` — after a release, regenerate/redeploy compose on the VPS when you want the new images.
+Repo Actions settings must allow the default `GITHUB_TOKEN` to **create pull requests** (Release Please) and workflows need `actions: write` on the Release Please job (already set) so it can dispatch publish.
+
+VPS redeploy stays **manual** (no Watchtower / CI→Hostinger). Prod dockup pull tag is `:latest` — after Hub publish finishes, regenerate/redeploy compose on the VPS when you want the new images.
 
 ### Operator setup (once)
 
@@ -157,7 +160,7 @@ gh secret set DOCKERHUB_TOKEN
 
 Branch protection on `main`: require CI jobs + PR title check; enable squash merge.
 
-**First Hub cut for `0.1.0`:** the manifest already records `0.1.0` as the baseline. Publish once by creating a GitHub Release/tag `v0.1.0` on the commit that introduced release plumbing (triggers `Publish images`), **or** land further conventional commits and merge the next bot Release PR (`0.1.1` / `0.2.0` / …). Confirm Hub shows `websete/speculum-*:VERSION` and `:latest`, then manually redeploy the VPS when ready.
+**Manual republish** (rare): `gh workflow run "Publish images" -f tag=vX.Y.Z` or create/publish a GitHub Release for that tag (human-authored `release` events still trigger publish).
 
 Details: [Refactor/deploy/README.md](Refactor/deploy/README.md) (Releases and image publish).
 

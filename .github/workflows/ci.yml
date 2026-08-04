@@ -5,24 +5,11 @@ on:
     branches: [main, master]
   pull_request:
 
+# Refactor-only gate until Refactor/ is promoted to repo root (post-1.0).
+# Legacy Speculum.sln / root sidecar|web|MotorAssert are intentionally out of CI.
+
 jobs:
   dotnet:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '10.0.x'
-      - name: Restore
-        run: dotnet restore Speculum.sln
-      - name: Build
-        run: dotnet build Speculum.sln -c Release --no-restore
-      - name: Test (fast gate — exclude MotorAssertive / MotorPerf / Chrome)
-        run: >
-          dotnet test Speculum.sln -c Release --no-build --verbosity normal
-          --filter "Category!=MotorAssertive&Category!=MotorPerf&Category!=SessionsTest"
-
-  refactor-dotnet:
     name: refactor-dotnet
     runs-on: ubuntu-latest
     steps:
@@ -34,6 +21,7 @@ jobs:
         run: |
           dotnet restore Refactor/Speculum.Api.Journal.Tests/Speculum.Api.Journal.Tests.csproj
           dotnet restore Refactor/Speculum.Api.Sessions.Tests/Speculum.Api.Sessions.Tests.csproj
+          dotnet restore Refactor/Speculum.Api.Telemetry.Tests/Speculum.Api.Telemetry.Tests.csproj
       - name: Test Journal
         run: >
           dotnet test Refactor/Speculum.Api.Journal.Tests/Speculum.Api.Journal.Tests.csproj
@@ -42,21 +30,12 @@ jobs:
         run: >
           dotnet test Refactor/Speculum.Api.Sessions.Tests/Speculum.Api.Sessions.Tests.csproj
           -c Release --verbosity normal
+      - name: Test Telemetry
+        run: >
+          dotnet test Refactor/Speculum.Api.Telemetry.Tests/Speculum.Api.Telemetry.Tests.csproj
+          -c Release --verbosity normal
 
   sidecar:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - name: Install and test
-        working-directory: sidecar
-        run: |
-          npm ci
-          npm test
-
-  refactor-sidecar:
     name: refactor-sidecar
     runs-on: ubuntu-latest
     steps:
@@ -71,21 +50,6 @@ jobs:
           npm test
 
   web:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - name: Install, lint, test, and build
-        working-directory: web
-        run: |
-          npm ci
-          npm run lint
-          npm test
-          npm run build
-
-  refactor-web:
     name: refactor-web
     runs-on: ubuntu-latest
     steps:
@@ -102,17 +66,21 @@ jobs:
           npm run build
 
   compose:
+    name: refactor-compose
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Validate reference compose
-        run: docker compose -f deploy/compose/docker-compose.reference.yml config
-      - name: Validate motor-assert compose
-        run: docker compose -f deploy/compose/docker-compose.motor-assert.yml config
       - name: Validate sessions-test compose
         run: docker compose -f Refactor/deploy/compose/docker-compose.sessions-test.yml config
+      - name: Validate nouinput override file
+        run: |
+          set -euo pipefail
+          test -f Refactor/deploy/compose/docker-compose.dev.nouinput.yml
+          # Override is applied against generated out/dev compose locally; file presence is the CI check.
+          grep -q 'SPECULUM_INPUT_BACKEND' Refactor/deploy/compose/docker-compose.dev.nouinput.yml
 
   dockup:
+    name: refactor-dockup
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -121,96 +89,12 @@ jobs:
           node-version: '22'
       - name: Install dockup
         run: npm install -g @rodrigopjax/dockup@2.0.2
-      - name: Validate dockup manifest
-        working-directory: deploy
-        run: dockup validate -c speculum.dockup.example.json --root ..
       - name: Validate Refactor dockup manifest
         working-directory: Refactor/deploy
         run: dockup validate -c dockup.json --root ..
 
-  motor-assertive:
-    name: motor-assertive
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '10.0.x'
-
-      - name: Map motor host for Hosting profile
-        run: |
-          echo "127.0.0.1 speculum.test" | sudo tee -a /etc/hosts
-
-      - name: Build motor-assert stack
-        run: docker compose -f deploy/compose/docker-compose.motor-assert.yml up -d --build
-
-      - name: Wait for fixture + evil + API health
-        run: |
-          set -euo pipefail
-          ok=0
-          for i in $(seq 1 90); do
-            if curl -sf http://127.0.0.1:18080/health >/dev/null \
-              && docker compose -f deploy/compose/docker-compose.motor-assert.yml exec -T fixture \
-                   node -e "fetch('http://127.0.0.1:8090/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))" \
-              && docker compose -f deploy/compose/docker-compose.motor-assert.yml exec -T evil-fixture \
-                   node -e "fetch('http://127.0.0.1:8091/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))" \
-              && docker compose -f deploy/compose/docker-compose.motor-assert.yml ps --status running | grep -q sidecar; then
-              ok=1
-              break
-            fi
-            sleep 2
-          done
-          if [ "$ok" != "1" ]; then
-            echo "stack did not become healthy in time" >&2
-            docker compose -f deploy/compose/docker-compose.motor-assert.yml ps >&2 || true
-            exit 1
-          fi
-          curl -sf http://127.0.0.1:18080/health
-
-      - name: Seed admin config
-        run: |
-          chmod +x deploy/compose/seed-motor-assert.sh
-          MOTOR_ASSERT_API_BASE=http://127.0.0.1:18080 \
-          MOTOR_ASSERT_ADMIN_KEY=motor-assert-admin-key \
-            ./deploy/compose/seed-motor-assert.sh
-
-      - name: Run MotorAssertive tests
-        env:
-          MOTOR_ASSERT_API_BASE: http://speculum.test:18080
-          MOTOR_ASSERT_MOTOR_HOST: speculum.test
-          MOTOR_ASSERT_ADMIN_KEY: motor-assert-admin-key
-          MOTOR_ASSERT_CLIENT_ORIGIN: https://speculum.test
-          MOTOR_ASSERT_EVIL_ORIGIN: https://evil.example
-          MOTOR_ASSERT_TRAEFIK_BASE: http://127.0.0.1:18081
-          MOTOR_ASSERT_DUMP_DIR: ${{ runner.temp }}/motor-assert-dumps
-        run: >
-          dotnet test Speculum.MotorAssert.Tests/Speculum.MotorAssert.Tests.csproj
-          -c Release --filter "Category=MotorAssertive" --verbosity normal
-
-      - name: Collect compose logs on failure
-        if: failure()
-        run: |
-          mkdir -p "${{ runner.temp }}/motor-assert-logs"
-          docker compose -f deploy/compose/docker-compose.motor-assert.yml logs --no-color > "${{ runner.temp }}/motor-assert-logs/compose.log" || true
-
-      - name: Upload failure artefacts
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: motor-assertive-failure
-          path: |
-            ${{ runner.temp }}/motor-assert-logs/
-            ${{ runner.temp }}/motor-assert-dumps/
-          if-no-files-found: ignore
-
-      - name: Tear down
-        if: always()
-        run: docker compose -f deploy/compose/docker-compose.motor-assert.yml down -v --remove-orphans
-
   sessions-test:
-    name: sessions-test (Refactor)
+    name: sessions-test
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:

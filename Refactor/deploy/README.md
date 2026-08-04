@@ -115,9 +115,11 @@ automatic reapply on boot).
 ## Prod (VPS)
 
 Chrome sidecar + API + Traefik + admin SPA. No `SPECULUM_BYPASS_API_AUTH`.
-Images build/push to Docker Hub under namespace `websete` (`:prod` tag). Traefik
-publishes **`:80`/TCP `:443`**; WebTransport **UDP `:443`** (→ Kestrel `:8443`)
-plus fallback **`:8443`** TCP+UDP.
+Images build/push to Docker Hub under namespace `websete`. The prod manifest
+pull tag is **`:latest`**; CI also pushes semver tags (`:1.2.3`) on each GitHub
+Release (see [Releases](#releases-and-image-publish) below). Traefik publishes
+**`:80`/TCP `:443`**; WebTransport **UDP `:443`** (→ Kestrel `:8443`) plus
+fallback **`:8443`** TCP+UDP.
 
 **Auth (required):** default operator is `admin` / `admin` (seeded on first boot).
 Obtain tokens via `POST /w7s/api/auth/login`, then send
@@ -228,3 +230,27 @@ Build contexts are relative to `Refactor/` (`--root ..`).
 
 The API image installs `libmsquic` so Kestrel can serve HTTP/3 for WebTransport
 inside Linux containers.
+
+## Releases and image publish
+
+Hub images published by CI (not by local `dockup deploy` on a laptop):
+
+| Image | Tags on each GitHub Release |
+|-------|-----------------------------|
+| `websete/speculum-api` | `X.Y.Z` and `latest` |
+| `websete/speculum-sidecar` | `X.Y.Z` and `latest` |
+| `websete/speculum-web` | `X.Y.Z` and `latest` |
+
+Flow: Conventional Commits on `main` → Release Please **Release PR** → merge →
+tag `vX.Y.Z` → workflow **Publish images** waits for **CI** green on that SHA →
+`dockup deploy --env prod` with a runner-only tag patch to `X.Y.Z`, then retags
+`:latest`. Traefik stays on Docker Hub `traefik:…` (`imageRef`) and is not
+republished.
+
+**VPS:** pull/redeploy remains **manual**. After a release, regenerate compose
+(`dockup deploy --env prod …`, or pull `:latest` / a pinned version on the host)
+and restart the stack when you choose — no Watchtower / auto-update from CI.
+
+**Secrets (repo):** `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN` (`gh secret set …`).
+Branch protection should require CI + PR title; prefer squash merges. See
+[CONTRIBUTING.md](../../CONTRIBUTING.md).

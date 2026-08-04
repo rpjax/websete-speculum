@@ -1,0 +1,136 @@
+name: Publish images
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  wait-ci:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve release commit SHA
+        id: sha
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          REF_JSON=$(gh api "repos/${{ github.repository }}/git/ref/tags/${TAG}")
+          OBJ_TYPE=$(echo "$REF_JSON" | jq -r .object.type)
+          OBJ_SHA=$(echo "$REF_JSON" | jq -r .object.sha)
+          if [ "$OBJ_TYPE" = "tag" ]; then
+            SHA=$(gh api "repos/${{ github.repository }}/git/tags/${OBJ_SHA}" --jq .object.sha)
+          else
+            SHA="$OBJ_SHA"
+          fi
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "Release ${TAG} → ${SHA}"
+
+      - name: Wait for CI success on release commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SHA: ${{ steps.sha.outputs.sha }}
+        run: |
+          set -euo pipefail
+          echo "Waiting for workflow CI on ${SHA}…"
+          for _ in $(seq 1 90); do
+            ROW=$(gh run list --workflow=CI --commit "$SHA" --limit 1 \
+              --json databaseId,status,conclusion,url)
+            COUNT=$(echo "$ROW" | jq 'length')
+            if [ "$COUNT" -eq 0 ]; then
+              echo "No CI run yet; sleeping…"
+              sleep 60
+              continue
+            fi
+            STATUS=$(echo "$ROW" | jq -r '.[0].status')
+            CONCLUSION=$(echo "$ROW" | jq -r '.[0].conclusion // empty')
+            URL=$(echo "$ROW" | jq -r '.[0].url')
+            echo "status=${STATUS} conclusion=${CONCLUSION} ${URL}"
+            if [ "$STATUS" = "completed" ]; then
+              if [ "$CONCLUSION" = "success" ]; then
+                echo "CI green."
+                exit 0
+              fi
+              echo "CI finished with conclusion=${CONCLUSION}"
+              exit 1
+            fi
+            sleep 60
+          done
+          echo "Timed out waiting for CI (90 minutes)."
+          exit 1
+
+  publish:
+    needs: wait-ci
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve version and SHA
+        id: meta
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          VERSION="${TAG#v}"
+          REF_JSON=$(gh api "repos/${{ github.repository }}/git/ref/tags/${TAG}")
+          OBJ_TYPE=$(echo "$REF_JSON" | jq -r .object.type)
+          OBJ_SHA=$(echo "$REF_JSON" | jq -r .object.sha)
+          if [ "$OBJ_TYPE" = "tag" ]; then
+            SHA=$(gh api "repos/${{ github.repository }}/git/tags/${OBJ_SHA}" --jq .object.sha)
+          else
+            SHA="$OBJ_SHA"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.meta.outputs.sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dockup
+        run: npm install -g @rodrigopjax/dockup
+
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Patch prod tag to release version
+        working-directory: Refactor/deploy
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          node -e "
+          const fs = require('fs');
+          const path = 'dockup.json';
+          const j = JSON.parse(fs.readFileSync(path, 'utf8'));
+          if (!j.prod) throw new Error('dockup.json missing prod');
+          j.prod.tag = process.env.VERSION;
+          fs.writeFileSync(path, JSON.stringify(j, null, 2) + '\n');
+          console.log('prod.tag →', process.env.VERSION);
+          "
+
+      - name: Build and push versioned images
+        working-directory: Refactor/deploy
+        run: dockup deploy --env prod -c dockup.json --root ..
+
+      - name: Retag and push latest
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          for img in api sidecar web; do
+            SRC="websete/speculum-${img}:${VERSION}"
+            DST="websete/speculum-${img}:latest"
+            echo "imagetools create -t ${DST} ${SRC}"
+            docker buildx imagetools create -t "$DST" "$SRC"
+          done

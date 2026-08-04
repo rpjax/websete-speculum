@@ -144,7 +144,10 @@ public sealed class SessionCollectorTests
             NullLogger<SessionCollector>.Instance);
 
         collector.Watch(sessionId);
-        await Task.Delay(80);
+
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(2);
+        while (failingStops.StopAttempts < 1 && DateTime.UtcNow < deadline)
+            await Task.Delay(10);
         Assert.True(failingStops.StopAttempts >= 1);
 
         failingStops.ShouldFail = false;

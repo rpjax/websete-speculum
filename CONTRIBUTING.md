@@ -2,7 +2,7 @@
 
 Thank you for improving Speculum. This guide covers local workflow, quality expectations, and where to place changes.
 
-> **V1.0.0 development:** The project is **not released**. Do not add semver tags, release notes, or backward-compatibility shims unless explicitly requested for a future launch. Breaking config/API changes are acceptable while V1 is in development.
+> **Releases:** Versions and `CHANGELOG.md` are owned by [Release Please](https://github.com/googleapis/release-please). Do not hand-edit semver tags or invent parallel version schemes. V1 still forbids backward-compat config/API shims unless explicitly requested post-launch.
 
 ---
 
@@ -57,14 +57,18 @@ Do **not** routinely run the motor-assertive Docker stack (sidecar + Xvfb + Chro
 
 ### CI (required for `main`)
 
+Refactor-only (legacy root `Speculum.sln` / MotorAssert / root `web`+`sidecar` are **not** in CI until `Refactor/` is promoted):
+
 | Job | Role |
 |-----|------|
-| `dotnet` / `sidecar` / `web` / `compose` / `dockup` | Fast gate |
-| **`motor-assertive`** | Fixture Node + API + sidecar/Chrome; Act→Assert via diagnostics |
+| `refactor-dotnet` | Journal + Sessions + Telemetry unit tests |
+| `refactor-sidecar` / `refactor-web` | npm test (+ lint/build for web) |
+| `refactor-compose` / `refactor-dockup` | compose + dockup validate |
+| **`sessions-test`** | Refactor Act→Assert stack (Chrome) |
 
-Branch protection on `main` should require **all** of the above checks (especially `motor-assertive`).
+**Branch protection on `main` is mandatory** — require every CI job above **and** the PR title check. Prefer **squash merge** so the merge commit subject is the PR title (Release Please reads conventional commits on `main` only after merge).
 
-MotorAssert sources: `Speculum.MotorAssert.Tests/` + fixture `tests/motor-fixture/` + compose `deploy/compose/docker-compose.motor-assert.yml`.
+Release Please runs only after **CI succeeds** on a **push** to `main` (not on red CI, not on PR branches). Docker Hub publish waits for CI green on the release SHA. Without branch protection, a force-merge of a red PR can still land commits on `main` that later enter a release — set protection before relying on the release flow.
 
 ### Code principles
 
@@ -119,9 +123,43 @@ When you change behaviour, update the relevant README in the same PR:
 ## Pull requests
 
 1. Branch from `main` (or `master`).
-2. Ensure CI checks pass.
-3. Describe **what** changed and **why** in the PR body.
-4. Include a test plan (commands run, manual steps for UI if applicable).
+2. Use a **Conventional Commits** PR title (enforced by CI), e.g. `feat: …`, `fix: …`, `perf: …`, `chore: …`, `docs: …`, `ci: …`, `test: …`, `refactor: …`.
+3. **Squash-merge** into `main` so the squash commit subject matches that title.
+4. Ensure CI checks pass (including MotorAssert and PR title).
+5. Describe **what** changed and **why** in the PR body.
+6. Include a test plan (commands run, manual steps for UI if applicable).
+
+Feature merges only run CI. Version bumps happen via the bot **Release PR** (changelog + `version.txt` + manifest), not by hand.
+
+---
+
+## Releases and Docker Hub
+
+Single-repo semver starts at **`0.1.0`** (see `.release-please-manifest.json` / `version.txt`). Pre-1.0 until the product is ready for a major launch.
+
+| Step | What happens |
+|------|----------------|
+| Feature PR → `main` | CI only |
+| Release Please on `main` | Opens/updates a **Release PR** |
+| Merge Release PR | Creates GitHub Release + tag `vX.Y.Z` |
+| `Publish images` workflow | Waits for CI green on that SHA, then `dockup deploy --env prod` pushes `websete/speculum-{api,sidecar,web}:X.Y.Z` and retags `:latest` |
+
+**Gates:** red CI blocks merge to `main` (branch protection), blocks Release Please (only runs after CI success on push to `main`), and blocks Docker Hub publish (`wait-ci`). PR branch commits never bump the version — only squash-merges onto `main` feed Release Please; the version tag only ships when the **Release PR** merges.
+
+VPS redeploy stays **manual** (no Watchtower / CI→Hostinger). Prod dockup pull tag is `:latest` — after a release, regenerate/redeploy compose on the VPS when you want the new images.
+
+### Operator setup (once)
+
+```bash
+gh secret set DOCKERHUB_USERNAME
+gh secret set DOCKERHUB_TOKEN
+```
+
+Branch protection on `main`: require CI jobs + PR title check; enable squash merge.
+
+**First Hub cut for `0.1.0`:** the manifest already records `0.1.0` as the baseline. Publish once by creating a GitHub Release/tag `v0.1.0` on the commit that introduced release plumbing (triggers `Publish images`), **or** land further conventional commits and merge the next bot Release PR (`0.1.1` / `0.2.0` / …). Confirm Hub shows `websete/speculum-*:VERSION` and `:latest`, then manually redeploy the VPS when ready.
+
+Details: [Refactor/deploy/README.md](Refactor/deploy/README.md) (Releases and image publish).
 
 ---
 

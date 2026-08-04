@@ -97,7 +97,8 @@
           { "name": "Sessions__DeviceEmulationPolicy__MaxTouchPoints", "value": "10" },
           { "name": "Sessions__DeviceEmulationPolicy__DefaultTouchPointsWhenTouch", "value": "5" },
           { "name": "Sessions__DeviceEmulationPolicy__DesktopUserAgentProfile", "value": "desktop" },
-          { "name": "Sessions__DeviceEmulationPolicy__MobileUserAgentProfile", "value": "mobile" }
+          { "name": "Sessions__DeviceEmulationPolicy__MobileUserAgentProfile", "value": "mobile" },
+          { "name": "Sessions__ScreencastPolicy__MaxEncodeScale", "value": "2" }
         ],
         "volumes": [
           { "name": "speculum-refactor-dev-data", "container": "/data" },
@@ -147,7 +148,7 @@
   "prod": {
     "namespace": "websete",
     "network": "speculum",
-    "tag": "prod",
+    "tag": "latest",
     "env": [
       { "name": "PUBLIC_HOST", "value": "betano.digital" },
       { "name": "ACME_EMAIL", "value": "admin@betano.digital" },
@@ -257,7 +258,8 @@
           { "name": "Sessions__DeviceEmulationPolicy__MaxTouchPoints", "value": "10" },
           { "name": "Sessions__DeviceEmulationPolicy__DefaultTouchPointsWhenTouch", "value": "5" },
           { "name": "Sessions__DeviceEmulationPolicy__DesktopUserAgentProfile", "value": "desktop" },
-          { "name": "Sessions__DeviceEmulationPolicy__MobileUserAgentProfile", "value": "mobile" }
+          { "name": "Sessions__DeviceEmulationPolicy__MobileUserAgentProfile", "value": "mobile" },
+          { "name": "Sessions__ScreencastPolicy__MaxEncodeScale", "value": "2" }
         ],
         "volumes": [
           { "name": "speculum-refactor-data", "container": "/data" },
@@ -435,7 +437,8 @@
           { "name": "Sessions__DeviceEmulationPolicy__MaxTouchPoints", "value": "10" },
           { "name": "Sessions__DeviceEmulationPolicy__DefaultTouchPointsWhenTouch", "value": "5" },
           { "name": "Sessions__DeviceEmulationPolicy__DesktopUserAgentProfile", "value": "desktop" },
-          { "name": "Sessions__DeviceEmulationPolicy__MobileUserAgentProfile", "value": "mobile" }
+          { "name": "Sessions__DeviceEmulationPolicy__MobileUserAgentProfile", "value": "mobile" },
+          { "name": "Sessions__ScreencastPolicy__MaxEncodeScale", "value": "2" }
         ],
         "volumes": [
           { "name": "speculum-refactor-test-data", "container": "/data" },

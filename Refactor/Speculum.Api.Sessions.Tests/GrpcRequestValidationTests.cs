@@ -1,4 +1,5 @@
 using Speculum.Api.BrowserClients.Grpc;
+using Speculum.Api.Sessions.Mirror.DomProjection;
 using Speculum.Api.Sessions.Models;
 
 namespace Speculum.Api.Sessions.Tests;
@@ -381,5 +382,51 @@ public sealed class GrpcRequestValidationTests
         Assert.True(
             GrpcSessionMappers.TryParseInputEvent(Guid.NewGuid(), decoded, out var input)
             && input?.MouseDown is not null);
+    }
+
+    [Fact]
+    public void VideoStreamingInput_MessagePack_RoundTripsTraceIdAndClientTimestamp()
+    {
+        var options = Speculum.Api.Presentation.SessionHubMessagePack.Options;
+        var map = new Dictionary<string, object>
+        {
+            ["type"] = "mousemove",
+            ["payload"] = """{"type":"mousemove","x":1,"y":2}""",
+            ["traceId"] = "abc123deadbeef00",
+            ["clientTimestampMs"] = 1_700_000_000_000L,
+        };
+        var bytes = MessagePack.MessagePackSerializer.Serialize(map, options);
+        var decoded = MessagePack.MessagePackSerializer.Deserialize<VideoStreamingInput>(bytes, options);
+
+        Assert.Equal("mousemove", decoded.Type);
+        Assert.Equal("abc123deadbeef00", decoded.TraceId);
+        Assert.Equal(1_700_000_000_000L, decoded.ClientTimestampMs);
+    }
+
+    [Fact]
+    public void DomProjectionInput_MessagePack_RoundTripsTraceId()
+    {
+        var options = Speculum.Api.Presentation.SessionHubMessagePack.Options;
+        var map = new Dictionary<string, object>
+        {
+            ["generation"] = 7L,
+            ["type"] = "mousedown",
+            ["anchor"] = "a1",
+            ["timestampClient"] = 12.5,
+            ["traceId"] = "domtrace01",
+            ["payload"] = """{"x":10,"y":20,"button":0}""",
+        };
+        var bytes = MessagePack.MessagePackSerializer.Serialize(map, options);
+        var decoded = MessagePack.MessagePackSerializer.Deserialize<DomProjectionInput>(bytes, options);
+
+        Assert.Equal(7L, decoded.Generation);
+        Assert.Equal("mousedown", decoded.Type);
+        Assert.Equal("a1", decoded.Anchor);
+        Assert.Equal(12.5, decoded.TimestampClient);
+        Assert.Equal("domtrace01", decoded.TraceId);
+        Assert.True(
+            GrpcSessionMappers.TryParseDomInputEvent(Guid.NewGuid(), decoded, out var input)
+            && input is not null);
+        Assert.Equal("domtrace01", decoded.TraceId);
     }
 }

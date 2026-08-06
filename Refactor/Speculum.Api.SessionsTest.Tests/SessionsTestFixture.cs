@@ -59,8 +59,8 @@ public sealed class SessionsTestFixture
 
     private static Dictionary<string, bool> BaselineTelemetryEvents { get; } = new()
     {
-        ["Telemetry.Sessions.Input.Applied"] = true,
-        ["Telemetry.Sessions.Input.Rejected"] = true,
+        ["Telemetry.Sessions.VideoStreamingInput.Applied"] = true,
+        ["Telemetry.Sessions.VideoStreamingInput.Rejected"] = true,
         ["Telemetry.Sessions.Resize.Applied"] = true,
         ["Telemetry.Sessions.Resize.Rejected"] = true,
     };

@@ -2,13 +2,20 @@
 
 **Status:** design (V1).
 
+> **Naming / supersession:** product mode/pipe is **PageProjection**
+> (`MirrorMode.PageProjection`), not `DomProjection`. Sealed contracts:
+> [dom-projection-diff-streams.md](dom-projection-diff-streams.md) (Dom plane),
+> [dom-projection-cssom.md](dom-projection-cssom.md) (Cssom plane). This file
+> remains the implemented V1 contract until T11/T12 cutover.
+
+
 **Scope:** buffering strategy between Anchorer’s dirty signals and DiffProducer
 flush — **knobs, defaults, and admin/runtime configurability**.
 
 This is **not** F’s mapping algorithm. F assumes a coalesce buffer exists; see
 [dom-projection-diff-pipeline.md](dom-projection-diff-pipeline.md) §8.
 
-**Related:** Sessions admin config · `MirrorMode.DomProjection`
+**Related:** Sessions admin config · `MirrorMode.DomProjection` (→ `PageProjection` at cutover)
 
 ---
 
@@ -42,7 +49,7 @@ dirty work, then runs: DiffProducer → map → rewrite kickoff → emit.
 
 ### Forced flush (not knobs)
 
-Always flush immediately for: DOM **snapshots** (start, generation bump,
+Always flush immediately for: DomDiff `target=document` (start, generation bump,
 resync), configured cap hits, session shutdown best-effort.
 
 ---

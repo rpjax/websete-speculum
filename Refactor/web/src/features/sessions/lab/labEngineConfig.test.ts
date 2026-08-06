@@ -110,6 +110,13 @@ describe('createLabTelemetryBaseline', () => {
 
   it('includes the full Telemetry.Sessions event catalog (off by default)', () => {
     const baseline = createLabTelemetryBaseline()
+    expect(baseline.clientObservation).toEqual({
+      isEnabled: false,
+      sessionWire: true,
+      videoStreamingInput: false,
+      domProjectionDiff: false,
+      domProjectionInput: false,
+    })
     expect(Object.keys(baseline.events).sort()).toEqual(
       [
         'Telemetry.Sessions.Browse.LocationChanged',
@@ -117,12 +124,15 @@ describe('createLabTelemetryBaseline', () => {
         'Telemetry.Sessions.Capacity.SlotAcquired',
         'Telemetry.Sessions.Capacity.SlotReleased',
         'Telemetry.Sessions.Client.AttachedCommandFailed',
-        'Telemetry.Sessions.Input.Applied',
-        'Telemetry.Sessions.Input.ControlReceived',
-        'Telemetry.Sessions.Input.Rejected',
-        'Telemetry.Sessions.Input.SidecarAdmitted',
-        'Telemetry.Sessions.Input.SidecarPushWritten',
-        'Telemetry.Sessions.Input.WebTransportReceived',
+        'Telemetry.Sessions.DomProjection.Diff.FrameReceived',
+        'Telemetry.Sessions.DomProjection.Diff.GenerationBumped',
+        'Telemetry.Sessions.DomProjection.Input.AdmissionDropped',
+        'Telemetry.Sessions.DomProjection.Input.Applied',
+        'Telemetry.Sessions.DomProjection.Input.CdpDropped',
+        'Telemetry.Sessions.DomProjection.Input.DataPlaneReceived',
+        'Telemetry.Sessions.DomProjection.Input.Rejected',
+        'Telemetry.Sessions.DomProjection.Input.SidecarAdmitted',
+        'Telemetry.Sessions.DomProjection.Input.SidecarPushWritten',
         'Telemetry.Sessions.Navigate.UrlResolved',
         'Telemetry.Sessions.Persist.SkippedNoConnection',
         'Telemetry.Sessions.Persist.SkippedProfileNotFound',
@@ -135,6 +145,12 @@ describe('createLabTelemetryBaseline', () => {
         'Telemetry.Sessions.Sidecar.SessionReleased',
         'Telemetry.Sessions.Start.UrlResolveFailed',
         'Telemetry.Sessions.Start.UrlResolved',
+        'Telemetry.Sessions.VideoStreamingInput.Applied',
+        'Telemetry.Sessions.VideoStreamingInput.ControlReceived',
+        'Telemetry.Sessions.VideoStreamingInput.DataPlaneReceived',
+        'Telemetry.Sessions.VideoStreamingInput.Rejected',
+        'Telemetry.Sessions.VideoStreamingInput.SidecarAdmitted',
+        'Telemetry.Sessions.VideoStreamingInput.SidecarPushWritten',
       ].sort(),
     )
     expect(Object.values(baseline.events).every((on) => on === false)).toBe(true)

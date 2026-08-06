@@ -21,6 +21,7 @@ import { RemoveInjectionPage } from '@/features/admin/scripts/RemoveInjectionPag
 import { ConfigurationsHubPage } from '@/features/admin/configurations/ConfigurationsHubPage'
 import { ConfigurationSectionPage } from '@/features/admin/configurations/ConfigurationSectionPage'
 import { HostResourcesPage } from '@/features/admin/host-resources/HostResourcesPage'
+import { MaintenancePage } from '@/features/admin/maintenance/MaintenancePage'
 import { DiagnosticsHealthPage } from '@/features/admin/diagnostics/DiagnosticsHealthPage'
 import NarrativeWorkspacePage from '@/features/admin/diagnostics/timeline/NarrativeWorkspacePage'
 import { DiagnosticsInvestigatePage } from '@/features/admin/diagnostics/DiagnosticsInvestigatePage'
@@ -63,6 +64,7 @@ export default function App() {
       <Route path="host-resources" element={<HostResourcesPage />} />
       <Route path="host-resources/preview" element={<HostResourcesPage />} />
       <Route path="host-resources/apply" element={<HostResourcesPage />} />
+      <Route path="maintenance" element={<MaintenancePage />} />
       <Route path="diagnostics" element={<Navigate to={`${W7S_PREFIX}/admin/diagnostics/health`} replace />} />
       <Route path="diagnostics/health" element={<DiagnosticsHealthPage />} />
       <Route path="diagnostics/resources" element={<ResourcesPage />} />

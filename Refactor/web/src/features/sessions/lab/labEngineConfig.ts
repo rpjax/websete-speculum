@@ -144,11 +144,20 @@ export interface LabTelemetryDockerConfig extends LabTelemetrySectionToggle {
   timeoutMs?: number
 }
 
-/** Engine Telemetry section — sampling and opt-in Telemetry event facts. */
+/** Engine Telemetry section — sampling, client observation, and opt-in event facts. */
+export interface LabTelemetryClientObservationConfig {
+  isEnabled: boolean
+  sessionWire: boolean
+  videoStreamingInput: boolean
+  domProjectionDiff: boolean
+  domProjectionInput: boolean
+}
+
 export interface LabTelemetryConfig {
   isEnabled: boolean
   intervalSeconds: number
   events: Record<string, boolean>
+  clientObservation: LabTelemetryClientObservationConfig
   host: LabTelemetryHostConfig
   apiProcess: LabTelemetryApiProcessConfig
   sessions: LabTelemetrySessionsConfig
@@ -174,12 +183,13 @@ export interface LabEngineConfig {
   }
   sessions: LabSessionsConfig
   resourceManagement: LabResourceManagementConfig
-  /** Periodic resource samples → Journal (Telemetry-owned facts). Off unless enabled. */
+  /**
+   * Same Telemetry section as Admin (`GET|PUT /api/configurations/Telemetry`):
+   * sampling + clientObservation + events map.
+   */
   telemetry: LabTelemetryConfig
   /** Main-frame script injections (Stored / Remote + domain/path rules). */
   scripting: LabScriptingConfig
-  /** Telemetry-owned event toggles (test/debug). Off unless explicitly enabled. */
-  journal?: Record<string, boolean>
   status?: LabConfigStatus
 }
 
@@ -227,7 +237,8 @@ export interface LabScriptPage {
 export {
   LAB_TELEMETRY_EVENT_TYPES,
   LAB_TELEMETRY_EVENT_GROUPS,
-  LAB_TELEMETRY_INPUT_PATH_TYPES,
+  LAB_TELEMETRY_VIDEO_STREAMING_INPUT_PATH_TYPES,
+  LAB_TELEMETRY_DOM_PROJECTION_INPUT_PATH_TYPES,
   createLabTelemetryEventsBaseline,
   emptyLabTelemetryEvents,
   type LabTelemetryEventType,
@@ -323,6 +334,13 @@ export function createLabTelemetryBaseline(): LabTelemetryConfig {
     isEnabled: false,
     intervalSeconds: 15,
     events: createLabTelemetryEventsBaseline(),
+    clientObservation: {
+      isEnabled: false,
+      sessionWire: true,
+      videoStreamingInput: false,
+      domProjectionDiff: false,
+      domProjectionInput: false,
+    },
     host: {
       isEnabled: true,
       procPath: '/proc',
@@ -617,6 +635,10 @@ function normalizeTelemetry(
     isEnabled: raw.isEnabled ?? baseline.isEnabled,
     intervalSeconds: raw.intervalSeconds ?? baseline.intervalSeconds,
     events: { ...baseline.events, ...raw.events },
+    clientObservation: {
+      ...baseline.clientObservation,
+      ...raw.clientObservation,
+    },
     host: { ...baseline.host, ...raw.host },
     apiProcess: { ...baseline.apiProcess, ...raw.apiProcess },
     sessions: { ...baseline.sessions, ...raw.sessions },
@@ -656,13 +678,13 @@ export async function fetchLabEngineConfig(hubOrigin = ''): Promise<LabEngineCon
     resourceManagement: normalizeResourceManagement(resourceManagement),
     telemetry: normalizeTelemetry(telemetry),
     scripting: normalizeLabScripting(scripting),
-    journal: telemetry.events ?? {},
   }
 }
 
 /**
  * Persist Hosting + Navigation + Sessions + ResourceManagement + Telemetry + Scripting
  * in one validated Apply (no partial mid-save apply).
+ * Telemetry body shape matches Admin PUT `/api/configurations/Telemetry`.
  */
 export async function putLabEngineConfig(
   body: LabEngineConfig,
@@ -675,7 +697,7 @@ export async function putLabEngineConfig(
       Navigation: body.navigation,
       Sessions: body.sessions,
       ResourceManagement: body.resourceManagement,
-      Telemetry: { ...body.telemetry, events: body.journal ?? {} },
+      Telemetry: body.telemetry,
       Scripting: body.scripting,
     },
     hubOrigin,

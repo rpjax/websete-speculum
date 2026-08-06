@@ -13,6 +13,7 @@ import type {
   DataStreamTransportConnectOptions,
 } from './dataStreamTransport'
 import { writePipeHeader } from './framing'
+import { appendSessionBindingQuery } from './sessionBindingAuth'
 
 interface MuxPipeState {
   streamId: number
@@ -289,9 +290,11 @@ function buildWebSocketUrl(
   sessionId: string,
   token: string,
 ): string {
-  const httpUrl = new URL(path, resolveOrigin(baseUrl))
-  httpUrl.searchParams.set('sessionId', sessionId)
-  httpUrl.searchParams.set('token', token)
+  const httpUrl = appendSessionBindingQuery(
+    new URL(path, resolveOrigin(baseUrl)),
+    sessionId,
+    token,
+  )
   const protocol = httpUrl.protocol === 'https:' ? 'wss:' : 'ws:'
   return `${protocol}//${httpUrl.host}${httpUrl.pathname}${httpUrl.search}`
 }

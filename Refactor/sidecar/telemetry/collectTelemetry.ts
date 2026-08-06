@@ -101,12 +101,15 @@ export async function collectTelemetry(
           total.droppedTotal
           + bridge.video.droppedCount
           + bridge.audio.droppedCount
+          + bridge.dom.droppedCount
           + bridge.consoleQ.droppedCount
           + bridge.location.droppedCount
           + bridge.navigationBlocked.droppedCount
           + bridge.editableFocus.droppedCount
           + bridge.crash.droppedCount
-          + bridge.inputPath.droppedCount
+          + bridge.videoStreamingInputPath.droppedCount
+          + bridge.domProjectionInputPath.droppedCount
+          + bridge.domProjectionLifecycle.droppedCount
           + bridge.allocationLifecycle.droppedCount,
       };
       },

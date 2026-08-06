@@ -6,29 +6,33 @@ namespace Speculum.Api.Sessions.Tests;
 internal sealed class NoOpSessionTelemetryEventsFactory(
     ISessionClientTelemetryEvents? client = null,
     ISessionNavigateTelemetryEvents? navigate = null,
-    ISessionInputTelemetryEvents? input = null,
-    ISessionBrowseTelemetryEvents? browse = null) : ISessionTelemetryEventsFactory
+    ISessionVideoStreamingInputTelemetryEvents? videoStreamingInput = null,
+    ISessionBrowseTelemetryEvents? browse = null,
+    ISessionDomProjectionTelemetryEvents? domProjection = null) : ISessionTelemetryEventsFactory
 {
     private readonly ISessionTelemetryEvents _events = new NoOpSessionTelemetryEvents(
         client ?? NoOp<ISessionClientTelemetryEvents>(),
         navigate ?? NoOp<ISessionNavigateTelemetryEvents>(),
-        input ?? NoOp<ISessionInputTelemetryEvents>(),
-        browse ?? NoOp<ISessionBrowseTelemetryEvents>());
+        videoStreamingInput ?? NoOp<ISessionVideoStreamingInputTelemetryEvents>(),
+        browse ?? NoOp<ISessionBrowseTelemetryEvents>(),
+        domProjection ?? NoOp<ISessionDomProjectionTelemetryEvents>());
 
     public ISessionTelemetryEvents ForSession(Guid sessionId, Guid profileId) => _events;
 
     private sealed class NoOpSessionTelemetryEvents(
         ISessionClientTelemetryEvents client,
         ISessionNavigateTelemetryEvents navigate,
-        ISessionInputTelemetryEvents input,
-        ISessionBrowseTelemetryEvents browse)
+        ISessionVideoStreamingInputTelemetryEvents videoStreamingInput,
+        ISessionBrowseTelemetryEvents browse,
+        ISessionDomProjectionTelemetryEvents domProjection)
         : ISessionTelemetryEvents
     {
         public ISessionCapacityTelemetryEvents Capacity { get; } = NoOp<ISessionCapacityTelemetryEvents>();
         public ISessionStartTelemetryEvents Start { get; } = NoOp<ISessionStartTelemetryEvents>();
         public ISessionNavigateTelemetryEvents Navigate { get; } = navigate;
         public ISessionPersistTelemetryEvents Persist { get; } = NoOp<ISessionPersistTelemetryEvents>();
-        public ISessionInputTelemetryEvents Input { get; } = input;
+        public ISessionVideoStreamingInputTelemetryEvents VideoStreamingInput { get; } = videoStreamingInput;
+        public ISessionDomProjectionTelemetryEvents DomProjection { get; } = domProjection;
         public ISessionResizeTelemetryEvents Resize { get; } = NoOp<ISessionResizeTelemetryEvents>();
         public ISessionBrowseTelemetryEvents Browse { get; } = browse;
         public ISessionClientTelemetryEvents Client { get; } = client;

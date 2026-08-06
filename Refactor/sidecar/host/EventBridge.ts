@@ -22,7 +22,9 @@ export class EventBridge implements BrowserSessionEvents {
   readonly dom = new DropOldestQueue<{
     sequence: number;
     generation: number;
+    treeType: string;
     kind: string;
+    target?: string;
     timestampMs: number;
     body: Uint8Array;
   }>(4);
@@ -31,8 +33,30 @@ export class EventBridge implements BrowserSessionEvents {
   readonly navigationBlocked = new DropOldestQueue<string>(8);
   readonly editableFocus = new DropOldestQueue<BrowserEditingState | null>(1);
   readonly crash = new DropOldestQueue<BrowserFault>(4);
-  /** Opt-in path hops for Telemetry.Sessions.Input.SidecarAdmitted (DropOldest). */
-  readonly inputPath = new DropOldestQueue<{ phase: string; kind: string; unixMs: number }>(32);
+  /** Opt-in path hops for Telemetry.Sessions.VideoStreamingInput.SidecarAdmitted (DropOldest). */
+  readonly videoStreamingInputPath = new DropOldestQueue<{
+    phase: string;
+    kind: string;
+    unixMs: number;
+  }>(32);
+  /** Opt-in path hops for Telemetry.Sessions.DomProjection.Input.* (DropOldest). */
+  readonly domProjectionInputPath = new DropOldestQueue<{
+    phase: string;
+    kind: string;
+    unixMs: number;
+    reason?: string;
+    generation?: number;
+  }>(32);
+  /** Opt-in Dom Projection lifecycle (GenerationBumped) — DropOldest. */
+  readonly domProjectionLifecycle = new DropOldestQueue<{
+    kind: string;
+    fromGeneration: number;
+    toGeneration: number;
+    reason: string;
+    url?: string;
+    diffKind?: string;
+    unixMs: number;
+  }>(32);
   /** Opt-in allocation lifecycle for Telemetry.Sessions.Sidecar.* (DropOldest). */
   readonly allocationLifecycle = new DropOldestQueue<
     AllocationLifecycleSignal & { unixMs: number }
@@ -80,11 +104,31 @@ export class EventBridge implements BrowserSessionEvents {
   onDomDiff(diff: {
     sequence: number;
     generation: number;
+    treeType: string;
     kind: string;
+    target?: string;
     timestampMs: number;
     body: Uint8Array;
   }): void {
     this.dom.tryWrite(diff);
+  }
+
+  onDomProjectionGenerationBumped(event: {
+    fromGeneration: number;
+    toGeneration: number;
+    reason: string;
+    url?: string;
+    diffKind?: string;
+  }): void {
+    this.domProjectionLifecycle.tryWrite({
+      kind: 'generation_bumped',
+      fromGeneration: event.fromGeneration,
+      toGeneration: event.toGeneration,
+      reason: event.reason,
+      url: event.url,
+      diffKind: event.diffKind,
+      unixMs: Date.now(),
+    });
   }
 
   onAudioFrame(chunk: Uint8Array): void {
@@ -121,11 +165,27 @@ export class EventBridge implements BrowserSessionEvents {
   }
 
   /** Fire-and-forget admit hop — never blocks PushInput. */
-  onInputPathAdmitted(kind: string): void {
-    this.inputPath.tryWrite({
+  onVideoStreamingInputPathAdmitted(kind: string): void {
+    this.videoStreamingInputPath.tryWrite({
       phase: 'admit',
       kind,
       unixMs: Date.now(),
+    });
+  }
+
+  /** Fire-and-forget Dom Projection path hop — never blocks PushDomInput. */
+  onDomProjectionInputPath(event: {
+    phase: 'sidecar_admitted' | 'cdp_dropped';
+    kind: string;
+    reason?: string;
+    generation?: number;
+  }): void {
+    this.domProjectionInputPath.tryWrite({
+      phase: event.phase,
+      kind: event.kind,
+      unixMs: Date.now(),
+      reason: event.reason,
+      generation: event.generation,
     });
   }
 
@@ -155,12 +215,15 @@ export class EventBridge implements BrowserSessionEvents {
   close(): void {
     this.video.close();
     this.audio.close();
+    this.dom.close();
     this.consoleQ.close();
     this.location.close();
     this.navigationBlocked.close();
     this.editableFocus.close();
     this.crash.close();
-    this.inputPath.close();
+    this.videoStreamingInputPath.close();
+    this.domProjectionInputPath.close();
+    this.domProjectionLifecycle.close();
     this.allocationLifecycle.close();
     for (const [, w] of this.permissionWaiters) {
       w.resolve('deny');

@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Speculum.Api.Database;
 using Speculum.Api.Profiles.Aggregates;
+using Speculum.Api.Profiles.Requests;
 using Speculum.Api.Profiles.Responses;
 using Speculum.Api.Profiles.Services.Contracts;
 using Speculum.Api.Sessions.Models;
@@ -131,17 +132,33 @@ public sealed class EfProfileRepository : IProfileRepository
     }
 
     public async Task<(IReadOnlyList<ProfileListItem> Items, int Total)> ListAsync(
-        int skip,
-        int take,
+        ListProfiles query,
         CancellationToken ct = default)
     {
-        var query = _db.Profiles.AsNoTracking();
-        var total = await query.CountAsync(ct).ConfigureAwait(false);
-        var items = await query
-            .OrderByDescending(p => p.CreatedAt)
-            .ThenBy(p => p.Id)
-            .Skip(skip)
-            .Take(take)
+        ArgumentNullException.ThrowIfNull(query);
+
+        var filtered = _db.Profiles.AsNoTracking();
+
+        if (query.ProfileId is { } profileId)
+        {
+            filtered = filtered.Where(p => p.Id == profileId);
+        }
+
+        var total = await filtered.CountAsync(ct).ConfigureAwait(false);
+
+        var sorted = query.SortBy switch
+        {
+            ProfileSortBy.LastUsedAt => query.SortDescending
+                ? filtered.OrderByDescending(p => p.LastUsedAt).ThenByDescending(p => p.Id)
+                : filtered.OrderBy(p => p.LastUsedAt).ThenBy(p => p.Id),
+            _ => query.SortDescending
+                ? filtered.OrderByDescending(p => p.CreatedAt).ThenByDescending(p => p.Id)
+                : filtered.OrderBy(p => p.CreatedAt).ThenBy(p => p.Id),
+        };
+
+        var items = await sorted
+            .Skip(Math.Max(0, query.Skip))
+            .Take(query.Take <= 0 ? ListProfiles.DefaultTake : Math.Min(query.Take, ListProfiles.MaxTake))
             .Select(p => new ProfileListItem
             {
                 ProfileId = p.Id,

@@ -20,6 +20,7 @@ Technical documentation for the **Speculum** remote browser isolation platform (
 | [../readme.md](../readme.md) | Everyone | Project overview, quick start, repository map |
 | [architecture.md](architecture.md) | Architects, operators | System design, data flows, security boundaries |
 | [dom-projection-diff-pipeline.md](dom-projection-diff-pipeline.md) | Architects / Sessions | Dom Projection **F**: Virtual DOM → DomDiff (V1 contract) |
+| [dom-projection-diff-streams.md](dom-projection-diff-streams.md) | Architects / Sessions | **WIP** Dom+CSSOM diff streams redesign (ops, selectors, notepad) |
 | [dom-projection-input.md](dom-projection-input.md) | Architects / Sessions | Dom Projection **input**: Projected → Virtual intents & control bindings |
 | [dom-projection-virtual-assets.md](dom-projection-virtual-assets.md) | Architects / Sessions | Virtual URL **serve** plane: cache, pass-through, HLS/DASH, MSE/DRM stubs |
 | [dom-projection-coalesce.md](dom-projection-coalesce.md) | Architects / Sessions | Dom Projection coalesce strategies, defaults, admin-configurable knobs |

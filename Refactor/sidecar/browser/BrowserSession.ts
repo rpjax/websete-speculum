@@ -46,9 +46,23 @@ export interface BrowserSessionEvents {
   onDomDiff?(diff: {
     sequence: number;
     generation: number;
+    treeType: string;
     kind: string;
+    target?: string;
     timestampMs: number;
     body: Uint8Array;
+  }): void;
+
+  /**
+   * Dom Projection generation identity changed (opt-in Telemetry hop).
+   * reason: main_frame_navigated | page_emit_sync
+   */
+  onDomProjectionGenerationBumped?(event: {
+    fromGeneration: number;
+    toGeneration: number;
+    reason: string;
+    url?: string;
+    diffKind?: string;
   }): void;
 
   // page console (side effects of page scripts / evaluate; not the eval return value)
@@ -414,15 +428,29 @@ export interface BrowserSession {
 
   /**
    * Dom Projection element input. No-op / throw when MirrorMode is not DomProjection.
+   * Returns CDP outcome for path telemetry (SidecarAdmitted / CdpDropped).
    */
   pushDomInput?(input: {
     type: string;
-    targetId: number;
+    anchor?: string | null;
+    generation?: number;
+    timestampClient?: number | null;
     payloadJson?: string;
-  }): Promise<void>;
+  }): Promise<{ status: 'dispatched' } | { status: 'dropped'; reason: string }>;
 
-  /** Dom Projection asset bytes by hash (session-scoped cache). */
-  getDomAsset?(hash: string): Promise<{ body: Uint8Array; contentType: string } | null>;
+  /** Dom Projection virtual resource by path key / blob / data id. */
+  getDomAsset?(
+    key: string,
+    opts?: { kind?: string; rangeHeader?: string },
+  ): Promise<{
+    body: Uint8Array;
+    contentType: string;
+    statusCode?: number;
+    contentRange?: string;
+    passThrough?: boolean;
+  } | null>;
+
+  putDomUpload?(id: string, body: Uint8Array, contentType: string, name: string): Promise<void>;
 
   /** Client camera frame → virtual browser capture / getUserMedia path. */
   pushCameraFrame(frame: Uint8Array): Promise<void>;

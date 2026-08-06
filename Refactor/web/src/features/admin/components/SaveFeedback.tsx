@@ -1,4 +1,4 @@
-import { CircleCheck, CircleX } from 'lucide-react'
+import { CircleAlert, CircleCheck, CircleX } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export function SaveFeedback({
@@ -7,7 +7,14 @@ export function SaveFeedback({
   fieldErrors = [],
   className,
 }: {
-  mode: 'toast-success' | 'inline-error' | 'banner-error' | 'strip-success' | 'strip-error'
+  mode:
+    | 'toast-success'
+    | 'inline-error'
+    | 'banner-error'
+    | 'strip-success'
+    | 'strip-error'
+    | 'strip-neutral'
+    | 'strip-warning'
   message?: string
   fieldErrors?: { path: string; message: string }[]
   className?: string
@@ -24,6 +31,26 @@ export function SaveFeedback({
       >
         <CircleCheck className={mode === 'strip-success' ? 'h-3.5 w-3.5 shrink-0' : 'h-4 w-4 shrink-0'} />
         <span className="min-w-0 truncate">{message}</span>
+      </p>
+    )
+  }
+
+  if (mode === 'strip-neutral') {
+    return (
+      <p role="status" className={cn('text-xs text-muted-foreground sm:text-right', className)}>
+        <span className="min-w-0 break-words">{message}</span>
+      </p>
+    )
+  }
+
+  if (mode === 'strip-warning') {
+    return (
+      <p
+        role="status"
+        className={cn('flex items-start justify-end gap-1.5 text-xs text-warning', className)}
+      >
+        <CircleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+        <span className="min-w-0 break-words text-right">{message}</span>
       </p>
     )
   }

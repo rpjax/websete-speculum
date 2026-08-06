@@ -86,16 +86,33 @@ public interface ILiveSession
         CancellationToken ct = default);
 
     /// <summary>
-    /// Opt-in Journal hop: data-plane VideoStreamingInput framed message was received.
-    /// No-op when <c>Telemetry.Sessions.Input.WebTransportReceived</c> is disabled in the catalog.
+    /// Opt-in Journal hop: VideoStreamingInput framed message on the data plane.
+    /// No-op when <c>Telemetry.Sessions.VideoStreamingInput.DataPlaneReceived</c> is disabled.
     /// </summary>
-    void TraceInputPathWtReceived(string kind);
+    void TraceVideoStreamingInputDataPlaneReceived(
+        string kind,
+        string? traceId = null,
+        long? clientTimestampMs = null);
 
     /// <summary>
-    /// Opt-in Journal hop: video-streaming input admitted outside the framed data plane (e.g. harness).
-    /// No-op when <c>Telemetry.Sessions.Input.ControlReceived</c> is disabled in the catalog.
+    /// Opt-in Journal hop: VideoStreamingInput admitted outside the framed data plane (e.g. harness).
+    /// No-op when <c>Telemetry.Sessions.VideoStreamingInput.ControlReceived</c> is disabled.
     /// </summary>
-    void TraceInputPathControlReceived(string kind);
+    void TraceVideoStreamingInputControlReceived(
+        string kind,
+        string? traceId = null,
+        long? clientTimestampMs = null);
+
+    /// <summary>
+    /// Opt-in Journal hop: DomProjectionInput framed message on the data plane.
+    /// No-op when <c>Telemetry.Sessions.DomProjection.Input.DataPlaneReceived</c> is disabled.
+    /// </summary>
+    void TraceDomProjectionInputDataPlaneReceived(
+        string kind,
+        long? generation,
+        string? anchor,
+        string? traceId = null,
+        long? clientTimestampMs = null);
 
     // ── Commands ─────────────────────────────────────────────────────────────
 
@@ -120,7 +137,18 @@ public interface ILiveSession
     /// <summary>
     /// Fetches a Dom Projection asset by hash (MirrorMode.DomProjection only).
     /// </summary>
-    Task<IResult<DomAsset>> GetDomAssetAsync(string hash, CancellationToken ct = default);
+    Task<IResult<DomAsset>> GetDomAssetAsync(
+        string key,
+        CancellationToken ct = default,
+        string? kind = null,
+        string? rangeHeader = null);
+
+    Task<IResult> PutDomUploadAsync(
+        string uploadId,
+        byte[] body,
+        string contentType,
+        string name,
+        CancellationToken ct = default);
 
     // ── Hooks ────────────────────────────────────────────────────────────────
 

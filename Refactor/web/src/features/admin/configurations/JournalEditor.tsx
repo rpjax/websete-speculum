@@ -1,17 +1,16 @@
 import { useCallback, useEffect, useState } from 'react'
-import { BookOpen, Layers, ListTree, Plus, Radio, Trash2 } from 'lucide-react'
+import { BookOpen, Check, Layers, ListTree, Plus, Radio, Trash2 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { adminJson } from '@/lib/adminFetch'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
+import { cn } from '@/lib/utils'
 import {
   DataCard,
   EmptyState,
-  GuidedPreset,
   HelperCallout,
-  InlineValidation,
   MetaRow,
   RevealPanel,
   SearchFilter,
@@ -22,18 +21,21 @@ import {
   JOURNAL_PRESETS,
   applyJournalPreset,
   asEventsMap,
+  canonicalCatalog,
   customKeysOutsideCatalog,
   filterCatalog,
   groupByCategory,
   isFactEnabled,
   isJournalToggleable,
   isTelemetryOwned,
-  optionalCatalog,
   removeJournalEvent,
   setFilteredOptIns,
   setJournalEvent,
   summarizeJournal,
+  telemetryOwnedOptional,
+  toggleableCatalog,
   type JournalCatalogEntry,
+  type JournalPresetId,
   type JsonObject,
 } from './journalHelpers'
 
@@ -41,36 +43,39 @@ function FactRow({
   entry,
   enabled,
   onToggle,
+  dense,
 }: {
   entry: JournalCatalogEntry
   enabled: boolean
   onToggle?: (checked: boolean) => void
+  dense?: boolean
 }) {
   const toggleable = isJournalToggleable(entry)
   return (
-    <li className="flex items-start justify-between gap-3 px-2 py-2.5 sm:px-3">
-      <div className="min-w-0 space-y-1">
-        <div className="flex flex-wrap items-center gap-2">
+    <li
+      className={cn(
+        'flex items-start justify-between gap-3',
+        dense ? 'px-2 py-2 sm:px-2.5' : 'px-2 py-2.5 sm:px-3',
+      )}
+    >
+      <div className="min-w-0 space-y-0.5">
+        <div className="flex flex-wrap items-center gap-1.5">
           <p className="text-sm font-medium leading-tight">{entry.name || entry.type}</p>
           {entry.isCanonical ? <StatusPill label="Canonical" tone="success" /> : null}
           {isTelemetryOwned(entry.type) ? <StatusPill label="Telemetry" tone="info" /> : null}
         </div>
         {entry.description ? (
-          <p className="text-xs text-muted-foreground">{entry.description}</p>
+          <p className="text-xs text-muted-foreground line-clamp-2">{entry.description}</p>
         ) : null}
-        <p className="font-mono text-[11px] text-muted-foreground">{entry.type}</p>
+        <p className="truncate font-mono text-[11px] text-muted-foreground">{entry.type}</p>
       </div>
       <div className="flex shrink-0 items-center gap-2 pt-0.5">
         {toggleable && onToggle ? (
           <>
-            <Label htmlFor={`journal-${entry.type}`} className="text-xs text-muted-foreground">
+            <Label htmlFor={`journal-${entry.type}`} className="sr-only sm:not-sr-only sm:text-xs sm:text-muted-foreground">
               {enabled ? 'On' : 'Off'}
             </Label>
-            <Switch
-              id={`journal-${entry.type}`}
-              checked={enabled}
-              onCheckedChange={onToggle}
-            />
+            <Switch id={`journal-${entry.type}`} checked={enabled} onCheckedChange={onToggle} />
           </>
         ) : isTelemetryOwned(entry.type) ? (
           <StatusPill label={enabled ? 'On via Telemetry' : 'Off via Telemetry'} tone={enabled ? 'success' : 'neutral'} />
@@ -85,25 +90,39 @@ function FactRow({
 export function JournalEditor({
   value,
   replace,
+  onValidityChange,
 }: {
   value: JsonObject
   replace: (next: JsonObject) => void
+  onValidityChange?: (ok: boolean) => void
 }) {
   const [catalog, setCatalog] = useState<JournalCatalogEntry[] | null>(null)
   const [catalogError, setCatalogError] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [draftFact, setDraftFact] = useState('')
+  const [pickedPreset, setPickedPreset] = useState<JournalPresetId | null>(null)
   const onQueryChange = useCallback((next: string) => setQuery(next), [])
 
   const events = asEventsMap(value.events)
   const summary = summarizeJournal(catalog, events)
-  const optional = catalog ? optionalCatalog(catalog) : []
-  const filteredOptional = filterCatalog(optional, query)
-  const filteredToggleable = filteredOptional.filter(isJournalToggleable)
-  const grouped = groupByCategory(filteredOptional)
+  const toggleable = catalog ? toggleableCatalog(catalog) : []
+  const telemetryOwned = catalog ? telemetryOwnedOptional(catalog) : []
+  const filteredToggleable = filterCatalog(toggleable, query)
+  const filteredTelemetryOwned = filterCatalog(telemetryOwned, query)
+  const grouped = groupByCategory(filteredToggleable)
   const customKeys = customKeysOutsideCatalog(events, catalog)
 
   const patchEvents = (next: typeof events) => replace({ ...value, events: next })
+
+  useEffect(() => {
+    // Block save when catalog is known and events contain keys the API will reject.
+    if (!onValidityChange) return
+    if (catalog === null) {
+      onValidityChange(!catalogError)
+      return
+    }
+    onValidityChange(customKeys.length === 0)
+  }, [catalog, catalogError, customKeys.length, onValidityChange])
 
   useEffect(() => {
     let active = true
@@ -121,21 +140,17 @@ export function JournalEditor({
     }
   }, [])
 
+  const applyPreset = (id: JournalPresetId) => {
+    setPickedPreset(id)
+    patchEvents(applyJournalPreset(events, id, catalog))
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap gap-2">
-        <StatusPill
-          label={summary.statusLabel}
-          tone={summary.enabledOptIns ? 'success' : 'neutral'}
-        />
-        <StatusPill
-          label={`Catalog · ${summary.catalogSize || '—'}`}
-          tone={catalog ? 'info' : 'neutral'}
-        />
-        <StatusPill
-          label={`Categories · ${summary.categoryCount || '—'}`}
-          tone={summary.categoryCount ? 'info' : 'neutral'}
-        />
+        <StatusPill label={summary.statusLabel} tone={summary.enabledOptIns ? 'success' : 'neutral'} />
+        <StatusPill label={`Catalog · ${summary.catalogSize || '—'}`} tone={catalog ? 'info' : 'neutral'} />
+        <StatusPill label={`Categories · ${summary.categoryCount || '—'}`} tone={summary.categoryCount ? 'info' : 'neutral'} />
         {summary.canonicalCount ? (
           <StatusPill label={`Canonical · ${summary.canonicalCount}`} tone="success" />
         ) : null}
@@ -185,31 +200,52 @@ export function JournalEditor({
       </HelperCallout>
 
       <DataCard className="space-y-4 p-4">
-        <div>
+        <div className="space-y-1">
           <h3 className="text-sm font-medium">Guided presets</h3>
           <p className="text-xs text-muted-foreground">
             Presets only change Journal-owned opt-ins. They never disable canonical facts or write Telemetry keys
             into this section.
           </p>
         </div>
-        <GuidedPreset
-          presets={JOURNAL_PRESETS.map((preset) => ({
-            id: preset.id,
-            label: preset.label,
-            apply: () => patchEvents(applyJournalPreset(events, preset.id, catalog)),
-          }))}
-        />
-        <ul className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
-          {JOURNAL_PRESETS.map((preset) => (
-            <li key={preset.id} className="rounded-md border border-border/70 bg-background/40 px-2.5 py-2">
-              <p className="font-medium text-foreground">{preset.label}</p>
-              <p className="mt-0.5">{preset.description}</p>
-            </li>
-          ))}
-        </ul>
+        <div role="radiogroup" aria-label="Journal presets" className="grid gap-2 sm:grid-cols-2">
+          {JOURNAL_PRESETS.map((preset) => {
+            const selected = pickedPreset === preset.id
+            return (
+              <button
+                key={preset.id}
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                onClick={() => applyPreset(preset.id)}
+                className={cn(
+                  'rounded-lg border p-3 text-left transition-colors',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                  selected
+                    ? 'border-primary bg-primary/5'
+                    : 'border-border bg-background/40 hover:bg-muted/40',
+                )}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-sm font-medium text-foreground">{preset.label}</p>
+                  {selected ? (
+                    <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                      <Check className="h-3 w-3" aria-hidden />
+                    </span>
+                  ) : (
+                    <span
+                      className="mt-0.5 inline-flex h-5 w-5 shrink-0 rounded-full border border-border"
+                      aria-hidden
+                    />
+                  )}
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">{preset.description}</p>
+              </button>
+            )
+          })}
+        </div>
         {summary.telemetryOwnedCount ? (
           <p className="text-xs text-muted-foreground">
-            {summary.telemetryOwnedCount} Telemetry-owned catalog facts are browse-only here —{' '}
+            {summary.telemetryOwnedCount} Telemetry-owned catalog facts are browse-only —{' '}
             <Link className="font-medium underline" to="/w7s/admin/configurations/Telemetry">
               open Telemetry controls
             </Link>
@@ -218,84 +254,91 @@ export function JournalEditor({
         ) : null}
       </DataCard>
 
-      <section className="space-y-3">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-          <div className="min-w-0 flex-1">
-            <SearchFilter
-              value={query}
-              onChange={onQueryChange}
-              placeholder="Search fact name, type, or category"
-            />
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={!filteredToggleable.length}
-              onClick={() => patchEvents(setFilteredOptIns(events, filteredToggleable, true, catalog))}
-            >
-              Enable filtered
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={!filteredToggleable.length}
-              onClick={() => patchEvents(setFilteredOptIns(events, filteredToggleable, false, catalog))}
-            >
-              Disable filtered
-            </Button>
-          </div>
-        </div>
+      {catalog === null && !catalogError ? (
+        <HelperCallout title="Loading fact catalog">
+          Fetching registered Journal fact types from the API. Opt-in toggles appear once discovery completes.
+        </HelperCallout>
+      ) : null}
 
-        {catalogError ? <InlineValidation message={catalogError} /> : null}
+      {catalogError ? (
+        <HelperCallout tone="warning" title="Catalog unavailable">
+          {catalogError} Retry by refreshing the page or check that the API is reachable.
+        </HelperCallout>
+      ) : null}
 
-        {catalog === null && !catalogError ? (
-          <p className="text-sm text-muted-foreground">Loading available fact types…</p>
-        ) : null}
+      {catalog && !catalog.length ? (
+        <EmptyState
+          title="Catalog empty"
+          body="No Journal fact types are registered yet. Retry after the API finishes discovery."
+        />
+      ) : null}
 
-        {catalog && !catalog.length ? (
-          <EmptyState
-            title="Catalog empty"
-            body="No Journal fact types are registered yet. Retry after the API finishes discovery."
-          />
-        ) : null}
-
-        {catalog && catalog.length > 0 && !filteredOptional.length ? (
-          <EmptyState
-            title="No matching facts"
-            body="Clear the search or try a different type prefix (Sessions, Profiles, Telemetry)."
-            cta={{ label: 'Clear search', onClick: () => setQuery('') }}
-          />
-        ) : null}
-
-        {grouped.map((group) => (
-          <div key={group.category} className="space-y-1.5">
-            <div className="flex items-center gap-2 px-1">
-              <ListTree className="h-3.5 w-3.5 text-muted-foreground" />
-              <h4 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                {group.category}
-              </h4>
-              <span className="text-xs text-muted-foreground">· {group.entries.length}</span>
+      {catalog && catalog.length > 0 ? (
+        <section className="space-y-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div className="min-w-0 flex-1">
+              <SearchFilter
+                value={query}
+                onChange={onQueryChange}
+                placeholder="Search fact name, type, or category"
+              />
             </div>
-            <ul className="divide-y divide-border rounded-lg border border-border bg-background/40">
-              {group.entries.map((entry) => (
-                <FactRow
-                  key={entry.type}
-                  entry={entry}
-                  enabled={isFactEnabled(entry, events)}
-                  onToggle={
-                    isJournalToggleable(entry)
-                      ? (checked) => patchEvents(setJournalEvent(events, entry.type, checked, catalog))
-                      : undefined
-                  }
-                />
-              ))}
-            </ul>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="w-full sm:w-auto"
+                disabled={!filteredToggleable.length}
+                onClick={() => patchEvents(setFilteredOptIns(events, filteredToggleable, true, catalog))}
+              >
+                Enable filtered
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="w-full sm:w-auto"
+                disabled={!filteredToggleable.length}
+                onClick={() => patchEvents(setFilteredOptIns(events, filteredToggleable, false, catalog))}
+              >
+                Disable filtered
+              </Button>
+            </div>
           </div>
-        ))}
-      </section>
+
+          {!filteredToggleable.length ? (
+            <EmptyState
+              title="No matching Journal opt-ins"
+              body="Clear the search or try a different type prefix (Sessions, Profiles)."
+              cta={{ label: 'Clear search', onClick: () => setQuery('') }}
+            />
+          ) : (
+            grouped.map((group) => (
+              <div key={group.category} className="space-y-1.5">
+                <div className="flex items-center gap-2 px-1">
+                  <ListTree className="h-3.5 w-3.5 text-muted-foreground" />
+                  <h4 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    {group.category}
+                  </h4>
+                  <span className="text-xs text-muted-foreground">· {group.entries.length}</span>
+                </div>
+                <ul className="divide-y divide-border rounded-lg border border-border bg-background/40">
+                  {group.entries.map((entry) => (
+                    <FactRow
+                      key={entry.type}
+                      entry={entry}
+                      enabled={isFactEnabled(entry, events)}
+                      dense
+                      onToggle={(checked) => patchEvents(setJournalEvent(events, entry.type, checked, catalog))}
+                    />
+                  ))}
+                </ul>
+              </div>
+            ))
+          )}
+        </section>
+      ) : null}
 
       {customKeys.length ? (
         <DataCard className="space-y-2 p-3">
@@ -314,9 +357,7 @@ export function JournalEditor({
                 <div className="flex items-center gap-1">
                   <Switch
                     checked={Boolean(events[key])}
-                    onCheckedChange={(checked) =>
-                      patchEvents(setJournalEvent(events, key, checked, catalog))
-                    }
+                    onCheckedChange={(checked) => patchEvents(setJournalEvent(events, key, checked, catalog))}
                     aria-label={`Toggle ${key}`}
                   />
                   <Button
@@ -334,6 +375,33 @@ export function JournalEditor({
             ))}
           </ul>
         </DataCard>
+      ) : null}
+
+      {catalog && telemetryOwned.length > 0 ? (
+        <RevealPanel title={`Telemetry-owned facts (${telemetryOwned.length}) — browse only`}>
+          <div className="space-y-3">
+            <p className="text-xs text-muted-foreground">
+              These facts follow Telemetry configuration. Status reflects the catalog — toggle them under{' '}
+              <Link className="font-medium underline" to="/w7s/admin/configurations/Telemetry">
+                Telemetry
+              </Link>
+              .
+            </p>
+            {filteredTelemetryOwned.length === 0 && query.trim() ? (
+              <EmptyState
+                title="No matching Telemetry facts"
+                body="Clear the search to browse all Telemetry-owned catalog entries."
+                cta={{ label: 'Clear search', onClick: () => setQuery('') }}
+              />
+            ) : (
+              <ul className="divide-y divide-border rounded-lg border border-border bg-background/40">
+                {filteredTelemetryOwned.map((entry) => (
+                  <FactRow key={entry.type} entry={entry} enabled={isFactEnabled(entry, events)} dense />
+                ))}
+              </ul>
+            )}
+          </div>
+        </RevealPanel>
       ) : null}
 
       <RevealPanel title="Add custom fact key (fallback)">
@@ -362,7 +430,7 @@ export function JournalEditor({
                 onChange={(event) => setDraftFact(event.target.value)}
               />
             </div>
-            <Button type="submit" size="sm" variant="outline">
+            <Button type="submit" size="sm" variant="outline" className="w-full sm:w-auto">
               <Plus className="h-4 w-4" />
               Enable fact
             </Button>
@@ -372,12 +440,9 @@ export function JournalEditor({
 
       {catalog && summary.canonicalCount ? (
         <RevealPanel title={`Canonical facts (${summary.canonicalCount}) — always recorded`}>
-          <ul className="divide-y divide-border">
-            {filterCatalog(
-              catalog.filter((entry) => entry.isCanonical),
-              query,
-            ).map((entry) => (
-              <FactRow key={entry.type} entry={entry} enabled />
+          <ul className="divide-y divide-border rounded-lg border border-border bg-background/40">
+            {filterCatalog(canonicalCatalog(catalog), query).map((entry) => (
+              <FactRow key={entry.type} entry={entry} enabled dense />
             ))}
           </ul>
         </RevealPanel>
@@ -386,11 +451,11 @@ export function JournalEditor({
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <ListTree className="h-3.5 w-3.5" />
         <span>
-          Showing {filteredOptional.length}
-          {query.trim() ? ` of ${optional.length}` : ''} optional facts
+          Showing {filteredToggleable.length}
+          {query.trim() ? ` of ${toggleable.length}` : ''} Journal opt-ins
           {query.trim() ? ` matching “${query.trim()}”` : ''}
-          {filteredToggleable.length
-            ? ` · ${filteredToggleable.length} Journal-togglable in view`
+          {filteredTelemetryOwned.length && query.trim()
+            ? ` · ${filteredTelemetryOwned.length} Telemetry-owned in view`
             : ''}
           .
         </span>

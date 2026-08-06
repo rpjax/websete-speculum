@@ -17,7 +17,11 @@ public static class ProfileEndpoints
         endpoints.MapGet("/api/profiles", async (
             int? skip,
             int? take,
+            Guid? profileId,
+            ProfileSortBy? sortBy,
+            bool? sortDescending,
             IProfileService profiles,
+            ILiveSessionService liveSessions,
             CancellationToken ct) =>
         {
             var result = await profiles.ListProfilesAsync(
@@ -25,12 +29,27 @@ public static class ProfileEndpoints
                 {
                     Skip = skip ?? 0,
                     Take = take ?? ListProfiles.DefaultTake,
+                    ProfileId = profileId,
+                    SortBy = sortBy ?? ProfileSortBy.CreatedAt,
+                    SortDescending = sortDescending ?? true,
                 },
                 ct).ConfigureAwait(false);
 
-            return result.IsSuccess
-                ? Results.Ok(result.Value)
-                : Results.BadRequest(new { error = result.Errors.FirstOrDefault() ?? "Profile listing failed" });
+            if (result.IsFailure)
+                return Results.BadRequest(new { error = result.Errors.FirstOrDefault() ?? "Profile listing failed" });
+
+            var live = liveSessions.ListSnapshots()
+                .Select(session => session.ProfileId)
+                .ToHashSet();
+            var items = result.Value.Items.Select(item => new
+            {
+                item.ProfileId,
+                item.CreatedAt,
+                item.LastUsedAt,
+                hasLiveSession = live.Contains(item.ProfileId),
+            });
+
+            return Results.Ok(new { items, total = result.Value.Total });
         }).WithTags("Profiles");
 
         endpoints.MapGet("/api/profiles/{profileId:guid}", async (

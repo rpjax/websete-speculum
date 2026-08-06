@@ -1,13 +1,13 @@
 using Speculum.Api.Journal.Attributes;
 using Speculum.Api.Journal.Models;
 
-namespace Speculum.Api.Telemetry.Events.Models.Sessions.Input;
+namespace Speculum.Api.Telemetry.Events.Models.Sessions.VideoStreamingInput;
 
 [JournalFact(
-    "Telemetry.Sessions.Input.Applied",
-    schemaVersion: 1,
-    Name = "Input applied",
-    Description = "User input was accepted and pushed toward the sidecar.",
+    "Telemetry.Sessions.VideoStreamingInput.Applied",
+    schemaVersion: 2,
+    Name = "Video streaming input · applied",
+    Description = "VideoStreamingInput was accepted and pushed toward the sidecar.",
     Owner = "telemetry",
     PublishPolicy = PublishPolicy.BestEffort)]
 public sealed class Applied
@@ -21,4 +21,8 @@ public sealed class Applied
     public required string Kind { get; init; }
 
     public string? Phase { get; init; }
+
+    public string? TraceId { get; init; }
+
+    public long? ClientTimestampMs { get; init; }
 }

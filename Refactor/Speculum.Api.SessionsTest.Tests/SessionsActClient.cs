@@ -375,6 +375,36 @@ public sealed class SessionsActClient : IAsyncDisposable
         return found;
     }
 
+    /// <summary>Drop all buffered journal facts (e.g. before an absence window).</summary>
+    public void ClearJournal()
+    {
+        while (_journal.TryDequeue(out _))
+        {
+        }
+    }
+
+    /// <summary>Count buffered facts of a type without removing them.</summary>
+    public int CountJournal(string type)
+    {
+        var count = 0;
+        var kept = new List<JournalFactWire>();
+        while (_journal.TryDequeue(out var item))
+        {
+            kept.Add(item);
+            if (string.Equals(item.Type, type, StringComparison.Ordinal))
+            {
+                count++;
+            }
+        }
+
+        foreach (var item in kept)
+        {
+            _journal.Enqueue(item);
+        }
+
+        return count;
+    }
+
     public async ValueTask DisposeAsync()
     {
         if (_journalCts is not null)

@@ -251,6 +251,7 @@ function createBrowserSessionHandlers(registry) {
                 kind: d.kind,
                 timestampMs: d.timestampMs,
                 body: d.body,
+                treeType: d.treeType,
             }));
         },
         watchAudio(call) {
@@ -275,10 +276,30 @@ function createBrowserSessionHandlers(registry) {
                 phase: f.phase,
             }));
         },
-        watchInputPath(call) {
-            watchStream(call, registry, (b) => b.inputPath, (e) => ({
+        watchVideoStreamingInputPath(call) {
+            watchStream(call, registry, (b) => b.videoStreamingInputPath, (e) => ({
                 phase: e.phase,
                 kind: e.kind,
+                unixMs: e.unixMs,
+            }));
+        },
+        watchDomProjectionInputPath(call) {
+            watchStream(call, registry, (b) => b.domProjectionInputPath, (e) => ({
+                phase: e.phase,
+                kind: e.kind,
+                unixMs: e.unixMs,
+                reason: e.reason,
+                generation: e.generation,
+            }));
+        },
+        watchDomProjectionLifecycle(call) {
+            watchStream(call, registry, (b) => b.domProjectionLifecycle, (e) => ({
+                kind: e.kind,
+                fromGeneration: e.fromGeneration,
+                toGeneration: e.toGeneration,
+                reason: e.reason,
+                url: e.url,
+                diffKind: e.diffKind,
                 unixMs: e.unixMs,
             }));
         },
@@ -304,40 +325,105 @@ function createBrowserSessionHandlers(registry) {
                 await session.pushInput(input);
                 // Skip admit-path fanout for move samples (high frequency).
                 if (input.type !== 'mousemove' && !(input.type === 'touch' && input.phase === 'move')) {
-                    bridge.onInputPathAdmitted(input.type);
+                    bridge.onVideoStreamingInputPathAdmitted(input.type);
                 }
             });
         },
         pushDomInput(call, callback) {
             pumpClientStream(call, callback, async (msg) => {
                 const sid = (0, validate_1.requireSessionId)(msg);
-                const { session } = registry.get(sid);
+                const { session, bridge } = registry.get(sid);
                 if (!session.pushDomInput) {
                     throw Object.assign(new Error('DomProjection input not supported'), {
                         code: 'FAILED_PRECONDITION',
                     });
                 }
-                await session.pushDomInput({
-                    type: String(msg.type ?? ''),
-                    targetId: Number(msg.targetId ?? msg.target_id ?? 0),
+                const kind = String(msg.type ?? '');
+                const generation = Number(msg.generation ?? 0) || undefined;
+                const outcome = await session.pushDomInput({
+                    type: kind,
+                    anchor: msg.anchor != null ? String(msg.anchor) : null,
+                    generation,
+                    timestampClient: msg.timestampClient != null || msg.timestamp_client != null
+                        ? Number(msg.timestampClient ?? msg.timestamp_client)
+                        : null,
                     payloadJson: msg.payloadJson ?? msg.payload_json ?? '{}',
                 });
+                const typeLower = kind.trim().toLowerCase();
+                const isHfMove = typeLower === 'mousemove' || typeLower === 'pointermove';
+                if (outcome.status === 'dropped') {
+                    bridge.onDomProjectionInputPath({
+                        phase: 'cdp_dropped',
+                        kind,
+                        reason: outcome.reason,
+                        generation,
+                    });
+                    return;
+                }
+                // Skip admit-path fanout for move samples (high frequency) — mirror VideoStreamingInput.
+                if (!isHfMove) {
+                    bridge.onDomProjectionInputPath({
+                        phase: 'sidecar_admitted',
+                        kind,
+                        generation,
+                    });
+                }
             });
         },
         async getDomAsset(call, callback) {
             try {
                 const { session } = registry.get((0, validate_1.requireSessionId)(call.request));
-                const hash = String(call.request.hash ?? '');
-                if (!hash || !session.getDomAsset) {
-                    callback(null, { body: Buffer.alloc(0), contentType: 'application/octet-stream' });
+                const key = String(call.request.key ?? '');
+                if (!key || !session.getDomAsset) {
+                    callback(null, {
+                        body: Buffer.alloc(0),
+                        contentType: 'application/octet-stream',
+                        statusCode: 404,
+                        contentRange: '',
+                        passThrough: false,
+                    });
                     return;
                 }
-                const hit = await session.getDomAsset(hash);
+                const hit = await session.getDomAsset(key, {
+                    kind: String(call.request.kind ?? ''),
+                    rangeHeader: String(call.request.rangeHeader ?? call.request.range_header ?? '') || undefined,
+                });
                 if (!hit) {
-                    callback(null, { body: Buffer.alloc(0), contentType: 'application/octet-stream' });
+                    callback(null, {
+                        body: Buffer.alloc(0),
+                        contentType: 'application/octet-stream',
+                        statusCode: 404,
+                        contentRange: '',
+                        passThrough: false,
+                    });
                     return;
                 }
-                callback(null, { body: hit.body, contentType: hit.contentType });
+                callback(null, {
+                    body: hit.body,
+                    contentType: hit.contentType,
+                    statusCode: hit.statusCode ?? 200,
+                    contentRange: hit.contentRange ?? '',
+                    passThrough: !!hit.passThrough,
+                });
+            }
+            catch (err) {
+                callback(grpcError(err), null);
+            }
+        },
+        async putDomUpload(call, callback) {
+            try {
+                const { session } = registry.get((0, validate_1.requireSessionId)(call.request));
+                const uploadId = String(call.request.uploadId ?? call.request.upload_id ?? '');
+                if (!uploadId || !session.putDomUpload) {
+                    callback(null, {});
+                    return;
+                }
+                const body = call.request.body;
+                const buf = Buffer.isBuffer(body)
+                    ? body
+                    : Buffer.from(body?.data ?? body ?? []);
+                await session.putDomUpload(uploadId, buf, String(call.request.contentType ?? call.request.content_type ?? 'application/octet-stream'), String(call.request.name ?? 'file'));
+                callback(null, {});
             }
             catch (err) {
                 callback(grpcError(err), null);

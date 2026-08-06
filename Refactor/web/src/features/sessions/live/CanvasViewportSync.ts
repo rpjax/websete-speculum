@@ -1,8 +1,8 @@
 import {
-  detectDeviceProfile,
   validateResizeViewport,
   type SessionViewportBounds,
-} from '@/features/motor/live/deviceProfile'
+} from '@/features/sessions/live/sessionViewportPolicy'
+import { detectDeviceProfile } from '@/features/sessions/live/deviceProfile'
 import type { ResizeSessionResult, SessionDeviceProfile } from '@/lib/speculum'
 
 export interface CanvasSize {
@@ -21,7 +21,7 @@ export interface CanvasViewportSyncOptions {
     size: CanvasSize,
     device: SessionDeviceProfile,
   ) => Promise<ResizeSessionResult>
-  /** Sessions.ViewportPolicy from StartSession — required (no hardcoded product max). */
+  /** Sessions.ViewportPolicy from client-config — required (no hardcoded product max). */
   viewportPolicy: SessionViewportBounds
   debounceMs?: number
   /** When true, defer remote resize (e.g. IME shell open). */

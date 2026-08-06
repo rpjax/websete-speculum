@@ -83,7 +83,12 @@ describe('DataStreams.sendInput', () => {
     }
 
     expect(messages).toHaveLength(1)
-    const msg = messages[0] as { type: string; payload: string }
+    const msg = messages[0] as {
+      type: string
+      payload: string
+      traceId: string
+      clientTimestampMs: number
+    }
     expect(msg.type).toBe('mousedown')
     expect(JSON.parse(msg.payload)).toEqual({
       type: 'mousedown',
@@ -91,6 +96,47 @@ describe('DataStreams.sendInput', () => {
       y: 20,
       button: 0,
     })
+    expect(typeof msg.traceId).toBe('string')
+    expect(msg.traceId.length).toBeGreaterThan(8)
+    expect(typeof msg.clientTimestampMs).toBe('number')
+
+    await streams.close()
+  })
+
+  it('stamps caller-supplied traceId on VideoStreamingInput', async () => {
+    const transport = new MockDataStreamTransport()
+    const streams = new DataStreams({
+      sessionId: '00000000-0000-0000-0000-000000000011',
+      token: 'test-token',
+      transport,
+    })
+
+    await streams.open()
+    await streams.sendInput({
+      type: 'mousedown',
+      x: 1,
+      y: 2,
+      button: 0,
+      traceId: 'fixedtraceid01',
+      clientTimestampMs: 42,
+    })
+
+    const chunks = transport.pipes.get(PipeKind.VideoStreamingInput)
+    const bytes = concat(chunks!)
+    const reader = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(bytes.subarray(1))
+        controller.close()
+      },
+    }).getReader()
+    const framed = new FramedReader(reader)
+    const messages: unknown[] = []
+    for await (const message of framed.messages()) {
+      messages.push(message)
+    }
+    const msg = messages[0] as { traceId: string; clientTimestampMs: number }
+    expect(msg.traceId).toBe('fixedtraceid01')
+    expect(msg.clientTimestampMs).toBe(42)
 
     await streams.close()
   })
@@ -109,9 +155,10 @@ describe('DataStreams.sendInput', () => {
     expect(transport.pipes.has(PipeKind.DomProjectionInput)).toBe(true)
 
     await streams.sendDomProjectionInput({
-      type: 'click',
-      targetId: 7,
-      payload: '{}',
+      type: 'mousedown',
+      anchor: 'a1',
+      generation: 1,
+      payload: JSON.stringify({ x: 10, y: 20, button: 0 }),
     })
 
     const chunks = transport.pipes.get(PipeKind.DomProjectionInput)

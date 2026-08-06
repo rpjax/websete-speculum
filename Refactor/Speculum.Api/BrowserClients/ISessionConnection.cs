@@ -175,8 +175,19 @@ public interface ISessionConnection
     /// </summary>
     IResult<Task> ConsumeDomProjectionInputAsync(ChannelReader<DomProjectionInput> channelReader);
 
-    /// <summary>Fetches a hashed Dom Projection asset from the sidecar cache.</summary>
-    Task<IResult<DomAsset>> GetDomAssetAsync(string hash, CancellationToken ct = default);
+    /// <summary>Fetches a Dom Projection virtual resource (path key / blob / data).</summary>
+    Task<IResult<DomAsset>> GetDomAssetAsync(
+        string key,
+        CancellationToken ct = default,
+        string? kind = null,
+        string? rangeHeader = null);
+
+    Task<IResult> PutDomUploadAsync(
+        string uploadId,
+        byte[] body,
+        string contentType,
+        string name,
+        CancellationToken ct = default);
 
     /// <summary>
     /// Pumps console input from <paramref name="channelReader"/> into the sidecar until the

@@ -1,0 +1,22 @@
+SPECULUM
+Session lab
+
+Canvas is the product surface — Debug opens Journal, Config, and the rest.
+
+Go
+Stop
+Status
+Debug
+live
+
+BROWSER
+127.0.0.1/
+
+TudoImagens
+Fazer login
+Pesquisas em alta
+Brasil
+Tema escuro: desativado
+Configurações
+PrivacidadeTermos
+PublicidadeNegóciosSobre

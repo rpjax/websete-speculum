@@ -35,7 +35,7 @@ public sealed class InputAssertTests : SessionsTestBase
         await act.SendClickAsync(200, 140);
         await act.WaitEvaluateContainsAsync(
             "document.getElementById('out')?.getAttribute('data-clicks')", "1");
-        await act.WaitJournalAsync("Telemetry.Sessions.Input.Applied", TimeSpan.FromSeconds(10));
+        await act.WaitJournalAsync("Telemetry.Sessions.VideoStreamingInput.Applied", TimeSpan.FromSeconds(10));
     }
 
     [SessionsTestFact]
@@ -71,7 +71,7 @@ public sealed class InputAssertTests : SessionsTestBase
         await act.WaitEvaluateContainsAsync(
             "document.getElementById('out')?.getAttribute('data-clicks')", "0");
         await act.SendInputAsync("paste", """{"type":"paste","text":"nope"}""");
-        await act.WaitJournalAsync("Telemetry.Sessions.Input.Rejected", TimeSpan.FromSeconds(10));
+        await act.WaitJournalAsync("Telemetry.Sessions.VideoStreamingInput.Rejected", TimeSpan.FromSeconds(10));
 
         var before = await act.EvaluateAsync(
             "document.getElementById('out')?.getAttribute('data-clicks')");
@@ -90,7 +90,7 @@ public sealed class InputAssertTests : SessionsTestBase
         await act.StartFixturePageAsync("/click-target");
 
         await act.SendInputAsync("mousedown", "{not-json");
-        await act.WaitJournalAsync("Telemetry.Sessions.Input.Rejected", TimeSpan.FromSeconds(10));
+        await act.WaitJournalAsync("Telemetry.Sessions.VideoStreamingInput.Rejected", TimeSpan.FromSeconds(10));
 
         await act.SendClickAsync(200, 140);
         await act.WaitEvaluateContainsAsync(
@@ -152,7 +152,7 @@ public sealed class InputAssertTests : SessionsTestBase
 
         await act.SendInputAsync("paste", """{"type":"paste","text":"x"}""");
         await act.WaitJournalAsync(
-            "Telemetry.Sessions.Input.Rejected",
+            "Telemetry.Sessions.VideoStreamingInput.Rejected",
             TimeSpan.FromSeconds(10),
             predicate: f =>
                 f.Payload is not null

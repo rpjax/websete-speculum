@@ -1,11 +1,18 @@
 # Dom Projection — virtual assets (serve plane)
 
+
+> **Naming / supersession:** product mode/pipe is **PageProjection**
+> (`MirrorMode.PageProjection`), not `DomProjection`. Sealed contracts:
+> [dom-projection-diff-streams.md](dom-projection-diff-streams.md) (Dom plane),
+> [dom-projection-cssom.md](dom-projection-cssom.md) (Cssom plane). This file
+> remains the implemented V1 contract until T11/T12 cutover.
+
 **Status:** design (initial plan).
 
 **Scope:** how Speculum **serves** bytes for URLs that F rewrote. Not F itself —
 [dom-projection-diff-pipeline.md](dom-projection-diff-pipeline.md).
 
-**Related:** Sessions `MirrorMode.DomProjection` · PathBase `/w7s`
+**Related:** Sessions `MirrorMode.DomProjection` (→ `PageProjection` at cutover) · PathBase `/w7s`
 
 ---
 
@@ -20,7 +27,37 @@ prefixes; this plane serves them.
 | `/w7s/virtual-blob/{id}` | Ingested `blob:` payloads |
 | `/w7s/virtual-data/{id}` | Ingested `data:` payloads |
 
-Auth: session identity (cookie and/or session token) — not operator Bearer.
+Auth: live-session identity — not operator Bearer. See §1.1.
+
+### 1.1 Auth contract (V1)
+
+1. Every `/w7s/virtual-*` URL the consumer paints carries the live-session binding
+   token in the **reserved** query parameter **`speculum-session-token`**
+   (`SessionBindingAuth.QueryParameterName` / client `SessionAuthQueryParam`).
+2. The API authenticates **only** that parameter, plus the header
+   `X-Speculum-Session-Token` as an internal escape hatch for cross-origin dev and
+   harness callers. **There is no auth cookie.** The same reserved parameter authenticates
+   data-plane dial (`/w7s/vtransport`, `/w7s/vstream`). Hub RPCs carry `token` in the
+   MessagePack body (already explicit).
+3. A mirrored site's own `token=` is opaque upstream query. It is **never** read as
+   Speculum auth, and it stays in the URL.
+4. The virtual-asset key strips **only** Speculum-reserved parameters
+   (`speculum-session-token`, `speculum-cache-bust`); every other part of the query
+   survives verbatim — order and percent-encoding included — because the producer
+   materialized the body under the remote URL as-is.
+5. Bad or absent auth → `401`. Wrong mirror mode → `mirror_mode_mismatch`.
+   Key not materialized → `asset_missing`.
+
+The reserved name is the whole contract: it must be impossible for a mirrored page's
+query to collide with it. Forced stylesheet reloads use the reserved
+`speculum-cache-bust` for the same reason — an ad-hoc buster would land in the key and
+miss the asset.
+
+Consequence for the consumer: **every** fetchable URL sink must be stamped, not just
+`src`/`href` — `xlink:href`, `data-src`, `poster`, `srcset`/`imagesrcset`, inline
+`style`, CSS `url()`, and the bare-string forms of `@import` and `image-set()` (which
+the applier folds into `url()` first, since the CSS engine fetches those itself with no
+auth of its own).
 
 ---
 

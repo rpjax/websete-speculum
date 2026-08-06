@@ -1,12 +1,12 @@
 using Speculum.Api.Journal.Attributes;
 using Speculum.Api.Journal.Models;
 
-namespace Speculum.Api.Telemetry.Events.Models.Sessions.Input;
+namespace Speculum.Api.Telemetry.Events.Models.Sessions.VideoStreamingInput;
 
 [JournalFact(
-    "Telemetry.Sessions.Input.SidecarAdmitted",
-    schemaVersion: 1,
-    Name = "Input sidecar admitted",
+    "Telemetry.Sessions.VideoStreamingInput.SidecarAdmitted",
+    schemaVersion: 2,
+    Name = "Video streaming input · sidecar admitted",
     Description = "Sidecar PushInput handler admitted the event into the browser session.",
     Owner = "telemetry",
     PublishPolicy = PublishPolicy.BestEffort)]
@@ -19,4 +19,8 @@ public sealed class SidecarAdmitted
     public required Guid SessionId { get; init; }
 
     public required string Kind { get; init; }
+
+    public string? TraceId { get; init; }
+
+    public long? ClientTimestampMs { get; init; }
 }

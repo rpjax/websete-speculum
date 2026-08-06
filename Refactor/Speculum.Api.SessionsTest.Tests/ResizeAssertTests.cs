@@ -88,9 +88,8 @@ public sealed class ResizeAssertTests : SessionsTestBase
             height: 711,
             device: MobileDevice);
 
-        Assert.Equal(4096, started.ViewportMaxWidth);
-        Assert.Equal(2160, started.ViewportMaxHeight);
-        Assert.NotEqual(414, started.ViewportMaxWidth);
+        Assert.False(string.IsNullOrWhiteSpace(started.Token));
+        Assert.NotEqual(Guid.Empty, started.SessionId);
 
         await act.WaitEvaluateContainsAsync(
             "window.innerWidth === 414 && window.innerHeight === 711",
@@ -107,6 +106,7 @@ public sealed class ResizeAssertTests : SessionsTestBase
         Assert.NotNull(capacity.DisplayHeight);
         Assert.Equal(4096, capacity.DisplayWidth);
         Assert.Equal(2160, capacity.DisplayHeight);
+        Assert.NotEqual(414, capacity.DisplayWidth);
     }
 
     /// <summary>
@@ -139,6 +139,32 @@ public sealed class ResizeAssertTests : SessionsTestBase
             "true");
         await act.WaitEvaluateContainsAsync(
             "window.screen.width === 390 && window.screen.height === 844",
+            "true");
+    }
+
+    /// <summary>
+    /// Rule in stone: a stable client box must never produce Resize journal facts.
+    /// SessionsTest drives the hub without SPA ViewportSync — after Start at a fixed
+    /// size, the server must emit zero Resize.Applied/Rejected while we do not call Resize.
+    /// </summary>
+    [SessionsTestFact]
+    public async Task D6_stable_screen_session_never_resizes()
+    {
+        await using var act = new SessionsActClient(Fx.Host);
+        await act.ConnectAsync();
+        // Drain any startup noise before the quiet window.
+        act.ClearJournal();
+        await act.StartFixturePageAsync("/click-target", width: 1280, height: 720);
+        act.ClearJournal();
+
+        await Task.Delay(TimeSpan.FromSeconds(3));
+
+        Assert.Equal(0, act.CountJournal("Telemetry.Sessions.Resize.Applied"));
+        Assert.Equal(0, act.CountJournal("Telemetry.Sessions.Resize.Rejected"));
+
+        // Geometry still exactly the Start size — proves we did not silently resize.
+        await act.WaitEvaluateContainsAsync(
+            "window.innerWidth === 1280 && window.innerHeight === 720",
             "true");
     }
 }

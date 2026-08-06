@@ -1,5 +1,6 @@
 import {
   Code2,
+  Download,
   Gauge,
   ListTree,
   ScrollText,
@@ -19,6 +20,7 @@ import { LabEngineConfigPanel } from './LabEngineConfigPanel'
 import { LabEvalPanel } from './LabEvalPanel'
 import { LabEventFeed } from './LabEventFeed'
 import { LabJournalFeed } from './LabJournalFeed'
+import { buildLabFrontLogExport, downloadLabFrontLogJson } from './labLogExport'
 import { LabTelemetryPanel } from './LabTelemetryPanel'
 import type { JournalFeed } from './useJournalFeed'
 import type { LabOrigins } from './labConfig'
@@ -42,6 +44,9 @@ export interface LabDebugToolsProps {
   onClearConsole: () => void
   onEvaluate: (code: string) => Promise<EvalResult | void>
   onForgetProfile: () => void
+  /** Telemetry.ClientObservation.isEnabled from client-config. */
+  observationEnabled?: boolean
+  onClientConfigApplied?: () => void
 }
 
 const TOOLS: {
@@ -107,6 +112,8 @@ export function LabDebugTools({
   onClearConsole,
   onEvaluate,
   onForgetProfile,
+  observationEnabled = false,
+  onClientConfigApplied,
 }: LabDebugToolsProps) {
   const [tab, setTab] = useState<LabDebugTab>(loadLabDebugTab)
   const jsBridgeEnabled = status ? status.jsBridgeEnabled : null
@@ -121,22 +128,38 @@ export function LabDebugTools({
       }}
       className="flex flex-col"
     >
-      <TabsList className="mb-3 flex h-auto w-full flex-nowrap justify-start gap-1 overflow-x-auto bg-card [scrollbar-width:thin]">
-        {TOOLS.map((tool) => {
-          const Icon = tool.icon
-          return (
-            <TabsTrigger
-              key={tool.value}
-              value={tool.value}
-              className="shrink-0 gap-1.5 px-2.5 text-xs sm:px-3 sm:text-sm"
-              title={tool.blurb}
-            >
-              <Icon className="h-3.5 w-3.5" />
-              {tool.label}
-            </TabsTrigger>
-          )
-        })}
-      </TabsList>
+      <div className="mb-3 flex items-center gap-2">
+        <TabsList className="flex h-auto flex-1 flex-nowrap justify-start gap-1 overflow-x-auto bg-card [scrollbar-width:thin]">
+          {TOOLS.map((tool) => {
+            const Icon = tool.icon
+            return (
+              <TabsTrigger
+                key={tool.value}
+                value={tool.value}
+                className="shrink-0 gap-1.5 px-2.5 text-xs sm:px-3 sm:text-sm"
+                title={tool.blurb}
+              >
+                <Icon className="h-3.5 w-3.5" />
+                {tool.label}
+              </TabsTrigger>
+            )
+          })}
+        </TabsList>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="shrink-0 gap-1.5 text-xs"
+          disabled={entries.length === 0 && consoleLines.length === 0}
+          title="Export Activity + Console as a single JSON file"
+          onClick={() =>
+            downloadLabFrontLogJson(buildLabFrontLogExport(entries, consoleLines, sessionId))
+          }
+        >
+          <Download className="h-3.5 w-3.5" />
+          Export JSON
+        </Button>
+      </div>
 
       {TOOLS.map((tool) => (
         <TabsContent
@@ -150,7 +173,12 @@ export function LabDebugTools({
           {tool.value === 'stream' && (
             <LabTelemetryPanel stats={stats} status={status} live={live} />
           )}
-          {tool.value === 'activity' && <LabEventFeed entries={entries} />}
+          {tool.value === 'activity' && (
+            <LabEventFeed
+              entries={entries}
+              observationEnabled={observationEnabled}
+            />
+          )}
           {tool.value === 'journal' && <LabJournalFeed feed={journal} />}
           {tool.value === 'console' && (
             <LabConsolePanel
@@ -170,7 +198,11 @@ export function LabDebugTools({
           )}
           {tool.value === 'config' && (
             <div className="space-y-4">
-              <LabEngineConfigPanel hubOrigin={origins.hubOrigin} sessionLive={live} />
+              <LabEngineConfigPanel
+                hubOrigin={origins.hubOrigin}
+                sessionLive={live}
+                onClientConfigApplied={onClientConfigApplied}
+              />
               <div className="space-y-3 border-t border-border pt-3">
                 <dl className="grid grid-cols-[7rem_1fr] gap-x-3 gap-y-1 text-xs">
                   <dt className="text-muted-foreground">Connection</dt>

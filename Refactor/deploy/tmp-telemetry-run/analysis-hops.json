@@ -1,0 +1,169 @@
+{
+  "inputKinds": {
+    "scroll": 18,
+    "blur": 3,
+    "mousemove": 15,
+    "focus": 3,
+    "mousedown": 4,
+    "mouseup": 3,
+    "wheel": 2
+  },
+  "hopStats": {
+    "traces": 48,
+    "admitToAppliedMs": {
+      "min": 0,
+      "p50": 1,
+      "p95": 2,
+      "max": 27
+    },
+    "slowest": [
+      {
+        "traceId": "b44bcd3aa41042f18ebd869241049e7b",
+        "kind": "mousemove",
+        "admitToAppliedMs": 27,
+        "pushToAppliedMs": -2,
+        "dataToPushMs": 29
+      },
+      {
+        "traceId": "15598a530eb1411bbd45c7b0fcb25944",
+        "kind": "mousemove",
+        "admitToAppliedMs": 2,
+        "pushToAppliedMs": 0,
+        "dataToPushMs": 2
+      },
+      {
+        "traceId": "4c678ae8da1641dd8cc83d6546b1399c",
+        "kind": "mousemove",
+        "admitToAppliedMs": 2,
+        "pushToAppliedMs": 0,
+        "dataToPushMs": 2
+      },
+      {
+        "traceId": "996d7513473b4c179bc0b47dadfa2242",
+        "kind": "scroll",
+        "admitToAppliedMs": 1,
+        "pushToAppliedMs": 0,
+        "dataToPushMs": 1
+      },
+      {
+        "traceId": "3d8a725ab3e841e39810f85e9d440e7b",
+        "kind": "scroll",
+        "admitToAppliedMs": 1,
+        "pushToAppliedMs": -1,
+        "dataToPushMs": 2
+      },
+      {
+        "traceId": "2bf935e937e6439bae1d1e5043cad421",
+        "kind": "scroll",
+        "admitToAppliedMs": 1,
+        "pushToAppliedMs": 0,
+        "dataToPushMs": 1
+      },
+      {
+        "traceId": "4c6891bcec98431d99fc88523b861846",
+        "kind": "scroll",
+        "admitToAppliedMs": 1,
+        "pushToAppliedMs": 0,
+        "dataToPushMs": 1
+      },
+      {
+        "traceId": "330a204df45b468e842f260ed895e112",
+        "kind": "scroll",
+        "admitToAppliedMs": 1,
+        "pushToAppliedMs": 0,
+        "dataToPushMs": 1
+      }
+    ]
+  },
+  "resizeRejected": [
+    {
+      "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
+      "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd",
+      "width": 1374,
+      "height": 770,
+      "resizeId": "019fcf7d-0c23-7a7d-a3e4-ef69b8bfd48b",
+      "errorCode": "resize_busy",
+      "message": "another command is in progress",
+      "phase": "validate"
+    },
+    {
+      "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
+      "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd",
+      "width": 1374,
+      "height": 770,
+      "resizeId": "019fcf7d-0941-7f78-adb4-a7aeb38a4df9",
+      "errorCode": "resize_busy",
+      "message": "another command is in progress",
+      "phase": "validate"
+    }
+  ],
+  "resizeApplied": [
+    {
+      "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
+      "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd",
+      "width": 1374,
+      "height": 770,
+      "resizeId": "019fcf7d-1154-701f-840f-916e34b004a7"
+    }
+  ],
+  "locationChanged": [
+    {
+      "at": "2026-08-04T22:15:09.6912475-03:00",
+      "url": "https://www.google.com/"
+    },
+    {
+      "at": "2026-08-04T22:15:05.5018368-03:00",
+      "url": "https://www.google.com/"
+    }
+  ],
+  "startUrlResolved": [
+    {
+      "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
+      "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd",
+      "url": "https://www.google.com/"
+    }
+  ],
+  "diffLagSample": [
+    {
+      "kind": "patch",
+      "generation": 3,
+      "sequence": 32,
+      "pubMinusTs": 183,
+      "ts": 1785892521046,
+      "pub": 1785892521229
+    },
+    {
+      "kind": "patch",
+      "generation": 3,
+      "sequence": 31,
+      "pubMinusTs": 37,
+      "ts": 1785892520851,
+      "pub": 1785892520888
+    },
+    {
+      "kind": "patch",
+      "generation": 3,
+      "sequence": 30,
+      "pubMinusTs": 96,
+      "ts": 1785892520522,
+      "pub": 1785892520618
+    },
+    {
+      "kind": "patch",
+      "generation": 3,
+      "sequence": 29,
+      "pubMinusTs": 35,
+      "ts": 1785892520390,
+      "pub": 1785892520425
+    },
+    {
+      "kind": "patch",
+      "generation": 3,
+      "sequence": 28,
+      "pubMinusTs": 84,
+      "ts": 1785892520273,
+      "pub": 1785892520357
+    }
+  ],
+  "noteDiffTimestamp": "payload.timestamp appears epoch-ms; compare carefully with publishedAt timezone"
+}

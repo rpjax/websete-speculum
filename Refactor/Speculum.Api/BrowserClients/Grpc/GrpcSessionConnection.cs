@@ -11,6 +11,7 @@ using Speculum.Api.Profiles.Aggregates;
 using Speculum.Api.Sessions.Mirror.DomProjection;
 using Speculum.Api.Sessions.Models;
 using Speculum.Api.Sidecar.V1;
+using Speculum.Api.Telemetry;
 using DomainCookieNormalizeStats = Speculum.Api.Sessions.Models.CookieNormalizeStats;
 using DomainDeviceProfile = Speculum.Api.Sessions.Models.DeviceProfile;
 using DomainEditingState = Speculum.Api.Sessions.Models.EditingState;
@@ -169,7 +170,9 @@ public sealed class GrpcSessionConnection : ISessionConnection
         _ = PumpNavigationBlockedAsync(token);
         _ = PumpEditableFocusAsync(token);
         _ = PumpCrashAsync(token);
-        _ = PumpInputPathAsync(token);
+        _ = PumpVideoStreamingInputPathAsync(token);
+        _ = PumpDomProjectionInputPathAsync(token);
+        _ = PumpDomProjectionLifecycleAsync(token);
         _ = PumpAllocationLifecycleAsync(token);
         _ = PumpControlAsync(token);
         return Task.CompletedTask;
@@ -532,11 +535,15 @@ public sealed class GrpcSessionConnection : ISessionConnection
         return Result<Task>.Success(PumpDomProjectionInputAsync(channelReader, lifetime));
     }
 
-    public async Task<IResult<DomAsset>> GetDomAssetAsync(string hash, CancellationToken ct = default)
+    public async Task<IResult<DomAsset>> GetDomAssetAsync(
+        string key,
+        CancellationToken ct = default,
+        string? kind = null,
+        string? rangeHeader = null)
     {
-        if (string.IsNullOrWhiteSpace(hash))
+        if (string.IsNullOrWhiteSpace(key))
         {
-            return Result<DomAsset>.Failure("Asset hash is required");
+            return Result<DomAsset>.Failure("Asset key is required");
         }
 
         return await CallValueAsync(async () =>
@@ -546,10 +553,43 @@ public sealed class GrpcSessionConnection : ISessionConnection
                     new GetDomAssetRequest
                     {
                         SessionId = SessionId.ToString("D"),
-                        Hash = hash.Trim(),
+                        Key = key.Trim(),
+                        Kind = kind ?? "",
+                        RangeHeader = rangeHeader ?? "",
                     },
                     cancellationToken: token).ResponseAsync);
             return Result<DomAsset>.Success(GrpcSessionMappers.ToDomAsset(response));
+        });
+    }
+
+    public async Task<IResult> PutDomUploadAsync(
+        string uploadId,
+        byte[] body,
+        string contentType,
+        string name,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(uploadId) || body is null || body.Length == 0)
+        {
+            return Result.Failure("Upload id and body are required");
+        }
+
+        return await CallAsync(async () =>
+        {
+            await WithLinkedAsync(ct, token =>
+                _client.PutDomUploadAsync(
+                    new PutDomUploadRequest
+                    {
+                        SessionId = SessionId.ToString("D"),
+                        UploadId = uploadId.Trim(),
+                        Body = Google.Protobuf.ByteString.CopyFrom(body),
+                        ContentType = string.IsNullOrWhiteSpace(contentType)
+                            ? "application/octet-stream"
+                            : contentType,
+                        Name = string.IsNullOrWhiteSpace(name) ? "file" : name,
+                    },
+                    cancellationToken: token).ResponseAsync);
+            return Result.Success();
         });
     }
 
@@ -580,33 +620,30 @@ public sealed class GrpcSessionConnection : ISessionConnection
             if (!GrpcSessionMappers.TryParseInputEvent(SessionId, userInput, out var input)
                 || input is null)
             {
-                TryPublishNotification(new SessionNotification
-                {
-                    Kind = SessionNotificationKind.InputRejected,
-                    ErrorCode = "input_invalid",
-                    Phase = "validate",
-                    Message = $"Invalid user input: {userInput.Type}",
-                });
+                TryPublishVideoStreamingInputRejected(
+                    "input_invalid",
+                    "validate",
+                    $"Invalid user input: {userInput.Type}",
+                    userInput.TraceId,
+                    userInput.ClientTimestampMs);
                 continue;
             }
 
             try
             {
                 await WriteInputWithRetryAsync(input, ct).ConfigureAwait(false);
-                // High-frequency moves: skip journal/trace per sample.
-                if (!VideoStreamingInputAdmitPolicy.IsHighFrequency(userInput))
-                {
-                    TryPublishNotification(new SessionNotification
-                    {
-                        Kind = SessionNotificationKind.InputApplied,
-                        InputKind = userInput.Type,
-                        Phase = VideoStreamingInputAdmitPolicy.TryTouchPhase(userInput),
-                    });
-                    TryPublishInputPathTrace(
-                        "Telemetry.Sessions.Input.SidecarPushWritten",
-                        "grpc_pushed",
-                        userInput.Type);
-                }
+                // Product HF admission policy is unchanged; Journal/Applied always emit when catalog on.
+                TryPublishVideoStreamingInputApplied(
+                    userInput.Type,
+                    VideoStreamingInputAdmitPolicy.TryTouchPhase(userInput),
+                    userInput.TraceId,
+                    userInput.ClientTimestampMs);
+                TryPublishVideoStreamingInputPathTrace(
+                    TelemetryJournalFacts.VideoStreamingInputSidecarPushWritten,
+                    "grpc_pushed",
+                    userInput.Type,
+                    userInput.TraceId,
+                    userInput.ClientTimestampMs);
             }
             catch (RpcException ex) when (ex.StatusCode == StatusCode.Cancelled)
             {
@@ -630,24 +667,22 @@ public sealed class GrpcSessionConnection : ISessionConnection
                     ex,
                     "PushInput faulted for session {SessionId} after retries (link kept for WatchCrash)",
                     SessionId);
-                TryPublishNotification(new SessionNotification
-                {
-                    Kind = SessionNotificationKind.InputRejected,
-                    ErrorCode = "input_push_failed",
-                    Phase = "push",
-                    Message = ex.Status.Detail ?? ex.Message,
-                });
+                TryPublishVideoStreamingInputRejected(
+                    "input_push_failed",
+                    "push",
+                    ex.Status.Detail ?? ex.Message,
+                    userInput.TraceId,
+                    userInput.ClientTimestampMs);
                 continue;
             }
             catch (RpcException ex)
             {
-                TryPublishNotification(new SessionNotification
-                {
-                    Kind = SessionNotificationKind.InputRejected,
-                    ErrorCode = "input_push_failed",
-                    Phase = "push",
-                    Message = ex.Status.Detail ?? ex.Message,
-                });
+                TryPublishVideoStreamingInputRejected(
+                    "input_push_failed",
+                    "push",
+                    ex.Status.Detail ?? ex.Message,
+                    userInput.TraceId,
+                    userInput.ClientTimestampMs);
             }
             catch (ObjectDisposedException)
             {
@@ -664,28 +699,39 @@ public sealed class GrpcSessionConnection : ISessionConnection
     {
         await foreach (var domInput in reader.ReadAllAsync(ct))
         {
+            var clientTimestampMs = DomClientTimestampMs(domInput.TimestampClient);
             if (!GrpcSessionMappers.TryParseDomInputEvent(SessionId, domInput, out var input)
                 || input is null)
             {
-                TryPublishNotification(new SessionNotification
-                {
-                    Kind = SessionNotificationKind.InputRejected,
-                    ErrorCode = "input_invalid",
-                    Phase = "validate",
-                    Message = $"Invalid dom input: {domInput.Type}",
-                });
+                TryPublishDomProjectionInputRejected(
+                    "input_invalid",
+                    "validate",
+                    $"Invalid dom input: {domInput.Type}",
+                    domInput.Generation,
+                    domInput.Anchor,
+                    domInput.TraceId,
+                    clientTimestampMs);
                 continue;
             }
 
             try
             {
                 await WriteDomInputWithRetryAsync(input, ct).ConfigureAwait(false);
-                TryPublishNotification(new SessionNotification
-                {
-                    Kind = SessionNotificationKind.InputApplied,
-                    InputKind = domInput.Type,
-                    Phase = "push",
-                });
+                TryPublishDomProjectionInputApplied(
+                    domInput.Type,
+                    "push",
+                    domInput.Generation,
+                    domInput.Anchor,
+                    domInput.TraceId,
+                    clientTimestampMs);
+                TryPublishDomProjectionInputPathTrace(
+                    TelemetryJournalFacts.DomProjectionInputSidecarPushWritten,
+                    "grpc_pushed",
+                    domInput.Type,
+                    domInput.Generation,
+                    domInput.Anchor,
+                    domInput.TraceId,
+                    clientTimestampMs);
             }
             catch (RpcException ex) when (ex.StatusCode == StatusCode.Cancelled)
             {
@@ -706,24 +752,26 @@ public sealed class GrpcSessionConnection : ISessionConnection
                     ex,
                     "PushDomInput faulted for session {SessionId} after retries (link kept for WatchCrash)",
                     SessionId);
-                TryPublishNotification(new SessionNotification
-                {
-                    Kind = SessionNotificationKind.InputRejected,
-                    ErrorCode = "input_push_failed",
-                    Phase = "push",
-                    Message = ex.Status.Detail ?? ex.Message,
-                });
+                TryPublishDomProjectionInputRejected(
+                    "input_push_failed",
+                    "push",
+                    ex.Status.Detail ?? ex.Message,
+                    domInput.Generation,
+                    domInput.Anchor,
+                    domInput.TraceId,
+                    clientTimestampMs);
                 continue;
             }
             catch (RpcException ex)
             {
-                TryPublishNotification(new SessionNotification
-                {
-                    Kind = SessionNotificationKind.InputRejected,
-                    ErrorCode = "input_push_failed",
-                    Phase = "push",
-                    Message = ex.Status.Detail ?? ex.Message,
-                });
+                TryPublishDomProjectionInputRejected(
+                    "input_push_failed",
+                    "push",
+                    ex.Status.Detail ?? ex.Message,
+                    domInput.Generation,
+                    domInput.Anchor,
+                    domInput.TraceId,
+                    clientTimestampMs);
             }
             catch (ObjectDisposedException)
             {
@@ -988,6 +1036,7 @@ public sealed class GrpcSessionConnection : ISessionConnection
                     return;
                 }
 
+                TryPublishDomProjectionDiffFrame(diff);
                 await _domDiffs.Writer.WriteAsync(diff, token).ConfigureAwait(false);
             },
             ct);
@@ -1113,18 +1162,64 @@ public sealed class GrpcSessionConnection : ISessionConnection
             },
             ct);
 
-    private Task PumpInputPathAsync(CancellationToken ct) =>
+    private Task PumpVideoStreamingInputPathAsync(CancellationToken ct) =>
         RunWatchLoopAsync(
-            "WatchInputPath",
-            token => _client.WatchInputPath(
+            "WatchVideoStreamingInputPath",
+            token => _client.WatchVideoStreamingInputPath(
                 new ProtoSessionId { SessionId_ = SessionId.ToString("D") },
                 cancellationToken: token),
             async (ev, token) =>
             {
-                TryPublishInputPathTrace(
-                    "Telemetry.Sessions.Input.SidecarAdmitted",
+                TryPublishVideoStreamingInputPathTrace(
+                    TelemetryJournalFacts.VideoStreamingInputSidecarAdmitted,
                     "sidecar_admitted",
                     ev.Kind);
+                await Task.CompletedTask.ConfigureAwait(false);
+            },
+            ct);
+
+    private Task PumpDomProjectionInputPathAsync(CancellationToken ct) =>
+        RunWatchLoopAsync(
+            "WatchDomProjectionInputPath",
+            token => _client.WatchDomProjectionInputPath(
+                new ProtoSessionId { SessionId_ = SessionId.ToString("D") },
+                cancellationToken: token),
+            async (ev, token) =>
+            {
+                var phase = (ev.Phase ?? string.Empty).Trim();
+                if (string.Equals(phase, "cdp_dropped", StringComparison.Ordinal))
+                {
+                    TryPublishDomProjectionInputPathTrace(
+                        TelemetryJournalFacts.DomProjectionInputCdpDropped,
+                        "cdp_dropped",
+                        ev.Kind,
+                        ev.HasGeneration ? ev.Generation : null,
+                        null,
+                        reason: ev.HasReason ? ev.Reason : null);
+                }
+                else
+                {
+                    TryPublishDomProjectionInputPathTrace(
+                        TelemetryJournalFacts.DomProjectionInputSidecarAdmitted,
+                        "sidecar_admitted",
+                        ev.Kind,
+                        ev.HasGeneration ? ev.Generation : null,
+                        null);
+                }
+
+                await Task.CompletedTask.ConfigureAwait(false);
+            },
+            ct);
+
+    private Task PumpDomProjectionLifecycleAsync(CancellationToken ct) =>
+        RunWatchLoopAsync(
+            "WatchDomProjectionLifecycle",
+            token => _client.WatchDomProjectionLifecycle(
+                new ProtoSessionId { SessionId_ = SessionId.ToString("D") },
+                cancellationToken: token),
+            async (ev, token) =>
+            {
+                TryPublishDomProjectionLifecycle(ev);
                 await Task.CompletedTask.ConfigureAwait(false);
             },
             ct);
@@ -1179,11 +1274,38 @@ public sealed class GrpcSessionConnection : ISessionConnection
         });
     }
 
+    private void TryPublishDomProjectionLifecycle(DomProjectionLifecycleEvent ev)
+    {
+        var kind = (ev.Kind ?? string.Empty).Trim();
+        if (!string.Equals(kind, "generation_bumped", StringComparison.Ordinal)
+            || string.IsNullOrWhiteSpace(ev.Reason)
+            || !_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.DomProjectionDiffGenerationBumped))
+        {
+            return;
+        }
+
+        TryPublishNotification(new SessionNotification
+        {
+            Kind = SessionNotificationKind.DomProjectionLifecycle,
+            Phase = "generation_bumped",
+            Reason = ev.Reason.Trim(),
+            DomFromGeneration = ev.FromGeneration,
+            DomGeneration = ev.ToGeneration,
+            Url = ev.HasUrl ? ev.Url : null,
+            DomDiffKind = ev.HasDiffKind ? ev.DiffKind : null,
+        });
+    }
+
     /// <summary>
-    /// Opt-in input-path hop. Skips the notification (and therefore Journal) when the
+    /// Opt-in VideoStreamingInput path hop. Skips the notification (and therefore Journal) when the
     /// catalog type is disabled — keeps the hot path quiet unless the operator toggles it.
     /// </summary>
-    private void TryPublishInputPathTrace(string catalogType, string phase, string? inputKind)
+    private void TryPublishVideoStreamingInputPathTrace(
+        string catalogType,
+        string phase,
+        string? inputKind,
+        string? traceId = null,
+        long? clientTimestampMs = null)
     {
         if (string.IsNullOrWhiteSpace(inputKind)
             || !_journalCatalog.IsTypeEnabled(catalogType))
@@ -1193,11 +1315,167 @@ public sealed class GrpcSessionConnection : ISessionConnection
 
         TryPublishNotification(new SessionNotification
         {
-            Kind = SessionNotificationKind.InputPathTrace,
+            Kind = SessionNotificationKind.VideoStreamingInputPathTrace,
             InputKind = inputKind.Trim(),
             Phase = phase,
+            TraceId = NullIfEmpty(traceId),
+            ClientTimestampMs = clientTimestampMs,
         });
     }
+
+    private void TryPublishVideoStreamingInputApplied(
+        string? inputKind,
+        string? phase,
+        string? traceId,
+        long? clientTimestampMs)
+    {
+        if (string.IsNullOrWhiteSpace(inputKind)
+            || !_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.VideoStreamingInputApplied))
+        {
+            return;
+        }
+
+        TryPublishNotification(new SessionNotification
+        {
+            Kind = SessionNotificationKind.VideoStreamingInputApplied,
+            InputKind = inputKind.Trim(),
+            Phase = phase,
+            TraceId = NullIfEmpty(traceId),
+            ClientTimestampMs = clientTimestampMs,
+        });
+    }
+
+    private void TryPublishVideoStreamingInputRejected(
+        string? errorCode,
+        string? phase,
+        string? message,
+        string? traceId,
+        long? clientTimestampMs)
+    {
+        if (!_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.VideoStreamingInputRejected))
+        {
+            return;
+        }
+
+        TryPublishNotification(new SessionNotification
+        {
+            Kind = SessionNotificationKind.VideoStreamingInputRejected,
+            ErrorCode = errorCode,
+            Phase = phase,
+            Message = message,
+            TraceId = NullIfEmpty(traceId),
+            ClientTimestampMs = clientTimestampMs,
+        });
+    }
+
+    private void TryPublishDomProjectionInputPathTrace(
+        string catalogType,
+        string phase,
+        string? inputKind,
+        long? generation,
+        string? anchor,
+        string? traceId = null,
+        long? clientTimestampMs = null,
+        string? reason = null)
+    {
+        if (string.IsNullOrWhiteSpace(inputKind)
+            || !_journalCatalog.IsTypeEnabled(catalogType))
+        {
+            return;
+        }
+
+        TryPublishNotification(new SessionNotification
+        {
+            Kind = SessionNotificationKind.DomProjectionInputPathTrace,
+            InputKind = inputKind.Trim(),
+            Phase = phase,
+            DomGeneration = generation,
+            DomAnchor = anchor,
+            TraceId = NullIfEmpty(traceId),
+            ClientTimestampMs = clientTimestampMs,
+            Reason = NullIfEmpty(reason),
+        });
+    }
+
+    private void TryPublishDomProjectionInputApplied(
+        string? inputKind,
+        string? phase,
+        long? generation,
+        string? anchor,
+        string? traceId,
+        long? clientTimestampMs)
+    {
+        if (string.IsNullOrWhiteSpace(inputKind)
+            || !_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.DomProjectionInputApplied))
+        {
+            return;
+        }
+
+        TryPublishNotification(new SessionNotification
+        {
+            Kind = SessionNotificationKind.DomProjectionInputApplied,
+            InputKind = inputKind.Trim(),
+            Phase = phase,
+            DomGeneration = generation,
+            DomAnchor = anchor,
+            TraceId = NullIfEmpty(traceId),
+            ClientTimestampMs = clientTimestampMs,
+        });
+    }
+
+    private void TryPublishDomProjectionInputRejected(
+        string? errorCode,
+        string? phase,
+        string? message,
+        long? generation,
+        string? anchor,
+        string? traceId,
+        long? clientTimestampMs)
+    {
+        if (!_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.DomProjectionInputRejected))
+        {
+            return;
+        }
+
+        TryPublishNotification(new SessionNotification
+        {
+            Kind = SessionNotificationKind.DomProjectionInputRejected,
+            ErrorCode = errorCode,
+            Phase = phase,
+            Message = message,
+            DomGeneration = generation,
+            DomAnchor = anchor,
+            TraceId = NullIfEmpty(traceId),
+            ClientTimestampMs = clientTimestampMs,
+        });
+    }
+
+    private void TryPublishDomProjectionDiffFrame(DomDiff diff)
+    {
+        if (!_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.DomProjectionDiffFrameReceived))
+        {
+            return;
+        }
+
+        TryPublishNotification(new SessionNotification
+        {
+            Kind = SessionNotificationKind.DomProjectionDiffFrame,
+            DomDiffKind = diff.Kind,
+            DomDiffTarget = diff.Target,
+            DomDiffTreeType = diff.TreeType,
+            DomDiffSequence = diff.Sequence,
+            DomGeneration = diff.Generation,
+            DomDiffTimestamp = diff.Timestamp,
+            DomDiffNodeCount = diff.Nodes?.Count,
+            DomDiffUrlCount = diff.Urls?.Count,
+        });
+    }
+
+    private static long? DomClientTimestampMs(double? timestampClient)
+        => timestampClient is { } value ? (long)Math.Round(value) : null;
+
+    private static string? NullIfEmpty(string? value)
+        => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     /// <summary>
     /// Queue a notification. After <see cref="SessionNotificationKind.Crashed"/> is queued,

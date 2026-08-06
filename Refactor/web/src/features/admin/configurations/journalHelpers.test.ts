@@ -43,7 +43,7 @@ const catalog: JournalCatalogEntry[] = [
     enabled: false,
   },
   {
-    type: 'Telemetry.Sessions.Input.Rejected',
+    type: 'Telemetry.Sessions.VideoStreamingInput.Rejected',
     name: 'Input rejected',
     description: 'Telemetry-owned',
     isCanonical: false,
@@ -62,7 +62,7 @@ const catalog: JournalCatalogEntry[] = [
 
 describe('journalHelpers', () => {
   it('detects Telemetry ownership and categories', () => {
-    expect(isTelemetryOwned('Telemetry.Sessions.Input.Rejected')).toBe(true)
+    expect(isTelemetryOwned('Telemetry.Sessions.VideoStreamingInput.Rejected')).toBe(true)
     expect(isTelemetryOwned('Sessions.FeatureLoopFaulted')).toBe(false)
     expect(factCategory(catalog[0]!)).toBe('sessions')
     expect(factCategory({ type: 'Profiles.ProfileCreated', owner: null })).toBe('Profiles')
@@ -79,7 +79,7 @@ describe('journalHelpers', () => {
   it('summarizes catalog posture', () => {
     const summary = summarizeJournal(catalog, {
       'Sessions.FeatureLoopFaulted': true,
-      'Telemetry.Sessions.Input.Rejected': true,
+      'Telemetry.Sessions.VideoStreamingInput.Rejected': true,
     })
     expect(summary.catalogSize).toBe(5)
     expect(summary.canonicalCount).toBe(1)
@@ -93,13 +93,13 @@ describe('journalHelpers', () => {
   it('sanitizes events and never writes Telemetry or canonical keys', () => {
     const dirty = asEventsMap({
       'Sessions.FeatureLoopFaulted': true,
-      'Telemetry.Sessions.Input.Rejected': true,
+      'Telemetry.Sessions.VideoStreamingInput.Rejected': true,
       'Sessions.SessionStarted': false,
       '': true,
     })
     const clean = sanitizeJournalEvents(dirty, catalog)
     expect(clean).toEqual({ 'Sessions.FeatureLoopFaulted': true })
-    expect(setJournalEvent(dirty, 'Telemetry.Sessions.Input.Rejected', true, catalog)).toEqual({
+    expect(setJournalEvent(dirty, 'Telemetry.Sessions.VideoStreamingInput.Rejected', true, catalog)).toEqual({
       'Sessions.FeatureLoopFaulted': true,
     })
   })
@@ -108,13 +108,13 @@ describe('journalHelpers', () => {
     const investigation = JOURNAL_PRESETS.find((preset) => preset.id === 'investigation')!
     const cleared = JOURNAL_PRESETS.find((preset) => preset.id === 'clear')!
     const next = applyJournalPreset(
-      { 'Telemetry.Sessions.Input.Rejected': true, 'Sessions.FeatureLoopFaulted': false },
+      { 'Telemetry.Sessions.VideoStreamingInput.Rejected': true, 'Sessions.FeatureLoopFaulted': false },
       investigation.id,
       catalog,
     )
     expect(next['Sessions.FeatureLoopFaulted']).toBe(true)
     expect(next['Sessions.Capacity.NoSlotAvailable']).toBe(true)
-    expect(next['Telemetry.Sessions.Input.Rejected']).toBeUndefined()
+    expect(next['Telemetry.Sessions.VideoStreamingInput.Rejected']).toBeUndefined()
 
     const empty = applyJournalPreset(next, cleared.id, catalog)
     expect(empty['Sessions.FeatureLoopFaulted']).toBe(false)

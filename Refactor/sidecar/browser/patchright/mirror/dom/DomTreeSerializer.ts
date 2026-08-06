@@ -1,85 +1,54 @@
 export type DomNodeJson = {
-  id: number;
+  anchor?: string;
   tag: string;
   attrs?: Record<string, string>;
   text?: string;
   children?: DomNodeJson[];
 };
 
-export type DomOpJson = {
-  op: 'insert' | 'remove' | 'setAttr' | 'removeAttr' | 'setText' | 'move';
-  id: number;
-  parentId?: number;
-  index?: number;
-  tag?: string;
-  name?: string;
-  value?: string;
-  text?: string;
-  node?: DomNodeJson;
-};
-
-export type DomAssetHintJson = {
-  hash: string;
-  contentType: string;
-};
-
 export type DomDiffBody =
-  | { kind: 'snapshot'; root: DomNodeJson; assetHints?: DomAssetHintJson[] }
-  | { kind: 'patch'; ops: DomOpJson[]; assetHints?: DomAssetHintJson[] };
+  | { nodes: DomNodeJson[] }
+  | { urls: string[] };
 
 export type DomDiffEmit = {
   sequence: number;
   generation: number;
-  kind: 'snapshot' | 'patch';
+  treeType: 'dom' | 'cssom';
+  kind: 'diff' | 'cssom';
+  /** Required when kind=diff. */
+  target?: 'document' | 'anchors';
   timestampMs: number;
   body: Uint8Array;
 };
 
-const SKIP_TAGS = new Set(['SCRIPT', 'NOSCRIPT', 'TEMPLATE']);
-
-const ATTR_ALLOW = new Set([
-  'id',
-  'class',
-  'href',
-  'src',
-  'alt',
-  'title',
-  'type',
-  'name',
-  'value',
-  'placeholder',
-  'role',
-  'aria-label',
-  'aria-hidden',
-  'disabled',
-  'readonly',
-  'checked',
-  'selected',
-  'for',
-  'action',
-  'method',
-  'target',
-  'rel',
-  'as',
-  'type',
-  'width',
-  'height',
-  'colspan',
-  'rowspan',
-  'tabindex',
+const ATTR_DENY = new Set([
+  'onclick',
+  'ondblclick',
+  'onmousedown',
+  'onmouseup',
+  'onmouseover',
+  'onmouseout',
+  'onmousemove',
+  'onmouseenter',
+  'onmouseleave',
+  'onkeydown',
+  'onkeyup',
+  'onkeypress',
+  'oninput',
+  'onchange',
+  'onsubmit',
+  'onfocus',
+  'onblur',
+  'onload',
+  'onerror',
+  'onscroll',
+  'ontouchstart',
+  'ontouchend',
+  'ontouchmove',
+  'onpointerdown',
+  'onpointerup',
+  'onpointermove',
 ]);
-
-/**
- * Serializes main-frame DOM to a compact JSON tree / ops for Dom Projection.
- * Runs in the Node process against Playwright ElementHandles via evaluate payloads.
- */
-export function serializeElementPayload(
-  payload: unknown,
-  ids: { ensureFromPayload: (rawId: number) => number },
-): DomNodeJson | null {
-  if (!payload || typeof payload !== 'object') return null;
-  return payload as DomNodeJson;
-}
 
 export function encodeDomBody(body: DomDiffBody): Uint8Array {
   return Buffer.from(JSON.stringify(body), 'utf8');
@@ -89,138 +58,347 @@ export function decodeDomBody(bytes: Uint8Array): DomDiffBody {
   return JSON.parse(Buffer.from(bytes).toString('utf8')) as DomDiffBody;
 }
 
-/** Page-side serializer source installed via page.evaluate. */
+export { ATTR_DENY };
+
+/**
+ * F page script: Anchorer + DiffProducer (dirty climb → node list) + CSSOM hooks.
+ * Installed via addInitScript / evaluate.
+ */
 export const DOM_PROJECTION_PAGE_SCRIPT = `
 (() => {
   if (window.__speculumDomInstalled) return;
   window.__speculumDomInstalled = true;
 
-  const SKIP = new Set(['SCRIPT', 'NOSCRIPT', 'TEMPLATE']);
-  const ATTR_ALLOW = new Set(${JSON.stringify([...ATTR_ALLOW])});
-  let nextId = 1;
-  const nodeToId = new WeakMap();
-  const idToNode = new Map();
-  let generation = 1;
-  let pending = [];
-  let flushTimer = null;
-  const COALESCE_MS = 8;
+  const SKIP = new Set(['SCRIPT', 'NOSCRIPT', 'TEMPLATE', 'BASE']);
+  const ATTR_DENY = new Set(${JSON.stringify([...ATTR_DENY])});
+  const ANCHOR_ATTR = 'speculum-anchor';
+  const COALESCE_MS = ${Number(process.env['SPECULUM_DOM_COALESCE_MS']) > 0 ? Number(process.env['SPECULUM_DOM_COALESCE_MS']) : 8};
+  const MAX_WAIT_MS = ${Number(process.env['SPECULUM_DOM_MAX_WAIT_MS']) > 0 ? Number(process.env['SPECULUM_DOM_MAX_WAIT_MS']) : 50};
 
-  function ensure(node) {
-    let id = nodeToId.get(node);
-    if (id != null) return id;
-    id = nextId++;
-    nodeToId.set(node, id);
-    idToNode.set(id, node);
-    return id;
+  let generation = 1;
+  const anchorToNode = new Map();
+  const dirty = new Set();
+  let cssomDirtyUrls = new Set();
+  let flushTimer = null;
+  let firstDirtyAt = 0;
+  let observer = null;
+
+  function mintAnchor() {
+    const a = 'a' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
+    return a;
+  }
+
+  function ensureAnchor(el) {
+    if (!el || el.nodeType !== 1) return null;
+    let a = el.getAttribute(ANCHOR_ATTR);
+    if (a) {
+      const mapped = anchorToNode.get(a);
+      // Google (and others) clone nodes and copy speculum-anchor — remint on collision.
+      if (mapped && mapped !== el && mapped.isConnected) {
+        a = mintAnchor();
+        try { el.setAttribute(ANCHOR_ATTR, a); } catch (_) { return null; }
+      }
+    } else {
+      a = mintAnchor();
+      try { el.setAttribute(ANCHOR_ATTR, a); } catch (_) { return null; }
+    }
+    anchorToNode.set(a, el);
+    return a;
+  }
+
+  function anchorAll(root) {
+    if (!root) return;
+    if (root.nodeType === 1) {
+      if (!SKIP.has(root.tagName)) ensureAnchor(root);
+      const kids = root.childNodes;
+      for (let i = 0; i < kids.length; i++) anchorAll(kids[i]);
+      try {
+        if (root.shadowRoot) {
+          root.setAttribute('speculum-shadow-root', 'true');
+          anchorAll(root.shadowRoot);
+        }
+      } catch (_) {}
+      if (root.tagName === 'IFRAME') {
+        try {
+          const doc = root.contentDocument;
+          if (doc && doc.documentElement) {
+            root.setAttribute('speculum-iframe', 'true');
+            anchorAll(doc.documentElement);
+            observeRoot(doc.documentElement);
+          }
+        } catch (_) {}
+      }
+    }
+  }
+
+  function isDeniedAttr(name) {
+    if (!name) return true;
+    const n = name.toLowerCase();
+    if (ATTR_DENY.has(n)) return true;
+    if (n.startsWith('on')) return true;
+    return false;
+  }
+
+  function controlAttrs(el, out) {
+    const tag = el.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA') {
+      if (el.type === 'checkbox' || el.type === 'radio') {
+        out['speculum-input-checked'] = el.checked ? 'true' : 'false';
+      } else if (el.type !== 'file') {
+        out['speculum-input-value'] = el.value != null ? String(el.value) : '';
+      }
+    }
+    if (tag === 'OPTION') {
+      out['speculum-option-selected'] = el.selected ? 'true' : 'false';
+    }
+    if (tag === 'SELECT' && !el.multiple) {
+      out['speculum-input-value'] = el.value != null ? String(el.value) : '';
+    }
+    if (tag === 'CANVAS') {
+      out['speculum-canvas-placeholder'] = 'true';
+    }
   }
 
   function attrsOf(el) {
     const out = {};
     for (const a of el.attributes) {
-      if (!ATTR_ALLOW.has(a.name) && !a.name.startsWith('aria-') && a.name !== 'style') continue;
-      out[a.name] = a.value;
+      if (isDeniedAttr(a.name)) continue;
+      let v = a.value;
+      if ((a.name === 'href' || a.name === 'src' || a.name === 'xlink:href' || a.name === 'poster' || a.name === 'action' || a.name === 'formaction') && /^\\s*javascript:/i.test(v)) continue;
+      if (a.name === 'href' || a.name === 'src' || a.name === 'xlink:href' || a.name === 'poster' || a.name === 'action' || a.name === 'formaction' || a.name === 'data-src') {
+        try { v = new URL(v, document.baseURI).href; } catch (_) {}
+      }
+      if (a.name === 'srcset') {
+        v = v.split(',').map((part) => {
+          const bits = part.trim().split(/\\s+/);
+          if (bits[0]) {
+            try { bits[0] = new URL(bits[0], document.baseURI).href; } catch (_) {}
+          }
+          return bits.join(' ');
+        }).join(', ');
+      }
+      out[a.name] = v;
     }
-    return Object.keys(out).length ? out : undefined;
+    delete out.integrity;
+    controlAttrs(el, out);
+    ensureAnchor(el);
+    out[ANCHOR_ATTR] = el.getAttribute(ANCHOR_ATTR);
+    if (el.shadowRoot) {
+      out['speculum-shadow-root'] = 'true';
+    }
+    if (el.tagName === 'IFRAME' && el.hasAttribute('speculum-iframe')) {
+      out['speculum-iframe'] = 'true';
+    }
+    return out;
   }
 
-  function serialize(node) {
+  function mapNode(node) {
+    if (!node) return null;
     if (node.nodeType === Node.TEXT_NODE) {
-      const t = node.textContent || '';
-      if (!t.trim()) return null;
-      return { id: ensure(node), tag: '#text', text: t };
+      return { tag: '#text', text: node.textContent || '' };
     }
     if (node.nodeType !== Node.ELEMENT_NODE) return null;
     const el = node;
     if (SKIP.has(el.tagName)) return null;
-    const children = [];
-    for (const c of el.childNodes) {
-      const s = serialize(c);
-      if (s) children.push(s);
+    if (el.tagName === 'META') {
+      const httpEquiv = (el.getAttribute('http-equiv') || '').toLowerCase();
+      if (httpEquiv === 'content-security-policy') return null;
     }
+    const children = [];
+    const pushChild = (c) => {
+      const s = mapNode(c);
+      if (s) children.push(s);
+    };
+    for (const c of el.childNodes) pushChild(c);
+    try {
+      if (el.shadowRoot) {
+        for (const c of el.shadowRoot.childNodes) pushChild(c);
+      }
+    } catch (_) {}
+    if (el.tagName === 'IFRAME') {
+      try {
+        const doc = el.contentDocument;
+        if (doc && doc.documentElement) {
+          const mapped = mapNode(doc.documentElement);
+          if (mapped) children.push(mapped);
+        }
+      } catch (_) {}
+    }
+    const anchor = ensureAnchor(el);
     return {
-      id: ensure(el),
+      anchor: anchor || undefined,
       tag: el.tagName.toLowerCase(),
       attrs: attrsOf(el),
       children: children.length ? children : undefined,
     };
   }
 
-  function snapshot() {
-    const root = serialize(document.documentElement);
-    return { kind: 'snapshot', generation, root };
+  function markDirty(node) {
+    if (!node) return;
+    let el = node.nodeType === 1 ? node : node.parentElement;
+    // Never climb to HTML/HEAD as a dirty root. Outermost-html used to emit the
+    // whole document as target=anchors → client remount → async CSS FOUC every flush.
+    // Full remount is only target=document (nav/start/resync).
+    while (el && el.nodeType === 1) {
+      if (el.tagName === 'HTML' || el.tagName === 'HEAD') break;
+      if (!SKIP.has(el.tagName)) {
+        ensureAnchor(el);
+        dirty.add(el);
+      }
+      if (el.tagName === 'BODY') break;
+      el = el.parentElement;
+    }
   }
 
-  function queueOp(op) {
-    pending.push(op);
-    if (flushTimer != null) return;
-    flushTimer = setTimeout(flush, COALESCE_MS);
+  function outermostDirty() {
+    const roots = [];
+    for (const el of dirty) {
+      if (!(el instanceof Element) || !el.isConnected) continue;
+      let p = el.parentElement;
+      let nested = false;
+      while (p) {
+        if (dirty.has(p)) { nested = true; break; }
+        p = p.parentElement;
+      }
+      if (!nested) roots.push(el);
+    }
+    return roots;
+  }
+
+  function scheduleFlush() {
+    const now = Date.now();
+    if (!firstDirtyAt) firstDirtyAt = now;
+    if (flushTimer != null) clearTimeout(flushTimer);
+    const waited = now - firstDirtyAt;
+    const delay = waited >= MAX_WAIT_MS ? 0 : Math.min(COALESCE_MS, MAX_WAIT_MS - waited);
+    flushTimer = setTimeout(flush, delay);
   }
 
   function flush() {
     flushTimer = null;
-    if (!pending.length) return;
-    const ops = pending;
-    pending = [];
+    firstDirtyAt = 0;
+    const cssUrls = [...cssomDirtyUrls];
+    cssomDirtyUrls = new Set();
+    if (cssUrls.length && typeof window.__speculumDomEmit === 'function') {
+      window.__speculumDomEmit({ generation, urls: cssUrls });
+    }
+    if (!dirty.size) return;
+    const roots = outermostDirty();
+    dirty.clear();
+    const nodes = [];
+    for (const el of roots) {
+      const mapped = mapNode(el);
+      if (mapped) nodes.push(mapped);
+    }
+    if (!nodes.length) return;
     if (typeof window.__speculumDomEmit === 'function') {
-      window.__speculumDomEmit({ kind: 'patch', generation, ops });
+      window.__speculumDomEmit({ generation, nodes });
     }
   }
 
   function onMutations(mutations) {
     for (const m of mutations) {
-      if (m.type === 'characterData' && m.target) {
-        queueOp({ op: 'setText', id: ensure(m.target), text: m.target.textContent || '' });
-        continue;
-      }
-      if (m.type === 'attributes' && m.target && m.target.nodeType === Node.ELEMENT_NODE) {
+      if (m.type === 'attributes' && m.attributeName === ANCHOR_ATTR) {
         const el = m.target;
-        const name = m.attributeName;
-        if (!name) continue;
-        if (!ATTR_ALLOW.has(name) && !name.startsWith('aria-') && name !== 'style') continue;
-        const value = el.getAttribute(name);
-        if (value == null) queueOp({ op: 'removeAttr', id: ensure(el), name });
-        else queueOp({ op: 'setAttr', id: ensure(el), name, value });
+        if (el && el.nodeType === 1 && !el.getAttribute(ANCHOR_ATTR)) {
+          ensureAnchor(el);
+        }
         continue;
       }
       if (m.type === 'childList') {
-        const parent = m.target;
-        const parentId = ensure(parent);
-        m.removedNodes.forEach((n) => {
-          const id = nodeToId.get(n);
-          if (id != null) queueOp({ op: 'remove', id, parentId });
-        });
         m.addedNodes.forEach((n) => {
-          const node = serialize(n);
-          if (!node) return;
-          let index = 0;
-          let sib = n.previousSibling;
-          while (sib) {
-            if (nodeToId.has(sib) || (sib.nodeType === Node.ELEMENT_NODE && !SKIP.has(sib.tagName))) index++;
-            else if (sib.nodeType === Node.TEXT_NODE && (sib.textContent || '').trim()) index++;
-            sib = sib.previousSibling;
-          }
-          queueOp({ op: 'insert', id: node.id, parentId, index, node });
+          anchorAll(n);
+          // Prefer the added node so HEAD/HTML parents are not the only climb start
+          // (markDirty stops at HEAD/HTML without adding them).
+          if (n.nodeType === 1) markDirty(n);
+          else markDirty(m.target);
         });
+        if (m.removedNodes.length) {
+          markDirty(m.target);
+          const parent = m.target;
+          if (parent && parent.tagName === 'HEAD') {
+            for (const c of parent.children) markDirty(c);
+          }
+        }
+        continue;
       }
+      markDirty(m.target);
     }
+    scheduleFlush();
   }
 
-  const observer = new MutationObserver(onMutations);
-  observer.observe(document.documentElement, {
-    subtree: true,
-    childList: true,
-    attributes: true,
-    characterData: true,
-  });
+  function observeRoot(root) {
+    if (!root || !observer) return;
+    try {
+      observer.observe(root, {
+        subtree: true,
+        childList: true,
+        attributes: true,
+        characterData: true,
+        attributeOldValue: false,
+      });
+    } catch (_) {}
+  }
 
-  window.__speculumDomSnapshot = snapshot;
+  function installCssomHooks() {
+    const proto = CSSStyleSheet && CSSStyleSheet.prototype;
+    if (!proto || proto.__speculumCssomHooked) return;
+    proto.__speculumCssomHooked = true;
+    const wrap = (name) => {
+      const orig = proto[name];
+      if (typeof orig !== 'function') return;
+      proto[name] = function (...args) {
+        try {
+          const owner = this.ownerNode;
+          if (owner && owner.nodeType === 1) {
+            const href = owner.getAttribute && owner.getAttribute('href');
+            if (href) cssomDirtyUrls.add(href);
+            else markDirty(owner);
+          } else {
+            cssomDirtyUrls.add('__inline__');
+          }
+          scheduleFlush();
+        } catch (_) {}
+        return orig.apply(this, args);
+      };
+    };
+    wrap('insertRule');
+    wrap('deleteRule');
+    if (proto.replaceSync) wrap('replaceSync');
+    if (proto.replace) wrap('replace');
+  }
+
+  observer = new MutationObserver(onMutations);
+  anchorAll(document.documentElement);
+  observeRoot(document.documentElement);
+  installCssomHooks();
+
+  window.__speculumDomMapDocument = () => {
+    anchorAll(document.documentElement);
+    return { generation, root: mapNode(document.documentElement) };
+  };
   window.__speculumDomBumpGeneration = () => {
     generation += 1;
-    nextId = 1;
-    idToNode.clear();
-    pending = [];
+    anchorToNode.clear();
+    dirty.clear();
+    cssomDirtyUrls = new Set();
+    firstDirtyAt = 0;
+    if (flushTimer != null) { clearTimeout(flushTimer); flushTimer = null; }
+    anchorAll(document.documentElement);
     return generation;
   };
-  window.__speculumDomResolve = (id) => idToNode.get(id) || null;
+  window.__speculumDomResolve = (anchor) => {
+    if (!anchor) return null;
+    const n = anchorToNode.get(anchor);
+    if (n && n.isConnected) return n;
+    try {
+      const el = document.querySelector('[' + ANCHOR_ATTR + '="' + CSS.escape(anchor) + '"]');
+      if (el) {
+        anchorToNode.set(anchor, el);
+        return el;
+      }
+    } catch (_) {}
+    return null;
+  };
 })();
 `;

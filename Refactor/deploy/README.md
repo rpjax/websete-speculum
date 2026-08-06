@@ -200,7 +200,7 @@ docker compose -f Refactor/deploy/compose/docker-compose.sessions-test.yml up -d
 dotnet test Refactor/Speculum.Api.SessionsTest.Tests --filter Category=SessionsTest
 ```
 
-Opt-in journal (`Telemetry.Sessions.Input.Applied` / `ResizeApplied` / `ResizeRejected`) stays off until seed
+Opt-in journal (`Telemetry.Sessions.VideoStreamingInput.Applied` / `ResizeApplied` / `ResizeRejected`) stays off until seed
 (`PUT /w7s/api/configurations/Journal`) — never by env alone. See
 [`../Speculum.Api.SessionsTest.Tests/MATRIX.md`](../Speculum.Api.SessionsTest.Tests/MATRIX.md).
 

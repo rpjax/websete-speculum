@@ -61,6 +61,7 @@ public static class DatabaseServiceCollectionExtensions
         EnsureHostResourceAppliesTable(db);
         EnsureAuthTables(db);
         EnsureResourceMonitoringTables(db);
+        EnsureSessionRecordColumns(db);
 
         try
         {
@@ -189,6 +190,64 @@ public static class DatabaseServiceCollectionExtensions
             CREATE INDEX IF NOT EXISTS IX_resource_reports_created_at
                 ON resource_reports (created_at);
             """);
+    }
+
+    /// <summary>
+    /// `browser_sessions` predates the Session history/Maintenance feature — this table
+    /// existed with only id/profile_id/state on many already-provisioned databases.
+    /// SQLite has no portable "ADD COLUMN IF NOT EXISTS" we can rely on across the
+    /// bundled sqlite version, so probe <c>PRAGMA table_info</c> and add whichever
+    /// columns are missing. The <c>created_at</c> sentinel default keeps legacy rows
+    /// readable by the (required) CreatedAt converter instead of throwing on load.
+    /// </summary>
+    private static void EnsureSessionRecordColumns(SpeculumDbContext db)
+    {
+        var connection = db.Database.GetDbConnection();
+        var wasClosed = connection.State != System.Data.ConnectionState.Open;
+        if (wasClosed)
+            connection.Open();
+
+        try
+        {
+            var existing = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            using (var probe = connection.CreateCommand())
+            {
+                probe.CommandText = "PRAGMA table_info(browser_sessions);";
+                using var reader = probe.ExecuteReader();
+                var nameOrdinal = -1;
+                while (reader.Read())
+                {
+                    if (nameOrdinal < 0)
+                        nameOrdinal = reader.GetOrdinal("name");
+                    existing.Add(reader.GetString(nameOrdinal));
+                }
+            }
+
+            void AddColumnIfMissing(string column, string ddl)
+            {
+                if (existing.Contains(column))
+                    return;
+
+                using var alter = connection.CreateCommand();
+                alter.CommandText = $"ALTER TABLE browser_sessions ADD COLUMN {ddl};";
+                alter.ExecuteNonQuery();
+            }
+
+            AddColumnIfMissing(
+                "created_at",
+                "created_at TEXT NOT NULL DEFAULT '1970-01-01T00:00:00.0000000Z'");
+            AddColumnIfMissing("stopped_at", "stopped_at TEXT NULL");
+            AddColumnIfMissing("aborted_at", "aborted_at TEXT NULL");
+            AddColumnIfMissing("stop_reason", "stop_reason INTEGER NULL");
+            AddColumnIfMissing("mirror_mode", "mirror_mode INTEGER NULL");
+            AddColumnIfMissing("viewport_width", "viewport_width INTEGER NULL");
+            AddColumnIfMissing("viewport_height", "viewport_height INTEGER NULL");
+        }
+        finally
+        {
+            if (wasClosed)
+                connection.Close();
+        }
     }
 
     private static string ResolveDatabasePath(IServiceProvider sp, string path)

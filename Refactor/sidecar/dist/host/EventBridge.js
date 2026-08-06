@@ -13,8 +13,12 @@ class EventBridge {
     navigationBlocked = new DropOldestQueue_1.DropOldestQueue(8);
     editableFocus = new DropOldestQueue_1.DropOldestQueue(1);
     crash = new DropOldestQueue_1.DropOldestQueue(4);
-    /** Opt-in path hops for Telemetry.Sessions.Input.SidecarAdmitted (DropOldest). */
-    inputPath = new DropOldestQueue_1.DropOldestQueue(32);
+    /** Opt-in path hops for Telemetry.Sessions.VideoStreamingInput.SidecarAdmitted (DropOldest). */
+    videoStreamingInputPath = new DropOldestQueue_1.DropOldestQueue(32);
+    /** Opt-in path hops for Telemetry.Sessions.DomProjection.Input.* (DropOldest). */
+    domProjectionInputPath = new DropOldestQueue_1.DropOldestQueue(32);
+    /** Opt-in Dom Projection lifecycle (GenerationBumped) — DropOldest. */
+    domProjectionLifecycle = new DropOldestQueue_1.DropOldestQueue(32);
     /** Opt-in allocation lifecycle for Telemetry.Sessions.Sidecar.* (DropOldest). */
     allocationLifecycle = new DropOldestQueue_1.DropOldestQueue(16);
     faulted = false;
@@ -51,6 +55,17 @@ class EventBridge {
     onDomDiff(diff) {
         this.dom.tryWrite(diff);
     }
+    onDomProjectionGenerationBumped(event) {
+        this.domProjectionLifecycle.tryWrite({
+            kind: 'generation_bumped',
+            fromGeneration: event.fromGeneration,
+            toGeneration: event.toGeneration,
+            reason: event.reason,
+            url: event.url,
+            diffKind: event.diffKind,
+            unixMs: Date.now(),
+        });
+    }
     onAudioFrame(chunk) {
         this.audio.tryWrite(chunk);
     }
@@ -77,11 +92,21 @@ class EventBridge {
         this.crash.tryWrite(fault);
     }
     /** Fire-and-forget admit hop — never blocks PushInput. */
-    onInputPathAdmitted(kind) {
-        this.inputPath.tryWrite({
+    onVideoStreamingInputPathAdmitted(kind) {
+        this.videoStreamingInputPath.tryWrite({
             phase: 'admit',
             kind,
             unixMs: Date.now(),
+        });
+    }
+    /** Fire-and-forget Dom Projection path hop — never blocks PushDomInput. */
+    onDomProjectionInputPath(event) {
+        this.domProjectionInputPath.tryWrite({
+            phase: event.phase,
+            kind: event.kind,
+            unixMs: Date.now(),
+            reason: event.reason,
+            generation: event.generation,
         });
     }
     onAllocationLifecycle(signal) {
@@ -108,12 +133,15 @@ class EventBridge {
     close() {
         this.video.close();
         this.audio.close();
+        this.dom.close();
         this.consoleQ.close();
         this.location.close();
         this.navigationBlocked.close();
         this.editableFocus.close();
         this.crash.close();
-        this.inputPath.close();
+        this.videoStreamingInputPath.close();
+        this.domProjectionInputPath.close();
+        this.domProjectionLifecycle.close();
         this.allocationLifecycle.close();
         for (const [, w] of this.permissionWaiters) {
             w.resolve('deny');

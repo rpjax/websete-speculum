@@ -81,23 +81,32 @@ public sealed class ApiAuthMiddleware
         => IsExactOrChild(path, "/api/auth/login")
             || IsExactOrChild(path, "/api/auth/refresh")
             || path.StartsWith("/api/public/", StringComparison.OrdinalIgnoreCase)
-            // Dom Projection asset GETs are gated by session token query param
-            // (see DomAssetEndpoints) — not operator Bearer auth.
+            // Dom Projection assets + uploads: live-session binding auth
+            // (SessionBindingAuth), not operator Bearer.
             || IsDomAssetPath(path)
             || path.StartsWith("/health", StringComparison.OrdinalIgnoreCase)
             || path.Equals("/vhub", StringComparison.OrdinalIgnoreCase)
             || path.StartsWith("/vhub/", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
-    /// <c>/api/sessions/{guid}/dom-assets/{hash}</c> — live-session asset proxy.
+    /// Virtual Dom Projection asset GETs and uploads are gated by session binding
+    /// query/header (<c>SessionBindingAuth</c>) — not operator Bearer.
     /// </summary>
     private static bool IsDomAssetPath(string path)
     {
+        if (path.StartsWith("/virtual-assets/", StringComparison.OrdinalIgnoreCase)
+            || path.StartsWith("/virtual-blob/", StringComparison.OrdinalIgnoreCase)
+            || path.StartsWith("/virtual-data/", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        // Dom uploads keep session id in path but use session token auth.
         const string prefix = "/api/sessions/";
-        const string marker = "/dom-assets/";
+        const string uploads = "/dom-uploads";
         if (!path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
             return false;
-        var markerIndex = path.IndexOf(marker, prefix.Length, StringComparison.OrdinalIgnoreCase);
+        var markerIndex = path.IndexOf(uploads, prefix.Length, StringComparison.OrdinalIgnoreCase);
         return markerIndex > prefix.Length;
     }
 

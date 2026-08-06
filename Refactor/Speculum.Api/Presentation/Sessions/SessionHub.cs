@@ -139,15 +139,10 @@ public sealed class SessionHub : Hub<ISessionHubClient>
             throw new HubException(SessionHubRequestMapper.FormatErrors(result));
         }
 
-        var viewport = _configuration.GetCurrent().Sessions.ViewportPolicy;
         return new StartSessionHubResponse
         {
             SessionId = result.Value.SessionId,
             Token = result.Value.Token,
-            ViewportMinWidth = viewport.Minimum.Width,
-            ViewportMinHeight = viewport.Minimum.Height,
-            ViewportMaxWidth = viewport.Maximum.Width,
-            ViewportMaxHeight = viewport.Maximum.Height,
             MirrorMode = result.Value.MirrorMode,
         };
     }

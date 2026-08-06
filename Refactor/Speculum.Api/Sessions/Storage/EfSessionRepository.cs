@@ -2,6 +2,8 @@ using Microsoft.EntityFrameworkCore;
 using Speculum.Api.Database;
 using Speculum.Api.Sessions.Aggregates;
 using Speculum.Api.Sessions.Models;
+using Speculum.Api.Sessions.Requests;
+using Speculum.Api.Sessions.Responses;
 using Speculum.Api.Sessions.Services.Contracts;
 
 namespace Speculum.Api.Sessions.Storage;
@@ -42,6 +44,13 @@ public sealed class EfSessionRepository : ISessionRepository
         {
             existing.ProfileId = record.ProfileId;
             existing.State = record.State;
+            existing.CreatedAt = record.CreatedAt;
+            existing.StoppedAt = record.StoppedAt;
+            existing.AbortedAt = record.AbortedAt;
+            existing.StopReason = record.StopReason;
+            existing.MirrorMode = record.MirrorMode;
+            existing.ViewportWidth = record.ViewportWidth;
+            existing.ViewportHeight = record.ViewportHeight;
         }
 
         await _db.SaveChangesAsync(ct).ConfigureAwait(false);
@@ -72,4 +81,87 @@ public sealed class EfSessionRepository : ISessionRepository
             .Where(s => s.ProfileId == profileId && s.State != LifecycleState.Live)
             .ExecuteDeleteAsync(ct)
             .ConfigureAwait(false);
+
+    public async Task<(IReadOnlyList<SessionListItem> Items, int Total)> ListAsync(
+        ListSessions query,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+
+        IQueryable<SessionRecord> filtered = _db.Sessions.AsNoTracking();
+
+        if (query.SessionId is { } sessionId)
+            filtered = filtered.Where(s => s.Id == sessionId);
+
+        if (query.ProfileId is { } profileId)
+            filtered = filtered.Where(s => s.ProfileId == profileId);
+
+        if (query.State is { } state)
+            filtered = filtered.Where(s => s.State == state);
+
+        if (query.MirrorMode is { } mirrorMode)
+            filtered = filtered.Where(s => s.MirrorMode == mirrorMode);
+
+        var total = await filtered.CountAsync(ct).ConfigureAwait(false);
+
+        var ordered = query.SortDescending
+            ? filtered.OrderByDescending(s => s.CreatedAt)
+            : filtered.OrderBy(s => s.CreatedAt);
+
+        var take = Math.Clamp(query.Take <= 0 ? ListSessions.DefaultTake : query.Take, 1, ListSessions.MaxTake);
+        var skip = Math.Max(0, query.Skip);
+
+        var records = await ordered
+            .Skip(skip)
+            .Take(take)
+            .ToListAsync(ct)
+            .ConfigureAwait(false);
+
+        var items = records.Select(ToListItem).ToArray();
+        return (items, total);
+    }
+
+    public async Task<IReadOnlyList<Guid>> ListEndedSessionIdsAsync(
+        DateTimeOffset? endedBefore,
+        int take,
+        CancellationToken ct = default)
+    {
+        IQueryable<SessionRecord> ended = _db.Sessions
+            .AsNoTracking()
+            .Where(s => s.State == LifecycleState.Stopped || s.State == LifecycleState.Aborted);
+
+        if (endedBefore is { } cutoff)
+        {
+            ended = ended.Where(s =>
+                (s.StoppedAt ?? s.AbortedAt) != null
+                && (s.StoppedAt ?? s.AbortedAt) < cutoff);
+        }
+
+        return await ended
+            .OrderBy(s => s.StoppedAt ?? s.AbortedAt)
+            .Take(Math.Max(1, take))
+            .Select(s => s.Id)
+            .ToListAsync(ct)
+            .ConfigureAwait(false);
+    }
+
+    public async Task<bool> DeleteAsync(Guid sessionId, CancellationToken ct = default)
+        => await _db.Sessions
+            .Where(s => s.Id == sessionId)
+            .ExecuteDeleteAsync(ct)
+            .ConfigureAwait(false) > 0;
+
+    private static SessionListItem ToListItem(SessionRecord record)
+        => new()
+        {
+            SessionId = record.Id,
+            ProfileId = record.ProfileId,
+            State = record.State,
+            StartedAt = record.CreatedAt,
+            EndedAt = record.StoppedAt ?? record.AbortedAt,
+            EndReason = record.StopReason?.ToStableString(),
+            MirrorMode = record.MirrorMode,
+            ViewportWidth = record.ViewportWidth,
+            ViewportHeight = record.ViewportHeight,
+        };
 }

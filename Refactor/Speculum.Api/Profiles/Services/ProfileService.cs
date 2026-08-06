@@ -76,12 +76,12 @@ public sealed class ProfileService : IProfileService
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        var skip = Math.Max(0, request.Skip);
-        var take = request.Take <= 0
+        request.Skip = Math.Max(0, request.Skip);
+        request.Take = request.Take <= 0
             ? ListProfiles.DefaultTake
             : Math.Min(request.Take, ListProfiles.MaxTake);
 
-        var (items, total) = await _profiles.ListAsync(skip, take, ct).ConfigureAwait(false);
+        var (items, total) = await _profiles.ListAsync(request, ct).ConfigureAwait(false);
         return Result<ProfilePage>.Success(new ProfilePage
         {
             Items = items,

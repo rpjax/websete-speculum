@@ -14,20 +14,25 @@ internal static class SessionWebSocketEndpoint
 
     private static async Task HandleAsync(HttpContext context)
     {
-        if (!Guid.TryParse(context.Request.Query["sessionId"], out var sessionId)
-            || string.IsNullOrWhiteSpace(context.Request.Query["token"]))
+        if (!Guid.TryParse(context.Request.Query["sessionId"], out var sessionId))
         {
             context.Response.StatusCode = StatusCodes.Status400BadRequest;
             return;
         }
 
-        var token = context.Request.Query["token"].ToString();
         var bindings = context.RequestServices.GetRequiredService<ISessionBindingRegistry>();
         var liveSessions = context.RequestServices.GetRequiredService<ILiveSessionService>();
-        if (!bindings.TryGetLive(sessionId, token, out _)
-            || !liveSessions.TryGet(sessionId, out var live))
+        if (!SessionBindingAuth.TryAuthorize(
+                context.Request,
+                bindings,
+                liveSessions,
+                out var live,
+                out var token,
+                expectedSessionId: sessionId))
         {
-            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            context.Response.StatusCode = token is null
+                ? StatusCodes.Status400BadRequest
+                : StatusCodes.Status401Unauthorized;
             return;
         }
 

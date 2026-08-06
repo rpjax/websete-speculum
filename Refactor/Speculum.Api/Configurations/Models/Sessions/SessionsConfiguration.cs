@@ -14,11 +14,12 @@ public class SessionsConfiguration
     public DataStreamTransportKind DataStreamTransport { get; init; } =
         DataStreamTransportKind.WebTransport;
 
-    /// <summary>
-    /// Admin-only projection mode for new sessions (Launch). Default VideoStreaming.
-    /// Not on StartSession or public client-config.
-    /// </summary>
-    public MirrorMode MirrorMode { get; init; } = MirrorMode.VideoStreaming;
+  /// <summary>
+  /// Admin-only projection mode for new sessions (Launch). Default VideoStreaming.
+  /// Set only via Admin Configurations → Sessions. Projected to public client-config
+  /// so the SPA mounts the definitive surface before StartSession; not chosen by the client.
+  /// </summary>
+  public MirrorMode MirrorMode { get; init; } = MirrorMode.VideoStreaming;
 
     public ViewportPolicy ViewportPolicy { get; set; } = new();
     public ClientEnvironmentPolicy ClientEnvironmentPolicy { get; init; } = new();

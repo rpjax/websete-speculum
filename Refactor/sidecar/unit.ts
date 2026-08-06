@@ -1547,25 +1547,36 @@ async function main(): Promise<void> {
 
 function testDomAssetCacheAndBodyCodec(): void {
   const cache = new DomAssetCache(1024, 2);
-  const a = cache.put(Buffer.from('aaa'), 'text/css');
-  const b = cache.put(Buffer.from('bbb'), 'image/png');
+  const a = cache.put('k1', Buffer.from('aaa'), 'text/css');
+  const b = cache.put('k2', Buffer.from('bbb'), 'image/png');
   assert.ok(a);
   assert.ok(b);
-  assert.strictEqual(cache.get(a!)?.contentType, 'text/css');
-  const c = cache.put(Buffer.from('ccc'), 'font/woff2');
+  assert.strictEqual(cache.get('k1')?.contentType, 'text/css');
+  const c = cache.put('k3', Buffer.from('ccc'), 'font/woff2');
   assert.ok(c);
   assert.strictEqual(cache.size, 2);
-  assert.strictEqual(cache.get(a!), undefined);
+  assert.strictEqual(cache.get('k1'), undefined);
 
   const body = encodeDomBody({
-    kind: 'snapshot',
-    root: { id: 1, tag: 'html', children: [{ id: 2, tag: '#text', text: 'hi' }] },
+    nodes: [
+      {
+        anchor: 'html1',
+        tag: 'html',
+        children: [{ tag: '#text', text: 'hi' }],
+      },
+    ],
   });
   const decoded = decodeDomBody(body);
-  assert.strictEqual(decoded.kind, 'snapshot');
-  if (decoded.kind === 'snapshot') {
-    assert.strictEqual(decoded.root.tag, 'html');
-    assert.strictEqual(decoded.root.children?.[0]?.text, 'hi');
+  assert.ok('nodes' in decoded);
+  if ('nodes' in decoded) {
+    assert.strictEqual(decoded.nodes[0]?.tag, 'html');
+    assert.strictEqual(decoded.nodes[0]?.children?.[0]?.text, 'hi');
+  }
+  const cssomBody = encodeDomBody({ urls: ['/w7s/virtual-assets/x.css'] });
+  const cssomDecoded = decodeDomBody(cssomBody);
+  assert.ok('urls' in cssomDecoded);
+  if ('urls' in cssomDecoded) {
+    assert.strictEqual(cssomDecoded.urls[0], '/w7s/virtual-assets/x.css');
   }
   console.log('[unit] DomAssetCache + Dom body codec ok');
 }

@@ -11,8 +11,8 @@ public sealed class ConfigJsonMergeTests
               "intervalSeconds": 30,
               "host": { "isEnabled": true, "procPath": "/host/proc" },
               "events": {
-                "Telemetry.Sessions.Input.Applied": false,
-                "Telemetry.Sessions.Input.WebTransportReceived": true
+                "Telemetry.Sessions.VideoStreamingInput.Applied": false,
+                "Telemetry.Sessions.VideoStreamingInput.DataPlaneReceived": true
               }
             }
             """;
@@ -20,7 +20,7 @@ public sealed class ConfigJsonMergeTests
         const string overlay = """
             {
               "events": {
-                "Telemetry.Sessions.Input.Applied": true,
+                "Telemetry.Sessions.VideoStreamingInput.Applied": true,
                 "Telemetry.Sessions.Resize.Applied": true
               }
             }
@@ -32,9 +32,9 @@ public sealed class ConfigJsonMergeTests
 
         Assert.Contains("\"isEnabled\":true", merged, StringComparison.Ordinal);
         Assert.Contains("/host/proc", merged, StringComparison.Ordinal);
-        Assert.Contains("Telemetry.Sessions.Input.Applied", merged, StringComparison.Ordinal);
+        Assert.Contains("Telemetry.Sessions.VideoStreamingInput.Applied", merged, StringComparison.Ordinal);
         Assert.Contains("Telemetry.Sessions.Resize.Applied", merged, StringComparison.Ordinal);
-        Assert.DoesNotContain("WebTransportReceived", merged, StringComparison.Ordinal);
+        Assert.DoesNotContain("DataPlaneReceived", merged, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -43,7 +43,7 @@ public sealed class ConfigJsonMergeTests
         const string baseline = """
             {
               "isEnabled": true,
-              "events": { "Telemetry.Sessions.Input.Applied": true }
+              "events": { "Telemetry.Sessions.VideoStreamingInput.Applied": true }
             }
             """;
 
@@ -59,6 +59,6 @@ public sealed class ConfigJsonMergeTests
             overlay);
 
         Assert.Contains("\"isEnabled\":false", merged, StringComparison.Ordinal);
-        Assert.Contains("Telemetry.Sessions.Input.Applied", merged, StringComparison.Ordinal);
+        Assert.Contains("Telemetry.Sessions.VideoStreamingInput.Applied", merged, StringComparison.Ordinal);
     }
 }

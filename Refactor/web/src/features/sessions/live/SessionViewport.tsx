@@ -1,14 +1,11 @@
 import { useCallback, useEffect, useRef } from 'react'
 import type { ResizeSessionResult, SessionFrame, SessionInput } from '@/lib/speculum'
 import { cn } from '@/lib/utils'
-import {
-  CanvasViewportSync,
-  measureCanvasElement,
-  viewportSizesClose,
-  type CanvasSize,
-} from './CanvasViewportSync'
+import { measureCanvasElement, type CanvasSize } from './CanvasViewportSync'
 import { SessionInputController } from './SessionInputController'
 import { computeScreencastEncodeSize } from './screencastEncode'
+import { useMeasureHostSync } from './useMeasureHostSync'
+import type { SessionViewportBounds } from './sessionViewportPolicy'
 
 export interface SessionViewportProps {
   /**
@@ -28,8 +25,8 @@ export interface SessionViewportProps {
     size: CanvasSize,
     device: import('@/lib/speculum').SessionDeviceProfile,
   ) => Promise<ResizeSessionResult>
-  /** Sessions.ViewportPolicy from StartSession — required when requestRemoteResize is set. */
-  viewportPolicy?: import('@/features/motor/live/deviceProfile').SessionViewportBounds
+  /** Sessions.ViewportPolicy from client-config — required when requestRemoteResize is set. */
+  viewportPolicy?: SessionViewportBounds
   /** Notifies parent of current CSS layout size (for StartSession measure). */
   onCanvasLayout?: (size: CanvasSize) => void
   /** Confirmed applied size after remote resize ack. */
@@ -96,14 +93,11 @@ export function SessionViewport({
   liveRef.current = live
   const editingActiveRef = useRef(editingActive)
   editingActiveRef.current = editingActive
-  const requestRemoteResizeRef = useRef(requestRemoteResize)
-  requestRemoteResizeRef.current = requestRemoteResize
   const onCanvasLayoutRef = useRef(onCanvasLayout)
   onCanvasLayoutRef.current = onCanvasLayout
   const onRemoteViewportAppliedRef = useRef(onRemoteViewportApplied)
   onRemoteViewportAppliedRef.current = onRemoteViewportApplied
   const controllerRef = useRef<SessionInputController | null>(null)
-  const syncRef = useRef<CanvasViewportSync | null>(null)
   const wasEditingRef = useRef(false)
   const mountedRef = useRef(true)
 
@@ -117,6 +111,23 @@ export function SessionViewport({
       canvas.height = h
     }
   }, [])
+
+  const syncRef = useMeasureHostSync({
+    hostRef,
+    live,
+    requestRemoteResize,
+    viewportPolicy,
+    seedWidth: width,
+    seedHeight: height,
+    isDeferred: () => editingActiveRef.current && touchPrimaryRef.current,
+    onApplied: (size) => {
+      frameSizeRef.current = size
+      applyBufferSize(size.width, size.height)
+      controllerRef.current?.setFrameSize(size.width, size.height)
+      controllerRef.current?.invalidateRect()
+      onRemoteViewportAppliedRef.current?.(size)
+    },
+  })
 
   const resolveEncodeSize = useCallback(
     (cssW: number, cssH: number) =>
@@ -249,60 +260,13 @@ export function SessionViewport({
     }
   }, [])
 
-  // CSS host → remote viewport sync while live (canvas bitmap never drives layout).
-  useEffect(() => {
-    const host = hostRef.current
-    const request = requestRemoteResizeRef.current
-    if (!host || !live || !request || !viewportPolicy) {
-      syncRef.current?.dispose()
-      syncRef.current = null
-      return
-    }
-
-    const isDeferred = () => editingActiveRef.current && touchPrimaryRef.current
-    const sync = new CanvasViewportSync({
-      measure: () => measureCanvasElement(host),
-      resize: (size, device) => request(size, device),
-      viewportPolicy,
-      isDeferred,
-      onApplied: (size) => {
-        // Hit-test / paint buffer follow CSS-requested remote size — never inflate CSS.
-        frameSizeRef.current = size
-        applyBufferSize(size.width, size.height)
-        controllerRef.current?.setFrameSize(size.width, size.height)
-        controllerRef.current?.invalidateRect()
-        onRemoteViewportAppliedRef.current?.(size)
-      },
-    })
-    // Seed with StartSession size (props). Only ResizeAsync when client surface differs.
-    const layout = measureCanvasElement(host)
-    sync.seedRemote(width, height)
-    sync.observe(host)
-    if (
-      layout.width >= viewportPolicy.minWidth
-      && layout.height >= viewportPolicy.minHeight
-      && !viewportSizesClose(layout.width, layout.height, width, height)
-    ) {
-      sync.schedule(layout.width, layout.height)
-    }
-    syncRef.current = sync
-
-    return () => {
-      sync.dispose()
-      if (syncRef.current === sync) {
-        syncRef.current = null
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- re-bind when live/policy toggles
-  }, [live, applyBufferSize, viewportPolicy])
-
   // Flush when deferral clears (IME closed OR no longer touch-primary).
   useEffect(() => {
     const deferred = editingActive && touchPrimary
     if (!deferred) {
       syncRef.current?.flushPending()
     }
-  }, [editingActive, touchPrimary])
+  }, [editingActive, touchPrimary, syncRef])
 
   useEffect(() => {
     controllerRef.current?.setEnabled(live)

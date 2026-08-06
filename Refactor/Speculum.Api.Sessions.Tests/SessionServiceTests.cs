@@ -9,6 +9,7 @@ using Microsoft.Extensions.Options;
 using Speculum.Api.BrowserClients;
 using Speculum.Api.Configurations.Models.Sessions;
 using Speculum.Api.Profiles.Aggregates;
+using Speculum.Api.Profiles.Requests;
 using Speculum.Api.Profiles.Responses;
 using Speculum.Api.Profiles.Services.Contracts;
 using Speculum.Api.Sessions.Aggregates;
@@ -17,6 +18,7 @@ using Speculum.Api.Sessions.Events.Services.Contracts;
 using Speculum.Api.Sessions.Mirror.DomProjection;
 using Speculum.Api.Sessions.Models;
 using Speculum.Api.Sessions.Requests;
+using Speculum.Api.Sessions.Responses;
 using Speculum.Api.Sessions.Services;
 using Speculum.Api.Sessions.Services.Contracts;
 using Speculum.Api.Shared.Services;
@@ -522,6 +524,23 @@ public sealed class SessionServiceTests
                 _sessions.Remove(id);
             return Task.FromResult(remove.Length);
         }
+
+        public Task<(IReadOnlyList<SessionListItem> Items, int Total)> ListAsync(
+            ListSessions query,
+            CancellationToken ct = default)
+            => Task.FromResult<(IReadOnlyList<SessionListItem>, int)>(([], 0));
+
+        public Task<IReadOnlyList<Guid>> ListEndedSessionIdsAsync(
+            DateTimeOffset? endedBefore,
+            int take,
+            CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<Guid>>([]);
+
+        public Task<bool> DeleteAsync(Guid sessionId, CancellationToken ct = default)
+        {
+            var removed = _sessions.Remove(sessionId);
+            return Task.FromResult(removed);
+        }
     }
 
     private sealed class RecordingCollector : ISessionCollector
@@ -634,11 +653,11 @@ public sealed class SessionServiceTests
         }
 
         public Task<(IReadOnlyList<ProfileListItem> Items, int Total)> ListAsync(
-            int skip,
-            int take,
+            ListProfiles query,
             CancellationToken ct = default)
         {
             var all = _profiles.Values
+                .Where(p => query.ProfileId is null || p.Id == query.ProfileId)
                 .Select(p => new ProfileListItem
                 {
                     ProfileId = p.Id,
@@ -647,7 +666,7 @@ public sealed class SessionServiceTests
                 })
                 .ToList();
             return Task.FromResult<(IReadOnlyList<ProfileListItem>, int)>((
-                all.Skip(skip).Take(take).ToList(),
+                all.Skip(query.Skip).Take(query.Take).ToList(),
                 all.Count));
         }
 
@@ -798,8 +817,20 @@ public sealed class SessionServiceTests
         public IResult<Task> ConsumeDomProjectionInputAsync(ChannelReader<DomProjectionInput> channelReader)
             => Result<Task>.Success(Task.CompletedTask);
 
-        public Task<IResult<DomAsset>> GetDomAssetAsync(string hash, CancellationToken ct = default)
+        public Task<IResult<DomAsset>> GetDomAssetAsync(
+            string key,
+            CancellationToken ct = default,
+            string? kind = null,
+            string? rangeHeader = null)
             => Task.FromResult<IResult<DomAsset>>(Result<DomAsset>.Failure("not implemented"));
+
+        public Task<IResult> PutDomUploadAsync(
+            string uploadId,
+            byte[] body,
+            string contentType,
+            string name,
+            CancellationToken ct = default)
+            => Task.FromResult<IResult>(Result.Success());
 
         public IResult<Task> ConsumeConsoleInputAsync(ChannelReader<ConsoleInput> channelReader)
             => Result<Task>.Success(Task.CompletedTask);

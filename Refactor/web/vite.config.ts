@@ -53,6 +53,9 @@ export default defineConfig({
       '/w7s/vstream': { target: apiTarget, ws: true, secure: false, changeOrigin: true },
       '/w7s/health': { target: apiTarget, secure: false, changeOrigin: true },
       '/w7s/api': { target: apiTarget, secure: false, changeOrigin: true },
+      '/w7s/virtual-assets': { target: apiTarget, secure: false, changeOrigin: true },
+      '/w7s/virtual-blob': { target: apiTarget, secure: false, changeOrigin: true },
+      '/w7s/virtual-data': { target: apiTarget, secure: false, changeOrigin: true },
     },
   },
 })

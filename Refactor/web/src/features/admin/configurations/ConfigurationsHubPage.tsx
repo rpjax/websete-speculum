@@ -4,7 +4,13 @@ import { ArrowRight, Braces, Settings2 } from 'lucide-react'
 import { adminJson } from '@/lib/adminFetch'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { EmptyState, HelperCallout, PageHeader, StatusPill } from '@/features/admin/components'
+import {
+  AdminPage,
+  EmptyState,
+  HelperCallout,
+  PageHeader,
+  StatusPill,
+} from '@/features/admin/components'
 
 type ConfigStatus = {
   operational: boolean
@@ -18,7 +24,7 @@ const sections = [
   { key: 'ResourceManagement', description: 'Session, profile, diagnostics, and storage limits.' },
   { key: 'Scripting', description: 'Injected script policy and sources.' },
   { key: 'Journal', description: 'Operational fact-log admission and drain settings.' },
-  { key: 'Telemetry', description: 'Composite host, session, sidecar, and pipeline sampling.' },
+  { key: 'Telemetry', description: 'Sampler, front observation, and Journal Telemetry event facts.' },
 ] as const
 
 export function ConfigurationsHubPage() {
@@ -35,30 +41,26 @@ export function ConfigurationsHubPage() {
 
   if (error) {
     return (
-      <>
+      <AdminPage width="overview">
         <PageHeader title="Configurations" description="Manage one engine section at a time." />
-        <div className="mt-6">
-          <HelperCallout tone="danger" title="Configuration status is unavailable">
-            {error}
-          </HelperCallout>
-        </div>
-      </>
+        <HelperCallout tone="danger" title="Configuration status is unavailable">
+          {error}
+        </HelperCallout>
+      </AdminPage>
     )
   }
 
   if (!status) {
     return (
-      <>
+      <AdminPage width="overview">
         <PageHeader title="Configurations" description="Manage one engine section at a time." />
-        <div className="mt-6">
-          <EmptyState title="Loading configuration sections" body="Checking the current engine configuration." />
-        </div>
-      </>
+        <EmptyState title="Loading configuration sections" body="Checking the current engine configuration." />
+      </AdminPage>
     )
   }
 
   return (
-    <div className="space-y-6">
+    <AdminPage width="overview">
       <PageHeader
         title="Configurations"
         description="Manage focused engine sections without mixing unrelated operator decisions."
@@ -72,7 +74,7 @@ export function ConfigurationsHubPage() {
           All required engine sections are present. Open a section to review or change it.
         </HelperCallout>
       )}
-      <section className="grid gap-3 lg:grid-cols-2" aria-label="Engine configuration sections">
+      <section className="grid gap-3 sm:grid-cols-1 lg:grid-cols-2" aria-label="Engine configuration sections">
         {sections.map((section) => {
           const missing = status.missing.includes(section.key)
           const isScripting = section.key === 'Scripting'
@@ -80,9 +82,9 @@ export function ConfigurationsHubPage() {
             <Card key={section.key} className="gap-0 py-0">
               <CardHeader className="px-4 py-3">
                 <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <CardTitle className="flex items-center gap-2">
-                      <Settings2 className="h-4 w-4" />
+                  <div className="min-w-0">
+                    <CardTitle className="flex items-center gap-2 text-base">
+                      <Settings2 className="h-4 w-4 shrink-0" />
                       {section.key}
                     </CardTitle>
                     <CardDescription className="mt-1">{section.description}</CardDescription>
@@ -90,11 +92,11 @@ export function ConfigurationsHubPage() {
                   <StatusPill label={missing ? 'Missing' : 'Ready'} tone={missing ? 'warning' : 'success'} />
                 </div>
               </CardHeader>
-              <CardContent className="flex items-center justify-between gap-3 border-t border-border px-4 py-3">
+              <CardContent className="flex flex-col gap-3 border-t border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
                 <span className="text-sm text-muted-foreground">
                   {isScripting ? 'Manage injections in Scripts.' : 'Open the focused section editor.'}
                 </span>
-                <Button asChild variant={isScripting ? 'default' : 'outline'} size="sm">
+                <Button asChild variant={isScripting ? 'default' : 'outline'} size="sm" className="w-full sm:w-auto">
                   <Link
                     to={isScripting ? '/w7s/admin/scripts?tab=injections' : `/w7s/admin/configurations/${section.key}`}
                   >
@@ -108,6 +110,6 @@ export function ConfigurationsHubPage() {
           )
         })}
       </section>
-    </div>
+    </AdminPage>
   )
 }

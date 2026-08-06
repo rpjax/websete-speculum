@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SessionDeviceProfile } from '@/lib/speculum'
-import { DEFAULT_VIEWPORT_POLICY } from '@/features/motor/live/deviceProfile'
+import { SESSION_VIEWPORT_BASELINE as DEFAULT_VIEWPORT_POLICY } from '@/features/sessions/live/sessionViewportPolicy'
 import { CanvasViewportSync, measureCanvasElement } from './CanvasViewportSync'
 
 const desktop: SessionDeviceProfile = {

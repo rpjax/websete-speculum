@@ -534,9 +534,20 @@ internal static class GrpcSessionMappers
             return null;
         }
 
-        DomNode? root = null;
-        List<DomOp>? ops = null;
-        List<DomAssetHint>? assetHints = null;
+        List<DomNode>? nodes = null;
+        List<string>? urls = null;
+        var treeType = string.IsNullOrWhiteSpace(frame.TreeType)
+            ? (string.Equals(frame.Kind, "cssom", StringComparison.Ordinal) ? "cssom" : "dom")
+            : frame.TreeType;
+        string? target = string.IsNullOrWhiteSpace(frame.Target) ? null : frame.Target.Trim();
+
+        if (string.Equals(frame.Kind, "diff", StringComparison.Ordinal)
+            && (target is null
+                || (!string.Equals(target, "document", StringComparison.Ordinal)
+                    && !string.Equals(target, "anchors", StringComparison.Ordinal))))
+        {
+            return null;
+        }
 
         if (!frame.Body.IsEmpty)
         {
@@ -544,22 +555,27 @@ internal static class GrpcSessionMappers
             {
                 using var doc = JsonDocument.Parse(frame.Body.ToByteArray());
                 var body = doc.RootElement;
-                if (body.TryGetProperty("assetHints", out var hintsEl)
-                    && hintsEl.ValueKind == JsonValueKind.Array)
-                {
-                    assetHints = ParseAssetHints(hintsEl);
-                }
 
-                if (string.Equals(frame.Kind, "snapshot", StringComparison.Ordinal)
-                    && body.TryGetProperty("root", out var rootEl))
+                if (string.Equals(frame.Kind, "diff", StringComparison.Ordinal)
+                    && body.TryGetProperty("nodes", out var nodesEl)
+                    && nodesEl.ValueKind == JsonValueKind.Array)
                 {
-                    root = ParseDomNode(rootEl);
+                    nodes = ParseDomNodes(nodesEl);
                 }
-                else if (string.Equals(frame.Kind, "patch", StringComparison.Ordinal)
-                    && body.TryGetProperty("ops", out var opsEl)
-                    && opsEl.ValueKind == JsonValueKind.Array)
+                else if (string.Equals(frame.Kind, "cssom", StringComparison.Ordinal)
+                    && body.TryGetProperty("urls", out var urlsEl)
+                    && urlsEl.ValueKind == JsonValueKind.Array)
                 {
-                    ops = ParseDomOps(opsEl);
+                    treeType = "cssom";
+                    urls = [];
+                    foreach (var u in urlsEl.EnumerateArray())
+                    {
+                        if (u.ValueKind == JsonValueKind.String
+                            && !string.IsNullOrWhiteSpace(u.GetString()))
+                        {
+                            urls.Add(u.GetString()!);
+                        }
+                    }
                 }
             }
             catch (JsonException)
@@ -568,15 +584,22 @@ internal static class GrpcSessionMappers
             }
         }
 
+        if (string.Equals(frame.Kind, "diff", StringComparison.Ordinal)
+            && (nodes is null || nodes.Count == 0))
+        {
+            return null;
+        }
+
         return new DomDiff
         {
             Sequence = frame.Sequence,
             Generation = frame.Generation,
             Timestamp = frame.TimestampMs,
+            TreeType = treeType,
             Kind = frame.Kind,
-            Root = root,
-            Ops = ops,
-            AssetHints = assetHints,
+            Target = target,
+            Nodes = nodes,
+            Urls = urls,
         };
     }
 
@@ -591,12 +614,21 @@ internal static class GrpcSessionMappers
             return false;
         }
 
+        // Wire click is forbidden — gesture is pressed/released only.
+        if (string.Equals(input.Type.Trim(), "click", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(input.Type.Trim(), "auxclick", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
         domInput = new DomInputEvent
         {
             SessionId = sessionId.ToString("D"),
             Type = input.Type.Trim(),
-            TargetId = input.TargetId,
+            Anchor = input.Anchor ?? "",
             PayloadJson = string.IsNullOrWhiteSpace(input.Payload) ? "{}" : input.Payload,
+            Generation = input.Generation,
+            TimestampClient = input.TimestampClient ?? 0,
         };
         return true;
     }
@@ -607,65 +639,23 @@ internal static class GrpcSessionMappers
         ContentType = string.IsNullOrWhiteSpace(response.ContentType)
             ? "application/octet-stream"
             : response.ContentType,
+        StatusCode = response.StatusCode == 0 ? 200 : response.StatusCode,
+        ContentRange = string.IsNullOrWhiteSpace(response.ContentRange) ? null : response.ContentRange,
+        PassThrough = response.PassThrough,
     };
 
-    private static List<DomAssetHint>? ParseAssetHints(JsonElement hintsEl)
+    private static List<DomNode> ParseDomNodes(JsonElement nodesEl)
     {
-        var hints = new List<DomAssetHint>();
-        foreach (var hint in hintsEl.EnumerateArray())
+        var nodes = new List<DomNode>();
+        foreach (var nodeEl in nodesEl.EnumerateArray())
         {
-            if (!hint.TryGetProperty("hash", out var hashEl)
-                || hashEl.ValueKind != JsonValueKind.String
-                || string.IsNullOrWhiteSpace(hashEl.GetString()))
+            if (ParseDomNode(nodeEl) is { } node)
             {
-                continue;
+                nodes.Add(node);
             }
-
-            hints.Add(new DomAssetHint
-            {
-                Hash = hashEl.GetString()!,
-                ContentType = hint.TryGetProperty("contentType", out var ctEl)
-                    && ctEl.ValueKind == JsonValueKind.String
-                    && !string.IsNullOrWhiteSpace(ctEl.GetString())
-                    ? ctEl.GetString()!
-                    : "application/octet-stream",
-            });
         }
 
-        return hints.Count == 0 ? null : hints;
-    }
-
-    private static List<DomOp> ParseDomOps(JsonElement opsEl)
-    {
-        var ops = new List<DomOp>();
-        foreach (var opEl in opsEl.EnumerateArray())
-        {
-            if (!opEl.TryGetProperty("op", out var opKindEl)
-                || opKindEl.ValueKind != JsonValueKind.String
-                || string.IsNullOrWhiteSpace(opKindEl.GetString()))
-            {
-                continue;
-            }
-
-            ops.Add(new DomOp
-            {
-                Op = opKindEl.GetString()!,
-                Id = opEl.TryGetProperty("id", out var idEl) && idEl.TryGetInt32(out var id) ? id : 0,
-                ParentId = opEl.TryGetProperty("parentId", out var parentEl) && parentEl.TryGetInt32(out var parentId)
-                    ? parentId
-                    : null,
-                Index = opEl.TryGetProperty("index", out var indexEl) && indexEl.TryGetInt32(out var index)
-                    ? index
-                    : null,
-                Tag = ReadOptionalString(opEl, "tag"),
-                Name = ReadOptionalString(opEl, "name"),
-                Value = ReadOptionalString(opEl, "value"),
-                Text = ReadOptionalString(opEl, "text"),
-                Node = opEl.TryGetProperty("node", out var nodeEl) ? ParseDomNode(nodeEl) : null,
-            });
-        }
-
-        return ops;
+        return nodes;
     }
 
     private static DomNode? ParseDomNode(JsonElement nodeEl)
@@ -675,14 +665,21 @@ internal static class GrpcSessionMappers
             return null;
         }
 
-        if (!nodeEl.TryGetProperty("id", out var idEl) || !idEl.TryGetInt32(out var id))
-        {
-            return null;
-        }
-
         var tag = nodeEl.TryGetProperty("tag", out var tagEl) && tagEl.ValueKind == JsonValueKind.String
             ? tagEl.GetString() ?? ""
             : "";
+
+        // Text nodes may omit anchor.
+        var anchor = nodeEl.TryGetProperty("anchor", out var anchorEl)
+            && anchorEl.ValueKind == JsonValueKind.String
+            ? anchorEl.GetString() ?? ""
+            : "";
+
+        if (string.IsNullOrWhiteSpace(tag) && string.IsNullOrWhiteSpace(anchor)
+            && !nodeEl.TryGetProperty("text", out _))
+        {
+            return null;
+        }
 
         Dictionary<string, string>? attrs = null;
         if (nodeEl.TryGetProperty("attrs", out var attrsEl) && attrsEl.ValueKind == JsonValueKind.Object)
@@ -712,7 +709,7 @@ internal static class GrpcSessionMappers
 
         return new DomNode
         {
-            Id = id,
+            Anchor = anchor,
             Tag = tag,
             Attrs = attrs,
             Text = ReadOptionalString(nodeEl, "text"),

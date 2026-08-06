@@ -5,6 +5,7 @@ using Speculum.Api.BrowserClients;
 using Speculum.Api.Configurations.Models.Sessions;
 using Speculum.Api.Journal.Services.Contracts;
 using Speculum.Api.Sessions.Events.Services.Contracts;
+using Speculum.Api.Sessions.Mirror;
 using Speculum.Api.Sessions.Mirror.DomProjection;
 using Speculum.Api.Sessions.Models;
 using Speculum.Api.Sessions.Requests;
@@ -22,11 +23,6 @@ namespace Speculum.Api.Sessions.Services;
 /// </summary>
 internal sealed class LiveSession : ILiveSession
 {
-    internal const string MirrorModeVideoStreamingRequiredMessage =
-        "MirrorMode.VideoStreaming is required";
-    internal const string MirrorModeDomProjectionRequiredMessage =
-        "MirrorMode.DomProjection is required";
-
     private readonly ISessionConnection _connection;
     private readonly ISessionStreamMultiplexer _mux;
     private readonly SessionHooks _hooks;
@@ -515,22 +511,26 @@ internal sealed class LiveSession : ILiveSession
                         notification.Message,
                         notification.Phase);
                     break;
-                case SessionNotificationKind.InputRejected:
-                    _telemetry.Input.Rejected(
+                case SessionNotificationKind.VideoStreamingInputRejected:
+                    _telemetry.VideoStreamingInput.Rejected(
                         notification.ErrorCode,
                         notification.Message,
-                        notification.Phase);
+                        notification.Phase,
+                        notification.TraceId,
+                        notification.ClientTimestampMs);
                     break;
-                case SessionNotificationKind.InputApplied:
+                case SessionNotificationKind.VideoStreamingInputApplied:
                     if (!string.IsNullOrWhiteSpace(notification.InputKind))
                     {
-                        _telemetry.Input.Applied(
+                        _telemetry.VideoStreamingInput.Applied(
                             notification.InputKind.Trim(),
-                            notification.Phase);
+                            notification.Phase,
+                            notification.TraceId,
+                            notification.ClientTimestampMs);
                     }
 
                     break;
-                case SessionNotificationKind.InputPathTrace:
+                case SessionNotificationKind.VideoStreamingInputPathTrace:
                     if (string.IsNullOrWhiteSpace(notification.InputKind)
                         || string.IsNullOrWhiteSpace(notification.Phase))
                     {
@@ -540,17 +540,127 @@ internal sealed class LiveSession : ILiveSession
                     var pathKind = notification.InputKind.Trim();
                     switch (notification.Phase.Trim())
                     {
-                        case "wt_received":
-                            _telemetry.Input.WebTransportReceived(pathKind);
+                        case "data_plane_received":
+                            _telemetry.VideoStreamingInput.DataPlaneReceived(
+                                pathKind,
+                                notification.TraceId,
+                                notification.ClientTimestampMs);
                             break;
                         case "grpc_pushed":
-                            _telemetry.Input.SidecarPushWritten(pathKind, null);
+                            _telemetry.VideoStreamingInput.SidecarPushWritten(
+                                pathKind,
+                                null,
+                                notification.TraceId,
+                                notification.ClientTimestampMs);
                             break;
                         case "sidecar_admitted":
-                            _telemetry.Input.SidecarAdmitted(pathKind);
+                            _telemetry.VideoStreamingInput.SidecarAdmitted(
+                                pathKind,
+                                notification.TraceId,
+                                notification.ClientTimestampMs);
                             break;
                     }
 
+                    break;
+                case SessionNotificationKind.DomProjectionInputRejected:
+                    _telemetry.DomProjection.Input.Rejected(
+                        notification.ErrorCode,
+                        notification.Message,
+                        notification.Phase,
+                        notification.DomGeneration,
+                        notification.DomAnchor,
+                        notification.TraceId,
+                        notification.ClientTimestampMs);
+                    break;
+                case SessionNotificationKind.DomProjectionInputApplied:
+                    if (!string.IsNullOrWhiteSpace(notification.InputKind))
+                    {
+                        _telemetry.DomProjection.Input.Applied(
+                            notification.InputKind.Trim(),
+                            notification.Phase,
+                            notification.DomGeneration,
+                            notification.DomAnchor,
+                            notification.TraceId,
+                            notification.ClientTimestampMs);
+                    }
+
+                    break;
+                case SessionNotificationKind.DomProjectionInputPathTrace:
+                    if (string.IsNullOrWhiteSpace(notification.InputKind)
+                        || string.IsNullOrWhiteSpace(notification.Phase))
+                    {
+                        break;
+                    }
+
+                    var domKind = notification.InputKind.Trim();
+                    switch (notification.Phase.Trim())
+                    {
+                        case "data_plane_received":
+                            _telemetry.DomProjection.Input.DataPlaneReceived(
+                                domKind,
+                                notification.DomGeneration,
+                                notification.DomAnchor,
+                                notification.TraceId,
+                                notification.ClientTimestampMs);
+                            break;
+                        case "grpc_pushed":
+                            _telemetry.DomProjection.Input.SidecarPushWritten(
+                                domKind,
+                                null,
+                                notification.DomGeneration,
+                                notification.DomAnchor,
+                                notification.TraceId,
+                                notification.ClientTimestampMs);
+                            break;
+                        case "sidecar_admitted":
+                            _telemetry.DomProjection.Input.SidecarAdmitted(
+                                domKind,
+                                notification.DomGeneration,
+                                notification.DomAnchor,
+                                notification.TraceId,
+                                notification.ClientTimestampMs);
+                            break;
+                        case "cdp_dropped":
+                            _telemetry.DomProjection.Input.CdpDropped(
+                                domKind,
+                                notification.Reason,
+                                notification.DomGeneration,
+                                notification.DomAnchor,
+                                notification.TraceId,
+                                notification.ClientTimestampMs);
+                            break;
+                    }
+
+                    break;
+                case SessionNotificationKind.DomProjectionDiffFrame:
+                    if (string.IsNullOrWhiteSpace(notification.DomDiffKind))
+                    {
+                        break;
+                    }
+
+                    _telemetry.DomProjection.Diff.FrameReceived(
+                        notification.DomDiffKind.Trim(),
+                        notification.DomDiffTarget,
+                        notification.DomDiffTreeType,
+                        notification.DomDiffSequence ?? 0,
+                        notification.DomGeneration ?? 0,
+                        notification.DomDiffTimestamp ?? 0,
+                        notification.DomDiffNodeCount,
+                        notification.DomDiffUrlCount);
+                    break;
+                case SessionNotificationKind.DomProjectionLifecycle:
+                    if (!string.Equals(notification.Phase, "generation_bumped", StringComparison.Ordinal)
+                        || string.IsNullOrWhiteSpace(notification.Reason))
+                    {
+                        break;
+                    }
+
+                    _telemetry.DomProjection.Diff.GenerationBumped(
+                        notification.DomFromGeneration ?? 0,
+                        notification.DomGeneration ?? 0,
+                        notification.Reason.Trim(),
+                        notification.Url,
+                        notification.DomDiffKind);
                     break;
                 case SessionNotificationKind.AllocationLifecycle:
                     if (string.IsNullOrWhiteSpace(notification.AllocationKind))
@@ -621,7 +731,7 @@ internal sealed class LiveSession : ILiveSession
     {
         if (_mirrorMode != MirrorMode.VideoStreaming)
         {
-            return Result<IFrameStream>.Failure(MirrorModeVideoStreamingRequiredMessage);
+            return Result<IFrameStream>.Failure(SessionMirrorErrors.VideoStreamingRequiredMessage);
         }
 
         return OpenStream(static (id, mux) => (IFrameStream)new FrameStream(id, mux));
@@ -631,7 +741,7 @@ internal sealed class LiveSession : ILiveSession
     {
         if (_mirrorMode != MirrorMode.DomProjection)
         {
-            return Result<IDomDiffStream>.Failure(MirrorModeDomProjectionRequiredMessage);
+            return Result<IDomDiffStream>.Failure(SessionMirrorErrors.DomProjectionRequiredMessage);
         }
 
         return OpenStream(static (id, mux) => (IDomDiffStream)new DomDiffStream(id, mux));
@@ -649,7 +759,7 @@ internal sealed class LiveSession : ILiveSession
     {
         if (_mirrorMode != MirrorMode.VideoStreaming)
         {
-            return Result<Task>.Failure(MirrorModeVideoStreamingRequiredMessage);
+            return Result<Task>.Failure(SessionMirrorErrors.VideoStreamingRequiredMessage);
         }
 
         return StartInputPump(
@@ -662,7 +772,7 @@ internal sealed class LiveSession : ILiveSession
         ArgumentNullException.ThrowIfNull(input);
         if (_mirrorMode != MirrorMode.VideoStreaming)
         {
-            return Result.Failure(MirrorModeVideoStreamingRequiredMessage);
+            return Result.Failure(SessionMirrorErrors.VideoStreamingRequiredMessage);
         }
 
         if (string.IsNullOrWhiteSpace(input.Type) || string.IsNullOrWhiteSpace(input.Payload))
@@ -686,6 +796,8 @@ internal sealed class LiveSession : ILiveSession
         {
             Type = input.Type.Trim(),
             Payload = input.Payload,
+            TraceId = input.TraceId,
+            ClientTimestampMs = input.ClientTimestampMs,
         });
         return Result.Success();
     }
@@ -695,7 +807,7 @@ internal sealed class LiveSession : ILiveSession
         ArgumentNullException.ThrowIfNull(input);
         if (_mirrorMode != MirrorMode.DomProjection)
         {
-            return Result.Failure(MirrorModeDomProjectionRequiredMessage);
+            return Result.Failure(SessionMirrorErrors.DomProjectionRequiredMessage);
         }
 
         if (string.IsNullOrWhiteSpace(input.Type))
@@ -717,10 +829,28 @@ internal sealed class LiveSession : ILiveSession
 
         admission.Admit(new DomProjectionInput
         {
+            Generation = input.Generation,
             Type = input.Type.Trim(),
-            TargetId = input.TargetId,
+            Anchor = input.Anchor,
+            TimestampClient = input.TimestampClient,
+            TraceId = input.TraceId,
             Payload = string.IsNullOrWhiteSpace(input.Payload) ? "{}" : input.Payload,
-        });
+        }, out var dropped);
+
+        if (dropped is not null
+            && _journalCatalog.IsTypeEnabled(TelemetryJournalFacts.DomProjectionInputAdmissionDropped))
+        {
+            long? clientTs = dropped.TimestampClient is { } ts && double.IsFinite(ts)
+                ? (long)Math.Round(ts)
+                : null;
+            _telemetry.DomProjection.Input.AdmissionDropped(
+                dropped.Type,
+                dropped.Generation,
+                dropped.Anchor,
+                dropped.TraceId,
+                clientTs);
+        }
+
         return Result.Success();
     }
 
@@ -730,7 +860,7 @@ internal sealed class LiveSession : ILiveSession
     {
         if (_mirrorMode != MirrorMode.DomProjection)
         {
-            return Result<Task>.Failure(MirrorModeDomProjectionRequiredMessage);
+            return Result<Task>.Failure(SessionMirrorErrors.DomProjectionRequiredMessage);
         }
 
         if (IsReleased)
@@ -761,44 +891,81 @@ internal sealed class LiveSession : ILiveSession
             (consumerId, token) => _mux.StartConsoleInputPump(consumerId, channelReader, token),
             ct);
 
-    public void TraceInputPathWtReceived(string kind)
+    public void TraceVideoStreamingInputDataPlaneReceived(
+        string kind,
+        string? traceId = null,
+        long? clientTimestampMs = null)
     {
         if (string.IsNullOrWhiteSpace(kind)
-            || !_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.InputWebTransportReceived))
+            || !_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.VideoStreamingInputDataPlaneReceived))
         {
             return;
         }
 
         try
         {
-            _telemetry.Input.WebTransportReceived(kind.Trim());
+            _telemetry.VideoStreamingInput.DataPlaneReceived(kind.Trim(), traceId, clientTimestampMs);
         }
         catch (Exception journalEx)
         {
             _logger.LogWarning(
                 journalEx,
-                "Session {SessionId} failed to journal Telemetry.Sessions.Input.WebTransportReceived.",
+                "Session {SessionId} failed to journal Telemetry.Sessions.VideoStreamingInput.DataPlaneReceived.",
                 SessionId);
         }
     }
 
-    public void TraceInputPathControlReceived(string kind)
+    public void TraceVideoStreamingInputControlReceived(
+        string kind,
+        string? traceId = null,
+        long? clientTimestampMs = null)
     {
         if (string.IsNullOrWhiteSpace(kind)
-            || !_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.InputControlReceived))
+            || !_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.VideoStreamingInputControlReceived))
         {
             return;
         }
 
         try
         {
-            _telemetry.Input.ControlReceived(kind.Trim());
+            _telemetry.VideoStreamingInput.ControlReceived(kind.Trim(), traceId, clientTimestampMs);
         }
         catch (Exception journalEx)
         {
             _logger.LogWarning(
                 journalEx,
-                "Session {SessionId} failed to journal Telemetry.Sessions.Input.ControlReceived.",
+                "Session {SessionId} failed to journal Telemetry.Sessions.VideoStreamingInput.ControlReceived.",
+                SessionId);
+        }
+    }
+
+    public void TraceDomProjectionInputDataPlaneReceived(
+        string kind,
+        long? generation,
+        string? anchor,
+        string? traceId = null,
+        long? clientTimestampMs = null)
+    {
+        if (string.IsNullOrWhiteSpace(kind)
+            || !_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.DomProjectionInputDataPlaneReceived))
+        {
+            return;
+        }
+
+        try
+        {
+            _telemetry.DomProjection.Input.DataPlaneReceived(
+                kind.Trim(),
+                generation,
+                anchor,
+                traceId,
+                clientTimestampMs);
+        }
+        catch (Exception journalEx)
+        {
+            _logger.LogWarning(
+                journalEx,
+                "Session {SessionId} failed to journal Telemetry.Sessions.DomProjection.Input.DataPlaneReceived.",
                 SessionId);
         }
     }
@@ -1196,16 +1363,20 @@ internal sealed class LiveSession : ILiveSession
         return _connection.RequestDiagnosticsAsync(request.Probe, ct);
     }
 
-    public async Task<IResult<DomAsset>> GetDomAssetAsync(string hash, CancellationToken ct = default)
+    public async Task<IResult<DomAsset>> GetDomAssetAsync(
+        string key,
+        CancellationToken ct = default,
+        string? kind = null,
+        string? rangeHeader = null)
     {
         if (_mirrorMode != MirrorMode.DomProjection)
         {
-            return Result<DomAsset>.Failure(MirrorModeDomProjectionRequiredMessage);
+            return Result<DomAsset>.Failure(SessionMirrorErrors.DomProjectionRequiredMessage);
         }
 
-        if (string.IsNullOrWhiteSpace(hash))
+        if (string.IsNullOrWhiteSpace(key))
         {
-            return Result<DomAsset>.Failure("Asset hash is required");
+            return Result<DomAsset>.Failure("Asset key is required");
         }
 
         if (IsReleased || !_connection.IsOpen)
@@ -1213,7 +1384,36 @@ internal sealed class LiveSession : ILiveSession
             return Result<DomAsset>.Failure("Live session is released");
         }
 
-        return await _connection.GetDomAssetAsync(hash.Trim(), ct).ConfigureAwait(false);
+        return await _connection
+            .GetDomAssetAsync(key.Trim(), ct, kind, rangeHeader)
+            .ConfigureAwait(false);
+    }
+
+    public async Task<IResult> PutDomUploadAsync(
+        string uploadId,
+        byte[] body,
+        string contentType,
+        string name,
+        CancellationToken ct = default)
+    {
+        if (_mirrorMode != MirrorMode.DomProjection)
+        {
+            return Result.Failure(SessionMirrorErrors.DomProjectionRequiredMessage);
+        }
+
+        if (string.IsNullOrWhiteSpace(uploadId) || body is null || body.Length == 0)
+        {
+            return Result.Failure("Upload id and body are required");
+        }
+
+        if (IsReleased || !_connection.IsOpen)
+        {
+            return Result.Failure("Live session is released");
+        }
+
+        return await _connection
+            .PutDomUploadAsync(uploadId.Trim(), body, contentType, name, ct)
+            .ConfigureAwait(false);
     }
 
     // ── Hooks ────────────────────────────────────────────────────────────────

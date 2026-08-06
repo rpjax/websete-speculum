@@ -32,7 +32,7 @@ describe('journalSources', () => {
     const lifecycle = ev({ id: '1', name: 'Sessions.SessionStarted', domain: 'Sessions' })
     const signal = ev({
       id: '2',
-      name: 'Telemetry.Sessions.Input.Applied',
+      name: 'Telemetry.Sessions.VideoStreamingInput.Applied',
       domain: 'Telemetry',
     })
     const sample = ev({

@@ -217,6 +217,100 @@ public sealed class JournalRepository : IJournalRepository
             take,
             cancellationToken);
 
+    public async Task<int> DeleteByIndexKeyAsync(
+        string indexKeyType,
+        string indexKeyValue,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(indexKeyType);
+        ArgumentException.ThrowIfNullOrWhiteSpace(indexKeyValue);
+
+        var deleted = await Entries
+            .Where(e => e.IndexKeys.Any(k => k.Type == indexKeyType && k.Value == indexKeyValue))
+            .ExecuteDeleteAsync(cancellationToken)
+            .ConfigureAwait(false);
+        _db.ChangeTracker.Clear();
+        return deleted;
+    }
+
+    public async Task<int> DeleteIndependentFactsAsync(
+        string? type,
+        DateTimeOffset? olderThan,
+        CancellationToken cancellationToken = default)
+    {
+        IQueryable<JournalEntryRecord> source = Entries
+            .AsNoTracking()
+            .Where(e => !e.IndexKeys.Any(k => k.Type == "session"));
+
+        if (!string.IsNullOrWhiteSpace(type))
+            source = source.Where(e => e.Type == type);
+
+        if (olderThan is null)
+        {
+            var deletedAll = await source.ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
+            _db.ChangeTracker.Clear();
+            return deletedAll;
+        }
+
+        // PublishedAt range predicates are not SQLite-translatable; filter in memory
+        // then delete by Sequence (same technique as DeleteOlderThanAsync below).
+        var candidates = await source
+            .Select(e => new { e.Sequence, e.PublishedAt })
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        var sequences = candidates
+            .Where(e => e.PublishedAt < olderThan.Value)
+            .Select(e => e.Sequence)
+            .ToArray();
+
+        if (sequences.Length == 0)
+            return 0;
+
+        var deleted = await Entries
+            .Where(e => sequences.Contains(e.Sequence))
+            .ExecuteDeleteAsync(cancellationToken)
+            .ConfigureAwait(false);
+        _db.ChangeTracker.Clear();
+        return deleted;
+    }
+
+    public Task<int> CountByIndexKeyAsync(
+        string indexKeyType,
+        string indexKeyValue,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(indexKeyType);
+        ArgumentException.ThrowIfNullOrWhiteSpace(indexKeyValue);
+
+        return Entries
+            .AsNoTracking()
+            .Where(e => e.IndexKeys.Any(k => k.Type == indexKeyType && k.Value == indexKeyValue))
+            .CountAsync(cancellationToken);
+    }
+
+    public async Task<int> CountIndependentFactsAsync(
+        string? type,
+        DateTimeOffset? olderThan,
+        CancellationToken cancellationToken = default)
+    {
+        IQueryable<JournalEntryRecord> source = Entries
+            .AsNoTracking()
+            .Where(e => !e.IndexKeys.Any(k => k.Type == "session"));
+
+        if (!string.IsNullOrWhiteSpace(type))
+            source = source.Where(e => e.Type == type);
+
+        if (olderThan is null)
+            return await source.CountAsync(cancellationToken).ConfigureAwait(false);
+
+        var publishedAts = await source
+            .Select(e => e.PublishedAt)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+        return publishedAts.Count(p => p < olderThan.Value);
+    }
+
     private async Task<int> DeleteOlderThanAsync(
         IQueryable<JournalEntryRecord> source,
         DateTimeOffset olderThan,

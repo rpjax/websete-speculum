@@ -2,12 +2,12 @@ using MessagePack;
 
 namespace Speculum.Api.Sessions.Mirror.DomProjection;
 
-/// <summary>Compact projected DOM node (main-frame V1).</summary>
+/// <summary>Projected DOM node identified by <c>speculum-anchor</c>.</summary>
 [MessagePackObject]
 public sealed class DomNode
 {
-    [Key("id")]
-    public int Id { get; init; }
+    [Key("anchor")]
+    public string Anchor { get; init; } = "";
 
     [Key("tag")]
     public string Tag { get; init; } = "";

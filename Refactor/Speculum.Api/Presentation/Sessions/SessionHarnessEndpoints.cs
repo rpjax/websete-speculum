@@ -62,7 +62,7 @@ public static class SessionHarnessEndpoints
                 });
             }
 
-            live.TraceInputPathControlReceived(body.Type.Trim());
+            live.TraceVideoStreamingInputControlReceived(body.Type.Trim());
             return Results.Ok(new { ok = true });
         }).WithTags("Sessions");
 

@@ -30,7 +30,7 @@ export function AdminPage({
           className,
         )}
       >
-        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain pb-2">
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain pb-2 [scrollbar-width:thin]">
           {children}
         </div>
         <div className="shrink-0 border-t border-border/60 bg-background pt-3">
@@ -49,7 +49,7 @@ export function AdminPage({
   return (
     <div
       className={cn(
-        'mx-auto h-full min-h-0 w-full flex-1 space-y-4 overflow-y-auto overscroll-contain',
+        'mx-auto h-full min-h-0 w-full flex-1 space-y-4 overflow-y-auto overscroll-contain [scrollbar-width:thin]',
         widths[width],
         className,
       )}

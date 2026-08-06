@@ -18,7 +18,7 @@ Telemetry does not use the Diagnostics runtime, capability model, or Diagnostics
 | Kind | Pattern | Examples |
 |------|---------|----------|
 | Sampling | `Telemetry.Sampling.*` | `Telemetry.Sampling.SampleCollected`, `Telemetry.Sampling.SessionSampleCollected` |
-| Session events | `Telemetry.Sessions.<subdomain>.*` | `Telemetry.Sessions.Input.WebTransportReceived`, `Telemetry.Sessions.Capacity.SlotAcquired` |
+| Session events | `Telemetry.Sessions.<subdomain>.*` | `Telemetry.Sessions.VideoStreamingInput.DataPlaneReceived`, `Telemetry.Sessions.Capacity.SlotAcquired` |
 
 All `Telemetry.*` types are **Telemetry-owned**: they must not appear in the Journal `events` map
 (PUT Journal rejects them). Enablement is driven by the `Telemetry` config section on Apply.
@@ -46,7 +46,7 @@ Event facts (input / resize probes for SessionsTest):
 
 ```http
 PUT /api/configurations/Telemetry
-{"events":{"Telemetry.Sessions.Input.Applied":true,"Telemetry.Sessions.Resize.Applied":true}}
+{"events":{"Telemetry.Sessions.VideoStreamingInput.Applied":true,"Telemetry.Sessions.Resize.Applied":true}}
 ```
 
 Partial Telemetry PUTs **merge** onto the stored section (sampling toggles and `host.procPath`
@@ -84,8 +84,69 @@ Sample sources use Telemetry ports (`ISessionTelemetrySampleSource`,
 ### Events
 
 Sessions call `ISessionTelemetryEventsFactory.ForSession(…)` and emit through subdomain contracts
-(`Capacity`, `Start`, `Input`, `Resize`, …). Catalog gating still applies — hot-path facts stay
-quiet until `Telemetry.Events` enables them.
+(`Capacity`, `Start`, `VideoStreamingInput`, `DomProjection`, `Resize`, …). Catalog gating still
+applies — hot-path facts stay quiet until `Telemetry.Events` enables them.
+
+**Planes must not share facts:** screencast mirror input uses
+`Telemetry.Sessions.VideoStreamingInput.*`; Dom Projection uses
+`Telemetry.Sessions.DomProjection.Diff.*` and `Telemetry.Sessions.DomProjection.Input.*`
+(payloads and hops are plane-specific).
+
+| Plane | Path hops (opt-in) | Outcomes |
+|-------|--------------------|----------|
+| VideoStreamingInput | `DataPlaneReceived`, `ControlReceived`, `SidecarPushWritten`, `SidecarAdmitted` | `Applied`, `Rejected` |
+| DomProjection Diff | `Diff.FrameReceived`, `Diff.GenerationBumped` | — (bridge/mux loss via Activity `sequence_gap` + sample `queues.droppedTotal`) |
+| DomProjection Input | `Input.DataPlaneReceived`, `Input.AdmissionDropped`, `Input.SidecarPushWritten`, `Input.SidecarAdmitted`, `Input.CdpDropped` | `Input.Applied` (gRPC push), `Input.Rejected` |
+
+`Diff.GenerationBumped` (via `WatchDomProjectionLifecycle`) records when sidecar generation
+identity changes: `main_frame_navigated` (contract path) or `page_emit_sync` (Node caught up
+from a page emit with a different gen). Correlate with `FrameReceived` by `from`/`to` generation —
+one chronological Diff emitter; Dom frames are `kind=diff` with `target=document|anchors`
+(no separate snapshot kind).
+
+Sidecar path watches: `WatchVideoStreamingInputPath` / `WatchDomProjectionInputPath` (EventBridge
+`videoStreamingInputPath` / `domProjectionInputPath`). Product RPCs `PushInput` / `PushDomInput` are
+unchanged. `Applied` means the API wrote the gRPC push — CDP success is `SidecarAdmitted`; CDP
+drops are `CdpDropped` with a `reason`.
+
+### Front observation (Lab + Live)
+
+`Telemetry.ClientObservation` is **not** a Journal fact map. It enables the shared browser
+Activity ring (capability toggles per plane). **Write only** via the Telemetry engine section
+(`PUT /api/configurations/Telemetry` or the same section in `PUT /api/configurations` batch).
+Projected to public client-config so Lab and Live share one read contract. Admin Configurations
+→ Telemetry is the canonical toggle UI; Lab Config embeds the same fields as a shortcut.
+
+Export Activity as JSONL and correlate with Journal hops via
+`plane` / `hop` / `generation` / `sequence` / `kind` / `anchor` / `sessionId` / `tClient` /
+`traceId` / `lagMs`.
+
+| Toggle | Front hops |
+|--------|------------|
+| `IsEnabled` | Master — Activity / Live Observe |
+| `SessionWire` | Hub lifecycle |
+| `VideoStreamingInput` | `client_sent` on `sendInput` (every event while on) |
+| `DomProjectionDiff` | Diff `client_recv` / apply / gap (every frame while on) |
+| `DomProjectionInput` | `client_sent` on `sendDomInput` (every event while on) |
+
+`Telemetry.Events` (Journal facts) use the same Telemetry section PUT — dedicated per-fact
+switches in Admin (catalog), not free-form type strings.
+
+### Debug-only full capture
+
+Path / Diff / front planes are **debug-only**. When a fact or ClientObservation plane is **off**,
+emitters early-return (`IsTypeEnabled` / `observationAllowsPlane`) — near-zero cost on the hot
+path. When **on**, capture is **full** for data-plane / Applied / Diff / front hops (every HF move,
+every Diff patch, every Applied): the operator accepts cost. **`SidecarAdmitted` is the exception** —
+VideoStreamingInput and DomProjection both skip high-frequency move samples on the admit hop
+(`mousemove` / touch-move / `pointermove`), matching the sidecar path fan-out. Prefer Export JSONL
+often; front ring keeps the newest 2000 entries (DropOldest).
+
+Wire: every product send stamps MessagePack `traceId` (opaque client id) and, for video,
+`clientTimestampMs`. Journal path/outcome facts include `TraceId` / `ClientTimestampMs` when
+present (schemaVersion **2**). Dom Diff `FrameReceived` includes sidecar `Timestamp`.
+Dom Projection Input path includes `SidecarAdmitted` / `CdpDropped` via
+`WatchDomProjectionInputPath` (mirror of VideoStreamingInput).
 
 ## Sections (sampling)
 

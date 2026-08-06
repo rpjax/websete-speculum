@@ -11,6 +11,7 @@ using Speculum.Api.Configurations.Models.Sessions;
 using Speculum.Api.Profiles.Aggregates;
 using Speculum.Api.Sessions.Aggregates;
 using Speculum.Api.Sessions.Events.Services.Contracts;
+using Speculum.Api.Sessions.Mirror;
 using Speculum.Api.Sessions.Mirror.DomProjection;
 using Speculum.Api.Sessions.Models;
 using Speculum.Api.Sessions.Requests;
@@ -152,7 +153,7 @@ public sealed class LiveSessionTests
         Assert.True(live.OpenFrameStream().IsSuccess);
         Assert.True(live.OpenDomDiffStream().IsFailure);
         Assert.Contains(
-            LiveSession.MirrorModeDomProjectionRequiredMessage,
+            SessionMirrorErrors.DomProjectionRequiredMessage,
             live.OpenDomDiffStream().Errors.Select(e => e.Message));
         Assert.True(live.AdmitVideoStreamingInput(new VideoStreamingInput
         {
@@ -165,7 +166,7 @@ public sealed class LiveSessionTests
             Payload = "{}",
         }).IsFailure);
         Assert.Contains(
-            LiveSession.MirrorModeDomProjectionRequiredMessage,
+            SessionMirrorErrors.DomProjectionRequiredMessage,
             live.AdmitDomProjectionInput(new DomProjectionInput
             {
                 Type = "click",
@@ -199,7 +200,7 @@ public sealed class LiveSessionTests
         Assert.Equal(MirrorMode.DomProjection, live.MirrorMode);
         Assert.True(live.OpenFrameStream().IsFailure);
         Assert.Contains(
-            LiveSession.MirrorModeVideoStreamingRequiredMessage,
+            SessionMirrorErrors.VideoStreamingRequiredMessage,
             live.OpenFrameStream().Errors.Select(e => e.Message));
         Assert.True(live.AdmitVideoStreamingInput(new VideoStreamingInput
         {
@@ -212,9 +213,10 @@ public sealed class LiveSessionTests
 
         var admitDom = live.AdmitDomProjectionInput(new DomProjectionInput
         {
-            Type = "click",
-            TargetId = 1,
-            Payload = "{}",
+            Type = "mousedown",
+            Anchor = "a1",
+            Generation = 1,
+            Payload = """{"x":1,"y":2,"button":0}""",
         });
         Assert.True(admitDom.IsSuccess);
 
@@ -231,7 +233,7 @@ public sealed class LiveSessionTests
         var videoAsset = await videoCreated.Value.GetDomAssetAsync("abc");
         Assert.True(videoAsset.IsFailure);
         Assert.Contains(
-            LiveSession.MirrorModeDomProjectionRequiredMessage,
+            SessionMirrorErrors.DomProjectionRequiredMessage,
             videoAsset.Errors.Select(e => e.Message));
     }
 
@@ -915,40 +917,72 @@ public sealed class LiveSessionTests
     }
 
     [Fact]
-    public void TraceInputPathWtReceived_WhenCatalogDisabled_IsNoOp()
+    public void TraceVideoStreamingInputDataPlaneReceived_WhenCatalogDisabled_IsNoOp()
     {
         var catalog = new Speculum.Api.Journal.Services.JournalCatalog();
         catalog.RegisterFromAssemblies(typeof(Speculum.Api.Telemetry.Events.Models.Sampling.SampleCollected).Assembly);
-        var input = new RecordingSessionInputTelemetryEvents();
+        var input = new RecordingSessionVideoStreamingInputTelemetryEvents();
         var sessionId = Guid.NewGuid();
         var live = CreateService(
-                telemetry: new NoOpSessionTelemetryEventsFactory(input: input),
+                telemetry: new NoOpSessionTelemetryEventsFactory(videoStreamingInput: input),
                 journalCatalog: catalog)
             .Create(sessionId, Guid.NewGuid(), new LiveFakeConnection(sessionId), "speculum.test", true)
             .Value;
 
-        live.TraceInputPathWtReceived("click");
+        live.TraceVideoStreamingInputDataPlaneReceived("click");
 
-        Assert.Null(input.LastWebTransportKind);
+        Assert.Null(input.LastDataPlaneKind);
     }
 
     [Fact]
-    public void TraceInputPathWtReceived_WhenCatalogEnabled_JournalsHop()
+    public void TraceVideoStreamingInputDataPlaneReceived_WhenCatalogEnabled_JournalsHop()
     {
         var catalog = new Speculum.Api.Journal.Services.JournalCatalog();
         catalog.RegisterFromAssemblies(typeof(Speculum.Api.Telemetry.Events.Models.Sampling.SampleCollected).Assembly);
-        catalog.SetEnabled(Speculum.Api.Telemetry.TelemetryJournalFacts.InputWebTransportReceived, true);
-        var input = new RecordingSessionInputTelemetryEvents();
+        catalog.SetEnabled(Speculum.Api.Telemetry.TelemetryJournalFacts.VideoStreamingInputDataPlaneReceived, true);
+        var input = new RecordingSessionVideoStreamingInputTelemetryEvents();
         var sessionId = Guid.NewGuid();
         var live = CreateService(
-                telemetry: new NoOpSessionTelemetryEventsFactory(input: input),
+                telemetry: new NoOpSessionTelemetryEventsFactory(videoStreamingInput: input),
                 journalCatalog: catalog)
             .Create(sessionId, Guid.NewGuid(), new LiveFakeConnection(sessionId), "speculum.test", true)
             .Value;
 
-        live.TraceInputPathWtReceived("click");
+        live.TraceVideoStreamingInputDataPlaneReceived("click", "trace-hf-1", 99);
 
-        Assert.Equal("click", input.LastWebTransportKind);
+        Assert.Equal("click", input.LastDataPlaneKind);
+        Assert.Equal("trace-hf-1", input.LastDataPlaneTraceId);
+        Assert.Equal(99, input.LastDataPlaneClientTimestampMs);
+    }
+
+    [Fact]
+    public void VideoStreamingInput_HighFrequencyKinds_StillJournalWhenFactsEnabled()
+    {
+        // HF admission policy still coalesces product input; Journal emits whenever catalog is on
+        // (no skip solely because mousemove / wheel / touchmove).
+        var catalog = new Speculum.Api.Journal.Services.JournalCatalog();
+        catalog.RegisterFromAssemblies(typeof(Speculum.Api.Telemetry.Events.Models.Sampling.SampleCollected).Assembly);
+        catalog.SetEnabled(Speculum.Api.Telemetry.TelemetryJournalFacts.VideoStreamingInputDataPlaneReceived, true);
+        catalog.SetEnabled(Speculum.Api.Telemetry.TelemetryJournalFacts.VideoStreamingInputSidecarPushWritten, true);
+        catalog.SetEnabled(Speculum.Api.Telemetry.TelemetryJournalFacts.VideoStreamingInputApplied, true);
+        var input = new RecordingSessionVideoStreamingInputTelemetryEvents();
+        var sessionId = Guid.NewGuid();
+        var live = CreateService(
+                telemetry: new NoOpSessionTelemetryEventsFactory(videoStreamingInput: input),
+                journalCatalog: catalog)
+            .Create(sessionId, Guid.NewGuid(), new LiveFakeConnection(sessionId), "speculum.test", true)
+            .Value;
+
+        live.TraceVideoStreamingInputDataPlaneReceived("mousemove", "hf-trace", 1);
+        Assert.Equal("mousemove", input.LastDataPlaneKind);
+        Assert.Equal("hf-trace", input.LastDataPlaneTraceId);
+
+        // Applied / SidecarPushWritten are driven by connection notifications — assert emitters accept HF kinds.
+        input.Applied("mousemove", "touch", "hf-trace", 1);
+        input.SidecarPushWritten("mousemove", null, "hf-trace", 1);
+        Assert.Equal("mousemove", input.LastAppliedKind);
+        Assert.Equal("hf-trace", input.LastAppliedTraceId);
+        Assert.Equal("mousemove", input.LastPushKind);
     }
 
     private sealed class NoOpSessionEventsFactory(ISessionLiveEvents liveEvents) : ISessionEventsFactory
@@ -1047,16 +1081,46 @@ public sealed class LiveSessionTests
         }
     }
 
-    private sealed class RecordingSessionInputTelemetryEvents : ISessionInputTelemetryEvents
+    private sealed class RecordingSessionVideoStreamingInputTelemetryEvents
+        : ISessionVideoStreamingInputTelemetryEvents
     {
-        public string? LastWebTransportKind { get; private set; }
+        public string? LastDataPlaneKind { get; private set; }
+        public string? LastDataPlaneTraceId { get; private set; }
+        public long? LastDataPlaneClientTimestampMs { get; private set; }
+        public string? LastAppliedKind { get; private set; }
+        public string? LastAppliedTraceId { get; private set; }
+        public string? LastPushKind { get; private set; }
 
-        public void Applied(string kind, string? phase) { }
-        public void Rejected(string? errorCode, string? message, string? phase) { }
-        public void WebTransportReceived(string kind) => LastWebTransportKind = kind;
-        public void ControlReceived(string kind) { }
-        public void SidecarPushWritten(string kind, string? phase) { }
-        public void SidecarAdmitted(string kind) { }
+        public void Applied(string kind, string? phase, string? traceId = null, long? clientTimestampMs = null)
+        {
+            LastAppliedKind = kind;
+            LastAppliedTraceId = traceId;
+        }
+
+        public void Rejected(
+            string? errorCode,
+            string? message,
+            string? phase,
+            string? traceId = null,
+            long? clientTimestampMs = null) { }
+
+        public void DataPlaneReceived(string kind, string? traceId = null, long? clientTimestampMs = null)
+        {
+            LastDataPlaneKind = kind;
+            LastDataPlaneTraceId = traceId;
+            LastDataPlaneClientTimestampMs = clientTimestampMs;
+        }
+
+        public void ControlReceived(string kind, string? traceId = null, long? clientTimestampMs = null) { }
+
+        public void SidecarPushWritten(
+            string kind,
+            string? phase,
+            string? traceId = null,
+            long? clientTimestampMs = null)
+            => LastPushKind = kind;
+
+        public void SidecarAdmitted(string kind, string? traceId = null, long? clientTimestampMs = null) { }
     }
 
     private sealed class ThrowingAttachedClient : IAttachedSessionClient
@@ -1404,10 +1468,22 @@ public sealed class LiveSessionTests
 
         public DomAsset? DomAsset { get; set; }
 
-        public Task<IResult<DomAsset>> GetDomAssetAsync(string hash, CancellationToken ct = default)
+        public Task<IResult<DomAsset>> GetDomAssetAsync(
+            string key,
+            CancellationToken ct = default,
+            string? kind = null,
+            string? rangeHeader = null)
             => DomAsset is null
                 ? Task.FromResult<IResult<DomAsset>>(Result<DomAsset>.Failure("not implemented"))
                 : Task.FromResult<IResult<DomAsset>>(Result<DomAsset>.Success(DomAsset));
+
+        public Task<IResult> PutDomUploadAsync(
+            string uploadId,
+            byte[] body,
+            string contentType,
+            string name,
+            CancellationToken ct = default)
+            => Task.FromResult<IResult>(Result.Success());
 
         public IResult<Task> ConsumeConsoleInputAsync(ChannelReader<ConsoleInput> channelReader)
             => Result<Task>.Success(DrainAsync(channelReader, ConsoleInputReceived.Writer));

@@ -28,6 +28,9 @@ public interface ISessionBindingRegistry
         string token,
         out SessionBinding binding);
 
+    /// <summary>Resolve a live binding from session token alone (virtual-asset GETs).</summary>
+    bool TryGetLiveByToken(string token, out SessionBinding binding);
+
     IResult RegisterPipe(
         Guid sessionId,
         string token,

@@ -1,7 +1,12 @@
 import type { DomDiff, DomProjectionInput, MirrorMode, SessionFrame, SessionInput } from '@/lib/speculum'
+import { cn } from '@/lib/utils'
 import type { CanvasSize } from './CanvasViewportSync'
-import { DomProjector } from './dom/DomProjector'
+import { DomProjector, type DomProjectorProps } from './dom/DomProjector'
 import { SessionViewport, type SessionViewportProps } from './SessionViewport'
+
+/** Shared CSS box for Video and Dom — measure host must not diverge across modes. */
+export const SESSION_MEASURE_HOST_CLASS =
+  'relative h-full min-h-0 min-w-0 w-full overflow-hidden'
 
 export type SessionMirrorSurfaceProps = Omit<SessionViewportProps, 'attachFrameSink' | 'onInput'> & {
   mirrorMode: MirrorMode
@@ -12,10 +17,13 @@ export type SessionMirrorSurfaceProps = Omit<SessionViewportProps, 'attachFrameS
   attachDomDiffSink: (sink: (diff: DomDiff) => void) => () => void
   onInput: (input: SessionInput) => void
   onDomInput: (input: DomProjectionInput) => void
+  onDiffObserve?: DomProjectorProps['onDiffObserve']
 }
 
 /**
- * Mode-exclusive mirror surface: VideoStreaming canvas or DomProjection DOM.
+ * Mode-exclusive mirror surface. The measure host for the selected mode mounts
+ * before Start (Dom does not wait for sessionId/token) so StartSession geometry
+ * is exactly the surface that stays mounted.
  */
 export function SessionMirrorSurface({
   mirrorMode,
@@ -26,9 +34,13 @@ export function SessionMirrorSurface({
   attachDomDiffSink,
   onInput,
   onDomInput,
+  onDiffObserve,
+  className,
   ...viewportProps
 }: SessionMirrorSurfaceProps) {
-  if (mirrorMode === 'domProjection' && sessionId && token) {
+  const hostClass = cn(SESSION_MEASURE_HOST_CLASS, className)
+
+  if (mirrorMode === 'domProjection') {
     return (
       <DomProjector
         width={viewportProps.width}
@@ -39,12 +51,13 @@ export function SessionMirrorSurface({
         assetBaseUrl={assetBaseUrl}
         attachDomDiffSink={attachDomDiffSink}
         onDomInput={onDomInput}
+        onDiffObserve={onDiffObserve}
         requestRemoteResize={viewportProps.requestRemoteResize}
         viewportPolicy={viewportProps.viewportPolicy}
         onCanvasLayout={viewportProps.onCanvasLayout}
         onRemoteViewportApplied={viewportProps.onRemoteViewportApplied}
         presentation={viewportProps.presentation}
-        className={viewportProps.className}
+        className={hostClass}
         label={viewportProps.label}
       />
     )
@@ -53,6 +66,7 @@ export function SessionMirrorSurface({
   return (
     <SessionViewport
       {...viewportProps}
+      className={hostClass}
       attachFrameSink={attachFrameSink}
       onInput={onInput}
     />

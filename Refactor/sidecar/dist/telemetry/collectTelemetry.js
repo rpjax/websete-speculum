@@ -81,12 +81,15 @@ async function collectTelemetry(request, registry) {
                 droppedTotal: total.droppedTotal
                     + bridge.video.droppedCount
                     + bridge.audio.droppedCount
+                    + bridge.dom.droppedCount
                     + bridge.consoleQ.droppedCount
                     + bridge.location.droppedCount
                     + bridge.navigationBlocked.droppedCount
                     + bridge.editableFocus.droppedCount
                     + bridge.crash.droppedCount
-                    + bridge.inputPath.droppedCount
+                    + bridge.videoStreamingInputPath.droppedCount
+                    + bridge.domProjectionInputPath.droppedCount
+                    + bridge.domProjectionLifecycle.droppedCount
                     + bridge.allocationLifecycle.droppedCount,
             };
         }, { videoDepth: 0, audioDepth: 0, consoleDepth: 0, inputDepth: 0, inputChainDepth: 0, droppedTotal: 0 });

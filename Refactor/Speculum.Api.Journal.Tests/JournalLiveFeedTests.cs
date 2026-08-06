@@ -3,7 +3,7 @@ using Speculum.Api.Journal.Models;
 using Speculum.Api.Journal.Services;
 using Speculum.Api.Sessions.Events.Models;
 using Speculum.Api.Telemetry.Events.Models.Sampling;
-using InputApplied = Speculum.Api.Telemetry.Events.Models.Sessions.Input.Applied;
+using InputApplied = Speculum.Api.Telemetry.Events.Models.Sessions.VideoStreamingInput.Applied;
 
 namespace Speculum.Api.Journal.Tests;
 
@@ -99,7 +99,7 @@ public sealed class JournalLiveFeedTests
         var catalog = new JournalCatalog();
         catalog.RegisterFromAssemblies(typeof(SampleCollected).Assembly);
         // InputApplied is JournalFact (off by default); enable only when testing admission.
-        catalog.SetEnabled("Telemetry.Sessions.Input.Applied", enabled);
+        catalog.SetEnabled("Telemetry.Sessions.VideoStreamingInput.Applied", enabled);
 
         var (created, metrics, health) = JournalTestHarness.CreateQueue(o => o.MaxQueueDepth = 0);
         queue = created;

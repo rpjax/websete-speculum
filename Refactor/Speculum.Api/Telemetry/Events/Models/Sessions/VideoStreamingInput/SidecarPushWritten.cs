@@ -1,13 +1,13 @@
 using Speculum.Api.Journal.Attributes;
 using Speculum.Api.Journal.Models;
 
-namespace Speculum.Api.Telemetry.Events.Models.Sessions.Input;
+namespace Speculum.Api.Telemetry.Events.Models.Sessions.VideoStreamingInput;
 
 [JournalFact(
-    "Telemetry.Sessions.Input.SidecarPushWritten",
-    schemaVersion: 1,
-    Name = "Input sidecar push written",
-    Description = "User input was written on the API to sidecar PushInput client stream.",
+    "Telemetry.Sessions.VideoStreamingInput.SidecarPushWritten",
+    schemaVersion: 2,
+    Name = "Video streaming input · sidecar push written",
+    Description = "VideoStreamingInput was written on the API→sidecar PushInput client stream.",
     Owner = "telemetry",
     PublishPolicy = PublishPolicy.BestEffort)]
 public sealed class SidecarPushWritten
@@ -21,4 +21,8 @@ public sealed class SidecarPushWritten
     public required string Kind { get; init; }
 
     public string? Phase { get; init; }
+
+    public string? TraceId { get; init; }
+
+    public long? ClientTimestampMs { get; init; }
 }

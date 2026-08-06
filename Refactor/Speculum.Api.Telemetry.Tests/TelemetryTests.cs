@@ -181,7 +181,7 @@ public sealed class TelemetryJournalFactsTests
     [Theory]
     [InlineData(TelemetryJournalFacts.SampleCollected, true)]
     [InlineData(TelemetryJournalFacts.SessionSampleCollected, true)]
-    [InlineData("Telemetry.Sessions.Input.Applied", true)]
+    [InlineData("Telemetry.Sessions.VideoStreamingInput.Applied", true)]
     public void Owns_TelemetryFactTypesOnly(string type, bool expected)
         => Assert.Equal(expected, TelemetryJournalFacts.Owns(type));
 }

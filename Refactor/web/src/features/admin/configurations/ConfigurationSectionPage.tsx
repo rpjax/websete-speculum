@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
 import { adminJson } from '@/lib/adminFetch'
@@ -8,11 +8,14 @@ import {
   AdminPage,
   EmptyState,
   HelperCallout,
+  MetaRow,
   PageHeader,
   SaveFeedback,
   SaveFeedbackStrip,
+  StatusPill,
 } from '@/features/admin/components'
 import { SectionPrimaryFields, type JsonObject } from './sectionEditors'
+import { sectionCanSave } from './sectionValidation'
 
 const editableSections = new Set([
   'Hosting',
@@ -26,26 +29,45 @@ const editableSections = new Set([
 
 const numericLeaf = /bytes|count|sessions|percent|factor|points|width|height|interval|timeoutms|nofile|nproc/i
 
+function stableJson(value: JsonObject): string {
+  return JSON.stringify(value)
+}
+
 export function ConfigurationSectionPage() {
   const { section = '' } = useParams()
   const [value, setValue] = useState<JsonObject | null>(null)
+  const [baseline, setBaseline] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
   const [saving, setSaving] = useState(false)
+  /** Journal (and similar) can tighten canSave after async catalog load. */
+  const [editorCanSave, setEditorCanSave] = useState(true)
+  const loadGen = useRef(0)
 
   useEffect(() => {
     if (!editableSections.has(section)) {
       setError('This configuration section is not available.')
+      setValue(null)
+      setBaseline(null)
       return
     }
+    const gen = ++loadGen.current
     setValue(null)
+    setBaseline(null)
     setError(null)
     setSaved(false)
+    setEditorCanSave(true)
     adminJson<JsonObject>(`/api/configurations/${section}`)
-      .then((data) => setValue(data ?? {}))
-      .catch((reason: unknown) =>
-        setError(reason instanceof Error ? reason.message : 'Unable to load this section.'),
-      )
+      .then((data) => {
+        if (gen !== loadGen.current) return
+        const next = data ?? {}
+        setValue(next)
+        setBaseline(stableJson(next))
+      })
+      .catch((reason: unknown) => {
+        if (gen !== loadGen.current) return
+        setError(reason instanceof Error ? reason.message : 'Unable to load this section.')
+      })
   }, [section])
 
   const title = useMemo(() => section.replace(/([A-Z])/g, ' $1').trim(), [section])
@@ -60,7 +82,7 @@ export function ConfigurationSectionPage() {
       case 'ResourceManagement':
         return 'Admission capacity, storage budget, and retention for this host.'
       case 'Telemetry':
-        return 'Composite sampler cadence and which sample sections are included.'
+        return 'Samples for Diagnostics charts, plus optional session event facts in the Journal.'
       case 'Journal':
         return 'Opt-in non-canonical journal facts for deeper operational admission.'
       case 'Scripting':
@@ -70,9 +92,47 @@ export function ConfigurationSectionPage() {
     }
   }, [section])
 
+  const framing = useMemo(() => {
+    switch (section) {
+      case 'Sessions':
+        return {
+          calloutTitle: 'Why this matters' as string | null,
+          callout:
+            'Pick a posture that matches how people use live sessions here, tune hold / bridge / data transport / viewport, then save. Advanced options stay collapsed.' as string | null,
+          cardTitle: 'Sessions posture',
+          cardDescription:
+            'Start from a guided posture, then answer hold / bridge / mirror / viewport. Rare options stay collapsed.',
+        }
+      default:
+        return {
+          calloutTitle: 'Why this matters' as string | null,
+          callout:
+            'Changes apply to new sessions after save. Rare options stay collapsed until you need them.' as string | null,
+          cardTitle: `${title} controls`,
+          cardDescription: 'Primary fields first — open Advanced only when you need it.',
+        }
+    }
+  }, [section, title])
+
+  const isDirty = Boolean(value && baseline != null && stableJson(value) !== baseline)
+  const canSave = Boolean(value && sectionCanSave(section, value) && editorCanSave)
+  const saveDisabled = !isDirty || !canSave || saving
+
+  const stripMessage =
+    saved && !isDirty
+      ? `${title} saved.`
+      : !canSave
+        ? 'Fix validation errors before saving.'
+        : !isDirty
+          ? 'No unsaved changes.'
+          : null
+  const stripTone =
+    saved && !isDirty ? 'success' : !canSave ? 'warning' : 'neutral'
+
   const replace = (next: JsonObject) => {
     setValue(next)
     setSaved(false)
+    setError(null)
   }
 
   const update = (path: string[], raw: string | boolean | number) => {
@@ -81,7 +141,8 @@ export function ConfigurationSectionPage() {
     let target: JsonObject = next
     for (const key of path.slice(0, -1)) {
       const current = target[key]
-      target[key] = current && typeof current === 'object' && !Array.isArray(current) ? structuredClone(current) : {}
+      target[key] =
+        current && typeof current === 'object' && !Array.isArray(current) ? structuredClone(current) : {}
       target = target[key] as JsonObject
     }
     const last = path.at(-1)!
@@ -96,7 +157,7 @@ export function ConfigurationSectionPage() {
   }
 
   const save = async () => {
-    if (!value) return
+    if (!value || saveDisabled) return
     setSaving(true)
     setError(null)
     try {
@@ -105,6 +166,7 @@ export function ConfigurationSectionPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(value),
       })
+      setBaseline(stableJson(value))
       setSaved(true)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Unable to save this section.')
@@ -148,7 +210,9 @@ export function ConfigurationSectionPage() {
         section === 'Scripting' ? undefined : (
           <SaveFeedbackStrip
             pending={saving}
-            message={saved ? `${title} saved.` : null}
+            disabled={saveDisabled}
+            message={stripMessage}
+            messageTone={stripTone}
             error={error}
             onSave={save}
             saveLabel={`Save ${title}`}
@@ -169,28 +233,45 @@ export function ConfigurationSectionPage() {
         }
       />
 
-      {section === 'Scripting' ? (
-        <SectionPrimaryFields section={section} value={value} replace={replace} update={update} />
+      <MetaRow>
+        <StatusPill
+          label={isDirty ? 'Unsaved changes' : 'Up to date'}
+          tone={isDirty ? 'warning' : 'success'}
+        />
+        {section !== 'Scripting' && (!canSave || isDirty) ? (
+          <StatusPill
+            label={canSave ? 'Ready to save' : 'Needs attention'}
+            tone={canSave ? 'info' : 'warning'}
+          />
+        ) : null}
+      </MetaRow>
+
+      {section === 'Scripting' || section === 'Telemetry' ? (
+        <SectionPrimaryFields
+          section={section}
+          value={value}
+          replace={replace}
+          update={update}
+          onValidityChange={setEditorCanSave}
+        />
       ) : (
         <>
-          <HelperCallout title="Why this matters">
-            {section === 'Sessions'
-              ? 'Pick a posture that matches how people use live sessions here, tune hold / bridge / data transport / viewport, then save. Advanced options stay collapsed.'
-              : 'Changes apply to new sessions after save. Keep rare options collapsed until you need them.'}
-          </HelperCallout>
+          {framing.calloutTitle && framing.callout ? (
+            <HelperCallout title={framing.calloutTitle}>{framing.callout}</HelperCallout>
+          ) : null}
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-base">
-                {section === 'Sessions' ? 'Sessions posture' : `${title} controls`}
-              </CardTitle>
-              <CardDescription>
-                {section === 'Sessions'
-                  ? 'Start from a guided posture, then answer hold / bridge / data transport / viewport. Rare options stay collapsed.'
-                  : 'Facilitated fields only — no JSON wall.'}
-              </CardDescription>
+              <CardTitle className="text-base">{framing.cardTitle}</CardTitle>
+              <CardDescription>{framing.cardDescription}</CardDescription>
             </CardHeader>
             <CardContent>
-              <SectionPrimaryFields section={section} value={value} replace={replace} update={update} />
+              <SectionPrimaryFields
+                section={section}
+                value={value}
+                replace={replace}
+                update={update}
+                onValidityChange={setEditorCanSave}
+              />
             </CardContent>
           </Card>
         </>

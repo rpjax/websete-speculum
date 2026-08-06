@@ -12,6 +12,8 @@ export {
   DefaultHubPath,
   DefaultTransportPath,
   DefaultStreamPath,
+  SessionAuthQueryParam,
+  SessionCacheBustQueryParam,
 } from './constants'
 export type { PipeKindValue, DataStreamTransportKind } from './constants'
 
@@ -24,7 +26,7 @@ export type {
   DataStreamTransport,
   DataStreamTransportConnectOptions,
 } from './dataStreamTransport'
-export { DataStreams } from './dataStreams'
+export { DataStreams, newInputTraceId } from './dataStreams'
 export type { DataStreamsOptions } from './dataStreams'
 export { WebTransportDataStreamTransport } from './webTransportDataStreamTransport'
 export { WebSocketDataStreamTransport } from './webSocketDataStreamTransport'
@@ -36,4 +38,11 @@ export {
 export { LiveSession } from './liveSession'
 export { SessionClient, createSessionClient } from './client'
 export type { SessionClientOptions } from './client'
+export {
+  appendSessionAuth,
+  appendCacheBust,
+  appendSessionBindingQuery,
+  isVirtualAssetUrl,
+} from './sessionBindingAuth'
+export { normalizeMirrorMode } from './types'
 export type * from './types'

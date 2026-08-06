@@ -182,9 +182,22 @@ public sealed class SessionBindingRegistryTests
             CancellationToken ct = default)
             => throw new NotSupportedException();
 
-        public void TraceInputPathWtReceived(string kind) { }
+        public void TraceVideoStreamingInputDataPlaneReceived(
+            string kind,
+            string? traceId = null,
+            long? clientTimestampMs = null) { }
 
-        public void TraceInputPathControlReceived(string kind) { }
+        public void TraceVideoStreamingInputControlReceived(
+            string kind,
+            string? traceId = null,
+            long? clientTimestampMs = null) { }
+
+        public void TraceDomProjectionInputDataPlaneReceived(
+            string kind,
+            long? generation,
+            string? anchor,
+            string? traceId = null,
+            long? clientTimestampMs = null) { }
 
         public Task<IResult<SessionStatus>> GetStatusAsync(CancellationToken ct = default)
             => throw new NotSupportedException();
@@ -210,7 +223,19 @@ public sealed class SessionBindingRegistryTests
             CancellationToken ct = default)
             => throw new NotSupportedException();
 
-        public Task<IResult<DomAsset>> GetDomAssetAsync(string hash, CancellationToken ct = default)
+        public Task<IResult<DomAsset>> GetDomAssetAsync(
+            string key,
+            CancellationToken ct = default,
+            string? kind = null,
+            string? rangeHeader = null)
+            => throw new NotSupportedException();
+
+        public Task<IResult> PutDomUploadAsync(
+            string uploadId,
+            byte[] body,
+            string contentType,
+            string name,
+            CancellationToken ct = default)
             => throw new NotSupportedException();
 
         public IResult<Guid> RegisterCameraPermission(

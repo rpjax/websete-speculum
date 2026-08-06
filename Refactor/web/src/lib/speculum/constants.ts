@@ -39,3 +39,20 @@ export const MaxMessageBytes = 1024 * 1024
 
 /** Sessions.dataStreamTransport / client-config values. */
 export type DataStreamTransportKind = 'webTransport' | 'webSocket'
+
+/**
+ * Reserved query parameter carrying the live-session binding token on
+ * `/w7s/virtual-*`, Dom uploads, and data-plane dial (WT/WS).
+ *
+ * Deliberately hyphenated and namespaced: a mirrored site's own `token=` query
+ * must never be mistaken for Speculum auth (and vice versa). Must match
+ * `SessionBindingAuth.QueryParameterName`.
+ */
+export const SessionAuthQueryParam = 'speculum-session-token'
+
+/**
+ * Reserved cache-buster the client appends when forcing a stylesheet reload.
+ * Server-side it is stripped before the virtual-asset key lookup, so it cannot
+ * poison the key. Must match `SessionBindingAuth.CacheBustQueryParameterName`.
+ */
+export const SessionCacheBustQueryParam = 'speculum-cache-bust'

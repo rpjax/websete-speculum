@@ -49,17 +49,20 @@ export interface StartSessionRequest {
 export interface StartSessionResult {
   sessionId: string
   token: string
-  /** Sessions.ViewportPolicy — sole client bounds for resize validation after start. */
-  viewportMinWidth: number
-  viewportMinHeight: number
-  viewportMaxWidth: number
-  viewportMaxHeight: number
-  /** Sessions.MirrorMode from StartSession (`videoStreaming` | `domProjection`). */
+  /** Sessions.MirrorMode ack — surface already chosen from client-config. */
   mirrorMode: MirrorMode
 }
 
 /** Admin engine Sessions.MirrorMode — read-only on the live session. */
 export type MirrorMode = 'videoStreaming' | 'domProjection'
+
+/**
+ * Normalize the wire value when config is not yet operational.
+ * When operational, prefer requireOperationalSessionsConfig on client-config.
+ */
+export function normalizeMirrorMode(value: unknown): MirrorMode {
+  return String(value ?? '') === 'domProjection' ? 'domProjection' : 'videoStreaming'
+}
 
 /** Runtime navigation (hub <c>NavigateAsync</c>) — client path/query, not absolute target. */
 export interface NavigateSessionRequest {
@@ -97,30 +100,13 @@ export interface SessionFrame {
 }
 
 /** Compact projected DOM node (main-frame V1). */
+/** Compact projected DOM node (`speculum-anchor`). */
 export interface DomNode {
-  id: number
+  anchor?: string
   tag: string
   attrs?: Record<string, string>
   text?: string
   children?: DomNode[]
-}
-
-/** Incremental Dom Projection operation. */
-export interface DomOp {
-  op: 'insert' | 'remove' | 'setAttr' | 'removeAttr' | 'setText' | 'move' | string
-  id: number
-  parentId?: number | null
-  index?: number | null
-  tag?: string
-  name?: string
-  value?: string
-  text?: string
-  node?: DomNode
-}
-
-export interface DomAssetHint {
-  hash: string
-  contentType: string
 }
 
 /** Dom Projection outbound unit (`DomDiff` DTO). */
@@ -128,16 +114,22 @@ export interface DomDiff {
   sequence: number
   generation: number
   timestamp: number
-  kind: 'snapshot' | 'patch' | string
-  root?: DomNode | null
-  ops?: DomOp[] | null
-  assetHints?: DomAssetHint[] | null
+  treeType?: 'dom' | 'cssom' | string
+  kind: 'diff' | 'cssom' | string
+  /** document | anchors when kind is diff. */
+  target?: 'document' | 'anchors' | string | null
+  nodes?: DomNode[] | null
+  urls?: string[] | null
 }
 
-/** Element-targeted Dom Projection input. */
+/** Dom Projection intent (CDP path; no wire click). */
 export interface DomProjectionInput {
+  generation?: number
   type: string
-  targetId: number
+  anchor?: string | null
+  timestampClient?: number | null
+  /** Opaque E2E correlation id (always stamped on product send). */
+  traceId?: string | null
   payload?: string
 }
 
@@ -221,6 +213,12 @@ export type SessionInput =
     }
   | { type: 'goback' }
   | { type: 'goforward' }
+
+/** Optional wire enrichment stamped on every product send (MessagePack top-level). */
+export type SessionInputWireMeta = {
+  traceId?: string
+  clientTimestampMs?: number
+}
 
 /**
  * One Journal fact as the API admitted it (`JournalFactHubEvent`).

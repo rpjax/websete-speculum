@@ -10,16 +10,17 @@ smoke. CI job `sessions-test` boots the compose stack with `SPECULUM_BYPASS_API_
 and mandatory Sessions/ResourceManagement/Navigation env so `/health/ready` passes
 before seed + `dotnet test --filter Category=SessionsTest`.
 
-Opt-in Telemetry event types (`Telemetry.Sessions.Input.Applied`, `Telemetry.Sessions.Input.Rejected`,
+Opt-in Telemetry event types (`Telemetry.Sessions.VideoStreamingInput.Applied`, `Telemetry.Sessions.VideoStreamingInput.Rejected`,
 `Telemetry.Sessions.Resize.Applied`, `Telemetry.Sessions.Resize.Rejected`) are **off by default** and enabled
 only via `PUT /api/configurations/Telemetry` (seed script / test baseline).
+D6 asserts the **absence** of the two `Resize.*` facts, so the seed must enable them.
 
 | ID | Depth | Assert | Method |
 |----|-------|--------|--------|
-| C1 | deep | mouse click increments `#out[data-clicks]` + `Telemetry.Sessions.Input.Applied` | `C1_mouse_click_increments_fixture_counter` |
+| C1 | deep | mouse click increments `#out[data-clicks]` + `Telemetry.Sessions.VideoStreamingInput.Applied` | `C1_mouse_click_increments_fixture_counter` |
 | C2 | deep | keydown → `__SPECULUM_LAST_KEY__` | `C2_keydown_reaches_fixture` |
 | C3 | deep | wheel → `__SPECULUM_WHEEL__` | `C3_wheel_sets_fixture_flag` |
-| C4 | deep | invalid `paste` → `Telemetry.Sessions.Input.Rejected`; click still works | `C4_invalid_input_type_does_not_mutate_page` |
+| C4 | deep | invalid `paste` → `Telemetry.Sessions.VideoStreamingInput.Rejected`; click still works | `C4_invalid_input_type_does_not_mutate_page` |
 | C5 | deep | malformed payload → `InputRejected`; session still accepts click | `C5_malformed_json_input_is_ignored` |
 | C6 | deep | touch tap increments clicks (mobile profile) | `C6_touch_tap_increments_fixture_counter` |
 | C7 | deep | touch cancel → cancels≥1, clicks stay 0 | `C7_touch_cancel_does_not_click` |
@@ -37,8 +38,17 @@ only via `PUT /api/configurations/Telemetry` (seed script / test baseline).
 | H1 | deep | goback after two navigations updates location | `H1_goback_updates_location` |
 | N1 | deep | window.open/_blank stays single main tab | `N1_blank_stays_single_tab` |
 | E8b | unit+ | dirty cookie PUT state + sanitize does not fail restore (ProfileService + sidecar unit) | `ReplaceState_WithDirtyCookies_PersistsBucket` / `testCookieSanitizeMatrix` |
+| D6 | deep | stable client screen for a whole DomProjection session emits **zero** `Telemetry.Sessions.Resize.*` facts (start owns the initial geometry; no corrective resize) | `D6_stable_screen_session_never_resizes` |
 
 Migrated from legacy MotorAssert resize depth (exact geometry / reject-keep-prior). Soft-viewport
 `displayWidth`/`displayHeight` assert Sessions.ViewportPolicy Maximum (compose default 4096×2160).
+
+**D6 is the sensor for the rule in stone:** a client screen that stayed stable for the whole
+session must never resize. The client learns `Sessions.MirrorMode` + `ViewportPolicy` from
+`GET /api/public/client-config` before Start, mounts the definitive surface and starts at exactly
+that geometry, so any `Resize` fact on a stable screen is a product bug — assert its **absence**,
+never soften it. The server cannot truthfully emit a "box did not change" fact (only the client
+knows its own box), so absence-of-fact is the assert; `Telemetry.Sessions.Resize.Applied` /
+`.Rejected` must be enabled in the seed for D6 to mean anything.
 
 Fixture: `tests/motor-fixture` (`/click-target`, `/touch-scroll`, `/nav/*`).

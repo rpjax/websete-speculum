@@ -3,19 +3,30 @@ using MessagePack;
 namespace Speculum.Api.Sessions.Mirror.DomProjection;
 
 /// <summary>
-/// Element-targeted input for MirrorMode.DomProjection (data-plane MessagePack).
+/// Element-targeted / motion Dom Projection intent (data-plane MessagePack).
 /// </summary>
 [MessagePackObject]
 public sealed class DomProjectionInput
 {
-    /// <summary>click | input | keydown | keyup | scroll</summary>
+    [Key("generation")]
+    public long Generation { get; init; }
+
+    /// <summary>mousemove | mousedown | mouseup | input | setFiles | keydown | … (no wire click)</summary>
     [Key("type")]
     public required string Type { get; init; }
 
-    [Key("targetId")]
-    public int TargetId { get; init; }
+    /// <summary><c>speculum-anchor</c>; null/empty for pure motion.</summary>
+    [Key("anchor")]
+    public string? Anchor { get; init; }
 
-    /// <summary>Type-specific JSON fields (value, key, deltaY, …).</summary>
+    [Key("timestampClient")]
+    public double? TimestampClient { get; init; }
+
+    /// <summary>Opaque client correlation id (always stamped on product send).</summary>
+    [Key("traceId")]
+    public string? TraceId { get; init; }
+
+    /// <summary>DomProjectionIntentPayload JSON.</summary>
     [Key("payload")]
     public string Payload { get; init; } = "{}";
 }

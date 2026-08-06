@@ -207,7 +207,7 @@ public sealed class ResizeSessionHubResponse
     public string? Message { get; set; }
 }
 
-/// <summary>Wire result for a successful start.</summary>
+/// <summary>Wire result for a successful start (identity + binding + mirror ack).</summary>
 [MessagePackObject]
 public sealed class StartSessionHubResponse
 {
@@ -217,21 +217,7 @@ public sealed class StartSessionHubResponse
     [Key("token")]
     public string Token { get; set; } = string.Empty;
 
-    /// <summary><see cref="Configurations.Models.Sessions.ViewportPolicy.Minimum"/> width.</summary>
-    [Key("viewportMinWidth")]
-    public int ViewportMinWidth { get; set; }
-
-    [Key("viewportMinHeight")]
-    public int ViewportMinHeight { get; set; }
-
-    /// <summary>Policy maximum — same capacity the sidecar allocates for Xvfb.</summary>
-    [Key("viewportMaxWidth")]
-    public int ViewportMaxWidth { get; set; }
-
-    [Key("viewportMaxHeight")]
-    public int ViewportMaxHeight { get; set; }
-
-    /// <summary>Sessions.MirrorMode wire form (<c>videoStreaming</c> | <c>domProjection</c>).</summary>
+    /// <summary>Sessions.MirrorMode wire form (<c>videoStreaming</c> | <c>domProjection</c>) — ack only.</summary>
     [Key("mirrorMode")]
     public string MirrorMode { get; set; } = "videoStreaming";
 }

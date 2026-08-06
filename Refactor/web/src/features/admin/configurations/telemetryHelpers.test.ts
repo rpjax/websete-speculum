@@ -4,6 +4,7 @@ import {
   applyTelemetryPreset,
   clampIntervalSeconds,
   describeSectionDetail,
+  matchTelemetryPreset,
   samplesPerHour,
   sectionEnabled,
   setAllSections,
@@ -31,13 +32,13 @@ describe('telemetryHelpers', () => {
     })
     expect(summary.enabled).toBe(true)
     expect(summary.activeSectionCount).toBe(5)
-    expect(summary.statusLabel).toContain('Sampler on')
+    expect(summary.statusLabel).toContain('On')
   })
 
   it('applies presets without wiping events', () => {
     const current = {
       isEnabled: false,
-      events: { 'Telemetry.Sessions.Input.WebTransportReceived': true },
+      events: { 'Telemetry.Sessions.VideoStreamingInput.DataPlaneReceived': true },
       host: { isEnabled: false, procPath: '/custom' },
     }
     const lean = TELEMETRY_PRESETS.find((preset) => preset.id === 'lean')!
@@ -69,6 +70,21 @@ describe('telemetryHelpers', () => {
         'sessions',
       ),
     ).toContain('ids')
+  })
+
+  it('matches known modes from wire values', () => {
+    expect(matchTelemetryPreset({ isEnabled: false })).toBe('off')
+    const lean = applyTelemetryPreset({}, TELEMETRY_PRESETS.find((p) => p.id === 'lean')!)
+    expect(matchTelemetryPreset(lean)).toBe('lean')
+    const deep = applyTelemetryPreset({}, TELEMETRY_PRESETS.find((p) => p.id === 'deep')!)
+    expect(matchTelemetryPreset(deep)).toBe('deep')
+    expect(
+      matchTelemetryPreset({
+        isEnabled: true,
+        intervalSeconds: 45,
+        host: { isEnabled: true },
+      }),
+    ).toBe('custom')
   })
 })
 

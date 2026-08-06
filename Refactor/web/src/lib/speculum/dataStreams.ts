@@ -10,9 +10,19 @@ import type {
   SessionConsoleOutput,
   SessionEventMap,
   SessionInput,
+  SessionInputWireMeta,
   SessionStatus,
 } from './types'
+import { normalizeMirrorMode } from './types'
 import { WebTransportDataStreamTransport } from './webTransportDataStreamTransport'
+
+/** Opaque correlation id for Journal ↔ front Activity (always stamped on product send). */
+export function newInputTraceId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID().replace(/-/g, '')
+  }
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`
+}
 
 export interface DataStreamsOptions {
   baseUrl?: string
@@ -61,7 +71,7 @@ export class DataStreams extends Emitter<SessionEventMap> {
     this.transportPath = options.transportPath ?? DefaultTransportPath
     this.sessionId = options.sessionId
     this.token = options.token
-    this.mirrorMode = options.mirrorMode === 'domProjection' ? 'domProjection' : 'videoStreaming'
+    this.mirrorMode = normalizeMirrorMode(options.mirrorMode)
     this.transport = options.transport ?? new WebTransportDataStreamTransport()
   }
 
@@ -97,7 +107,7 @@ export class DataStreams extends Emitter<SessionEventMap> {
     this.watchClosed()
   }
 
-  async sendInput(input: SessionInput): Promise<void> {
+  async sendInput(input: SessionInput & SessionInputWireMeta): Promise<void> {
     if (!this.userInput) {
       throw new Error(
         this.mirrorMode === 'domProjection'
@@ -105,11 +115,16 @@ export class DataStreams extends Emitter<SessionEventMap> {
           : 'Data streams are not open',
       )
     }
+    const traceId = input.traceId?.trim() || newInputTraceId()
+    const clientTimestampMs = input.clientTimestampMs ?? Date.now()
+    const { traceId: _t, clientTimestampMs: _c, ...event } = input
     const writer = this.userInput
     const write = this.userInputWriteChain.then(() =>
       writeMessage(writer, {
-        type: input.type,
-        payload: JSON.stringify(input),
+        type: event.type,
+        payload: JSON.stringify(event),
+        traceId,
+        clientTimestampMs,
       }),
     )
     this.userInputWriteChain = write.then(
@@ -127,11 +142,15 @@ export class DataStreams extends Emitter<SessionEventMap> {
           : 'Data streams are not open',
       )
     }
+    const traceId = input.traceId?.trim() || newInputTraceId()
     const writer = this.domProjectionInput
     const write = this.domProjectionInputWriteChain.then(() =>
       writeMessage(writer, {
+        generation: input.generation ?? 0,
         type: input.type,
-        targetId: input.targetId,
+        anchor: input.anchor ?? null,
+        timestampClient: input.timestampClient ?? null,
+        traceId,
         payload: input.payload ?? '{}',
       }),
     )
@@ -281,7 +300,8 @@ export class DataStreams extends Emitter<SessionEventMap> {
             this.emit('frame', message as SessionEventMap['frame'])
             break
           case PipeKind.DomDiff:
-            this.emit('domDiff', normalizeDomDiff(message))
+            const normalized = normalizeDomDiff(message)
+            if (normalized) this.emit('domDiff', normalized)
             break
           case PipeKind.ConsoleOutput:
             this.onConsole(message as SessionConsoleOutput)
@@ -333,16 +353,33 @@ export class DataStreams extends Emitter<SessionEventMap> {
   }
 }
 
-function normalizeDomDiff(message: unknown): DomDiff {
+/** Normalize hub DomDiff; reject retired snapshot/patch/root wire shapes. */
+function normalizeDomDiff(message: unknown): DomDiff | null {
   const raw = (message ?? {}) as Record<string, unknown>
+  const kind = String(raw.kind ?? '')
+  if (kind === 'snapshot' || kind === 'patch' || raw.root != null) {
+    return null
+  }
+  if (kind !== 'diff' && kind !== 'cssom') {
+    return null
+  }
+  const targetRaw = raw.target
+  const target =
+    targetRaw == null || targetRaw === ''
+      ? null
+      : String(targetRaw)
+  if (kind === 'diff' && target !== 'document' && target !== 'anchors') {
+    return null
+  }
   return {
     sequence: Number(raw.sequence ?? 0),
     generation: Number(raw.generation ?? 0),
     timestamp: Number(raw.timestamp ?? 0),
-    kind: String(raw.kind ?? ''),
-    root: (raw.root as DomDiff['root']) ?? null,
-    ops: (raw.ops as DomDiff['ops']) ?? null,
-    assetHints: (raw.assetHints as DomDiff['assetHints']) ?? null,
+    treeType: String(raw.treeType ?? 'dom'),
+    kind,
+    target,
+    nodes: (raw.nodes as DomDiff['nodes']) ?? null,
+    urls: (raw.urls as DomDiff['urls']) ?? null,
   }
 }
 

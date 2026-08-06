@@ -256,6 +256,23 @@ public sealed class SessionCollectorTests
                 _sessions.Remove(id);
             return Task.FromResult(remove.Length);
         }
+
+        public Task<(IReadOnlyList<SessionListItem> Items, int Total)> ListAsync(
+            ListSessions query,
+            CancellationToken ct = default)
+            => Task.FromResult<(IReadOnlyList<SessionListItem>, int)>(([], 0));
+
+        public Task<IReadOnlyList<Guid>> ListEndedSessionIdsAsync(
+            DateTimeOffset? endedBefore,
+            int take,
+            CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<Guid>>([]);
+
+        public Task<bool> DeleteAsync(Guid sessionId, CancellationToken ct = default)
+        {
+            var removed = _sessions.Remove(sessionId);
+            return Task.FromResult(removed);
+        }
     }
 
     private sealed class FakeSessionService : ISessionService

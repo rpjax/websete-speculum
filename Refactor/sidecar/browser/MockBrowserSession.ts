@@ -344,6 +344,39 @@ export class MockBrowserSession implements BrowserSession {
       this.frameBusy = false;
     }
   }
+
+  async pushDomInput(_input: {
+    type: string;
+    anchor?: string | null;
+    generation?: number;
+    timestampClient?: number | null;
+    payloadJson?: string;
+  }): Promise<{ status: 'dispatched' } | { status: 'dropped'; reason: string }> {
+    // Mock Dom Projection: accept intents without CDP.
+    return { status: 'dispatched' };
+  }
+
+  async getDomAsset(
+    _key: string,
+    _opts?: { kind?: string; rangeHeader?: string },
+  ): Promise<{
+    body: Uint8Array;
+    contentType: string;
+    statusCode?: number;
+    contentRange?: string;
+    passThrough?: boolean;
+  } | null> {
+    return null;
+  }
+
+  async putDomUpload(
+    _id: string,
+    _body: Uint8Array,
+    _contentType: string,
+    _name: string,
+  ): Promise<void> {
+    // no-op store for mock
+  }
 }
 
 export function createMockBrowserSessionFactory(options?: {

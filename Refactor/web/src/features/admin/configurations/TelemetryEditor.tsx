@@ -1,129 +1,73 @@
-import { useState, type ReactNode } from 'react'
-import { Activity, Gauge, Layers, Radio } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Switch } from '@/components/ui/switch'
+import { useMemo, useState, type ReactNode } from 'react'
+import { Link } from 'react-router-dom'
 import {
-  DataCard,
-  FieldGrid,
-  GuidedPreset,
-  HelperCallout,
-  InlineValidation,
-  RevealPanel,
-  StatCard,
-  StatusPill,
-  SwitchField,
-} from '@/features/admin/components'
+  Bug,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  CircleOff,
+  ExternalLink,
+  Gauge,
+  Radar,
+} from 'lucide-react'
+import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   INTERVAL_PRESETS,
   MAX_INTERVAL_SECONDS,
   MIN_INTERVAL_SECONDS,
   TELEMETRY_PRESETS,
-  TELEMETRY_SECTIONS,
   applyTelemetryPreset,
   asObject,
   clampIntervalSeconds,
-  describeSectionDetail,
+  matchTelemetryPreset,
   samplesPerHour,
-  sectionEnabled,
-  setAllSections,
   summarizeTelemetry,
   type JsonObject,
+  type TelemetrySamplerPresetId,
   type TelemetrySectionKey,
 } from './telemetryHelpers'
+import {
+  TelemetryClientObservationFields,
+  normalizeClientObservation,
+} from './TelemetryClientObservationFields'
+import {
+  TelemetrySessionEventsFields,
+  flattenTelemetrySessionEvents,
+  mergeTelemetrySessionEvents,
+  type TelemetrySessionEventsMap,
+} from './TelemetrySessionEventsFields'
+import { TelemetrySamplerSectionFields } from './TelemetrySamplerSectionFields'
+import { ConfigChip, ConfigChipRow, ConfigField } from './configFieldPrimitives'
+import { HelperCallout } from '@/features/admin/components'
 
-function Field({
-  id,
-  label,
-  helper,
-  value,
-  onChange,
-  type = 'text',
-  min,
-  max,
-  step,
-  placeholder,
-  error,
-  disabled,
-}: {
-  id: string
-  label: string
-  helper?: string
-  value: string
-  onChange: (value: string) => void
-  type?: string
-  min?: number
-  max?: number
-  step?: number
-  placeholder?: string
-  error?: string
-  disabled?: boolean
-}) {
+const MODE_ICONS = {
+  off: CircleOff,
+  lean: Gauge,
+  operable: Radar,
+  deep: Bug,
+} as const
+
+function TabHeader({ title, body }: { title: string; body: string }) {
   return (
-    <div className="space-y-1.5">
-      <Label htmlFor={id}>{label}</Label>
-      <Input
-        id={id}
-        type={type}
-        min={min}
-        max={max}
-        step={step}
-        placeholder={placeholder}
-        value={value}
-        disabled={disabled}
-        onChange={(event) => onChange(event.target.value)}
-      />
-      {helper ? <p className="text-xs text-muted-foreground">{helper}</p> : null}
-      <InlineValidation message={error} />
+    <div className="space-y-1">
+      <h2 className="text-base font-medium text-foreground">{title}</h2>
+      <p className="text-sm text-muted-foreground">{body}</p>
     </div>
   )
 }
 
-function SectionCard({
-  sectionKey,
-  label,
-  helper,
-  detail,
-  enabled,
-  samplerOn,
-  onToggle,
-  children,
-}: {
-  sectionKey: TelemetrySectionKey
-  label: string
-  helper: string
-  detail: string
-  enabled: boolean
-  samplerOn: boolean
-  onToggle: (checked: boolean) => void
-  children: ReactNode
-}) {
+function TabBadge({ children, tone = 'neutral' }: { children: ReactNode; tone?: 'neutral' | 'info' }) {
   return (
-    <li
-      className={`rounded-lg border border-border bg-background/40 p-3 transition-opacity ${
-        samplerOn ? '' : 'opacity-55'
-      }`}
+    <span
+      className={cn(
+        'ml-1.5 rounded px-1.5 py-0.5 text-[10px]',
+        tone === 'info' ? 'bg-primary/15 text-primary' : 'bg-muted text-foreground',
+      )}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-sm font-medium">{label}</p>
-          <p className="text-xs text-muted-foreground">{helper}</p>
-          <p className="mt-1 text-xs text-foreground/80">{detail}</p>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <Label htmlFor={`telemetry-section-${sectionKey}`} className="text-xs text-muted-foreground">
-            {enabled ? 'On' : 'Off'}
-          </Label>
-          <Switch
-            id={`telemetry-section-${sectionKey}`}
-            checked={enabled}
-            onCheckedChange={onToggle}
-          />
-        </div>
-      </div>
-      {enabled ? <div className="mt-3 border-t border-border/70 pt-3">{children}</div> : null}
-    </li>
+      {children}
+    </span>
   )
 }
 
@@ -136,495 +80,345 @@ export function TelemetryEditor({
   replace: (next: JsonObject) => void
   update: (path: string[], raw: string | boolean | number) => void
 }) {
+  const [showCustomInterval, setShowCustomInterval] = useState(() => {
+    const seconds = clampIntervalSeconds(value.intervalSeconds ?? 30)
+    return !INTERVAL_PRESETS.some((preset) => preset.seconds === seconds)
+  })
+  const [customizeOpen, setCustomizeOpen] = useState(
+    () => matchTelemetryPreset(value) === 'custom',
+  )
+  const [clientRingOpen, setClientRingOpen] = useState(false)
+
   const summary = summarizeTelemetry(value)
+  const matchedMode = matchTelemetryPreset(value)
+  const activeMode =
+    matchedMode !== 'custom'
+      ? TELEMETRY_PRESETS.find((preset) => preset.id === matchedMode) ?? null
+      : null
   const samplerOn = summary.enabled
-  const [draftEvent, setDraftEvent] = useState('')
-  const events =
+
+  const eventsRaw =
     value.events && typeof value.events === 'object' && !Array.isArray(value.events)
       ? (value.events as Record<string, boolean>)
       : {}
-  const eventEntries = Object.entries(events)
+  const { catalog: sessionEvents, extras: eventExtras } = mergeTelemetrySessionEvents(eventsRaw)
+  const clientObservation = normalizeClientObservation(value.clientObservation)
+
+  const eventCount = summary.eventOptIns
+
+  const applyMode = (id: TelemetrySamplerPresetId) => {
+    const preset = TELEMETRY_PRESETS.find((item) => item.id === id)
+    if (!preset) return
+    const next = applyTelemetryPreset(value, preset)
+    const nextInterval = clampIntervalSeconds(next.intervalSeconds ?? value.intervalSeconds ?? 30)
+    setShowCustomInterval(!INTERVAL_PRESETS.some((item) => item.seconds === nextInterval))
+    setCustomizeOpen(false)
+    replace(next)
+  }
 
   const patchSection = (key: TelemetrySectionKey, patch: JsonObject) => {
+    setCustomizeOpen(true)
     replace({ ...value, [key]: { ...asObject(value[key]), ...patch } })
   }
 
-  const setEvent = (key: string, enabled: boolean) => {
-    replace({ ...value, events: { ...events, [key]: enabled } })
+  const setSessionEvents = (next: TelemetrySessionEventsMap) => {
+    replace({
+      ...value,
+      events: flattenTelemetrySessionEvents(next, eventExtras),
+    })
   }
 
-  const removeEvent = (key: string) => {
-    const next = { ...events }
-    delete next[key]
-    replace({ ...value, events: next })
-  }
+  const samplesStatus = useMemo(() => {
+    if (!samplerOn) return 'Not collecting'
+    if (activeMode) return `${activeMode.label} · every ${summary.intervalLabel}`
+    return `Custom · every ${summary.intervalLabel}`
+  }, [activeMode, samplerOn, summary.intervalLabel])
+
+  const clientRingSummary = clientObservation.isEnabled
+    ? [
+        clientObservation.sessionWire && 'wire',
+        clientObservation.videoStreamingInput && 'video',
+        clientObservation.domProjectionDiff && 'dom diff',
+        clientObservation.domProjectionInput && 'dom input',
+      ]
+        .filter(Boolean)
+        .join(' · ') || 'on · no planes'
+    : 'off'
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap gap-2">
-        <StatusPill
-          label={samplerOn ? 'Sampler on' : 'Sampler off'}
-          tone={samplerOn ? 'success' : 'warning'}
-        />
-        <StatusPill
-          label={`Cadence · ${summary.intervalSeconds}s`}
-          tone={samplerOn ? 'info' : 'neutral'}
-        />
-        <StatusPill
-          label={`Sections · ${summary.activeSectionCount}/${summary.totalSections}`}
-          tone={summary.activeSectionCount ? 'success' : 'warning'}
-        />
-        {summary.eventOptIns ? (
-          <StatusPill label={`Event facts · ${summary.eventOptIns}`} tone="info" />
-        ) : null}
-      </div>
+    <div className="space-y-5">
+      <Tabs defaultValue="samples" className="space-y-5">
+        <TabsList className="grid h-11 w-full grid-cols-2">
+          <TabsTrigger value="samples">Samples</TabsTrigger>
+          <TabsTrigger value="events">
+            Events
+            {eventCount > 0 ? <TabBadge>{eventCount}</TabBadge> : null}
+          </TabsTrigger>
+        </TabsList>
 
-      <div className="grid gap-3 sm:grid-cols-3">
-        <StatCard
-          label="Sampler"
-          value={samplerOn ? 'Collecting' : 'Idle'}
-          icon={<Radio className="h-4 w-4" />}
-          sub={samplerOn ? 'Telemetry.SampleCollected composites' : 'No compose work while off'}
-          tone={samplerOn ? 'success' : 'warning'}
-        />
-        <StatCard
-          label="Cadence"
-          value={`${summary.intervalSeconds}s`}
-          icon={<Gauge className="h-4 w-4" />}
-          sub={`~${summary.samplesPerHour.toLocaleString()} samples / hour`}
-        />
-        <StatCard
-          label="Active sections"
-          value={`${summary.activeSectionCount}/${summary.totalSections}`}
-          icon={<Layers className="h-4 w-4" />}
-          sub={
-            summary.activeSectionLabels.length
-              ? summary.activeSectionLabels.slice(0, 3).join(', ') +
-                (summary.activeSectionLabels.length > 3 ? '…' : '')
-              : 'None selected'
-          }
-          tone={summary.activeSectionCount ? 'default' : 'warning'}
-        />
-      </div>
-
-      <DataCard className="space-y-4 p-4">
-        <div>
-          <h3 className="text-sm font-medium">Sampler presets</h3>
-          <p className="text-xs text-muted-foreground">
-            Apply a starting posture. Section detail toggles stay editable afterward. Opt-in event facts are
-            preserved.
-          </p>
-        </div>
-        <GuidedPreset
-          presets={TELEMETRY_PRESETS.map((preset) => ({
-            id: preset.id,
-            label: preset.label,
-            apply: () => replace(applyTelemetryPreset(value, preset)),
-          }))}
-        />
-        <ul className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
-          {TELEMETRY_PRESETS.map((preset) => (
-            <li key={preset.id} className="rounded-md border border-border/70 bg-background/40 px-2.5 py-2">
-              <p className="font-medium text-foreground">{preset.label}</p>
-              <p className="mt-0.5">{preset.description}</p>
-            </li>
-          ))}
-        </ul>
-      </DataCard>
-
-      <section className="space-y-4">
-        <SwitchField
-          id="telemetry-enabled"
-          label="Enable telemetry sampler"
-          helper="Master switch. Off = no composite samples; section preferences are kept for when you turn it back on."
-          checked={samplerOn}
-          onCheckedChange={(checked) => update(['isEnabled'], checked)}
-        />
-
-        <div className={samplerOn ? 'space-y-3' : 'pointer-events-none space-y-3 opacity-55'}>
-          <div>
-            <h3 className="text-sm font-medium">Sample interval</h3>
-            <p className="text-xs text-muted-foreground">
-              Cadence for Telemetry.SampleCollected. Clamped to {MIN_INTERVAL_SECONDS}–{MAX_INTERVAL_SECONDS}s.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {INTERVAL_PRESETS.map((preset) => (
-              <Button
-                key={preset.seconds}
-                type="button"
-                size="sm"
-                variant={summary.intervalSeconds === preset.seconds ? 'default' : 'outline'}
-                onClick={() => update(['intervalSeconds'], preset.seconds)}
-              >
-                {preset.label}
-              </Button>
-            ))}
-          </div>
-          <Field
-            id="intervalSeconds"
-            label="Custom interval (seconds)"
-            type="number"
-            min={MIN_INTERVAL_SECONDS}
-            max={MAX_INTERVAL_SECONDS}
-            value={String(summary.intervalSeconds)}
-            helper={`~${samplesPerHour(clampIntervalSeconds(summary.intervalSeconds)).toLocaleString()} samples / hour.`}
-            onChange={(v) => update(['intervalSeconds'], clampIntervalSeconds(v))}
+        <TabsContent value="samples" className="space-y-4">
+          <TabHeader
+            title="Samples"
+            body="Pick how closely Speculum watches this host. Save when ready."
           />
-        </div>
-      </section>
 
-      {!samplerOn ? (
-        <HelperCallout tone="warning" title="Sampler is off">
-          Section toggles below still save, but nothing is composed until you enable the sampler. Prefer a preset
-          when turning it on.
-        </HelperCallout>
-      ) : null}
-
-      <section className="space-y-3">
-        <div className="flex flex-wrap items-end justify-between gap-2">
-          <div>
-            <h3 className="text-sm font-medium">Sample sections</h3>
-            <p className="text-xs text-muted-foreground">
-              Each section is one slice of the composite sample. Expand an enabled section for field-level includes.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" size="sm" variant="outline" onClick={() => replace(setAllSections(value, true))}>
-              Enable all
-            </Button>
-            <Button type="button" size="sm" variant="outline" onClick={() => replace(setAllSections(value, false))}>
-              Disable all
-            </Button>
-          </div>
-        </div>
-
-        <ul className="space-y-2">
-          {TELEMETRY_SECTIONS.map((section) => {
-            const enabled = sectionEnabled(value, section.key)
-            const child = asObject(value[section.key])
-            return (
-              <SectionCard
-                key={section.key}
-                sectionKey={section.key}
-                label={section.label}
-                helper={section.helper}
-                detail={describeSectionDetail(value, section.key)}
-                enabled={enabled}
-                samplerOn={samplerOn}
-                onToggle={(checked) => patchSection(section.key, { isEnabled: checked })}
-              >
-                {section.key === 'host' ? (
-                  <div className="space-y-3">
-                    <FieldGrid>
-                      <Field
-                        id="host-proc-path"
-                        label="Proc path"
-                        helper="e.g. /proc or dockup /host/proc"
-                        value={typeof child.procPath === 'string' ? child.procPath : '/proc'}
-                        onChange={(v) => patchSection('host', { procPath: v })}
-                      />
-                      <Field
-                        id="host-disk-path"
-                        label="Disk path (optional)"
-                        helper="Empty = auto (content root)."
-                        value={typeof child.diskPath === 'string' ? child.diskPath : ''}
-                        onChange={(v) => patchSection('host', { diskPath: v || null })}
-                      />
-                      <Field
-                        id="host-sample-interval"
-                        label="Collector cache (ms)"
-                        type="number"
-                        min={100}
-                        max={60_000}
-                        value={String(typeof child.sampleIntervalMs === 'number' ? child.sampleIntervalMs : 1000)}
-                        onChange={(v) => patchSection('host', { sampleIntervalMs: Number(v) || 1000 })}
-                      />
-                    </FieldGrid>
-                    <SwitchField
-                      id="host-load"
-                      label="Include load average"
-                      checked={child.includeLoadAverage !== false}
-                      onCheckedChange={(checked) => patchSection('host', { includeLoadAverage: checked })}
-                    />
-                    <SwitchField
-                      id="host-swap"
-                      label="Include swap"
-                      checked={child.includeSwap !== false}
-                      onCheckedChange={(checked) => patchSection('host', { includeSwap: checked })}
-                    />
-                    <SwitchField
-                      id="host-disk-io"
-                      label="Include disk I/O"
-                      checked={Boolean(child.includeDiskIo)}
-                      onCheckedChange={(checked) => patchSection('host', { includeDiskIo: checked })}
-                    />
-                    <SwitchField
-                      id="host-network"
-                      label="Include network"
-                      checked={Boolean(child.includeNetwork)}
-                      onCheckedChange={(checked) => patchSection('host', { includeNetwork: checked })}
-                    />
-                  </div>
-                ) : null}
-
-                {section.key === 'apiProcess' ? (
-                  <div className="space-y-3">
-                    <Field
-                      id="api-sample-interval"
-                      label="Collector cache (ms)"
-                      type="number"
-                      min={100}
-                      max={60_000}
-                      value={String(typeof child.sampleIntervalMs === 'number' ? child.sampleIntervalMs : 1000)}
-                      onChange={(v) => patchSection('apiProcess', { sampleIntervalMs: Number(v) || 1000 })}
-                    />
-                    <SwitchField
-                      id="api-memory"
-                      label="Include private memory"
-                      checked={child.includePrivateMemory !== false}
-                      onCheckedChange={(checked) => patchSection('apiProcess', { includePrivateMemory: checked })}
-                    />
-                    <SwitchField
-                      id="api-gc"
-                      label="Include garbage collection"
-                      checked={child.includeGarbageCollection !== false}
-                      onCheckedChange={(checked) =>
-                        patchSection('apiProcess', { includeGarbageCollection: checked })
-                      }
-                    />
-                    <SwitchField
-                      id="api-thread-pool"
-                      label="Include thread pool"
-                      checked={child.includeThreadPool !== false}
-                      onCheckedChange={(checked) => patchSection('apiProcess', { includeThreadPool: checked })}
-                    />
-                  </div>
-                ) : null}
-
-                {section.key === 'sessions' ? (
-                  <div className="space-y-3">
-                    <HelperCallout title="Identity is opt-in">
-                      Session ids and URL hosts increase usefulness and sensitivity. Prefer aggregate-only in
-                      shared production hosts unless you need per-session rows.
-                    </HelperCallout>
-                    <SwitchField
-                      id="sessions-ids"
-                      label="Include session ids"
-                      checked={Boolean(child.includeSessionIds)}
-                      onCheckedChange={(checked) => patchSection('sessions', { includeSessionIds: checked })}
-                    />
-                    <SwitchField
-                      id="sessions-url-host"
-                      label="Include URL host"
-                      checked={Boolean(child.includeUrlHost)}
-                      onCheckedChange={(checked) => patchSection('sessions', { includeUrlHost: checked })}
-                    />
-                    <SwitchField
-                      id="sessions-per-session"
-                      label="Include per-session rows"
-                      helper="Heavier samples — useful in lab / assertive postures."
-                      checked={Boolean(child.includePerSession)}
-                      onCheckedChange={(checked) => patchSection('sessions', { includePerSession: checked })}
-                    />
-                  </div>
-                ) : null}
-
-                {section.key === 'sidecar' ? (
-                  <div className="space-y-3">
-                    <Field
-                      id="sidecar-timeout"
-                      label="Collect timeout (ms)"
-                      type="number"
-                      min={100}
-                      value={String(typeof child.timeoutMs === 'number' ? child.timeoutMs : 2000)}
-                      onChange={(v) => patchSection('sidecar', { timeoutMs: Number(v) || 2000 })}
-                    />
-                    <SwitchField
-                      id="sidecar-process"
-                      label="Include process"
-                      checked={child.includeProcess !== false}
-                      onCheckedChange={(checked) => patchSection('sidecar', { includeProcess: checked })}
-                    />
-                    <SwitchField
-                      id="sidecar-event-loop"
-                      label="Include event loop"
-                      checked={child.includeEventLoop !== false}
-                      onCheckedChange={(checked) => patchSection('sidecar', { includeEventLoop: checked })}
-                    />
-                    <SwitchField
-                      id="sidecar-chrome"
-                      label="Include Chrome"
-                      checked={child.includeChrome !== false}
-                      onCheckedChange={(checked) => patchSection('sidecar', { includeChrome: checked })}
-                    />
-                    <SwitchField
-                      id="sidecar-queues"
-                      label="Include queues"
-                      checked={child.includeQueues !== false}
-                      onCheckedChange={(checked) => patchSection('sidecar', { includeQueues: checked })}
-                    />
-                    <SwitchField
-                      id="sidecar-sessions-summary"
-                      label="Include sessions summary"
-                      checked={child.includeSessionsSummary !== false}
-                      onCheckedChange={(checked) => patchSection('sidecar', { includeSessionsSummary: checked })}
-                    />
-                    <SwitchField
-                      id="sidecar-faulted"
-                      label="Include faulted ids"
-                      checked={child.includeFaultedIds !== false}
-                      onCheckedChange={(checked) => patchSection('sidecar', { includeFaultedIds: checked })}
-                    />
-                    <SwitchField
-                      id="sidecar-alloc-summary"
-                      label="Include allocations summary"
-                      checked={child.includeAllocationsSummary !== false}
-                      onCheckedChange={(checked) =>
-                        patchSection('sidecar', { includeAllocationsSummary: checked })
-                      }
-                    />
-                    <SwitchField
-                      id="sidecar-alloc-sessions"
-                      label="Include allocation sessions"
-                      helper="Heavier — off in lean/operable defaults."
-                      checked={Boolean(child.includeAllocationSessions)}
-                      onCheckedChange={(checked) =>
-                        patchSection('sidecar', { includeAllocationSessions: checked })
-                      }
-                    />
-                  </div>
-                ) : null}
-
-                {section.key === 'profiles' ? (
-                  <SwitchField
-                    id="profiles-storage"
-                    label="Include storage bytes"
-                    checked={child.includeStorageBytes !== false}
-                    onCheckedChange={(checked) => patchSection('profiles', { includeStorageBytes: checked })}
-                  />
-                ) : null}
-
-                {section.key === 'journal' ? (
-                  <SwitchField
-                    id="journal-pressure"
-                    label="Include pressure"
-                    checked={child.includePressure !== false}
-                    onCheckedChange={(checked) => patchSection('journal', { includePressure: checked })}
-                  />
-                ) : null}
-
-                {section.key === 'docker' ? (
-                  <div className="space-y-3">
-                    <Field
-                      id="docker-endpoint"
-                      label="Docker endpoint"
-                      helper="Engine API endpoint."
-                      value={
-                        typeof child.endpoint === 'string'
-                          ? child.endpoint
-                          : 'unix:///var/run/docker.sock'
-                      }
-                      onChange={(v) => patchSection('docker', { endpoint: v })}
-                    />
-                    <Field
-                      id="docker-timeout"
-                      label="HTTP timeout (ms)"
-                      type="number"
-                      min={100}
-                      value={String(typeof child.timeoutMs === 'number' ? child.timeoutMs : 2000)}
-                      onChange={(v) => patchSection('docker', { timeoutMs: Number(v) || 2000 })}
-                    />
-                    <SwitchField
-                      id="docker-runtime"
-                      label="Include runtime"
-                      checked={child.includeRuntime !== false}
-                      onCheckedChange={(checked) => patchSection('docker', { includeRuntime: checked })}
-                    />
-                    <SwitchField
-                      id="docker-containers"
-                      label="Include containers"
-                      checked={child.includeContainers !== false}
-                      onCheckedChange={(checked) => patchSection('docker', { includeContainers: checked })}
-                    />
-                  </div>
-                ) : null}
-              </SectionCard>
-            )
-          })}
-        </ul>
-      </section>
-
-      <RevealPanel title="Opt-in Telemetry event facts">
-        <div className="space-y-3">
-          <HelperCallout title="Separate from sampling">
-            These are catalogued Telemetry <span className="font-medium text-foreground">event</span> facts
-            written to the Journal when enabled — not slices of SampleCollected. Omitted keys stay off.
-          </HelperCallout>
-          {eventEntries.length ? (
-            <DataCard>
-              <ul className="divide-y divide-border">
-                {eventEntries.map(([key, enabled]) => (
-                  <li key={key} className="flex items-center justify-between gap-2 px-3 py-2">
-                    <span className="truncate font-mono text-xs">{key}</span>
-                    <div className="flex items-center gap-2">
-                      <SwitchField
-                        id={`telemetry-event-${key}`}
-                        label="On"
-                        checked={Boolean(enabled)}
-                        onCheckedChange={(checked) => setEvent(key, checked)}
-                      />
-                      <Button type="button" size="sm" variant="ghost" onClick={() => removeEvent(key)}>
-                        Remove
-                      </Button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </DataCard>
-          ) : (
-            <p className="text-sm text-muted-foreground">No opt-in Telemetry event facts configured.</p>
-          )}
-          <form
-            className="flex flex-col gap-2 sm:flex-row sm:items-end"
-            onSubmit={(event) => {
-              event.preventDefault()
-              const key = draftEvent.trim()
-              if (!key || events[key]) return
-              setEvent(key, true)
-              setDraftEvent('')
-            }}
-          >
-            <div className="min-w-0 flex-1 space-y-1.5">
-              <Label htmlFor="telemetry-event-draft">Fact type</Label>
-              <Input
-                id="telemetry-event-draft"
-                className="font-mono text-xs"
-                placeholder="Telemetry.Sessions.Input.WebTransportReceived"
-                value={draftEvent}
-                onChange={(event) => setDraftEvent(event.target.value)}
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex min-w-0 items-center gap-2 text-sm text-muted-foreground">
+              <span
+                className={cn(
+                  'inline-flex h-2 w-2 shrink-0 rounded-full',
+                  samplerOn ? 'bg-success' : 'bg-muted-foreground',
+                )}
+                aria-hidden
               />
+              <span className="font-medium text-foreground">{samplesStatus}</span>
             </div>
-            <Button type="submit" size="sm" variant="outline">
-              Enable fact
+            <Button asChild size="sm" variant="outline">
+              <Link to="/w7s/admin/diagnostics/telemetry">
+                See charts
+                <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+              </Link>
             </Button>
-          </form>
-        </div>
-      </RevealPanel>
+          </div>
 
-      <HelperCallout
-        title="Inspect live samples"
-        action={{ label: 'Open Telemetry monitor', href: '/w7s/admin/diagnostics/telemetry' }}
-      >
-        After save, composites land in the Journal. Use the monitor to chart SampleCollected without leaving Admin.
-      </HelperCallout>
+          <div role="radiogroup" aria-label="Sampling mode">
+            <ul className="overflow-hidden rounded-xl border border-border divide-y divide-border">
+              {TELEMETRY_PRESETS.map((preset) => {
+                const selected = matchedMode === preset.id
+                const Icon = MODE_ICONS[preset.id]
+                return (
+                  <li key={preset.id}>
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={selected}
+                      onClick={() => applyMode(preset.id)}
+                      className={cn(
+                        'flex w-full items-center gap-3 px-3 py-3 text-left transition-colors sm:px-4',
+                        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
+                        selected ? 'bg-primary/10' : 'hover:bg-muted/20',
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          'inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border',
+                          selected
+                            ? 'border-primary bg-primary text-primary-foreground'
+                            : 'border-border',
+                        )}
+                      >
+                        {selected ? <Check className="h-3 w-3" aria-hidden /> : null}
+                      </span>
+                      <span
+                        className={cn(
+                          'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+                          selected
+                            ? 'bg-primary text-primary-foreground'
+                            : 'bg-muted text-muted-foreground',
+                        )}
+                      >
+                        <Icon className="h-3.5 w-3.5" aria-hidden />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="flex flex-wrap items-baseline gap-2">
+                          <span className="text-sm font-medium text-foreground">{preset.label}</span>
+                          <span className="text-xs text-muted-foreground">{preset.description}</span>
+                        </span>
+                        <span className="mt-0.5 block text-xs text-muted-foreground">
+                          {preset.effect}
+                        </span>
+                      </span>
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+          </div>
 
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        <Activity className="h-3.5 w-3.5" />
-        <span>
-          Diagnostics capability toggles are separate — this page only configures the Telemetry sampler section.
-        </span>
-      </div>
+          {samplerOn ? (
+            <ul className="overflow-hidden rounded-xl border border-border divide-y divide-border">
+              <li>
+                <button
+                  type="button"
+                  className={cn(
+                    'flex w-full items-center justify-between gap-3 px-3 py-3 text-left sm:px-4',
+                    'hover:bg-muted/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
+                  )}
+                  aria-expanded={customizeOpen}
+                  onClick={() => setCustomizeOpen((open) => !open)}
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-foreground">Customize</p>
+                    <p className="text-xs text-muted-foreground">
+                      Interval and sections
+                      {matchedMode === 'custom' ? ' · currently custom' : ''}
+                    </p>
+                  </div>
+                  <span className="flex shrink-0 items-center gap-1 text-xs font-medium text-muted-foreground">
+                    {customizeOpen ? 'Hide' : 'Open'}
+                    <ChevronDown
+                      className={cn(
+                        'h-3.5 w-3.5 transition-transform',
+                        customizeOpen && 'rotate-180',
+                      )}
+                      aria-hidden
+                    />
+                  </span>
+                </button>
+              </li>
+
+              {customizeOpen ? (
+                <li className="space-y-5 bg-muted/10 px-3 py-4 sm:px-4">
+                  <div className="space-y-3">
+                    <div className="space-y-1">
+                      <h3 className="text-sm font-medium">How often</h3>
+                      <p className="text-xs text-muted-foreground">
+                        Most hosts are fine at 30s–1 min.
+                      </p>
+                    </div>
+                    <ConfigChipRow label="Sample interval">
+                      {INTERVAL_PRESETS.map((preset) => (
+                        <ConfigChip
+                          key={preset.seconds}
+                          active={!showCustomInterval && summary.intervalSeconds === preset.seconds}
+                          label={preset.label}
+                          onClick={() => {
+                            setShowCustomInterval(false)
+                            update(['intervalSeconds'], preset.seconds)
+                          }}
+                        />
+                      ))}
+                      <ConfigChip
+                        active={showCustomInterval}
+                        label="Custom"
+                        onClick={() => setShowCustomInterval(true)}
+                      />
+                    </ConfigChipRow>
+                    {showCustomInterval ? (
+                      <ConfigField
+                        id="intervalSeconds"
+                        label="Seconds between samples"
+                        type="number"
+                        min={MIN_INTERVAL_SECONDS}
+                        max={MAX_INTERVAL_SECONDS}
+                        value={String(summary.intervalSeconds)}
+                        helper={`About ${samplesPerHour(clampIntervalSeconds(summary.intervalSeconds)).toLocaleString()} / hour.`}
+                        onChange={(v) => update(['intervalSeconds'], clampIntervalSeconds(v))}
+                      />
+                    ) : (
+                      <p className="text-xs text-muted-foreground">
+                        About {summary.samplesPerHour.toLocaleString()} samples per hour.
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className="flex flex-wrap items-end justify-between gap-2">
+                      <div className="space-y-1">
+                        <h3 className="text-sm font-medium">What goes in each sample</h3>
+                        <p className="text-xs text-muted-foreground">
+                          Flip a section, or open Tune for fields.
+                        </p>
+                      </div>
+                    </div>
+                    <TelemetrySamplerSectionFields
+                      value={value}
+                      samplerOn={samplerOn}
+                      patchSection={patchSection}
+                      onReplaceSections={(next) => {
+                        setCustomizeOpen(true)
+                        replace(next)
+                      }}
+                    />
+                  </div>
+                </li>
+              ) : null}
+            </ul>
+          ) : (
+            <div className="rounded-xl border border-dashed border-border px-4 py-8 text-center">
+              <CircleOff className="mx-auto h-7 w-7 text-muted-foreground" aria-hidden />
+              <p className="mt-3 text-sm font-medium text-foreground">Sampling is off</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Choose Lean for everyday hosts, or Operable for production.
+              </p>
+              <div className="mt-4 flex flex-wrap justify-center gap-2">
+                <Button type="button" size="sm" onClick={() => applyMode('lean')}>
+                  Use Lean
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => applyMode('operable')}
+                >
+                  Use Operable
+                </Button>
+              </div>
+            </div>
+          )}
+        </TabsContent>
+
+        <TabsContent value="events" className="space-y-4">
+          <TabHeader
+            title="Events"
+            body="Optional Journal facts for session investigation. Leave off unless you need them."
+          />
+
+          <TelemetrySessionEventsFields events={sessionEvents} onChange={setSessionEvents} />
+
+          <ul className="overflow-hidden rounded-xl border border-border divide-y divide-border">
+            <li>
+              <button
+                type="button"
+                className={cn(
+                  'flex w-full items-center justify-between gap-3 px-3 py-3 text-left sm:px-4',
+                  'hover:bg-muted/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
+                )}
+                aria-expanded={clientRingOpen}
+                onClick={() => setClientRingOpen((open) => !open)}
+              >
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-foreground">Client ring</p>
+                  <p className="text-xs text-muted-foreground">
+                    Live/Lab overlay planes · pairs with facts above · {clientRingSummary}
+                  </p>
+                </div>
+                <span className="flex shrink-0 items-center gap-1 text-xs font-medium text-muted-foreground">
+                  {clientRingOpen ? 'Hide' : 'Open'}
+                  <ChevronDown
+                    className={cn(
+                      'h-3.5 w-3.5 transition-transform',
+                      clientRingOpen && 'rotate-180',
+                    )}
+                    aria-hidden
+                  />
+                </span>
+              </button>
+            </li>
+            {clientRingOpen ? (
+              <li className="bg-muted/10 px-3 py-4 sm:px-4">
+                <TelemetryClientObservationFields
+                  value={clientObservation}
+                  onChange={(next) => replace({ ...value, clientObservation: next })}
+                  compact
+                />
+              </li>
+            ) : null}
+          </ul>
+
+          {Object.keys(eventExtras).length > 0 ? (
+            <HelperCallout tone="warning" title="Extra event keys kept">
+              This host still has {Object.keys(eventExtras).length} key(s) outside the catalog.
+            </HelperCallout>
+          ) : null}
+        </TabsContent>
+      </Tabs>
+
+      <p className="flex items-center gap-1 text-xs text-muted-foreground">
+        Diagnostics capability toggles live under Diagnostics
+        <ChevronRight className="h-3 w-3" aria-hidden />
+        not on this page.
+      </p>
     </div>
   )
 }

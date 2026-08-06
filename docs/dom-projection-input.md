@@ -2,6 +2,13 @@
 
 **Status:** design complete (V1 contract).
 
+> **Naming / supersession:** product mode/pipe is **PageProjection**
+> (`MirrorMode.PageProjection`), not `DomProjection`. Sealed contracts:
+> [dom-projection-diff-streams.md](dom-projection-diff-streams.md) (Dom plane),
+> [dom-projection-cssom.md](dom-projection-cssom.md) (Cssom plane). This file
+> remains the implemented V1 contract until T11/T12 cutover.
+
+
 **Scope:** how user intent on the **Projected DOM** is captured, sent, and
 applied on the **Virtual DOM** — and how upstream control state from F binds
 back without fighting the user.
@@ -12,7 +19,7 @@ asset serve; F coalesce knobs; **video-mirror / OS (uinput) input** — that
 stack stays on `MirrorMode.VideoStreaming` and is intentionally separate.
 
 **Related:** [architecture.md](architecture.md) · [naming.md](naming.md) ·
-Sessions `MirrorMode.DomProjection`
+Sessions `MirrorMode.DomProjection` (→ `PageProjection` at cutover)
 
 ---
 
@@ -183,7 +190,7 @@ Unused fields are null/omitted. Evolve with schema version only if breaking.
 | `keydown` / `keyup` | keys | `dispatchKeyEvent` |
 | `scroll` | scroll containers / document | scroll positions via CDP-capable path |
 | `focus` / `blur` | focus changes on anchored controls | CDP/Patchright focus/blur |
-| `resync` | recovery | F snapshot |
+| `resync` | recovery | F document diff |
 
 **No wire `click` intent in V1.** The browser `click` event on Projected is
 `preventDefault`’d (as needed) and **not** forwarded. Activation on Virtual is
@@ -518,7 +525,7 @@ Cannot fully eliminate (e.g. CSS still loading). V1 mitigations:
 2. Prefer **anchor from element under point** at event time for downs (not only
    coords) when an anchored node is hit.
 3. Do not send pointer intents until the client has applied at least one DomDiff
-   **snapshot** for the current `generation` (surface “armed”).
+   with `target=document` for the current `generation` (surface “armed”).
 4. Accept residual mismatch as non-support edge; metric if activate anchor ≠
    topmost painted target heuristics (optional later).
 

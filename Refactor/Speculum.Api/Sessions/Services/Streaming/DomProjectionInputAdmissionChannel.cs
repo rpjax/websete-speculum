@@ -21,6 +21,10 @@ internal sealed class DomProjectionInputAdmissionChannel : IDisposable
     public static DomProjectionInputAdmissionChannel Create(int capacity = DefaultCapacity)
         => new(capacity, enablePump: true);
 
+    /// <summary>Test helper — queue only, no drain pump.</summary>
+    internal static DomProjectionInputAdmissionChannel CreateQueueOnly(int capacity)
+        => new(capacity, enablePump: false);
+
     private DomProjectionInputAdmissionChannel(int capacity, bool enablePump)
     {
         _capacity = capacity;
@@ -35,14 +39,15 @@ internal sealed class DomProjectionInputAdmissionChannel : IDisposable
 
     public ChannelReader<DomProjectionInput> Reader => _pipe.Reader;
 
-    public void Admit(DomProjectionInput input)
+    public void Admit(DomProjectionInput input, out DomProjectionInput? dropped)
     {
         ObjectDisposedException.ThrowIf(_disposed != 0, this);
+        dropped = null;
         lock (_queue)
         {
             while (_queue.Count >= _capacity)
             {
-                _queue.Dequeue();
+                dropped = _queue.Dequeue();
             }
 
             _queue.Enqueue(input);
@@ -50,6 +55,9 @@ internal sealed class DomProjectionInputAdmissionChannel : IDisposable
 
         _signal.Release();
     }
+
+    /// <summary>Admit without observing DropOldest eviction (tests / callers that ignore drops).</summary>
+    public void Admit(DomProjectionInput input) => Admit(input, out _);
 
     public void Complete()
     {

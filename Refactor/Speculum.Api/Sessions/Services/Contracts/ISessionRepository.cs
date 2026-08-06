@@ -1,4 +1,6 @@
 using Speculum.Api.Sessions.Aggregates;
+using Speculum.Api.Sessions.Requests;
+using Speculum.Api.Sessions.Responses;
 
 namespace Speculum.Api.Sessions.Services.Contracts;
 
@@ -17,4 +19,24 @@ public interface ISessionRepository
 
     /// <summary>Deletes non-Live session rows for a profile (orphan cleanup before profile purge).</summary>
     Task<int> DeleteNonLiveByProfileAsync(Guid profileId, CancellationToken ct = default);
+
+    /// <summary>Paged, filtered listing over durable session rows (live + historical).</summary>
+    Task<(IReadOnlyList<SessionListItem> Items, int Total)> ListAsync(
+        ListSessions query,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Ids of ended (Stopped/Aborted) sessions, oldest EndedAt first — used to feed the
+    /// Maintenance choke point's bulk-delete-ended-sessions action.
+    /// </summary>
+    Task<IReadOnlyList<Guid>> ListEndedSessionIdsAsync(
+        DateTimeOffset? endedBefore,
+        int take,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Hard-deletes a single durable session row. Journal facts are NOT touched here —
+    /// only <c>IMaintenanceService</c> may pair this with a Journal cascade delete.
+    /// </summary>
+    Task<bool> DeleteAsync(Guid sessionId, CancellationToken ct = default);
 }

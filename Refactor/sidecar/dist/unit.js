@@ -1293,18 +1293,22 @@ async function main() {
 }
 function testDomAssetCacheAndBodyCodec() {
     const cache = new DomAssetCache_1.DomAssetCache(1024, 2);
-    const a = cache.put(Buffer.from('aaa'), 'text/css');
-    const b = cache.put(Buffer.from('bbb'), 'image/png');
+    const a = cache.put('k1', Buffer.from('aaa'), 'text/css');
+    const b = cache.put('k2', Buffer.from('bbb'), 'image/png');
     assert_1.default.ok(a);
     assert_1.default.ok(b);
-    assert_1.default.strictEqual(cache.get(a)?.contentType, 'text/css');
-    const c = cache.put(Buffer.from('ccc'), 'font/woff2');
+    assert_1.default.strictEqual(cache.get('k1')?.contentType, 'text/css');
+    const c = cache.put('k3', Buffer.from('ccc'), 'font/woff2');
     assert_1.default.ok(c);
     assert_1.default.strictEqual(cache.size, 2);
-    assert_1.default.strictEqual(cache.get(a), undefined);
+    assert_1.default.strictEqual(cache.get('k1'), undefined);
     const body = (0, DomTreeSerializer_1.encodeDomBody)({
         kind: 'snapshot',
-        root: { id: 1, tag: 'html', children: [{ id: 2, tag: '#text', text: 'hi' }] },
+        root: {
+            anchor: 'html1',
+            tag: 'html',
+            children: [{ tag: '#text', text: 'hi' }],
+        },
     });
     const decoded = (0, DomTreeSerializer_1.decodeDomBody)(body);
     assert_1.default.strictEqual(decoded.kind, 'snapshot');

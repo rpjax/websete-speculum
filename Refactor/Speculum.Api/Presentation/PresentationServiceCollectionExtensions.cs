@@ -1,11 +1,13 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Speculum.Api.Presentation.Auth;
 using Speculum.Api.Presentation.Bootstrap;
 using Speculum.Api.Presentation.Configurations;
 using Speculum.Api.Presentation.Diagnostics;
 using Speculum.Api.Presentation.HostResources;
+using Speculum.Api.Presentation.Maintenance;
 using Speculum.Api.Presentation.Profiles;
 using Speculum.Api.Presentation.Scripts;
 using Speculum.Api.Presentation.Sessions;
@@ -36,9 +38,13 @@ public static class PresentationServiceCollectionExtensions
 
         services.ConfigureHttpJsonOptions(options =>
         {
+            options.SerializerOptions.PropertyNamingPolicy =
+                System.Text.Json.JsonNamingPolicy.CamelCase;
             options.SerializerOptions.Converters.Add(
                 new System.Text.Json.Serialization.JsonStringEnumConverter());
         });
+
+        services.TryAddSingleton<IPublicClientConfigProjector, PublicClientConfigProjector>();
 
         return services;
     }
@@ -65,6 +71,7 @@ public static class PresentationServiceCollectionExtensions
         endpoints.MapSessionEndpoints();
         endpoints.MapDomAssetEndpoints();
         endpoints.MapHostResourceEndpoints();
+        endpoints.MapMaintenanceEndpoints();
         endpoints.MapDiagnosticsProfileEndpoints();
         endpoints.MapResourceMonitoringEndpoints();
         endpoints.MapTimelineEndpoints();

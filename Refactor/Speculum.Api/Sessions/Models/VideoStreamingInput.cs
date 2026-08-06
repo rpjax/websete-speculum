@@ -18,4 +18,12 @@ public sealed class VideoStreamingInput
     /// </summary>
     [Key("payload")]
     public required string Payload { get; init; }
+
+    /// <summary>Opaque client correlation id (always stamped on product send).</summary>
+    [Key("traceId")]
+    public string? TraceId { get; init; }
+
+    /// <summary>Client wall-clock ms at send (optional; for E2E delay vs Journal admission).</summary>
+    [Key("clientTimestampMs")]
+    public long? ClientTimestampMs { get; init; }
 }

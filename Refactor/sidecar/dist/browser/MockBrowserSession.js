@@ -315,6 +315,16 @@ class MockBrowserSession {
             this.frameBusy = false;
         }
     }
+    async pushDomInput(_input) {
+        // Mock Dom Projection: accept intents without CDP.
+        return { status: 'dispatched' };
+    }
+    async getDomAsset(_key, _opts) {
+        return null;
+    }
+    async putDomUpload(_id, _body, _contentType, _name) {
+        // no-op store for mock
+    }
 }
 exports.MockBrowserSession = MockBrowserSession;
 function createMockBrowserSessionFactory(options) {

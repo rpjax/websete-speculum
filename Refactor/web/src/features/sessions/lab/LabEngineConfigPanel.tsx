@@ -34,11 +34,15 @@ import { LabSessionReadinessPanel } from './LabSessionReadinessPanel'
 import { LabScriptsPanel } from './LabScriptsPanel'
 import { LabTelemetryEventsPanel } from './LabTelemetryEventsPanel'
 import { LabTelemetrySamplingPanel } from './LabTelemetrySamplingPanel'
+import { LabClientObservationPanel } from './LabClientObservationPanel'
+import { invalidateClientConfigCache } from '@/lib/clientConfig'
 
 interface LabEngineConfigPanelProps {
   hubOrigin: string
   /** Live sessions keep the sidecar allowlist from Start — warn the operator. */
   sessionLive: boolean
+  /** After Telemetry Apply — refresh ClientObservation from public client-config. */
+  onClientConfigApplied?: () => void
 }
 
 /**
@@ -48,6 +52,7 @@ interface LabEngineConfigPanelProps {
 export function LabEngineConfigPanel({
   hubOrigin,
   sessionLive,
+  onClientConfigApplied,
 }: LabEngineConfigPanelProps) {
   const [available, setAvailable] = useState<boolean | null>(null)
   const [status, setStatus] = useState<LabConfigStatus | null>(null)
@@ -64,10 +69,6 @@ export function LabEngineConfigPanel({
   const [navigationRules, setNavigationRules] = useState<
     LabEngineConfig['navigation']['allowedMainFrameUrls']
   >([])
-  /** Maps to Telemetry.events on save. */
-  const [journal, setJournal] = useState<Record<LabTelemetryEventType, boolean>>(
-    emptyLabTelemetryEvents,
-  )
   /** Unknown Telemetry.events keys preserved (API replaces events wholesale). */
   const [eventExtras, setEventExtras] = useState<Record<string, boolean>>({})
   const [telemetry, setTelemetry] = useState<LabTelemetryConfig>(createLabTelemetryBaseline())
@@ -88,19 +89,21 @@ export function LabEngineConfigPanel({
     setCertificateEmail(config.hosting.defaultCertificateEmail ?? '')
     setSessions(config.sessions)
     setResourceManagement(config.resourceManagement)
-    setTelemetry(config.telemetry)
     setScripting(config.scripting)
-    const nextJournal = emptyLabTelemetryEvents()
+    const nextEvents = emptyLabTelemetryEvents()
     const extras: Record<string, boolean> = {}
-    for (const [key, value] of Object.entries(config.journal ?? {})) {
+    for (const [key, value] of Object.entries(config.telemetry.events ?? {})) {
       if ((LAB_TELEMETRY_EVENT_TYPES as readonly string[]).includes(key)) {
-        nextJournal[key as LabTelemetryEventType] = Boolean(value)
+        nextEvents[key as LabTelemetryEventType] = Boolean(value)
       } else {
         extras[key] = Boolean(value)
       }
     }
-    setJournal(nextJournal)
     setEventExtras(extras)
+    setTelemetry({
+      ...config.telemetry,
+      events: nextEvents,
+    })
   }
 
   useEffect(() => {
@@ -132,7 +135,6 @@ export function LabEngineConfigPanel({
       allowlistText: string
       sessions: LabSessionsConfig
       resourceManagement: LabResourceManagementConfig
-      journal: Record<LabTelemetryEventType, boolean>
       telemetry: LabTelemetryConfig
       scripting: LabScriptingConfig
     }>,
@@ -142,7 +144,6 @@ export function LabEngineConfigPanel({
     const listText = overrides?.allowlistText ?? allowlistText
     const nextSessions = overrides?.sessions ?? sessions
     const nextRm = overrides?.resourceManagement ?? resourceManagement
-    const nextJournal = overrides?.journal ?? journal
     const nextTelemetry = overrides?.telemetry ?? telemetry
     const nextScripting = overrides?.scripting ?? scripting
 
@@ -157,12 +158,14 @@ export function LabEngineConfigPanel({
       },
       sessions: nextSessions,
       resourceManagement: nextRm,
-      telemetry: nextTelemetry,
-      scripting: nextScripting,
-      journal: {
-        ...eventExtras,
-        ...nextJournal,
+      telemetry: {
+        ...nextTelemetry,
+        events: {
+          ...eventExtras,
+          ...nextTelemetry.events,
+        },
       },
+      scripting: nextScripting,
     }
   }
 
@@ -173,6 +176,8 @@ export function LabEngineConfigPanel({
       const saved = await putLabEngineConfig(body, hubOrigin)
       applySnapshot(saved)
       setSavedAt(new Date().toLocaleTimeString())
+      invalidateClientConfigCache()
+      onClientConfigApplied?.()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -230,7 +235,7 @@ export function LabEngineConfigPanel({
   const missing = status?.missing ?? []
   const operational = Boolean(status?.operational)
   const canSave = Boolean(defaultTargetHost.trim())
-  const eventsOn = LAB_TELEMETRY_EVENT_TYPES.filter((type) => journal[type]).length
+  const eventsOn = LAB_TELEMETRY_EVENT_TYPES.filter((type) => telemetry.events[type]).length
   const injectionCount = scripting.injections.length
 
   return (
@@ -315,6 +320,23 @@ export function LabEngineConfigPanel({
           </AccordionContent>
         </AccordionItem>
 
+        <AccordionItem value="client-observation">
+          <AccordionTrigger className="text-sm">
+            <span className="flex flex-wrap items-center gap-2">
+              Telemetry · Front observation
+              <Badge
+                variant={telemetry.clientObservation.isEnabled ? 'warning' : 'muted'}
+                className="font-normal"
+              >
+                {telemetry.clientObservation.isEnabled ? 'on' : 'off'}
+              </Badge>
+            </span>
+          </AccordionTrigger>
+          <AccordionContent>
+            <LabClientObservationPanel telemetry={telemetry} onChange={setTelemetry} />
+          </AccordionContent>
+        </AccordionItem>
+
         <AccordionItem value="events">
           <AccordionTrigger className="text-sm">
             <span className="flex flex-wrap items-center gap-2">
@@ -326,12 +348,18 @@ export function LabEngineConfigPanel({
           </AccordionTrigger>
           <AccordionContent>
             <LabTelemetryEventsPanel
-              events={journal}
+              events={telemetry.events as Record<LabTelemetryEventType, boolean>}
               busy={busy}
-              onChange={setJournal}
+              onChange={(next) =>
+                setTelemetry((prev) => ({
+                  ...prev,
+                  events: next,
+                }))
+              }
               onApply={(next) => {
-                setJournal(next)
-                void persist(buildBody({ journal: next }))
+                const nextTelemetry = { ...telemetry, events: next }
+                setTelemetry(nextTelemetry)
+                void persist(buildBody({ telemetry: nextTelemetry }))
               }}
             />
           </AccordionContent>

@@ -9,6 +9,7 @@ import { SaveFeedback } from './SaveFeedback'
 export function SaveFeedbackStrip({
   pending,
   message,
+  messageTone = 'success',
   error,
   onSave,
   saveLabel = 'Save',
@@ -18,6 +19,8 @@ export function SaveFeedbackStrip({
 }: {
   pending?: boolean
   message?: string | null
+  /** Success only after confirmed save; idle/validation use neutral or warning. */
+  messageTone?: 'success' | 'neutral' | 'warning'
   error?: string | null
   onSave: () => void
   saveLabel?: string
@@ -42,7 +45,16 @@ export function SaveFeedbackStrip({
         {error ? (
           <SaveFeedback mode="strip-error" message={error} />
         ) : message ? (
-          <SaveFeedback mode="strip-success" message={message} />
+          <SaveFeedback
+            mode={
+              messageTone === 'warning'
+                ? 'strip-warning'
+                : messageTone === 'neutral'
+                  ? 'strip-neutral'
+                  : 'strip-success'
+            }
+            message={message}
+          />
         ) : busy ? (
           <p role="status" className="text-xs text-muted-foreground sm:text-right">
             Applying changes…

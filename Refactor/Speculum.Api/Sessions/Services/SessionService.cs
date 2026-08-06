@@ -247,7 +247,15 @@ public sealed class SessionService : ISessionService
                 telemetry.Start.UrlResolved(initialUrl);
 
                 var token = _sessionTokens.GetRandom();
-                await _sessions.SaveAsync(Session.Create(sessionId, profileId, token), startCt)
+                await _sessions.SaveAsync(
+                        Session.Create(
+                            sessionId,
+                            profileId,
+                            token,
+                            mirrorMode: engineConfiguration.Sessions.MirrorMode,
+                            viewportWidth: request.ViewportWidth,
+                            viewportHeight: request.ViewportHeight),
+                        startCt)
                     .ConfigureAwait(false);
                 persisted = true;
 

@@ -253,6 +253,7 @@ export class PatchrightBrowserSession implements BrowserSession {
         this.input = new InputController(this.chrome.page, patchrightBackend);
         this.domProjection = await DomProjection.start(this.chrome.page, {
           onDomDiff: (diff) => this.events.onDomDiff?.(diff),
+          onGenerationBumped: (event) => this.events.onDomProjectionGenerationBumped?.(event),
         });
         this.domElementInput = new DomElementInput(this.chrome.page, this.domProjection);
         // Asset Fetch intercept deferred — Navigation.setupFetchGuard owns Fetch.enable.
@@ -855,9 +856,11 @@ export class PatchrightBrowserSession implements BrowserSession {
 
   async pushDomInput(input: {
     type: string;
-    targetId: number;
+    anchor?: string | null;
+    generation?: number;
+    timestampClient?: number | null;
     payloadJson?: string;
-  }): Promise<void> {
+  }): Promise<{ status: 'dispatched' } | { status: 'dropped'; reason: string }> {
     this.ensureLive();
     if (this.mirrorMode !== 'domProjection' || !this.domElementInput) {
       throw Object.assign(new Error('DomProjection input requires MirrorMode.DomProjection'), {
@@ -866,14 +869,61 @@ export class PatchrightBrowserSession implements BrowserSession {
         phase: 'input',
       });
     }
-    await this.domElementInput.dispatch(input);
+    return await this.domElementInput.dispatch(input);
   }
 
-  async getDomAsset(hash: string): Promise<{ body: Uint8Array; contentType: string } | null> {
+  async getDomAsset(
+    key: string,
+    opts?: { kind?: string; rangeHeader?: string },
+  ): Promise<{
+    body: Uint8Array;
+    contentType: string;
+    statusCode?: number;
+    contentRange?: string;
+    passThrough?: boolean;
+  } | null> {
     this.ensureLive();
-    const hit = this.domProjection?.getAsset(hash);
-    if (!hit) return null;
-    return { body: hit.body, contentType: hit.contentType };
+    if (!this.domProjection || !key) return null;
+    let lookup = key;
+    const kind = (opts?.kind ?? '').toLowerCase();
+    if (kind === 'blob') lookup = key.startsWith('_blob/') ? key : `_blob/${key}`;
+    else if (kind === 'data') lookup = key.startsWith('_data/') ? key : `_data/${key}`;
+
+    const hit = this.domProjection.getAsset(lookup);
+    if (hit && hit.body.byteLength > 0 && hit.mode === 'cache' && !opts?.rangeHeader) {
+      return { body: hit.body, contentType: hit.contentType, statusCode: 200 };
+    }
+    if (hit?.mode === 'pass-through' || opts?.rangeHeader || (hit && hit.body.byteLength === 0)) {
+      const pt = await this.domProjection.fetchPassThrough(lookup, opts?.rangeHeader);
+      if (!pt) return hit && hit.body.byteLength > 0
+        ? { body: hit.body, contentType: hit.contentType, statusCode: 200 }
+        : null;
+      return {
+        body: pt.body,
+        contentType: pt.contentType,
+        statusCode: pt.statusCode,
+        contentRange: pt.contentRange,
+        passThrough: true,
+      };
+    }
+    if (hit && hit.body.byteLength > 0) {
+      return { body: hit.body, contentType: hit.contentType, statusCode: 200 };
+    }
+    // Warm miss: try pass-through reconstruct from key as https URL.
+    const pt = await this.domProjection.fetchPassThrough(lookup, opts?.rangeHeader);
+    if (!pt) return null;
+    return {
+      body: pt.body,
+      contentType: pt.contentType,
+      statusCode: pt.statusCode,
+      contentRange: pt.contentRange,
+      passThrough: true,
+    };
+  }
+
+  async putDomUpload(id: string, body: Uint8Array, contentType: string, name: string): Promise<void> {
+    this.ensureLive();
+    this.domProjection?.putUpload(id, Buffer.from(body), contentType, name);
   }
 
   async pushCameraFrame(frame: Uint8Array): Promise<void> {

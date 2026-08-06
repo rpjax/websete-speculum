@@ -1,20 +1,25 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Activity, Database, HardDrive, Timer } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { Activity, Check, Database, HardDrive, Timer } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { cn } from '@/lib/utils'
 import {
   DataCard,
   FieldGrid,
-  GuidedPreset,
   HelperCallout,
-  InlineValidation,
   RevealPanel,
   StatCard,
   StatusPill,
   SwitchField,
 } from '@/features/admin/components'
+import {
+  ConfigChip,
+  ConfigChipRow,
+  ConfigField,
+  type JsonObject,
+} from './configFieldPrimitives'
 import {
   CAPACITY_PRESETS,
   GIB,
@@ -35,52 +40,8 @@ import {
   sessionDurationPresetId,
   summarizeResourceManagement,
   timeSpanFromDays,
-  type JsonObject,
+  type ResourceCapacityPresetId,
 } from './resourceManagementHelpers'
-
-function Field({
-  id,
-  label,
-  helper,
-  value,
-  onChange,
-  type = 'text',
-  min,
-  step,
-  placeholder,
-  error,
-  disabled,
-}: {
-  id: string
-  label: string
-  helper?: string
-  value: string
-  onChange: (value: string) => void
-  type?: string
-  min?: number
-  step?: number
-  placeholder?: string
-  error?: string
-  disabled?: boolean
-}) {
-  return (
-    <div className="space-y-1.5">
-      <Label htmlFor={id}>{label}</Label>
-      <Input
-        id={id}
-        type={type}
-        min={min}
-        step={step}
-        placeholder={placeholder}
-        value={value}
-        disabled={disabled}
-        onChange={(event) => onChange(event.target.value)}
-      />
-      {helper ? <p className="text-xs text-muted-foreground">{helper}</p> : null}
-      <InlineValidation message={error} />
-    </div>
-  )
-}
 
 function DurationFacilitator({
   id,
@@ -200,6 +161,7 @@ export function ResourceManagementEditor({
   replace: (next: JsonObject) => void
   update: (path: string[], raw: string | boolean | number) => void
 }) {
+  const [pickedPreset, setPickedPreset] = useState<ResourceCapacityPresetId | null>(null)
   const summary = summarizeResourceManagement(value)
   const budgetBytes = nestedNumber(value, 'storage', 'budgetBytes')
   const budgetGib = bytesToGibInput(budgetBytes)
@@ -209,8 +171,14 @@ export function ResourceManagementEditor({
   const unlimitedPipes = pipes <= 0
   const probeBytes = nestedNumber(value, 'diagnostics', 'maxProbeResponseBytes')
   const probeKiB = probeBytes > 0 ? String(Math.round(probeBytes / KIB)) : '512'
-
   const matchedBudget = STORAGE_BUDGET_PRESETS_GIB.find((gib) => gib * GIB === budgetBytes)
+
+  const applyPreset = (id: ResourceCapacityPresetId) => {
+    const preset = CAPACITY_PRESETS.find((item) => item.id === id)
+    if (!preset) return
+    setPickedPreset(id)
+    replace(applyCapacityPreset(value, preset))
+  }
 
   return (
     <div className="space-y-6">
@@ -254,43 +222,71 @@ export function ResourceManagementEditor({
       ) : null}
 
       <DataCard className="space-y-4 p-4">
-        <div>
+        <div className="space-y-1">
           <h3 className="text-sm font-medium">Capacity presets</h3>
           <p className="text-xs text-muted-foreground">
-            Apply a starting point for slots, per-profile limit, pipes, session duration, and storage budget.
-            Retention and diagnostics stay as-is unless you change them below.
+            One choice sets slots, per-profile limit, pipes, session duration, and storage budget. Retention and
+            diagnostics stay as-is unless you change them below.
           </p>
         </div>
-        <GuidedPreset
-          presets={CAPACITY_PRESETS.map((preset) => ({
-            id: preset.id,
-            label: preset.label,
-            apply: () => replace(applyCapacityPreset(value, preset)),
-          }))}
-        />
-        <ul className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-3">
-          {CAPACITY_PRESETS.map((preset) => (
-            <li key={preset.id} className="rounded-md border border-border/70 bg-background/40 px-2.5 py-2">
-              <p className="font-medium text-foreground">{preset.label}</p>
-              <p className="mt-0.5">{preset.description}</p>
-              <p className="mt-1 tabular-nums">
-                {preset.sessions.maxConcurrentSessions} slots · {formatGibLabel(preset.storage.budgetBytes)} ·{' '}
-                {describeTimeSpan(preset.sessions.maxSessionDuration)}
-              </p>
-            </li>
-          ))}
-        </ul>
+        <div role="radiogroup" aria-label="Capacity presets" className="grid gap-2 sm:grid-cols-3">
+          {CAPACITY_PRESETS.map((preset) => {
+            const selected = pickedPreset === preset.id
+            return (
+              <button
+                key={preset.id}
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                onClick={() => applyPreset(preset.id)}
+                className={cn(
+                  'rounded-lg border p-3 text-left transition-colors',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                  selected
+                    ? 'border-primary bg-primary/5'
+                    : 'border-border bg-background/40 hover:bg-muted/40',
+                )}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-sm font-medium text-foreground">{preset.label}</p>
+                  {selected ? (
+                    <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                      <Check className="h-3 w-3" aria-hidden />
+                    </span>
+                  ) : (
+                    <span
+                      className="mt-0.5 inline-flex h-5 w-5 shrink-0 rounded-full border border-border"
+                      aria-hidden
+                    />
+                  )}
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">{preset.description}</p>
+                <p className="mt-2 text-[11px] leading-snug tabular-nums text-foreground/80">
+                  {preset.sessions.maxConcurrentSessions} slots · {formatGibLabel(preset.storage.budgetBytes)} ·{' '}
+                  {describeTimeSpan(preset.sessions.maxSessionDuration)}
+                </p>
+              </button>
+            )
+          })}
+        </div>
+        {pickedPreset ? (
+          <StatusPill
+            label={`Applied · ${CAPACITY_PRESETS.find((item) => item.id === pickedPreset)?.label}`}
+            tone="success"
+          />
+        ) : null}
       </DataCard>
 
-      <section className="space-y-4">
-        <div>
-          <h3 className="text-sm font-medium">Session admission</h3>
+      <DataCard className="space-y-5 p-4">
+        <div className="space-y-1">
+          <h3 className="text-sm font-medium">Primary capacity</h3>
           <p className="text-xs text-muted-foreground">
-            How many live sessions this host may run, and how they are capped per browser profile.
+            Admission slots and storage budget — the two numbers operators tune most often.
           </p>
         </div>
-        <FieldGrid>
-          <Field
+
+        <div className="space-y-3">
+          <ConfigField
             id="maxConcurrentSessions"
             label="Maximum concurrent sessions"
             helper="Admission capacity for live sessions on this host. Required ≥ 1."
@@ -298,77 +294,66 @@ export function ResourceManagementEditor({
             min={1}
             value={summary.maxSessions ? String(summary.maxSessions) : ''}
             error={summary.maxSessions < 1 ? 'Enter at least 1 concurrent session.' : undefined}
-            onChange={(v) => update(['sessions', 'maxConcurrentSessions'], v)}
+            onChange={(v) => {
+              setPickedPreset(null)
+              update(['sessions', 'maxConcurrentSessions'], v)
+            }}
           />
-          <div className="space-y-3">
-            <SwitchField
-              id="unlimited-per-profile"
-              label="Unlimited sessions per profile"
-              helper="Off = cap concurrent sessions that share one profile."
-              checked={unlimitedPerProfile}
-              onCheckedChange={(checked) =>
-                update(['sessions', 'maxConcurrentSessionsPerProfile'], checked ? 0 : Math.max(1, summary.maxSessions || 1))
-              }
-            />
-            {!unlimitedPerProfile ? (
-              <Field
-                id="maxConcurrentSessionsPerProfile"
-                label="Max sessions per profile"
-                type="number"
-                min={1}
-                value={String(perProfile)}
-                onChange={(v) => update(['sessions', 'maxConcurrentSessionsPerProfile'], v)}
+          <ConfigChipRow label="Quick slot counts">
+            {[1, 2, 4, 8, 16].map((slots) => (
+              <ConfigChip
+                key={slots}
+                active={summary.maxSessions === slots}
+                label={`${slots} slot${slots === 1 ? '' : 's'}`}
+                onClick={() => {
+                  setPickedPreset(null)
+                  update(['sessions', 'maxConcurrentSessions'], slots)
+                }}
               />
-            ) : null}
-          </div>
-        </FieldGrid>
-        <div className="flex flex-wrap gap-2">
-          {[1, 2, 4, 8, 16].map((slots) => (
-            <Button
-              key={slots}
-              type="button"
-              size="sm"
-              variant={summary.maxSessions === slots ? 'default' : 'outline'}
-              onClick={() => update(['sessions', 'maxConcurrentSessions'], slots)}
-            >
-              {slots} slot{slots === 1 ? '' : 's'}
-            </Button>
-          ))}
+            ))}
+          </ConfigChipRow>
         </div>
-      </section>
 
-      <section className="space-y-4 border-t border-border pt-5">
-        <div>
-          <h3 className="text-sm font-medium">Storage budget</h3>
-          <p className="text-xs text-muted-foreground">
-            Soft ceiling for Speculum SQLite and journal payload. Retention cleaners use this for degradation.
-          </p>
+        <div className="space-y-3 border-t border-border pt-5">
+          <div className="space-y-1">
+            <h4 className="text-sm font-medium">Storage budget</h4>
+            <p className="text-xs text-muted-foreground">
+              Soft ceiling for Speculum SQLite and journal payload. Retention cleaners use this for degradation.
+            </p>
+          </div>
+          <ConfigChipRow label="Budget presets">
+            {STORAGE_BUDGET_PRESETS_GIB.map((gib) => (
+              <ConfigChip
+                key={gib}
+                active={matchedBudget === gib}
+                label={`${gib} GiB`}
+                onClick={() => {
+                  setPickedPreset(null)
+                  update(['storage', 'budgetBytes'], gib * GIB)
+                }}
+              />
+            ))}
+          </ConfigChipRow>
+          <ConfigField
+            id="budgetGib"
+            label="Custom budget (GiB)"
+            helper={
+              budgetBytes > 0
+                ? `Wire value: ${budgetBytes.toLocaleString()} bytes.`
+                : 'Budget must be greater than zero.'
+            }
+            type="number"
+            min={0.1}
+            step={0.1}
+            value={budgetGib}
+            error={budgetBytes <= 0 ? 'Set a storage budget greater than 0 GiB.' : undefined}
+            onChange={(v) => {
+              setPickedPreset(null)
+              update(['storage', 'budgetBytes'], gibInputToBytes(v))
+            }}
+          />
         </div>
-        <div className="flex flex-wrap gap-2">
-          {STORAGE_BUDGET_PRESETS_GIB.map((gib) => (
-            <Button
-              key={gib}
-              type="button"
-              size="sm"
-              variant={matchedBudget === gib ? 'default' : 'outline'}
-              onClick={() => update(['storage', 'budgetBytes'], gib * GIB)}
-            >
-              {gib} GiB
-            </Button>
-          ))}
-        </div>
-        <Field
-          id="budgetGib"
-          label="Custom budget (GiB)"
-          helper={budgetBytes > 0 ? `Wire value: ${budgetBytes.toLocaleString()} bytes.` : 'Budget must be greater than zero.'}
-          type="number"
-          min={0.1}
-          step={0.1}
-          value={budgetGib}
-          error={budgetBytes <= 0 ? 'Set a storage budget greater than 0 GiB.' : undefined}
-          onChange={(v) => update(['storage', 'budgetBytes'], gibInputToBytes(v))}
-        />
-      </section>
+      </DataCard>
 
       <HelperCallout
         title="Host memory and /dev/shm"
@@ -378,7 +363,31 @@ export function ResourceManagementEditor({
         under Host resources.
       </HelperCallout>
 
-      <RevealPanel title="Session duration and pipes" defaultOpen>
+      <RevealPanel title="Session admission details">
+        <div className="space-y-4">
+          <SwitchField
+            id="unlimited-per-profile"
+            label="Unlimited sessions per profile"
+            helper="Off = cap concurrent sessions that share one profile."
+            checked={unlimitedPerProfile}
+            onCheckedChange={(checked) =>
+              update(['sessions', 'maxConcurrentSessionsPerProfile'], checked ? 0 : Math.max(1, summary.maxSessions || 1))
+            }
+          />
+          {!unlimitedPerProfile ? (
+            <ConfigField
+              id="maxConcurrentSessionsPerProfile"
+              label="Max sessions per profile"
+              type="number"
+              min={1}
+              value={String(perProfile)}
+              onChange={(v) => update(['sessions', 'maxConcurrentSessionsPerProfile'], v)}
+            />
+          ) : null}
+        </div>
+      </RevealPanel>
+
+      <RevealPanel title="Session duration and pipes">
         <div className="space-y-4">
           <DurationFacilitator
             id="maxSessionDuration"
@@ -395,7 +404,7 @@ export function ResourceManagementEditor({
             onCheckedChange={(checked) => update(['sessions', 'maxPipesPerSession'], checked ? 0 : 4)}
           />
           {!unlimitedPipes ? (
-            <Field
+            <ConfigField
               id="maxPipesPerSession"
               label="Max pipes per session"
               type="number"
@@ -416,7 +425,7 @@ export function ResourceManagementEditor({
             value={nestedText(value, 'profiles', 'inactiveRetentionPeriod') || timeSpanFromDays(30)}
             onChange={(next) => update(['profiles', 'inactiveRetentionPeriod'], next)}
           />
-          <Field
+          <ConfigField
             id="maxNavigationHistoryEntries"
             label="Max navigation history entries"
             helper="Per-profile history cap stored with the profile."
@@ -425,19 +434,15 @@ export function ResourceManagementEditor({
             value={String(nestedNumber(value, 'profiles', 'maxNavigationHistoryEntries') || 500)}
             onChange={(v) => update(['profiles', 'maxNavigationHistoryEntries'], v)}
           />
-          <div className="flex flex-wrap gap-2">
+          <ConfigChipRow label="History entry presets">
             {[100, 250, 500, 1000].map((count) => (
-              <Button
+              <ConfigChip
                 key={count}
-                type="button"
-                size="sm"
-                variant="outline"
+                label={`${count} entries`}
                 onClick={() => update(['profiles', 'maxNavigationHistoryEntries'], count)}
-              >
-                {count} entries
-              </Button>
+              />
             ))}
-          </div>
+          </ConfigChipRow>
           <RetentionFacilitator
             id="sessionTelemetryRetention"
             label="Session telemetry retention"
@@ -468,7 +473,7 @@ export function ResourceManagementEditor({
             Caps for BrowserQuery / DiagProbe traffic so investigations cannot starve live sessions.
           </p>
           <FieldGrid>
-            <Field
+            <ConfigField
               id="maxConcurrentProbesPerSession"
               label="Max concurrent probes / session"
               type="number"
@@ -493,19 +498,16 @@ export function ResourceManagementEditor({
                 }}
               />
               <p className="text-xs text-muted-foreground">Current: {formatKiBLabel(probeBytes || 512 * KIB)}.</p>
-              <div className="flex flex-wrap gap-2">
+              <ConfigChipRow label="Probe response presets">
                 {[256, 512, 1024].map((kib) => (
-                  <Button
+                  <ConfigChip
                     key={kib}
-                    type="button"
-                    size="sm"
-                    variant={Math.round((probeBytes || 0) / KIB) === kib ? 'default' : 'outline'}
+                    active={Math.round((probeBytes || 0) / KIB) === kib}
+                    label={`${kib} KiB`}
                     onClick={() => update(['diagnostics', 'maxProbeResponseBytes'], kib * KIB)}
-                  >
-                    {kib} KiB
-                  </Button>
+                  />
                 ))}
-              </div>
+              </ConfigChipRow>
             </div>
           </FieldGrid>
           <DurationFacilitator

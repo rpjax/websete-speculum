@@ -93,6 +93,10 @@ export default function SessionLabPage() {
     onClearConsole: session.clearConsole,
     onEvaluate: session.evaluate,
     onForgetProfile: session.forgetProfile,
+    observationEnabled: session.clientObservation.isEnabled,
+    onClientConfigApplied: () => {
+      void session.refreshClientConfig(true)
+    },
   }
 
   return (
@@ -158,6 +162,7 @@ export default function SessionLabPage() {
             attachDomDiffSink={session.attachDomDiffSink}
             onInput={session.sendInput}
             onDomInput={session.sendDomInput}
+            onDiffObserve={session.observeDomDiffApply}
             requestRemoteResize={session.requestRemoteResize}
             viewportPolicy={session.viewportPolicy ?? undefined}
             onCanvasLayout={session.onCanvasLayout}

@@ -1,9 +1,8 @@
-import { useState, type ReactNode } from 'react'
+import { useState } from 'react'
 import { Check } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 import {
   DataCard,
@@ -47,131 +46,15 @@ import {
   type JsonObject,
   type SessionsGuidedPresetId,
 } from './sessionsHelpers'
+import {
+  ConfigChipRow,
+  ConfigControlStep,
+  ConfigEnumSelect,
+  ConfigField,
+} from './configFieldPrimitives'
 import { describeTimeSpan } from './resourceManagementHelpers'
 
 type PosturePickId = SessionsGuidedPresetId | 'fill-gaps'
-
-function Field({
-  id,
-  label,
-  helper,
-  value,
-  onChange,
-  type = 'text',
-  min,
-  max,
-  step,
-  placeholder,
-  error,
-}: {
-  id: string
-  label: string
-  helper?: string
-  value: string
-  onChange: (value: string) => void
-  type?: string
-  min?: number
-  max?: number
-  step?: number
-  placeholder?: string
-  error?: string
-}) {
-  return (
-    <div className="space-y-1.5">
-      <Label htmlFor={id}>{label}</Label>
-      <Input
-        id={id}
-        type={type}
-        min={min}
-        max={max}
-        step={step}
-        placeholder={placeholder}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-      />
-      {helper ? <p className="text-xs text-muted-foreground">{helper}</p> : null}
-      <InlineValidation message={error} />
-    </div>
-  )
-}
-
-function EnumSelect({
-  id,
-  label,
-  helper,
-  value,
-  options,
-  onChange,
-}: {
-  id: string
-  label: string
-  helper?: string
-  value: string
-  options: Array<[string, string] | [string, string, string]>
-  onChange: (value: string) => void
-}) {
-  const selected = options.find(([optionValue]) => optionValue === value)
-  const detail = selected && selected.length > 2 ? selected[2] : undefined
-  return (
-    <div className="space-y-1.5">
-      <Label htmlFor={id}>{label}</Label>
-      <Select value={value} onValueChange={onChange}>
-        <SelectTrigger id={id}>
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {options.map(([optionValue, optionLabel]) => (
-            <SelectItem key={optionValue} value={optionValue}>
-              {optionLabel}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-      {helper || detail ? (
-        <p className="text-xs text-muted-foreground">{helper ?? detail}</p>
-      ) : null}
-    </div>
-  )
-}
-
-function ControlStep({
-  step,
-  title,
-  helper,
-  children,
-}: {
-  step: number
-  title: string
-  helper: string
-  children: ReactNode
-}) {
-  return (
-    <li className="space-y-3">
-      <div className="space-y-1">
-        <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-          Step {step} of 3
-        </p>
-        <h4 className="text-sm font-medium text-foreground">{title}</h4>
-        <p className="text-xs text-muted-foreground">{helper}</p>
-      </div>
-      {children}
-    </li>
-  )
-}
-
-function ChipRow({
-  children,
-  label,
-}: {
-  label: string
-  children: ReactNode
-}) {
-  return (
-    <div className="space-y-2" role="group" aria-label={label}>
-      <div className="flex flex-wrap gap-2">{children}</div>
-    </div>
-  )
-}
 
 export function SessionsEditor({
   value,
@@ -365,7 +248,7 @@ export function SessionsEditor({
         {picked ? (
           <div className="flex flex-wrap items-center gap-2">
             <StatusPill label={`Applied · ${picked.label}`} tone="success" />
-            <p className="text-xs text-muted-foreground">Review the three steps, then Save when ready.</p>
+            <p className="text-xs text-muted-foreground">Review the steps below, then Save when ready.</p>
           </div>
         ) : (
           <p className="text-xs text-muted-foreground">
@@ -379,18 +262,19 @@ export function SessionsEditor({
         <div className="space-y-1">
           <h3 className="text-sm font-medium">Primary session answers</h3>
           <p className="text-xs text-muted-foreground">
-            Five decisions most operators need. Locale, device profile, resize limits, and multi-client sharing stay
+            Six decisions most operators need. Locale, device profile, resize limits, and multi-client sharing stay
             collapsed until you open them below.
           </p>
         </div>
 
-        <ol className="space-y-6">
-          <ControlStep
+        <div className="space-y-6">
+          <ConfigControlStep
             step={1}
+            totalSteps={6}
             title="How long should a session stay after the last disconnect?"
             helper="After every client leaves, Speculum keeps the browser alive for this hold so someone can reattach. Shorter is safer on shared hosts."
           >
-            <ChipRow label="Detach hold presets">
+            <ConfigChipRow label="Detach hold presets">
               {DETACHED_TIMEOUT_PRESETS.map((preset) => (
                 <Button
                   key={preset.id}
@@ -418,7 +302,7 @@ export function SessionsEditor({
               >
                 Custom…
               </Button>
-            </ChipRow>
+            </ConfigChipRow>
             {showCustomTimeout || timeoutPreset === 'custom' ? (
               <div className="space-y-1.5">
                 <Label htmlFor="detachedSessionTimeout">Custom hold (.NET TimeSpan)</Label>
@@ -438,10 +322,11 @@ export function SessionsEditor({
               </p>
             )}
             <InlineValidation message={timeoutError} />
-          </ControlStep>
+          </ConfigControlStep>
 
-          <ControlStep
+          <ConfigControlStep
             step={2}
+            totalSteps={6}
             title="May pages use the JavaScript bridge?"
             helper="When on, sessions can expose the in-page scripting bridge for automation and lab scripts. Turn off on hosts that must not admit bridge-capable pages."
           >
@@ -456,14 +341,15 @@ export function SessionsEditor({
               checked={Boolean(value.isJsBridgeEnabled)}
               onCheckedChange={(checked) => patchField(['isJsBridgeEnabled'], checked)}
             />
-          </ControlStep>
+          </ConfigControlStep>
 
-          <ControlStep
+          <ConfigControlStep
             step={3}
+            totalSteps={6}
             title="Which data-stream transport should new sessions use?"
             helper="Frames, input, and console ride this carrier. Save applies immediately for new sessions; open browsers must refresh. WebSocket is same-origin proxyable; WebTransport needs HTTP/3 to the API."
           >
-            <EnumSelect
+            <ConfigEnumSelect
               id="dataStreamTransport"
               label="Data stream transport"
               value={
@@ -472,14 +358,15 @@ export function SessionsEditor({
               options={DATA_STREAM_TRANSPORT_OPTIONS}
               onChange={(v) => patchField(['dataStreamTransport'], v)}
             />
-          </ControlStep>
+          </ConfigControlStep>
 
-          <ControlStep
+          <ConfigControlStep
             step={4}
+            totalSteps={6}
             title="Which mirror mode should new sessions use?"
             helper="Admin-only. Saved to Sessions config and sent on Launch. Session clients cannot choose this. DOM projection is accepted and stored; runtime still follows video streaming until that plugin lands."
           >
-            <EnumSelect
+            <ConfigEnumSelect
               id="mirrorMode"
               label="Mirror mode"
               value={
@@ -488,14 +375,15 @@ export function SessionsEditor({
               options={MIRROR_MODE_OPTIONS}
               onChange={(v) => patchField(['mirrorMode'], v)}
             />
-          </ControlStep>
+          </ConfigControlStep>
 
-          <ControlStep
+          <ConfigControlStep
             step={5}
+            totalSteps={6}
             title="What default screen size should new sessions open at?"
             helper="This is the starting viewport operators land on. Clients can still resize within the limits in the reveal below."
           >
-            <ChipRow label="Default viewport size">
+            <ConfigChipRow label="Default viewport size">
               {VIEWPORT_SIZE_PRESETS.map((preset) => (
                 <Button
                   key={preset.id}
@@ -524,10 +412,10 @@ export function SessionsEditor({
               >
                 Custom…
               </Button>
-            </ChipRow>
+            </ConfigChipRow>
             {showCustomViewport || sizePreset === 'custom' ? (
               <FieldGrid>
-                <Field
+                <ConfigField
                   id="viewport-default-width"
                   label="Width"
                   type="number"
@@ -535,7 +423,7 @@ export function SessionsEditor({
                   value={text(defaults.width ?? 1280)}
                   onChange={(v) => patchField(['viewportPolicy', 'default', 'width'], v)}
                 />
-                <Field
+                <ConfigField
                   id="viewport-default-height"
                   label="Height"
                   type="number"
@@ -546,10 +434,11 @@ export function SessionsEditor({
               </FieldGrid>
             ) : null}
             <InlineValidation message={viewportError} />
-          </ControlStep>
+          </ConfigControlStep>
 
-          <ControlStep
+          <ConfigControlStep
             step={6}
+            totalSteps={6}
             title="How sharp should the live video look?"
             helper="This only changes JPEG pixel density — not click targeting. Input always maps to the CSS viewport. Sharp costs more CPU and bandwidth on HiDPI clients; Lean stays light."
           >
@@ -594,8 +483,8 @@ export function SessionsEditor({
               (Xvfb / display ceiling).
             </HelperCallout>
             <InlineValidation message={screencastError} />
-          </ControlStep>
-        </ol>
+          </ConfigControlStep>
+        </div>
       </DataCard>
 
       <RevealPanel title="Who can type, and who gets frames?" defaultOpen={exclusiveFrames}>
@@ -614,21 +503,21 @@ export function SessionsEditor({
           <div className="space-y-2">
             <p className="text-xs font-medium text-muted-foreground">Input (who may drive)</p>
             <FieldGrid>
-              <EnumSelect
+              <ConfigEnumSelect
                 id="input-access"
                 label="Input access"
                 value={text(input.access || 'shared')}
                 options={INPUT_ACCESS_OPTIONS}
                 onChange={(v) => patchField(['inputMultiplexingPolicy', 'access'], v)}
               />
-              <EnumSelect
+              <ConfigEnumSelect
                 id="input-ownership"
                 label="Input ownership"
                 value={text(input.ownership || 'firstAttached')}
                 options={INPUT_OWNERSHIP_OPTIONS}
                 onChange={(v) => patchField(['inputMultiplexingPolicy', 'ownership'], v)}
               />
-              <EnumSelect
+              <ConfigEnumSelect
                 id="input-scheduling"
                 label="Input scheduling"
                 value={text(input.scheduling || 'arrivalOrder')}
@@ -640,14 +529,14 @@ export function SessionsEditor({
           <div className="space-y-2">
             <p className="text-xs font-medium text-muted-foreground">Output (who receives frames)</p>
             <FieldGrid>
-              <EnumSelect
+              <ConfigEnumSelect
                 id="output-delivery"
                 label="Frame delivery"
                 value={text(output.delivery || 'broadcast')}
                 options={OUTPUT_DELIVERY_OPTIONS}
                 onChange={(v) => patchField(['outputMultiplexingPolicy', 'delivery'], v)}
               />
-              <EnumSelect
+              <ConfigEnumSelect
                 id="output-ownership"
                 label="Output ownership"
                 value={text(output.ownership || 'firstAttached')}
@@ -665,7 +554,7 @@ export function SessionsEditor({
           The display ceiling (Maximum) also caps how sharp Retina encode can get.
         </p>
         <FieldGrid>
-          <Field
+          <ConfigField
             id="viewport-min-width"
             label="Minimum width"
             type="number"
@@ -673,7 +562,7 @@ export function SessionsEditor({
             value={text(minimum.width ?? 100)}
             onChange={(v) => patchField(['viewportPolicy', 'minimum', 'width'], v)}
           />
-          <Field
+          <ConfigField
             id="viewport-min-height"
             label="Minimum height"
             type="number"
@@ -681,7 +570,7 @@ export function SessionsEditor({
             value={text(minimum.height ?? 100)}
             onChange={(v) => patchField(['viewportPolicy', 'minimum', 'height'], v)}
           />
-          <Field
+          <ConfigField
             id="viewport-max-width"
             label="Maximum width"
             type="number"
@@ -689,7 +578,7 @@ export function SessionsEditor({
             value={text(maximum.width ?? 4096)}
             onChange={(v) => patchField(['viewportPolicy', 'maximum', 'width'], v)}
           />
-          <Field
+          <ConfigField
             id="viewport-max-height"
             label="Maximum height"
             type="number"
@@ -718,7 +607,7 @@ export function SessionsEditor({
           ))}
         </div>
         <FieldGrid>
-          <Field
+          <ConfigField
             id="client-environment-locale"
             label="Locale"
             placeholder="en-US"
@@ -726,14 +615,14 @@ export function SessionsEditor({
             onChange={(v) => patchField(['clientEnvironmentPolicy', 'defaultLocale'], v)}
             error={clientError && !text(clientEnvironment.defaultLocale).trim() ? clientError : undefined}
           />
-          <Field
+          <ConfigField
             id="client-environment-language"
             label="Language"
             placeholder="en-US"
             value={text(clientEnvironment.defaultLanguage ?? 'en-US')}
             onChange={(v) => patchField(['clientEnvironmentPolicy', 'defaultLanguage'], v)}
           />
-          <Field
+          <ConfigField
             id="client-environment-time-zone"
             label="Time zone ID"
             placeholder="UTC"
@@ -741,7 +630,7 @@ export function SessionsEditor({
             value={text(clientEnvironment.defaultTimeZoneId ?? 'UTC')}
             onChange={(v) => patchField(['clientEnvironmentPolicy', 'defaultTimeZoneId'], v)}
           />
-          <EnumSelect
+          <ConfigEnumSelect
             id="client-environment-color-scheme"
             label="Color scheme"
             value={text(clientEnvironment.defaultColorScheme || 'light').toLowerCase()}
@@ -790,7 +679,7 @@ export function SessionsEditor({
             }
           />
           <FieldGrid>
-            <Field
+            <ConfigField
               id="device-emulation-scale"
               label="Device scale factor"
               type="number"
@@ -799,7 +688,7 @@ export function SessionsEditor({
               value={text(deviceDefault.deviceScaleFactor ?? 1)}
               onChange={(v) => patchField(['deviceEmulationPolicy', 'default', 'deviceScaleFactor'], v)}
             />
-            <Field
+            <ConfigField
               id="device-emulation-touch-points"
               label="Default max touch points"
               type="number"
@@ -807,14 +696,14 @@ export function SessionsEditor({
               value={text(deviceDefault.maxTouchPoints ?? 0)}
               onChange={(v) => patchField(['deviceEmulationPolicy', 'default', 'maxTouchPoints'], v)}
             />
-            <Field
+            <ConfigField
               id="device-emulation-ua"
               label="Default user-agent profile"
               placeholder="desktop"
               value={text(deviceDefault.userAgentProfile ?? 'desktop')}
               onChange={(v) => patchField(['deviceEmulationPolicy', 'default', 'userAgentProfile'], v)}
             />
-            <Field
+            <ConfigField
               id="device-emulation-orientation"
               label="Screen orientation"
               placeholder="landscapePrimary"
@@ -824,7 +713,7 @@ export function SessionsEditor({
           </FieldGrid>
           <p className="text-xs font-medium text-muted-foreground">Bounds and profile names</p>
           <FieldGrid>
-            <Field
+            <ConfigField
               id="device-min-scale"
               label="Min device scale"
               type="number"
@@ -833,7 +722,7 @@ export function SessionsEditor({
               value={text(devicePolicy.minDeviceScaleFactor ?? 1)}
               onChange={(v) => patchField(['deviceEmulationPolicy', 'minDeviceScaleFactor'], v)}
             />
-            <Field
+            <ConfigField
               id="device-max-scale"
               label="Max device scale"
               type="number"
@@ -842,7 +731,7 @@ export function SessionsEditor({
               value={text(devicePolicy.maxDeviceScaleFactor ?? 2)}
               onChange={(v) => patchField(['deviceEmulationPolicy', 'maxDeviceScaleFactor'], v)}
             />
-            <Field
+            <ConfigField
               id="device-policy-max-touch"
               label="Policy max touch points"
               type="number"
@@ -850,7 +739,7 @@ export function SessionsEditor({
               value={text(devicePolicy.maxTouchPoints ?? 10)}
               onChange={(v) => patchField(['deviceEmulationPolicy', 'maxTouchPoints'], v)}
             />
-            <Field
+            <ConfigField
               id="device-touch-when-touch"
               label="Touch points when touch on"
               type="number"
@@ -858,14 +747,14 @@ export function SessionsEditor({
               value={text(devicePolicy.defaultTouchPointsWhenTouch ?? 5)}
               onChange={(v) => patchField(['deviceEmulationPolicy', 'defaultTouchPointsWhenTouch'], v)}
             />
-            <Field
+            <ConfigField
               id="device-desktop-ua"
               label="Desktop UA profile name"
               placeholder="desktop"
               value={text(devicePolicy.desktopUserAgentProfile ?? 'desktop')}
               onChange={(v) => patchField(['deviceEmulationPolicy', 'desktopUserAgentProfile'], v)}
             />
-            <Field
+            <ConfigField
               id="device-mobile-ua"
               label="Mobile UA profile name"
               placeholder="mobile"

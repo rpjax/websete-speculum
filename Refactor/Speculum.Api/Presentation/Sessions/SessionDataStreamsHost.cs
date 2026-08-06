@@ -18,6 +18,9 @@ internal static class SessionDataStreamsHost
 {
     private const int MaxMessageBytes = 1024 * 1024;
 
+    private static long? ToClientTimestampMs(double? timestampClient)
+        => timestampClient is { } value ? (long)Math.Round(value) : null;
+
     public static async Task RunAsync(
         ILiveSession live,
         IDataStreamSession session,
@@ -233,7 +236,10 @@ internal static class SessionDataStreamsHost
     {
         await foreach (var item in ReadMessagesAsync<VideoStreamingInput>(input, ct).ConfigureAwait(false))
         {
-            live.TraceInputPathWtReceived(item.Type);
+            live.TraceVideoStreamingInputDataPlaneReceived(
+                item.Type,
+                item.TraceId,
+                item.ClientTimestampMs);
             _ = live.AdmitVideoStreamingInput(item);
         }
     }
@@ -245,6 +251,12 @@ internal static class SessionDataStreamsHost
     {
         await foreach (var item in ReadMessagesAsync<DomProjectionInput>(input, ct).ConfigureAwait(false))
         {
+            live.TraceDomProjectionInputDataPlaneReceived(
+                item.Type,
+                item.Generation,
+                item.Anchor,
+                item.TraceId,
+                ToClientTimestampMs(item.TimestampClient));
             _ = live.AdmitDomProjectionInput(item);
         }
     }

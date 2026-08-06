@@ -26,8 +26,14 @@ public sealed class TelemetryConfiguration
     public DockerTelemetryConfiguration Docker { get; init; } = new();
 
     /// <summary>
+    /// Browser-side observation ring (Lab + Live). Projected to public client-config.
+    /// Independent of the sampler master switch.
+    /// </summary>
+    public ClientObservationConfiguration ClientObservation { get; init; } = new();
+
+    /// <summary>
     /// Opt-in Telemetry event facts (not sampling). Key = catalog type
-    /// (e.g. <c>Telemetry.Sessions.Input.WebTransportReceived</c>). Omitted = off.
+    /// (e.g. <c>Telemetry.Sessions.VideoStreamingInput.DataPlaneReceived</c>). Omitted = off.
     /// </summary>
     public Dictionary<string, bool> Events { get; init; } = new(StringComparer.Ordinal);
 

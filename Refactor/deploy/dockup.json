@@ -110,7 +110,7 @@
         },
         "labels": [
           "traefik.enable=true",
-          "traefik.http.routers.refactor-api.rule=PathPrefix(`/w7s/api`) || PathPrefix(`/w7s/vhub`) || PathPrefix(`/w7s/vstream`) || PathPrefix(`/w7s/health`)",
+          "traefik.http.routers.refactor-api.rule=PathPrefix(`/w7s/api`) || PathPrefix(`/w7s/vhub`) || PathPrefix(`/w7s/vstream`) || PathPrefix(`/w7s/health`) || PathPrefix(`/w7s/virtual-assets`) || PathPrefix(`/w7s/virtual-blob`) || PathPrefix(`/w7s/virtual-data`)",
           "traefik.http.routers.refactor-api.entrypoints=web",
           "traefik.http.routers.refactor-api.priority=100",
           "traefik.http.routers.refactor-api.service=refactor-api",
@@ -275,7 +275,7 @@
         },
         "labels": [
           "traefik.enable=true",
-          "traefik.http.routers.speculum-api.rule=Host(`${PUBLIC_HOST}`) && (PathPrefix(`/w7s/api`) || PathPrefix(`/w7s/vhub`) || PathPrefix(`/w7s/vstream`) || PathPrefix(`/w7s/health`))",
+          "traefik.http.routers.speculum-api.rule=Host(`${PUBLIC_HOST}`) && (PathPrefix(`/w7s/api`) || PathPrefix(`/w7s/vhub`) || PathPrefix(`/w7s/vstream`) || PathPrefix(`/w7s/health`) || PathPrefix(`/w7s/virtual-assets`) || PathPrefix(`/w7s/virtual-blob`) || PathPrefix(`/w7s/virtual-data`))",
           "traefik.http.routers.speculum-api.entrypoints=websecure",
           "traefik.http.routers.speculum-api.tls.certresolver=le",
           "traefik.http.routers.speculum-api.priority=100",

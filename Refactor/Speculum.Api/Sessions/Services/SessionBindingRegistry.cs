@@ -163,6 +163,28 @@ public sealed class SessionBindingRegistry : ISessionBindingRegistry, IDisposabl
         return false;
     }
 
+    public bool TryGetLiveByToken(string token, out SessionBinding binding)
+    {
+        lock (_gate)
+        {
+            foreach (var (callerId, entry) in _byCaller)
+            {
+                if (entry.IsLive && FixedTimeEquals(entry.Token, token))
+                {
+                    binding = new SessionBinding(
+                        callerId,
+                        entry.SessionId,
+                        entry.AttachmentId,
+                        entry.Token);
+                    return true;
+                }
+            }
+        }
+
+        binding = null!;
+        return false;
+    }
+
     public IResult RegisterPipe(
         Guid sessionId,
         string token,

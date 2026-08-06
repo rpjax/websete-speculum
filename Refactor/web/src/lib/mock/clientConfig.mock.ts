@@ -10,9 +10,27 @@ const mockConfig: ClientConfig = {
   sessions: {
     detachedSessionTimeoutSeconds: 300,
     dataStreamTransport: 'webTransport',
+    mirrorMode: 'videoStreaming',
+    viewportPolicy: {
+      minWidth: 320,
+      minHeight: 240,
+      maxWidth: 4096,
+      maxHeight: 2160,
+      defaultWidth: 1280,
+      defaultHeight: 720,
+    },
     screencastMaxEncodeScale: 2,
   },
   resourceManagement: { maxConcurrentSessions: 8 },
+  telemetry: {
+    clientObservation: {
+      isEnabled: false,
+      sessionWire: true,
+      videoStreamingInput: false,
+      domProjectionDiff: false,
+      domProjectionInput: false,
+    },
+  },
   hosting: {
     required: false,
     domains: [

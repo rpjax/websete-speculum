@@ -4,6 +4,7 @@ import {
   describeTimeSpan,
   parseDotNetTimeSpan,
 } from './resourceManagementHelpers'
+import { SESSION_VIEWPORT_BASELINE } from '@/features/sessions/live/sessionViewportPolicy'
 
 export type JsonObject = Record<string, unknown>
 
@@ -33,17 +34,17 @@ export const DATA_STREAM_TRANSPORT_OPTIONS: Array<[string, string, string]> = [
   ],
 ]
 
-/** Admin-only Sessions.MirrorMode — Launch-scoped; not chosen by the session client. */
+/** Admin-only Sessions.MirrorMode — Launch-scoped; projected to client-config (client does not choose). */
 export const MIRROR_MODE_OPTIONS: Array<[string, string, string]> = [
   [
     'videoStreaming',
     'Video streaming',
-    'JPEG screencast frames and coordinate input (current product path).',
+    'JPEG screencast frames and coordinate input.',
   ],
   [
     'domProjection',
     'DOM projection',
-    'Projected DOM diffs and element input (plugin not wired yet; stored for Launch).',
+    'Projected DOM diffs and element input.',
   ],
 ]
 
@@ -53,9 +54,18 @@ export const SESSIONS_BASELINE: JsonObject = {
   dataStreamTransport: 'webTransport',
   mirrorMode: 'videoStreaming',
   viewportPolicy: {
-    minimum: { width: 100, height: 100 },
-    default: { width: 1280, height: 720 },
-    maximum: { width: 4096, height: 2160 },
+    minimum: {
+      width: SESSION_VIEWPORT_BASELINE.minWidth,
+      height: SESSION_VIEWPORT_BASELINE.minHeight,
+    },
+    default: {
+      width: SESSION_VIEWPORT_BASELINE.defaultWidth,
+      height: SESSION_VIEWPORT_BASELINE.defaultHeight,
+    },
+    maximum: {
+      width: SESSION_VIEWPORT_BASELINE.maxWidth,
+      height: SESSION_VIEWPORT_BASELINE.maxHeight,
+    },
   },
   clientEnvironmentPolicy: {
     defaultLocale: 'pt-BR',

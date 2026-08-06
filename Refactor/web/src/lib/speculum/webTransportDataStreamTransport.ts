@@ -1,5 +1,6 @@
 import { DefaultTransportPath, type PipeKindValue } from './constants'
 import { writePipeHeader } from './framing'
+import { appendSessionBindingQuery } from './sessionBindingAuth'
 import type {
   DataStreamPipe,
   DataStreamTransport,
@@ -118,9 +119,11 @@ function buildTransportUrl(
   sessionId: string,
   token: string,
 ): string {
-  const url = new URL(path, resolveOrigin(baseUrl))
-  url.searchParams.set('sessionId', sessionId)
-  url.searchParams.set('token', token)
+  const url = appendSessionBindingQuery(
+    new URL(path, resolveOrigin(baseUrl)),
+    sessionId,
+    token,
+  )
   return url.toString()
 }
 

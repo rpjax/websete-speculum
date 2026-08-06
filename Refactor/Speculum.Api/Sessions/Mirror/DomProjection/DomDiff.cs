@@ -3,7 +3,7 @@ using MessagePack;
 namespace Speculum.Api.Sessions.Mirror.DomProjection;
 
 /// <summary>
-/// Dom Projection outbound unit (snapshot or incremental patch) for the data plane.
+/// Dom Projection outbound unit (<c>diff</c> with <see cref="Target"/>, or <c>cssom</c> reload list).
 /// </summary>
 [MessagePackObject]
 public sealed class DomDiff
@@ -17,16 +17,23 @@ public sealed class DomDiff
     [Key("timestamp")]
     public long Timestamp { get; init; }
 
-    /// <summary>snapshot | patch</summary>
+    /// <summary>dom | cssom</summary>
+    [Key("treeType")]
+    public required string TreeType { get; init; }
+
+    /// <summary>diff | cssom</summary>
     [Key("kind")]
     public required string Kind { get; init; }
 
-    [Key("root")]
-    public DomNode? Root { get; init; }
+    /// <summary>document | anchors — required when <see cref="Kind"/> is diff.</summary>
+    [Key("target")]
+    public string? Target { get; init; }
 
-    [Key("ops")]
-    public List<DomOp>? Ops { get; init; }
+    /// <summary>Dom diff: mapped nodes (document root or anchor subtrees).</summary>
+    [Key("nodes")]
+    public List<DomNode>? Nodes { get; init; }
 
-    [Key("assetHints")]
-    public List<DomAssetHint>? AssetHints { get; init; }
+    /// <summary>CSSOM: virtual-asset URLs to reload.</summary>
+    [Key("urls")]
+    public List<string>? Urls { get; init; }
 }

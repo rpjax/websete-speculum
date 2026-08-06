@@ -11,8 +11,36 @@ public static class TelemetryJournalFacts
 {
     public const string SampleCollected = "Telemetry.Sampling.SampleCollected";
     public const string SessionSampleCollected = "Telemetry.Sampling.SessionSampleCollected";
-    public const string InputWebTransportReceived = "Telemetry.Sessions.Input.WebTransportReceived";
-    public const string InputControlReceived = "Telemetry.Sessions.Input.ControlReceived";
+    public const string VideoStreamingInputDataPlaneReceived =
+        "Telemetry.Sessions.VideoStreamingInput.DataPlaneReceived";
+    public const string VideoStreamingInputControlReceived =
+        "Telemetry.Sessions.VideoStreamingInput.ControlReceived";
+    public const string VideoStreamingInputSidecarPushWritten =
+        "Telemetry.Sessions.VideoStreamingInput.SidecarPushWritten";
+    public const string VideoStreamingInputSidecarAdmitted =
+        "Telemetry.Sessions.VideoStreamingInput.SidecarAdmitted";
+    public const string VideoStreamingInputApplied =
+        "Telemetry.Sessions.VideoStreamingInput.Applied";
+    public const string VideoStreamingInputRejected =
+        "Telemetry.Sessions.VideoStreamingInput.Rejected";
+    public const string DomProjectionDiffFrameReceived =
+        "Telemetry.Sessions.DomProjection.Diff.FrameReceived";
+    public const string DomProjectionDiffGenerationBumped =
+        "Telemetry.Sessions.DomProjection.Diff.GenerationBumped";
+    public const string DomProjectionInputDataPlaneReceived =
+        "Telemetry.Sessions.DomProjection.Input.DataPlaneReceived";
+    public const string DomProjectionInputAdmissionDropped =
+        "Telemetry.Sessions.DomProjection.Input.AdmissionDropped";
+    public const string DomProjectionInputSidecarPushWritten =
+        "Telemetry.Sessions.DomProjection.Input.SidecarPushWritten";
+    public const string DomProjectionInputSidecarAdmitted =
+        "Telemetry.Sessions.DomProjection.Input.SidecarAdmitted";
+    public const string DomProjectionInputCdpDropped =
+        "Telemetry.Sessions.DomProjection.Input.CdpDropped";
+    public const string DomProjectionInputApplied =
+        "Telemetry.Sessions.DomProjection.Input.Applied";
+    public const string DomProjectionInputRejected =
+        "Telemetry.Sessions.DomProjection.Input.Rejected";
 
     public static bool Owns(string type)
         => !string.IsNullOrWhiteSpace(type)

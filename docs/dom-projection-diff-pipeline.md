@@ -2,6 +2,13 @@
 
 **Status:** design complete (V1 contract).
 
+> **Supersession in progress:** the op-based **PageProjection** contract
+> (Dom + Cssom planes) is **behaviour-sealed** in
+> [dom-projection-diff-streams.md](dom-projection-diff-streams.md) +
+> [dom-projection-cssom.md](dom-projection-cssom.md). Cutover renames
+> `DomProjection` → `PageProjection` end-to-end. Until then, **this file
+> remains the implemented F contract**.
+
 **Scope:** only the producer function **F** —
 
 ```
@@ -19,7 +26,7 @@ Not this document:
 - Session viewport / video mirror
 
 **Related:** [architecture.md](architecture.md) · [naming.md](naming.md) ·
-Sessions `MirrorMode.DomProjection`
+Sessions `MirrorMode.DomProjection` (→ `PageProjection` at cutover)
 
 ---
 
@@ -114,7 +121,13 @@ pierced subtrees.
 **Climb / merge:** from each dirty node, climb to the **highest dirty ancestor**
 — that node is an emit root. Drop roots nested under another emit root.
 
-**DOM patch body** — a **list of mapped nodes** (not a single parent envelope):
+**DOM diff body** — always a **list of mapped nodes** (not a single parent
+envelope). Envelope carries `kind=diff` and `target`:
+
+| `target` | Meaning |
+|----------|---------|
+| `document` | Replace the projected document root (`html`) — install, post-nav, resync |
+| `anchors` | For each entry, find by `speculum-anchor` and replace that element |
 
 ```
 {
@@ -126,24 +139,32 @@ pierced subtrees.
 }
 ```
 
-Each mapped node carries its **`speculum-anchor`** (wire key = that id only).
-Do **not** use `{ rootAnchor, children }`.
+Each mapped node carries its **`speculum-anchor`** (wire key = that id only),
+except when `target=document` (root is the projected `html`).
+Do **not** use `{ rootAnchor, children }` or a separate snapshot kind.
 
-**DOM snapshot:** one tree — `mapNode(sessionRoot)` (with pierce). Not a list.
+**One emitter:** every Dom/cssom frame (install, nav, resync, MutationObserver,
+CSSOM) goes through the **same** chronological emitter. Order is that stream —
+not a second pipeline or hold gate.
 
-**Consumer:** for each entry in `nodes`, find by `speculum-anchor` and
-**replace that element** with the mapped node (replacement keeps the same
-anchor). Apply order: stable document order (or deepest-first — pick one in
-implementation and keep it).
+**Consumer:** `target=document` remounts the projected root; `target=anchors`
+replaces by anchor. Apply order for anchors: stable document order (or
+deepest-first — pick one in implementation and keep it).
 
 ### 4.3 Lifecycle + `generation`
 
 
-- Top-level navigation: reinstall F, `generation++`, DOM snapshot.
-- Iframe navigation: reinstall on that document; patch/snapshot affected
-  subtree (same `generation` unless top-level nav).
+- Top-level navigation: reinstall F, `generation++`, emit `diff` with
+  `target=document` of the current tree (same emitter as MO).
+- Iframe navigation: reinstall on that document; emit affected subtree
+  (`target=anchors` or document for that frame — same `generation` unless
+  top-level nav).
+- Resync: same as document establish — `diff` / `target=document`.
 
-`generation` drops late patches from a previous top-level document.
+`generation` drops late diffs from a previous top-level document.
+Opt-in `Telemetry.Sessions.DomProjection.Diff.GenerationBumped` (→ `PageProjection.*` at cutover) records bumps
+(`main_frame_navigated` | `page_emit_sync`) for Journal correlation with
+`FrameReceived`.
 
 ---
 
@@ -214,11 +235,12 @@ Serve: [dom-projection-virtual-assets.md](dom-projection-virtual-assets.md).
 
 | `treeType` | Body | Consumer |
 |------------|------|----------|
-| `dom` | **snapshot:** full mapped tree; **patch:** `{ nodes: mappedNode[] }` (§4.2) | Snapshot remount / patch: find each `speculum-anchor`, replace element |
-| `cssom` | List of Speculum virtual URLs that changed | **Full reload** those resources |
+| `dom` | `{ nodes: mappedNode[] }` (§4.2); envelope `kind=diff`, `target=document\|anchors` | Document remount or replace-by-anchor |
+| `cssom` | List of Speculum virtual URLs that changed; envelope `kind=cssom` | **Full reload** those resources |
 
-Every emit: `generation`, `sequence`, `timestamp`, `treeType`; `dom` also has
-`kind` = `snapshot` \| `patch`.
+Every emit: `generation`, `sequence`, `timestamp`, `treeType`, `kind`
+(`diff` \| `cssom`). Dom diffs also carry `target` (`document` \| `anchors`).
+`kind` / `target` live on the envelope only — not duplicated in the body JSON.
 
 ### 6.1 CSSOM detection (deterministic, cheap)
 
@@ -300,7 +322,7 @@ caps exist; **defaults, admin surface, and which knobs are runtime-configurable*
 are specified only in
 [dom-projection-coalesce.md](dom-projection-coalesce.md).
 
-Forced immediate flush: snapshots, configured caps, shutdown best-effort.
+Forced immediate flush: `target=document` establishes, configured caps, shutdown best-effort.
 
 ---
 
@@ -308,7 +330,7 @@ Forced immediate flush: snapshots, configured caps, shutdown best-effort.
 
 | Topic | Decision |
 |-------|----------|
-| Tree types | `dom` \| `cssom`; DOM patch = **list of mapped nodes** by `speculum-anchor`; CSSOM → full reload of listed URLs |
+| Tree types | `dom` \| `cssom`; Dom = `{ nodes }` + envelope `target`; CSSOM → full reload of listed URLs |
 | CSSOM detect | Write-path instrumentation (§6.1), not length-only poll |
 | Attrs | Deny-list |
 | Speculum attrs | One meaning per attr; booleans as `"true"` where applicable |
@@ -335,7 +357,9 @@ Forced immediate flush: snapshots, configured caps, shutdown best-effort.
 | **WeakMap restore** | If site strips `speculum-anchor`, V1 mints a new id. Later: remember prior id on the node and restore to reduce identity churn. |
 | **MSE / DRM bridges** | Real implementations behind stub attrs — serve/session work. |
 
-**Not later — already V1:** dirty climb to outermost dirty node + patch as `{ nodes: mapNode[] }` keyed only by `speculum-anchor` (§4.2). That *is* the simple climb/apply model; there is no separate “finer climb” deferral.
+**Not later — already V1:** dirty climb to outermost dirty node + Dom diff as
+`{ nodes: mapNode[] }` with envelope `target` (§4.2). That *is* the simple
+climb/apply model; there is no separate “finer climb” deferral.
 
 ---
 

@@ -11,18 +11,15 @@ import type {
   SessionEndedEvent,
   SessionEventMap,
   SessionInput,
+  SessionInputWireMeta,
 } from './types'
+import { normalizeMirrorMode } from './types'
 
 export interface LiveSessionOptions {
   control: ControlPlane
   sessionId: string
   token: string
-  /** Sessions.ViewportPolicy bounds from StartSession (sole client resize limits). */
-  viewportMinWidth: number
-  viewportMinHeight: number
-  viewportMaxWidth: number
-  viewportMaxHeight: number
-  /** Sessions.MirrorMode from StartSession. */
+  /** Sessions.MirrorMode ack from StartSession (surface already mounted from client-config). */
   mirrorMode?: MirrorMode
   baseUrl?: string
   /** Hub origin for `/w7s/health/webtransport-cert` pin fetch. */
@@ -39,10 +36,6 @@ export interface LiveSessionOptions {
 export class LiveSession extends Emitter<SessionEventMap> {
   readonly sessionId: string
   readonly token: string
-  readonly viewportMinWidth: number
-  readonly viewportMinHeight: number
-  readonly viewportMaxWidth: number
-  readonly viewportMaxHeight: number
   readonly mirrorMode: MirrorMode
   private readonly control: ControlPlane
   private readonly data: DataStreams
@@ -55,12 +48,7 @@ export class LiveSession extends Emitter<SessionEventMap> {
     super()
     this.sessionId = options.sessionId
     this.token = options.token
-    this.viewportMinWidth = options.viewportMinWidth
-    this.viewportMinHeight = options.viewportMinHeight
-    this.viewportMaxWidth = options.viewportMaxWidth
-    this.viewportMaxHeight = options.viewportMaxHeight
-    this.mirrorMode =
-      options.mirrorMode === 'domProjection' ? 'domProjection' : 'videoStreaming'
+    this.mirrorMode = normalizeMirrorMode(options.mirrorMode)
     this.control = options.control
     this.data = new DataStreams({
       baseUrl: options.baseUrl,
@@ -121,7 +109,7 @@ export class LiveSession extends Emitter<SessionEventMap> {
     await this.data.open()
   }
 
-  sendInput(input: SessionInput): Promise<void> {
+  sendInput(input: SessionInput & SessionInputWireMeta): Promise<void> {
     return this.data.sendInput(input)
   }
 

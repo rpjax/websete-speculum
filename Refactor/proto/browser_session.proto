@@ -278,11 +278,34 @@ message CrashEvent {
   optional string phase = 3;
 }
 
-// Opt-in input-path hop (API journals Telemetry.Sessions.Input.SidecarAdmitted when enabled).
-message InputPathEvent {
+// Opt-in VideoStreamingInput path hop (API journals
+// Telemetry.Sessions.VideoStreamingInput.SidecarAdmitted when enabled).
+message VideoStreamingInputPathEvent {
   string phase = 1; // admit
   string kind = 2;  // mousedown, keydown, …
   int64 unix_ms = 3;
+}
+
+// Opt-in DomProjection input path hop (API journals
+// Telemetry.Sessions.DomProjection.Input.SidecarAdmitted / CdpDropped when enabled).
+message DomProjectionInputPathEvent {
+  string phase = 1; // sidecar_admitted | cdp_dropped
+  string kind = 2;
+  int64 unix_ms = 3;
+  optional string reason = 4; // cdp_dropped only
+  optional int64 generation = 5;
+}
+
+// Opt-in DomProjection lifecycle (API journals
+// Telemetry.Sessions.DomProjection.Diff.GenerationBumped when enabled).
+message DomProjectionLifecycleEvent {
+  string kind = 1; // generation_bumped
+  int64 from_generation = 2;
+  int64 to_generation = 3;
+  string reason = 4; // main_frame_navigated | page_emit_sync
+  optional string url = 5;
+  optional string diff_kind = 6; // diff | cssom when reason=page_emit_sync
+  int64 unix_ms = 7;
 }
 
 // Opt-in allocation lifecycle (API journals Telemetry.Sessions.Sidecar.* when enabled).
@@ -299,30 +322,49 @@ message AllocationLifecycleEvent {
   int64 unix_ms = 10;
 }
 
-// Dom Projection outbound (sidecar → Api). body is UTF-8 JSON (snapshot tree or ops[]).
+// Dom Projection outbound (sidecar → Api). body is UTF-8 JSON
+// (diff nodes[] | cssom urls[]) — see docs/dom-projection-diff-pipeline.md.
+// kind/target live on the envelope only (not duplicated in body).
 message DomDiffFrame {
   int64 sequence = 1;
   int64 generation = 2;
-  string kind = 3; // snapshot | patch
+  string kind = 3; // diff | cssom
   int64 timestamp_ms = 4;
   bytes body = 5;
+  string tree_type = 6; // dom | cssom
+  string target = 7; // document | anchors (required when kind=diff; empty for cssom)
 }
 
 message DomInputEvent {
   string session_id = 1;
-  string type = 2; // click | input | keydown | keyup | scroll
-  int32 target_id = 3;
-  string payload_json = 4; // type-specific fields
+  string type = 2; // mousemove | mousedown | mouseup | input | keydown | … (no wire click)
+  string anchor = 3; // speculum-anchor; empty for pure motion
+  string payload_json = 4; // DomProjectionIntentPayload JSON
+  int64 generation = 5;
+  double timestamp_client = 6;
 }
 
 message GetDomAssetRequest {
   string session_id = 1;
-  string hash = 2;
+  string key = 2; // virtual-assets path key, or blob/data id
+  string kind = 3; // asset | blob | data (empty = infer)
+  string range_header = 4; // optional HTTP Range
 }
 
 message GetDomAssetResponse {
   bytes body = 1;
   string content_type = 2;
+  int32 status_code = 3; // 200 / 206 for pass-through
+  string content_range = 4;
+  bool pass_through = 5;
+}
+
+message PutDomUploadRequest {
+  string session_id = 1;
+  string upload_id = 2;
+  bytes body = 3;
+  string content_type = 4;
+  string name = 5;
 }
 
 // ── Inbound streams (Api → sidecar) ──────────────────────────────────────────
@@ -571,7 +613,9 @@ service BrowserSessionService {
   rpc WatchNavigationBlocked(SessionId) returns (stream NavigationBlockedEvent);
   rpc WatchEditableFocus(SessionId) returns (stream EditableFocusEvent);
   rpc WatchCrash(SessionId) returns (stream CrashEvent);
-  rpc WatchInputPath(SessionId) returns (stream InputPathEvent);
+  rpc WatchVideoStreamingInputPath(SessionId) returns (stream VideoStreamingInputPathEvent);
+  rpc WatchDomProjectionInputPath(SessionId) returns (stream DomProjectionInputPathEvent);
+  rpc WatchDomProjectionLifecycle(SessionId) returns (stream DomProjectionLifecycleEvent);
   rpc WatchAllocationLifecycle(SessionId) returns (stream AllocationLifecycleEvent);
 
   rpc PushInput(stream InputEvent) returns (Empty);
@@ -580,6 +624,7 @@ service BrowserSessionService {
   rpc PushMicrophone(stream MediaChunk) returns (Empty);
 
   rpc GetDomAsset(GetDomAssetRequest) returns (GetDomAssetResponse);
+  rpc PutDomUpload(PutDomUploadRequest) returns (Empty);
 
   rpc Control(stream ControlToSidecar) returns (stream ControlFromSidecar);
 

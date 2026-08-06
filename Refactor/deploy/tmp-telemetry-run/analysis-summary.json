@@ -1,0 +1,456 @@
+{
+  "totals": {
+    "telemetryFacts": 186,
+    "sessionFacts": 11,
+    "sessionIds": [
+      "f9c051c4-774b-4f1b-aace-f6d10d76eefd"
+    ]
+  },
+  "byType": {
+    "Telemetry.Sessions.DomProjection.Input.SidecarPushWritten": 48,
+    "Telemetry.Sessions.DomProjection.Input.Applied": 48,
+    "Telemetry.Sessions.DomProjection.Input.DataPlaneReceived": 48,
+    "Telemetry.Sessions.DomProjection.Diff.FrameReceived": 32,
+    "Telemetry.Sessions.Browse.LocationChanged": 2,
+    "Telemetry.Sessions.Resize.Rejected": 2,
+    "Telemetry.Sessions.Capacity.SlotReleased": 1,
+    "Telemetry.Sessions.Resize.Applied": 1,
+    "Telemetry.Sessions.Sidecar.DisplayAllocated": 1,
+    "Telemetry.Sessions.Sidecar.SessionAllocated": 1,
+    "Telemetry.Sessions.Start.UrlResolved": 1,
+    "Telemetry.Sessions.Capacity.SlotAcquired": 1
+  },
+  "diff": {
+    "count": 32,
+    "kinds": {
+      "patch": 29,
+      "snapshot": 3
+    },
+    "gaps": [],
+    "genBumps": [
+      {
+        "from": 1,
+        "to": 2,
+        "at": "2026-08-04T22:15:06.0142751-03:00",
+        "seq": 5
+      },
+      {
+        "from": 2,
+        "to": 3,
+        "at": "2026-08-04T22:15:10.0111706-03:00",
+        "seq": 13
+      }
+    ],
+    "withTimestamp": 32,
+    "first": {
+      "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
+      "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd",
+      "kind": "snapshot",
+      "treeType": "dom",
+      "sequence": 1,
+      "generation": 1,
+      "timestamp": 1785892504401,
+      "nodeCount": null,
+      "urlCount": null
+    },
+    "last": {
+      "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
+      "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd",
+      "kind": "patch",
+      "treeType": "dom",
+      "sequence": 32,
+      "generation": 3,
+      "timestamp": 1785892521046,
+      "nodeCount": 1,
+      "urlCount": null
+    }
+  },
+  "domInput": {
+    "dataPlane": 48,
+    "push": 48,
+    "applied": 48,
+    "rejected": 0,
+    "samples": {
+      "dataPlane": [
+        {
+          "at": "2026-08-04T22:15:17.0866349-03:00",
+          "seq": 13701,
+          "schema": 2,
+          "payload": {
+            "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
+            "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd",
+            "kind": "scroll",
+            "generation": 3,
+            "anchor": null,
+            "traceId": "996d7513473b4c179bc0b47dadfa2242",
+            "clientTimestampMs": 18424
+          }
+        },
+        {
+          "at": "2026-08-04T22:15:14.8650348-03:00",
+          "seq": 13696,
+          "schema": 2,
+          "payload": {
+            "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
+            "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd",
+            "kind": "scroll",
+            "generation": 3,
+            "anchor": null,
+            "traceId": "bddba493f4124a3596a6c6ed416d99ad",
+            "clientTimestampMs": 16202
+          }
+        },
+        {
+          "at": "2026-08-04T22:15:14.8505324-03:00",
+          "seq": 13693,
+          "schema": 2,
+          "payload": {
+            "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
+            "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd",
+            "kind": "scroll",
+            "generation": 3,
+            "anchor": null,
+            "traceId": "3d8a725ab3e841e39810f85e9d440e7b",
+            "clientTimestampMs": 16187
+          }
+        },
+        {
+          "at": "2026-08-04T22:15:14.8379367-03:00",
+          "seq": 13690,
+          "schema": 2,
+          "payload": {
+            "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
+            "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd",
+            "kind": "scroll",
+            "generation": 3,
+            "anchor": null,
+            "traceId": "2bf935e937e6439bae1d1e5043cad421",
+            "clientTimestampMs": 16171
+          }
+        },
+        {
+          "at": "2026-08-04T22:15:14.8188797-03:00",
+          "seq": 13687,
+          "schema": 2,
+          "payload": {
+            "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
+            "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd",
+            "kind": "scroll",
+            "generation": 3,
+            "anchor": null,
+            "traceId": "4c6891bcec98431d99fc88523b861846",
+            "clientTimestampMs": 16156
+          }
+        }
+      ],
+      "applied": [
+        {
+          "at": "2026-08-04T22:15:17.0871779-03:00",
+          "seq": 13702,
+          "schema": 2,
+          "payload": {
+            "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
+            "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd",
+            "kind": "scroll",
+            "phase": "push",
+            "generation": 3,
+            "anchor": null,
+            "traceId": "996d7513473b4c179bc0b47dadfa2242",
+            "clientTimestampMs": 18424
+          }
+        },
+        {
+          "at": "2026-08-04T22:15:14.8654563-03:00",
+          "seq": 13697,
+          "schema": 2,
+          "payload": {
+            "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
+            "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd",
+            "kind": "scroll",
+            "phase": "push",
+            "generation": 3,
+            "anchor": null,
+            "traceId": "bddba493f4124a3596a6c6ed416d99ad",
+            "clientTimestampMs": 16202
+          }
+        },
+        {
+          "at": "2026-08-04T22:15:14.8518669-03:00",
+          "seq": 13694,
+          "schema": 2,
+          "payload": {
+            "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
+            "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd",
+            "kind": "scroll",
+            "phase": "push",
+            "generation": 3,
+            "anchor": null,
+            "traceId": "3d8a725ab3e841e39810f85e9d440e7b",
+            "clientTimestampMs": 16187
+          }
+        },
+        {
+          "at": "2026-08-04T22:15:14.8382133-03:00",
+          "seq": 13691,
+          "schema": 2,
+          "payload": {
+            "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
+            "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd",
+            "kind": "scroll",
+            "phase": "push",
+            "generation": 3,
+            "anchor": null,
+            "traceId": "2bf935e937e6439bae1d1e5043cad421",
+            "clientTimestampMs": 16171
+          }
+        },
+        {
+          "at": "2026-08-04T22:15:14.8192517-03:00",
+          "seq": 13688,
+          "schema": 2,
+          "payload": {
+            "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
+            "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd",
+            "kind": "scroll",
+            "phase": "push",
+            "generation": 3,
+            "anchor": null,
+            "traceId": "4c6891bcec98431d99fc88523b861846",
+            "clientTimestampMs": 16156
+          }
+        }
+      ]
+    }
+  },
+  "videoStreamingInputCount": 0,
+  "rejectedOrFault": [
+    {
+      "type": "Telemetry.Sessions.Resize.Rejected",
+      "at": "2026-08-04T22:15:06.6599223-03:00",
+      "payload": {
+        "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
+        "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd",
+        "width": 1374,
+        "height": 770,
+        "resizeId": "019fcf7d-0c23-7a7d-a3e4-ef69b8bfd48b",
+        "errorCode": "resize_busy",
+        "message": "another command is in progress",
+        "phase": "validate"
+      }
+    },
+    {
+      "type": "Telemetry.Sessions.Resize.Rejected",
+      "at": "2026-08-04T22:15:05.9239957-03:00",
+      "payload": {
+        "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
+        "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd",
+        "width": 1374,
+        "height": 770,
+        "resizeId": "019fcf7d-0941-7f78-adb4-a7aeb38a4df9",
+        "errorCode": "resize_busy",
+        "message": "another command is in progress",
+        "phase": "validate"
+      }
+    }
+  ],
+  "correlation": {
+    "factsWithTraceId": 144,
+    "factsWithClientTimestampMs": 144
+  },
+  "sessionNarrative": [
+    {
+      "type": "Sessions.SessionStopped",
+      "at": "2026-08-04T22:15:22.3354829-03:00",
+      "payload": {
+        "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd",
+        "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
+        "reason": "UserStop"
+      }
+    },
+    {
+      "type": "Sessions.ConnectionClosed",
+      "at": "2026-08-04T22:15:22.3325049-03:00",
+      "payload": {
+        "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
+        "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd"
+      }
+    },
+    {
+      "type": "Sessions.BrowserClosed",
+      "at": "2026-08-04T22:15:22.3038132-03:00",
+      "payload": {
+        "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
+        "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd"
+      }
+    },
+    {
+      "type": "Sessions.SessionStatePersisted",
+      "at": "2026-08-04T22:15:21.6125073-03:00",
+      "payload": {
+        "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
+        "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd"
+      }
+    },
+    {
+      "type": "Sessions.SessionStopping",
+      "at": "2026-08-04T22:15:19.4856783-03:00",
+      "payload": {
+        "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
+        "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd",
+        "reason": "UserStop"
+      }
+    },
+    {
+      "type": "Sessions.InitialNavigationCompleted",
+      "at": "2026-08-04T22:15:07.4098122-03:00",
+      "payload": {
+        "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
+        "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd",
+        "url": "https://www.google.com/"
+      }
+    },
+    {
+      "type": "Sessions.SessionStarted",
+      "at": "2026-08-04T22:15:04.5404499-03:00",
+      "payload": {
+        "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
+        "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd"
+      }
+    },
+    {
+      "type": "Sessions.ProfileStateRestored",
+      "at": "2026-08-04T22:15:04.439853-03:00",
+      "payload": {
+        "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
+        "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd",
+        "cookieTotal": 0,
+        "cookieSkipped": 0,
+        "cookieNormalized": 0,
+        "cookieApplied": 0,
+        "cookieFailedIndividual": 0
+      }
+    },
+    {
+      "type": "Sessions.BrowserLaunched",
+      "at": "2026-08-04T22:15:04.4122411-03:00",
+      "payload": {
+        "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
+        "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd"
+      }
+    },
+    {
+      "type": "Sessions.ConnectionStarted",
+      "at": "2026-08-04T22:15:01.7369817-03:00",
+      "payload": {
+        "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
+        "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd"
+      }
+    },
+    {
+      "type": "Sessions.SessionStarting",
+      "at": "2026-08-04T22:15:01.6765064-03:00",
+      "payload": {
+        "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
+        "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd"
+      }
+    }
+  ],
+  "sampleDiff": [
+    {
+      "at": "2026-08-04T22:15:21.22979-03:00",
+      "seq": 13716,
+      "schema": 2,
+      "payload": {
+        "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
+        "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd",
+        "kind": "patch",
+        "treeType": "dom",
+        "sequence": 32,
+        "generation": 3,
+        "timestamp": 1785892521046,
+        "nodeCount": 1,
+        "urlCount": null
+      }
+    },
+    {
+      "at": "2026-08-04T22:15:20.8884985-03:00",
+      "seq": 13715,
+      "schema": 2,
+      "payload": {
+        "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
+        "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd",
+        "kind": "patch",
+        "treeType": "dom",
+        "sequence": 31,
+        "generation": 3,
+        "timestamp": 1785892520851,
+        "nodeCount": 1,
+        "urlCount": null
+      }
+    },
+    {
+      "at": "2026-08-04T22:15:20.6182327-03:00",
+      "seq": 13714,
+      "schema": 2,
+      "payload": {
+        "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
+        "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd",
+        "kind": "patch",
+        "treeType": "dom",
+        "sequence": 30,
+        "generation": 3,
+        "timestamp": 1785892520522,
+        "nodeCount": 1,
+        "urlCount": null
+      }
+    },
+    {
+      "at": "2026-08-04T22:15:05.8710403-03:00",
+      "seq": 13537,
+      "schema": 2,
+      "payload": {
+        "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
+        "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd",
+        "kind": "patch",
+        "treeType": "dom",
+        "sequence": 3,
+        "generation": 1,
+        "timestamp": 1785892505795,
+        "nodeCount": 1,
+        "urlCount": null
+      }
+    },
+    {
+      "at": "2026-08-04T22:15:05.7811376-03:00",
+      "seq": 13536,
+      "schema": 2,
+      "payload": {
+        "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
+        "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd",
+        "kind": "patch",
+        "treeType": "dom",
+        "sequence": 2,
+        "generation": 1,
+        "timestamp": 1785892505731,
+        "nodeCount": 1,
+        "urlCount": null
+      }
+    },
+    {
+      "at": "2026-08-04T22:15:04.5362541-03:00",
+      "seq": 13534,
+      "schema": 2,
+      "payload": {
+        "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
+        "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd",
+        "kind": "snapshot",
+        "treeType": "dom",
+        "sequence": 1,
+        "generation": 1,
+        "timestamp": 1785892504401,
+        "nodeCount": null,
+        "urlCount": null
+      }
+    }
+  ]
+}

@@ -13,6 +13,7 @@ type LabCanvasStageProps = Pick<
   | 'attachDomDiffSink'
   | 'onInput'
   | 'onDomInput'
+  | 'onDiffObserve'
   | 'requestRemoteResize'
   | 'viewportPolicy'
   | 'onCanvasLayout'
@@ -44,6 +45,7 @@ export function LabCanvasStage({
   attachDomDiffSink,
   onInput,
   onDomInput,
+  onDiffObserve,
   requestRemoteResize,
   viewportPolicy,
   onCanvasLayout,
@@ -74,6 +76,7 @@ export function LabCanvasStage({
         attachDomDiffSink={attachDomDiffSink}
         onInput={onInput}
         onDomInput={onDomInput}
+        onDiffObserve={onDiffObserve}
         requestRemoteResize={requestRemoteResize}
         viewportPolicy={viewportPolicy}
         onCanvasLayout={onCanvasLayout}

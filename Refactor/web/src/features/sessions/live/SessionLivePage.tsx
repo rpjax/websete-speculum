@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { API_URL } from '@/lib/env'
 import { fetchClientConfig } from '@/lib/clientConfig'
+import { SessionObservationChrome } from '@/features/sessions/debug/SessionObservationChrome'
 import { SessionMirrorSurface } from '@/features/sessions/live/SessionMirrorSurface'
 import { parseClientNavigation } from '@/features/sessions/live/sessionCoords'
 import { useLiveSession } from '@/features/sessions/live/useLiveSession'
@@ -10,8 +11,8 @@ const VIEWPORT = { width: 1280, height: 720 }
 
 /**
  * Immersive live surface: same {@link useLiveSession} + {@link SessionMirrorSurface}
- * as the session lab — no debug chrome, no Journal stream, no session vocabulary.
- * Default / catch-all route: browser path/query feeds StartSession as-is.
+ * as the session lab. Front observation chrome appears when
+ * Telemetry.ClientObservation is enabled (revealing UI — not always-on dock).
  */
 export default function SessionLivePage() {
   const session = useLiveSession({ viewport: VIEWPORT, debug: false })
@@ -48,7 +49,7 @@ export default function SessionLivePage() {
   const failed = session.phase === 'error'
 
   return (
-    <div className="fixed inset-0 bg-white">
+    <div className="fixed inset-0 bg-neutral-950">
       <SessionMirrorSurface
         mirrorMode={session.mirrorMode}
         sessionId={session.sessionId}
@@ -61,6 +62,7 @@ export default function SessionLivePage() {
         attachDomDiffSink={session.attachDomDiffSink}
         onInput={session.sendInput}
         onDomInput={session.sendDomInput}
+        onDiffObserve={session.observeDomDiffApply}
         requestRemoteResize={session.requestRemoteResize}
         viewportPolicy={session.viewportPolicy ?? undefined}
         onCanvasLayout={session.onCanvasLayout}
@@ -73,6 +75,11 @@ export default function SessionLivePage() {
         presentation="immersive"
         className="h-full w-full"
         label="Page"
+      />
+      <SessionObservationChrome
+        presentation="live-float"
+        entries={session.entries}
+        observation={session.clientObservation}
       />
       {failed ? (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-white">

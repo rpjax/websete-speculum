@@ -200,6 +200,7 @@ class PatchrightBrowserSession {
                 this.input = new Input_1.InputController(this.chrome.page, patchrightBackend);
                 this.domProjection = await DomProjection_1.DomProjection.start(this.chrome.page, {
                     onDomDiff: (diff) => this.events.onDomDiff?.(diff),
+                    onGenerationBumped: (event) => this.events.onDomProjectionGenerationBumped?.(event),
                 });
                 this.domElementInput = new DomElementInput_1.DomElementInput(this.chrome.page, this.domProjection);
                 // Asset Fetch intercept deferred — Navigation.setupFetchGuard owns Fetch.enable.
@@ -726,14 +727,54 @@ class PatchrightBrowserSession {
                 phase: 'input',
             });
         }
-        await this.domElementInput.dispatch(input);
+        return await this.domElementInput.dispatch(input);
     }
-    async getDomAsset(hash) {
+    async getDomAsset(key, opts) {
         this.ensureLive();
-        const hit = this.domProjection?.getAsset(hash);
-        if (!hit)
+        if (!this.domProjection || !key)
             return null;
-        return { body: hit.body, contentType: hit.contentType };
+        let lookup = key;
+        const kind = (opts?.kind ?? '').toLowerCase();
+        if (kind === 'blob')
+            lookup = key.startsWith('_blob/') ? key : `_blob/${key}`;
+        else if (kind === 'data')
+            lookup = key.startsWith('_data/') ? key : `_data/${key}`;
+        const hit = this.domProjection.getAsset(lookup);
+        if (hit && hit.body.byteLength > 0 && hit.mode === 'cache' && !opts?.rangeHeader) {
+            return { body: hit.body, contentType: hit.contentType, statusCode: 200 };
+        }
+        if (hit?.mode === 'pass-through' || opts?.rangeHeader || (hit && hit.body.byteLength === 0)) {
+            const pt = await this.domProjection.fetchPassThrough(lookup, opts?.rangeHeader);
+            if (!pt)
+                return hit && hit.body.byteLength > 0
+                    ? { body: hit.body, contentType: hit.contentType, statusCode: 200 }
+                    : null;
+            return {
+                body: pt.body,
+                contentType: pt.contentType,
+                statusCode: pt.statusCode,
+                contentRange: pt.contentRange,
+                passThrough: true,
+            };
+        }
+        if (hit && hit.body.byteLength > 0) {
+            return { body: hit.body, contentType: hit.contentType, statusCode: 200 };
+        }
+        // Warm miss: try pass-through reconstruct from key as https URL.
+        const pt = await this.domProjection.fetchPassThrough(lookup, opts?.rangeHeader);
+        if (!pt)
+            return null;
+        return {
+            body: pt.body,
+            contentType: pt.contentType,
+            statusCode: pt.statusCode,
+            contentRange: pt.contentRange,
+            passThrough: true,
+        };
+    }
+    async putDomUpload(id, body, contentType, name) {
+        this.ensureLive();
+        this.domProjection?.putUpload(id, Buffer.from(body), contentType, name);
     }
     async pushCameraFrame(frame) {
         await this.media.pushCameraFrame(frame);

@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Options;
 using Speculum.Api.Database;
+using Speculum.Api.Profiles.Requests;
 using Speculum.Api.Profiles.Services.Contracts;
 using Speculum.Api.Telemetry.Ports;
 
@@ -17,7 +18,9 @@ public sealed class ProfileTelemetrySampleSource(
     {
         using var scope = scopes.CreateScope();
         var repository = scope.ServiceProvider.GetRequiredService<IProfileRepository>();
-        var (_, total) = await repository.ListAsync(0, 1, ct).ConfigureAwait(false);
+        var (_, total) = await repository
+            .ListAsync(new ListProfiles { Skip = 0, Take = 1 }, ct)
+            .ConfigureAwait(false);
         return (total, includeStorageBytes ? GetDatabaseSize() : null);
     }
 

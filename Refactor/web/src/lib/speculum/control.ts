@@ -17,6 +17,7 @@ import type {
   ResizeSessionRequest,
   ResizeSessionResult,
 } from './types'
+import { normalizeMirrorMode } from './types'
 
 export interface ControlPlaneOptions {
   baseUrl?: string
@@ -114,14 +115,7 @@ export class ControlPlane {
     return {
       sessionId: String(response.sessionId),
       token: String(response.token),
-      viewportMinWidth: Number(response.viewportMinWidth),
-      viewportMinHeight: Number(response.viewportMinHeight),
-      viewportMaxWidth: Number(response.viewportMaxWidth),
-      viewportMaxHeight: Number(response.viewportMaxHeight),
-      mirrorMode:
-        String(response.mirrorMode ?? '') === 'domProjection'
-          ? 'domProjection'
-          : 'videoStreaming',
+      mirrorMode: normalizeMirrorMode(response.mirrorMode),
     }
   }
 

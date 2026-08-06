@@ -425,7 +425,7 @@ tests + telemetry** in the same structural move (V1: no aliases).
 | Area | Today (examples) | Target |
 |------|------------------|--------|
 | Config / enum | `MirrorMode.DomProjection`, wire `domProjection` | `MirrorMode.PageProjection`, `pageProjection` |
-| `ILiveSession` streams / APIs | Dom diff open, `AdmitDomProjectionInput`, … | PageProjection diff stream; input APIs under PageProjection (DOM-plane input may keep `Dom*` for the *plane*, not the mode) |
+| `ILiveSession` streams / APIs | Dom diff open, `AdmitDomProjectionInput`, … | PageProjection diff stream; **`AdmitPageProjectionInput` / `PageProjectionIntent`** (full input rename — not left as DomProjection*) |
 | Namespaces / folders | `Sessions.Mirror.DomProjection`, `Telemetry…DomProjection` | `Sessions.Mirror.PageProjection` (+ `Dom` / `Cssom` subfolders for planes); `Telemetry.Sessions.PageProjection.*` |
 | Hub / DTOs / opcodes | DomProjection* message types, client `domProjection` | PageProjection*; client `pageProjection` |
 | Proto / gRPC | `WatchDomProjection*`, `DomProjection*Event`, launch mirrorMode | `WatchPageProjection*` / plane-specific watches as needed; `pageProjection` |
@@ -462,6 +462,7 @@ T11 cutover (rename + new ops/planes together preferred).
 | 2026-08-06 | C9 | **LOCKED** one PageProjection pipe; plane dom\|cssom; Mirror stays parent technique; DomProjection→PageProjection E2E rename (front/API/sidecar/proto/telemetry/docs); no shims; old URL cssom deleted. |
 | 2026-08-06 | C3.1 | **LOCKED** anti-flicker granularity: smallest sufficient op; live=patch/ruleList/sheetList only; install/resync/host-kill only for full establish/teardown; replaceSync→ruleList only; patch apply in-place; no live full-text sheet rewrite. |
 | 2026-08-06 | Meta | **SEALED** CSSOM plane behaviour + PageProjection naming. No open CSSOM contract gaps; cutover = T11/T12 only. |
+| 2026-08-06 | Input | **LOCKED** E2E rename includes input (`PageProjectionIntent`); desync disarm is client-only — Virtual gets no desync signal; no input `resync` type. |
 
 ---
 

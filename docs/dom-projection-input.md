@@ -1,12 +1,17 @@
 # Dom Projection — input propagation & bindings
 
-**Status:** design complete (V1 contract).
+**Status:** design complete (V1 contract) — **aligned with PageProjection seal**
+(I1–I5). Cutover rename with T11.
 
 > **Naming / supersession:** product mode/pipe is **PageProjection**
-> (`MirrorMode.PageProjection`), not `DomProjection`. Sealed contracts:
-> [dom-projection-diff-streams.md](dom-projection-diff-streams.md) (Dom plane),
-> [dom-projection-cssom.md](dom-projection-cssom.md) (Cssom plane). This file
-> remains the implemented V1 contract until T11/T12 cutover.
+> (`MirrorMode.PageProjection`), not `DomProjection`. **E2E rename includes
+> this input contract** — `DomProjectionIntent` → `PageProjectionIntent`,
+> telemetry `…PageProjection.Input.*`, mode checks, client/sidecar APIs (T11).
+> Sealed Dom/Cssom planes:
+> [dom-projection-diff-streams.md](dom-projection-diff-streams.md),
+> [dom-projection-cssom.md](dom-projection-cssom.md).
+> This file remains the implemented V1 behaviour until cutover (names update
+> with T11; no V1 aliases).
 
 
 **Scope:** how user intent on the **Projected DOM** is captured, sent, and
@@ -48,7 +53,7 @@ No site JS on Projected. Antibot-relevant pointer **paths** are remoted over
 | **Projected DOM** | Client tree from F; Speculum chrome attaches listeners. |
 | **Virtual DOM** | Chromium DOM; site JS runs here. |
 | **Anchor** | `speculum-anchor` — shared element identity (F). |
-| **Intent** | Wire message: `DomProjectionIntent`. |
+| **Intent** | Wire message: `PageProjectionIntent` (today’s code: `DomProjectionIntent` until T11). |
 | **Surface** | Projection host content box that maps 1:1 to the Virtual viewport. |
 | **Dispatch** | CDP / Patchright apply on Virtual (never OS/uinput). |
 | **Binding** | Projected ↔ Virtual control sync via F attrs + debounce. |
@@ -63,7 +68,7 @@ No site JS on Projected. Antibot-relevant pointer **paths** are remoted over
 | Mode | Input path |
 |------|------------|
 | **VideoStreaming** | Existing OS/uinput and/or CDP **display** inject — unchanged. |
-| **DomProjection** | **Isolated.** No `OsInputBackend`, no `/dev/uinput`, no X11 virtual devices. |
+| **PageProjection** | **Isolated.** No `OsInputBackend`, no `/dev/uinput`, no X11 virtual devices. |
 
 ### 3.2 CDP-pure
 
@@ -97,13 +102,16 @@ No site JS on Projected. Antibot-relevant pointer **paths** are remoted over
 6. Pierce-aware resolve for anchors; client does not run iframe/shadow JS.
 7. **No double-fire** of the same physical gesture (§6.5).
 8. **Inject chain** never reorders moves after their following down/up.
+9. **Desync is client-only:** while PageProjection is desynced, the client
+   **does not emit** intents. Virtual never needs a “client is desynced” signal.
+   Recovery = client OOB `PageProjection.Resync` (not an input intent) — §9.1.
 
 ---
 
 ## 5. End-to-end flow
 
 ```
-Projected → coalesce pointer/scroll → DomProjectionIntent
+Projected → coalesce pointer / scrollViewport|scrollElement → PageProjectionIntent
         → data-plane → sidecar inject chain → CDP
         → site JS → F DomDiff → Projected
 ```
@@ -117,15 +125,15 @@ Projected → coalesce pointer/scroll → DomProjectionIntent
 Logical MessagePack / proto fields (camelCase on the wire):
 
 ```
-DomProjectionIntent {
+PageProjectionIntent {              // rename from DomProjectionIntent at T11
   generation: u64
   type: string                 // see §6.2
   anchor: string | null        // required for element intents
   timestampClient: f64 | null  // performance.now() or epoch ms — pick one in impl, keep stable
-  payload: DomProjectionIntentPayload
+  payload: PageProjectionIntentPayload
 }
 
-DomProjectionIntentPayload {
+PageProjectionIntentPayload {
   // Pointer / wheel (CSS px in surface space — §6.3)
   x: f64 | null
   y: f64 | null
@@ -155,14 +163,19 @@ DomProjectionIntentPayload {
   checked: bool | null
 
   // File upload (§6.9)
-  files: DomProjectionFileRef[] | null
+  files: PageProjectionFileRef[] | null
 
-  // Scroll
+  // Scroll fields are **type-exclusive** (§9) — not a free nullable bag:
+  //   type=scrollViewport → scrollX, scrollY (anchor null)
+  //   type=scrollElement  → scrollTop, scrollLeft (anchor required)
+  // Other types must omit/null all four.
+  scrollX: f64 | null
+  scrollY: f64 | null
   scrollTop: f64 | null
   scrollLeft: f64 | null
 }
 
-DomProjectionFileRef {
+PageProjectionFileRef {           // rename at T11
   uploadId: string | null      // from POST dom-uploads (preferred)
   name: string
   type: string                 // MIME
@@ -188,9 +201,9 @@ Unused fields are null/omitted. Evolve with schema version only if breaking.
 | `input` | input/change on non-file controls | focus + value / `insertText` |
 | `setFiles` | user chose file(s) for `input[type=file]` (§6.9) | Playwright/CDP `setInputFiles` |
 | `keydown` / `keyup` | keys | `dispatchKeyEvent` |
-| `scroll` | scroll containers / document | scroll positions via CDP-capable path |
+| `scrollViewport` | user scrolled the **page/viewport** | absolute viewport scroll via CDP-capable path |
+| `scrollElement` | user scrolled an **overflow container** | absolute `scrollTop`/`scrollLeft` on anchored element |
 | `focus` / `blur` | focus changes on anchored controls | CDP/Patchright focus/blur |
-| `resync` | recovery | F document diff |
 
 **No wire `click` intent in V1.** The browser `click` event on Projected is
 `preventDefault`’d (as needed) and **not** forwarded. Activation on Virtual is
@@ -237,9 +250,11 @@ Letterboxing / CSS scale on the surface is corrected by the
 - Strict serial execution: prior intent finishes (or fails) before next runs.
 - **Hard rule under load:** never drop `mousedown`, `mouseup`, `pointerdown`,
   `pointerup`, `keydown`, `keyup`, `input`, `setFiles`, `focus`, `blur`,
-  `scroll`, `wheel`, `resync`.
+  `input`, `setFiles`, `focus`, `blur`,
+  `scrollViewport`, `scrollElement`, `wheel`.
 - If chain depth or age exceeds limits: **collapse queued moves** to a single
-  latest `mousemove`/`pointermove` (and latest scroll sample); emit metric /
+  latest `mousemove`/`pointermove` (and latest scroll sample **per scroller**);
+  emit metric /
   diagnostic. Do not stall presses behind a long move backlog — drop/coalesce
   moves first.
 
@@ -279,7 +294,13 @@ Follow the session **device profile** (same notion as video `touchPrimary`):
 
 Do not open OS multitouch devices for Dom Projection.
 
-### 6.7 Target resolution
+### 6.7 Target resolution (LOCKED — anchor, not DomSelector)
+
+**Intent addressing ≠ Dom-plane `DomSelector`.** Diffs use `DomSelector`
+(`element` | `childAt`) for projected apply. Intents always target an
+**element** (or the viewport) on Virtual via CDP — wire identity stays
+**`speculum-anchor`** (+ surface coords for pointer). No `childAt` / text-node
+locus on the input wire.
 
 **Projected — element intents**
 
@@ -395,8 +416,7 @@ Oversize → reject on client/API with clear error; no partial silent truncate.
 
 ## 7. Bindings (Projected ↔ Virtual controls)
 
-Aligned with F
-([dom-projection-diff-pipeline.md](dom-projection-diff-pipeline.md) §5.2):
+Aligned with F / Dom-plane D16 (`speculum-input-*` on patches):
 
 | Attr | Meaning |
 |------|---------|
@@ -404,20 +424,25 @@ Aligned with F
 | `speculum-input-checked` | Upstream checked |
 | `speculum-option-selected` | Upstream selected |
 
-### 7.1 Downstream
+### 7.1 Downstream (user → Virtual) — **immediate**
 
-Local apply → `input` intent → mark locally dirty.
+Local edit → emit `input` (or key) intent **immediately** — **no**
+`inputBindingDebounceMs` on the send path. Mark the control **locally dirty**
+so upstream patches know there is an in-flight edit conflict class.
 
-### 7.2 Upstream
+### 7.2 Upstream (Virtual → Projected) — debounce **only** when dirty
 
-- Not dirty → apply F attrs immediately.
-- Dirty → debounce (**default 1000ms**, configurable §11): keep latest upstream;
-  on fire, if local ≠ upstream → overwrite (Virtual wins).
+- Control **not** dirty → apply F/`patch` attrs **immediately**.  
+- Control **dirty** (user editing this control) → debounce
+  (**default 1000ms**, `inputBindingDebounceMs` §11): keep latest upstream
+  sample; on fire, if local ≠ upstream → overwrite (**Virtual wins**).  
+- This debounce is **only** the “user is editing this control” conflict class
+  (Dom-plane D16). It is **not** a global delay on every Dom `patch`.  
 - Caret/selection: **not** synced in V1 (accept jump on force overwrite).
 
 ### 7.3 Checked / select
 
-Same dirty/debounce rules.
+Same rules: intent send immediate; upstream debounce only while dirty.
 
 ---
 
@@ -429,21 +454,56 @@ When resolve(anchor) misses:
    ~50ms total) — covers in-flight DomDiff apply replacing the node.
 2. If still missing and `generation` matches: drop intent; emit diagnostic
    `anchorMiss`; do **not** invent a target.
-3. Optional client soft-hint: request `resync` only on repeated misses (threshold
-   impl-defined, e.g. N misses / 5s) — never resync storms.
+3. Optional: after repeated misses (threshold impl-defined), client may enter
+   **desync** and run OOB `PageProjection.Resync` — never storm; never a wire
+   input intent named `resync`.
 
 Stale `generation` → drop immediately (no retry).
 
 ---
 
-## 9. Scroll & focus (closed)
+## 9. Scroll & focus (closed — aligned with Dom-plane seal)
 
-**Scroll:** capture → coalesced `scroll` intent → Virtual scroll positions.
-Throttle with pointer family defaults. F does not project scroll offsets in V1.
+**Scroll (LOCKED — same split as PageProjection Dom diffs):**
+
+Two intent types — **no** single `scroll` mega-payload with everything nullable
+(already locked in Dom-plane scroll debate; this doc must match):
+
+| Type | `anchor` | Payload (absolute) |
+|------|----------|-------------------|
+| `scrollViewport` | omitted | `{ scrollX, scrollY }` |
+| `scrollElement` | **required** (scroll container) | `{ scrollTop, scrollLeft }` |
+
+- Coalesce **per scroller** (one bucket for viewport; one per container anchor)
+  → **last sample**.  
+- Never drop scroll under inject-chain pressure (collapse to latest sample for
+  that scroller only — §6.4).  
+- F / Dom diffs do **not** carry scroll offsets; Virtual→client uses
+  `scrollViewport` / `scrollElement` **diff** ops (Dom-plane seal).  
+- Echo filter on Virtual for session-applied scrolls (Dom-plane seal).
 
 **Focus / blur:** **in V1** for anchored controls (`input`, `textarea`, `select`,
 `button`, `a`, `[contenteditable]`, `[tabindex]`). Local focus for a11y; wire
 `focus`/`blur` so Virtual `activeElement` matches. Prefer CDP focus.
+
+### 9.1 Desync / disarm (LOCKED — client-only)
+
+Aligned with Dom-plane D12 + CSSOM C8:
+
+1. PageProjection desync (sequence gap, selector/id miss on **diff apply**,
+   overflow→desync, etc.) is detected and held **on the client**.  
+2. While desynced: client **arms down** — **no** `PageProjectionIntent` is
+   sent (pointer, scroll, key, input, setFiles, focus, …).  
+3. **Virtual does not learn** that the client is desynced and does not need a
+   special “disarm” signal — input simply stops arriving.  
+4. Recovery: client OOB **`PageProjection.Resync`** (Dom `document` + CSSOM
+   `install` + watermark). After apply + live drain, client **re-arms** and
+   may emit intents again.  
+5. There is **no** input intent type `resync`. That name is reserved for the
+   OOB fetch only.
+
+Anchor miss alone (§8) stays retry→drop unless the client chooses to escalate
+to full desync after repeated misses.
 
 ---
 
@@ -484,9 +544,9 @@ Not every internal constant needs a knob — only the above.
 | Step | Owner |
 |------|--------|
 | Listeners, coord transform §6.3, coalesce, no-wire-click | Client |
-| `DomProjectionIntent` | Client |
+| `PageProjectionIntent` | Client |
 | Transport | Sessions data-plane |
-| Admit, inject chain, backpressure collapse, CDP dispatch | Sidecar Dom Projection input (**not** `OsInputBackend`) |
+| Admit, inject chain, backpressure collapse, CDP dispatch | Sidecar PageProjection input (**not** `OsInputBackend`) |
 | DomDiff | F |
 
 ---
@@ -504,14 +564,17 @@ Not every internal constant needs a knob — only the above.
 
 | Signal | When |
 |--------|------|
-| `DomProjection.Input.AnchorMiss` | resolve failed after retries |
-| `DomProjection.Input.DispatchFailed` | CDP/Patchright threw / timeout |
-| `DomProjection.Input.StaleGeneration` | dropped stale intent |
-| `DomProjection.Input.MoveCollapsed` | backpressure collapsed moves |
-| `DomProjection.Input.FallbackElementClick` | used `element.click()` fallback |
-| `DomProjection.Input.FileUploadRejected` | oversize / count / auth |
-| `DomProjection.Input.SetFilesFailed` | setInputFiles / missing uploadId |
-| `DomProjection.Input.FallbackFileChange` | synth input/change after setFiles |
+| `PageProjection.Input.AnchorMiss` | resolve failed after retries |
+| `PageProjection.Input.DispatchFailed` | CDP/Patchright threw / timeout |
+| `PageProjection.Input.StaleGeneration` | dropped stale intent |
+| `PageProjection.Input.MoveCollapsed` | backpressure collapsed moves |
+| `PageProjection.Input.FallbackElementClick` | used `element.click()` fallback |
+| `PageProjection.Input.FileUploadRejected` | oversize / count / auth |
+| `PageProjection.Input.SetFilesFailed` | setInputFiles / missing uploadId |
+| `PageProjection.Input.FallbackFileChange` | synth input/change after setFiles |
+| `PageProjection.Input.Disarmed` | intent suppressed while client desynced (optional) |
+
+(Catalog prefix today: `Telemetry.Sessions.DomProjection.Input.*` → rename at T11.)
 
 Exact catalog registration follows Sessions Diagnostics standards.
 
@@ -567,8 +630,12 @@ wrong — document in product support matrix as limitation until a later design.
 | Backpressure | Collapse moves only; never drop presses/keys/input/setFiles (§6.4) |
 | DTO | §6.1 (+ file refs) |
 | Focus/blur | In V1 for anchored controls |
+| **Desync/disarm** | Client-only; no intents while desynced; recovery = OOB `PageProjection.Resync`; **no** input `resync` type; Virtual unaware |
+| **Rename** | E2E with mode/pipe: Intent/FileRef/telemetry/APIs → `PageProjection*` (T11) |
+| **Scroll** | **`scrollViewport` + `scrollElement`** — absolute; per-scroller coalesce; mirrors Dom-plane diff ops; **no** single nullable `scroll` mega-payload |
+| **Intent address** | `speculum-anchor` (+ coords); **not** `DomSelector` (diff-only) |
 | Submit | No separate intent |
-| Binding debounce | 1s default, configurable |
+| Binding debounce | **Upstream-only** while dirty (default 1s); **never** delays intent send |
 | **File upload** | Client picker → dom-uploads / inline → `setFiles` + `setInputFiles` (§6.9) |
 | IME | Non-support V1 |
 | Hit-test | Mitigations §14; residual accepted |
@@ -599,3 +666,19 @@ wrong — document in product support matrix as limitation until a later design.
 | Coupled to OS risk | Isolated CDP path |
 
 Implementation follows this contract. Changes update §§3–8 and §17 first.
+
+---
+
+## 20. PageProjection alignment checklist (pre-cutover)
+
+| # | Topic | State |
+|---|--------|--------|
+| I1 | Scroll intents = `scrollViewport` \| `scrollElement` (no mega `scroll`) | **LOCKED** (§9) |
+| I2 | Desync disarm client-only; no input `resync`; OOB Resync | **LOCKED** (§9.1) |
+| I3 | E2E rename includes input (`PageProjectionIntent`, …) | **LOCKED** (banner + §17) |
+| I4 | D16 form: intent immediate; debounce only conflicting upstream patch | **LOCKED** (§7) |
+| I5 | Addressing = `speculum-anchor` (+ coords); not `DomSelector` | **LOCKED** (§6.7) |
+
+**Input pipeline aligned with PageProjection seal.** Remaining work = T11
+cutover (rename + implement), not further input-behaviour debate.
+

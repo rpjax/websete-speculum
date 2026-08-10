@@ -28,7 +28,7 @@ const stateTone = (state: SessionListItem['state']) =>
   state === 'Live' ? 'success' : state === 'Aborted' ? 'danger' : state === 'Stopped' ? 'neutral' : 'info'
 
 const mirrorLabel = (mode: SessionListItem['mirrorMode']) =>
-  mode === 'VideoStreaming' ? 'Video streaming' : mode === 'DomProjection' ? 'DOM projection' : '—'
+  mode === 'VideoStreaming' ? 'Video streaming' : mode === 'PageProjection' ? 'DOM projection' : '—'
 
 export function LiveSessionDetailPage() {
   const { sessionId = '' } = useParams()

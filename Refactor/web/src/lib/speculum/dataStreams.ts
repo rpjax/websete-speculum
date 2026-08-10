@@ -3,8 +3,8 @@ import type { DataStreamTransport } from './dataStreamTransport'
 import { Emitter } from './emitter'
 import { FramedReader, writeMessage } from './framing'
 import type {
-  DomDiff,
-  DomProjectionInput,
+  PageProjectionDiff,
+  PageProjectionIntent,
   EvalResult,
   MirrorMode,
   SessionConsoleOutput,
@@ -38,7 +38,7 @@ export interface DataStreamsOptions {
 }
 
 /**
- * Logical data streams for a live session (frames, DomDiffs, input, console, notifications, status).
+ * Logical data streams for a live session (frames, PageProjectionDiffs, input, console, notifications, status).
  * Carrier is pluggable via {@link DataStreamTransport}.
  */
 export class DataStreams extends Emitter<SessionEventMap> {
@@ -50,10 +50,10 @@ export class DataStreams extends Emitter<SessionEventMap> {
   private readonly mirrorMode: MirrorMode
   private readonly transport: DataStreamTransport
   private userInput: WritableStreamDefaultWriter<Uint8Array> | null = null
-  private domProjectionInput: WritableStreamDefaultWriter<Uint8Array> | null = null
+  private pageProjectionInput: WritableStreamDefaultWriter<Uint8Array> | null = null
   private consoleInput: WritableStreamDefaultWriter<Uint8Array> | null = null
   private userInputWriteChain: Promise<void> = Promise.resolve()
-  private domProjectionInputWriteChain: Promise<void> = Promise.resolve()
+  private pageProjectionInputWriteChain: Promise<void> = Promise.resolve()
   private consoleInputWriteChain: Promise<void> = Promise.resolve()
   private lifetime: AbortController | null = null
   private readonly pendingEval = new Map<
@@ -97,8 +97,8 @@ export class DataStreams extends Emitter<SessionEventMap> {
     })
     this.connected = true
 
-    if (this.mirrorMode === 'domProjection') {
-      this.domProjectionInput = await this.openOutgoingWriter(PipeKind.DomProjectionInput)
+    if (this.mirrorMode === 'pageProjection') {
+      this.pageProjectionInput = await this.openOutgoingWriter(PipeKind.PageProjectionIntent)
     } else {
       this.userInput = await this.openOutgoingWriter(PipeKind.VideoStreamingInput)
     }
@@ -110,8 +110,8 @@ export class DataStreams extends Emitter<SessionEventMap> {
   async sendInput(input: SessionInput & SessionInputWireMeta): Promise<void> {
     if (!this.userInput) {
       throw new Error(
-        this.mirrorMode === 'domProjection'
-          ? 'VideoStreamingInput is not available in DomProjection mode'
+        this.mirrorMode === 'pageProjection'
+          ? 'VideoStreamingInput is not available in PageProjection mode'
           : 'Data streams are not open',
       )
     }
@@ -134,17 +134,17 @@ export class DataStreams extends Emitter<SessionEventMap> {
     await write
   }
 
-  async sendDomProjectionInput(input: DomProjectionInput): Promise<void> {
-    if (!this.domProjectionInput) {
+  async sendPageProjectionIntent(input: PageProjectionIntent): Promise<void> {
+    if (!this.pageProjectionInput) {
       throw new Error(
-        this.mirrorMode !== 'domProjection'
-          ? 'DomProjectionInput is not available in VideoStreaming mode'
+        this.mirrorMode !== 'pageProjection'
+          ? 'PageProjectionIntent is not available in VideoStreaming mode'
           : 'Data streams are not open',
       )
     }
     const traceId = input.traceId?.trim() || newInputTraceId()
-    const writer = this.domProjectionInput
-    const write = this.domProjectionInputWriteChain.then(() =>
+    const writer = this.pageProjectionInput
+    const write = this.pageProjectionInputWriteChain.then(() =>
       writeMessage(writer, {
         generation: input.generation ?? 0,
         type: input.type,
@@ -154,7 +154,7 @@ export class DataStreams extends Emitter<SessionEventMap> {
         payload: input.payload ?? '{}',
       }),
     )
-    this.domProjectionInputWriteChain = write.then(
+    this.pageProjectionInputWriteChain = write.then(
       () => undefined,
       () => undefined,
     )
@@ -223,9 +223,9 @@ export class DataStreams extends Emitter<SessionEventMap> {
     await closeWriter(this.userInput)
     this.userInput = null
     this.userInputWriteChain = Promise.resolve()
-    await closeWriter(this.domProjectionInput)
-    this.domProjectionInput = null
-    this.domProjectionInputWriteChain = Promise.resolve()
+    await closeWriter(this.pageProjectionInput)
+    this.pageProjectionInput = null
+    this.pageProjectionInputWriteChain = Promise.resolve()
     await closeWriter(this.consoleInput)
     this.consoleInput = null
     this.consoleInputWriteChain = Promise.resolve()
@@ -237,7 +237,7 @@ export class DataStreams extends Emitter<SessionEventMap> {
   private async openOutgoingWriter(
     kind:
       | typeof PipeKind.VideoStreamingInput
-      | typeof PipeKind.DomProjectionInput
+      | typeof PipeKind.PageProjectionIntent
       | typeof PipeKind.ConsoleInput,
   ): Promise<WritableStreamDefaultWriter<Uint8Array>> {
     const pipe = await this.transport.openPipe(kind)
@@ -299,9 +299,20 @@ export class DataStreams extends Emitter<SessionEventMap> {
           case PipeKind.Frame:
             this.emit('frame', message as SessionEventMap['frame'])
             break
-          case PipeKind.DomDiff:
-            const normalized = normalizeDomDiff(message)
-            if (normalized) this.emit('domDiff', normalized)
+          case PipeKind.PageProjectionDiff:
+            const normalized = normalizePageProjectionDiff(message)
+            if (normalized) {
+              this.emit('pageProjectionDiff', normalized)
+            } else {
+              const raw = (message ?? {}) as Record<string, unknown>
+              this.emit('pageProjectionDiffRejected', {
+                sequence: Number(raw.sequence ?? 0) || null,
+                generation: Number(raw.generation ?? 0) || null,
+                plane: raw.plane != null ? String(raw.plane) : null,
+                operation: raw.operation != null ? String(raw.operation) : null,
+                reason: rejectReason(raw),
+              })
+            }
             break
           case PipeKind.ConsoleOutput:
             this.onConsole(message as SessionConsoleOutput)
@@ -353,33 +364,46 @@ export class DataStreams extends Emitter<SessionEventMap> {
   }
 }
 
-/** Normalize hub DomDiff; reject retired snapshot/patch/root wire shapes. */
-function normalizeDomDiff(message: unknown): DomDiff | null {
+/** Normalize hub PageProjectionDiff; reject legacy snapshot wire shapes. */
+function rejectReason(raw: Record<string, unknown>): string {
+  if (raw.kind === 'snapshot' || raw.root != null || Array.isArray(raw.nodes) || Array.isArray(raw.urls)) {
+    return 'legacy_snapshot_shape'
+  }
+  const plane = String(raw.plane ?? '').trim()
+  if (plane !== 'dom' && plane !== 'cssom') return 'invalid_plane'
+  if (!String(raw.operation ?? '').trim()) return 'missing_operation'
+  return 'normalize_rejected'
+}
+
+function normalizePageProjectionDiff(message: unknown): PageProjectionDiff | null {
   const raw = (message ?? {}) as Record<string, unknown>
-  const kind = String(raw.kind ?? '')
-  if (kind === 'snapshot' || kind === 'patch' || raw.root != null) {
+  // Retired legacy shapes.
+  if (raw.kind === 'snapshot' || raw.root != null || Array.isArray(raw.nodes) || Array.isArray(raw.urls)) {
     return null
   }
-  if (kind !== 'diff' && kind !== 'cssom') {
+  const plane = String(raw.plane ?? '').trim()
+  const operation = String(raw.operation ?? '').trim()
+  if (plane !== 'dom' && plane !== 'cssom') {
     return null
   }
-  const targetRaw = raw.target
-  const target =
-    targetRaw == null || targetRaw === ''
-      ? null
-      : String(targetRaw)
-  if (kind === 'diff' && target !== 'document' && target !== 'anchors') {
+  if (!operation) {
     return null
   }
   return {
     sequence: Number(raw.sequence ?? 0),
     generation: Number(raw.generation ?? 0),
     timestamp: Number(raw.timestamp ?? 0),
-    treeType: String(raw.treeType ?? 'dom'),
-    kind,
-    target,
-    nodes: (raw.nodes as DomDiff['nodes']) ?? null,
-    urls: (raw.urls as DomDiff['urls']) ?? null,
+    plane,
+    operation,
+    document: (raw.document as PageProjectionDiff['document']) ?? null,
+    childList: (raw.childList as PageProjectionDiff['childList']) ?? null,
+    patch: (raw.patch as PageProjectionDiff['patch']) ?? null,
+    scrollViewport: (raw.scrollViewport as PageProjectionDiff['scrollViewport']) ?? null,
+    scrollElement: (raw.scrollElement as PageProjectionDiff['scrollElement']) ?? null,
+    install: (raw.install as PageProjectionDiff['install']) ?? null,
+    sheetList: (raw.sheetList as PageProjectionDiff['sheetList']) ?? null,
+    ruleList: (raw.ruleList as PageProjectionDiff['ruleList']) ?? null,
+    cssomPatch: (raw.cssomPatch as PageProjectionDiff['cssomPatch']) ?? null,
   }
 }
 

@@ -57,8 +57,8 @@ export function toLaunchOptions(req: any): BrowserLaunchOptions {
   };
 }
 
-function resolveMirrorMode(raw: unknown): 'videoStreaming' | 'domProjection' {
-  return raw === 'domProjection' ? 'domProjection' : 'videoStreaming';
+function resolveMirrorMode(raw: unknown): 'videoStreaming' | 'pageProjection' {
+  return raw === 'pageProjection' ? 'pageProjection' : 'videoStreaming';
 }
 
 function resolveScreencastMaxEncodeScale(raw: unknown): number {

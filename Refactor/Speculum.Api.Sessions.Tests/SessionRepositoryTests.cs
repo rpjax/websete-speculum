@@ -34,7 +34,7 @@ public sealed class SessionRepositoryTests
         var session = Session.Create(
             Guid.NewGuid(),
             Guid.NewGuid(),
-            mirrorMode: MirrorMode.DomProjection,
+            mirrorMode: MirrorMode.PageProjection,
             viewportWidth: 1280,
             viewportHeight: 720);
         await repository.SaveAsync(session);
@@ -44,7 +44,7 @@ public sealed class SessionRepositoryTests
 
         var loaded = await repository.LoadAsync(session.Id);
         Assert.NotNull(loaded);
-        Assert.Equal(MirrorMode.DomProjection, loaded.MirrorMode);
+        Assert.Equal(MirrorMode.PageProjection, loaded.MirrorMode);
         Assert.Equal(1280, loaded.ViewportWidth);
         Assert.Equal(720, loaded.ViewportHeight);
         Assert.NotNull(loaded.EndedAt);
@@ -63,7 +63,7 @@ public sealed class SessionRepositoryTests
         var live = Session.Create(Guid.NewGuid(), Guid.NewGuid(), mirrorMode: MirrorMode.VideoStreaming);
         await repository.SaveAsync(live);
 
-        var ended = Session.Create(Guid.NewGuid(), Guid.NewGuid(), mirrorMode: MirrorMode.DomProjection);
+        var ended = Session.Create(Guid.NewGuid(), Guid.NewGuid(), mirrorMode: MirrorMode.PageProjection);
         ended.MarkStopped(StopReason.UserStop);
         await repository.SaveAsync(ended);
 
@@ -73,7 +73,7 @@ public sealed class SessionRepositoryTests
         Assert.Equal(live.Id, Assert.Single(liveOnly).SessionId);
 
         var (domOnly, domTotal) = await repository.ListAsync(
-            new ListSessions { MirrorMode = MirrorMode.DomProjection });
+            new ListSessions { MirrorMode = MirrorMode.PageProjection });
         Assert.Equal(1, domTotal);
         Assert.Equal(ended.Id, Assert.Single(domOnly).SessionId);
     }

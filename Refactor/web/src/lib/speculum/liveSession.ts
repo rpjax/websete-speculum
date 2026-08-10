@@ -3,7 +3,7 @@ import { DataStreams } from './dataStreams'
 import type { DataStreamTransport } from './dataStreamTransport'
 import { Emitter } from './emitter'
 import type {
-  DomProjectionInput,
+  PageProjectionIntent,
   MirrorMode,
   NavigateSessionRequest,
   ResizeSessionRequest,
@@ -31,7 +31,7 @@ export interface LiveSessionOptions {
 
 /**
  * One live browsing session: hub lifecycle + data streams I/O.
- * Events: frame, domDiff, console, notification, syncUrl, redirect, ended, error, close.
+ * Events: frame, pageProjectionDiff, console, notification, syncUrl, redirect, ended, error, close.
  */
 export class LiveSession extends Emitter<SessionEventMap> {
   readonly sessionId: string
@@ -101,7 +101,8 @@ export class LiveSession extends Emitter<SessionEventMap> {
 
   async open(): Promise<void> {
     this.forward('frame')
-    this.forward('domDiff')
+    this.forward('pageProjectionDiff')
+    this.forward('pageProjectionDiffRejected')
     this.forward('console')
     this.forward('notification')
     this.forward('error')
@@ -113,8 +114,8 @@ export class LiveSession extends Emitter<SessionEventMap> {
     return this.data.sendInput(input)
   }
 
-  sendDomProjectionInput(input: DomProjectionInput): Promise<void> {
-    return this.data.sendDomProjectionInput(input)
+  sendPageProjectionIntent(input: PageProjectionIntent): Promise<void> {
+    return this.data.sendPageProjectionIntent(input)
   }
 
   evaluate(code: string) {

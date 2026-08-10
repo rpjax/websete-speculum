@@ -7,7 +7,8 @@ class EventBridge {
     sessionId;
     video = new DropOldestQueue_1.DropOldestQueue(2);
     audio = new DropOldestQueue_1.DropOldestQueue(2);
-    dom = new DropOldestQueue_1.DropOldestQueue(4);
+    /** PageProjection Dom+Cssom envelopes — sized for SPA churn (T5 DropAll on overflow). */
+    dom = new DropOldestQueue_1.DropOldestQueue(1024);
     consoleQ = new DropOldestQueue_1.DropOldestQueue(64);
     location = new DropOldestQueue_1.DropOldestQueue(1);
     navigationBlocked = new DropOldestQueue_1.DropOldestQueue(8);
@@ -15,10 +16,10 @@ class EventBridge {
     crash = new DropOldestQueue_1.DropOldestQueue(4);
     /** Opt-in path hops for Telemetry.Sessions.VideoStreamingInput.SidecarAdmitted (DropOldest). */
     videoStreamingInputPath = new DropOldestQueue_1.DropOldestQueue(32);
-    /** Opt-in path hops for Telemetry.Sessions.DomProjection.Input.* (DropOldest). */
-    domProjectionInputPath = new DropOldestQueue_1.DropOldestQueue(32);
-    /** Opt-in Dom Projection lifecycle (GenerationBumped) — DropOldest. */
-    domProjectionLifecycle = new DropOldestQueue_1.DropOldestQueue(32);
+    /** Opt-in path hops for Telemetry.Sessions.PageProjection.Input.* (DropOldest). */
+    pageProjectionInputPath = new DropOldestQueue_1.DropOldestQueue(32);
+    /** Opt-in PageProjection lifecycle (GenerationBumped | QueueDropped) — DropOldest. */
+    pageProjectionLifecycle = new DropOldestQueue_1.DropOldestQueue(32);
     /** Opt-in allocation lifecycle for Telemetry.Sessions.Sidecar.* (DropOldest). */
     allocationLifecycle = new DropOldestQueue_1.DropOldestQueue(16);
     faulted = false;
@@ -52,17 +53,105 @@ class EventBridge {
     onVideoFrame(jpeg) {
         this.video.tryWrite(jpeg);
     }
-    onDomDiff(diff) {
-        this.dom.tryWrite(diff);
+    onPageProjectionDiff(diff) {
+        if (this.dom.isClosed) {
+            this.emitLifecycleQueueDropped({
+                reason: 'sidecar_bridge_closed',
+                generation: diff.generation,
+                operation: diff.operation,
+                plane: diff.plane,
+                droppedCount: 1,
+                capacity: this.dom.maxCapacity,
+                sequence: diff.sequence,
+                lowestDroppedSequence: diff.sequence,
+                highestDroppedSequence: diff.sequence,
+            });
+            return;
+        }
+        // T5/D13: overflow → client sequence gap → desync (never silently truncated chronology).
+        const { dropped, lowestSequence, highestSequence } = this.dom.tryWriteDropAllOnOverflow(diff);
+        if (dropped > 0) {
+            this.emitLifecycleQueueDropped({
+                reason: 'sidecar_bridge',
+                generation: diff.generation,
+                operation: diff.operation,
+                plane: diff.plane,
+                droppedCount: dropped,
+                capacity: this.dom.maxCapacity,
+                sequence: diff.sequence,
+                lowestDroppedSequence: lowestSequence ?? undefined,
+                highestDroppedSequence: highestSequence ?? undefined,
+            });
+        }
     }
-    onDomProjectionGenerationBumped(event) {
-        this.domProjectionLifecycle.tryWrite({
+    /** Emit queue_dropped lifecycle; if lifecycle queue itself DropOldests, emit sidecar_lifecycle_overflow. */
+    emitLifecycleQueueDropped(ev) {
+        const payload = {
+            kind: 'queue_dropped',
+            fromGeneration: 0,
+            toGeneration: ev.generation,
+            reason: ev.reason,
+            diffKind: ev.operation,
+            url: ev.plane,
+            unixMs: Date.now(),
+            droppedCount: ev.droppedCount,
+            capacity: ev.capacity,
+            sequence: ev.sequence,
+            lowestDroppedSequence: ev.lowestDroppedSequence,
+            highestDroppedSequence: ev.highestDroppedSequence,
+        };
+        const { droppedOldest } = this.pageProjectionLifecycle.tryWriteReportingDrop(payload);
+        if (droppedOldest) {
+            // Best-effort: try to surface that a prior QD was evicted from the lifecycle queue.
+            this.pageProjectionLifecycle.tryWrite({
+                kind: 'queue_dropped',
+                fromGeneration: 0,
+                toGeneration: ev.generation,
+                reason: 'sidecar_lifecycle_overflow',
+                diffKind: ev.operation,
+                url: ev.plane,
+                unixMs: Date.now(),
+                droppedCount: 1,
+                capacity: this.pageProjectionLifecycle.maxCapacity,
+                sequence: ev.sequence,
+                lowestDroppedSequence: ev.sequence,
+                highestDroppedSequence: ev.sequence,
+            });
+        }
+    }
+    onPageProjectionGenerationBumped(event) {
+        this.pageProjectionLifecycle.tryWrite({
             kind: 'generation_bumped',
             fromGeneration: event.fromGeneration,
             toGeneration: event.toGeneration,
             reason: event.reason,
             url: event.url,
             diffKind: event.diffKind,
+            unixMs: Date.now(),
+        });
+    }
+    onPageProjectionSoftNavObserved(event) {
+        this.pageProjectionLifecycle.tryWrite({
+            kind: 'soft_nav_observed',
+            fromGeneration: event.generation,
+            toGeneration: event.generation,
+            reason: event.documentEpoch ?? '',
+            url: event.url,
+            diffKind: event.liveArmed ? 'armed' : 'disarmed',
+            unixMs: Date.now(),
+        });
+    }
+    onPageProjectionScrollEchoHit(event) {
+        const coords = event.kind === 'viewport'
+            ? `${event.scrollX ?? 0},${event.scrollY ?? 0}`
+            : `${event.scrollTop ?? 0},${event.scrollLeft ?? 0}`;
+        this.pageProjectionLifecycle.tryWrite({
+            kind: 'scroll_echo_hit',
+            fromGeneration: event.generation ?? 0,
+            toGeneration: event.generation ?? 0,
+            reason: event.kind,
+            url: event.anchor,
+            diffKind: coords,
             unixMs: Date.now(),
         });
     }
@@ -100,8 +189,8 @@ class EventBridge {
         });
     }
     /** Fire-and-forget Dom Projection path hop — never blocks PushDomInput. */
-    onDomProjectionInputPath(event) {
-        this.domProjectionInputPath.tryWrite({
+    onPageProjectionIntentPath(event) {
+        this.pageProjectionInputPath.tryWrite({
             phase: event.phase,
             kind: event.kind,
             unixMs: Date.now(),
@@ -140,8 +229,8 @@ class EventBridge {
         this.editableFocus.close();
         this.crash.close();
         this.videoStreamingInputPath.close();
-        this.domProjectionInputPath.close();
-        this.domProjectionLifecycle.close();
+        this.pageProjectionInputPath.close();
+        this.pageProjectionLifecycle.close();
         this.allocationLifecycle.close();
         for (const [, w] of this.permissionWaiters) {
             w.resolve('deny');

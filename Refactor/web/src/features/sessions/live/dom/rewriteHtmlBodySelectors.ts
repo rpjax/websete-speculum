@@ -5,8 +5,8 @@ export const DOM_SURFACE_SELECTOR = '[data-speculum-dom-surface]'
 export const DOM_BODY_SELECTOR = '[data-speculum-dom-body]'
 
 /**
- * Rewrite `html` / `body` type selectors so flattened projection hosts receive
- * document-level paint rules (background, color, font-size, …).
+ * Rewrite `html` / `body` / `:root` type selectors so flattened projection hosts
+ * receive document-level paint rules (background, color, font-size, …).
  *
  * Does not rewrite identifiers inside strings, comments, or @keyframes names
  * beyond a best-effort selector-token pass (V1).
@@ -15,13 +15,18 @@ export function rewriteHtmlBodySelectors(css: string): string {
   if (!css) return css
   // Strip comments first so "body" inside comments is not rewritten oddly.
   const withoutComments = css.replace(/\/\*[\s\S]*?\*\//g, ' ')
-  return withoutComments.replace(
-    /(^|[\s,~+>()}]|:is\(|:where\(|:not\(|:has\()(html|body)(?=[\s.~:#\[>+~,)|{]|$)/gi,
-    (_full, pre: string, tag: string) => {
-      const sel = tag.toLowerCase() === 'html' ? DOM_SURFACE_SELECTOR : DOM_BODY_SELECTOR
-      return `${pre}${sel}`
-    },
-  )
+  return withoutComments
+    .replace(
+      /(^|[\s,~+>()}]|:is\(|:where\(|:not\(|:has\()(html|body)(?=[\s.~:#\[>+~,)|{]|$)/gi,
+      (_full, pre: string, tag: string) => {
+        const sel = tag.toLowerCase() === 'html' ? DOM_SURFACE_SELECTOR : DOM_BODY_SELECTOR
+        return `${pre}${sel}`
+      },
+    )
+    .replace(
+      /(^|[\s,~+>()}]|:is\(|:where\(|:not\(|:has\()(:root)(?=[\s.~:#\[>+~,)|{]|$)/gi,
+      (_full, pre: string) => `${pre}${DOM_SURFACE_SELECTOR}`,
+    )
 }
 
 /**

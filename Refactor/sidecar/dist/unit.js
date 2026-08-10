@@ -562,9 +562,9 @@ function testLaunchEnvironmentIsRequired() {
         language: 'en-US',
         timezoneId: 'UTC',
         colorScheme: 'light',
-        mirrorMode: 'domProjection',
+        mirrorMode: 'pageProjection',
     });
-    assert_1.default.strictEqual(dom.mirrorMode, 'domProjection');
+    assert_1.default.strictEqual(dom.mirrorMode, 'pageProjection');
     console.log('[unit] launch environment ok');
 }
 function testScreencastEncodeSize() {
@@ -750,6 +750,153 @@ function testDropOldestQueueTracksDroppedCount() {
     assert_1.default.strictEqual(q.pendingCount, 2);
     assert_1.default.strictEqual(q.droppedCount, 2);
     console.log('[unit] drop_oldest_queue_tracks_dropped_count ok');
+}
+function testDropAllOnOverflowForSequencedDiffs() {
+    const q = new DropOldestQueue_1.DropOldestQueue(2);
+    q.tryWriteDropAllOnOverflow({ sequence: 1 });
+    q.tryWriteDropAllOnOverflow({ sequence: 2 });
+    const overflow = q.tryWriteDropAllOnOverflow({ sequence: 3 });
+    assert_1.default.strictEqual(q.pendingCount, 1);
+    assert_1.default.strictEqual(q.droppedCount, 2);
+    assert_1.default.strictEqual(overflow.dropped, 2);
+    assert_1.default.strictEqual(overflow.lowestSequence, 1);
+    assert_1.default.strictEqual(overflow.highestSequence, 2);
+    console.log('[unit] drop_all_on_overflow_for_sequenced_diffs ok');
+}
+async function testTryWriteFrontPreservesFifoAsync() {
+    const q = new DropOldestQueue_1.DropOldestQueue(4);
+    q.tryWrite(2);
+    q.tryWrite(3);
+    assert_1.default.strictEqual(q.tryWriteFront(1), true);
+    assert_1.default.strictEqual(await q.read(), 1);
+    assert_1.default.strictEqual(await q.read(), 2);
+    assert_1.default.strictEqual(await q.read(), 3);
+    console.log('[unit] try_write_front_preserves_fifo ok');
+}
+async function testTryWriteFrontRejectsWhenFull() {
+    const q = new DropOldestQueue_1.DropOldestQueue(2);
+    q.tryWrite(1);
+    q.tryWrite(2);
+    assert_1.default.strictEqual(q.tryWriteFront(0), false);
+    assert_1.default.strictEqual(q.pendingCount, 2);
+    assert_1.default.strictEqual(await q.read(), 1);
+    console.log('[unit] try_write_front_rejects_when_full ok');
+}
+async function testPumpQueueAwaitsDrainWithoutSkipping() {
+    const { EventEmitter } = await Promise.resolve().then(() => __importStar(require('events')));
+    const { pumpQueue } = await Promise.resolve().then(() => __importStar(require('./grpc/pumpQueue')));
+    const q = new DropOldestQueue_1.DropOldestQueue(8);
+    for (let i = 1; i <= 5; i++)
+        q.tryWrite({ sequence: i });
+    q.close();
+    const written = [];
+    let writes = 0;
+    let drainWaits = 0;
+    const call = Object.assign(new EventEmitter(), {
+        cancelled: false,
+        write(chunk) {
+            writes += 1;
+            const seq = chunk.sequence;
+            written.push(seq);
+            // Seq 2 congests the buffer — chunk is still accepted; drain before next.
+            if (seq === 2) {
+                queueMicrotask(() => {
+                    drainWaits += 1;
+                    call.emit('drain');
+                });
+                return false;
+            }
+            return true;
+        },
+    });
+    const ac = new AbortController();
+    await pumpQueue(q, call, (item) => item, ac.signal);
+    assert_1.default.deepStrictEqual(written, [1, 2, 3, 4, 5], 'each seq written exactly once');
+    assert_1.default.strictEqual(writes, 5, 'must not rewrite after drain');
+    assert_1.default.ok(drainWaits >= 1, 'must await drain after false write');
+    console.log('[unit] pump_queue_awaits_drain_without_skipping ok');
+}
+async function testPumpQueueAbortRequeuesFront() {
+    const { EventEmitter } = await Promise.resolve().then(() => __importStar(require('events')));
+    const { pumpQueue } = await Promise.resolve().then(() => __importStar(require('./grpc/pumpQueue')));
+    const q = new DropOldestQueue_1.DropOldestQueue(8);
+    q.tryWrite({ sequence: 10 });
+    q.tryWrite({ sequence: 11 });
+    // Abort before write — dequeued item must return to the front.
+    const ac = new AbortController();
+    ac.abort();
+    const call = Object.assign(new EventEmitter(), {
+        cancelled: true,
+        write(_chunk) {
+            throw new Error('write must not run when already aborted');
+        },
+    });
+    await pumpQueue(q, call, (item) => item, ac.signal);
+    assert_1.default.deepStrictEqual(await q.read(), { sequence: 10 }, 'aborted item restored at front');
+    assert_1.default.deepStrictEqual(await q.read(), { sequence: 11 });
+    console.log('[unit] pump_queue_abort_requeues_front ok');
+}
+async function testPumpQueueAbortAfterWriteDoesNotRequeue() {
+    const { EventEmitter } = await Promise.resolve().then(() => __importStar(require('events')));
+    const { pumpQueue } = await Promise.resolve().then(() => __importStar(require('./grpc/pumpQueue')));
+    const q = new DropOldestQueue_1.DropOldestQueue(8);
+    q.tryWrite({ sequence: 10 });
+    q.tryWrite({ sequence: 11 });
+    const ac = new AbortController();
+    const lost = [];
+    const call = Object.assign(new EventEmitter(), {
+        cancelled: false,
+        write(_chunk) {
+            // write()===false still accepted the chunk — abort must not requeue it.
+            ac.abort();
+            call.cancelled = true;
+            return false;
+        },
+    });
+    await pumpQueue(q, call, (item) => item, ac.signal, {
+        onInflightLost: (item) => lost.push(item),
+    });
+    assert_1.default.deepStrictEqual(lost, [{ sequence: 10 }]);
+    assert_1.default.deepStrictEqual(await q.read(), { sequence: 11 }, 'accepted chunk must not requeue');
+    console.log('[unit] pump_queue_abort_after_write_does_not_requeue ok');
+}
+async function testEventBridgeQueueDroppedLifecycle() {
+    const bridge = new EventBridge_1.EventBridge('s-drop');
+    const body = new Uint8Array([1]);
+    // Fill to capacity (1024) then one more → DropAll + lifecycle queue_dropped.
+    for (let i = 0; i < 1024; i++) {
+        bridge.onPageProjectionDiff({
+            sequence: i + 1,
+            generation: 1,
+            plane: 'dom',
+            operation: 'patch',
+            timestampMs: i,
+            body,
+        });
+    }
+    bridge.onPageProjectionDiff({
+        sequence: 2000,
+        generation: 1,
+        plane: 'cssom',
+        operation: 'install',
+        timestampMs: 999,
+        body,
+    });
+    const ev = await bridge.pageProjectionLifecycle.read();
+    assert_1.default.ok(ev);
+    assert_1.default.strictEqual(ev.kind, 'queue_dropped');
+    assert_1.default.strictEqual(ev.reason, 'sidecar_bridge');
+    assert_1.default.strictEqual(ev.url, 'cssom');
+    assert_1.default.strictEqual(ev.diffKind, 'install');
+    assert_1.default.strictEqual(ev.sequence, 2000);
+    assert_1.default.strictEqual(ev.toGeneration, 1);
+    assert_1.default.ok((ev.droppedCount ?? 0) >= 1024);
+    assert_1.default.strictEqual(ev.capacity, 1024);
+    assert_1.default.strictEqual(ev.lowestDroppedSequence, 1);
+    assert_1.default.strictEqual(ev.highestDroppedSequence, 1024);
+    assert_1.default.strictEqual(bridge.dom.pendingCount, 1);
+    bridge.close();
+    console.log('[unit] event_bridge_queue_dropped_lifecycle ok');
 }
 async function testPermissionClearRespectsEpoch() {
     const bridge = new EventBridge_1.EventBridge('s-perm');
@@ -1272,6 +1419,13 @@ async function main() {
     testBenignBrowserRaceNarrow();
     await testAbortDoesNotStealQueuedCrash();
     testDropOldestQueueTracksDroppedCount();
+    testDropAllOnOverflowForSequencedDiffs();
+    await testTryWriteFrontPreservesFifoAsync();
+    await testTryWriteFrontRejectsWhenFull();
+    await testPumpQueueAwaitsDrainWithoutSkipping();
+    await testPumpQueueAbortRequeuesFront();
+    await testPumpQueueAbortAfterWriteDoesNotRequeue();
+    await testEventBridgeQueueDroppedLifecycle();
     await testPermissionClearRespectsEpoch();
     testLogicalToDeviceTransform();
     testKeycodeResolve();
@@ -1289,7 +1443,89 @@ async function main() {
     testHostResourcesApplySkipsRemountOffLinux();
     testCookieSanitizeMatrix();
     testDomAssetCacheAndBodyCodec();
+    await testPublishedAnchorsLedgerOmitsAndRetires();
     console.log('[unit] all passed');
+}
+/**
+ * Writer identity ledger: omit remove of never-published anchors; remint clone
+ * of a detached published identity only after scheduling wire retire.
+ */
+async function testPublishedAnchorsLedgerOmitsAndRetires() {
+    const { chromium } = await Promise.resolve().then(() => __importStar(require('patchright')));
+    const browser = await chromium.launch({ headless: true });
+    try {
+        const page = await browser.newPage();
+        const emits = [];
+        await page.exposeFunction('__speculumDomEmit', (msg) => {
+            emits.push({
+                operation: String(msg?.operation ?? ''),
+                payload: (msg?.payload ?? {}),
+            });
+        });
+        await page.setContent('<!doctype html><html><head></head><body><div id="host"><p id="p">x</p></div></body></html>');
+        await page.evaluate(DomTreeSerializer_1.PAGE_PROJECTION_PAGE_SCRIPT);
+        // Before establish liveEmit is false / ledger empty — remove must not hit the wire.
+        await page.evaluate(`(() => {
+      const host = document.getElementById('host');
+      const ghost = document.createElement('span');
+      ghost.id = 'ghost';
+      ghost.setAttribute('speculum-anchor', 'ghost-never-published');
+      host.appendChild(ghost);
+      ghost.remove();
+    })()`);
+        await page.waitForTimeout(30);
+        assert_1.default.strictEqual(emits.some((e) => JSON.stringify(e.payload).includes('ghost-never-published')), false, 'unpublished remove must be omitted');
+        emits.length = 0;
+        await page.evaluate(`window.__speculumDomMapAndArmEstablish()`);
+        // Publish a node, detach it, then clone with the same anchor — expect retire + remint.
+        await page.evaluate(`(() => {
+      const host = document.getElementById('host');
+      const live = document.createElement('span');
+      live.id = 'live';
+      live.textContent = 'a';
+      host.appendChild(live);
+    })()`);
+        await page.waitForTimeout(50);
+        const addEmits = emits.filter((e) => e.operation === 'childList');
+        assert_1.default.ok(addEmits.length >= 1, 'expected publish add for live span');
+        let addedNode = null;
+        for (const e of addEmits) {
+            const added = e.payload.added;
+            const hit = (added ?? []).find((a) => a.node?.anchor);
+            if (hit?.node?.anchor) {
+                addedNode = hit.node.anchor;
+                break;
+            }
+        }
+        assert_1.default.ok(addedNode, 'added span must carry published anchor');
+        emits.length = 0;
+        const cloneInfo = await page.evaluate(`((publishedAnchor) => {
+      const host = document.getElementById('host');
+      const live = document.getElementById('live');
+      if (!live || !host) return null;
+      live.remove();
+      const clone = document.createElement('span');
+      clone.id = 'clone';
+      clone.setAttribute('speculum-anchor', publishedAnchor);
+      host.appendChild(clone);
+      return { cloneAnchor: clone.getAttribute('speculum-anchor') };
+    })(${JSON.stringify(addedNode)})`);
+        await page.waitForTimeout(50);
+        assert_1.default.ok(cloneInfo?.cloneAnchor, 'clone must have an anchor');
+        const removeOfPublished = emits.filter((e) => {
+            if (e.operation !== 'childList')
+                return false;
+            const removed = e.payload.removed;
+            return (removed ?? []).some((r) => String(r.selector?.query ?? '').includes(addedNode));
+        });
+        assert_1.default.ok(removeOfPublished.length >= 1, 'expected wire remove of published detached anchor');
+        assert_1.default.ok(DomTreeSerializer_1.PAGE_PROJECTION_PAGE_SCRIPT.includes('scheduleRetirePublishedAnchor'), 'detached published remint must retire before reassignment');
+        assert_1.default.ok(DomTreeSerializer_1.PAGE_PROJECTION_PAGE_SCRIPT.includes('!mapped.isConnected && publishedAnchors.has(a)'), 'ensureAnchor must gate detached published collisions');
+        console.log('[unit] publishedAnchors ledger omit+retire ok');
+    }
+    finally {
+        await browser.close();
+    }
 }
 function testDomAssetCacheAndBodyCodec() {
     const cache = new DomAssetCache_1.DomAssetCache(1024, 2);
@@ -1303,7 +1539,6 @@ function testDomAssetCacheAndBodyCodec() {
     assert_1.default.strictEqual(cache.size, 2);
     assert_1.default.strictEqual(cache.get('k1'), undefined);
     const body = (0, DomTreeSerializer_1.encodeDomBody)({
-        kind: 'snapshot',
         root: {
             anchor: 'html1',
             tag: 'html',
@@ -1311,12 +1546,16 @@ function testDomAssetCacheAndBodyCodec() {
         },
     });
     const decoded = (0, DomTreeSerializer_1.decodeDomBody)(body);
-    assert_1.default.strictEqual(decoded.kind, 'snapshot');
-    if (decoded.kind === 'snapshot') {
-        assert_1.default.strictEqual(decoded.root.tag, 'html');
-        assert_1.default.strictEqual(decoded.root.children?.[0]?.text, 'hi');
-    }
-    console.log('[unit] DomAssetCache + Dom body codec ok');
+    assert_1.default.ok(decoded && typeof decoded === 'object' && 'root' in decoded);
+    assert_1.default.strictEqual(decoded.root?.tag, 'html');
+    assert_1.default.strictEqual(decoded.root?.children?.[0]?.text, 'hi');
+    const cssomBody = (0, DomTreeSerializer_1.encodeDomBody)({
+        sheets: [{ id: 's1', scope: { kind: 'main' }, rules: [{ id: 'r1', cssText: 'body{color:red}' }] }],
+    });
+    const cssomDecoded = (0, DomTreeSerializer_1.decodeDomBody)(cssomBody);
+    assert_1.default.ok(cssomDecoded && typeof cssomDecoded === 'object' && Array.isArray(cssomDecoded.sheets));
+    assert_1.default.strictEqual(cssomDecoded.sheets?.[0]?.id, 's1');
+    console.log('[unit] DomAssetCache + PageProjection body codec ok');
 }
 function testCookieSanitizeMatrix() {
     const dirty = {

@@ -1,0 +1,31 @@
+{
+  "sessionId": "817bb16c-b1ac-4166-ac2b-4bfa040214c1",
+  "since": "2026-08-07T11:24:32.111Z",
+  "artifacts": {
+    "summary": "diag-summary.json",
+    "journal": "diag-journal-export.json",
+    "screenshots": ["diag-after-start.png", "diag-after-interact.png", "diag-after-stop.png"],
+    "net": "diag-net-fails.json",
+    "console": "diag-browser-console.txt"
+  },
+  "verdict": {
+    "coldStartVisual": "unstyled / FOUC — black bg, stacked text, duplicated banner strings",
+    "afterInteractVisual": "Eneba chrome mostly painted; geo modal + cookie overlay; some product image spinners; Observe 15→412",
+    "httpFails": 0,
+    "consoleErrors": 0,
+    "queueDropped": 0,
+    "resyncCascade": 3,
+    "cssomSheetRulesOnResync": "2 sheets / 2 rules (anemic)",
+    "wireGapEarly": "FrameReceived seq 5–19 (and more) without WireDelivered → first Resync at hintSequence 19",
+    "wireGapLate": "seq ≥496 after client detach — expected",
+    "generation": "bumped 1→2 at main_frame_navigated ~600ms after start; gen1 frames never WireDelivered",
+    "input": "mousemove/wheel/keydown/mousedown path Applied; no Rejected/AdmissionDropped",
+    "frontActivityExport": "not available on Live window (Observe badge only)"
+  },
+  "hypothesesForFixes": [
+    "Early childList burst not delivered on data plane before client catches up (desync@seq19)",
+    "CSSOM install/sheetList only ever seeds 2 trivial rules — cold start looks naked until DOM/inline/resync settles",
+    "Resync storm while page still mutating (coversThrough 284→437→492) — client re-desyncs during catch-up",
+    "FrameReceived sheetCount null on document/install — enrichment only on sheetList"
+  ]
+}

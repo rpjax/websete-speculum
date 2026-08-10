@@ -38,7 +38,7 @@ D6 asserts the **absence** of the two `Resize.*` facts, so the seed must enable 
 | H1 | deep | goback after two navigations updates location | `H1_goback_updates_location` |
 | N1 | deep | window.open/_blank stays single main tab | `N1_blank_stays_single_tab` |
 | E8b | unit+ | dirty cookie PUT state + sanitize does not fail restore (ProfileService + sidecar unit) | `ReplaceState_WithDirtyCookies_PersistsBucket` / `testCookieSanitizeMatrix` |
-| D6 | deep | stable client screen for a whole DomProjection session emits **zero** `Telemetry.Sessions.Resize.*` facts (start owns the initial geometry; no corrective resize) | `D6_stable_screen_session_never_resizes` |
+| D6 | deep | stable client screen for a whole PageProjection session emits **zero** `Telemetry.Sessions.Resize.*` facts (start owns the initial geometry; no corrective resize) | `D6_stable_screen_session_never_resizes` |
 
 Migrated from legacy MotorAssert resize depth (exact geometry / reject-keep-prior). Soft-viewport
 `displayWidth`/`displayHeight` assert Sessions.ViewportPolicy Maximum (compose default 4096×2160).

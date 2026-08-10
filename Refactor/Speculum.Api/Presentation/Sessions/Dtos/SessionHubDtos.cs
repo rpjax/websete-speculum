@@ -217,7 +217,7 @@ public sealed class StartSessionHubResponse
     [Key("token")]
     public string Token { get; set; } = string.Empty;
 
-    /// <summary>Sessions.MirrorMode wire form (<c>videoStreaming</c> | <c>domProjection</c>) — ack only.</summary>
+    /// <summary>Sessions.MirrorMode wire form (<c>videoStreaming</c> | <c>pageProjection</c>) — ack only.</summary>
     [Key("mirrorMode")]
     public string MirrorMode { get; set; } = "videoStreaming";
 }

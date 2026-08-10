@@ -21,43 +21,12 @@ import {
   requireState,
   requireUrl,
 } from './validate';
+import { pumpQueue } from './pumpQueue';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 function grpcError(err: unknown): grpc.ServiceError {
   return mapGrpcError(err);
-}
-
-async function pumpQueue<T>(
-  queue: DropOldestQueue<T>,
-  call: grpc.ServerWritableStream<any, any>,
-  map: (item: T) => any,
-  signal: AbortSignal,
-): Promise<void> {
-  // When write returns false, skip further writes until 'drain' — drop items, do not
-  // await drain or keep stuffing the gRPC buffer (unbounded memory).
-  let congested = false;
-  const onDrain = (): void => {
-    congested = false;
-  };
-  call.on('drain', onDrain);
-  try {
-    for (;;) {
-      const item = await queue.read(signal);
-      if (item === null) break;
-      // Abort may race after dequeue — put the item back for the next Watch* reopen.
-      if (signal.aborted || call.cancelled) {
-        queue.tryWrite(item);
-        break;
-      }
-      if (congested) {
-        continue;
-      }
-      congested = !call.write(map(item));
-    }
-  } finally {
-    call.off('drain', onDrain);
-  }
 }
 
 export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.UntypedServiceImplementation {
@@ -314,16 +283,48 @@ export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.Un
       watchStream(call, registry, (b) => b.video, (jpeg) => ({ jpeg }));
     },
 
-    watchDom(call: grpc.ServerWritableStream<any, any>): void {
-      watchStream(call, registry, (b) => b.dom, (d) => ({
-        sequence: d.sequence,
-        generation: d.generation,
-        kind: d.kind,
-        timestampMs: d.timestampMs,
-        body: d.body,
-        treeType: d.treeType,
-        target: d.target,
-      }));
+    watchPageProjectionDiff(call: grpc.ServerWritableStream<any, any>): void {
+      watchStream(
+        call,
+        registry,
+        (b) => b.dom,
+        (d) => ({
+          sequence: d.sequence,
+          generation: d.generation,
+          plane: d.plane,
+          operation: d.operation,
+          timestampMs: d.timestampMs,
+          body: d.body,
+        }),
+        (bridge) => ({
+          onRequeueOverflow: (d) => {
+            bridge.emitLifecycleQueueDropped({
+              reason: 'sidecar_requeue_overflow',
+              generation: d.generation,
+              operation: d.operation,
+              plane: d.plane,
+              droppedCount: 1,
+              capacity: bridge.dom.maxCapacity,
+              sequence: d.sequence,
+              lowestDroppedSequence: d.sequence,
+              highestDroppedSequence: d.sequence,
+            });
+          },
+          onInflightLost: (d) => {
+            bridge.emitLifecycleQueueDropped({
+              reason: 'sidecar_grpc_inflight',
+              generation: d.generation,
+              operation: d.operation,
+              plane: d.plane,
+              droppedCount: 1,
+              capacity: bridge.dom.maxCapacity,
+              sequence: d.sequence,
+              lowestDroppedSequence: d.sequence,
+              highestDroppedSequence: d.sequence,
+            });
+          },
+        }),
+      );
     },
 
     watchAudio(call: grpc.ServerWritableStream<any, any>): void {
@@ -364,8 +365,8 @@ export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.Un
       }));
     },
 
-    watchDomProjectionInputPath(call: grpc.ServerWritableStream<any, any>): void {
-      watchStream(call, registry, (b) => b.domProjectionInputPath, (e) => ({
+    watchPageProjectionInputPath(call: grpc.ServerWritableStream<any, any>): void {
+      watchStream(call, registry, (b) => b.pageProjectionInputPath, (e) => ({
         phase: e.phase,
         kind: e.kind,
         unixMs: e.unixMs,
@@ -374,8 +375,8 @@ export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.Un
       }));
     },
 
-    watchDomProjectionLifecycle(call: grpc.ServerWritableStream<any, any>): void {
-      watchStream(call, registry, (b) => b.domProjectionLifecycle, (e) => ({
+    watchPageProjectionLifecycle(call: grpc.ServerWritableStream<any, any>): void {
+      watchStream(call, registry, (b) => b.pageProjectionLifecycle, (e) => ({
         kind: e.kind,
         fromGeneration: e.fromGeneration,
         toGeneration: e.toGeneration,
@@ -383,6 +384,11 @@ export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.Un
         url: e.url,
         diffKind: e.diffKind,
         unixMs: e.unixMs,
+        droppedCount: e.droppedCount,
+        capacity: e.capacity,
+        sequence: e.sequence,
+        lowestDroppedSequence: e.lowestDroppedSequence,
+        highestDroppedSequence: e.highestDroppedSequence,
       }));
     },
 
@@ -419,7 +425,7 @@ export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.Un
         const sid = requireSessionId(msg);
         const { session, bridge } = registry.get(sid);
         if (!session.pushDomInput) {
-          throw Object.assign(new Error('DomProjection input not supported'), {
+          throw Object.assign(new Error('PageProjection input not supported'), {
             code: 'FAILED_PRECONDITION',
           });
         }
@@ -438,7 +444,7 @@ export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.Un
         const typeLower = kind.trim().toLowerCase();
         const isHfMove = typeLower === 'mousemove' || typeLower === 'pointermove';
         if (outcome.status === 'dropped') {
-          bridge.onDomProjectionInputPath({
+          bridge.onPageProjectionIntentPath({
             phase: 'cdp_dropped',
             kind,
             reason: outcome.reason,
@@ -448,7 +454,7 @@ export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.Un
         }
         // Skip admit-path fanout for move samples (high frequency) — mirror VideoStreamingInput.
         if (!isHfMove) {
-          bridge.onDomProjectionInputPath({
+          bridge.onPageProjectionIntentPath({
             phase: 'sidecar_admitted',
             kind,
             generation,
@@ -494,6 +500,39 @@ export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.Un
           statusCode: hit.statusCode ?? 200,
           contentRange: hit.contentRange ?? '',
           passThrough: !!hit.passThrough,
+        });
+      } catch (err) {
+        callback(grpcError(err), null);
+      }
+    },
+
+    async getPageProjectionResync(
+      call: grpc.ServerUnaryCall<any, any>,
+      callback: grpc.sendUnaryData<any>,
+    ): Promise<void> {
+      try {
+        const { session } = registry.get(requireSessionId(call.request));
+        if (!session.getPageProjectionResync) {
+          callback(grpcError(Object.assign(new Error('PageProjection resync unsupported'), {
+            code: 'FAILED_PRECONDITION',
+          })), null);
+          return;
+        }
+        const snap = await session.getPageProjectionResync({
+          generation: Number(call.request.generation ?? 0) || undefined,
+          sequence: Number(call.request.sequence ?? 0) || undefined,
+        });
+        if (!snap) {
+          callback(grpcError(Object.assign(new Error('resync snapshot unavailable'), {
+            code: 'NOT_FOUND',
+          })), null);
+          return;
+        }
+        callback(null, {
+          generation: snap.generation,
+          coversThroughSequence: snap.coversThroughSequence,
+          rootJson: snap.rootJson,
+          sheetsJson: snap.sheetsJson,
         });
       } catch (err) {
         callback(grpcError(err), null);
@@ -642,6 +681,7 @@ function watchStream<T>(
   registry: SessionRegistry,
   pick: (b: EventBridge) => DropOldestQueue<T>,
   map: (item: T) => any,
+  hooksFor?: (b: EventBridge) => import('./pumpQueue').PumpQueueDropHooks<T> | undefined,
 ): void {
   let entry;
   try {
@@ -656,7 +696,7 @@ function watchStream<T>(
   call.on('close', () => ac.abort());
   call.on('error', () => ac.abort());
 
-  void pumpQueue(pick(entry.bridge), call, map, ac.signal)
+  void pumpQueue(pick(entry.bridge), call, map, ac.signal, hooksFor?.(entry.bridge))
     .then(() => {
       if (!call.cancelled) call.end();
     })

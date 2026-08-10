@@ -1,0 +1,4330 @@
+[
+  {
+    "name": "dismiss_overlay_click",
+    "ms": 986,
+    "err": null,
+    "before": {
+      "scrollTop": 0,
+      "htmlLen": 308349,
+      "text": "English EU\nBRL\nLog in\n | \nRegister\nCategories\nGames -90%\nSoftware\neGift Cards\nNordVPN\nEneba Gift Cards\nFC27\nGame Points ",
+      "href": "http://127.0.0.1:8080/?_w7s_nso=eyJ2IjoxLCJoIjoiIn0%3D"
+    },
+    "after": {
+      "scrollTop": 0,
+      "htmlLen": 319792,
+      "text": "English EU\nBRL\nLog in\n | \nRegister\nCategories\nGames -90%\nSoftware\neGift Cards\nNordVPN\nEneba Gift Cards\nFC27\nGame Points ",
+      "href": "http://127.0.0.1:8080/?_w7s_nso=eyJ2IjoxLCJoIjoiIn0%3D"
+    },
+    "delta": {
+      "scrollTop": 0,
+      "htmlLen": 11443,
+      "textChanged": false,
+      "hrefChanged": false
+    },
+    "front": {
+      "label": "dismiss_overlay_click",
+      "total": 331,
+      "fresh": 331,
+      "intentLabels": [
+        {
+          "at": 1786200522184,
+          "label": "dom_input client_sent",
+          "kind": "mousemove",
+          "hop": "client_sent",
+          "gen": 1,
+          "anchor": null
+        },
+        {
+          "at": 1786200522184,
+          "label": "dom_input client_sent",
+          "kind": "mousedown",
+          "hop": "client_sent",
+          "gen": 1,
+          "anchor": "ad0blgo1do602"
+        },
+        {
+          "at": 1786200522186,
+          "label": "dom_input client_sent",
+          "kind": "focus",
+          "hop": "client_sent",
+          "gen": 1,
+          "anchor": "a983av5hqo602"
+        },
+        {
+          "at": 1786200522187,
+          "label": "dom_input client_sent",
+          "kind": "mouseup",
+          "hop": "client_sent",
+          "gen": 1,
+          "anchor": "ad0blgo1do602"
+        },
+        {
+          "at": 1786200522194,
+          "label": "dom_input client_sent",
+          "kind": "scrollViewport",
+          "hop": "client_sent",
+          "gen": 1,
+          "anchor": null,
+          "scrollY": 3972,
+          "scrollTop": null,
+          "key": null
+        }
+      ],
+      "diffHops": [
+        {
+          "at": 1786200522763,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 128,
+          "gen": 1
+        },
+        {
+          "at": 1786200522763,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 129,
+          "gen": 1
+        },
+        {
+          "at": 1786200522763,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 130,
+          "gen": 1
+        },
+        {
+          "at": 1786200522763,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 131,
+          "gen": 1
+        },
+        {
+          "at": 1786200522763,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 132,
+          "gen": 1
+        },
+        {
+          "at": 1786200522763,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 133,
+          "gen": 1
+        },
+        {
+          "at": 1786200522764,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 134,
+          "gen": 1
+        },
+        {
+          "at": 1786200522764,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 135,
+          "gen": 1
+        },
+        {
+          "at": 1786200522890,
+          "label": "page_projection dom/childList",
+          "hop": "client_recv",
+          "kind": "dom:childList",
+          "seq": 136,
+          "gen": 1
+        },
+        {
+          "at": 1786200522891,
+          "label": "page_projection dom/childList",
+          "hop": "client_recv",
+          "kind": "dom:childList",
+          "seq": 137,
+          "gen": 1
+        },
+        {
+          "at": 1786200522893,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 136,
+          "gen": 1
+        },
+        {
+          "at": 1786200522893,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 137,
+          "gen": 1
+        },
+        {
+          "at": 1786200522920,
+          "label": "page_projection dom/scrollViewport",
+          "hop": "client_recv",
+          "kind": "dom:scrollViewport",
+          "seq": 138,
+          "gen": 1
+        },
+        {
+          "at": 1786200522929,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 138,
+          "gen": 1
+        },
+        {
+          "at": 1786200522953,
+          "label": "page_projection dom/childList",
+          "hop": "client_recv",
+          "kind": "dom:childList",
+          "seq": 139,
+          "gen": 1
+        },
+        {
+          "at": 1786200522954,
+          "label": "page_projection dom/patch",
+          "hop": "client_recv",
+          "kind": "dom:patch",
+          "seq": 140,
+          "gen": 1
+        },
+        {
+          "at": 1786200522961,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 139,
+          "gen": 1
+        },
+        {
+          "at": 1786200522962,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 140,
+          "gen": 1
+        },
+        {
+          "at": 1786200522964,
+          "label": "page_projection dom/patch",
+          "hop": "client_recv",
+          "kind": "dom:patch",
+          "seq": 141,
+          "gen": 1
+        },
+        {
+          "at": 1786200522974,
+          "label": "page_projection dom/childList",
+          "hop": "client_recv",
+          "kind": "dom:childList",
+          "seq": 142,
+          "gen": 1
+        },
+        {
+          "at": 1786200522975,
+          "label": "page_projection dom/patch",
+          "hop": "client_recv",
+          "kind": "dom:patch",
+          "seq": 143,
+          "gen": 1
+        },
+        {
+          "at": 1786200522978,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 141,
+          "gen": 1
+        },
+        {
+          "at": 1786200522979,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 142,
+          "gen": 1
+        },
+        {
+          "at": 1786200522979,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 143,
+          "gen": 1
+        },
+        {
+          "at": 1786200522989,
+          "label": "page_projection dom/childList",
+          "hop": "client_recv",
+          "kind": "dom:childList",
+          "seq": 144,
+          "gen": 1
+        },
+        {
+          "at": 1786200522990,
+          "label": "page_projection dom/patch",
+          "hop": "client_recv",
+          "kind": "dom:patch",
+          "seq": 145,
+          "gen": 1
+        },
+        {
+          "at": 1786200522994,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 144,
+          "gen": 1
+        },
+        {
+          "at": 1786200522994,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 145,
+          "gen": 1
+        },
+        {
+          "at": 1786200522998,
+          "label": "page_projection dom/patch",
+          "hop": "client_recv",
+          "kind": "dom:patch",
+          "seq": 146,
+          "gen": 1
+        },
+        {
+          "at": 1786200523012,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 146,
+          "gen": 1
+        },
+        {
+          "at": 1786200523025,
+          "label": "page_projection dom/childList",
+          "hop": "client_recv",
+          "kind": "dom:childList",
+          "seq": 147,
+          "gen": 1
+        },
+        {
+          "at": 1786200523025,
+          "label": "page_projection dom/patch",
+          "hop": "client_recv",
+          "kind": "dom:patch",
+          "seq": 148,
+          "gen": 1
+        },
+        {
+          "at": 1786200523028,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 147,
+          "gen": 1
+        },
+        {
+          "at": 1786200523028,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 148,
+          "gen": 1
+        },
+        {
+          "at": 1786200523030,
+          "label": "page_projection dom/patch",
+          "hop": "client_recv",
+          "kind": "dom:patch",
+          "seq": 149,
+          "gen": 1
+        },
+        {
+          "at": 1786200523044,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 149,
+          "gen": 1
+        },
+        {
+          "at": 1786200523112,
+          "label": "page_projection dom/childList",
+          "hop": "client_recv",
+          "kind": "dom:childList",
+          "seq": 150,
+          "gen": 1
+        },
+        {
+          "at": 1786200523113,
+          "label": "page_projection dom/patch",
+          "hop": "client_recv",
+          "kind": "dom:patch",
+          "seq": 151,
+          "gen": 1
+        },
+        {
+          "at": 1786200523117,
+          "label": "page_projection dom/childList",
+          "hop": "client_recv",
+          "kind": "dom:childList",
+          "seq": 152,
+          "gen": 1
+        },
+        {
+          "at": 1786200523117,
+          "label": "page_projection dom/patch",
+          "hop": "client_recv",
+          "kind": "dom:patch",
+          "seq": 153,
+          "gen": 1
+        }
+      ]
+    }
+  },
+  {
+    "name": "mousemove_then_click_hero",
+    "ms": 1327,
+    "err": null,
+    "before": {
+      "scrollTop": 0,
+      "htmlLen": 320413,
+      "text": "English EU\nBRL\nLog in\n | \nRegister\nCategories\nGames -90%\nSoftware\neGift Cards\nNordVPN\nEneba Gift Cards\nFC27\nGame Points ",
+      "href": "http://127.0.0.1:8080/?_w7s_nso=eyJ2IjoxLCJoIjoiIn0%3D"
+    },
+    "after": {
+      "scrollTop": 0,
+      "htmlLen": 320413,
+      "text": "English EU\nBRL\nLog in\n | \nRegister\nCategories\nGames -90%\nSoftware\neGift Cards\nNordVPN\nEneba Gift Cards\nFC27\nGame Points ",
+      "href": "http://127.0.0.1:8080/br/?_w7s_nso=eyJ2IjoxLCJoIjoiIn0%3D"
+    },
+    "delta": {
+      "scrollTop": 0,
+      "htmlLen": 0,
+      "textChanged": false,
+      "hrefChanged": true
+    },
+    "front": {
+      "label": "mousemove_then_click_hero",
+      "total": 356,
+      "fresh": 356,
+      "intentLabels": [
+        {
+          "at": 1786200522184,
+          "label": "dom_input client_sent",
+          "kind": "mousemove",
+          "hop": "client_sent",
+          "gen": 1,
+          "anchor": null
+        },
+        {
+          "at": 1786200522184,
+          "label": "dom_input client_sent",
+          "kind": "mousedown",
+          "hop": "client_sent",
+          "gen": 1,
+          "anchor": "ad0blgo1do602"
+        },
+        {
+          "at": 1786200522186,
+          "label": "dom_input client_sent",
+          "kind": "focus",
+          "hop": "client_sent",
+          "gen": 1,
+          "anchor": "a983av5hqo602"
+        },
+        {
+          "at": 1786200522187,
+          "label": "dom_input client_sent",
+          "kind": "mouseup",
+          "hop": "client_sent",
+          "gen": 1,
+          "anchor": "ad0blgo1do602"
+        },
+        {
+          "at": 1786200522194,
+          "label": "dom_input client_sent",
+          "kind": "scrollViewport",
+          "hop": "client_sent",
+          "gen": 1,
+          "anchor": null,
+          "scrollY": 3972,
+          "scrollTop": null,
+          "key": null
+        },
+        {
+          "at": 1786200523550,
+          "label": "dom_input client_sent",
+          "kind": "blur",
+          "hop": "client_sent",
+          "gen": 1,
+          "anchor": "a983av5hqo602"
+        },
+        {
+          "at": 1786200523551,
+          "label": "dom_input client_sent",
+          "kind": "focus",
+          "hop": "client_sent",
+          "gen": 1,
+          "anchor": "aymzg0uruo5zz"
+        }
+      ],
+      "diffHops": [
+        {
+          "at": 1786200522891,
+          "label": "page_projection dom/childList",
+          "hop": "client_recv",
+          "kind": "dom:childList",
+          "seq": 137,
+          "gen": 1
+        },
+        {
+          "at": 1786200522893,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 136,
+          "gen": 1
+        },
+        {
+          "at": 1786200522893,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 137,
+          "gen": 1
+        },
+        {
+          "at": 1786200522920,
+          "label": "page_projection dom/scrollViewport",
+          "hop": "client_recv",
+          "kind": "dom:scrollViewport",
+          "seq": 138,
+          "gen": 1
+        },
+        {
+          "at": 1786200522929,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 138,
+          "gen": 1
+        },
+        {
+          "at": 1786200522953,
+          "label": "page_projection dom/childList",
+          "hop": "client_recv",
+          "kind": "dom:childList",
+          "seq": 139,
+          "gen": 1
+        },
+        {
+          "at": 1786200522954,
+          "label": "page_projection dom/patch",
+          "hop": "client_recv",
+          "kind": "dom:patch",
+          "seq": 140,
+          "gen": 1
+        },
+        {
+          "at": 1786200522961,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 139,
+          "gen": 1
+        },
+        {
+          "at": 1786200522962,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 140,
+          "gen": 1
+        },
+        {
+          "at": 1786200522964,
+          "label": "page_projection dom/patch",
+          "hop": "client_recv",
+          "kind": "dom:patch",
+          "seq": 141,
+          "gen": 1
+        },
+        {
+          "at": 1786200522974,
+          "label": "page_projection dom/childList",
+          "hop": "client_recv",
+          "kind": "dom:childList",
+          "seq": 142,
+          "gen": 1
+        },
+        {
+          "at": 1786200522975,
+          "label": "page_projection dom/patch",
+          "hop": "client_recv",
+          "kind": "dom:patch",
+          "seq": 143,
+          "gen": 1
+        },
+        {
+          "at": 1786200522978,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 141,
+          "gen": 1
+        },
+        {
+          "at": 1786200522979,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 142,
+          "gen": 1
+        },
+        {
+          "at": 1786200522979,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 143,
+          "gen": 1
+        },
+        {
+          "at": 1786200522989,
+          "label": "page_projection dom/childList",
+          "hop": "client_recv",
+          "kind": "dom:childList",
+          "seq": 144,
+          "gen": 1
+        },
+        {
+          "at": 1786200522990,
+          "label": "page_projection dom/patch",
+          "hop": "client_recv",
+          "kind": "dom:patch",
+          "seq": 145,
+          "gen": 1
+        },
+        {
+          "at": 1786200522994,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 144,
+          "gen": 1
+        },
+        {
+          "at": 1786200522994,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 145,
+          "gen": 1
+        },
+        {
+          "at": 1786200522998,
+          "label": "page_projection dom/patch",
+          "hop": "client_recv",
+          "kind": "dom:patch",
+          "seq": 146,
+          "gen": 1
+        },
+        {
+          "at": 1786200523012,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 146,
+          "gen": 1
+        },
+        {
+          "at": 1786200523025,
+          "label": "page_projection dom/childList",
+          "hop": "client_recv",
+          "kind": "dom:childList",
+          "seq": 147,
+          "gen": 1
+        },
+        {
+          "at": 1786200523025,
+          "label": "page_projection dom/patch",
+          "hop": "client_recv",
+          "kind": "dom:patch",
+          "seq": 148,
+          "gen": 1
+        },
+        {
+          "at": 1786200523028,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 147,
+          "gen": 1
+        },
+        {
+          "at": 1786200523028,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 148,
+          "gen": 1
+        },
+        {
+          "at": 1786200523030,
+          "label": "page_projection dom/patch",
+          "hop": "client_recv",
+          "kind": "dom:patch",
+          "seq": 149,
+          "gen": 1
+        },
+        {
+          "at": 1786200523044,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 149,
+          "gen": 1
+        },
+        {
+          "at": 1786200523112,
+          "label": "page_projection dom/childList",
+          "hop": "client_recv",
+          "kind": "dom:childList",
+          "seq": 150,
+          "gen": 1
+        },
+        {
+          "at": 1786200523113,
+          "label": "page_projection dom/patch",
+          "hop": "client_recv",
+          "kind": "dom:patch",
+          "seq": 151,
+          "gen": 1
+        },
+        {
+          "at": 1786200523117,
+          "label": "page_projection dom/childList",
+          "hop": "client_recv",
+          "kind": "dom:childList",
+          "seq": 152,
+          "gen": 1
+        },
+        {
+          "at": 1786200523117,
+          "label": "page_projection dom/patch",
+          "hop": "client_recv",
+          "kind": "dom:patch",
+          "seq": 153,
+          "gen": 1
+        },
+        {
+          "at": 1786200523128,
+          "label": "page_projection dom/childList",
+          "hop": "client_recv",
+          "kind": "dom:childList",
+          "seq": 154,
+          "gen": 1
+        },
+        {
+          "at": 1786200523130,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 150,
+          "gen": 1
+        },
+        {
+          "at": 1786200523130,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 151,
+          "gen": 1
+        },
+        {
+          "at": 1786200523131,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 152,
+          "gen": 1
+        },
+        {
+          "at": 1786200523131,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 153,
+          "gen": 1
+        },
+        {
+          "at": 1786200523131,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 154,
+          "gen": 1
+        },
+        {
+          "at": 1786200523133,
+          "label": "page_projection dom/childList",
+          "hop": "client_recv",
+          "kind": "dom:childList",
+          "seq": 155,
+          "gen": 1
+        },
+        {
+          "at": 1786200523144,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 155,
+          "gen": 1
+        },
+        {
+          "at": 1786200524030,
+          "label": "page_projection client_disarm",
+          "hop": "client_disarm",
+          "kind": "dom",
+          "seq": null,
+          "gen": 2,
+          "reason": "generation_bumped"
+        }
+      ]
+    }
+  },
+  {
+    "name": "wheel_down_800",
+    "ms": 982,
+    "err": null,
+    "before": {
+      "scrollTop": 0,
+      "htmlLen": 150146,
+      "text": "Português BrasileiroBRL\nLog inRegistrar-se\nLog in | Registrar-se\nCategorias\nJogos -90%\nSoftware\neCartões\nNordVPN\nGift Ca",
+      "href": "http://127.0.0.1:8080/br/?_w7s_nso=eyJ2IjoxLCJoIjoiIn0%3D"
+    },
+    "after": {
+      "scrollTop": 0,
+      "htmlLen": 390101,
+      "text": "Português Brasileiro\nBRL\nLog in\n | \nRegistrar-se\nCategorias\nJogos -90%\nSoftware\neCartões\nNordVPN\nGift Cards Eneba\nFC27\nP",
+      "href": "http://127.0.0.1:8080/br/?_w7s_nso=eyJ2IjoxLCJoIjoiIn0%3D"
+    },
+    "delta": {
+      "scrollTop": 0,
+      "htmlLen": 239955,
+      "textChanged": true,
+      "hrefChanged": false
+    },
+    "front": {
+      "label": "wheel_down_800",
+      "total": 720,
+      "fresh": 720,
+      "intentLabels": [
+        {
+          "at": 1786200522184,
+          "label": "dom_input client_sent",
+          "kind": "mousemove",
+          "hop": "client_sent",
+          "gen": 1,
+          "anchor": null
+        },
+        {
+          "at": 1786200522184,
+          "label": "dom_input client_sent",
+          "kind": "mousedown",
+          "hop": "client_sent",
+          "gen": 1,
+          "anchor": "ad0blgo1do602"
+        },
+        {
+          "at": 1786200522186,
+          "label": "dom_input client_sent",
+          "kind": "focus",
+          "hop": "client_sent",
+          "gen": 1,
+          "anchor": "a983av5hqo602"
+        },
+        {
+          "at": 1786200522187,
+          "label": "dom_input client_sent",
+          "kind": "mouseup",
+          "hop": "client_sent",
+          "gen": 1,
+          "anchor": "ad0blgo1do602"
+        },
+        {
+          "at": 1786200522194,
+          "label": "dom_input client_sent",
+          "kind": "scrollViewport",
+          "hop": "client_sent",
+          "gen": 1,
+          "anchor": null,
+          "scrollY": 3972,
+          "scrollTop": null,
+          "key": null
+        },
+        {
+          "at": 1786200523550,
+          "label": "dom_input client_sent",
+          "kind": "blur",
+          "hop": "client_sent",
+          "gen": 1,
+          "anchor": "a983av5hqo602"
+        },
+        {
+          "at": 1786200523551,
+          "label": "dom_input client_sent",
+          "kind": "focus",
+          "hop": "client_sent",
+          "gen": 1,
+          "anchor": "aymzg0uruo5zz"
+        },
+        {
+          "at": 1786200524478,
+          "label": "dom_input client_sent",
+          "kind": "blur",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "aymzg0uruo5zz"
+        }
+      ],
+      "diffHops": [
+        {
+          "at": 1786200525331,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 156,
+          "gen": 2
+        },
+        {
+          "at": 1786200525332,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 157,
+          "gen": 2
+        },
+        {
+          "at": 1786200525332,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 158,
+          "gen": 2
+        },
+        {
+          "at": 1786200525332,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 159,
+          "gen": 2
+        },
+        {
+          "at": 1786200525332,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 160,
+          "gen": 2
+        },
+        {
+          "at": 1786200525332,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 161,
+          "gen": 2
+        },
+        {
+          "at": 1786200525332,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 162,
+          "gen": 2
+        },
+        {
+          "at": 1786200525332,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 163,
+          "gen": 2
+        },
+        {
+          "at": 1786200525332,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 164,
+          "gen": 2
+        },
+        {
+          "at": 1786200525332,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 165,
+          "gen": 2
+        },
+        {
+          "at": 1786200525336,
+          "label": "page_projection dom/patch",
+          "hop": "client_recv",
+          "kind": "dom:patch",
+          "seq": 166,
+          "gen": 2
+        },
+        {
+          "at": 1786200525337,
+          "label": "page_projection dom/patch",
+          "hop": "client_recv",
+          "kind": "dom:patch",
+          "seq": 167,
+          "gen": 2
+        },
+        {
+          "at": 1786200525338,
+          "label": "page_projection dom/patch",
+          "hop": "client_recv",
+          "kind": "dom:patch",
+          "seq": 168,
+          "gen": 2
+        },
+        {
+          "at": 1786200525340,
+          "label": "page_projection dom/childList",
+          "hop": "client_recv",
+          "kind": "dom:childList",
+          "seq": 169,
+          "gen": 2
+        },
+        {
+          "at": 1786200525341,
+          "label": "page_projection dom/childList",
+          "hop": "client_recv",
+          "kind": "dom:childList",
+          "seq": 170,
+          "gen": 2
+        },
+        {
+          "at": 1786200525341,
+          "label": "page_projection dom/childList",
+          "hop": "client_recv",
+          "kind": "dom:childList",
+          "seq": 171,
+          "gen": 2
+        },
+        {
+          "at": 1786200525345,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 166,
+          "gen": 2
+        },
+        {
+          "at": 1786200525345,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 167,
+          "gen": 2
+        },
+        {
+          "at": 1786200525346,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 168,
+          "gen": 2
+        },
+        {
+          "at": 1786200525346,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 169,
+          "gen": 2
+        },
+        {
+          "at": 1786200525346,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 170,
+          "gen": 2
+        },
+        {
+          "at": 1786200525346,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 171,
+          "gen": 2
+        },
+        {
+          "at": 1786200525349,
+          "label": "page_projection dom/patch",
+          "hop": "client_recv",
+          "kind": "dom:patch",
+          "seq": 172,
+          "gen": 2
+        },
+        {
+          "at": 1786200525350,
+          "label": "page_projection dom/patch",
+          "hop": "client_recv",
+          "kind": "dom:patch",
+          "seq": 173,
+          "gen": 2
+        },
+        {
+          "at": 1786200525356,
+          "label": "page_projection dom/patch",
+          "hop": "client_recv",
+          "kind": "dom:patch",
+          "seq": 174,
+          "gen": 2
+        },
+        {
+          "at": 1786200525357,
+          "label": "page_projection dom/childList",
+          "hop": "client_recv",
+          "kind": "dom:childList",
+          "seq": 175,
+          "gen": 2
+        },
+        {
+          "at": 1786200525362,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 172,
+          "gen": 2
+        },
+        {
+          "at": 1786200525362,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 173,
+          "gen": 2
+        },
+        {
+          "at": 1786200525362,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 174,
+          "gen": 2
+        },
+        {
+          "at": 1786200525362,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 175,
+          "gen": 2
+        },
+        {
+          "at": 1786200525366,
+          "label": "page_projection dom/childList",
+          "hop": "client_recv",
+          "kind": "dom:childList",
+          "seq": 176,
+          "gen": 2
+        },
+        {
+          "at": 1786200525367,
+          "label": "page_projection dom/childList",
+          "hop": "client_recv",
+          "kind": "dom:childList",
+          "seq": 177,
+          "gen": 2
+        },
+        {
+          "at": 1786200525369,
+          "label": "page_projection dom/patch",
+          "hop": "client_recv",
+          "kind": "dom:patch",
+          "seq": 178,
+          "gen": 2
+        },
+        {
+          "at": 1786200525370,
+          "label": "page_projection dom/patch",
+          "hop": "client_recv",
+          "kind": "dom:patch",
+          "seq": 179,
+          "gen": 2
+        },
+        {
+          "at": 1786200525377,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 176,
+          "gen": 2
+        },
+        {
+          "at": 1786200525378,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 177,
+          "gen": 2
+        },
+        {
+          "at": 1786200525378,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 178,
+          "gen": 2
+        },
+        {
+          "at": 1786200525378,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 179,
+          "gen": 2
+        },
+        {
+          "at": 1786200525438,
+          "label": "page_projection dom/patch",
+          "hop": "client_recv",
+          "kind": "dom:patch",
+          "seq": 180,
+          "gen": 2
+        },
+        {
+          "at": 1786200525439,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 180,
+          "gen": 2
+        }
+      ]
+    }
+  },
+  {
+    "name": "wheel_up_400",
+    "ms": 947,
+    "err": null,
+    "before": {
+      "scrollTop": 0,
+      "htmlLen": 390101,
+      "text": "Português Brasileiro\nBRL\nLog in\n | \nRegistrar-se\nCategorias\nJogos -90%\nSoftware\neCartões\nNordVPN\nGift Cards Eneba\nFC27\nP",
+      "href": "http://127.0.0.1:8080/br/?_w7s_nso=eyJ2IjoxLCJoIjoiIn0%3D"
+    },
+    "after": {
+      "scrollTop": 0,
+      "htmlLen": 623136,
+      "text": "Português Brasileiro\nBRL\nLog in\n | \nRegistrar-se\nCategorias\nJogos -90%\nSoftware\neCartões\nNordVPN\nGift Cards Eneba\nFC27\nP",
+      "href": "http://127.0.0.1:8080/br/?_w7s_nso=eyJ2IjoxLCJoIjoiIn0%3D"
+    },
+    "delta": {
+      "scrollTop": 0,
+      "htmlLen": 233035,
+      "textChanged": false,
+      "hrefChanged": false
+    },
+    "front": {
+      "label": "wheel_up_400",
+      "total": 1017,
+      "fresh": 1017,
+      "intentLabels": [
+        {
+          "at": 1786200522184,
+          "label": "dom_input client_sent",
+          "kind": "mousemove",
+          "hop": "client_sent",
+          "gen": 1,
+          "anchor": null
+        },
+        {
+          "at": 1786200522184,
+          "label": "dom_input client_sent",
+          "kind": "mousedown",
+          "hop": "client_sent",
+          "gen": 1,
+          "anchor": "ad0blgo1do602"
+        },
+        {
+          "at": 1786200522186,
+          "label": "dom_input client_sent",
+          "kind": "focus",
+          "hop": "client_sent",
+          "gen": 1,
+          "anchor": "a983av5hqo602"
+        },
+        {
+          "at": 1786200522187,
+          "label": "dom_input client_sent",
+          "kind": "mouseup",
+          "hop": "client_sent",
+          "gen": 1,
+          "anchor": "ad0blgo1do602"
+        },
+        {
+          "at": 1786200522194,
+          "label": "dom_input client_sent",
+          "kind": "scrollViewport",
+          "hop": "client_sent",
+          "gen": 1,
+          "anchor": null,
+          "scrollY": 3972,
+          "scrollTop": null,
+          "key": null
+        },
+        {
+          "at": 1786200523550,
+          "label": "dom_input client_sent",
+          "kind": "blur",
+          "hop": "client_sent",
+          "gen": 1,
+          "anchor": "a983av5hqo602"
+        },
+        {
+          "at": 1786200523551,
+          "label": "dom_input client_sent",
+          "kind": "focus",
+          "hop": "client_sent",
+          "gen": 1,
+          "anchor": "aymzg0uruo5zz"
+        },
+        {
+          "at": 1786200524478,
+          "label": "dom_input client_sent",
+          "kind": "blur",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "aymzg0uruo5zz"
+        }
+      ],
+      "diffHops": [
+        {
+          "at": 1786200526013,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 289,
+          "gen": 2
+        },
+        {
+          "at": 1786200526013,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 290,
+          "gen": 2
+        },
+        {
+          "at": 1786200526013,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 291,
+          "gen": 2
+        },
+        {
+          "at": 1786200526013,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 292,
+          "gen": 2
+        },
+        {
+          "at": 1786200526013,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 293,
+          "gen": 2
+        },
+        {
+          "at": 1786200526014,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 294,
+          "gen": 2
+        },
+        {
+          "at": 1786200526014,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 295,
+          "gen": 2
+        },
+        {
+          "at": 1786200526014,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 296,
+          "gen": 2
+        },
+        {
+          "at": 1786200526014,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 297,
+          "gen": 2
+        },
+        {
+          "at": 1786200526014,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 298,
+          "gen": 2
+        },
+        {
+          "at": 1786200526014,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 299,
+          "gen": 2
+        },
+        {
+          "at": 1786200526014,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 300,
+          "gen": 2
+        },
+        {
+          "at": 1786200526014,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 301,
+          "gen": 2
+        },
+        {
+          "at": 1786200526014,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 302,
+          "gen": 2
+        },
+        {
+          "at": 1786200526014,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 303,
+          "gen": 2
+        },
+        {
+          "at": 1786200526014,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 304,
+          "gen": 2
+        },
+        {
+          "at": 1786200526014,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 305,
+          "gen": 2
+        },
+        {
+          "at": 1786200526014,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 306,
+          "gen": 2
+        },
+        {
+          "at": 1786200526014,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 307,
+          "gen": 2
+        },
+        {
+          "at": 1786200526014,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 308,
+          "gen": 2
+        },
+        {
+          "at": 1786200526014,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 309,
+          "gen": 2
+        },
+        {
+          "at": 1786200526014,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 310,
+          "gen": 2
+        },
+        {
+          "at": 1786200526014,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 311,
+          "gen": 2
+        },
+        {
+          "at": 1786200526014,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 312,
+          "gen": 2
+        },
+        {
+          "at": 1786200526014,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 313,
+          "gen": 2
+        },
+        {
+          "at": 1786200526015,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 314,
+          "gen": 2
+        },
+        {
+          "at": 1786200526015,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 315,
+          "gen": 2
+        },
+        {
+          "at": 1786200526015,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 316,
+          "gen": 2
+        },
+        {
+          "at": 1786200526015,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 317,
+          "gen": 2
+        },
+        {
+          "at": 1786200526015,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 318,
+          "gen": 2
+        },
+        {
+          "at": 1786200526015,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 319,
+          "gen": 2
+        },
+        {
+          "at": 1786200526015,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 320,
+          "gen": 2
+        },
+        {
+          "at": 1786200526015,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 321,
+          "gen": 2
+        },
+        {
+          "at": 1786200526015,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 322,
+          "gen": 2
+        },
+        {
+          "at": 1786200526015,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 323,
+          "gen": 2
+        },
+        {
+          "at": 1786200526015,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 324,
+          "gen": 2
+        },
+        {
+          "at": 1786200526015,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 325,
+          "gen": 2
+        },
+        {
+          "at": 1786200526015,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 326,
+          "gen": 2
+        },
+        {
+          "at": 1786200526015,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 327,
+          "gen": 2
+        },
+        {
+          "at": 1786200526015,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 328,
+          "gen": 2
+        }
+      ]
+    }
+  },
+  {
+    "name": "click_categories_nav",
+    "ms": 958,
+    "err": null,
+    "before": {
+      "scrollTop": 0,
+      "htmlLen": 623136,
+      "text": "Português Brasileiro\nBRL\nLog in\n | \nRegistrar-se\nCategorias\nJogos -90%\nSoftware\neCartões\nNordVPN\nGift Cards Eneba\nFC27\nP",
+      "href": "http://127.0.0.1:8080/br/?_w7s_nso=eyJ2IjoxLCJoIjoiIn0%3D"
+    },
+    "after": {
+      "scrollTop": 0,
+      "htmlLen": 622644,
+      "text": "Português Brasileiro\nBRL\nLog in\n | \nRegistrar-se\nCategorias\nJogos -90%\nSoftware\neCartões\nNordVPN\nGift Cards Eneba\nFC27\nP",
+      "href": "http://127.0.0.1:8080/br/?_w7s_nso=eyJ2IjoxLCJoIjoiIn0%3D"
+    },
+    "delta": {
+      "scrollTop": 0,
+      "htmlLen": -492,
+      "textChanged": false,
+      "hrefChanged": false
+    },
+    "front": {
+      "label": "click_categories_nav",
+      "total": 1027,
+      "fresh": 1027,
+      "intentLabels": [
+        {
+          "at": 1786200522184,
+          "label": "dom_input client_sent",
+          "kind": "mousemove",
+          "hop": "client_sent",
+          "gen": 1,
+          "anchor": null
+        },
+        {
+          "at": 1786200522184,
+          "label": "dom_input client_sent",
+          "kind": "mousedown",
+          "hop": "client_sent",
+          "gen": 1,
+          "anchor": "ad0blgo1do602"
+        },
+        {
+          "at": 1786200522186,
+          "label": "dom_input client_sent",
+          "kind": "focus",
+          "hop": "client_sent",
+          "gen": 1,
+          "anchor": "a983av5hqo602"
+        },
+        {
+          "at": 1786200522187,
+          "label": "dom_input client_sent",
+          "kind": "mouseup",
+          "hop": "client_sent",
+          "gen": 1,
+          "anchor": "ad0blgo1do602"
+        },
+        {
+          "at": 1786200522194,
+          "label": "dom_input client_sent",
+          "kind": "scrollViewport",
+          "hop": "client_sent",
+          "gen": 1,
+          "anchor": null,
+          "scrollY": 3972,
+          "scrollTop": null,
+          "key": null
+        },
+        {
+          "at": 1786200523550,
+          "label": "dom_input client_sent",
+          "kind": "blur",
+          "hop": "client_sent",
+          "gen": 1,
+          "anchor": "a983av5hqo602"
+        },
+        {
+          "at": 1786200523551,
+          "label": "dom_input client_sent",
+          "kind": "focus",
+          "hop": "client_sent",
+          "gen": 1,
+          "anchor": "aymzg0uruo5zz"
+        },
+        {
+          "at": 1786200524478,
+          "label": "dom_input client_sent",
+          "kind": "blur",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "aymzg0uruo5zz"
+        },
+        {
+          "at": 1786200526514,
+          "label": "dom_input client_sent",
+          "kind": "focus",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a6fr9e3gto8o8"
+        }
+      ],
+      "diffHops": [
+        {
+          "at": 1786200526014,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 295,
+          "gen": 2
+        },
+        {
+          "at": 1786200526014,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 296,
+          "gen": 2
+        },
+        {
+          "at": 1786200526014,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 297,
+          "gen": 2
+        },
+        {
+          "at": 1786200526014,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 298,
+          "gen": 2
+        },
+        {
+          "at": 1786200526014,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 299,
+          "gen": 2
+        },
+        {
+          "at": 1786200526014,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 300,
+          "gen": 2
+        },
+        {
+          "at": 1786200526014,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 301,
+          "gen": 2
+        },
+        {
+          "at": 1786200526014,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 302,
+          "gen": 2
+        },
+        {
+          "at": 1786200526014,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 303,
+          "gen": 2
+        },
+        {
+          "at": 1786200526014,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 304,
+          "gen": 2
+        },
+        {
+          "at": 1786200526014,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 305,
+          "gen": 2
+        },
+        {
+          "at": 1786200526014,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 306,
+          "gen": 2
+        },
+        {
+          "at": 1786200526014,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 307,
+          "gen": 2
+        },
+        {
+          "at": 1786200526014,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 308,
+          "gen": 2
+        },
+        {
+          "at": 1786200526014,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 309,
+          "gen": 2
+        },
+        {
+          "at": 1786200526014,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 310,
+          "gen": 2
+        },
+        {
+          "at": 1786200526014,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 311,
+          "gen": 2
+        },
+        {
+          "at": 1786200526014,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 312,
+          "gen": 2
+        },
+        {
+          "at": 1786200526014,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 313,
+          "gen": 2
+        },
+        {
+          "at": 1786200526015,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 314,
+          "gen": 2
+        },
+        {
+          "at": 1786200526015,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 315,
+          "gen": 2
+        },
+        {
+          "at": 1786200526015,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 316,
+          "gen": 2
+        },
+        {
+          "at": 1786200526015,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 317,
+          "gen": 2
+        },
+        {
+          "at": 1786200526015,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 318,
+          "gen": 2
+        },
+        {
+          "at": 1786200526015,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 319,
+          "gen": 2
+        },
+        {
+          "at": 1786200526015,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 320,
+          "gen": 2
+        },
+        {
+          "at": 1786200526015,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 321,
+          "gen": 2
+        },
+        {
+          "at": 1786200526015,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 322,
+          "gen": 2
+        },
+        {
+          "at": 1786200526015,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 323,
+          "gen": 2
+        },
+        {
+          "at": 1786200526015,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 324,
+          "gen": 2
+        },
+        {
+          "at": 1786200526015,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 325,
+          "gen": 2
+        },
+        {
+          "at": 1786200526015,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 326,
+          "gen": 2
+        },
+        {
+          "at": 1786200526015,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 327,
+          "gen": 2
+        },
+        {
+          "at": 1786200526015,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 328,
+          "gen": 2
+        },
+        {
+          "at": 1786200527364,
+          "label": "page_projection dom/childList",
+          "hop": "client_recv",
+          "kind": "dom:childList",
+          "seq": 329,
+          "gen": 2
+        },
+        {
+          "at": 1786200527365,
+          "label": "page_projection dom/childList",
+          "hop": "client_recv",
+          "kind": "dom:childList",
+          "seq": 330,
+          "gen": 2
+        },
+        {
+          "at": 1786200527365,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 329,
+          "gen": 2
+        },
+        {
+          "at": 1786200527365,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 330,
+          "gen": 2
+        },
+        {
+          "at": 1786200527367,
+          "label": "page_projection dom/childList",
+          "hop": "client_recv",
+          "kind": "dom:childList",
+          "seq": 331,
+          "gen": 2
+        },
+        {
+          "at": 1786200527376,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 331,
+          "gen": 2
+        }
+      ]
+    }
+  },
+  {
+    "name": "search_focus_type",
+    "ms": 1466,
+    "err": null,
+    "before": {
+      "scrollTop": 0,
+      "htmlLen": 622644,
+      "text": "Português Brasileiro\nBRL\nLog in\n | \nRegistrar-se\nCategorias\nJogos -90%\nSoftware\neCartões\nNordVPN\nGift Cards Eneba\nFC27\nP",
+      "href": "http://127.0.0.1:8080/br/?_w7s_nso=eyJ2IjoxLCJoIjoiIn0%3D"
+    },
+    "after": {
+      "scrollTop": 0,
+      "htmlLen": 651988,
+      "text": "Português Brasileiro\nBRL\nLog in\n | \nRegistrar-se\nCategorias\nJogos -90%\nSoftware\neCartões\nNordVPN\nGift Cards Eneba\nFC27\nP",
+      "href": "http://127.0.0.1:8080/br/?_w7s_nso=eyJ2IjoxLCJoIjoiIn0%3D"
+    },
+    "delta": {
+      "scrollTop": 0,
+      "htmlLen": 29344,
+      "textChanged": false,
+      "hrefChanged": false
+    },
+    "front": {
+      "label": "search_focus_type",
+      "total": 1158,
+      "fresh": 1158,
+      "intentLabels": [
+        {
+          "at": 1786200522184,
+          "label": "dom_input client_sent",
+          "kind": "mousemove",
+          "hop": "client_sent",
+          "gen": 1,
+          "anchor": null
+        },
+        {
+          "at": 1786200522184,
+          "label": "dom_input client_sent",
+          "kind": "mousedown",
+          "hop": "client_sent",
+          "gen": 1,
+          "anchor": "ad0blgo1do602"
+        },
+        {
+          "at": 1786200522186,
+          "label": "dom_input client_sent",
+          "kind": "focus",
+          "hop": "client_sent",
+          "gen": 1,
+          "anchor": "a983av5hqo602"
+        },
+        {
+          "at": 1786200522187,
+          "label": "dom_input client_sent",
+          "kind": "mouseup",
+          "hop": "client_sent",
+          "gen": 1,
+          "anchor": "ad0blgo1do602"
+        },
+        {
+          "at": 1786200522194,
+          "label": "dom_input client_sent",
+          "kind": "scrollViewport",
+          "hop": "client_sent",
+          "gen": 1,
+          "anchor": null,
+          "scrollY": 3972,
+          "scrollTop": null,
+          "key": null
+        },
+        {
+          "at": 1786200523550,
+          "label": "dom_input client_sent",
+          "kind": "blur",
+          "hop": "client_sent",
+          "gen": 1,
+          "anchor": "a983av5hqo602"
+        },
+        {
+          "at": 1786200523551,
+          "label": "dom_input client_sent",
+          "kind": "focus",
+          "hop": "client_sent",
+          "gen": 1,
+          "anchor": "aymzg0uruo5zz"
+        },
+        {
+          "at": 1786200524478,
+          "label": "dom_input client_sent",
+          "kind": "blur",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "aymzg0uruo5zz"
+        },
+        {
+          "at": 1786200526514,
+          "label": "dom_input client_sent",
+          "kind": "focus",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a6fr9e3gto8o8"
+        },
+        {
+          "at": 1786200527480,
+          "label": "dom_input client_sent",
+          "kind": "blur",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a6fr9e3gto8o8"
+        },
+        {
+          "at": 1786200527481,
+          "label": "dom_input client_sent",
+          "kind": "focus",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a7yd1ukmoo8ny"
+        },
+        {
+          "at": 1786200527693,
+          "label": "dom_input client_sent",
+          "kind": "keydown",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a7yd1ukmoo8ny",
+          "scrollY": null,
+          "scrollTop": null,
+          "key": "s"
+        },
+        {
+          "at": 1786200527750,
+          "label": "dom_input client_sent",
+          "kind": "keyup",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a7yd1ukmoo8ny",
+          "scrollY": null,
+          "scrollTop": null,
+          "key": "s"
+        },
+        {
+          "at": 1786200527753,
+          "label": "dom_input client_sent",
+          "kind": "keydown",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a7yd1ukmoo8ny",
+          "scrollY": null,
+          "scrollTop": null,
+          "key": "t"
+        },
+        {
+          "at": 1786200527810,
+          "label": "dom_input client_sent",
+          "kind": "keyup",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a7yd1ukmoo8ny",
+          "scrollY": null,
+          "scrollTop": null,
+          "key": "t"
+        },
+        {
+          "at": 1786200527811,
+          "label": "dom_input client_sent",
+          "kind": "keydown",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a7yd1ukmoo8ny",
+          "scrollY": null,
+          "scrollTop": null,
+          "key": "e"
+        },
+        {
+          "at": 1786200527872,
+          "label": "dom_input client_sent",
+          "kind": "keyup",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a7yd1ukmoo8ny",
+          "scrollY": null,
+          "scrollTop": null,
+          "key": "e"
+        },
+        {
+          "at": 1786200527874,
+          "label": "dom_input client_sent",
+          "kind": "keydown",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a7yd1ukmoo8ny",
+          "scrollY": null,
+          "scrollTop": null,
+          "key": "a"
+        },
+        {
+          "at": 1786200527934,
+          "label": "dom_input client_sent",
+          "kind": "keyup",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a7yd1ukmoo8ny",
+          "scrollY": null,
+          "scrollTop": null,
+          "key": "a"
+        },
+        {
+          "at": 1786200527935,
+          "label": "dom_input client_sent",
+          "kind": "keydown",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a7yd1ukmoo8ny",
+          "scrollY": null,
+          "scrollTop": null,
+          "key": "m"
+        },
+        {
+          "at": 1786200527987,
+          "label": "dom_input client_sent",
+          "kind": "keyup",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a7yd1ukmoo8ny",
+          "scrollY": null,
+          "scrollTop": null,
+          "key": "m"
+        }
+      ],
+      "diffHops": [
+        {
+          "at": 1786200527746,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 352,
+          "gen": 2
+        },
+        {
+          "at": 1786200527746,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 353,
+          "gen": 2
+        },
+        {
+          "at": 1786200527791,
+          "label": "page_projection dom/patch",
+          "hop": "client_recv",
+          "kind": "dom:patch",
+          "seq": 354,
+          "gen": 2
+        },
+        {
+          "at": 1786200527793,
+          "label": "page_projection dom/patch",
+          "hop": "client_recv",
+          "kind": "dom:patch",
+          "seq": 355,
+          "gen": 2
+        },
+        {
+          "at": 1786200527795,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 354,
+          "gen": 2
+        },
+        {
+          "at": 1786200527795,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 355,
+          "gen": 2
+        },
+        {
+          "at": 1786200527844,
+          "label": "page_projection dom/patch",
+          "hop": "client_recv",
+          "kind": "dom:patch",
+          "seq": 356,
+          "gen": 2
+        },
+        {
+          "at": 1786200527846,
+          "label": "page_projection dom/patch",
+          "hop": "client_recv",
+          "kind": "dom:patch",
+          "seq": 357,
+          "gen": 2
+        },
+        {
+          "at": 1786200527861,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 356,
+          "gen": 2
+        },
+        {
+          "at": 1786200527861,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 357,
+          "gen": 2
+        },
+        {
+          "at": 1786200527906,
+          "label": "page_projection dom/patch",
+          "hop": "client_recv",
+          "kind": "dom:patch",
+          "seq": 358,
+          "gen": 2
+        },
+        {
+          "at": 1786200527908,
+          "label": "page_projection dom/patch",
+          "hop": "client_recv",
+          "kind": "dom:patch",
+          "seq": 359,
+          "gen": 2
+        },
+        {
+          "at": 1786200527910,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 358,
+          "gen": 2
+        },
+        {
+          "at": 1786200527910,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 359,
+          "gen": 2
+        },
+        {
+          "at": 1786200527965,
+          "label": "page_projection dom/patch",
+          "hop": "client_recv",
+          "kind": "dom:patch",
+          "seq": 360,
+          "gen": 2
+        },
+        {
+          "at": 1786200527966,
+          "label": "page_projection dom/patch",
+          "hop": "client_recv",
+          "kind": "dom:patch",
+          "seq": 361,
+          "gen": 2
+        },
+        {
+          "at": 1786200527977,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 360,
+          "gen": 2
+        },
+        {
+          "at": 1786200527977,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 361,
+          "gen": 2
+        },
+        {
+          "at": 1786200527986,
+          "label": "page_projection dom/childList",
+          "hop": "client_recv",
+          "kind": "dom:childList",
+          "seq": 362,
+          "gen": 2
+        },
+        {
+          "at": 1786200527986,
+          "label": "page_projection dom/childList",
+          "hop": "client_recv",
+          "kind": "dom:childList",
+          "seq": 363,
+          "gen": 2
+        },
+        {
+          "at": 1786200527994,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 362,
+          "gen": 2
+        },
+        {
+          "at": 1786200527994,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 363,
+          "gen": 2
+        },
+        {
+          "at": 1786200528068,
+          "label": "page_projection dom/childList",
+          "hop": "client_recv",
+          "kind": "dom:childList",
+          "seq": 364,
+          "gen": 2
+        },
+        {
+          "at": 1786200528077,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 364,
+          "gen": 2
+        },
+        {
+          "at": 1786200528287,
+          "label": "page_projection dom/childList",
+          "hop": "client_recv",
+          "kind": "dom:childList",
+          "seq": 365,
+          "gen": 2
+        },
+        {
+          "at": 1786200528287,
+          "label": "page_projection dom/childList",
+          "hop": "client_recv",
+          "kind": "dom:childList",
+          "seq": 366,
+          "gen": 2
+        },
+        {
+          "at": 1786200528296,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 365,
+          "gen": 2
+        },
+        {
+          "at": 1786200528296,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 366,
+          "gen": 2
+        },
+        {
+          "at": 1786200528309,
+          "label": "page_projection dom/patch",
+          "hop": "client_recv",
+          "kind": "dom:patch",
+          "seq": 367,
+          "gen": 2
+        },
+        {
+          "at": 1786200528309,
+          "label": "page_projection dom/patch",
+          "hop": "client_recv",
+          "kind": "dom:patch",
+          "seq": 368,
+          "gen": 2
+        },
+        {
+          "at": 1786200528309,
+          "label": "page_projection dom/patch",
+          "hop": "client_recv",
+          "kind": "dom:patch",
+          "seq": 369,
+          "gen": 2
+        },
+        {
+          "at": 1786200528309,
+          "label": "page_projection dom/patch",
+          "hop": "client_recv",
+          "kind": "dom:patch",
+          "seq": 370,
+          "gen": 2
+        },
+        {
+          "at": 1786200528310,
+          "label": "page_projection dom/patch",
+          "hop": "client_recv",
+          "kind": "dom:patch",
+          "seq": 371,
+          "gen": 2
+        },
+        {
+          "at": 1786200528310,
+          "label": "page_projection dom/patch",
+          "hop": "client_recv",
+          "kind": "dom:patch",
+          "seq": 372,
+          "gen": 2
+        },
+        {
+          "at": 1786200528312,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 367,
+          "gen": 2
+        },
+        {
+          "at": 1786200528313,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 368,
+          "gen": 2
+        },
+        {
+          "at": 1786200528313,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 369,
+          "gen": 2
+        },
+        {
+          "at": 1786200528313,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 370,
+          "gen": 2
+        },
+        {
+          "at": 1786200528313,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 371,
+          "gen": 2
+        },
+        {
+          "at": 1786200528313,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 372,
+          "gen": 2
+        }
+      ]
+    }
+  },
+  {
+    "name": "search_enter",
+    "ms": 2512,
+    "err": null,
+    "before": {
+      "scrollTop": 0,
+      "htmlLen": 651988,
+      "text": "Português Brasileiro\nBRL\nLog in\n | \nRegistrar-se\nCategorias\nJogos -90%\nSoftware\neCartões\nNordVPN\nGift Cards Eneba\nFC27\nP",
+      "href": "http://127.0.0.1:8080/br/?_w7s_nso=eyJ2IjoxLCJoIjoiIn0%3D"
+    },
+    "after": {
+      "scrollTop": 0,
+      "htmlLen": 587621,
+      "text": "Português Brasileiro\nBRL\nLog in\n | \nRegistrar-se\nCategorias\nJogos -90%\nSoftware\neCartões\nNordVPN\nGift Cards Eneba\nFC27\nP",
+      "href": "http://127.0.0.1:8080/br/store/all?text=steam&enb_campaign=Main%20Search&enb_content=search%20dropdown%20-%20input&enb_medium=input&enb_source=https%3A%2F%2Fwww.eneba.com%2F&enb_term=Submit&_w7s_nso=eyJ2IjoxLCJoIjoiIn0%3D"
+    },
+    "delta": {
+      "scrollTop": 0,
+      "htmlLen": -64367,
+      "textChanged": false,
+      "hrefChanged": true
+    },
+    "front": {
+      "label": "search_enter",
+      "total": 1656,
+      "fresh": 1656,
+      "intentLabels": [
+        {
+          "at": 1786200522184,
+          "label": "dom_input client_sent",
+          "kind": "mousemove",
+          "hop": "client_sent",
+          "gen": 1,
+          "anchor": null
+        },
+        {
+          "at": 1786200522184,
+          "label": "dom_input client_sent",
+          "kind": "mousedown",
+          "hop": "client_sent",
+          "gen": 1,
+          "anchor": "ad0blgo1do602"
+        },
+        {
+          "at": 1786200522186,
+          "label": "dom_input client_sent",
+          "kind": "focus",
+          "hop": "client_sent",
+          "gen": 1,
+          "anchor": "a983av5hqo602"
+        },
+        {
+          "at": 1786200522187,
+          "label": "dom_input client_sent",
+          "kind": "mouseup",
+          "hop": "client_sent",
+          "gen": 1,
+          "anchor": "ad0blgo1do602"
+        },
+        {
+          "at": 1786200522194,
+          "label": "dom_input client_sent",
+          "kind": "scrollViewport",
+          "hop": "client_sent",
+          "gen": 1,
+          "anchor": null,
+          "scrollY": 3972,
+          "scrollTop": null,
+          "key": null
+        },
+        {
+          "at": 1786200523550,
+          "label": "dom_input client_sent",
+          "kind": "blur",
+          "hop": "client_sent",
+          "gen": 1,
+          "anchor": "a983av5hqo602"
+        },
+        {
+          "at": 1786200523551,
+          "label": "dom_input client_sent",
+          "kind": "focus",
+          "hop": "client_sent",
+          "gen": 1,
+          "anchor": "aymzg0uruo5zz"
+        },
+        {
+          "at": 1786200524478,
+          "label": "dom_input client_sent",
+          "kind": "blur",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "aymzg0uruo5zz"
+        },
+        {
+          "at": 1786200526514,
+          "label": "dom_input client_sent",
+          "kind": "focus",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a6fr9e3gto8o8"
+        },
+        {
+          "at": 1786200527480,
+          "label": "dom_input client_sent",
+          "kind": "blur",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a6fr9e3gto8o8"
+        },
+        {
+          "at": 1786200527481,
+          "label": "dom_input client_sent",
+          "kind": "focus",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a7yd1ukmoo8ny"
+        },
+        {
+          "at": 1786200527693,
+          "label": "dom_input client_sent",
+          "kind": "keydown",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a7yd1ukmoo8ny",
+          "scrollY": null,
+          "scrollTop": null,
+          "key": "s"
+        },
+        {
+          "at": 1786200527750,
+          "label": "dom_input client_sent",
+          "kind": "keyup",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a7yd1ukmoo8ny",
+          "scrollY": null,
+          "scrollTop": null,
+          "key": "s"
+        },
+        {
+          "at": 1786200527753,
+          "label": "dom_input client_sent",
+          "kind": "keydown",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a7yd1ukmoo8ny",
+          "scrollY": null,
+          "scrollTop": null,
+          "key": "t"
+        },
+        {
+          "at": 1786200527810,
+          "label": "dom_input client_sent",
+          "kind": "keyup",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a7yd1ukmoo8ny",
+          "scrollY": null,
+          "scrollTop": null,
+          "key": "t"
+        },
+        {
+          "at": 1786200527811,
+          "label": "dom_input client_sent",
+          "kind": "keydown",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a7yd1ukmoo8ny",
+          "scrollY": null,
+          "scrollTop": null,
+          "key": "e"
+        },
+        {
+          "at": 1786200527872,
+          "label": "dom_input client_sent",
+          "kind": "keyup",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a7yd1ukmoo8ny",
+          "scrollY": null,
+          "scrollTop": null,
+          "key": "e"
+        },
+        {
+          "at": 1786200527874,
+          "label": "dom_input client_sent",
+          "kind": "keydown",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a7yd1ukmoo8ny",
+          "scrollY": null,
+          "scrollTop": null,
+          "key": "a"
+        },
+        {
+          "at": 1786200527934,
+          "label": "dom_input client_sent",
+          "kind": "keyup",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a7yd1ukmoo8ny",
+          "scrollY": null,
+          "scrollTop": null,
+          "key": "a"
+        },
+        {
+          "at": 1786200527935,
+          "label": "dom_input client_sent",
+          "kind": "keydown",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a7yd1ukmoo8ny",
+          "scrollY": null,
+          "scrollTop": null,
+          "key": "m"
+        },
+        {
+          "at": 1786200527987,
+          "label": "dom_input client_sent",
+          "kind": "keyup",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a7yd1ukmoo8ny",
+          "scrollY": null,
+          "scrollTop": null,
+          "key": "m"
+        },
+        {
+          "at": 1786200528921,
+          "label": "dom_input client_sent",
+          "kind": "keydown",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a7yd1ukmoo8ny",
+          "scrollY": null,
+          "scrollTop": null,
+          "key": "Enter"
+        },
+        {
+          "at": 1786200528922,
+          "label": "dom_input client_sent",
+          "kind": "input",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a7yd1ukmoo8ny"
+        },
+        {
+          "at": 1786200528923,
+          "label": "dom_input client_sent",
+          "kind": "keyup",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a7yd1ukmoo8ny",
+          "scrollY": null,
+          "scrollTop": null,
+          "key": "Enter"
+        },
+        {
+          "at": 1786200529178,
+          "label": "dom_input client_sent",
+          "kind": "blur",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a7yd1ukmoo8ny"
+        }
+      ],
+      "diffHops": [
+        {
+          "at": 1786200531387,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 592,
+          "gen": 2
+        },
+        {
+          "at": 1786200531388,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 593,
+          "gen": 2
+        },
+        {
+          "at": 1786200531389,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 594,
+          "gen": 2
+        },
+        {
+          "at": 1786200531389,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 595,
+          "gen": 2
+        },
+        {
+          "at": 1786200531390,
+          "label": "page_projection dom/patch",
+          "hop": "client_recv",
+          "kind": "dom:patch",
+          "seq": 596,
+          "gen": 2
+        },
+        {
+          "at": 1786200531390,
+          "label": "page_projection dom/patch",
+          "hop": "client_recv",
+          "kind": "dom:patch",
+          "seq": 597,
+          "gen": 2
+        },
+        {
+          "at": 1786200531391,
+          "label": "page_projection dom/patch",
+          "hop": "client_recv",
+          "kind": "dom:patch",
+          "seq": 598,
+          "gen": 2
+        },
+        {
+          "at": 1786200531391,
+          "label": "page_projection cssom/sheetList",
+          "hop": "client_recv",
+          "kind": "cssom:sheetList",
+          "seq": 599,
+          "gen": 2
+        },
+        {
+          "at": 1786200531391,
+          "label": "page_projection dom/childList",
+          "hop": "client_recv",
+          "kind": "dom:childList",
+          "seq": 600,
+          "gen": 2
+        },
+        {
+          "at": 1786200531391,
+          "label": "page_projection dom/childList",
+          "hop": "client_recv",
+          "kind": "dom:childList",
+          "seq": 601,
+          "gen": 2
+        },
+        {
+          "at": 1786200531391,
+          "label": "page_projection dom/childList",
+          "hop": "client_recv",
+          "kind": "dom:childList",
+          "seq": 602,
+          "gen": 2
+        },
+        {
+          "at": 1786200531391,
+          "label": "page_projection dom/childList",
+          "hop": "client_recv",
+          "kind": "dom:childList",
+          "seq": 603,
+          "gen": 2
+        },
+        {
+          "at": 1786200531392,
+          "label": "page_projection dom/childList",
+          "hop": "client_recv",
+          "kind": "dom:childList",
+          "seq": 604,
+          "gen": 2
+        },
+        {
+          "at": 1786200531392,
+          "label": "page_projection dom/childList",
+          "hop": "client_recv",
+          "kind": "dom:childList",
+          "seq": 605,
+          "gen": 2
+        },
+        {
+          "at": 1786200531392,
+          "label": "page_projection dom/childList",
+          "hop": "client_recv",
+          "kind": "dom:childList",
+          "seq": 606,
+          "gen": 2
+        },
+        {
+          "at": 1786200531392,
+          "label": "page_projection dom/childList",
+          "hop": "client_recv",
+          "kind": "dom:childList",
+          "seq": 607,
+          "gen": 2
+        },
+        {
+          "at": 1786200531392,
+          "label": "page_projection dom/childList",
+          "hop": "client_recv",
+          "kind": "dom:childList",
+          "seq": 608,
+          "gen": 2
+        },
+        {
+          "at": 1786200531392,
+          "label": "page_projection dom/childList",
+          "hop": "client_recv",
+          "kind": "dom:childList",
+          "seq": 609,
+          "gen": 2
+        },
+        {
+          "at": 1786200531393,
+          "label": "page_projection dom/childList",
+          "hop": "client_recv",
+          "kind": "dom:childList",
+          "seq": 610,
+          "gen": 2
+        },
+        {
+          "at": 1786200531396,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 596,
+          "gen": 2
+        },
+        {
+          "at": 1786200531396,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 597,
+          "gen": 2
+        },
+        {
+          "at": 1786200531396,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 598,
+          "gen": 2
+        },
+        {
+          "at": 1786200531396,
+          "label": "page_projection cssom/sheetList",
+          "hop": "cssom/sheetList",
+          "kind": "cssom:sheetList",
+          "seq": 599,
+          "gen": 2
+        },
+        {
+          "at": 1786200531397,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 600,
+          "gen": 2
+        },
+        {
+          "at": 1786200531397,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 601,
+          "gen": 2
+        },
+        {
+          "at": 1786200531397,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 602,
+          "gen": 2
+        },
+        {
+          "at": 1786200531397,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 603,
+          "gen": 2
+        },
+        {
+          "at": 1786200531397,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 604,
+          "gen": 2
+        },
+        {
+          "at": 1786200531397,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 605,
+          "gen": 2
+        },
+        {
+          "at": 1786200531397,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 606,
+          "gen": 2
+        },
+        {
+          "at": 1786200531397,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 607,
+          "gen": 2
+        },
+        {
+          "at": 1786200531397,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 608,
+          "gen": 2
+        },
+        {
+          "at": 1786200531397,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 609,
+          "gen": 2
+        },
+        {
+          "at": 1786200531397,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 610,
+          "gen": 2
+        },
+        {
+          "at": 1786200531404,
+          "label": "page_projection dom/childList",
+          "hop": "client_recv",
+          "kind": "dom:childList",
+          "seq": 611,
+          "gen": 2
+        },
+        {
+          "at": 1786200531404,
+          "label": "page_projection dom/childList",
+          "hop": "client_recv",
+          "kind": "dom:childList",
+          "seq": 612,
+          "gen": 2
+        },
+        {
+          "at": 1786200531405,
+          "label": "page_projection dom/childList",
+          "hop": "client_recv",
+          "kind": "dom:childList",
+          "seq": 613,
+          "gen": 2
+        },
+        {
+          "at": 1786200531415,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 611,
+          "gen": 2
+        },
+        {
+          "at": 1786200531415,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 612,
+          "gen": 2
+        },
+        {
+          "at": 1786200531415,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 613,
+          "gen": 2
+        }
+      ]
+    }
+  },
+  {
+    "name": "click_productish",
+    "ms": 982,
+    "err": null,
+    "before": {
+      "scrollTop": 0,
+      "htmlLen": 587289,
+      "text": "Português Brasileiro\nBRL\nLog in\n | \nRegistrar-se\nCategorias\nJogos -90%\nSoftware\neCartões\nNordVPN\nGift Cards Eneba\nFC27\nP",
+      "href": "http://127.0.0.1:8080/br/store/all?text=steam&enb_campaign=Main%20Search&enb_content=search%20dropdown%20-%20input&enb_medium=input&enb_source=https%3A%2F%2Fwww.eneba.com%2F&enb_term=Submit&_w7s_nso=eyJ2IjoxLCJoIjoiIn0%3D"
+    },
+    "after": {
+      "scrollTop": 0,
+      "htmlLen": 600363,
+      "text": "Português Brasileiro\nBRL\nLog in\n | \nRegistrar-se\nCategorias\nJogos -90%\nSoftware\neCartões\nNordVPN\nGift Cards Eneba\nFC27\nP",
+      "href": "http://127.0.0.1:8080/br/store/all?text=steam&enb_campaign=Main%20Search&enb_content=search%20dropdown%20-%20input&enb_medium=input&enb_source=https%3A%2F%2Fwww.eneba.com%2F&enb_term=Submit&_w7s_nso=eyJ2IjoxLCJoIjoiIn0%3D"
+    },
+    "delta": {
+      "scrollTop": 0,
+      "htmlLen": 13074,
+      "textChanged": false,
+      "hrefChanged": false
+    },
+    "front": {
+      "label": "click_productish",
+      "total": 2000,
+      "fresh": 2000,
+      "intentLabels": [
+        {
+          "at": 1786200523550,
+          "label": "dom_input client_sent",
+          "kind": "blur",
+          "hop": "client_sent",
+          "gen": 1,
+          "anchor": "a983av5hqo602"
+        },
+        {
+          "at": 1786200523551,
+          "label": "dom_input client_sent",
+          "kind": "focus",
+          "hop": "client_sent",
+          "gen": 1,
+          "anchor": "aymzg0uruo5zz"
+        },
+        {
+          "at": 1786200524478,
+          "label": "dom_input client_sent",
+          "kind": "blur",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "aymzg0uruo5zz"
+        },
+        {
+          "at": 1786200526514,
+          "label": "dom_input client_sent",
+          "kind": "focus",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a6fr9e3gto8o8"
+        },
+        {
+          "at": 1786200527480,
+          "label": "dom_input client_sent",
+          "kind": "blur",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a6fr9e3gto8o8"
+        },
+        {
+          "at": 1786200527481,
+          "label": "dom_input client_sent",
+          "kind": "focus",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a7yd1ukmoo8ny"
+        },
+        {
+          "at": 1786200527693,
+          "label": "dom_input client_sent",
+          "kind": "keydown",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a7yd1ukmoo8ny",
+          "scrollY": null,
+          "scrollTop": null,
+          "key": "s"
+        },
+        {
+          "at": 1786200527750,
+          "label": "dom_input client_sent",
+          "kind": "keyup",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a7yd1ukmoo8ny",
+          "scrollY": null,
+          "scrollTop": null,
+          "key": "s"
+        },
+        {
+          "at": 1786200527753,
+          "label": "dom_input client_sent",
+          "kind": "keydown",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a7yd1ukmoo8ny",
+          "scrollY": null,
+          "scrollTop": null,
+          "key": "t"
+        },
+        {
+          "at": 1786200527810,
+          "label": "dom_input client_sent",
+          "kind": "keyup",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a7yd1ukmoo8ny",
+          "scrollY": null,
+          "scrollTop": null,
+          "key": "t"
+        },
+        {
+          "at": 1786200527811,
+          "label": "dom_input client_sent",
+          "kind": "keydown",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a7yd1ukmoo8ny",
+          "scrollY": null,
+          "scrollTop": null,
+          "key": "e"
+        },
+        {
+          "at": 1786200527872,
+          "label": "dom_input client_sent",
+          "kind": "keyup",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a7yd1ukmoo8ny",
+          "scrollY": null,
+          "scrollTop": null,
+          "key": "e"
+        },
+        {
+          "at": 1786200527874,
+          "label": "dom_input client_sent",
+          "kind": "keydown",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a7yd1ukmoo8ny",
+          "scrollY": null,
+          "scrollTop": null,
+          "key": "a"
+        },
+        {
+          "at": 1786200527934,
+          "label": "dom_input client_sent",
+          "kind": "keyup",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a7yd1ukmoo8ny",
+          "scrollY": null,
+          "scrollTop": null,
+          "key": "a"
+        },
+        {
+          "at": 1786200527935,
+          "label": "dom_input client_sent",
+          "kind": "keydown",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a7yd1ukmoo8ny",
+          "scrollY": null,
+          "scrollTop": null,
+          "key": "m"
+        },
+        {
+          "at": 1786200527987,
+          "label": "dom_input client_sent",
+          "kind": "keyup",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a7yd1ukmoo8ny",
+          "scrollY": null,
+          "scrollTop": null,
+          "key": "m"
+        },
+        {
+          "at": 1786200528921,
+          "label": "dom_input client_sent",
+          "kind": "keydown",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a7yd1ukmoo8ny",
+          "scrollY": null,
+          "scrollTop": null,
+          "key": "Enter"
+        },
+        {
+          "at": 1786200528922,
+          "label": "dom_input client_sent",
+          "kind": "input",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a7yd1ukmoo8ny"
+        },
+        {
+          "at": 1786200528923,
+          "label": "dom_input client_sent",
+          "kind": "keyup",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a7yd1ukmoo8ny",
+          "scrollY": null,
+          "scrollTop": null,
+          "key": "Enter"
+        },
+        {
+          "at": 1786200529178,
+          "label": "dom_input client_sent",
+          "kind": "blur",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a7yd1ukmoo8ny"
+        },
+        {
+          "at": 1786200531508,
+          "label": "dom_input client_sent",
+          "kind": "focus",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "agsc6r02io8o7"
+        }
+      ],
+      "diffHops": [
+        {
+          "at": 1786200532118,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 830,
+          "gen": 2
+        },
+        {
+          "at": 1786200532118,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 831,
+          "gen": 2
+        },
+        {
+          "at": 1786200532118,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 832,
+          "gen": 2
+        },
+        {
+          "at": 1786200532118,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 833,
+          "gen": 2
+        },
+        {
+          "at": 1786200532118,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 834,
+          "gen": 2
+        },
+        {
+          "at": 1786200532118,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 835,
+          "gen": 2
+        },
+        {
+          "at": 1786200532118,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 836,
+          "gen": 2
+        },
+        {
+          "at": 1786200532118,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 837,
+          "gen": 2
+        },
+        {
+          "at": 1786200532118,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 838,
+          "gen": 2
+        },
+        {
+          "at": 1786200532119,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 839,
+          "gen": 2
+        },
+        {
+          "at": 1786200532119,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 840,
+          "gen": 2
+        },
+        {
+          "at": 1786200532119,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 841,
+          "gen": 2
+        },
+        {
+          "at": 1786200532119,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 842,
+          "gen": 2
+        },
+        {
+          "at": 1786200532119,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 843,
+          "gen": 2
+        },
+        {
+          "at": 1786200532119,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 844,
+          "gen": 2
+        },
+        {
+          "at": 1786200532119,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 845,
+          "gen": 2
+        },
+        {
+          "at": 1786200532119,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 846,
+          "gen": 2
+        },
+        {
+          "at": 1786200532120,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 847,
+          "gen": 2
+        },
+        {
+          "at": 1786200532120,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 848,
+          "gen": 2
+        },
+        {
+          "at": 1786200532121,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 849,
+          "gen": 2
+        },
+        {
+          "at": 1786200532121,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 850,
+          "gen": 2
+        },
+        {
+          "at": 1786200532121,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 851,
+          "gen": 2
+        },
+        {
+          "at": 1786200532121,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 852,
+          "gen": 2
+        },
+        {
+          "at": 1786200532121,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 853,
+          "gen": 2
+        },
+        {
+          "at": 1786200532121,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 854,
+          "gen": 2
+        },
+        {
+          "at": 1786200532121,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 855,
+          "gen": 2
+        },
+        {
+          "at": 1786200532121,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 856,
+          "gen": 2
+        },
+        {
+          "at": 1786200532121,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 857,
+          "gen": 2
+        },
+        {
+          "at": 1786200532121,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 858,
+          "gen": 2
+        },
+        {
+          "at": 1786200532122,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 859,
+          "gen": 2
+        },
+        {
+          "at": 1786200532122,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 860,
+          "gen": 2
+        },
+        {
+          "at": 1786200532122,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 861,
+          "gen": 2
+        },
+        {
+          "at": 1786200532122,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 862,
+          "gen": 2
+        },
+        {
+          "at": 1786200532122,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 863,
+          "gen": 2
+        },
+        {
+          "at": 1786200532122,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 864,
+          "gen": 2
+        },
+        {
+          "at": 1786200532122,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 865,
+          "gen": 2
+        },
+        {
+          "at": 1786200532122,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 866,
+          "gen": 2
+        },
+        {
+          "at": 1786200532122,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 867,
+          "gen": 2
+        },
+        {
+          "at": 1786200532122,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 868,
+          "gen": 2
+        },
+        {
+          "at": 1786200532123,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 869,
+          "gen": 2
+        }
+      ]
+    }
+  },
+  {
+    "name": "wheel_after_nav",
+    "ms": 973,
+    "err": null,
+    "before": {
+      "scrollTop": 0,
+      "htmlLen": 600363,
+      "text": "Português Brasileiro\nBRL\nLog in\n | \nRegistrar-se\nCategorias\nJogos -90%\nSoftware\neCartões\nNordVPN\nGift Cards Eneba\nFC27\nP",
+      "href": "http://127.0.0.1:8080/br/store/all?text=steam&enb_campaign=Main%20Search&enb_content=search%20dropdown%20-%20input&enb_medium=input&enb_source=https%3A%2F%2Fwww.eneba.com%2F&enb_term=Submit&_w7s_nso=eyJ2IjoxLCJoIjoiIn0%3D"
+    },
+    "after": {
+      "scrollTop": 0,
+      "htmlLen": 600363,
+      "text": "Português Brasileiro\nBRL\nLog in\n | \nRegistrar-se\nCategorias\nJogos -90%\nSoftware\neCartões\nNordVPN\nGift Cards Eneba\nFC27\nP",
+      "href": "http://127.0.0.1:8080/br/store/all?text=steam&enb_campaign=Main%20Search&enb_content=search%20dropdown%20-%20input&enb_medium=input&enb_source=https%3A%2F%2Fwww.eneba.com%2F&enb_term=Submit&_w7s_nso=eyJ2IjoxLCJoIjoiIn0%3D"
+    },
+    "delta": {
+      "scrollTop": 0,
+      "htmlLen": 0,
+      "textChanged": false,
+      "hrefChanged": false
+    },
+    "front": {
+      "label": "wheel_after_nav",
+      "total": 2000,
+      "fresh": 2000,
+      "intentLabels": [
+        {
+          "at": 1786200523550,
+          "label": "dom_input client_sent",
+          "kind": "blur",
+          "hop": "client_sent",
+          "gen": 1,
+          "anchor": "a983av5hqo602"
+        },
+        {
+          "at": 1786200523551,
+          "label": "dom_input client_sent",
+          "kind": "focus",
+          "hop": "client_sent",
+          "gen": 1,
+          "anchor": "aymzg0uruo5zz"
+        },
+        {
+          "at": 1786200524478,
+          "label": "dom_input client_sent",
+          "kind": "blur",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "aymzg0uruo5zz"
+        },
+        {
+          "at": 1786200526514,
+          "label": "dom_input client_sent",
+          "kind": "focus",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a6fr9e3gto8o8"
+        },
+        {
+          "at": 1786200527480,
+          "label": "dom_input client_sent",
+          "kind": "blur",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a6fr9e3gto8o8"
+        },
+        {
+          "at": 1786200527481,
+          "label": "dom_input client_sent",
+          "kind": "focus",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a7yd1ukmoo8ny"
+        },
+        {
+          "at": 1786200527693,
+          "label": "dom_input client_sent",
+          "kind": "keydown",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a7yd1ukmoo8ny",
+          "scrollY": null,
+          "scrollTop": null,
+          "key": "s"
+        },
+        {
+          "at": 1786200527750,
+          "label": "dom_input client_sent",
+          "kind": "keyup",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a7yd1ukmoo8ny",
+          "scrollY": null,
+          "scrollTop": null,
+          "key": "s"
+        },
+        {
+          "at": 1786200527753,
+          "label": "dom_input client_sent",
+          "kind": "keydown",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a7yd1ukmoo8ny",
+          "scrollY": null,
+          "scrollTop": null,
+          "key": "t"
+        },
+        {
+          "at": 1786200527810,
+          "label": "dom_input client_sent",
+          "kind": "keyup",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a7yd1ukmoo8ny",
+          "scrollY": null,
+          "scrollTop": null,
+          "key": "t"
+        },
+        {
+          "at": 1786200527811,
+          "label": "dom_input client_sent",
+          "kind": "keydown",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a7yd1ukmoo8ny",
+          "scrollY": null,
+          "scrollTop": null,
+          "key": "e"
+        },
+        {
+          "at": 1786200527872,
+          "label": "dom_input client_sent",
+          "kind": "keyup",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a7yd1ukmoo8ny",
+          "scrollY": null,
+          "scrollTop": null,
+          "key": "e"
+        },
+        {
+          "at": 1786200527874,
+          "label": "dom_input client_sent",
+          "kind": "keydown",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a7yd1ukmoo8ny",
+          "scrollY": null,
+          "scrollTop": null,
+          "key": "a"
+        },
+        {
+          "at": 1786200527934,
+          "label": "dom_input client_sent",
+          "kind": "keyup",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a7yd1ukmoo8ny",
+          "scrollY": null,
+          "scrollTop": null,
+          "key": "a"
+        },
+        {
+          "at": 1786200527935,
+          "label": "dom_input client_sent",
+          "kind": "keydown",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a7yd1ukmoo8ny",
+          "scrollY": null,
+          "scrollTop": null,
+          "key": "m"
+        },
+        {
+          "at": 1786200527987,
+          "label": "dom_input client_sent",
+          "kind": "keyup",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a7yd1ukmoo8ny",
+          "scrollY": null,
+          "scrollTop": null,
+          "key": "m"
+        },
+        {
+          "at": 1786200528921,
+          "label": "dom_input client_sent",
+          "kind": "keydown",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a7yd1ukmoo8ny",
+          "scrollY": null,
+          "scrollTop": null,
+          "key": "Enter"
+        },
+        {
+          "at": 1786200528922,
+          "label": "dom_input client_sent",
+          "kind": "input",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a7yd1ukmoo8ny"
+        },
+        {
+          "at": 1786200528923,
+          "label": "dom_input client_sent",
+          "kind": "keyup",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a7yd1ukmoo8ny",
+          "scrollY": null,
+          "scrollTop": null,
+          "key": "Enter"
+        },
+        {
+          "at": 1786200529178,
+          "label": "dom_input client_sent",
+          "kind": "blur",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "a7yd1ukmoo8ny"
+        },
+        {
+          "at": 1786200531508,
+          "label": "dom_input client_sent",
+          "kind": "focus",
+          "hop": "client_sent",
+          "gen": 2,
+          "anchor": "agsc6r02io8o7"
+        }
+      ],
+      "diffHops": [
+        {
+          "at": 1786200532118,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 830,
+          "gen": 2
+        },
+        {
+          "at": 1786200532118,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 831,
+          "gen": 2
+        },
+        {
+          "at": 1786200532118,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 832,
+          "gen": 2
+        },
+        {
+          "at": 1786200532118,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 833,
+          "gen": 2
+        },
+        {
+          "at": 1786200532118,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 834,
+          "gen": 2
+        },
+        {
+          "at": 1786200532118,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 835,
+          "gen": 2
+        },
+        {
+          "at": 1786200532118,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 836,
+          "gen": 2
+        },
+        {
+          "at": 1786200532118,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 837,
+          "gen": 2
+        },
+        {
+          "at": 1786200532118,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 838,
+          "gen": 2
+        },
+        {
+          "at": 1786200532119,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 839,
+          "gen": 2
+        },
+        {
+          "at": 1786200532119,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 840,
+          "gen": 2
+        },
+        {
+          "at": 1786200532119,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 841,
+          "gen": 2
+        },
+        {
+          "at": 1786200532119,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 842,
+          "gen": 2
+        },
+        {
+          "at": 1786200532119,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 843,
+          "gen": 2
+        },
+        {
+          "at": 1786200532119,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 844,
+          "gen": 2
+        },
+        {
+          "at": 1786200532119,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 845,
+          "gen": 2
+        },
+        {
+          "at": 1786200532119,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 846,
+          "gen": 2
+        },
+        {
+          "at": 1786200532120,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 847,
+          "gen": 2
+        },
+        {
+          "at": 1786200532120,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 848,
+          "gen": 2
+        },
+        {
+          "at": 1786200532121,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 849,
+          "gen": 2
+        },
+        {
+          "at": 1786200532121,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 850,
+          "gen": 2
+        },
+        {
+          "at": 1786200532121,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 851,
+          "gen": 2
+        },
+        {
+          "at": 1786200532121,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 852,
+          "gen": 2
+        },
+        {
+          "at": 1786200532121,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 853,
+          "gen": 2
+        },
+        {
+          "at": 1786200532121,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 854,
+          "gen": 2
+        },
+        {
+          "at": 1786200532121,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 855,
+          "gen": 2
+        },
+        {
+          "at": 1786200532121,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 856,
+          "gen": 2
+        },
+        {
+          "at": 1786200532121,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 857,
+          "gen": 2
+        },
+        {
+          "at": 1786200532121,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 858,
+          "gen": 2
+        },
+        {
+          "at": 1786200532122,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 859,
+          "gen": 2
+        },
+        {
+          "at": 1786200532122,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 860,
+          "gen": 2
+        },
+        {
+          "at": 1786200532122,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 861,
+          "gen": 2
+        },
+        {
+          "at": 1786200532122,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 862,
+          "gen": 2
+        },
+        {
+          "at": 1786200532122,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 863,
+          "gen": 2
+        },
+        {
+          "at": 1786200532122,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 864,
+          "gen": 2
+        },
+        {
+          "at": 1786200532122,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 865,
+          "gen": 2
+        },
+        {
+          "at": 1786200532122,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 866,
+          "gen": 2
+        },
+        {
+          "at": 1786200532122,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 867,
+          "gen": 2
+        },
+        {
+          "at": 1786200532122,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 868,
+          "gen": 2
+        },
+        {
+          "at": 1786200532123,
+          "label": "page_projection client_apply",
+          "hop": "client_apply",
+          "kind": "dom",
+          "seq": 869,
+          "gen": 2
+        }
+      ]
+    }
+  }
+]

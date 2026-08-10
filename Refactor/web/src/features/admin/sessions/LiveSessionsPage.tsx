@@ -18,7 +18,7 @@ import {
 import { adminJson } from '@/lib/adminFetch'
 
 export type LifecycleState = 'Created' | 'Live' | 'Stopped' | 'Aborted'
-export type MirrorMode = 'VideoStreaming' | 'DomProjection'
+export type MirrorMode = 'VideoStreaming' | 'PageProjection'
 
 export type SessionListItem = {
   sessionId: string
@@ -59,7 +59,7 @@ const stateTone = (state: LifecycleState) =>
   state === 'Live' ? 'success' : state === 'Aborted' ? 'danger' : state === 'Stopped' ? 'neutral' : 'info'
 
 const mirrorLabel = (mode: MirrorMode | null) =>
-  mode === 'VideoStreaming' ? 'Video streaming' : mode === 'DomProjection' ? 'DOM projection' : '—'
+  mode === 'VideoStreaming' ? 'Video streaming' : mode === 'PageProjection' ? 'DOM projection' : '—'
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100]
 
@@ -244,7 +244,7 @@ export function LiveSessionsPage() {
               <SelectContent>
                 <SelectItem value="any">Any mode</SelectItem>
                 <SelectItem value="VideoStreaming">Video streaming</SelectItem>
-                <SelectItem value="DomProjection">DOM projection</SelectItem>
+                <SelectItem value="PageProjection">DOM projection</SelectItem>
               </SelectContent>
             </Select>
           </div>

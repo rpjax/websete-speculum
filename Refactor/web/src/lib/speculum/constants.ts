@@ -9,9 +9,9 @@ export const PipeKind = {
   ConsoleInput: 5,
   Status: 6,
   /** Dom Projection outbound diffs. */
-  DomDiff: 7,
+  PageProjectionDiff: 7,
   /** Dom Projection element input. */
-  DomProjectionInput: 8,
+  PageProjectionIntent: 8,
 } as const
 
 export type PipeKindValue = (typeof PipeKind)[keyof typeof PipeKind]
@@ -27,6 +27,16 @@ export const NotificationKind = {
   EditableFocusChanged: 3,
   Crashed: 4,
   InputRejected: 5,
+  VideoStreamingInputApplied: 6,
+  VideoStreamingInputPathTrace: 7,
+  AllocationLifecycle: 8,
+  PageProjectionIntentRejected: 9,
+  PageProjectionIntentApplied: 10,
+  PageProjectionIntentPathTrace: 11,
+  PageProjectionDiffFrame: 12,
+  /** PageProjection lifecycle (generation_bumped | soft_nav_observed | …). */
+  PageProjectionLifecycle: 13,
+  PageProjectionDiffQueueDropped: 14,
 } as const
 
 /** Public SignalR hub path (control plane under `/w7s`). */
@@ -35,7 +45,8 @@ export const DefaultHubPath = w7sPath('/vhub')
 export const DefaultTransportPath = w7sPath('/vtransport')
 /** Public WebSocket mux data-plane path under `/w7s`. */
 export const DefaultStreamPath = w7sPath('/vstream')
-export const MaxMessageBytes = 1024 * 1024
+/** Length-prefixed data-plane message ceiling (WS/WT). Sized for PageProjection establish Diffs. */
+export const MaxMessageBytes = 10 * 1024 * 1024
 
 /** Sessions.dataStreamTransport / client-config values. */
 export type DataStreamTransportKind = 'webTransport' | 'webSocket'

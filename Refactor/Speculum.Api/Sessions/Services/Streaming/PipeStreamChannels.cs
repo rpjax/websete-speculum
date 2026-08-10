@@ -1,5 +1,5 @@
 using System.Threading.Channels;
-using Speculum.Api.Sessions.Mirror.DomProjection;
+using Speculum.Api.Sessions.Mirror.PageProjection;
 using Speculum.Api.Sessions.Models;
 
 namespace Speculum.Api.Sessions.Services.Streaming;
@@ -11,25 +11,25 @@ internal sealed class PipeStreamChannels
 {
     public PipeStreamChannels(
         Channel<Frame> frames,
-        Channel<DomDiff> domDiffs,
+        Channel<PageProjectionDiff> domDiffs,
         Channel<ConsoleOutput> console,
         Channel<SessionNotification> notifications)
     {
         Frames = frames;
-        DomDiffs = domDiffs;
+        PageProjectionDiffs = domDiffs;
         Console = console;
         Notifications = notifications;
     }
 
     public Channel<Frame> Frames { get; }
-    public Channel<DomDiff> DomDiffs { get; }
+    public Channel<PageProjectionDiff> PageProjectionDiffs { get; }
     public Channel<ConsoleOutput> Console { get; }
     public Channel<SessionNotification> Notifications { get; }
 
     public void Complete()
     {
         Frames.Writer.TryComplete();
-        DomDiffs.Writer.TryComplete();
+        PageProjectionDiffs.Writer.TryComplete();
         Console.Writer.TryComplete();
         Notifications.Writer.TryComplete();
     }

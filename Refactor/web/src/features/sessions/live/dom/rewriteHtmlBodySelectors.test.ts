@@ -24,6 +24,12 @@ describe('rewriteHtmlBodySelectors', () => {
     expect(out).toContain('.somebody')
     expect(out).toContain(`${DOM_BODY_SELECTOR}.dark`)
   })
+
+  it('rewrites :root to the projection surface', () => {
+    const out = rewriteHtmlBodySelectors(':root{--accent:#f00}html,:root{color:#fff}')
+    expect(out).toContain(`${DOM_SURFACE_SELECTOR}{--accent:#f00}`)
+    expect(out).toContain(`${DOM_SURFACE_SELECTOR},${DOM_SURFACE_SELECTOR}{color:#fff}`)
+  })
 })
 
 describe('rewriteRemToPx', () => {

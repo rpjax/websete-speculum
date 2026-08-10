@@ -3,7 +3,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Speculum.Api.Configurations.Models.Sessions;
 using Speculum.Api.Sessions.Mirror;
-using Speculum.Api.Sessions.Mirror.DomProjection;
+using Speculum.Api.Sessions.Mirror.PageProjection;
 using Speculum.Api.Sessions.Services.Contracts;
 
 namespace Speculum.Api.Presentation.Sessions;
@@ -26,6 +26,8 @@ public static class DomAssetEndpoints
             .WithTags("Sessions");
         endpoints.MapPost("/api/sessions/{sessionId:guid}/dom-uploads", PostDomUpload)
             .WithTags("Sessions");
+        endpoints.MapPost("/api/sessions/{sessionId:guid}/page-projection/resync", PostPageProjectionResync)
+            .WithTags("Sessions");
 
         return endpoints;
     }
@@ -43,12 +45,12 @@ public static class DomAssetEndpoints
             return Results.Unauthorized();
         }
 
-        if (live.MirrorMode != MirrorMode.DomProjection)
+        if (live.MirrorMode != MirrorMode.PageProjection)
         {
             return Results.BadRequest(new
             {
                 errorCode = SessionMirrorErrors.MirrorModeMismatchErrorCode,
-                message = SessionMirrorErrors.DomProjectionRequiredMessage,
+                message = SessionMirrorErrors.PageProjectionRequiredMessage,
             });
         }
 
@@ -73,12 +75,12 @@ public static class DomAssetEndpoints
             return Results.Unauthorized();
         }
 
-        if (live.MirrorMode != MirrorMode.DomProjection)
+        if (live.MirrorMode != MirrorMode.PageProjection)
         {
             return Results.BadRequest(new
             {
                 errorCode = SessionMirrorErrors.MirrorModeMismatchErrorCode,
-                message = SessionMirrorErrors.DomProjectionRequiredMessage,
+                message = SessionMirrorErrors.PageProjectionRequiredMessage,
             });
         }
 
@@ -97,12 +99,12 @@ public static class DomAssetEndpoints
             return Results.Unauthorized();
         }
 
-        if (live.MirrorMode != MirrorMode.DomProjection)
+        if (live.MirrorMode != MirrorMode.PageProjection)
         {
             return Results.BadRequest(new
             {
                 errorCode = SessionMirrorErrors.MirrorModeMismatchErrorCode,
-                message = SessionMirrorErrors.DomProjectionRequiredMessage,
+                message = SessionMirrorErrors.PageProjectionRequiredMessage,
             });
         }
 
@@ -127,12 +129,12 @@ public static class DomAssetEndpoints
             return Results.Unauthorized();
         }
 
-        if (live.MirrorMode != MirrorMode.DomProjection)
+        if (live.MirrorMode != MirrorMode.PageProjection)
         {
             return Results.BadRequest(new
             {
                 errorCode = SessionMirrorErrors.MirrorModeMismatchErrorCode,
-                message = SessionMirrorErrors.DomProjectionRequiredMessage,
+                message = SessionMirrorErrors.PageProjectionRequiredMessage,
             });
         }
 
@@ -170,6 +172,60 @@ public static class DomAssetEndpoints
         }
 
         return Results.Json(new { uploadId = uploadId.Trim() });
+    }
+
+    private static async Task<IResult> PostPageProjectionResync(
+        Guid sessionId,
+        HttpRequest request,
+        ILiveSessionService liveSessions,
+        ISessionBindingRegistry bindings,
+        CancellationToken ct)
+    {
+        if (!SessionBindingAuth.TryAuthorize(
+                request,
+                bindings,
+                liveSessions,
+                out var live,
+                out _,
+                expectedSessionId: sessionId))
+        {
+            return Results.Unauthorized();
+        }
+
+        if (live.MirrorMode != MirrorMode.PageProjection)
+        {
+            return Results.BadRequest(new
+            {
+                errorCode = SessionMirrorErrors.MirrorModeMismatchErrorCode,
+                message = SessionMirrorErrors.PageProjectionRequiredMessage,
+            });
+        }
+
+        long generation = 0;
+        long sequence = 0;
+        if (long.TryParse(request.Query["generation"], out var g)) generation = g;
+        if (long.TryParse(request.Query["sequence"], out var s)) sequence = s;
+
+        var result = await live
+            .GetPageProjectionResyncAsync(generation, sequence, ct)
+            .ConfigureAwait(false);
+        if (result.IsFailure)
+        {
+            return Results.BadRequest(new
+            {
+                errorCode = "resync_failed",
+                message = string.Join("; ", result.Errors.Select(e => e.Message)),
+            });
+        }
+
+        var snap = result.Value;
+        return Results.Json(new
+        {
+            generation = snap.Generation,
+            coversThroughSequence = snap.CoversThroughSequence,
+            root = System.Text.Json.JsonSerializer.Deserialize<object>(snap.RootJson),
+            sheets = System.Text.Json.JsonSerializer.Deserialize<object>(snap.SheetsJson),
+        });
     }
 
     private static async Task<IResult> ServeKeyAsync(

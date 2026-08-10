@@ -19,15 +19,15 @@ export interface PermissionRequestMsg {
 export class EventBridge implements BrowserSessionEvents {
   readonly video = new DropOldestQueue<Uint8Array>(2);
   readonly audio = new DropOldestQueue<Uint8Array>(2);
+  /** PageProjection Dom+Cssom envelopes — sized for SPA churn (T5 DropAll on overflow). */
   readonly dom = new DropOldestQueue<{
     sequence: number;
     generation: number;
-    treeType: string;
-    kind: string;
-    target?: string;
+    plane: string;
+    operation: string;
     timestampMs: number;
     body: Uint8Array;
-  }>(4);
+  }>(1024);
   readonly consoleQ = new DropOldestQueue<{ level: number; text: string }>(64);
   readonly location = new DropOldestQueue<string>(1);
   readonly navigationBlocked = new DropOldestQueue<string>(8);
@@ -39,16 +39,16 @@ export class EventBridge implements BrowserSessionEvents {
     kind: string;
     unixMs: number;
   }>(32);
-  /** Opt-in path hops for Telemetry.Sessions.DomProjection.Input.* (DropOldest). */
-  readonly domProjectionInputPath = new DropOldestQueue<{
+  /** Opt-in path hops for Telemetry.Sessions.PageProjection.Input.* (DropOldest). */
+  readonly pageProjectionInputPath = new DropOldestQueue<{
     phase: string;
     kind: string;
     unixMs: number;
     reason?: string;
     generation?: number;
   }>(32);
-  /** Opt-in Dom Projection lifecycle (GenerationBumped) — DropOldest. */
-  readonly domProjectionLifecycle = new DropOldestQueue<{
+  /** Opt-in PageProjection lifecycle (GenerationBumped | QueueDropped) — DropOldest. */
+  readonly pageProjectionLifecycle = new DropOldestQueue<{
     kind: string;
     fromGeneration: number;
     toGeneration: number;
@@ -56,6 +56,11 @@ export class EventBridge implements BrowserSessionEvents {
     url?: string;
     diffKind?: string;
     unixMs: number;
+    droppedCount?: number;
+    capacity?: number;
+    sequence?: number;
+    lowestDroppedSequence?: number;
+    highestDroppedSequence?: number;
   }>(32);
   /** Opt-in allocation lifecycle for Telemetry.Sessions.Sidecar.* (DropOldest). */
   readonly allocationLifecycle = new DropOldestQueue<
@@ -101,32 +106,147 @@ export class EventBridge implements BrowserSessionEvents {
     this.video.tryWrite(jpeg);
   }
 
-  onDomDiff(diff: {
+  onPageProjectionDiff(diff: {
     sequence: number;
     generation: number;
-    treeType: string;
-    kind: string;
-    target?: string;
+    plane: string;
+    operation: string;
     timestampMs: number;
     body: Uint8Array;
   }): void {
-    this.dom.tryWrite(diff);
+    if (this.dom.isClosed) {
+      this.emitLifecycleQueueDropped({
+        reason: 'sidecar_bridge_closed',
+        generation: diff.generation,
+        operation: diff.operation,
+        plane: diff.plane,
+        droppedCount: 1,
+        capacity: this.dom.maxCapacity,
+        sequence: diff.sequence,
+        lowestDroppedSequence: diff.sequence,
+        highestDroppedSequence: diff.sequence,
+      });
+      return;
+    }
+
+    // T5/D13: overflow → client sequence gap → desync (never silently truncated chronology).
+    const { dropped, lowestSequence, highestSequence } = this.dom.tryWriteDropAllOnOverflow(diff);
+    if (dropped > 0) {
+      this.emitLifecycleQueueDropped({
+        reason: 'sidecar_bridge',
+        generation: diff.generation,
+        operation: diff.operation,
+        plane: diff.plane,
+        droppedCount: dropped,
+        capacity: this.dom.maxCapacity,
+        sequence: diff.sequence,
+        lowestDroppedSequence: lowestSequence ?? undefined,
+        highestDroppedSequence: highestSequence ?? undefined,
+      });
+    }
   }
 
-  onDomProjectionGenerationBumped(event: {
+  /** Emit queue_dropped lifecycle; if lifecycle queue itself DropOldests, emit sidecar_lifecycle_overflow. */
+  emitLifecycleQueueDropped(ev: {
+    reason: string;
+    generation: number;
+    operation?: string;
+    plane?: string;
+    droppedCount: number;
+    capacity: number;
+    sequence?: number;
+    lowestDroppedSequence?: number;
+    highestDroppedSequence?: number;
+  }): void {
+    const payload = {
+      kind: 'queue_dropped',
+      fromGeneration: 0,
+      toGeneration: ev.generation,
+      reason: ev.reason,
+      diffKind: ev.operation,
+      url: ev.plane,
+      unixMs: Date.now(),
+      droppedCount: ev.droppedCount,
+      capacity: ev.capacity,
+      sequence: ev.sequence,
+      lowestDroppedSequence: ev.lowestDroppedSequence,
+      highestDroppedSequence: ev.highestDroppedSequence,
+    };
+    const { droppedOldest } = this.pageProjectionLifecycle.tryWriteReportingDrop(payload);
+    if (droppedOldest) {
+      // Best-effort: try to surface that a prior QD was evicted from the lifecycle queue.
+      this.pageProjectionLifecycle.tryWrite({
+        kind: 'queue_dropped',
+        fromGeneration: 0,
+        toGeneration: ev.generation,
+        reason: 'sidecar_lifecycle_overflow',
+        diffKind: ev.operation,
+        url: ev.plane,
+        unixMs: Date.now(),
+        droppedCount: 1,
+        capacity: this.pageProjectionLifecycle.maxCapacity,
+        sequence: ev.sequence,
+        lowestDroppedSequence: ev.sequence,
+        highestDroppedSequence: ev.sequence,
+      });
+    }
+  }
+
+  onPageProjectionGenerationBumped(event: {
     fromGeneration: number;
     toGeneration: number;
     reason: string;
     url?: string;
     diffKind?: string;
   }): void {
-    this.domProjectionLifecycle.tryWrite({
+    this.pageProjectionLifecycle.tryWrite({
       kind: 'generation_bumped',
       fromGeneration: event.fromGeneration,
       toGeneration: event.toGeneration,
       reason: event.reason,
       url: event.url,
       diffKind: event.diffKind,
+      unixMs: Date.now(),
+    });
+  }
+
+  onPageProjectionSoftNavObserved(event: {
+    generation: number;
+    url?: string;
+    documentEpoch?: string;
+    liveArmed: boolean;
+  }): void {
+    this.pageProjectionLifecycle.tryWrite({
+      kind: 'soft_nav_observed',
+      fromGeneration: event.generation,
+      toGeneration: event.generation,
+      reason: event.documentEpoch ?? '',
+      url: event.url,
+      diffKind: event.liveArmed ? 'armed' : 'disarmed',
+      unixMs: Date.now(),
+    });
+  }
+
+  onPageProjectionScrollEchoHit(event: {
+    kind: string;
+    generation?: number;
+    anchor?: string;
+    scrollX?: number;
+    scrollY?: number;
+    scrollTop?: number;
+    scrollLeft?: number;
+  }): void {
+    const coords =
+      event.kind === 'viewport'
+        ? `${event.scrollX ?? 0},${event.scrollY ?? 0}`
+        : `${event.scrollTop ?? 0},${event.scrollLeft ?? 0}`;
+    this.pageProjectionLifecycle.tryWrite({
+      kind: 'scroll_echo_hit',
+      fromGeneration: event.generation ?? 0,
+      toGeneration: event.generation ?? 0,
+      reason: event.kind,
+      url: event.anchor,
+      diffKind: coords,
       unixMs: Date.now(),
     });
   }
@@ -174,13 +294,13 @@ export class EventBridge implements BrowserSessionEvents {
   }
 
   /** Fire-and-forget Dom Projection path hop — never blocks PushDomInput. */
-  onDomProjectionInputPath(event: {
+  onPageProjectionIntentPath(event: {
     phase: 'sidecar_admitted' | 'cdp_dropped';
     kind: string;
     reason?: string;
     generation?: number;
   }): void {
-    this.domProjectionInputPath.tryWrite({
+    this.pageProjectionInputPath.tryWrite({
       phase: event.phase,
       kind: event.kind,
       unixMs: Date.now(),
@@ -222,8 +342,8 @@ export class EventBridge implements BrowserSessionEvents {
     this.editableFocus.close();
     this.crash.close();
     this.videoStreamingInputPath.close();
-    this.domProjectionInputPath.close();
-    this.domProjectionLifecycle.close();
+    this.pageProjectionInputPath.close();
+    this.pageProjectionLifecycle.close();
     this.allocationLifecycle.close();
     for (const [, w] of this.permissionWaiters) {
       w.resolve('deny');

@@ -42,13 +42,12 @@ export interface BrowserSessionEvents {
   onVideoFrame(jpeg: Uint8Array): void;
   onAudioFrame(chunk: Uint8Array): void;
 
-  /** Dom Projection diff (only when MirrorMode is DomProjection). */
-  onDomDiff?(diff: {
+  /** Dom Projection diff (only when MirrorMode is PageProjection). */
+  onPageProjectionDiff?(diff: {
     sequence: number;
     generation: number;
-    treeType: string;
-    kind: string;
-    target?: string;
+    plane: string;
+    operation: string;
     timestampMs: number;
     body: Uint8Array;
   }): void;
@@ -57,12 +56,29 @@ export interface BrowserSessionEvents {
    * Dom Projection generation identity changed (opt-in Telemetry hop).
    * reason: main_frame_navigated | page_emit_sync
    */
-  onDomProjectionGenerationBumped?(event: {
+  onPageProjectionGenerationBumped?(event: {
     fromGeneration: number;
     toGeneration: number;
     reason: string;
     url?: string;
     diffKind?: string;
+  }): void;
+
+  onPageProjectionSoftNavObserved?(event: {
+    generation: number;
+    url?: string;
+    documentEpoch?: string;
+    liveArmed: boolean;
+  }): void;
+
+  onPageProjectionScrollEchoHit?(event: {
+    kind: string;
+    generation?: number;
+    anchor?: string;
+    scrollX?: number;
+    scrollY?: number;
+    scrollTop?: number;
+    scrollLeft?: number;
   }): void;
 
   // page console (side effects of page scripts / evaluate; not the eval return value)
@@ -185,7 +201,7 @@ export interface BrowserLaunchOptions {
   /** Sessions.ScreencastPolicy.MaxEncodeScale (1..2). */
   screencastMaxEncodeScale: number;
   /** Sessions.MirrorMode from Launch (admin engine config). */
-  mirrorMode: 'videoStreaming' | 'domProjection';
+  mirrorMode: 'videoStreaming' | 'pageProjection';
   locale: string;
   language: string;
   timeZoneId: string;
@@ -427,7 +443,7 @@ export interface BrowserSession {
   pushInput(input: BrowserInput): Promise<void>;
 
   /**
-   * Dom Projection element input. No-op / throw when MirrorMode is not DomProjection.
+   * Dom Projection element input. No-op / throw when MirrorMode is not PageProjection.
    * Returns CDP outcome for path telemetry (SidecarAdmitted / CdpDropped).
    */
   pushDomInput?(input: {
@@ -448,6 +464,17 @@ export interface BrowserSession {
     statusCode?: number;
     contentRange?: string;
     passThrough?: boolean;
+  } | null>;
+
+  /** OOB PageProjection.Resync snapshot (does not advance live sequence). */
+  getPageProjectionResync?(hint?: {
+    generation?: number;
+    sequence?: number;
+  }): Promise<{
+    generation: number;
+    coversThroughSequence: number;
+    rootJson: Uint8Array;
+    sheetsJson: Uint8Array;
   } | null>;
 
   putDomUpload?(id: string, body: Uint8Array, contentType: string, name: string): Promise<void>;

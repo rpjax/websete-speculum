@@ -11,7 +11,7 @@ import {
   NotificationKind,
 } from '@/lib/speculum'
 import type {
-  DomProjectionInput,
+  PageProjectionIntent,
   EditingState,
   EvalResult,
   LiveSession,
@@ -61,11 +61,17 @@ export interface UseSessionLifecycleOptions {
   ) => void
   log: (level: FrontDebugLogLevel, label: string, detail?: unknown) => void
   onFrame: (frame: import('@/lib/speculum').SessionFrame) => void
-  onDomDiff: (diff: import('@/lib/speculum').DomDiff) => void
+  onPageProjectionDiff: (diff: import('@/lib/speculum').PageProjectionDiff) => void
   bumpNotificationCounter: () => void
+  onPageProjectionLifecycle: (notification: import('@/lib/speculum').SessionNotification) => void
   onSessionConsole: (message: import('@/lib/speculum').SessionConsoleOutput) => void
   resetForStart: () => void
   appendConsoleInput: (code: string) => void
+  readPageProjectionApplierProbe?: () => {
+    generation: number
+    lastSequence: number
+    desynced: boolean
+  } | null
   setPhase: React.Dispatch<React.SetStateAction<LiveSessionPhase>>
   setConnectionId: React.Dispatch<React.SetStateAction<string | null>>
   setProfileId: React.Dispatch<React.SetStateAction<string | null>>
@@ -95,11 +101,13 @@ export function useSessionLifecycle({
   trace,
   log,
   onFrame,
-  onDomDiff,
+  onPageProjectionDiff,
   bumpNotificationCounter,
+  onPageProjectionLifecycle,
   onSessionConsole,
   resetForStart,
   appendConsoleInput,
+  readPageProjectionApplierProbe,
   setPhase,
   setConnectionId,
   setProfileId,
@@ -118,12 +126,41 @@ export function useSessionLifecycle({
     (session: LiveSession) => {
       sessionRef.current = session
       session.on('frame', onFrame)
-      session.on('domDiff', onDomDiff)
+      session.on('pageProjectionDiff', onPageProjectionDiff)
+      session.on('pageProjectionDiffRejected', (rej) => {
+        log('warn', 'page_projection normalize_rejected', {
+          plane: 'pageProjectionDiff',
+          hop: 'client_drop',
+          reason: 'client_normalize_rejected',
+          rejectReason: rej.reason,
+          sequence: rej.sequence,
+          generation: rej.generation,
+          planeName: rej.plane,
+          operation: rej.operation,
+        })
+        trace('warn', 'page_projection normalize_rejected', {
+          plane: 'pageProjectionDiff',
+          hop: 'client_drop',
+          kind: 'client_normalize_rejected',
+          sequence: rej.sequence,
+          generation: rej.generation,
+          errorCode: 'client_normalize_rejected',
+          extra: {
+            reason: 'client_normalize_rejected',
+            rejectReason: rej.reason,
+            plane: rej.plane,
+            operation: rej.operation,
+          },
+        })
+      })
       session.on('console', onSessionConsole)
       session.on('notification', (notification) => {
         bumpNotificationCounter()
         if (notification.kind === NotificationKind.EditableFocusChanged) {
           setEditing(notification.editing ?? null)
+        }
+        if (notification.kind === NotificationKind.PageProjectionLifecycle) {
+          onPageProjectionLifecycle(notification)
         }
         log(notification.errorCode ? 'warn' : 'wire', 'notification', notification)
       })
@@ -135,7 +172,20 @@ export function useSessionLifecycle({
         if (!debugRef.current) {
           syncClientLocation(url, false)
         }
-        log('wire', 'syncUrl', { url, display, clientHref })
+        const probe = readPageProjectionApplierProbe?.() ?? null
+        // Observe-only soft-nav correlation: gen/seq/desync on SyncUrl (not a Dom remount trigger).
+        trace(
+          'wire',
+          'syncUrl',
+          {
+            plane: 'session',
+            hop: 'syncUrl',
+            pageProjectionGeneration: probe?.generation ?? null,
+            pageProjectionLastSequence: probe?.lastSequence ?? null,
+            pageProjectionDesynced: probe?.desynced ?? null,
+          },
+          { url, display, clientHref },
+        )
       })
       session.on('redirect', (url) => {
         log('info', 'redirect', { url })
@@ -182,9 +232,11 @@ export function useSessionLifecycle({
       client,
       debugRef,
       log,
-      onDomDiff,
+      onPageProjectionDiff,
+      onPageProjectionLifecycle,
       onFrame,
       onSessionConsole,
+      readPageProjectionApplierProbe,
       sessionRef,
       setEditing,
       setKeyboardNonce,
@@ -193,6 +245,7 @@ export function useSessionLifecycle({
       setPhase,
       setSessionId,
       setSessionToken,
+      trace,
     ],
   )
 
@@ -434,7 +487,7 @@ export function useSessionLifecycle({
   )
 
   const sendDomInput = useCallback(
-    (input: DomProjectionInput) => {
+    (input: PageProjectionIntent) => {
       const session = sessionRef.current
       if (!session) {
         return
@@ -446,27 +499,51 @@ export function useSessionLifecycle({
       counters.dirty = true
       const traceId = input.traceId?.trim() || newInputTraceId()
       const timestampClient = input.timestampClient ?? counters.lastInputAt
+      let scrollExtra: Record<string, unknown> | undefined
+      if (
+        input.type === 'scrollViewport'
+        || input.type === 'scrollElement'
+        || input.type === 'wheel'
+        || input.type === 'keydown'
+        || input.type === 'keyup'
+        || input.type === 'value'
+      ) {
+        try {
+          const payload = JSON.parse(input.payload || '{}') as Record<string, unknown>
+          scrollExtra = {
+            scrollX: payload.scrollX ?? null,
+            scrollY: payload.scrollY ?? null,
+            scrollTop: payload.scrollTop ?? null,
+            scrollLeft: payload.scrollLeft ?? null,
+            key: payload.key ?? null,
+            valueLen: typeof payload.value === 'string' ? payload.value.length : null,
+          }
+        } catch {
+          scrollExtra = undefined
+        }
+      }
       trace(
         'wire',
         'dom_input client_sent',
         {
-          plane: 'domProjectionInput',
+          plane: 'pageProjectionIntent',
           hop: 'client_sent',
           kind: input.type,
           generation: input.generation,
           anchor: input.anchor ?? null,
           tClient: counters.lastInputAt,
           traceId,
+          ...scrollExtra,
         },
       )
       void session
-        .sendDomProjectionInput({ ...input, traceId, timestampClient })
+        .sendPageProjectionIntent({ ...input, traceId, timestampClient })
         .catch((error: unknown) => {
           trace(
             'error',
             `dom_input ${input.type} failed`,
             {
-              plane: 'domProjectionInput',
+              plane: 'pageProjectionIntent',
               hop: 'client_sent',
               kind: input.type,
               generation: input.generation,

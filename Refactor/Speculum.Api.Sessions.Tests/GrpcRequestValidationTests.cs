@@ -1,5 +1,5 @@
 using Speculum.Api.BrowserClients.Grpc;
-using Speculum.Api.Sessions.Mirror.DomProjection;
+using Speculum.Api.Sessions.Mirror.PageProjection;
 using Speculum.Api.Sessions.Models;
 
 namespace Speculum.Api.Sessions.Tests;
@@ -245,8 +245,8 @@ public sealed class GrpcRequestValidationTests
             configuration,
             SessionsTestHarness.Sessions().ViewportPolicy,
             screencastMaxEncodeScale: 2,
-            mirrorMode: Configurations.Models.Sessions.MirrorMode.DomProjection);
-        Assert.Equal("domProjection", domLaunch.MirrorMode);
+            mirrorMode: Configurations.Models.Sessions.MirrorMode.PageProjection);
+        Assert.Equal("pageProjection", domLaunch.MirrorMode);
     }
 
     [Fact]
@@ -268,7 +268,7 @@ public sealed class GrpcRequestValidationTests
         Assert.False(validator.Validate(null, SessionsWithMirrorMode(
             Configurations.Models.Sessions.MirrorMode.VideoStreaming)).Failed);
         Assert.False(validator.Validate(null, SessionsWithMirrorMode(
-            Configurations.Models.Sessions.MirrorMode.DomProjection)).Failed);
+            Configurations.Models.Sessions.MirrorMode.PageProjection)).Failed);
         Assert.True(validator.Validate(null, SessionsWithMirrorMode(
             (Configurations.Models.Sessions.MirrorMode)99)).Failed);
     }
@@ -404,7 +404,7 @@ public sealed class GrpcRequestValidationTests
     }
 
     [Fact]
-    public void DomProjectionInput_MessagePack_RoundTripsTraceId()
+    public void PageProjectionIntent_MessagePack_RoundTripsTraceId()
     {
         var options = Speculum.Api.Presentation.SessionHubMessagePack.Options;
         var map = new Dictionary<string, object>
@@ -417,7 +417,7 @@ public sealed class GrpcRequestValidationTests
             ["payload"] = """{"x":10,"y":20,"button":0}""",
         };
         var bytes = MessagePack.MessagePackSerializer.Serialize(map, options);
-        var decoded = MessagePack.MessagePackSerializer.Deserialize<DomProjectionInput>(bytes, options);
+        var decoded = MessagePack.MessagePackSerializer.Deserialize<PageProjectionIntent>(bytes, options);
 
         Assert.Equal(7L, decoded.Generation);
         Assert.Equal("mousedown", decoded.Type);

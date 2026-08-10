@@ -3,7 +3,7 @@ using System.Threading.Channels;
 using Aidan.Core.Patterns;
 using Speculum.Api.BrowserClients;
 using Speculum.Api.Configurations.Models.Sessions;
-using Speculum.Api.Sessions.Mirror.DomProjection;
+using Speculum.Api.Sessions.Mirror.PageProjection;
 using Speculum.Api.Sessions.Models;
 using Speculum.Api.Sessions.Requests;
 using Speculum.Api.Sessions.Services;
@@ -163,7 +163,7 @@ public sealed class SessionBindingRegistryTests
         }
 
         public IResult<IFrameStream> OpenFrameStream() => throw new NotSupportedException();
-        public IResult<IDomDiffStream> OpenDomDiffStream() => throw new NotSupportedException();
+        public IResult<IPageProjectionDiffStream> OpenPageProjectionDiffStream() => throw new NotSupportedException();
         public IResult<IConsoleOutputStream> OpenConsoleOutputStream() => throw new NotSupportedException();
         public IResult<INotificationStream> OpenNotificationStream() => throw new NotSupportedException();
 
@@ -174,7 +174,7 @@ public sealed class SessionBindingRegistryTests
 
         public IResult AdmitVideoStreamingInput(VideoStreamingInput input) => Result.Success();
 
-        public IResult AdmitDomProjectionInput(DomProjectionInput input)
+        public IResult AdmitPageProjectionInput(PageProjectionIntent input)
             => Result.Success();
 
         public IResult<Task> ConsumeConsoleInputAsync(
@@ -192,12 +192,28 @@ public sealed class SessionBindingRegistryTests
             string? traceId = null,
             long? clientTimestampMs = null) { }
 
-        public void TraceDomProjectionInputDataPlaneReceived(
+        public void TracePageProjectionIntentDataPlaneReceived(
             string kind,
             long? generation,
             string? anchor,
             string? traceId = null,
             long? clientTimestampMs = null) { }
+
+        public void TracePageProjectionDiffWireDelivered(PageProjectionDiff diff) { }
+
+        public void TracePageProjectionDiffFrameReceived(PageProjectionDiff diff) { }
+
+        public void TracePageProjectionDiffQueueDropped(
+            string stage,
+            int droppedCount,
+            int capacity,
+            long? sequence = null,
+            long? generation = null,
+            string? plane = null,
+            string? operation = null,
+            long? lowestDroppedSequence = null,
+            long? highestDroppedSequence = null,
+            string? reason = null) { }
 
         public Task<IResult<SessionStatus>> GetStatusAsync(CancellationToken ct = default)
             => throw new NotSupportedException();
@@ -228,6 +244,12 @@ public sealed class SessionBindingRegistryTests
             CancellationToken ct = default,
             string? kind = null,
             string? rangeHeader = null)
+            => throw new NotSupportedException();
+
+        public Task<IResult<PageProjectionResyncSnapshot>> GetPageProjectionResyncAsync(
+            long generation,
+            long sequence,
+            CancellationToken ct = default)
             => throw new NotSupportedException();
 
         public Task<IResult> PutDomUploadAsync(

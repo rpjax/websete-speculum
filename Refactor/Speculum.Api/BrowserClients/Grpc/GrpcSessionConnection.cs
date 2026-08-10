@@ -8,7 +8,7 @@ using Speculum.Api.Configurations.Models.Sidecar;
 using Speculum.Api.Configurations.Services.Contracts;
 using Speculum.Api.Journal.Services.Contracts;
 using Speculum.Api.Profiles.Aggregates;
-using Speculum.Api.Sessions.Mirror.DomProjection;
+using Speculum.Api.Sessions.Mirror.PageProjection;
 using Speculum.Api.Sessions.Models;
 using Speculum.Api.Sidecar.V1;
 using Speculum.Api.Telemetry;
@@ -47,12 +47,7 @@ public sealed class GrpcSessionConnection : ISessionConnection
         SingleWriter = false,
     });
 
-    private readonly Channel<DomDiff> _domDiffs = Channel.CreateBounded<DomDiff>(new BoundedChannelOptions(4)
-    {
-        FullMode = BoundedChannelFullMode.DropOldest,
-        SingleReader = false,
-        SingleWriter = false,
-    });
+    private readonly Channel<PageProjectionDiff> _domDiffs = SequencedDiffChannels.Create<PageProjectionDiff>();
 
     private readonly Channel<ConsoleOutput> _console = Channel.CreateBounded<ConsoleOutput>(
         new BoundedChannelOptions(256)
@@ -83,6 +78,7 @@ public sealed class GrpcSessionConnection : ISessionConnection
     private int _transportLost;
     /// <summary>Set once a Chromium <see cref="SessionNotificationKind.Crashed"/> is queued — blocks further DropOldest churn from evicting it.</summary>
     private int _crashQueued;
+    private IPageProjectionDiffTelemetry? _diffTelemetry;
 
     public GrpcSessionConnection(
         Guid sessionId,
@@ -171,8 +167,8 @@ public sealed class GrpcSessionConnection : ISessionConnection
         _ = PumpEditableFocusAsync(token);
         _ = PumpCrashAsync(token);
         _ = PumpVideoStreamingInputPathAsync(token);
-        _ = PumpDomProjectionInputPathAsync(token);
-        _ = PumpDomProjectionLifecycleAsync(token);
+        _ = PumpPageProjectionIntentPathAsync(token);
+        _ = PumpPageProjectionLifecycleAsync(token);
         _ = PumpAllocationLifecycleAsync(token);
         _ = PumpControlAsync(token);
         return Task.CompletedTask;
@@ -432,10 +428,10 @@ public sealed class GrpcSessionConnection : ISessionConnection
         return Result<ChannelReader<Frame>>.Success(_frames.Reader);
     }
 
-    public IResult<ChannelReader<DomDiff>> GetDomDiffReader()
+    public IResult<ChannelReader<PageProjectionDiff>> GetPageProjectionDiffReader()
     {
-        if (!IsOpen) return Result<ChannelReader<DomDiff>>.Failure("Connection closed");
-        return Result<ChannelReader<DomDiff>>.Success(_domDiffs.Reader);
+        if (!IsOpen) return Result<ChannelReader<PageProjectionDiff>>.Failure("Connection closed");
+        return Result<ChannelReader<PageProjectionDiff>>.Success(_domDiffs.Reader);
     }
 
     public IResult<ChannelReader<ConsoleOutput>> GetConsoleOutputReader()
@@ -512,7 +508,7 @@ public sealed class GrpcSessionConnection : ISessionConnection
         return Result<Task>.Success(PumpVideoStreamingInputAsync(channelReader, lifetime));
     }
 
-    public IResult<Task> ConsumeDomProjectionInputAsync(ChannelReader<DomProjectionInput> channelReader)
+    public IResult<Task> ConsumePageProjectionIntentAsync(ChannelReader<PageProjectionIntent> channelReader)
     {
         CancellationToken lifetime;
         lock (_linkGate)
@@ -532,7 +528,7 @@ public sealed class GrpcSessionConnection : ISessionConnection
             }
         }
 
-        return Result<Task>.Success(PumpDomProjectionInputAsync(channelReader, lifetime));
+        return Result<Task>.Success(PumpPageProjectionIntentAsync(channelReader, lifetime));
     }
 
     public async Task<IResult<DomAsset>> GetDomAssetAsync(
@@ -559,6 +555,32 @@ public sealed class GrpcSessionConnection : ISessionConnection
                     },
                     cancellationToken: token).ResponseAsync);
             return Result<DomAsset>.Success(GrpcSessionMappers.ToDomAsset(response));
+        });
+    }
+
+    public async Task<IResult<PageProjectionResyncSnapshot>> GetPageProjectionResyncAsync(
+        long generation,
+        long sequence,
+        CancellationToken ct = default)
+    {
+        return await CallValueAsync(async () =>
+        {
+            var response = await WithLinkedAsync(ct, token =>
+                _client.GetPageProjectionResyncAsync(
+                    new PageProjectionResyncRequest
+                    {
+                        SessionId = SessionId.ToString("D"),
+                        Generation = generation,
+                        Sequence = sequence,
+                    },
+                    cancellationToken: token).ResponseAsync);
+            return Result<PageProjectionResyncSnapshot>.Success(new PageProjectionResyncSnapshot
+            {
+                Generation = response.Generation,
+                CoversThroughSequence = response.CoversThroughSequence,
+                RootJson = response.RootJson.ToByteArray(),
+                SheetsJson = response.SheetsJson.ToByteArray(),
+            });
         });
     }
 
@@ -695,7 +717,7 @@ public sealed class GrpcSessionConnection : ISessionConnection
         }
     }
 
-    private async Task PumpDomProjectionInputAsync(ChannelReader<DomProjectionInput> reader, CancellationToken ct)
+    private async Task PumpPageProjectionIntentAsync(ChannelReader<PageProjectionIntent> reader, CancellationToken ct)
     {
         await foreach (var domInput in reader.ReadAllAsync(ct))
         {
@@ -703,7 +725,7 @@ public sealed class GrpcSessionConnection : ISessionConnection
             if (!GrpcSessionMappers.TryParseDomInputEvent(SessionId, domInput, out var input)
                 || input is null)
             {
-                TryPublishDomProjectionInputRejected(
+                TryPublishPageProjectionIntentRejected(
                     "input_invalid",
                     "validate",
                     $"Invalid dom input: {domInput.Type}",
@@ -717,15 +739,15 @@ public sealed class GrpcSessionConnection : ISessionConnection
             try
             {
                 await WriteDomInputWithRetryAsync(input, ct).ConfigureAwait(false);
-                TryPublishDomProjectionInputApplied(
+                TryPublishPageProjectionIntentApplied(
                     domInput.Type,
                     "push",
                     domInput.Generation,
                     domInput.Anchor,
                     domInput.TraceId,
                     clientTimestampMs);
-                TryPublishDomProjectionInputPathTrace(
-                    TelemetryJournalFacts.DomProjectionInputSidecarPushWritten,
+                TryPublishPageProjectionIntentPathTrace(
+                    TelemetryJournalFacts.PageProjectionIntentSidecarPushWritten,
                     "grpc_pushed",
                     domInput.Type,
                     domInput.Generation,
@@ -752,7 +774,7 @@ public sealed class GrpcSessionConnection : ISessionConnection
                     ex,
                     "PushDomInput faulted for session {SessionId} after retries (link kept for WatchCrash)",
                     SessionId);
-                TryPublishDomProjectionInputRejected(
+                TryPublishPageProjectionIntentRejected(
                     "input_push_failed",
                     "push",
                     ex.Status.Detail ?? ex.Message,
@@ -764,7 +786,7 @@ public sealed class GrpcSessionConnection : ISessionConnection
             }
             catch (RpcException ex)
             {
-                TryPublishDomProjectionInputRejected(
+                TryPublishPageProjectionIntentRejected(
                     "input_push_failed",
                     "push",
                     ex.Status.Detail ?? ex.Message,
@@ -1025,19 +1047,45 @@ public sealed class GrpcSessionConnection : ISessionConnection
 
     private Task PumpDomAsync(CancellationToken ct) =>
         RunWatchLoopAsync(
-            "WatchDom",
-            token => _client.WatchDom(
+            "WatchPageProjectionDiff",
+            token => _client.WatchPageProjectionDiff(
                 new ProtoSessionId { SessionId_ = SessionId.ToString("D") },
                 cancellationToken: token),
             async (frame, token) =>
             {
-                if (GrpcSessionMappers.ToDomDiff(frame) is not { } diff)
+                if (GrpcSessionMappers.ToPageProjectionDiff(frame) is not { } diff)
                 {
+                    TryPublishPageProjectionDiffQueueDropped(
+                        "mapper_rejected",
+                        droppedCount: 1,
+                        capacity: 0,
+                        kept: null,
+                        lowestDroppedSequence: frame.Sequence,
+                        highestDroppedSequence: frame.Sequence,
+                        plane: frame.Plane,
+                        operation: frame.Operation,
+                        generation: frame.Generation,
+                        reason: "ToPageProjectionDiff_null");
                     return;
                 }
 
-                TryPublishDomProjectionDiffFrame(diff);
-                await _domDiffs.Writer.WriteAsync(diff, token).ConfigureAwait(false);
+                TryPublishPageProjectionDiffFrame(diff);
+                var (dropped, lowest, highest) = await SequencedDiffChannels
+                    .WriteDropAllOnOverflowDetailedAsync(
+                        _domDiffs,
+                        SequencedDiffChannels.DefaultCapacity,
+                        diff,
+                        token).ConfigureAwait(false);
+                if (dropped > 0)
+                {
+                    TryPublishPageProjectionDiffQueueDropped(
+                        "api_sequenced",
+                        dropped,
+                        SequencedDiffChannels.DefaultCapacity,
+                        diff,
+                        lowest,
+                        highest);
+                }
             },
             ct);
 
@@ -1178,10 +1226,10 @@ public sealed class GrpcSessionConnection : ISessionConnection
             },
             ct);
 
-    private Task PumpDomProjectionInputPathAsync(CancellationToken ct) =>
+    private Task PumpPageProjectionIntentPathAsync(CancellationToken ct) =>
         RunWatchLoopAsync(
-            "WatchDomProjectionInputPath",
-            token => _client.WatchDomProjectionInputPath(
+            "WatchPageProjectionInputPath",
+            token => _client.WatchPageProjectionInputPath(
                 new ProtoSessionId { SessionId_ = SessionId.ToString("D") },
                 cancellationToken: token),
             async (ev, token) =>
@@ -1189,8 +1237,8 @@ public sealed class GrpcSessionConnection : ISessionConnection
                 var phase = (ev.Phase ?? string.Empty).Trim();
                 if (string.Equals(phase, "cdp_dropped", StringComparison.Ordinal))
                 {
-                    TryPublishDomProjectionInputPathTrace(
-                        TelemetryJournalFacts.DomProjectionInputCdpDropped,
+                    TryPublishPageProjectionIntentPathTrace(
+                        TelemetryJournalFacts.PageProjectionIntentCdpDropped,
                         "cdp_dropped",
                         ev.Kind,
                         ev.HasGeneration ? ev.Generation : null,
@@ -1199,8 +1247,8 @@ public sealed class GrpcSessionConnection : ISessionConnection
                 }
                 else
                 {
-                    TryPublishDomProjectionInputPathTrace(
-                        TelemetryJournalFacts.DomProjectionInputSidecarAdmitted,
+                    TryPublishPageProjectionIntentPathTrace(
+                        TelemetryJournalFacts.PageProjectionIntentSidecarAdmitted,
                         "sidecar_admitted",
                         ev.Kind,
                         ev.HasGeneration ? ev.Generation : null,
@@ -1211,15 +1259,15 @@ public sealed class GrpcSessionConnection : ISessionConnection
             },
             ct);
 
-    private Task PumpDomProjectionLifecycleAsync(CancellationToken ct) =>
+    private Task PumpPageProjectionLifecycleAsync(CancellationToken ct) =>
         RunWatchLoopAsync(
-            "WatchDomProjectionLifecycle",
-            token => _client.WatchDomProjectionLifecycle(
+            "WatchPageProjectionLifecycle",
+            token => _client.WatchPageProjectionLifecycle(
                 new ProtoSessionId { SessionId_ = SessionId.ToString("D") },
                 cancellationToken: token),
             async (ev, token) =>
             {
-                TryPublishDomProjectionLifecycle(ev);
+                TryPublishPageProjectionLifecycle(ev);
                 await Task.CompletedTask.ConfigureAwait(false);
             },
             ct);
@@ -1274,26 +1322,220 @@ public sealed class GrpcSessionConnection : ISessionConnection
         });
     }
 
-    private void TryPublishDomProjectionLifecycle(DomProjectionLifecycleEvent ev)
+    private void TryPublishPageProjectionLifecycle(PageProjectionLifecycleEvent ev)
     {
         var kind = (ev.Kind ?? string.Empty).Trim();
-        if (!string.Equals(kind, "generation_bumped", StringComparison.Ordinal)
-            || string.IsNullOrWhiteSpace(ev.Reason)
-            || !_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.DomProjectionDiffGenerationBumped))
+        if (string.Equals(kind, "generation_bumped", StringComparison.Ordinal))
+        {
+            // Correctness path: Projected must disarm before document/install for the
+            // new generation. Never gate this on the telemetry catalog.
+            if (string.IsNullOrWhiteSpace(ev.Reason))
+            {
+                return;
+            }
+
+            TryPublishNotification(new SessionNotification
+            {
+                Kind = SessionNotificationKind.PageProjectionLifecycle,
+                Phase = "generation_bumped",
+                Reason = ev.Reason.Trim(),
+                DomFromGeneration = ev.FromGeneration,
+                DomGeneration = ev.ToGeneration,
+                Url = ev.HasUrl ? ev.Url : null,
+                PageProjectionDiffPlane = ev.HasDiffKind ? ev.DiffKind : null,
+            });
+            return;
+        }
+
+        if (string.Equals(kind, "queue_dropped", StringComparison.Ordinal))
+        {
+            if (!_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionDiffQueueDropped))
+            {
+                return;
+            }
+
+            // Sidecar packs stage in reason; plane in url; operation in diff_kind.
+            var stage = string.IsNullOrWhiteSpace(ev.Reason) ? "sidecar_bridge" : ev.Reason.Trim();
+            var dropped = ev.HasDroppedCount ? ev.DroppedCount : 0;
+            if (dropped <= 0)
+            {
+                return;
+            }
+
+            TryPublishPageProjectionDiffQueueDropped(
+                stage,
+                dropped,
+                ev.HasCapacity ? ev.Capacity : 0,
+                kept: null,
+                ev.HasLowestDroppedSequence ? ev.LowestDroppedSequence : null,
+                ev.HasHighestDroppedSequence ? ev.HighestDroppedSequence : null,
+                plane: ev.HasUrl ? ev.Url : null,
+                operation: ev.HasDiffKind ? ev.DiffKind : null,
+                generation: ev.ToGeneration != 0 ? ev.ToGeneration : null,
+                sequenceOverride: ev.HasSequence ? ev.Sequence : null);
+            return;
+        }
+
+        if (string.Equals(kind, "soft_nav_observed", StringComparison.Ordinal))
+        {
+            if (!_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionDiffSoftNavObserved))
+            {
+                return;
+            }
+
+            TryPublishNotification(new SessionNotification
+            {
+                Kind = SessionNotificationKind.PageProjectionLifecycle,
+                Phase = "soft_nav_observed",
+                Url = ev.HasUrl ? ev.Url : null,
+                DomGeneration = ev.ToGeneration,
+                Reason = string.IsNullOrWhiteSpace(ev.Reason) ? null : ev.Reason,
+                PageProjectionDiffOperation = ev.HasDiffKind ? ev.DiffKind : null,
+            });
+            return;
+        }
+
+        if (string.Equals(kind, "scroll_echo_hit", StringComparison.Ordinal))
+        {
+            if (!_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionIntentScrollEchoHit))
+            {
+                return;
+            }
+
+            TryPublishNotification(new SessionNotification
+            {
+                Kind = SessionNotificationKind.PageProjectionLifecycle,
+                Phase = "scroll_echo_hit",
+                InputKind = string.IsNullOrWhiteSpace(ev.Reason) ? null : ev.Reason,
+                DomAnchor = ev.HasUrl ? ev.Url : null,
+                DomGeneration = ev.ToGeneration != 0 ? ev.ToGeneration : null,
+                Reason = ev.HasDiffKind ? ev.DiffKind : null,
+            });
+        }
+    }
+
+    public void BindPageProjectionDiffTelemetry(IPageProjectionDiffTelemetry? telemetry)
+        => Volatile.Write(ref _diffTelemetry, telemetry);
+
+    public void ReportPageProjectionDiffQueueDropped(
+        string stage,
+        int droppedCount,
+        int capacity,
+        long? sequence = null,
+        long? generation = null,
+        string? plane = null,
+        string? operation = null,
+        long? lowestDroppedSequence = null,
+        long? highestDroppedSequence = null,
+        string? reason = null)
+    {
+        TryPublishPageProjectionDiffQueueDropped(
+            stage,
+            droppedCount,
+            capacity,
+            kept: null,
+            lowestDroppedSequence,
+            highestDroppedSequence,
+            plane,
+            operation,
+            generation,
+            reason,
+            sequenceOverride: sequence);
+    }
+
+    private void TryPublishPageProjectionDiffQueueDropped(
+        string stage,
+        int droppedCount,
+        int capacity,
+        PageProjectionDiff? kept,
+        long? lowestDroppedSequence = null,
+        long? highestDroppedSequence = null,
+        string? plane = null,
+        string? operation = null,
+        long? generation = null,
+        string? reason = null,
+        long? sequenceOverride = null)
+    {
+        if (droppedCount <= 0
+            || !_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionDiffQueueDropped))
         {
             return;
         }
 
-        TryPublishNotification(new SessionNotification
+        Volatile.Read(ref _diffTelemetry)?.QueueDropped(
+            stage,
+            droppedCount,
+            capacity,
+            sequenceOverride ?? kept?.Sequence ?? lowestDroppedSequence,
+            kept?.Generation ?? generation,
+            kept?.Plane ?? plane,
+            kept?.Operation ?? operation,
+            lowestDroppedSequence,
+            highestDroppedSequence,
+            reason);
+    }
+
+    private void TryPublishPageProjectionDiffFrame(PageProjectionDiff diff)
+    {
+        if (!_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionDiffFrameReceived))
         {
-            Kind = SessionNotificationKind.DomProjectionLifecycle,
-            Phase = "generation_bumped",
-            Reason = ev.Reason.Trim(),
-            DomFromGeneration = ev.FromGeneration,
-            DomGeneration = ev.ToGeneration,
-            Url = ev.HasUrl ? ev.Url : null,
-            DomDiffKind = ev.HasDiffKind ? ev.DiffKind : null,
-        });
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(diff.Plane) || string.IsNullOrWhiteSpace(diff.Operation))
+        {
+            return;
+        }
+
+        int? sheetCount = null;
+        int? ruleCount = null;
+        int? seededSheetCount = null;
+        if (diff.Install?.Sheets is { Count: > 0 } sheets)
+        {
+            sheetCount = sheets.Count;
+            var rules = 0;
+            var seeded = 0;
+            foreach (var sheet in sheets)
+            {
+                rules += sheet.Rules?.Count ?? 0;
+                if (sheet.Rules is { Count: > 0 }
+                    && sheet.Rules.Exists(r => r.Id.StartsWith("seed:", StringComparison.Ordinal)))
+                {
+                    seeded++;
+                }
+            }
+
+            ruleCount = rules;
+            seededSheetCount = seeded;
+        }
+        else if (diff.SheetList?.Added is { Count: > 0 } added)
+        {
+            sheetCount = added.Count;
+            var rules = 0;
+            var seeded = 0;
+            foreach (var entry in added)
+            {
+                rules += entry.Sheet?.Rules?.Count ?? 0;
+                if (entry.Sheet?.Rules is { Count: > 0 }
+                    && entry.Sheet.Rules.Exists(r => r.Id.StartsWith("seed:", StringComparison.Ordinal)))
+                {
+                    seeded++;
+                }
+            }
+
+            ruleCount = rules;
+            seededSheetCount = seeded;
+        }
+
+        Volatile.Read(ref _diffTelemetry)?.FrameReceived(
+            diff.Plane.Trim(),
+            diff.Operation.Trim(),
+            diff.Sequence,
+            diff.Generation,
+            diff.Timestamp,
+            sheetCount,
+            ruleCount,
+            seededSheetCount);
     }
 
     /// <summary>
@@ -1368,7 +1610,7 @@ public sealed class GrpcSessionConnection : ISessionConnection
         });
     }
 
-    private void TryPublishDomProjectionInputPathTrace(
+    private void TryPublishPageProjectionIntentPathTrace(
         string catalogType,
         string phase,
         string? inputKind,
@@ -1386,7 +1628,7 @@ public sealed class GrpcSessionConnection : ISessionConnection
 
         TryPublishNotification(new SessionNotification
         {
-            Kind = SessionNotificationKind.DomProjectionInputPathTrace,
+            Kind = SessionNotificationKind.PageProjectionIntentPathTrace,
             InputKind = inputKind.Trim(),
             Phase = phase,
             DomGeneration = generation,
@@ -1397,7 +1639,7 @@ public sealed class GrpcSessionConnection : ISessionConnection
         });
     }
 
-    private void TryPublishDomProjectionInputApplied(
+    private void TryPublishPageProjectionIntentApplied(
         string? inputKind,
         string? phase,
         long? generation,
@@ -1406,14 +1648,14 @@ public sealed class GrpcSessionConnection : ISessionConnection
         long? clientTimestampMs)
     {
         if (string.IsNullOrWhiteSpace(inputKind)
-            || !_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.DomProjectionInputApplied))
+            || !_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionIntentApplied))
         {
             return;
         }
 
         TryPublishNotification(new SessionNotification
         {
-            Kind = SessionNotificationKind.DomProjectionInputApplied,
+            Kind = SessionNotificationKind.PageProjectionIntentApplied,
             InputKind = inputKind.Trim(),
             Phase = phase,
             DomGeneration = generation,
@@ -1423,7 +1665,7 @@ public sealed class GrpcSessionConnection : ISessionConnection
         });
     }
 
-    private void TryPublishDomProjectionInputRejected(
+    private void TryPublishPageProjectionIntentRejected(
         string? errorCode,
         string? phase,
         string? message,
@@ -1432,14 +1674,14 @@ public sealed class GrpcSessionConnection : ISessionConnection
         string? traceId,
         long? clientTimestampMs)
     {
-        if (!_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.DomProjectionInputRejected))
+        if (!_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionIntentRejected))
         {
             return;
         }
 
         TryPublishNotification(new SessionNotification
         {
-            Kind = SessionNotificationKind.DomProjectionInputRejected,
+            Kind = SessionNotificationKind.PageProjectionIntentRejected,
             ErrorCode = errorCode,
             Phase = phase,
             Message = message,
@@ -1447,27 +1689,6 @@ public sealed class GrpcSessionConnection : ISessionConnection
             DomAnchor = anchor,
             TraceId = NullIfEmpty(traceId),
             ClientTimestampMs = clientTimestampMs,
-        });
-    }
-
-    private void TryPublishDomProjectionDiffFrame(DomDiff diff)
-    {
-        if (!_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.DomProjectionDiffFrameReceived))
-        {
-            return;
-        }
-
-        TryPublishNotification(new SessionNotification
-        {
-            Kind = SessionNotificationKind.DomProjectionDiffFrame,
-            DomDiffKind = diff.Kind,
-            DomDiffTarget = diff.Target,
-            DomDiffTreeType = diff.TreeType,
-            DomDiffSequence = diff.Sequence,
-            DomGeneration = diff.Generation,
-            DomDiffTimestamp = diff.Timestamp,
-            DomDiffNodeCount = diff.Nodes?.Count,
-            DomDiffUrlCount = diff.Urls?.Count,
         });
     }
 

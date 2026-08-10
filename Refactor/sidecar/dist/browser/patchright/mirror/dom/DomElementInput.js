@@ -11,9 +11,16 @@ const node_path_1 = require("node:path");
 class DomElementInput {
     page;
     projection;
+    /** §6.4 defaults — collapse moves under inject-chain pressure. */
+    static INJECT_CHAIN_MAX_DEPTH = 64;
+    static INJECT_MOVE_COLLAPSE_AGE_MS = 50;
     chain = Promise.resolve();
+    chainDepth = 0;
     lastMove = null;
     pendingMove = null;
+    pendingMoveAtMs = 0;
+    /** At most one move-flush task on the inject chain (§6.4 coalesce). */
+    moveFlushEnqueued = false;
     /** Keys that used insertText on keydown — skip matching keyup. */
     insertTextKeys = new Set();
     constructor(page, projection) {
@@ -21,13 +28,69 @@ class DomElementInput {
         this.projection = projection;
     }
     async dispatch(event) {
+        const type = event.type.trim().toLowerCase();
+        // Coalesce moves: update latest sample; enqueue at most one flush (§6.4).
+        // Presses/keys never sit behind a backlog of N move chain tasks.
+        if (type === 'mousemove' || type === 'pointermove') {
+            const currentGen = this.projection?.getGeneration?.() ?? 0;
+            if (event.generation != null
+                && event.generation > 0
+                && currentGen > 0
+                && event.generation !== currentGen) {
+                return { status: 'dropped', reason: 'generation_stale' };
+            }
+            const payload = parsePayload(event.payloadJson);
+            if (!this.acceptMove(payload)) {
+                return { status: 'dropped', reason: 'invalid_coords' };
+            }
+            // Under depth/age pressure: keep latest sample only — never deepen the chain
+            // with another move-flush task (hard rule: collapse moves, never drop presses).
+            const aged = this.pendingMoveAtMs > 0
+                && Date.now() - this.pendingMoveAtMs >= DomElementInput.INJECT_MOVE_COLLAPSE_AGE_MS;
+            if (this.moveFlushEnqueued
+                || this.chainDepth >= DomElementInput.INJECT_CHAIN_MAX_DEPTH
+                || aged) {
+                if (!this.moveFlushEnqueued && this.chainDepth >= DomElementInput.INJECT_CHAIN_MAX_DEPTH) {
+                    // Depth already saturated with protected work — sample is held in pendingMove
+                    // and will flush before the next protected intent via flushMove().
+                    return { status: 'dispatched' };
+                }
+                if (this.moveFlushEnqueued)
+                    return { status: 'dispatched' };
+            }
+            if (!this.moveFlushEnqueued) {
+                this.moveFlushEnqueued = true;
+                this.chainDepth += 1;
+                let flushOutcome = { status: 'dispatched' };
+                const flush = this.chain.then(async () => {
+                    this.moveFlushEnqueued = false;
+                    try {
+                        await this.flushMove();
+                    }
+                    catch {
+                        flushOutcome = { status: 'dropped', reason: 'cdp_error' };
+                    }
+                    finally {
+                        this.chainDepth = Math.max(0, this.chainDepth - 1);
+                    }
+                });
+                this.chain = flush;
+                await flush;
+                return flushOutcome;
+            }
+            return { status: 'dispatched' };
+        }
         let outcome = { status: 'dispatched' };
+        this.chainDepth += 1;
         const run = async () => {
             try {
                 outcome = await this.dispatchNow(event);
             }
             catch {
                 outcome = { status: 'dropped', reason: 'cdp_error' };
+            }
+            finally {
+                this.chainDepth = Math.max(0, this.chainDepth - 1);
             }
         };
         this.chain = this.chain.then(run, run);
@@ -37,8 +100,8 @@ class DomElementInput {
     async dispatchNow(event) {
         const type = event.type.trim().toLowerCase();
         if (type === 'resync') {
-            await this.projection?.requestResync();
-            return { status: 'dispatched' };
+            // I2: there is no input intent named resync — OOB PageProjection.Resync only.
+            return { status: 'dropped', reason: 'resync_not_an_intent' };
         }
         // Never honor wire click — would double-fire with pressed/released.
         if (type === 'click' || type === 'auxclick') {
@@ -85,8 +148,12 @@ class DomElementInput {
             const reason = await this.dispatchSetFiles(event.anchor, payload);
             return reason ? { status: 'dropped', reason } : { status: 'dispatched' };
         }
-        if (type === 'scroll') {
-            const reason = await this.dispatchScroll(event.anchor, payload);
+        if (type === 'scrollviewport') {
+            await this.dispatchScrollViewport(payload);
+            return { status: 'dispatched' };
+        }
+        if (type === 'scrollelement') {
+            const reason = await this.dispatchScrollElement(event.anchor, payload);
             return reason ? { status: 'dropped', reason } : { status: 'dispatched' };
         }
         if (type === 'focus') {
@@ -106,11 +173,13 @@ class DomElementInput {
         if (!Number.isFinite(x) || !Number.isFinite(y))
             return false;
         this.pendingMove = { x, y };
+        this.pendingMoveAtMs = Date.now();
         return true;
     }
     async flushMove() {
         const next = this.pendingMove;
         this.pendingMove = null;
+        this.pendingMoveAtMs = 0;
         if (!next)
             return;
         if (this.lastMove && this.lastMove.x === next.x && this.lastMove.y === next.y)
@@ -250,21 +319,40 @@ class DomElementInput {
             }
         }
     }
-    async dispatchScroll(anchor, payload) {
+    /** Viewport scroller — absolute page position, no anchor. */
+    async dispatchScrollViewport(payload) {
+        const x = Number(payload.scrollX ?? 0);
+        const y = Number(payload.scrollY ?? 0);
+        await this.page.evaluate(({ x: left, y: top }) => {
+            const noteScrollEcho = globalThis;
+            const note = noteScrollEcho.__speculumDomNoteScrollEcho
+                ?? noteScrollEcho.top?.__speculumDomNoteScrollEcho;
+            // Contract: note before mutate so sync scroll sensors see the echo mark.
+            note?.({ viewport: { x: left, y: top } });
+            noteScrollEcho.scrollTo(left, top);
+        }, { x, y });
+    }
+    async dispatchScrollElement(anchor, payload) {
         const top = Number(payload.scrollTop ?? 0);
         const left = Number(payload.scrollLeft ?? 0);
-        if (!anchor) {
-            await this.page.evaluate(({ top: t, left: l }) => {
-                globalThis.scrollTo(l, t);
-            }, { top, left });
-            return null;
-        }
         const el = await this.resolveElement(anchor);
         if (!el)
             return 'anchor_missing';
         try {
             await el.evaluate((node, pos) => {
                 const n = node;
+                const a = n.getAttribute('speculum-anchor');
+                const g = globalThis;
+                let note = g.__speculumDomNoteScrollEcho;
+                if (!note) {
+                    try {
+                        note = g.top?.__speculumDomNoteScrollEcho;
+                    }
+                    catch { /* XO */ }
+                }
+                // Contract: note before mutate so sync scroll sensors see the echo mark.
+                if (a)
+                    note?.({ element: { anchor: a, top: pos.top, left: pos.left } });
                 n.scrollTop = pos.top;
                 n.scrollLeft = pos.left;
             }, { top, left });
@@ -301,18 +389,35 @@ class DomElementInput {
             await el.dispose().catch(() => undefined);
         }
     }
+    /**
+     * Pierce-aware anchor resolve (input §6.7): search main frame, then every
+     * child frame (same-origin pierce + Chromium XO satellite).
+     */
     async resolveElement(anchor) {
         if (!anchor)
             return null;
         for (let attempt = 0; attempt < 3; attempt++) {
-            const handle = await this.page.evaluateHandle((a) => {
-                const w = globalThis;
-                return w.__speculumDomResolve?.(a) ?? null;
-            }, anchor);
-            const element = handle.asElement();
-            if (element)
-                return element;
-            await handle.dispose().catch(() => undefined);
+            for (const frame of this.page.frames()) {
+                try {
+                    const handle = await frame.evaluateHandle((a) => {
+                        const w = globalThis;
+                        const resolved = w.__speculumDomResolve?.(a);
+                        if (resolved)
+                            return resolved;
+                        const esc = typeof w.CSS?.escape === 'function'
+                            ? w.CSS.escape(a)
+                            : String(a).replace(/["\\]/g, '\\$&');
+                        return w.document?.querySelector('[speculum-anchor="' + esc + '"]') ?? null;
+                    }, anchor);
+                    const element = handle.asElement();
+                    if (element)
+                        return element;
+                    await handle.dispose().catch(() => undefined);
+                }
+                catch {
+                    /* frame detached mid-flight */
+                }
+            }
             await new Promise((r) => setTimeout(r, 16 * (attempt + 1)));
         }
         return null;

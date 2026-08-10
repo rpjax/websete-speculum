@@ -7,16 +7,16 @@ export interface TelemetryClientObservationValue {
   isEnabled: boolean
   sessionWire: boolean
   videoStreamingInput: boolean
-  domProjectionDiff: boolean
-  domProjectionInput: boolean
+  pageProjectionDiff: boolean
+  pageProjectionIntent: boolean
 }
 
 export const EMPTY_TELEMETRY_CLIENT_OBSERVATION: TelemetryClientObservationValue = {
   isEnabled: false,
   sessionWire: true,
   videoStreamingInput: false,
-  domProjectionDiff: false,
-  domProjectionInput: false,
+  pageProjectionDiff: false,
+  pageProjectionIntent: false,
 }
 
 export function normalizeClientObservation(raw: unknown): TelemetryClientObservationValue {
@@ -28,8 +28,8 @@ export function normalizeClientObservation(raw: unknown): TelemetryClientObserva
     isEnabled: o.isEnabled === true,
     sessionWire: o.sessionWire !== false,
     videoStreamingInput: o.videoStreamingInput === true,
-    domProjectionDiff: o.domProjectionDiff === true,
-    domProjectionInput: o.domProjectionInput === true,
+    pageProjectionDiff: o.pageProjectionDiff === true,
+    pageProjectionIntent: o.pageProjectionIntent === true,
   }
 }
 
@@ -45,14 +45,14 @@ const PLANES = [
     help: 'Mouse/keyboard on the screencast path.',
   },
   {
-    key: 'domProjectionDiff' as const,
-    label: 'DOM diff',
-    help: 'Diff frames received and applied.',
+    key: 'pageProjectionDiff' as const,
+    label: 'PageProjection Diff',
+    help: 'Diff frames received, applied, desync/resync, arm.',
   },
   {
-    key: 'domProjectionInput' as const,
-    label: 'DOM input',
-    help: 'Clicks and typing on the DOM projection path.',
+    key: 'pageProjectionIntent' as const,
+    label: 'PageProjection Intent',
+    help: 'Clicks and typing on the PageProjection path.',
   },
 ]
 

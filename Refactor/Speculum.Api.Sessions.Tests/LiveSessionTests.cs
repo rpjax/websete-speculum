@@ -12,7 +12,7 @@ using Speculum.Api.Profiles.Aggregates;
 using Speculum.Api.Sessions.Aggregates;
 using Speculum.Api.Sessions.Events.Services.Contracts;
 using Speculum.Api.Sessions.Mirror;
-using Speculum.Api.Sessions.Mirror.DomProjection;
+using Speculum.Api.Sessions.Mirror.PageProjection;
 using Speculum.Api.Sessions.Models;
 using Speculum.Api.Sessions.Requests;
 using Speculum.Api.Sessions.Services;
@@ -151,23 +151,23 @@ public sealed class LiveSessionTests
 
         Assert.Equal(MirrorMode.VideoStreaming, live.MirrorMode);
         Assert.True(live.OpenFrameStream().IsSuccess);
-        Assert.True(live.OpenDomDiffStream().IsFailure);
+        Assert.True(live.OpenPageProjectionDiffStream().IsFailure);
         Assert.Contains(
-            SessionMirrorErrors.DomProjectionRequiredMessage,
-            live.OpenDomDiffStream().Errors.Select(e => e.Message));
+            SessionMirrorErrors.PageProjectionRequiredMessage,
+            live.OpenPageProjectionDiffStream().Errors.Select(e => e.Message));
         Assert.True(live.AdmitVideoStreamingInput(new VideoStreamingInput
         {
             Type = "mousemove",
             Payload = """{"type":"mousemove","x":1,"y":2}""",
         }).IsSuccess);
-        Assert.True(live.AdmitDomProjectionInput(new DomProjectionInput
+        Assert.True(live.AdmitPageProjectionInput(new PageProjectionIntent
         {
             Type = "click",
             Payload = "{}",
         }).IsFailure);
         Assert.Contains(
-            SessionMirrorErrors.DomProjectionRequiredMessage,
-            live.AdmitDomProjectionInput(new DomProjectionInput
+            SessionMirrorErrors.PageProjectionRequiredMessage,
+            live.AdmitPageProjectionInput(new PageProjectionIntent
             {
                 Type = "click",
                 Payload = "{}",
@@ -175,7 +175,7 @@ public sealed class LiveSessionTests
     }
 
     [Fact]
-    public async Task MirrorMode_DomProjection_GatesVideoAndOpensDomStream()
+    public async Task MirrorMode_PageProjection_GatesVideoAndOpensDomStream()
     {
         var baseline = SessionsTestHarness.Sessions();
         var sessions = new SessionsConfiguration
@@ -183,7 +183,7 @@ public sealed class LiveSessionTests
             DetachedSessionTimeout = baseline.DetachedSessionTimeout,
             IsJsBridgeEnabled = baseline.IsJsBridgeEnabled,
             DataStreamTransport = baseline.DataStreamTransport,
-            MirrorMode = MirrorMode.DomProjection,
+            MirrorMode = MirrorMode.PageProjection,
             ViewportPolicy = baseline.ViewportPolicy,
             ClientEnvironmentPolicy = baseline.ClientEnvironmentPolicy,
             DeviceEmulationPolicy = baseline.DeviceEmulationPolicy,
@@ -197,7 +197,7 @@ public sealed class LiveSessionTests
             .Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true)
             .Value;
 
-        Assert.Equal(MirrorMode.DomProjection, live.MirrorMode);
+        Assert.Equal(MirrorMode.PageProjection, live.MirrorMode);
         Assert.True(live.OpenFrameStream().IsFailure);
         Assert.Contains(
             SessionMirrorErrors.VideoStreamingRequiredMessage,
@@ -208,10 +208,10 @@ public sealed class LiveSessionTests
             Payload = """{"type":"mousemove","x":1,"y":2}""",
         }).IsFailure);
 
-        var openDom = live.OpenDomDiffStream();
+        var openDom = live.OpenPageProjectionDiffStream();
         Assert.True(openDom.IsSuccess);
 
-        var admitDom = live.AdmitDomProjectionInput(new DomProjectionInput
+        var admitDom = live.AdmitPageProjectionInput(new PageProjectionIntent
         {
             Type = "mousedown",
             Anchor = "a1",
@@ -233,7 +233,7 @@ public sealed class LiveSessionTests
         var videoAsset = await videoCreated.Value.GetDomAssetAsync("abc");
         Assert.True(videoAsset.IsFailure);
         Assert.Contains(
-            SessionMirrorErrors.DomProjectionRequiredMessage,
+            SessionMirrorErrors.PageProjectionRequiredMessage,
             videoAsset.Errors.Select(e => e.Message));
     }
 
@@ -1342,22 +1342,22 @@ public sealed class LiveSessionTests
         {
             SessionId = sessionId;
             Frames = Channel.CreateUnbounded<Frame>();
-            DomDiffs = Channel.CreateUnbounded<DomDiff>();
+            PageProjectionDiffs = Channel.CreateUnbounded<PageProjectionDiff>();
             Console = Channel.CreateUnbounded<ConsoleOutput>();
             Notifications = Channel.CreateUnbounded<SessionNotification>();
             VideoStreamingInputReceived = Channel.CreateUnbounded<VideoStreamingInput>();
-            DomProjectionInputReceived = Channel.CreateUnbounded<DomProjectionInput>();
+            PageProjectionIntentReceived = Channel.CreateUnbounded<PageProjectionIntent>();
             ConsoleInputReceived = Channel.CreateUnbounded<ConsoleInput>();
         }
 
         public Guid SessionId { get; }
         public bool IsOpen { get; set; } = true;
         public Channel<Frame> Frames { get; }
-        public Channel<DomDiff> DomDiffs { get; }
+        public Channel<PageProjectionDiff> PageProjectionDiffs { get; }
         public Channel<ConsoleOutput> Console { get; }
         public Channel<SessionNotification> Notifications { get; }
         public Channel<VideoStreamingInput> VideoStreamingInputReceived { get; }
-        public Channel<DomProjectionInput> DomProjectionInputReceived { get; }
+        public Channel<PageProjectionIntent> PageProjectionIntentReceived { get; }
         public Channel<ConsoleInput> ConsoleInputReceived { get; }
         public string? LastNavigatedUrl { get; private set; }
         public Func<CancellationToken, Task<PermissionDecision>>? CameraHandler { get; private set; }
@@ -1435,8 +1435,8 @@ public sealed class LiveSessionTests
         public IResult<ChannelReader<Frame>> GetFrameReader()
             => Result<ChannelReader<Frame>>.Success(Frames.Reader);
 
-        public IResult<ChannelReader<DomDiff>> GetDomDiffReader()
-            => Result<ChannelReader<DomDiff>>.Success(DomDiffs.Reader);
+        public IResult<ChannelReader<PageProjectionDiff>> GetPageProjectionDiffReader()
+            => Result<ChannelReader<PageProjectionDiff>>.Success(PageProjectionDiffs.Reader);
 
         public IResult<ChannelReader<ConsoleOutput>> GetConsoleOutputReader()
             => Result<ChannelReader<ConsoleOutput>>.Success(Console.Reader);
@@ -1463,8 +1463,8 @@ public sealed class LiveSessionTests
         public IResult<Task> ConsumeVideoStreamingInputAsync(ChannelReader<VideoStreamingInput> channelReader)
             => Result<Task>.Success(DrainAsync(channelReader, VideoStreamingInputReceived.Writer));
 
-        public IResult<Task> ConsumeDomProjectionInputAsync(ChannelReader<DomProjectionInput> channelReader)
-            => Result<Task>.Success(DrainAsync(channelReader, DomProjectionInputReceived.Writer));
+        public IResult<Task> ConsumePageProjectionIntentAsync(ChannelReader<PageProjectionIntent> channelReader)
+            => Result<Task>.Success(DrainAsync(channelReader, PageProjectionIntentReceived.Writer));
 
         public DomAsset? DomAsset { get; set; }
 
@@ -1477,6 +1477,13 @@ public sealed class LiveSessionTests
                 ? Task.FromResult<IResult<DomAsset>>(Result<DomAsset>.Failure("not implemented"))
                 : Task.FromResult<IResult<DomAsset>>(Result<DomAsset>.Success(DomAsset));
 
+        public Task<IResult<PageProjectionResyncSnapshot>> GetPageProjectionResyncAsync(
+            long generation,
+            long sequence,
+            CancellationToken ct = default)
+            => Task.FromResult<IResult<PageProjectionResyncSnapshot>>(
+                Result<PageProjectionResyncSnapshot>.Failure("not implemented"));
+
         public Task<IResult> PutDomUploadAsync(
             string uploadId,
             byte[] body,
@@ -1487,6 +1494,20 @@ public sealed class LiveSessionTests
 
         public IResult<Task> ConsumeConsoleInputAsync(ChannelReader<ConsoleInput> channelReader)
             => Result<Task>.Success(DrainAsync(channelReader, ConsoleInputReceived.Writer));
+
+        public void BindPageProjectionDiffTelemetry(IPageProjectionDiffTelemetry? telemetry) { }
+
+        public void ReportPageProjectionDiffQueueDropped(
+            string stage,
+            int droppedCount,
+            int capacity,
+            long? sequence = null,
+            long? generation = null,
+            string? plane = null,
+            string? operation = null,
+            long? lowestDroppedSequence = null,
+            long? highestDroppedSequence = null,
+            string? reason = null) { }
 
         private static async Task DrainAsync<T>(ChannelReader<T> source, ChannelWriter<T> dest)
         {

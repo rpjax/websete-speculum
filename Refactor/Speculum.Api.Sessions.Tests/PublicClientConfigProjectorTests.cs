@@ -21,7 +21,7 @@ public sealed class PublicClientConfigProjectorTests
             {
                 DetachedSessionTimeout = TimeSpan.FromMinutes(30),
                 DataStreamTransport = DataStreamTransportKind.WebSocket,
-                MirrorMode = MirrorMode.DomProjection,
+                MirrorMode = MirrorMode.PageProjection,
                 ViewportPolicy = new ViewportPolicy
                 {
                     Minimum = new ScreenResolution { Width = 100, Height = 100 },
@@ -57,7 +57,7 @@ public sealed class PublicClientConfigProjectorTests
         Assert.Equal(UrlResolver.NavigationStateParameterName, dto.NsoParamName);
         Assert.Equal("www.example.com", dto.Navigation.DefaultTargetHost);
         Assert.Equal("webSocket", dto.Sessions.DataStreamTransport);
-        Assert.Equal("domProjection", dto.Sessions.MirrorMode);
+        Assert.Equal("pageProjection", dto.Sessions.MirrorMode);
         Assert.Equal(100, dto.Sessions.ViewportPolicy.MinWidth);
         Assert.Equal(4096, dto.Sessions.ViewportPolicy.MaxWidth);
         Assert.Equal(1.5, dto.Sessions.ScreencastMaxEncodeScale);

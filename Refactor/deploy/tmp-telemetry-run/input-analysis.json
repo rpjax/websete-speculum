@@ -1,0 +1,453 @@
+{
+  "funnel": {
+    "client_sent": 21,
+    "DataPlaneReceived": 26,
+    "SidecarPushWritten": 26,
+    "SidecarAdmitted": 18,
+    "Applied": 26,
+    "CdpDropped": 5,
+    "Rejected": 0,
+    "AdmissionDropped": 0,
+    "ScrollEchoHit": 1,
+    "programmaticSuppress": 0
+  },
+  "kindsClientSent": {
+    "keydown": 6,
+    "keyup": 6,
+    "blur": 4,
+    "focus": 4,
+    "input": 1
+  },
+  "kindsDataPlane": {
+    "keydown": 6,
+    "keyup": 6,
+    "focus": 5,
+    "blur": 4,
+    "mousemove": 1,
+    "mousedown": 1,
+    "mouseup": 1,
+    "scrollViewport": 1,
+    "input": 1
+  },
+  "kindsApplied": {
+    "keydown": 6,
+    "keyup": 6,
+    "focus": 5,
+    "blur": 4,
+    "mousemove": 1,
+    "mousedown": 1,
+    "mouseup": 1,
+    "scrollViewport": 1,
+    "input": 1
+  },
+  "kindsAdmitted": {
+    "keydown": 6,
+    "keyup": 5,
+    "focus": 3,
+    "mousedown": 1,
+    "mouseup": 1,
+    "scrollViewport": 1,
+    "blur": 1
+  },
+  "kindsCdpDropped": {
+    "blur": 2,
+    "focus": 1,
+    "input": 1,
+    "keyup": 1
+  },
+  "cdpDropReasons": {
+    "anchor_missing": 4,
+    "generation_stale": 1
+  },
+  "kindFunnel": {
+    "blur": {
+      "client_sent": 4,
+      "dataPlane": 4,
+      "applied": 4,
+      "admitted": 1,
+      "cdpDropped": 2
+    },
+    "focus": {
+      "client_sent": 4,
+      "dataPlane": 5,
+      "applied": 5,
+      "admitted": 3,
+      "cdpDropped": 1
+    },
+    "keydown": {
+      "client_sent": 6,
+      "dataPlane": 6,
+      "applied": 6,
+      "admitted": 6,
+      "cdpDropped": 0
+    },
+    "keyup": {
+      "client_sent": 6,
+      "dataPlane": 6,
+      "applied": 6,
+      "admitted": 5,
+      "cdpDropped": 1
+    },
+    "input": {
+      "client_sent": 1,
+      "dataPlane": 1,
+      "applied": 1,
+      "admitted": 0,
+      "cdpDropped": 1
+    },
+    "mousemove": {
+      "client_sent": 0,
+      "dataPlane": 1,
+      "applied": 1,
+      "admitted": 0,
+      "cdpDropped": 0
+    },
+    "mousedown": {
+      "client_sent": 0,
+      "dataPlane": 1,
+      "applied": 1,
+      "admitted": 1,
+      "cdpDropped": 0
+    },
+    "mouseup": {
+      "client_sent": 0,
+      "dataPlane": 1,
+      "applied": 1,
+      "admitted": 1,
+      "cdpDropped": 0
+    },
+    "scrollViewport": {
+      "client_sent": 0,
+      "dataPlane": 1,
+      "applied": 1,
+      "admitted": 1,
+      "cdpDropped": 0
+    }
+  },
+  "scroll": {
+    "wheelSent": 0,
+    "scrollViewportSent": 0,
+    "scrollElementSent": 0,
+    "programmaticSuppress": 0,
+    "scrollEchoHit": 1,
+    "diffScrollOps": 2,
+    "echoSamples": [
+      {
+        "at": "2026-08-08T14:48:43.6251389+00:00",
+        "profileId": "b861eb9b-74d8-4b3b-9990-0b8e045e4224",
+        "sessionId": "61da7bc4-1159-4584-90b8-4ff4341a4b93",
+        "kind": "viewport",
+        "generation": 1,
+        "anchor": null,
+        "scrollX": 0,
+        "scrollY": 3972,
+        "scrollTop": null,
+        "scrollLeft": null
+      }
+    ],
+    "suppressSamples": []
+  },
+  "softNav": {
+    "observed": 3,
+    "samples": [
+      {
+        "url": "https://www.eneba.com/",
+        "gen": 1,
+        "armed": true
+      },
+      {
+        "url": "https://www.eneba.com/br/",
+        "gen": 2,
+        "armed": false
+      },
+      {
+        "url": "https://www.eneba.com/br/store/all?text=steam&enb_campaign=Main%20Search&enb_content=search%20dropdown%20-%20input&enb_medium=input&enb_source=https%3A%2F%2Fwww.eneba.com%2F&enb_term=Submit",
+        "gen": 2,
+        "armed": true
+      }
+    ]
+  },
+  "desync": {
+    "count": 0,
+    "reasons": {}
+  },
+  "acts": [
+    {
+      "name": "dismiss_overlay_click",
+      "err": null,
+      "delta": {
+        "scrollTop": 0,
+        "htmlLen": 11443,
+        "textChanged": false,
+        "hrefChanged": false
+      },
+      "intentKinds": [
+        "mousemove",
+        "mousedown",
+        "focus",
+        "mouseup",
+        "scrollViewport"
+      ],
+      "intentCount": 5
+    },
+    {
+      "name": "mousemove_then_click_hero",
+      "err": null,
+      "delta": {
+        "scrollTop": 0,
+        "htmlLen": 0,
+        "textChanged": false,
+        "hrefChanged": true
+      },
+      "intentKinds": [
+        "mousemove",
+        "mousedown",
+        "focus",
+        "mouseup",
+        "scrollViewport",
+        "blur",
+        "focus"
+      ],
+      "intentCount": 7
+    },
+    {
+      "name": "wheel_down_800",
+      "err": null,
+      "delta": {
+        "scrollTop": 0,
+        "htmlLen": 239955,
+        "textChanged": true,
+        "hrefChanged": false
+      },
+      "intentKinds": [
+        "mousemove",
+        "mousedown",
+        "focus",
+        "mouseup",
+        "scrollViewport",
+        "blur",
+        "focus",
+        "blur"
+      ],
+      "intentCount": 8
+    },
+    {
+      "name": "wheel_up_400",
+      "err": null,
+      "delta": {
+        "scrollTop": 0,
+        "htmlLen": 233035,
+        "textChanged": false,
+        "hrefChanged": false
+      },
+      "intentKinds": [
+        "mousemove",
+        "mousedown",
+        "focus",
+        "mouseup",
+        "scrollViewport",
+        "blur",
+        "focus",
+        "blur"
+      ],
+      "intentCount": 8
+    },
+    {
+      "name": "click_categories_nav",
+      "err": null,
+      "delta": {
+        "scrollTop": 0,
+        "htmlLen": -492,
+        "textChanged": false,
+        "hrefChanged": false
+      },
+      "intentKinds": [
+        "mousemove",
+        "mousedown",
+        "focus",
+        "mouseup",
+        "scrollViewport",
+        "blur",
+        "focus",
+        "blur",
+        "focus"
+      ],
+      "intentCount": 9
+    },
+    {
+      "name": "search_focus_type",
+      "err": null,
+      "delta": {
+        "scrollTop": 0,
+        "htmlLen": 29344,
+        "textChanged": false,
+        "hrefChanged": false
+      },
+      "intentKinds": [
+        "mousemove",
+        "mousedown",
+        "focus",
+        "mouseup",
+        "scrollViewport",
+        "blur",
+        "focus",
+        "blur",
+        "focus",
+        "blur",
+        "focus",
+        "keydown",
+        "keyup",
+        "keydown",
+        "keyup",
+        "keydown",
+        "keyup",
+        "keydown",
+        "keyup",
+        "keydown",
+        "keyup"
+      ],
+      "intentCount": 21
+    },
+    {
+      "name": "search_enter",
+      "err": null,
+      "delta": {
+        "scrollTop": 0,
+        "htmlLen": -64367,
+        "textChanged": false,
+        "hrefChanged": true
+      },
+      "intentKinds": [
+        "mousemove",
+        "mousedown",
+        "focus",
+        "mouseup",
+        "scrollViewport",
+        "blur",
+        "focus",
+        "blur",
+        "focus",
+        "blur",
+        "focus",
+        "keydown",
+        "keyup",
+        "keydown",
+        "keyup",
+        "keydown",
+        "keyup",
+        "keydown",
+        "keyup",
+        "keydown",
+        "keyup",
+        "keydown",
+        "input",
+        "keyup",
+        "blur"
+      ],
+      "intentCount": 25
+    },
+    {
+      "name": "click_productish",
+      "err": null,
+      "delta": {
+        "scrollTop": 0,
+        "htmlLen": 13074,
+        "textChanged": false,
+        "hrefChanged": false
+      },
+      "intentKinds": [
+        "blur",
+        "focus",
+        "blur",
+        "focus",
+        "blur",
+        "focus",
+        "keydown",
+        "keyup",
+        "keydown",
+        "keyup",
+        "keydown",
+        "keyup",
+        "keydown",
+        "keyup",
+        "keydown",
+        "keyup",
+        "keydown",
+        "input",
+        "keyup",
+        "blur",
+        "focus"
+      ],
+      "intentCount": 21
+    },
+    {
+      "name": "wheel_after_nav",
+      "err": null,
+      "delta": {
+        "scrollTop": 0,
+        "htmlLen": 0,
+        "textChanged": false,
+        "hrefChanged": false
+      },
+      "intentKinds": [
+        "blur",
+        "focus",
+        "blur",
+        "focus",
+        "blur",
+        "focus",
+        "keydown",
+        "keyup",
+        "keydown",
+        "keyup",
+        "keydown",
+        "keyup",
+        "keydown",
+        "keyup",
+        "keydown",
+        "keyup",
+        "keydown",
+        "input",
+        "keyup",
+        "blur",
+        "focus"
+      ],
+      "intentCount": 21
+    }
+  ],
+  "clickishSent": 0,
+  "findings": [
+    {
+      "id": "CDP_DROPPED",
+      "detail": "5 drops; reasons={\"anchor_missing\":4,\"generation_stale\":1}"
+    }
+  ],
+  "cdpDropSamples": [
+    {
+      "kind": "blur",
+      "reason": "anchor_missing",
+      "gen": 1
+    },
+    {
+      "kind": "focus",
+      "reason": "generation_stale",
+      "gen": 1
+    },
+    {
+      "kind": "blur",
+      "reason": "anchor_missing",
+      "gen": 2
+    },
+    {
+      "kind": "input",
+      "reason": "anchor_missing",
+      "gen": 2
+    },
+    {
+      "kind": "keyup",
+      "reason": "anchor_missing",
+      "gen": 2
+    }
+  ],
+  "rejectedSamples": []
+}

@@ -88,8 +88,8 @@ async function collectTelemetry(request, registry) {
                     + bridge.editableFocus.droppedCount
                     + bridge.crash.droppedCount
                     + bridge.videoStreamingInputPath.droppedCount
-                    + bridge.domProjectionInputPath.droppedCount
-                    + bridge.domProjectionLifecycle.droppedCount
+                    + bridge.pageProjectionInputPath.droppedCount
+                    + bridge.pageProjectionLifecycle.droppedCount
                     + bridge.allocationLifecycle.droppedCount,
             };
         }, { videoDepth: 0, audioDepth: 0, consoleDepth: 0, inputDepth: 0, inputChainDepth: 0, droppedTotal: 0 });

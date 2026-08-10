@@ -72,7 +72,7 @@ describe('clientConfig token cookie', () => {
 
 describe('pre-start session settings', () => {
   it('normalizes the wire mirror mode and defaults to video streaming', () => {
-    expect(normalizeMirrorMode('domProjection')).toBe('domProjection')
+    expect(normalizeMirrorMode('pageProjection')).toBe('pageProjection')
     expect(normalizeMirrorMode('videoStreaming')).toBe('videoStreaming')
     expect(normalizeMirrorMode(undefined)).toBe('videoStreaming')
     expect(normalizeMirrorMode('nonsense')).toBe('videoStreaming')

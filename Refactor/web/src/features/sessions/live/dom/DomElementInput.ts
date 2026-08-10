@@ -1,8 +1,8 @@
-import { SessionAuthQueryParam, type DomProjectionInput } from '@/lib/speculum'
-import type { DomDiffApplier } from './DomDiffApplier'
+import { SessionAuthQueryParam, type PageProjectionIntent } from '@/lib/speculum'
+import type { PageProjectionDiffApplier } from './PageProjectionDiffApplier'
 import { w7sPath } from '@/lib/w7s'
 
-export type DomElementInputSender = (input: DomProjectionInput) => void | Promise<void>
+export type DomElementInputSender = (input: PageProjectionIntent) => void | Promise<void>
 
 export type DomElementInputOptions = {
   sessionId: string
@@ -11,16 +11,18 @@ export type DomElementInputOptions = {
   /** Virtual viewport CSS size (session lockstep). */
   getViewportSize: () => { width: number; height: number }
   getGeneration: () => number
-  applier?: DomDiffApplier | null
+  applier?: PageProjectionDiffApplier | null
   /** Arm pointer only after first document diff for a generation. */
   isArmed: () => boolean
+  /** Observe-only: Diff-applied scroll echo consumed (mirror of Virtual scroll echo). */
+  onProgrammaticScrollSuppress?: (target: 'viewport' | string) => void
 }
 
-/** Matches docs/dom-projection-input.md fileUploadInlineMaxBytes default. */
+/** Matches docs/page-projection-input.md fileUploadInlineMaxBytes default. */
 const INLINE_MAX_BYTES = 256 * 1024
 
 /**
- * Capture Projected DOM intents → DomProjectionInput (CDP path).
+ * Capture Projected DOM intents → PageProjectionIntent (CDP path).
  * No wire `click` — motion + pressed/released only.
  */
 export function attachDomElementInput(
@@ -28,11 +30,11 @@ export function attachDomElementInput(
   send: DomElementInputSender,
   opts: DomElementInputOptions,
 ): () => void {
-  const fire = (input: DomProjectionInput) => {
+  const fire = (input: PageProjectionIntent) => {
     void Promise.resolve(send(input)).catch(() => {})
   }
 
-  let pendingMove: DomProjectionInput | null = null
+  let pendingMove: PageProjectionIntent | null = null
   let raf = 0
 
   const flushMove = () => {
@@ -43,7 +45,7 @@ export function attachDomElementInput(
     fire(m)
   }
 
-  const queueMove = (input: DomProjectionInput) => {
+  const queueMove = (input: PageProjectionIntent) => {
     pendingMove = input
     if (raf) return
     raf = requestAnimationFrame(flushMove)
@@ -102,7 +104,7 @@ export function attachDomElementInput(
     type: string,
     anchor: string | null,
     payload: string,
-  ): DomProjectionInput => ({
+  ): PageProjectionIntent => ({
     generation: opts.getGeneration(),
     type,
     anchor,
@@ -144,6 +146,12 @@ export function attachDomElementInput(
     event.stopPropagation()
   }
 
+  const onSubmit = (event: Event) => {
+    // Forms must never navigate the Speculum Live SPA (action may be absolute https).
+    event.preventDefault()
+    event.stopPropagation()
+  }
+
   const onContextMenu = (event: MouseEvent) => {
     event.preventDefault()
   }
@@ -161,6 +169,7 @@ export function attachDomElementInput(
   }
 
   const onInput = (event: Event) => {
+    if (!opts.isArmed()) return
     const target = event.target
     if (!(target instanceof HTMLElement)) return
     const anchor = anchorOf(target)
@@ -204,6 +213,7 @@ export function attachDomElementInput(
     if (!(target instanceof HTMLInputElement) || target.type !== 'file') return
     event.preventDefault()
     event.stopPropagation()
+    if (!opts.isArmed()) return
     const anchor = anchorOf(target)
     if (!anchor) return
 
@@ -262,6 +272,17 @@ export function attachDomElementInput(
 
   const onKey = (event: KeyboardEvent) => {
     if (!opts.isArmed()) return
+    // Enter on links/buttons would activate default navigation in the host page.
+    if (
+      event.key === 'Enter'
+      && (event.target instanceof HTMLAnchorElement
+        || (event.target instanceof HTMLButtonElement && event.target.type === 'submit')
+        || (event.target instanceof HTMLInputElement
+          && (event.target.type === 'submit' || event.target.type === 'image')))
+    ) {
+      event.preventDefault()
+      event.stopPropagation()
+    }
     const anchor = anchorOf(event.target)
     fire(
       intent(event.type === 'keyup' ? 'keyup' : 'keydown', anchor, JSON.stringify({
@@ -279,16 +300,56 @@ export function attachDomElementInput(
     )
   }
 
+  /**
+   * The surface is the projected document scroller, so scrolling it is a
+   * viewport move (`scrollX/scrollY`); any inner scroller is an element move
+   * addressed by its anchor. Coalesce per scroller → last sample (I1).
+   */
+  let scrollRaf = 0
+  let pendingViewport: PageProjectionIntent | null = null
+  const pendingElements = new Map<string, PageProjectionIntent>()
+
+  const flushScroll = () => {
+    scrollRaf = 0
+    if (pendingViewport) {
+      const v = pendingViewport
+      pendingViewport = null
+      fire(v)
+    }
+    for (const [anchor, intentMsg] of pendingElements) {
+      pendingElements.delete(anchor)
+      fire(intentMsg)
+    }
+  }
+
   const onScroll = (event: Event) => {
+    if (!opts.isArmed()) return
     const el = event.target
+    if (el === surface || el === document || el === document.scrollingElement) {
+      const scrollX = surface.scrollLeft
+      const scrollY = surface.scrollTop
+      if (opts.applier?.consumeScrollEcho('viewport', { scrollX, scrollY })) {
+        opts.onProgrammaticScrollSuppress?.('viewport')
+        return
+      }
+      pendingViewport = intent('scrollViewport', null, JSON.stringify({ scrollX, scrollY }))
+      if (!scrollRaf) scrollRaf = requestAnimationFrame(flushScroll)
+      return
+    }
     if (!(el instanceof Element)) return
     const anchor = el.getAttribute('speculum-anchor')
-    fire(
-      intent('scroll', anchor, JSON.stringify({
-        scrollTop: el.scrollTop,
-        scrollLeft: el.scrollLeft,
-      })),
+    if (!anchor) return
+    const scrollTop = el.scrollTop
+    const scrollLeft = el.scrollLeft
+    if (opts.applier?.consumeScrollEcho(anchor, { scrollTop, scrollLeft })) {
+      opts.onProgrammaticScrollSuppress?.(anchor)
+      return
+    }
+    pendingElements.set(
+      anchor,
+      intent('scrollElement', anchor, JSON.stringify({ scrollTop, scrollLeft })),
     )
+    if (!scrollRaf) scrollRaf = requestAnimationFrame(flushScroll)
   }
 
   const onFocusIn = (event: FocusEvent) => {
@@ -309,30 +370,33 @@ export function attachDomElementInput(
   surface.addEventListener('pointerdown', onPointerDown)
   surface.addEventListener('pointerup', onPointerUp)
   surface.addEventListener('click', onClick, true)
+  surface.addEventListener('submit', onSubmit, true)
   surface.addEventListener('contextmenu', onContextMenu, true)
   surface.addEventListener('wheel', onWheel, { passive: false })
   surface.addEventListener('input', onInput, true)
   surface.addEventListener('change', onInput, true)
   surface.addEventListener('click', onFileActivate, true)
-  surface.addEventListener('keydown', onKey)
-  surface.addEventListener('keyup', onKey)
+  surface.addEventListener('keydown', onKey, true)
+  surface.addEventListener('keyup', onKey, true)
   surface.addEventListener('scroll', onScroll, true)
   surface.addEventListener('focusin', onFocusIn, true)
   surface.addEventListener('focusout', onFocusOut, true)
 
   return () => {
     if (raf) cancelAnimationFrame(raf)
+    if (scrollRaf) cancelAnimationFrame(scrollRaf)
     surface.removeEventListener('pointermove', onPointerMove)
     surface.removeEventListener('pointerdown', onPointerDown)
     surface.removeEventListener('pointerup', onPointerUp)
     surface.removeEventListener('click', onClick, true)
+    surface.removeEventListener('submit', onSubmit, true)
     surface.removeEventListener('contextmenu', onContextMenu, true)
     surface.removeEventListener('wheel', onWheel)
     surface.removeEventListener('input', onInput, true)
     surface.removeEventListener('change', onInput, true)
     surface.removeEventListener('click', onFileActivate, true)
-    surface.removeEventListener('keydown', onKey)
-    surface.removeEventListener('keyup', onKey)
+    surface.removeEventListener('keydown', onKey, true)
+    surface.removeEventListener('keyup', onKey, true)
     surface.removeEventListener('scroll', onScroll, true)
     surface.removeEventListener('focusin', onFocusIn, true)
     surface.removeEventListener('focusout', onFocusOut, true)

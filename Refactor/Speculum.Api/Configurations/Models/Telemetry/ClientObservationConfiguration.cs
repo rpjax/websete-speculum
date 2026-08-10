@@ -16,9 +16,9 @@ public sealed class ClientObservationConfiguration
     /// <summary>VideoStreamingInput client hops (<c>sendInput</c> → correlation with Journal).</summary>
     public bool VideoStreamingInput { get; init; }
 
-    /// <summary>DomProjection Diff recv/apply hops (generation, sequence, gaps).</summary>
-    public bool DomProjectionDiff { get; init; }
+    /// <summary>PageProjection Diff recv/apply hops (generation, sequence, gaps).</summary>
+    public bool PageProjectionDiff { get; init; }
 
-    /// <summary>DomProjection Input client hops (<c>sendDomInput</c> / capture).</summary>
-    public bool DomProjectionInput { get; init; }
+    /// <summary>PageProjection Input client hops (<c>sendDomInput</c> / capture).</summary>
+    public bool PageProjectionIntent { get; init; }
 }

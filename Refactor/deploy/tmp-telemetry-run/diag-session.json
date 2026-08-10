@@ -1,0 +1,14 @@
+{
+  "sessionId": "d3d2db73-35a7-473c-9fdc-a2937c60f4f0",
+  "profileId": "bfed4b51-5634-4676-bec3-b7c8c15e3e53",
+  "state": "Live",
+  "startedAt": "2026-08-07T17:28:46.5539093+00:00",
+  "endedAt": null,
+  "endReason": null,
+  "mirrorMode": "PageProjection",
+  "viewportWidth": 1400,
+  "viewportHeight": 900,
+  "connectionOpen": true,
+  "uptimeMs": 14299,
+  "jsBridgeEnabled": true
+}

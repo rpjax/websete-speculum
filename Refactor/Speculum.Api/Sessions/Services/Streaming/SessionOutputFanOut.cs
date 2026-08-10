@@ -3,6 +3,7 @@ using System.Threading.Channels;
 using Aidan.Core.Patterns;
 using Speculum.Api.BrowserClients;
 using Speculum.Api.Configurations.Models.Sessions;
+using Speculum.Api.Sessions.Mirror.PageProjection;
 using Speculum.Api.Sessions.Models;
 
 namespace Speculum.Api.Sessions.Services.Streaming;
@@ -72,10 +73,7 @@ internal sealed class SessionOutputFanOut
         }
         else
         {
-            _ = PumpAsync(
-                () => _connection.GetDomDiffReader(),
-                static (c, item) => c.DomDiffs.Writer.TryWrite(item),
-                static c => c.DomDiffs.Writer.TryComplete());
+            _ = PumpPageProjectionDiffsAsync();
         }
 
         _ = PumpAsync(
@@ -83,6 +81,75 @@ internal sealed class SessionOutputFanOut
             static (c, item) => c.Console.Writer.TryWrite(item),
             static c => c.Console.Writer.TryComplete());
         _ = PumpNotificationsAsync();
+    }
+
+    private async Task PumpPageProjectionDiffsAsync()
+    {
+        try
+        {
+            var opened = _connection.GetPageProjectionDiffReader();
+            if (opened.IsFailure)
+            {
+                return;
+            }
+
+            await foreach (var item in opened.Value.ReadAllAsync(_lifetime).ConfigureAwait(false))
+            {
+                var targets = ResolveTargets().ToList();
+                if (targets.Count == 0)
+                {
+                    _connection.ReportPageProjectionDiffQueueDropped(
+                        "api_fanout_no_target",
+                        droppedCount: 1,
+                        capacity: SequencedDiffChannels.DefaultCapacity,
+                        sequence: item.Sequence,
+                        generation: item.Generation,
+                        plane: item.Plane,
+                        operation: item.Operation,
+                        lowestDroppedSequence: item.Sequence,
+                        highestDroppedSequence: item.Sequence);
+                    continue;
+                }
+
+                foreach (var channels in targets)
+                {
+                    // Wait-mode pipe: actively push; never DropAll here (that wiped establish under lag).
+                    // Backpressure stops reading the connection queue → api_sequenced DropAll if needed.
+                    try
+                    {
+                        await channels.PageProjectionDiffs.Writer
+                            .WriteAsync(item, _lifetime)
+                            .ConfigureAwait(false);
+                    }
+                    catch (ChannelClosedException)
+                    {
+                        _connection.ReportPageProjectionDiffQueueDropped(
+                            "api_fanout_pipe_closed",
+                            droppedCount: 1,
+                            capacity: SequencedDiffChannels.DefaultCapacity,
+                            sequence: item.Sequence,
+                            generation: item.Generation,
+                            plane: item.Plane,
+                            operation: item.Operation,
+                            lowestDroppedSequence: item.Sequence,
+                            highestDroppedSequence: item.Sequence);
+                    }
+                }
+            }
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
+        {
+        }
+        catch (ChannelClosedException)
+        {
+        }
+        finally
+        {
+            foreach (var channels in _pipes.Values)
+            {
+                channels.PageProjectionDiffs.Writer.TryComplete();
+            }
+        }
     }
 
     /// <summary>

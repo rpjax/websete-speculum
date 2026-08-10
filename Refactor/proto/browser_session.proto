@@ -103,7 +103,7 @@ message LaunchRequest {
   int32 display_height = 15;
   // Sessions.ScreencastPolicy.MaxEncodeScale — CSS→JPEG scale cap (1..2), also capped by display_*.
   double screencast_max_encode_scale = 16;
-  // Sessions.MirrorMode — videoStreaming | domProjection (admin engine config; Launch-scoped).
+  // Sessions.MirrorMode — videoStreaming | pageProjection (admin engine config; Launch-scoped).
   string mirror_mode = 17;
 }
 
@@ -286,9 +286,9 @@ message VideoStreamingInputPathEvent {
   int64 unix_ms = 3;
 }
 
-// Opt-in DomProjection input path hop (API journals
-// Telemetry.Sessions.DomProjection.Input.SidecarAdmitted / CdpDropped when enabled).
-message DomProjectionInputPathEvent {
+// Opt-in PageProjection input path hop (API journals
+// Telemetry.Sessions.PageProjection.Input.SidecarAdmitted / CdpDropped when enabled).
+message PageProjectionInputPathEvent {
   string phase = 1; // sidecar_admitted | cdp_dropped
   string kind = 2;
   int64 unix_ms = 3;
@@ -296,16 +296,23 @@ message DomProjectionInputPathEvent {
   optional int64 generation = 5;
 }
 
-// Opt-in DomProjection lifecycle (API journals
-// Telemetry.Sessions.DomProjection.Diff.GenerationBumped when enabled).
-message DomProjectionLifecycleEvent {
-  string kind = 1; // generation_bumped
+// Opt-in PageProjection lifecycle (API journals
+// Telemetry.Sessions.PageProjection.Diff.GenerationBumped / QueueDropped when enabled).
+message PageProjectionLifecycleEvent {
+  string kind = 1; // generation_bumped | queue_dropped
   int64 from_generation = 2;
   int64 to_generation = 3;
-  string reason = 4; // main_frame_navigated | page_emit_sync
-  optional string url = 5;
-  optional string diff_kind = 6; // diff | cssom when reason=page_emit_sync
+  // generation_bumped: main_frame_navigated | page_emit_sync
+  // queue_dropped stage: sidecar_bridge | sidecar_grpc_congested
+  string reason = 4;
+  optional string url = 5; // generation_bumped: page url; queue_dropped: plane (dom|cssom)
+  optional string diff_kind = 6; // generation_bumped: plane when page_emit_sync; queue_dropped: operation
   int64 unix_ms = 7;
+  optional int32 dropped_count = 8; // queue_dropped
+  optional int32 capacity = 9; // queue_dropped
+  optional int64 sequence = 10; // queue_dropped kept envelope (surviving write)
+  optional int64 lowest_dropped_sequence = 11; // queue_dropped drained backlog min
+  optional int64 highest_dropped_sequence = 12; // queue_dropped drained backlog max
 }
 
 // Opt-in allocation lifecycle (API journals Telemetry.Sessions.Sidecar.* when enabled).
@@ -322,24 +329,23 @@ message AllocationLifecycleEvent {
   int64 unix_ms = 10;
 }
 
-// Dom Projection outbound (sidecar → Api). body is UTF-8 JSON
-// (diff nodes[] | cssom urls[]) — see docs/dom-projection-diff-pipeline.md.
-// kind/target live on the envelope only (not duplicated in body).
-message DomDiffFrame {
+// PageProjection outbound (sidecar → Api). body is UTF-8 JSON of the exclusive
+// operation payload (see docs/page-projection-diff-streams.md). Envelope carries
+// plane + operation; body holds the matching payload object only.
+message PageProjectionDiffFrame {
   int64 sequence = 1;
   int64 generation = 2;
-  string kind = 3; // diff | cssom
-  int64 timestamp_ms = 4;
-  bytes body = 5;
-  string tree_type = 6; // dom | cssom
-  string target = 7; // document | anchors (required when kind=diff; empty for cssom)
+  string plane = 3; // dom | cssom
+  string operation = 4; // dom: document|childList|patch|scrollViewport|scrollElement; cssom: install|sheetList|ruleList|patch
+  int64 timestamp_ms = 5;
+  bytes body = 6; // UTF-8 JSON payload for operation
 }
 
 message DomInputEvent {
   string session_id = 1;
   string type = 2; // mousemove | mousedown | mouseup | input | keydown | … (no wire click)
   string anchor = 3; // speculum-anchor; empty for pure motion
-  string payload_json = 4; // DomProjectionIntentPayload JSON
+  string payload_json = 4; // PageProjectionIntentPayload JSON
   int64 generation = 5;
   double timestamp_client = 6;
 }
@@ -357,6 +363,20 @@ message GetDomAssetResponse {
   int32 status_code = 3; // 200 / 206 for pass-through
   string content_range = 4;
   bool pass_through = 5;
+}
+
+// OOB PageProjection.Resync (T8/C8) — does not advance live sequence.
+message PageProjectionResyncRequest {
+  string session_id = 1;
+  int64 generation = 2; // client last contiguous
+  int64 sequence = 3;
+}
+
+message PageProjectionResyncResponse {
+  int64 generation = 1;
+  int64 covers_through_sequence = 2;
+  bytes root_json = 3;   // F(html) DomNode JSON
+  bytes sheets_json = 4; // Cssom install sheets JSON array
 }
 
 message PutDomUploadRequest {
@@ -606,7 +626,7 @@ service BrowserSessionService {
   rpc Evaluate(EvaluateRequest) returns (EvaluateResult);
 
   rpc WatchVideo(SessionId) returns (stream VideoFrame);
-  rpc WatchDom(SessionId) returns (stream DomDiffFrame);
+  rpc WatchPageProjectionDiff(SessionId) returns (stream PageProjectionDiffFrame);
   rpc WatchAudio(SessionId) returns (stream AudioFrame);
   rpc WatchConsole(SessionId) returns (stream ConsoleEvent);
   rpc WatchLocation(SessionId) returns (stream LocationEvent);
@@ -614,8 +634,8 @@ service BrowserSessionService {
   rpc WatchEditableFocus(SessionId) returns (stream EditableFocusEvent);
   rpc WatchCrash(SessionId) returns (stream CrashEvent);
   rpc WatchVideoStreamingInputPath(SessionId) returns (stream VideoStreamingInputPathEvent);
-  rpc WatchDomProjectionInputPath(SessionId) returns (stream DomProjectionInputPathEvent);
-  rpc WatchDomProjectionLifecycle(SessionId) returns (stream DomProjectionLifecycleEvent);
+  rpc WatchPageProjectionInputPath(SessionId) returns (stream PageProjectionInputPathEvent);
+  rpc WatchPageProjectionLifecycle(SessionId) returns (stream PageProjectionLifecycleEvent);
   rpc WatchAllocationLifecycle(SessionId) returns (stream AllocationLifecycleEvent);
 
   rpc PushInput(stream InputEvent) returns (Empty);
@@ -624,6 +644,7 @@ service BrowserSessionService {
   rpc PushMicrophone(stream MediaChunk) returns (Empty);
 
   rpc GetDomAsset(GetDomAssetRequest) returns (GetDomAssetResponse);
+  rpc GetPageProjectionResync(PageProjectionResyncRequest) returns (PageProjectionResyncResponse);
   rpc PutDomUpload(PutDomUploadRequest) returns (Empty);
 
   rpc Control(stream ControlToSidecar) returns (stream ControlFromSidecar);

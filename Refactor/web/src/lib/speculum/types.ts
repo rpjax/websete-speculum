@@ -54,14 +54,14 @@ export interface StartSessionResult {
 }
 
 /** Admin engine Sessions.MirrorMode — read-only on the live session. */
-export type MirrorMode = 'videoStreaming' | 'domProjection'
+export type MirrorMode = 'videoStreaming' | 'pageProjection'
 
 /**
  * Normalize the wire value when config is not yet operational.
  * When operational, prefer requireOperationalSessionsConfig on client-config.
  */
 export function normalizeMirrorMode(value: unknown): MirrorMode {
-  return String(value ?? '') === 'domProjection' ? 'domProjection' : 'videoStreaming'
+  return String(value ?? '') === 'pageProjection' ? 'pageProjection' : 'videoStreaming'
 }
 
 /** Runtime navigation (hub <c>NavigateAsync</c>) — client path/query, not absolute target. */
@@ -99,7 +99,6 @@ export interface SessionFrame {
   timestamp: number
 }
 
-/** Compact projected DOM node (main-frame V1). */
 /** Compact projected DOM node (`speculum-anchor`). */
 export interface DomNode {
   anchor?: string
@@ -109,21 +108,69 @@ export interface DomNode {
   children?: DomNode[]
 }
 
-/** Dom Projection outbound unit (`DomDiff` DTO). */
-export interface DomDiff {
+/** Wire address for Dom-plane ops. */
+export interface DomSelector {
+  kind: 'element' | 'childAt' | string
+  query: string
+  index?: number | null
+}
+
+export interface CssomSelector {
+  kind: 'sheet' | 'rule' | string
+  id: string
+}
+
+export interface CssomScope {
+  kind: 'main' | 'pierceHost' | string
+  hostAnchor?: string | null
+}
+
+export interface CssomRule {
+  id: string
+  cssText: string
+}
+
+export interface CssomSheet {
+  id: string
+  scope: CssomScope
+  rules: CssomRule[]
+}
+
+/** PageProjection outbound unit (Dom or Cssom plane). */
+export interface PageProjectionDiff {
   sequence: number
   generation: number
   timestamp: number
-  treeType?: 'dom' | 'cssom' | string
-  kind: 'diff' | 'cssom' | string
-  /** document | anchors when kind is diff. */
-  target?: 'document' | 'anchors' | string | null
-  nodes?: DomNode[] | null
-  urls?: string[] | null
+  plane: 'dom' | 'cssom' | string
+  operation: string
+  document?: { root: DomNode } | null
+  childList?: {
+    selector: DomSelector
+    removed: Array<{ selector: DomSelector }>
+    added: Array<{ index: number; node: DomNode }>
+  } | null
+  patch?: { selector: DomSelector; node: DomNode } | null
+  scrollViewport?: { scrollX: number; scrollY: number } | null
+  scrollElement?: {
+    selector: DomSelector
+    scrollTop: number
+    scrollLeft: number
+  } | null
+  install?: { sheets: CssomSheet[] } | null
+  sheetList?: {
+    removed: Array<{ selector: CssomSelector }>
+    added: Array<{ index: number; sheet: CssomSheet }>
+  } | null
+  ruleList?: {
+    selector: CssomSelector
+    removed: Array<{ selector: CssomSelector }>
+    added: Array<{ index: number; rule: CssomRule }>
+  } | null
+  cssomPatch?: { selector: CssomSelector; rule: CssomRule } | null
 }
 
-/** Dom Projection intent (CDP path; no wire click). */
-export interface DomProjectionInput {
+/** PageProjection intent (CDP path; no wire click). */
+export interface PageProjectionIntent {
   generation?: number
   type: string
   anchor?: string | null
@@ -159,6 +206,17 @@ export interface SessionNotification {
   errorCode?: string
   message?: string
   phase?: string
+  inputKind?: string
+  allocationKind?: string
+  reason?: string
+  domGeneration?: number | null
+  domFromGeneration?: number | null
+  domAnchor?: string | null
+  pageProjectionDiffPlane?: string | null
+  pageProjectionDiffOperation?: string | null
+  pageProjectionDiffSequence?: number | null
+  traceId?: string | null
+  clientTimestampMs?: number | null
 }
 
 /** Unary status response (`SessionStatus` DTO). */
@@ -246,7 +304,15 @@ export interface JournalStreamSubscription {
 
 export interface SessionEventMap {
   frame: SessionFrame
-  domDiff: DomDiff
+  pageProjectionDiff: PageProjectionDiff
+  /** Wire frame rejected by normalize (legacy shape / invalid plane). */
+  pageProjectionDiffRejected: {
+    sequence: number | null
+    generation: number | null
+    plane: string | null
+    operation: string | null
+    reason: string
+  }
   console: SessionConsoleOutput
   notification: SessionNotification
   syncUrl: string

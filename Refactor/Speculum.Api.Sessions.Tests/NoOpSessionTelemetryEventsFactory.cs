@@ -8,14 +8,14 @@ internal sealed class NoOpSessionTelemetryEventsFactory(
     ISessionNavigateTelemetryEvents? navigate = null,
     ISessionVideoStreamingInputTelemetryEvents? videoStreamingInput = null,
     ISessionBrowseTelemetryEvents? browse = null,
-    ISessionDomProjectionTelemetryEvents? domProjection = null) : ISessionTelemetryEventsFactory
+    ISessionPageProjectionTelemetryEvents? pageProjection = null) : ISessionTelemetryEventsFactory
 {
     private readonly ISessionTelemetryEvents _events = new NoOpSessionTelemetryEvents(
         client ?? NoOp<ISessionClientTelemetryEvents>(),
         navigate ?? NoOp<ISessionNavigateTelemetryEvents>(),
         videoStreamingInput ?? NoOp<ISessionVideoStreamingInputTelemetryEvents>(),
         browse ?? NoOp<ISessionBrowseTelemetryEvents>(),
-        domProjection ?? NoOp<ISessionDomProjectionTelemetryEvents>());
+        pageProjection ?? NoOp<ISessionPageProjectionTelemetryEvents>());
 
     public ISessionTelemetryEvents ForSession(Guid sessionId, Guid profileId) => _events;
 
@@ -24,7 +24,7 @@ internal sealed class NoOpSessionTelemetryEventsFactory(
         ISessionNavigateTelemetryEvents navigate,
         ISessionVideoStreamingInputTelemetryEvents videoStreamingInput,
         ISessionBrowseTelemetryEvents browse,
-        ISessionDomProjectionTelemetryEvents domProjection)
+        ISessionPageProjectionTelemetryEvents pageProjection)
         : ISessionTelemetryEvents
     {
         public ISessionCapacityTelemetryEvents Capacity { get; } = NoOp<ISessionCapacityTelemetryEvents>();
@@ -32,7 +32,7 @@ internal sealed class NoOpSessionTelemetryEventsFactory(
         public ISessionNavigateTelemetryEvents Navigate { get; } = navigate;
         public ISessionPersistTelemetryEvents Persist { get; } = NoOp<ISessionPersistTelemetryEvents>();
         public ISessionVideoStreamingInputTelemetryEvents VideoStreamingInput { get; } = videoStreamingInput;
-        public ISessionDomProjectionTelemetryEvents DomProjection { get; } = domProjection;
+        public ISessionPageProjectionTelemetryEvents PageProjection { get; } = pageProjection;
         public ISessionResizeTelemetryEvents Resize { get; } = NoOp<ISessionResizeTelemetryEvents>();
         public ISessionBrowseTelemetryEvents Browse { get; } = browse;
         public ISessionClientTelemetryEvents Client { get; } = client;

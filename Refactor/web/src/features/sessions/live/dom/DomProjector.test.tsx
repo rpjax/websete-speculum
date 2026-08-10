@@ -28,7 +28,7 @@ function renderProjector(startWidth: number, startHeight: number) {
       live
       sessionId="s1"
       token="t1"
-      attachDomDiffSink={() => () => {}}
+      attachPageProjectionDiffSink={() => () => {}}
       onDomInput={() => {}}
       requestRemoteResize={requestRemoteResize}
       viewportPolicy={VIEWPORT_POLICY}
@@ -121,7 +121,7 @@ describe('DomProjector viewport sync', () => {
         live={false}
         sessionId={null}
         token={null}
-        attachDomDiffSink={() => () => {}}
+        attachPageProjectionDiffSink={() => () => {}}
         onDomInput={() => {}}
         requestRemoteResize={requestRemoteResize}
         viewportPolicy={VIEWPORT_POLICY}

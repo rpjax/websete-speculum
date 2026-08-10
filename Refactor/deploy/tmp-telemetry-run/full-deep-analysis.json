@@ -1,0 +1,374 @@
+{
+  "sessionId": "477d41f4-6463-452a-adc6-cd8ccc294985",
+  "coldPaint": {
+    "childCount": 5,
+    "htmlLen": 620745,
+    "text": "English EU\nBRL\nLog in\n | \nRegister\nCategories\nGames -90%\nSoftware\neGift Cards\nNordVPN\nEneba Gift Cards\nFC27\nGame Points ⚡\nSurfshark VPN\nGAME POINTS | AUG 26\nSURFSHARK | AUG 26\nPSN GIFT CARDS | MAY 26\nUP TO -90% CHEAPER\nGames\nGaming eCards\neGift Cards\nE-money\nSteam\nSteam Gift Cards\nPSN\nXbox\nFIFA\nFortnite\nAmazon\nApple\nMobile games\nSpotify\nNetflix\nNintendo\nDLCs\nPre-orders\nCheap games\nRecommended for you \nEneba\nEneba Gift Card 5 EUR GLOBAL\nGLOBAL\nFrom\nR$29.47\nAdd to cart\nView offers\nCASHBACK\nSteam\nHell Clock Steam (PC) Key GLOBAL\nGLOBAL\nFrom R$59.99-94%\nR$3.77\n11% Cashback\nAdd to cart\nView offers\nEneba\nEneba Gift Card 10 EUR GLOBAL\nGLOBAL\nFrom\nR$58.94\nAdd to cart\nView offers\niFood\niFood Gift Card 200 BRL Key BRAZIL\nBRAZIL\nFrom\nR$246.68\nAdd to cart\nView offers\nCASHBACK\nRockstar Games Launcher\nG",
+    "cssRuleApprox": 1903,
+    "ownedSheets": 2,
+    "ownedRules": 1832
+  },
+  "idlePaint": {
+    "childCount": 5,
+    "htmlLen": 621232,
+    "text": "English EU\nBRL\nLog in\n | \nRegister\nCategories\nGames -90%\nSoftware\neGift Cards\nNordVPN\nEneba Gift Cards\nFC27\nGame Points ⚡\nSurfshark VPN\nGAME POINTS | AUG 26\nSURFSHARK | AUG 26\nPSN GIFT CARDS | MAY 26\nUP TO -90% CHEAPER\nGames\nGaming eCards\neGift Cards\nE-money\nSteam\nSteam Gift Cards\nPSN\nXbox\nFIFA\nFortnite\nAmazon\nApple\nMobile games\nSpotify\nNetflix\nNintendo\nDLCs\nPre-orders\nCheap games\nRecommended for you \nEneba\nEneba Gift Card 5 EUR GLOBAL\nGLOBAL\nFrom\nR$29.47\nAdd to cart\nView offers\nCASHBACK\nSteam\nHell Clock Steam (PC) Key GLOBAL\nGLOBAL\nFrom R$59.99-94%\nR$3.77\n11% Cashback\nAdd to cart\nView offers\nEneba\nEneba Gift Card 10 EUR GLOBAL\nGLOBAL\nFrom\nR$58.94\nAdd to cart\nView offers\niFood\niFood Gift Card 200 BRL Key BRAZIL\nBRAZIL\nFrom\nR$246.68\nAdd to cart\nView offers\nCASHBACK\nRockstar Games Launcher\nG",
+    "cssRuleApprox": 1903,
+    "ownedSheets": 2,
+    "ownedRules": 1832
+  },
+  "afterInteract": {
+    "childCount": 6,
+    "htmlLen": 890845,
+    "text": "English EU\nBRL\nLog in\n | \nRegister\nCategories\nGames -90%\nSoftware\neGift Cards\nNordVPN\nEneba Gift Cards\nFC27\nGame Points ⚡\nSurfshark VPN\nStep up your Act\nwith Valorant Points!\n\nAre you ready for the new season? Upgrade your loadout, pick up new skins, unlock Agents, and shape the meta your way. Get your setup ready for the next Act with cheaper Valorant Points.\n\nBUY NOW\n\nValorant deals\nCASHBACK\nRiot Games\nValorant Points 2720 VP Key - BRAZIL\nBRAZIL\nFrom\nR$101.85\n6% Cashback\nAdd to cart\nView offers\nCASHBACK\nRiot Games\nLeague of Legends Gift Card - 1650 RP - Riot Key BRAZIL\nBRAZIL\nFrom\nR$51.34\n6% Cashback\nAdd to cart\nView offers\nCASHBACK\nRiot Games\nLeague of Legends Gift Card - 2125 RP - Riot Key BRAZIL\nBRAZIL\nFrom\nR$66.19\n6% Cashback\nAdd to cart\nView offers\nCASHBACK\nRiot Games\nValorant Point",
+    "cssRuleApprox": 2388,
+    "ownedSheets": 3,
+    "ownedRules": 2317
+  },
+  "journalCounts": {
+    "facts": 2847,
+    "FrameReceived": 1631,
+    "WireDelivered": 1024,
+    "ResyncRequested": 0,
+    "ResyncServed": 0,
+    "GenerationBumped": 0,
+    "SoftNavObserved": 3,
+    "QueueDropped": 2,
+    "queueDropsByStage": {
+      "api_fanout_pipe_closed": 2
+    },
+    "queueDropSamples": [
+      {
+        "at": "2026-08-08T11:41:05.4403817+00:00",
+        "stage": "api_fanout_pipe_closed",
+        "droppedCount": 1,
+        "capacity": 1024,
+        "keptSequence": 1025,
+        "generation": 1,
+        "plane": "dom",
+        "operation": "patch",
+        "lowest": 1025,
+        "highest": 1025
+      },
+      {
+        "at": "2026-08-08T11:41:05.4418244+00:00",
+        "stage": "api_fanout_pipe_closed",
+        "droppedCount": 1,
+        "capacity": 1024,
+        "keptSequence": 1025,
+        "generation": 1,
+        "plane": "dom",
+        "operation": "patch",
+        "lowest": 1025,
+        "highest": 1025
+      }
+    ],
+    "InputApplied": 46,
+    "InputRejected": 0,
+    "InputDataPlane": 46,
+    "ScrollEchoHit": 0,
+    "frMissingWd": 607,
+    "frMissingWdMid": 0,
+    "frMissingWdDrain": 607,
+    "sessionDrain": {
+      "lastWdSequence": 1024,
+      "frOnlyTailCount": 607,
+      "firstMiss": 1025,
+      "lastMiss": 1631
+    },
+    "sequenceGaps": 0,
+    "telemetryHoles": 0
+  },
+  "frontCounts": {
+    "entries": 2000,
+    "byHop": {
+      "client_recv": 866,
+      "client_apply": 953,
+      "client_sent": 46,
+      "lifecycle": 132,
+      "syncUrl": 2,
+      "cssom/sheetList": 1
+    },
+    "desync": 0,
+    "resyncRequest": 0,
+    "resyncApply": 0,
+    "drop": 0,
+    "arm": 0,
+    "disarm": 0,
+    "apply": 953,
+    "dropReasons": {},
+    "desyncReasons": {},
+    "addressMiss": 0,
+    "desyncMissingLocus": 0,
+    "desyncMissingGeneration": 0,
+    "lagMedianMs": 169,
+    "lagAbsurd": 0,
+    "desyncSamples": []
+  },
+  "boot": {
+    "firstFrameOps": [
+      "dom/document@seq1/gen1",
+      "cssom/install@seq2/gen1",
+      "dom/childList@seq3/gen1",
+      "dom/childList@seq4/gen1",
+      "dom/childList@seq5/gen1"
+    ],
+    "firstWireOps": [
+      "dom/document@seq1/gen1",
+      "cssom/install@seq2/gen1",
+      "dom/childList@seq3/gen1",
+      "dom/childList@seq4/gen1",
+      "dom/childList@seq5/gen1"
+    ],
+    "liveOpsBeforeDocument": 0,
+    "firstFrontRecv": [
+      {
+        "rel": "0.000s",
+        "label": "page_projection dom/childList",
+        "kind": "dom:childList",
+        "gen": 1,
+        "seq": 159,
+        "lagMs": 358
+      },
+      {
+        "rel": "0.000s",
+        "label": "page_projection dom/childList",
+        "kind": "dom:childList",
+        "gen": 1,
+        "seq": 160,
+        "lagMs": 358
+      },
+      {
+        "rel": "0.000s",
+        "label": "page_projection dom/patch",
+        "kind": "dom:patch",
+        "gen": 1,
+        "seq": 161,
+        "lagMs": 358
+      },
+      {
+        "rel": "0.000s",
+        "label": "page_projection dom/patch",
+        "kind": "dom:patch",
+        "gen": 1,
+        "seq": 162,
+        "lagMs": 358
+      },
+      {
+        "rel": "0.000s",
+        "label": "page_projection dom/patch",
+        "kind": "dom:patch",
+        "gen": 1,
+        "seq": 163,
+        "lagMs": 358
+      },
+      {
+        "rel": "0.001s",
+        "label": "page_projection dom/childList",
+        "kind": "dom:childList",
+        "gen": 1,
+        "seq": 164,
+        "lagMs": 359
+      },
+      {
+        "rel": "0.001s",
+        "label": "page_projection dom/childList",
+        "kind": "dom:childList",
+        "gen": 1,
+        "seq": 165,
+        "lagMs": 358
+      },
+      {
+        "rel": "0.001s",
+        "label": "page_projection dom/childList",
+        "kind": "dom:childList",
+        "gen": 1,
+        "seq": 166,
+        "lagMs": 358
+      }
+    ],
+    "installTelemetry": [
+      {
+        "seq": 2,
+        "gen": 1,
+        "sheets": 2,
+        "rules": 2,
+        "seeded": 2
+      }
+    ],
+    "gen0Resync": 0,
+    "covers0": 0
+  },
+  "frOps": {
+    "dom/document": 1,
+    "cssom/install": 1,
+    "dom/childList": 1103,
+    "dom/patch": 519,
+    "cssom/sheetList": 2,
+    "dom/scrollViewport": 5
+  },
+  "sequenceGaps": [],
+  "telemetryHoles": [],
+  "sessionDrain": {
+    "lastWdSequence": 1024,
+    "frOnlyTailCount": 607,
+    "firstMiss": 1025,
+    "lastMiss": 1631
+  },
+  "resyncTimeline": [],
+  "inputKinds": {
+    "applied": [
+      "mousemove",
+      "mousemove",
+      "mousemove",
+      "mousemove",
+      "mousemove",
+      "mousemove",
+      "mousemove",
+      "mousemove",
+      "mousemove",
+      "mousemove",
+      "mousedown",
+      "focus",
+      "mouseup",
+      "blur",
+      "wheel",
+      "wheel",
+      "mousemove",
+      "mousedown",
+      "focus",
+      "mouseup",
+      "keydown",
+      "keyup",
+      "keydown",
+      "keyup",
+      "keydown",
+      "keyup",
+      "keydown",
+      "keyup",
+      "keydown",
+      "keyup",
+      "keydown",
+      "scrollViewport",
+      "keyup",
+      "keydown",
+      "scrollViewport",
+      "scrollViewport",
+      "keyup",
+      "scrollViewport",
+      "keydown",
+      "keyup",
+      "keydown",
+      "input",
+      "keyup",
+      "scrollElement",
+      "scrollElement",
+      "scrollElement"
+    ],
+    "dataPlane": [
+      "mousemove",
+      "mousemove",
+      "mousemove",
+      "mousemove",
+      "mousemove",
+      "mousemove",
+      "mousemove",
+      "mousemove",
+      "mousemove",
+      "mousemove",
+      "mousedown",
+      "focus",
+      "mouseup",
+      "blur",
+      "wheel",
+      "wheel",
+      "mousemove",
+      "mousedown",
+      "focus",
+      "mouseup",
+      "keydown",
+      "keyup",
+      "keydown",
+      "keyup",
+      "keydown",
+      "keyup",
+      "keydown",
+      "keyup",
+      "keydown",
+      "keyup",
+      "keydown",
+      "scrollViewport",
+      "keyup",
+      "keydown",
+      "scrollViewport",
+      "scrollViewport",
+      "keyup",
+      "scrollViewport",
+      "keydown",
+      "keyup",
+      "keydown",
+      "input",
+      "keyup",
+      "scrollElement",
+      "scrollElement",
+      "scrollElement"
+    ],
+    "rejected": [],
+    "scrollEchoHit": 0,
+    "scrollEchoKinds": [],
+    "scrollIntentSent": 9,
+    "scrollDiffApply": 5,
+    "programmaticSuppress": 0
+  },
+  "softNav": {
+    "observed": 3,
+    "samples": [
+      {
+        "at": "2026-08-08T11:40:44.8819575+00:00",
+        "url": "https://www.eneba.com/",
+        "generation": 1,
+        "documentEpoch": "ex1winhp0mskaygg4",
+        "liveArmed": true
+      },
+      {
+        "at": "2026-08-08T11:40:52.0031225+00:00",
+        "url": "https://www.eneba.com/promo/game-points?itm_source=eneba&itm_medium=banner&itm_campaign=Game_Points",
+        "generation": 1,
+        "documentEpoch": "ex1winhp0mskaygg4",
+        "liveArmed": true
+      },
+      {
+        "at": "2026-08-08T11:40:57.1545949+00:00",
+        "url": "https://www.eneba.com/store/all?text=fulldiag&enb_campaign=Main%20Search&enb_content=search%20dropdown%20-%20input&enb_medium=input&enb_source=https%3A%2F%2Fwww.eneba.com%2Fpromo%2Fgame-points&enb_term=Submit",
+        "generation": 1,
+        "documentEpoch": "ex1winhp0mskaygg4",
+        "liveArmed": true
+      }
+    ]
+  },
+  "cssom": {
+    "installFrames": 1,
+    "installTelemetry": [
+      {
+        "seq": 2,
+        "gen": 1,
+        "sheets": 2,
+        "rules": 2,
+        "seeded": 2
+      }
+    ],
+    "frontCssomApply": 0,
+    "frontCssomHops": {
+      "cssom/sheetList": 1
+    }
+  },
+  "verdict": "CLEAN",
+  "urlAheadOfDom": {
+    "syncUrlEntries": 2,
+    "desyncedAtSyncUrl": 0,
+    "softNavWithoutGenBump": true,
+    "samples": []
+  },
+  "sessionDrainNote": "SESSION_DRAIN lastWd=1024 frTail=607",
+  "primaryDesyncHypothesis": null,
+  "bugs": []
+}

@@ -1,7 +1,7 @@
 using System.Threading.Channels;
 using Aidan.Core.Patterns;
 using Speculum.Api.BrowserClients;
-using Speculum.Api.Sessions.Mirror.DomProjection;
+using Speculum.Api.Sessions.Mirror.PageProjection;
 using Speculum.Api.Sessions.Models;
 
 namespace Speculum.Api.Sessions.Services.Contracts;
@@ -34,7 +34,7 @@ internal interface ISessionStreamMultiplexer : IDisposable
 
     IResult<ChannelReader<Frame>> GetFramesChannel(Guid pipeId);
 
-    IResult<ChannelReader<DomDiff>> GetDomDiffsChannel(Guid pipeId);
+    IResult<ChannelReader<PageProjectionDiff>> GetPageProjectionDiffsChannel(Guid pipeId);
 
     IResult<ChannelReader<ConsoleOutput>> GetConsoleOutputChannel(Guid pipeId);
 

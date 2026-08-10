@@ -25,7 +25,7 @@ public sealed class SessionsConfigurationValidator : IValidateOptions<SessionsCo
         if (!Enum.IsDefined(options.MirrorMode))
         {
             return ValidateOptionsResult.Fail(
-                "Sessions.MirrorMode must be videoStreaming or domProjection.");
+                "Sessions.MirrorMode must be videoStreaming or pageProjection.");
         }
 
         var viewport = options.ViewportPolicy;

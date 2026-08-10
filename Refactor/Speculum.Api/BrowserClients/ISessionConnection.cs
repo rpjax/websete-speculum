@@ -1,7 +1,7 @@
 using System.Threading.Channels;
 using Aidan.Core.Patterns;
 using Speculum.Api.Profiles.Aggregates;
-using Speculum.Api.Sessions.Mirror.DomProjection;
+using Speculum.Api.Sessions.Mirror.PageProjection;
 using Speculum.Api.Sessions.Models;
 
 namespace Speculum.Api.BrowserClients;
@@ -140,8 +140,8 @@ public interface ISessionConnection
     /// <summary>Frame stream from the sidecar screencast path.</summary>
     IResult<ChannelReader<Frame>> GetFrameReader();
 
-    /// <summary>Dom Projection diff stream from the sidecar (MirrorMode.DomProjection).</summary>
-    IResult<ChannelReader<DomDiff>> GetDomDiffReader();
+    /// <summary>Dom Projection diff stream from the sidecar (MirrorMode.PageProjection).</summary>
+    IResult<ChannelReader<PageProjectionDiff>> GetPageProjectionDiffReader();
 
     /// <summary>Console output stream from the live browser.</summary>
     IResult<ChannelReader<ConsoleOutput>> GetConsoleOutputReader();
@@ -173,7 +173,7 @@ public interface ISessionConnection
     /// <summary>
     /// Pumps Dom Projection element input until the channel completes or the connection closes.
     /// </summary>
-    IResult<Task> ConsumeDomProjectionInputAsync(ChannelReader<DomProjectionInput> channelReader);
+    IResult<Task> ConsumePageProjectionIntentAsync(ChannelReader<PageProjectionIntent> channelReader);
 
     /// <summary>Fetches a Dom Projection virtual resource (path key / blob / data).</summary>
     Task<IResult<DomAsset>> GetDomAssetAsync(
@@ -181,6 +181,12 @@ public interface ISessionConnection
         CancellationToken ct = default,
         string? kind = null,
         string? rangeHeader = null);
+
+    /// <summary>OOB PageProjection.Resync snapshot (does not advance live sequence).</summary>
+    Task<IResult<PageProjectionResyncSnapshot>> GetPageProjectionResyncAsync(
+        long generation,
+        long sequence,
+        CancellationToken ct = default);
 
     Task<IResult> PutDomUploadAsync(
         string uploadId,
@@ -194,4 +200,26 @@ public interface ISessionConnection
     /// channel completes or the connection closes.
     /// </summary>
     IResult<Task> ConsumeConsoleInputAsync(ChannelReader<ConsoleInput> channelReader);
+
+    /// <summary>
+    /// Binds LiveSession Diff telemetry (FrameReceived / QueueDropped). Journaled directly —
+    /// never via the DropOldest notification channel. Pass null to unbind.
+    /// </summary>
+    void BindPageProjectionDiffTelemetry(IPageProjectionDiffTelemetry? telemetry);
+
+    /// <summary>
+    /// Reports a sequenced Diff queue drop (api_sequenced, fan-out, mapper, …) through the
+    /// bound Diff telemetry sink. No-op when unbound or catalog disabled.
+    /// </summary>
+    void ReportPageProjectionDiffQueueDropped(
+        string stage,
+        int droppedCount,
+        int capacity,
+        long? sequence = null,
+        long? generation = null,
+        string? plane = null,
+        string? operation = null,
+        long? lowestDroppedSequence = null,
+        long? highestDroppedSequence = null,
+        string? reason = null);
 }

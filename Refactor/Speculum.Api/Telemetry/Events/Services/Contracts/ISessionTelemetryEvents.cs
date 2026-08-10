@@ -11,7 +11,7 @@ public interface ISessionTelemetryEvents
     ISessionPersistTelemetryEvents Persist { get; }
     /// <summary>VideoStreamingInput plane (screencast mirror). Not Dom Projection.</summary>
     ISessionVideoStreamingInputTelemetryEvents VideoStreamingInput { get; }
-    ISessionDomProjectionTelemetryEvents DomProjection { get; }
+    ISessionPageProjectionTelemetryEvents PageProjection { get; }
     ISessionResizeTelemetryEvents Resize { get; }
     ISessionBrowseTelemetryEvents Browse { get; }
     ISessionClientTelemetryEvents Client { get; }

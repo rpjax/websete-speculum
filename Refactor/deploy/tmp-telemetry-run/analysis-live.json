@@ -1,0 +1,193 @@
+{
+  "facts": 200,
+  "sessions": [
+    "be155bfe-9d91-4103-9d00-b6d23e2c075d",
+    "13bb7617-5731-433e-8690-99e6df569f4e"
+  ],
+  "byType": {
+    "Telemetry.Sessions.PageProjection.Diff.FrameReceived": 182,
+    "Telemetry.Sessions.PageProjection.Input.CdpDropped": 7,
+    "Telemetry.Sessions.PageProjection.Diff.GenerationBumped": 2,
+    "Telemetry.Sampling.SampleCollected": 1,
+    "Sessions.SessionStopped": 1,
+    "Telemetry.Sessions.Capacity.SlotReleased": 1,
+    "Sessions.ConnectionClosed": 1,
+    "Sessions.BrowserClosed": 1,
+    "Sessions.SessionStatePersisted": 1,
+    "Sessions.SessionStopping": 1,
+    "Sessions.SessionTimedOut": 1,
+    "Sessions.InitialNavigationCompleted": 1
+  },
+  "diff": {
+    "count": 182,
+    "planes": {
+      "dom": 180,
+      "cssom": 2
+    },
+    "ops": {
+      "childList": 126,
+      "patch": 52,
+      "document": 2,
+      "install": 2
+    },
+    "generations": [
+      1,
+      2
+    ],
+    "seqMin": 1,
+    "seqMax": 299,
+    "gaps": [
+      {
+        "from": 21,
+        "to": 41
+      },
+      {
+        "from": 86,
+        "to": 92
+      },
+      {
+        "from": 111,
+        "to": 129
+      },
+      {
+        "from": 168,
+        "to": 173
+      },
+      {
+        "from": 173,
+        "to": 273
+      }
+    ],
+    "gapCount": 5
+  },
+  "input": {
+    "dataPlane": 0,
+    "applied": 0,
+    "push": 0,
+    "admitted": 0,
+    "cdpDropped": 7,
+    "rejected": 0,
+    "admissionDropped": 0
+  },
+  "drops": [
+    {
+      "type": "Telemetry.Sessions.PageProjection.Input.CdpDropped",
+      "at": "2026-08-07T02:26:12.3999032+00:00",
+      "payload": {
+        "profileId": "2a84d258-7d00-4ab1-8bef-a9372fa4c127",
+        "sessionId": "13bb7617-5731-433e-8690-99e6df569f4e",
+        "kind": "wheel",
+        "reason": "generation_stale",
+        "generation": 1,
+        "anchor": null,
+        "traceId": null,
+        "clientTimestampMs": null
+      }
+    },
+    {
+      "type": "Telemetry.Sessions.PageProjection.Input.CdpDropped",
+      "at": "2026-08-07T02:26:12.3220522+00:00",
+      "payload": {
+        "profileId": "2a84d258-7d00-4ab1-8bef-a9372fa4c127",
+        "sessionId": "13bb7617-5731-433e-8690-99e6df569f4e",
+        "kind": "mouseup",
+        "reason": "generation_stale",
+        "generation": 1,
+        "anchor": null,
+        "traceId": null,
+        "clientTimestampMs": null
+      }
+    },
+    {
+      "type": "Telemetry.Sessions.PageProjection.Input.CdpDropped",
+      "at": "2026-08-07T02:26:12.2196508+00:00",
+      "payload": {
+        "profileId": "2a84d258-7d00-4ab1-8bef-a9372fa4c127",
+        "sessionId": "13bb7617-5731-433e-8690-99e6df569f4e",
+        "kind": "mousedown",
+        "reason": "generation_stale",
+        "generation": 1,
+        "anchor": null,
+        "traceId": null,
+        "clientTimestampMs": null
+      }
+    },
+    {
+      "type": "Telemetry.Sessions.PageProjection.Input.CdpDropped",
+      "at": "2026-08-07T02:26:12.2194672+00:00",
+      "payload": {
+        "profileId": "2a84d258-7d00-4ab1-8bef-a9372fa4c127",
+        "sessionId": "13bb7617-5731-433e-8690-99e6df569f4e",
+        "kind": "mousemove",
+        "reason": "generation_stale",
+        "generation": 1,
+        "anchor": null,
+        "traceId": null,
+        "clientTimestampMs": null
+      }
+    },
+    {
+      "type": "Telemetry.Sessions.PageProjection.Input.CdpDropped",
+      "at": "2026-08-07T02:26:12.2129904+00:00",
+      "payload": {
+        "profileId": "2a84d258-7d00-4ab1-8bef-a9372fa4c127",
+        "sessionId": "13bb7617-5731-433e-8690-99e6df569f4e",
+        "kind": "mousemove",
+        "reason": "generation_stale",
+        "generation": 1,
+        "anchor": null,
+        "traceId": null,
+        "clientTimestampMs": null
+      }
+    },
+    {
+      "type": "Telemetry.Sessions.PageProjection.Input.CdpDropped",
+      "at": "2026-08-07T02:26:12.0682444+00:00",
+      "payload": {
+        "profileId": "2a84d258-7d00-4ab1-8bef-a9372fa4c127",
+        "sessionId": "13bb7617-5731-433e-8690-99e6df569f4e",
+        "kind": "mousemove",
+        "reason": "generation_stale",
+        "generation": 1,
+        "anchor": null,
+        "traceId": null,
+        "clientTimestampMs": null
+      }
+    },
+    {
+      "type": "Telemetry.Sessions.PageProjection.Input.CdpDropped",
+      "at": "2026-08-07T02:26:12.0632141+00:00",
+      "payload": {
+        "profileId": "2a84d258-7d00-4ab1-8bef-a9372fa4c127",
+        "sessionId": "13bb7617-5731-433e-8690-99e6df569f4e",
+        "kind": "mousemove",
+        "reason": "generation_stale",
+        "generation": 1,
+        "anchor": null,
+        "traceId": null,
+        "clientTimestampMs": null
+      }
+    }
+  ],
+  "genBumps": [
+    {
+      "profileId": "2a84d258-7d00-4ab1-8bef-a9372fa4c127",
+      "sessionId": "13bb7617-5731-433e-8690-99e6df569f4e",
+      "fromGeneration": 1,
+      "toGeneration": 2,
+      "reason": "main_frame_navigated",
+      "url": "https://www.eneba.com/",
+      "diffKind": null
+    },
+    {
+      "profileId": "1311f0a3-47c8-4455-a0f1-8faf9feec4e3",
+      "sessionId": "be155bfe-9d91-4103-9d00-b6d23e2c075d",
+      "fromGeneration": 1,
+      "toGeneration": 2,
+      "reason": "main_frame_navigated",
+      "url": "https://www.eneba.com/",
+      "diffKind": null
+    }
+  ],
+  "locations": []
+}

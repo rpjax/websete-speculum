@@ -3,7 +3,7 @@
  * Sampling facts (SampleCollected / SessionSampleCollected) are gated by the
  * sampler master + sections — not this map.
  *
- * VideoStreamingInput and DomProjection each own distinct fact types — do not reuse.
+ * VideoStreamingInput and PageProjection each own distinct fact types — do not reuse.
  */
 
 export const TELEMETRY_SESSION_EVENT_TYPES = [
@@ -19,15 +19,21 @@ export const TELEMETRY_SESSION_EVENT_TYPES = [
   'Telemetry.Sessions.VideoStreamingInput.SidecarAdmitted',
   'Telemetry.Sessions.VideoStreamingInput.Applied',
   'Telemetry.Sessions.VideoStreamingInput.Rejected',
-  'Telemetry.Sessions.DomProjection.Diff.FrameReceived',
-  'Telemetry.Sessions.DomProjection.Diff.GenerationBumped',
-  'Telemetry.Sessions.DomProjection.Input.DataPlaneReceived',
-  'Telemetry.Sessions.DomProjection.Input.AdmissionDropped',
-  'Telemetry.Sessions.DomProjection.Input.SidecarPushWritten',
-  'Telemetry.Sessions.DomProjection.Input.SidecarAdmitted',
-  'Telemetry.Sessions.DomProjection.Input.CdpDropped',
-  'Telemetry.Sessions.DomProjection.Input.Applied',
-  'Telemetry.Sessions.DomProjection.Input.Rejected',
+  'Telemetry.Sessions.PageProjection.Diff.FrameReceived',
+  'Telemetry.Sessions.PageProjection.Diff.GenerationBumped',
+  'Telemetry.Sessions.PageProjection.Diff.SoftNavObserved',
+  'Telemetry.Sessions.PageProjection.Diff.QueueDropped',
+  'Telemetry.Sessions.PageProjection.Diff.WireDelivered',
+  'Telemetry.Sessions.PageProjection.Diff.ResyncRequested',
+  'Telemetry.Sessions.PageProjection.Diff.ResyncServed',
+  'Telemetry.Sessions.PageProjection.Input.DataPlaneReceived',
+  'Telemetry.Sessions.PageProjection.Input.AdmissionDropped',
+  'Telemetry.Sessions.PageProjection.Input.SidecarPushWritten',
+  'Telemetry.Sessions.PageProjection.Input.SidecarAdmitted',
+  'Telemetry.Sessions.PageProjection.Input.CdpDropped',
+  'Telemetry.Sessions.PageProjection.Input.Applied',
+  'Telemetry.Sessions.PageProjection.Input.Rejected',
+  'Telemetry.Sessions.PageProjection.Input.ScrollEchoHit',
   'Telemetry.Sessions.Resize.Applied',
   'Telemetry.Sessions.Resize.Rejected',
   'Telemetry.Sessions.Browse.LocationChanged',
@@ -46,9 +52,9 @@ export type TelemetrySessionEventType = (typeof TELEMETRY_SESSION_EVENT_TYPES)[n
 export type TelemetrySessionEventGroupId =
   | 'video-streaming-input-path'
   | 'video-streaming-input-outcomes'
-  | 'dom-projection-diff'
-  | 'dom-projection-input-path'
-  | 'dom-projection-input-outcomes'
+  | 'page-projection-diff'
+  | 'page-projection-input-path'
+  | 'page-projection-input-outcomes'
   | 'resize'
   | 'capacity'
   | 'start-navigate'
@@ -126,55 +132,83 @@ export const TELEMETRY_SESSION_EVENT_GROUPS: TelemetrySessionEventGroup[] = [
     ],
   },
   {
-    id: 'dom-projection-diff',
-    title: 'DOM diff',
-    blurb: 'Diff frames from sidecar to client.',
+    id: 'page-projection-diff',
+    title: 'PageProjection Diff',
+    blurb: 'Diff chronology: sidecar → API → client (opt-in full capture).',
     events: [
       {
-        type: 'Telemetry.Sessions.DomProjection.Diff.FrameReceived',
-        label: 'Diff frame received',
-        help: 'API received a DOM diff frame from the sidecar.',
+        type: 'Telemetry.Sessions.PageProjection.Diff.FrameReceived',
+        label: 'Diff · frame received',
+        help: 'API received a PageProjectionDiff frame from the sidecar (includes sheet/rule counts on install).',
         hotPath: true,
       },
       {
-        type: 'Telemetry.Sessions.DomProjection.Diff.GenerationBumped',
-        label: 'Generation bumped',
-        help: 'Sidecar Dom Projection generation changed (main_frame_navigated or page_emit_sync).',
+        type: 'Telemetry.Sessions.PageProjection.Diff.QueueDropped',
+        label: 'Diff · queue dropped',
+        help: 'DropAll overflow on sidecar bridge or API sequenced channel (client will desync).',
         hotPath: true,
+      },
+      {
+        type: 'Telemetry.Sessions.PageProjection.Diff.WireDelivered',
+        label: 'Diff · wire delivered',
+        help: 'API wrote the Diff frame onto the client data-plane stream.',
+        hotPath: true,
+      },
+      {
+        type: 'Telemetry.Sessions.PageProjection.Diff.GenerationBumped',
+        label: 'Diff · generation bumped',
+        help: 'Sidecar PageProjection generation changed (main_frame_navigated or page_emit_sync).',
+        hotPath: true,
+      },
+      {
+        type: 'Telemetry.Sessions.PageProjection.Diff.SoftNavObserved',
+        label: 'Diff · soft nav observed',
+        help: 'Same-document soft navigation (D4) — observe-only; no remount.',
+        hotPath: true,
+      },
+      {
+        type: 'Telemetry.Sessions.PageProjection.Diff.ResyncRequested',
+        label: 'Diff · resync requested',
+        help: 'Client requested OOB joint Dom+Cssom resync.',
+      },
+      {
+        type: 'Telemetry.Sessions.PageProjection.Diff.ResyncServed',
+        label: 'Diff · resync served',
+        help: 'API served the OOB resync snapshot (sheet/rule/seed counts + duration).',
       },
     ],
   },
   {
-    id: 'dom-projection-input-path',
-    title: 'DOM input path',
-    blurb: 'Element input hops (not video).',
+    id: 'page-projection-input-path',
+    title: 'PageProjection Intent path',
+    blurb: 'Element intent hops (not video).',
     events: [
       {
-        type: 'Telemetry.Sessions.DomProjection.Input.DataPlaneReceived',
+        type: 'Telemetry.Sessions.PageProjection.Input.DataPlaneReceived',
         label: 'Hop 1 · Data-plane received',
         help: 'DOM input arrived on the data plane.',
         hotPath: true,
       },
       {
-        type: 'Telemetry.Sessions.DomProjection.Input.AdmissionDropped',
+        type: 'Telemetry.Sessions.PageProjection.Input.AdmissionDropped',
         label: 'Hop · Admission dropped',
         help: 'DOM input evicted from the API DropOldest admission queue before push.',
         hotPath: true,
       },
       {
-        type: 'Telemetry.Sessions.DomProjection.Input.SidecarPushWritten',
+        type: 'Telemetry.Sessions.PageProjection.Input.SidecarPushWritten',
         label: 'Hop 2 · Sidecar push written',
         help: 'API wrote DOM input on PushDomInput (gRPC).',
         hotPath: true,
       },
       {
-        type: 'Telemetry.Sessions.DomProjection.Input.SidecarAdmitted',
+        type: 'Telemetry.Sessions.PageProjection.Input.SidecarAdmitted',
         label: 'Hop 3 · Sidecar admitted',
         help: 'Sidecar completed CDP dispatch successfully.',
         hotPath: true,
       },
       {
-        type: 'Telemetry.Sessions.DomProjection.Input.CdpDropped',
+        type: 'Telemetry.Sessions.PageProjection.Input.CdpDropped',
         label: 'Hop · CDP dropped',
         help: 'Sidecar dropped the intent (generation_stale, ignored_wire_click, anchor_missing, invalid_coords, cdp_error, …).',
         hotPath: true,
@@ -182,20 +216,26 @@ export const TELEMETRY_SESSION_EVENT_GROUPS: TelemetrySessionEventGroup[] = [
     ],
   },
   {
-    id: 'dom-projection-input-outcomes',
+    id: 'page-projection-input-outcomes',
     title: 'DOM input outcomes',
     blurb: 'Applied or rejected for DOM input.',
     events: [
       {
-        type: 'Telemetry.Sessions.DomProjection.Input.Applied',
+        type: 'Telemetry.Sessions.PageProjection.Input.Applied',
         label: 'Input applied (gRPC push)',
         help: 'DOM input accepted on the API→sidecar PushDomInput write — not CDP dispatch.',
         hotPath: true,
       },
       {
-        type: 'Telemetry.Sessions.DomProjection.Input.Rejected',
+        type: 'Telemetry.Sessions.PageProjection.Input.Rejected',
         label: 'Input rejected',
         help: 'DOM input rejected before or while pushing to the sidecar.',
+      },
+      {
+        type: 'Telemetry.Sessions.PageProjection.Input.ScrollEchoHit',
+        label: 'Scroll echo hit',
+        help: 'Virtual scroll sensor suppressed a Diff because intent echo matched exactly.',
+        hotPath: true,
       },
     ],
   },
@@ -341,13 +381,13 @@ const VIDEO_STREAMING_INPUT_PATH_TYPES = TELEMETRY_SESSION_EVENT_GROUPS.find(
 )!.events.map((e) => e.type)
 
 const DOM_PROJECTION_INPUT_PATH_TYPES = TELEMETRY_SESSION_EVENT_GROUPS.find(
-  (g) => g.id === 'dom-projection-input-path',
+  (g) => g.id === 'page-projection-input-path',
 )!.events.map((e) => e.type)
 
 /** Server hops for VideoStreamingInput path tracing (pair with Activity client_sent). */
 export const TELEMETRY_VIDEO_STREAMING_INPUT_PATH_TYPES = VIDEO_STREAMING_INPUT_PATH_TYPES
 
-/** Server hops for DomProjectionInput path tracing. */
+/** Server hops for PageProjectionIntent path tracing. */
 export const TELEMETRY_DOM_PROJECTION_INPUT_PATH_TYPES = DOM_PROJECTION_INPUT_PATH_TYPES
 
 export function emptyTelemetrySessionEvents(): Record<TelemetrySessionEventType, boolean> {

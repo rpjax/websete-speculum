@@ -7,15 +7,21 @@ using Speculum.Api.Telemetry.Events.Models.Sessions.Client;
 using Speculum.Api.Telemetry.Events.Models.Sessions.Persist;
 using Speculum.Api.Telemetry.Events.Models.Sessions.Sidecar;
 using Speculum.Api.Telemetry.Events.Services.Contracts;
-using DomDiffFrameReceived = Speculum.Api.Telemetry.Events.Models.Sessions.DomProjection.Diff.FrameReceived;
-using DomDiffGenerationBumped = Speculum.Api.Telemetry.Events.Models.Sessions.DomProjection.Diff.GenerationBumped;
-using DomInputAdmissionDropped = Speculum.Api.Telemetry.Events.Models.Sessions.DomProjection.Input.AdmissionDropped;
-using DomInputApplied = Speculum.Api.Telemetry.Events.Models.Sessions.DomProjection.Input.Applied;
-using DomInputCdpDropped = Speculum.Api.Telemetry.Events.Models.Sessions.DomProjection.Input.CdpDropped;
-using DomInputDataPlaneReceived = Speculum.Api.Telemetry.Events.Models.Sessions.DomProjection.Input.DataPlaneReceived;
-using DomInputRejected = Speculum.Api.Telemetry.Events.Models.Sessions.DomProjection.Input.Rejected;
-using DomInputSidecarAdmitted = Speculum.Api.Telemetry.Events.Models.Sessions.DomProjection.Input.SidecarAdmitted;
-using DomInputSidecarPushWritten = Speculum.Api.Telemetry.Events.Models.Sessions.DomProjection.Input.SidecarPushWritten;
+using PageProjectionDiffFrameReceived = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Diff.FrameReceived;
+using PageProjectionDiffGenerationBumped = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Diff.GenerationBumped;
+using PageProjectionDiffSoftNavObserved = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Diff.SoftNavObserved;
+using PageProjectionDiffQueueDropped = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Diff.QueueDropped;
+using PageProjectionDiffWireDelivered = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Diff.WireDelivered;
+using PageProjectionDiffResyncRequested = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Diff.ResyncRequested;
+using PageProjectionDiffResyncServed = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Diff.ResyncServed;
+using DomInputAdmissionDropped = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Input.AdmissionDropped;
+using DomInputApplied = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Input.Applied;
+using DomInputCdpDropped = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Input.CdpDropped;
+using DomInputDataPlaneReceived = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Input.DataPlaneReceived;
+using DomInputRejected = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Input.Rejected;
+using DomInputSidecarAdmitted = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Input.SidecarAdmitted;
+using DomInputSidecarPushWritten = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Input.SidecarPushWritten;
+using DomInputScrollEchoHit = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Input.ScrollEchoHit;
 using NavigateUrlResolved = Speculum.Api.Telemetry.Events.Models.Sessions.Navigate.UrlResolved;
 using ResizeApplied = Speculum.Api.Telemetry.Events.Models.Sessions.Resize.Applied;
 using ResizeRejected = Speculum.Api.Telemetry.Events.Models.Sessions.Resize.Rejected;
@@ -39,7 +45,7 @@ internal sealed class SessionTelemetryEvents : ISessionTelemetryEvents
         Navigate = new NavigateEvents(writer, sessionId, profileId);
         Persist = new PersistEvents(writer, sessionId, profileId);
         VideoStreamingInput = new VideoStreamingInputEvents(writer, sessionId, profileId);
-        DomProjection = new DomProjectionEvents(writer, sessionId, profileId);
+        PageProjection = new PageProjectionEvents(writer, sessionId, profileId);
         Resize = new ResizeEvents(writer, sessionId, profileId);
         Browse = new BrowseEvents(writer, sessionId, profileId);
         Client = new ClientEvents(writer, sessionId, profileId);
@@ -51,7 +57,7 @@ internal sealed class SessionTelemetryEvents : ISessionTelemetryEvents
     public ISessionNavigateTelemetryEvents Navigate { get; }
     public ISessionPersistTelemetryEvents Persist { get; }
     public ISessionVideoStreamingInputTelemetryEvents VideoStreamingInput { get; }
-    public ISessionDomProjectionTelemetryEvents DomProjection { get; }
+    public ISessionPageProjectionTelemetryEvents PageProjection { get; }
     public ISessionResizeTelemetryEvents Resize { get; }
     public ISessionBrowseTelemetryEvents Browse { get; }
     public ISessionClientTelemetryEvents Client { get; }
@@ -223,42 +229,43 @@ internal sealed class SessionTelemetryEvents : ISessionTelemetryEvents
         }
     }
 
-    private sealed class DomProjectionEvents(IJournalWriter writer, Guid sessionId, Guid profileId)
-        : ISessionDomProjectionTelemetryEvents
+    private sealed class PageProjectionEvents(IJournalWriter writer, Guid sessionId, Guid profileId)
+        : ISessionPageProjectionTelemetryEvents
     {
-        public ISessionDomProjectionDiffTelemetryEvents Diff { get; } =
-            new DomProjectionDiffEvents(writer, sessionId, profileId);
+        public ISessionPageProjectionDiffTelemetryEvents Diff { get; } =
+            new PageProjectionDiffEvents(writer, sessionId, profileId);
 
-        public ISessionDomProjectionInputTelemetryEvents Input { get; } =
-            new DomProjectionInputEvents(writer, sessionId, profileId);
+        public ISessionPageProjectionInputTelemetryEvents Input { get; } =
+            new PageProjectionIntentEvents(writer, sessionId, profileId);
     }
 
-    private sealed class DomProjectionDiffEvents(IJournalWriter writer, Guid sessionId, Guid profileId)
-        : Scoped(writer, sessionId, profileId), ISessionDomProjectionDiffTelemetryEvents
+    private sealed class PageProjectionDiffEvents(IJournalWriter writer, Guid sessionId, Guid profileId)
+        : Scoped(writer, sessionId, profileId), ISessionPageProjectionDiffTelemetryEvents
     {
         public void FrameReceived(
-            string kind,
-            string? target,
-            string? treeType,
+            string plane,
+            string operation,
             long sequence,
             long generation,
             long timestamp,
-            int? nodeCount,
-            int? urlCount)
+            int? sheetCount = null,
+            int? ruleCount = null,
+            int? seededSheetCount = null)
         {
-            ArgumentException.ThrowIfNullOrWhiteSpace(kind);
-            Writer.Append(new DomDiffFrameReceived
+            ArgumentException.ThrowIfNullOrWhiteSpace(plane);
+            ArgumentException.ThrowIfNullOrWhiteSpace(operation);
+            Writer.Append(new PageProjectionDiffFrameReceived
             {
                 SessionId = SessionId,
                 ProfileId = ProfileId,
-                Kind = kind.Trim(),
-                Target = target,
-                TreeType = treeType,
+                Plane = plane.Trim(),
+                Operation = operation.Trim(),
                 Sequence = sequence,
                 Generation = generation,
                 Timestamp = timestamp,
-                NodeCount = nodeCount,
-                UrlCount = urlCount,
+                SheetCount = sheetCount,
+                RuleCount = ruleCount,
+                SeededSheetCount = seededSheetCount,
             });
         }
 
@@ -270,7 +277,7 @@ internal sealed class SessionTelemetryEvents : ISessionTelemetryEvents
             string? diffKind = null)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(reason);
-            Writer.Append(new DomDiffGenerationBumped
+            Writer.Append(new PageProjectionDiffGenerationBumped
             {
                 SessionId = SessionId,
                 ProfileId = ProfileId,
@@ -281,10 +288,110 @@ internal sealed class SessionTelemetryEvents : ISessionTelemetryEvents
                 DiffKind = diffKind,
             });
         }
+
+        public void SoftNavObserved(
+            long generation,
+            string? url,
+            string? documentEpoch,
+            bool liveArmed)
+        {
+            Writer.Append(new PageProjectionDiffSoftNavObserved
+            {
+                SessionId = SessionId,
+                ProfileId = ProfileId,
+                Generation = generation,
+                Url = url,
+                DocumentEpoch = documentEpoch,
+                LiveArmed = liveArmed,
+            });
+        }
+
+        public void QueueDropped(
+            string stage,
+            int droppedCount,
+            int capacity,
+            long? sequence = null,
+            long? generation = null,
+            string? plane = null,
+            string? operation = null,
+            long? lowestDroppedSequence = null,
+            long? highestDroppedSequence = null,
+            string? reason = null)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(stage);
+            Writer.Append(new PageProjectionDiffQueueDropped
+            {
+                SessionId = SessionId,
+                ProfileId = ProfileId,
+                Stage = stage.Trim(),
+                DroppedCount = droppedCount,
+                Capacity = capacity,
+                Sequence = sequence,
+                Generation = generation,
+                Plane = NullIfEmpty(plane),
+                Operation = NullIfEmpty(operation),
+                LowestDroppedSequence = lowestDroppedSequence,
+                HighestDroppedSequence = highestDroppedSequence,
+                Reason = NullIfEmpty(reason),
+            });
+        }
+
+        public void WireDelivered(
+            string plane,
+            string operation,
+            long sequence,
+            long generation,
+            long timestamp)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(plane);
+            ArgumentException.ThrowIfNullOrWhiteSpace(operation);
+            Writer.Append(new PageProjectionDiffWireDelivered
+            {
+                SessionId = SessionId,
+                ProfileId = ProfileId,
+                Plane = plane.Trim(),
+                Operation = operation.Trim(),
+                Sequence = sequence,
+                Generation = generation,
+                Timestamp = timestamp,
+            });
+        }
+
+        public void ResyncRequested(long hintGeneration, long hintSequence)
+        {
+            Writer.Append(new PageProjectionDiffResyncRequested
+            {
+                SessionId = SessionId,
+                ProfileId = ProfileId,
+                HintGeneration = hintGeneration,
+                HintSequence = hintSequence,
+            });
+        }
+
+        public void ResyncServed(
+            long generation,
+            long coversThroughSequence,
+            int sheetCount,
+            int ruleCount,
+            int seededSheetCount,
+            long durationMs)
+        {
+            Writer.Append(new PageProjectionDiffResyncServed
+            {
+                SessionId = SessionId,
+                ProfileId = ProfileId,
+                Generation = generation,
+                CoversThroughSequence = coversThroughSequence,
+                SheetCount = sheetCount,
+                RuleCount = ruleCount,
+                SeededSheetCount = seededSheetCount,
+                DurationMs = durationMs,
+            });
+        }
     }
 
-    private sealed class DomProjectionInputEvents(IJournalWriter writer, Guid sessionId, Guid profileId)
-        : Scoped(writer, sessionId, profileId), ISessionDomProjectionInputTelemetryEvents
+    private sealed class PageProjectionIntentEvents(IJournalWriter writer, Guid sessionId, Guid profileId)
+        : Scoped(writer, sessionId, profileId), ISessionPageProjectionInputTelemetryEvents
     {
         public void DataPlaneReceived(
             string kind,
@@ -432,6 +539,30 @@ internal sealed class SessionTelemetryEvents : ISessionTelemetryEvents
                 TraceId = NullIfEmpty(traceId),
                 ClientTimestampMs = clientTimestampMs,
             });
+
+        public void ScrollEchoHit(
+            string kind,
+            long? generation = null,
+            string? anchor = null,
+            double? scrollX = null,
+            double? scrollY = null,
+            double? scrollTop = null,
+            double? scrollLeft = null)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(kind);
+            Writer.Append(new DomInputScrollEchoHit
+            {
+                SessionId = SessionId,
+                ProfileId = ProfileId,
+                Kind = kind.Trim(),
+                Generation = generation,
+                Anchor = anchor,
+                ScrollX = scrollX,
+                ScrollY = scrollY,
+                ScrollTop = scrollTop,
+                ScrollLeft = scrollLeft,
+            });
+        }
     }
 
     private sealed class ResizeEvents(IJournalWriter writer, Guid sessionId, Guid profileId)

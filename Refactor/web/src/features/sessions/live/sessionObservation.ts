@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { DomDiff, SessionClient, SessionConsoleOutput, SessionFrame } from '@/lib/speculum'
+import type {
+  PageProjectionDiff,
+  SessionClient,
+  SessionConsoleOutput,
+  SessionFrame,
+  SessionNotification,
+} from '@/lib/speculum'
 import {
   FRONT_DEBUG_LOG_LIMIT,
   formatFrontDebugDetail,
@@ -9,6 +15,7 @@ import {
   type FrontDebugLogFields,
   type FrontDebugLogLevel,
 } from '@/features/sessions/debug/frontDebugLog'
+import { pageProjectionLagMs } from '@/features/sessions/live/dom/PageProjectionDiffApplier'
 import {
   inputConsoleLine,
   lineFromConsoleOutput,
@@ -53,7 +60,14 @@ export const EMPTY_JOURNAL: JournalFeed = {
 }
 
 type FrameSink = (frame: SessionFrame) => void
-type DomDiffSink = (diff: DomDiff) => void
+type PageProjectionDiffSink = (diff: PageProjectionDiff) => void
+type PageProjectionLifecycleSink = (notification: SessionNotification) => void
+
+export type PageProjectionApplierProbe = () => {
+  generation: number
+  lastSequence: number
+  desynced: boolean
+}
 
 export interface FrameCounters {
   frames: number
@@ -113,7 +127,8 @@ export function useSessionObservation({
   const [stats, setStats] = useState<LiveSessionStats>(EMPTY_STATS)
 
   const sinksRef = useRef(new Set<FrameSink>())
-  const domDiffSinksRef = useRef(new Set<DomDiffSink>())
+  const domDiffSinksRef = useRef(new Set<PageProjectionDiffSink>())
+  const lifecycleSinksRef = useRef(new Set<PageProjectionLifecycleSink>())
   const countersRef = useRef<FrameCounters>(freshCounters())
   const logIdRef = useRef(0)
   const consoleIdRef = useRef(0)
@@ -203,11 +218,32 @@ export function useSessionObservation({
     }
   }, [])
 
-  const attachDomDiffSink = useCallback((sink: DomDiffSink) => {
+  const attachPageProjectionDiffSink = useCallback((sink: PageProjectionDiffSink) => {
     domDiffSinksRef.current.add(sink)
     return () => {
       domDiffSinksRef.current.delete(sink)
     }
+  }, [])
+
+  const attachPageProjectionLifecycleSink = useCallback((sink: PageProjectionLifecycleSink) => {
+    lifecycleSinksRef.current.add(sink)
+    return () => {
+      lifecycleSinksRef.current.delete(sink)
+    }
+  }, [])
+
+  const onPageProjectionLifecycle = useCallback((notification: SessionNotification) => {
+    for (const sink of lifecycleSinksRef.current) {
+      sink(notification)
+    }
+  }, [])
+
+  const pageProjectionApplierProbeRef = useRef<PageProjectionApplierProbe | null>(null)
+  const registerPageProjectionApplierProbe = useCallback((probe: PageProjectionApplierProbe | null) => {
+    pageProjectionApplierProbeRef.current = probe
+  }, [])
+  const readPageProjectionApplierProbe = useCallback(() => {
+    return pageProjectionApplierProbeRef.current?.() ?? null
   }, [])
 
   const onFrame = useCallback((frame: SessionFrame) => {
@@ -234,66 +270,121 @@ export function useSessionObservation({
     }
   }, [])
 
-  const onDomDiff = useCallback((diff: DomDiff) => {
+  const onPageProjectionDiff = useCallback((diff: PageProjectionDiff) => {
     const tClient = performance.now()
-    const kind = String(diff.kind ?? 'unknown')
+    const plane = String(diff.plane ?? 'unknown')
+    const operation = String(diff.operation ?? 'unknown')
     const generation = diff.generation != null ? Number(diff.generation) : null
     const sequence = diff.sequence != null ? Number(diff.sequence) : null
-    const nodeCount = Array.isArray(diff.nodes) ? diff.nodes.length : undefined
-    const urlCount = Array.isArray(diff.urls) ? diff.urls.length : undefined
     const sidecarTs = diff.timestamp != null ? Number(diff.timestamp) : null
-    const lagMs =
-      sidecarTs != null && Number.isFinite(sidecarTs) ? tClient - sidecarTs : null
+    const lagMs = pageProjectionLagMs(sidecarTs)
+    // Sheet/rule walks are opt-in only — near-zero cost when ClientObservation Diff is off.
+    let sheetExtra: Record<string, unknown> | undefined
+    if (observationAllowsPlane(observationRef.current, 'pageProjectionDiff')) {
+      const sheets = Array.isArray(diff.install?.sheets) ? diff.install!.sheets! : []
+      if (sheets.length > 0) {
+        let ruleCount = 0
+        let seededSheetCount = 0
+        for (const sheet of sheets) {
+          const rules = sheet.rules ?? []
+          ruleCount += rules.length
+          if (rules.some((r) => String(r.id ?? '').startsWith('seed:'))) {
+            seededSheetCount += 1
+          }
+        }
+        sheetExtra = { sheetCount: sheets.length, ruleCount, seededSheetCount }
+      }
+    }
     trace(
       'wire',
-      `dom_diff ${kind}`,
+      `page_projection ${plane}/${operation}`,
       {
-        plane: 'domProjectionDiff',
+        plane: 'pageProjectionDiff',
         hop: 'client_recv',
-        kind,
+        kind: `${plane}:${operation}`,
         generation,
         sequence,
         tClient,
         lagMs,
         extra: {
-          treeType: diff.treeType ?? null,
-          nodeCount: nodeCount ?? null,
-          urlCount: urlCount ?? null,
           timestamp: sidecarTs,
+          ...(sheetExtra ?? {}),
         },
       },
     )
     for (const sink of domDiffSinksRef.current) {
       sink(diff)
     }
-  }, [trace])
+  }, [observationRef, trace])
 
-  const observeDomDiffApply = useCallback(
+  const observePageProjectionDiffApply = useCallback(
     (event: {
       kind: string
-      hop: 'client_apply' | 'client_drop'
-      reason?: 'sequence_gap' | 'generation_mismatch'
+      hop:
+        | 'client_apply'
+        | 'client_drop'
+        | 'client_desync'
+        | 'client_resync_request'
+        | 'client_resync_apply'
+        | 'client_arm'
+        | 'client_disarm'
+        | 'programmaticSuppress'
+        | `cssom/${string}`
+        | (string & {})
+      reason?: string
       generation?: number | null
       sequence?: number | null
       expectedSequence?: number | null
       remount?: boolean
+      seeded?: boolean
+      sheetCount?: number
+      ruleCount?: number
       dropped?: boolean
+      armed?: boolean
       timestamp?: number | null
       tClient?: number
       lagMs?: number | null
       level?: FrontDebugLogLevel
+      target?: string | null
+      extra?: Record<string, unknown>
     }) => {
+      if (!observationAllowsPlane(observationRef.current, 'pageProjectionDiff')) {
+        return
+      }
       const tClient = event.tClient ?? performance.now()
       const lagMs =
-        event.lagMs ??
-        (event.timestamp != null && Number.isFinite(event.timestamp)
-          ? tClient - Number(event.timestamp)
-          : null)
+        event.lagMs ?? pageProjectionLagMs(event.timestamp != null ? Number(event.timestamp) : null)
+      const rawExtra = { ...(event.extra ?? {}) }
+      const installSheets = rawExtra.installSheets
+      delete rawExtra.installSheets
+      // Promote miss locus to top-level fields (analyze + export SoT).
+      const phaseFromExtra =
+        typeof rawExtra.phase === 'string' ? (rawExtra.phase as string) : null
+      delete rawExtra.phase
+      const matchCount =
+        typeof rawExtra.matchCount === 'number' ? (rawExtra.matchCount as number) : undefined
+      let sheetCount = event.sheetCount
+      let ruleCount = event.ruleCount
+      let seeded = event.seeded
+      if (Array.isArray(installSheets) && installSheets.length > 0) {
+        sheetCount = installSheets.length
+        ruleCount = 0
+        let seededSheetCount = 0
+        for (const sheet of installSheets as Array<{ rules?: Array<{ id?: string }> }>) {
+          const rules = sheet.rules ?? []
+          ruleCount += rules.length
+          if (rules.some((r) => String(r.id ?? '').startsWith('seed:'))) {
+            seededSheetCount += 1
+          }
+        }
+        seeded = seededSheetCount > 0
+        if (seededSheetCount > 0) rawExtra.seededSheetCount = seededSheetCount
+      }
       trace(
-        event.level ?? (event.hop === 'client_drop' ? 'warn' : 'wire'),
-        `dom_diff ${event.hop}`,
+        event.level ?? (event.hop === 'client_drop' || event.hop === 'client_desync' ? 'warn' : 'wire'),
+        `page_projection ${event.hop}`,
         {
-          plane: 'domProjectionDiff',
+          plane: 'pageProjectionDiff',
           hop: event.hop,
           kind: event.kind,
           generation: event.generation ?? null,
@@ -301,16 +392,26 @@ export function useSessionObservation({
           expectedSequence: event.expectedSequence ?? null,
           remount: event.remount,
           dropped: event.dropped,
+          armed: event.armed,
+          errorCode: event.reason ?? null,
+          phase: phaseFromExtra,
           tClient,
           lagMs,
           extra: {
             ...(event.timestamp != null ? { timestamp: event.timestamp } : {}),
             ...(event.reason != null ? { reason: event.reason } : {}),
+            ...(phaseFromExtra != null ? { phase: phaseFromExtra } : {}),
+            ...(matchCount != null ? { matchCount } : {}),
+            ...(seeded != null ? { seeded } : {}),
+            ...(sheetCount != null ? { sheetCount } : {}),
+            ...(ruleCount != null ? { ruleCount } : {}),
+            ...(event.target != null ? { target: event.target } : {}),
+            ...rawExtra,
           },
         },
       )
     },
-    [trace],
+    [observationRef, trace],
   )
 
   const bumpNotificationCounter = useCallback(() => {
@@ -365,10 +466,14 @@ export function useSessionObservation({
     trace,
     log,
     onFrame,
-    onDomDiff,
+    onPageProjectionDiff,
     attachFrameSink,
-    attachDomDiffSink,
-    observeDomDiffApply,
+    attachPageProjectionDiffSink,
+    attachPageProjectionLifecycleSink,
+    onPageProjectionLifecycle,
+    observePageProjectionDiffApply,
+    registerPageProjectionApplierProbe,
+    readPageProjectionApplierProbe,
     bumpNotificationCounter,
     onSessionConsole,
     resetForStart,

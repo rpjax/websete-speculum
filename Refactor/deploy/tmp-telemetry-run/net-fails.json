@@ -1,0 +1,22 @@
+{
+  "fails": [
+    {
+      "status": 401,
+      "url": "http://127.0.0.1:8080/w7s/api/sessions/066d06de-555a-40d8-ad99-1928959a91a1/page-projection/resync?generation=0&sequence=0"
+    },
+    {
+      "console": "error",
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    }
+  ],
+  "surface": {
+    "childCount": 0,
+    "htmlLen": 0,
+    "head": "",
+    "attrs": [
+      "class=absolute inset-0 overflow-x-hidden overflow-y-auto [transform:translateZ(0)]",
+      "data-speculum-dom-surface="
+    ]
+  },
+  "aria": 0
+}

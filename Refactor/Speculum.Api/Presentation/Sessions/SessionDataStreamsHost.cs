@@ -3,7 +3,7 @@ using System.Buffers.Binary;
 using System.IO.Pipelines;
 using System.Threading.Channels;
 using MessagePack;
-using Speculum.Api.Sessions.Mirror.DomProjection;
+using Speculum.Api.Sessions.Mirror.PageProjection;
 using Speculum.Api.Sessions.Models;
 using Speculum.Api.Sessions.Services.Contracts;
 using Speculum.Api.Sessions.Services.Streaming;
@@ -16,7 +16,8 @@ namespace Speculum.Api.Presentation.Sessions;
 /// </summary>
 internal static class SessionDataStreamsHost
 {
-    private const int MaxMessageBytes = 1024 * 1024;
+    /// <summary>Length-prefixed data-plane message ceiling (WS/WT). Must match web MaxMessageBytes.</summary>
+    private const int MaxMessageBytes = 10 * 1024 * 1024;
 
     private static long? ToClientTimestampMs(double? timestampClient)
         => timestampClient is { } value ? (long)Math.Round(value) : null;
@@ -39,7 +40,7 @@ internal static class SessionDataStreamsHost
             {
                 acceptTask,
                 PumpFramesAsync(session, live, ct),
-                PumpDomDiffsAsync(session, live, ct),
+                PumpPageProjectionDiffsAsync(session, live, ct),
                 PumpConsoleAsync(session, live, ct),
                 PumpNotificationsAsync(session, live, ct),
             };
@@ -102,26 +103,42 @@ internal static class SessionDataStreamsHost
             .ConfigureAwait(false);
     }
 
-    private static async Task PumpDomDiffsAsync(
+    private static async Task PumpPageProjectionDiffsAsync(
         IDataStreamSession session,
         ILiveSession live,
         CancellationToken ct)
     {
-        var opened = live.OpenDomDiffStream();
+        var opened = live.OpenPageProjectionDiffStream();
         if (opened.IsFailure)
         {
             return;
         }
 
         using var source = opened.Value;
-        var channel = source.GetDomDiffsChannel();
+        var channel = source.GetPageProjectionDiffsChannel();
         if (channel.IsFailure)
         {
             return;
         }
 
-        await PumpOutputAsync(session, SessionPipeKind.DomDiff, channel.Value, ct)
-            .ConfigureAwait(false);
+        var pipe = await session.OpenUnidirectionalOutputAsync(ct).ConfigureAwait(false);
+        if (pipe?.Output is null)
+        {
+            return;
+        }
+
+        await using (pipe.ConfigureAwait(false))
+        {
+            var output = pipe.Output;
+            await output.WriteAsync(new[] { (byte)SessionPipeKind.PageProjectionDiff }, ct)
+                .ConfigureAwait(false);
+            await output.FlushAsync(ct).ConfigureAwait(false);
+            await foreach (var item in channel.Value.ReadAllAsync(ct).ConfigureAwait(false))
+            {
+                await WriteMessageAsync(output, item, ct).ConfigureAwait(false);
+                live.TracePageProjectionDiffWireDelivered(item);
+            }
+        }
     }
 
     private static async Task PumpConsoleAsync(
@@ -216,8 +233,8 @@ internal static class SessionDataStreamsHost
                 case SessionPipeKind.VideoStreamingInput:
                     await HandleVideoStreamingInputAsync(pipe.Input, live, ct).ConfigureAwait(false);
                     break;
-                case SessionPipeKind.DomProjectionInput:
-                    await HandleDomProjectionInputAsync(pipe.Input, live, ct).ConfigureAwait(false);
+                case SessionPipeKind.PageProjectionIntent:
+                    await HandlePageProjectionIntentAsync(pipe.Input, live, ct).ConfigureAwait(false);
                     break;
                 case SessionPipeKind.ConsoleInput:
                     await HandleConsoleInputAsync(pipe, live, ct).ConfigureAwait(false);
@@ -244,20 +261,20 @@ internal static class SessionDataStreamsHost
         }
     }
 
-    private static async Task HandleDomProjectionInputAsync(
+    private static async Task HandlePageProjectionIntentAsync(
         PipeReader input,
         ILiveSession live,
         CancellationToken ct)
     {
-        await foreach (var item in ReadMessagesAsync<DomProjectionInput>(input, ct).ConfigureAwait(false))
+        await foreach (var item in ReadMessagesAsync<PageProjectionIntent>(input, ct).ConfigureAwait(false))
         {
-            live.TraceDomProjectionInputDataPlaneReceived(
+            live.TracePageProjectionIntentDataPlaneReceived(
                 item.Type,
                 item.Generation,
                 item.Anchor,
                 item.TraceId,
                 ToClientTimestampMs(item.TimestampClient));
-            _ = live.AdmitDomProjectionInput(item);
+            _ = live.AdmitPageProjectionInput(item);
         }
     }
 
@@ -384,6 +401,12 @@ internal static class SessionDataStreamsHost
             value,
             SessionHubMessagePack.Options,
             ct);
+        if (payload.Length is <= 0 or > MaxMessageBytes)
+        {
+            throw new InvalidOperationException(
+                $"Data-plane message size out of range: {payload.Length} (max {MaxMessageBytes}).");
+        }
+
         var header = new byte[sizeof(int)];
         BinaryPrimitives.WriteInt32BigEndian(header, payload.Length);
         await writer.WriteAsync(header, ct).ConfigureAwait(false);
@@ -440,7 +463,7 @@ internal static class SessionDataStreamsHost
         VideoStreamingInput = 4,
         ConsoleInput = 5,
         Status = 6,
-        DomDiff = 7,
-        DomProjectionInput = 8,
+        PageProjectionDiff = 7,
+        PageProjectionIntent = 8,
     }
 }

@@ -47,7 +47,7 @@ export function requireOperationalSessionsConfig(config: ClientConfig): void {
     throw new Error('Pending config: sessions missing from client-config')
   }
   const mode = String(sessions.mirrorMode ?? '')
-  if (mode !== 'videoStreaming' && mode !== 'domProjection') {
+  if (mode !== 'videoStreaming' && mode !== 'pageProjection') {
     throw new Error('Pending config: sessions.mirrorMode invalid on client-config')
   }
   const transport = String(sessions.dataStreamTransport ?? '')
@@ -122,8 +122,8 @@ export interface ClientConfig {
       isEnabled?: boolean
       sessionWire?: boolean
       videoStreamingInput?: boolean
-      domProjectionDiff?: boolean
-      domProjectionInput?: boolean
+      pageProjectionDiff?: boolean
+      pageProjectionIntent?: boolean
     }
   }
   hosting: {

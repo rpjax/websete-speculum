@@ -48,14 +48,14 @@ Próximo foco = **pipeline e fluxo 100% redondo** (Start → live → navigate �
 |----|-----------------|-------|
 | P-DS | DataStream WT vs WS (`Sessions.DataStreamTransport`) | Connect, mux, fallback; refresh após Save config |
 | P-HUB | Hub Start / DomDiff / DomInput ordering | MessagePack DTOs; token de sessão |
-| ~~P-TOKEN~~ | ~~Cookie `speculum_session_token` + `?token=` em virtual assets~~ | **Fechado.** Cookie morto; auth só no param reservado `speculum-session-token`; `token=` do site preservado na URL **e** na chave de cache (era 401 *e* `asset_missing` 404). `@import`/`image-set` string-form, `xlink:href`, `data-src` também tokenizados. Contrato em `dom-projection-virtual-assets.md` §1.1 |
+| ~~P-TOKEN~~ | ~~Cookie `speculum_session_token` + `?token=` em virtual assets~~ | **Fechado.** Cookie morto; auth só no param reservado `speculum-session-token`; `token=` do site preservado na URL **e** na chave de cache (era 401 *e* `asset_missing` 404). `@import`/`image-set` string-form, `xlink:href`, `data-src` também tokenizados. Contrato em `page-projection-virtual-assets.md` §1.1 |
 
 ### A4. Edge / assets (serve plane)
 
 | ID | Sintoma / risco | Notas |
 |----|-----------------|-------|
 | P-PROXY | Traefik + nginx + Vite devem encaminhar `/w7s/virtual-assets\|blob\|data` à API | **Já mitigado** no deploy local; regressão = tela sem CSS de novo |
-| P-RANGE | Pass-through / Range / HLS-DASH rewrite | Contrato em `dom-projection-virtual-assets.md` |
+| P-RANGE | Pass-through / Range / HLS-DASH rewrite | Contrato em `page-projection-virtual-assets.md` |
 | P-WARM | Emit sem esperar cache warm | Produtor livre; serve plane aguarda — timeouts/erros com `errorCode`+`phase` |
 
 ### A5. Viewport lockstep
@@ -109,7 +109,7 @@ Próximo foco = **pipeline e fluxo 100% redondo** (Start → live → navigate �
 | D-REM-STATIC | `rem` assado no ingest; `%` assume 16px UA | Não acompanha root dinâmico |
 | D-OX-FIXED | `overflow-x: hidden` sempre na surface | Deveria espelhar overflow do `body` remoto |
 | D-FLASH | Flash sem estilo enquanto fetch do CSS | Ordenação / skeleton |
-| D-CLICK | Sem `click` no wire (só motion/pressed) | Modais/botões; ver `dom-projection-input.md` |
+| D-CLICK | Sem `click` no wire (só motion/pressed) | Modais/botões; ver `page-projection-input.md` |
 | D-SHADOW | Closed shadow / iframe cross-origin pierce | Gap conhecido F |
 | D-CSSOM | Reload CSSOM via placeholders | Cobertura incompleta |
 | D-A11Y | Nome acessível estranho (ex.: CSS em combobox) | Secundário |

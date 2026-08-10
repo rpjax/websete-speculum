@@ -27,8 +27,8 @@ const mockConfig: ClientConfig = {
       isEnabled: false,
       sessionWire: true,
       videoStreamingInput: false,
-      domProjectionDiff: false,
-      domProjectionInput: false,
+      pageProjectionDiff: false,
+      pageProjectionIntent: false,
     },
   },
   hosting: {

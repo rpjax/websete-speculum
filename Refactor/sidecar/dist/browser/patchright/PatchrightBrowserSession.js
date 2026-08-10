@@ -17,7 +17,7 @@ const Probe_1 = require("./Probe");
 const screencast_encode_1 = require("./screencast-encode");
 const Viewport_1 = require("./Viewport");
 const viewport_bounds_1 = require("./viewport-bounds");
-const DomProjection_1 = require("./mirror/dom/DomProjection");
+const PageProjection_1 = require("./mirror/dom/PageProjection");
 const DomElementInput_1 = require("./mirror/dom/DomElementInput");
 const VideoMirror_1 = require("./mirror/video/VideoMirror");
 /**
@@ -39,7 +39,7 @@ class PatchrightBrowserSession {
     viewport = null;
     screencast = null;
     videoMirror = null;
-    domProjection = null;
+    pageProjection = null;
     domElementInput = null;
     detachDomAssets = null;
     input = null;
@@ -127,7 +127,7 @@ class PatchrightBrowserSession {
         const maxW = options.viewportPolicy.maxWidth;
         const maxH = options.viewportPolicy.maxHeight;
         let osInput = null;
-        const isDom = options.mirrorMode === 'domProjection';
+        const isDom = options.mirrorMode === 'pageProjection';
         try {
             const inputMode = (process.env['SPECULUM_INPUT_BACKEND'] ?? 'os').trim().toLowerCase();
             // Dom Projection never opens uinput — CDP element input only.
@@ -198,11 +198,13 @@ class PatchrightBrowserSession {
                 const patchrightBackend = new PatchrightInputBackend_1.PatchrightInputBackend(this.chrome.page, this.chrome.cdp);
                 this.inputBackend = 'patchright';
                 this.input = new Input_1.InputController(this.chrome.page, patchrightBackend);
-                this.domProjection = await DomProjection_1.DomProjection.start(this.chrome.page, {
-                    onDomDiff: (diff) => this.events.onDomDiff?.(diff),
-                    onGenerationBumped: (event) => this.events.onDomProjectionGenerationBumped?.(event),
+                this.pageProjection = await PageProjection_1.PageProjection.start(this.chrome.page, {
+                    onPageProjectionDiff: (diff) => this.events.onPageProjectionDiff?.(diff),
+                    onGenerationBumped: (event) => this.events.onPageProjectionGenerationBumped?.(event),
+                    onSoftNavObserved: (event) => this.events.onPageProjectionSoftNavObserved?.(event),
+                    onScrollEchoHit: (event) => this.events.onPageProjectionScrollEchoHit?.(event),
                 });
-                this.domElementInput = new DomElementInput_1.DomElementInput(this.chrome.page, this.domProjection);
+                this.domElementInput = new DomElementInput_1.DomElementInput(this.chrome.page, this.pageProjection);
                 // Asset Fetch intercept deferred — Navigation.setupFetchGuard owns Fetch.enable.
             }
             else {
@@ -346,6 +348,9 @@ class PatchrightBrowserSession {
                 }
             }
             this.url = url;
+            if (this.pageProjection) {
+                await this.pageProjection.establishBoot();
+            }
             if (this.pendingState) {
                 try {
                     await this.pageState.importLocalStorage(this.chrome.page, this.pendingState);
@@ -656,14 +661,14 @@ class PatchrightBrowserSession {
             }
             this.detachDomAssets = null;
         }
-        if (this.domProjection) {
+        if (this.pageProjection) {
             try {
-                await this.domProjection.stop();
+                await this.pageProjection.stop();
             }
             catch {
                 /* */
             }
-            this.domProjection = null;
+            this.pageProjection = null;
         }
         this.domElementInput = null;
         if (this.chrome) {
@@ -720,8 +725,8 @@ class PatchrightBrowserSession {
     }
     async pushDomInput(input) {
         this.ensureLive();
-        if (this.mirrorMode !== 'domProjection' || !this.domElementInput) {
-            throw Object.assign(new Error('DomProjection input requires MirrorMode.DomProjection'), {
+        if (this.mirrorMode !== 'pageProjection' || !this.domElementInput) {
+            throw Object.assign(new Error('PageProjection input requires MirrorMode.PageProjection'), {
                 code: 'FAILED_PRECONDITION',
                 errorCode: 'mirror_mode_mismatch',
                 phase: 'input',
@@ -731,7 +736,7 @@ class PatchrightBrowserSession {
     }
     async getDomAsset(key, opts) {
         this.ensureLive();
-        if (!this.domProjection || !key)
+        if (!this.pageProjection || !key)
             return null;
         let lookup = key;
         const kind = (opts?.kind ?? '').toLowerCase();
@@ -739,12 +744,12 @@ class PatchrightBrowserSession {
             lookup = key.startsWith('_blob/') ? key : `_blob/${key}`;
         else if (kind === 'data')
             lookup = key.startsWith('_data/') ? key : `_data/${key}`;
-        const hit = this.domProjection.getAsset(lookup);
+        const hit = this.pageProjection.getAsset(lookup);
         if (hit && hit.body.byteLength > 0 && hit.mode === 'cache' && !opts?.rangeHeader) {
             return { body: hit.body, contentType: hit.contentType, statusCode: 200 };
         }
         if (hit?.mode === 'pass-through' || opts?.rangeHeader || (hit && hit.body.byteLength === 0)) {
-            const pt = await this.domProjection.fetchPassThrough(lookup, opts?.rangeHeader);
+            const pt = await this.pageProjection.fetchPassThrough(lookup, opts?.rangeHeader);
             if (!pt)
                 return hit && hit.body.byteLength > 0
                     ? { body: hit.body, contentType: hit.contentType, statusCode: 200 }
@@ -761,7 +766,7 @@ class PatchrightBrowserSession {
             return { body: hit.body, contentType: hit.contentType, statusCode: 200 };
         }
         // Warm miss: try pass-through reconstruct from key as https URL.
-        const pt = await this.domProjection.fetchPassThrough(lookup, opts?.rangeHeader);
+        const pt = await this.pageProjection.fetchPassThrough(lookup, opts?.rangeHeader);
         if (!pt)
             return null;
         return {
@@ -772,9 +777,23 @@ class PatchrightBrowserSession {
             passThrough: true,
         };
     }
+    async getPageProjectionResync(_hint) {
+        this.ensureLive();
+        if (!this.pageProjection)
+            return null;
+        const snap = await this.pageProjection.captureResyncSnapshot();
+        if (!snap)
+            return null;
+        return {
+            generation: snap.generation,
+            coversThroughSequence: snap.coversThroughSequence,
+            rootJson: Buffer.from(JSON.stringify(snap.root), 'utf8'),
+            sheetsJson: Buffer.from(JSON.stringify(snap.sheets), 'utf8'),
+        };
+    }
     async putDomUpload(id, body, contentType, name) {
         this.ensureLive();
-        this.domProjection?.putUpload(id, Buffer.from(body), contentType, name);
+        this.pageProjection?.putUpload(id, Buffer.from(body), contentType, name);
     }
     async pushCameraFrame(frame) {
         await this.media.pushCameraFrame(frame);

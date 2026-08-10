@@ -18,16 +18,15 @@ This document defines vocabulary and naming rules for the API and sidecar codeba
 | **Journal** | Operational fact log (admission + durable drain); not event-sourcing; not Diagnostics capabilities | `IJournalWriter`, `JournalEntry`, `PublishPolicy` |
 | **Mirror** | Sessions product technique for projecting a live browser to the client (`MirrorMode`). Covers **VideoStreaming** and **PageProjection** — not a single pipe name | `MirrorMode`, public client-config `mirrorMode` |
 | **PageProjection** | `MirrorMode` for structural page mirror: **one** chronological pipe with `plane: dom \| cssom`. Replaces legacy name `DomProjection` (mode/pipe only; `Dom*` remains for the DOM plane) | `MirrorMode.PageProjection`, `PageProjection.Resync`, `Telemetry.Sessions.PageProjection.*` |
-| **Telemetry** | Observability module: **event** hops/infra facts + **sampling** composites; not Sessions domain narrative | `Telemetry.Sessions.VideoStreamingInput.*, Telemetry.Sessions.PageProjection.*` (legacy `DomProjection.*` until T11 rename), `Telemetry.Sampling.SampleCollected`, `ISessionTelemetryEventsFactory` |
+| **Telemetry** | Observability module: **event** hops/infra facts + **sampling** composites; not Sessions domain narrative | `Telemetry.Sessions.VideoStreamingInput.*`, `Telemetry.Sessions.PageProjection.*`, `Telemetry.Sampling.SampleCollected`, `ISessionTelemetryEventsFactory` |
 | **Database** | Unified Speculum SQLite store for the API | `SpeculumDbContext`, `AddDatabase`, `EnsureDatabase`, `DatabaseOptions` |
 
 **W7S must not appear** in C# namespaces, internal class names, application logs, or API folder names.
 The public HTTP mount **`/w7s`** (PathBase + SPA surfaces) and the query param **`_w7s_nso`** are wire/UI boundary only — not domain vocabulary.
 
-**`DomProjection` is legacy mode/pipe vocabulary.** It remains only until
-the PageProjection cutover (T11). Do not introduce new `DomProjection` mode,
-stream, or catalog names. `Dom*` stays valid for **DOM-plane** types
-(`DomSelector`, `DomNode`, DOM-plane input).
+**`DomProjection` is retired mode/pipe vocabulary** (cutover complete). Do not
+introduce new `DomProjection` mode, stream, or catalog names. `Dom*` stays
+valid for **DOM-plane** types (`DomSelector`, `DomNode`, DOM-plane input).
 
 **Motor is legacy vocabulary.** It remains only where an existing artifact
 still has that proper name (for example `MotorHub`,

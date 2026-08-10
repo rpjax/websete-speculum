@@ -83,8 +83,8 @@ public sealed class PublicClientConfigProjector : IPublicClientConfigProjector
                     IsEnabled = observation.IsEnabled,
                     SessionWire = observation.SessionWire,
                     VideoStreamingInput = observation.VideoStreamingInput,
-                    DomProjectionDiff = observation.DomProjectionDiff,
-                    DomProjectionInput = observation.DomProjectionInput,
+                    PageProjectionDiff = observation.PageProjectionDiff,
+                    PageProjectionIntent = observation.PageProjectionIntent,
                 },
             },
             Hosting = new PublicHostingConfig
@@ -100,7 +100,7 @@ public sealed class PublicClientConfigProjector : IPublicClientConfigProjector
         => kind == DataStreamTransportKind.WebSocket ? "webSocket" : "webTransport";
 
     private static string ToClientMirrorMode(MirrorMode mode)
-        => mode == MirrorMode.DomProjection ? "domProjection" : "videoStreaming";
+        => mode == MirrorMode.PageProjection ? "pageProjection" : "videoStreaming";
 
     private static double ClampEncodeScale(double value)
     {
@@ -166,8 +166,8 @@ public sealed class PublicClientObservationConfig
     public bool IsEnabled { get; init; }
     public bool SessionWire { get; init; }
     public bool VideoStreamingInput { get; init; }
-    public bool DomProjectionDiff { get; init; }
-    public bool DomProjectionInput { get; init; }
+    public bool PageProjectionDiff { get; init; }
+    public bool PageProjectionIntent { get; init; }
 }
 
 public sealed class PublicHostingConfig

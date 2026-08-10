@@ -8,5 +8,5 @@ namespace Speculum.Api.Configurations.Models.Sessions;
 public enum MirrorMode
 {
     VideoStreaming = 0,
-    DomProjection = 1,
+    PageProjection = 1,
 }

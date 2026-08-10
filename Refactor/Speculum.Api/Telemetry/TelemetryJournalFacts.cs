@@ -23,24 +23,36 @@ public static class TelemetryJournalFacts
         "Telemetry.Sessions.VideoStreamingInput.Applied";
     public const string VideoStreamingInputRejected =
         "Telemetry.Sessions.VideoStreamingInput.Rejected";
-    public const string DomProjectionDiffFrameReceived =
-        "Telemetry.Sessions.DomProjection.Diff.FrameReceived";
-    public const string DomProjectionDiffGenerationBumped =
-        "Telemetry.Sessions.DomProjection.Diff.GenerationBumped";
-    public const string DomProjectionInputDataPlaneReceived =
-        "Telemetry.Sessions.DomProjection.Input.DataPlaneReceived";
-    public const string DomProjectionInputAdmissionDropped =
-        "Telemetry.Sessions.DomProjection.Input.AdmissionDropped";
-    public const string DomProjectionInputSidecarPushWritten =
-        "Telemetry.Sessions.DomProjection.Input.SidecarPushWritten";
-    public const string DomProjectionInputSidecarAdmitted =
-        "Telemetry.Sessions.DomProjection.Input.SidecarAdmitted";
-    public const string DomProjectionInputCdpDropped =
-        "Telemetry.Sessions.DomProjection.Input.CdpDropped";
-    public const string DomProjectionInputApplied =
-        "Telemetry.Sessions.DomProjection.Input.Applied";
-    public const string DomProjectionInputRejected =
-        "Telemetry.Sessions.DomProjection.Input.Rejected";
+    public const string PageProjectionDiffFrameReceived =
+        "Telemetry.Sessions.PageProjection.Diff.FrameReceived";
+    public const string PageProjectionDiffGenerationBumped =
+        "Telemetry.Sessions.PageProjection.Diff.GenerationBumped";
+    public const string PageProjectionDiffSoftNavObserved =
+        "Telemetry.Sessions.PageProjection.Diff.SoftNavObserved";
+    public const string PageProjectionDiffQueueDropped =
+        "Telemetry.Sessions.PageProjection.Diff.QueueDropped";
+    public const string PageProjectionDiffWireDelivered =
+        "Telemetry.Sessions.PageProjection.Diff.WireDelivered";
+    public const string PageProjectionDiffResyncRequested =
+        "Telemetry.Sessions.PageProjection.Diff.ResyncRequested";
+    public const string PageProjectionDiffResyncServed =
+        "Telemetry.Sessions.PageProjection.Diff.ResyncServed";
+    public const string PageProjectionIntentDataPlaneReceived =
+        "Telemetry.Sessions.PageProjection.Input.DataPlaneReceived";
+    public const string PageProjectionIntentAdmissionDropped =
+        "Telemetry.Sessions.PageProjection.Input.AdmissionDropped";
+    public const string PageProjectionIntentSidecarPushWritten =
+        "Telemetry.Sessions.PageProjection.Input.SidecarPushWritten";
+    public const string PageProjectionIntentSidecarAdmitted =
+        "Telemetry.Sessions.PageProjection.Input.SidecarAdmitted";
+    public const string PageProjectionIntentCdpDropped =
+        "Telemetry.Sessions.PageProjection.Input.CdpDropped";
+    public const string PageProjectionIntentApplied =
+        "Telemetry.Sessions.PageProjection.Input.Applied";
+    public const string PageProjectionIntentRejected =
+        "Telemetry.Sessions.PageProjection.Input.Rejected";
+    public const string PageProjectionIntentScrollEchoHit =
+        "Telemetry.Sessions.PageProjection.Input.ScrollEchoHit";
 
     public static bool Owns(string type)
         => !string.IsNullOrWhiteSpace(type)

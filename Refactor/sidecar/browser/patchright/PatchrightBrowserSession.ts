@@ -45,7 +45,7 @@ import {
   validateResizeViewport,
   type ViewportPolicyBounds,
 } from './viewport-bounds';
-import { DomProjection } from './mirror/dom/DomProjection';
+import { PageProjection } from './mirror/dom/PageProjection';
 import { DomElementInput } from './mirror/dom/DomElementInput';
 import { VideoMirror } from './mirror/video/VideoMirror';
 
@@ -65,7 +65,7 @@ export class PatchrightBrowserSession implements BrowserSession {
   private viewport: Viewport | null = null;
   private screencast: Screencast | null = null;
   private videoMirror: VideoMirror | null = null;
-  private domProjection: DomProjection | null = null;
+  private pageProjection: PageProjection | null = null;
   private domElementInput: DomElementInput | null = null;
   private detachDomAssets: (() => Promise<void>) | null = null;
   private input: InputController | null = null;
@@ -83,7 +83,7 @@ export class PatchrightBrowserSession implements BrowserSession {
   /** Sessions.ScreencastPolicy.MaxEncodeScale from Launch/Resize. */
   private screencastMaxEncodeScale = 2;
   /** Sessions.MirrorMode from Launch — selects Video vs Dom mirror stack. */
-  private mirrorMode: 'videoStreaming' | 'domProjection' = 'videoStreaming';
+  private mirrorMode: 'videoStreaming' | 'pageProjection' = 'videoStreaming';
   private lastEncodeWidth = 0;
   private lastEncodeHeight = 0;
   /** When true, context 'close' is an intentional teardown — do not emit onCrash. */
@@ -170,7 +170,7 @@ export class PatchrightBrowserSession implements BrowserSession {
     const maxW = options.viewportPolicy.maxWidth;
     const maxH = options.viewportPolicy.maxHeight;
     let osInput: OsInputBackend | null = null;
-    const isDom = options.mirrorMode === 'domProjection';
+    const isDom = options.mirrorMode === 'pageProjection';
 
     try {
       const inputMode = (process.env['SPECULUM_INPUT_BACKEND'] ?? 'os').trim().toLowerCase();
@@ -251,11 +251,13 @@ export class PatchrightBrowserSession implements BrowserSession {
         const patchrightBackend = new PatchrightInputBackend(this.chrome.page, this.chrome.cdp);
         this.inputBackend = 'patchright';
         this.input = new InputController(this.chrome.page, patchrightBackend);
-        this.domProjection = await DomProjection.start(this.chrome.page, {
-          onDomDiff: (diff) => this.events.onDomDiff?.(diff),
-          onGenerationBumped: (event) => this.events.onDomProjectionGenerationBumped?.(event),
+        this.pageProjection = await PageProjection.start(this.chrome.page, {
+          onPageProjectionDiff: (diff) => this.events.onPageProjectionDiff?.(diff),
+          onGenerationBumped: (event) => this.events.onPageProjectionGenerationBumped?.(event),
+          onSoftNavObserved: (event) => this.events.onPageProjectionSoftNavObserved?.(event),
+          onScrollEchoHit: (event) => this.events.onPageProjectionScrollEchoHit?.(event),
         });
-        this.domElementInput = new DomElementInput(this.chrome.page, this.domProjection);
+        this.domElementInput = new DomElementInput(this.chrome.page, this.pageProjection);
         // Asset Fetch intercept deferred — Navigation.setupFetchGuard owns Fetch.enable.
       } else {
         const inputBackend = await this.createInputBackend({
@@ -417,6 +419,9 @@ export class PatchrightBrowserSession implements BrowserSession {
         }
       }
       this.url = url;
+      if (this.pageProjection) {
+        await this.pageProjection.establishBoot();
+      }
       if (this.pendingState) {
         try {
           await this.pageState.importLocalStorage(this.chrome!.page, this.pendingState);
@@ -791,13 +796,13 @@ export class PatchrightBrowserSession implements BrowserSession {
       }
       this.detachDomAssets = null;
     }
-    if (this.domProjection) {
+    if (this.pageProjection) {
       try {
-        await this.domProjection.stop();
+        await this.pageProjection.stop();
       } catch {
         /* */
       }
-      this.domProjection = null;
+      this.pageProjection = null;
     }
     this.domElementInput = null;
     if (this.chrome) {
@@ -862,8 +867,8 @@ export class PatchrightBrowserSession implements BrowserSession {
     payloadJson?: string;
   }): Promise<{ status: 'dispatched' } | { status: 'dropped'; reason: string }> {
     this.ensureLive();
-    if (this.mirrorMode !== 'domProjection' || !this.domElementInput) {
-      throw Object.assign(new Error('DomProjection input requires MirrorMode.DomProjection'), {
+    if (this.mirrorMode !== 'pageProjection' || !this.domElementInput) {
+      throw Object.assign(new Error('PageProjection input requires MirrorMode.PageProjection'), {
         code: 'FAILED_PRECONDITION',
         errorCode: 'mirror_mode_mismatch',
         phase: 'input',
@@ -883,18 +888,18 @@ export class PatchrightBrowserSession implements BrowserSession {
     passThrough?: boolean;
   } | null> {
     this.ensureLive();
-    if (!this.domProjection || !key) return null;
+    if (!this.pageProjection || !key) return null;
     let lookup = key;
     const kind = (opts?.kind ?? '').toLowerCase();
     if (kind === 'blob') lookup = key.startsWith('_blob/') ? key : `_blob/${key}`;
     else if (kind === 'data') lookup = key.startsWith('_data/') ? key : `_data/${key}`;
 
-    const hit = this.domProjection.getAsset(lookup);
+    const hit = this.pageProjection.getAsset(lookup);
     if (hit && hit.body.byteLength > 0 && hit.mode === 'cache' && !opts?.rangeHeader) {
       return { body: hit.body, contentType: hit.contentType, statusCode: 200 };
     }
     if (hit?.mode === 'pass-through' || opts?.rangeHeader || (hit && hit.body.byteLength === 0)) {
-      const pt = await this.domProjection.fetchPassThrough(lookup, opts?.rangeHeader);
+      const pt = await this.pageProjection.fetchPassThrough(lookup, opts?.rangeHeader);
       if (!pt) return hit && hit.body.byteLength > 0
         ? { body: hit.body, contentType: hit.contentType, statusCode: 200 }
         : null;
@@ -910,7 +915,7 @@ export class PatchrightBrowserSession implements BrowserSession {
       return { body: hit.body, contentType: hit.contentType, statusCode: 200 };
     }
     // Warm miss: try pass-through reconstruct from key as https URL.
-    const pt = await this.domProjection.fetchPassThrough(lookup, opts?.rangeHeader);
+    const pt = await this.pageProjection.fetchPassThrough(lookup, opts?.rangeHeader);
     if (!pt) return null;
     return {
       body: pt.body,
@@ -921,9 +926,30 @@ export class PatchrightBrowserSession implements BrowserSession {
     };
   }
 
+  async getPageProjectionResync(_hint?: {
+    generation?: number;
+    sequence?: number;
+  }): Promise<{
+    generation: number;
+    coversThroughSequence: number;
+    rootJson: Uint8Array;
+    sheetsJson: Uint8Array;
+  } | null> {
+    this.ensureLive();
+    if (!this.pageProjection) return null;
+    const snap = await this.pageProjection.captureResyncSnapshot();
+    if (!snap) return null;
+    return {
+      generation: snap.generation,
+      coversThroughSequence: snap.coversThroughSequence,
+      rootJson: Buffer.from(JSON.stringify(snap.root), 'utf8'),
+      sheetsJson: Buffer.from(JSON.stringify(snap.sheets), 'utf8'),
+    };
+  }
+
   async putDomUpload(id: string, body: Uint8Array, contentType: string, name: string): Promise<void> {
     this.ensureLive();
-    this.domProjection?.putUpload(id, Buffer.from(body), contentType, name);
+    this.pageProjection?.putUpload(id, Buffer.from(body), contentType, name);
   }
 
   async pushCameraFrame(frame: Uint8Array): Promise<void> {

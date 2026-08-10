@@ -1,7 +1,7 @@
 using System.Threading.Channels;
 using Aidan.Core.Patterns;
 using Speculum.Api.Configurations.Models.Sessions;
-using Speculum.Api.Sessions.Mirror.DomProjection;
+using Speculum.Api.Sessions.Mirror.PageProjection;
 using Speculum.Api.Sessions.Models;
 using Speculum.Api.Sessions.Requests;
 
@@ -17,7 +17,7 @@ namespace Speculum.Api.Sessions.Services.Contracts;
 /// <c>IBrowserClient</c> / <c>ISessionConnection</c>.
 /// Stream handles are <see cref="IDisposable"/> — dispose to unregister; no close-by-id API.
 /// Visual and input streams are MirrorMode-gated: VideoStreaming uses frame + coordinate
-/// input; DomProjection uses DomDiff + element input.
+/// input; PageProjection uses PageProjectionDiff + element input.
 /// </remarks>
 public interface ILiveSession
 {
@@ -47,8 +47,8 @@ public interface ILiveSession
     /// <summary>Opens a screencast frame stream (MirrorMode.VideoStreaming only).</summary>
     IResult<IFrameStream> OpenFrameStream();
 
-    /// <summary>Opens a Dom Projection diff stream (MirrorMode.DomProjection only).</summary>
-    IResult<IDomDiffStream> OpenDomDiffStream();
+    /// <summary>Opens a Dom Projection diff stream (MirrorMode.PageProjection only).</summary>
+    IResult<IPageProjectionDiffStream> OpenPageProjectionDiffStream();
 
     /// <summary>Opens a console output stream.</summary>
     IResult<IConsoleOutputStream> OpenConsoleOutputStream();
@@ -74,9 +74,9 @@ public interface ILiveSession
     IResult AdmitVideoStreamingInput(VideoStreamingInput input);
 
     /// <summary>
-    /// Admits one Dom Projection input event. MirrorMode.DomProjection only.
+    /// Admits one Dom Projection input event. MirrorMode.PageProjection only.
     /// </summary>
-    IResult AdmitDomProjectionInput(DomProjectionInput input);
+    IResult AdmitPageProjectionInput(PageProjectionIntent input);
 
     /// <summary>
     /// Pumps console input into the live session (JsBridge-gated by mux policy).
@@ -104,15 +104,45 @@ public interface ILiveSession
         long? clientTimestampMs = null);
 
     /// <summary>
-    /// Opt-in Journal hop: DomProjectionInput framed message on the data plane.
-    /// No-op when <c>Telemetry.Sessions.DomProjection.Input.DataPlaneReceived</c> is disabled.
+    /// Opt-in Journal hop: PageProjectionIntent framed message on the data plane.
+    /// No-op when <c>Telemetry.Sessions.PageProjection.Input.DataPlaneReceived</c> is disabled.
     /// </summary>
-    void TraceDomProjectionInputDataPlaneReceived(
+    void TracePageProjectionIntentDataPlaneReceived(
         string kind,
         long? generation,
         string? anchor,
         string? traceId = null,
         long? clientTimestampMs = null);
+
+    /// <summary>
+    /// Opt-in Journal hop: Diff written to the client data-plane stream.
+    /// No-op when <c>Telemetry.Sessions.PageProjection.Diff.WireDelivered</c> is disabled.
+    /// </summary>
+    void TracePageProjectionDiffWireDelivered(PageProjectionDiff diff);
+
+    /// <summary>
+    /// Opt-in Journal hop: Diff frame received from sidecar (before connection enqueue).
+    /// No-op when <c>Telemetry.Sessions.PageProjection.Diff.FrameReceived</c> is disabled.
+    /// Journaled directly — not via the DropOldest notification channel.
+    /// </summary>
+    void TracePageProjectionDiffFrameReceived(PageProjectionDiff diff);
+
+    /// <summary>
+    /// Opt-in Journal hop: sequenced Diff queue drop at a named stage.
+    /// No-op when <c>Telemetry.Sessions.PageProjection.Diff.QueueDropped</c> is disabled.
+    /// Journaled directly — not via the DropOldest notification channel.
+    /// </summary>
+    void TracePageProjectionDiffQueueDropped(
+        string stage,
+        int droppedCount,
+        int capacity,
+        long? sequence = null,
+        long? generation = null,
+        string? plane = null,
+        string? operation = null,
+        long? lowestDroppedSequence = null,
+        long? highestDroppedSequence = null,
+        string? reason = null);
 
     // ── Commands ─────────────────────────────────────────────────────────────
 
@@ -135,13 +165,19 @@ public interface ILiveSession
         CancellationToken ct = default);
 
     /// <summary>
-    /// Fetches a Dom Projection asset by hash (MirrorMode.DomProjection only).
+    /// Fetches a Dom Projection asset by hash (MirrorMode.PageProjection only).
     /// </summary>
     Task<IResult<DomAsset>> GetDomAssetAsync(
         string key,
         CancellationToken ct = default,
         string? kind = null,
         string? rangeHeader = null);
+
+    /// <summary>OOB PageProjection.Resync (MirrorMode.PageProjection only).</summary>
+    Task<IResult<PageProjectionResyncSnapshot>> GetPageProjectionResyncAsync(
+        long generation,
+        long sequence,
+        CancellationToken ct = default);
 
     Task<IResult> PutDomUploadAsync(
         string uploadId,

@@ -32,6 +32,7 @@ import { DomAssetCache } from './browser/patchright/mirror/dom/DomAssetCache';
 import {
   decodeDomBody,
   encodeDomBody,
+  PAGE_PROJECTION_PAGE_SCRIPT,
 } from './browser/patchright/mirror/dom/DomTreeSerializer';
 import type { BrowserCookieState } from './browser/BrowserSession';
 import { collectTelemetry } from './telemetry/collectTelemetry';
@@ -705,9 +706,9 @@ function testLaunchEnvironmentIsRequired(): void {
     language: 'en-US',
     timezoneId: 'UTC',
     colorScheme: 'light',
-    mirrorMode: 'domProjection',
+    mirrorMode: 'pageProjection',
   });
-  assert.strictEqual(dom.mirrorMode, 'domProjection');
+  assert.strictEqual(dom.mirrorMode, 'pageProjection');
   console.log('[unit] launch environment ok');
 }
 
@@ -926,6 +927,165 @@ function testDropOldestQueueTracksDroppedCount(): void {
   assert.strictEqual(q.pendingCount, 2);
   assert.strictEqual(q.droppedCount, 2);
   console.log('[unit] drop_oldest_queue_tracks_dropped_count ok');
+}
+
+function testDropAllOnOverflowForSequencedDiffs(): void {
+  const q = new DropOldestQueue<{ sequence: number }>(2);
+  q.tryWriteDropAllOnOverflow({ sequence: 1 });
+  q.tryWriteDropAllOnOverflow({ sequence: 2 });
+  const overflow = q.tryWriteDropAllOnOverflow({ sequence: 3 });
+  assert.strictEqual(q.pendingCount, 1);
+  assert.strictEqual(q.droppedCount, 2);
+  assert.strictEqual(overflow.dropped, 2);
+  assert.strictEqual(overflow.lowestSequence, 1);
+  assert.strictEqual(overflow.highestSequence, 2);
+  console.log('[unit] drop_all_on_overflow_for_sequenced_diffs ok');
+}
+
+async function testTryWriteFrontPreservesFifoAsync(): Promise<void> {
+  const q = new DropOldestQueue<number>(4);
+  q.tryWrite(2);
+  q.tryWrite(3);
+  assert.strictEqual(q.tryWriteFront(1), true);
+  assert.strictEqual(await q.read(), 1);
+  assert.strictEqual(await q.read(), 2);
+  assert.strictEqual(await q.read(), 3);
+  console.log('[unit] try_write_front_preserves_fifo ok');
+}
+
+async function testTryWriteFrontRejectsWhenFull(): Promise<void> {
+  const q = new DropOldestQueue<number>(2);
+  q.tryWrite(1);
+  q.tryWrite(2);
+  assert.strictEqual(q.tryWriteFront(0), false);
+  assert.strictEqual(q.pendingCount, 2);
+  assert.strictEqual(await q.read(), 1);
+  console.log('[unit] try_write_front_rejects_when_full ok');
+}
+
+async function testPumpQueueAwaitsDrainWithoutSkipping(): Promise<void> {
+  const { EventEmitter } = await import('events');
+  const { pumpQueue } = await import('./grpc/pumpQueue');
+  const q = new DropOldestQueue<{ sequence: number }>(8);
+  for (let i = 1; i <= 5; i++) q.tryWrite({ sequence: i });
+  q.close();
+
+  const written: number[] = [];
+  let writes = 0;
+  let drainWaits = 0;
+  const call = Object.assign(new EventEmitter(), {
+    cancelled: false,
+    write(chunk: unknown): boolean {
+      writes += 1;
+      const seq = (chunk as { sequence: number }).sequence;
+      written.push(seq);
+      // Seq 2 congests the buffer — chunk is still accepted; drain before next.
+      if (seq === 2) {
+        queueMicrotask(() => {
+          drainWaits += 1;
+          call.emit('drain');
+        });
+        return false;
+      }
+      return true;
+    },
+  });
+
+  const ac = new AbortController();
+  await pumpQueue(q, call, (item) => item, ac.signal);
+  assert.deepStrictEqual(written, [1, 2, 3, 4, 5], 'each seq written exactly once');
+  assert.strictEqual(writes, 5, 'must not rewrite after drain');
+  assert.ok(drainWaits >= 1, 'must await drain after false write');
+  console.log('[unit] pump_queue_awaits_drain_without_skipping ok');
+}
+
+async function testPumpQueueAbortRequeuesFront(): Promise<void> {
+  const { EventEmitter } = await import('events');
+  const { pumpQueue } = await import('./grpc/pumpQueue');
+  const q = new DropOldestQueue<{ sequence: number }>(8);
+  q.tryWrite({ sequence: 10 });
+  q.tryWrite({ sequence: 11 });
+
+  // Abort before write — dequeued item must return to the front.
+  const ac = new AbortController();
+  ac.abort();
+  const call = Object.assign(new EventEmitter(), {
+    cancelled: true,
+    write(_chunk: unknown): boolean {
+      throw new Error('write must not run when already aborted');
+    },
+  });
+
+  await pumpQueue(q, call, (item) => item, ac.signal);
+  assert.deepStrictEqual(await q.read(), { sequence: 10 }, 'aborted item restored at front');
+  assert.deepStrictEqual(await q.read(), { sequence: 11 });
+  console.log('[unit] pump_queue_abort_requeues_front ok');
+}
+
+async function testPumpQueueAbortAfterWriteDoesNotRequeue(): Promise<void> {
+  const { EventEmitter } = await import('events');
+  const { pumpQueue } = await import('./grpc/pumpQueue');
+  const q = new DropOldestQueue<{ sequence: number }>(8);
+  q.tryWrite({ sequence: 10 });
+  q.tryWrite({ sequence: 11 });
+
+  const ac = new AbortController();
+  const lost: Array<{ sequence: number }> = [];
+  const call = Object.assign(new EventEmitter(), {
+    cancelled: false,
+    write(_chunk: unknown): boolean {
+      // write()===false still accepted the chunk — abort must not requeue it.
+      ac.abort();
+      call.cancelled = true;
+      return false;
+    },
+  });
+
+  await pumpQueue(q, call, (item) => item, ac.signal, {
+    onInflightLost: (item) => lost.push(item),
+  });
+  assert.deepStrictEqual(lost, [{ sequence: 10 }]);
+  assert.deepStrictEqual(await q.read(), { sequence: 11 }, 'accepted chunk must not requeue');
+  console.log('[unit] pump_queue_abort_after_write_does_not_requeue ok');
+}
+
+async function testEventBridgeQueueDroppedLifecycle(): Promise<void> {
+  const bridge = new EventBridge('s-drop');
+  const body = new Uint8Array([1]);
+  // Fill to capacity (1024) then one more → DropAll + lifecycle queue_dropped.
+  for (let i = 0; i < 1024; i++) {
+    bridge.onPageProjectionDiff({
+      sequence: i + 1,
+      generation: 1,
+      plane: 'dom',
+      operation: 'patch',
+      timestampMs: i,
+      body,
+    });
+  }
+  bridge.onPageProjectionDiff({
+    sequence: 2000,
+    generation: 1,
+    plane: 'cssom',
+    operation: 'install',
+    timestampMs: 999,
+    body,
+  });
+  const ev = await bridge.pageProjectionLifecycle.read();
+  assert.ok(ev);
+  assert.strictEqual(ev!.kind, 'queue_dropped');
+  assert.strictEqual(ev!.reason, 'sidecar_bridge');
+  assert.strictEqual(ev!.url, 'cssom');
+  assert.strictEqual(ev!.diffKind, 'install');
+  assert.strictEqual(ev!.sequence, 2000);
+  assert.strictEqual(ev!.toGeneration, 1);
+  assert.ok((ev!.droppedCount ?? 0) >= 1024);
+  assert.strictEqual(ev!.capacity, 1024);
+  assert.strictEqual(ev!.lowestDroppedSequence, 1);
+  assert.strictEqual(ev!.highestDroppedSequence, 1024);
+  assert.strictEqual(bridge.dom.pendingCount, 1);
+  bridge.close();
+  console.log('[unit] event_bridge_queue_dropped_lifecycle ok');
 }
 
 async function testPermissionClearRespectsEpoch(): Promise<void> {
@@ -1525,6 +1685,13 @@ async function main(): Promise<void> {
   testBenignBrowserRaceNarrow();
   await testAbortDoesNotStealQueuedCrash();
   testDropOldestQueueTracksDroppedCount();
+  testDropAllOnOverflowForSequencedDiffs();
+  await testTryWriteFrontPreservesFifoAsync();
+  await testTryWriteFrontRejectsWhenFull();
+  await testPumpQueueAwaitsDrainWithoutSkipping();
+  await testPumpQueueAbortRequeuesFront();
+  await testPumpQueueAbortAfterWriteDoesNotRequeue();
+  await testEventBridgeQueueDroppedLifecycle();
   await testPermissionClearRespectsEpoch();
   testLogicalToDeviceTransform();
   testKeycodeResolve();
@@ -1542,7 +1709,105 @@ async function main(): Promise<void> {
   testHostResourcesApplySkipsRemountOffLinux();
   testCookieSanitizeMatrix();
   testDomAssetCacheAndBodyCodec();
+  await testPublishedAnchorsLedgerOmitsAndRetires();
   console.log('[unit] all passed');
+}
+
+/**
+ * Writer identity ledger: omit remove of never-published anchors; remint clone
+ * of a detached published identity only after scheduling wire retire.
+ */
+async function testPublishedAnchorsLedgerOmitsAndRetires(): Promise<void> {
+  const { chromium } = await import('patchright');
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage();
+    const emits: Array<{ operation: string; payload: Record<string, unknown> }> = [];
+    await page.exposeFunction('__speculumDomEmit', (msg: {
+      operation?: string;
+      payload?: Record<string, unknown>;
+    }) => {
+      emits.push({
+        operation: String(msg?.operation ?? ''),
+        payload: (msg?.payload ?? {}) as Record<string, unknown>,
+      });
+    });
+    await page.setContent('<!doctype html><html><head></head><body><div id="host"><p id="p">x</p></div></body></html>');
+    await page.evaluate(PAGE_PROJECTION_PAGE_SCRIPT);
+
+    // Before establish liveEmit is false / ledger empty — remove must not hit the wire.
+    await page.evaluate(`(() => {
+      const host = document.getElementById('host');
+      const ghost = document.createElement('span');
+      ghost.id = 'ghost';
+      ghost.setAttribute('speculum-anchor', 'ghost-never-published');
+      host.appendChild(ghost);
+      ghost.remove();
+    })()`);
+    await page.waitForTimeout(30);
+    assert.strictEqual(
+      emits.some((e) => JSON.stringify(e.payload).includes('ghost-never-published')),
+      false,
+      'unpublished remove must be omitted',
+    );
+
+    emits.length = 0;
+    await page.evaluate(`window.__speculumDomMapAndArmEstablish()`);
+
+    // Publish a node, detach it, then clone with the same anchor — expect retire + remint.
+    await page.evaluate(`(() => {
+      const host = document.getElementById('host');
+      const live = document.createElement('span');
+      live.id = 'live';
+      live.textContent = 'a';
+      host.appendChild(live);
+    })()`);
+    await page.waitForTimeout(50);
+    const addEmits = emits.filter((e) => e.operation === 'childList');
+    assert.ok(addEmits.length >= 1, 'expected publish add for live span');
+    let addedNode: string | null = null;
+    for (const e of addEmits) {
+      const added = e.payload.added as Array<{ node?: { anchor?: string } }> | undefined;
+      const hit = (added ?? []).find((a) => a.node?.anchor);
+      if (hit?.node?.anchor) {
+        addedNode = hit.node.anchor;
+        break;
+      }
+    }
+    assert.ok(addedNode, 'added span must carry published anchor');
+
+    emits.length = 0;
+    const cloneInfo = await page.evaluate(`((publishedAnchor) => {
+      const host = document.getElementById('host');
+      const live = document.getElementById('live');
+      if (!live || !host) return null;
+      live.remove();
+      const clone = document.createElement('span');
+      clone.id = 'clone';
+      clone.setAttribute('speculum-anchor', publishedAnchor);
+      host.appendChild(clone);
+      return { cloneAnchor: clone.getAttribute('speculum-anchor') };
+    })(${JSON.stringify(addedNode)})`) as { cloneAnchor: string | null } | null;
+    await page.waitForTimeout(50);
+    assert.ok(cloneInfo?.cloneAnchor, 'clone must have an anchor');
+    const removeOfPublished = emits.filter((e) => {
+      if (e.operation !== 'childList') return false;
+      const removed = e.payload.removed as Array<{ selector?: { query?: string } }> | undefined;
+      return (removed ?? []).some((r) => String(r.selector?.query ?? '').includes(addedNode!));
+    });
+    assert.ok(removeOfPublished.length >= 1, 'expected wire remove of published detached anchor');
+    assert.ok(
+      PAGE_PROJECTION_PAGE_SCRIPT.includes('scheduleRetirePublishedAnchor'),
+      'detached published remint must retire before reassignment',
+    );
+    assert.ok(
+      PAGE_PROJECTION_PAGE_SCRIPT.includes('!mapped.isConnected && publishedAnchors.has(a)'),
+      'ensureAnchor must gate detached published collisions',
+    );
+    console.log('[unit] publishedAnchors ledger omit+retire ok');
+  } finally {
+    await browser.close();
+  }
 }
 
 function testDomAssetCacheAndBodyCodec(): void {
@@ -1558,27 +1823,23 @@ function testDomAssetCacheAndBodyCodec(): void {
   assert.strictEqual(cache.get('k1'), undefined);
 
   const body = encodeDomBody({
-    nodes: [
-      {
-        anchor: 'html1',
-        tag: 'html',
-        children: [{ tag: '#text', text: 'hi' }],
-      },
-    ],
+    root: {
+      anchor: 'html1',
+      tag: 'html',
+      children: [{ tag: '#text', text: 'hi' }],
+    },
   });
-  const decoded = decodeDomBody(body);
-  assert.ok('nodes' in decoded);
-  if ('nodes' in decoded) {
-    assert.strictEqual(decoded.nodes[0]?.tag, 'html');
-    assert.strictEqual(decoded.nodes[0]?.children?.[0]?.text, 'hi');
-  }
-  const cssomBody = encodeDomBody({ urls: ['/w7s/virtual-assets/x.css'] });
-  const cssomDecoded = decodeDomBody(cssomBody);
-  assert.ok('urls' in cssomDecoded);
-  if ('urls' in cssomDecoded) {
-    assert.strictEqual(cssomDecoded.urls[0], '/w7s/virtual-assets/x.css');
-  }
-  console.log('[unit] DomAssetCache + Dom body codec ok');
+  const decoded = decodeDomBody(body) as { root?: { tag?: string; children?: Array<{ text?: string }> } };
+  assert.ok(decoded && typeof decoded === 'object' && 'root' in decoded);
+  assert.strictEqual(decoded.root?.tag, 'html');
+  assert.strictEqual(decoded.root?.children?.[0]?.text, 'hi');
+  const cssomBody = encodeDomBody({
+    sheets: [{ id: 's1', scope: { kind: 'main' }, rules: [{ id: 'r1', cssText: 'body{color:red}' }] }],
+  });
+  const cssomDecoded = decodeDomBody(cssomBody) as { sheets?: Array<{ id: string }> };
+  assert.ok(cssomDecoded && typeof cssomDecoded === 'object' && Array.isArray(cssomDecoded.sheets));
+  assert.strictEqual(cssomDecoded.sheets?.[0]?.id, 's1');
+  console.log('[unit] DomAssetCache + PageProjection body codec ok');
 }
 
 function testCookieSanitizeMatrix(): void {

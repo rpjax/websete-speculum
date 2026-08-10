@@ -7,8 +7,8 @@ public static class SessionMirrorErrors
 {
     public const string MirrorModeMismatchErrorCode = "mirror_mode_mismatch";
 
-    public const string DomProjectionRequiredMessage =
-        "MirrorMode.DomProjection is required";
+    public const string PageProjectionRequiredMessage =
+        "MirrorMode.PageProjection is required";
 
     public const string VideoStreamingRequiredMessage =
         "MirrorMode.VideoStreaming is required";

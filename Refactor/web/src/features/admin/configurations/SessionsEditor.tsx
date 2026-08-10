@@ -182,7 +182,7 @@ export function SessionsEditor({
           />
           <StatusPill
             label={`Mirror · ${summary.mirrorModeLabel}`}
-            tone={summary.mirrorMode === 'domProjection' ? 'warning' : 'info'}
+            tone={summary.mirrorMode === 'pageProjection' ? 'warning' : 'info'}
           />
           <StatusPill
             label={`Stream · ${summary.sharpnessLabel}`}
@@ -370,7 +370,7 @@ export function SessionsEditor({
               id="mirrorMode"
               label="Mirror mode"
               value={
-                text(value.mirrorMode) === 'domProjection' ? 'domProjection' : 'videoStreaming'
+                text(value.mirrorMode) === 'pageProjection' ? 'pageProjection' : 'videoStreaming'
               }
               options={MIRROR_MODE_OPTIONS}
               onChange={(v) => patchField(['mirrorMode'], v)}

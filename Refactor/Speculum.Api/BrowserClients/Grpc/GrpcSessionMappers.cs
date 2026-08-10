@@ -1,7 +1,7 @@
 using System.Text.Json;
 using Speculum.Api.Configurations.Models.Patterns;
 using Speculum.Api.Profiles.Aggregates;
-using Speculum.Api.Sessions.Mirror.DomProjection;
+using Speculum.Api.Sessions.Mirror.PageProjection;
 using Speculum.Api.Sessions.Models;
 using Speculum.Api.Sidecar.V1;
 using DomainUrlMatchRule = Speculum.Api.Configurations.Models.Patterns.UrlMatchRule;
@@ -108,7 +108,7 @@ internal static class GrpcSessionMappers
         Speculum.Api.Configurations.Models.Sessions.MirrorMode mode)
         => mode switch
         {
-            Speculum.Api.Configurations.Models.Sessions.MirrorMode.DomProjection => "domProjection",
+            Speculum.Api.Configurations.Models.Sessions.MirrorMode.PageProjection => "pageProjection",
             _ => "videoStreaming",
         };
 
@@ -527,56 +527,30 @@ internal static class GrpcSessionMappers
         return new InputEvent { SessionId = sid, Touch = touch };
     }
 
-    public static DomDiff? ToDomDiff(DomDiffFrame frame)
+    public static PageProjectionDiff? ToPageProjectionDiff(PageProjectionDiffFrame frame)
     {
-        if (string.IsNullOrWhiteSpace(frame.Kind))
+        var plane = (frame.Plane ?? string.Empty).Trim();
+        var operation = (frame.Operation ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(plane) || string.IsNullOrWhiteSpace(operation))
         {
             return null;
         }
 
-        List<DomNode>? nodes = null;
-        List<string>? urls = null;
-        var treeType = string.IsNullOrWhiteSpace(frame.TreeType)
-            ? (string.Equals(frame.Kind, "cssom", StringComparison.Ordinal) ? "cssom" : "dom")
-            : frame.TreeType;
-        string? target = string.IsNullOrWhiteSpace(frame.Target) ? null : frame.Target.Trim();
-
-        if (string.Equals(frame.Kind, "diff", StringComparison.Ordinal)
-            && (target is null
-                || (!string.Equals(target, "document", StringComparison.Ordinal)
-                    && !string.Equals(target, "anchors", StringComparison.Ordinal))))
+        if (!string.Equals(plane, "dom", StringComparison.Ordinal)
+            && !string.Equals(plane, "cssom", StringComparison.Ordinal))
         {
             return null;
         }
 
+        JsonElement body = default;
+        var hasBody = false;
         if (!frame.Body.IsEmpty)
         {
             try
             {
                 using var doc = JsonDocument.Parse(frame.Body.ToByteArray());
-                var body = doc.RootElement;
-
-                if (string.Equals(frame.Kind, "diff", StringComparison.Ordinal)
-                    && body.TryGetProperty("nodes", out var nodesEl)
-                    && nodesEl.ValueKind == JsonValueKind.Array)
-                {
-                    nodes = ParseDomNodes(nodesEl);
-                }
-                else if (string.Equals(frame.Kind, "cssom", StringComparison.Ordinal)
-                    && body.TryGetProperty("urls", out var urlsEl)
-                    && urlsEl.ValueKind == JsonValueKind.Array)
-                {
-                    treeType = "cssom";
-                    urls = [];
-                    foreach (var u in urlsEl.EnumerateArray())
-                    {
-                        if (u.ValueKind == JsonValueKind.String
-                            && !string.IsNullOrWhiteSpace(u.GetString()))
-                        {
-                            urls.Add(u.GetString()!);
-                        }
-                    }
-                }
+                body = doc.RootElement.Clone();
+                hasBody = true;
             }
             catch (JsonException)
             {
@@ -584,28 +558,191 @@ internal static class GrpcSessionMappers
             }
         }
 
-        if (string.Equals(frame.Kind, "diff", StringComparison.Ordinal)
-            && (nodes is null || nodes.Count == 0))
+        PageProjectionDocumentPayload? document = null;
+        PageProjectionChildListPayload? childList = null;
+        PageProjectionPatchPayload? patch = null;
+        PageProjectionScrollViewportPayload? scrollViewport = null;
+        PageProjectionScrollElementPayload? scrollElement = null;
+        PageProjectionCssomInstallPayload? install = null;
+        PageProjectionCssomSheetListPayload? sheetList = null;
+        PageProjectionCssomRuleListPayload? ruleList = null;
+        PageProjectionCssomPatchPayload? cssomPatch = null;
+
+        if (string.Equals(plane, "dom", StringComparison.Ordinal))
         {
-            return null;
+            switch (operation)
+            {
+                case "document":
+                    if (!hasBody || !body.TryGetProperty("root", out var rootEl))
+                    {
+                        return null;
+                    }
+
+                    if (ParseDomNode(rootEl) is not { } root)
+                    {
+                        return null;
+                    }
+
+                    document = new PageProjectionDocumentPayload { Root = root };
+                    break;
+                case "childList":
+                    if (!hasBody || ParseDomSelector(body, "selector") is not { } parentSel)
+                    {
+                        return null;
+                    }
+
+                    if (ParseRemovedEntries(body) is not { } removed
+                        || ParseAddedEntries(body) is not { } added)
+                    {
+                        return null;
+                    }
+
+                    childList = new PageProjectionChildListPayload
+                    {
+                        Selector = parentSel,
+                        Removed = removed,
+                        Added = added,
+                    };
+                    break;
+                case "patch":
+                    if (!hasBody
+                        || ParseDomSelector(body, "selector") is not { } patchSel
+                        || !body.TryGetProperty("node", out var nodeEl)
+                        || ParseDomNode(nodeEl) is not { } patchNode)
+                    {
+                        return null;
+                    }
+
+                    // Patch snapshots omit children.
+                    patch = new PageProjectionPatchPayload
+                    {
+                        Selector = patchSel,
+                        Node = new DomNode
+                        {
+                            Anchor = patchNode.Anchor,
+                            Tag = patchNode.Tag,
+                            Attrs = patchNode.Attrs,
+                            Text = patchNode.Text,
+                            Children = null,
+                        },
+                    };
+                    break;
+                case "scrollViewport":
+                    if (!hasBody)
+                    {
+                        return null;
+                    }
+
+                    scrollViewport = new PageProjectionScrollViewportPayload
+                    {
+                        ScrollX = ReadDouble(body, "scrollX"),
+                        ScrollY = ReadDouble(body, "scrollY"),
+                    };
+                    break;
+                case "scrollElement":
+                    if (!hasBody || ParseDomSelector(body, "selector") is not { } scrollSel)
+                    {
+                        return null;
+                    }
+
+                    scrollElement = new PageProjectionScrollElementPayload
+                    {
+                        Selector = scrollSel,
+                        ScrollTop = ReadDouble(body, "scrollTop"),
+                        ScrollLeft = ReadDouble(body, "scrollLeft"),
+                    };
+                    break;
+                default:
+                    return null;
+            }
+        }
+        else
+        {
+            switch (operation)
+            {
+                case "install":
+                    if (!hasBody || ParseCssomSheets(body) is not { } sheets)
+                    {
+                        return null;
+                    }
+
+                    install = new PageProjectionCssomInstallPayload { Sheets = sheets };
+                    break;
+                case "sheetList":
+                    if (!hasBody
+                        || ParseCssomRemoved(body) is not { } cssomRemoved
+                        || ParseCssomAddedSheets(body) is not { } cssomAddedSheets)
+                    {
+                        return null;
+                    }
+
+                    sheetList = new PageProjectionCssomSheetListPayload
+                    {
+                        Removed = cssomRemoved,
+                        Added = cssomAddedSheets,
+                    };
+                    break;
+                case "ruleList":
+                    if (!hasBody || ParseCssomSelector(body, "selector") is not { } sheetSel)
+                    {
+                        return null;
+                    }
+
+                    if (ParseCssomRemoved(body) is not { } ruleRemoved
+                        || ParseCssomAddedRules(body) is not { } ruleAdded)
+                    {
+                        return null;
+                    }
+
+                    ruleList = new PageProjectionCssomRuleListPayload
+                    {
+                        Selector = sheetSel,
+                        Removed = ruleRemoved,
+                        Added = ruleAdded,
+                    };
+                    break;
+                case "patch":
+                    if (!hasBody
+                        || ParseCssomSelector(body, "selector") is not { } ruleSel
+                        || !body.TryGetProperty("rule", out var ruleEl)
+                        || ParseCssomRule(ruleEl) is not { } rule)
+                    {
+                        return null;
+                    }
+
+                    cssomPatch = new PageProjectionCssomPatchPayload
+                    {
+                        Selector = ruleSel,
+                        Rule = rule,
+                    };
+                    break;
+                default:
+                    return null;
+            }
         }
 
-        return new DomDiff
+        return new PageProjectionDiff
         {
             Sequence = frame.Sequence,
             Generation = frame.Generation,
             Timestamp = frame.TimestampMs,
-            TreeType = treeType,
-            Kind = frame.Kind,
-            Target = target,
-            Nodes = nodes,
-            Urls = urls,
+            Plane = plane,
+            Operation = operation,
+            Document = document,
+            ChildList = childList,
+            Patch = patch,
+            ScrollViewport = scrollViewport,
+            ScrollElement = scrollElement,
+            Install = install,
+            SheetList = sheetList,
+            RuleList = ruleList,
+            CssomPatch = cssomPatch,
         };
     }
 
     public static bool TryParseDomInputEvent(
         Guid sessionId,
-        DomProjectionInput input,
+        PageProjectionIntent input,
         out DomInputEvent? domInput)
     {
         domInput = null;
@@ -644,18 +781,359 @@ internal static class GrpcSessionMappers
         PassThrough = response.PassThrough,
     };
 
-    private static List<DomNode> ParseDomNodes(JsonElement nodesEl)
+    private static DomSelectorWire? ParseDomSelector(JsonElement parent, string propertyName)
     {
-        var nodes = new List<DomNode>();
-        foreach (var nodeEl in nodesEl.EnumerateArray())
+        if (!parent.TryGetProperty(propertyName, out var selEl) || selEl.ValueKind != JsonValueKind.Object)
         {
-            if (ParseDomNode(nodeEl) is { } node)
+            return null;
+        }
+
+        var kind = ReadOptionalString(selEl, "kind");
+        var query = ReadOptionalString(selEl, "query");
+        if (string.IsNullOrWhiteSpace(kind) || string.IsNullOrWhiteSpace(query))
+        {
+            return null;
+        }
+
+        int? index = null;
+        if (selEl.TryGetProperty("index", out var indexEl)
+            && indexEl.ValueKind == JsonValueKind.Number
+            && indexEl.TryGetInt32(out var i))
+        {
+            index = i;
+        }
+
+        // T7: exclusive variants — element{query} | childAt{query,index}.
+        if (string.Equals(kind, "element", StringComparison.Ordinal))
+        {
+            if (index is not null)
             {
-                nodes.Add(node);
+                return null;
+            }
+        }
+        else if (string.Equals(kind, "childAt", StringComparison.Ordinal))
+        {
+            if (index is null || index < 0)
+            {
+                return null;
+            }
+        }
+        else
+        {
+            return null;
+        }
+
+        return new DomSelectorWire
+        {
+            Kind = kind,
+            Query = query,
+            Index = index,
+        };
+    }
+
+    /// <summary>
+    /// Parse childList <c>removed</c>. Missing property ⇒ empty list.
+    /// Malformed entry ⇒ null (reject envelope — T4/T6, no soft-skip).
+    /// </summary>
+    private static List<PageProjectionRemovedEntry>? ParseRemovedEntries(JsonElement body)
+    {
+        if (!body.TryGetProperty("removed", out var removedEl))
+        {
+            return [];
+        }
+
+        if (removedEl.ValueKind != JsonValueKind.Array)
+        {
+            return null;
+        }
+
+        var list = new List<PageProjectionRemovedEntry>();
+        foreach (var entry in removedEl.EnumerateArray())
+        {
+            if (entry.ValueKind != JsonValueKind.Object
+                || ParseDomSelector(entry, "selector") is not { } sel)
+            {
+                return null;
+            }
+
+            list.Add(new PageProjectionRemovedEntry { Selector = sel });
+        }
+
+        return list;
+    }
+
+    /// <summary>
+    /// Parse childList <c>added</c>. Missing property ⇒ empty list.
+    /// Malformed entry ⇒ null (reject envelope — T4/T6, no soft-skip).
+    /// </summary>
+    private static List<PageProjectionAddedEntry>? ParseAddedEntries(JsonElement body)
+    {
+        if (!body.TryGetProperty("added", out var addedEl))
+        {
+            return [];
+        }
+
+        if (addedEl.ValueKind != JsonValueKind.Array)
+        {
+            return null;
+        }
+
+        var list = new List<PageProjectionAddedEntry>();
+        foreach (var entry in addedEl.EnumerateArray())
+        {
+            if (entry.ValueKind != JsonValueKind.Object
+                || !entry.TryGetProperty("node", out var nodeEl)
+                || ParseDomNode(nodeEl) is not { } node)
+            {
+                return null;
+            }
+
+            var index = 0;
+            if (entry.TryGetProperty("index", out var indexEl))
+            {
+                if (indexEl.ValueKind != JsonValueKind.Number || !indexEl.TryGetInt32(out var i) || i < 0)
+                {
+                    return null;
+                }
+
+                index = i;
+            }
+
+            list.Add(new PageProjectionAddedEntry { Index = index, Node = node });
+        }
+
+        return list;
+    }
+
+    private static CssomSelectorWire? ParseCssomSelector(JsonElement parent, string propertyName)
+    {
+        if (!parent.TryGetProperty(propertyName, out var selEl) || selEl.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        var kind = ReadOptionalString(selEl, "kind");
+        var id = ReadOptionalString(selEl, "id");
+        if (string.IsNullOrWhiteSpace(kind) || string.IsNullOrWhiteSpace(id))
+        {
+            return null;
+        }
+
+        return new CssomSelectorWire { Kind = kind, Id = id };
+    }
+
+    private static List<CssomSheetWire>? ParseCssomSheets(JsonElement body)
+    {
+        if (!body.TryGetProperty("sheets", out var sheetsEl) || sheetsEl.ValueKind != JsonValueKind.Array)
+        {
+            return null;
+        }
+
+        var sheets = new List<CssomSheetWire>();
+        foreach (var sheetEl in sheetsEl.EnumerateArray())
+        {
+            if (ParseCssomSheet(sheetEl) is not { } sheet)
+            {
+                return null;
+            }
+
+            sheets.Add(sheet);
+        }
+
+        return sheets;
+    }
+
+    private static CssomSheetWire? ParseCssomSheet(JsonElement sheetEl)
+    {
+        if (sheetEl.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        var id = ReadOptionalString(sheetEl, "id");
+        if (string.IsNullOrWhiteSpace(id)
+            || !sheetEl.TryGetProperty("scope", out var scopeEl)
+            || ParseCssomScope(scopeEl) is not { } scope)
+        {
+            return null;
+        }
+
+        var rules = new List<CssomRuleWire>();
+        if (sheetEl.TryGetProperty("rules", out var rulesEl))
+        {
+            if (rulesEl.ValueKind != JsonValueKind.Array)
+            {
+                return null;
+            }
+
+            foreach (var ruleEl in rulesEl.EnumerateArray())
+            {
+                if (ParseCssomRule(ruleEl) is not { } rule)
+                {
+                    return null;
+                }
+
+                rules.Add(rule);
             }
         }
 
-        return nodes;
+        return new CssomSheetWire { Id = id, Scope = scope, Rules = rules };
+    }
+
+    private static CssomScopeWire? ParseCssomScope(JsonElement scopeEl)
+    {
+        if (scopeEl.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        var kind = ReadOptionalString(scopeEl, "kind");
+        if (string.IsNullOrWhiteSpace(kind))
+        {
+            return null;
+        }
+
+        return new CssomScopeWire
+        {
+            Kind = kind,
+            HostAnchor = ReadOptionalString(scopeEl, "hostAnchor"),
+        };
+    }
+
+    private static CssomRuleWire? ParseCssomRule(JsonElement ruleEl)
+    {
+        if (ruleEl.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        var id = ReadOptionalString(ruleEl, "id");
+        var cssText = ReadOptionalString(ruleEl, "cssText");
+        if (string.IsNullOrWhiteSpace(id) || cssText is null)
+        {
+            return null;
+        }
+
+        return new CssomRuleWire { Id = id, CssText = cssText };
+    }
+
+    /// <summary>
+    /// Parse Cssom <c>removed</c>. Missing property ⇒ empty list.
+    /// Malformed entry ⇒ null (reject envelope — no soft-skip).
+    /// </summary>
+    private static List<PageProjectionCssomRemovedEntry>? ParseCssomRemoved(JsonElement body)
+    {
+        if (!body.TryGetProperty("removed", out var removedEl))
+        {
+            return [];
+        }
+
+        if (removedEl.ValueKind != JsonValueKind.Array)
+        {
+            return null;
+        }
+
+        var list = new List<PageProjectionCssomRemovedEntry>();
+        foreach (var entry in removedEl.EnumerateArray())
+        {
+            if (entry.ValueKind != JsonValueKind.Object
+                || ParseCssomSelector(entry, "selector") is not { } sel)
+            {
+                return null;
+            }
+
+            list.Add(new PageProjectionCssomRemovedEntry { Selector = sel });
+        }
+
+        return list;
+    }
+
+    private static List<PageProjectionCssomAddedSheetEntry>? ParseCssomAddedSheets(JsonElement body)
+    {
+        if (!body.TryGetProperty("added", out var addedEl))
+        {
+            return [];
+        }
+
+        if (addedEl.ValueKind != JsonValueKind.Array)
+        {
+            return null;
+        }
+
+        var list = new List<PageProjectionCssomAddedSheetEntry>();
+        foreach (var entry in addedEl.EnumerateArray())
+        {
+            if (entry.ValueKind != JsonValueKind.Object
+                || !entry.TryGetProperty("sheet", out var sheetEl)
+                || ParseCssomSheet(sheetEl) is not { } sheet)
+            {
+                return null;
+            }
+
+            var index = 0;
+            if (entry.TryGetProperty("index", out var indexEl))
+            {
+                if (indexEl.ValueKind != JsonValueKind.Number || !indexEl.TryGetInt32(out var i) || i < 0)
+                {
+                    return null;
+                }
+
+                index = i;
+            }
+
+            list.Add(new PageProjectionCssomAddedSheetEntry { Index = index, Sheet = sheet });
+        }
+
+        return list;
+    }
+
+    private static List<PageProjectionCssomAddedRuleEntry>? ParseCssomAddedRules(JsonElement body)
+    {
+        if (!body.TryGetProperty("added", out var addedEl))
+        {
+            return [];
+        }
+
+        if (addedEl.ValueKind != JsonValueKind.Array)
+        {
+            return null;
+        }
+
+        var list = new List<PageProjectionCssomAddedRuleEntry>();
+        foreach (var entry in addedEl.EnumerateArray())
+        {
+            if (entry.ValueKind != JsonValueKind.Object
+                || !entry.TryGetProperty("rule", out var ruleEl)
+                || ParseCssomRule(ruleEl) is not { } rule)
+            {
+                return null;
+            }
+
+            var index = 0;
+            if (entry.TryGetProperty("index", out var indexEl))
+            {
+                if (indexEl.ValueKind != JsonValueKind.Number || !indexEl.TryGetInt32(out var i) || i < 0)
+                {
+                    return null;
+                }
+
+                index = i;
+            }
+
+            list.Add(new PageProjectionCssomAddedRuleEntry { Index = index, Rule = rule });
+        }
+
+        return list;
+    }
+
+    private static double ReadDouble(JsonElement parent, string name)
+    {
+        if (!parent.TryGetProperty(name, out var el) || el.ValueKind != JsonValueKind.Number)
+        {
+            return 0;
+        }
+
+        return el.TryGetDouble(out var value) ? value : 0;
     }
 
     private static DomNode? ParseDomNode(JsonElement nodeEl)
@@ -695,15 +1173,24 @@ internal static class GrpcSessionMappers
         }
 
         List<DomNode>? children = null;
-        if (nodeEl.TryGetProperty("children", out var childrenEl) && childrenEl.ValueKind == JsonValueKind.Array)
+        if (nodeEl.TryGetProperty("children", out var childrenEl))
         {
+            if (childrenEl.ValueKind != JsonValueKind.Array)
+            {
+                return null;
+            }
+
             children = [];
             foreach (var childEl in childrenEl.EnumerateArray())
             {
-                if (ParseDomNode(childEl) is { } child)
+                // T4/T6: malformed child rejects the whole envelope — never soft-skip
+                // (omitted child shifts F index space → ghost desync).
+                if (ParseDomNode(childEl) is not { } child)
                 {
-                    children.Add(child);
+                    return null;
                 }
+
+                children.Add(child);
             }
         }
 

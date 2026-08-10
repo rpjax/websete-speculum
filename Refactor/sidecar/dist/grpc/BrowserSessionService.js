@@ -5,37 +5,10 @@ const collectTelemetry_1 = require("../telemetry/collectTelemetry");
 const hostResources_1 = require("../host/hostResources");
 const mappers_1 = require("./mappers");
 const validate_1 = require("./validate");
+const pumpQueue_1 = require("./pumpQueue");
 /* eslint-disable @typescript-eslint/no-explicit-any */
 function grpcError(err) {
     return (0, validate_1.mapGrpcError)(err);
-}
-async function pumpQueue(queue, call, map, signal) {
-    // When write returns false, skip further writes until 'drain' — drop items, do not
-    // await drain or keep stuffing the gRPC buffer (unbounded memory).
-    let congested = false;
-    const onDrain = () => {
-        congested = false;
-    };
-    call.on('drain', onDrain);
-    try {
-        for (;;) {
-            const item = await queue.read(signal);
-            if (item === null)
-                break;
-            // Abort may race after dequeue — put the item back for the next Watch* reopen.
-            if (signal.aborted || call.cancelled) {
-                queue.tryWrite(item);
-                break;
-            }
-            if (congested) {
-                continue;
-            }
-            congested = !call.write(map(item));
-        }
-    }
-    finally {
-        call.off('drain', onDrain);
-    }
 }
 function createBrowserSessionHandlers(registry) {
     return {
@@ -244,14 +217,41 @@ function createBrowserSessionHandlers(registry) {
         watchVideo(call) {
             watchStream(call, registry, (b) => b.video, (jpeg) => ({ jpeg }));
         },
-        watchDom(call) {
+        watchPageProjectionDiff(call) {
             watchStream(call, registry, (b) => b.dom, (d) => ({
                 sequence: d.sequence,
                 generation: d.generation,
-                kind: d.kind,
+                plane: d.plane,
+                operation: d.operation,
                 timestampMs: d.timestampMs,
                 body: d.body,
-                treeType: d.treeType,
+            }), (bridge) => ({
+                onRequeueOverflow: (d) => {
+                    bridge.emitLifecycleQueueDropped({
+                        reason: 'sidecar_requeue_overflow',
+                        generation: d.generation,
+                        operation: d.operation,
+                        plane: d.plane,
+                        droppedCount: 1,
+                        capacity: bridge.dom.maxCapacity,
+                        sequence: d.sequence,
+                        lowestDroppedSequence: d.sequence,
+                        highestDroppedSequence: d.sequence,
+                    });
+                },
+                onInflightLost: (d) => {
+                    bridge.emitLifecycleQueueDropped({
+                        reason: 'sidecar_grpc_inflight',
+                        generation: d.generation,
+                        operation: d.operation,
+                        plane: d.plane,
+                        droppedCount: 1,
+                        capacity: bridge.dom.maxCapacity,
+                        sequence: d.sequence,
+                        lowestDroppedSequence: d.sequence,
+                        highestDroppedSequence: d.sequence,
+                    });
+                },
             }));
         },
         watchAudio(call) {
@@ -283,8 +283,8 @@ function createBrowserSessionHandlers(registry) {
                 unixMs: e.unixMs,
             }));
         },
-        watchDomProjectionInputPath(call) {
-            watchStream(call, registry, (b) => b.domProjectionInputPath, (e) => ({
+        watchPageProjectionInputPath(call) {
+            watchStream(call, registry, (b) => b.pageProjectionInputPath, (e) => ({
                 phase: e.phase,
                 kind: e.kind,
                 unixMs: e.unixMs,
@@ -292,8 +292,8 @@ function createBrowserSessionHandlers(registry) {
                 generation: e.generation,
             }));
         },
-        watchDomProjectionLifecycle(call) {
-            watchStream(call, registry, (b) => b.domProjectionLifecycle, (e) => ({
+        watchPageProjectionLifecycle(call) {
+            watchStream(call, registry, (b) => b.pageProjectionLifecycle, (e) => ({
                 kind: e.kind,
                 fromGeneration: e.fromGeneration,
                 toGeneration: e.toGeneration,
@@ -301,6 +301,11 @@ function createBrowserSessionHandlers(registry) {
                 url: e.url,
                 diffKind: e.diffKind,
                 unixMs: e.unixMs,
+                droppedCount: e.droppedCount,
+                capacity: e.capacity,
+                sequence: e.sequence,
+                lowestDroppedSequence: e.lowestDroppedSequence,
+                highestDroppedSequence: e.highestDroppedSequence,
             }));
         },
         watchAllocationLifecycle(call) {
@@ -334,7 +339,7 @@ function createBrowserSessionHandlers(registry) {
                 const sid = (0, validate_1.requireSessionId)(msg);
                 const { session, bridge } = registry.get(sid);
                 if (!session.pushDomInput) {
-                    throw Object.assign(new Error('DomProjection input not supported'), {
+                    throw Object.assign(new Error('PageProjection input not supported'), {
                         code: 'FAILED_PRECONDITION',
                     });
                 }
@@ -352,7 +357,7 @@ function createBrowserSessionHandlers(registry) {
                 const typeLower = kind.trim().toLowerCase();
                 const isHfMove = typeLower === 'mousemove' || typeLower === 'pointermove';
                 if (outcome.status === 'dropped') {
-                    bridge.onDomProjectionInputPath({
+                    bridge.onPageProjectionIntentPath({
                         phase: 'cdp_dropped',
                         kind,
                         reason: outcome.reason,
@@ -362,7 +367,7 @@ function createBrowserSessionHandlers(registry) {
                 }
                 // Skip admit-path fanout for move samples (high frequency) — mirror VideoStreamingInput.
                 if (!isHfMove) {
-                    bridge.onDomProjectionInputPath({
+                    bridge.onPageProjectionIntentPath({
                         phase: 'sidecar_admitted',
                         kind,
                         generation,
@@ -404,6 +409,36 @@ function createBrowserSessionHandlers(registry) {
                     statusCode: hit.statusCode ?? 200,
                     contentRange: hit.contentRange ?? '',
                     passThrough: !!hit.passThrough,
+                });
+            }
+            catch (err) {
+                callback(grpcError(err), null);
+            }
+        },
+        async getPageProjectionResync(call, callback) {
+            try {
+                const { session } = registry.get((0, validate_1.requireSessionId)(call.request));
+                if (!session.getPageProjectionResync) {
+                    callback(grpcError(Object.assign(new Error('PageProjection resync unsupported'), {
+                        code: 'FAILED_PRECONDITION',
+                    })), null);
+                    return;
+                }
+                const snap = await session.getPageProjectionResync({
+                    generation: Number(call.request.generation ?? 0) || undefined,
+                    sequence: Number(call.request.sequence ?? 0) || undefined,
+                });
+                if (!snap) {
+                    callback(grpcError(Object.assign(new Error('resync snapshot unavailable'), {
+                        code: 'NOT_FOUND',
+                    })), null);
+                    return;
+                }
+                callback(null, {
+                    generation: snap.generation,
+                    coversThroughSequence: snap.coversThroughSequence,
+                    rootJson: snap.rootJson,
+                    sheetsJson: snap.sheetsJson,
                 });
             }
             catch (err) {
@@ -519,7 +554,7 @@ function readSessionIdMetadata(metadata) {
  * The queue stays open for the life of the registry entry (CloseConnection/Dispose).
  * Chromium stop/crash must not close the queue — only bridge.close() on dispose.
  */
-function watchStream(call, registry, pick, map) {
+function watchStream(call, registry, pick, map, hooksFor) {
     let entry;
     try {
         entry = registry.get((0, validate_1.requireSessionId)(call.request));
@@ -532,7 +567,7 @@ function watchStream(call, registry, pick, map) {
     call.on('cancelled', () => ac.abort());
     call.on('close', () => ac.abort());
     call.on('error', () => ac.abort());
-    void pumpQueue(pick(entry.bridge), call, map, ac.signal)
+    void (0, pumpQueue_1.pumpQueue)(pick(entry.bridge), call, map, ac.signal, hooksFor?.(entry.bridge))
         .then(() => {
         if (!call.cancelled)
             call.end();

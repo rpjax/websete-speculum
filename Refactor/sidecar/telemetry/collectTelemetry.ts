@@ -108,8 +108,8 @@ export async function collectTelemetry(
           + bridge.editableFocus.droppedCount
           + bridge.crash.droppedCount
           + bridge.videoStreamingInputPath.droppedCount
-          + bridge.domProjectionInputPath.droppedCount
-          + bridge.domProjectionLifecycle.droppedCount
+          + bridge.pageProjectionInputPath.droppedCount
+          + bridge.pageProjectionLifecycle.droppedCount
           + bridge.allocationLifecycle.droppedCount,
       };
       },

@@ -104,11 +104,13 @@ export function useLiveSession({
     trace: observation.trace,
     log: observation.log,
     onFrame: observation.onFrame,
-    onDomDiff: observation.onDomDiff,
+    onPageProjectionDiff: observation.onPageProjectionDiff,
     bumpNotificationCounter: observation.bumpNotificationCounter,
+    onPageProjectionLifecycle: observation.onPageProjectionLifecycle,
     onSessionConsole: observation.onSessionConsole,
     resetForStart: observation.resetForStart,
     appendConsoleInput: observation.appendConsoleInput,
+    readPageProjectionApplierProbe: observation.readPageProjectionApplierProbe,
     setPhase,
     setConnectionId,
     setProfileId,
@@ -143,6 +145,48 @@ export function useLiveSession({
     }
   }, [client, observation.log])
 
+  // Diagnostics: expose front Activity ring for Playwright / Cursor smoke export
+  // when ClientObservation is on (same ring as SessionObservationChrome).
+  useEffect(() => {
+    if (!preStart.clientObservation.isEnabled && !debug) {
+      return
+    }
+    const w = window as Window & {
+      __speculumFrontDebugLog?: unknown
+      __speculumExportFrontDebugJsonl?: unknown
+      __speculumSessionId?: string | null
+    }
+    w.__speculumSessionId = sessionId
+    w.__speculumFrontDebugLog = () =>
+      observation.entries
+        .slice()
+        .reverse()
+        .map((e) => ({
+          id: e.id,
+          at: e.at,
+          level: e.level,
+          label: e.label,
+          detail: e.detail,
+          fields: e.fields,
+        }))
+    w.__speculumExportFrontDebugJsonl = () => {
+      const rows = (
+        typeof w.__speculumFrontDebugLog === 'function' ? w.__speculumFrontDebugLog() : []
+      ) as unknown[]
+      return rows.map((row) => JSON.stringify(row)).join('\n')
+    }
+    return () => {
+      delete w.__speculumFrontDebugLog
+      delete w.__speculumExportFrontDebugJsonl
+      delete w.__speculumSessionId
+    }
+  }, [
+    debug,
+    preStart.clientObservation.isEnabled,
+    observation.entries,
+    sessionId,
+  ])
+
   return {
     phase,
     origins,
@@ -170,8 +214,10 @@ export function useLiveSession({
     remoteViewport,
     viewportPolicy: preStart.viewportPolicy,
     attachFrameSink: observation.attachFrameSink,
-    attachDomDiffSink: observation.attachDomDiffSink,
-    observeDomDiffApply: observation.observeDomDiffApply,
+    attachPageProjectionDiffSink: observation.attachPageProjectionDiffSink,
+    attachPageProjectionLifecycleSink: observation.attachPageProjectionLifecycleSink,
+    observePageProjectionDiffApply: observation.observePageProjectionDiffApply,
+    registerPageProjectionApplierProbe: observation.registerPageProjectionApplierProbe,
     connect: lifecycle.connect,
     start: lifecycle.start,
     stop: lifecycle.stop,

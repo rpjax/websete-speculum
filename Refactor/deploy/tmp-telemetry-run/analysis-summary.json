@@ -1,456 +1,193 @@
 {
+  "at": "2026-08-07T01:48:38.795Z",
+  "scope": "deployed Docker stack images (~2026-08-05), NOT uncommitted PageProjection tree",
+  "mirrorMode": "domProjection",
+  "clientObservation": {
+    "isEnabled": true,
+    "sessionWire": true,
+    "videoStreamingInput": false,
+    "domProjectionDiff": true,
+    "domProjectionInput": true
+  },
+  "watermarkSince": "2026-08-07T01:41:38.7545453Z",
   "totals": {
-    "telemetryFacts": 186,
-    "sessionFacts": 11,
-    "sessionIds": [
-      "f9c051c4-774b-4f1b-aace-f6d10d76eefd"
-    ]
+    "facts": 69,
+    "latestSequence": 29357,
+    "truncated": false,
+    "sessionId": "f7c9774a-8c29-4285-b28e-7f8d5279f47d"
   },
   "byType": {
-    "Telemetry.Sessions.DomProjection.Input.SidecarPushWritten": 48,
-    "Telemetry.Sessions.DomProjection.Input.Applied": 48,
-    "Telemetry.Sessions.DomProjection.Input.DataPlaneReceived": 48,
-    "Telemetry.Sessions.DomProjection.Diff.FrameReceived": 32,
-    "Telemetry.Sessions.Browse.LocationChanged": 2,
-    "Telemetry.Sessions.Resize.Rejected": 2,
+    "Telemetry.Sessions.DomProjection.Diff.FrameReceived": 25,
+    "Telemetry.Sampling.SampleCollected": 7,
+    "Telemetry.Sessions.DomProjection.Input.SidecarPushWritten": 3,
+    "Telemetry.Sessions.DomProjection.Input.Applied": 3,
+    "Telemetry.Sessions.DomProjection.Input.DataPlaneReceived": 3,
+    "Telemetry.Sessions.DomProjection.Diff.GenerationBumped": 3,
+    "Telemetry.Sessions.Browse.LocationChanged": 3,
+    "Telemetry.Sessions.DomProjection.Input.CdpDropped": 2,
+    "Sessions.SessionStopped": 1,
     "Telemetry.Sessions.Capacity.SlotReleased": 1,
+    "Sessions.ConnectionClosed": 1,
+    "Sessions.BrowserClosed": 1,
+    "Sessions.SessionStatePersisted": 1,
+    "Sessions.SessionStopping": 1,
+    "Telemetry.Sessions.DomProjection.Input.SidecarAdmitted": 1,
     "Telemetry.Sessions.Resize.Applied": 1,
+    "Sessions.InitialNavigationCompleted": 1,
+    "Telemetry.Sessions.Resize.Rejected": 1,
+    "Sessions.SessionStarted": 1,
     "Telemetry.Sessions.Sidecar.DisplayAllocated": 1,
     "Telemetry.Sessions.Sidecar.SessionAllocated": 1,
     "Telemetry.Sessions.Start.UrlResolved": 1,
-    "Telemetry.Sessions.Capacity.SlotAcquired": 1
+    "Sessions.ProfileStateRestored": 1,
+    "Sessions.BrowserLaunched": 1,
+    "Sessions.ConnectionStarted": 1,
+    "Sessions.SessionStarting": 1,
+    "Telemetry.Sessions.Capacity.SlotAcquired": 1,
+    "Profiles.ProfileCreated": 1
   },
-  "diff": {
-    "count": 32,
-    "kinds": {
-      "patch": 29,
-      "snapshot": 3
-    },
-    "gaps": [],
-    "genBumps": [
-      {
-        "from": 1,
-        "to": 2,
-        "at": "2026-08-04T22:15:06.0142751-03:00",
-        "seq": 5
-      },
-      {
-        "from": 2,
-        "to": 3,
-        "at": "2026-08-04T22:15:10.0111706-03:00",
-        "seq": 13
-      }
-    ],
-    "withTimestamp": 32,
-    "first": {
-      "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
-      "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd",
-      "kind": "snapshot",
-      "treeType": "dom",
-      "sequence": 1,
-      "generation": 1,
-      "timestamp": 1785892504401,
-      "nodeCount": null,
-      "urlCount": null
-    },
-    "last": {
-      "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
-      "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd",
-      "kind": "patch",
-      "treeType": "dom",
-      "sequence": 32,
-      "generation": 3,
-      "timestamp": 1785892521046,
-      "nodeCount": 1,
-      "urlCount": null
-    }
-  },
-  "domInput": {
-    "dataPlane": 48,
-    "push": 48,
-    "applied": 48,
-    "rejected": 0,
-    "samples": {
-      "dataPlane": [
-        {
-          "at": "2026-08-04T22:15:17.0866349-03:00",
-          "seq": 13701,
-          "schema": 2,
-          "payload": {
-            "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
-            "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd",
-            "kind": "scroll",
-            "generation": 3,
-            "anchor": null,
-            "traceId": "996d7513473b4c179bc0b47dadfa2242",
-            "clientTimestampMs": 18424
-          }
-        },
-        {
-          "at": "2026-08-04T22:15:14.8650348-03:00",
-          "seq": 13696,
-          "schema": 2,
-          "payload": {
-            "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
-            "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd",
-            "kind": "scroll",
-            "generation": 3,
-            "anchor": null,
-            "traceId": "bddba493f4124a3596a6c6ed416d99ad",
-            "clientTimestampMs": 16202
-          }
-        },
-        {
-          "at": "2026-08-04T22:15:14.8505324-03:00",
-          "seq": 13693,
-          "schema": 2,
-          "payload": {
-            "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
-            "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd",
-            "kind": "scroll",
-            "generation": 3,
-            "anchor": null,
-            "traceId": "3d8a725ab3e841e39810f85e9d440e7b",
-            "clientTimestampMs": 16187
-          }
-        },
-        {
-          "at": "2026-08-04T22:15:14.8379367-03:00",
-          "seq": 13690,
-          "schema": 2,
-          "payload": {
-            "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
-            "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd",
-            "kind": "scroll",
-            "generation": 3,
-            "anchor": null,
-            "traceId": "2bf935e937e6439bae1d1e5043cad421",
-            "clientTimestampMs": 16171
-          }
-        },
-        {
-          "at": "2026-08-04T22:15:14.8188797-03:00",
-          "seq": 13687,
-          "schema": 2,
-          "payload": {
-            "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
-            "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd",
-            "kind": "scroll",
-            "generation": 3,
-            "anchor": null,
-            "traceId": "4c6891bcec98431d99fc88523b861846",
-            "clientTimestampMs": 16156
-          }
-        }
-      ],
-      "applied": [
-        {
-          "at": "2026-08-04T22:15:17.0871779-03:00",
-          "seq": 13702,
-          "schema": 2,
-          "payload": {
-            "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
-            "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd",
-            "kind": "scroll",
-            "phase": "push",
-            "generation": 3,
-            "anchor": null,
-            "traceId": "996d7513473b4c179bc0b47dadfa2242",
-            "clientTimestampMs": 18424
-          }
-        },
-        {
-          "at": "2026-08-04T22:15:14.8654563-03:00",
-          "seq": 13697,
-          "schema": 2,
-          "payload": {
-            "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
-            "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd",
-            "kind": "scroll",
-            "phase": "push",
-            "generation": 3,
-            "anchor": null,
-            "traceId": "bddba493f4124a3596a6c6ed416d99ad",
-            "clientTimestampMs": 16202
-          }
-        },
-        {
-          "at": "2026-08-04T22:15:14.8518669-03:00",
-          "seq": 13694,
-          "schema": 2,
-          "payload": {
-            "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
-            "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd",
-            "kind": "scroll",
-            "phase": "push",
-            "generation": 3,
-            "anchor": null,
-            "traceId": "3d8a725ab3e841e39810f85e9d440e7b",
-            "clientTimestampMs": 16187
-          }
-        },
-        {
-          "at": "2026-08-04T22:15:14.8382133-03:00",
-          "seq": 13691,
-          "schema": 2,
-          "payload": {
-            "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
-            "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd",
-            "kind": "scroll",
-            "phase": "push",
-            "generation": 3,
-            "anchor": null,
-            "traceId": "2bf935e937e6439bae1d1e5043cad421",
-            "clientTimestampMs": 16171
-          }
-        },
-        {
-          "at": "2026-08-04T22:15:14.8192517-03:00",
-          "seq": 13688,
-          "schema": 2,
-          "payload": {
-            "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
-            "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd",
-            "kind": "scroll",
-            "phase": "push",
-            "generation": 3,
-            "anchor": null,
-            "traceId": "4c6891bcec98431d99fc88523b861846",
-            "clientTimestampMs": 16156
-          }
-        }
-      ]
-    }
-  },
-  "videoStreamingInputCount": 0,
-  "rejectedOrFault": [
+  "lifecycle": [
     {
-      "type": "Telemetry.Sessions.Resize.Rejected",
-      "at": "2026-08-04T22:15:06.6599223-03:00",
-      "payload": {
-        "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
-        "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd",
-        "width": 1374,
-        "height": 770,
-        "resizeId": "019fcf7d-0c23-7a7d-a3e4-ef69b8bfd48b",
-        "errorCode": "resize_busy",
-        "message": "another command is in progress",
-        "phase": "validate"
-      }
-    },
-    {
-      "type": "Telemetry.Sessions.Resize.Rejected",
-      "at": "2026-08-04T22:15:05.9239957-03:00",
-      "payload": {
-        "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
-        "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd",
-        "width": 1374,
-        "height": 770,
-        "resizeId": "019fcf7d-0941-7f78-adb4-a7aeb38a4df9",
-        "errorCode": "resize_busy",
-        "message": "another command is in progress",
-        "phase": "validate"
-      }
-    }
-  ],
-  "correlation": {
-    "factsWithTraceId": 144,
-    "factsWithClientTimestampMs": 144
-  },
-  "sessionNarrative": [
-    {
-      "type": "Sessions.SessionStopped",
-      "at": "2026-08-04T22:15:22.3354829-03:00",
-      "payload": {
-        "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd",
-        "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
-        "reason": "UserStop"
-      }
-    },
-    {
-      "type": "Sessions.ConnectionClosed",
-      "at": "2026-08-04T22:15:22.3325049-03:00",
-      "payload": {
-        "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
-        "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd"
-      }
-    },
-    {
-      "type": "Sessions.BrowserClosed",
-      "at": "2026-08-04T22:15:22.3038132-03:00",
-      "payload": {
-        "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
-        "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd"
-      }
-    },
-    {
-      "type": "Sessions.SessionStatePersisted",
-      "at": "2026-08-04T22:15:21.6125073-03:00",
-      "payload": {
-        "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
-        "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd"
-      }
-    },
-    {
-      "type": "Sessions.SessionStopping",
-      "at": "2026-08-04T22:15:19.4856783-03:00",
-      "payload": {
-        "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
-        "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd",
-        "reason": "UserStop"
-      }
-    },
-    {
-      "type": "Sessions.InitialNavigationCompleted",
-      "at": "2026-08-04T22:15:07.4098122-03:00",
-      "payload": {
-        "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
-        "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd",
-        "url": "https://www.google.com/"
-      }
-    },
-    {
-      "type": "Sessions.SessionStarted",
-      "at": "2026-08-04T22:15:04.5404499-03:00",
-      "payload": {
-        "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
-        "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd"
-      }
-    },
-    {
-      "type": "Sessions.ProfileStateRestored",
-      "at": "2026-08-04T22:15:04.439853-03:00",
-      "payload": {
-        "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
-        "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd",
-        "cookieTotal": 0,
-        "cookieSkipped": 0,
-        "cookieNormalized": 0,
-        "cookieApplied": 0,
-        "cookieFailedIndividual": 0
-      }
-    },
-    {
-      "type": "Sessions.BrowserLaunched",
-      "at": "2026-08-04T22:15:04.4122411-03:00",
-      "payload": {
-        "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
-        "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd"
-      }
-    },
-    {
-      "type": "Sessions.ConnectionStarted",
-      "at": "2026-08-04T22:15:01.7369817-03:00",
-      "payload": {
-        "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
-        "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd"
-      }
+      "type": "Profiles.ProfileCreated",
+      "count": 1
     },
     {
       "type": "Sessions.SessionStarting",
-      "at": "2026-08-04T22:15:01.6765064-03:00",
+      "count": 1
+    },
+    {
+      "type": "Sessions.ConnectionStarted",
+      "count": 1
+    },
+    {
+      "type": "Sessions.BrowserLaunched",
+      "count": 1
+    },
+    {
+      "type": "Sessions.SessionStarted",
+      "count": 1
+    },
+    {
+      "type": "Sessions.InitialNavigationCompleted",
+      "count": 1
+    },
+    {
+      "type": "Sessions.SessionStopped",
+      "count": 1
+    },
+    {
+      "type": "Sessions.SessionEnded",
+      "count": 0
+    }
+  ],
+  "diff": {
+    "count": 25,
+    "kinds": {
+      "diff": 25
+    },
+    "targets": {
+      "anchors": 21,
+      "document": 4
+    },
+    "trees": {
+      "dom": 25
+    },
+    "generations": [
+      1,
+      2,
+      3,
+      4
+    ],
+    "seqMin": 1,
+    "seqMax": 25,
+    "gaps": [],
+    "genBumps": [
+      {
+        "profileId": "1311f0a3-47c8-4455-a0f1-8faf9feec4e3",
+        "sessionId": "f7c9774a-8c29-4285-b28e-7f8d5279f47d",
+        "fromGeneration": 3,
+        "toGeneration": 4,
+        "reason": "main_frame_navigated",
+        "url": "https://www.google.com/#sbfbu=1&pi=",
+        "diffKind": null
+      },
+      {
+        "profileId": "1311f0a3-47c8-4455-a0f1-8faf9feec4e3",
+        "sessionId": "f7c9774a-8c29-4285-b28e-7f8d5279f47d",
+        "fromGeneration": 2,
+        "toGeneration": 3,
+        "reason": "main_frame_navigated",
+        "url": "https://www.google.com/",
+        "diffKind": null
+      },
+      {
+        "profileId": "1311f0a3-47c8-4455-a0f1-8faf9feec4e3",
+        "sessionId": "f7c9774a-8c29-4285-b28e-7f8d5279f47d",
+        "fromGeneration": 1,
+        "toGeneration": 2,
+        "reason": "main_frame_navigated",
+        "url": "https://www.google.com/",
+        "diffKind": null
+      }
+    ]
+  },
+  "inputPath": {
+    "dataPlane": 3,
+    "applied": 3,
+    "push": 3,
+    "admitted": 1,
+    "cdpDropped": 2,
+    "rejected": 0
+  },
+  "drops": [
+    {
+      "type": "Telemetry.Sessions.DomProjection.Input.CdpDropped",
+      "at": "2026-08-07T01:43:53.8989093+00:00",
       "payload": {
-        "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
-        "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd"
+        "profileId": "1311f0a3-47c8-4455-a0f1-8faf9feec4e3",
+        "sessionId": "f7c9774a-8c29-4285-b28e-7f8d5279f47d",
+        "kind": "scroll",
+        "reason": "generation_stale",
+        "generation": 3,
+        "anchor": null,
+        "traceId": null,
+        "clientTimestampMs": null
+      }
+    },
+    {
+      "type": "Telemetry.Sessions.DomProjection.Input.CdpDropped",
+      "at": "2026-08-07T01:43:53.8973822+00:00",
+      "payload": {
+        "profileId": "1311f0a3-47c8-4455-a0f1-8faf9feec4e3",
+        "sessionId": "f7c9774a-8c29-4285-b28e-7f8d5279f47d",
+        "kind": "input",
+        "reason": "generation_stale",
+        "generation": 3,
+        "anchor": null,
+        "traceId": null,
+        "clientTimestampMs": null
+      }
+    },
+    {
+      "type": "Telemetry.Sessions.Resize.Rejected",
+      "at": "2026-08-07T01:43:10.0146352+00:00",
+      "payload": {
+        "profileId": "1311f0a3-47c8-4455-a0f1-8faf9feec4e3",
+        "sessionId": "f7c9774a-8c29-4285-b28e-7f8d5279f47d",
+        "width": 630,
+        "height": 615,
+        "resizeId": "019fd9e3-73be-7bb4-96b4-63c9b0e01617",
+        "errorCode": "resize_busy",
+        "message": "another command is in progress",
+        "phase": "validate"
       }
     }
   ],
-  "sampleDiff": [
-    {
-      "at": "2026-08-04T22:15:21.22979-03:00",
-      "seq": 13716,
-      "schema": 2,
-      "payload": {
-        "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
-        "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd",
-        "kind": "patch",
-        "treeType": "dom",
-        "sequence": 32,
-        "generation": 3,
-        "timestamp": 1785892521046,
-        "nodeCount": 1,
-        "urlCount": null
-      }
-    },
-    {
-      "at": "2026-08-04T22:15:20.8884985-03:00",
-      "seq": 13715,
-      "schema": 2,
-      "payload": {
-        "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
-        "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd",
-        "kind": "patch",
-        "treeType": "dom",
-        "sequence": 31,
-        "generation": 3,
-        "timestamp": 1785892520851,
-        "nodeCount": 1,
-        "urlCount": null
-      }
-    },
-    {
-      "at": "2026-08-04T22:15:20.6182327-03:00",
-      "seq": 13714,
-      "schema": 2,
-      "payload": {
-        "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
-        "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd",
-        "kind": "patch",
-        "treeType": "dom",
-        "sequence": 30,
-        "generation": 3,
-        "timestamp": 1785892520522,
-        "nodeCount": 1,
-        "urlCount": null
-      }
-    },
-    {
-      "at": "2026-08-04T22:15:05.8710403-03:00",
-      "seq": 13537,
-      "schema": 2,
-      "payload": {
-        "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
-        "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd",
-        "kind": "patch",
-        "treeType": "dom",
-        "sequence": 3,
-        "generation": 1,
-        "timestamp": 1785892505795,
-        "nodeCount": 1,
-        "urlCount": null
-      }
-    },
-    {
-      "at": "2026-08-04T22:15:05.7811376-03:00",
-      "seq": 13536,
-      "schema": 2,
-      "payload": {
-        "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
-        "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd",
-        "kind": "patch",
-        "treeType": "dom",
-        "sequence": 2,
-        "generation": 1,
-        "timestamp": 1785892505731,
-        "nodeCount": 1,
-        "urlCount": null
-      }
-    },
-    {
-      "at": "2026-08-04T22:15:04.5362541-03:00",
-      "seq": 13534,
-      "schema": 2,
-      "payload": {
-        "profileId": "500a9cd2-5348-4ca0-9a41-e69f7b86487d",
-        "sessionId": "f9c051c4-774b-4f1b-aace-f6d10d76eefd",
-        "kind": "snapshot",
-        "treeType": "dom",
-        "sequence": 1,
-        "generation": 1,
-        "timestamp": 1785892504401,
-        "nodeCount": null,
-        "urlCount": null
-      }
-    }
-  ]
+  "smokeUi": {
+    "renderedGoogle": true,
+    "typedSearch": "speculum smoke",
+    "autocompleteSuggestions": true,
+    "cursorScreenshotTimedOut": true,
+    "note": "a11y snapshot showed Portuguese Google + suggestions; fill on search box worked; click targets often intercepted by header login link overlay"
+  }
 }

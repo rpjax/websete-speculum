@@ -42,7 +42,7 @@ export const MIRROR_MODE_OPTIONS: Array<[string, string, string]> = [
     'JPEG screencast frames and coordinate input.',
   ],
   [
-    'domProjection',
+    'pageProjection',
     'DOM projection',
     'Projected DOM diffs and element input.',
   ],
@@ -463,7 +463,7 @@ export function fillSessionsGaps(current: JsonObject): JsonObject {
     dataStreamTransport:
       text(current.dataStreamTransport) === 'webSocket' ? 'webSocket' : 'webTransport',
     mirrorMode:
-      text(current.mirrorMode) === 'domProjection' ? 'domProjection' : 'videoStreaming',
+      text(current.mirrorMode) === 'pageProjection' ? 'pageProjection' : 'videoStreaming',
     viewportPolicy: current.viewportPolicy ?? SESSIONS_BASELINE.viewportPolicy,
     clientEnvironmentPolicy:
       current.clientEnvironmentPolicy ?? SESSIONS_BASELINE.clientEnvironmentPolicy,
@@ -534,7 +534,7 @@ export function summarizeSessions(value: JsonObject) {
   const dataStreamTransport =
     text(value.dataStreamTransport) === 'webSocket' ? 'webSocket' : 'webTransport'
   const mirrorMode =
-    text(value.mirrorMode) === 'domProjection' ? 'domProjection' : 'videoStreaming'
+    text(value.mirrorMode) === 'pageProjection' ? 'pageProjection' : 'videoStreaming'
   const viewport = asObject(asObject(value.viewportPolicy).default)
   const width = asNumber(viewport.width)
   const height = asNumber(viewport.height)

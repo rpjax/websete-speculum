@@ -52,7 +52,7 @@ function toLaunchOptions(req) {
     };
 }
 function resolveMirrorMode(raw) {
-    return raw === 'domProjection' ? 'domProjection' : 'videoStreaming';
+    return raw === 'pageProjection' ? 'pageProjection' : 'videoStreaming';
 }
 function resolveScreencastMaxEncodeScale(raw) {
     const n = Number(raw);

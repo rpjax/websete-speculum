@@ -10,10 +10,12 @@ type LabCanvasStageProps = Pick<
   | 'height'
   | 'live'
   | 'attachFrameSink'
-  | 'attachDomDiffSink'
+  | 'attachPageProjectionDiffSink'
+  | 'attachPageProjectionLifecycleSink'
   | 'onInput'
   | 'onDomInput'
   | 'onDiffObserve'
+  | 'registerApplierProbe'
   | 'requestRemoteResize'
   | 'viewportPolicy'
   | 'onCanvasLayout'
@@ -42,10 +44,12 @@ export function LabCanvasStage({
   height,
   live,
   attachFrameSink,
-  attachDomDiffSink,
+  attachPageProjectionDiffSink,
+  attachPageProjectionLifecycleSink,
   onInput,
   onDomInput,
   onDiffObserve,
+  registerApplierProbe,
   requestRemoteResize,
   viewportPolicy,
   onCanvasLayout,
@@ -73,10 +77,12 @@ export function LabCanvasStage({
         height={height}
         live={live}
         attachFrameSink={attachFrameSink}
-        attachDomDiffSink={attachDomDiffSink}
+        attachPageProjectionDiffSink={attachPageProjectionDiffSink}
+        attachPageProjectionLifecycleSink={attachPageProjectionLifecycleSink}
         onInput={onInput}
         onDomInput={onDomInput}
         onDiffObserve={onDiffObserve}
+        registerApplierProbe={registerApplierProbe}
         requestRemoteResize={requestRemoteResize}
         viewportPolicy={viewportPolicy}
         onCanvasLayout={onCanvasLayout}

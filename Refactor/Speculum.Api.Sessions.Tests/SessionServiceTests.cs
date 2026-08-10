@@ -15,7 +15,7 @@ using Speculum.Api.Profiles.Services.Contracts;
 using Speculum.Api.Sessions.Aggregates;
 using Speculum.Api.Sessions.Events.Models;
 using Speculum.Api.Sessions.Events.Services.Contracts;
-using Speculum.Api.Sessions.Mirror.DomProjection;
+using Speculum.Api.Sessions.Mirror.PageProjection;
 using Speculum.Api.Sessions.Models;
 using Speculum.Api.Sessions.Requests;
 using Speculum.Api.Sessions.Responses;
@@ -728,7 +728,7 @@ public sealed class SessionServiceTests
         private readonly Action _onClose;
         private bool _open = true;
         private readonly Channel<Frame> _frames = Channel.CreateUnbounded<Frame>();
-        private readonly Channel<DomDiff> _domDiffs = Channel.CreateUnbounded<DomDiff>();
+        private readonly Channel<PageProjectionDiff> _domDiffs = Channel.CreateUnbounded<PageProjectionDiff>();
         private readonly Channel<ConsoleOutput> _console = Channel.CreateUnbounded<ConsoleOutput>();
         private readonly Channel<SessionNotification> _notifications = Channel.CreateUnbounded<SessionNotification>();
 
@@ -792,8 +792,8 @@ public sealed class SessionServiceTests
         public IResult<ChannelReader<Frame>> GetFrameReader()
             => Result<ChannelReader<Frame>>.Success(_frames.Reader);
 
-        public IResult<ChannelReader<DomDiff>> GetDomDiffReader()
-            => Result<ChannelReader<DomDiff>>.Success(_domDiffs.Reader);
+        public IResult<ChannelReader<PageProjectionDiff>> GetPageProjectionDiffReader()
+            => Result<ChannelReader<PageProjectionDiff>>.Success(_domDiffs.Reader);
 
         public IResult<ChannelReader<ConsoleOutput>> GetConsoleOutputReader()
             => Result<ChannelReader<ConsoleOutput>>.Success(_console.Reader);
@@ -814,7 +814,7 @@ public sealed class SessionServiceTests
         public IResult<Task> ConsumeVideoStreamingInputAsync(ChannelReader<VideoStreamingInput> channelReader)
             => Result<Task>.Success(Task.CompletedTask);
 
-        public IResult<Task> ConsumeDomProjectionInputAsync(ChannelReader<DomProjectionInput> channelReader)
+        public IResult<Task> ConsumePageProjectionIntentAsync(ChannelReader<PageProjectionIntent> channelReader)
             => Result<Task>.Success(Task.CompletedTask);
 
         public Task<IResult<DomAsset>> GetDomAssetAsync(
@@ -823,6 +823,13 @@ public sealed class SessionServiceTests
             string? kind = null,
             string? rangeHeader = null)
             => Task.FromResult<IResult<DomAsset>>(Result<DomAsset>.Failure("not implemented"));
+
+        public Task<IResult<PageProjectionResyncSnapshot>> GetPageProjectionResyncAsync(
+            long generation,
+            long sequence,
+            CancellationToken ct = default)
+            => Task.FromResult<IResult<PageProjectionResyncSnapshot>>(
+                Result<PageProjectionResyncSnapshot>.Failure("not implemented"));
 
         public Task<IResult> PutDomUploadAsync(
             string uploadId,
@@ -834,5 +841,19 @@ public sealed class SessionServiceTests
 
         public IResult<Task> ConsumeConsoleInputAsync(ChannelReader<ConsoleInput> channelReader)
             => Result<Task>.Success(Task.CompletedTask);
+
+        public void BindPageProjectionDiffTelemetry(IPageProjectionDiffTelemetry? telemetry) { }
+
+        public void ReportPageProjectionDiffQueueDropped(
+            string stage,
+            int droppedCount,
+            int capacity,
+            long? sequence = null,
+            long? generation = null,
+            string? plane = null,
+            string? operation = null,
+            long? lowestDroppedSequence = null,
+            long? highestDroppedSequence = null,
+            string? reason = null) { }
     }
 }

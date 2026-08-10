@@ -159,10 +159,12 @@ export default function SessionLabPage() {
             height={session.remoteViewport.height}
             live={session.isLive}
             attachFrameSink={session.attachFrameSink}
-            attachDomDiffSink={session.attachDomDiffSink}
+            attachPageProjectionDiffSink={session.attachPageProjectionDiffSink}
+            attachPageProjectionLifecycleSink={session.attachPageProjectionLifecycleSink}
             onInput={session.sendInput}
             onDomInput={session.sendDomInput}
-            onDiffObserve={session.observeDomDiffApply}
+            onDiffObserve={session.observePageProjectionDiffApply}
+            registerApplierProbe={session.registerPageProjectionApplierProbe}
             requestRemoteResize={session.requestRemoteResize}
             viewportPolicy={session.viewportPolicy ?? undefined}
             onCanvasLayout={session.onCanvasLayout}

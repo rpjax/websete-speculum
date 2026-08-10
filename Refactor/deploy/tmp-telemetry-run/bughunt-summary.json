@@ -1,0 +1,231 @@
+{
+  "since": "2026-08-09T23:22:10.240Z",
+  "sessionId": "c82ed6e8-30ab-4c06-8304-74726ae71c93",
+  "coldPhase": "armed",
+  "cold": {
+    "sessionId": "c82ed6e8-30ab-4c06-8304-74726ae71c93",
+    "href": "http://127.0.0.1:8080/?_w7s_nso=eyJ2IjoxLCJoIjoiIn0%3D",
+    "childCount": 5,
+    "bodyKids": 20,
+    "htmlLen": 311120,
+    "textLen": 1733,
+    "text": "English EU\nBRL\nLog in\n | \nRegister\nCategories\nGames -90%\nSoftware\neGift Cards\nNordVPN\nEneba Gift Cards\nFC27\nGame Points ⚡\nSurfshark VPN\nGAME POINTS | AUG 26\nSURFSHARK | AUG 26\nPSN GIFT CARDS | MAY 26\nUP TO -90% CHEAPER\nGames\nGaming eCards\ne",
+    "scrollTop": 0,
+    "scrollHeight": 4872,
+    "clientHeight": 900,
+    "ownedRules": 1832,
+    "styleCount": 5,
+    "anchorCount": 789,
+    "duplicateAnchors": [],
+    "duplicateAnchorTotal": 0,
+    "frontHops": {
+      "lifecycle": 8,
+      "syncUrl": 2,
+      "client_recv": 1,
+      "client_arm": 1,
+      "client_apply": 1
+    },
+    "desync": null,
+    "framedErr": null,
+    "armedHint": true,
+    "scriptSrc": "http://127.0.0.1:8080/w7s/assets/index-B7bxFHiz.js",
+    "maxMessageHint": null,
+    "phase": "armed",
+    "waitedMs": 4628
+  },
+  "acts": [
+    {
+      "name": "click_center",
+      "ms": 1038,
+      "err": null,
+      "before": {
+        "scrollTop": 0,
+        "htmlLen": 539714,
+        "textLen": 3664,
+        "href": "http://127.0.0.1:8080/?_w7s_nso=eyJ2IjoxLCJoIjoiIn0%3D",
+        "desync": null,
+        "dups": 0
+      },
+      "after": {
+        "scrollTop": 0,
+        "htmlLen": 267587,
+        "textLen": 1430,
+        "href": "http://127.0.0.1:8080/promo/game-points?itm_source=eneba&itm_medium=banner&itm_campaign=Game_Points&_w7s_nso=eyJ2IjoxLCJoIjoiIn0%3D",
+        "desync": null,
+        "dups": 0,
+        "bodyKids": 24
+      },
+      "delta": {
+        "scrollTop": 0,
+        "htmlLen": -272127,
+        "textLen": -2234,
+        "hrefChanged": true
+      }
+    },
+    {
+      "name": "wheel_down_600",
+      "ms": 1053,
+      "err": null,
+      "before": {
+        "scrollTop": 0,
+        "htmlLen": 267587,
+        "textLen": 1430,
+        "href": "http://127.0.0.1:8080/promo/game-points?itm_source=eneba&itm_medium=banner&itm_campaign=Game_Points&_w7s_nso=eyJ2IjoxLCJoIjoiIn0%3D",
+        "desync": null,
+        "dups": 0
+      },
+      "after": {
+        "scrollTop": 0,
+        "htmlLen": 296457,
+        "textLen": 2196,
+        "href": "http://127.0.0.1:8080/promo/game-points?itm_source=eneba&itm_medium=banner&itm_campaign=Game_Points&_w7s_nso=eyJ2IjoxLCJoIjoiIn0%3D",
+        "desync": null,
+        "dups": 0,
+        "bodyKids": 28
+      },
+      "delta": {
+        "scrollTop": 0,
+        "htmlLen": 28870,
+        "textLen": 766,
+        "hrefChanged": false
+      }
+    },
+    {
+      "name": "wheel_up_300",
+      "ms": 1059,
+      "err": null,
+      "before": {
+        "scrollTop": 0,
+        "htmlLen": 296457,
+        "textLen": 2196,
+        "href": "http://127.0.0.1:8080/promo/game-points?itm_source=eneba&itm_medium=banner&itm_campaign=Game_Points&_w7s_nso=eyJ2IjoxLCJoIjoiIn0%3D",
+        "desync": null,
+        "dups": 0
+      },
+      "after": {
+        "scrollTop": 0,
+        "htmlLen": 593111,
+        "textLen": 4739,
+        "href": "http://127.0.0.1:8080/promo/game-points?itm_source=eneba&itm_medium=banner&itm_campaign=Game_Points&_w7s_nso=eyJ2IjoxLCJoIjoiIn0%3D",
+        "desync": null,
+        "dups": 0,
+        "bodyKids": 28
+      },
+      "delta": {
+        "scrollTop": 0,
+        "htmlLen": 296654,
+        "textLen": 2543,
+        "hrefChanged": false
+      }
+    },
+    {
+      "name": "click_navish",
+      "ms": 1040,
+      "err": "locator.click: Element is not visible\nCall log:\n  - waiting for locator('[data-speculum-dom-surface] a, [data-speculum-dom-surface] button').filter({ hasText: /promo|cabelo|entrar|buscar|search|categor|perfume|skincare|login|games|steam|store|log in|register/i }).first()\n    - locator resolved to <a class=\"IE00Tb\" rel=\"noopener nofollow\" speculum-anchor=\"agul3ynzogify\" speculum-last-mutation-sequence=\"317\" href=\"https://my.eneba.com/login?ref=%2Fpromo%2Fgame-points%3Fitm_source%3Deneba%26itm_medium%3Dbanner%26itm_campaign%3DGame_Points\">Log in</a>\n  - attempting click action\n    - scrolling into view if needed\n",
+      "before": {
+        "scrollTop": 0,
+        "htmlLen": 593111,
+        "textLen": 4739,
+        "href": "http://127.0.0.1:8080/promo/game-points?itm_source=eneba&itm_medium=banner&itm_campaign=Game_Points&_w7s_nso=eyJ2IjoxLCJoIjoiIn0%3D",
+        "desync": null,
+        "dups": 0
+      },
+      "after": {
+        "scrollTop": 300,
+        "htmlLen": 1014910,
+        "textLen": 7123,
+        "href": "http://127.0.0.1:8080/promo/game-points?itm_source=eneba&itm_medium=banner&itm_campaign=Game_Points&_w7s_nso=eyJ2IjoxLCJoIjoiIn0%3D",
+        "desync": null,
+        "dups": 0,
+        "bodyKids": 32
+      },
+      "delta": {
+        "scrollTop": 300,
+        "htmlLen": 421799,
+        "textLen": 2384,
+        "hrefChanged": false
+      }
+    },
+    {
+      "name": "search_type",
+      "ms": 1341,
+      "err": null,
+      "before": {
+        "scrollTop": 300,
+        "htmlLen": 1014910,
+        "textLen": 7123,
+        "href": "http://127.0.0.1:8080/promo/game-points?itm_source=eneba&itm_medium=banner&itm_campaign=Game_Points&_w7s_nso=eyJ2IjoxLCJoIjoiIn0%3D",
+        "desync": null,
+        "dups": 0
+      },
+      "after": {
+        "scrollTop": 0,
+        "htmlLen": 1031386,
+        "textLen": 7254,
+        "href": "http://127.0.0.1:8080/promo/game-points?itm_source=eneba&itm_medium=banner&itm_campaign=Game_Points&_w7s_nso=eyJ2IjoxLCJoIjoiIn0%3D",
+        "desync": null,
+        "dups": 0,
+        "bodyKids": 34
+      },
+      "delta": {
+        "scrollTop": -300,
+        "htmlLen": 16476,
+        "textLen": 131,
+        "hrefChanged": false
+      }
+    },
+    {
+      "name": "search_enter",
+      "ms": 2532,
+      "err": null,
+      "before": {
+        "scrollTop": 0,
+        "htmlLen": 1031386,
+        "textLen": 7254,
+        "href": "http://127.0.0.1:8080/promo/game-points?itm_source=eneba&itm_medium=banner&itm_campaign=Game_Points&_w7s_nso=eyJ2IjoxLCJoIjoiIn0%3D",
+        "desync": null,
+        "dups": 0
+      },
+      "after": {
+        "scrollTop": 0,
+        "htmlLen": 1048590,
+        "textLen": 7123,
+        "href": "http://127.0.0.1:8080/promo/game-points?itm_source=eneba&itm_medium=banner&itm_campaign=Game_Points&_w7s_nso=eyJ2IjoxLCJoIjoiIn0%3D",
+        "desync": null,
+        "dups": 0,
+        "bodyKids": 36
+      },
+      "delta": {
+        "scrollTop": 0,
+        "htmlLen": 17204,
+        "textLen": -131,
+        "hrefChanged": false
+      }
+    }
+  ],
+  "final": {
+    "phaseHints": {
+      "desync": null,
+      "framedErr": null,
+      "dups": 0,
+      "bodyKids": 36,
+      "textLen": 7123,
+      "scrollHeight": 900,
+      "clientHeight": 900
+    },
+    "frontHops": {
+      "client_apply": 948,
+      "client_recv": 939,
+      "client_sent": 27,
+      "lifecycle": 81,
+      "syncUrl": 1,
+      "cssom/sheetList": 2,
+      "programmaticSuppress": 2
+    },
+    "duplicateAnchors": []
+  },
+  "journalStatus": 200,
+  "journalFactCount": 2221,
+  "frontLines": 2000,
+  "consoleErrors": 0
+}

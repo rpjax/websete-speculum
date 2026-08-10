@@ -1,4 +1,4 @@
-import type { DomDiff, DomProjectionInput, MirrorMode, SessionFrame, SessionInput } from '@/lib/speculum'
+import type { PageProjectionDiff, PageProjectionIntent, MirrorMode, SessionFrame, SessionInput } from '@/lib/speculum'
 import { cn } from '@/lib/utils'
 import type { CanvasSize } from './CanvasViewportSync'
 import { DomProjector, type DomProjectorProps } from './dom/DomProjector'
@@ -14,10 +14,12 @@ export type SessionMirrorSurfaceProps = Omit<SessionViewportProps, 'attachFrameS
   token: string | null
   assetBaseUrl?: string
   attachFrameSink: (sink: (frame: SessionFrame) => void) => () => void
-  attachDomDiffSink: (sink: (diff: DomDiff) => void) => () => void
+  attachPageProjectionDiffSink: (sink: (diff: PageProjectionDiff) => void) => () => void
+  attachPageProjectionLifecycleSink?: DomProjectorProps['attachPageProjectionLifecycleSink']
   onInput: (input: SessionInput) => void
-  onDomInput: (input: DomProjectionInput) => void
+  onDomInput: (input: PageProjectionIntent) => void
   onDiffObserve?: DomProjectorProps['onDiffObserve']
+  registerApplierProbe?: DomProjectorProps['registerApplierProbe']
 }
 
 /**
@@ -31,16 +33,18 @@ export function SessionMirrorSurface({
   token,
   assetBaseUrl,
   attachFrameSink,
-  attachDomDiffSink,
+  attachPageProjectionDiffSink,
+  attachPageProjectionLifecycleSink,
   onInput,
   onDomInput,
   onDiffObserve,
+  registerApplierProbe,
   className,
   ...viewportProps
 }: SessionMirrorSurfaceProps) {
   const hostClass = cn(SESSION_MEASURE_HOST_CLASS, className)
 
-  if (mirrorMode === 'domProjection') {
+  if (mirrorMode === 'pageProjection') {
     return (
       <DomProjector
         width={viewportProps.width}
@@ -49,9 +53,11 @@ export function SessionMirrorSurface({
         sessionId={sessionId}
         token={token}
         assetBaseUrl={assetBaseUrl}
-        attachDomDiffSink={attachDomDiffSink}
+        attachPageProjectionDiffSink={attachPageProjectionDiffSink}
+        attachPageProjectionLifecycleSink={attachPageProjectionLifecycleSink}
         onDomInput={onDomInput}
         onDiffObserve={onDiffObserve}
+        registerApplierProbe={registerApplierProbe}
         requestRemoteResize={viewportProps.requestRemoteResize}
         viewportPolicy={viewportProps.viewportPolicy}
         onCanvasLayout={viewportProps.onCanvasLayout}

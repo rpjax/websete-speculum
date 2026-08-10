@@ -82,9 +82,9 @@ describe('sessionsHelpers', () => {
     expect(asObject(next.screencastPolicy).maxEncodeScale).toBe(2)
   })
 
-  it('preserves domProjection mirror mode when filling gaps', () => {
-    const next = fillSessionsGaps({ mirrorMode: 'domProjection' })
-    expect(next.mirrorMode).toBe('domProjection')
+  it('preserves pageProjection mirror mode when filling gaps', () => {
+    const next = fillSessionsGaps({ mirrorMode: 'pageProjection' })
+    expect(next.mirrorMode).toBe('pageProjection')
   })
 
   it('applies guided presets without wiping unrelated keys', () => {
@@ -126,11 +126,11 @@ describe('sessionsHelpers', () => {
     expect(ready.mirrorModeLabel).toBe('Video streaming')
   })
 
-  it('summarizes domProjection mirror mode', () => {
+  it('summarizes pageProjection mirror mode', () => {
     const ready = summarizeSessions(
-      applySessionsGuidedPreset({ mirrorMode: 'domProjection' }, SESSIONS_GUIDED_PRESETS[0]!),
+      applySessionsGuidedPreset({ mirrorMode: 'pageProjection' }, SESSIONS_GUIDED_PRESETS[0]!),
     )
-    expect(ready.mirrorMode).toBe('domProjection')
+    expect(ready.mirrorMode).toBe('pageProjection')
     expect(ready.mirrorModeLabel).toBe('DOM projection')
   })
 

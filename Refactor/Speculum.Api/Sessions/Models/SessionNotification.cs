@@ -18,19 +18,21 @@ public enum SessionNotificationKind
     VideoStreamingInputPathTrace = 7,
     /// <summary>Opt-in allocation lifecycle from sidecar WatchAllocationLifecycle.</summary>
     AllocationLifecycle = 8,
-    /// <summary>DomProjectionInput rejected.</summary>
-    DomProjectionInputRejected = 9,
-    /// <summary>DomProjectionInput pushed to sidecar successfully (opt-in journal).</summary>
-    DomProjectionInputApplied = 10,
+    /// <summary>PageProjectionIntent rejected.</summary>
+    PageProjectionIntentRejected = 9,
+    /// <summary>PageProjectionIntent pushed to sidecar successfully (opt-in journal).</summary>
+    PageProjectionIntentApplied = 10,
     /// <summary>
-    /// DomProjectionInput path hop
+    /// PageProjectionIntent path hop
     /// (phase = data_plane_received | grpc_pushed | sidecar_admitted | cdp_dropped).
     /// </summary>
-    DomProjectionInputPathTrace = 11,
-    /// <summary>DomDiff frame received from WatchDom (opt-in journal).</summary>
-    DomProjectionDiffFrame = 12,
-    /// <summary>Dom Projection lifecycle (generation_bumped) from WatchDomProjectionLifecycle.</summary>
-    DomProjectionLifecycle = 13,
+    PageProjectionIntentPathTrace = 11,
+    /// <summary>PageProjectionDiff frame received from WatchPageProjectionDiff (opt-in journal).</summary>
+    PageProjectionDiffFrame = 12,
+    /// <summary>PageProjection lifecycle (generation_bumped | queue_dropped) from WatchPageProjectionLifecycle.</summary>
+    PageProjectionLifecycle = 13,
+    /// <summary>API sequenced Diff channel DropAll (opt-in journal).</summary>
+    PageProjectionDiffQueueDropped = 14,
 }
 
 /// <summary>
@@ -98,29 +100,50 @@ public sealed class SessionNotification
     [Key("domAnchor")]
     public string? DomAnchor { get; init; }
 
-    /// <summary>DomDiff kind (diff | cssom).</summary>
-    [Key("domDiffKind")]
-    public string? DomDiffKind { get; init; }
+    /// <summary>PageProjectionDiff plane (dom | cssom).</summary>
+    [Key("pageProjectionDiffPlane")]
+    public string? PageProjectionDiffPlane { get; init; }
 
-    /// <summary>DomDiff target (document | anchors) when kind is diff.</summary>
-    [Key("domDiffTarget")]
-    public string? DomDiffTarget { get; init; }
+    /// <summary>PageProjectionDiff operation.</summary>
+    [Key("pageProjectionDiffOperation")]
+    public string? PageProjectionDiffOperation { get; init; }
 
-    [Key("domDiffTreeType")]
-    public string? DomDiffTreeType { get; init; }
+    [Key("pageProjectionDiffSequence")]
+    public long? PageProjectionDiffSequence { get; init; }
 
-    [Key("domDiffSequence")]
-    public long? DomDiffSequence { get; init; }
+    /// <summary>Sidecar/API PageProjectionDiff timestamp (ms) for FrameReceived facts.</summary>
+    [Key("pageProjectionDiffTimestamp")]
+    public long? PageProjectionDiffTimestamp { get; init; }
 
-    [Key("domDiffNodeCount")]
-    public int? DomDiffNodeCount { get; init; }
+    /// <summary>Cssom install sheet count (FrameReceived enrichment).</summary>
+    [Key("pageProjectionDiffSheetCount")]
+    public int? PageProjectionDiffSheetCount { get; init; }
 
-    [Key("domDiffUrlCount")]
-    public int? DomDiffUrlCount { get; init; }
+    [Key("pageProjectionDiffRuleCount")]
+    public int? PageProjectionDiffRuleCount { get; init; }
 
-    /// <summary>Sidecar/API DomDiff timestamp (ms) for FrameReceived facts.</summary>
-    [Key("domDiffTimestamp")]
-    public long? DomDiffTimestamp { get; init; }
+    [Key("pageProjectionDiffSeededSheetCount")]
+    public int? PageProjectionDiffSeededSheetCount { get; init; }
+
+    /// <summary>
+    /// QueueDropped stage (api_sequenced | api_fanout_no_target | api_fanout_pipe_closed |
+    /// sidecar_bridge | sidecar_requeue_overflow | sidecar_grpc_inflight |
+    /// sidecar_lifecycle_overflow | sidecar_bridge_closed | mapper_rejected).
+    /// </summary>
+    [Key("pageProjectionDiffQueueStage")]
+    public string? PageProjectionDiffQueueStage { get; init; }
+
+    [Key("pageProjectionDiffDroppedCount")]
+    public int? PageProjectionDiffDroppedCount { get; init; }
+
+    [Key("pageProjectionDiffQueueCapacity")]
+    public int? PageProjectionDiffQueueCapacity { get; init; }
+
+    [Key("pageProjectionDiffLowestDroppedSequence")]
+    public long? PageProjectionDiffLowestDroppedSequence { get; init; }
+
+    [Key("pageProjectionDiffHighestDroppedSequence")]
+    public long? PageProjectionDiffHighestDroppedSequence { get; init; }
 
     /// <summary>Client wire correlation id (when present on input).</summary>
     [Key("traceId")]

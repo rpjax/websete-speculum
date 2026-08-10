@@ -1,0 +1,161 @@
+{
+  "sessionId": "c82ed6e8-30ab-4c06-8304-74726ae71c93",
+  "coldPhase": "armed",
+  "findings": [
+    {
+      "id": "NO_SCROLL_RANGE",
+      "severity": "medium",
+      "detail": {
+        "scrollHeight": 900,
+        "clientHeight": 900
+      }
+    },
+    {
+      "id": "CDP_DROPPED",
+      "severity": "medium",
+      "detail": {
+        "count": 1,
+        "reasons": {
+          "anchor_missing": 1
+        },
+        "samples": [
+          {
+            "at": "2026-08-09T23:22:18.4669167+00:00",
+            "profileId": "91ea302a-b588-422c-b117-970bf1ad0b15",
+            "sessionId": "c82ed6e8-30ab-4c06-8304-74726ae71c93",
+            "kind": "blur",
+            "reason": "anchor_missing",
+            "generation": 1,
+            "anchor": null,
+            "traceId": null,
+            "clientTimestampMs": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "WHEEL_NO_EFFECT",
+      "severity": "high",
+      "detail": [
+        {
+          "name": "wheel_down_600",
+          "delta": {
+            "scrollTop": 0,
+            "htmlLen": 28870,
+            "textLen": 766,
+            "hrefChanged": false
+          },
+          "desyncAfter": false
+        },
+        {
+          "name": "wheel_up_300",
+          "delta": {
+            "scrollTop": 0,
+            "htmlLen": 296654,
+            "textLen": 2543,
+            "hrefChanged": false
+          },
+          "desyncAfter": false
+        }
+      ]
+    },
+    {
+      "id": "ACT_ERRORS",
+      "severity": "medium",
+      "detail": [
+        {
+          "name": "click_navish",
+          "err": "locator.click: Element is not visible\nCall log:\n  - waiting for locator('[data-speculum-dom-surface] a, [data-speculum-dom-surface] button').filter({ hasText: /promo|cabelo|entrar|buscar|search|categor|perfume|skincare|login|games|steam|sto"
+        }
+      ]
+    }
+  ],
+  "metrics": {
+    "frontLines": 2000,
+    "factCount": 2221,
+    "appliedInputs": 27,
+    "cdpDropped": 1,
+    "scrollEchoHit": 1,
+    "programmaticSuppress": 2,
+    "generationBumped": 0,
+    "softNav": 2,
+    "hopCounts": {
+      "client_apply": 948,
+      "client_recv": 939,
+      "lifecycle": 81,
+      "client_sent": 27,
+      "cssom/sheetList": 2,
+      "programmaticSuppress": 2,
+      "syncUrl": 1
+    },
+    "duplicateAnchors": []
+  },
+  "acts": [
+    {
+      "name": "click_center",
+      "err": null,
+      "delta": {
+        "scrollTop": 0,
+        "htmlLen": -272127,
+        "textLen": -2234,
+        "hrefChanged": true
+      },
+      "desyncAfter": false
+    },
+    {
+      "name": "wheel_down_600",
+      "err": null,
+      "delta": {
+        "scrollTop": 0,
+        "htmlLen": 28870,
+        "textLen": 766,
+        "hrefChanged": false
+      },
+      "desyncAfter": false
+    },
+    {
+      "name": "wheel_up_300",
+      "err": null,
+      "delta": {
+        "scrollTop": 0,
+        "htmlLen": 296654,
+        "textLen": 2543,
+        "hrefChanged": false
+      },
+      "desyncAfter": false
+    },
+    {
+      "name": "click_navish",
+      "err": "locator.click: Element is not visible\nCall log:\n  - waiting for locator('[data-speculum-dom-surface] a, [data-speculum-dom-surface] button').filter({ hasText: /promo|cabelo|entrar|buscar|search|categor|perfume|skincare|login|games|steam|store|log in|register/i }).first()\n    - locator resolved to <a class=\"IE00Tb\" rel=\"noopener nofollow\" speculum-anchor=\"agul3ynzogify\" speculum-last-mutation-sequence=\"317\" href=\"https://my.eneba.com/login?ref=%2Fpromo%2Fgame-points%3Fitm_source%3Deneba%26itm_medium%3Dbanner%26itm_campaign%3DGame_Points\">Log in</a>\n  - attempting click action\n    - scrolling into view if needed\n",
+      "delta": {
+        "scrollTop": 300,
+        "htmlLen": 421799,
+        "textLen": 2384,
+        "hrefChanged": false
+      },
+      "desyncAfter": false
+    },
+    {
+      "name": "search_type",
+      "err": null,
+      "delta": {
+        "scrollTop": -300,
+        "htmlLen": 16476,
+        "textLen": 131,
+        "hrefChanged": false
+      },
+      "desyncAfter": false
+    },
+    {
+      "name": "search_enter",
+      "err": null,
+      "delta": {
+        "scrollTop": 0,
+        "htmlLen": 17204,
+        "textLen": -131,
+        "hrefChanged": false
+      },
+      "desyncAfter": false
+    }
+  ]
+}

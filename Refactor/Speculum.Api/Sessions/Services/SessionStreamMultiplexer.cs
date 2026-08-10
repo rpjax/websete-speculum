@@ -3,7 +3,7 @@ using System.Threading.Channels;
 using Aidan.Core.Patterns;
 using Speculum.Api.BrowserClients;
 using Speculum.Api.Configurations.Models.Sessions;
-using Speculum.Api.Sessions.Mirror.DomProjection;
+using Speculum.Api.Sessions.Mirror.PageProjection;
 using Speculum.Api.Sessions.Models;
 using Speculum.Api.Sessions.Services.Contracts;
 using Speculum.Api.Sessions.Services.Streaming;
@@ -61,10 +61,11 @@ internal sealed class SessionStreamMultiplexer : ISessionStreamMultiplexer
 
         var channels = new PipeStreamChannels(
             DropOldestChannels.Create<Frame>(capacity: 2),
-            DropOldestChannels.Create<DomDiff>(capacity: 4),
+            // T5/D13: Wait + fan-out WriteAsync (lossless). DropAll only on connection api_sequenced.
+            SequencedDiffChannels.CreateForFanOutTarget<PageProjectionDiff>(
+                SequencedDiffChannels.DefaultCapacity),
             DropOldestChannels.Create<ConsoleOutput>(capacity: 256),
-            DropOldestChannels.Create<SessionNotification>(capacity: 32));
-
+            DropOldestChannels.Create<SessionNotification>(capacity: 512));
         if (!_pipes.TryAdd(pipeId, channels))
         {
             channels.Complete();
@@ -147,14 +148,14 @@ internal sealed class SessionStreamMultiplexer : ISessionStreamMultiplexer
         return Result<ChannelReader<Frame>>.Success(channels.Frames.Reader);
     }
 
-    public IResult<ChannelReader<DomDiff>> GetDomDiffsChannel(Guid pipeId)
+    public IResult<ChannelReader<PageProjectionDiff>> GetPageProjectionDiffsChannel(Guid pipeId)
     {
         if (!_pipes.TryGetValue(pipeId, out var channels))
         {
-            return Result<ChannelReader<DomDiff>>.Failure("Pipe is not registered");
+            return Result<ChannelReader<PageProjectionDiff>>.Failure("Pipe is not registered");
         }
 
-        return Result<ChannelReader<DomDiff>>.Success(channels.DomDiffs.Reader);
+        return Result<ChannelReader<PageProjectionDiff>>.Success(channels.PageProjectionDiffs.Reader);
     }
 
     public IResult<ChannelReader<ConsoleOutput>> GetConsoleOutputChannel(Guid pipeId)

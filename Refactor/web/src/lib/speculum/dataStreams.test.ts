@@ -141,30 +141,30 @@ describe('DataStreams.sendInput', () => {
     await streams.close()
   })
 
-  it('opens DomProjectionInput only in DomProjection mode', async () => {
+  it('opens PageProjectionIntent only in PageProjection mode', async () => {
     const transport = new MockDataStreamTransport()
     const streams = new DataStreams({
       sessionId: '00000000-0000-0000-0000-000000000002',
       token: 'test-token',
-      mirrorMode: 'domProjection',
+      mirrorMode: 'pageProjection',
       transport,
     })
 
     await streams.open()
     expect(transport.pipes.has(PipeKind.VideoStreamingInput)).toBe(false)
-    expect(transport.pipes.has(PipeKind.DomProjectionInput)).toBe(true)
+    expect(transport.pipes.has(PipeKind.PageProjectionIntent)).toBe(true)
 
-    await streams.sendDomProjectionInput({
+    await streams.sendPageProjectionIntent({
       type: 'mousedown',
       anchor: 'a1',
       generation: 1,
       payload: JSON.stringify({ x: 10, y: 20, button: 0 }),
     })
 
-    const chunks = transport.pipes.get(PipeKind.DomProjectionInput)
+    const chunks = transport.pipes.get(PipeKind.PageProjectionIntent)
     expect(chunks).toBeDefined()
     const bytes = concat(chunks!)
-    expect(bytes[0]).toBe(PipeKind.DomProjectionInput)
+    expect(bytes[0]).toBe(PipeKind.PageProjectionIntent)
 
     await expect(
       streams.sendInput({ type: 'mousedown', x: 1, y: 2, button: 0 }),

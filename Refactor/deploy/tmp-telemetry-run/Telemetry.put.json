@@ -1,0 +1,101 @@
+{
+  "isEnabled": true,
+  "intervalSeconds": 60,
+  "host": {
+    "isEnabled": true,
+    "procPath": "/proc",
+    "diskPath": null,
+    "sampleIntervalMs": 1000,
+    "includeLoadAverage": true,
+    "includeSwap": true,
+    "includeDiskIo": false,
+    "includeNetwork": false
+  },
+  "apiProcess": {
+    "isEnabled": true,
+    "sampleIntervalMs": 1000,
+    "includePrivateMemory": true,
+    "includeGarbageCollection": true,
+    "includeThreadPool": true
+  },
+  "sessions": {
+    "isEnabled": true,
+    "includeSessionIds": false,
+    "includePerSession": false,
+    "includeUrlHost": true
+  },
+  "sidecar": {
+    "isEnabled": true,
+    "includeProcess": true,
+    "includeEventLoop": true,
+    "includeChrome": true,
+    "includeQueues": true,
+    "includeSessionsSummary": true,
+    "includeFaultedIds": true,
+    "includeAllocationsSummary": true,
+    "includeAllocationSessions": false,
+    "timeoutMs": 2000
+  },
+  "profiles": {
+    "isEnabled": true,
+    "includeStorageBytes": true
+  },
+  "journal": {
+    "isEnabled": true,
+    "includePressure": true
+  },
+  "docker": {
+    "isEnabled": false,
+    "endpoint": "unix:///var/run/docker.sock",
+    "includeRuntime": true,
+    "includeContainers": true,
+    "timeoutMs": 2000
+  },
+  "events": {
+    "Telemetry.Sessions.Sidecar.SessionAllocated": true,
+    "Telemetry.Sessions.PageProjection.Diff.FrameReceived": true,
+    "Telemetry.Sessions.VideoStreamingInput.SidecarAdmitted": true,
+    "Telemetry.Sessions.Start.UrlResolveFailed": true,
+    "Telemetry.Sessions.PageProjection.Input.AdmissionDropped": true,
+    "Telemetry.Sessions.Sidecar.DisplayAllocated": true,
+    "Telemetry.Sessions.Client.AttachedCommandFailed": true,
+    "Telemetry.Sessions.Sidecar.SessionReleased": true,
+    "Telemetry.Sessions.VideoStreamingInput.ControlReceived": true,
+    "Telemetry.Sessions.PageProjection.Input.Applied": true,
+    "Telemetry.Sessions.Capacity.NoSlotAvailable": false,
+    "Telemetry.Sessions.VideoStreamingInput.Applied": true,
+    "Telemetry.Sessions.VideoStreamingInput.DataPlaneReceived": true,
+    "Telemetry.Sessions.Start.UrlResolved": true,
+    "Telemetry.Sessions.Resize.Applied": true,
+    "Telemetry.Sessions.Browse.LocationChanged": true,
+    "Telemetry.Sessions.PageProjection.Input.CdpDropped": true,
+    "Telemetry.Sessions.Resize.Rejected": true,
+    "Telemetry.Sessions.PageProjection.Input.DataPlaneReceived": true,
+    "Telemetry.Sessions.Capacity.SlotReleased": true,
+    "Telemetry.Sessions.Sidecar.DisplayReleased": true,
+    "Telemetry.Sessions.PageProjection.Input.Rejected": true,
+    "Telemetry.Sessions.PageProjection.Input.SidecarPushWritten": true,
+    "Telemetry.Sessions.Persist.SkippedProfileNotFound": false,
+    "Telemetry.Sessions.VideoStreamingInput.SidecarPushWritten": true,
+    "Telemetry.Sessions.Persist.SkippedNoConnection": false,
+    "Telemetry.Sessions.PageProjection.Input.SidecarAdmitted": true,
+    "Telemetry.Sessions.Sidecar.AllocationFaulted": true,
+    "Telemetry.Sessions.PageProjection.Diff.GenerationBumped": true,
+    "Telemetry.Sessions.PageProjection.Diff.SoftNavObserved": true,
+    "Telemetry.Sessions.PageProjection.Diff.QueueDropped": true,
+    "Telemetry.Sessions.PageProjection.Diff.WireDelivered": true,
+    "Telemetry.Sessions.PageProjection.Diff.ResyncRequested": true,
+    "Telemetry.Sessions.PageProjection.Diff.ResyncServed": true,
+    "Telemetry.Sessions.PageProjection.Input.ScrollEchoHit": true,
+    "Telemetry.Sessions.VideoStreamingInput.Rejected": true,
+    "Telemetry.Sessions.Capacity.SlotAcquired": true,
+    "Telemetry.Sessions.Navigate.UrlResolved": true
+  },
+  "clientObservation": {
+    "isEnabled": true,
+    "sessionWire": true,
+    "videoStreamingInput": false,
+    "pageProjectionDiff": true,
+    "pageProjectionIntent": true
+  }
+}

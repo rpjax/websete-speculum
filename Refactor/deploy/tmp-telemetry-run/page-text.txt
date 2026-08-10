@@ -11,12 +11,3 @@ live
 
 BROWSER
 127.0.0.1/
-
-TudoImagens
-Fazer login
-Pesquisas em alta
-Brasil
-Tema escuro: desativado
-Configurações
-PrivacidadeTermos
-PublicidadeNegóciosSobre

@@ -84,28 +84,30 @@ Sample sources use Telemetry ports (`ISessionTelemetrySampleSource`,
 ### Events
 
 Sessions call `ISessionTelemetryEventsFactory.ForSession(…)` and emit through subdomain contracts
-(`Capacity`, `Start`, `VideoStreamingInput`, `DomProjection`, `Resize`, …). Catalog gating still
+(`Capacity`, `Start`, `VideoStreamingInput`, `PageProjection`, `Resize`, …). Catalog gating still
 applies — hot-path facts stay quiet until `Telemetry.Events` enables them.
 
 **Planes must not share facts:** screencast mirror input uses
-`Telemetry.Sessions.VideoStreamingInput.*`; Dom Projection uses
-`Telemetry.Sessions.DomProjection.Diff.*` and `Telemetry.Sessions.DomProjection.Input.*`
+`Telemetry.Sessions.VideoStreamingInput.*`; PageProjection uses
+`Telemetry.Sessions.PageProjection.Diff.*` and `Telemetry.Sessions.PageProjection.Input.*`
 (payloads and hops are plane-specific).
 
 | Plane | Path hops (opt-in) | Outcomes |
 |-------|--------------------|----------|
 | VideoStreamingInput | `DataPlaneReceived`, `ControlReceived`, `SidecarPushWritten`, `SidecarAdmitted` | `Applied`, `Rejected` |
-| DomProjection Diff | `Diff.FrameReceived`, `Diff.GenerationBumped` | — (bridge/mux loss via Activity `sequence_gap` + sample `queues.droppedTotal`) |
-| DomProjection Input | `Input.DataPlaneReceived`, `Input.AdmissionDropped`, `Input.SidecarPushWritten`, `Input.SidecarAdmitted`, `Input.CdpDropped` | `Input.Applied` (gRPC push), `Input.Rejected` |
+| PageProjection Diff | `Diff.FrameReceived`, `Diff.QueueDropped`, `Diff.WireDelivered`, `Diff.GenerationBumped`, `Diff.ResyncRequested`, `Diff.ResyncServed` | recovery via OOB resync (Activity `client_desync` / `client_resync_*`) |
+| PageProjection Input | `Input.DataPlaneReceived`, `Input.AdmissionDropped`, `Input.SidecarPushWritten`, `Input.SidecarAdmitted`, `Input.CdpDropped` | `Input.Applied` (gRPC push), `Input.Rejected` |
 
-`Diff.GenerationBumped` (via `WatchDomProjectionLifecycle`) records when sidecar generation
+`Diff.GenerationBumped` (via `WatchPageProjectionLifecycle`) records when sidecar generation
 identity changes: `main_frame_navigated` (contract path) or `page_emit_sync` (Node caught up
-from a page emit with a different gen). Correlate with `FrameReceived` by `from`/`to` generation —
-one chronological Diff emitter; Dom frames are `kind=diff` with `target=document|anchors`
-(no separate snapshot kind).
+from a page emit with a different gen). `Diff.QueueDropped` uses the same lifecycle stream for
+`sidecar_bridge` overflows and a connection notification for `api_sequenced` DropAll.
+`Diff.WireDelivered` fires when the API writes a Diff onto the client data-plane.
+`FrameReceived` may include `SheetCount` / `RuleCount` / `SeededSheetCount` on Cssom install.
+Correlate Diff hops by `sessionId` + `generation` + `sequence`.
 
-Sidecar path watches: `WatchVideoStreamingInputPath` / `WatchDomProjectionInputPath` (EventBridge
-`videoStreamingInputPath` / `domProjectionInputPath`). Product RPCs `PushInput` / `PushDomInput` are
+Sidecar path watches: `WatchVideoStreamingInputPath` / `WatchPageProjectionInputPath` (EventBridge
+`videoStreamingInputPath` / `pageProjectionInputPath`). Product RPCs `PushInput` / `PushDomInput` are
 unchanged. `Applied` means the API wrote the gRPC push — CDP success is `SidecarAdmitted`; CDP
 drops are `CdpDropped` with a `reason`.
 
@@ -126,8 +128,8 @@ Export Activity as JSONL and correlate with Journal hops via
 | `IsEnabled` | Master — Activity / Live Observe |
 | `SessionWire` | Hub lifecycle |
 | `VideoStreamingInput` | `client_sent` on `sendInput` (every event while on) |
-| `DomProjectionDiff` | Diff `client_recv` / apply / gap (every frame while on) |
-| `DomProjectionInput` | `client_sent` on `sendDomInput` (every event while on) |
+| `PageProjectionDiff` | Diff `client_recv` / `client_apply` / `client_drop` / `client_desync` / `client_resync_*` / `client_arm` / `client_disarm` (every frame while on) |
+| `PageProjectionIntent` | `client_sent` on `sendPageProjectionIntent` (every event while on) |
 
 `Telemetry.Events` (Journal facts) use the same Telemetry section PUT — dedicated per-fact
 switches in Admin (catalog), not free-form type strings.
@@ -138,15 +140,15 @@ Path / Diff / front planes are **debug-only**. When a fact or ClientObservation 
 emitters early-return (`IsTypeEnabled` / `observationAllowsPlane`) — near-zero cost on the hot
 path. When **on**, capture is **full** for data-plane / Applied / Diff / front hops (every HF move,
 every Diff patch, every Applied): the operator accepts cost. **`SidecarAdmitted` is the exception** —
-VideoStreamingInput and DomProjection both skip high-frequency move samples on the admit hop
+VideoStreamingInput and PageProjection both skip high-frequency move samples on the admit hop
 (`mousemove` / touch-move / `pointermove`), matching the sidecar path fan-out. Prefer Export JSONL
 often; front ring keeps the newest 2000 entries (DropOldest).
 
 Wire: every product send stamps MessagePack `traceId` (opaque client id) and, for video,
 `clientTimestampMs`. Journal path/outcome facts include `TraceId` / `ClientTimestampMs` when
-present (schemaVersion **2**). Dom Diff `FrameReceived` includes sidecar `Timestamp`.
-Dom Projection Input path includes `SidecarAdmitted` / `CdpDropped` via
-`WatchDomProjectionInputPath` (mirror of VideoStreamingInput).
+present (schemaVersion **2**). PageProjection Diff `FrameReceived` includes sidecar `Timestamp`
+and optional Cssom install counts. PageProjection Intent path includes `SidecarAdmitted` /
+`CdpDropped` via `WatchPageProjectionInputPath` (mirror of VideoStreamingInput).
 
 ## Sections (sampling)
 

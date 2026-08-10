@@ -1,0 +1,31 @@
+{
+  "sessionId": "c82ed6e8-30ab-4c06-8304-74726ae71c93",
+  "href": "http://127.0.0.1:8080/?_w7s_nso=eyJ2IjoxLCJoIjoiIn0%3D",
+  "childCount": 5,
+  "bodyKids": 20,
+  "htmlLen": 311120,
+  "textLen": 1733,
+  "text": "English EU\nBRL\nLog in\n | \nRegister\nCategories\nGames -90%\nSoftware\neGift Cards\nNordVPN\nEneba Gift Cards\nFC27\nGame Points ⚡\nSurfshark VPN\nGAME POINTS | AUG 26\nSURFSHARK | AUG 26\nPSN GIFT CARDS | MAY 26\nUP TO -90% CHEAPER\nGames\nGaming eCards\ne",
+  "scrollTop": 0,
+  "scrollHeight": 4872,
+  "clientHeight": 900,
+  "ownedRules": 1832,
+  "styleCount": 5,
+  "anchorCount": 789,
+  "duplicateAnchors": [],
+  "duplicateAnchorTotal": 0,
+  "frontHops": {
+    "lifecycle": 8,
+    "syncUrl": 2,
+    "client_recv": 1,
+    "client_arm": 1,
+    "client_apply": 1
+  },
+  "desync": null,
+  "framedErr": null,
+  "armedHint": true,
+  "scriptSrc": "http://127.0.0.1:8080/w7s/assets/index-B7bxFHiz.js",
+  "maxMessageHint": null,
+  "phase": "armed",
+  "waitedMs": 4628
+}

@@ -138,8 +138,8 @@ export function TelemetryEditor({
     ? [
         clientObservation.sessionWire && 'wire',
         clientObservation.videoStreamingInput && 'video',
-        clientObservation.domProjectionDiff && 'dom diff',
-        clientObservation.domProjectionInput && 'dom input',
+        clientObservation.pageProjectionDiff && 'page diff',
+        clientObservation.pageProjectionIntent && 'page intent',
       ]
         .filter(Boolean)
         .join(' · ') || 'on · no planes'

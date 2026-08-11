@@ -25,7 +25,17 @@ export type DomMapPhaseTimings = {
   mapNodeMs?: number;
   resetPublishedMs?: number;
   cssomMs?: number;
+  /** In-page JSON.stringify of root (/sheets) before CDP return. */
+  stringifyMs?: number;
   pageTotalMs?: number;
+};
+
+/** Result of `__speculumDomMap*` after Node-side JSON.parse of scalar wire strings. */
+type ParsedDomMapEvaluate = {
+  generation?: number;
+  root: DomNodeJson | null;
+  sheets?: unknown[];
+  timings?: DomMapPhaseTimings;
 };
 
 export type PageProjectionEvents = {
@@ -102,6 +112,12 @@ export class PageProjection {
    * OOB resync clones this instead of re-walking Virtual cssRules (C8).
    */
   private readonly cssomInstallById = new Map<string, CssomMirrorSheet>();
+  /**
+   * Install-ready Dom mirror updated after every successful Dom materialize+push.
+   * OOB / resume clones this instead of remapping Virtual (DomMap ms path).
+   * Fail-safe: any apply miss invalidates → next OOB remaps from the page.
+   */
+  private domInstallRoot: DomNodeJson | null = null;
 
   /** PageEpoch parity telemetry (Virtual / Establish / Asset / Resync `parity_*` kinds). */
   private pageEpochId: string | null = null;
@@ -207,6 +223,8 @@ export class PageProjection {
     evaluateWallMs: number;
     approxNodes?: number;
     timings?: DomMapPhaseTimings;
+    /** True when Dom came from `domInstallRoot` clone (no page.evaluate map). */
+    mirror?: boolean;
   }): Record<string, unknown> {
     const t = args.timings ?? {};
     const pageTotalMs = Math.max(0, Number(t.pageTotalMs ?? 0) || 0);
@@ -227,6 +245,7 @@ export class PageProjection {
       cssomMs: Math.max(0, Number(t.cssomMs ?? 0) || 0),
       pageTotalMs,
       cdpTransferMs,
+      mirror: !!args.mirror,
       tVirtualMs: this.tVirtualMs(),
     };
   }
@@ -330,6 +349,7 @@ export class PageProjection {
       this.sequenceGeneration = 1;
       this.liveArmed = false;
       this.cssomInstallById.clear();
+      this.domInstallRoot = null;
       await this.page.evaluate(
         `typeof window.__speculumDomBumpGeneration === "function" && window.__speculumDomBumpGeneration(1)`,
       );
@@ -348,6 +368,7 @@ export class PageProjection {
     this.virtualTelemetry?.stop();
     this.virtualTelemetry = null;
     this.cssomInstallById.clear();
+    this.domInstallRoot = null;
     this.assets.clear();
     this.uploads.clear();
     if (this.cdp) {
@@ -464,6 +485,7 @@ export class PageProjection {
       // Disarm live path until the new epoch's document + install land (T10).
       this.liveArmed = false;
       this.cssomInstallById.clear();
+      this.domInstallRoot = null;
       // Sidecar owns monotonic generation — never adopt a fresh page counter (T3).
       const fromGeneration = this.generation;
       this.generation += 1;
@@ -782,8 +804,8 @@ export class PageProjection {
 
   /**
    * OOB resync snapshot (T8/C8) — does **not** advance live `sequence`.
-   * Dom is remapped under `materializeChain`; Cssom comes from the live install mirror
-   * (no Virtual cssRules walk). Pause live emit for the capture, then T5 re-establish.
+   * Dom comes from the live install mirror when hot (no Virtual DomMap);
+   * Cssom from the Cssom install mirror. Pause live emit for the capture, then T5 re-establish.
    */
   async captureResyncSnapshot(): Promise<{
     generation: number;
@@ -796,7 +818,11 @@ export class PageProjection {
     cssomCloneMs: number;
     rewriteMs: number;
     serializeMs: number;
-    domMapPhases?: DomMapPhaseTimings & { cdpTransferMs?: number; evaluateWallMs?: number };
+    domMapPhases?: DomMapPhaseTimings & {
+      cdpTransferMs?: number;
+      evaluateWallMs?: number;
+      mirror?: boolean;
+    };
   } | null> {
     if (this.stopped) return null;
     // Pre-establish resync would invent watermark 0 — refuse (T8 / T10).
@@ -812,20 +838,41 @@ export class PageProjection {
             path: 'resync',
             tVirtualMs: this.tVirtualMs(),
           });
-          // MapDocument takes MO records + resets publishedAnchors to the snapshot.
           const domMapStartMs = Date.now();
-          const mapped = (await this.page.evaluate(
-            `typeof window.__speculumDomMapDocumentResync === "function"
-              ? window.__speculumDomMapDocumentResync()
-              : window.__speculumDomMapDocument()`,
-          )) as {
-            generation?: number;
-            root: DomNodeJson;
-            timings?: DomMapPhaseTimings;
-          };
-          const evaluateWallMs = Date.now() - domMapStartMs;
+          let root: DomNodeJson | null = null;
+          let mappedTimings: DomMapPhaseTimings | undefined;
+          let usedDomMirror = false;
+          let evaluateWallMs = 0;
+
+          const mirrored = this.cloneDomInstallMirror();
+          if (mirrored) {
+            usedDomMirror = true;
+            root = mirrored;
+            evaluateWallMs = Date.now() - domMapStartMs;
+            mappedTimings = {
+              takeRecordsMs: 0,
+              clearLedgerMs: 0,
+              anchorAllMs: 0,
+              remintMs: 0,
+              mapNodeMs: 0,
+              resetPublishedMs: 0,
+              cssomMs: 0,
+              pageTotalMs: 0,
+            };
+          } else {
+            const mapped = (await this.page.evaluate(
+              `typeof window.__speculumDomMapDocumentResync === "function"
+                ? window.__speculumDomMapDocumentResync()
+                : window.__speculumDomMapDocument()`,
+            )) as Record<string, unknown> | null;
+            evaluateWallMs = Date.now() - domMapStartMs;
+            const parsed = parseMappedDomEvaluate(mapped);
+            root = parsed.root;
+            mappedTimings = parsed.timings;
+          }
+
           const domMapMs = evaluateWallMs;
-          if (!mapped?.root) {
+          if (!root) {
             this.emitParity('parity_establish_failed', {
               pageEpochId,
               generation: this.generation,
@@ -835,7 +882,7 @@ export class PageProjection {
             });
             return null;
           }
-          const approxNodes = countNodesApprox(mapped.root);
+          const approxNodes = countNodesApprox(root);
           this.emitParity(
             'parity_establish_dom_map_completed',
             this.domMapCompletedPayload({
@@ -844,18 +891,20 @@ export class PageProjection {
               path: 'resync',
               evaluateWallMs,
               approxNodes,
-              timings: mapped.timings,
+              timings: mappedTimings,
+              mirror: usedDomMirror,
             }),
           );
           // OOB: rewrite URLs without awaiting asset bodies — pass-through warms on demand.
+          // Mirror roots are already rewritten; rewrite is then a cheap no-op pass.
           const rewriteStartMs = Date.now();
-          await this.rewriteRemoteAssets([mapped.root], { deferFetches: true });
+          await this.rewriteRemoteAssets([root], { deferFetches: true });
           const rewriteMs = Date.now() - rewriteStartMs;
 
           const cssomCloneStartMs = Date.now();
           let sheets: CssomMirrorSheet[] = this.cloneCssomInstallMirror();
           let source: 'mirror' | 'dump_fallback' = 'mirror';
-          // Cold edge: mirror empty before first install landed — one-shot dump fallback.
+          // Cold edge: Cssom mirror empty before first install landed — one-shot dump fallback.
           if (sheets.length === 0) {
             source = 'dump_fallback';
             const cssom = (await this.page.evaluate('window.__speculumDomMapCssom()')) as {
@@ -884,15 +933,15 @@ export class PageProjection {
           const cssomCloneMs = Date.now() - cssomCloneStartMs;
 
           const serializeStartMs = Date.now();
-          JSON.stringify(mapped.root);
+          JSON.stringify(root);
           JSON.stringify(sheets);
           const serializeMs = Date.now() - serializeStartMs;
 
-          const pageTotalMs = Math.max(0, Number(mapped.timings?.pageTotalMs ?? 0) || 0);
+          const pageTotalMs = Math.max(0, Number(mappedTimings?.pageTotalMs ?? 0) || 0);
           return {
             generation: this.generation,
             coversThroughSequence: this.sequence,
-            root: mapped.root,
+            root,
             sheets,
             pageEpochId: this.pageEpochId ?? '',
             source,
@@ -901,9 +950,10 @@ export class PageProjection {
             rewriteMs,
             serializeMs,
             domMapPhases: {
-              ...(mapped.timings ?? {}),
+              ...(mappedTimings ?? {}),
               evaluateWallMs,
               cdpTransferMs: Math.max(0, evaluateWallMs - pageTotalMs),
+              mirror: usedDomMirror,
             },
           };
         } catch {
@@ -948,9 +998,37 @@ export class PageProjection {
   /**
    * After Dom queue drains: re-establish document+install so deferred mutations are not lost
    * as a silent chronology hole (T5 — overflow path stays DropAll+desync only at hard cap).
+   * Hot Dom+Cssom mirrors re-push without MapAndArm; otherwise full establish remap.
    */
   async resumeLiveEmitAfterBackpressure(): Promise<void> {
     if (this.stopped || !this.established) return;
+    if (this.domInstallRoot && this.cssomInstallById.size > 0) {
+      await this.runOnMaterializeChain(async () => {
+        if (this.stopped || !this.domInstallRoot || this.cssomInstallById.size === 0) {
+          await this.enqueueDocumentDiff();
+          return;
+        }
+        try {
+          // Discard buffered MO (same as MapAndArm) then arm — live emits resume after re-push.
+          await this.page.evaluate(
+            `typeof window.__speculumDomPauseLiveEmit === "function" && window.__speculumDomPauseLiveEmit();
+             typeof window.__speculumDomArmLiveEmit === "function" && window.__speculumDomArmLiveEmit();`,
+          );
+        } catch {
+          /* mid-nav — fall through to remap */
+          await this.enqueueDocumentDiff();
+          return;
+        }
+        this.liveArmed = true;
+        await this.materializeAndPush('dom', 'document', {
+          root: structuredClone(this.domInstallRoot),
+        });
+        await this.materializeAndPush('cssom', 'install', {
+          sheets: this.cloneCssomInstallMirror(),
+        });
+      });
+      return;
+    }
     await this.enqueueDocumentDiff();
   }
 
@@ -1020,18 +1098,14 @@ export class PageProjection {
             tVirtualMs: this.tVirtualMs(),
           });
           const domMapStartMs = Date.now();
-          const mapped = (await this.page.evaluate(
+          const mappedRaw = (await this.page.evaluate(
             `typeof window.__speculumDomMapAndArmEstablish === "function"
               ? window.__speculumDomMapAndArmEstablish()
               : null`,
-          )) as {
-            generation?: number;
-            root?: DomNodeJson;
-            sheets?: unknown[];
-            timings?: DomMapPhaseTimings;
-          } | null;
+          )) as Record<string, unknown> | null;
           const evaluateWallMs = Date.now() - domMapStartMs;
-          if (!mapped?.root) {
+          const mapped = parseMappedDomEvaluate(mappedRaw);
+          if (!mapped.root) {
             this.emitParity('parity_establish_failed', {
               pageEpochId,
               generation,
@@ -1173,6 +1247,59 @@ export class PageProjection {
     }
     if (this.stopped) return;
     this.push(plane, operation, payload);
+    // Dom mirror after push so LMS stamp is included (same bytes as the wire).
+    if (plane === 'dom') this.updateDomInstallMirror(operation, payload);
+  }
+
+  private cloneDomInstallMirror(): DomNodeJson | null {
+    return this.domInstallRoot ? structuredClone(this.domInstallRoot) : null;
+  }
+
+  private invalidateDomInstallMirror(reason?: string, detail?: Record<string, unknown>): void {
+    void reason;
+    void detail;
+    this.domInstallRoot = null;
+  }
+
+  /**
+   * Keep OOB Dom mirror in lockstep with live Dom wire state.
+   * Fail-safe: any apply miss drops the mirror → next OOB remaps from Virtual.
+   */
+  private updateDomInstallMirror(
+    operation: string,
+    payload: PageProjectionEmitPayload,
+  ): void {
+    if (operation === 'document') {
+      const root = payload.root as DomNodeJson | undefined;
+      if (root && typeof root === 'object' && typeof root.tag === 'string') {
+        this.domInstallRoot = structuredClone(root);
+      } else {
+        this.invalidateDomInstallMirror('document_empty');
+      }
+      return;
+    }
+    if (!this.domInstallRoot) return;
+    if (operation === 'scrollViewport' || operation === 'scrollElement') return;
+    if (operation === 'childList') {
+      const applied = applyDomMirrorChildList(this.domInstallRoot, payload);
+      if (!applied.ok) {
+        const sel = payload.selector as { query?: string; kind?: string } | undefined;
+        this.invalidateDomInstallMirror('childList_apply', {
+          reason: applied.reason,
+          selectorKind: sel?.kind ?? '',
+          selectorQuery: typeof sel?.query === 'string' ? sel.query.slice(0, 160) : '',
+          removedCount: Array.isArray(payload.removed) ? payload.removed.length : 0,
+          addedCount: Array.isArray(payload.added) ? payload.added.length : 0,
+        });
+      }
+      return;
+    }
+    if (operation === 'patch') {
+      // Soft-skip like Cssom rule patch miss — do not wipe the whole Dom mirror for a
+      // single address miss (remint / race). Structural parent_miss still invalidates.
+      void applyDomMirrorPatch(this.domInstallRoot, payload);
+      return;
+    }
   }
 
   private cloneCssomInstallMirror(): CssomMirrorSheet[] {
@@ -1700,6 +1827,247 @@ export class PageProjection {
 
 function createInlineId(s: string): string {
   return createHash('sha256').update(s).digest('hex').slice(0, 24);
+}
+
+/** Parse DomMap evaluate result — prefers in-page `rootJson`/`sheetsJson` scalars. */
+function parseMappedDomEvaluate(raw: Record<string, unknown> | null | undefined): ParsedDomMapEvaluate {
+  if (!raw || typeof raw !== 'object') {
+    return { root: null };
+  }
+  let root: DomNodeJson | null = null;
+  const rootJson = raw.rootJson;
+  if (typeof rootJson === 'string' && rootJson.length > 0) {
+    try {
+      const parsed = JSON.parse(rootJson) as DomNodeJson;
+      if (parsed && typeof parsed === 'object' && typeof parsed.tag === 'string') root = parsed;
+    } catch {
+      root = null;
+    }
+  } else if (raw.root && typeof raw.root === 'object') {
+    root = raw.root as DomNodeJson;
+  }
+
+  let sheets: unknown[] | undefined;
+  const sheetsJson = raw.sheetsJson;
+  if (typeof sheetsJson === 'string' && sheetsJson.length > 0) {
+    try {
+      const parsed = JSON.parse(sheetsJson) as unknown;
+      if (Array.isArray(parsed)) sheets = parsed;
+    } catch {
+      sheets = undefined;
+    }
+  } else if (Array.isArray(raw.sheets)) {
+    sheets = raw.sheets;
+  }
+
+  return {
+    generation: typeof raw.generation === 'number' ? raw.generation : undefined,
+    root,
+    sheets,
+    timings: (raw.timings && typeof raw.timings === 'object'
+      ? (raw.timings as DomMapPhaseTimings)
+      : undefined),
+  };
+}
+
+type DomMirrorSelector = { kind?: string; query?: string; index?: number };
+
+function unescapeCssAnchor(value: string): string {
+  return value.replace(/\\(.)/g, '$1');
+}
+
+/** Extract `speculum-anchor` from a single `[speculum-anchor="…"]` segment. */
+function anchorFromElementQuery(query: string): string | null {
+  const m = /^\[speculum-anchor=(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)')\]$/i.exec(query.trim());
+  if (!m) return null;
+  return unescapeCssAnchor(m[1] ?? m[2] ?? '');
+}
+
+function nodeAnchor(node: DomNodeJson): string | null {
+  const a = node.anchor || node.attrs?.['speculum-anchor'];
+  return typeof a === 'string' && a ? a : null;
+}
+
+function findDomMirrorByAnchor(root: DomNodeJson, anchor: string): DomNodeJson | null {
+  if (!anchor) return null;
+  if (nodeAnchor(root) === anchor) return root;
+  for (const child of root.children ?? []) {
+    const hit = findDomMirrorByAnchor(child, anchor);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+function findDomMirrorByTag(root: DomNodeJson, tag: string): DomNodeJson | null {
+  const want = tag.toLowerCase();
+  if ((root.tag || '').toLowerCase() === want) return root;
+  for (const child of root.children ?? []) {
+    if (child.tag === '#text' || child.tag === '#comment') continue;
+    const hit = findDomMirrorByTag(child, want);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+/**
+ * Resolve wire `query` against DomNodeJson — supports
+ * `[speculum-anchor="…"]` and compound `… > :nth-child(n)` (element-only steps),
+ * plus legacy `html|body|head` roots.
+ */
+function resolveDomMirrorQuery(root: DomNodeJson, query: string): DomNodeJson | null {
+  const parts = query
+    .split(/\s*>\s*/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (!parts.length) return null;
+
+  const first = parts[0];
+  let cur: DomNodeJson | null = null;
+  const firstAnchor = anchorFromElementQuery(first);
+  if (firstAnchor) {
+    cur = findDomMirrorByAnchor(root, firstAnchor);
+  } else if (/^(html|body|head)$/i.test(first)) {
+    cur = findDomMirrorByTag(root, first);
+  } else {
+    return null;
+  }
+  if (!cur) return null;
+
+  for (let i = 1; i < parts.length; i++) {
+    const step = parts[i];
+    const m = /^:nth-child\((\d+)\)$/i.exec(step);
+    if (!m) return null;
+    const n = Number(m[1]);
+    if (!Number.isFinite(n) || n < 1) return null;
+    // Writer nth-child space = F element siblings only (skip text/comment).
+    let seen = 0;
+    let hit: DomNodeJson | null = null;
+    const kids: DomNodeJson[] = cur.children ?? [];
+    for (const child of kids) {
+      if (child.tag === '#text' || child.tag === '#comment') continue;
+      seen += 1;
+      if (seen === n) {
+        hit = child;
+        break;
+      }
+    }
+    if (!hit) return null;
+    cur = hit;
+  }
+  return cur;
+}
+
+function resolveDomMirrorParent(
+  root: DomNodeJson,
+  selector: DomMirrorSelector | undefined,
+): DomNodeJson | null {
+  if (!selector || typeof selector.query !== 'string') return null;
+  const kind = selector.kind === 'childAt' ? 'childAt' : 'element';
+  const el = resolveDomMirrorQuery(root, selector.query);
+  if (!el) return null;
+  if (kind === 'element') return el;
+  const index = Number(selector.index);
+  if (!Number.isFinite(index) || index < 0) return null;
+  const kids = el.children ?? [];
+  return kids[index] ?? null;
+}
+
+function applyDomMirrorChildList(
+  root: DomNodeJson,
+  payload: PageProjectionEmitPayload,
+): { ok: true } | { ok: false; reason: string } {
+  const selector = payload.selector as DomMirrorSelector | undefined;
+  const parent = resolveDomMirrorParent(root, {
+    kind: 'element',
+    query: typeof selector?.query === 'string' ? selector.query : undefined,
+  });
+  if (!parent || typeof parent.tag !== 'string' || parent.tag === '#text' || parent.tag === '#comment') {
+    return { ok: false, reason: 'parent_miss' };
+  }
+  if (!Array.isArray(parent.children)) parent.children = [];
+
+  const removed = Array.isArray(payload.removed)
+    ? (payload.removed as Array<{ selector?: DomMirrorSelector }>)
+    : [];
+  const removeIndexes = new Set<number>();
+  for (const entry of removed) {
+    const sel = entry?.selector;
+    if (!sel || typeof sel.query !== 'string') continue;
+    if (sel.kind === 'childAt') {
+      const idx = Number(sel.index);
+      // Soft-skip oob removes (mirror shorter than live F-space) — keep mirror hot.
+      if (!Number.isFinite(idx) || idx < 0 || idx >= parent.children.length) continue;
+      removeIndexes.add(idx);
+      continue;
+    }
+    const target = resolveDomMirrorQuery(root, sel.query);
+    if (!target) continue; // already absent in mirror
+    const idx = parent.children.indexOf(target);
+    if (idx < 0) {
+      // Present elsewhere under root but not as direct F-child — structural drift.
+      return { ok: false, reason: `removed_not_direct_child:${sel.query.slice(0, 80)}` };
+    }
+    removeIndexes.add(idx);
+  }
+
+  const added = Array.isArray(payload.added)
+    ? [...(payload.added as Array<{ index?: number; node?: DomNodeJson }>)].sort(
+        (a, b) => Number(a.index) - Number(b.index),
+      )
+    : [];
+  for (const entry of added) {
+    if (!entry?.node || typeof entry.node !== 'object') {
+      return { ok: false, reason: 'added_bad_node' };
+    }
+  }
+
+  const sortedRemove = [...removeIndexes].sort((a, b) => b - a);
+  for (const idx of sortedRemove) {
+    if (idx < 0 || idx >= parent.children.length) continue;
+    parent.children.splice(idx, 1);
+  }
+  for (const entry of added) {
+    let idx = Number(entry.index);
+    if (!Number.isFinite(idx) || idx < 0) idx = parent.children.length;
+    if (idx > parent.children.length) idx = parent.children.length;
+    parent.children.splice(idx, 0, structuredClone(entry.node as DomNodeJson));
+  }
+  return { ok: true };
+}
+
+function applyDomMirrorPatch(root: DomNodeJson, payload: PageProjectionEmitPayload): boolean {
+  const selector = payload.selector as DomMirrorSelector | undefined;
+  const node = payload.node as DomNodeJson | undefined;
+  if (!node || typeof node !== 'object') return false;
+  if (!selector || typeof selector.query !== 'string') return false;
+
+  if (selector.kind === 'childAt') {
+    const parent = resolveDomMirrorQuery(root, selector.query);
+    if (!parent) return false;
+    const idx = Number(selector.index);
+    if (!Number.isFinite(idx) || idx < 0 || !parent.children || idx >= parent.children.length) {
+      return false;
+    }
+    const target = parent.children[idx];
+    if (target.tag === '#text' || target.tag === '#comment' || node.tag === '#text' || node.tag === '#comment') {
+      parent.children[idx] = {
+        tag: typeof node.tag === 'string' ? node.tag : target.tag,
+        text: typeof node.text === 'string' ? node.text : '',
+      };
+      return true;
+    }
+    return false;
+  }
+
+  const target = resolveDomMirrorQuery(root, selector.query);
+  if (!target) return false;
+  if (typeof node.tag === 'string' && node.tag) target.tag = node.tag;
+  if (node.attrs && typeof node.attrs === 'object') {
+    target.attrs = { ...node.attrs };
+  }
+  if (typeof node.anchor === 'string') target.anchor = node.anchor;
+  if (typeof node.text === 'string') target.text = node.text;
+  return true;
 }
 
 function safePageUrl(page: Page): string | undefined {

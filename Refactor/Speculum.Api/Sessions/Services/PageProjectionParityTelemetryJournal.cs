@@ -126,7 +126,8 @@ internal static class PageProjectionParityTelemetryJournal
                     Long(root, "resetPublishedMs"),
                     Long(root, "cssomMs"),
                     Long(root, "pageTotalMs"),
-                    Long(root, "cdpTransferMs"));
+                    Long(root, "cdpTransferMs"),
+                    Bool(root, "mirror"));
                 break;
             case "parity_establish_cssom_install_started":
                 if (!catalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionEstablishCssomInstallStarted)) return;

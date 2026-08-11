@@ -1743,11 +1743,12 @@ async function testPublishedAnchorsTransitiveUnpublishOnAncestorWipe(): Promise<
     await page.evaluate(PAGE_PROJECTION_PAGE_SCRIPT);
     const anchors = await page.evaluate(`(() => {
       const r = window.__speculumDomMapAndArmEstablish();
+      const root = r && r.rootJson ? JSON.parse(r.rootJson) : (r && r.root);
       return {
         mid: document.getElementById('mid').getAttribute('speculum-anchor'),
         leaf: document.getElementById('leaf').getAttribute('speculum-anchor'),
         keep: document.getElementById('keep').getAttribute('speculum-anchor'),
-        rootTag: r && r.root && r.root.tag,
+        rootTag: root && root.tag,
       };
     })()`) as { mid: string; leaf: string; keep: string; rootTag: string };
     assert.ok(anchors.mid && anchors.leaf && anchors.keep, 'anchors stamped');
@@ -1976,6 +1977,7 @@ async function testMapDocumentRemintsConnectedDuplicateAnchors(): Promise<void> 
     })()`);
     const mapped = await page.evaluate(`(() => {
       const r = window.__speculumDomMapAndArmEstablish();
+      const root = r && r.rootJson ? JSON.parse(r.rootJson) : (r && r.root);
       const anchors = [];
       function walk(n) {
         if (!n || typeof n !== 'object') return;
@@ -1985,7 +1987,7 @@ async function testMapDocumentRemintsConnectedDuplicateAnchors(): Promise<void> 
         const kids = n.children || [];
         for (let i = 0; i < kids.length; i++) walk(kids[i]);
       }
-      walk(r.root);
+      walk(root);
       const counts = {};
       for (const a of anchors) counts[a] = (counts[a] || 0) + 1;
       const dups = Object.keys(counts).filter((k) => counts[k] > 1);

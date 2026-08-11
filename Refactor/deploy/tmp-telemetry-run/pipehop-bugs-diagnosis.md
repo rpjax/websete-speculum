@@ -1,6 +1,6 @@
 # Diagnóstico PageProjection — bugs, delays e paridade 1:1
 
-**Última atualização:** 2026-08-11  
+**Última atualização:** 2026-08-11 (pós DomMap ms path — `dommapfix-*`)  
 **Stack:** dockup `dev` + nouinput · `http://127.0.0.1:8080/` · `MirrorMode.PageProjection`  
 **Barra de aceite:** `docs/page-projection-acceptance.md` — Projected ≈ abrir o mesmo site no Chrome Virtual. Protocolo verde **não** conta como accept.
 
@@ -10,23 +10,66 @@
 
 ### Em uma frase
 
-**O cano Diff (sidecar → API → cliente) está saudável. A experiência ainda não é 1:1.**  
-O atraso dominante no cold/resync Beleza é **fotografar o DOM no sidecar (~6–7 s por passagem)** — não mux, não Cssom OOB.
+**O cano Diff está saudável. OOB DomMap deixou de ser o buraco de ~7 s (espelho ~50 ms). O cold establish ainda paga ~5–6 s (foto in-page + CDP).**  
+Aceite 1:1 ainda **não** — brokenImgs / SoftNav / UX visual abertos.
 
 ### Duas perguntas que não se misturam
 
 | Pergunta | Status nesta evidência |
 |----------|-------------------------|
-| **O cano entrega?** Algum Diff some no caminho? | **Não.** FR = FE = SD = WD; QD = 0. |
-| **A experiência é 1:1?** Rápida e correta como no Chrome normal? | **Não.** DomMap ~6 s; recovery OOB ~7 s (quase todo DomMap); mídia/SoftNav ainda abertos. |
+| **O cano entrega?** Algum Diff some no caminho? | **Não.** (ParityDebug: FR=FE=SD=WD; QD=0) |
+| **A experiência é 1:1?** Rápida e correta como no Chrome normal? | **Ainda não.** Cold DomMap ~5.6 s; OOB DomMap **~50 ms** (`mirror:true`); mídia/SoftNav abertos. |
 
 ### Aceite
 
-**NÃO é aceite 1:1.** Stall/mux e jump adhoc estão limpos; DomMap ainda impõe vários segundos sob Beleza ordinária.
+**NÃO é aceite 1:1.** Recovery OOB não remapeia mais o DOM; first paint projetado ainda espera a 1ª foto DomMap.
 
 ---
 
-## Evidência mais recente (ParityDebug + PageEpoch)
+## Evidência DomMap ms path (`dommapfix-*`, 2026-08-11)
+
+| Campo | Valor |
+|-------|--------|
+| Sessão | `8c7555f1-aa4e-4aff-8464-a8deab98355b` |
+| Prefixo | `dommapfix-*` |
+| Gate ParityDebug | **OK** (`incomplete: []`) |
+| Story | `dommapfix-page-epoch-story.json` |
+
+### Marco A — transporte `rootJson` / `sheetsJson`
+
+Establish devolve a árvore como **string JSON** (stringify na página + `JSON.parse` no Node).
+
+| Fase (establish) | ms |
+|------------------|-----|
+| `durationMs` | **5612** |
+| `pageTotalMs` | **1997** (`mapNodeMs≈1332`) |
+| `cdpTransferMs` | **3615** |
+
+**Leitura:** o gap CDP **continua na casa dos segundos** para ~18k nós mesmo como string. Marco A não tirou o cold dos “vários segundos”. Corte seguinte (fora deste plano): comprimir / chunkar / baratear `mapNode` in-page.
+
+### Marco B — espelho Dom (`domInstallRoot`)
+
+| Sinal | Antes | Depois (`dommapfix`) |
+|-------|--------|------------------------|
+| OOB `DomMapCompleted path=resync` | `mapNodeMs` ~3–4 s + CDP | **`durationMs=50`, `mirror:true`** |
+| `ResyncServed.domMapMs` | **~6609** | **50** |
+| `ResyncServed.cssomCloneMs` | ~7 | **9** |
+| Re-establish pós-OOB (2º DomMap) | sim (~6 s) | **não** (resume dos espelhos) |
+
+Fail-safe: `childList` com host introuvável invalida o espelho. Patch miss / `childAt` oob = soft-skip (padrão Cssom).
+
+### Cold vs OOB
+
+- **Cold / first paint:** ainda ~5–6 s de DomMap — **não** resolvido neste plano.
+- **Recovery OOB:** DomMap ~50 ms (clone), alinhado ao Cssom OOB.
+
+### Ainda aberto para aceite 1:1
+
+brokenImgs · SoftNav Eneba · cold DomMap · comparação visual com Chrome normal.
+
+---
+
+## Evidência anterior (ParityDebug + PageEpoch, pré–DomMap fix)
 
 | Campo | Valor |
 |-------|--------|
@@ -67,7 +110,7 @@ Script: `prep-parity-hopdiag.cjs` → `run-hopdiag.cjs` (`PREFIX=parityhop`) →
 
 Houve **dois** Establish/DomMap na mesma epoch (re-establish pós backpressure/resync) — cada um paga de novo ~6 s de DomMap.
 
-### OOB ResyncServed (schema v2) — buraco de ~7 s com fases
+### OOB ResyncServed (schema v2) — buraco de ~7 s com fases (pré-fix)
 
 | Campo | ms |
 |-------|-----|
@@ -77,7 +120,7 @@ Houve **dois** Establish/DomMap na mesma epoch (re-establish pós backpressure/r
 | `cssomCloneMs` | 7 (`source=mirror`) |
 | `serializeMs` | 16 |
 
-**Cssom OOB já está barato (espelho).** O que esmaga UX no recovery é **remapear o DOM**.
+**Cssom OOB já estava barato.** Pré-fix, o recovery remapeava o DOM — **resolvido** em `dommapfix` (`domMapMs=50`, `mirror:true`).
 
 ### Cliente (último `client_surface_probe`)
 
@@ -107,55 +150,31 @@ O Speculum precisa de uma **cópia estruturada** dessa árvore (tags, atributos,
 
 Hoje o caminho é:
 
-1. Script **dentro da página** percorre a árvore (**mais de uma vez** no establish: limpar ledger → `anchorAll` → remint de âncoras duplicadas → `mapNode`).
-2. Monta um **objeto JavaScript gigante** (~20k nós na Beleza).
-3. O Playwright traz esse objeto **do Chrome para o Node** (`page.evaluate` → retorno).
-4. No Node ainda reescreve URLs de assets e manda no fio.
+1. Script **dentro da página** percorre a árvore (**mais de uma vez** no establish: limpar ledger → `anchorAll` → remint → `mapNode`).
+2. Monta um objeto F (~20k nós na Beleza) e **stringifica** (`rootJson`) antes do retorno.
+3. Playwright traz a string Chrome → Node (`page.evaluate`) — ainda caro no cold Beleza (`cdpTransferMs` ~3–4 s).
+4. Node: `JSON.parse`, rewrite de assets, fio.
+5. **OOB / resume:** se `domInstallRoot` quente, **não** remapeia — clona o espelho (como Cssom).
 
-O número `domMapMs ≈ 6 s` mede principalmente o passo **1–3** (o `evaluate` inteiro). **Não** é só “contar nós no CPU”.
+Cold `domMapMs` ≈ passo 1–3. Resync com espelho ≈ clone (~dezenas de ms).
 
-### Por que ~7 s parece absurdo — e mesmo assim acontece
-
-Num CPU moderno, **andar 20k nós** deveria ser centenas de ms no pior caso, não vários segundos.
-
-O que estoura o tempo é a **combinação**:
+### Por que o cold ainda é lento
 
 | O quê | Por quê dói |
 |--------|-------------|
-| **Várias passadas** na mesma árvore | establish limpa + ancora + reminta + mapeia |
-| **Objeto enorme** | cada nó vira `{ tag, attrs, children, anchor… }` |
-| **Trazer Chrome → Node** | retorno do `evaluate` serializa árvore profunda via CDP; em páginas grandes isso sozinho pode ser **segundos** e aparece misturado em `domMapMs` |
-| **Resync refaz o mapa** | Cssom OOB clona espelho (~ms); Dom **não** tem espelho equivalente → desync ⇒ fotografar de novo |
+| **Várias passadas** in-page | establish limpa + ancora + reminta + mapeia (`pageTotalMs` ~2 s) |
+| **Payload enorme** | JSON de ~18–23k nós; CDP ainda ~3–4 s mesmo como string |
+| **OOB (pré-fix)** | remapeava de novo — **já mitigado** pelo espelho Dom |
 
-Intuição correta: orçamento absurdo. Causa real: **arquitetura + cópia entre processos**, não “JS fraco contando nós”.
+### Telemetria DomMap (`DomMapCompleted` schema **v3**)
 
-### O que a telemetria **decompõe** no DomMap (a partir de 2026-08-11)
+Fases in-page + `cdpTransferMs` + **`mirror`** (true = clone de `domInstallRoot`, sem `page.evaluate` map).
 
-`DomMapCompleted` schema **v2** inclui fases in-page + gap CDP:
+### Próximos cortes (cold / aceite)
 
-| Campo | Significado |
-|-------|-------------|
-| `takeRecordsMs` | `MutationObserver.takeRecords` |
-| `clearLedgerMs` | limpar `anchorToNode` (establish) |
-| `anchorAllMs` | carimbar âncoras em toda a árvore |
-| `remintMs` | remint de âncoras duplicadas |
-| `mapNodeMs` | montar o objeto F da árvore |
-| `resetPublishedMs` | reset do ledger published |
-| `cssomMs` | Cssom no mesmo evaluate (só establish arm) |
-| `pageTotalMs` | soma do trabalho **dentro** da página |
-| `durationMs` / evaluate wall | tempo Node em volta do `page.evaluate` |
-| `cdpTransferMs` | `max(0, durationMs − pageTotalMs)` ≈ marshalling Playwright/CDP |
-
-Resync também emite `DomMapCompleted` com `path=resync` (sem `anchorAll` full).
-
-### Direção de otimização (sem perder 1:1) — depois de ler as fases
-
-Ordem candidata (produto):
-
-1. **Espelho vivo do DOM** (espelho do que já fizeram no Cssom) → Resync em ms.
-2. **Parar de pagar structured-clone da árvore** no retorno do `evaluate` (blob/string/CDP nativo) — se `cdpTransferMs` dominar.
-3. **Uma passada só** (fundir walks) — se `anchorAllMs`/`mapNodeMs` dominarem in-page.
-4. **Não re-establish completo** em todo resume de backpressure se o espelho ainda é válido.
+1. Comprimir ou chunkar `rootJson` no cold (CDP ainda domina).
+2. Fundir walks in-page (`anchorAll` / `mapNode`).
+3. brokenImgs + SoftNav Eneba + paridade visual.
 
 ---
 

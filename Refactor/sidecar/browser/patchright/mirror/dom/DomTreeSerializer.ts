@@ -2172,10 +2172,14 @@ export const PAGE_PROJECTION_PAGE_SCRIPT = `
     t0 = Date.now();
     resetPublishedFromMapped(root);
     resetPublishedMs = Date.now() - t0;
+    // Stringify in-page so CDP returns a scalar string (not a structured-clone tree).
+    t0 = Date.now();
+    const rootJson = JSON.stringify(root);
+    const stringifyMs = Date.now() - t0;
     const pageTotalMs = Date.now() - pageStart;
     return {
       generation,
-      root,
+      rootJson,
       timings: {
         takeRecordsMs,
         clearLedgerMs,
@@ -2184,6 +2188,7 @@ export const PAGE_PROJECTION_PAGE_SCRIPT = `
         mapNodeMs,
         resetPublishedMs,
         cssomMs: 0,
+        stringifyMs,
         pageTotalMs,
       },
     };
@@ -2214,10 +2219,13 @@ export const PAGE_PROJECTION_PAGE_SCRIPT = `
     t0 = Date.now();
     resetPublishedFromMapped(root);
     resetPublishedMs = Date.now() - t0;
+    t0 = Date.now();
+    const rootJson = JSON.stringify(root);
+    const stringifyMs = Date.now() - t0;
     const pageTotalMs = Date.now() - pageStart;
     return {
       generation,
-      root,
+      rootJson,
       timings: {
         takeRecordsMs,
         clearLedgerMs: 0,
@@ -2226,6 +2234,7 @@ export const PAGE_PROJECTION_PAGE_SCRIPT = `
         mapNodeMs,
         resetPublishedMs,
         cssomMs: 0,
+        stringifyMs,
         pageTotalMs,
       },
     };
@@ -2288,11 +2297,16 @@ export const PAGE_PROJECTION_PAGE_SCRIPT = `
     cssomLive = true;
     liveEmit = true;
     cssomMs = Date.now() - t0;
+    // Stringify in-page so CDP returns scalar strings (not structured-clone trees).
+    t0 = Date.now();
+    const rootJson = JSON.stringify(root);
+    const sheetsJson = JSON.stringify(sheets);
+    const stringifyMs = Date.now() - t0;
     const pageTotalMs = Date.now() - pageStart;
     return {
       generation,
-      root,
-      sheets,
+      rootJson,
+      sheetsJson,
       timings: {
         takeRecordsMs,
         clearLedgerMs,
@@ -2301,6 +2315,7 @@ export const PAGE_PROJECTION_PAGE_SCRIPT = `
         mapNodeMs,
         resetPublishedMs,
         cssomMs,
+        stringifyMs,
         pageTotalMs,
       },
     };

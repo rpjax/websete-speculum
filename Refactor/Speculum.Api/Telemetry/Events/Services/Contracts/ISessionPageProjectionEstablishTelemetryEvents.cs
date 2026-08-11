@@ -20,7 +20,8 @@ public interface ISessionPageProjectionEstablishTelemetryEvents
         long resetPublishedMs = 0,
         long cssomMs = 0,
         long pageTotalMs = 0,
-        long cdpTransferMs = 0);
+        long cdpTransferMs = 0,
+        bool mirror = false);
     void CssomInstallStarted(string pageEpochId, long generation, string source, long tVirtualMs);
     void CssomInstallCompleted(
         string pageEpochId,

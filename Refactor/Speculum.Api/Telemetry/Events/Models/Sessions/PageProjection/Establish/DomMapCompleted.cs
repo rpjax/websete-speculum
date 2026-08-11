@@ -5,9 +5,9 @@ namespace Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Establish
 
 [JournalFact(
     "Telemetry.Sessions.PageProjection.Establish.DomMapCompleted",
-    schemaVersion: 2,
+    schemaVersion: 3,
     Name = "PageProjection establish · DomMapCompleted",
-    Description = "PageEpoch DomMap completed with in-page phase timings + CDP transfer gap.",
+    Description = "PageEpoch DomMap completed with in-page phase timings + CDP transfer gap (or Dom install mirror clone).",
     Owner = "telemetry",
     PublishPolicy = PublishPolicy.BestEffort)]
 public sealed class DomMapCompleted
@@ -24,7 +24,7 @@ public sealed class DomMapCompleted
 
     public string Path { get; init; } = "";
 
-    /// <summary>Wall clock around page.evaluate (Node) — includes CDP marshalling.</summary>
+    /// <summary>Wall clock around page.evaluate (Node) — includes CDP marshalling. Mirror path ≈ clone ms.</summary>
     public long DurationMs { get; init; }
 
     public int? ApproxNodes { get; init; }
@@ -51,4 +51,7 @@ public sealed class DomMapCompleted
 
     /// <summary>max(0, DurationMs - PageTotalMs) — Playwright/CDP return overhead estimate.</summary>
     public long CdpTransferMs { get; init; }
+
+    /// <summary>True when Dom came from sidecar <c>domInstallRoot</c> clone (no page DomMap evaluate).</summary>
+    public bool Mirror { get; init; }
 }

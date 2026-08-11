@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "generatedAt": "2026-08-11T15:08:05.182Z",
+  "epochCount": 0,
+  "epochOrder": [],
+  "epochs": {},
+  "globals": {
+    "bootMarked": [],
+    "serveMiss": [],
+    "serveSlow": []
+  }
+}

@@ -746,7 +746,8 @@ internal sealed class SessionTelemetryEvents : ISessionTelemetryEvents
             long resetPublishedMs = 0,
             long cssomMs = 0,
             long pageTotalMs = 0,
-            long cdpTransferMs = 0)
+            long cdpTransferMs = 0,
+            bool mirror = false)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(pageEpochId);
             ArgumentException.ThrowIfNullOrWhiteSpace(path);
@@ -769,6 +770,7 @@ internal sealed class SessionTelemetryEvents : ISessionTelemetryEvents
                 CssomMs = cssomMs,
                 PageTotalMs = pageTotalMs,
                 CdpTransferMs = cdpTransferMs,
+                Mirror = mirror,
             });
         }
 

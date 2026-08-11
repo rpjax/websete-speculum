@@ -5,6 +5,14 @@ namespace Speculum.Api.Sessions.Mirror.PageProjection;
 /// <summary>
 /// PageProjection outbound unit — Dom or Cssom plane (exclusive payload per operation).
 /// </summary>
+/// <remarks>
+/// Transitional wire shape (<c>docs/page-projection-engine-redesign.md</c> §5.5, §5.16).
+/// <see cref="Plane"/>/<see cref="Operation"/> and the parsed payload properties below are
+/// the V1 JSON-body scheme and are DEPRECATED for the redesigned binary wire. On the
+/// redesigned path <see cref="Body"/> carries the opaque §5.5 binary frame/part and
+/// <see cref="Plane"/>/<see cref="Operation"/> are empty; the API MUST NOT parse it
+/// (PP-WIRE-1) — it only relays bytes plus the part/flags/version envelope below.
+/// </remarks>
 [MessagePackObject]
 public sealed class PageProjectionDiff
 {
@@ -17,16 +25,37 @@ public sealed class PageProjectionDiff
     [Key("timestamp")]
     public long Timestamp { get; init; }
 
-    /// <summary>dom | cssom</summary>
+    /// <summary>dom | cssom. Deprecated for binary frames — empty string.</summary>
     [Key("plane")]
     public required string Plane { get; init; }
 
     /// <summary>
     /// Dom: document | childList | patch | scrollViewport | scrollElement.
     /// Cssom: install | sheetList | ruleList | patch.
+    /// Deprecated for binary frames — empty string.
     /// </summary>
     [Key("operation")]
     public required string Operation { get; init; }
+
+    /// <summary>Opaque §5.5 binary frame/part body for the redesigned wire. Never parsed by the API.</summary>
+    [Key("body")]
+    public byte[]? Body { get; init; }
+
+    /// <summary>Part index within the frame (§5.5.3); 0 when the frame was not split.</summary>
+    [Key("partIndex")]
+    public uint PartIndex { get; init; }
+
+    /// <summary>Total part count for the frame (§5.5.3); 1 when the frame was not split.</summary>
+    [Key("partCount")]
+    public uint PartCount { get; init; } = 1;
+
+    /// <summary>Bit 0 establish, bit 1 resync — see sidecar <c>mirror/page/encode.ts</c>.</summary>
+    [Key("flags")]
+    public uint Flags { get; init; }
+
+    /// <summary>Wire format version (§5.5); an unknown version desyncs (PP-WIRE-2).</summary>
+    [Key("version")]
+    public uint Version { get; init; } = 1;
 
     [Key("document")]
     public PageProjectionDocumentPayload? Document { get; init; }

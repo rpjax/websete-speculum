@@ -65,6 +65,27 @@ jobs:
           npm test
           npm run build
 
+  page-projection-oracles:
+    name: page-projection-oracles
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install and run O1–O5 fixture gates + PP-DEN-2 baseline
+        working-directory: Refactor/page-projection-oracles
+        run: |
+          npm ci
+          npm test
+          node bin/run-o4-density-baseline.cjs
+      - name: Upload PP-DEN-2 baseline
+        uses: actions/upload-artifact@v4
+        with:
+          name: pp-den-2-baseline
+          path: Refactor/page-projection-oracles/artifacts/pp-den-2-baseline.json
+          if-no-files-found: error
+
   compose:
     name: refactor-compose
     runs-on: ubuntu-latest

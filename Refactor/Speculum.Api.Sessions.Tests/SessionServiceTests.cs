@@ -375,22 +375,24 @@ public sealed class SessionServiceTests
         IUrlResolver urls,
         ISessionCollector collector)
     {
+        var config = SessionsTestHarness.Configuration(new SessionsConfiguration
+        {
+            IsJsBridgeEnabled = true,
+            DetachedSessionTimeout = TimeSpan.FromMinutes(5),
+            InputMultiplexingPolicy = new InputMultiplexingPolicy
+            {
+                Access = InputAccessPolicy.Shared,
+            },
+        });
         return new LiveSessionService(
             collector,
             new NoOpFaultScheduler(),
             urls,
-            SessionsTestHarness.Configuration(new SessionsConfiguration
-            {
-                IsJsBridgeEnabled = true,
-                DetachedSessionTimeout = TimeSpan.FromMinutes(5),
-                InputMultiplexingPolicy = new InputMultiplexingPolicy
-                {
-                    Access = InputAccessPolicy.Shared,
-                },
-            }),
+            config,
             new NoOpSessionEventsFactory(),
             new NoOpSessionTelemetryEventsFactory(),
             new Speculum.Api.Journal.Services.JournalCatalog(),
+            new Speculum.Api.Sessions.Mirror.PageProjection.SharedAssetCacheL2(config),
             NullLoggerFactory.Instance);
     }
 

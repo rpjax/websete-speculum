@@ -136,13 +136,25 @@ export interface CssomSheet {
   rules: CssomRule[]
 }
 
-/** PageProjection outbound unit (Dom or Cssom plane). */
+/** PageProjection outbound unit (Dom or Cssom plane, or an opaque §5.5 V2 binary frame/part). */
 export interface PageProjectionDiff {
   sequence: number
   generation: number
   timestamp: number
+  /** V1 JSON-body scheme. Empty (with {@link body} present) on the redesigned binary wire. */
   plane: 'dom' | 'cssom' | string
+  /** V1 JSON-body scheme. Empty (with {@link body} present) on the redesigned binary wire. */
   operation: string
+  /** Opaque §5.5 binary frame/part — never parsed here; relayed straight into `ProjectionClient.ingest`. */
+  body?: Uint8Array | ArrayBuffer | number[] | null
+  /** Part index within the frame (§5.5.3); 0 when the frame was not split. */
+  partIndex?: number
+  /** Total part count for the frame (§5.5.3); 1 when the frame was not split. */
+  partCount?: number
+  /** Bit 0 establish, bit 1 resync (sidecar `mirror/page/encode.ts`). */
+  flags?: number
+  /** Wire format version (§5.5); an unknown version desyncs (PP-WIRE-2). */
+  version?: number
   document?: { root: DomNode } | null
   childList?: {
     selector: DomSelector
@@ -173,7 +185,10 @@ export interface PageProjectionDiff {
 export interface PageProjectionIntent {
   generation?: number
   type: string
+  /** `speculum-anchor` (V1). Deprecated — kept for the V1 transition; prefer {@link targetId}. */
   anchor?: string | null
+  /** Redesigned id-addressed target (§5.11); null for pure motion or V1 anchor addressing. */
+  targetId?: number | null
   timestampClient?: number | null
   /** Opaque E2E correlation id (always stamped on product send). */
   traceId?: string | null

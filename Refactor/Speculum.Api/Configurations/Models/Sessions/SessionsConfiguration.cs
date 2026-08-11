@@ -26,7 +26,15 @@ public class SessionsConfiguration
     /// sequenced channels). Overflow still DropAll → client sequence_gap (T5/D13).
     /// Default matches <c>SequencedDiffChannels.DefaultCapacity</c>.
     /// </summary>
+    /// <remarks>
+    /// Obsolete as a load control (<c>docs/page-projection-engine-redesign.md</c> §5.16):
+    /// backpressure is now the frame-rate ladder in <see cref="PageProjection"/>, which
+    /// never drops a frame. This property is kept only to size the transport queue itself.
+    /// </remarks>
     public int PageProjectionDiffQueueCapacity { get; init; } = 8192;
+
+    /// <summary>PageProjection engine configuration surface (§5.16).</summary>
+    public PageProjectionOptions PageProjection { get; init; } = new();
 
     public ViewportPolicy ViewportPolicy { get; set; } = new();
     public ClientEnvironmentPolicy ClientEnvironmentPolicy { get; init; } = new();

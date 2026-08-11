@@ -93,6 +93,12 @@ function buildChromeArgs(width, height) {
         '--touch-events=enabled',
         '--no-first-run',
         '--mute-audio',
+        // §5.3.4 bans background-throttling of the frame clock: a backgrounded/occluded
+        // tab must keep emitting at frameRateHz, or the watchdog fires falsely and the
+        // client silently lags. These three flags remove Chrome's own throttling paths.
+        '--disable-background-timer-throttling',
+        '--disable-renderer-backgrounding',
+        '--disable-backgrounding-occluded-windows',
         // Prefer hardware ANGLE when available; allow SwiftShader when not.
         '--use-gl=angle',
         '--enable-webgl',

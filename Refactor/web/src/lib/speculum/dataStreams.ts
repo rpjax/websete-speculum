@@ -149,6 +149,7 @@ export class DataStreams extends Emitter<SessionEventMap> {
         generation: input.generation ?? 0,
         type: input.type,
         anchor: input.anchor ?? null,
+        targetId: input.targetId ?? null,
         timestampClient: input.timestampClient ?? null,
         traceId,
         payload: input.payload ?? '{}',
@@ -374,14 +375,44 @@ export class DataStreams extends Emitter<SessionEventMap> {
   }
 }
 
+/**
+ * Wire `body` arrives as a `Uint8Array` (MessagePack `bin`) via `@msgpack/msgpack`; also
+ * accept `ArrayBuffer` / plain number arrays / `{ data: number[] }` Buffer-like shapes so
+ * tests and alternate transports don't need to know the decoder's exact output shape.
+ */
+function toBodyBytes(value: unknown): Uint8Array | null {
+  if (value == null) return null
+  if (value instanceof Uint8Array) return value.byteLength > 0 ? value : null
+  if (value instanceof ArrayBuffer) {
+    return value.byteLength > 0 ? new Uint8Array(value) : null
+  }
+  if (ArrayBuffer.isView(value)) {
+    const view = value as ArrayBufferView
+    return view.byteLength > 0 ? new Uint8Array(view.buffer, view.byteOffset, view.byteLength) : null
+  }
+  if (Array.isArray(value)) {
+    return value.length > 0 ? Uint8Array.from(value as number[]) : null
+  }
+  if (typeof value === 'object' && Array.isArray((value as { data?: unknown }).data)) {
+    const data = (value as { data: number[] }).data
+    return data.length > 0 ? Uint8Array.from(data) : null
+  }
+  return null
+}
+
 /** Normalize hub PageProjectionDiff; reject legacy snapshot wire shapes. */
 function rejectReason(raw: Record<string, unknown>): string {
   if (raw.kind === 'snapshot' || raw.root != null || Array.isArray(raw.nodes) || Array.isArray(raw.urls)) {
     return 'legacy_snapshot_shape'
   }
   const plane = String(raw.plane ?? '').trim()
+  const operation = String(raw.operation ?? '').trim()
+  // Redesigned binary wire (PP-WIRE-1): empty plane/operation is the sole discriminator.
+  if (!plane && !operation) {
+    return toBodyBytes(raw.body) ? 'normalize_rejected' : 'missing_body'
+  }
   if (plane !== 'dom' && plane !== 'cssom') return 'invalid_plane'
-  if (!String(raw.operation ?? '').trim()) return 'missing_operation'
+  if (!operation) return 'missing_operation'
   return 'normalize_rejected'
 }
 
@@ -393,6 +424,25 @@ function normalizePageProjectionDiff(message: unknown): PageProjectionDiff | nul
   }
   const plane = String(raw.plane ?? '').trim()
   const operation = String(raw.operation ?? '').trim()
+
+  // Redesigned binary wire (PP-WIRE-1): API relays Body opaquely with empty plane/operation.
+  if (!plane && !operation) {
+    const body = toBodyBytes(raw.body)
+    if (!body) return null
+    return {
+      sequence: Number(raw.sequence ?? 0),
+      generation: Number(raw.generation ?? 0),
+      timestamp: Number(raw.timestamp ?? 0),
+      plane: '',
+      operation: '',
+      body,
+      partIndex: Number(raw.partIndex ?? 0),
+      partCount: Number(raw.partCount ?? 1) || 1,
+      flags: Number(raw.flags ?? 0),
+      version: Number(raw.version ?? 1) || 1,
+    }
+  }
+
   if (plane !== 'dom' && plane !== 'cssom') {
     return null
   }

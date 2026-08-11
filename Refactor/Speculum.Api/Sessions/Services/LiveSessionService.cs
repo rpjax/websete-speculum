@@ -6,6 +6,7 @@ using Speculum.Api.BrowserClients;
 using Speculum.Api.Configurations.Services.Contracts;
 using Speculum.Api.Journal.Services.Contracts;
 using Speculum.Api.Sessions.Events.Services.Contracts;
+using Speculum.Api.Sessions.Mirror.PageProjection;
 using Speculum.Api.Sessions.Services.Contracts;
 using Speculum.Api.Shared.Services;
 using Speculum.Api.Telemetry.Events.Services.Contracts;
@@ -25,6 +26,7 @@ public sealed class LiveSessionService : ILiveSessionService
     private readonly ISessionEventsFactory _events;
     private readonly ISessionTelemetryEventsFactory _telemetry;
     private readonly IJournalCatalog _journalCatalog;
+    private readonly ISharedAssetCacheL2 _sharedAssetCacheL2;
     private readonly ILoggerFactory _loggerFactory;
     /// <summary>
     /// Registry lock only. Must not be the session lifecycle gate — <c>StopSession</c>
@@ -40,6 +42,7 @@ public sealed class LiveSessionService : ILiveSessionService
         ISessionEventsFactory events,
         ISessionTelemetryEventsFactory telemetry,
         IJournalCatalog journalCatalog,
+        ISharedAssetCacheL2 sharedAssetCacheL2,
         ILoggerFactory loggerFactory)
     {
         _collector = collector;
@@ -49,6 +52,7 @@ public sealed class LiveSessionService : ILiveSessionService
         _events = events;
         _telemetry = telemetry;
         _journalCatalog = journalCatalog;
+        _sharedAssetCacheL2 = sharedAssetCacheL2;
         _loggerFactory = loggerFactory;
     }
 
@@ -105,6 +109,7 @@ public sealed class LiveSessionService : ILiveSessionService
                 _events.ForSessionLive(sessionId, profileId),
                 _telemetry.ForSession(sessionId, profileId),
                 _journalCatalog,
+                _sharedAssetCacheL2,
                 _loggerFactory.CreateLogger<LiveSession>());
 
             if (!_sessions.TryAdd(sessionId, live))

@@ -57,7 +57,25 @@ export function toLaunchOptions(req: any): BrowserLaunchOptions {
     pageProjectionDiffQueueCapacity: resolvePageProjectionDiffQueueCapacity(
       req.pageProjectionDiffQueueCapacity ?? req.page_projection_diff_queue_capacity,
     ),
+    frameRateHz: resolvePositiveIntOrUndefined(req.frameRateHz ?? req.frame_rate_hz),
+    maxFrameBytes: resolvePositiveIntOrUndefined(req.maxFrameBytes ?? req.max_frame_bytes),
+    browserPoolSize: resolveNonNegativeIntOrUndefined(req.browserPoolSize ?? req.browser_pool_size),
+    browserPoolRefillPerSec: resolvePositiveIntOrUndefined(
+      req.browserPoolRefillPerSec ?? req.browser_pool_refill_per_sec,
+    ),
   };
+}
+
+/** §5.16 knobs relayed verbatim when positive; 0/absent lets the sidecar default apply. */
+function resolvePositiveIntOrUndefined(raw: unknown): number | undefined {
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : undefined;
+}
+
+/** Like {@link resolvePositiveIntOrUndefined} but 0 is a meaningful value (pool disabled). */
+function resolveNonNegativeIntOrUndefined(raw: unknown): number | undefined {
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : undefined;
 }
 
 function resolveMirrorMode(raw: unknown): 'videoStreaming' | 'pageProjection' {

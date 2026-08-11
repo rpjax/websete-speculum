@@ -270,7 +270,8 @@ public sealed class GrpcSessionConnection : ISessionConnection
                         policy,
                         sessions.ScreencastPolicy.MaxEncodeScale,
                         sessions.MirrorMode,
-                        sessions.PageProjectionDiffQueueCapacity),
+                        sessions.PageProjectionDiffQueueCapacity,
+                        sessions.PageProjection),
                     cancellationToken: token).ResponseAsync);
             return Result<BrowserReadyInfo>.Success(GrpcSessionMappers.ToReadyInfo(ready));
         });

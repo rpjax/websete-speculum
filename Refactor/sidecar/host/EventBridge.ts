@@ -31,6 +31,10 @@ export class EventBridge implements BrowserSessionEvents {
     operation: string;
     timestampMs: number;
     body: Uint8Array;
+    partIndex?: number;
+    partCount?: number;
+    flags?: number;
+    version?: number;
   }>(8192);
 
   get dom(): DropOldestQueue<{
@@ -40,6 +44,10 @@ export class EventBridge implements BrowserSessionEvents {
     operation: string;
     timestampMs: number;
     body: Uint8Array;
+    partIndex?: number;
+    partCount?: number;
+    flags?: number;
+    version?: number;
   }> {
     return this._dom;
   }
@@ -181,6 +189,10 @@ export class EventBridge implements BrowserSessionEvents {
     operation: string;
     timestampMs: number;
     body: Uint8Array;
+    partIndex?: number;
+    partCount?: number;
+    flags?: number;
+    version?: number;
   }): void {
     if (this.dom.isClosed) {
       this.emitLifecycleQueueDropped({

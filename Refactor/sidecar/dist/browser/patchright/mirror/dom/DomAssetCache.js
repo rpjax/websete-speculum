@@ -8,13 +8,21 @@ const DEFAULT_MAX_BYTES = 8 * 1024 * 1024;
 const DEFAULT_MAX_ENTRIES = 512;
 /**
  * Session asset store for Dom Projection (path-keyed + optional hash lookup).
+ *
+ * Evicts on two independent caps, either one triggers eviction (§5.16
+ * `assetCacheL1MaxBytes`, PP-ASSET-4): a max entry count and a max total byte
+ * budget summed across every stored body. Eviction order is insertion order
+ * (FIFO) — a `get()` does not bump recency, matching the entry-count
+ * eviction this cache always had.
  */
 class DomAssetCache {
     maxBytes;
     maxEntries;
     byKey = new Map();
     byHash = new Map();
+    keyToHash = new Map();
     order = [];
+    totalBytes = 0;
     constructor(maxBytes = DEFAULT_MAX_BYTES, maxEntries = DEFAULT_MAX_ENTRIES) {
         this.maxBytes = maxBytes;
         this.maxEntries = maxEntries;
@@ -34,14 +42,25 @@ class DomAssetCache {
             contentType,
             sourceUrl: opts?.sourceUrl,
             mode: opts?.mode ?? 'cache',
+            shareability: opts?.shareability,
         };
+        // Re-putting the same key replaces its bytes and refreshes its FIFO slot —
+        // drop the stale `order` reference first so eviction never double-counts it.
+        if (this.byKey.has(key)) {
+            const staleIndex = this.order.indexOf(key);
+            if (staleIndex !== -1)
+                this.order.splice(staleIndex, 1);
+        }
+        this.evictKey(key);
         this.byKey.set(key, entry);
         this.byHash.set(hash, entry);
+        this.keyToHash.set(key, hash);
         this.order.push(key);
-        while (this.order.length > this.maxEntries) {
+        this.totalBytes += body.byteLength;
+        while (this.order.length > 0 && (this.order.length > this.maxEntries || this.totalBytes > this.maxBytes)) {
             const old = this.order.shift();
-            if (old)
-                this.byKey.delete(old);
+            if (old !== undefined)
+                this.evictKey(old);
         }
         return hash;
     }
@@ -65,10 +84,28 @@ class DomAssetCache {
     clear() {
         this.byKey.clear();
         this.byHash.clear();
+        this.keyToHash.clear();
         this.order = [];
+        this.totalBytes = 0;
     }
     get size() {
         return this.byKey.size;
+    }
+    /** Sum of stored body bytes (PP-ASSET-4) — pass-through entries carry no bytes. */
+    get currentBytes() {
+        return this.totalBytes;
+    }
+    evictKey(key) {
+        const existing = this.byKey.get(key);
+        if (!existing)
+            return;
+        this.totalBytes -= existing.body.byteLength;
+        this.byKey.delete(key);
+        const hash = this.keyToHash.get(key);
+        if (hash !== undefined) {
+            this.byHash.delete(hash);
+            this.keyToHash.delete(key);
+        }
     }
 }
 exports.DomAssetCache = DomAssetCache;

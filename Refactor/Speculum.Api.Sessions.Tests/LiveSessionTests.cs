@@ -245,6 +245,108 @@ public sealed class LiveSessionTests
             videoAsset.Errors.Select(e => e.Message));
     }
 
+    private static (LiveSessionService Service, ILiveSession Live, LiveFakeConnection Connection) CreatePageProjectionSession()
+    {
+        var baseline = SessionsTestHarness.Sessions();
+        var sessions = new SessionsConfiguration
+        {
+            DetachedSessionTimeout = baseline.DetachedSessionTimeout,
+            IsJsBridgeEnabled = baseline.IsJsBridgeEnabled,
+            DataStreamTransport = baseline.DataStreamTransport,
+            MirrorMode = MirrorMode.PageProjection,
+            ViewportPolicy = baseline.ViewportPolicy,
+            ClientEnvironmentPolicy = baseline.ClientEnvironmentPolicy,
+            DeviceEmulationPolicy = baseline.DeviceEmulationPolicy,
+            ScreencastPolicy = baseline.ScreencastPolicy,
+            InputMultiplexingPolicy = baseline.InputMultiplexingPolicy,
+            OutputMultiplexingPolicy = baseline.OutputMultiplexingPolicy,
+        };
+        var sessionId = Guid.NewGuid();
+        var connection = new LiveFakeConnection(sessionId);
+        var service = CreateService(configuration: SessionsTestHarness.Configuration(sessions));
+        var live = service.Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
+        return (service, live, connection);
+    }
+
+    [Fact]
+    public async Task GetDomAssetAsync_ShareableAsset_SecondFetchServedFromL2WithoutSessionFetch()
+    {
+        var (_, live, connection) = CreatePageProjectionSession();
+        connection.DomAsset = new DomAsset
+        {
+            Body = [1, 2, 3],
+            ContentType = "text/css",
+            StatusCode = 200,
+            RequestHadCookie = false,
+            CacheControl = "public, max-age=3600",
+        };
+
+        var first = await live.GetDomAssetAsync("cdn.test/app.css");
+        Assert.True(first.IsSuccess);
+        Assert.Equal(1, connection.GetDomAssetCallCount);
+
+        // Second fetch for the identical key must be served from the host-wide L2 tier —
+        // the session connection is never consulted again (§5.12.2 "try L2 before fetch").
+        connection.DomAsset = null;
+        var second = await live.GetDomAssetAsync("cdn.test/app.css");
+        Assert.True(second.IsSuccess);
+        Assert.Equal("text/css", second.Value.ContentType);
+        Assert.Equal(new byte[] { 1, 2, 3 }, second.Value.Body);
+        Assert.Equal(1, connection.GetDomAssetCallCount);
+    }
+
+    [Fact]
+    public async Task GetDomAssetAsync_CredentialedAsset_NeverEntersL2()
+    {
+        var (_, live, connection) = CreatePageProjectionSession();
+        connection.DomAsset = new DomAsset
+        {
+            Body = [1, 2, 3],
+            ContentType = "text/css",
+            StatusCode = 200,
+            RequestHadCookie = true, // §5.12.2.1 — credentialed fetch is never shareable
+        };
+
+        _ = await live.GetDomAssetAsync("cdn.test/private.css");
+        Assert.Equal(1, connection.GetDomAssetCallCount);
+
+        _ = await live.GetDomAssetAsync("cdn.test/private.css");
+        Assert.Equal(2, connection.GetDomAssetCallCount); // still hits the session — never L2-cached
+    }
+
+    [Fact]
+    public async Task GetDomAssetAsync_RangeRequest_NeverConsultsOrPopulatesL2()
+    {
+        var (_, live, connection) = CreatePageProjectionSession();
+        connection.DomAsset = new DomAsset
+        {
+            Body = [1, 2, 3],
+            ContentType = "video/mp4",
+            StatusCode = 206,
+            ContentRange = "bytes 0-2/10",
+            PassThrough = true,
+        };
+
+        _ = await live.GetDomAssetAsync("cdn.test/video.mp4", rangeHeader: "bytes=0-2");
+        Assert.Equal(1, connection.GetDomAssetCallCount);
+
+        _ = await live.GetDomAssetAsync("cdn.test/video.mp4", rangeHeader: "bytes=0-2");
+        Assert.Equal(2, connection.GetDomAssetCallCount); // Range never L2-eligible
+    }
+
+    [Fact]
+    public async Task GetDomAssetAsync_BlobKind_NeverConsultsOrPopulatesL2()
+    {
+        var (_, live, connection) = CreatePageProjectionSession();
+        connection.DomAsset = new DomAsset { Body = [1, 2, 3], ContentType = "image/png" };
+
+        _ = await live.GetDomAssetAsync("blob-1", kind: "blob");
+        Assert.Equal(1, connection.GetDomAssetCallCount);
+
+        _ = await live.GetDomAssetAsync("blob-1", kind: "blob");
+        Assert.Equal(2, connection.GetDomAssetCallCount); // session-synthesized — never L2-eligible
+    }
+
     [Fact]
     public async Task Attach_SingleClient_SecondAttachFails()
     {
@@ -879,22 +981,24 @@ public sealed class LiveSessionTests
         ISessionTelemetryEventsFactory? telemetry = null,
         Speculum.Api.Journal.Services.JournalCatalog? journalCatalog = null)
     {
+        var config = configuration ?? SessionsTestHarness.Configuration(new SessionsConfiguration
+        {
+            IsJsBridgeEnabled = true,
+            DetachedSessionTimeout = TimeSpan.FromMinutes(5),
+            InputMultiplexingPolicy = new InputMultiplexingPolicy
+            {
+                Access = InputAccessPolicy.Shared,
+            },
+        });
         return new LiveSessionService(
             collector ?? new NoOpCollector(),
             new NoOpFaultScheduler(),
             urls ?? new RecordingUrlResolver("https://example.test/"),
-            configuration ?? SessionsTestHarness.Configuration(new SessionsConfiguration
-            {
-                IsJsBridgeEnabled = true,
-                DetachedSessionTimeout = TimeSpan.FromMinutes(5),
-                InputMultiplexingPolicy = new InputMultiplexingPolicy
-                {
-                    Access = InputAccessPolicy.Shared,
-                },
-            }),
+            config,
             new NoOpSessionEventsFactory(liveEvents ?? new NoOpSessionLiveEvents()),
             telemetry ?? new NoOpSessionTelemetryEventsFactory(),
             journalCatalog ?? new Speculum.Api.Journal.Services.JournalCatalog(),
+            new SharedAssetCacheL2(config),
             NullLoggerFactory.Instance);
     }
 
@@ -905,22 +1009,24 @@ public sealed class LiveSessionTests
         ISessionTelemetryEventsFactory? telemetry = null,
         Speculum.Api.Journal.Services.JournalCatalog? journalCatalog = null)
     {
+        var config = SessionsTestHarness.Configuration(new SessionsConfiguration
+        {
+            IsJsBridgeEnabled = true,
+            DetachedSessionTimeout = TimeSpan.FromMinutes(5),
+            InputMultiplexingPolicy = new InputMultiplexingPolicy
+            {
+                Access = InputAccessPolicy.Shared,
+            },
+        });
         return new LiveSessionService(
             collector ?? new NoOpCollector(),
             faults,
             new RecordingUrlResolver("https://example.test/"),
-            SessionsTestHarness.Configuration(new SessionsConfiguration
-            {
-                IsJsBridgeEnabled = true,
-                DetachedSessionTimeout = TimeSpan.FromMinutes(5),
-                InputMultiplexingPolicy = new InputMultiplexingPolicy
-                {
-                    Access = InputAccessPolicy.Shared,
-                },
-            }),
+            config,
             new NoOpSessionEventsFactory(liveEvents ?? new NoOpSessionLiveEvents()),
             telemetry ?? new NoOpSessionTelemetryEventsFactory(),
             journalCatalog ?? new Speculum.Api.Journal.Services.JournalCatalog(),
+            new SharedAssetCacheL2(config),
             NullLoggerFactory.Instance);
     }
 
@@ -1476,14 +1582,19 @@ public sealed class LiveSessionTests
 
         public DomAsset? DomAsset { get; set; }
 
+        public int GetDomAssetCallCount { get; private set; }
+
         public Task<IResult<DomAsset>> GetDomAssetAsync(
             string key,
             CancellationToken ct = default,
             string? kind = null,
             string? rangeHeader = null)
-            => DomAsset is null
+        {
+            GetDomAssetCallCount++;
+            return DomAsset is null
                 ? Task.FromResult<IResult<DomAsset>>(Result<DomAsset>.Failure("not implemented"))
                 : Task.FromResult<IResult<DomAsset>>(Result<DomAsset>.Success(DomAsset));
+        }
 
         public Task<IResult<PageProjectionResyncSnapshot>> GetPageProjectionResyncAsync(
             long generation,

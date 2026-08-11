@@ -1,5 +1,14 @@
 # Dom Projection — input propagation & bindings
 
+> **Amended by** [page-projection-engine-redesign.md](page-projection-engine-redesign.md) rev 4
+> (WP16 / Q8 / Q14 / Q18): §§6.3 (iframe surface coords), 6.7 (intents address by `uint32` id via
+> reverse map — not `speculum-anchor` on Virtual), 7.2 (caret **client-authoritative**), 11 (control
+> knobs; coalesce knobs deleted), 14.3 (hit-test / iframe boundary). Local-first interaction
+> classification (§5.9) supersedes round-trip-only feedback. Where this file conflicts with the
+> redesign on those sections, **the redesign wins**. Remainder of this contract still stands
+> (no wire `click`, CDP-only dispatch, inject chain, move collapsing, `setFiles`, disarm while
+> desynced, two scroll intent types).
+
 **Status:** design complete (V1 contract) — **aligned with PageProjection seal**
 (I1–I5). Cutover rename with T11.
 

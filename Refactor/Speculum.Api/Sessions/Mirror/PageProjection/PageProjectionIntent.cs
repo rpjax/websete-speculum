@@ -15,9 +15,16 @@ public sealed class PageProjectionIntent
     [Key("type")]
     public required string Type { get; init; }
 
-    /// <summary><c>speculum-anchor</c>; null/empty for pure motion.</summary>
+    /// <summary><c>speculum-anchor</c>; null/empty for pure motion. Deprecated — kept for the V1 transition (§5.11 amends input §6.7).</summary>
     [Key("anchor")]
     public string? Anchor { get; init; }
+
+    /// <summary>
+    /// Redesigned id-addressed target (§5.11): resolved through the sidecar's reverse id
+    /// map; null for pure motion or while the client still addresses by <see cref="Anchor"/>.
+    /// </summary>
+    [Key("targetId")]
+    public uint? TargetId { get; init; }
 
     [Key("timestampClient")]
     public double? TimestampClient { get; init; }

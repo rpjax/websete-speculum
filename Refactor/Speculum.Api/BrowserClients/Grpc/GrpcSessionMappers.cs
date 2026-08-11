@@ -30,10 +30,12 @@ internal static class GrpcSessionMappers
         double screencastMaxEncodeScale = 2,
         Speculum.Api.Configurations.Models.Sessions.MirrorMode mirrorMode =
             Speculum.Api.Configurations.Models.Sessions.MirrorMode.VideoStreaming,
-        int pageProjectionDiffQueueCapacity = SequencedDiffChannels.DefaultCapacity)
+        int pageProjectionDiffQueueCapacity = SequencedDiffChannels.DefaultCapacity,
+        Speculum.Api.Configurations.Models.Sessions.PageProjectionOptions? pageProjection = null)
     {
         ArgumentNullException.ThrowIfNull(configuration);
         ArgumentNullException.ThrowIfNull(policy);
+        var pp = pageProjection ?? new Speculum.Api.Configurations.Models.Sessions.PageProjectionOptions();
         var request = new LaunchRequest
         {
             SessionId = sessionId.ToString("D"),
@@ -47,6 +49,10 @@ internal static class GrpcSessionMappers
             MirrorMode = ToMirrorModeWire(mirrorMode),
             PageProjectionDiffQueueCapacity = ClampPageProjectionDiffQueueCapacity(
                 pageProjectionDiffQueueCapacity),
+            FrameRateHz = Math.Max(0, pp.FrameRateHz),
+            MaxFrameBytes = (int)Math.Clamp(pp.MaxFrameBytes, 0, int.MaxValue),
+            BrowserPoolSize = Math.Max(0, pp.BrowserPoolSize),
+            BrowserPoolRefillPerSec = Math.Max(0, pp.BrowserPoolRefillPerSec),
         };
 
         var environment = configuration.ClientEnvironment
@@ -541,12 +547,46 @@ internal static class GrpcSessionMappers
         return new InputEvent { SessionId = sid, Touch = touch };
     }
 
+    /// <summary>
+    /// Maps a sidecar Diff frame to the API wire shape. Redesign binary frames (PP-WIRE-1)
+    /// carry an opaque <see cref="PageProjectionDiff.Body"/> with empty plane/operation — the
+    /// API relays those bytes without parsing. Only the legacy V1 JSON-body scheme (non-empty
+    /// plane and operation, JSON payload) is decoded into typed payloads below.
+    /// </summary>
     public static PageProjectionDiff? ToPageProjectionDiff(PageProjectionDiffFrame frame)
     {
         var plane = (frame.Plane ?? string.Empty).Trim();
         var operation = (frame.Operation ?? string.Empty).Trim();
+
+        // Redesign binary wire (PP-WIRE-1): the sidecar leaves plane/operation empty for
+        // §5.5 binary frames — relay Body opaquely, never JSON-parse it. Only the legacy
+        // V1 JSON-body scheme (both plane and operation set) is decoded below.
+        if (string.IsNullOrWhiteSpace(plane) && string.IsNullOrWhiteSpace(operation))
+        {
+            if (frame.Body.IsEmpty)
+            {
+                // Empty envelope, no binary payload — nothing to relay or decode.
+                return null;
+            }
+
+            return new PageProjectionDiff
+            {
+                Sequence = frame.Sequence,
+                Generation = frame.Generation,
+                Timestamp = frame.TimestampMs,
+                Plane = "",
+                Operation = "",
+                Body = frame.Body.ToByteArray(),
+                PartIndex = frame.PartIndex,
+                PartCount = frame.PartCount == 0 ? 1 : frame.PartCount,
+                Flags = frame.Flags,
+                Version = frame.Version == 0 ? 1 : frame.Version,
+            };
+        }
+
         if (string.IsNullOrWhiteSpace(plane) || string.IsNullOrWhiteSpace(operation))
         {
+            // Partial envelope — neither a valid binary frame nor a valid V1 frame.
             return null;
         }
 
@@ -742,6 +782,9 @@ internal static class GrpcSessionMappers
             Timestamp = frame.TimestampMs,
             Plane = plane,
             Operation = operation,
+            PartIndex = frame.PartIndex,
+            PartCount = frame.PartCount == 0 ? 1 : frame.PartCount,
+            Flags = frame.Flags,
             Document = document,
             ChildList = childList,
             Patch = patch,
@@ -772,7 +815,7 @@ internal static class GrpcSessionMappers
             return false;
         }
 
-        domInput = new DomInputEvent
+        var mapped = new DomInputEvent
         {
             SessionId = sessionId.ToString("D"),
             Type = input.Type.Trim(),
@@ -781,6 +824,12 @@ internal static class GrpcSessionMappers
             Generation = input.Generation,
             TimestampClient = input.TimestampClient ?? 0,
         };
+        if (input.TargetId is { } targetId)
+        {
+            mapped.TargetId = targetId;
+        }
+
+        domInput = mapped;
         return true;
     }
 
@@ -793,6 +842,9 @@ internal static class GrpcSessionMappers
         StatusCode = response.StatusCode == 0 ? 200 : response.StatusCode,
         ContentRange = string.IsNullOrWhiteSpace(response.ContentRange) ? null : response.ContentRange,
         PassThrough = response.PassThrough,
+        RequestHadCookie = response.RequestHadCookie,
+        CacheControl = string.IsNullOrWhiteSpace(response.CacheControl) ? null : response.CacheControl,
+        Vary = string.IsNullOrWhiteSpace(response.Vary) ? null : response.Vary,
     };
 
     private static DomSelectorWire? ParseDomSelector(JsonElement parent, string propertyName)

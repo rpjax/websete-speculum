@@ -107,6 +107,18 @@ message LaunchRequest {
   string mirror_mode = 17;
   // Sessions.PageProjectionDiffQueueCapacity — sidecar EventBridge Dom queue (T5 DropAll).
   int32 page_projection_diff_queue_capacity = 18;
+  // Sessions.PageProjection.FrameRateHz (§5.3.4) — PageProjectionEngine top clock rate.
+  // 0/absent ⇒ sidecar default (60).
+  int32 frame_rate_hz = 19;
+  // Sessions.PageProjection.MaxFrameBytes (§5.3.5.5) — one wire message cap before splitting.
+  // 0/absent ⇒ sidecar default (1 MiB).
+  int32 max_frame_bytes = 20;
+  // Sessions.PageProjection.BrowserPoolSize (§5.13, WP13) — pre-warmed, never-navigated
+  // Chromium instances held ready host-wide. 0 ⇒ pool disabled (direct launch, V1 behavior).
+  int32 browser_pool_size = 21;
+  // Sessions.PageProjection.BrowserPoolRefillPerSec (§5.13) — throttle for pool refill after
+  // a session claims a pre-warmed instance.
+  int32 browser_pool_refill_per_sec = 22;
 }
 
 message ReadyInfo {
@@ -333,25 +345,39 @@ message AllocationLifecycleEvent {
   int64 unix_ms = 10;
 }
 
-// PageProjection outbound (sidecar → Api). body is UTF-8 JSON of the exclusive
-// operation payload (see docs/page-projection-diff-streams.md). Envelope carries
-// plane + operation; body holds the matching payload object only.
+// PageProjection outbound (sidecar → Api). Transitional envelope: `plane` and
+// `operation` were the V1 JSON-body scheme (docs/page-projection-diff-pipeline.md,
+// now superseded) and are DEPRECATED for binary frames — leave them empty string
+// on the redesigned path. `body` there is the opaque §5.5 binary wire payload
+// (magic/version/flags/generation/sequence/partIndex/partCount/strings/ops);
+// the API relays it without parsing (PP-WIRE-1). See
+// docs/page-projection-engine-redesign.md §5.5, §5.16.
 message PageProjectionDiffFrame {
   int64 sequence = 1;
   int64 generation = 2;
-  string plane = 3; // dom | cssom
-  string operation = 4; // dom: document|childList|patch|scrollViewport|scrollElement; cssom: install|sheetList|ruleList|patch
+  string plane = 3; // dom | cssom — deprecated for binary frames, empty string
+  string operation = 4; // deprecated for binary frames, empty string
   int64 timestamp_ms = 5;
-  bytes body = 6; // UTF-8 JSON payload for operation
+  bytes body = 6; // V1: UTF-8 JSON payload. Redesign: opaque binary frame/part.
+  // Redesign binary wire (§5.5.3) — a frame exceeding maxFrameBytes splits into
+  // parts, all sharing sequence/generation; the client applies once assembled.
+  uint32 part_index = 7;
+  uint32 part_count = 8;
+  uint32 flags = 9; // bit0 establish, bit1 resync (see sidecar mirror/page/encode.ts)
+  uint32 version = 10; // wire format version; an unknown version desyncs (PP-WIRE-2)
 }
 
 message DomInputEvent {
   string session_id = 1;
   string type = 2; // mousemove | mousedown | mouseup | input | keydown | … (no wire click)
-  string anchor = 3; // speculum-anchor; empty for pure motion
+  string anchor = 3; // speculum-anchor; DEPRECATED — kept for the V1 transition only
   string payload_json = 4; // PageProjectionIntentPayload JSON
   int64 generation = 5;
   double timestamp_client = 6;
+  // reserved 7; — gap kept for a still-undecided companion field
+  // Redesign id-addressed intents (§5.11): resolved through the sidecar's
+  // reverse id map (identity.ts); a miss follows the retry-then-drop policy.
+  optional uint32 target_id = 8;
 }
 
 message GetDomAssetRequest {
@@ -367,6 +393,15 @@ message GetDomAssetResponse {
   int32 status_code = 3; // 200 / 206 for pass-through
   string content_range = 4;
   bool pass_through = 5;
+  // §5.12.2.1 shareability signals — only populated for a fresh, non-pass-through
+  // "asset" fetch (cache-mode hit); the API's SharedAssetCacheL2 predicate reads these
+  // before deciding whether the fetched body may be dedup-served host-wide. Empty/false
+  // on every pass-through / range / blob / data response (never shareable).
+  bool request_had_cookie = 6;
+  // Raw `Cache-Control` response header value, comma-joined directives as sent.
+  string cache_control = 7;
+  // Raw `Vary` response header value, comma-joined values as sent.
+  string vary = 8;
 }
 
 // OOB PageProjection.Resync (T8/C8) — does not advance live sequence.

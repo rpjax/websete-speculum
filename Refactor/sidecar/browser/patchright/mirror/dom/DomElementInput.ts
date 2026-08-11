@@ -2,11 +2,23 @@ import { promises as fs } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ElementHandle, Page } from 'patchright';
-import type { PageProjection } from './PageProjection';
+
+/**
+ * Minimal surface `DomElementInput` needs from a PageProjection host. Both
+ * V1 `PageProjection` and V2 `LivePageProjection` (mirror/page/liveAttach.ts)
+ * structurally satisfy this without a shared base type.
+ */
+export type DomProjectionInputHost = {
+  getGeneration?(): number;
+  takeUpload(id: string): { body: Buffer; contentType: string; name: string } | undefined;
+};
 
 export type DomElementInputEvent = {
   type: string;
+  /** @deprecated Prefer targetId (redesign §5.11). Kept for V1 transition. */
   anchor?: string | null;
+  /** Redesign §5.11 — uint32 id resolved via IdentitySpace reverse map. */
+  targetId?: number | null;
   generation?: number;
   timestampClient?: number | null;
   payloadJson?: string;
@@ -70,7 +82,7 @@ export class DomElementInput {
 
   constructor(
     private readonly page: Page,
-    private readonly projection?: PageProjection,
+    private readonly projection?: DomProjectionInputHost,
   ) {}
 
   async dispatch(event: DomElementInputEvent): Promise<DomElementInputOutcome> {
@@ -193,15 +205,15 @@ export class DomElementInput {
       return { status: 'dispatched' };
     }
     if (type === 'keydown' || type === 'keyup') {
-      const reason = await this.dispatchKey(type, event.anchor, payload);
+      const reason = await this.dispatchKey(type, event.anchor, payload, event.targetId);
       return reason ? { status: 'dropped', reason } : { status: 'dispatched' };
     }
     if (type === 'input') {
-      const reason = await this.dispatchInput(event.anchor, payload);
+      const reason = await this.dispatchInput(event.anchor, payload, event.targetId);
       return reason ? { status: 'dropped', reason } : { status: 'dispatched' };
     }
     if (type === 'setfiles') {
-      const reason = await this.dispatchSetFiles(event.anchor, payload);
+      const reason = await this.dispatchSetFiles(event.anchor, payload, event.targetId);
       return reason ? { status: 'dropped', reason } : { status: 'dispatched' };
     }
     if (type === 'scrollviewport') {
@@ -209,15 +221,15 @@ export class DomElementInput {
       return { status: 'dispatched' };
     }
     if (type === 'scrollelement') {
-      const reason = await this.dispatchScrollElement(event.anchor, payload);
+      const reason = await this.dispatchScrollElement(event.anchor, payload, event.targetId);
       return reason ? { status: 'dropped', reason } : { status: 'dispatched' };
     }
     if (type === 'focus') {
-      const reason = await this.focusAnchor(event.anchor);
+      const reason = await this.focusAnchor(event.anchor, event.targetId);
       return reason ? { status: 'dropped', reason } : { status: 'dispatched' };
     }
     if (type === 'blur') {
-      const reason = await this.blurAnchor(event.anchor);
+      const reason = await this.blurAnchor(event.anchor, event.targetId);
       return reason ? { status: 'dropped', reason } : { status: 'dispatched' };
     }
     return { status: 'dropped', reason: 'unknown_type' };
@@ -281,9 +293,10 @@ export class DomElementInput {
     type: 'keydown' | 'keyup',
     anchor: string | null | undefined,
     payload: IntentPayload,
+    targetId?: number | null,
   ): Promise<string | null> {
-    if (anchor) {
-      const focusReason = await this.focusAnchor(anchor);
+    if (anchor || (targetId && targetId > 0)) {
+      const focusReason = await this.focusAnchor(anchor, targetId);
       if (focusReason) return focusReason;
     }
     const key = typeof payload.key === 'string' ? payload.key : '';
@@ -310,8 +323,9 @@ export class DomElementInput {
   private async dispatchInput(
     anchor: string | null | undefined,
     payload: IntentPayload,
+    targetId?: number | null,
   ): Promise<string | null> {
-    const el = await this.resolveElement(anchor);
+    const el = await this.resolveElement(anchor, targetId);
     if (!el) return 'anchor_missing';
     try {
       await el.focus();
@@ -353,8 +367,9 @@ export class DomElementInput {
   private async dispatchSetFiles(
     anchor: string | null | undefined,
     payload: IntentPayload,
+    targetId?: number | null,
   ): Promise<string | null> {
-    const el = await this.resolveElement(anchor);
+    const el = await this.resolveElement(anchor, targetId);
     if (!el) return 'anchor_missing';
     if (!payload.files?.length) {
       await el.dispose().catch(() => undefined);
@@ -433,10 +448,11 @@ export class DomElementInput {
   private async dispatchScrollElement(
     anchor: string | null | undefined,
     payload: IntentPayload,
+    targetId?: number | null,
   ): Promise<string | null> {
     const top = Number(payload.scrollTop ?? 0);
     const left = Number(payload.scrollLeft ?? 0);
-    const el = await this.resolveElement(anchor);
+    const el = await this.resolveElement(anchor, targetId);
     if (!el) return 'anchor_missing';
     try {
       await el.evaluate(
@@ -494,8 +510,8 @@ export class DomElementInput {
     }
   }
 
-  private async focusAnchor(anchor: string | null | undefined): Promise<string | null> {
-    const el = await this.resolveElement(anchor);
+  private async focusAnchor(anchor: string | null | undefined, targetId?: number | null): Promise<string | null> {
+    const el = await this.resolveElement(anchor, targetId);
     if (!el) return 'anchor_missing';
     try {
       await el.focus();
@@ -505,8 +521,8 @@ export class DomElementInput {
     }
   }
 
-  private async blurAnchor(anchor: string | null | undefined): Promise<string | null> {
-    const el = await this.resolveElement(anchor);
+  private async blurAnchor(anchor: string | null | undefined, targetId?: number | null): Promise<string | null> {
+    const el = await this.resolveElement(anchor, targetId);
     if (!el) return 'anchor_missing';
     try {
       await el.evaluate((node) => {
@@ -520,12 +536,35 @@ export class DomElementInput {
   }
 
   /**
-   * Pierce-aware anchor resolve (input §6.7): search main frame, then every
-   * child frame (same-origin pierce + Chromium XO satellite).
+   * Pierce-aware resolve (input §6.7 / redesign §5.11):
+   * Prefer uint32 targetId via __speculumPageProjectionV2.reverse map;
+   * fall back to deprecated speculum-anchor string for V1 transition.
    */
   private async resolveElement(
     anchor: string | null | undefined,
+    targetId?: number | null,
   ): Promise<ElementHandle | null> {
+    if (targetId && targetId > 0) {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        for (const frame of this.page.frames()) {
+          try {
+            const handle = await frame.evaluateHandle((id) => {
+              const w = globalThis as typeof globalThis & {
+                __speculumPageProjectionV2?: { resolve?: (id: number) => unknown };
+              };
+              return w.__speculumPageProjectionV2?.resolve?.(id) ?? null;
+            }, targetId);
+            const element = handle.asElement() as ElementHandle | null;
+            if (element) return element;
+            await handle.dispose().catch(() => undefined);
+          } catch {
+            /* frame detached */
+          }
+        }
+        await new Promise((r) => setTimeout(r, 16 * (attempt + 1)));
+      }
+      // miss → retry-then-drop (AnchorMiss) — fall through to anchor if present
+    }
     if (!anchor) return null;
     for (let attempt = 0; attempt < 3; attempt++) {
       for (const frame of this.page.frames()) {

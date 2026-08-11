@@ -29,6 +29,7 @@ import {
   sanitizeCookieBatch,
 } from './browser/patchright/PageState';
 import { DomAssetCache } from './browser/patchright/mirror/dom/DomAssetCache';
+import { runPageProjectionUnitTests } from './browser/patchright/mirror/page/page.unit';
 import {
   decodeDomBody,
   encodeDomBody,
@@ -475,6 +476,15 @@ function testBuildChromeArgsIncludesWebglSpoof(): void {
   assert.ok(
     args.some((a) => a.includes('DisableLoadExtensionCommandLineSwitch')),
     'Chrome ≥137 load-extension feature flag required',
+  );
+  assert.ok(
+    args.includes('--disable-background-timer-throttling'),
+    '§5.3.4 frame clock must not be background-throttled',
+  );
+  assert.ok(args.includes('--disable-renderer-backgrounding'), '§5.3.4 renderer must not be backgrounded');
+  assert.ok(
+    args.includes('--disable-backgrounding-occluded-windows'),
+    '§5.3.4 occluded window must not be backgrounded',
   );
   // Product path must not gate on SPECULUM_GL* env.
   process.env['SPECULUM_GL_FALLBACK'] = '0';
@@ -1715,6 +1725,11 @@ async function main(): Promise<void> {
   testHostResourcesApplySkipsRemountOffLinux();
   testCookieSanitizeMatrix();
   testDomAssetCacheAndBodyCodec();
+  testDomAssetCacheRespectsByteCap();
+  await testBrowserPoolWarmUpAndAcquire();
+  testBrowserPoolRefillThrottle();
+  await testBrowserPoolExhaustionFallsBackToOnDemandLaunch();
+  await testBrowserPoolRegistryPolicy();
   testSrcsetParseCloudinary();
   testParseDataUrlHardening();
   await testPublishedAnchorsLedgerOmitsAndRetires();
@@ -1722,6 +1737,7 @@ async function main(): Promise<void> {
   await testEmitChildListSkipsAfterPendingHostRetire();
   await testUnpublishedWrapperWipeUnpublishesDescendants();
   await testMapDocumentRemintsConnectedDuplicateAnchors();
+  await runPageProjectionUnitTests();
   console.log('[unit] all passed');
 }
 
@@ -2145,6 +2161,183 @@ function testDomAssetCacheAndBodyCodec(): void {
   assert.ok(cssomDecoded && typeof cssomDecoded === 'object' && Array.isArray(cssomDecoded.sheets));
   assert.strictEqual(cssomDecoded.sheets?.[0]?.id, 's1');
   console.log('[unit] DomAssetCache + PageProjection body codec ok');
+}
+
+/** PP-ASSET-4 — the L1 cache must respect its LRU byte cap, not just entry count. */
+function testDomAssetCacheRespectsByteCap(): void {
+  const cache = new DomAssetCache(10, 100); // byte cap of 10, generous entry count
+  cache.put('a', Buffer.from('aaaa'), 'text/css'); // 4 bytes, total 4
+  cache.put('b', Buffer.from('bbbb'), 'text/css'); // 4 bytes, total 8
+  assert.strictEqual(cache.currentBytes, 8);
+  assert.ok(cache.get('a'), 'a survives under the byte cap');
+  assert.ok(cache.get('b'), 'b survives under the byte cap');
+
+  cache.put('c', Buffer.from('cccc'), 'text/css'); // 4 bytes, total would be 12 > 10 → evict oldest
+  assert.strictEqual(cache.get('a'), undefined, 'oldest entry evicted once the byte cap is exceeded');
+  assert.ok(cache.get('b'), 'b still present');
+  assert.ok(cache.get('c'), 'c still present');
+  assert.ok(cache.currentBytes <= 10, `currentBytes ${cache.currentBytes} must respect the 10-byte cap`);
+
+  // Re-putting an existing key must not double-count its bytes nor leak its old hash.
+  const cache2 = new DomAssetCache(1024, 100);
+  const hash1 = cache2.put('k', Buffer.from('x'), 'text/plain');
+  const hash2 = cache2.put('k', Buffer.from('yy'), 'text/plain');
+  assert.strictEqual(cache2.currentBytes, 2, 'replacing a key must replace its byte accounting, not add to it');
+  assert.strictEqual(cache2.size, 1);
+  assert.ok(hash1 && hash2 && hash1 !== hash2);
+  assert.strictEqual(cache2.getByHash(hash1!), undefined, 'stale hash of a replaced key must not resolve');
+  assert.ok(cache2.getByHash(hash2!), 'current hash must resolve');
+  console.log('[unit] DomAssetCache respects byte cap ok');
+}
+
+/** WP13 §5.13 — pre-warmed pool: warm-up, throttled refill, and destroy-on-release (PP-SESS-2). */
+async function testBrowserPoolWarmUpAndAcquire(): Promise<void> {
+  const { BrowserPool } = await import('./browser/patchright/BrowserPool');
+  let launches = 0;
+  const closedProcesses: number[] = [];
+  const closedContexts: number[] = [];
+
+  const launch = async () => {
+    const id = ++launches;
+    return {
+      newContext: async () => ({
+        close: async () => {
+          closedContexts.push(id);
+        },
+      }),
+      close: async () => {
+        closedProcesses.push(id);
+      },
+    };
+  };
+
+  const pool = new BrowserPool({ size: 2, refillPerSec: 1000, launch });
+  await pool.warmUp();
+  assert.strictEqual(pool.availableCount, 2, 'warmUp must pre-warm to size');
+  assert.strictEqual(launches, 2);
+
+  const acquired = await pool.acquire();
+  await acquired.release();
+  // Released id 1 proves acquire() handed out the first pre-warmed instance
+  // (ids assigned in launch order) rather than launching a fresh one.
+  assert.deepStrictEqual(closedContexts, [1], 'acquire must consume a pre-warmed instance, not launch a new one');
+  assert.deepStrictEqual(closedProcesses, [1], 'release must destroy the process — never recycle (PP-SESS-2)');
+
+  // Refill throttle: fast refillPerSec here means the opportunistic refill on
+  // acquire should have already replenished back toward size.
+  for (let i = 0; i < 20 && pool.availableCount < 2; i++) await Promise.resolve();
+  assert.strictEqual(pool.availableCount, 2, 'pool must refill back toward size after a consuming acquire');
+
+  await pool.dispose();
+  console.log('[unit] BrowserPool warm-up + acquire + destroy-on-release ok');
+}
+
+/** tryRefill must honor the refillPerSec throttle using an injectable clock — no real timers. */
+function testBrowserPoolRefillThrottle(): void {
+  const { BrowserPool } = require('./browser/patchright/BrowserPool') as typeof import('./browser/patchright/BrowserPool');
+  let launches = 0;
+  let clock = 0;
+  const launch = async () => {
+    launches++;
+    return { newContext: async () => ({ close: async () => {} }), close: async () => {} };
+  };
+  const pool = new BrowserPool({ size: 5, refillPerSec: 2, launch, now: () => clock }); // 500ms min interval
+
+  assert.strictEqual(pool.tryRefill(), true, 'first refill always allowed');
+  assert.strictEqual(pool.tryRefill(), false, 'immediate second refill must be throttled');
+  clock += 499;
+  assert.strictEqual(pool.tryRefill(), false, 'just under the interval must still be throttled');
+  clock += 2;
+  assert.strictEqual(pool.tryRefill(), true, 'past the interval must allow another refill');
+  console.log('[unit] BrowserPool refill throttle (injectable clock) ok');
+}
+
+/** Pool exhaustion must fall back to an on-demand launch rather than reusing an instance. */
+async function testBrowserPoolExhaustionFallsBackToOnDemandLaunch(): Promise<void> {
+  const { BrowserPool } = await import('./browser/patchright/BrowserPool');
+  let launches = 0;
+  const launch = async () => {
+    launches++;
+    return { newContext: async () => ({ close: async () => {} }), close: async () => {} };
+  };
+  const pool = new BrowserPool({ size: 0, refillPerSec: 1, launch });
+  assert.strictEqual(pool.availableCount, 0);
+  const a = await pool.acquire();
+  assert.strictEqual(launches, 1, 'exhausted pool must launch on demand rather than block or reuse');
+  await a.release();
+  console.log('[unit] BrowserPool exhaustion falls back to on-demand launch ok');
+}
+
+/**
+ * BrowserPoolRegistry policy (§5.13 wiring): size 0 must never touch the launch factory,
+ * a first successful acquire must geometry-lock the singleton pool, a later request for a
+ * different geometry must miss (never a wrong-sized Display), and release must destroy the
+ * underlying process — never recycle (PP-SESS-2).
+ */
+async function testBrowserPoolRegistryPolicy(): Promise<void> {
+  const { BrowserPoolRegistry } = await import('./browser/patchright/BrowserPoolRegistry');
+  const { DisplayAllocator } = await import('./browser/patchright/Display');
+  let launches = 0;
+  const closedProcesses: number[] = [];
+  const launchFactory = async () => {
+    const id = ++launches;
+    return {
+      newContext: async () => ({ close: async () => {} }),
+      close: async () => {
+        closedProcesses.push(id);
+      },
+    };
+  };
+
+  const registry = new BrowserPoolRegistry(launchFactory);
+  const displays = new DisplayAllocator();
+
+  const disabled = await registry.tryAcquire({
+    size: 0,
+    refillPerSec: 1000,
+    maxWidth: 800,
+    maxHeight: 600,
+    displays,
+  });
+  assert.strictEqual(disabled, null, 'size 0 must disable pooling entirely');
+  assert.strictEqual(launches, 0, 'size 0 must never invoke the launch factory');
+
+  const first = await registry.tryAcquire({
+    size: 2,
+    refillPerSec: 1000,
+    maxWidth: 800,
+    maxHeight: 600,
+    displays,
+  });
+  // The very first acquire races an unawaited warmUp() — it may consume a pre-warmed
+  // instance or trigger its own on-demand launch; either way, correctness holds.
+  assert.notStrictEqual(first, null, 'first request must acquire (pre-warmed or on-demand)');
+  assert.ok(launches >= 2, `pool creation must have launched at least size instances (got ${launches})`);
+
+  const mismatched = await registry.tryAcquire({
+    size: 2,
+    refillPerSec: 1000,
+    maxWidth: 1024,
+    maxHeight: 768,
+    displays,
+  });
+  assert.strictEqual(mismatched, null, 'a different max viewport than the geometry-locked pool must miss, not resize');
+
+  await first!.release();
+  assert.strictEqual(closedProcesses.length, 1, 'release must destroy exactly the acquired process — never recycle (PP-SESS-2)');
+
+  const second = await registry.tryAcquire({
+    size: 2,
+    refillPerSec: 1000,
+    maxWidth: 800,
+    maxHeight: 600,
+    displays,
+  });
+  assert.notStrictEqual(second, null, 'matching geometry must keep hitting the same locked pool');
+  await second!.release();
+
+  await registry.disposeForTests();
+  console.log('[unit] BrowserPoolRegistry geometry-lock + fallback + destroy-on-release ok');
 }
 
 function testCookieSanitizeMatrix(): void {

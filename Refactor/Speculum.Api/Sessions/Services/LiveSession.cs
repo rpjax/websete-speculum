@@ -32,6 +32,7 @@ internal sealed class LiveSession : ILiveSession
     private readonly ISessionLiveEvents _liveEvents;
     private readonly ISessionTelemetryEvents _telemetry;
     private readonly IJournalCatalog _journalCatalog;
+    private readonly ISharedAssetCacheL2 _sharedAssetCacheL2;
     private readonly ILogger _logger;
     private readonly string _requestHost;
     private readonly bool _jsBridgeEnabled;
@@ -73,6 +74,7 @@ internal sealed class LiveSession : ILiveSession
         ISessionLiveEvents liveEvents,
         ISessionTelemetryEvents telemetry,
         IJournalCatalog journalCatalog,
+        ISharedAssetCacheL2 sharedAssetCacheL2,
         ILogger logger)
     {
         SessionId = sessionId;
@@ -89,6 +91,7 @@ internal sealed class LiveSession : ILiveSession
         _liveEvents = liveEvents;
         _telemetry = telemetry;
         _journalCatalog = journalCatalog;
+        _sharedAssetCacheL2 = sharedAssetCacheL2;
         _logger = logger;
 
         hooks.BindToConnection(connection);
@@ -2022,13 +2025,38 @@ internal sealed class LiveSession : ILiveSession
             return Result<DomAsset>.Failure("Live session is released");
         }
 
-        var started = Environment.TickCount64;
         var trimmed = key.Trim();
+
+        // §5.12.2 — only a plain, non-Range "asset" GET (never blob/data, which are
+        // session-synthesized, never origin subresources) is ever L2-eligible.
+        var l2Key = IsSharedAssetCacheEligible(kind, rangeHeader)
+            ? SharedAssetCacheL2.BuildKey("asset", trimmed, 0, "", "", [], "none")
+            : null;
+        if (l2Key is not null)
+        {
+            using var hit = _sharedAssetCacheL2.TryAcquire(l2Key);
+            if (hit is not null)
+            {
+                return Result<DomAsset>.Success(new DomAsset
+                {
+                    Body = hit.Body,
+                    ContentType = hit.ContentType,
+                    StatusCode = hit.StatusCode,
+                });
+            }
+        }
+
+        var started = Environment.TickCount64;
         var result = await _connection
             .GetDomAssetAsync(trimmed, ct, kind, rangeHeader)
             .ConfigureAwait(false);
         var durationMs = Math.Max(0, Environment.TickCount64 - started);
         var urlKey = DomAssetUrlKey(trimmed);
+
+        if (l2Key is not null && result.IsSuccess)
+        {
+            TryPutSharedAssetCache(l2Key, result.Value);
+        }
 
         try
         {
@@ -2059,6 +2087,63 @@ internal sealed class LiveSession : ILiveSession
 
         return result;
     }
+
+    /// <summary>
+    /// §5.12.2 — pass-through (media/Range) and session-synthesized blob/data keys never
+    /// carry an origin-shareable byte identity and must stay L1-only (task-mandated exclusion).
+    /// </summary>
+    private static bool IsSharedAssetCacheEligible(string? kind, string? rangeHeader)
+    {
+        if (!string.IsNullOrEmpty(rangeHeader))
+        {
+            return false;
+        }
+
+        return string.IsNullOrEmpty(kind) || string.Equals(kind, "asset", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Stores a freshly fetched asset in the host-wide L2 tier when the §5.12.2.1 predicate
+    /// allows it. A non-empty <c>Vary</c> is kept L1-only: the pre-fetch <see cref="ISharedAssetCacheL2.TryAcquire"/>
+    /// lookup above has no request-time knowledge of which header values a not-yet-seen
+    /// response will vary on, so a vary-less key is the only one a later lookup can ever
+    /// address — storing under a vary-qualified key would silently orphan the entry
+    /// (never found, never evicted) rather than risk a wrong cross-session hit (PP-ASSET-7).
+    /// </summary>
+    private void TryPutSharedAssetCache(string l2Key, DomAsset asset)
+    {
+        if (!_sharedAssetCacheL2.Enabled
+            || asset.PassThrough
+            || asset.Body.Length == 0
+            || !string.IsNullOrWhiteSpace(asset.Vary))
+        {
+            return;
+        }
+
+        var descriptor = new SharedAssetShareabilityDescriptor
+        {
+            RequestHadCookie = asset.RequestHadCookie,
+            // Sidecar out-of-band asset fetches never add an Authorization header today;
+            // there is no signal to read this from yet (reported as a known gap).
+            RequestHadAuthorization = false,
+            CacheControlDirectives = SplitHeaderList(asset.CacheControl),
+            VaryValues = [],
+            StatusCode = asset.StatusCode,
+            Kind = SharedAssetRequestKind.Subresource,
+        };
+
+        if (!SharedAssetCacheL2.IsShareable(descriptor))
+        {
+            return;
+        }
+
+        _sharedAssetCacheL2.Put(l2Key, asset.Body, asset.ContentType, asset.StatusCode).Dispose();
+    }
+
+    private static IReadOnlyCollection<string> SplitHeaderList(string? raw) =>
+        string.IsNullOrWhiteSpace(raw)
+            ? []
+            : raw.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
 
     private static string DomAssetUrlKey(string key)
     {

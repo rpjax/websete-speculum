@@ -1,5 +1,12 @@
 # Dom Projection — coalesce configuration
 
+> **SUPERSEDED — WP16.** This document is entirely superseded by
+> [page-projection-engine-redesign.md](page-projection-engine-redesign.md). The coalesce knobs
+> below (`strategy`, `coalesceWindowMs`, `maxWaitMs`, `maxBufferBytes`, `maxOpsPerFlush`) and
+> `PageProjectionDiffQueueCapacity` as a load control are **deleted** by the redesign (§5.16):
+> backpressure is the frame-rate ladder (§5.3.5), which never drops a frame. See §5.16 for the
+> current configuration surface. Do not implement or extend against this file.
+
 **Status:** design (V1).
 
 > **Naming / supersession:** product mode/pipe is **PageProjection**

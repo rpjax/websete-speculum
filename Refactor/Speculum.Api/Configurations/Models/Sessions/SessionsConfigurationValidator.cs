@@ -1,3 +1,4 @@
+using System.Linq;
 using Microsoft.Extensions.Options;
 using Speculum.Api.Configurations.Models.Sessions;
 
@@ -33,6 +34,11 @@ public sealed class SessionsConfigurationValidator : IValidateOptions<SessionsCo
         {
             return ValidateOptionsResult.Fail(
                 "Sessions.PageProjectionDiffQueueCapacity must be in [64, 65536].");
+        }
+
+        if (!IsValidPageProjectionOptions(options.PageProjection, out var pageProjectionError))
+        {
+            return ValidateOptionsResult.Fail(pageProjectionError);
         }
 
         var viewport = options.ViewportPolicy;
@@ -122,4 +128,118 @@ public sealed class SessionsConfigurationValidator : IValidateOptions<SessionsCo
 
     private static bool IsPositive(ScreenResolution resolution)
         => resolution.Width > 0 && resolution.Height > 0;
+
+    /// <summary>
+    /// Rejects §5.16 values that would stall frame emission indefinitely. This is the
+    /// engine-redesign replacement for the old coalesce-knob validation: there is no
+    /// "wait forever" knob left to misconfigure, only rates and byte caps that must stay
+    /// strictly positive so the clock, the rate ladder and the establish stream always progress.
+    /// </summary>
+    private static bool IsValidPageProjectionOptions(PageProjectionOptions options, out string error)
+    {
+        if (options.FrameRateHz <= 0)
+        {
+            error = "Sessions.PageProjection.FrameRateHz must be greater than zero.";
+            return false;
+        }
+
+        if (options.FrameRateLadder.Count == 0 || options.FrameRateLadder.Any(hz => hz <= 0))
+        {
+            error = "Sessions.PageProjection.FrameRateLadder must be non-empty and every step must be greater than zero.";
+            return false;
+        }
+
+        if (options.HiddenRateHz <= 0)
+        {
+            error = "Sessions.PageProjection.HiddenRateHz must be greater than zero — zero would stall a hidden tab forever.";
+            return false;
+        }
+
+        if (options.RateRecoverMs < 0)
+        {
+            error = "Sessions.PageProjection.RateRecoverMs must not be negative.";
+            return false;
+        }
+
+        if (options.FrameStallMs <= 0)
+        {
+            error = "Sessions.PageProjection.FrameStallMs must be greater than zero for the clock watchdog to fire.";
+            return false;
+        }
+
+        if (options.MaxFrameBytes <= 0)
+        {
+            error = "Sessions.PageProjection.MaxFrameBytes must be greater than zero — a non-positive cap could never fit a single part.";
+            return false;
+        }
+
+        if (options.EstablishChunkBytes <= 0)
+        {
+            error = "Sessions.PageProjection.EstablishChunkBytes must be greater than zero.";
+            return false;
+        }
+
+        if (options.SwapTimeoutMs <= 0)
+        {
+            error = "Sessions.PageProjection.SwapTimeoutMs must be greater than zero — the double-buffer swap must always resolve.";
+            return false;
+        }
+
+        if (options.ClientStateMs <= 0)
+        {
+            error = "Sessions.PageProjection.ClientStateMs must be greater than zero.";
+            return false;
+        }
+
+        if (options.ApplyBudgetMs < 0)
+        {
+            error = "Sessions.PageProjection.ApplyBudgetMs must not be negative.";
+            return false;
+        }
+
+        if (options.MirrorMaxBytes <= 0)
+        {
+            error = "Sessions.PageProjection.MirrorMaxBytes must be greater than zero.";
+            return false;
+        }
+
+        if (options.AssetCacheL1MaxBytes <= 0)
+        {
+            error = "Sessions.PageProjection.AssetCacheL1MaxBytes must be greater than zero.";
+            return false;
+        }
+
+        if (options.AssetCacheL2MaxBytes < 0)
+        {
+            error = "Sessions.PageProjection.AssetCacheL2MaxBytes must not be negative.";
+            return false;
+        }
+
+        if (options.AssetPriorityViewportPx < 0)
+        {
+            error = "Sessions.PageProjection.AssetPriorityViewportPx must not be negative.";
+            return false;
+        }
+
+        if (options.BrowserPoolSize < 0)
+        {
+            error = "Sessions.PageProjection.BrowserPoolSize must not be negative.";
+            return false;
+        }
+
+        if (options.BrowserPoolRefillPerSec <= 0)
+        {
+            error = "Sessions.PageProjection.BrowserPoolRefillPerSec must be greater than zero — zero would stall pool refill forever.";
+            return false;
+        }
+
+        if (options.AggregateIntervalMs <= 0)
+        {
+            error = "Sessions.PageProjection.AggregateIntervalMs must be greater than zero.";
+            return false;
+        }
+
+        error = string.Empty;
+        return true;
+    }
 }

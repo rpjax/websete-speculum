@@ -227,6 +227,11 @@ function createBrowserSessionHandlers(registry) {
                 operation: d.operation,
                 timestampMs: d.timestampMs,
                 body: d.body,
+                // §5.5 binary wire — defaults reproduce a single-part V1 JSON frame's shape.
+                partIndex: d.partIndex ?? 0,
+                partCount: d.partCount ?? 1,
+                flags: d.flags ?? 0,
+                version: d.version ?? 1,
             }), (bridge) => ({
                 onAfterDequeue: () => {
                     bridge.notifyDomQueueDrained();
@@ -351,9 +356,12 @@ function createBrowserSessionHandlers(registry) {
                 }
                 const kind = String(msg.type ?? '');
                 const generation = Number(msg.generation ?? 0) || undefined;
+                const rawTargetId = msg.targetId ?? msg.target_id;
+                const targetId = rawTargetId != null ? Number(rawTargetId) : null;
                 const outcome = await session.pushDomInput({
                     type: kind,
                     anchor: msg.anchor != null ? String(msg.anchor) : null,
+                    targetId: targetId != null && Number.isFinite(targetId) ? targetId : null,
                     generation,
                     timestampClient: msg.timestampClient != null || msg.timestamp_client != null
                         ? Number(msg.timestampClient ?? msg.timestamp_client)
@@ -415,6 +423,11 @@ function createBrowserSessionHandlers(registry) {
                     statusCode: hit.statusCode ?? 200,
                     contentRange: hit.contentRange ?? '',
                     passThrough: !!hit.passThrough,
+                    // §5.12.2.1 — only populated for a fresh, non-pass-through "asset" fetch; the
+                    // API's SharedAssetCacheL2 predicate treats absent/false as never-shareable.
+                    requestHadCookie: !!hit.requestHadCookie,
+                    cacheControl: hit.cacheControl ?? '',
+                    vary: hit.vary ?? '',
                 });
             }
             catch (err) {

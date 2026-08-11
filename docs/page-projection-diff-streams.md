@@ -1,5 +1,14 @@
 # PageProjection — Dom plane redesign (sealed)
 
+> **Amended by** [page-projection-engine-redesign.md](page-projection-engine-redesign.md) rev 4:
+> **T4/T5** — the **frame** is the atom (net-effect coalesce; one `sequence` per frame; backpressure
+> degrades rate, never desyncs). **T7/T9/G-A** — identity is off-DOM `uint32` (forward+reverse maps);
+> address is the id; `childAt`, F-visible index space, and text-run collapsing are deleted.
+> **T2/T6** — binary frame with part splitting; API relays without parsing; `document` op deleted in
+> favour of `establishBegin`/`Chunk`/`End`. **Q19** — wire `plane` header removed (one opcode space).
+> Where this sealed file conflicts with the redesign on those topics, **the redesign wins**.
+> Acceptance still wins over both: [page-projection-acceptance.md](page-projection-acceptance.md).
+
 > Filename: `page-projection-diff-streams.md` (T12). Vocabulary:
 > **PageProjection** mode/pipe; this file = **Dom plane** contract. CSSOM plane =
 > [page-projection-cssom.md](page-projection-cssom.md).

@@ -42,7 +42,12 @@ export interface BrowserSessionEvents {
   onVideoFrame(jpeg: Uint8Array): void;
   onAudioFrame(chunk: Uint8Array): void;
 
-  /** Dom Projection diff (only when MirrorMode is PageProjection). */
+  /**
+   * Dom Projection diff (only when MirrorMode is PageProjection).
+   * V2 (§5.5 binary wire): `plane`/`operation` are empty strings and the
+   * part/flags/version fields describe the opaque `body` frame directly.
+   * V1 (JSON wire, pre-cutover): `plane`/`operation` select the payload shape.
+   */
   onPageProjectionDiff?(diff: {
     sequence: number;
     generation: number;
@@ -50,6 +55,14 @@ export interface BrowserSessionEvents {
     operation: string;
     timestampMs: number;
     body: Uint8Array;
+    /** §5.5 — 0-based index of this part within the frame (V2 only). */
+    partIndex?: number;
+    /** §5.5 — total part count for this frame's `sequence` (V2 only). */
+    partCount?: number;
+    /** §5.5 — header flags: bit0 establish, bit1 resync (V2 only). */
+    flags?: number;
+    /** §5.5 — wire format version (V2 only). */
+    version?: number;
   }): void;
 
   /**
@@ -211,6 +224,14 @@ export interface BrowserLaunchOptions {
   mirrorMode: 'videoStreaming' | 'pageProjection';
   /** Sessions.PageProjectionDiffQueueCapacity — EventBridge Dom queue depth. */
   pageProjectionDiffQueueCapacity: number;
+  /** Sessions.PageProjection.FrameRateHz (§5.3.4) — PageProjectionEngine top clock rate. */
+  frameRateHz?: number;
+  /** Sessions.PageProjection.MaxFrameBytes (§5.3.5.5) — one wire message cap before splitting. */
+  maxFrameBytes?: number;
+  /** Sessions.PageProjection.BrowserPoolSize (§5.13, WP13) — 0 disables the pre-warm pool. */
+  browserPoolSize?: number;
+  /** Sessions.PageProjection.BrowserPoolRefillPerSec (§5.13). */
+  browserPoolRefillPerSec?: number;
   locale: string;
   language: string;
   timeZoneId: string;
@@ -458,6 +479,8 @@ export interface BrowserSession {
   pushDomInput?(input: {
     type: string;
     anchor?: string | null;
+    /** Redesign §5.11 — uint32 id resolved via IdentitySpace reverse map (V2). */
+    targetId?: number | null;
     generation?: number;
     timestampClient?: number | null;
     payloadJson?: string;
@@ -473,6 +496,14 @@ export interface BrowserSession {
     statusCode?: number;
     contentRange?: string;
     passThrough?: boolean;
+    /**
+     * §5.12.2.1 shareability signals — only populated for a fresh, non-pass-through
+     * "asset" fetch; the API's SharedAssetCacheL2 predicate reads these before
+     * deciding whether the body may be dedup-served host-wide.
+     */
+    requestHadCookie?: boolean;
+    cacheControl?: string;
+    vary?: string;
   } | null>;
 
   /** OOB PageProjection.Resync snapshot (does not advance live sequence). */

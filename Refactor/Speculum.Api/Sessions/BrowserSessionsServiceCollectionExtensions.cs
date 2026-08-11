@@ -54,6 +54,11 @@ public static class BrowserSessionsServiceCollectionExtensions
         services.TryAddSingleton<ISessionEventsFactory, SessionEventsFactory>();
         services.TryAddSingleton<ISessionTokenGenerator, SessionTokenGenerator>();
         services.TryAddSingleton<ILaunchScriptResolver, LaunchScriptResolver>();
+        // §5.12.2 host-wide shared asset tier — dedupes credential-less public bytes
+        // across sessions; kill-switched per request via Sessions.PageProjection.AssetCacheL2Enabled.
+        services.TryAddSingleton<
+            Speculum.Api.Sessions.Mirror.PageProjection.ISharedAssetCacheL2,
+            Speculum.Api.Sessions.Mirror.PageProjection.SharedAssetCacheL2>();
         // Session lifecycle gate only. LiveSessionService owns a separate registry lock —
         // sharing this instance deadlocks StopSession (holds gate → Release tries same key).
         services.TryAddSingleton<IAsyncScopedMutex>(_ => new ScopedMutex());

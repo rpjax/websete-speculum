@@ -137,15 +137,15 @@ class DomElementInput {
             return { status: 'dispatched' };
         }
         if (type === 'keydown' || type === 'keyup') {
-            const reason = await this.dispatchKey(type, event.anchor, payload);
+            const reason = await this.dispatchKey(type, event.anchor, payload, event.targetId);
             return reason ? { status: 'dropped', reason } : { status: 'dispatched' };
         }
         if (type === 'input') {
-            const reason = await this.dispatchInput(event.anchor, payload);
+            const reason = await this.dispatchInput(event.anchor, payload, event.targetId);
             return reason ? { status: 'dropped', reason } : { status: 'dispatched' };
         }
         if (type === 'setfiles') {
-            const reason = await this.dispatchSetFiles(event.anchor, payload);
+            const reason = await this.dispatchSetFiles(event.anchor, payload, event.targetId);
             return reason ? { status: 'dropped', reason } : { status: 'dispatched' };
         }
         if (type === 'scrollviewport') {
@@ -153,15 +153,15 @@ class DomElementInput {
             return { status: 'dispatched' };
         }
         if (type === 'scrollelement') {
-            const reason = await this.dispatchScrollElement(event.anchor, payload);
+            const reason = await this.dispatchScrollElement(event.anchor, payload, event.targetId);
             return reason ? { status: 'dropped', reason } : { status: 'dispatched' };
         }
         if (type === 'focus') {
-            const reason = await this.focusAnchor(event.anchor);
+            const reason = await this.focusAnchor(event.anchor, event.targetId);
             return reason ? { status: 'dropped', reason } : { status: 'dispatched' };
         }
         if (type === 'blur') {
-            const reason = await this.blurAnchor(event.anchor);
+            const reason = await this.blurAnchor(event.anchor, event.targetId);
             return reason ? { status: 'dropped', reason } : { status: 'dispatched' };
         }
         return { status: 'dropped', reason: 'unknown_type' };
@@ -218,9 +218,9 @@ class DomElementInput {
         await this.page.mouse.wheel(deltaX, deltaY);
     }
     /** @returns drop reason or null when CDP work ran / intentional keyup skip after insertText. */
-    async dispatchKey(type, anchor, payload) {
-        if (anchor) {
-            const focusReason = await this.focusAnchor(anchor);
+    async dispatchKey(type, anchor, payload, targetId) {
+        if (anchor || (targetId && targetId > 0)) {
+            const focusReason = await this.focusAnchor(anchor, targetId);
             if (focusReason)
                 return focusReason;
         }
@@ -246,8 +246,8 @@ class DomElementInput {
         }
         return null;
     }
-    async dispatchInput(anchor, payload) {
-        const el = await this.resolveElement(anchor);
+    async dispatchInput(anchor, payload, targetId) {
+        const el = await this.resolveElement(anchor, targetId);
         if (!el)
             return 'anchor_missing';
         try {
@@ -281,8 +281,8 @@ class DomElementInput {
             await el.dispose().catch(() => undefined);
         }
     }
-    async dispatchSetFiles(anchor, payload) {
-        const el = await this.resolveElement(anchor);
+    async dispatchSetFiles(anchor, payload, targetId) {
+        const el = await this.resolveElement(anchor, targetId);
         if (!el)
             return 'anchor_missing';
         if (!payload.files?.length) {
@@ -345,10 +345,10 @@ class DomElementInput {
             }
         }, { x, y });
     }
-    async dispatchScrollElement(anchor, payload) {
+    async dispatchScrollElement(anchor, payload, targetId) {
         const top = Number(payload.scrollTop ?? 0);
         const left = Number(payload.scrollLeft ?? 0);
-        const el = await this.resolveElement(anchor);
+        const el = await this.resolveElement(anchor, targetId);
         if (!el)
             return 'anchor_missing';
         try {
@@ -393,8 +393,8 @@ class DomElementInput {
             await el.dispose().catch(() => undefined);
         }
     }
-    async focusAnchor(anchor) {
-        const el = await this.resolveElement(anchor);
+    async focusAnchor(anchor, targetId) {
+        const el = await this.resolveElement(anchor, targetId);
         if (!el)
             return 'anchor_missing';
         try {
@@ -405,8 +405,8 @@ class DomElementInput {
             await el.dispose().catch(() => undefined);
         }
     }
-    async blurAnchor(anchor) {
-        const el = await this.resolveElement(anchor);
+    async blurAnchor(anchor, targetId) {
+        const el = await this.resolveElement(anchor, targetId);
         if (!el)
             return 'anchor_missing';
         try {
@@ -421,10 +421,32 @@ class DomElementInput {
         }
     }
     /**
-     * Pierce-aware anchor resolve (input §6.7): search main frame, then every
-     * child frame (same-origin pierce + Chromium XO satellite).
+     * Pierce-aware resolve (input §6.7 / redesign §5.11):
+     * Prefer uint32 targetId via __speculumPageProjectionV2.reverse map;
+     * fall back to deprecated speculum-anchor string for V1 transition.
      */
-    async resolveElement(anchor) {
+    async resolveElement(anchor, targetId) {
+        if (targetId && targetId > 0) {
+            for (let attempt = 0; attempt < 3; attempt++) {
+                for (const frame of this.page.frames()) {
+                    try {
+                        const handle = await frame.evaluateHandle((id) => {
+                            const w = globalThis;
+                            return w.__speculumPageProjectionV2?.resolve?.(id) ?? null;
+                        }, targetId);
+                        const element = handle.asElement();
+                        if (element)
+                            return element;
+                        await handle.dispose().catch(() => undefined);
+                    }
+                    catch {
+                        /* frame detached */
+                    }
+                }
+                await new Promise((r) => setTimeout(r, 16 * (attempt + 1)));
+            }
+            // miss → retry-then-drop (AnchorMiss) — fall through to anchor if present
+        }
         if (!anchor)
             return null;
         for (let attempt = 0; attempt < 3; attempt++) {

@@ -1,5 +1,13 @@
 # PageProjection — CSSOM plane redesign
 
+> **Amended by** [page-projection-engine-redesign.md](page-projection-engine-redesign.md) rev 4
+> (§5.10 / Q4 / Q19): encoding follows the binary frame (§5.5); Cssom ids are `uint32` in the same
+> numeric space as Dom ids (opcode disambiguates); chronology follows the **frame** model (shared
+> `sequence`); `cssomInstall` precedes `establishChunk` (D-FLASH); within-frame coalescing applies
+> (repeated rule writes → one `cssomPatch`; add+remove same frame → never sent). C1–C9 and C3.1
+> anti-flicker / owned CSSOM / scope C7 otherwise stand. Where encoding/chronology conflict,
+> **the redesign wins**.
+
 **Status:** **SEALED** — CSSOM plane + PageProjection naming. Behaviour design
 complete (C0–C9, C3.1).  
 **Cutover only:** T11 rename `DomProjection`→`PageProjection` + implement ops

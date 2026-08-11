@@ -1,5 +1,12 @@
 # Dom Projection — F (Virtual DOM → Projected DOM)
 
+> **SUPERSEDED — WP16.** This document is entirely superseded by
+> [page-projection-engine-redesign.md](page-projection-engine-redesign.md), which is now the
+> sole canon for F, the wire, establish, recovery, the surface, interaction, the asset plane,
+> the browser pool and configuration (§5, §8, §9). Do not implement or extend against this
+> file. It is kept only as V1 implementation history until the redesign's WP1–WP16 cutover
+> deletes the code paths it describes (§9 deletions list).
+
 **Status:** design complete (V1 contract).
 
 > **Supersession in progress:** the op-based **PageProjection** contract

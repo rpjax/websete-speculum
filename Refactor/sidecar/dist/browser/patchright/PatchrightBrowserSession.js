@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.PatchrightBrowserSession = void 0;
 const ChromeRuntime_1 = require("./ChromeRuntime");
 const Display_1 = require("./Display");
+const BrowserPoolRegistry_1 = require("./BrowserPoolRegistry");
 const device_emulation_1 = require("./device-emulation");
 const EditableFocus_1 = require("./EditableFocus");
 const Evaluate_1 = require("./Evaluate");
@@ -17,7 +18,7 @@ const Probe_1 = require("./Probe");
 const screencast_encode_1 = require("./screencast-encode");
 const Viewport_1 = require("./Viewport");
 const viewport_bounds_1 = require("./viewport-bounds");
-const PageProjection_1 = require("./mirror/dom/PageProjection");
+const liveAttach_1 = require("./mirror/page/liveAttach");
 const DomElementInput_1 = require("./mirror/dom/DomElementInput");
 const EventBridge_1 = require("../../host/EventBridge");
 const VideoMirror_1 = require("./mirror/video/VideoMirror");
@@ -37,6 +38,8 @@ class PatchrightBrowserSession {
     disposed = false;
     display = null;
     chrome = null;
+    /** Set when {@link display}/{@link chrome} came from {@link sharedBrowserPool}; teardown calls this instead of closeChrome/Display.dispose (PP-SESS-2 — release destroys, never recycles). */
+    releasePooledBrowser = null;
     viewport = null;
     screencast = null;
     videoMirror = null;
@@ -127,7 +130,6 @@ class PatchrightBrowserSession {
             });
         }
         const { width, height } = validated;
-        const displayNum = this.displays.allocate();
         const maxW = options.viewportPolicy.maxWidth;
         const maxH = options.viewportPolicy.maxHeight;
         let osInput = null;
@@ -145,38 +147,62 @@ class PatchrightBrowserSession {
                     logicalHeight: height,
                 });
             }
-            // Capacity only — logical client size applied via Chrome window + metrics.
-            const displayInputs = osInput
-                ? {
-                    ...osInput.resolveEventPaths(),
-                    pointerName: osInput.deviceNames[0],
-                    keyboardName: osInput.deviceNames[1],
-                    touchName: osInput.deviceNames[2],
-                }
-                : undefined;
-            this.display = await Display_1.Display.start(displayNum, maxW, maxH, displayInputs);
-            this.emitAllocationLifecycle({
-                kind: 'display_allocated',
-                displayWidth: maxW,
-                displayHeight: maxH,
-                logicalWidth: width,
-                logicalHeight: height,
-            });
-            if (osInput) {
-                await osInput.attachToDisplay(this.display.displayEnv);
+            // §5.13, WP13 — a pre-warmed instance removes Chromium's ~3200ms boot from this
+            // session's critical path. Gated to Dom Projection: it never opens OS input, so a
+            // generic pre-warmed process (no uinput nodes bound at Xorg start) is always valid.
+            const pooled = isDom && (options.browserPoolSize ?? 0) > 0
+                ? await BrowserPoolRegistry_1.sharedBrowserPool.tryAcquire({
+                    size: options.browserPoolSize,
+                    refillPerSec: options.browserPoolRefillPerSec ?? 2,
+                    maxWidth: maxW,
+                    maxHeight: maxH,
+                    displays: this.displays,
+                })
+                : null;
+            if (pooled) {
+                await this.adoptPooledBrowser(pooled, options, { maxW, maxH, width, height });
             }
-            this.chrome = await (0, ChromeRuntime_1.launchChrome)({
-                sessionId: this.sessionId,
-                displayEnv: this.display.displayEnv,
-                width,
-                height,
-                locale: options.locale,
-                language: options.language,
-                timeZoneId: options.timeZoneId,
-                colorScheme: options.colorScheme,
-                geolocation: options.geolocation,
-                device: options.device,
-            });
+            else {
+                // Capacity only — logical client size applied via Chrome window + metrics.
+                const displayInputs = osInput
+                    ? {
+                        ...osInput.resolveEventPaths(),
+                        pointerName: osInput.deviceNames[0],
+                        keyboardName: osInput.deviceNames[1],
+                        touchName: osInput.deviceNames[2],
+                    }
+                    : undefined;
+                const displayNum = this.displays.allocate();
+                this.display = await Display_1.Display.start(displayNum, maxW, maxH, displayInputs);
+                this.emitAllocationLifecycle({
+                    kind: 'display_allocated',
+                    displayWidth: maxW,
+                    displayHeight: maxH,
+                    logicalWidth: width,
+                    logicalHeight: height,
+                });
+                if (osInput) {
+                    await osInput.attachToDisplay(this.display.displayEnv);
+                }
+                this.chrome = await (0, ChromeRuntime_1.launchChrome)({
+                    sessionId: this.sessionId,
+                    displayEnv: this.display.displayEnv,
+                    width,
+                    height,
+                    locale: options.locale,
+                    language: options.language,
+                    timeZoneId: options.timeZoneId,
+                    colorScheme: options.colorScheme,
+                    geolocation: options.geolocation,
+                    device: options.device,
+                });
+            }
+            if (!this.chrome || !this.display) {
+                // Unreachable: both branches above set them or throw first.
+                throw Object.assign(new Error('browser launch produced no chrome/display handle'), {
+                    code: 'FAILED_PRECONDITION',
+                });
+            }
             const device = (0, device_emulation_1.resolveDeviceProfile)(options.device);
             this.viewport = new Viewport_1.Viewport(width, height, device);
             if (device.mobile) {
@@ -205,13 +231,17 @@ class PatchrightBrowserSession {
                 if (this.events instanceof EventBridge_1.EventBridge) {
                     this.events.configureDomCapacity(options.pageProjectionDiffQueueCapacity);
                 }
-                this.pageProjection = await PageProjection_1.PageProjection.start(this.chrome.page, {
+                this.pageProjection = await liveAttach_1.LivePageProjection.start(this.chrome.page, {
                     onPageProjectionDiff: (diff) => this.events.onPageProjectionDiff?.(diff),
                     onGenerationBumped: (event) => this.events.onPageProjectionGenerationBumped?.(event),
                     onSoftNavObserved: (event) => this.events.onPageProjectionSoftNavObserved?.(event),
                     onScrollEchoHit: (event) => this.events.onPageProjectionScrollEchoHit?.(event),
                     onParity: (kind, payload) => this.events.onPageProjectionParity?.(kind, payload),
-                }, { browserLaunchedAtMs: this.browserLaunchedAtMs });
+                }, {
+                    browserLaunchedAtMs: this.browserLaunchedAtMs,
+                    frameRateHz: options.frameRateHz,
+                    maxFrameBytes: options.maxFrameBytes,
+                });
                 if (this.events instanceof EventBridge_1.EventBridge) {
                     this.events.setDomBackpressureHandler((paused) => {
                         void (async () => {
@@ -281,6 +311,42 @@ class PatchrightBrowserSession {
             this.viewport = null;
             throw err;
         }
+    }
+    /**
+     * Adopts a pre-warmed {Display, ChromeHandle} pair from {@link sharedBrowserPool} and
+     * re-applies this session's real locale/timezone/colorScheme/geolocation/language —
+     * the pool warmed with generic, credential-less defaults (never this session's
+     * identity). Viewport/device metrics are re-applied unconditionally later in
+     * {@link launch} via `proveLogicalViewport`, so they need no special handling here.
+     */
+    async adoptPooledBrowser(pooled, options, dims) {
+        const proc = pooled.process;
+        this.display = proc.display;
+        this.chrome = proc.chrome;
+        this.releasePooledBrowser = pooled.release;
+        this.emitAllocationLifecycle({
+            kind: 'display_allocated',
+            displayWidth: dims.maxW,
+            displayHeight: dims.maxH,
+            logicalWidth: dims.width,
+            logicalHeight: dims.height,
+        });
+        const { cdp, context } = this.chrome;
+        await cdp.send('Emulation.setLocaleOverride', { locale: options.locale });
+        await cdp.send('Emulation.setTimezoneOverride', { timezoneId: options.timeZoneId });
+        if (options.colorScheme === 'light' || options.colorScheme === 'dark') {
+            await cdp.send('Emulation.setEmulatedMedia', {
+                features: [{ name: 'prefers-color-scheme', value: options.colorScheme }],
+            });
+        }
+        if (options.geolocation) {
+            await cdp.send('Emulation.setGeolocationOverride', {
+                latitude: options.geolocation.latitude,
+                longitude: options.geolocation.longitude,
+                accuracy: options.geolocation.accuracy,
+            });
+        }
+        await context.setExtraHTTPHeaders({ 'Accept-Language': options.language });
     }
     async stop() {
         await this.teardownBrowserResources({ removeUserDataDir: true });
@@ -693,18 +759,9 @@ class PatchrightBrowserSession {
             this.pageProjection = null;
         }
         this.domElementInput = null;
-        if (this.chrome) {
-            try {
-                await (0, ChromeRuntime_1.closeChrome)(this.chrome, {
-                    removeUserDataDir: options?.removeUserDataDir !== false,
-                });
-            }
-            catch {
-                /* */
-            }
-            this.chrome = null;
-        }
-        if (this.display) {
+        if (this.releasePooledBrowser) {
+            // PP-SESS-2 — release destroys this instance; it is never recycled or handed to
+            // another session. Fires the same 'display_released' telemetry as the direct path.
             const dims = this.displayDimsOrZero();
             this.emitAllocationLifecycle({
                 kind: 'display_released',
@@ -714,13 +771,47 @@ class PatchrightBrowserSession {
                 logicalHeight: this.viewport?.height,
                 inputBackend: this.inputBackend ?? undefined,
             });
+            const release = this.releasePooledBrowser;
+            this.releasePooledBrowser = null;
             try {
-                await this.display.dispose();
+                await release();
             }
             catch {
                 /* */
             }
+            this.chrome = null;
             this.display = null;
+        }
+        else {
+            if (this.chrome) {
+                try {
+                    await (0, ChromeRuntime_1.closeChrome)(this.chrome, {
+                        removeUserDataDir: options?.removeUserDataDir !== false,
+                    });
+                }
+                catch {
+                    /* */
+                }
+                this.chrome = null;
+            }
+            if (this.display) {
+                const dims = this.displayDimsOrZero();
+                this.emitAllocationLifecycle({
+                    kind: 'display_released',
+                    displayWidth: dims.displayWidth,
+                    displayHeight: dims.displayHeight,
+                    logicalWidth: this.viewport?.width,
+                    logicalHeight: this.viewport?.height,
+                    inputBackend: this.inputBackend ?? undefined,
+                });
+                try {
+                    await this.display.dispose();
+                }
+                catch {
+                    /* */
+                }
+                this.display = null;
+            }
         }
         this.inputBackend = null;
         this.chromeWidth = 0;
@@ -769,9 +860,17 @@ class PatchrightBrowserSession {
             lookup = key.startsWith('_blob/') ? key : `_blob/${key}`;
         else if (kind === 'data')
             lookup = key.startsWith('_data/') ? key : `_data/${key}`;
+        // §5.12.2 — only a plain "asset" fetch (never blob/data, which are session-synthesized,
+        // never origin subresources) is ever eligible for the API's SharedAssetCacheL2 tier.
+        const isAssetKind = kind === '' || kind === 'asset';
         const hit = this.pageProjection.getAsset(lookup);
         if (hit && hit.body.byteLength > 0 && hit.mode === 'cache' && !opts?.rangeHeader) {
-            return { body: hit.body, contentType: hit.contentType, statusCode: 200 };
+            return {
+                body: hit.body,
+                contentType: hit.contentType,
+                statusCode: 200,
+                ...(isAssetKind ? shareabilityFields(hit.shareability) : {}),
+            };
         }
         if (hit?.mode === 'pass-through' || opts?.rangeHeader || (hit && hit.body.byteLength === 0)) {
             const pt = await this.pageProjection.fetchPassThrough(lookup, opts?.rangeHeader);
@@ -784,7 +883,8 @@ class PatchrightBrowserSession {
                 contentType: pt.contentType,
                 statusCode: pt.statusCode,
                 contentRange: pt.contentRange,
-                passThrough: true,
+                passThrough: pt.mode !== 'cache',
+                ...(isAssetKind ? shareabilityFields(pt.shareability) : {}),
             };
         }
         if (hit && hit.body.byteLength > 0) {
@@ -799,7 +899,8 @@ class PatchrightBrowserSession {
             contentType: pt.contentType,
             statusCode: pt.statusCode,
             contentRange: pt.contentRange,
-            passThrough: true,
+            passThrough: pt.mode !== 'cache',
+            ...(isAssetKind ? shareabilityFields(pt.shareability) : {}),
         };
     }
     async getPageProjectionResync(_hint) {
@@ -869,5 +970,15 @@ function safeUrl(page) {
     catch {
         return '';
     }
+}
+/**
+ * §5.12.2.1 — flattens the sidecar's `DomAssetShareability` into the wire-response shape
+ * `GrpcSessionMappers.ToDomAsset` reads, so the API's `SharedAssetCacheL2` predicate always
+ * sees the signals from the exact fetch that produced this body (never re-derived/guessed).
+ */
+function shareabilityFields(s) {
+    if (!s)
+        return {};
+    return { requestHadCookie: s.requestHadCookie, cacheControl: s.cacheControl, vary: s.vary };
 }
 //# sourceMappingURL=PatchrightBrowserSession.js.map

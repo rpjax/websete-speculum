@@ -520,6 +520,8 @@ export class PageProjectionDiffApplier {
       return false
     }
 
+    // Stream establish may send html/head/body shells with empty children; later
+    // childList ops fill the stand-ins (prefix-true load).
     this.generation = Number(diff.generation ?? 0)
     this.onGeneration?.(this.generation)
     this.mountHtmlTree(root)

@@ -11,6 +11,7 @@ Full text: `docs/page-projection-acceptance.md`.
 
 ## Hard bans
 
+- **No ad-hoc workarounds — carved in stone / strictly forbidden** on the establish/sync path (no “bootstrap DomMap dump” to paper over a broken stream). Fix seed/catch-up/ledger/apply.
 - Never declare PASS / “fixed” / “recovered” from protocol-only signals (`200`, `ResyncServed`, WD>N, `ownedRules`, `htmlLen`) while the surface is incomplete, slow, crushed, desynced, or unusable.
 - Never treat a green smoke scoped to one recovery bug as site accept.
 - Journal / observation / screenshots that show unusability **must fail** harness diagnose — do not ignore backlog, `armed=false`, broken imgs, unanswered Resync, or visual defects.

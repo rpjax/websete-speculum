@@ -2250,8 +2250,209 @@ export const PAGE_PROJECTION_PAGE_SCRIPT = `
     return { generation, sheets };
   };
   /**
-   * Establish: map Dom+Cssom and arm live emit in one sync turn so MO cannot
+   * Stream establish (product cold path): stamp html/head/body only, arm cssom,
+   * return a shallow document seed. liveEmit stays false until bootstrap catch-up
+   * finishes so parse/MO cannot flood the bridge (T5 DropAll).
+   */
+  window.__speculumDomSeedAndArmEstablish = () => {
+    const pageStart = Date.now();
+    let t0 = pageStart;
+    let takeRecordsMs = 0;
+    let seedMs = 0;
+    let cssomMs = 0;
+    try {
+      if (typeof observer !== 'undefined' && observer && typeof observer.takeRecords === 'function') {
+        observer.takeRecords();
+      }
+    } catch (_) {}
+    takeRecordsMs = Date.now() - t0;
+    t0 = Date.now();
+    ensureDocumentRootAnchors(document);
+    const htmlEl = document.documentElement;
+    const headEl = document.head;
+    const bodyEl = document.body;
+    if (!htmlEl) {
+      return { generation, rootJson: null, sheetsJson: '[]', timings: { pageTotalMs: Date.now() - pageStart } };
+    }
+    const html = mapElementHead(htmlEl);
+    const kids = [];
+    if (headEl) {
+      const head = mapElementHead(headEl);
+      head.children = [];
+      kids.push(head);
+    }
+    if (bodyEl) {
+      const body = mapElementHead(bodyEl);
+      body.children = [];
+      kids.push(body);
+    }
+    if (kids.length) html.children = kids;
+    resetPublishedFromMapped(html);
+    seedMs = Date.now() - t0;
+    t0 = Date.now();
+    const { current } = refreshKnownSheets();
+    publishedSheets.clear();
+    const sheets = current.map((entry) => {
+      publishedSheets.add(entry.id);
+      return sheetWire(entry);
+    });
+    cssomLive = false;
+    liveEmit = false;
+    cssomMs = Date.now() - t0;
+    t0 = Date.now();
+    const rootJson = JSON.stringify(html);
+    const sheetsJson = JSON.stringify(sheets);
+    const stringifyMs = Date.now() - t0;
+    const pageTotalMs = Date.now() - pageStart;
+    return {
+      generation,
+      rootJson,
+      sheetsJson,
+      path: 'seed',
+      timings: {
+        takeRecordsMs,
+        clearLedgerMs: 0,
+        anchorAllMs: 0,
+        remintMs: 0,
+        mapNodeMs: seedMs,
+        resetPublishedMs: 0,
+        cssomMs,
+        stringifyMs,
+        pageTotalMs,
+      },
+    };
+  };
+  function catchUpSeedRootsImpl() {
+    let emitted = 0;
+    function catchUpHost(host) {
+      if (!host || !host.isConnected) return;
+      const hostA = host.getAttribute && host.getAttribute(ANCHOR_ATTR);
+      if (!hostA || !publishedAnchors.has(hostA)) return;
+      const selector = selectorForElement(host);
+      if (!selector) return;
+      const added = [];
+      const entries = fChildEntries(host, null);
+      for (let i = 0; i < entries.length; i++) {
+        const entry = entries[i];
+        if (entry.type === 'text') {
+          added.push({ index: i, node: { tag: '#text', text: entry.text } });
+          continue;
+        }
+        if (entry.type === 'comment') {
+          added.push({ index: i, node: { tag: '#comment', text: entry.text } });
+          continue;
+        }
+        const el = entry.el;
+        const existingA = el.getAttribute && el.getAttribute(ANCHOR_ATTR);
+        if (existingA && publishedAnchors.has(existingA) && anchorToNode.get(existingA) === el) {
+          continue;
+        }
+        remintDuplicateConnectedAnchors(el);
+        const node = mapNode(el);
+        if (node) added.push({ index: i, node });
+      }
+      if (!added.length) return;
+      // Temporarily allow wire for catch-up while liveEmit may still be false.
+      const prev = liveEmit;
+      liveEmit = true;
+      try {
+        emitWire('dom', 'childList', { selector, removed: [], added });
+      } finally {
+        liveEmit = prev;
+      }
+      for (let j = 0; j < added.length; j++) {
+        if (added[j].node) markPublishedMapped(added[j].node, hostA);
+      }
+      emitted += 1;
+    }
+    try {
+      if (document.head) catchUpHost(document.head);
+      if (document.body) catchUpHost(document.body);
+    } catch (_) {}
+    return emitted;
+  }
+  /**
+   * After stream seed is on the wire: wait until interactive/complete (or budget),
+   * then return a full Dom map + Cssom for a document/install upgrade (SSR catch-up
+   * without MO flood). Caller arms liveEmit after pushing the upgrade.
+   */
+  window.__speculumDomBootstrapMap = (budgetMs) => {
+    const budget = typeof budgetMs === 'number' && budgetMs > 0 ? budgetMs : 2500;
+    const until = Date.now() + budget;
+    return new Promise((resolve) => {
+      const finish = () => {
+        const pageStart = Date.now();
+        let t0 = pageStart;
+        try {
+          if (typeof observer !== 'undefined' && observer && typeof observer.takeRecords === 'function') {
+            observer.takeRecords();
+          }
+        } catch (_) {}
+        const takeRecordsMs = Date.now() - t0;
+        t0 = Date.now();
+        ensureDocumentRootAnchors(document);
+        remintDuplicateConnectedAnchors(document.documentElement);
+        const remintMs = Date.now() - t0;
+        t0 = Date.now();
+        const root = mapNode(document.documentElement);
+        const mapNodeMs = Date.now() - t0;
+        t0 = Date.now();
+        resetPublishedFromMapped(root);
+        const resetPublishedMs = Date.now() - t0;
+        t0 = Date.now();
+        const { current } = refreshKnownSheets();
+        publishedSheets.clear();
+        const sheets = current.map((entry) => {
+          publishedSheets.add(entry.id);
+          return sheetWire(entry);
+        });
+        const cssomMs = Date.now() - t0;
+        t0 = Date.now();
+        const rootJson = JSON.stringify(root);
+        const sheetsJson = JSON.stringify(sheets);
+        const stringifyMs = Date.now() - t0;
+        // Stay muted until sidecar pushes upgrade, then ArmLiveEmit.
+        liveEmit = false;
+        cssomLive = false;
+        resolve({
+          generation,
+          rootJson,
+          sheetsJson,
+          path: 'bootstrap',
+          timings: {
+            takeRecordsMs,
+            clearLedgerMs: 0,
+            anchorAllMs: 0,
+            remintMs,
+            mapNodeMs,
+            resetPublishedMs,
+            cssomMs,
+            stringifyMs,
+            pageTotalMs: Date.now() - pageStart,
+          },
+        });
+      };
+      const tick = () => {
+        if (Date.now() >= until || document.readyState === 'interactive' || document.readyState === 'complete') {
+          finish();
+          return;
+        }
+        setTimeout(tick, 50);
+      };
+      setTimeout(tick, 0);
+    });
+  };
+  window.__speculumDomCatchUpSeedRoots = () => {
+    return { emitted: catchUpSeedRootsImpl() };
+  };
+  window.__speculumDomStartBootstrapCatchUp = (budgetMs) => {
+    // Compat no-op — stream establish uses __speculumDomBootstrapMap instead.
+    return { ok: true, budgetMs: budgetMs || 2500, deprecated: true };
+  };
+  /**
+   * Fail-safe / lab: map Dom+Cssom and arm live emit in one sync turn so MO cannot
    * stamp mute-window anchors that never appear in the pushed document (T10).
+   * Product cold path uses __speculumDomSeedAndArmEstablish instead.
    */
   window.__speculumDomMapAndArmEstablish = () => {
     const pageStart = Date.now();
@@ -2323,6 +2524,11 @@ export const PAGE_PROJECTION_PAGE_SCRIPT = `
   /** Sidecar arms after Dom document + Cssom install are on the materialize chain (T10.4). */
   window.__speculumDomArmLiveEmit = () => {
     liveEmit = true;
+  };
+  /** Stream establish: open Dom + Cssom live emits after bootstrap document upgrade. */
+  window.__speculumDomArmStreamLive = () => {
+    liveEmit = true;
+    cssomLive = true;
   };
   /**
    * EventBridge Dom near capacity (T5 backpressure defer) — keep MO, stop wire emits.

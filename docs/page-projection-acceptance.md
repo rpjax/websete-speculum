@@ -30,6 +30,11 @@ These are **insufficient** alone (they may be necessary diagnostics, never the b
 - HTTP `200` / hub `ok: true` / `ResyncServed ≥ 1` / WD > N / `ownedRules` / `htmlLen` thresholds.
 - Protocol-only recovery (QD → OOB → Diff reopen) without visual/functional parity.
 - Smoke PASS flags scoped to a single bug class while the surface remains unusable.
+- **Ad-hoc workarounds** that restore a banned cost (e.g. cold full DomMap “bootstrap” after a stream seed) to make hopdiag look alive while the designed stream path remains broken.
+
+## Hard ban — no ad-hoc
+
+**Ad-hoc / workaround code is strictly forbidden.** If stream establish, mirror, ledger, or Diff apply fails, fix that mechanism. Never reintroduce full DomMap (or equivalent dump) on the cold happy path to paper over catch-up/MO/queue defects. Green via workaround is a **product defect**, not a ship.
 
 ## Telemetry & harness duty
 

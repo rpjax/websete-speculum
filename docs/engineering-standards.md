@@ -24,6 +24,7 @@ Read this **before** multi-file or sessions/diagnostics/CI changes. Deeper detai
 
 **Hard bans before you type:**
 
+- **No ad-hoc / workaround code.** Fix the designed algorithm; never paper over failures with a second path that restores a banned cost (e.g. cold full DomMap “bootstrap” after a stream seed). Green hopdiag via workaround is forbidden.
 - Do not skip, ignore, or soften an assert to get green CI.
 - Do not add config key aliases or “deprecated” API paths during V1 development.
 - Do not treat `Task.Delay` as the primary Act→Assert synchronizer.
@@ -255,6 +256,7 @@ Do **not** treat the legacy motor-assertive Docker+Chrome category as laptop QA 
 
 | Ban | Why |
 |-----|-----|
+| **Ad-hoc / workaround paths** | Hides the real defect; often reintroduces banned cost (e.g. DomMap dump on cold). Fix the algorithm. |
 | Skip-if-missing-property | Hides missing contracts |
 | Smoke-only session tests | Green ≠ working |
 | Shrinking live Diagnostics `maxBytes` on shared CI stack to “prove” overflow without a Perf/unit home | Stack kills cascade; move load to Perf / sink units |

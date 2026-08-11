@@ -264,13 +264,25 @@ PageProjectionDiff {
 
 ## T3 — LOCKED direction: `document` establish + generation
 
+### Hard ban — no ad-hoc establish
+
+**Ad-hoc / workaround code is strictly forbidden.** Product cold / hard-nav
+establish is **stream only**: shallow `document` seed (html/head/body) →
+catch-up + live MO as `childList`/`patch` → Cssom live with Dom. Full DomMap
+(`MapAndArm` / equivalent dump) is **fail-safe OOB mirror-miss + lab only**.
+Never reintroduce a second full DomMap “bootstrap” after seed to paper over
+MO flood, queue DropAll, or `address_miss`. Fix seed / catch-up / ledger /
+apply / pacing instead. See `docs/page-projection-acceptance.md`.
+
 ### DOM `document` op (aligned with T6)
 
 - Root of payload **must** be mapped `<html>` (após `F`).  
 - **No `selector`** — implicit projected document root.  
 - Emit ASAP when emitter becomes live (tree may still be loading).  
 - Live progressive updates continue via `childList` / `patch` /
-  `scrollViewport` / `scrollElement`.
+  `scrollViewport` / `scrollElement`.  
+- Cold happy path: **one** minimal `document` seed, then stream — **not** a
+  second full-tree `document` upgrade.
 
 ### Generation bump (LOCKED — D4)
 

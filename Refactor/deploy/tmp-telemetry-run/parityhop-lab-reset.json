@@ -1,8 +1,8 @@
 {
   "sessionsDeleted": 1,
-  "journalFactsDeleted": 31105,
+  "journalFactsDeleted": 12762,
   "profilesDeleted": 0,
-  "resourceSignalsDeleted": 1,
+  "resourceSignalsDeleted": 0,
   "resourceReportsDeleted": 0,
   "vacuumRan": true
 }

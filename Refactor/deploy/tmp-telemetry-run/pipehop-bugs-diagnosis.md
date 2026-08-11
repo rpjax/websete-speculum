@@ -1,8 +1,10 @@
 # Diagnóstico PageProjection — bugs, delays e paridade 1:1
 
-**Última atualização:** 2026-08-11 (pós DomMap ms path — `dommapfix-*`)  
+**Última atualização:** 2026-08-11 (stream establish — **adhoc bootstrap rejeitado**)  
 **Stack:** dockup `dev` + nouinput · `http://127.0.0.1:8080/` · `MirrorMode.PageProjection`  
 **Barra de aceite:** `docs/page-projection-acceptance.md` — Projected ≈ abrir o mesmo site no Chrome Virtual. Protocolo verde **não** conta como accept.
+
+**Lei:** código **adhoc / workaround é estritamente proibido** (`AGENTS.md`, `docs/engineering-standards.md`). O bootstrap DomMap (~17 s) após seed foi adhoc — **a reverter**; não é o algoritmo.
 
 ---
 
@@ -10,23 +12,139 @@
 
 ### Em uma frase
 
-**O cano Diff está saudável. OOB DomMap deixou de ser o buraco de ~7 s (espelho ~50 ms). O cold establish ainda paga ~5–6 s (foto in-page + CDP).**  
-Aceite 1:1 ainda **não** — brokenImgs / SoftNav / UX visual abertos.
+**OOB DomMap em ms (espelho) permanece. O “stream establish” atual está contaminado por bootstrap-dump adhoc (~17 s) — pior que o DomMap cold anterior (~6 s). FirstDiff em ms não conta.**  
+Aceite 1:1 **não**.
 
 ### Duas perguntas que não se misturam
 
 | Pergunta | Status nesta evidência |
 |----------|-------------------------|
-| **O cano entrega?** Algum Diff some no caminho? | **Não.** (ParityDebug: FR=FE=SD=WD; QD=0) |
-| **A experiência é 1:1?** Rápida e correta como no Chrome normal? | **Ainda não.** Cold DomMap ~5.6 s; OOB DomMap **~50 ms** (`mirror:true`); mídia/SoftNav abertos. |
+| **O cano entrega?** | Parcialmente (FR=WD, QD=0 em `streamfix`); 1× address_miss → resync. |
+| **A experiência é 1:1?** | **Não.** Bootstrap adhoc ~17 s; shell cedo não é sync. |
 
 ### Aceite
 
-**NÃO é aceite 1:1.** Recovery OOB não remapeia mais o DOM; first paint projetado ainda espera a 1ª foto DomMap.
+**NÃO.** Próximo trabalho: **remover** `__speculumDomBootstrapMap` / upgrade document no cold e implementar catch-up/stream **correto** (sem dump).
 
 ---
 
-## Evidência DomMap ms path (`dommapfix-*`, 2026-08-11)
+## Evidência stream establish (`streamfix-*`, 2026-08-11) — **CONTAMINADA / ADHOC**
+
+| Campo | Valor |
+|-------|--------|
+| Sessão | `c467b95e-5388-4f45-9cff-bcb6880916a4` |
+| Prefixo | `streamfix-*` |
+
+### Veredicto
+
+**Regressão no sync cold.** Seed (~9 ms) + **bootstrap DomMap adhoc (~17.6 s)** — pior que DomMap único ~5.6 s. FirstDiff em ms **não** é vitória. **Remover bootstrap; implementar stream/catch-up correto.**
+
+### O que permanece válido
+
+- Espelho OOB (~47 ms) da mudança DomMap ms path anterior.
+- Proibição: full DomMap no cold happy path (seed stream apenas; MapAndArm só fail-safe/lab).
+
+### Números (para não repetir o erro)
+
+| Marco | ms | Nota |
+|-------|-----|------|
+| Seed | **9** | ok como shell |
+| Bootstrap DomMap | **~17626** | **adhoc — reverter** |
+| OOB mirror | **47** | manter |
+| QD | **0** | — |
+
+---
+
+## Plano de ataque — desfazer adhoc + stream establish correto
+
+**Lei:** zero novos workarounds. Cada marco ou fecha o algoritmo ou deixa o defect aberto com evidência — nunca um “segundo DomMap pra parecer vivo”.
+
+### Algoritmo alvo (produto)
+
+```text
+commit / hard-nav
+  → seed document raso (html/head/body) em ms + Cssom seed leve
+  → arm Dom+Cssom live cedo o bastante que mute≈0 (parse MO vira stream)
+  → catch-up dos nós já presentes sob head/body via childList (ledger correto)
+  → diffs naturais até sync útil
+  → full DomMap SÓ: OOB mirror-miss + lab/fail-safe (MapAndArm)
+```
+
+Não: seed → **BootstrapMap dump** → arm. Isso é a cagada.
+
+### Fase 0 — Reverter adhoc (obrigatório, primeiro)
+
+| # | Ação | Onde |
+|---|------|------|
+| 0.1 | Apagar `__speculumDomBootstrapMap` e qualquer call | `DomTreeSerializer.ts` |
+| 0.2 | Remover bloco `path: 'bootstrap'` + 2º `document`/`install` + `ArmStreamLive` pós-dump | `PageProjection.ts` `enqueueStreamEstablish` |
+| 0.3 | Remover/no-op morto `__speculumDomStartBootstrapCatchUp` se só aponta pro dump | page script |
+| 0.4 | Comentários: seed **não** “espera bootstrap”; cold = seed + catch-up + arm | serializer + sidecar |
+| 0.5 | Rebuild sidecar dist / unit se o pipeline local exigir | `dist/` |
+| 0.6 | Hopdiag Beleza **sem** bootstrap: esperar QD/flood/address_miss de novo — isso é o defect real a atacar, não a desculpa pra dump | `tmp-telemetry-run/` |
+
+**Gate Fase 0:** nenhum `path: 'bootstrap'` / `__speculumDomBootstrapMap` no cold path. `MapAndArm` só fail-safe/lab. OOB mirror ms intacto.
+
+### Fase 1 — Catch-up correto (raiz do address_miss)
+
+Hipótese do defect (pré-adhoc): catch-up shallow sob head/body emite `childList` com nós profundos / índices / anchors que o DiffApplier não resolve (`address_miss`), ou emite contra host ainda não publicado.
+
+| # | Ação |
+|---|------|
+| 1.1 | Instrumentar catch-up: host selector, `added.length`, anchors mintados vs `publishedAnchors`, generation |
+| 1.2 | Garantir seed publica anchors de html/head/body **antes** de qualquer catch-up |
+| 1.3 | Catch-up **BFS / por nível**: um `childList` por host já publicado; filhos profundos só depois do pai no wire (não um subtree map disfarçado de um único added blob se o applier espera flat) |
+| 1.4 | Alinhar `fChildEntries` + `markPublishedMapped` com o que `PageProjectionDiffApplier` aplica (selector = parent op; index semantics T7) |
+| 1.5 | Reproduzir address_miss em unit/lab com árvore mínima; falha = assert, não soft-skip |
+
+**Gate Fase 1:** seed + catch-up (liveEmit ainda gated se preciso) aplica sem `address_miss` em Beleza shell; sem DomMap.
+
+### Fase 2 — Arm cedo sem flood (raiz do QD DropAll)
+
+Hipótese: arm imediato + parse MO → milhares de records → bridge DropAll → `sequence_gap` → desync.
+
+| # | Ação |
+|---|------|
+| 2.1 | `takeRecords()` no arm; descartar só o que o catch-up já cobriu (sem mute hole longo) |
+| 2.2 | Pacing / batch no **emitter** (já no design de stream) — coalescer **dentro** das regras T5/T7, sem reordenar ops cross-record proibidas |
+| 2.3 | Backpressure existente (`PauseLiveEmit`) deve **re-establish stream** (seed+catch-up), nunca DomMap cold |
+| 2.4 | Medir QD / FR-WD / FirstDiff / tempo até “árvore útil” (não só FirstDiff) |
+
+**Gate Fase 2:** cold Beleza sem QD DropAll; mute hole ≈0; sync útil em ms–centenas ms de Speculum cost (site wall separado).
+
+### Fase 3 — Cssom com Dom
+
+| # | Ação |
+|---|------|
+| 3.1 | `cssomLive` com Dom no arm de stream (sem gate “styles all ready”) |
+| 3.2 | Seed sheets leves ok; sheets tardios via stream Cssom ops |
+| 3.3 | Não segundo `install` full via DomMap |
+
+**Gate Fase 3:** Cssom stream sem bloquear Dom; sem install-dump.
+
+### Fase 4 — Prova (parity, não protocolo)
+
+| # | Ação |
+|---|------|
+| 4.1 | Hopdiag Beleza (+ Eneba se baseline) — story: seed ms, **zero** DomMap cold, OOB mirror ms |
+| 4.2 | Journal: sem bootstrap path; fail harness se cold `MapAndArm`/`bootstrap` |
+| 4.3 | Screenshot / brokenImgs / SoftNav — parity defects abertos se existirem |
+| 4.4 | Atualizar este diagnosis: remover “contaminada”; marcar stream como algoritmo |
+
+**Aceite:** Projected usável ≈ original; FirstDiff ms **e** catch-up sem dump. Protocolo verde sozinho = **não**.
+
+### Explicitamente fora / proibido neste plano
+
+- Qualquer “bootstrap DomMap”, “upgrade document completo”, “um Map pra estabilizar”
+- Soft-skip de `address_miss` / QD
+- Declarar PASS por FR=WD enquanto árvore incompleta
+- Tocar espelho OOB ms path (manter)
+
+### Ordem de execução
+
+`0 → 1 → 2 → 3 → 4`. Não pular 0. Se 2 reaparecer flood, **não** voltar ao dump — reduzir taxa / corrigir catch-up coverage / backpressure stream.
+
+## Evidência DomMap ms path (`dommapfix-*`, 2026-08-11) — espelho OOB
 
 | Campo | Valor |
 |-------|--------|

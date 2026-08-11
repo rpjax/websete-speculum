@@ -27,8 +27,8 @@ class PageProjection {
     /** False until first Dom/Cssom establish after the session's initial Document is ready (D4). */
     established = false;
     /**
-     * Sidecar gate for page live emits (T10). Armed only after Dom `document` +
-     * Cssom `install` have been materializeAndPush'd on this epoch.
+     * Sidecar gate for page live emits. Armed after stream seed Dom `document` +
+     * Cssom `install` have been materializeAndPush'd on this epoch (observation on).
      */
     liveArmed = false;
     establishInFlight = null;
@@ -117,8 +117,8 @@ class PageProjection {
         await page.addInitScript({ content: DomTreeSerializer_1.PAGE_PROJECTION_PAGE_SCRIPT });
         await page.evaluate(DomTreeSerializer_1.PAGE_PROJECTION_PAGE_SCRIPT);
         await proj.ensureClosedShadowPierce();
-        // D4 single boot epoch: install observers only — first establish waits for
-        // establishBoot() after the session's initial navigation settles.
+        // Install observers; stream establish (seed+arm) runs from establishBoot / hard nav
+        // as early as commit — not a post-settle full DomMap.
         page.on('framenavigated', (frame) => {
             if (proj.stopped)
                 return;
@@ -225,8 +225,8 @@ class PageProjection {
         this.restartVirtualTelemetry();
     }
     /**
-     * First Dom `document` + Cssom `install` for the session (D4 / C4).
-     * Idempotent — safe to call from navigate settle and from late framenavigated.
+     * First stream seed (Dom document + Cssom install) for the session.
+     * Idempotent — safe from navigate-at-commit and from late framenavigated.
      */
     async establishBoot() {
         if (this.stopped || this.established)
@@ -263,7 +263,7 @@ class PageProjection {
             await this.page.evaluate(`typeof window.__speculumDomBumpGeneration === "function" && window.__speculumDomBumpGeneration(1)`);
             await this.ensureClosedShadowPierce();
             this.onNavCommit();
-            // T10: established only after document + install are on the chain (not before).
+            // Established after stream seed document + install are on the chain.
             const armed = await this.enqueueDocumentDiff();
             if (armed)
                 this.established = true;
@@ -849,9 +849,8 @@ class PageProjection {
         }
     }
     /**
-     * After Dom queue drains: re-establish document+install so deferred mutations are not lost
-     * as a silent chronology hole (T5 — overflow path stays DropAll+desync only at hard cap).
-     * Hot Dom+Cssom mirrors re-push without MapAndArm; otherwise full establish remap.
+     * After Dom queue drains: re-establish so deferred mutations are not a silent hole (T5).
+     * Hot Dom+Cssom mirrors re-push without remap; otherwise full MapAndArm fail-safe.
      */
     async resumeLiveEmitAfterBackpressure() {
         if (this.stopped || !this.established)
@@ -859,17 +858,15 @@ class PageProjection {
         if (this.domInstallRoot && this.cssomInstallById.size > 0) {
             await this.runOnMaterializeChain(async () => {
                 if (this.stopped || !this.domInstallRoot || this.cssomInstallById.size === 0) {
-                    await this.enqueueDocumentDiff();
+                    await this.enqueueFullMapEstablish();
                     return;
                 }
                 try {
-                    // Discard buffered MO (same as MapAndArm) then arm — live emits resume after re-push.
                     await this.page.evaluate(`typeof window.__speculumDomPauseLiveEmit === "function" && window.__speculumDomPauseLiveEmit();
              typeof window.__speculumDomArmLiveEmit === "function" && window.__speculumDomArmLiveEmit();`);
                 }
                 catch {
-                    /* mid-nav — fall through to remap */
-                    await this.enqueueDocumentDiff();
+                    await this.enqueueFullMapEstablish();
                     return;
                 }
                 this.liveArmed = true;
@@ -882,7 +879,7 @@ class PageProjection {
             });
             return;
         }
-        await this.enqueueDocumentDiff();
+        await this.enqueueFullMapEstablish();
     }
     /** Serialize work with Dom/Cssom emits so chronology stays contiguous (T8). */
     runOnMaterializeChain(work) {
@@ -904,42 +901,154 @@ class PageProjection {
         }
     }
     /**
-     * Map Dom `document` + Cssom `install` and arm page live emit in one evaluate,
-     * then push both planes. Sidecar `liveArmed` is set before push so MO that fires
-     * during materialize enqueues behind document/install on the chain (T10).
+     * Stream establish (product cold / hard-nav): shallow html/head/body seed + arm,
+     * then catch-up emits for nodes already under the roots. No full DomMap.
      */
     enqueueDocumentDiff() {
+        return this.enqueueStreamEstablish();
+    }
+    enqueueStreamEstablish() {
         return new Promise((resolve) => {
             this.enqueue(async () => {
                 let armed = false;
                 const pageEpochId = this.pageEpochId ?? '';
                 const generation = this.generation;
                 const establishStartMs = Date.now();
-                const stylesTimeoutMs = 2500;
                 try {
                     this.liveArmed = false;
-                    // C4: wait styles before Dom document so the first client paint is not a
-                    // long FOUC window ahead of Cssom install.
-                    this.emitParity('parity_establish_styles_wait_started', {
-                        pageEpochId,
-                        generation,
-                        timeoutMs: stylesTimeoutMs,
-                        tVirtualMs: this.tVirtualMs(),
-                    });
-                    const stylesStartMs = Date.now();
-                    const { ready } = await this.waitStylesheetsReady(stylesTimeoutMs);
-                    this.emitParity('parity_establish_styles_wait_completed', {
-                        pageEpochId,
-                        generation,
-                        timeoutMs: stylesTimeoutMs,
-                        waitedMs: Date.now() - stylesStartMs,
-                        timedOut: !ready,
-                        tVirtualMs: this.tVirtualMs(),
-                    });
                     this.emitParity('parity_establish_dom_map_started', {
                         pageEpochId,
                         generation,
+                        path: 'seed',
+                        tVirtualMs: this.tVirtualMs(),
+                    });
+                    const seedStartMs = Date.now();
+                    const mappedRaw = (await this.page.evaluate(`typeof window.__speculumDomSeedAndArmEstablish === "function"
+              ? window.__speculumDomSeedAndArmEstablish()
+              : typeof window.__speculumDomMapAndArmEstablish === "function"
+                ? window.__speculumDomMapAndArmEstablish()
+                : null`));
+                    const evaluateWallMs = Date.now() - seedStartMs;
+                    const mapped = parseMappedDomEvaluate(mappedRaw);
+                    if (!mapped.root) {
+                        this.emitParity('parity_establish_failed', {
+                            pageEpochId,
+                            generation,
+                            errorCode: 'dom_seed_empty',
+                            phase: 'dom_seed',
+                            tVirtualMs: this.tVirtualMs(),
+                        });
+                        return;
+                    }
+                    this.emitParity('parity_establish_dom_map_completed', this.domMapCompletedPayload({
+                        pageEpochId,
+                        generation,
                         path: 'establish',
+                        evaluateWallMs,
+                        approxNodes: (0, parityUtil_1.countNodesApprox)(mapped.root),
+                        timings: mapped.timings,
+                    }));
+                    this.liveArmed = true;
+                    await this.materializeAndPush('dom', 'document', { root: mapped.root });
+                    this.noteFirstDiffEmitted('dom', 'document');
+                    const sheets = Array.isArray(mapped.sheets) ? mapped.sheets : [];
+                    this.emitParity('parity_establish_cssom_install_started', {
+                        pageEpochId,
+                        generation,
+                        source: 'seed',
+                        tVirtualMs: this.tVirtualMs(),
+                    });
+                    const cssomStartMs = Date.now();
+                    this.lastSeededSheetCount = 0;
+                    await this.materializeAndPush('cssom', 'install', { sheets });
+                    const { sheetCount, ruleCount } = (0, parityUtil_1.summarizeSheets)(sheets);
+                    this.emitParity('parity_establish_cssom_install_completed', {
+                        pageEpochId,
+                        generation,
+                        source: 'seed',
+                        durationMs: Date.now() - cssomStartMs,
+                        sheetCount,
+                        ruleCount,
+                        seededSheetCount: this.lastSeededSheetCount,
+                        tVirtualMs: this.tVirtualMs(),
+                    });
+                    this.noteFirstDiffEmitted('cssom', 'install');
+                    // SSR/progressive catch-up: one document upgrade after interactive, then arm live.
+                    this.emitParity('parity_establish_dom_map_started', {
+                        pageEpochId,
+                        generation,
+                        path: 'bootstrap',
+                        tVirtualMs: this.tVirtualMs(),
+                    });
+                    const bootStartMs = Date.now();
+                    const bootRaw = (await this.page.evaluate(`typeof window.__speculumDomBootstrapMap === "function"
+              ? window.__speculumDomBootstrapMap(8000)
+              : null`));
+                    const bootWallMs = Date.now() - bootStartMs;
+                    const boot = parseMappedDomEvaluate(bootRaw);
+                    if (boot.root) {
+                        this.emitParity('parity_establish_dom_map_completed', this.domMapCompletedPayload({
+                            pageEpochId,
+                            generation,
+                            path: 'establish',
+                            evaluateWallMs: bootWallMs,
+                            approxNodes: (0, parityUtil_1.countNodesApprox)(boot.root),
+                            timings: boot.timings,
+                        }));
+                        await this.materializeAndPush('dom', 'document', { root: boot.root });
+                        const bootSheets = Array.isArray(boot.sheets) ? boot.sheets : [];
+                        this.lastSeededSheetCount = 0;
+                        await this.materializeAndPush('cssom', 'install', { sheets: bootSheets });
+                        try {
+                            await this.page.evaluate(`typeof window.__speculumDomArmStreamLive === "function" && window.__speculumDomArmStreamLive()`);
+                        }
+                        catch {
+                            /* mid-nav */
+                        }
+                    }
+                    armed = true;
+                    this.emitParity('parity_establish_completed', {
+                        pageEpochId,
+                        generation,
+                        totalMs: Date.now() - establishStartMs,
+                        tSinceCommitMs: this.tSinceCommitMs(),
+                        tVirtualMs: this.tVirtualMs(),
+                        mode: 'stream_seed',
+                    });
+                }
+                catch (err) {
+                    this.liveArmed = false;
+                    this.emitParity('parity_establish_failed', {
+                        pageEpochId,
+                        generation,
+                        errorCode: 'establish_exception',
+                        phase: 'establish',
+                        message: err instanceof Error ? err.message.slice(0, 256) : String(err).slice(0, 256),
+                        tVirtualMs: this.tVirtualMs(),
+                    });
+                }
+                finally {
+                    resolve(armed);
+                }
+            });
+        });
+    }
+    /**
+     * Fail-safe full DomMap+Cssom establish (mirror miss / lab). Not the product cold path.
+     */
+    enqueueFullMapEstablish() {
+        return new Promise((resolve) => {
+            this.enqueue(async () => {
+                let armed = false;
+                const pageEpochId = this.pageEpochId ?? '';
+                const generation = this.generation;
+                const establishStartMs = Date.now();
+                try {
+                    this.liveArmed = false;
+                    this.emitParity('parity_establish_dom_map_started', {
+                        pageEpochId,
+                        generation,
+                        path: 'establish_full',
                         tVirtualMs: this.tVirtualMs(),
                     });
                     const domMapStartMs = Date.now();
@@ -966,7 +1075,6 @@ class PageProjection {
                         approxNodes: (0, parityUtil_1.countNodesApprox)(mapped.root),
                         timings: mapped.timings,
                     }));
-                    // Accept page MO immediately; emitFromPage enqueues behind this task.
                     this.liveArmed = true;
                     await this.materializeAndPush('dom', 'document', { root: mapped.root });
                     this.noteFirstDiffEmitted('dom', 'document');
@@ -974,7 +1082,7 @@ class PageProjection {
                         this.emitParity('parity_establish_cssom_install_started', {
                             pageEpochId,
                             generation,
-                            source: 'live',
+                            source: 'full_map',
                             tVirtualMs: this.tVirtualMs(),
                         });
                         const cssomStartMs = Date.now();
@@ -984,7 +1092,7 @@ class PageProjection {
                         this.emitParity('parity_establish_cssom_install_completed', {
                             pageEpochId,
                             generation,
-                            source: 'live',
+                            source: 'full_map',
                             durationMs: Date.now() - cssomStartMs,
                             sheetCount,
                             ruleCount,
@@ -1000,6 +1108,7 @@ class PageProjection {
                         totalMs: Date.now() - establishStartMs,
                         tSinceCommitMs: this.tSinceCommitMs(),
                         tVirtualMs: this.tVirtualMs(),
+                        mode: 'full_map',
                     });
                 }
                 catch (err) {
@@ -1035,7 +1144,7 @@ class PageProjection {
         });
     }
     emitFromPage(emitted) {
-        // T10: drop live page traffic until document + install armed this epoch.
+        // Drop live page traffic until stream seed (document + install) armed this epoch.
         if (!this.liveArmed)
             return;
         if (!emitted || typeof emitted !== 'object')

@@ -2,7 +2,8 @@
 
 This document defines vocabulary and naming rules for the API and sidecar codebases.
 
-> Broader mandatory engineering law (architecture, tests, CI, anti-patterns): **[engineering-standards.md](engineering-standards.md)**. Agents start at [../AGENTS.md](../AGENTS.md).
+> Broader mandatory engineering law (architecture, tests, CI, anti-patterns): **[engineering-standards.md](engineering-standards.md)**. Agents start at [../AGENTS.md](../AGENTS.md).  
+> **Ad-hoc / workaround code is strictly forbidden** — fix the designed algorithm; never paper over with a banned second path (see acceptance + engineering standards).
 
 ## Product vocabulary
 

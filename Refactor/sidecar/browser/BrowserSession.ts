@@ -81,6 +81,13 @@ export interface BrowserSessionEvents {
     scrollLeft?: number;
   }): void;
 
+  /**
+   * PageEpoch parity telemetry (opt-in Telemetry hop) — Virtual / Establish / Asset /
+   * Resync phase events. `payload` is JSON-serialized verbatim into the lifecycle
+   * envelope's `payloadJson` field; `kind` is one of the `parity_*` wire kinds.
+   */
+  onPageProjectionParity?(kind: string, payload: Record<string, unknown>): void;
+
   // page console (side effects of page scripts / evaluate; not the eval return value)
   onConsole(level: number, text: string): void;
 
@@ -202,6 +209,8 @@ export interface BrowserLaunchOptions {
   screencastMaxEncodeScale: number;
   /** Sessions.MirrorMode from Launch (admin engine config). */
   mirrorMode: 'videoStreaming' | 'pageProjection';
+  /** Sessions.PageProjectionDiffQueueCapacity — EventBridge Dom queue depth. */
+  pageProjectionDiffQueueCapacity: number;
   locale: string;
   language: string;
   timeZoneId: string;
@@ -475,6 +484,13 @@ export interface BrowserSession {
     coversThroughSequence: number;
     rootJson: Uint8Array;
     sheetsJson: Uint8Array;
+    /** PageEpoch parity telemetry — best-effort resync phase timings. */
+    pageEpochId?: string;
+    source?: 'mirror' | 'dump_fallback';
+    domMapMs?: number;
+    cssomCloneMs?: number;
+    rewriteMs?: number;
+    serializeMs?: number;
   } | null>;
 
   putDomUpload?(id: string, body: Uint8Array, contentType: string, name: string): Promise<void>;

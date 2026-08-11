@@ -324,12 +324,25 @@ class DomElementInput {
         const x = Number(payload.scrollX ?? 0);
         const y = Number(payload.scrollY ?? 0);
         await this.page.evaluate(({ x: left, y: top }) => {
-            const noteScrollEcho = globalThis;
-            const note = noteScrollEcho.__speculumDomNoteScrollEcho
-                ?? noteScrollEcho.top?.__speculumDomNoteScrollEcho;
+            const g = globalThis;
+            const note = g.__speculumDomNoteScrollEcho ?? g.top?.__speculumDomNoteScrollEcho;
+            const consume = g.__speculumDomConsumeScrollEchoIfAt ?? g.top?.__speculumDomConsumeScrollEchoIfAt;
+            const mark = { viewport: { x: left, y: top } };
             // Contract: note before mutate so sync scroll sensors see the echo mark.
-            note?.({ viewport: { x: left, y: top } });
-            noteScrollEcho.scrollTo(left, top);
+            note?.(mark);
+            const beforeX = g.scrollX || 0;
+            const beforeY = g.scrollY || 0;
+            g.scrollTo(left, top);
+            const afterX = g.scrollX || 0;
+            const afterY = g.scrollY || 0;
+            // True no-op (no scroll event): consume mark. If position moved, leave
+            // mark for the scroll sensor (do not race async delivery).
+            if (beforeX === afterX
+                && beforeY === afterY
+                && afterX === left
+                && afterY === top) {
+                consume?.(mark);
+            }
         }, { x, y });
     }
     async dispatchScrollElement(anchor, payload) {
@@ -344,17 +357,35 @@ class DomElementInput {
                 const a = n.getAttribute('speculum-anchor');
                 const g = globalThis;
                 let note = g.__speculumDomNoteScrollEcho;
-                if (!note) {
+                let consume = g.__speculumDomConsumeScrollEchoIfAt;
+                if (!note || !consume) {
                     try {
-                        note = g.top?.__speculumDomNoteScrollEcho;
+                        note = note ?? g.top?.__speculumDomNoteScrollEcho;
+                        consume = consume ?? g.top?.__speculumDomConsumeScrollEchoIfAt;
                     }
                     catch { /* XO */ }
                 }
-                // Contract: note before mutate so sync scroll sensors see the echo mark.
-                if (a)
-                    note?.({ element: { anchor: a, top: pos.top, left: pos.left } });
-                n.scrollTop = pos.top;
-                n.scrollLeft = pos.left;
+                if (a) {
+                    const mark = { element: { anchor: a, top: pos.top, left: pos.left } };
+                    // Contract: note before mutate so sync scroll sensors see the echo mark.
+                    note?.(mark);
+                    const beforeTop = n.scrollTop || 0;
+                    const beforeLeft = n.scrollLeft || 0;
+                    n.scrollTop = pos.top;
+                    n.scrollLeft = pos.left;
+                    const afterTop = n.scrollTop || 0;
+                    const afterLeft = n.scrollLeft || 0;
+                    if (beforeTop === afterTop
+                        && beforeLeft === afterLeft
+                        && afterTop === pos.top
+                        && afterLeft === pos.left) {
+                        consume?.(mark);
+                    }
+                }
+                else {
+                    n.scrollTop = pos.top;
+                    n.scrollLeft = pos.left;
+                }
             }, { top, left });
             return null;
         }

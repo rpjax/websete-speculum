@@ -1,3 +1,5 @@
+using Speculum.Api.Sessions.Mirror.PageProjection;
+
 namespace Speculum.Api.BrowserClients;
 
 /// <summary>
@@ -26,5 +28,39 @@ public interface IPageProjectionDiffTelemetry
         string? operation = null,
         long? lowestDroppedSequence = null,
         long? highestDroppedSequence = null,
-        string? reason = null);
+        string? reason = null,
+        Guid? streamId = null,
+        Guid? consumerId = null,
+        string? kind = null,
+        int? targetCount = null,
+        int? diffChannelCount = null,
+        long? diffEpoch = null);
+
+    void FanOutEnqueued(
+        string plane,
+        string operation,
+        long sequence,
+        long generation,
+        long timestamp,
+        long waitMs,
+        Guid streamId,
+        Guid consumerId,
+        string kind,
+        int targetIndex,
+        int targetCount,
+        int diffChannelCount,
+        long diffEpoch);
+
+    void OutputStreamOpened(
+        Guid streamId,
+        Guid consumerId,
+        string kind,
+        int openStreamCount,
+        int diffChannelCapacity);
+
+    void OutputStreamClosed(
+        Guid streamId,
+        Guid consumerId,
+        string kind,
+        int openStreamCount);
 }

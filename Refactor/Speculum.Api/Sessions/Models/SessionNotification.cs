@@ -127,8 +127,8 @@ public sealed class SessionNotification
 
     /// <summary>
     /// QueueDropped stage (api_sequenced | api_fanout_no_target | api_fanout_pipe_closed |
-    /// sidecar_bridge | sidecar_requeue_overflow | sidecar_grpc_inflight |
-    /// sidecar_lifecycle_overflow | sidecar_bridge_closed | mapper_rejected).
+    /// api_fanout_backpressure | api_wire_stall | sidecar_bridge | sidecar_requeue_overflow |
+    /// sidecar_grpc_inflight | sidecar_lifecycle_overflow | sidecar_bridge_closed | mapper_rejected).
     /// </summary>
     [Key("pageProjectionDiffQueueStage")]
     public string? PageProjectionDiffQueueStage { get; init; }
@@ -152,4 +152,8 @@ public sealed class SessionNotification
     /// <summary>Client timestamp ms from wire (Video clientTimestampMs / Dom timestampClient).</summary>
     [Key("clientTimestampMs")]
     public long? ClientTimestampMs { get; init; }
+
+    /// <summary>JSON payload for PageEpoch parity lifecycle kinds (<c>parity_*</c>).</summary>
+    [Key("payloadJson")]
+    public string? PayloadJson { get; init; }
 }

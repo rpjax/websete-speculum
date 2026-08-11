@@ -19,15 +19,39 @@ export interface PermissionRequestMsg {
 export class EventBridge implements BrowserSessionEvents {
   readonly video = new DropOldestQueue<Uint8Array>(2);
   readonly audio = new DropOldestQueue<Uint8Array>(2);
-  /** PageProjection Dom+Cssom envelopes — sized for SPA churn (T5 DropAll on overflow). */
-  readonly dom = new DropOldestQueue<{
+  /**
+   * PageProjection Dom+Cssom envelopes — sized for SPA boot churn (T5 DropAll on overflow).
+   * Default 8192 aligns with API SequencedDiffChannels.DefaultCapacity (BZ1).
+   * Replaced at Launch via {@link configureDomCapacity} when Sessions config differs.
+   */
+  private _dom = new DropOldestQueue<{
     sequence: number;
     generation: number;
     plane: string;
     operation: string;
     timestampMs: number;
     body: Uint8Array;
-  }>(1024);
+  }>(8192);
+
+  get dom(): DropOldestQueue<{
+    sequence: number;
+    generation: number;
+    plane: string;
+    operation: string;
+    timestampMs: number;
+    body: Uint8Array;
+  }> {
+    return this._dom;
+  }
+
+  /** High-watermark fraction — pause Virtual live emit before DropAll (T5 backpressure defer). */
+  static readonly DomBackpressureRatio = 0.8;
+
+  /** Resume live emit when depth falls below this fraction of capacity. */
+  static readonly DomBackpressureClearRatio = 0.5;
+
+  private _domBackpressure = false;
+  private _onDomBackpressureChanged: ((paused: boolean) => void) | null = null;
   readonly consoleQ = new DropOldestQueue<{ level: number; text: string }>(64);
   readonly location = new DropOldestQueue<string>(1);
   readonly navigationBlocked = new DropOldestQueue<string>(8);
@@ -47,7 +71,7 @@ export class EventBridge implements BrowserSessionEvents {
     reason?: string;
     generation?: number;
   }>(32);
-  /** Opt-in PageProjection lifecycle (GenerationBumped | QueueDropped) — DropOldest. */
+  /** Opt-in PageProjection lifecycle (GenerationBumped | QueueDropped | parity_*) — DropOldest. */
   readonly pageProjectionLifecycle = new DropOldestQueue<{
     kind: string;
     fromGeneration: number;
@@ -61,6 +85,8 @@ export class EventBridge implements BrowserSessionEvents {
     sequence?: number;
     lowestDroppedSequence?: number;
     highestDroppedSequence?: number;
+    /** PageEpoch parity telemetry (parity_* kinds) — UTF-8 JSON of the kind's payload. */
+    payloadJson?: string;
   }>(32);
   /** Opt-in allocation lifecycle for Telemetry.Sessions.Sidecar.* (DropOldest). */
   readonly allocationLifecycle = new DropOldestQueue<
@@ -77,6 +103,48 @@ export class EventBridge implements BrowserSessionEvents {
   private permissionSink: ((req: PermissionRequestMsg) => void) | null = null;
 
   constructor(readonly sessionId: string) {}
+
+  /**
+   * Apply Sessions.PageProjectionDiffQueueCapacity at Launch (queue must be empty —
+   * Create→Launch window has no Dom emits yet).
+   */
+  configureDomCapacity(capacity: number): void {
+    const cap = Math.max(64, Math.min(65_536, Math.floor(capacity)));
+    if (cap === this._dom.maxCapacity) return;
+    if (this._dom.pendingCount > 0) {
+      return;
+    }
+    this._dom = new DropOldestQueue(cap);
+    this._domBackpressure = false;
+  }
+
+  /** PageProjection registers pause/resume of page liveEmit (T5 defer). */
+  setDomBackpressureHandler(handler: ((paused: boolean) => void) | null): void {
+    this._onDomBackpressureChanged = handler;
+  }
+
+  get isDomBackpressured(): boolean {
+    return this._domBackpressure;
+  }
+
+  private updateDomBackpressureAfterWrite(): void {
+    const capacity = this._dom.maxCapacity;
+    const pending = this._dom.pendingCount;
+    if (!this._domBackpressure && pending > capacity * EventBridge.DomBackpressureRatio) {
+      this._domBackpressure = true;
+      this._onDomBackpressureChanged?.(true);
+      return;
+    }
+    if (this._domBackpressure && pending <= capacity * EventBridge.DomBackpressureClearRatio) {
+      this._domBackpressure = false;
+      this._onDomBackpressureChanged?.(false);
+    }
+  }
+
+  /** Called by WatchPageProjectionDiff after each dequeue so clear can fire. */
+  notifyDomQueueDrained(): void {
+    this.updateDomBackpressureAfterWrite();
+  }
 
   /** Called by Control stream to receive permission requests. Returns sink epoch. */
   setPermissionSink(sink: ((req: PermissionRequestMsg) => void) | null): number {
@@ -143,6 +211,13 @@ export class EventBridge implements BrowserSessionEvents {
         lowestDroppedSequence: lowestSequence ?? undefined,
         highestDroppedSequence: highestSequence ?? undefined,
       });
+      // DropAll emptied the backlog — clear backpressure so Virtual can re-establish.
+      if (this._domBackpressure) {
+        this._domBackpressure = false;
+        this._onDomBackpressureChanged?.(false);
+      }
+    } else {
+      this.updateDomBackpressureAfterWrite();
     }
   }
 
@@ -225,6 +300,33 @@ export class EventBridge implements BrowserSessionEvents {
       diffKind: event.liveArmed ? 'armed' : 'disarmed',
       unixMs: Date.now(),
     });
+  }
+
+  /**
+   * PageEpoch parity telemetry (Virtual / Establish / Asset / Resync `parity_*` kinds).
+   * Best-effort — shares the lifecycle DropOldest queue with generation_bumped/queue_dropped.
+   */
+  emitPageProjectionParity(kind: string, payload: Record<string, unknown>): void {
+    let payloadJson: string;
+    try {
+      payloadJson = JSON.stringify(payload);
+    } catch {
+      return;
+    }
+    const generation = payload['generation'];
+    const toGeneration = typeof generation === 'number' ? generation : 0;
+    this.pageProjectionLifecycle.tryWrite({
+      kind,
+      fromGeneration: 0,
+      toGeneration,
+      reason: '',
+      unixMs: Date.now(),
+      payloadJson,
+    });
+  }
+
+  onPageProjectionParity(kind: string, payload: Record<string, unknown>): void {
+    this.emitPageProjectionParity(kind, payload);
   }
 
   onPageProjectionScrollEchoHit(event: {

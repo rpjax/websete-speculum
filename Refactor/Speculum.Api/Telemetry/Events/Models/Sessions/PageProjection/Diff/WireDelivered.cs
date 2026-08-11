@@ -8,7 +8,7 @@ namespace Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Diff;
 /// </summary>
 [JournalFact(
     "Telemetry.Sessions.PageProjection.Diff.WireDelivered",
-    schemaVersion: 1,
+    schemaVersion: 4,
     Name = "PageProjection diff · wire delivered",
     Description = "API wrote a PageProjectionDiff frame to the client data-plane output stream.",
     Owner = "telemetry",
@@ -32,4 +32,13 @@ public sealed class WireDelivered
 
     /// <summary>Sidecar PageProjectionDiff timestamp (ms).</summary>
     public long Timestamp { get; init; }
+
+    /// <summary>Milliseconds spent in data-plane <c>WriteMessageAsync</c> for this frame.</summary>
+    public long DurationMs { get; init; }
+
+    public Guid StreamId { get; init; }
+
+    public Guid ConsumerId { get; init; }
+
+    public long DiffEpoch { get; init; }
 }

@@ -12,8 +12,31 @@ using PageProjectionDiffGenerationBumped = Speculum.Api.Telemetry.Events.Models.
 using PageProjectionDiffSoftNavObserved = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Diff.SoftNavObserved;
 using PageProjectionDiffQueueDropped = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Diff.QueueDropped;
 using PageProjectionDiffWireDelivered = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Diff.WireDelivered;
+using PageProjectionDiffFanOutEnqueued = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Diff.FanOutEnqueued;
+using PageProjectionDiffStreamDequeued = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Diff.StreamDequeued;
+using PageProjectionDiffOutputStreamOpened = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Diff.OutputStreamOpened;
+using PageProjectionDiffOutputStreamClosed = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Diff.OutputStreamClosed;
 using PageProjectionDiffResyncRequested = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Diff.ResyncRequested;
 using PageProjectionDiffResyncServed = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Diff.ResyncServed;
+using PageProjectionVirtualBootMarked = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Virtual.BootMarked;
+using PageProjectionVirtualNavCommit = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Virtual.NavCommit;
+using PageProjectionVirtualNavTiming = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Virtual.NavTiming;
+using PageProjectionVirtualResourceSummary = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Virtual.ResourceSummary;
+using PageProjectionVirtualPageError = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Virtual.PageError;
+using PageProjectionVirtualLifecycle = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Virtual.Lifecycle;
+using PageProjectionEstablishStylesWaitStarted = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Establish.StylesWaitStarted;
+using PageProjectionEstablishStylesWaitCompleted = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Establish.StylesWaitCompleted;
+using PageProjectionEstablishDomMapStarted = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Establish.DomMapStarted;
+using PageProjectionEstablishDomMapCompleted = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Establish.DomMapCompleted;
+using PageProjectionEstablishCssomInstallStarted = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Establish.CssomInstallStarted;
+using PageProjectionEstablishCssomInstallCompleted = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Establish.CssomInstallCompleted;
+using PageProjectionEstablishFirstDiffEmitted = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Establish.FirstDiffEmitted;
+using PageProjectionEstablishCompleted = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Establish.EstablishCompleted;
+using PageProjectionEstablishFailed = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Establish.EstablishFailed;
+using PageProjectionAssetRewriteSummary = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Asset.RewriteSummary;
+using PageProjectionAssetFetchFinished = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Asset.FetchFinished;
+using PageProjectionAssetServeMiss = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Asset.ServeMiss;
+using PageProjectionAssetServeSlow = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Asset.ServeSlow;
 using DomInputAdmissionDropped = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Input.AdmissionDropped;
 using DomInputApplied = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Input.Applied;
 using DomInputCdpDropped = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Input.CdpDropped;
@@ -71,6 +94,12 @@ internal sealed class SessionTelemetryEvents : ISessionTelemetryEvents
 
         protected static string? NullIfEmpty(string? value)
             => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+        protected static string Truncate(string? value, int max)
+        {
+            if (string.IsNullOrEmpty(value)) return "";
+            return value.Length <= max ? value : value[..max];
+        }
     }
 
     private sealed class CapacityEvents(IJournalWriter writer, Guid sessionId, Guid profileId)
@@ -237,6 +266,15 @@ internal sealed class SessionTelemetryEvents : ISessionTelemetryEvents
 
         public ISessionPageProjectionInputTelemetryEvents Input { get; } =
             new PageProjectionIntentEvents(writer, sessionId, profileId);
+
+        public ISessionPageProjectionVirtualTelemetryEvents Virtual { get; } =
+            new PageProjectionVirtualEvents(writer, sessionId, profileId);
+
+        public ISessionPageProjectionEstablishTelemetryEvents Establish { get; } =
+            new PageProjectionEstablishEvents(writer, sessionId, profileId);
+
+        public ISessionPageProjectionAssetTelemetryEvents Asset { get; } =
+            new PageProjectionAssetEvents(writer, sessionId, profileId);
     }
 
     private sealed class PageProjectionDiffEvents(IJournalWriter writer, Guid sessionId, Guid profileId)
@@ -316,7 +354,13 @@ internal sealed class SessionTelemetryEvents : ISessionTelemetryEvents
             string? operation = null,
             long? lowestDroppedSequence = null,
             long? highestDroppedSequence = null,
-            string? reason = null)
+            string? reason = null,
+            Guid? streamId = null,
+            Guid? consumerId = null,
+            string? kind = null,
+            int? targetCount = null,
+            int? diffChannelCount = null,
+            long? diffEpoch = null)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(stage);
             Writer.Append(new PageProjectionDiffQueueDropped
@@ -333,6 +377,12 @@ internal sealed class SessionTelemetryEvents : ISessionTelemetryEvents
                 LowestDroppedSequence = lowestDroppedSequence,
                 HighestDroppedSequence = highestDroppedSequence,
                 Reason = NullIfEmpty(reason),
+                StreamId = streamId,
+                ConsumerId = consumerId,
+                Kind = NullIfEmpty(kind),
+                TargetCount = targetCount,
+                DiffChannelCount = diffChannelCount,
+                DiffEpoch = diffEpoch,
             });
         }
 
@@ -341,7 +391,11 @@ internal sealed class SessionTelemetryEvents : ISessionTelemetryEvents
             string operation,
             long sequence,
             long generation,
-            long timestamp)
+            long timestamp,
+            long durationMs,
+            Guid streamId,
+            Guid consumerId,
+            long diffEpoch)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(plane);
             ArgumentException.ThrowIfNullOrWhiteSpace(operation);
@@ -354,6 +408,113 @@ internal sealed class SessionTelemetryEvents : ISessionTelemetryEvents
                 Sequence = sequence,
                 Generation = generation,
                 Timestamp = timestamp,
+                DurationMs = durationMs,
+                StreamId = streamId,
+                ConsumerId = consumerId,
+                DiffEpoch = diffEpoch,
+            });
+        }
+
+        public void FanOutEnqueued(
+            string plane,
+            string operation,
+            long sequence,
+            long generation,
+            long timestamp,
+            long waitMs,
+            Guid streamId,
+            Guid consumerId,
+            string kind,
+            int targetIndex,
+            int targetCount,
+            int diffChannelCount,
+            long diffEpoch)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(plane);
+            ArgumentException.ThrowIfNullOrWhiteSpace(operation);
+            ArgumentException.ThrowIfNullOrWhiteSpace(kind);
+            Writer.Append(new PageProjectionDiffFanOutEnqueued
+            {
+                SessionId = SessionId,
+                ProfileId = ProfileId,
+                Plane = plane.Trim(),
+                Operation = operation.Trim(),
+                Sequence = sequence,
+                Generation = generation,
+                Timestamp = timestamp,
+                WaitMs = waitMs,
+                StreamId = streamId,
+                ConsumerId = consumerId,
+                Kind = kind.Trim(),
+                TargetIndex = targetIndex,
+                TargetCount = targetCount,
+                DiffChannelCount = diffChannelCount,
+                DiffEpoch = diffEpoch,
+            });
+        }
+
+        public void StreamDequeued(
+            string plane,
+            string operation,
+            long sequence,
+            long generation,
+            long timestamp,
+            Guid streamId,
+            Guid consumerId,
+            long diffEpoch)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(plane);
+            ArgumentException.ThrowIfNullOrWhiteSpace(operation);
+            Writer.Append(new PageProjectionDiffStreamDequeued
+            {
+                SessionId = SessionId,
+                ProfileId = ProfileId,
+                Plane = plane.Trim(),
+                Operation = operation.Trim(),
+                Sequence = sequence,
+                Generation = generation,
+                Timestamp = timestamp,
+                StreamId = streamId,
+                ConsumerId = consumerId,
+                DiffEpoch = diffEpoch,
+            });
+        }
+
+        public void OutputStreamOpened(
+            Guid streamId,
+            Guid consumerId,
+            string kind,
+            int openStreamCount,
+            int diffChannelCapacity)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(kind);
+            Writer.Append(new PageProjectionDiffOutputStreamOpened
+            {
+                SessionId = SessionId,
+                ProfileId = ProfileId,
+                StreamId = streamId,
+                ConsumerId = consumerId,
+                Kind = kind.Trim(),
+                OpenStreamCount = openStreamCount,
+                DiffChannelCapacity = diffChannelCapacity,
+            });
+        }
+
+        public void OutputStreamClosed(
+            Guid streamId,
+            Guid consumerId,
+            string kind,
+            int openStreamCount)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(kind);
+            Writer.Append(new PageProjectionDiffOutputStreamClosed
+            {
+                SessionId = SessionId,
+                ProfileId = ProfileId,
+                StreamId = streamId,
+                ConsumerId = consumerId,
+                Kind = kind.Trim(),
+                OpenStreamCount = openStreamCount,
             });
         }
 
@@ -374,7 +535,13 @@ internal sealed class SessionTelemetryEvents : ISessionTelemetryEvents
             int sheetCount,
             int ruleCount,
             int seededSheetCount,
-            long durationMs)
+            long durationMs,
+            string? pageEpochId = null,
+            string? source = null,
+            long domMapMs = 0,
+            long cssomCloneMs = 0,
+            long rewriteMs = 0,
+            long serializeMs = 0)
         {
             Writer.Append(new PageProjectionDiffResyncServed
             {
@@ -386,6 +553,416 @@ internal sealed class SessionTelemetryEvents : ISessionTelemetryEvents
                 RuleCount = ruleCount,
                 SeededSheetCount = seededSheetCount,
                 DurationMs = durationMs,
+                PageEpochId = pageEpochId,
+                Source = source,
+                DomMapMs = domMapMs,
+                CssomCloneMs = cssomCloneMs,
+                RewriteMs = rewriteMs,
+                SerializeMs = serializeMs,
+            });
+        }
+    }
+
+    private sealed class PageProjectionVirtualEvents(IJournalWriter writer, Guid sessionId, Guid profileId)
+        : Scoped(writer, sessionId, profileId), ISessionPageProjectionVirtualTelemetryEvents
+    {
+        public void BootMarked(long browserLaunchedAtMs, long firstCommitAtMs, long bootMs, string? pageEpochId)
+        {
+            Writer.Append(new PageProjectionVirtualBootMarked
+            {
+                SessionId = SessionId,
+                ProfileId = ProfileId,
+                BrowserLaunchedAtMs = browserLaunchedAtMs,
+                FirstCommitAtMs = firstCommitAtMs,
+                BootMs = bootMs,
+                PageEpochId = pageEpochId,
+            });
+        }
+
+        public void NavCommit(
+            string pageEpochId,
+            string? url,
+            long generation,
+            string? documentEpoch,
+            string navigationType,
+            long tVirtualMs)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(pageEpochId);
+            ArgumentException.ThrowIfNullOrWhiteSpace(navigationType);
+            Writer.Append(new PageProjectionVirtualNavCommit
+            {
+                SessionId = SessionId,
+                ProfileId = ProfileId,
+                PageEpochId = pageEpochId.Trim(),
+                Url = url,
+                Generation = generation,
+                DocumentEpoch = documentEpoch,
+                NavigationType = navigationType.Trim(),
+                TVirtualMs = tVirtualMs,
+            });
+        }
+
+        public void NavTiming(
+            string pageEpochId,
+            long? redirectMs,
+            long? dnsMs,
+            long? connectMs,
+            long? ttfbMs,
+            long? domInteractiveMs,
+            long? domContentLoadedMs,
+            long? loadEventMs,
+            long tVirtualMs)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(pageEpochId);
+            Writer.Append(new PageProjectionVirtualNavTiming
+            {
+                SessionId = SessionId,
+                ProfileId = ProfileId,
+                PageEpochId = pageEpochId.Trim(),
+                RedirectMs = redirectMs,
+                DnsMs = dnsMs,
+                ConnectMs = connectMs,
+                TtfbMs = ttfbMs,
+                DomInteractiveMs = domInteractiveMs,
+                DomContentLoadedMs = domContentLoadedMs,
+                LoadEventMs = loadEventMs,
+                TVirtualMs = tVirtualMs,
+            });
+        }
+
+        public void ResourceSummary(string pageEpochId, string byTypeJson, string topSlowJson, long tVirtualMs)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(pageEpochId);
+            Writer.Append(new PageProjectionVirtualResourceSummary
+            {
+                SessionId = SessionId,
+                ProfileId = ProfileId,
+                PageEpochId = pageEpochId.Trim(),
+                ByTypeJson = byTypeJson ?? "[]",
+                TopSlowJson = topSlowJson ?? "[]",
+                TVirtualMs = tVirtualMs,
+            });
+        }
+
+        public void PageError(string pageEpochId, string source, string message, string? urlKey, int count, long tVirtualMs)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(pageEpochId);
+            ArgumentException.ThrowIfNullOrWhiteSpace(source);
+            Writer.Append(new PageProjectionVirtualPageError
+            {
+                SessionId = SessionId,
+                ProfileId = ProfileId,
+                PageEpochId = pageEpochId.Trim(),
+                Source = source.Trim(),
+                Message = Truncate(message, 240),
+                UrlKey = urlKey,
+                Count = count,
+                TVirtualMs = tVirtualMs,
+            });
+        }
+
+        public void Lifecycle(string pageEpochId, string name, long? tSinceCommitMs, long tVirtualMs)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(pageEpochId);
+            ArgumentException.ThrowIfNullOrWhiteSpace(name);
+            Writer.Append(new PageProjectionVirtualLifecycle
+            {
+                SessionId = SessionId,
+                ProfileId = ProfileId,
+                PageEpochId = pageEpochId.Trim(),
+                Name = name.Trim(),
+                TSinceCommitMs = tSinceCommitMs,
+                TVirtualMs = tVirtualMs,
+            });
+        }
+    }
+
+    private sealed class PageProjectionEstablishEvents(IJournalWriter writer, Guid sessionId, Guid profileId)
+        : Scoped(writer, sessionId, profileId), ISessionPageProjectionEstablishTelemetryEvents
+    {
+        public void StylesWaitStarted(string pageEpochId, long generation, int timeoutMs, long tVirtualMs)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(pageEpochId);
+            Writer.Append(new PageProjectionEstablishStylesWaitStarted
+            {
+                SessionId = SessionId,
+                ProfileId = ProfileId,
+                PageEpochId = pageEpochId.Trim(),
+                Generation = generation,
+                TimeoutMs = timeoutMs,
+                TVirtualMs = tVirtualMs,
+            });
+        }
+
+        public void StylesWaitCompleted(
+            string pageEpochId,
+            long generation,
+            int timeoutMs,
+            long waitedMs,
+            bool timedOut,
+            long tVirtualMs)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(pageEpochId);
+            Writer.Append(new PageProjectionEstablishStylesWaitCompleted
+            {
+                SessionId = SessionId,
+                ProfileId = ProfileId,
+                PageEpochId = pageEpochId.Trim(),
+                Generation = generation,
+                TimeoutMs = timeoutMs,
+                WaitedMs = waitedMs,
+                TimedOut = timedOut,
+                TVirtualMs = tVirtualMs,
+            });
+        }
+
+        public void DomMapStarted(string pageEpochId, long generation, string path, long tVirtualMs)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(pageEpochId);
+            ArgumentException.ThrowIfNullOrWhiteSpace(path);
+            Writer.Append(new PageProjectionEstablishDomMapStarted
+            {
+                SessionId = SessionId,
+                ProfileId = ProfileId,
+                PageEpochId = pageEpochId.Trim(),
+                Generation = generation,
+                Path = path.Trim(),
+                TVirtualMs = tVirtualMs,
+            });
+        }
+
+        public void DomMapCompleted(
+            string pageEpochId,
+            long generation,
+            string path,
+            long durationMs,
+            int? approxNodes,
+            long tVirtualMs,
+            long takeRecordsMs = 0,
+            long clearLedgerMs = 0,
+            long anchorAllMs = 0,
+            long remintMs = 0,
+            long mapNodeMs = 0,
+            long resetPublishedMs = 0,
+            long cssomMs = 0,
+            long pageTotalMs = 0,
+            long cdpTransferMs = 0)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(pageEpochId);
+            ArgumentException.ThrowIfNullOrWhiteSpace(path);
+            Writer.Append(new PageProjectionEstablishDomMapCompleted
+            {
+                SessionId = SessionId,
+                ProfileId = ProfileId,
+                PageEpochId = pageEpochId.Trim(),
+                Generation = generation,
+                Path = path.Trim(),
+                DurationMs = durationMs,
+                ApproxNodes = approxNodes,
+                TVirtualMs = tVirtualMs,
+                TakeRecordsMs = takeRecordsMs,
+                ClearLedgerMs = clearLedgerMs,
+                AnchorAllMs = anchorAllMs,
+                RemintMs = remintMs,
+                MapNodeMs = mapNodeMs,
+                ResetPublishedMs = resetPublishedMs,
+                CssomMs = cssomMs,
+                PageTotalMs = pageTotalMs,
+                CdpTransferMs = cdpTransferMs,
+            });
+        }
+
+        public void CssomInstallStarted(string pageEpochId, long generation, string source, long tVirtualMs)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(pageEpochId);
+            ArgumentException.ThrowIfNullOrWhiteSpace(source);
+            Writer.Append(new PageProjectionEstablishCssomInstallStarted
+            {
+                SessionId = SessionId,
+                ProfileId = ProfileId,
+                PageEpochId = pageEpochId.Trim(),
+                Generation = generation,
+                Source = source.Trim(),
+                TVirtualMs = tVirtualMs,
+            });
+        }
+
+        public void CssomInstallCompleted(
+            string pageEpochId,
+            long generation,
+            string source,
+            long durationMs,
+            int sheetCount,
+            int ruleCount,
+            int seededSheetCount,
+            long tVirtualMs)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(pageEpochId);
+            ArgumentException.ThrowIfNullOrWhiteSpace(source);
+            Writer.Append(new PageProjectionEstablishCssomInstallCompleted
+            {
+                SessionId = SessionId,
+                ProfileId = ProfileId,
+                PageEpochId = pageEpochId.Trim(),
+                Generation = generation,
+                Source = source.Trim(),
+                DurationMs = durationMs,
+                SheetCount = sheetCount,
+                RuleCount = ruleCount,
+                SeededSheetCount = seededSheetCount,
+                TVirtualMs = tVirtualMs,
+            });
+        }
+
+        public void FirstDiffEmitted(
+            string pageEpochId,
+            long generation,
+            string plane,
+            string operation,
+            long sequence,
+            long? tSinceCommitMs,
+            long tVirtualMs)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(pageEpochId);
+            ArgumentException.ThrowIfNullOrWhiteSpace(plane);
+            ArgumentException.ThrowIfNullOrWhiteSpace(operation);
+            Writer.Append(new PageProjectionEstablishFirstDiffEmitted
+            {
+                SessionId = SessionId,
+                ProfileId = ProfileId,
+                PageEpochId = pageEpochId.Trim(),
+                Generation = generation,
+                Plane = plane.Trim(),
+                Operation = operation.Trim(),
+                Sequence = sequence,
+                TSinceCommitMs = tSinceCommitMs,
+                TVirtualMs = tVirtualMs,
+            });
+        }
+
+        public void EstablishCompleted(
+            string pageEpochId,
+            long generation,
+            long totalMs,
+            long? tSinceCommitMs,
+            long tVirtualMs)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(pageEpochId);
+            Writer.Append(new PageProjectionEstablishCompleted
+            {
+                SessionId = SessionId,
+                ProfileId = ProfileId,
+                PageEpochId = pageEpochId.Trim(),
+                Generation = generation,
+                TotalMs = totalMs,
+                TSinceCommitMs = tSinceCommitMs,
+                TVirtualMs = tVirtualMs,
+            });
+        }
+
+        public void EstablishFailed(
+            string pageEpochId,
+            long generation,
+            string errorCode,
+            string phase,
+            string? message,
+            long tVirtualMs)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(pageEpochId);
+            ArgumentException.ThrowIfNullOrWhiteSpace(errorCode);
+            ArgumentException.ThrowIfNullOrWhiteSpace(phase);
+            Writer.Append(new PageProjectionEstablishFailed
+            {
+                SessionId = SessionId,
+                ProfileId = ProfileId,
+                PageEpochId = pageEpochId.Trim(),
+                Generation = generation,
+                ErrorCode = errorCode.Trim(),
+                Phase = phase.Trim(),
+                Message = Truncate(message, 240),
+                TVirtualMs = tVirtualMs,
+            });
+        }
+    }
+
+    private sealed class PageProjectionAssetEvents(IJournalWriter writer, Guid sessionId, Guid profileId)
+        : Scoped(writer, sessionId, profileId), ISessionPageProjectionAssetTelemetryEvents
+    {
+        public void RewriteSummary(
+            string pageEpochId,
+            int candidates,
+            int rewritten,
+            int bareSkipped,
+            int dataInlined,
+            int blobQueued,
+            int deferredFetches,
+            long tVirtualMs)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(pageEpochId);
+            Writer.Append(new PageProjectionAssetRewriteSummary
+            {
+                SessionId = SessionId,
+                ProfileId = ProfileId,
+                PageEpochId = pageEpochId.Trim(),
+                Candidates = candidates,
+                Rewritten = rewritten,
+                BareSkipped = bareSkipped,
+                DataInlined = dataInlined,
+                BlobQueued = blobQueued,
+                DeferredFetches = deferredFetches,
+                TVirtualMs = tVirtualMs,
+            });
+        }
+
+        public void FetchFinished(
+            string pageEpochId,
+            string urlKey,
+            long durationMs,
+            long bytes,
+            string mode,
+            bool ok,
+            long tVirtualMs)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(pageEpochId);
+            ArgumentException.ThrowIfNullOrWhiteSpace(urlKey);
+            ArgumentException.ThrowIfNullOrWhiteSpace(mode);
+            Writer.Append(new PageProjectionAssetFetchFinished
+            {
+                SessionId = SessionId,
+                ProfileId = ProfileId,
+                PageEpochId = pageEpochId.Trim(),
+                UrlKey = urlKey.Trim(),
+                DurationMs = durationMs,
+                Bytes = bytes,
+                Mode = mode.Trim(),
+                Ok = ok,
+                TVirtualMs = tVirtualMs,
+            });
+        }
+
+        public void ServeMiss(string urlKey, long durationMs, int status)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(urlKey);
+            Writer.Append(new PageProjectionAssetServeMiss
+            {
+                SessionId = SessionId,
+                ProfileId = ProfileId,
+                UrlKey = urlKey.Trim(),
+                DurationMs = durationMs,
+                Status = status,
+            });
+        }
+
+        public void ServeSlow(string urlKey, long durationMs, int status)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(urlKey);
+            Writer.Append(new PageProjectionAssetServeSlow
+            {
+                SessionId = SessionId,
+                ProfileId = ProfileId,
+                UrlKey = urlKey.Trim(),
+                DurationMs = durationMs,
+                Status = status,
             });
         }
     }

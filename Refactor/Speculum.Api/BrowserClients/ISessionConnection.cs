@@ -202,10 +202,49 @@ public interface ISessionConnection
     IResult<Task> ConsumeConsoleInputAsync(ChannelReader<ConsoleInput> channelReader);
 
     /// <summary>
-    /// Binds LiveSession Diff telemetry (FrameReceived / QueueDropped). Journaled directly —
-    /// never via the DropOldest notification channel. Pass null to unbind.
+    /// Binds LiveSession Diff telemetry (FrameReceived / QueueDropped / FanOutEnqueued).
+    /// Journaled directly — never via the DropOldest notification channel. Pass null to unbind.
     /// </summary>
     void BindPageProjectionDiffTelemetry(IPageProjectionDiffTelemetry? telemetry);
+
+    /// <summary>
+    /// True when <c>Telemetry.Sessions.PageProjection.Diff.FanOutEnqueued</c> is catalog-enabled
+    /// (fan-out may skip Stopwatch when false).
+    /// </summary>
+    bool IsPageProjectionDiffFanOutEnqueuedEnabled();
+
+    /// <summary>
+    /// Reports Diff accepted into an open Diff fan-out channel. No-op when unbound or catalog disabled.
+    /// </summary>
+    void ReportPageProjectionDiffFanOutEnqueued(
+        PageProjectionDiff diff,
+        long waitMs,
+        Guid streamId,
+        Guid consumerId,
+        string kind,
+        int targetIndex,
+        int targetCount,
+        int diffChannelCount,
+        long diffEpoch);
+
+    /// <summary>
+    /// Reports mux output stream open. No-op when unbound or catalog disabled.
+    /// </summary>
+    void ReportPageProjectionDiffOutputStreamOpened(
+        Guid streamId,
+        Guid consumerId,
+        string kind,
+        int openStreamCount,
+        int diffChannelCapacity);
+
+    /// <summary>
+    /// Reports mux output stream close. No-op when unbound or catalog disabled.
+    /// </summary>
+    void ReportPageProjectionDiffOutputStreamClosed(
+        Guid streamId,
+        Guid consumerId,
+        string kind,
+        int openStreamCount);
 
     /// <summary>
     /// Reports a sequenced Diff queue drop (api_sequenced, fan-out, mapper, …) through the
@@ -221,5 +260,11 @@ public interface ISessionConnection
         string? operation = null,
         long? lowestDroppedSequence = null,
         long? highestDroppedSequence = null,
-        string? reason = null);
+        string? reason = null,
+        Guid? streamId = null,
+        Guid? consumerId = null,
+        string? kind = null,
+        int? targetCount = null,
+        int? diffChannelCount = null,
+        long? diffEpoch = null);
 }

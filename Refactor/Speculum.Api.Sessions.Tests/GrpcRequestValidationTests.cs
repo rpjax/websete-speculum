@@ -225,6 +225,7 @@ public sealed class GrpcRequestValidationTests
         Assert.Equal(2160, request.DisplayHeight);
         Assert.Equal(2, request.ScreencastMaxEncodeScale);
         Assert.Equal("videoStreaming", request.MirrorMode);
+        Assert.Equal(8192, request.PageProjectionDiffQueueCapacity);
 
         var capped = GrpcSessionMappers.ToLaunchRequest(
             Guid.NewGuid(),
@@ -237,6 +238,8 @@ public sealed class GrpcRequestValidationTests
         Assert.Equal("videoStreaming", capped.MirrorMode);
         Assert.Equal(1, GrpcSessionMappers.ClampScreencastMaxEncodeScale(0.5));
         Assert.Equal(2, GrpcSessionMappers.ClampScreencastMaxEncodeScale(3));
+        Assert.Equal(8192, GrpcSessionMappers.ClampPageProjectionDiffQueueCapacity(0));
+        Assert.Equal(4096, GrpcSessionMappers.ClampPageProjectionDiffQueueCapacity(4096));
 
         var domLaunch = GrpcSessionMappers.ToLaunchRequest(
             Guid.NewGuid(),
@@ -245,8 +248,10 @@ public sealed class GrpcRequestValidationTests
             configuration,
             SessionsTestHarness.Sessions().ViewportPolicy,
             screencastMaxEncodeScale: 2,
-            mirrorMode: Configurations.Models.Sessions.MirrorMode.PageProjection);
+            mirrorMode: Configurations.Models.Sessions.MirrorMode.PageProjection,
+            pageProjectionDiffQueueCapacity: 4096);
         Assert.Equal("pageProjection", domLaunch.MirrorMode);
+        Assert.Equal(4096, domLaunch.PageProjectionDiffQueueCapacity);
     }
 
     [Fact]

@@ -128,7 +128,13 @@ internal sealed class LiveSession : ILiveSession
             string? operation = null,
             long? lowestDroppedSequence = null,
             long? highestDroppedSequence = null,
-            string? reason = null)
+            string? reason = null,
+            Guid? streamId = null,
+            Guid? consumerId = null,
+            string? kind = null,
+            int? targetCount = null,
+            int? diffChannelCount = null,
+            long? diffEpoch = null)
         {
             session.TracePageProjectionDiffQueueDropped(
                 stage,
@@ -140,7 +146,72 @@ internal sealed class LiveSession : ILiveSession
                 operation,
                 lowestDroppedSequence,
                 highestDroppedSequence,
-                reason);
+                reason,
+                streamId,
+                consumerId,
+                kind,
+                targetCount,
+                diffChannelCount,
+                diffEpoch);
+        }
+
+        public void FanOutEnqueued(
+            string plane,
+            string operation,
+            long sequence,
+            long generation,
+            long timestamp,
+            long waitMs,
+            Guid streamId,
+            Guid consumerId,
+            string kind,
+            int targetIndex,
+            int targetCount,
+            int diffChannelCount,
+            long diffEpoch)
+        {
+            session.TracePageProjectionDiffFanOutEnqueuedCore(
+                plane,
+                operation,
+                sequence,
+                generation,
+                timestamp,
+                waitMs,
+                streamId,
+                consumerId,
+                kind,
+                targetIndex,
+                targetCount,
+                diffChannelCount,
+                diffEpoch);
+        }
+
+        public void OutputStreamOpened(
+            Guid streamId,
+            Guid consumerId,
+            string kind,
+            int openStreamCount,
+            int diffChannelCapacity)
+        {
+            session.TracePageProjectionDiffOutputStreamOpened(
+                streamId,
+                consumerId,
+                kind,
+                openStreamCount,
+                diffChannelCapacity);
+        }
+
+        public void OutputStreamClosed(
+            Guid streamId,
+            Guid consumerId,
+            string kind,
+            int openStreamCount)
+        {
+            session.TracePageProjectionDiffOutputStreamClosed(
+                streamId,
+                consumerId,
+                kind,
+                openStreamCount);
         }
     }
 
@@ -168,6 +239,7 @@ internal sealed class LiveSession : ILiveSession
 
             _attachmentId = null;
             _attachedClient = null;
+            _mux.SetAttachedConsumer(null);
         }
 
         var lifetime = Interlocked.Exchange(ref _lifetime, null);
@@ -202,10 +274,6 @@ internal sealed class LiveSession : ILiveSession
     {
         ArgumentNullException.ThrowIfNull(client);
 
-        ChannelReader<SessionNotification>? featureReader = null;
-        CancellationToken lifetimeToken = default;
-        Guid attachedId;
-
         lock (_attachmentGate)
         {
             if (IsReleased)
@@ -218,45 +286,13 @@ internal sealed class LiveSession : ILiveSession
                 return Result<Guid>.Failure("A client is already attached");
             }
 
-            if (_featureNotifications is null)
-            {
-                var stream = OpenNotificationStream();
-                if (stream.IsFailure)
-                {
-                    return Result<Guid>.Failure(stream.Errors.ToArray());
-                }
-
-                if (!TryGetLifetimeToken(out lifetimeToken))
-                {
-                    stream.Value.Dispose();
-                    return Result<Guid>.Failure("Live session is released");
-                }
-
-                var channel = stream.Value.GetNotificationChannel();
-                if (channel.IsFailure)
-                {
-                    stream.Value.Dispose();
-                    return Result<Guid>.Failure(channel.Errors.ToArray());
-                }
-
-                _featureNotifications = stream.Value;
-                featureReader = channel.Value;
-            }
-
-            attachedId = Guid.CreateVersion7();
+            var attachedId = Guid.CreateVersion7();
             _attachmentId = attachedId;
             _attachedClient = client;
             _collector.AddRef(SessionId);
+            _mux.SetAttachedConsumer(attachedId);
+            return Result<Guid>.Success(attachedId);
         }
-
-        if (featureReader is not null)
-        {
-            var loop = RunFeatureLoopAsync(featureReader, lifetimeToken);
-            _featureLoop = loop;
-            ObserveFeatureLoop(loop);
-        }
-
-        return Result<Guid>.Success(attachedId);
     }
 
     public IResult Detach(Guid attachmentId)
@@ -277,8 +313,49 @@ internal sealed class LiveSession : ILiveSession
             _attachmentId = null;
             _attachedClient = null;
             _collector.Release(SessionId);
+            _mux.SetAttachedConsumer(null);
             return Result.Success();
         }
+    }
+
+    public IResult ObserveSessionNotifications(INotificationStream stream)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+
+        ChannelReader<SessionNotification> featureReader;
+        CancellationToken lifetimeToken;
+
+        lock (_attachmentGate)
+        {
+            if (IsReleased)
+            {
+                return Result.Failure("Live session is released");
+            }
+
+            if (_featureNotifications is not null)
+            {
+                return Result.Failure("Session notifications are already observed");
+            }
+
+            if (!TryGetLifetimeToken(out lifetimeToken))
+            {
+                return Result.Failure("Live session is released");
+            }
+
+            var channel = stream.GetNotificationChannel();
+            if (channel.IsFailure)
+            {
+                return Result.Failure(channel.Errors.ToArray());
+            }
+
+            _featureNotifications = stream;
+            featureReader = channel.Value;
+        }
+
+        var loop = RunFeatureLoopAsync(featureReader, lifetimeToken);
+        _featureLoop = loop;
+        ObserveFeatureLoop(loop);
+        return Result.Success();
     }
 
     private void ObserveFeatureLoop(Task loop)
@@ -690,7 +767,8 @@ internal sealed class LiveSession : ILiveSession
                 case SessionNotificationKind.PageProjectionLifecycle:
                     if (string.Equals(notification.Phase, "queue_dropped", StringComparison.Ordinal))
                     {
-                        // Sidecar bridge QD also journals via Diff telemetry sink on the connection.
+                        // Client-visible QD (and sidecar bridge) journals via Diff telemetry
+                        // on ReportPageProjectionDiffQueueDropped — do not double-journal here.
                         break;
                     }
 
@@ -732,6 +810,30 @@ internal sealed class LiveSession : ILiveSession
                             sy,
                             st,
                             sl);
+                        break;
+                    }
+
+                    if (notification.Phase is { Length: > 0 } phase
+                        && phase.StartsWith("parity_", StringComparison.Ordinal)
+                        && !string.IsNullOrWhiteSpace(notification.PayloadJson))
+                    {
+                        try
+                        {
+                            PageProjectionParityTelemetryJournal.TryJournal(
+                                _journalCatalog,
+                                _telemetry.PageProjection,
+                                phase,
+                                notification.PayloadJson!);
+                        }
+                        catch (Exception journalEx)
+                        {
+                            _logger.LogWarning(
+                                journalEx,
+                                "Session {SessionId} failed to journal PageEpoch parity phase {Phase}.",
+                                SessionId,
+                                phase);
+                        }
+
                         break;
                     }
 
@@ -813,33 +915,46 @@ internal sealed class LiveSession : ILiveSession
 
     // ── Streams ──────────────────────────────────────────────────────────────
 
-    public IResult<IFrameStream> OpenFrameStream()
+    public IResult<IFrameStream> OpenFrameStream(Guid consumerId)
     {
         if (_mirrorMode != MirrorMode.VideoStreaming)
         {
             return Result<IFrameStream>.Failure(SessionMirrorErrors.VideoStreamingRequiredMessage);
         }
 
-        return OpenStream(static (id, mux) => (IFrameStream)new FrameStream(id, mux));
+        return OpenStream(
+            consumerId,
+            OutputStreamKind.Frame,
+            static (id, owner, mux) => (IFrameStream)new FrameStream(id, owner, mux));
     }
 
-    public IResult<IPageProjectionDiffStream> OpenPageProjectionDiffStream()
+    public IResult<IPageProjectionDiffStream> OpenPageProjectionDiffStream(Guid consumerId)
     {
         if (_mirrorMode != MirrorMode.PageProjection)
         {
             return Result<IPageProjectionDiffStream>.Failure(SessionMirrorErrors.PageProjectionRequiredMessage);
         }
 
-        return OpenStream(static (id, mux) => (IPageProjectionDiffStream)new PageProjectionDiffStream(id, mux));
+        return OpenStream(
+            consumerId,
+            OutputStreamKind.PageProjectionDiff,
+            static (id, owner, mux) => (IPageProjectionDiffStream)new PageProjectionDiffStream(id, owner, mux));
     }
 
-    public IResult<IConsoleOutputStream> OpenConsoleOutputStream()
-        => OpenStream(static (id, mux) => (IConsoleOutputStream)new ConsoleOutputStream(id, mux));
+    public IResult<IConsoleOutputStream> OpenConsoleOutputStream(Guid consumerId)
+        => OpenStream(
+            consumerId,
+            OutputStreamKind.Console,
+            static (id, owner, mux) => (IConsoleOutputStream)new ConsoleOutputStream(id, owner, mux));
 
-    public IResult<INotificationStream> OpenNotificationStream()
-        => OpenStream(static (id, mux) => (INotificationStream)new NotificationStream(id, mux));
+    public IResult<INotificationStream> OpenNotificationStream(Guid consumerId)
+        => OpenStream(
+            consumerId,
+            OutputStreamKind.Notification,
+            static (id, owner, mux) => (INotificationStream)new NotificationStream(id, owner, mux));
 
     public IResult<Task> ConsumeVideoStreamingInputAsync(
+        Guid consumerId,
         ChannelReader<VideoStreamingInput> channelReader,
         CancellationToken ct = default)
     {
@@ -849,7 +964,8 @@ internal sealed class LiveSession : ILiveSession
         }
 
         return StartInputPump(
-            (consumerId, token) => _mux.StartVideoStreamingInputPump(consumerId, channelReader, token),
+            consumerId,
+            (id, token) => _mux.StartVideoStreamingInputPump(id, channelReader, token),
             ct);
     }
 
@@ -971,10 +1087,12 @@ internal sealed class LiveSession : ILiveSession
     }
 
     public IResult<Task> ConsumeConsoleInputAsync(
+        Guid consumerId,
         ChannelReader<ConsoleInput> channelReader,
         CancellationToken ct = default)
         => StartInputPump(
-            (consumerId, token) => _mux.StartConsoleInputPump(consumerId, channelReader, token),
+            consumerId,
+            (id, token) => _mux.StartConsoleInputPump(id, channelReader, token),
             ct);
 
     public void TraceVideoStreamingInputDataPlaneReceived(
@@ -1056,7 +1174,12 @@ internal sealed class LiveSession : ILiveSession
         }
     }
 
-    public void TracePageProjectionDiffWireDelivered(PageProjectionDiff diff)
+    public void TracePageProjectionDiffWireDelivered(
+        PageProjectionDiff diff,
+        long durationMs = 0,
+        Guid streamId = default,
+        Guid consumerId = default,
+        long diffEpoch = 0)
     {
         if (!_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionDiffWireDelivered))
         {
@@ -1075,13 +1198,210 @@ internal sealed class LiveSession : ILiveSession
                 diff.Operation.Trim(),
                 diff.Sequence,
                 diff.Generation,
-                diff.Timestamp);
+                diff.Timestamp,
+                durationMs,
+                streamId,
+                consumerId,
+                diffEpoch);
         }
         catch (Exception journalEx)
         {
             _logger.LogWarning(
                 journalEx,
                 "Session {SessionId} failed to journal Telemetry.Sessions.PageProjection.Diff.WireDelivered.",
+                SessionId);
+        }
+    }
+
+    public bool IsPageProjectionDiffWireDeliveredEnabled()
+        => _journalCatalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionDiffWireDelivered);
+
+    public void TracePageProjectionDiffFanOutEnqueued(
+        PageProjectionDiff diff,
+        long waitMs,
+        Guid streamId,
+        Guid consumerId,
+        string kind,
+        int targetIndex,
+        int targetCount,
+        int diffChannelCount,
+        long diffEpoch)
+    {
+        if (!_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionDiffFanOutEnqueued))
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(diff.Plane)
+            || string.IsNullOrWhiteSpace(diff.Operation)
+            || string.IsNullOrWhiteSpace(kind))
+        {
+            return;
+        }
+
+        TracePageProjectionDiffFanOutEnqueuedCore(
+            diff.Plane.Trim(),
+            diff.Operation.Trim(),
+            diff.Sequence,
+            diff.Generation,
+            diff.Timestamp,
+            waitMs,
+            streamId,
+            consumerId,
+            kind.Trim(),
+            targetIndex,
+            targetCount,
+            diffChannelCount,
+            diffEpoch);
+    }
+
+    internal void TracePageProjectionDiffFanOutEnqueuedCore(
+        string plane,
+        string operation,
+        long sequence,
+        long generation,
+        long timestamp,
+        long waitMs,
+        Guid streamId,
+        Guid consumerId,
+        string kind,
+        int targetIndex,
+        int targetCount,
+        int diffChannelCount,
+        long diffEpoch)
+    {
+        if (!_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionDiffFanOutEnqueued))
+        {
+            return;
+        }
+
+        try
+        {
+            _telemetry.PageProjection.Diff.FanOutEnqueued(
+                plane,
+                operation,
+                sequence,
+                generation,
+                timestamp,
+                waitMs,
+                streamId,
+                consumerId,
+                kind,
+                targetIndex,
+                targetCount,
+                diffChannelCount,
+                diffEpoch);
+        }
+        catch (Exception journalEx)
+        {
+            _logger.LogWarning(
+                journalEx,
+                "Session {SessionId} failed to journal Telemetry.Sessions.PageProjection.Diff.FanOutEnqueued.",
+                SessionId);
+        }
+    }
+
+    public void TracePageProjectionDiffStreamDequeued(
+        PageProjectionDiff diff,
+        Guid streamId = default,
+        Guid consumerId = default,
+        long diffEpoch = 0)
+    {
+        if (!_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionDiffStreamDequeued))
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(diff.Plane) || string.IsNullOrWhiteSpace(diff.Operation))
+        {
+            return;
+        }
+
+        try
+        {
+            _telemetry.PageProjection.Diff.StreamDequeued(
+                diff.Plane.Trim(),
+                diff.Operation.Trim(),
+                diff.Sequence,
+                diff.Generation,
+                diff.Timestamp,
+                streamId,
+                consumerId,
+                diffEpoch);
+        }
+        catch (Exception journalEx)
+        {
+            _logger.LogWarning(
+                journalEx,
+                "Session {SessionId} failed to journal Telemetry.Sessions.PageProjection.Diff.StreamDequeued.",
+                SessionId);
+        }
+    }
+
+    public void TracePageProjectionDiffOutputStreamOpened(
+        Guid streamId,
+        Guid consumerId,
+        string kind,
+        int openStreamCount,
+        int diffChannelCapacity)
+    {
+        if (!_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionDiffOutputStreamOpened))
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(kind))
+        {
+            return;
+        }
+
+        try
+        {
+            _telemetry.PageProjection.Diff.OutputStreamOpened(
+                streamId,
+                consumerId,
+                kind.Trim(),
+                openStreamCount,
+                diffChannelCapacity);
+        }
+        catch (Exception journalEx)
+        {
+            _logger.LogWarning(
+                journalEx,
+                "Session {SessionId} failed to journal Telemetry.Sessions.PageProjection.Diff.OutputStreamOpened.",
+                SessionId);
+        }
+    }
+
+    public void TracePageProjectionDiffOutputStreamClosed(
+        Guid streamId,
+        Guid consumerId,
+        string kind,
+        int openStreamCount)
+    {
+        if (!_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionDiffOutputStreamClosed))
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(kind))
+        {
+            return;
+        }
+
+        try
+        {
+            _telemetry.PageProjection.Diff.OutputStreamClosed(
+                streamId,
+                consumerId,
+                kind.Trim(),
+                openStreamCount);
+        }
+        catch (Exception journalEx)
+        {
+            _logger.LogWarning(
+                journalEx,
+                "Session {SessionId} failed to journal Telemetry.Sessions.PageProjection.Diff.OutputStreamClosed.",
                 SessionId);
         }
     }
@@ -1195,7 +1515,13 @@ internal sealed class LiveSession : ILiveSession
         string? operation = null,
         long? lowestDroppedSequence = null,
         long? highestDroppedSequence = null,
-        string? reason = null)
+        string? reason = null,
+        Guid? streamId = null,
+        Guid? consumerId = null,
+        string? kind = null,
+        int? targetCount = null,
+        int? diffChannelCount = null,
+        long? diffEpoch = null)
     {
         if (droppedCount <= 0
             || string.IsNullOrWhiteSpace(stage)
@@ -1216,7 +1542,13 @@ internal sealed class LiveSession : ILiveSession
                 operation,
                 lowestDroppedSequence,
                 highestDroppedSequence,
-                reason);
+                reason,
+                streamId,
+                consumerId,
+                kind,
+                targetCount,
+                diffChannelCount,
+                diffEpoch);
         }
         catch (Exception journalEx)
         {
@@ -1226,6 +1558,41 @@ internal sealed class LiveSession : ILiveSession
                 SessionId);
         }
     }
+
+    public void ReportPageProjectionDiffQueueDropped(
+        string stage,
+        int droppedCount,
+        int capacity,
+        long? sequence = null,
+        long? generation = null,
+        string? plane = null,
+        string? operation = null,
+        long? lowestDroppedSequence = null,
+        long? highestDroppedSequence = null,
+        string? reason = null,
+        Guid? streamId = null,
+        Guid? consumerId = null,
+        string? kind = null,
+        int? targetCount = null,
+        int? diffChannelCount = null,
+        long? diffEpoch = null)
+        => _connection.ReportPageProjectionDiffQueueDropped(
+            stage,
+            droppedCount,
+            capacity,
+            sequence,
+            generation,
+            plane,
+            operation,
+            lowestDroppedSequence,
+            highestDroppedSequence,
+            reason,
+            streamId,
+            consumerId,
+            kind,
+            targetCount,
+            diffChannelCount,
+            diffEpoch);
 
     private IResult EnsureVideoStreamingInputAdmission()
     {
@@ -1251,7 +1618,21 @@ internal sealed class LiveSession : ILiveSession
 
         var admission = VideoStreamingInputAdmissionChannel.Create();
         Volatile.Write(ref _videoStreamingInputAdmission, admission);
-        var pump = ConsumeVideoStreamingInputAsync(admission.Reader);
+        Guid consumerId;
+        lock (_attachmentGate)
+        {
+            if (_attachmentId is not Guid attached)
+            {
+                Volatile.Write(ref _videoStreamingInputAdmission, null);
+                Interlocked.Exchange(ref _videoStreamingInputAdmissionStarted, 0);
+                admission.Complete();
+                return Result.Failure("No client attached");
+            }
+
+            consumerId = attached;
+        }
+
+        var pump = ConsumeVideoStreamingInputAsync(consumerId, admission.Reader);
         if (pump.IsFailure)
         {
             Volatile.Write(ref _videoStreamingInputAdmission, null);
@@ -1641,9 +2022,52 @@ internal sealed class LiveSession : ILiveSession
             return Result<DomAsset>.Failure("Live session is released");
         }
 
-        return await _connection
-            .GetDomAssetAsync(key.Trim(), ct, kind, rangeHeader)
+        var started = Environment.TickCount64;
+        var trimmed = key.Trim();
+        var result = await _connection
+            .GetDomAssetAsync(trimmed, ct, kind, rangeHeader)
             .ConfigureAwait(false);
+        var durationMs = Math.Max(0, Environment.TickCount64 - started);
+        var urlKey = DomAssetUrlKey(trimmed);
+
+        try
+        {
+            var miss = result.IsFailure
+                || (result.IsSuccess
+                    && result.Value.Body.Length == 0
+                    && result.Value.StatusCode is 0 or 404);
+            if (miss && _journalCatalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionAssetServeMiss))
+            {
+                var status = result.IsSuccess ? result.Value.StatusCode : 404;
+                _telemetry.PageProjection.Asset.ServeMiss(urlKey, durationMs, status <= 0 ? 404 : status);
+            }
+            else if (!miss
+                && durationMs >= 200
+                && _journalCatalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionAssetServeSlow))
+            {
+                var status = result.Value.StatusCode is >= 200 and < 600 ? result.Value.StatusCode : 200;
+                _telemetry.PageProjection.Asset.ServeSlow(urlKey, durationMs, status);
+            }
+        }
+        catch (Exception journalEx)
+        {
+            _logger.LogWarning(
+                journalEx,
+                "Session {SessionId} failed to journal PageProjection Asset serve telemetry.",
+                SessionId);
+        }
+
+        return result;
+    }
+
+    private static string DomAssetUrlKey(string key)
+    {
+        var q = key.IndexOf('?', StringComparison.Ordinal);
+        var h = key.IndexOf('#', StringComparison.Ordinal);
+        var cut = key.Length;
+        if (q >= 0) cut = Math.Min(cut, q);
+        if (h >= 0) cut = Math.Min(cut, h);
+        return cut < key.Length ? key[..cut] : key;
     }
 
     public async Task<IResult<PageProjectionResyncSnapshot>> GetPageProjectionResyncAsync(
@@ -1697,7 +2121,13 @@ internal sealed class LiveSession : ILiveSession
                     sheetCount,
                     ruleCount,
                     seededSheetCount,
-                    Math.Max(0, Environment.TickCount64 - started));
+                    Math.Max(0, Environment.TickCount64 - started),
+                    result.Value.PageEpochId,
+                    result.Value.Source,
+                    result.Value.DomMapMs,
+                    result.Value.CssomCloneMs,
+                    result.Value.RewriteMs,
+                    result.Value.SerializeMs);
             }
             catch (Exception journalEx)
             {
@@ -1814,24 +2244,32 @@ internal sealed class LiveSession : ILiveSession
             : _hooks.UnregisterMicrophonePermission(registrationId);
 
     private IResult<TStream> OpenStream<TStream>(
-        Func<Guid, ISessionStreamMultiplexer, TStream> create)
+        Guid consumerId,
+        OutputStreamKind kind,
+        Func<Guid, Guid, ISessionStreamMultiplexer, TStream> create)
     {
         if (IsReleased)
         {
             return Result<TStream>.Failure("Live session is released");
         }
 
+        if (consumerId == Guid.Empty)
+        {
+            return Result<TStream>.Failure("Consumer id is required");
+        }
+
         var id = Guid.CreateVersion7();
-        var register = _mux.RegisterPipe(id);
+        var register = _mux.RegisterOutputStream(consumerId, id, kind);
         if (register.IsFailure)
         {
             return Result<TStream>.Failure(register.Errors.ToArray());
         }
 
-        return Result<TStream>.Success(create(id, _mux));
+        return Result<TStream>.Success(create(id, consumerId, _mux));
     }
 
     private IResult<Task> StartInputPump(
+        Guid consumerId,
         Func<Guid, CancellationToken, IResult<Task>> start,
         CancellationToken ct)
     {
@@ -1840,12 +2278,16 @@ internal sealed class LiveSession : ILiveSession
             return Result<Task>.Failure("Live session is released");
         }
 
+        if (consumerId == Guid.Empty)
+        {
+            return Result<Task>.Failure("Consumer id is required");
+        }
+
         if (!TryGetLifetimeToken(out var lifetimeToken))
         {
             return Result<Task>.Failure("Live session is released");
         }
 
-        var consumerId = Guid.CreateVersion7();
         var register = _mux.RegisterInputConsumer(consumerId);
         if (register.IsFailure)
         {

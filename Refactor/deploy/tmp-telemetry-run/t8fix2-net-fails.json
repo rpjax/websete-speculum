@@ -1,0 +1,12 @@
+[
+  {
+    "site": "beleza",
+    "status": 400,
+    "url": "http://127.0.0.1:8080/w7s/virtual-assets/www.belezanaweb.com.br/?speculum-session-token=68c1c20c656c44369301f6cef312cb89"
+  },
+  {
+    "site": "beleza",
+    "status": 400,
+    "url": "http://127.0.0.1:8080/w7s/api/sessions/d0da1a68-57af-4296-87ed-f38b8d686155/page-projection/resync?sessionId=d0da1a68-57af-4296-87ed-f38b8d686155&speculum-session-token=68c1c20c656c44369301f6cef312cb89&generation=1&sequence=5446"
+  }
+]

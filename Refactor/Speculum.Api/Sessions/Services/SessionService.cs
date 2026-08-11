@@ -285,12 +285,34 @@ public sealed class SessionService : ISessionService
                         .ConfigureAwait(false);
                 }
 
+                var featureNotifications = live.Value.OpenNotificationStream(attachment.Value);
+                if (featureNotifications.IsFailure)
+                {
+                    live.Value.Detach(attachment.Value);
+                    return await AbortStartAsync(
+                            request.CallerId, sessionId, profileId, persisted, lifecycleEvents,
+                            featureNotifications, StopReason.Faulted, browserLaunched)
+                        .ConfigureAwait(false);
+                }
+
+                var observeNotifications = live.Value.ObserveSessionNotifications(featureNotifications.Value);
+                if (observeNotifications.IsFailure)
+                {
+                    featureNotifications.Value.Dispose();
+                    live.Value.Detach(attachment.Value);
+                    return await AbortStartAsync(
+                            request.CallerId, sessionId, profileId, persisted, lifecycleEvents,
+                            observeNotifications, StopReason.Faulted, browserLaunched)
+                        .ConfigureAwait(false);
+                }
+
                 if (!_bindings.TryPromote(
                         request.CallerId,
                         sessionId,
                         attachment.Value,
                         token))
                 {
+                    featureNotifications.Value.Dispose();
                     live.Value.Detach(attachment.Value);
                     return await AbortStartAsync(
                             request.CallerId, sessionId, profileId, persisted, lifecycleEvents,

@@ -19,6 +19,7 @@ Technical documentation for the **Speculum** remote browser isolation platform (
 | [../.cursor/rules/speculum-frontend-standards.mdc](../.cursor/rules/speculum-frontend-standards.mdc) | Cursor | Frontend rule when editing `web/**` |
 | [../readme.md](../readme.md) | Everyone | Project overview, quick start, repository map |
 | [architecture.md](architecture.md) | Architects, operators | System design, data flows, security boundaries |
+| **[page-projection-acceptance.md](page-projection-acceptance.md)** | **Agents + Sessions (mandatory)** | **PageProjection accept = absolute 1:1 parity with the original site** |
 | [page-projection-diff-pipeline.md](page-projection-diff-pipeline.md) | Architects / Sessions | Dom Projection **F**: Virtual DOM → DomDiff (V1 contract) |
 | [page-projection-diff-streams.md](page-projection-diff-streams.md) | Architects / Sessions | **Sealed** Dom plane contract (ops, selectors, chronology) |
 | [page-projection-cssom.md](page-projection-cssom.md) | Architects / Sessions | **Sealed** Cssom plane contract |

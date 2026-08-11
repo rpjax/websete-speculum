@@ -95,16 +95,37 @@ applies — hot-path facts stay quiet until `Telemetry.Events` enables them.
 | Plane | Path hops (opt-in) | Outcomes |
 |-------|--------------------|----------|
 | VideoStreamingInput | `DataPlaneReceived`, `ControlReceived`, `SidecarPushWritten`, `SidecarAdmitted` | `Applied`, `Rejected` |
-| PageProjection Diff | `Diff.FrameReceived`, `Diff.QueueDropped`, `Diff.WireDelivered`, `Diff.GenerationBumped`, `Diff.ResyncRequested`, `Diff.ResyncServed` | recovery via OOB resync (Activity `client_desync` / `client_resync_*`) |
+| PageProjection Diff | `Diff.FrameReceived`, `Diff.QueueDropped`, `Diff.OutputStreamOpened`, `Diff.OutputStreamClosed`, `Diff.FanOutEnqueued`, `Diff.StreamDequeued`, `Diff.WireDelivered`, `Diff.GenerationBumped`, `Diff.ResyncRequested`, `Diff.ResyncServed` | recovery via OOB resync (Activity `client_desync` / `client_resync_*`) |
 | PageProjection Input | `Input.DataPlaneReceived`, `Input.AdmissionDropped`, `Input.SidecarPushWritten`, `Input.SidecarAdmitted`, `Input.CdpDropped` | `Input.Applied` (gRPC push), `Input.Rejected` |
 
 `Diff.GenerationBumped` (via `WatchPageProjectionLifecycle`) records when sidecar generation
 identity changes: `main_frame_navigated` (contract path) or `page_emit_sync` (Node caught up
 from a page emit with a different gen). `Diff.QueueDropped` uses the same lifecycle stream for
 `sidecar_bridge` overflows and a connection notification for `api_sequenced` DropAll.
-`Diff.WireDelivered` fires when the API writes a Diff onto the client data-plane.
+`Diff.FanOutEnqueued` fires after the Diff is accepted into an open Diff fan-out channel (`WaitMs`
+= time blocked on that write; schema 3 adds `StreamId` / `ConsumerId` / `Kind` / `TargetIndex` /
+`TargetCount` / `DiffChannelCount` / `DiffEpoch`). `Diff.StreamDequeued` fires when the hub Diff
+pump takes the frame from that channel (`StreamId` / `ConsumerId` / `DiffEpoch`). `Diff.WireDelivered`
+fires when the API finishes writing the Diff onto the client data-plane (`DurationMs` = write time;
+schema 4 adds stream/consumer identity).
+`Diff.OutputStreamOpened` / `Diff.OutputStreamClosed` record mux `Open*Stream` lifecycle
+(`frame` | `pageProjectionDiff` | `console` | `notification`) — each registration opens **only**
+that kind’s channel (Diff Wait exists only for `pageProjectionDiff`). When these hops are
+catalog-disabled, emitters early-return before Stopwatch/Append (near-zero hot-path cost).
 `FrameReceived` may include `SheetCount` / `RuleCount` / `SeededSheetCount` on Cssom install.
-Correlate Diff hops by `sessionId` + `generation` + `sequence`.
+Correlate Diff hops by `sessionId` + `generation` + `sequence` (+ `streamId` / `consumerId` when present).
+
+**Localizing a Diff stall (Beleza-style):** enable `OutputStreamOpened`, `FrameReceived`, `FanOutEnqueued`,
+`StreamDequeued`, `WireDelivered`, `QueueDropped`. On a clean Live expect one `pageProjectionDiff`
+`OutputStreamOpened` (plus frame/console/notification as opened). Each Diff sequence should produce
+`FanOutEnqueued` × (open Diff streams only); only `pageProjectionDiff` should appear in
+`StreamDequeued` / `WireDelivered`. If `QueueDropped` at `api_fanout_backpressure` appears on a
+non-Diff kind, that is a regression (sparse registrations must not install Diff Wait on notification/
+console/frame). If `FrameReceived` continues but `FanOutEnqueued` stops (then
+`QueueDropped` / `fanout_write_budget_exceeded`), the fan-out channel write is blocked. If
+`FanOutEnqueued` continues but `StreamDequeued` stops, the hub pump is not reading. If
+`StreamDequeued` continues but `WireDelivered` stops or `DurationMs` is huge, the data-plane write
+is blocked.
 
 Sidecar path watches: `WatchVideoStreamingInputPath` / `WatchPageProjectionInputPath` (EventBridge
 `videoStreamingInputPath` / `pageProjectionInputPath`). Product RPCs `PushInput` / `PushDomInput` are
@@ -194,3 +215,79 @@ Docker socket read-only at `/var/run/docker.sock`, then configure:
 Telemetry__Host__ProcPath=/host/proc
 Telemetry__Docker__Endpoint=unix:///var/run/docker.sock
 ```
+
+## PageEpoch story + liquid load
+
+`PageProjection.{Virtual,Establish,Asset}` facts are keyed by **`pageEpochId`** — one Virtual
+navigation identity minted on hard navigation and on SoftNav (never on Diff-only churn; see
+`docs/page-projection-acceptance.md`). They exist to separate two costs that used to be conflated
+in a single "time to first paint" number:
+
+- **`bootMs`** (`Virtual.BootMarked`) — Chromium process launch → first commit. This is sidecar/
+  browser boot, not site load. It happens once per sidecar session (or per faulted-session
+  restart), not once per navigation. **Never mix `bootMs` into a site-load verdict.**
+- **`tSinceCommitMs`** (`Establish.FirstDiffEmitted`, `Establish.EstablishCompleted`,
+  `Virtual.Lifecycle`) — wall time from `Virtual.NavCommit` for *this* `pageEpochId` to a
+  downstream milestone. This is the "liquid load" number that matters for parity: how long after
+  the real navigation commit does the Projected surface become usable.
+
+`Virtual.NavCommit` carries `generation` (the Diff-plane epoch) and `documentEpoch` alongside
+`pageEpochId`, so Virtual/Establish/Asset facts can be correlated with `PageProjection.Diff.*`
+facts and front `client_*` hops (which are still `generation`-keyed only — `pageEpochId` is not on
+the Diff wire).
+
+| Subdomain | Facts | Keyed by |
+|-----------|-------|----------|
+| `Virtual` | `BootMarked`, `NavCommit`, `NavTiming`, `ResourceSummary`, `PageError`, `Lifecycle` | `pageEpochId` (`BootMarked.pageEpochId` optional — boot can precede the first commit) |
+| `Establish` | `StylesWaitStarted/Completed`, `DomMapStarted/Completed`, `CssomInstallStarted/Completed`, `FirstDiffEmitted`, `EstablishCompleted`, `EstablishFailed` | `pageEpochId` |
+| `Asset` | `RewriteSummary`, `FetchFinished` (per epoch); `ServeMiss`, `ServeSlow` (global — the DomAsset proxy has no epoch identity) | mixed |
+
+`Establish.EstablishFailed` always carries `errorCode` + `phase` (never published bare, per the
+catalogued-failure hard ban). `EstablishCompleted`/`EstablishFailed` are the epoch's terminal
+facts — SoftNav epochs may legitimately have neither if establish was skipped for that nav type.
+
+### ParityDebug pack
+
+`TELEMETRY_PARITY_DEBUG_TYPES` (`web/src/features/admin/configurations/telemetrySessionEventsCatalog.ts`)
+bundles every fact needed to build a PageEpoch story in one toggle: the full `PageProjection.Diff`
+chronology (`FrameReceived` … `WireDelivered`, `QueueDropped`, `SoftNavObserved`,
+`GenerationBumped`, `Resync*`), the `PageProjection.Input` path plus `ScrollEchoHit`,
+`Browse.LocationChanged`, and every `Virtual` / `Establish` / `Asset` fact. Admin Configurations →
+Telemetry exposes it as the **ParityDebug pack** button (mirrors the existing **Trace video path**
+shortcut) — it enables the set and expands the affected groups in place.
+
+Client-side, enable `Telemetry.ClientObservation.pageProjectionDiff` to get the matching front
+hops: `client_arm` (kept for back-compat) plus the new `client_epoch_arm` (same fields; carries
+`generation` and, once the Diff wire gains it, `pageEpochId`), and a periodic
+**`client_surface_probe`** (~every 5s while the projector is live and armed) reporting `htmlLen`,
+`ownedRules`, `imgCount`, `brokenImgs`, `brokenImgsInViewport`, `armed`, `lastSequence`, and an
+approximate `lagMsP50` over recently-applied Diffs.
+
+### Recipe: build a PageEpoch story
+
+1. **Lab Reset** the target session (clean slate — no stale Journal/front rows from a prior run).
+2. Enable the **ParityDebug pack** (Admin Configurations → Telemetry, or Lab's Telemetry shortcut)
+   and turn on `Telemetry.ClientObservation.pageProjectionDiff`.
+3. Drive the navigation(s) under test (hopdiag / smoke script), then export the Journal
+   (`journal-export.json`) and the front Activity ring (`front-activity.jsonl`).
+4. Build the story:
+
+   ```bash
+   node Refactor/deploy/tmp-telemetry-run/build-page-epoch-story.cjs \
+     journal-export.json front-activity.jsonl page-epoch-story.json
+   ```
+
+   or via env: `JOURNAL=journal-export.json FRONT=front-activity.jsonl OUT=page-epoch-story.json`.
+
+The output is one story object per `pageEpochId` (Virtual/Establish/Asset facts, Diff counters,
+front `client_*` correlation, and `timings.bootMs` / `timings.tSinceCommit*Ms`), plus
+`verdictHints` such as `virtual_ttfb_high`, `establish_dom_map_gt_2s`, `oob_dom_map_dominant`,
+`establish_cssom_install_slow`, `establish_styles_wait_timed_out`, `establish_failed`,
+`establish_missing` (NavCommit with no terminal Establish fact on a non-soft nav),
+`diff_queue_dropped_without_resync`, `client_broken_imgs_present`, and `asset_fetch_failures`.
+
+`analyze-pipehop.cjs` and `diagnose-smoke.cjs` both build this story inline and **fail the run**
+(non-zero exit) when the ParityDebug pack was on (any `Virtual.NavCommit` or `Establish.*` fact
+present) but the story is incomplete for a non-soft-nav epoch — missing `NavCommit`, or neither
+`EstablishCompleted` nor `EstablishFailed`. A green protocol diagnose with an incomplete PageEpoch
+story is not accept; see `docs/page-projection-acceptance.md`.

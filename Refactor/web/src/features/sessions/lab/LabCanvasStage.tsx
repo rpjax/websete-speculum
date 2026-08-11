@@ -12,6 +12,7 @@ type LabCanvasStageProps = Pick<
   | 'attachFrameSink'
   | 'attachPageProjectionDiffSink'
   | 'attachPageProjectionLifecycleSink'
+  | 'attachPageProjectionDiffEndedSink'
   | 'onInput'
   | 'onDomInput'
   | 'onDiffObserve'
@@ -46,6 +47,7 @@ export function LabCanvasStage({
   attachFrameSink,
   attachPageProjectionDiffSink,
   attachPageProjectionLifecycleSink,
+  attachPageProjectionDiffEndedSink,
   onInput,
   onDomInput,
   onDiffObserve,
@@ -79,6 +81,7 @@ export function LabCanvasStage({
         attachFrameSink={attachFrameSink}
         attachPageProjectionDiffSink={attachPageProjectionDiffSink}
         attachPageProjectionLifecycleSink={attachPageProjectionLifecycleSink}
+        attachPageProjectionDiffEndedSink={attachPageProjectionDiffEndedSink}
         onInput={onInput}
         onDomInput={onDomInput}
         onDiffObserve={onDiffObserve}

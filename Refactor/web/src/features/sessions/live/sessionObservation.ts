@@ -7,7 +7,6 @@ import type {
   SessionNotification,
 } from '@/lib/speculum'
 import {
-  FRONT_DEBUG_LOG_LIMIT,
   formatFrontDebugDetail,
   observationAllowsPlane,
   type ClientObservationConfig,
@@ -62,6 +61,7 @@ export const EMPTY_JOURNAL: JournalFeed = {
 type FrameSink = (frame: SessionFrame) => void
 type PageProjectionDiffSink = (diff: PageProjectionDiff) => void
 type PageProjectionLifecycleSink = (notification: SessionNotification) => void
+type PageProjectionDiffEndedSink = (info: { reason: 'wire_stall' }) => void
 
 export type PageProjectionApplierProbe = () => {
   generation: number
@@ -129,6 +129,7 @@ export function useSessionObservation({
   const sinksRef = useRef(new Set<FrameSink>())
   const domDiffSinksRef = useRef(new Set<PageProjectionDiffSink>())
   const lifecycleSinksRef = useRef(new Set<PageProjectionLifecycleSink>())
+  const diffEndedSinksRef = useRef(new Set<PageProjectionDiffEndedSink>())
   const countersRef = useRef<FrameCounters>(freshCounters())
   const logIdRef = useRef(0)
   const consoleIdRef = useRef(0)
@@ -167,7 +168,7 @@ export function useSessionObservation({
           detail,
         ),
       }
-      setEntries((previous) => [entry, ...previous].slice(0, FRONT_DEBUG_LOG_LIMIT))
+      setEntries((previous) => [entry, ...previous])
     },
     [observationRef, sessionIdRef],
   )
@@ -232,9 +233,22 @@ export function useSessionObservation({
     }
   }, [])
 
+  const attachPageProjectionDiffEndedSink = useCallback((sink: PageProjectionDiffEndedSink) => {
+    diffEndedSinksRef.current.add(sink)
+    return () => {
+      diffEndedSinksRef.current.delete(sink)
+    }
+  }, [])
+
   const onPageProjectionLifecycle = useCallback((notification: SessionNotification) => {
     for (const sink of lifecycleSinksRef.current) {
       sink(notification)
+    }
+  }, [])
+
+  const onPageProjectionDiffEnded = useCallback((info: { reason: 'wire_stall' }) => {
+    for (const sink of diffEndedSinksRef.current) {
+      sink(info)
     }
   }, [])
 
@@ -327,7 +341,9 @@ export function useSessionObservation({
         | 'client_resync_request'
         | 'client_resync_apply'
         | 'client_arm'
+        | 'client_epoch_arm'
         | 'client_disarm'
+        | 'client_surface_probe'
         | 'programmaticSuppress'
         | `cssom/${string}`
         | (string & {})
@@ -426,7 +442,7 @@ export function useSessionObservation({
       if (debugRef.current) {
         const line = lineFromConsoleOutput(message, ++consoleIdRef.current)
         if (line) {
-          setConsoleLines((previous) => [...previous, line].slice(-FRONT_DEBUG_LOG_LIMIT))
+          setConsoleLines((previous) => [...previous, line])
         }
         log('wire', 'console', message)
       }
@@ -448,9 +464,7 @@ export function useSessionObservation({
   const appendConsoleInput = useCallback((code: string) => {
     if (debugRef.current) {
       setConsoleLines((previous) =>
-        [...previous, inputConsoleLine(++consoleIdRef.current, code)].slice(
-          -FRONT_DEBUG_LOG_LIMIT,
-        ),
+        [...previous, inputConsoleLine(++consoleIdRef.current, code)],
       )
     }
   }, [])
@@ -470,7 +484,9 @@ export function useSessionObservation({
     attachFrameSink,
     attachPageProjectionDiffSink,
     attachPageProjectionLifecycleSink,
+    attachPageProjectionDiffEndedSink,
     onPageProjectionLifecycle,
+    onPageProjectionDiffEnded,
     observePageProjectionDiffApply,
     registerPageProjectionApplierProbe,
     readPageProjectionApplierProbe,

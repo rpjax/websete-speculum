@@ -185,10 +185,10 @@ public sealed class SessionBindingRegistry : ISessionBindingRegistry, IDisposabl
         return false;
     }
 
-    public IResult RegisterPipe(
+    public IResult RegisterCarrier(
         Guid sessionId,
         string token,
-        Guid pipeId,
+        Guid carrierId,
         IDisposable resource)
     {
         ArgumentNullException.ThrowIfNull(resource);
@@ -203,24 +203,24 @@ public sealed class SessionBindingRegistry : ISessionBindingRegistry, IDisposabl
                 return Result.Failure("Live session binding not found");
             }
 
-            if (entry.Pipes.ContainsKey(pipeId))
+            if (entry.Carriers.ContainsKey(carrierId))
             {
-                return Result.Failure("Pipe is already registered");
+                return Result.Failure("Carrier is already registered");
             }
 
-            entry.Pipes.Add(pipeId, resource);
+            entry.Carriers.Add(carrierId, resource);
             return Result.Success();
         }
     }
 
-    public void UnregisterPipe(Guid pipeId)
+    public void UnregisterCarrier(Guid carrierId)
     {
         IDisposable? resource = null;
         lock (_gate)
         {
             foreach (var entry in _byCaller.Values)
             {
-                if (entry.Pipes.Remove(pipeId, out resource))
+                if (entry.Carriers.Remove(carrierId, out resource))
                 {
                     break;
                 }
@@ -314,12 +314,12 @@ public sealed class SessionBindingRegistry : ISessionBindingRegistry, IDisposabl
             entry.StartCompletion.TrySetResult();
         }
 
-        foreach (var resource in entry.Pipes.Values)
+        foreach (var resource in entry.Carriers.Values)
         {
             DisposeResource(resource);
         }
 
-        entry.Pipes.Clear();
+        entry.Carriers.Clear();
         if (entry.IsLive
             && _liveSessions.TryGet(entry.SessionId, out var live))
         {
@@ -357,7 +357,7 @@ public sealed class SessionBindingRegistry : ISessionBindingRegistry, IDisposabl
         public CancellationTokenSource StartCancellation { get; } = new();
         public TaskCompletionSource StartCompletion { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public Dictionary<Guid, IDisposable> Pipes { get; } = new();
+        public Dictionary<Guid, IDisposable> Carriers { get; } = new();
         public bool IsLive { get; set; }
         public Guid AttachmentId { get; set; }
         public string Token { get; set; } = "";

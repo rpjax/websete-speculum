@@ -7,7 +7,7 @@ using Speculum.Api.Sessions.Models;
 namespace Speculum.Api.Sessions.Services.Streaming;
 
 /// <summary>
-/// Merges inbound pipe pumps into a single connection consume path,
+/// Merges inbound consumer pumps into a single connection consume path,
 /// applying <see cref="InputMultiplexingPolicy"/> (Access / Ownership / Scheduling).
 /// </summary>
 internal sealed class SessionInputMerger
@@ -15,7 +15,7 @@ internal sealed class SessionInputMerger
     private readonly ISessionConnection _connection;
     private readonly InputMultiplexingPolicy _policy;
     private readonly bool _jsBridgeEnabled;
-    private readonly Func<Guid, bool> _isPipeAttached;
+    private readonly Func<Guid, bool> _isConsumerAttached;
     private readonly object _ownershipGate = new();
 
     private readonly Channel<VideoStreamingInput> _videoStreamingInputMerge = DropOldestChannels.Create<VideoStreamingInput>(
@@ -33,28 +33,28 @@ internal sealed class SessionInputMerger
         ISessionConnection connection,
         InputMultiplexingPolicy policy,
         bool jsBridgeEnabled,
-        Func<Guid, bool> isPipeAttached)
+        Func<Guid, bool> isConsumerAttached)
     {
         _connection = connection;
         _policy = policy ?? new InputMultiplexingPolicy();
         _jsBridgeEnabled = jsBridgeEnabled;
-        _isPipeAttached = isPipeAttached;
+        _isConsumerAttached = isConsumerAttached;
     }
 
     public IResult<Task> StartVideoStreamingInputPump(
-        Guid pipeId,
+        Guid consumerId,
         ChannelReader<VideoStreamingInput> channelReader,
         CancellationToken ct)
     {
-        if (!_isPipeAttached(pipeId))
+        if (!_isConsumerAttached(consumerId))
         {
-            return Result<Task>.Failure("Pipe is closed");
+            return Result<Task>.Failure("Consumer is closed");
         }
 
         if (RequiresExclusiveOwnership()
-            && !TryClaimOwnership(ref _userInputOwner, pipeId))
+            && !TryClaimOwnership(ref _userInputOwner, consumerId))
         {
-            return Result<Task>.Failure("Input owned by another pipe");
+            return Result<Task>.Failure("Input owned by another consumer");
         }
 
         EnsureVideoStreamingInputDrainStarted();
@@ -62,7 +62,7 @@ internal sealed class SessionInputMerger
     }
 
     public IResult<Task> StartConsoleInputPump(
-        Guid pipeId,
+        Guid consumerId,
         ChannelReader<ConsoleInput> channelReader,
         CancellationToken ct)
     {
@@ -71,22 +71,22 @@ internal sealed class SessionInputMerger
             return Result<Task>.Failure("JsBridge is disabled");
         }
 
-        if (!_isPipeAttached(pipeId))
+        if (!_isConsumerAttached(consumerId))
         {
-            return Result<Task>.Failure("Pipe is closed");
+            return Result<Task>.Failure("Consumer is closed");
         }
 
         if (RequiresExclusiveOwnership()
-            && !TryClaimOwnership(ref _consoleInputOwner, pipeId))
+            && !TryClaimOwnership(ref _consoleInputOwner, consumerId))
         {
-            return Result<Task>.Failure("Input owned by another pipe");
+            return Result<Task>.Failure("Input owned by another consumer");
         }
 
         EnsureConsoleInputDrainStarted();
         return Result<Task>.Success(PumpIntoAsync(channelReader, _consoleInputMerge.Writer, ct));
     }
 
-    public void ReleaseOwnership(Guid pipeId)
+    public void ReleaseOwnership(Guid consumerId)
     {
         if (!RequiresExclusiveOwnership())
         {
@@ -95,12 +95,12 @@ internal sealed class SessionInputMerger
 
         lock (_ownershipGate)
         {
-            if (_userInputOwner == pipeId)
+            if (_userInputOwner == consumerId)
             {
                 _userInputOwner = null;
             }
 
-            if (_consoleInputOwner == pipeId)
+            if (_consoleInputOwner == consumerId)
             {
                 _consoleInputOwner = null;
             }
@@ -120,26 +120,26 @@ internal sealed class SessionInputMerger
     private bool RequiresExclusiveOwnership()
         => _policy.Access == InputAccessPolicy.Exclusive;
 
-    private bool TryClaimOwnership(ref Guid? ownerSlot, Guid pipeId)
+    private bool TryClaimOwnership(ref Guid? ownerSlot, Guid consumerId)
     {
         lock (_ownershipGate)
         {
             if (ownerSlot is null)
             {
-                ownerSlot = pipeId;
+                ownerSlot = consumerId;
                 return true;
             }
 
-            if (ownerSlot == pipeId)
+            if (ownerSlot == consumerId)
             {
                 return true;
             }
 
             // FirstAttached / FirstClaim: first owner wins.
-            // PreemptiveClaim: new pipe steals ownership.
+            // PreemptiveClaim: new consumer steals ownership.
             if (_policy.Ownership == InputOwnershipPolicy.PreemptiveClaim)
             {
-                ownerSlot = pipeId;
+                ownerSlot = consumerId;
                 return true;
             }
 
@@ -156,7 +156,7 @@ internal sealed class SessionInputMerger
 
         // Scheduling.ArrivalOrder = natural channel write order.
         // Scheduling.RoundRobin with Shared still drains one merge channel (arrival order) — 1.1.
-        // Exclusive ownership already serializes a single owner pipe.
+        // Exclusive ownership already serializes a single owner consumer.
         _ = _policy.Scheduling;
 
         var start = _connection.ConsumeVideoStreamingInputAsync(_videoStreamingInputMerge.Reader);

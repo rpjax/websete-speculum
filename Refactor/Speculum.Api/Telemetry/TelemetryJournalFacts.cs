@@ -33,6 +33,14 @@ public static class TelemetryJournalFacts
         "Telemetry.Sessions.PageProjection.Diff.QueueDropped";
     public const string PageProjectionDiffWireDelivered =
         "Telemetry.Sessions.PageProjection.Diff.WireDelivered";
+    public const string PageProjectionDiffFanOutEnqueued =
+        "Telemetry.Sessions.PageProjection.Diff.FanOutEnqueued";
+    public const string PageProjectionDiffStreamDequeued =
+        "Telemetry.Sessions.PageProjection.Diff.StreamDequeued";
+    public const string PageProjectionDiffOutputStreamOpened =
+        "Telemetry.Sessions.PageProjection.Diff.OutputStreamOpened";
+    public const string PageProjectionDiffOutputStreamClosed =
+        "Telemetry.Sessions.PageProjection.Diff.OutputStreamClosed";
     public const string PageProjectionDiffResyncRequested =
         "Telemetry.Sessions.PageProjection.Diff.ResyncRequested";
     public const string PageProjectionDiffResyncServed =
@@ -53,6 +61,47 @@ public static class TelemetryJournalFacts
         "Telemetry.Sessions.PageProjection.Input.Rejected";
     public const string PageProjectionIntentScrollEchoHit =
         "Telemetry.Sessions.PageProjection.Input.ScrollEchoHit";
+
+    public const string PageProjectionVirtualBootMarked =
+        "Telemetry.Sessions.PageProjection.Virtual.BootMarked";
+    public const string PageProjectionVirtualNavCommit =
+        "Telemetry.Sessions.PageProjection.Virtual.NavCommit";
+    public const string PageProjectionVirtualNavTiming =
+        "Telemetry.Sessions.PageProjection.Virtual.NavTiming";
+    public const string PageProjectionVirtualResourceSummary =
+        "Telemetry.Sessions.PageProjection.Virtual.ResourceSummary";
+    public const string PageProjectionVirtualPageError =
+        "Telemetry.Sessions.PageProjection.Virtual.PageError";
+    public const string PageProjectionVirtualLifecycle =
+        "Telemetry.Sessions.PageProjection.Virtual.Lifecycle";
+
+    public const string PageProjectionEstablishStylesWaitStarted =
+        "Telemetry.Sessions.PageProjection.Establish.StylesWaitStarted";
+    public const string PageProjectionEstablishStylesWaitCompleted =
+        "Telemetry.Sessions.PageProjection.Establish.StylesWaitCompleted";
+    public const string PageProjectionEstablishDomMapStarted =
+        "Telemetry.Sessions.PageProjection.Establish.DomMapStarted";
+    public const string PageProjectionEstablishDomMapCompleted =
+        "Telemetry.Sessions.PageProjection.Establish.DomMapCompleted";
+    public const string PageProjectionEstablishCssomInstallStarted =
+        "Telemetry.Sessions.PageProjection.Establish.CssomInstallStarted";
+    public const string PageProjectionEstablishCssomInstallCompleted =
+        "Telemetry.Sessions.PageProjection.Establish.CssomInstallCompleted";
+    public const string PageProjectionEstablishFirstDiffEmitted =
+        "Telemetry.Sessions.PageProjection.Establish.FirstDiffEmitted";
+    public const string PageProjectionEstablishCompleted =
+        "Telemetry.Sessions.PageProjection.Establish.EstablishCompleted";
+    public const string PageProjectionEstablishFailed =
+        "Telemetry.Sessions.PageProjection.Establish.EstablishFailed";
+
+    public const string PageProjectionAssetRewriteSummary =
+        "Telemetry.Sessions.PageProjection.Asset.RewriteSummary";
+    public const string PageProjectionAssetFetchFinished =
+        "Telemetry.Sessions.PageProjection.Asset.FetchFinished";
+    public const string PageProjectionAssetServeMiss =
+        "Telemetry.Sessions.PageProjection.Asset.ServeMiss";
+    public const string PageProjectionAssetServeSlow =
+        "Telemetry.Sessions.PageProjection.Asset.ServeSlow";
 
     public static bool Owns(string type)
         => !string.IsNullOrWhiteSpace(type)

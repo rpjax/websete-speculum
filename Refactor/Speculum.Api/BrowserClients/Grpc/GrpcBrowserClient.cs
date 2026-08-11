@@ -37,7 +37,11 @@ public sealed class GrpcBrowserClient : IBrowserClient, IDisposable
     {
         _options = options.Value;
         var address = _options.GrpcAddress;
-        _channel = GrpcChannel.ForAddress(address);
+        _channel = GrpcChannel.ForAddress(address, new GrpcChannelOptions
+        {
+            MaxReceiveMessageSize = _options.MaxGrpcMessageBytes,
+            MaxSendMessageSize = _options.MaxGrpcMessageBytes,
+        });
         _client = new BrowserSessionService.BrowserSessionServiceClient(_channel);
         _configuration = configuration;
         _journalCatalog = journalCatalog;

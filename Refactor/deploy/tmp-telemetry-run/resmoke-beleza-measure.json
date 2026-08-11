@@ -1,0 +1,44 @@
+{
+  "sessionId": "516d2686-ccaa-4e35-a561-e21ac463dde2",
+  "href": "http://127.0.0.1:8080/?_w7s_nso=eyJ2IjoxLCJoIjoiIn0%3D",
+  "htmlLen": 2638027,
+  "textLen": 9558,
+  "text": "Ir direto para o conteúdo\nAcessibilidade\nGrupo Boticário\nNossas Lojas\nBaixe o nosso app!\nPrecisa de ajuda?\nMeus Pedidos\nFavoritos\nInformar localização\nAcessar Minha Conta\nEntrar\n0\nPromos\nCabelos\nPerfumes e Perfumaria\nMaquiagem\nSkincare\nCuid",
+  "accessDenied": false,
+  "ownedRules": 4442,
+  "brokenImgs": 31,
+  "imgCount": 112,
+  "virtualData1x1": 5,
+  "truncatedAvif": 45,
+  "cloudinaryFull": 0,
+  "srcsetSample": [
+    {
+      "tag": "IMG",
+      "srcset": "/w7s/virtual-assets/res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2026_07_31_17_49_28_3/90b8d642-8acc-41c3-9a57-1ba73e5bcd95-botao-2-3.png?speculum-session-token=4939b45989ea49e9aeb0d10d499e56e3 1x, /w7s/virtual-assets/res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/dpr_2.0/v1/banner/2026_07_31_17_49_28_3/90b8d642-"
+    },
+    {
+      "tag": "IMG",
+      "srcset": "/w7s/virtual-assets/res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2026_07_31_17_49_28_3/90b8d642-8acc-41c3-9a57-1ba73e5bcd95-botao-2-3.png?speculum-session-token=4939b45989ea49e9aeb0d10d499e56e3 1x, /w7s/virtual-assets/res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/dpr_2.0/v1/banner/2026_07_31_17_49_28_3/90b8d642-"
+    },
+    {
+      "tag": "IMG",
+      "srcset": "/w7s/virtual-assets/res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2026_03_16_10_18_12_6/33a22cd6-22bd-4080-b60c-266b61bafc9f-card-1.png?speculum-session-token=4939b45989ea49e9aeb0d10d499e56e3 1x, /w7s/virtual-assets/res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/dpr_2.0/v1/banner/2026_03_16_10_18_12_6/33a22cd6-22b"
+    },
+    {
+      "tag": "IMG",
+      "srcset": "/w7s/virtual-assets/res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2026_03_16_10_19_24_0/8b9a8e7a-80e6-4136-93ba-ce83f7c17405-card-3.png?speculum-session-token=4939b45989ea49e9aeb0d10d499e56e3 1x, /w7s/virtual-assets/res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/dpr_2.0/v1/banner/2026_03_16_10_19_24_0/8b9a8e7a-80e"
+    },
+    {
+      "tag": "IMG",
+      "srcset": "/w7s/virtual-assets/res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2026_03_16_10_19_39_8/c935d650-6d19-4c8f-bb75-342a701a9457-card-4.png?speculum-session-token=4939b45989ea49e9aeb0d10d499e56e3 1x, /w7s/virtual-assets/res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/dpr_2.0/v1/banner/2026_03_16_10_19_39_8/c935d650-6d1"
+    }
+  ],
+  "desyncs": [],
+  "addressMiss": 0,
+  "hops": {
+    "client_apply": 1020,
+    "client_recv": 979,
+    "cssom/sheetList": 1
+  },
+  "armed": false
+}

@@ -1,0 +1,29 @@
+{
+  "sessionId": "1657a57f-82d3-4a41-83c1-2dfc8b2d56f6",
+  "href": "http://127.0.0.1:8080/",
+  "childCount": 0,
+  "bodyKids": null,
+  "htmlLen": 0,
+  "textLen": 0,
+  "text": "",
+  "accessDenied": false,
+  "scrollTop": 0,
+  "scrollHeight": 900,
+  "clientHeight": 900,
+  "ownedRules": 0,
+  "styleCount": 0,
+  "anchorCount": 0,
+  "duplicateAnchors": [],
+  "duplicateAnchorTotal": 0,
+  "frontHops": {
+    "lifecycle": 5
+  },
+  "desync": null,
+  "desyncs": [],
+  "framedErr": null,
+  "armedHint": null,
+  "imgCount": 0,
+  "brokenImgs": 0,
+  "virtualData1x1": 0,
+  "scriptSrc": "http://127.0.0.1:8080/w7s/assets/index-ru2MBSHE.js"
+}

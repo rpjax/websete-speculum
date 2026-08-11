@@ -313,6 +313,13 @@ export interface SessionEventMap {
     operation: string | null
     reason: string
   }
+  /**
+   * Diff unidirectional pipe ended while the data-plane session is still open
+   * (fan-out Complete / wire stall) — T8 OOB resync trigger.
+   */
+  pageProjectionDiffEnded: {
+    reason: 'wire_stall'
+  }
   console: SessionConsoleOutput
   notification: SessionNotification
   syncUrl: string

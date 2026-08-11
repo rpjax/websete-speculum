@@ -575,6 +575,172 @@ describe('PageProjectionDiffApplier', () => {
     host.remove()
   })
 
+  it('discards mid-wipe buffer after address_miss OOB resync (SoftNav-safe)', () => {
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    const onGap = vi.fn()
+    const onGeneration = vi.fn()
+    const applier = new PageProjectionDiffApplier(host, undefined, onGap, onGeneration)
+    applier.enqueue(documentDiff())
+    applier.flush()
+    onGeneration.mockClear()
+
+    // Contiguous sequence address_miss (SoftNav orphan selector) — not a gap.
+    applier.enqueue({
+      sequence: 2,
+      generation: 1,
+      timestamp: 2,
+      plane: 'dom',
+      operation: 'childList',
+      childList: {
+        selector: { kind: 'element', query: '[speculum-anchor="orphan-parent"]' },
+        removed: [{ selector: { kind: 'element', query: '[speculum-anchor="orphan-child"]' } }],
+        added: [],
+      },
+    })
+    applier.flush()
+    expect(onGap).toHaveBeenCalledWith(
+      expect.objectContaining({ reason: 'address_miss', got: 2, expected: 2 }),
+    )
+    expect(applier.isDesynced()).toBe(true)
+
+    // Mid-wipe history still buffered while desynced.
+    applier.enqueue({
+      sequence: 3,
+      generation: 1,
+      timestamp: 3,
+      plane: 'dom',
+      operation: 'childList',
+      childList: {
+        selector: { kind: 'element', query: '[speculum-anchor="orphan-parent"]' },
+        removed: [],
+        added: [
+          {
+            index: 0,
+            node: {
+              anchor: 'stale',
+              tag: 'div',
+              attrs: { 'speculum-anchor': 'stale' },
+            },
+          },
+        ],
+      },
+    })
+    applier.flush()
+
+    applier.applyOobResync({
+      generation: 1,
+      coversThroughSequence: 5,
+      root: documentDiff().document!.root,
+      sheets: [],
+    })
+    // SoftNav-safe: do not replay orphan childList → stay synced, one recovery.
+    expect(applier.isDesynced()).toBe(false)
+    expect(applier.getLastSequence()).toBe(5)
+    expect(onGeneration).toHaveBeenCalledWith(1)
+    expect(host.querySelector('[speculum-anchor="stale"]')).toBeNull()
+    expect(onGap.mock.calls.filter((c) => c[0]?.reason === 'address_miss')).toHaveLength(1)
+    host.remove()
+  })
+
+  it('keeps T8 desync when buffered live head is past coversThrough (no sequence jump)', () => {
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    const onGap = vi.fn()
+    const onGeneration = vi.fn()
+    const applier = new PageProjectionDiffApplier(host, undefined, onGap, onGeneration)
+    applier.enqueue(documentDiff())
+    applier.flush()
+    onGeneration.mockClear()
+    onGap.mockClear()
+
+    // Gap while live — buffers the far-ahead frame.
+    applier.enqueue({
+      sequence: 100,
+      generation: 1,
+      timestamp: 100,
+      plane: 'dom',
+      operation: 'patch',
+      patch: {
+        selector: { kind: 'element', query: '[speculum-anchor="p1"]' },
+        node: {
+          anchor: 'p1',
+          tag: 'p',
+          attrs: { 'speculum-anchor': 'p1', class: 'far' },
+        },
+      },
+    })
+    applier.flush()
+    expect(applier.isDesynced()).toBe(true)
+    expect(onGap).toHaveBeenCalledWith(
+      expect.objectContaining({ reason: 'sequence_gap', got: 100, expected: 2 }),
+    )
+    onGap.mockClear()
+
+    applier.applyOobResync({
+      generation: 1,
+      coversThroughSequence: 50,
+      root: documentDiff().document!.root,
+      sheets: [],
+    })
+    // Buffer head 100 > covers+1 → drain hits sequence_gap → stay desynced (T8).
+    expect(applier.isDesynced()).toBe(true)
+    expect(applier.getLastSequence()).toBe(50)
+    expect(onGeneration).not.toHaveBeenCalled()
+    expect(host.querySelector('[speculum-anchor="p1"]')?.getAttribute('class')).toBe('x')
+    expect(onGap).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reason: 'sequence_gap',
+        expected: 51,
+        got: 100,
+        generation: 1,
+      }),
+    )
+    host.remove()
+  })
+
+  it('stamps auth on Cloudinary srcset without truncating f_avif transforms', () => {
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    const applier = new PageProjectionDiffApplier(host, (u) => `${u}?auth=1`)
+    const cloud =
+      '/w7s/virtual-assets/https%3A%2F%2Fres.cloudinary.com%2Fdemo%2Fimage%2Fupload%2Ff_avif%2Cq_auto%2Cw_1920%2Fhero.jpg'
+    applier.enqueue(
+      documentDiff({
+        document: {
+          root: {
+            anchor: 'html1',
+            tag: 'html',
+            attrs: { 'speculum-anchor': 'html1' },
+            children: [
+              {
+                anchor: 'body1',
+                tag: 'body',
+                attrs: { 'speculum-anchor': 'body1' },
+                children: [
+                  {
+                    anchor: 'img1',
+                    tag: 'img',
+                    attrs: {
+                      'speculum-anchor': 'img1',
+                      srcset: `${cloud} 1920w, ${cloud.replace('w_1920', 'w_800')} 800w`,
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      }),
+    )
+    applier.flush()
+    const srcset = host.querySelector('[speculum-anchor="img1"]')?.getAttribute('srcset') ?? ''
+    expect(srcset).toContain('f_avif%2Cq_auto%2Cw_1920')
+    expect(srcset).toContain('?auth=1')
+    expect(srcset).not.toMatch(/f_avif\?auth=1/)
+    host.remove()
+  })
+
   it('rewrites legacy html/body/head tag roots onto stand-in anchors', () => {
     const host = document.createElement('div')
     document.body.appendChild(host)

@@ -31,13 +31,13 @@ public interface ISessionBindingRegistry
     /// <summary>Resolve a live binding from session token alone (virtual-asset GETs).</summary>
     bool TryGetLiveByToken(string token, out SessionBinding binding);
 
-    IResult RegisterPipe(
+    IResult RegisterCarrier(
         Guid sessionId,
         string token,
-        Guid pipeId,
+        Guid carrierId,
         IDisposable resource);
 
-    void UnregisterPipe(Guid pipeId);
+    void UnregisterCarrier(Guid carrierId);
 
     void CloseCaller(string callerId);
 

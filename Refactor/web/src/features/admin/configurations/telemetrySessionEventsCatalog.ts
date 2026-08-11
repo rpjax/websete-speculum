@@ -23,6 +23,10 @@ export const TELEMETRY_SESSION_EVENT_TYPES = [
   'Telemetry.Sessions.PageProjection.Diff.GenerationBumped',
   'Telemetry.Sessions.PageProjection.Diff.SoftNavObserved',
   'Telemetry.Sessions.PageProjection.Diff.QueueDropped',
+  'Telemetry.Sessions.PageProjection.Diff.OutputStreamOpened',
+  'Telemetry.Sessions.PageProjection.Diff.OutputStreamClosed',
+  'Telemetry.Sessions.PageProjection.Diff.FanOutEnqueued',
+  'Telemetry.Sessions.PageProjection.Diff.StreamDequeued',
   'Telemetry.Sessions.PageProjection.Diff.WireDelivered',
   'Telemetry.Sessions.PageProjection.Diff.ResyncRequested',
   'Telemetry.Sessions.PageProjection.Diff.ResyncServed',
@@ -34,6 +38,25 @@ export const TELEMETRY_SESSION_EVENT_TYPES = [
   'Telemetry.Sessions.PageProjection.Input.Applied',
   'Telemetry.Sessions.PageProjection.Input.Rejected',
   'Telemetry.Sessions.PageProjection.Input.ScrollEchoHit',
+  'Telemetry.Sessions.PageProjection.Virtual.BootMarked',
+  'Telemetry.Sessions.PageProjection.Virtual.NavCommit',
+  'Telemetry.Sessions.PageProjection.Virtual.NavTiming',
+  'Telemetry.Sessions.PageProjection.Virtual.ResourceSummary',
+  'Telemetry.Sessions.PageProjection.Virtual.PageError',
+  'Telemetry.Sessions.PageProjection.Virtual.Lifecycle',
+  'Telemetry.Sessions.PageProjection.Establish.StylesWaitStarted',
+  'Telemetry.Sessions.PageProjection.Establish.StylesWaitCompleted',
+  'Telemetry.Sessions.PageProjection.Establish.DomMapStarted',
+  'Telemetry.Sessions.PageProjection.Establish.DomMapCompleted',
+  'Telemetry.Sessions.PageProjection.Establish.CssomInstallStarted',
+  'Telemetry.Sessions.PageProjection.Establish.CssomInstallCompleted',
+  'Telemetry.Sessions.PageProjection.Establish.FirstDiffEmitted',
+  'Telemetry.Sessions.PageProjection.Establish.EstablishCompleted',
+  'Telemetry.Sessions.PageProjection.Establish.EstablishFailed',
+  'Telemetry.Sessions.PageProjection.Asset.RewriteSummary',
+  'Telemetry.Sessions.PageProjection.Asset.FetchFinished',
+  'Telemetry.Sessions.PageProjection.Asset.ServeMiss',
+  'Telemetry.Sessions.PageProjection.Asset.ServeSlow',
   'Telemetry.Sessions.Resize.Applied',
   'Telemetry.Sessions.Resize.Rejected',
   'Telemetry.Sessions.Browse.LocationChanged',
@@ -55,6 +78,9 @@ export type TelemetrySessionEventGroupId =
   | 'page-projection-diff'
   | 'page-projection-input-path'
   | 'page-projection-input-outcomes'
+  | 'page-projection-virtual'
+  | 'page-projection-establish'
+  | 'page-projection-asset'
   | 'resize'
   | 'capacity'
   | 'start-navigate'
@@ -145,13 +171,35 @@ export const TELEMETRY_SESSION_EVENT_GROUPS: TelemetrySessionEventGroup[] = [
       {
         type: 'Telemetry.Sessions.PageProjection.Diff.QueueDropped',
         label: 'Diff · queue dropped',
-        help: 'DropAll overflow on sidecar bridge or API sequenced channel (client will desync).',
+        help: 'DropAll overflow on sidecar bridge or API sequenced channel (client will desync). Fan-out stages include StreamId/ConsumerId/Kind when known.',
+        hotPath: true,
+      },
+      {
+        type: 'Telemetry.Sessions.PageProjection.Diff.OutputStreamOpened',
+        label: 'Diff · output stream opened',
+        help: 'Mux Open*Stream registered one outbound stream of a single kind (frame | pageProjectionDiff | console | notification) owned by a consumer.',
+      },
+      {
+        type: 'Telemetry.Sessions.PageProjection.Diff.OutputStreamClosed',
+        label: 'Diff · output stream closed',
+        help: 'Mux output stream disposed / unregistered.',
+      },
+      {
+        type: 'Telemetry.Sessions.PageProjection.Diff.FanOutEnqueued',
+        label: 'Diff · fan-out enqueued',
+        help: 'API accepted the Diff into an open Diff fan-out channel (WaitMs, StreamId, ConsumerId, Kind, DiffChannelCount).',
+        hotPath: true,
+      },
+      {
+        type: 'Telemetry.Sessions.PageProjection.Diff.StreamDequeued',
+        label: 'Diff · stream dequeued',
+        help: 'Hub Diff pump took the Diff from the fan-out channel before writing the data-plane stream (StreamId, ConsumerId).',
         hotPath: true,
       },
       {
         type: 'Telemetry.Sessions.PageProjection.Diff.WireDelivered',
         label: 'Diff · wire delivered',
-        help: 'API wrote the Diff frame onto the client data-plane stream.',
+        help: 'API finished writing the Diff onto the client data-plane stream (DurationMs, StreamId, ConsumerId).',
         hotPath: true,
       },
       {
@@ -235,6 +283,128 @@ export const TELEMETRY_SESSION_EVENT_GROUPS: TelemetrySessionEventGroup[] = [
         type: 'Telemetry.Sessions.PageProjection.Input.ScrollEchoHit',
         label: 'Scroll echo hit',
         help: 'Virtual scroll sensor suppressed a Diff because intent echo matched exactly.',
+        hotPath: true,
+      },
+    ],
+  },
+  {
+    id: 'page-projection-virtual',
+    title: 'PageProjection Virtual',
+    blurb: 'Virtual (headless) navigation + resource facts, keyed by pageEpochId.',
+    events: [
+      {
+        type: 'Telemetry.Sessions.PageProjection.Virtual.BootMarked',
+        label: 'Virtual · boot marked',
+        help: 'Browser launch → first commit (bootMs) — Chromium boot only, never mix into site load.',
+      },
+      {
+        type: 'Telemetry.Sessions.PageProjection.Virtual.NavCommit',
+        label: 'Virtual · nav commit',
+        help: 'New pageEpochId minted (hard navigation or SoftNav) with generation/documentEpoch.',
+        hotPath: true,
+      },
+      {
+        type: 'Telemetry.Sessions.PageProjection.Virtual.NavTiming',
+        label: 'Virtual · nav timing',
+        help: 'Redirect/dns/connect/ttfb/domInteractive/domContentLoaded/load (ms) for the epoch.',
+      },
+      {
+        type: 'Telemetry.Sessions.PageProjection.Virtual.ResourceSummary',
+        label: 'Virtual · resource summary',
+        help: 'Resource counts by type plus the slowest resources for the epoch.',
+      },
+      {
+        type: 'Telemetry.Sessions.PageProjection.Virtual.PageError',
+        label: 'Virtual · page error',
+        help: 'Console error / pageerror / requestfailed observed on Virtual, deduped by urlKey.',
+      },
+      {
+        type: 'Telemetry.Sessions.PageProjection.Virtual.Lifecycle',
+        label: 'Virtual · lifecycle',
+        help: 'Named page lifecycle milestone (tSinceCommitMs when known).',
+        hotPath: true,
+      },
+    ],
+  },
+  {
+    id: 'page-projection-establish',
+    title: 'PageProjection Establish',
+    blurb: 'Dom map + Cssom install path from commit to first Diff, keyed by pageEpochId.',
+    events: [
+      {
+        type: 'Telemetry.Sessions.PageProjection.Establish.StylesWaitStarted',
+        label: 'Establish · styles wait started',
+        help: 'Waiting for stylesheets to settle before Cssom install (timeoutMs).',
+      },
+      {
+        type: 'Telemetry.Sessions.PageProjection.Establish.StylesWaitCompleted',
+        label: 'Establish · styles wait completed',
+        help: 'Styles wait finished (waitedMs, timedOut).',
+      },
+      {
+        type: 'Telemetry.Sessions.PageProjection.Establish.DomMapStarted',
+        label: 'Establish · dom map started',
+        help: 'Serializing the Virtual Dom tree for the epoch.',
+      },
+      {
+        type: 'Telemetry.Sessions.PageProjection.Establish.DomMapCompleted',
+        label: 'Establish · dom map completed',
+        help: 'Dom map serialization finished (durationMs, approxNodes).',
+      },
+      {
+        type: 'Telemetry.Sessions.PageProjection.Establish.CssomInstallStarted',
+        label: 'Establish · Cssom install started',
+        help: 'Installing owned stylesheets/rules for the epoch (source).',
+      },
+      {
+        type: 'Telemetry.Sessions.PageProjection.Establish.CssomInstallCompleted',
+        label: 'Establish · Cssom install completed',
+        help: 'Cssom install finished (durationMs, sheetCount, ruleCount, seededSheetCount).',
+      },
+      {
+        type: 'Telemetry.Sessions.PageProjection.Establish.FirstDiffEmitted',
+        label: 'Establish · first diff emitted',
+        help: 'First Dom/Cssom Diff after commit (tSinceCommitMs) — liquid-load anchor.',
+        hotPath: true,
+      },
+      {
+        type: 'Telemetry.Sessions.PageProjection.Establish.EstablishCompleted',
+        label: 'Establish · completed',
+        help: 'Dom+Cssom establish finished for the epoch (totalMs, tSinceCommitMs).',
+      },
+      {
+        type: 'Telemetry.Sessions.PageProjection.Establish.EstablishFailed',
+        label: 'Establish · failed',
+        help: 'Establish failed — always carries errorCode + phase.',
+      },
+    ],
+  },
+  {
+    id: 'page-projection-asset',
+    title: 'PageProjection Asset',
+    blurb: 'Asset rewrite + fetch + serve facts, some keyed by pageEpochId, some global.',
+    events: [
+      {
+        type: 'Telemetry.Sessions.PageProjection.Asset.RewriteSummary',
+        label: 'Asset · rewrite summary',
+        help: 'candidates/rewritten/bareSkipped/dataInlined/blobQueued/deferredFetches for the epoch.',
+      },
+      {
+        type: 'Telemetry.Sessions.PageProjection.Asset.FetchFinished',
+        label: 'Asset · fetch finished',
+        help: 'One deferred/data asset fetch outcome (durationMs, bytes, mode, ok).',
+        hotPath: true,
+      },
+      {
+        type: 'Telemetry.Sessions.PageProjection.Asset.ServeMiss',
+        label: 'Asset · serve miss',
+        help: 'DomAsset proxy returned a non-2xx status (urlKey, status).',
+        hotPath: true,
+      },
+      {
+        type: 'Telemetry.Sessions.PageProjection.Asset.ServeSlow',
+        label: 'Asset · serve slow',
+        help: 'DomAsset proxy exceeded the slow-serve threshold (urlKey, durationMs).',
         hotPath: true,
       },
     ],
@@ -384,11 +554,42 @@ const DOM_PROJECTION_INPUT_PATH_TYPES = TELEMETRY_SESSION_EVENT_GROUPS.find(
   (g) => g.id === 'page-projection-input-path',
 )!.events.map((e) => e.type)
 
+const PAGE_PROJECTION_DIFF_TYPES = TELEMETRY_SESSION_EVENT_GROUPS.find(
+  (g) => g.id === 'page-projection-diff',
+)!.events.map((e) => e.type)
+
+const PAGE_PROJECTION_VIRTUAL_TYPES = TELEMETRY_SESSION_EVENT_GROUPS.find(
+  (g) => g.id === 'page-projection-virtual',
+)!.events.map((e) => e.type)
+
+const PAGE_PROJECTION_ESTABLISH_TYPES = TELEMETRY_SESSION_EVENT_GROUPS.find(
+  (g) => g.id === 'page-projection-establish',
+)!.events.map((e) => e.type)
+
+const PAGE_PROJECTION_ASSET_TYPES = TELEMETRY_SESSION_EVENT_GROUPS.find(
+  (g) => g.id === 'page-projection-asset',
+)!.events.map((e) => e.type)
+
 /** Server hops for VideoStreamingInput path tracing (pair with Activity client_sent). */
 export const TELEMETRY_VIDEO_STREAMING_INPUT_PATH_TYPES = VIDEO_STREAMING_INPUT_PATH_TYPES
 
 /** Server hops for PageProjectionIntent path tracing. */
 export const TELEMETRY_DOM_PROJECTION_INPUT_PATH_TYPES = DOM_PROJECTION_INPUT_PATH_TYPES
+
+/**
+ * PageEpoch parity pack (plan C5): full Diff chronology + Intent path +
+ * ScrollEchoHit + Browse.LocationChanged + every Virtual/Establish/Asset fact.
+ * Pair with the front ParityDebug pack and `build-page-epoch-story.cjs`.
+ */
+export const TELEMETRY_PARITY_DEBUG_TYPES: TelemetrySessionEventType[] = [
+  ...PAGE_PROJECTION_DIFF_TYPES,
+  ...DOM_PROJECTION_INPUT_PATH_TYPES,
+  'Telemetry.Sessions.PageProjection.Input.ScrollEchoHit',
+  'Telemetry.Sessions.Browse.LocationChanged',
+  ...PAGE_PROJECTION_VIRTUAL_TYPES,
+  ...PAGE_PROJECTION_ESTABLISH_TYPES,
+  ...PAGE_PROJECTION_ASSET_TYPES,
+]
 
 export function emptyTelemetrySessionEvents(): Record<TelemetrySessionEventType, boolean> {
   const next = {} as Record<TelemetrySessionEventType, boolean>

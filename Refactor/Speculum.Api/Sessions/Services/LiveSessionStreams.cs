@@ -14,9 +14,12 @@ internal abstract class MuxBoundStream : IDisposable
 
     public Guid Id { get; }
 
-    private protected MuxBoundStream(Guid id, ISessionStreamMultiplexer mux)
+    public Guid ConsumerId { get; }
+
+    private protected MuxBoundStream(Guid id, Guid consumerId, ISessionStreamMultiplexer mux)
     {
         Id = id;
+        ConsumerId = consumerId;
         _mux = mux;
     }
 
@@ -27,7 +30,7 @@ internal abstract class MuxBoundStream : IDisposable
             return;
         }
 
-        _mux.UnregisterPipe(Id);
+        _mux.UnregisterOutputStream(Id);
     }
 
     private protected bool IsClosed => Volatile.Read(ref _closed) != 0;
@@ -48,8 +51,8 @@ internal abstract class MuxBoundStream : IDisposable
 
 internal sealed class FrameStream : MuxBoundStream, IFrameStream
 {
-    public FrameStream(Guid id, ISessionStreamMultiplexer mux)
-        : base(id, mux)
+    public FrameStream(Guid id, Guid consumerId, ISessionStreamMultiplexer mux)
+        : base(id, consumerId, mux)
     {
     }
 
@@ -59,19 +62,25 @@ internal sealed class FrameStream : MuxBoundStream, IFrameStream
 
 internal sealed class PageProjectionDiffStream : MuxBoundStream, IPageProjectionDiffStream
 {
-    public PageProjectionDiffStream(Guid id, ISessionStreamMultiplexer mux)
-        : base(id, mux)
+    public PageProjectionDiffStream(Guid id, Guid consumerId, ISessionStreamMultiplexer mux)
+        : base(id, consumerId, mux)
     {
     }
 
     public IResult<ChannelReader<PageProjectionDiff>> GetPageProjectionDiffsChannel()
         => GetChannel(Mux.GetPageProjectionDiffsChannel);
+
+    public long GetDiffEpoch()
+    {
+        var epoch = Mux.GetDiffEpoch(Id);
+        return epoch.IsSuccess ? epoch.Value : -1;
+    }
 }
 
 internal sealed class ConsoleOutputStream : MuxBoundStream, IConsoleOutputStream
 {
-    public ConsoleOutputStream(Guid id, ISessionStreamMultiplexer mux)
-        : base(id, mux)
+    public ConsoleOutputStream(Guid id, Guid consumerId, ISessionStreamMultiplexer mux)
+        : base(id, consumerId, mux)
     {
     }
 
@@ -81,8 +90,8 @@ internal sealed class ConsoleOutputStream : MuxBoundStream, IConsoleOutputStream
 
 internal sealed class NotificationStream : MuxBoundStream, INotificationStream
 {
-    public NotificationStream(Guid id, ISessionStreamMultiplexer mux)
-        : base(id, mux)
+    public NotificationStream(Guid id, Guid consumerId, ISessionStreamMultiplexer mux)
+        : base(id, consumerId, mux)
     {
     }
 

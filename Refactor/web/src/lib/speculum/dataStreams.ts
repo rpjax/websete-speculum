@@ -287,9 +287,10 @@ export class DataStreams extends Emitter<SessionEventMap> {
 
   private async handleIncoming(stream: ReadableStream<Uint8Array>): Promise<void> {
     const reader = stream.getReader()
+    let kind: number | null = null
     try {
       const framed = new FramedReader(reader)
-      const kind = await framed.readPipeKind()
+      kind = await framed.readPipeKind()
       if (kind == null) {
         return
       }
@@ -330,6 +331,15 @@ export class DataStreams extends Emitter<SessionEventMap> {
       }
     } finally {
       reader.releaseLock()
+      // Fan-out Complete / wire cut ends the Diff uni-stream while WT/WS stays up.
+      // Surface EOF so DomProjector can T8 OOB resync (journal-only QD is invisible).
+      if (
+        kind === PipeKind.PageProjectionDiff
+        && !this.closed
+        && this.connected
+      ) {
+        this.emit('pageProjectionDiffEnded', { reason: 'wire_stall' })
+      }
     }
   }
 

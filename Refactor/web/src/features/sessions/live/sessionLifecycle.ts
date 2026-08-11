@@ -64,6 +64,7 @@ export interface UseSessionLifecycleOptions {
   onPageProjectionDiff: (diff: import('@/lib/speculum').PageProjectionDiff) => void
   bumpNotificationCounter: () => void
   onPageProjectionLifecycle: (notification: import('@/lib/speculum').SessionNotification) => void
+  onPageProjectionDiffEnded: (info: { reason: 'wire_stall' }) => void
   onSessionConsole: (message: import('@/lib/speculum').SessionConsoleOutput) => void
   resetForStart: () => void
   appendConsoleInput: (code: string) => void
@@ -104,6 +105,7 @@ export function useSessionLifecycle({
   onPageProjectionDiff,
   bumpNotificationCounter,
   onPageProjectionLifecycle,
+  onPageProjectionDiffEnded,
   onSessionConsole,
   resetForStart,
   appendConsoleInput,
@@ -127,6 +129,7 @@ export function useSessionLifecycle({
       sessionRef.current = session
       session.on('frame', onFrame)
       session.on('pageProjectionDiff', onPageProjectionDiff)
+      session.on('pageProjectionDiffEnded', onPageProjectionDiffEnded)
       session.on('pageProjectionDiffRejected', (rej) => {
         log('warn', 'page_projection normalize_rejected', {
           plane: 'pageProjectionDiff',
@@ -234,6 +237,7 @@ export function useSessionLifecycle({
       log,
       onPageProjectionDiff,
       onPageProjectionLifecycle,
+      onPageProjectionDiffEnded,
       onFrame,
       onSessionConsole,
       readPageProjectionApplierProbe,

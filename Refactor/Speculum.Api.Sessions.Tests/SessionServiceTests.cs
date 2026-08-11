@@ -844,6 +844,32 @@ public sealed class SessionServiceTests
 
         public void BindPageProjectionDiffTelemetry(IPageProjectionDiffTelemetry? telemetry) { }
 
+        public bool IsPageProjectionDiffFanOutEnqueuedEnabled() => false;
+
+        public void ReportPageProjectionDiffFanOutEnqueued(
+            PageProjectionDiff diff,
+            long waitMs,
+            Guid streamId,
+            Guid consumerId,
+            string kind,
+            int targetIndex,
+            int targetCount,
+            int diffChannelCount,
+            long diffEpoch) { }
+
+        public void ReportPageProjectionDiffOutputStreamOpened(
+            Guid streamId,
+            Guid consumerId,
+            string kind,
+            int openStreamCount,
+            int diffChannelCapacity) { }
+
+        public void ReportPageProjectionDiffOutputStreamClosed(
+            Guid streamId,
+            Guid consumerId,
+            string kind,
+            int openStreamCount) { }
+
         public void ReportPageProjectionDiffQueueDropped(
             string stage,
             int droppedCount,
@@ -854,6 +880,12 @@ public sealed class SessionServiceTests
             string? operation = null,
             long? lowestDroppedSequence = null,
             long? highestDroppedSequence = null,
-            string? reason = null) { }
+            string? reason = null,
+            Guid? streamId = null,
+            Guid? consumerId = null,
+            string? kind = null,
+            int? targetCount = null,
+            int? diffChannelCount = null,
+            long? diffEpoch = null) { }
     }
 }

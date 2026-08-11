@@ -1,0 +1,186 @@
+{
+  "since": "2026-08-10T14:23:44.441Z",
+  "beleza": {
+    "sessionId": "7982e134-3927-40d1-a132-129071d78e9c",
+    "href": "http://127.0.0.1:8080/?_w7s_nso=eyJ2IjoxLCJoIjoiIn0%3D",
+    "htmlLen": 2218522,
+    "textLen": 302,
+    "text": "Ir direto para o conteúdo\nAcessibilidade\nGrupo Boticário\nNossas Lojas\nBaixe o nosso app!\nPrecisa de ajuda?\nMeus Pedidos\nFavoritos\nInformar localização\nAcessar Minha Conta\nEntrar\n0\nPromos\nCabelos\nPerfumes e Perfumaria\nMaquiagem\nSkincare\nCuid",
+    "accessDenied": false,
+    "ownedRules": 4463,
+    "brokenImgs": 30,
+    "imgCount": 88,
+    "virtualData1x1": 0,
+    "truncatedAvif": 17,
+    "cloudinaryFull": 0,
+    "srcsetSample": [
+      {
+        "tag": "IMG",
+        "srcset": "/w7s/virtual-assets/res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2026_07_31_17_49_28_3/90b8d642-8acc-41c3-9a57-1ba73e5bcd95-botao-2-3.png?speculum-session-token=38f27db3bbf94bf0ac0d1eb37fe3c955 1x, /w7s/virtual-assets/res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/dpr_2.0/v1/banner/2026_07_31_17_49_28_3/90b8d642-"
+      },
+      {
+        "tag": "IMG",
+        "srcset": "/w7s/virtual-assets/res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2026_07_31_17_49_28_3/90b8d642-8acc-41c3-9a57-1ba73e5bcd95-botao-2-3.png?speculum-session-token=38f27db3bbf94bf0ac0d1eb37fe3c955 1x, /w7s/virtual-assets/res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/dpr_2.0/v1/banner/2026_07_31_17_49_28_3/90b8d642-"
+      },
+      {
+        "tag": "IMG",
+        "srcset": "/w7s/virtual-assets/res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2026_03_16_10_18_12_6/33a22cd6-22bd-4080-b60c-266b61bafc9f-card-1.png?speculum-session-token=38f27db3bbf94bf0ac0d1eb37fe3c955 1x, /w7s/virtual-assets/res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/dpr_2.0/v1/banner/2026_03_16_10_18_12_6/33a22cd6-22b"
+      },
+      {
+        "tag": "IMG",
+        "srcset": "/w7s/virtual-assets/res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2026_03_16_10_19_24_0/8b9a8e7a-80e6-4136-93ba-ce83f7c17405-card-3.png?speculum-session-token=38f27db3bbf94bf0ac0d1eb37fe3c955 1x, /w7s/virtual-assets/res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/dpr_2.0/v1/banner/2026_03_16_10_19_24_0/8b9a8e7a-80e"
+      },
+      {
+        "tag": "IMG",
+        "srcset": "/w7s/virtual-assets/res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2026_03_16_10_19_39_8/c935d650-6d19-4c8f-bb75-342a701a9457-card-4.png?speculum-session-token=38f27db3bbf94bf0ac0d1eb37fe3c955 1x, /w7s/virtual-assets/res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/dpr_2.0/v1/banner/2026_03_16_10_19_39_8/c935d650-6d1"
+      }
+    ],
+    "desyncs": [
+      {
+        "reason": "queue_dropped",
+        "seq": 257,
+        "expected": 257,
+        "phase": null
+      },
+      {
+        "reason": "wire_stall",
+        "seq": 257,
+        "expected": 257,
+        "phase": null
+      }
+    ],
+    "addressMiss": 0,
+    "sequenceGap": 0,
+    "hops": {
+      "lifecycle": 7,
+      "syncUrl": 1,
+      "client_recv": 512,
+      "client_arm": 1,
+      "client_apply": 255,
+      "cssom/install": 1,
+      "client_disarm": 1,
+      "client_desync": 2,
+      "client_resync_request": 2,
+      "client_drop": 9,
+      "client_resync_failed": 1
+    },
+    "armed": false,
+    "waitedMs": 10798,
+    "sawDenied": false,
+    "journal": {
+      "facts": 6462,
+      "SoftNavObserved": 0,
+      "ResyncRequested": 2,
+      "ResyncServed": 0,
+      "QueueDropped": 1,
+      "QueueDroppedStages": {
+        "api_fanout_backpressure": 1
+      },
+      "GenerationBumped": 0,
+      "FrameReceived": 5936,
+      "WireDelivered": 512,
+      "FrameReceivedMaxSeq": 5936,
+      "WireDeliveredMaxSeq": 513,
+      "FrMinusWd": 5424,
+      "FrMaxMinusWdMax": 5423,
+      "silentStallForbidden": false
+    },
+    "truncatedAvifNet": 0,
+    "fAvif404": 0
+  },
+  "eneba": {
+    "sessionId": "4f647c16-e270-42d3-8ad6-5897e259e222",
+    "href": "http://127.0.0.1:8080/br/?_w7s_nso=eyJ2IjoxLCJoIjoiIn0%3D",
+    "htmlLen": 550681,
+    "textLen": 5067,
+    "text": "Português Brasileiro\nBRL\nLog in\n | \nRegistrar-se\nCategorias\nJogos -90%\nSoftware\neCartões\nNordVPN\nGift Cards Eneba\nFC27\nPontos do Jogo ⚡\nSurfshark VPN\nGAME POINTS | AUG 26\nSURFSHARK | AUG 26\nPSN GIFT CARDS | MAY 26\nJogos\nCartões de jogos\neCa",
+    "accessDenied": false,
+    "ownedRules": 1832,
+    "brokenImgs": 0,
+    "imgCount": 82,
+    "virtualData1x1": 3,
+    "truncatedAvif": 0,
+    "cloudinaryFull": 0,
+    "srcsetSample": [
+      {
+        "tag": "SOURCE",
+        "srcset": "/w7s/virtual-assets/static.eneba.games/9b35a9095c42fb593f03.png?speculum-session-token=a731fc0be62b4cd9bd11d8eaf49e7898"
+      },
+      {
+        "tag": "SOURCE",
+        "srcset": "/w7s/virtual-assets/static.eneba.games/cd7b069788375466eed5.png?speculum-session-token=a731fc0be62b4cd9bd11d8eaf49e7898"
+      },
+      {
+        "tag": "SOURCE",
+        "srcset": "/w7s/virtual-assets/static.eneba.games/77b7dedacd3c7ea3e236.png?speculum-session-token=a731fc0be62b4cd9bd11d8eaf49e7898"
+      },
+      {
+        "tag": "SOURCE",
+        "srcset": "/w7s/virtual-assets/imgproxy.eneba.games/Yr1ptDA8tSL33il5cQuilUtnUxzQhy0CrBmchHLjH-A/rs:fit:95/ar:1/czM6Ly9wcm9kdWN0/cy5lbmViYS5nYW1l/cy9wcm9kdWN0cy94/QWc1VzBpeWpXYWJP/UGZLQWVhTDhoR3Iy/WUFHS19CckdXYlgz/dURXTHVFLmpwZw?speculum-session-token=a731fc0be62b4cd9bd11d8eaf49e7898 1x, /w7s/virtual-assets/imgproxy.eneba.games/3oVuh0nNqN7d1Ug_ORJe4bOripQiyza0OzIi6t3FO_0/rs:fit:190/ar:1/czM6Ly9wcm9kdWN0/cy5lb"
+      },
+      {
+        "tag": "SOURCE",
+        "srcset": "/w7s/virtual-assets/imgproxy.eneba.games/VbKcF81dHz0WvOIjjz7VgFIIZYfU3uzTo-iA9myEuo0/rs:fit:300/ar:1/czM6Ly9wcm9kdWN0/cy5lbmViYS5nYW1l/cy9wcm9kdWN0cy94/QWc1VzBpeWpXYWJP/UGZLQWVhTDhoR3Iy/WUFHS19CckdXYlgz/dURXTHVFLmpwZw?speculum-session-token=a731fc0be62b4cd9bd11d8eaf49e7898 1x, /w7s/virtual-assets/imgproxy.eneba.games/ptKBZAc3uhB9albcihiIzV1IyqtZtwDhUweeZy8XrRc/rs:fit:600/ar:1/czM6Ly9wcm9kdWN0/cy5l"
+      }
+    ],
+    "desyncs": [
+      {
+        "reason": "queue_dropped",
+        "seq": 257,
+        "expected": 257,
+        "phase": null
+      },
+      {
+        "reason": "wire_stall",
+        "seq": 257,
+        "expected": 257,
+        "phase": null
+      }
+    ],
+    "addressMiss": 0,
+    "sequenceGap": 0,
+    "hops": {
+      "lifecycle": 195,
+      "syncUrl": 4,
+      "client_recv": 263,
+      "client_arm": 3,
+      "client_apply": 255,
+      "cssom/install": 1,
+      "client_sent": 62,
+      "client_disarm": 1,
+      "client_desync": 2,
+      "client_resync_request": 1,
+      "client_drop": 1,
+      "client_resync_apply": 1
+    },
+    "armed": false,
+    "coldWaitedMs": 3613,
+    "journal": {
+      "facts": 790,
+      "SoftNavObserved": 2,
+      "ResyncRequested": 1,
+      "ResyncServed": 1,
+      "QueueDropped": 1,
+      "QueueDroppedStages": {
+        "api_fanout_backpressure": 1
+      },
+      "GenerationBumped": 0,
+      "FrameReceived": 264,
+      "WireDelivered": 263,
+      "FrameReceivedMaxSeq": 264,
+      "WireDeliveredMaxSeq": 264,
+      "FrMinusWd": 1,
+      "FrMaxMinusWdMax": 0,
+      "silentStallForbidden": false
+    }
+  },
+  "accept": {
+    "belezaNoSilentStall": true,
+    "enebaNoSilentStall": true,
+    "enebaNoAddressMiss": true,
+    "enebaNoGenerationBump": true,
+    "enebaSoftNav": true,
+    "belezaT8Recovered": true,
+    "enebaT8Recovered": true
+  }
+}

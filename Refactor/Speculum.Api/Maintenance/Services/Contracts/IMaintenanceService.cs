@@ -48,4 +48,13 @@ public interface IMaintenanceService
     Task<IResult<MaintenanceDeletionResult>> DeleteInactiveProfilesAsync(
         DeleteInactiveProfiles request,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Lab wipe: refuse if any Live session exists; otherwise delete ended sessions (+ journal cascade),
+    /// remaining journal rows, inactive profiles, resource signals/reports, then VACUUM.
+    /// Does not touch config_sections or auth tables. Requires <c>confirm=RESET</c>.
+    /// </summary>
+    Task<IResult<MaintenanceDeletionResult>> LabResetAsync(
+        LabResetRequest request,
+        CancellationToken ct = default);
 }

@@ -75,6 +75,19 @@ public static class MaintenanceEndpoints
                 : Results.BadRequest(new { error = result.Errors.FirstOrDefault()?.ToString() ?? "Delete failed" });
         }).WithTags("Maintenance");
 
+        endpoints.MapPost("/api/admin/maintenance/lab-reset", async (
+            LabResetRequest? body,
+            IMaintenanceService maintenance,
+            CancellationToken ct) =>
+        {
+            var result = await maintenance
+                .LabResetAsync(body ?? new LabResetRequest(), ct)
+                .ConfigureAwait(false);
+            return result.IsSuccess
+                ? Results.Ok(result.Value)
+                : Results.BadRequest(new { error = result.Errors.FirstOrDefault()?.ToString() ?? "Lab reset failed" });
+        }).WithTags("Maintenance");
+
         return endpoints;
     }
 }

@@ -3,6 +3,7 @@ using Speculum.Api.Configurations.Models.Patterns;
 using Speculum.Api.Profiles.Aggregates;
 using Speculum.Api.Sessions.Mirror.PageProjection;
 using Speculum.Api.Sessions.Models;
+using Speculum.Api.Sessions.Services.Streaming;
 using Speculum.Api.Sidecar.V1;
 using DomainUrlMatchRule = Speculum.Api.Configurations.Models.Patterns.UrlMatchRule;
 using DomainDeviceProfile = Speculum.Api.Sessions.Models.DeviceProfile;
@@ -28,7 +29,8 @@ internal static class GrpcSessionMappers
         Speculum.Api.Configurations.Models.Sessions.ViewportPolicy policy,
         double screencastMaxEncodeScale = 2,
         Speculum.Api.Configurations.Models.Sessions.MirrorMode mirrorMode =
-            Speculum.Api.Configurations.Models.Sessions.MirrorMode.VideoStreaming)
+            Speculum.Api.Configurations.Models.Sessions.MirrorMode.VideoStreaming,
+        int pageProjectionDiffQueueCapacity = SequencedDiffChannels.DefaultCapacity)
     {
         ArgumentNullException.ThrowIfNull(configuration);
         ArgumentNullException.ThrowIfNull(policy);
@@ -43,6 +45,8 @@ internal static class GrpcSessionMappers
             DisplayHeight = policy.Maximum.Height,
             ScreencastMaxEncodeScale = ClampScreencastMaxEncodeScale(screencastMaxEncodeScale),
             MirrorMode = ToMirrorModeWire(mirrorMode),
+            PageProjectionDiffQueueCapacity = ClampPageProjectionDiffQueueCapacity(
+                pageProjectionDiffQueueCapacity),
         };
 
         var environment = configuration.ClientEnvironment
@@ -101,6 +105,16 @@ internal static class GrpcSessionMappers
         }
 
         return Math.Clamp(value, 1, 2);
+    }
+
+    public static int ClampPageProjectionDiffQueueCapacity(int value)
+    {
+        if (value < 64)
+        {
+            return SequencedDiffChannels.DefaultCapacity;
+        }
+
+        return Math.Clamp(value, 64, 65_536);
     }
 
     /// <summary>Wire form for LaunchRequest.mirror_mode (camelCase enum name).</summary>

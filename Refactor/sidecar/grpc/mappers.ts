@@ -54,11 +54,22 @@ export function toLaunchOptions(req: any): BrowserLaunchOptions {
       req.screencastMaxEncodeScale ?? req.screencast_max_encode_scale,
     ),
     mirrorMode: resolveMirrorMode(req.mirrorMode ?? req.mirror_mode),
+    pageProjectionDiffQueueCapacity: resolvePageProjectionDiffQueueCapacity(
+      req.pageProjectionDiffQueueCapacity ?? req.page_projection_diff_queue_capacity,
+    ),
   };
 }
 
 function resolveMirrorMode(raw: unknown): 'videoStreaming' | 'pageProjection' {
   return raw === 'pageProjection' ? 'pageProjection' : 'videoStreaming';
+}
+
+function resolvePageProjectionDiffQueueCapacity(raw: unknown): number {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 64) {
+    return 8192;
+  }
+  return Math.min(65_536, Math.max(64, Math.floor(n)));
 }
 
 function resolveScreencastMaxEncodeScale(raw: unknown): number {

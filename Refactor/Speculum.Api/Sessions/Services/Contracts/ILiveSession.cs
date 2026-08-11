@@ -18,6 +18,7 @@ namespace Speculum.Api.Sessions.Services.Contracts;
 /// Stream handles are <see cref="IDisposable"/> — dispose to unregister; no close-by-id API.
 /// Visual and input streams are MirrorMode-gated: VideoStreaming uses frame + coordinate
 /// input; PageProjection uses PageProjectionDiff + element input.
+/// Attachment id is the consumer id for output streams and input pumps.
 /// </remarks>
 public interface ILiveSession
 {
@@ -32,7 +33,9 @@ public interface ILiveSession
 
     /// <summary>
     /// Attaches the single browser client (presence / detached timeout + command sink).
-    /// Fails if a client is already attached.
+    /// Fails if a client is already attached. Returns the consumer id (attachment id).
+    /// Does not open streams — call <see cref="OpenNotificationStream"/> +
+    /// <see cref="ObserveSessionNotifications"/> for the feature notification loop.
     /// </summary>
     IResult<Guid> Attach(IAttachedSessionClient client);
 
@@ -42,19 +45,25 @@ public interface ILiveSession
     /// </summary>
     IResult Detach(Guid attachmentId);
 
+    /// <summary>
+    /// Takes ownership of a notification stream and runs the session feature loop
+    /// (SyncUrl, crash → abandon, journal hops). Disposes the stream on Release.
+    /// </summary>
+    IResult ObserveSessionNotifications(INotificationStream stream);
+
     // ── Streams ──────────────────────────────────────────────────────────────
 
     /// <summary>Opens a screencast frame stream (MirrorMode.VideoStreaming only).</summary>
-    IResult<IFrameStream> OpenFrameStream();
+    IResult<IFrameStream> OpenFrameStream(Guid consumerId);
 
     /// <summary>Opens a Dom Projection diff stream (MirrorMode.PageProjection only).</summary>
-    IResult<IPageProjectionDiffStream> OpenPageProjectionDiffStream();
+    IResult<IPageProjectionDiffStream> OpenPageProjectionDiffStream(Guid consumerId);
 
     /// <summary>Opens a console output stream.</summary>
-    IResult<IConsoleOutputStream> OpenConsoleOutputStream();
+    IResult<IConsoleOutputStream> OpenConsoleOutputStream(Guid consumerId);
 
     /// <summary>Opens a notification stream.</summary>
-    IResult<INotificationStream> OpenNotificationStream();
+    IResult<INotificationStream> OpenNotificationStream(Guid consumerId);
 
     /// <summary>
     /// Pumps video-streaming input until the channel completes,
@@ -63,6 +72,7 @@ public interface ILiveSession
     /// MirrorMode.VideoStreaming only.
     /// </summary>
     IResult<Task> ConsumeVideoStreamingInputAsync(
+        Guid consumerId,
         ChannelReader<VideoStreamingInput> channelReader,
         CancellationToken ct = default);
 
@@ -82,6 +92,7 @@ public interface ILiveSession
     /// Pumps console input into the live session (JsBridge-gated by mux policy).
     /// </summary>
     IResult<Task> ConsumeConsoleInputAsync(
+        Guid consumerId,
         ChannelReader<ConsoleInput> channelReader,
         CancellationToken ct = default);
 
@@ -118,7 +129,43 @@ public interface ILiveSession
     /// Opt-in Journal hop: Diff written to the client data-plane stream.
     /// No-op when <c>Telemetry.Sessions.PageProjection.Diff.WireDelivered</c> is disabled.
     /// </summary>
-    void TracePageProjectionDiffWireDelivered(PageProjectionDiff diff);
+    void TracePageProjectionDiffWireDelivered(
+        PageProjectionDiff diff,
+        long durationMs = 0,
+        Guid streamId = default,
+        Guid consumerId = default,
+        long diffEpoch = 0);
+
+    /// <summary>
+    /// Opt-in Journal hop: Diff accepted into the per-stream fan-out channel.
+    /// No-op when <c>Telemetry.Sessions.PageProjection.Diff.FanOutEnqueued</c> is disabled.
+    /// </summary>
+    void TracePageProjectionDiffFanOutEnqueued(
+        PageProjectionDiff diff,
+        long waitMs,
+        Guid streamId,
+        Guid consumerId,
+        string kind,
+        int targetIndex,
+        int targetCount,
+        int diffChannelCount,
+        long diffEpoch);
+
+    /// <summary>
+    /// Opt-in Journal hop: hub Diff pump dequeued a frame before stream write.
+    /// No-op when <c>Telemetry.Sessions.PageProjection.Diff.StreamDequeued</c> is disabled.
+    /// </summary>
+    void TracePageProjectionDiffStreamDequeued(
+        PageProjectionDiff diff,
+        Guid streamId = default,
+        Guid consumerId = default,
+        long diffEpoch = 0);
+
+    /// <summary>
+    /// True when <c>Telemetry.Sessions.PageProjection.Diff.WireDelivered</c> is catalog-enabled
+    /// (callers may skip Stopwatch when false).
+    /// </summary>
+    bool IsPageProjectionDiffWireDeliveredEnabled();
 
     /// <summary>
     /// Opt-in Journal hop: Diff frame received from sidecar (before connection enqueue).
@@ -142,7 +189,35 @@ public interface ILiveSession
         string? operation = null,
         long? lowestDroppedSequence = null,
         long? highestDroppedSequence = null,
-        string? reason = null);
+        string? reason = null,
+        Guid? streamId = null,
+        Guid? consumerId = null,
+        string? kind = null,
+        int? targetCount = null,
+        int? diffChannelCount = null,
+        long? diffEpoch = null);
+
+    /// <summary>
+    /// Chronology-breaking Diff queue drop: journals (when enabled) and publishes
+    /// client-visible <c>PageProjectionLifecycle phase=queue_dropped</c> for T8 recovery.
+    /// </summary>
+    void ReportPageProjectionDiffQueueDropped(
+        string stage,
+        int droppedCount,
+        int capacity,
+        long? sequence = null,
+        long? generation = null,
+        string? plane = null,
+        string? operation = null,
+        long? lowestDroppedSequence = null,
+        long? highestDroppedSequence = null,
+        string? reason = null,
+        Guid? streamId = null,
+        Guid? consumerId = null,
+        string? kind = null,
+        int? targetCount = null,
+        int? diffChannelCount = null,
+        long? diffEpoch = null);
 
     // ── Commands ─────────────────────────────────────────────────────────────
 

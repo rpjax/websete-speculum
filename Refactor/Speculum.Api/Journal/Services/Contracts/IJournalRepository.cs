@@ -79,4 +79,9 @@ public interface IJournalRepository
         string? type,
         DateTimeOffset? olderThan,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Hard-deletes every journal entry (any index). Reserved for Maintenance Lab Reset only.
+    /// </summary>
+    Task<int> DeleteAllAsync(CancellationToken cancellationToken = default);
 }

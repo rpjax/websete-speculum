@@ -16,6 +16,7 @@ export type SessionMirrorSurfaceProps = Omit<SessionViewportProps, 'attachFrameS
   attachFrameSink: (sink: (frame: SessionFrame) => void) => () => void
   attachPageProjectionDiffSink: (sink: (diff: PageProjectionDiff) => void) => () => void
   attachPageProjectionLifecycleSink?: DomProjectorProps['attachPageProjectionLifecycleSink']
+  attachPageProjectionDiffEndedSink?: DomProjectorProps['attachPageProjectionDiffEndedSink']
   onInput: (input: SessionInput) => void
   onDomInput: (input: PageProjectionIntent) => void
   onDiffObserve?: DomProjectorProps['onDiffObserve']
@@ -35,6 +36,7 @@ export function SessionMirrorSurface({
   attachFrameSink,
   attachPageProjectionDiffSink,
   attachPageProjectionLifecycleSink,
+  attachPageProjectionDiffEndedSink,
   onInput,
   onDomInput,
   onDiffObserve,
@@ -55,6 +57,7 @@ export function SessionMirrorSurface({
         assetBaseUrl={assetBaseUrl}
         attachPageProjectionDiffSink={attachPageProjectionDiffSink}
         attachPageProjectionLifecycleSink={attachPageProjectionLifecycleSink}
+        attachPageProjectionDiffEndedSink={attachPageProjectionDiffEndedSink}
         onDomInput={onDomInput}
         onDiffObserve={onDiffObserve}
         registerApplierProbe={registerApplierProbe}

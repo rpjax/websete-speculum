@@ -36,6 +36,12 @@ internal static class SessionWebSocketEndpoint
             return;
         }
 
+        if (!bindings.TryGetLive(sessionId, token, out var binding))
+        {
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            return;
+        }
+
         if (!context.WebSockets.IsWebSocketRequest)
         {
             context.Response.StatusCode = StatusCodes.Status400BadRequest;
@@ -45,11 +51,11 @@ internal static class SessionWebSocketEndpoint
 
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(
             context.RequestAborted);
-        var pipeId = Guid.CreateVersion7();
-        var registration = bindings.RegisterPipe(
+        var carrierId = Guid.CreateVersion7();
+        var registration = bindings.RegisterCarrier(
             sessionId,
             token,
-            pipeId,
+            carrierId,
             new CancellationResource(lifetime));
         if (registration.IsFailure)
         {
@@ -61,12 +67,14 @@ internal static class SessionWebSocketEndpoint
         await using var carrier = new WebSocketDataStreamSession(socket);
         try
         {
-            await SessionDataStreamsHost.RunAsync(live, carrier, lifetime).ConfigureAwait(false);
+            await SessionDataStreamsHost
+                .RunAsync(live, carrier, binding.AttachmentId, lifetime)
+                .ConfigureAwait(false);
         }
         finally
         {
             lifetime.Cancel();
-            bindings.UnregisterPipe(pipeId);
+            bindings.UnregisterCarrier(carrierId);
         }
     }
 

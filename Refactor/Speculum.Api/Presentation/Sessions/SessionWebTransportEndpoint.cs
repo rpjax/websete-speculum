@@ -38,6 +38,12 @@ internal static class SessionWebTransportEndpoint
             return;
         }
 
+        if (!bindings.TryGetLive(sessionId, token, out var binding))
+        {
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            return;
+        }
+
         var feature = context.Features.Get<IHttpWebTransportFeature>();
         if (feature is not { IsWebTransportRequest: true })
         {
@@ -48,11 +54,11 @@ internal static class SessionWebTransportEndpoint
         var session = await feature.AcceptAsync(context.RequestAborted);
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(
             context.RequestAborted);
-        var pipeId = Guid.CreateVersion7();
-        var registration = bindings.RegisterPipe(
+        var carrierId = Guid.CreateVersion7();
+        var registration = bindings.RegisterCarrier(
             sessionId,
             token,
-            pipeId,
+            carrierId,
             new CancellationResource(lifetime));
         if (registration.IsFailure)
         {
@@ -63,12 +69,14 @@ internal static class SessionWebTransportEndpoint
         try
         {
             var carrier = new WebTransportDataStreamSession(session);
-            await SessionDataStreamsHost.RunAsync(live, carrier, lifetime).ConfigureAwait(false);
+            await SessionDataStreamsHost
+                .RunAsync(live, carrier, binding.AttachmentId, lifetime)
+                .ConfigureAwait(false);
         }
         finally
         {
             lifetime.Cancel();
-            bindings.UnregisterPipe(pipeId);
+            bindings.UnregisterCarrier(carrierId);
         }
     }
 

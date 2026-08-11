@@ -53,6 +53,8 @@ const browserRace_1 = require("./host/browserRace");
 const PageState_1 = require("./browser/patchright/PageState");
 const DomAssetCache_1 = require("./browser/patchright/mirror/dom/DomAssetCache");
 const DomTreeSerializer_1 = require("./browser/patchright/mirror/dom/DomTreeSerializer");
+const srcsetParse_1 = require("./browser/patchright/mirror/dom/srcsetParse");
+const PageProjection_1 = require("./browser/patchright/mirror/dom/PageProjection");
 const collectTelemetry_1 = require("./telemetry/collectTelemetry");
 const hostResources_1 = require("./host/hostResources");
 /** Test stand-in for Sessions.ViewportPolicy — production gets this on Launch. */
@@ -536,6 +538,7 @@ function testLaunchEnvironmentIsRequired() {
     });
     assert_1.default.strictEqual(options.screencastMaxEncodeScale, 2);
     assert_1.default.strictEqual(options.mirrorMode, 'videoStreaming');
+    assert_1.default.strictEqual(options.pageProjectionDiffQueueCapacity, 8192);
     const scaled = (0, mappers_1.toLaunchOptions)({
         width: 800,
         height: 600,
@@ -563,8 +566,10 @@ function testLaunchEnvironmentIsRequired() {
         timezoneId: 'UTC',
         colorScheme: 'light',
         mirrorMode: 'pageProjection',
+        page_projection_diff_queue_capacity: 4096,
     });
     assert_1.default.strictEqual(dom.mirrorMode, 'pageProjection');
+    assert_1.default.strictEqual(dom.pageProjectionDiffQueueCapacity, 4096);
     console.log('[unit] launch environment ok');
 }
 function testScreencastEncodeSize() {
@@ -863,8 +868,9 @@ async function testPumpQueueAbortAfterWriteDoesNotRequeue() {
 async function testEventBridgeQueueDroppedLifecycle() {
     const bridge = new EventBridge_1.EventBridge('s-drop');
     const body = new Uint8Array([1]);
-    // Fill to capacity (1024) then one more → DropAll + lifecycle queue_dropped.
-    for (let i = 0; i < 1024; i++) {
+    const cap = bridge.dom.maxCapacity;
+    // Fill to capacity then one more → DropAll + lifecycle queue_dropped.
+    for (let i = 0; i < cap; i++) {
         bridge.onPageProjectionDiff({
             sequence: i + 1,
             generation: 1,
@@ -890,10 +896,10 @@ async function testEventBridgeQueueDroppedLifecycle() {
     assert_1.default.strictEqual(ev.diffKind, 'install');
     assert_1.default.strictEqual(ev.sequence, 2000);
     assert_1.default.strictEqual(ev.toGeneration, 1);
-    assert_1.default.ok((ev.droppedCount ?? 0) >= 1024);
-    assert_1.default.strictEqual(ev.capacity, 1024);
+    assert_1.default.ok((ev.droppedCount ?? 0) >= cap);
+    assert_1.default.strictEqual(ev.capacity, cap);
     assert_1.default.strictEqual(ev.lowestDroppedSequence, 1);
-    assert_1.default.strictEqual(ev.highestDroppedSequence, 1024);
+    assert_1.default.strictEqual(ev.highestDroppedSequence, cap);
     assert_1.default.strictEqual(bridge.dom.pendingCount, 1);
     bridge.close();
     console.log('[unit] event_bridge_queue_dropped_lifecycle ok');
@@ -1443,8 +1449,227 @@ async function main() {
     testHostResourcesApplySkipsRemountOffLinux();
     testCookieSanitizeMatrix();
     testDomAssetCacheAndBodyCodec();
+    testSrcsetParseCloudinary();
+    testParseDataUrlHardening();
     await testPublishedAnchorsLedgerOmitsAndRetires();
+    await testPublishedAnchorsTransitiveUnpublishOnAncestorWipe();
+    await testEmitChildListSkipsAfterPendingHostRetire();
+    await testUnpublishedWrapperWipeUnpublishesDescendants();
+    await testMapDocumentRemintsConnectedDuplicateAnchors();
     console.log('[unit] all passed');
+}
+/**
+ * SoftNav ancestor wipe must unpublish the whole publishedParent subtree so
+ * later childList cannot claim orphan anchors (address_miss cascade).
+ */
+async function testPublishedAnchorsTransitiveUnpublishOnAncestorWipe() {
+    const { chromium } = await Promise.resolve().then(() => __importStar(require('patchright')));
+    const browser = await chromium.launch({ headless: true });
+    try {
+        const page = await browser.newPage();
+        await page.exposeFunction('__speculumDomEmit', () => { });
+        await page.setContent('<!doctype html><html><head></head><body>'
+            + '<div id="keep"><div id="mid"><span id="leaf">x</span></div></div>'
+            + '</body></html>');
+        await page.evaluate(DomTreeSerializer_1.PAGE_PROJECTION_PAGE_SCRIPT);
+        const anchors = await page.evaluate(`(() => {
+      const r = window.__speculumDomMapAndArmEstablish();
+      return {
+        mid: document.getElementById('mid').getAttribute('speculum-anchor'),
+        leaf: document.getElementById('leaf').getAttribute('speculum-anchor'),
+        keep: document.getElementById('keep').getAttribute('speculum-anchor'),
+        rootTag: r && r.root && r.root.tag,
+      };
+    })()`);
+        assert_1.default.ok(anchors.mid && anchors.leaf && anchors.keep, 'anchors stamped');
+        assert_1.default.strictEqual(await page.evaluate(`window.__speculumDomPublishedHas(${JSON.stringify(anchors.mid)})`), true);
+        assert_1.default.strictEqual(await page.evaluate(`window.__speculumDomPublishedHas(${JSON.stringify(anchors.leaf)})`), true);
+        await page.evaluate(`(() => { document.getElementById('mid').remove(); })()`);
+        await page.waitForTimeout(80);
+        assert_1.default.strictEqual(await page.evaluate(`window.__speculumDomPublishedHas(${JSON.stringify(anchors.mid)})`), false, 'removed ancestor must leave the ledger');
+        assert_1.default.strictEqual(await page.evaluate(`window.__speculumDomPublishedHas(${JSON.stringify(anchors.leaf)})`), false, 'descendant under wiped ancestor must unpublish transitively');
+        assert_1.default.strictEqual(await page.evaluate(`window.__speculumDomPublishedHas(${JSON.stringify(anchors.keep)})`), true, 'untouched ancestor stays published');
+        assert_1.default.ok(DomTreeSerializer_1.PAGE_PROJECTION_PAGE_SCRIPT.includes('unpublishPublishedSubtree'), 'page script must define transitive unpublish');
+        console.log('[unit] publishedAnchors transitive unpublish on ancestor wipe ok');
+    }
+    finally {
+        await browser.close();
+    }
+}
+/**
+ * SoftNav retire race: pending retire of host flushed before childList must not
+ * emit against the unpublished host (phase=parent address_miss).
+ */
+async function testEmitChildListSkipsAfterPendingHostRetire() {
+    const { chromium } = await Promise.resolve().then(() => __importStar(require('patchright')));
+    const browser = await chromium.launch({ headless: true });
+    try {
+        const page = await browser.newPage();
+        const emits = [];
+        await page.exposeFunction('__speculumDomEmit', (msg) => {
+            emits.push({
+                operation: String(msg?.operation ?? ''),
+                payload: (msg?.payload ?? {}),
+            });
+        });
+        await page.setContent('<!doctype html><html><head></head><body>'
+            + '<div id="host"><span id="leaf">x</span></div>'
+            + '</body></html>');
+        await page.evaluate(DomTreeSerializer_1.PAGE_PROJECTION_PAGE_SCRIPT);
+        const hostA = await page.evaluate(`(() => {
+      window.__speculumDomMapAndArmEstablish();
+      return document.getElementById('host').getAttribute('speculum-anchor');
+    })()`);
+        assert_1.default.ok(hostA, 'host published');
+        emits.length = 0;
+        await page.evaluate(`((hostA) => {
+      window.__speculumDomScheduleRetire(hostA);
+      const leaf = document.getElementById('leaf');
+      leaf.textContent = 'mutated';
+      const host = document.getElementById('host');
+      const span = document.createElement('span');
+      span.id = 'late';
+      span.textContent = 'late';
+      host.appendChild(span);
+    })(${JSON.stringify(hostA)})`);
+        await page.waitForTimeout(80);
+        const againstHost = emits.filter((e) => {
+            const sel = e.payload.selector;
+            return String(sel?.query ?? '').includes(hostA);
+        });
+        // Retire emits remove(host) under body — that selector is body, not host.
+        // childList/patch targeting host as parent must be zero after pending retire.
+        const hostAsParent = againstHost.filter((e) => {
+            const sel = e.payload.selector;
+            return String(sel?.query ?? '') === `[speculum-anchor="${hostA}"]`
+                || String(sel?.query ?? '') === `[speculum-anchor='${hostA}']`;
+        });
+        assert_1.default.strictEqual(hostAsParent.length, 0, 'no childList/patch may target a host that was pending-retired');
+        assert_1.default.strictEqual(await page.evaluate(`window.__speculumDomPublishedHas(${JSON.stringify(hostA)})`), false, 'retired host must leave the ledger');
+        assert_1.default.ok(DomTreeSerializer_1.PAGE_PROJECTION_PAGE_SCRIPT.includes('emitWire'), 'emit path must validate after flush via emitWire');
+        assert_1.default.ok(DomTreeSerializer_1.PAGE_PROJECTION_PAGE_SCRIPT.includes('sweepDisconnectedPublished'), 'page script must sweep disconnected published identities');
+        console.log('[unit] emitChildList skips after pending host retire ok');
+    }
+    finally {
+        await browser.close();
+    }
+}
+/**
+ * Removing a never-published wrapper must still unpublish published descendants
+ * found under the DOM subtree (ledger gap SoftNav wipe).
+ */
+async function testUnpublishedWrapperWipeUnpublishesDescendants() {
+    const { chromium } = await Promise.resolve().then(() => __importStar(require('patchright')));
+    const browser = await chromium.launch({ headless: true });
+    try {
+        const page = await browser.newPage();
+        await page.exposeFunction('__speculumDomEmit', () => { });
+        await page.setContent('<!doctype html><html><head></head><body>'
+            + '<div id="keep"><div id="wrap"><span id="leaf">x</span></div></div>'
+            + '</body></html>');
+        await page.evaluate(DomTreeSerializer_1.PAGE_PROJECTION_PAGE_SCRIPT);
+        const leafA = await page.evaluate(`(() => {
+      window.__speculumDomMapAndArmEstablish();
+      const wrap = document.getElementById('wrap');
+      const leaf = document.getElementById('leaf');
+      const leafA = leaf.getAttribute('speculum-anchor');
+      const wrapA = wrap.getAttribute('speculum-anchor');
+      // Ledger gap: wrap leaves the wire identity set without transitive wipe.
+      if (wrapA) window.__speculumDomForgetPublished(wrapA);
+      wrap.removeAttribute('speculum-anchor');
+      return leafA;
+    })()`);
+        await page.waitForTimeout(50);
+        assert_1.default.ok(leafA, 'leaf was published');
+        assert_1.default.strictEqual(await page.evaluate(`window.__speculumDomPublishedHas(${JSON.stringify(leafA)})`), true, 'leaf still published before wrapper remove');
+        await page.evaluate(`(() => { document.getElementById('wrap').remove(); })()`);
+        await page.waitForTimeout(80);
+        assert_1.default.strictEqual(await page.evaluate(`window.__speculumDomPublishedHas(${JSON.stringify(leafA)})`), false, 'DOM-walk unpublish must clear published descendants under unpublished wrapper');
+        assert_1.default.ok(DomTreeSerializer_1.PAGE_PROJECTION_PAGE_SCRIPT.includes('unpublishPublishedUnderElement'), 'page script must DOM-walk unpublished wrappers');
+        console.log('[unit] unpublished wrapper wipe unpublishes descendants ok');
+    }
+    finally {
+        await browser.close();
+    }
+}
+function testSrcsetParseCloudinary() {
+    const raw = 'https://res.cloudinary.com/demo/image/upload/f_avif,q_auto,w_1920/hero.jpg 1920w, '
+        + 'https://res.cloudinary.com/demo/image/upload/f_avif,q_auto,w_800/hero.jpg 800w';
+    const parsed = (0, srcsetParse_1.parseSrcset)(raw);
+    assert_1.default.deepStrictEqual(parsed, [
+        {
+            url: 'https://res.cloudinary.com/demo/image/upload/f_avif,q_auto,w_1920/hero.jpg',
+            descriptor: '1920w',
+        },
+        {
+            url: 'https://res.cloudinary.com/demo/image/upload/f_avif,q_auto,w_800/hero.jpg',
+            descriptor: '800w',
+        },
+    ]);
+    const mapped = (0, srcsetParse_1.mapSrcset)(raw, (u) => `/w7s/virtual-assets/${u}`);
+    assert_1.default.ok(mapped.includes('f_avif,q_auto,w_1920'));
+    assert_1.default.ok(!mapped.includes('/f_avif 1920w'));
+    console.log('[unit] srcsetParse Cloudinary ok');
+}
+function testParseDataUrlHardening() {
+    const png = 'data:image/png;charset=utf-8;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+    const ok = (0, PageProjection_1.parseDataUrl)(png);
+    assert_1.default.ok(ok, 'charset before base64 must parse');
+    assert_1.default.ok(ok.body.length > 0);
+    assert_1.default.ok(ok.contentType.includes('image/png'));
+    assert_1.default.strictEqual((0, PageProjection_1.parseDataUrl)('data:image/png;base64'), null, 'missing comma must fail');
+    assert_1.default.strictEqual((0, PageProjection_1.parseDataUrl)('not-a-data-url'), null);
+    assert_1.default.strictEqual((0, PageProjection_1.parseDataUrl)('data:text/plain,hello')?.body.toString('utf8'), 'hello');
+    console.log('[unit] parseDataUrl hardening contract ok');
+}
+/**
+ * Connected clones that share speculum-anchor must remint before document map
+ * so the wire tree never violates T7 (qSA===1) — BZ4.
+ */
+async function testMapDocumentRemintsConnectedDuplicateAnchors() {
+    const { chromium } = await Promise.resolve().then(() => __importStar(require('patchright')));
+    const browser = await chromium.launch({ headless: true });
+    try {
+        const page = await browser.newPage();
+        await page.exposeFunction('__speculumDomEmit', () => { });
+        await page.setContent('<!doctype html><html><head></head><body><div id="a">one</div><div id="b">two</div></body></html>');
+        await page.evaluate(DomTreeSerializer_1.PAGE_PROJECTION_PAGE_SCRIPT);
+        await page.evaluate(`(() => {
+      const a = document.getElementById('a');
+      const b = document.getElementById('b');
+      a.setAttribute('speculum-anchor', 'dup-shared');
+      b.setAttribute('speculum-anchor', 'dup-shared');
+    })()`);
+        const mapped = await page.evaluate(`(() => {
+      const r = window.__speculumDomMapAndArmEstablish();
+      const anchors = [];
+      function walk(n) {
+        if (!n || typeof n !== 'object') return;
+        if (n.tag === '#text' || n.tag === '#comment') return;
+        const a = n.anchor || (n.attrs && n.attrs['speculum-anchor']);
+        if (a) anchors.push(a);
+        const kids = n.children || [];
+        for (let i = 0; i < kids.length; i++) walk(kids[i]);
+      }
+      walk(r.root);
+      const counts = {};
+      for (const a of anchors) counts[a] = (counts[a] || 0) + 1;
+      const dups = Object.keys(counts).filter((k) => counts[k] > 1);
+      const liveA = document.getElementById('a').getAttribute('speculum-anchor');
+      const liveB = document.getElementById('b').getAttribute('speculum-anchor');
+      return { dups, liveA, liveB, anchorCount: anchors.length };
+    })()`);
+        assert_1.default.strictEqual(mapped.dups.length, 0, 'mapped document must not contain duplicate anchors');
+        assert_1.default.ok(mapped.liveA && mapped.liveB, 'live nodes must keep anchors');
+        assert_1.default.notStrictEqual(mapped.liveA, mapped.liveB, 'connected duplicate attrs must remint one node');
+        assert_1.default.ok(mapped.anchorCount >= 4, 'html/head/body + leaves');
+        assert_1.default.ok(DomTreeSerializer_1.PAGE_PROJECTION_PAGE_SCRIPT.includes('remintDuplicateConnectedAnchors'), 'establish path must call remintDuplicateConnectedAnchors');
+        assert_1.default.ok(DomTreeSerializer_1.PAGE_PROJECTION_PAGE_SCRIPT.includes('Re-adding the same published identity'), 'childList must skip already-published same-node adds (BZ4)');
+        console.log('[unit] MapDocument remint connected duplicate anchors ok');
+    }
+    finally {
+        await browser.close();
+    }
 }
 /**
  * Writer identity ledger: omit remove of never-published anchors; remint clone

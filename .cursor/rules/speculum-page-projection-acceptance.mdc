@@ -1,0 +1,20 @@
+---
+description: PageProjection accept = absolute 1:1 parity with the original site
+alwaysApply: true
+---
+
+# PageProjection — absolute accept
+
+**Bar:** Projected Live (`MirrorMode.PageProjection`) must be **1:1** with opening the same site in a normal browser on Virtual. Design intent = indistinguishable UX. **Anything less is unacceptable.**
+
+Full text: `docs/page-projection-acceptance.md`.
+
+## Hard bans
+
+- Never declare PASS / “fixed” / “recovered” from protocol-only signals (`200`, `ResyncServed`, WD>N, `ownedRules`, `htmlLen`) while the surface is incomplete, slow, crushed, desynced, or unusable.
+- Never treat a green smoke scoped to one recovery bug as site accept.
+- Journal / observation / screenshots that show unusability **must fail** harness diagnose — do not ignore backlog, `armed=false`, broken imgs, unanswered Resync, or visual defects.
+
+## Duty
+
+When working Sessions / PageProjection / smoke / telemetry: optimize and assert for **parity**, not for green protocol hops. If parity is broken, say so plainly and keep the defect open.

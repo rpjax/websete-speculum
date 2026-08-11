@@ -1,0 +1,31 @@
+{
+  "sessionId": "1657a57f-82d3-4a41-83c1-2dfc8b2d56f6",
+  "href": "http://127.0.0.1:8080/?_w7s_nso=eyJ2IjoxLCJoIjoiIn0%3D",
+  "childCount": 6,
+  "bodyKids": 47,
+  "htmlLen": 2682771,
+  "textLen": 9666,
+  "text": "Ir direto para o conteúdo\nAcessibilidade\nGrupo Boticário\nNossas Lojas\nBaixe o nosso app!\nPrecisa de ajuda?\nMeus Pedidos\nFavoritos\nInformar localização\nAcessar Minha Conta\nEntrar\n0\nPromos\nCabelos\nPerfumes e Perfumaria\nMaquiagem\nSkincare\nCuidados Pessoais\nBem-Estar\nBlog Loucas por Beleza\nMarcas\nDestaque\n\n17\nHoras\n:\nHoras\n20\nMinutos\n:\nMinutos\n27\nSegundos\nSegundos\n\nLançamentos\n\nVer produtos\n\nPromoções",
+  "accessDenied": false,
+  "scrollTop": 0,
+  "scrollHeight": 8893,
+  "clientHeight": 900,
+  "ownedRules": 4442,
+  "styleCount": 7,
+  "anchorCount": 8101,
+  "duplicateAnchors": [],
+  "duplicateAnchorTotal": 0,
+  "frontHops": {
+    "client_recv": 883,
+    "client_apply": 1116,
+    "cssom/sheetList": 1
+  },
+  "desync": null,
+  "desyncs": [],
+  "framedErr": null,
+  "armedHint": null,
+  "imgCount": 122,
+  "brokenImgs": 86,
+  "virtualData1x1": 5,
+  "scriptSrc": "http://127.0.0.1:8080/w7s/assets/index-ru2MBSHE.js"
+}

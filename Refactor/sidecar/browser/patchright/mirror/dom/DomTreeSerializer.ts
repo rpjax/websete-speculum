@@ -206,15 +206,40 @@ export const PAGE_PROJECTION_PAGE_SCRIPT = `
     return '[' + ANCHOR_ATTR + '="' + escapeAnchor(parentA) + '"]';
   }
 
+  /**
+   * Drop a published identity and every descendant claimed under publishedParent.
+   * SoftNav SPA wipes remove an ancestor once on the wire; Projected drops the
+   * whole subtree. Without transitive unpublish the ledger still claims orphans
+   * → later childList address_miss (matchCount=0) under the same generation.
+   */
+  function unpublishPublishedSubtree(rootAnchor) {
+    if (!rootAnchor) return;
+    const drop = new Set();
+    function collect(a) {
+      if (!a || drop.has(a)) return;
+      drop.add(a);
+      for (const [child, parent] of publishedParent) {
+        if (parent === a) collect(child);
+      }
+    }
+    collect(rootAnchor);
+    for (const a of drop) {
+      publishedAnchors.delete(a);
+      publishedParent.delete(a);
+      anchorToNode.delete(a);
+      const pendingAt = pendingRetires.indexOf(a);
+      if (pendingAt >= 0) pendingRetires.splice(pendingAt, 1);
+    }
+  }
+
   function flushPendingRetires() {
     while (pendingRetires.length) {
       const a = pendingRetires.shift();
       if (!a || !publishedAnchors.has(a)) continue;
       const parentQuery = parentQueryForPublished(a);
       const query = '[' + ANCHOR_ATTR + '="' + escapeAnchor(a) + '"]';
-      publishedAnchors.delete(a);
-      publishedParent.delete(a);
-      anchorToNode.delete(a);
+      // Wire remove is only for \`a\`; Projected drops descendants with it.
+      unpublishPublishedSubtree(a);
       if (!parentQuery) continue;
       if (!liveEmit) continue;
       if (typeof window.__speculumDomEmit !== 'function') continue;
@@ -239,16 +264,84 @@ export const PAGE_PROJECTION_PAGE_SCRIPT = `
     pendingRetires.push(a);
   }
 
-  function emit(plane, operation, payload) {
-    flushPendingRetires();
-    // Nested browsing contexts are not the session viewport.
+  /**
+   * SoftNav moves/detaches can leave published identities whose nodes are gone from
+   * the live tree while Projected already dropped them via an ancestor remove.
+   * Retire those before building childList hosts.
+   */
+  function sweepDisconnectedPublished() {
+    const stale = [];
+    for (const a of publishedAnchors) {
+      const n = anchorToNode.get(a);
+      if (!n || !n.isConnected) stale.push(a);
+    }
+    for (const a of stale) scheduleRetirePublishedAnchor(a);
+    if (stale.length) flushPendingRetires();
+  }
+
+  /**
+   * Every element on the light-DOM path to the documentElement must still be a
+   * published identity — otherwise Projected likely dropped the branch via an
+   * ancestor wipe while this node stayed connected under an unpublished wrapper.
+   */
+  function publishedAncestorPathOk(el) {
+    let n = el;
+    while (n && n.nodeType === 1) {
+      if (n.__speculumPierceHost) return true;
+      const a = n.getAttribute && n.getAttribute(ANCHOR_ATTR);
+      if (!a || !publishedAnchors.has(a)) return false;
+      if (n === document.documentElement) return true;
+      n = n.parentElement;
+    }
+    return false;
+  }
+
+  /** Extract published anchor from a T7 element selector query. */
+  function publishedAnchorFromQuery(query) {
+    if (!query || typeof query !== 'string') return null;
+    const m = query.match(new RegExp(ANCHOR_ATTR + '="([^"]+)"'));
+    return m ? m[1] : null;
+  }
+
+  /**
+   * DOM/F walk: unpublish every published identity under el (ledger gaps when a
+   * never-published wrapper is removed but descendants were on the wire).
+   */
+  function unpublishPublishedUnderElement(el) {
+    if (!el || el.nodeType !== 1) return;
+    const a = el.getAttribute && el.getAttribute(ANCHOR_ATTR);
+    if (a && publishedAnchors.has(a)) {
+      unpublishPublishedSubtree(a);
+      return;
+    }
+    const kids = el.childNodes;
+    for (let i = 0; i < kids.length; i++) {
+      if (kids[i].nodeType === 1) unpublishPublishedUnderElement(kids[i]);
+    }
+    try {
+      const shadow = pierceShadowRoot(el);
+      if (shadow) {
+        const sk = shadow.childNodes;
+        for (let i = 0; i < sk.length; i++) {
+          if (sk[i].nodeType === 1) unpublishPublishedUnderElement(sk[i]);
+        }
+      }
+    } catch (_) {}
+  }
+
+  /** Wire emit after caller flushed retires and validated published selectors. */
+  function emitWire(plane, operation, payload) {
     if (pierceHostAnchor && plane === 'dom' && operation === 'scrollViewport') return;
-    // T10: live MO path only after first document (+ Cssom install) is established.
     if (!liveEmit) return;
     if (typeof window.__speculumDomEmit !== 'function') return;
     try {
       window.__speculumDomEmit({ generation, plane, operation, payload });
     } catch (_) {}
+  }
+
+  function emit(plane, operation, payload) {
+    flushPendingRetires();
+    emitWire(plane, operation, payload);
   }
 
   /** Allocate a local sequence and stamp LMS on touched nodes before F runs. */
@@ -265,8 +358,11 @@ export const PAGE_PROJECTION_PAGE_SCRIPT = `
 
   // -------------------------------------------------------------- anchors
 
+  /** Monotonic + entropy — same-ms batches must never collide (BZ4). */
+  let anchorSeq = 0;
   function mintAnchor() {
-    return 'a' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
+    anchorSeq += 1;
+    return 'a' + anchorSeq.toString(36) + 'x' + Math.random().toString(36).slice(2, 10);
   }
 
   function ensureAnchor(el) {
@@ -275,13 +371,30 @@ export const PAGE_PROJECTION_PAGE_SCRIPT = `
     if (a) {
       const mapped = anchorToNode.get(a);
       // Google (and others) clone nodes and copy speculum-anchor — remint on collision.
-      if (mapped && mapped !== el && mapped.isConnected) {
-        a = mintAnchor();
-        try { el.setAttribute(ANCHOR_ATTR, a); } catch (_) { return null; }
-      } else if (mapped && mapped !== el && !mapped.isConnected && publishedAnchors.has(a)) {
-        // Projected still owns \`a\` until wire remove — retire then mint for the clone.
-        scheduleRetirePublishedAnchor(a);
-        anchorToNode.delete(a);
+      // T7: any other connected owner of this anchor (map or live DOM) forces remint (BZ4).
+      let collision = mapped && mapped !== el;
+      if (!collision && typeof document !== 'undefined' && document.querySelectorAll) {
+        try {
+          const hits = document.querySelectorAll('[' + ANCHOR_ATTR + '="' + escapeAnchor(a) + '"]');
+          for (let i = 0; i < hits.length; i++) {
+            if (hits[i] !== el && hits[i].isConnected) {
+              collision = true;
+              break;
+            }
+          }
+        } catch (_) {}
+      }
+      if (collision) {
+        if (mapped && mapped !== el && !mapped.isConnected && publishedAnchors.has(a)) {
+          // Projected still owns the old anchor until wire remove — retire then mint for the clone.
+          scheduleRetirePublishedAnchor(a);
+        } else if (mapped && mapped !== el && mapped.isConnected && publishedAnchors.has(a)) {
+          // Two connected nodes claimed the same published anchor — remint the newcomer.
+          // Old node keeps the published identity.
+        } else if (!mapped && publishedAnchors.has(a)) {
+          scheduleRetirePublishedAnchor(a);
+        }
+        if (mapped && mapped !== el) anchorToNode.delete(a);
         a = mintAnchor();
         try { el.setAttribute(ANCHOR_ATTR, a); } catch (_) { return null; }
       }
@@ -301,6 +414,59 @@ export const PAGE_PROJECTION_PAGE_SCRIPT = `
       if (d.head) ensureAnchor(d.head);
       if (d.body) ensureAnchor(d.body);
     } catch (_) {}
+  }
+
+  /**
+   * After a full walk, force unique connected anchors (T7). Some sites clone subtrees
+   * faster than per-node ensureAnchor collision checks during MO bursts (BZ4).
+   * Seeds \`seen\` with other connected mapped anchors so a cloned subtree remints
+   * against the rest of the document — not only within itself.
+   */
+  function remintDuplicateConnectedAnchors(root) {
+    if (!root) return;
+    const seen = new Set();
+    for (const [a, n] of anchorToNode) {
+      if (!a || !n || n === root) continue;
+      try {
+        if (!n.isConnected) continue;
+        if (typeof root.contains === 'function' && root.contains(n)) continue;
+      } catch (_) {
+        continue;
+      }
+      seen.add(a);
+    }
+    function walk(node) {
+      if (!node || node.nodeType !== 1) return;
+      let a = node.getAttribute(ANCHOR_ATTR);
+      if (a) {
+        if (seen.has(a)) {
+          // Newcomer remints. If this node still owns the published map entry,
+          // retire that wire identity before abandoning it (ledger + childList).
+          if (publishedAnchors.has(a) && anchorToNode.get(a) === node) {
+            scheduleRetirePublishedAnchor(a);
+          } else if (anchorToNode.get(a) === node) {
+            anchorToNode.delete(a);
+          }
+          a = mintAnchor();
+          try { node.setAttribute(ANCHOR_ATTR, a); } catch (_) { return; }
+          anchorToNode.set(a, node);
+          seen.add(a);
+        } else {
+          seen.add(a);
+          anchorToNode.set(a, node);
+        }
+      }
+      const kids = node.childNodes;
+      for (let i = 0; i < kids.length; i++) walk(kids[i]);
+      try {
+        const shadow = pierceShadowRoot(node);
+        if (shadow) {
+          const sk = shadow.childNodes;
+          for (let i = 0; i < sk.length; i++) walk(sk[i]);
+        }
+      } catch (_) {}
+    }
+    walk(root);
   }
 
   function pierceShadowRoot(el) {
@@ -525,6 +691,68 @@ export const PAGE_PROJECTION_PAGE_SCRIPT = `
     }
   }
 
+  /** WHATWG srcset: URL keeps commas until whitespace (Cloudinary f_avif,q_auto). */
+  function parseSrcsetAttr(input) {
+    const candidates = [];
+    let pos = 0;
+    const len = input.length;
+    function isSp(c) {
+      return c === ' ' || c === '\\t' || c === '\\n' || c === '\\r' || c === '\\f';
+    }
+    while (pos < len) {
+      while (pos < len && (input[pos] === ',' || isSp(input[pos]))) pos++;
+      if (pos >= len) break;
+      const urlStart = pos;
+      while (pos < len && !isSp(input[pos])) pos++;
+      let url = input.slice(urlStart, pos);
+      if (url.charAt(url.length - 1) === ',') {
+        url = url.replace(/,+$/, '');
+        if (url) candidates.push({ url: url, descriptor: '' });
+        continue;
+      }
+      while (pos < len && isSp(input[pos])) pos++;
+      const descParts = [];
+      let current = '';
+      let state = 'in';
+      while (pos < len) {
+        const c = input[pos];
+        if (state === 'in') {
+          if (isSp(c)) {
+            if (current) { descParts.push(current); current = ''; state = 'after'; }
+            pos++;
+          } else if (c === ',') {
+            if (current) descParts.push(current);
+            current = '';
+            pos++;
+            break;
+          } else if (c === '(') {
+            current += c; state = 'parens'; pos++;
+          } else {
+            current += c; pos++;
+          }
+        } else if (state === 'parens') {
+          current += c;
+          if (c === ')') state = 'in';
+          pos++;
+        } else if (isSp(c)) {
+          pos++;
+        } else {
+          state = 'in';
+        }
+      }
+      if (current) descParts.push(current);
+      if (url) candidates.push({ url: url, descriptor: descParts.join(' ') });
+    }
+    return candidates;
+  }
+
+  function mapSrcsetAttr(input, mapUrl) {
+    return parseSrcsetAttr(input).map((c) => {
+      const u = mapUrl(c.url);
+      return c.descriptor ? (u + ' ' + c.descriptor) : u;
+    }).join(', ');
+  }
+
   function attrsOf(el) {
     const out = {};
     for (const a of el.attributes) {
@@ -534,14 +762,10 @@ export const PAGE_PROJECTION_PAGE_SCRIPT = `
       if (a.name === 'href' || a.name === 'src' || a.name === 'xlink:href' || a.name === 'poster' || a.name === 'action' || a.name === 'formaction' || a.name === 'data-src') {
         try { v = new URL(v, document.baseURI).href; } catch (_) {}
       }
-      if (a.name === 'srcset') {
-        v = v.split(',').map((part) => {
-          const bits = part.trim().split(/\\s+/);
-          if (bits[0]) {
-            try { bits[0] = new URL(bits[0], document.baseURI).href; } catch (_) {}
-          }
-          return bits.join(' ');
-        }).join(', ');
+      if (a.name === 'srcset' || a.name === 'imagesrcset') {
+        v = mapSrcsetAttr(v, (u) => {
+          try { return new URL(u, document.baseURI).href; } catch (_) { return u; }
+        });
       }
       out[a.name] = v;
     }
@@ -652,19 +876,69 @@ export const PAGE_PROJECTION_PAGE_SCRIPT = `
     };
   }
 
-  function mapNode(node) {
+  /**
+   * Remint colliding anchors inside a pre-mapped (XO pierce) object tree so the
+   * flattened parent document never publishes duplicate identities (T7/BZ4).
+   */
+  function dedupeMappedObject(node, seen) {
+    if (!node || typeof node !== 'object') return node;
+    const tag = node.tag;
+    if (tag === '#text' || tag === '#comment') return node;
+    const out = {
+      tag: node.tag,
+      text: node.text,
+      children: undefined,
+      anchor: node.anchor,
+      attrs: node.attrs ? Object.assign({}, node.attrs) : undefined,
+    };
+    let a = out.anchor || (out.attrs && out.attrs[ANCHOR_ATTR]);
+    if (a) {
+      if (seen.has(a)) {
+        a = mintAnchor();
+      }
+      seen.add(a);
+      out.anchor = a;
+      if (!out.attrs) out.attrs = {};
+      out.attrs[ANCHOR_ATTR] = a;
+    }
+    if (node.children && node.children.length) {
+      out.children = [];
+      for (let i = 0; i < node.children.length; i++) {
+        out.children.push(dedupeMappedObject(node.children[i], seen));
+      }
+    }
+    return out;
+  }
+
+  function claimMappedAnchor(el, mapped, seen) {
+    let a = mapped.anchor || (mapped.attrs && mapped.attrs[ANCHOR_ATTR]);
+    if (!a) return;
+    if (seen.has(a)) {
+      a = mintAnchor();
+      try { el.setAttribute(ANCHOR_ATTR, a); } catch (_) {}
+      anchorToNode.set(a, el);
+      mapped.anchor = a;
+      if (!mapped.attrs) mapped.attrs = {};
+      mapped.attrs[ANCHOR_ATTR] = a;
+    }
+    seen.add(a);
+  }
+
+  function mapNode(node, seen) {
     if (!node) return null;
     if (node.nodeType === 3) return { tag: '#text', text: node.textContent || '' };
     if (node.nodeType === 8) return { tag: '#comment', text: node.textContent || '' };
     if (!isMappableElement(node)) return null;
+    const scope = seen || new Set();
     const el = node;
     const mapped = mapElementHead(el);
+    claimMappedAnchor(el, mapped, scope);
     // Chromium XO iframe pierce: use last published F subtree when contentDocument is unreachable.
     if (el.tagName === 'IFRAME' && el.__speculumChromiumPierceRoot) {
       let sameOrigin = false;
       try { sameOrigin = !!el.contentDocument; } catch (_) { sameOrigin = false; }
       if (!sameOrigin) {
-        mapped.children = [el.__speculumChromiumPierceRoot];
+        mapped.children = [dedupeMappedObject(el.__speculumChromiumPierceRoot, scope)];
         return mapped;
       }
     }
@@ -678,7 +952,7 @@ export const PAGE_PROJECTION_PAGE_SCRIPT = `
         children.push({ tag: '#comment', text: entry.text });
         continue;
       }
-      const child = mapNode(entry.el);
+      const child = mapNode(entry.el, scope);
       if (child) children.push(child);
     }
     if (children.length) mapped.children = children;
@@ -834,8 +1108,13 @@ export const PAGE_PROJECTION_PAGE_SCRIPT = `
   }
 
   function emitChildList(record) {
+    // SoftNav clone storms schedule retires; flush before claiming the host so we
+    // never build a childList against an identity about to leave the ledger.
+    sweepDisconnectedPublished();
+    flushPendingRetires();
     const host = fHostElement(record.target);
     if (!host) return;
+    if (!host.isConnected) return;
     if (!host.__speculumPierceHost) {
       const ha = host.getAttribute && host.getAttribute(ANCHOR_ATTR);
       if (!ha || !publishedAnchors.has(ha)) return;
@@ -944,16 +1223,18 @@ export const PAGE_PROJECTION_PAGE_SCRIPT = `
     const removed = [];
     for (const el of removedElements) {
       const a = el.getAttribute && el.getAttribute(ANCHOR_ATTR);
-      if (!a || !publishedAnchors.has(a)) continue;
-      const sel = detachedSelectorForElement(el);
-      if (!sel) continue;
-      removed.push({ selector: sel });
-      // Free before mapNode(adds) so same-record clones do not double-retire on the wire.
-      publishedAnchors.delete(a);
-      publishedParent.delete(a);
-      anchorToNode.delete(a);
-      const pendingAt = pendingRetires.indexOf(a);
-      if (pendingAt >= 0) pendingRetires.splice(pendingAt, 1);
+      if (a && publishedAnchors.has(a)) {
+        const sel = detachedSelectorForElement(el);
+        if (sel) {
+          removed.push({ selector: sel });
+          // Free subtree before mapNode(adds) — SoftNav ancestor wipe must not leave
+          // descendant anchors claimed (address_miss / resync cascade).
+          unpublishPublishedSubtree(a);
+        }
+      }
+      // Always DOM/F-walk: publishedParent can miss reparented / never-linked kids
+      // that Projected still drops with this remove (ledger gap → phase=parent miss).
+      unpublishPublishedUnderElement(el);
     }
     for (const index of Array.from(removedRuns).sort((a, b) => a - b)) {
       removed.push({ selector: { kind: 'childAt', query: selector.query, index } });
@@ -972,12 +1253,43 @@ export const PAGE_PROJECTION_PAGE_SCRIPT = `
         added.push({ index: p.index, node: { tag: '#comment', text: p.entry.text } });
         continue;
       }
-      const node = mapNode(p.entry.el);
+      const el = p.entry.el;
+      // Establish/takeRecords races can re-signal childList for nodes already in the
+      // document baseline. Re-adding the same published identity → Projected dups (BZ4).
+      const existingA = el.getAttribute && el.getAttribute(ANCHOR_ATTR);
+      if (
+        existingA
+        && publishedAnchors.has(existingA)
+        && anchorToNode.get(existingA) === el
+      ) {
+        continue;
+      }
+      remintDuplicateConnectedAnchors(el);
+      const node = mapNode(el);
       if (node) added.push({ index: p.index, node });
     }
     if (!removed.length && !added.length) return;
     const publishWire = liveEmit;
-    emit('dom', 'childList', { selector, removed, added });
+    // Remint/retire during mapNode(adds) may have unpublished the host — flush and
+    // re-validate before wire emit (closes phase=parent address_miss SoftNav race).
+    flushPendingRetires();
+    if (!host.__speculumPierceHost) {
+      const hostANow = host.getAttribute && host.getAttribute(ANCHOR_ATTR);
+      const selA = publishedAnchorFromQuery(selector && selector.query);
+      if (!hostANow || !publishedAnchors.has(hostANow)) return;
+      if (selA && (!publishedAnchors.has(selA) || selA !== hostANow)) return;
+      // Live T7: Projected resolves the same qSA — never emit against a detached or
+      // colliding host (SoftNav clone / ancestor wipe residual).
+      if (!host.isConnected) return;
+      if (!publishedAncestorPathOk(host)) return;
+      try {
+        const hits = document.querySelectorAll(selector.query);
+        if (!hits || hits.length !== 1 || hits[0] !== host) return;
+      } catch (_) {
+        return;
+      }
+    }
+    emitWire('dom', 'childList', { selector, removed, added });
     if (!publishWire) {
       if (pierceRemoved) syncSheets();
       return;
@@ -991,6 +1303,7 @@ export const PAGE_PROJECTION_PAGE_SCRIPT = `
 
   function emitElementPatch(el) {
     if (!el || !el.isConnected || !isMappableElement(el)) return;
+    flushPendingRetires();
     const a = el.getAttribute && el.getAttribute(ANCHOR_ATTR);
     // Patches for never-published identities invent address_miss on the client.
     if (!a || !publishedAnchors.has(a)) {
@@ -1004,12 +1317,18 @@ export const PAGE_PROJECTION_PAGE_SCRIPT = `
     beginDiff([el]);
     const node = mapNodeShallow(el);
     if (!node) return;
-    emit('dom', 'patch', { selector, node });
+    flushPendingRetires();
+    const aNow = el.getAttribute && el.getAttribute(ANCHOR_ATTR);
+    const selA = publishedAnchorFromQuery(selector.query);
+    if (!aNow || !publishedAnchors.has(aNow)) return;
+    if (selA && (!publishedAnchors.has(selA) || selA !== aNow)) return;
+    emitWire('dom', 'patch', { selector, node });
   }
 
   function emitTextPatch(textNode) {
     const parent = fParentElement(textNode);
     if (!parent) return;
+    flushPendingRetires();
     const parentA = parent.getAttribute && parent.getAttribute(ANCHOR_ATTR);
     if (!parentA || !publishedAnchors.has(parentA)) return;
     const parentSelector = selectorForElement(parent);
@@ -1033,7 +1352,10 @@ export const PAGE_PROJECTION_PAGE_SCRIPT = `
     }
     if (index < 0) return;
     beginDiff([parent]);
-    emit('dom', 'patch', {
+    flushPendingRetires();
+    const parentANow = parent.getAttribute && parent.getAttribute(ANCHOR_ATTR);
+    if (!parentANow || !publishedAnchors.has(parentANow)) return;
+    emitWire('dom', 'patch', {
       selector: { kind: 'childAt', query: parentSelector.query, index },
       node: { tag, text },
     });
@@ -1086,7 +1408,12 @@ export const PAGE_PROJECTION_PAGE_SCRIPT = `
     // Stamp anchors before any emit logic (T4 invariant).
     for (const m of records) {
       if (m.type !== 'childList') continue;
-      m.addedNodes.forEach((n) => anchorAll(n));
+      m.addedNodes.forEach((n) => {
+        if (n.nodeType === 1) {
+          anchorAll(n);
+          remintDuplicateConnectedAnchors(n);
+        }
+      });
     }
     let styleTouched = false;
     for (const m of records) {
@@ -1593,6 +1920,7 @@ export const PAGE_PROJECTION_PAGE_SCRIPT = `
         if (observer && typeof observer.takeRecords === 'function') observer.takeRecords();
       } catch (_) {}
       anchorAll(document.documentElement);
+      remintDuplicateConnectedAnchors(document.documentElement);
       const root = mapNode(document.documentElement);
       resetPublishedFromMapped(root);
       return root;
@@ -1742,6 +2070,23 @@ export const PAGE_PROJECTION_PAGE_SCRIPT = `
   // D4 evidence of Document replacement: init() runs once per real Document,
   // so a changed epoch id means a new Document (SPA soft nav keeps it).
   window.__speculumDomEpochId = () => documentEpoch;
+  /** Test/effect probe: wire identity ledger membership after SoftNav wipes. */
+  window.__speculumDomPublishedHas = (a) => publishedAnchors.has(String(a || ''));
+  /** Test/effect probe: schedule a published-identity retire (SoftNav race fixtures). */
+  window.__speculumDomScheduleRetire = (a) => scheduleRetirePublishedAnchor(String(a || ''));
+  /**
+   * Test/effect probe: drop one identity from the ledger without transitive wipe —
+   * models SoftNav gaps where a never-published wrapper still has published kids.
+   */
+  window.__speculumDomForgetPublished = (a) => {
+    const id = String(a || '');
+    if (!id) return;
+    publishedAnchors.delete(id);
+    publishedParent.delete(id);
+    anchorToNode.delete(id);
+    const pendingAt = pendingRetires.indexOf(id);
+    if (pendingAt >= 0) pendingRetires.splice(pendingAt, 1);
+  };
   /**
    * C4 — wait until pending stylesheet links have load/error (bounded).
    * Refreshes knownSheets quietly; install/resync then maps a full snapshot.
@@ -1797,15 +2142,93 @@ export const PAGE_PROJECTION_PAGE_SCRIPT = `
     });
   };
   window.__speculumDomMapDocument = () => {
+    const pageStart = Date.now();
+    let t0 = pageStart;
+    let takeRecordsMs = 0;
+    let clearLedgerMs = 0;
+    let anchorAllMs = 0;
+    let remintMs = 0;
+    let mapNodeMs = 0;
+    let resetPublishedMs = 0;
     // Discard pending MO so resync map does not re-emit pre-map mutations (T8).
     try {
       if (observer && typeof observer.takeRecords === 'function') observer.takeRecords();
     } catch (_) {}
+    takeRecordsMs = Date.now() - t0;
+    t0 = Date.now();
+    // Drop stale map entries so clone collisions remint against live DOM (BZ4 / T7).
+    anchorToNode.clear();
+    clearLedgerMs = Date.now() - t0;
+    t0 = Date.now();
     anchorAll(document.documentElement);
     ensureDocumentRootAnchors(document);
+    anchorAllMs = Date.now() - t0;
+    t0 = Date.now();
+    remintDuplicateConnectedAnchors(document.documentElement);
+    remintMs = Date.now() - t0;
+    t0 = Date.now();
     const root = mapNode(document.documentElement);
+    mapNodeMs = Date.now() - t0;
+    t0 = Date.now();
     resetPublishedFromMapped(root);
-    return { generation, root };
+    resetPublishedMs = Date.now() - t0;
+    const pageTotalMs = Date.now() - pageStart;
+    return {
+      generation,
+      root,
+      timings: {
+        takeRecordsMs,
+        clearLedgerMs,
+        anchorAllMs,
+        remintMs,
+        mapNodeMs,
+        resetPublishedMs,
+        cssomMs: 0,
+        pageTotalMs,
+      },
+    };
+  };
+  /**
+   * OOB resync Dom map (T8): same truthful root as MapDocument, but skip the
+   * full anchorAll rebuild when the ledger is already live — MapDocument's clear
+   * + walk dominates Beleza (~seconds). Remint duplicates still runs (T7/BZ4).
+   */
+  window.__speculumDomMapDocumentResync = () => {
+    const pageStart = Date.now();
+    let t0 = pageStart;
+    let takeRecordsMs = 0;
+    let remintMs = 0;
+    let mapNodeMs = 0;
+    let resetPublishedMs = 0;
+    try {
+      if (observer && typeof observer.takeRecords === 'function') observer.takeRecords();
+    } catch (_) {}
+    takeRecordsMs = Date.now() - t0;
+    t0 = Date.now();
+    ensureDocumentRootAnchors(document);
+    remintDuplicateConnectedAnchors(document.documentElement);
+    remintMs = Date.now() - t0;
+    t0 = Date.now();
+    const root = mapNode(document.documentElement);
+    mapNodeMs = Date.now() - t0;
+    t0 = Date.now();
+    resetPublishedFromMapped(root);
+    resetPublishedMs = Date.now() - t0;
+    const pageTotalMs = Date.now() - pageStart;
+    return {
+      generation,
+      root,
+      timings: {
+        takeRecordsMs,
+        clearLedgerMs: 0,
+        anchorAllMs: 0,
+        remintMs,
+        mapNodeMs,
+        resetPublishedMs,
+        cssomMs: 0,
+        pageTotalMs,
+      },
+    };
   };
   window.__speculumDomMapCssom = () => {
     const { current } = refreshKnownSheets();
@@ -1822,6 +2245,15 @@ export const PAGE_PROJECTION_PAGE_SCRIPT = `
    * stamp mute-window anchors that never appear in the pushed document (T10).
    */
   window.__speculumDomMapAndArmEstablish = () => {
+    const pageStart = Date.now();
+    let t0 = pageStart;
+    let takeRecordsMs = 0;
+    let clearLedgerMs = 0;
+    let anchorAllMs = 0;
+    let remintMs = 0;
+    let mapNodeMs = 0;
+    let resetPublishedMs = 0;
+    let cssomMs = 0;
     // Pending MO records already reflect in the live DOM; discard notifications so
     // arm does not immediately re-emit pre-map mutations against the new baseline.
     try {
@@ -1829,10 +2261,24 @@ export const PAGE_PROJECTION_PAGE_SCRIPT = `
         observer.takeRecords();
       }
     } catch (_) {}
+    takeRecordsMs = Date.now() - t0;
+    t0 = Date.now();
+    anchorToNode.clear();
+    clearLedgerMs = Date.now() - t0;
+    t0 = Date.now();
     anchorAll(document.documentElement);
     ensureDocumentRootAnchors(document);
+    anchorAllMs = Date.now() - t0;
+    t0 = Date.now();
+    remintDuplicateConnectedAnchors(document.documentElement);
+    remintMs = Date.now() - t0;
+    t0 = Date.now();
     const root = mapNode(document.documentElement);
+    mapNodeMs = Date.now() - t0;
+    t0 = Date.now();
     resetPublishedFromMapped(root);
+    resetPublishedMs = Date.now() - t0;
+    t0 = Date.now();
     const { current } = refreshKnownSheets();
     publishedSheets.clear();
     const sheets = current.map((entry) => {
@@ -1841,11 +2287,39 @@ export const PAGE_PROJECTION_PAGE_SCRIPT = `
     });
     cssomLive = true;
     liveEmit = true;
-    return { generation, root, sheets };
+    cssomMs = Date.now() - t0;
+    const pageTotalMs = Date.now() - pageStart;
+    return {
+      generation,
+      root,
+      sheets,
+      timings: {
+        takeRecordsMs,
+        clearLedgerMs,
+        anchorAllMs,
+        remintMs,
+        mapNodeMs,
+        resetPublishedMs,
+        cssomMs,
+        pageTotalMs,
+      },
+    };
   };
   /** Sidecar arms after Dom document + Cssom install are on the materialize chain (T10.4). */
   window.__speculumDomArmLiveEmit = () => {
     liveEmit = true;
+  };
+  /**
+   * EventBridge Dom near capacity (T5 backpressure defer) — keep MO, stop wire emits.
+   * Resume path re-establishes (document+install) so deferred mutations are not a silent hole.
+   */
+  window.__speculumDomPauseLiveEmit = () => {
+    try {
+      if (typeof observer !== 'undefined' && observer && typeof observer.takeRecords === 'function') {
+        observer.takeRecords();
+      }
+    } catch (_) {}
+    liveEmit = false;
   };
   /**
    * Sidecar owns monotonic generation. Optional absolute value after Document
@@ -1867,6 +2341,7 @@ export const PAGE_PROJECTION_PAGE_SCRIPT = `
     elementEcho.clear();
     anchorAll(document.documentElement);
     ensureDocumentRootAnchors(document);
+    remintDuplicateConnectedAnchors(document.documentElement);
     return generation;
   };
   window.__speculumDomSetGeneration = (absolute) => {

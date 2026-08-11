@@ -61,6 +61,7 @@ export default function SessionLivePage() {
         attachFrameSink={session.attachFrameSink}
         attachPageProjectionDiffSink={session.attachPageProjectionDiffSink}
         attachPageProjectionLifecycleSink={session.attachPageProjectionLifecycleSink}
+        attachPageProjectionDiffEndedSink={session.attachPageProjectionDiffEndedSink}
         onInput={session.sendInput}
         onDomInput={session.sendDomInput}
         onDiffObserve={session.observePageProjectionDiffApply}

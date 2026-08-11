@@ -211,10 +211,13 @@ public static class DomAssetEndpoints
             .ConfigureAwait(false);
         if (result.IsFailure)
         {
+            var first = result.Errors.FirstOrDefault();
             return Results.BadRequest(new
             {
                 errorCode = "resync_failed",
+                phase = "capture",
                 message = string.Join("; ", result.Errors.Select(e => e.Message)),
+                detail = first?.Message,
             });
         }
 

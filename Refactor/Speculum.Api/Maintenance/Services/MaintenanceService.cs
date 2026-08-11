@@ -1,4 +1,5 @@
 using Aidan.Core.Patterns;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Speculum.Api.Database;
 using Speculum.Api.Journal.Services.Contracts;
@@ -50,8 +51,6 @@ public sealed class MaintenanceService : IMaintenanceService
             .ConfigureAwait(false);
         var live = await _sessions.ListLiveProfileIdsAsync(ct).ConfigureAwait(false);
 
-        // Rough signal for the summary card — profiles idle at least a day. The actual
-        // cutoff used to delete is whatever the caller passes to DeleteInactiveProfilesAsync.
         var idleCandidates = await _profiles.ListExpiredInactiveAsync(
                 DateTimeOffset.UtcNow - TimeSpan.FromDays(1),
                 take: 10_000,
@@ -87,8 +86,6 @@ public sealed class MaintenanceService : IMaintenanceService
         bool sessionDeleted;
         await using (var tx = await _db.Database.BeginTransactionAsync(ct).ConfigureAwait(false))
         {
-            // Session-associated facts ALWAYS go with the session — this is the only place
-            // DeleteByIndexKeyAsync (which can remove session-scoped facts) may be called.
             factsDeleted = await _journal
                 .DeleteByIndexKeyAsync("session", sessionId.ToString(), ct)
                 .ConfigureAwait(false);
@@ -144,8 +141,6 @@ public sealed class MaintenanceService : IMaintenanceService
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        // DeleteIndependentFactsAsync's own query excludes anything carrying a "session"
-        // index key — the rule is enforced there, not by an extra check here.
         var deleted = await _journal
             .DeleteIndependentFactsAsync(request.Type, request.OlderThan, ct)
             .ConfigureAwait(false);
@@ -182,6 +177,73 @@ public sealed class MaintenanceService : IMaintenanceService
         return Result<MaintenanceDeletionResult>.Success(new MaintenanceDeletionResult
         {
             ProfilesDeleted = deleted,
+        });
+    }
+
+    public async Task<IResult<MaintenanceDeletionResult>> LabResetAsync(
+        LabResetRequest request,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (!string.Equals(request.Confirm?.Trim(), "RESET", StringComparison.Ordinal))
+        {
+            return Result<MaintenanceDeletionResult>.Failure(
+                "Lab reset requires confirm token RESET");
+        }
+
+        var liveProfiles = await _sessions.ListLiveProfileIdsAsync(ct).ConfigureAwait(false);
+        if (liveProfiles.Count > 0)
+        {
+            return Result<MaintenanceDeletionResult>.Failure(
+                $"Lab reset refused: {liveProfiles.Count} live profile session(s) — stop them first");
+        }
+
+        var ended = await DeleteEndedSessionsAsync(
+                new DeleteEndedSessions { EndedBefore = null, Take = int.MaxValue },
+                ct)
+            .ConfigureAwait(false);
+        if (!ended.IsSuccess)
+        {
+            return ended;
+        }
+
+        var remainingFacts = await _journal.DeleteAllAsync(ct).ConfigureAwait(false);
+
+        var profiles = await DeleteInactiveProfilesAsync(
+                new DeleteInactiveProfiles
+                {
+                    OlderThan = DateTimeOffset.UnixEpoch,
+                    Take = int.MaxValue,
+                },
+                ct)
+            .ConfigureAwait(false);
+        if (!profiles.IsSuccess)
+        {
+            return profiles;
+        }
+
+        var signalsDeleted = await _db.ResourceSignals.ExecuteDeleteAsync(ct).ConfigureAwait(false);
+        var reportsDeleted = await _db.ResourceReports.ExecuteDeleteAsync(ct).ConfigureAwait(false);
+        _db.ChangeTracker.Clear();
+
+        await _db.Database.ExecuteSqlRawAsync("VACUUM;", ct).ConfigureAwait(false);
+
+        _logger.LogWarning(
+            "Lab reset completed: sessions={Sessions} journal={Journal} profiles={Profiles} signals={Signals} reports={Reports}",
+            ended.Value.SessionsDeleted,
+            ended.Value.JournalFactsDeleted + remainingFacts,
+            profiles.Value.ProfilesDeleted,
+            signalsDeleted,
+            reportsDeleted);
+
+        return Result<MaintenanceDeletionResult>.Success(new MaintenanceDeletionResult
+        {
+            SessionsDeleted = ended.Value.SessionsDeleted,
+            JournalFactsDeleted = ended.Value.JournalFactsDeleted + remainingFacts,
+            ProfilesDeleted = profiles.Value.ProfilesDeleted,
+            ResourceSignalsDeleted = signalsDeleted,
+            ResourceReportsDeleted = reportsDeleted,
+            VacuumRan = true,
         });
     }
 }

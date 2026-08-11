@@ -13,12 +13,39 @@ import { isBenignBrowserRace } from './host/browserRace';
 import { getBrowserSessionService } from './grpc/loadProto';
 import { createBrowserSessionHandlers } from './grpc/BrowserSessionService';
 
+/** Aligned with Speculum.Api SidecarOptions.DefaultMaxGrpcMessageBytes (64 MiB). */
+export const DEFAULT_GRPC_MAX_MESSAGE_BYTES = 64 * 1024 * 1024;
+const MIN_GRPC_MAX_MESSAGE_BYTES = 1 * 1024 * 1024;
+const ABSOLUTE_GRPC_MAX_MESSAGE_BYTES = 256 * 1024 * 1024;
+
 function requireEnv(name: string): string {
   const value = process.env[name];
   if (!value?.trim()) {
     throw new Error(`${name} environment variable is required`);
   }
   return value.trim();
+}
+
+/**
+ * BrowserSession gRPC send/receive ceiling.
+ * Override with SPECULUM_GRPC_MAX_MESSAGE_BYTES (same semantics as Sidecar:MaxGrpcMessageBytes).
+ */
+export function resolveGrpcMaxMessageBytes(
+  env: NodeJS.ProcessEnv = process.env,
+): number {
+  const raw = env['SPECULUM_GRPC_MAX_MESSAGE_BYTES']?.trim();
+  if (!raw) {
+    return DEFAULT_GRPC_MAX_MESSAGE_BYTES;
+  }
+  const n = Number(raw);
+  if (!Number.isFinite(n) || !Number.isInteger(n)
+      || n < MIN_GRPC_MAX_MESSAGE_BYTES
+      || n > ABSOLUTE_GRPC_MAX_MESSAGE_BYTES) {
+    throw new Error(
+      `SPECULUM_GRPC_MAX_MESSAGE_BYTES must be an integer between ${MIN_GRPC_MAX_MESSAGE_BYTES} and ${ABSOLUTE_GRPC_MAX_MESSAGE_BYTES}`,
+    );
+  }
+  return n;
 }
 
 function resolveBrowserMode(): 'mock' | 'patchright' {
@@ -47,9 +74,14 @@ export function createSidecarServer(options: {
   emitFrames: boolean;
   frameIntervalMs: number;
   factory: BrowserSessionFactory;
+  maxGrpcMessageBytes?: number;
 }): { server: grpc.Server; registry: SessionRegistry } {
   const registry = new SessionRegistry(options.factory);
-  const server = new grpc.Server();
+  const maxMessageBytes = options.maxGrpcMessageBytes ?? resolveGrpcMaxMessageBytes();
+  const server = new grpc.Server({
+    'grpc.max_receive_message_length': maxMessageBytes,
+    'grpc.max_send_message_length': maxMessageBytes,
+  });
   server.addService(getBrowserSessionService(), createBrowserSessionHandlers(registry));
   return { server, registry };
 }

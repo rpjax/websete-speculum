@@ -68,6 +68,78 @@ public sealed class SequencedDiffChannelsTests
         Assert.False(channel.Reader.TryRead(out _));
     }
 
+    [Fact]
+    public void FanOutTargetCapacity_IsMuchSmallerThanConnectionDefault()
+    {
+        // Closes the Wait@DefaultCapacity blind zone (WIRE_STALL_AT_8192).
+        Assert.True(SequencedDiffChannels.FanOutTargetCapacity < SequencedDiffChannels.DefaultCapacity / 8);
+        Assert.True(SequencedDiffChannels.FanOutTargetCapacity >= 32);
+    }
+
+    /// <summary>
+    /// Stalled fan-out consumer + continued connection enqueue must DropAll on the
+    /// connection queue (T5) — never silently buffer FR−WD inside a large Wait pipe.
+    /// </summary>
+    [Fact]
+    public async Task StalledFanOut_BackpressuresConnection_IntoDropAll()
+    {
+        const int connectionCap = 4;
+        const int fanOutCap = 2;
+        var connection = SequencedDiffChannels.Create<PageProjectionDiff>(capacity: connectionCap);
+        var fanOut = SequencedDiffChannels.CreateForFanOutTarget<PageProjectionDiff>(capacity: fanOutCap);
+
+        using var lifetime = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var fanOutFull = false;
+        var dropAllSeen = false;
+
+        // Consumer never reads fanOut — mimics stalled data-plane WD pump.
+        var fanOutPump = Task.Run(async () =>
+        {
+            await foreach (var item in connection.Reader.ReadAllAsync(lifetime.Token))
+            {
+                if (!fanOut.Writer.TryWrite(item))
+                {
+                    fanOutFull = true;
+                    using var shortWait = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+                    shortWait.CancelAfter(20);
+                    try
+                    {
+                        await fanOut.Writer.WriteAsync(item, shortWait.Token);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // Item already dequeued from connection; stall holds the pump.
+                        await Task.Delay(Timeout.Infinite, lifetime.Token);
+                    }
+                }
+            }
+        }, lifetime.Token);
+
+        for (var seq = 1L; seq <= 32; seq++)
+        {
+            var (dropped, _, _) = await SequencedDiffChannels
+                .WriteDropAllOnOverflowDetailedAsync(connection, connectionCap, Diff(seq), lifetime.Token);
+            if (dropped > 0)
+            {
+                dropAllSeen = true;
+                break;
+            }
+
+            await Task.Delay(15);
+        }
+
+        lifetime.Cancel();
+        try { await fanOutPump; } catch { /* cancelled */ }
+
+        Assert.True(
+            dropAllSeen,
+            "connection DropAll must fire once fan-out Wait blocks (T5; no silent FR≫WD)");
+        Assert.True(fanOutFull, "fan-out must have reached capacity before DropAll");
+        Assert.True(
+            SequencedDiffChannels.FanOutTargetCapacity <= 256,
+            "production fan-out must stay small enough that Beleza-scale FR−WD cannot hide");
+    }
+
     private static PageProjectionDiff Diff(long sequence) => new()
     {
         Sequence = sequence,

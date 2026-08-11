@@ -7,8 +7,21 @@ class EventBridge {
     sessionId;
     video = new DropOldestQueue_1.DropOldestQueue(2);
     audio = new DropOldestQueue_1.DropOldestQueue(2);
-    /** PageProjection Dom+Cssom envelopes — sized for SPA churn (T5 DropAll on overflow). */
-    dom = new DropOldestQueue_1.DropOldestQueue(1024);
+    /**
+     * PageProjection Dom+Cssom envelopes — sized for SPA boot churn (T5 DropAll on overflow).
+     * Default 8192 aligns with API SequencedDiffChannels.DefaultCapacity (BZ1).
+     * Replaced at Launch via {@link configureDomCapacity} when Sessions config differs.
+     */
+    _dom = new DropOldestQueue_1.DropOldestQueue(8192);
+    get dom() {
+        return this._dom;
+    }
+    /** High-watermark fraction — pause Virtual live emit before DropAll (T5 backpressure defer). */
+    static DomBackpressureRatio = 0.8;
+    /** Resume live emit when depth falls below this fraction of capacity. */
+    static DomBackpressureClearRatio = 0.5;
+    _domBackpressure = false;
+    _onDomBackpressureChanged = null;
     consoleQ = new DropOldestQueue_1.DropOldestQueue(64);
     location = new DropOldestQueue_1.DropOldestQueue(1);
     navigationBlocked = new DropOldestQueue_1.DropOldestQueue(8);
@@ -18,7 +31,7 @@ class EventBridge {
     videoStreamingInputPath = new DropOldestQueue_1.DropOldestQueue(32);
     /** Opt-in path hops for Telemetry.Sessions.PageProjection.Input.* (DropOldest). */
     pageProjectionInputPath = new DropOldestQueue_1.DropOldestQueue(32);
-    /** Opt-in PageProjection lifecycle (GenerationBumped | QueueDropped) — DropOldest. */
+    /** Opt-in PageProjection lifecycle (GenerationBumped | QueueDropped | parity_*) — DropOldest. */
     pageProjectionLifecycle = new DropOldestQueue_1.DropOldestQueue(32);
     /** Opt-in allocation lifecycle for Telemetry.Sessions.Sidecar.* (DropOldest). */
     allocationLifecycle = new DropOldestQueue_1.DropOldestQueue(16);
@@ -29,6 +42,44 @@ class EventBridge {
     permissionSink = null;
     constructor(sessionId) {
         this.sessionId = sessionId;
+    }
+    /**
+     * Apply Sessions.PageProjectionDiffQueueCapacity at Launch (queue must be empty —
+     * Create→Launch window has no Dom emits yet).
+     */
+    configureDomCapacity(capacity) {
+        const cap = Math.max(64, Math.min(65_536, Math.floor(capacity)));
+        if (cap === this._dom.maxCapacity)
+            return;
+        if (this._dom.pendingCount > 0) {
+            return;
+        }
+        this._dom = new DropOldestQueue_1.DropOldestQueue(cap);
+        this._domBackpressure = false;
+    }
+    /** PageProjection registers pause/resume of page liveEmit (T5 defer). */
+    setDomBackpressureHandler(handler) {
+        this._onDomBackpressureChanged = handler;
+    }
+    get isDomBackpressured() {
+        return this._domBackpressure;
+    }
+    updateDomBackpressureAfterWrite() {
+        const capacity = this._dom.maxCapacity;
+        const pending = this._dom.pendingCount;
+        if (!this._domBackpressure && pending > capacity * EventBridge.DomBackpressureRatio) {
+            this._domBackpressure = true;
+            this._onDomBackpressureChanged?.(true);
+            return;
+        }
+        if (this._domBackpressure && pending <= capacity * EventBridge.DomBackpressureClearRatio) {
+            this._domBackpressure = false;
+            this._onDomBackpressureChanged?.(false);
+        }
+    }
+    /** Called by WatchPageProjectionDiff after each dequeue so clear can fire. */
+    notifyDomQueueDrained() {
+        this.updateDomBackpressureAfterWrite();
     }
     /** Called by Control stream to receive permission requests. Returns sink epoch. */
     setPermissionSink(sink) {
@@ -82,6 +133,14 @@ class EventBridge {
                 lowestDroppedSequence: lowestSequence ?? undefined,
                 highestDroppedSequence: highestSequence ?? undefined,
             });
+            // DropAll emptied the backlog — clear backpressure so Virtual can re-establish.
+            if (this._domBackpressure) {
+                this._domBackpressure = false;
+                this._onDomBackpressureChanged?.(false);
+            }
+        }
+        else {
+            this.updateDomBackpressureAfterWrite();
         }
     }
     /** Emit queue_dropped lifecycle; if lifecycle queue itself DropOldests, emit sidecar_lifecycle_overflow. */
@@ -140,6 +199,32 @@ class EventBridge {
             diffKind: event.liveArmed ? 'armed' : 'disarmed',
             unixMs: Date.now(),
         });
+    }
+    /**
+     * PageEpoch parity telemetry (Virtual / Establish / Asset / Resync `parity_*` kinds).
+     * Best-effort — shares the lifecycle DropOldest queue with generation_bumped/queue_dropped.
+     */
+    emitPageProjectionParity(kind, payload) {
+        let payloadJson;
+        try {
+            payloadJson = JSON.stringify(payload);
+        }
+        catch {
+            return;
+        }
+        const generation = payload['generation'];
+        const toGeneration = typeof generation === 'number' ? generation : 0;
+        this.pageProjectionLifecycle.tryWrite({
+            kind,
+            fromGeneration: 0,
+            toGeneration,
+            reason: '',
+            unixMs: Date.now(),
+            payloadJson,
+        });
+    }
+    onPageProjectionParity(kind, payload) {
+        this.emitPageProjectionParity(kind, payload);
     }
     onPageProjectionScrollEchoHit(event) {
         const coords = event.kind === 'viewport'

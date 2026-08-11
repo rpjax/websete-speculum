@@ -1,0 +1,11 @@
+{
+  "sessionId": "80d95e95-1162-4cc4-b18e-c55c26e3d26e",
+  "count": 2000,
+  "hops": {
+    "client_apply": 990,
+    "client_recv": 983,
+    "client_sent": 8,
+    "lifecycle": 19
+  },
+  "desyncs": []
+}

@@ -1,0 +1,393 @@
+{
+  "sessionId": "a2d35ee8-e37c-44db-af7d-b63273f27026",
+  "exportedAt": "2026-08-10T07:06:22.3536697-03:00",
+  "factCount": 21,
+  "facts": [
+    {
+      "id": "019feb22-98b7-7fec-9133-c58b671ea645",
+      "sequence": 482582,
+      "type": "Sessions.SessionStarting",
+      "publishedAt": "2026-08-10T07:05:40.9198907-03:00",
+      "schemaVersion": 1,
+      "indexKeys": [
+        {
+          "type": "profile",
+          "value": "d11b6b93-5085-4ed8-a295-a740a1a6de8d"
+        },
+        {
+          "type": "session",
+          "value": "a2d35ee8-e37c-44db-af7d-b63273f27026"
+        }
+      ],
+      "payload": "{\"profileId\":\"d11b6b93-5085-4ed8-a295-a740a1a6de8d\",\"sessionId\":\"a2d35ee8-e37c-44db-af7d-b63273f27026\"}"
+    },
+    {
+      "id": "019feb22-98b7-7616-9426-7566e348fcda",
+      "sequence": 482583,
+      "type": "Telemetry.Sessions.Capacity.SlotAcquired",
+      "publishedAt": "2026-08-10T07:05:40.9197159-03:00",
+      "schemaVersion": 1,
+      "indexKeys": [
+        {
+          "type": "profile",
+          "value": "d11b6b93-5085-4ed8-a295-a740a1a6de8d"
+        },
+        {
+          "type": "session",
+          "value": "a2d35ee8-e37c-44db-af7d-b63273f27026"
+        }
+      ],
+      "payload": "{\"profileId\":\"d11b6b93-5085-4ed8-a295-a740a1a6de8d\",\"sessionId\":\"a2d35ee8-e37c-44db-af7d-b63273f27026\"}"
+    },
+    {
+      "id": "019feb22-98be-7d35-aa99-3e7b51d48232",
+      "sequence": 482584,
+      "type": "Sessions.ConnectionStarted",
+      "publishedAt": "2026-08-10T07:05:40.9266339-03:00",
+      "schemaVersion": 1,
+      "indexKeys": [
+        {
+          "type": "profile",
+          "value": "d11b6b93-5085-4ed8-a295-a740a1a6de8d"
+        },
+        {
+          "type": "session",
+          "value": "a2d35ee8-e37c-44db-af7d-b63273f27026"
+        }
+      ],
+      "payload": "{\"profileId\":\"d11b6b93-5085-4ed8-a295-a740a1a6de8d\",\"sessionId\":\"a2d35ee8-e37c-44db-af7d-b63273f27026\"}"
+    },
+    {
+      "id": "019feb22-9e93-7a14-a36d-265cb7ce61dd",
+      "sequence": 482585,
+      "type": "Sessions.BrowserLaunched",
+      "publishedAt": "2026-08-10T07:05:42.4195604-03:00",
+      "schemaVersion": 1,
+      "indexKeys": [
+        {
+          "type": "profile",
+          "value": "d11b6b93-5085-4ed8-a295-a740a1a6de8d"
+        },
+        {
+          "type": "session",
+          "value": "a2d35ee8-e37c-44db-af7d-b63273f27026"
+        }
+      ],
+      "payload": "{\"profileId\":\"d11b6b93-5085-4ed8-a295-a740a1a6de8d\",\"sessionId\":\"a2d35ee8-e37c-44db-af7d-b63273f27026\"}"
+    },
+    {
+      "id": "019feb22-9ea0-7203-958e-4717beae875b",
+      "sequence": 482586,
+      "type": "Sessions.ProfileStateRestored",
+      "publishedAt": "2026-08-10T07:05:42.4320451-03:00",
+      "schemaVersion": 1,
+      "indexKeys": [
+        {
+          "type": "profile",
+          "value": "d11b6b93-5085-4ed8-a295-a740a1a6de8d"
+        },
+        {
+          "type": "session",
+          "value": "a2d35ee8-e37c-44db-af7d-b63273f27026"
+        }
+      ],
+      "payload": "{\"profileId\":\"d11b6b93-5085-4ed8-a295-a740a1a6de8d\",\"sessionId\":\"a2d35ee8-e37c-44db-af7d-b63273f27026\",\"cookieTotal\":114,\"cookieSkipped\":0,\"cookieNormalized\":0,\"cookieApplied\":114,\"cookieFailedIndividual\":0}"
+    },
+    {
+      "id": "019feb22-9ea0-7267-84ef-d32d9bb51e96",
+      "sequence": 482587,
+      "type": "Telemetry.Sessions.Start.UrlResolved",
+      "publishedAt": "2026-08-10T07:05:42.4325986-03:00",
+      "schemaVersion": 1,
+      "indexKeys": [
+        {
+          "type": "profile",
+          "value": "d11b6b93-5085-4ed8-a295-a740a1a6de8d"
+        },
+        {
+          "type": "session",
+          "value": "a2d35ee8-e37c-44db-af7d-b63273f27026"
+        }
+      ],
+      "payload": "{\"profileId\":\"d11b6b93-5085-4ed8-a295-a740a1a6de8d\",\"sessionId\":\"a2d35ee8-e37c-44db-af7d-b63273f27026\",\"url\":\"https://www.belezanaweb.com.br/\"}"
+    },
+    {
+      "id": "019feb22-9ea7-7825-a209-bf1c067b6ee2",
+      "sequence": 482588,
+      "type": "Sessions.SessionStarted",
+      "publishedAt": "2026-08-10T07:05:42.4396081-03:00",
+      "schemaVersion": 1,
+      "indexKeys": [
+        {
+          "type": "profile",
+          "value": "d11b6b93-5085-4ed8-a295-a740a1a6de8d"
+        },
+        {
+          "type": "session",
+          "value": "a2d35ee8-e37c-44db-af7d-b63273f27026"
+        }
+      ],
+      "payload": "{\"profileId\":\"d11b6b93-5085-4ed8-a295-a740a1a6de8d\",\"sessionId\":\"a2d35ee8-e37c-44db-af7d-b63273f27026\"}"
+    },
+    {
+      "id": "019feb22-9ea7-74d6-b1ce-c3f769df9b26",
+      "sequence": 482589,
+      "type": "Telemetry.Sessions.Sidecar.SessionAllocated",
+      "publishedAt": "2026-08-10T07:05:42.4390324-03:00",
+      "schemaVersion": 1,
+      "indexKeys": [
+        {
+          "type": "profile",
+          "value": "d11b6b93-5085-4ed8-a295-a740a1a6de8d"
+        },
+        {
+          "type": "session",
+          "value": "a2d35ee8-e37c-44db-af7d-b63273f27026"
+        }
+      ],
+      "payload": "{\"profileId\":\"d11b6b93-5085-4ed8-a295-a740a1a6de8d\",\"sessionId\":\"a2d35ee8-e37c-44db-af7d-b63273f27026\",\"inputBackend\":null}"
+    },
+    {
+      "id": "019feb22-9ea7-722a-acfd-272ecfad74c5",
+      "sequence": 482590,
+      "type": "Telemetry.Sessions.Sidecar.DisplayAllocated",
+      "publishedAt": "2026-08-10T07:05:42.4392494-03:00",
+      "schemaVersion": 1,
+      "indexKeys": [
+        {
+          "type": "profile",
+          "value": "d11b6b93-5085-4ed8-a295-a740a1a6de8d"
+        },
+        {
+          "type": "session",
+          "value": "a2d35ee8-e37c-44db-af7d-b63273f27026"
+        }
+      ],
+      "payload": "{\"profileId\":\"d11b6b93-5085-4ed8-a295-a740a1a6de8d\",\"sessionId\":\"a2d35ee8-e37c-44db-af7d-b63273f27026\",\"displayWidth\":4096,\"displayHeight\":2160,\"logicalWidth\":1767,\"logicalHeight\":994,\"inputBackend\":null}"
+    },
+    {
+      "id": "019feb22-a16d-7c41-94ac-a3e0ecdeaf60",
+      "sequence": 482591,
+      "type": "Telemetry.Sessions.Browse.LocationChanged",
+      "publishedAt": "2026-08-10T07:05:43.1490684-03:00",
+      "schemaVersion": 1,
+      "indexKeys": [
+        {
+          "type": "profile",
+          "value": "d11b6b93-5085-4ed8-a295-a740a1a6de8d"
+        },
+        {
+          "type": "session",
+          "value": "a2d35ee8-e37c-44db-af7d-b63273f27026"
+        }
+      ],
+      "payload": "{\"profileId\":\"d11b6b93-5085-4ed8-a295-a740a1a6de8d\",\"sessionId\":\"a2d35ee8-e37c-44db-af7d-b63273f27026\",\"url\":\"https://www.belezanaweb.com.br/\"}"
+    },
+    {
+      "id": "019feb22-a243-7851-b1f8-3c905952e59c",
+      "sequence": 482592,
+      "type": "Telemetry.Sessions.PageProjection.Diff.FrameReceived",
+      "publishedAt": "2026-08-10T07:05:43.3636987-03:00",
+      "schemaVersion": 5,
+      "indexKeys": [
+        {
+          "type": "profile",
+          "value": "d11b6b93-5085-4ed8-a295-a740a1a6de8d"
+        },
+        {
+          "type": "session",
+          "value": "a2d35ee8-e37c-44db-af7d-b63273f27026"
+        }
+      ],
+      "payload": "{\"profileId\":\"d11b6b93-5085-4ed8-a295-a740a1a6de8d\",\"sessionId\":\"a2d35ee8-e37c-44db-af7d-b63273f27026\",\"plane\":\"dom\",\"operation\":\"document\",\"sequence\":1,\"generation\":1,\"timestamp\":1786356343361,\"sheetCount\":null,\"ruleCount\":null,\"seededSheetCount\":null}"
+    },
+    {
+      "id": "019feb22-a244-71b1-915c-75903cf1b8de",
+      "sequence": 482593,
+      "type": "Telemetry.Sessions.PageProjection.Diff.FrameReceived",
+      "publishedAt": "2026-08-10T07:05:43.3645473-03:00",
+      "schemaVersion": 5,
+      "indexKeys": [
+        {
+          "type": "profile",
+          "value": "d11b6b93-5085-4ed8-a295-a740a1a6de8d"
+        },
+        {
+          "type": "session",
+          "value": "a2d35ee8-e37c-44db-af7d-b63273f27026"
+        }
+      ],
+      "payload": "{\"profileId\":\"d11b6b93-5085-4ed8-a295-a740a1a6de8d\",\"sessionId\":\"a2d35ee8-e37c-44db-af7d-b63273f27026\",\"plane\":\"cssom\",\"operation\":\"install\",\"sequence\":2,\"generation\":1,\"timestamp\":1786356343361,\"sheetCount\":null,\"ruleCount\":null,\"seededSheetCount\":null}"
+    },
+    {
+      "id": "019feb22-a246-7a76-89ab-2fe319cbfb87",
+      "sequence": 482594,
+      "type": "Telemetry.Sessions.PageProjection.Diff.WireDelivered",
+      "publishedAt": "2026-08-10T07:05:43.3660191-03:00",
+      "schemaVersion": 1,
+      "indexKeys": [
+        {
+          "type": "profile",
+          "value": "d11b6b93-5085-4ed8-a295-a740a1a6de8d"
+        },
+        {
+          "type": "session",
+          "value": "a2d35ee8-e37c-44db-af7d-b63273f27026"
+        }
+      ],
+      "payload": "{\"profileId\":\"d11b6b93-5085-4ed8-a295-a740a1a6de8d\",\"sessionId\":\"a2d35ee8-e37c-44db-af7d-b63273f27026\",\"plane\":\"dom\",\"operation\":\"document\",\"sequence\":1,\"generation\":1,\"timestamp\":1786356343361}"
+    },
+    {
+      "id": "019feb22-a246-7212-be26-f83fa1524b96",
+      "sequence": 482595,
+      "type": "Telemetry.Sessions.PageProjection.Diff.WireDelivered",
+      "publishedAt": "2026-08-10T07:05:43.3661118-03:00",
+      "schemaVersion": 1,
+      "indexKeys": [
+        {
+          "type": "profile",
+          "value": "d11b6b93-5085-4ed8-a295-a740a1a6de8d"
+        },
+        {
+          "type": "session",
+          "value": "a2d35ee8-e37c-44db-af7d-b63273f27026"
+        }
+      ],
+      "payload": "{\"profileId\":\"d11b6b93-5085-4ed8-a295-a740a1a6de8d\",\"sessionId\":\"a2d35ee8-e37c-44db-af7d-b63273f27026\",\"plane\":\"cssom\",\"operation\":\"install\",\"sequence\":2,\"generation\":1,\"timestamp\":1786356343361}"
+    },
+    {
+      "id": "019feb22-a29d-79f8-9f1a-03605e40b287",
+      "sequence": 482596,
+      "type": "Sessions.InitialNavigationCompleted",
+      "publishedAt": "2026-08-10T07:05:43.4531014-03:00",
+      "schemaVersion": 2,
+      "indexKeys": [
+        {
+          "type": "profile",
+          "value": "d11b6b93-5085-4ed8-a295-a740a1a6de8d"
+        },
+        {
+          "type": "session",
+          "value": "a2d35ee8-e37c-44db-af7d-b63273f27026"
+        }
+      ],
+      "payload": "{\"profileId\":\"d11b6b93-5085-4ed8-a295-a740a1a6de8d\",\"sessionId\":\"a2d35ee8-e37c-44db-af7d-b63273f27026\",\"url\":\"https://www.belezanaweb.com.br/\"}"
+    },
+    {
+      "id": "019feb23-3167-7c7d-94dd-b3ae0fe3f475",
+      "sequence": 482598,
+      "type": "Sessions.SessionStopping",
+      "publishedAt": "2026-08-10T07:06:20.0073747-03:00",
+      "schemaVersion": 2,
+      "indexKeys": [
+        {
+          "type": "profile",
+          "value": "d11b6b93-5085-4ed8-a295-a740a1a6de8d"
+        },
+        {
+          "type": "reason",
+          "value": "Drain"
+        },
+        {
+          "type": "session",
+          "value": "a2d35ee8-e37c-44db-af7d-b63273f27026"
+        }
+      ],
+      "payload": "{\"profileId\":\"d11b6b93-5085-4ed8-a295-a740a1a6de8d\",\"sessionId\":\"a2d35ee8-e37c-44db-af7d-b63273f27026\",\"reason\":\"Drain\"}"
+    },
+    {
+      "id": "019feb23-317c-7e92-bf0a-85bb91cd7245",
+      "sequence": 482599,
+      "type": "Sessions.SessionStatePersisted",
+      "publishedAt": "2026-08-10T07:06:20.0289637-03:00",
+      "schemaVersion": 1,
+      "indexKeys": [
+        {
+          "type": "profile",
+          "value": "d11b6b93-5085-4ed8-a295-a740a1a6de8d"
+        },
+        {
+          "type": "session",
+          "value": "a2d35ee8-e37c-44db-af7d-b63273f27026"
+        }
+      ],
+      "payload": "{\"profileId\":\"d11b6b93-5085-4ed8-a295-a740a1a6de8d\",\"sessionId\":\"a2d35ee8-e37c-44db-af7d-b63273f27026\"}"
+    },
+    {
+      "id": "019feb23-329c-78d6-af75-4abe1310721f",
+      "sequence": 482600,
+      "type": "Sessions.BrowserClosed",
+      "publishedAt": "2026-08-10T07:06:20.316768-03:00",
+      "schemaVersion": 1,
+      "indexKeys": [
+        {
+          "type": "profile",
+          "value": "d11b6b93-5085-4ed8-a295-a740a1a6de8d"
+        },
+        {
+          "type": "session",
+          "value": "a2d35ee8-e37c-44db-af7d-b63273f27026"
+        }
+      ],
+      "payload": "{\"profileId\":\"d11b6b93-5085-4ed8-a295-a740a1a6de8d\",\"sessionId\":\"a2d35ee8-e37c-44db-af7d-b63273f27026\"}"
+    },
+    {
+      "id": "019feb23-32a2-7b9d-ab1e-550345643144",
+      "sequence": 482601,
+      "type": "Sessions.ConnectionClosed",
+      "publishedAt": "2026-08-10T07:06:20.3225594-03:00",
+      "schemaVersion": 1,
+      "indexKeys": [
+        {
+          "type": "profile",
+          "value": "d11b6b93-5085-4ed8-a295-a740a1a6de8d"
+        },
+        {
+          "type": "session",
+          "value": "a2d35ee8-e37c-44db-af7d-b63273f27026"
+        }
+      ],
+      "payload": "{\"profileId\":\"d11b6b93-5085-4ed8-a295-a740a1a6de8d\",\"sessionId\":\"a2d35ee8-e37c-44db-af7d-b63273f27026\"}"
+    },
+    {
+      "id": "019feb23-32a2-795f-bd43-0abd67799af2",
+      "sequence": 482602,
+      "type": "Telemetry.Sessions.Capacity.SlotReleased",
+      "publishedAt": "2026-08-10T07:06:20.3225989-03:00",
+      "schemaVersion": 1,
+      "indexKeys": [
+        {
+          "type": "profile",
+          "value": "d11b6b93-5085-4ed8-a295-a740a1a6de8d"
+        },
+        {
+          "type": "session",
+          "value": "a2d35ee8-e37c-44db-af7d-b63273f27026"
+        }
+      ],
+      "payload": "{\"profileId\":\"d11b6b93-5085-4ed8-a295-a740a1a6de8d\",\"sessionId\":\"a2d35ee8-e37c-44db-af7d-b63273f27026\"}"
+    },
+    {
+      "id": "019feb23-32a2-711e-bc5f-736dc136cbed",
+      "sequence": 482603,
+      "type": "Sessions.SessionStopped",
+      "publishedAt": "2026-08-10T07:06:20.3226113-03:00",
+      "schemaVersion": 2,
+      "indexKeys": [
+        {
+          "type": "profile",
+          "value": "d11b6b93-5085-4ed8-a295-a740a1a6de8d"
+        },
+        {
+          "type": "reason",
+          "value": "Drain"
+        },
+        {
+          "type": "session",
+          "value": "a2d35ee8-e37c-44db-af7d-b63273f27026"
+        }
+      ],
+      "payload": "{\"sessionId\":\"a2d35ee8-e37c-44db-af7d-b63273f27026\",\"profileId\":\"d11b6b93-5085-4ed8-a295-a740a1a6de8d\",\"reason\":\"Drain\"}"
+    }
+  ]
+}

@@ -19,6 +19,7 @@ const Viewport_1 = require("./Viewport");
 const viewport_bounds_1 = require("./viewport-bounds");
 const PageProjection_1 = require("./mirror/dom/PageProjection");
 const DomElementInput_1 = require("./mirror/dom/DomElementInput");
+const EventBridge_1 = require("../../host/EventBridge");
 const VideoMirror_1 = require("./mirror/video/VideoMirror");
 /**
  * Production BrowserSession: composes Patchright capabilities.
@@ -67,6 +68,8 @@ class PatchrightBrowserSession {
     inputBackend = null;
     chromeWidth = 0;
     chromeHeight = 0;
+    /** PageEpoch parity telemetry — Virtual clock origin, set at the top of {@link launch}. */
+    browserLaunchedAtMs = Date.now();
     /**
      * Serializes navigate / refresh / soft resize so CDP metrics and page.goto
      * cannot interleave. Settles even when the op rejects.
@@ -110,6 +113,7 @@ class PatchrightBrowserSession {
     }
     async launch(options) {
         this.ensureNotDisposed();
+        this.browserLaunchedAtMs = Date.now();
         this.launchOptions = options;
         this.viewportPolicy = options.viewportPolicy;
         this.screencastMaxEncodeScale = options.screencastMaxEncodeScale;
@@ -198,12 +202,28 @@ class PatchrightBrowserSession {
                 const patchrightBackend = new PatchrightInputBackend_1.PatchrightInputBackend(this.chrome.page, this.chrome.cdp);
                 this.inputBackend = 'patchright';
                 this.input = new Input_1.InputController(this.chrome.page, patchrightBackend);
+                if (this.events instanceof EventBridge_1.EventBridge) {
+                    this.events.configureDomCapacity(options.pageProjectionDiffQueueCapacity);
+                }
                 this.pageProjection = await PageProjection_1.PageProjection.start(this.chrome.page, {
                     onPageProjectionDiff: (diff) => this.events.onPageProjectionDiff?.(diff),
                     onGenerationBumped: (event) => this.events.onPageProjectionGenerationBumped?.(event),
                     onSoftNavObserved: (event) => this.events.onPageProjectionSoftNavObserved?.(event),
                     onScrollEchoHit: (event) => this.events.onPageProjectionScrollEchoHit?.(event),
-                });
+                    onParity: (kind, payload) => this.events.onPageProjectionParity?.(kind, payload),
+                }, { browserLaunchedAtMs: this.browserLaunchedAtMs });
+                if (this.events instanceof EventBridge_1.EventBridge) {
+                    this.events.setDomBackpressureHandler((paused) => {
+                        void (async () => {
+                            if (!this.pageProjection)
+                                return;
+                            if (paused)
+                                await this.pageProjection.pauseLiveEmitForBackpressure();
+                            else
+                                await this.pageProjection.resumeLiveEmitAfterBackpressure();
+                        })();
+                    });
+                }
                 this.domElementInput = new DomElementInput_1.DomElementInput(this.chrome.page, this.pageProjection);
                 // Asset Fetch intercept deferred — Navigation.setupFetchGuard owns Fetch.enable.
             }
@@ -324,8 +344,9 @@ class PatchrightBrowserSession {
         await this.runBrowserOp(async () => {
             this.ensureLive();
             this.editableFocus.stop();
+            this.pageProjection?.notePendingNavigation('goto');
             try {
-                await this.chrome.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+                await this.chrome.page.goto(url, { waitUntil: 'commit', timeout: 30_000 });
                 // Navigation can drop mobile CSS layout back to the legacy ~980px width
                 // when the page lacks viewport meta — reinject + re-apply metrics.
                 await (0, device_emulation_1.reassertLogicalViewportAfterNavigation)(this.chrome.cdp, this.viewport.width, this.viewport.height, this.viewport.device, this.chrome.context);
@@ -367,6 +388,7 @@ class PatchrightBrowserSession {
         await this.runBrowserOp(async () => {
             this.ensureLive();
             this.editableFocus.stop();
+            this.pageProjection?.notePendingNavigation('reload');
             try {
                 await this.chrome.page.reload({ waitUntil: 'domcontentloaded', timeout: 30_000 });
                 await (0, device_emulation_1.reassertLogicalViewportAfterNavigation)(this.chrome.cdp, this.viewport.width, this.viewport.height, this.viewport.device, this.chrome.context);
@@ -721,6 +743,9 @@ class PatchrightBrowserSession {
     }
     async pushInput(input) {
         this.ensureLive();
+        if (input.type === 'goback' || input.type === 'goforward') {
+            this.pageProjection?.notePendingNavigation('back_forward');
+        }
         this.input.enqueue(input);
     }
     async pushDomInput(input) {
@@ -789,6 +814,12 @@ class PatchrightBrowserSession {
             coversThroughSequence: snap.coversThroughSequence,
             rootJson: Buffer.from(JSON.stringify(snap.root), 'utf8'),
             sheetsJson: Buffer.from(JSON.stringify(snap.sheets), 'utf8'),
+            pageEpochId: snap.pageEpochId,
+            source: snap.source,
+            domMapMs: snap.domMapMs,
+            cssomCloneMs: snap.cssomCloneMs,
+            rewriteMs: snap.rewriteMs,
+            serializeMs: snap.serializeMs,
         };
     }
     async putDomUpload(id, body, contentType, name) {

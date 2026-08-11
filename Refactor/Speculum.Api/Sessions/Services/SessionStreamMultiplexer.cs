@@ -11,14 +11,14 @@ using Speculum.Api.Sessions.Services.Streaming;
 namespace Speculum.Api.Sessions.Services;
 
 /// <summary>
-/// Multiplexes one sidecar connection's streams onto N registered output consumers,
-/// and merges inbound pumps from input consumers.
+/// Multiplexes one sidecar connection's outbound events onto registered output streams
+/// (one channel per open), and merges inbound pumps from input consumers.
 /// </summary>
 internal sealed class SessionStreamMultiplexer : ISessionStreamMultiplexer
 {
     private readonly ISessionConnection _connection;
-    private readonly ConcurrentDictionary<Guid, PipeStreamChannels> _pipes = new();
-    private readonly ConcurrentDictionary<Guid, byte> _inputConsumers = new();
+    private readonly ConcurrentDictionary<Guid, OutputStreamRegistration> _streams = new();
+    private readonly ConcurrentDictionary<Guid, int> _inputConsumers = new();
     private readonly CancellationTokenSource _lifetime = new();
     private readonly SessionOutputFanOut _fanOut;
     private readonly SessionInputMerger _input;
@@ -34,7 +34,7 @@ internal sealed class SessionStreamMultiplexer : ISessionStreamMultiplexer
         _connection = connection;
         _fanOut = new SessionOutputFanOut(
             connection,
-            _pipes,
+            _streams,
             outputPolicy ?? new OutputMultiplexingPolicy(),
             mirrorMode,
             _lifetime.Token);
@@ -45,47 +45,86 @@ internal sealed class SessionStreamMultiplexer : ISessionStreamMultiplexer
             IsInputConsumerAttached);
     }
 
-    public bool IsEmpty => _pipes.IsEmpty && _inputConsumers.IsEmpty;
+    public bool IsEmpty => _streams.IsEmpty && _inputConsumers.IsEmpty;
 
     public bool IsAlive => Volatile.Read(ref _disposed) == 0;
 
     public bool IsBoundTo(ISessionConnection connection)
         => ReferenceEquals(_connection, connection);
 
-    public IResult RegisterPipe(Guid pipeId)
+    public void SetAttachedConsumer(Guid? consumerId)
+        => _fanOut.SetAttachedConsumer(consumerId);
+
+    public IResult RegisterOutputStream(Guid consumerId, Guid streamId, OutputStreamKind kind)
     {
         if (!IsAlive)
         {
             return Result.Failure("Multiplexer is disposed");
         }
 
-        var channels = new PipeStreamChannels(
-            DropOldestChannels.Create<Frame>(capacity: 2),
-            // T5/D13: Wait + fan-out WriteAsync (lossless). DropAll only on connection api_sequenced.
-            SequencedDiffChannels.CreateForFanOutTarget<PageProjectionDiff>(
-                SequencedDiffChannels.DefaultCapacity),
-            DropOldestChannels.Create<ConsoleOutput>(capacity: 256),
-            DropOldestChannels.Create<SessionNotification>(capacity: 512));
-        if (!_pipes.TryAdd(pipeId, channels))
+        if (consumerId == Guid.Empty)
         {
-            channels.Complete();
-            return Result.Failure("Pipe already registered");
+            return Result.Failure("Consumer id is required");
         }
 
-        _fanOut.OnPipeRegistered(pipeId);
-        _fanOut.EnsureStarted();
+        var registration = kind switch
+        {
+            OutputStreamKind.Frame => OutputStreamRegistration.CreateFrame(streamId, consumerId),
+            OutputStreamKind.PageProjectionDiff
+                => OutputStreamRegistration.CreatePageProjectionDiff(streamId, consumerId),
+            OutputStreamKind.Console => OutputStreamRegistration.CreateConsole(streamId, consumerId),
+            OutputStreamKind.Notification
+                => OutputStreamRegistration.CreateNotification(streamId, consumerId),
+            _ => null,
+        };
+        if (registration is null)
+        {
+            return Result.Failure("Unknown output stream kind");
+        }
+
+        if (!_streams.TryAdd(streamId, registration))
+        {
+            registration.Complete();
+            return Result.Failure("Stream already registered");
+        }
+
+        _fanOut.OnStreamRegistered(streamId);
+        _connection.ReportPageProjectionDiffOutputStreamOpened(
+            streamId,
+            consumerId,
+            OutputStreamKindNames.ToTelemetry(kind),
+            openStreamCount: _streams.Count,
+            diffChannelCapacity: kind == OutputStreamKind.PageProjectionDiff
+                ? SequencedDiffChannels.FanOutTargetCapacity
+                : 0);
         return Result.Success();
     }
 
-    public void UnregisterPipe(Guid pipeId)
+    public void UnregisterOutputStream(Guid streamId)
     {
-        if (!_pipes.TryRemove(pipeId, out var channels))
+        if (!_streams.TryRemove(streamId, out var registration))
         {
             return;
         }
 
-        _fanOut.OnPipeUnregistered(pipeId);
-        channels.Complete();
+        _fanOut.OnStreamUnregistered(streamId);
+        registration.Complete();
+        _connection.ReportPageProjectionDiffOutputStreamClosed(
+            streamId,
+            registration.ConsumerId,
+            OutputStreamKindNames.ToTelemetry(registration.Kind),
+            openStreamCount: _streams.Count);
+    }
+
+    public IResult<long> GetDiffEpoch(Guid streamId)
+    {
+        if (!_streams.TryGetValue(streamId, out var registration)
+            || registration.Kind != OutputStreamKind.PageProjectionDiff)
+        {
+            return Result<long>.Failure("Diff stream is not registered");
+        }
+
+        return Result<long>.Success(registration.DiffEpoch);
     }
 
     public IResult RegisterInputConsumer(Guid consumerId)
@@ -95,19 +134,41 @@ internal sealed class SessionStreamMultiplexer : ISessionStreamMultiplexer
             return Result.Failure("Multiplexer is disposed");
         }
 
-        return _inputConsumers.TryAdd(consumerId, 0)
-            ? Result.Success()
-            : Result.Failure("Input consumer already registered");
+        if (consumerId == Guid.Empty)
+        {
+            return Result.Failure("Consumer id is required");
+        }
+
+        _inputConsumers.AddOrUpdate(consumerId, 1, static (_, count) => count + 1);
+        return Result.Success();
     }
 
     public void UnregisterInputConsumer(Guid consumerId)
     {
-        if (!_inputConsumers.TryRemove(consumerId, out _))
+        while (true)
         {
-            return;
-        }
+            if (!_inputConsumers.TryGetValue(consumerId, out var count))
+            {
+                return;
+            }
 
-        _input.ReleaseOwnership(consumerId);
+            if (count <= 1)
+            {
+                if (_inputConsumers.TryRemove(
+                        new KeyValuePair<Guid, int>(consumerId, count)))
+                {
+                    _input.ReleaseOwnership(consumerId);
+                    return;
+                }
+
+                continue;
+            }
+
+            if (_inputConsumers.TryUpdate(consumerId, count - 1, count))
+            {
+                return;
+            }
+        }
     }
 
     public void Dispose()
@@ -117,14 +178,17 @@ internal sealed class SessionStreamMultiplexer : ISessionStreamMultiplexer
             return;
         }
 
-        foreach (var pipeId in _pipes.Keys.ToArray())
+        foreach (var streamId in _streams.Keys.ToArray())
         {
-            UnregisterPipe(pipeId);
+            UnregisterOutputStream(streamId);
         }
 
         foreach (var consumerId in _inputConsumers.Keys.ToArray())
         {
-            UnregisterInputConsumer(consumerId);
+            while (_inputConsumers.ContainsKey(consumerId))
+            {
+                UnregisterInputConsumer(consumerId);
+            }
         }
 
         try
@@ -138,44 +202,49 @@ internal sealed class SessionStreamMultiplexer : ISessionStreamMultiplexer
         }
     }
 
-    public IResult<ChannelReader<Frame>> GetFramesChannel(Guid pipeId)
+    public IResult<ChannelReader<Frame>> GetFramesChannel(Guid streamId)
     {
-        if (!_pipes.TryGetValue(pipeId, out var channels))
+        if (!_streams.TryGetValue(streamId, out var registration)
+            || registration.Frames is null)
         {
-            return Result<ChannelReader<Frame>>.Failure("Pipe is not registered");
+            return Result<ChannelReader<Frame>>.Failure("Frame stream is not registered");
         }
 
-        return Result<ChannelReader<Frame>>.Success(channels.Frames.Reader);
+        return Result<ChannelReader<Frame>>.Success(registration.Frames.Reader);
     }
 
-    public IResult<ChannelReader<PageProjectionDiff>> GetPageProjectionDiffsChannel(Guid pipeId)
+    public IResult<ChannelReader<PageProjectionDiff>> GetPageProjectionDiffsChannel(Guid streamId)
     {
-        if (!_pipes.TryGetValue(pipeId, out var channels))
+        if (!_streams.TryGetValue(streamId, out var registration)
+            || registration.Kind != OutputStreamKind.PageProjectionDiff)
         {
-            return Result<ChannelReader<PageProjectionDiff>>.Failure("Pipe is not registered");
+            return Result<ChannelReader<PageProjectionDiff>>.Failure("Diff stream is not registered");
         }
 
-        return Result<ChannelReader<PageProjectionDiff>>.Success(channels.PageProjectionDiffs.Reader);
+        return Result<ChannelReader<PageProjectionDiff>>.Success(registration.PageProjectionDiffs.Reader);
     }
 
-    public IResult<ChannelReader<ConsoleOutput>> GetConsoleOutputChannel(Guid pipeId)
+    public IResult<ChannelReader<ConsoleOutput>> GetConsoleOutputChannel(Guid streamId)
     {
-        if (!_pipes.TryGetValue(pipeId, out var channels))
+        if (!_streams.TryGetValue(streamId, out var registration)
+            || registration.Console is null)
         {
-            return Result<ChannelReader<ConsoleOutput>>.Failure("Pipe is not registered");
+            return Result<ChannelReader<ConsoleOutput>>.Failure("Console stream is not registered");
         }
 
-        return Result<ChannelReader<ConsoleOutput>>.Success(channels.Console.Reader);
+        return Result<ChannelReader<ConsoleOutput>>.Success(registration.Console.Reader);
     }
 
-    public IResult<ChannelReader<SessionNotification>> GetNotificationChannel(Guid pipeId)
+    public IResult<ChannelReader<SessionNotification>> GetNotificationChannel(Guid streamId)
     {
-        if (!_pipes.TryGetValue(pipeId, out var channels))
+        if (!_streams.TryGetValue(streamId, out var registration)
+            || registration.Notifications is null)
         {
-            return Result<ChannelReader<SessionNotification>>.Failure("Pipe is not registered");
+            return Result<ChannelReader<SessionNotification>>.Failure(
+                "Notification stream is not registered");
         }
 
-        return Result<ChannelReader<SessionNotification>>.Success(channels.Notifications.Reader);
+        return Result<ChannelReader<SessionNotification>>.Success(registration.Notifications.Reader);
     }
 
     public IResult<Task> StartVideoStreamingInputPump(

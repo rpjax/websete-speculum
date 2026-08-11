@@ -1,10 +1,14 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.PageProjection = void 0;
+exports.parseDataUrl = parseDataUrl;
 exports.attachDomAssetFetch = attachDomAssetFetch;
 const node_crypto_1 = require("node:crypto");
 const DomAssetCache_1 = require("./DomAssetCache");
 const DomTreeSerializer_1 = require("./DomTreeSerializer");
+const srcsetParse_1 = require("./srcsetParse");
+const parityUtil_1 = require("./parityUtil");
+const VirtualEpochTelemetry_1 = require("./VirtualEpochTelemetry");
 const MAX_ASSET_FETCHES_PER_DIFF = 64;
 const VIRTUAL_ASSETS_PREFIX = '/w7s/virtual-assets/';
 const VIRTUAL_BLOB_PREFIX = '/w7s/virtual-blob/';
@@ -44,12 +48,29 @@ class PageProjection {
     /** C7: Cssom sheet ids published for each XO pierce host (teardown on swap/kill). */
     chromiumPierceSheetIds = new Map();
     chromiumPierceChain = Promise.resolve();
+    /**
+     * Install-ready Cssom mirror updated on every live cssom materialize.
+     * OOB resync clones this instead of re-walking Virtual cssRules (C8).
+     */
+    cssomInstallById = new Map();
+    /** PageEpoch parity telemetry (Virtual / Establish / Asset / Resync `parity_*` kinds). */
+    pageEpochId = null;
+    browserLaunchedAtMs = Date.now();
+    commitAtMs = null;
+    bootMarked = false;
+    pendingNavigationType = null;
+    firstDiffEmittedForEpoch = false;
+    lastSeededSheetCount = 0;
+    virtualTelemetry = null;
     constructor(page, events) {
         this.page = page;
         this.events = events;
     }
-    static async start(page, events) {
+    static async start(page, events, opts) {
         const proj = new PageProjection(page, events);
+        if (typeof opts?.browserLaunchedAtMs === 'number') {
+            proj.browserLaunchedAtMs = opts.browserLaunchedAtMs;
+        }
         await page.exposeBinding('__speculumDomEmit', (_source, payload) => {
             if (proj.stopped)
                 return;
@@ -104,6 +125,99 @@ class PageProjection {
         return proj;
     }
     /**
+     * Recorded by the caller (navigate / refresh / history nav) just before it triggers
+     * the browser navigation, so the NavCommit that follows (via framenavigated, which may
+     * race the caller's own await) can still attribute the correct navigationType.
+     */
+    notePendingNavigation(kind) {
+        this.pendingNavigationType = kind;
+    }
+    emitParity(kind, payload) {
+        this.events.onParity?.(kind, payload);
+    }
+    /** Build DomMapCompleted parity payload: in-page phases + CDP transfer gap. */
+    domMapCompletedPayload(args) {
+        const t = args.timings ?? {};
+        const pageTotalMs = Math.max(0, Number(t.pageTotalMs ?? 0) || 0);
+        const evaluateWallMs = Math.max(0, args.evaluateWallMs);
+        const cdpTransferMs = Math.max(0, evaluateWallMs - pageTotalMs);
+        return {
+            pageEpochId: args.pageEpochId,
+            generation: args.generation,
+            path: args.path,
+            durationMs: evaluateWallMs,
+            approxNodes: args.approxNodes,
+            takeRecordsMs: Math.max(0, Number(t.takeRecordsMs ?? 0) || 0),
+            clearLedgerMs: Math.max(0, Number(t.clearLedgerMs ?? 0) || 0),
+            anchorAllMs: Math.max(0, Number(t.anchorAllMs ?? 0) || 0),
+            remintMs: Math.max(0, Number(t.remintMs ?? 0) || 0),
+            mapNodeMs: Math.max(0, Number(t.mapNodeMs ?? 0) || 0),
+            resetPublishedMs: Math.max(0, Number(t.resetPublishedMs ?? 0) || 0),
+            cssomMs: Math.max(0, Number(t.cssomMs ?? 0) || 0),
+            pageTotalMs,
+            cdpTransferMs,
+            tVirtualMs: this.tVirtualMs(),
+        };
+    }
+    /** Elapsed ms since browser launch — shared timeline across every parity event. */
+    tVirtualMs() {
+        return Date.now() - this.browserLaunchedAtMs;
+    }
+    tSinceCommitMs() {
+        return this.commitAtMs != null ? Date.now() - this.commitAtMs : undefined;
+    }
+    /** SoftNav SPA wipe — new pageEpochId, same generation. */
+    onSoftNavCommit(url, documentEpoch) {
+        const now = Date.now();
+        this.pageEpochId = (0, node_crypto_1.randomUUID)();
+        this.commitAtMs = now;
+        this.firstDiffEmittedForEpoch = false;
+        this.emitParity('parity_virtual_nav_commit', {
+            pageEpochId: this.pageEpochId,
+            url: url ?? safePageUrl(this.page),
+            generation: this.generation,
+            documentEpoch: documentEpoch ?? this.documentEpoch ?? undefined,
+            navigationType: 'soft',
+            tVirtualMs: this.tVirtualMs(),
+        });
+        this.restartVirtualTelemetry();
+    }
+    restartVirtualTelemetry() {
+        if (!this.pageEpochId || this.commitAtMs == null)
+            return;
+        this.virtualTelemetry?.stop();
+        this.virtualTelemetry = new VirtualEpochTelemetry_1.VirtualEpochTelemetry(this.page, this.pageEpochId, this.commitAtMs, (kind, payload) => this.emitParity(kind, payload), () => this.tVirtualMs());
+        this.virtualTelemetry.start();
+    }
+    /** New Document committed for this session (real navigation, not soft-nav). */
+    onNavCommit() {
+        const now = Date.now();
+        const isFirstCommit = this.commitAtMs === null;
+        this.pageEpochId = (0, node_crypto_1.randomUUID)();
+        this.commitAtMs = now;
+        this.firstDiffEmittedForEpoch = false;
+        const navigationType = this.pendingNavigationType ?? 'unknown';
+        this.pendingNavigationType = null;
+        this.emitParity('parity_virtual_nav_commit', {
+            pageEpochId: this.pageEpochId,
+            url: safePageUrl(this.page),
+            generation: this.generation,
+            documentEpoch: this.documentEpoch ?? undefined,
+            navigationType,
+            tVirtualMs: this.tVirtualMs(),
+        });
+        if (isFirstCommit && !this.bootMarked) {
+            this.bootMarked = true;
+            this.emitParity('parity_virtual_boot_marked', {
+                pageEpochId: this.pageEpochId,
+                browserLaunchedAtMs: this.browserLaunchedAtMs,
+                firstCommitAtMs: now,
+                bootMs: now - this.browserLaunchedAtMs,
+            });
+        }
+        this.restartVirtualTelemetry();
+    }
+    /**
      * First Dom `document` + Cssom `install` for the session (D4 / C4).
      * Idempotent — safe to call from navigate settle and from late framenavigated.
      */
@@ -137,8 +251,10 @@ class PageProjection {
             this.sequence = 0;
             this.sequenceGeneration = 1;
             this.liveArmed = false;
+            this.cssomInstallById.clear();
             await this.page.evaluate(`typeof window.__speculumDomBumpGeneration === "function" && window.__speculumDomBumpGeneration(1)`);
             await this.ensureClosedShadowPierce();
+            this.onNavCommit();
             // T10: established only after document + install are on the chain (not before).
             const armed = await this.enqueueDocumentDiff();
             if (armed)
@@ -150,6 +266,9 @@ class PageProjection {
     }
     async stop() {
         this.stopped = true;
+        this.virtualTelemetry?.stop();
+        this.virtualTelemetry = null;
+        this.cssomInstallById.clear();
         this.assets.clear();
         this.uploads.clear();
         if (this.cdp) {
@@ -254,11 +373,13 @@ class PageProjection {
             this.documentEpoch = epoch;
             // Disarm live path until the new epoch's document + install land (T10).
             this.liveArmed = false;
+            this.cssomInstallById.clear();
             // Sidecar owns monotonic generation — never adopt a fresh page counter (T3).
             const fromGeneration = this.generation;
             this.generation += 1;
             await this.page.evaluate(`typeof window.__speculumDomBumpGeneration === "function" && window.__speculumDomBumpGeneration(${this.generation})`);
             await this.ensureClosedShadowPierce();
+            this.onNavCommit();
             this.events.onGenerationBumped?.({
                 fromGeneration,
                 toGeneration: this.generation,
@@ -321,6 +442,8 @@ class PageProjection {
                                 documentEpoch: epoch ?? undefined,
                                 liveArmed: this.liveArmed,
                             });
+                            // SoftNav = new pageEpoch without generation++ (parity load clock resets).
+                            this.onSoftNavCommit(url, epoch ?? undefined);
                         })
                             .catch(() => { });
                     });
@@ -549,8 +672,8 @@ class PageProjection {
     }
     /**
      * OOB resync snapshot (T8/C8) — does **not** advance live `sequence`.
-     * Live pipe continues with its own chronology; client applies this watermarked body.
-     * Capture runs on `materializeChain` so live `push` cannot interleave (truthful watermark).
+     * Dom is remapped under `materializeChain`; Cssom comes from the live install mirror
+     * (no Virtual cssRules walk). Pause live emit for the capture, then T5 re-establish.
      */
     async captureResyncSnapshot() {
         if (this.stopped)
@@ -558,49 +681,109 @@ class PageProjection {
         // Pre-establish resync would invent watermark 0 — refuse (T8 / T10).
         if (!this.established)
             return null;
-        return this.runOnMaterializeChain(async () => {
-            try {
-                // Do not waitStylesheetsReady here — holding the chain for seconds lets
-                // Virtual mutate while emits queue, then clients storm-resync (T8).
-                // MapDocument takes MO records + resets publishedAnchors to the snapshot.
-                const mapped = (await this.page.evaluate('window.__speculumDomMapDocument()'));
-                if (!mapped?.root)
-                    return null;
-                // Generation SoT is the sidecar counter — do not adopt a reset page value.
-                await this.rewriteRemoteAssets([mapped.root]);
-                const cssom = (await this.page.evaluate('window.__speculumDomMapCssom()'));
-                const sheets = Array.isArray(cssom?.sheets) ? [...cssom.sheets] : [];
-                // C7/C8: joint resync must include XO pierce-scoped sheets (top map cannot see them).
-                for (const [hostAnchor, frame] of this.chromiumPierceByAnchor) {
-                    if (this.stopped)
-                        break;
-                    try {
-                        if (frame.isDetached()) {
-                            this.chromiumPierceByAnchor.delete(hostAnchor);
-                            continue;
+        await this.pauseLiveEmitForBackpressure();
+        try {
+            const snap = await this.runOnMaterializeChain(async () => {
+                try {
+                    const pageEpochId = this.pageEpochId ?? '';
+                    this.emitParity('parity_establish_dom_map_started', {
+                        pageEpochId,
+                        generation: this.generation,
+                        path: 'resync',
+                        tVirtualMs: this.tVirtualMs(),
+                    });
+                    // MapDocument takes MO records + resets publishedAnchors to the snapshot.
+                    const domMapStartMs = Date.now();
+                    const mapped = (await this.page.evaluate(`typeof window.__speculumDomMapDocumentResync === "function"
+              ? window.__speculumDomMapDocumentResync()
+              : window.__speculumDomMapDocument()`));
+                    const evaluateWallMs = Date.now() - domMapStartMs;
+                    const domMapMs = evaluateWallMs;
+                    if (!mapped?.root) {
+                        this.emitParity('parity_establish_failed', {
+                            pageEpochId,
+                            generation: this.generation,
+                            errorCode: 'dom_map_empty',
+                            phase: 'dom_map_resync',
+                            tVirtualMs: this.tVirtualMs(),
+                        });
+                        return null;
+                    }
+                    const approxNodes = (0, parityUtil_1.countNodesApprox)(mapped.root);
+                    this.emitParity('parity_establish_dom_map_completed', this.domMapCompletedPayload({
+                        pageEpochId,
+                        generation: this.generation,
+                        path: 'resync',
+                        evaluateWallMs,
+                        approxNodes,
+                        timings: mapped.timings,
+                    }));
+                    // OOB: rewrite URLs without awaiting asset bodies — pass-through warms on demand.
+                    const rewriteStartMs = Date.now();
+                    await this.rewriteRemoteAssets([mapped.root], { deferFetches: true });
+                    const rewriteMs = Date.now() - rewriteStartMs;
+                    const cssomCloneStartMs = Date.now();
+                    let sheets = this.cloneCssomInstallMirror();
+                    let source = 'mirror';
+                    // Cold edge: mirror empty before first install landed — one-shot dump fallback.
+                    if (sheets.length === 0) {
+                        source = 'dump_fallback';
+                        const cssom = (await this.page.evaluate('window.__speculumDomMapCssom()'));
+                        sheets = Array.isArray(cssom?.sheets) ? [...cssom.sheets] : [];
+                        for (const [hostAnchor, frame] of this.chromiumPierceByAnchor) {
+                            if (this.stopped)
+                                break;
+                            try {
+                                if (frame.isDetached()) {
+                                    this.chromiumPierceByAnchor.delete(hostAnchor);
+                                    continue;
+                                }
+                                const pierceSheets = (await frame.evaluate(`typeof window.__speculumDomMapPierceCssom === "function" ? window.__speculumDomMapPierceCssom() : []`));
+                                if (Array.isArray(pierceSheets))
+                                    sheets.push(...pierceSheets);
+                            }
+                            catch {
+                                /* frame gone mid-resync */
+                            }
                         }
-                        const pierceSheets = (await frame.evaluate(`typeof window.__speculumDomMapPierceCssom === "function" ? window.__speculumDomMapPierceCssom() : []`));
-                        if (Array.isArray(pierceSheets))
-                            sheets.push(...pierceSheets);
+                        await this.seedCssomSheets('install', { sheets });
+                        this.rewriteCssomPayload('install', { sheets });
+                        this.replaceCssomInstallMirror(sheets);
                     }
-                    catch {
-                        /* frame gone mid-resync */
-                    }
+                    const cssomCloneMs = Date.now() - cssomCloneStartMs;
+                    const serializeStartMs = Date.now();
+                    JSON.stringify(mapped.root);
+                    JSON.stringify(sheets);
+                    const serializeMs = Date.now() - serializeStartMs;
+                    const pageTotalMs = Math.max(0, Number(mapped.timings?.pageTotalMs ?? 0) || 0);
+                    return {
+                        generation: this.generation,
+                        coversThroughSequence: this.sequence,
+                        root: mapped.root,
+                        sheets,
+                        pageEpochId: this.pageEpochId ?? '',
+                        source,
+                        domMapMs,
+                        cssomCloneMs,
+                        rewriteMs,
+                        serializeMs,
+                        domMapPhases: {
+                            ...(mapped.timings ?? {}),
+                            evaluateWallMs,
+                            cdpTransferMs: Math.max(0, evaluateWallMs - pageTotalMs),
+                        },
+                    };
                 }
-                await this.seedCssomSheets('install', { sheets });
-                this.rewriteCssomPayload('install', { sheets });
-                return {
-                    generation: this.generation,
-                    // Watermark after map+seed under the same chain turn — no concurrent push.
-                    coversThroughSequence: this.sequence,
-                    root: mapped.root,
-                    sheets,
-                };
-            }
-            catch {
-                return null;
-            }
-        });
+                catch {
+                    return null;
+                }
+            });
+            return snap;
+        }
+        finally {
+            // T5: re-establish so paused mutations are not a silent chronology hole.
+            void this.resumeLiveEmitAfterBackpressure();
+        }
     }
     /**
      * @deprecated Does not publish OOB resync. Use `captureResyncSnapshot` and the
@@ -614,6 +797,29 @@ class PageProjection {
     getGeneration() {
         return this.generation;
     }
+    /**
+     * T5 backpressure defer: stop page live emit while EventBridge Dom is near capacity.
+     * MO keeps running; emit() no-ops until resume re-establishes.
+     */
+    async pauseLiveEmitForBackpressure() {
+        if (this.stopped || !this.established)
+            return;
+        try {
+            await this.page.evaluate(`typeof window.__speculumDomPauseLiveEmit === "function" && window.__speculumDomPauseLiveEmit()`);
+        }
+        catch {
+            /* mid-nav */
+        }
+    }
+    /**
+     * After Dom queue drains: re-establish document+install so deferred mutations are not lost
+     * as a silent chronology hole (T5 — overflow path stays DropAll+desync only at hard cap).
+     */
+    async resumeLiveEmitAfterBackpressure() {
+        if (this.stopped || !this.established)
+            return;
+        await this.enqueueDocumentDiff();
+    }
     /** Serialize work with Dom/Cssom emits so chronology stays contiguous (T8). */
     runOnMaterializeChain(work) {
         const done = this.materializeChain.then(work, work);
@@ -623,12 +829,14 @@ class PageProjection {
     /** C4 — wait for pending stylesheet links before install / resync map. */
     async waitStylesheetsReady(timeoutMs) {
         try {
-            await this.page.evaluate(`typeof window.__speculumDomWaitStylesheetsReady === "function"
+            const result = (await this.page.evaluate(`typeof window.__speculumDomWaitStylesheetsReady === "function"
           ? window.__speculumDomWaitStylesheetsReady(${Math.max(0, timeoutMs | 0)})
-          : null`);
+          : null`));
+            return { ready: result?.ready !== false };
         }
         catch {
             /* mid-navigation */
+            return { ready: false };
         }
     }
     /**
@@ -640,31 +848,125 @@ class PageProjection {
         return new Promise((resolve) => {
             this.enqueue(async () => {
                 let armed = false;
+                const pageEpochId = this.pageEpochId ?? '';
+                const generation = this.generation;
+                const establishStartMs = Date.now();
+                const stylesTimeoutMs = 2500;
                 try {
                     this.liveArmed = false;
                     // C4: wait styles before Dom document so the first client paint is not a
                     // long FOUC window ahead of Cssom install.
-                    await this.waitStylesheetsReady(2500);
+                    this.emitParity('parity_establish_styles_wait_started', {
+                        pageEpochId,
+                        generation,
+                        timeoutMs: stylesTimeoutMs,
+                        tVirtualMs: this.tVirtualMs(),
+                    });
+                    const stylesStartMs = Date.now();
+                    const { ready } = await this.waitStylesheetsReady(stylesTimeoutMs);
+                    this.emitParity('parity_establish_styles_wait_completed', {
+                        pageEpochId,
+                        generation,
+                        timeoutMs: stylesTimeoutMs,
+                        waitedMs: Date.now() - stylesStartMs,
+                        timedOut: !ready,
+                        tVirtualMs: this.tVirtualMs(),
+                    });
+                    this.emitParity('parity_establish_dom_map_started', {
+                        pageEpochId,
+                        generation,
+                        path: 'establish',
+                        tVirtualMs: this.tVirtualMs(),
+                    });
+                    const domMapStartMs = Date.now();
                     const mapped = (await this.page.evaluate(`typeof window.__speculumDomMapAndArmEstablish === "function"
               ? window.__speculumDomMapAndArmEstablish()
               : null`));
-                    if (!mapped?.root)
+                    const evaluateWallMs = Date.now() - domMapStartMs;
+                    if (!mapped?.root) {
+                        this.emitParity('parity_establish_failed', {
+                            pageEpochId,
+                            generation,
+                            errorCode: 'dom_map_empty',
+                            phase: 'dom_map',
+                            tVirtualMs: this.tVirtualMs(),
+                        });
                         return;
+                    }
+                    this.emitParity('parity_establish_dom_map_completed', this.domMapCompletedPayload({
+                        pageEpochId,
+                        generation,
+                        path: 'establish',
+                        evaluateWallMs,
+                        approxNodes: (0, parityUtil_1.countNodesApprox)(mapped.root),
+                        timings: mapped.timings,
+                    }));
                     // Accept page MO immediately; emitFromPage enqueues behind this task.
                     this.liveArmed = true;
                     await this.materializeAndPush('dom', 'document', { root: mapped.root });
+                    this.noteFirstDiffEmitted('dom', 'document');
                     if (Array.isArray(mapped.sheets)) {
+                        this.emitParity('parity_establish_cssom_install_started', {
+                            pageEpochId,
+                            generation,
+                            source: 'live',
+                            tVirtualMs: this.tVirtualMs(),
+                        });
+                        const cssomStartMs = Date.now();
+                        this.lastSeededSheetCount = 0;
                         await this.materializeAndPush('cssom', 'install', { sheets: mapped.sheets });
+                        const { sheetCount, ruleCount } = (0, parityUtil_1.summarizeSheets)(mapped.sheets);
+                        this.emitParity('parity_establish_cssom_install_completed', {
+                            pageEpochId,
+                            generation,
+                            source: 'live',
+                            durationMs: Date.now() - cssomStartMs,
+                            sheetCount,
+                            ruleCount,
+                            seededSheetCount: this.lastSeededSheetCount,
+                            tVirtualMs: this.tVirtualMs(),
+                        });
+                        this.noteFirstDiffEmitted('cssom', 'install');
                     }
                     armed = true;
+                    this.emitParity('parity_establish_completed', {
+                        pageEpochId,
+                        generation,
+                        totalMs: Date.now() - establishStartMs,
+                        tSinceCommitMs: this.tSinceCommitMs(),
+                        tVirtualMs: this.tVirtualMs(),
+                    });
                 }
-                catch {
+                catch (err) {
                     this.liveArmed = false;
+                    this.emitParity('parity_establish_failed', {
+                        pageEpochId,
+                        generation,
+                        errorCode: 'establish_exception',
+                        phase: 'establish',
+                        message: err instanceof Error ? err.message.slice(0, 256) : String(err).slice(0, 256),
+                        tVirtualMs: this.tVirtualMs(),
+                    });
                 }
                 finally {
                     resolve(armed);
                 }
             });
+        });
+    }
+    /** Fires once per epoch — marks the first Dom/Cssom diff that reaches the wire. */
+    noteFirstDiffEmitted(plane, operation) {
+        if (this.firstDiffEmittedForEpoch)
+            return;
+        this.firstDiffEmittedForEpoch = true;
+        this.emitParity('parity_establish_first_diff_emitted', {
+            pageEpochId: this.pageEpochId ?? '',
+            generation: this.generation,
+            plane,
+            operation,
+            sequence: this.sequence,
+            tSinceCommitMs: this.tSinceCommitMs(),
+            tVirtualMs: this.tVirtualMs(),
         });
     }
     emitFromPage(emitted) {
@@ -706,12 +1008,93 @@ class PageProjection {
         else {
             await this.seedCssomSheets(operation, payload);
             this.rewriteCssomPayload(operation, payload);
+            this.updateCssomInstallMirror(operation, payload);
             if (operation === 'sheetList')
                 this.noteCssomSheetList(payload);
         }
         if (this.stopped)
             return;
         this.push(plane, operation, payload);
+    }
+    cloneCssomInstallMirror() {
+        return structuredClone([...this.cssomInstallById.values()]);
+    }
+    replaceCssomInstallMirror(sheets) {
+        this.cssomInstallById.clear();
+        for (const sheet of sheets) {
+            const id = typeof sheet?.id === 'string' ? sheet.id : '';
+            if (!id)
+                continue;
+            this.cssomInstallById.set(id, structuredClone(sheet));
+        }
+    }
+    /** Keep OOB install mirror in lockstep with live Cssom wire state (C8). */
+    updateCssomInstallMirror(operation, payload) {
+        if (operation === 'install' && Array.isArray(payload.sheets)) {
+            this.replaceCssomInstallMirror(payload.sheets);
+            return;
+        }
+        if (operation === 'sheetList') {
+            const removed = Array.isArray(payload.removed) ? payload.removed : [];
+            for (const id of removed)
+                this.cssomInstallById.delete(String(id));
+            const added = Array.isArray(payload.added)
+                ? payload.added
+                : [];
+            for (const entry of added) {
+                const sheet = entry?.sheet;
+                const id = typeof sheet?.id === 'string' ? sheet.id : '';
+                if (!id || !sheet)
+                    continue;
+                this.cssomInstallById.set(id, structuredClone(sheet));
+            }
+            return;
+        }
+        if (operation === 'ruleList') {
+            const sheetId = payload.selector && typeof payload.selector === 'object'
+                ? String(payload.selector.id ?? '')
+                : '';
+            const sheet = sheetId ? this.cssomInstallById.get(sheetId) : undefined;
+            if (!sheet)
+                return;
+            const removed = Array.isArray(payload.removed) ? payload.removed : [];
+            if (removed.length && Array.isArray(sheet.rules)) {
+                const drop = new Set(removed.map(String));
+                sheet.rules = sheet.rules.filter((r) => !drop.has(String(r.id ?? '')));
+            }
+            const added = Array.isArray(payload.added)
+                ? payload.added
+                : [];
+            if (!Array.isArray(sheet.rules))
+                sheet.rules = [];
+            for (const entry of added) {
+                const rule = entry?.rule;
+                if (!rule || typeof rule.id !== 'string' || !rule.id)
+                    continue;
+                sheet.rules.push(structuredClone(rule));
+            }
+            return;
+        }
+        if (operation === 'patch') {
+            const ruleId = payload.selector && typeof payload.selector === 'object'
+                ? String(payload.selector.id ?? '')
+                : typeof payload.rule?.id === 'string'
+                    ? String(payload.rule.id)
+                    : '';
+            const next = payload.rule;
+            if (!ruleId || !next)
+                return;
+            for (const sheet of this.cssomInstallById.values()) {
+                const rules = sheet.rules;
+                if (!Array.isArray(rules))
+                    continue;
+                const idx = rules.findIndex((r) => String(r.id ?? '') === ruleId);
+                if (idx < 0)
+                    continue;
+                rules[idx] = structuredClone({ ...rules[idx], ...next, id: ruleId });
+                return;
+            }
+        }
     }
     /**
      * C6.5 — when cssRules were CORS-blocked, fill empty sheets from the asset
@@ -749,6 +1132,7 @@ class PageProjection {
                 continue;
             const sheetId = typeof sheet.id === 'string' && sheet.id ? sheet.id : key;
             sheet.rules = [{ id: `seed:${sheetId}`, cssText: css }];
+            this.lastSeededSheetCount += 1;
         }
     }
     /** Virtual stamps a local counter; the official sequence lands here. */
@@ -866,9 +1250,15 @@ class PageProjection {
         return out;
     }
     async kickFetch(url, key) {
+        const startMs = Date.now();
+        let mode = 'cache';
+        let bytes = 0;
+        let ok = false;
         try {
             if ((0, DomAssetCache_1.isPassThroughUrl)(url)) {
                 this.assets.registerPassThrough(key, url);
+                mode = 'pass-through';
+                ok = true;
                 return;
             }
             const res = await this.page.context().request.get(url, { timeout: 10_000 });
@@ -892,7 +1282,10 @@ class PageProjection {
                 buf = Buffer.from(rewriteManifestUrls(bufRaw.toString('utf8'), url), 'utf8');
                 ct = ct.includes('dash') ? 'application/dash+xml' : 'application/vnd.apple.mpegurl';
             }
+            bytes = buf.byteLength;
+            ok = true;
             if ((0, DomAssetCache_1.isPassThroughUrl)(url, ct)) {
+                mode = 'pass-through';
                 this.assets.registerPassThrough(key, url, ct);
                 // Still cache a copy when small enough for warm serve.
                 this.assets.put(key, buf, ct, { sourceUrl: url, mode: 'pass-through' });
@@ -904,10 +1297,29 @@ class PageProjection {
         catch {
             /* optional */
         }
+        finally {
+            const durationMs = Date.now() - startMs;
+            if (durationMs > 100) {
+                this.emitParity('parity_asset_fetch_finished', {
+                    pageEpochId: this.pageEpochId ?? '',
+                    urlKey: (0, parityUtil_1.urlKeyOf)(url),
+                    durationMs,
+                    bytes,
+                    mode,
+                    ok,
+                    tVirtualMs: this.tVirtualMs(),
+                });
+            }
+        }
     }
-    async rewriteRemoteAssets(nodes) {
+    async rewriteRemoteAssets(nodes, opts) {
         const candidates = [];
         const seen = new Set();
+        let bareSkipped = 0;
+        let dataInlined = 0;
+        let blobQueued = 0;
+        let deferredFetches = 0;
+        let rewritten = 0;
         let pageBase = 'https://invalid.local/';
         try {
             pageBase = this.page.url() || pageBase;
@@ -947,6 +1359,12 @@ class PageProjection {
                 return;
             if (!/^https?:\/\//i.test(url))
                 return;
+            // Site-root / bare directory URLs are navigations, not fetchable assets.
+            // Rewriting them to /w7s/virtual-assets/{host}/ yields 400/empty paint.
+            if (isBareDocumentUrl(url)) {
+                bareSkipped += 1;
+                return;
+            }
             seen.add(raw);
             seen.add(url);
             candidates.push({ url, priority: assetFetchPriority(url, tag, attrs) });
@@ -955,14 +1373,13 @@ class PageProjection {
             if (!node)
                 return;
             if (node.attrs) {
-                for (const key of ['href', 'src', 'poster', 'srcset', 'data-src', 'action', 'formaction']) {
+                for (const key of ['href', 'src', 'poster', 'srcset', 'imagesrcset', 'data-src', 'action', 'formaction']) {
                     const v = node.attrs[key];
                     if (!v)
                         continue;
-                    if (key === 'srcset') {
-                        for (const part of v.split(',')) {
-                            const u = part.trim().split(/\s+/)[0];
-                            consider(u, node.tag, node.attrs, key);
+                    if (key === 'srcset' || key === 'imagesrcset') {
+                        for (const part of (0, srcsetParse_1.parseSrcset)(v)) {
+                            consider(part.url, node.tag, node.attrs, key);
                         }
                     }
                     else {
@@ -983,18 +1400,21 @@ class PageProjection {
         const urlToVirtual = new Map();
         for (const { url } of candidates) {
             if (url.startsWith('data:')) {
-                const id = createInlineId(url);
                 const parsed = parseDataUrl(url);
-                if (parsed) {
-                    this.assets.putData(id, parsed.body, parsed.contentType);
-                }
+                // Never invent /w7s/virtual-data/... without a successful ingest put.
+                if (!parsed)
+                    continue;
+                const id = createInlineId(url);
+                this.assets.putData(id, parsed.body, parsed.contentType);
                 urlToVirtual.set(url, VIRTUAL_DATA_PREFIX + id);
+                dataInlined += 1;
                 continue;
             }
             if (url.startsWith('blob:')) {
                 const id = createInlineId(url);
                 urlToVirtual.set(url, VIRTUAL_BLOB_PREFIX + id);
                 void this.ingestBlob(url, id);
+                blobQueued += 1;
                 continue;
             }
             const key = (0, DomAssetCache_1.virtualAssetKeyFromUrl)(url);
@@ -1011,67 +1431,81 @@ class PageProjection {
         };
         candidates.sort((a, b) => b.priority - a.priority);
         const limited = candidates.slice(0, MAX_ASSET_FETCHES_PER_DIFF);
+        const defer = opts?.deferFetches === true;
         const cssFetches = [];
-        const otherFetches = [];
-        for (const { url } of limited) {
+        const eagerImgFetches = [];
+        for (const { url, priority } of limited) {
             if (url.startsWith('data:') || url.startsWith('blob:'))
                 continue;
             const key = (0, DomAssetCache_1.virtualAssetKeyFromUrl)(url);
             if (!key)
                 continue;
+            if (defer) {
+                void this.kickFetch(url, key);
+                deferredFetches += 1;
+                continue;
+            }
             // Stylesheets must land before Cssom install seeds from the cache (C6.5).
-            if (/\.css(\?|$)/i.test(url) || assetFetchPriority(url, undefined, undefined) >= 90) {
+            if (priority >= 90) {
                 cssFetches.push(this.kickFetch(url, key));
             }
+            else if (priority >= 50 && eagerImgFetches.length < 8) {
+                // Cap eager imgs so Dom establish stays responsive while chrome icons warm.
+                eagerImgFetches.push(this.kickFetch(url, key));
+            }
             else {
-                otherFetches.push({ url, key });
+                void this.kickFetch(url, key);
             }
         }
-        if (cssFetches.length)
-            await Promise.all(cssFetches);
-        for (const { url, key } of otherFetches) {
-            void this.kickFetch(url, key);
+        if (!defer && (cssFetches.length || eagerImgFetches.length)) {
+            await Promise.all([...cssFetches, ...eagerImgFetches]);
         }
-        if (urlToVirtual.size === 0)
-            return;
-        const rewriteNode = (node) => {
-            if (!node?.attrs)
-                return;
-            for (const key of Object.keys(node.attrs)) {
-                const v = node.attrs[key];
-                if (!v)
-                    continue;
-                if (isDocumentNavigationAttr(key, node.tag, node.attrs))
-                    continue;
-                if (key === 'srcset') {
-                    node.attrs[key] = v
-                        .split(',')
-                        .map((part) => {
-                        const bits = part.trim().split(/\s+/);
-                        const u = bits[0];
-                        const mapped = rewriteLookup(u);
-                        if (mapped)
-                            bits[0] = mapped;
-                        return bits.join(' ');
-                    })
-                        .join(', ');
-                    continue;
+        if (urlToVirtual.size > 0) {
+            const rewriteNode = (node) => {
+                if (!node?.attrs)
+                    return;
+                for (const key of Object.keys(node.attrs)) {
+                    const v = node.attrs[key];
+                    if (!v)
+                        continue;
+                    if (isDocumentNavigationAttr(key, node.tag, node.attrs))
+                        continue;
+                    if (key === 'srcset' || key === 'imagesrcset') {
+                        node.attrs[key] = (0, srcsetParse_1.mapSrcset)(v, (u) => rewriteLookup(u) ?? u);
+                        continue;
+                    }
+                    const mapped = rewriteLookup(v);
+                    if (mapped) {
+                        node.attrs[key] = mapped;
+                        rewritten += 1;
+                    }
+                    if (key === 'style') {
+                        node.attrs[key] = v.replace(/url\(\s*(['"]?)([^)'"]+)\1\s*\)/gi, (full, q, raw) => {
+                            const m = rewriteLookup(raw);
+                            if (m)
+                                rewritten += 1;
+                            return m ? `url(${q}${m}${q})` : full;
+                        });
+                    }
                 }
-                const mapped = rewriteLookup(v);
-                if (mapped)
-                    node.attrs[key] = mapped;
-                if (key === 'style') {
-                    node.attrs[key] = v.replace(/url\(\s*(['"]?)([^)'"]+)\1\s*\)/gi, (full, q, raw) => {
-                        const m = rewriteLookup(raw);
-                        return m ? `url(${q}${m}${q})` : full;
-                    });
-                }
-            }
-            for (const child of node.children ?? [])
-                rewriteNode(child);
-        };
-        for (const n of nodes)
-            rewriteNode(n);
+                for (const child of node.children ?? [])
+                    rewriteNode(child);
+            };
+            for (const n of nodes)
+                rewriteNode(n);
+        }
+        if (candidates.length > 0) {
+            this.emitParity('parity_asset_rewrite_summary', {
+                pageEpochId: this.pageEpochId ?? '',
+                candidates: candidates.length,
+                rewritten,
+                bareSkipped,
+                dataInlined,
+                blobQueued,
+                deferredFetches,
+                tVirtualMs: this.tVirtualMs(),
+            });
+        }
     }
     async ingestBlob(blobUrl, id) {
         try {
@@ -1123,15 +1557,33 @@ exports.PageProjection = PageProjection;
 function createInlineId(s) {
     return (0, node_crypto_1.createHash)('sha256').update(s).digest('hex').slice(0, 24);
 }
-function parseDataUrl(url) {
-    const m = /^data:([^;,]+)?(?:;charset=[^;,]+)?(;base64)?,(.*)$/i.exec(url);
-    if (!m)
-        return null;
-    const contentType = m[1] || 'application/octet-stream';
-    const b64 = !!m[2];
-    const data = m[3] ?? '';
+function safePageUrl(page) {
     try {
-        const body = b64 ? Buffer.from(data, 'base64') : Buffer.from(decodeURIComponent(data), 'utf8');
+        return page.url();
+    }
+    catch {
+        return undefined;
+    }
+}
+function parseDataUrl(url) {
+    if (typeof url !== 'string' || !url.startsWith('data:'))
+        return null;
+    const comma = url.indexOf(',');
+    if (comma < 5)
+        return null;
+    const meta = url.slice(5, comma);
+    const data = url.slice(comma + 1);
+    const parts = meta.split(';').map((p) => p.trim()).filter(Boolean);
+    const typePart = parts.find((p) => p.includes('/'));
+    const contentType = typePart || 'application/octet-stream';
+    const b64 = parts.some((p) => p.toLowerCase() === 'base64');
+    try {
+        const body = b64
+            ? Buffer.from(data.replace(/\s/g, ''), 'base64')
+            : Buffer.from(decodeURIComponent(data), 'utf8');
+        // Reject base64 that decoded to empty while the payload was non-empty (corrupt).
+        if (b64 && data.replace(/\s/g, '').length > 0 && body.length === 0)
+            return null;
         return { body, contentType };
     }
     catch {
@@ -1145,6 +1597,8 @@ function rewriteCssUrlsToVirtual(css) {
             return match;
         if (!/^https?:\/\//i.test(trimmed))
             return match;
+        if (isBareDocumentUrl(trimmed))
+            return match;
         const key = (0, DomAssetCache_1.virtualAssetKeyFromUrl)(trimmed);
         if (!key)
             return match;
@@ -1155,6 +1609,8 @@ function rewriteCssUrlsToVirtual(css) {
         if (!trimmed || trimmed.startsWith('data:') || trimmed.startsWith('/w7s/'))
             return match;
         if (!/^https?:\/\//i.test(trimmed))
+            return match;
+        if (isBareDocumentUrl(trimmed))
             return match;
         const key = (0, DomAssetCache_1.virtualAssetKeyFromUrl)(trimmed);
         if (!key)
@@ -1187,6 +1643,23 @@ function isDocumentNavigationAttr(attrName, tag, attrs) {
         return true;
     }
     return false;
+}
+/** Origin root or trailing-slash path with no asset extension — do not virtualize. */
+function isBareDocumentUrl(url) {
+    try {
+        const u = new URL(url);
+        if (u.protocol !== 'http:' && u.protocol !== 'https:')
+            return false;
+        const p = u.pathname || '/';
+        if (p === '/')
+            return true;
+        if (!p.endsWith('/'))
+            return false;
+        return !/\.[a-z0-9]{1,8}\//i.test(p);
+    }
+    catch {
+        return false;
+    }
 }
 function rewriteManifestUrls(body, baseUrl) {
     return body

@@ -35,6 +35,7 @@ async function pumpQueue(queue, call, map, signal, hooks) {
         const item = await queue.read(signal);
         if (item === null)
             break;
+        hooks?.onAfterDequeue?.(item);
         // Abort may race after dequeue — restore at head for the next Watch* reopen.
         if (signal.aborted || call.cancelled) {
             if (!queue.tryWriteFront(item))

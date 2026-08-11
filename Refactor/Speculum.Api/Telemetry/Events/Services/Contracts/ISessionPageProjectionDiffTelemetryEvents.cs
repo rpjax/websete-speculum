@@ -36,14 +36,62 @@ public interface ISessionPageProjectionDiffTelemetryEvents
         string? operation = null,
         long? lowestDroppedSequence = null,
         long? highestDroppedSequence = null,
-        string? reason = null);
+        string? reason = null,
+        Guid? streamId = null,
+        Guid? consumerId = null,
+        string? kind = null,
+        int? targetCount = null,
+        int? diffChannelCount = null,
+        long? diffEpoch = null);
 
     void WireDelivered(
         string plane,
         string operation,
         long sequence,
         long generation,
-        long timestamp);
+        long timestamp,
+        long durationMs,
+        Guid streamId,
+        Guid consumerId,
+        long diffEpoch);
+
+    void FanOutEnqueued(
+        string plane,
+        string operation,
+        long sequence,
+        long generation,
+        long timestamp,
+        long waitMs,
+        Guid streamId,
+        Guid consumerId,
+        string kind,
+        int targetIndex,
+        int targetCount,
+        int diffChannelCount,
+        long diffEpoch);
+
+    void StreamDequeued(
+        string plane,
+        string operation,
+        long sequence,
+        long generation,
+        long timestamp,
+        Guid streamId,
+        Guid consumerId,
+        long diffEpoch);
+
+    void OutputStreamOpened(
+        Guid streamId,
+        Guid consumerId,
+        string kind,
+        int openStreamCount,
+        int diffChannelCapacity);
+
+    void OutputStreamClosed(
+        Guid streamId,
+        Guid consumerId,
+        string kind,
+        int openStreamCount);
 
     void ResyncRequested(long hintGeneration, long hintSequence);
 
@@ -53,5 +101,11 @@ public interface ISessionPageProjectionDiffTelemetryEvents
         int sheetCount,
         int ruleCount,
         int seededSheetCount,
-        long durationMs);
+        long durationMs,
+        string? pageEpochId = null,
+        string? source = null,
+        long domMapMs = 0,
+        long cssomCloneMs = 0,
+        long rewriteMs = 0,
+        long serializeMs = 0);
 }

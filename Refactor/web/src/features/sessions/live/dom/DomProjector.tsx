@@ -31,6 +31,10 @@ export interface DomProjectorProps {
   attachPageProjectionLifecycleSink?: (
     sink: (notification: SessionNotification) => void,
   ) => () => void
+  /** Diff uni-stream EOF while session live → T8 OOB resync. */
+  attachPageProjectionDiffEndedSink?: (
+    sink: (info: { reason: 'wire_stall' }) => void,
+  ) => () => void
   onDomInput: (input: PageProjectionIntent) => void
   /** Optional override for OOB `PageProjection.Resync` after a desync (I2/T8). */
   onRequestResync?: () => void
@@ -44,7 +48,9 @@ export interface DomProjectorProps {
       | 'client_resync_request'
       | 'client_resync_apply'
       | 'client_arm'
+      | 'client_epoch_arm'
       | 'client_disarm'
+      | 'client_surface_probe'
       | 'programmaticSuppress'
       | `cssom/${string}`
       | (string & {})
@@ -94,6 +100,7 @@ export function DomProjector({
   assetBaseUrl = '',
   attachPageProjectionDiffSink,
   attachPageProjectionLifecycleSink,
+  attachPageProjectionDiffEndedSink,
   onDomInput,
   onRequestResync,
   onDiffObserve,
@@ -110,6 +117,8 @@ export function DomProjector({
   const surfaceRef = useRef<HTMLDivElement>(null)
   const applierRef = useRef<PageProjectionDiffApplier | null>(null)
   const armedRef = useRef(false)
+  /** Ring of recent apply lag samples (ms) — client_surface_probe lagMsP50. */
+  const recentLagsRef = useRef<number[]>([])
   const viewportRef = useRef({ width, height })
   viewportRef.current = { width, height }
   const onDomInputRef = useRef(onDomInput)
@@ -151,6 +160,30 @@ export function DomProjector({
     let resyncInFlight: Promise<void> | null = null
     let resyncAttempt = 0
     let lastResyncExpected = 0
+    /**
+     * Arm hop pair: `client_arm` stays for back-compat; `client_epoch_arm` is the
+     * PageEpoch-parity name (pageEpochId is not on the wire yet — generation-only).
+     */
+    const emitArm = (reason: string, generation: number) => {
+      const tClient = performance.now()
+      onDiffObserveRef.current?.({
+        kind: 'dom',
+        hop: 'client_arm',
+        reason,
+        armed: true,
+        generation,
+        tClient,
+      })
+      onDiffObserveRef.current?.({
+        kind: 'dom',
+        hop: 'client_epoch_arm',
+        reason,
+        armed: true,
+        generation,
+        tClient,
+        extra: { generation: String(generation) },
+      })
+    }
     const runOobResync = async (expected: number) => {
       lastResyncExpected = expected
       if (!sessionId || !token) return
@@ -175,7 +208,38 @@ export function DomProjector({
         url.searchParams.set('generation', String(gen))
         url.searchParams.set('sequence', String(Math.max(0, expected - 1)))
         const res = await fetch(url.toString(), { method: 'POST' })
-        if (!res.ok) return
+        if (!res.ok) {
+          let errorCode: string | null = null
+          let phase: string | null = null
+          let message: string | null = null
+          try {
+            const errBody = (await res.json()) as {
+              errorCode?: string
+              phase?: string
+              message?: string
+            }
+            errorCode = errBody.errorCode ?? null
+            phase = errBody.phase ?? null
+            message = errBody.message ?? null
+          } catch {
+            /* non-JSON */
+          }
+          onDiffObserveRef.current?.({
+            kind: 'dom',
+            hop: 'client_resync_failed',
+            generation: gen,
+            expectedSequence: expected,
+            tClient: performance.now(),
+            level: 'warn',
+            extra: {
+              httpStatus: res.status,
+              errorCode,
+              phase,
+              message: message?.slice(0, 240) ?? null,
+            },
+          })
+          return
+        }
         // Stale response from a superseded attempt — drop.
         if (attempt !== resyncAttempt) return
         const body = (await res.json()) as {
@@ -184,7 +248,18 @@ export function DomProjector({
           root?: DomNode
           sheets?: CssomSheet[]
         }
-        if (!body.root || !Array.isArray(body.sheets)) return
+        if (!body.root || !Array.isArray(body.sheets)) {
+          onDiffObserveRef.current?.({
+            kind: 'dom',
+            hop: 'client_resync_failed',
+            generation: gen,
+            expectedSequence: expected,
+            tClient: performance.now(),
+            level: 'warn',
+            extra: { errorCode: 'resync_payload_invalid', phase: 'parse' },
+          })
+          return
+        }
         if (attempt !== resyncAttempt) return
         const sheets = body.sheets
         const snapGen = Number(body.generation ?? 0)
@@ -208,7 +283,7 @@ export function DomProjector({
         })
         const tApply = performance.now()
         onDiffObserveRef.current?.({
-          kind: 'cssom',
+          kind: 'dom',
           hop: 'client_resync_apply',
           generation: snapGen,
           sequence: covers,
@@ -217,24 +292,30 @@ export function DomProjector({
           seeded: seededSheetCount > 0,
           tClient: tApply,
           lagMs: tApply - tReq,
-          extra: { seededSheetCount },
+          extra: { seededSheetCount, joint: true },
         })
-        // D12: arm only when drain left us synced.
+        // D12: arm only when drain left us synced. Gap after OOB keeps desynced;
+        // onDesync already scheduled coalesce retry via requestOobResync.
         if (!applier.isDesynced()) {
           armedRef.current = true
-          onDiffObserveRef.current?.({
-            kind: 'dom',
-            hop: 'client_arm',
-            reason: 'resync',
-            armed: true,
-            generation: snapGen,
-            tClient: performance.now(),
-          })
+          emitArm('resync', snapGen)
         } else {
           armedRef.current = false
         }
-      } catch {
-        /* stay disarmed */
+      } catch (err) {
+        onDiffObserveRef.current?.({
+          kind: 'dom',
+          hop: 'client_resync_failed',
+          generation: applier.getGeneration(),
+          expectedSequence: expected,
+          tClient: performance.now(),
+          level: 'warn',
+          extra: {
+            errorCode: 'resync_exception',
+            phase: 'fetch',
+            message: err instanceof Error ? err.message.slice(0, 240) : String(err).slice(0, 240),
+          },
+        })
       }
     }
     const requestOobResync = (expected: number) => {
@@ -254,6 +335,14 @@ export function DomProjector({
       }
       resyncInFlight = runOobResync(expected).finally(() => {
         resyncInFlight = null
+        // Drain may leave a T8 gap after apply — ensure one follow-up even if
+        // onDesync raced before coalesce attached.
+        if (applier.isDesynced()) {
+          window.setTimeout(() => {
+            if (!applier.isDesynced() || resyncInFlight) return
+            requestOobResync(lastResyncExpected)
+          }, 200)
+        }
       })
     }
     applier = new PageProjectionDiffApplier(
@@ -316,19 +405,7 @@ export function DomProjector({
           return
         }
         // Default OOB PageProjection.Resync (I2/T8) — never an input intent.
-        onDiffObserveRef.current?.({
-          kind: 'dom',
-          hop: 'client_resync_request',
-          reason: 'owner_override',
-          generation: applier.getGeneration(),
-          expectedSequence: expected,
-          tClient,
-          level: 'wire',
-          extra: {
-            hintGeneration: applier.getGeneration(),
-            hintSequence: expected,
-          },
-        })
+        // Observe hop is emitted inside runOobResync (avoid double client_resync_request).
         requestOobResync(expected)
       },
       (generation) => {
@@ -338,19 +415,17 @@ export function DomProjector({
           return
         }
         armedRef.current = true
-        onDiffObserveRef.current?.({
-          kind: 'dom',
-          hop: 'client_arm',
-          reason: 'document_or_install',
-          armed: true,
-          generation,
-          tClient: performance.now(),
-        })
+        emitArm('document_or_install', generation)
       },
       (diff) => {
         const tClient = performance.now()
         const timestamp = diff.timestamp != null ? Number(diff.timestamp) : null
         const lagMs = pageProjectionLagMs(timestamp)
+        if (lagMs != null) {
+          const lags = recentLagsRef.current
+          lags.push(lagMs)
+          if (lags.length > 50) lags.shift()
+        }
         const plane = String(diff.plane ?? 'unknown')
         const operation = diff.operation != null ? String(diff.operation) : null
         const isCssom = plane === 'cssom'
@@ -463,6 +538,12 @@ export function DomProjector({
       const phase = String(notification.phase ?? '')
       // SoftNav is observe-only — never disarm/remount.
       if (phase === 'soft_nav_observed') return
+      if (phase === 'queue_dropped') {
+        const applier = applierRef.current
+        if (!applier || !live || !sessionId || !token) return
+        applier.noteWireCut('queue_dropped')
+        return
+      }
       if (phase !== 'generation_bumped') return
       const toGen = Number(notification.domGeneration ?? 0)
       const localGen = applierRef.current?.getGeneration() ?? 0
@@ -487,7 +568,16 @@ export function DomProjector({
         },
       })
     })
-  }, [attachPageProjectionLifecycleSink])
+  }, [attachPageProjectionLifecycleSink, live, sessionId, token])
+
+  useEffect(() => {
+    if (!attachPageProjectionDiffEndedSink) return
+    return attachPageProjectionDiffEndedSink(() => {
+      const applier = applierRef.current
+      if (!applier || !live || !sessionId || !token) return
+      applier.noteWireCut('wire_stall')
+    })
+  }, [attachPageProjectionDiffEndedSink, live, sessionId, token])
 
   useEffect(() => {
     const surface = surfaceRef.current
@@ -515,6 +605,47 @@ export function DomProjector({
       },
     )
   }, [live, sessionId, token, assetBaseUrl, width, height])
+
+  // client_surface_probe — periodic surface health sample (~5s) while armed for input;
+  // observePageProjectionDiffApply gates the actual trace write on pageProjectionDiff.
+  useEffect(() => {
+    if (!live || !sessionId || !token) return
+    const interval = window.setInterval(() => {
+      const surface = surfaceRef.current
+      const applier = applierRef.current
+      if (!surface || !applier) return
+      const htmlLen = surface.innerHTML.length
+      const ownedRules = applier.getOwnedRuleCount()
+      const imgs = surface.querySelectorAll('img')
+      const vw = window.innerWidth
+      const vh = window.innerHeight
+      let imgCount = 0
+      let brokenImgs = 0
+      let brokenImgsInViewport = 0
+      imgs.forEach((img) => {
+        imgCount += 1
+        const broken = img.complete && img.naturalWidth === 0 && !!img.getAttribute('src')
+        if (!broken) return
+        brokenImgs += 1
+        const rect = img.getBoundingClientRect()
+        if (rect.bottom > 0 && rect.right > 0 && rect.top < vh && rect.left < vw) {
+          brokenImgsInViewport += 1
+        }
+      })
+      const lags = recentLagsRef.current
+      const lagMsP50 = lags.length > 0 ? median(lags) : null
+      onDiffObserveRef.current?.({
+        kind: 'dom',
+        hop: 'client_surface_probe',
+        generation: applier.getGeneration(),
+        sequence: applier.getLastSequence(),
+        armed: armedRef.current,
+        tClient: performance.now(),
+        extra: { htmlLen, ownedRules, imgCount, brokenImgs, brokenImgsInViewport, lagMsP50 },
+      })
+    }, 5000)
+    return () => window.clearInterval(interval)
+  }, [live, sessionId, token])
 
   useEffect(() => {
     const host = hostRef.current
@@ -550,4 +681,11 @@ export function DomProjector({
       />
     </div>
   )
+}
+
+/** Approx p50 over the recent-apply lag ring (client_surface_probe lagMsP50). */
+function median(values: number[]): number {
+  const sorted = [...values].sort((a, b) => a - b)
+  const mid = Math.floor(sorted.length / 2)
+  return sorted.length % 2 !== 0 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2
 }

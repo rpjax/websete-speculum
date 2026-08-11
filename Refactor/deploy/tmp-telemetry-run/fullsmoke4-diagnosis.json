@@ -1,0 +1,179 @@
+{
+  "prefix": "fullsmoke4",
+  "since": "2026-08-10T14:56:26.742Z",
+  "acceptScript": {
+    "belezaNoSilentStall": true,
+    "enebaNoSilentStall": true,
+    "enebaNoAddressMiss": true,
+    "enebaNoGenerationBump": true,
+    "enebaSoftNav": true,
+    "belezaT8Recovered": true,
+    "enebaT8Recovered": true
+  },
+  "sites": {
+    "beleza": {
+      "journal": {
+        "facts": 7150,
+        "FrameReceived": 6366,
+        "WireDelivered": 768,
+        "FrameReceivedMaxSeq": 6366,
+        "WireDeliveredMaxSeq": 770,
+        "FrMinusWd": 5598,
+        "QueueDropped": 2,
+        "QueueDroppedStages": {
+          "api_fanout_backpressure": 2
+        },
+        "SoftNavObserved": 0,
+        "ResyncRequested": 2,
+        "ResyncServed": 1,
+        "GenerationBumped": 0,
+        "silentStall": false,
+        "cutAtFanOut": false,
+        "recovered": true
+      },
+      "front": {
+        "sessionId": "a60c8cd8-74aa-4c2f-beb8-4992ad494ae6",
+        "rowCount": 1063,
+        "hops": {
+          "lifecycle": 8,
+          "syncUrl": 1,
+          "client_recv": 768,
+          "client_arm": 3,
+          "client_apply": 255,
+          "cssom/install": 1,
+          "client_disarm": 2,
+          "client_desync": 4,
+          "client_resync_request": 2,
+          "client_drop": 18,
+          "client_resync_apply": 1
+        },
+        "desyncs": [
+          {
+            "reason": "queue_dropped",
+            "seq": 257,
+            "expected": 257
+          },
+          {
+            "reason": "wire_stall",
+            "seq": 257,
+            "expected": 257
+          },
+          {
+            "reason": "queue_dropped",
+            "seq": 5505,
+            "expected": 5505
+          },
+          {
+            "reason": "wire_stall",
+            "seq": 5505,
+            "expected": 5505
+          }
+        ],
+        "resyncFails": [],
+        "addressMiss": 0,
+        "queueDroppedDesync": 2,
+        "wireStallDesync": 2,
+        "ownedRules": 4710,
+        "htmlLen": 2386316,
+        "textLen": 5035,
+        "brokenImgs": 18,
+        "virtualData1x1": 5,
+        "accessDenied": false,
+        "textSample": "Ir direto para o conteúdo\nAcessibilidade\nGrupo Boticário\nNossas Lojas\nBaixe o nosso app!\nPrecisa de ajuda?\nMeus Pedidos\nFavoritos\nInformar localização\nAcessar M"
+      },
+      "verdict": {
+        "pass": true,
+        "issues": [],
+        "ok": [
+          "no_silent_stall",
+          "t8_recovered_or_no_cut",
+          "generation_bumped_0",
+          "no_address_miss",
+          "surface_populated",
+          "qd_then_resync_served",
+          "client_resync_apply"
+        ]
+      }
+    },
+    "eneba": {
+      "journal": {
+        "facts": 794,
+        "FrameReceived": 266,
+        "WireDelivered": 265,
+        "FrameReceivedMaxSeq": 266,
+        "WireDeliveredMaxSeq": 266,
+        "FrMinusWd": 1,
+        "QueueDropped": 1,
+        "QueueDroppedStages": {
+          "api_fanout_backpressure": 1
+        },
+        "SoftNavObserved": 2,
+        "ResyncRequested": 1,
+        "ResyncServed": 1,
+        "GenerationBumped": 0,
+        "silentStall": false,
+        "cutAtFanOut": false,
+        "recovered": true
+      },
+      "front": {
+        "sessionId": "593053aa-7e51-4a90-a93c-91bb935e4a70",
+        "rowCount": 791,
+        "hops": {
+          "lifecycle": 195,
+          "syncUrl": 4,
+          "client_recv": 265,
+          "client_arm": 3,
+          "client_apply": 255,
+          "cssom/install": 1,
+          "client_sent": 62,
+          "client_disarm": 1,
+          "client_desync": 2,
+          "client_resync_request": 1,
+          "client_drop": 1,
+          "client_resync_apply": 1
+        },
+        "desyncs": [
+          {
+            "reason": "queue_dropped",
+            "seq": 257,
+            "expected": 257
+          },
+          {
+            "reason": "wire_stall",
+            "seq": 257,
+            "expected": 257
+          }
+        ],
+        "resyncFails": [],
+        "addressMiss": 0,
+        "queueDroppedDesync": 1,
+        "wireStallDesync": 1,
+        "ownedRules": 1832,
+        "htmlLen": 545776,
+        "textLen": 5012,
+        "brokenImgs": 0,
+        "virtualData1x1": 3,
+        "accessDenied": false,
+        "textSample": "Português Brasileiro\nBRL\nLog in\n | \nRegistrar-se\nCategorias\nJogos -90%\nSoftware\neCartões\nNordVPN\nGift Cards Eneba\nFC27\nPontos do Jogo ⚡\nSurfshark VPN\nGAME POINT"
+      },
+      "verdict": {
+        "pass": true,
+        "issues": [],
+        "ok": [
+          "no_silent_stall",
+          "t8_recovered_or_no_cut",
+          "generation_bumped_0",
+          "no_address_miss",
+          "surface_populated",
+          "softnav_observed",
+          "qd_then_resync_served",
+          "client_resync_apply"
+        ]
+      }
+    }
+  },
+  "overall": {
+    "pass": true,
+    "headline": "PASS — T8 recovery holds; SoftNav without mid-wipe void; no silent FR≫WD"
+  }
+}

@@ -21,6 +21,13 @@ public class SessionsConfiguration
   /// </summary>
   public MirrorMode MirrorMode { get; init; } = MirrorMode.VideoStreaming;
 
+    /// <summary>
+    /// Bounded PageProjection Diff queue depth (sidecar EventBridge Dom + API
+    /// sequenced channels). Overflow still DropAll → client sequence_gap (T5/D13).
+    /// Default matches <c>SequencedDiffChannels.DefaultCapacity</c>.
+    /// </summary>
+    public int PageProjectionDiffQueueCapacity { get; init; } = 8192;
+
     public ViewportPolicy ViewportPolicy { get; set; } = new();
     public ClientEnvironmentPolicy ClientEnvironmentPolicy { get; init; } = new();
     public DeviceEmulationPolicy DeviceEmulationPolicy { get; init; } = new();

@@ -36,6 +36,8 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.DEFAULT_GRPC_MAX_MESSAGE_BYTES = void 0;
+exports.resolveGrpcMaxMessageBytes = resolveGrpcMaxMessageBytes;
 exports.resolveBrowserFactory = resolveBrowserFactory;
 exports.createSidecarServer = createSidecarServer;
 exports.bindAndStart = bindAndStart;
@@ -49,12 +51,33 @@ const SessionRegistry_1 = require("./host/SessionRegistry");
 const browserRace_1 = require("./host/browserRace");
 const loadProto_1 = require("./grpc/loadProto");
 const BrowserSessionService_1 = require("./grpc/BrowserSessionService");
+/** Aligned with Speculum.Api SidecarOptions.DefaultMaxGrpcMessageBytes (64 MiB). */
+exports.DEFAULT_GRPC_MAX_MESSAGE_BYTES = 64 * 1024 * 1024;
+const MIN_GRPC_MAX_MESSAGE_BYTES = 1 * 1024 * 1024;
+const ABSOLUTE_GRPC_MAX_MESSAGE_BYTES = 256 * 1024 * 1024;
 function requireEnv(name) {
     const value = process.env[name];
     if (!value?.trim()) {
         throw new Error(`${name} environment variable is required`);
     }
     return value.trim();
+}
+/**
+ * BrowserSession gRPC send/receive ceiling.
+ * Override with SPECULUM_GRPC_MAX_MESSAGE_BYTES (same semantics as Sidecar:MaxGrpcMessageBytes).
+ */
+function resolveGrpcMaxMessageBytes(env = process.env) {
+    const raw = env['SPECULUM_GRPC_MAX_MESSAGE_BYTES']?.trim();
+    if (!raw) {
+        return exports.DEFAULT_GRPC_MAX_MESSAGE_BYTES;
+    }
+    const n = Number(raw);
+    if (!Number.isFinite(n) || !Number.isInteger(n)
+        || n < MIN_GRPC_MAX_MESSAGE_BYTES
+        || n > ABSOLUTE_GRPC_MAX_MESSAGE_BYTES) {
+        throw new Error(`SPECULUM_GRPC_MAX_MESSAGE_BYTES must be an integer between ${MIN_GRPC_MAX_MESSAGE_BYTES} and ${ABSOLUTE_GRPC_MAX_MESSAGE_BYTES}`);
+    }
+    return n;
 }
 function resolveBrowserMode() {
     const mode = requireEnv('SPECULUM_BROWSER');
@@ -75,7 +98,11 @@ function resolveBrowserFactory(options) {
 }
 function createSidecarServer(options) {
     const registry = new SessionRegistry_1.SessionRegistry(options.factory);
-    const server = new grpc.Server();
+    const maxMessageBytes = options.maxGrpcMessageBytes ?? resolveGrpcMaxMessageBytes();
+    const server = new grpc.Server({
+        'grpc.max_receive_message_length': maxMessageBytes,
+        'grpc.max_send_message_length': maxMessageBytes,
+    });
     server.addService((0, loadProto_1.getBrowserSessionService)(), (0, BrowserSessionService_1.createBrowserSessionHandlers)(registry));
     return { server, registry };
 }

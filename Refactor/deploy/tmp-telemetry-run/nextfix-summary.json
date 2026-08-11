@@ -1,0 +1,143 @@
+{
+  "since": "2026-08-10T14:10:54.444Z",
+  "beleza": {
+    "sessionId": null,
+    "href": "http://127.0.0.1:8080/?_w7s_nso=eyJ2IjoxLCJoIjoiIn0%3D",
+    "htmlLen": 0,
+    "textLen": 0,
+    "text": "",
+    "accessDenied": false,
+    "ownedRules": 0,
+    "brokenImgs": 0,
+    "imgCount": 0,
+    "virtualData1x1": 0,
+    "truncatedAvif": 0,
+    "cloudinaryFull": 0,
+    "srcsetSample": [],
+    "desyncs": [
+      {
+        "reason": "wire_stall",
+        "seq": 257,
+        "expected": 257,
+        "phase": null
+      }
+    ],
+    "addressMiss": 0,
+    "sequenceGap": 0,
+    "hops": {
+      "lifecycle": 7,
+      "syncUrl": 1,
+      "client_recv": 256,
+      "client_arm": 1,
+      "client_apply": 255,
+      "cssom/install": 1,
+      "client_disarm": 1,
+      "client_desync": 1,
+      "client_resync_request": 1,
+      "client_resync_failed": 1
+    },
+    "armed": false,
+    "waitedMs": 13532,
+    "sawDenied": false,
+    "journal": {
+      "facts": 7206,
+      "SoftNavObserved": 0,
+      "ResyncRequested": 0,
+      "ResyncServed": 0,
+      "QueueDropped": 1,
+      "QueueDroppedStages": {
+        "api_fanout_backpressure": 1
+      },
+      "GenerationBumped": 0,
+      "FrameReceived": 6938,
+      "WireDelivered": 256,
+      "FrameReceivedMaxSeq": 6938,
+      "WireDeliveredMaxSeq": 256,
+      "FrMinusWd": 6682,
+      "FrMaxMinusWdMax": 6682,
+      "silentStallForbidden": false
+    },
+    "truncatedAvifNet": 0,
+    "fAvif404": 0
+  },
+  "eneba": {
+    "sessionId": null,
+    "href": "http://127.0.0.1:8080/store/all?text=spider%20man%20remastered&enb_campaign=Main%20Search&enb_content=search%20dropdown%20-%20input&enb_medium=input&enb_source=https%3A%2F%2Fwww.eneba.com%2F&enb_term=Submit&_w7s_nso=eyJ2IjoxLCJoIjoiIn0%3D",
+    "htmlLen": 0,
+    "textLen": 0,
+    "text": "",
+    "accessDenied": false,
+    "ownedRules": 0,
+    "brokenImgs": 0,
+    "imgCount": 0,
+    "virtualData1x1": 0,
+    "truncatedAvif": 0,
+    "cloudinaryFull": 0,
+    "srcsetSample": [],
+    "desyncs": [
+      {
+        "reason": "queue_dropped",
+        "seq": 257,
+        "expected": 257,
+        "phase": null
+      },
+      {
+        "reason": "wire_stall",
+        "seq": 257,
+        "expected": 257,
+        "phase": null
+      },
+      {
+        "reason": "wire_stall",
+        "seq": 257,
+        "expected": 257,
+        "phase": null
+      }
+    ],
+    "addressMiss": 0,
+    "sequenceGap": 0,
+    "hops": {
+      "lifecycle": 159,
+      "syncUrl": 3,
+      "client_recv": 512,
+      "client_arm": 1,
+      "client_apply": 255,
+      "cssom/install": 1,
+      "client_sent": 50,
+      "client_disarm": 1,
+      "client_desync": 3,
+      "client_resync_request": 1,
+      "client_drop": 9,
+      "client_resync_failed": 1
+    },
+    "armed": false,
+    "coldWaitedMs": 3585,
+    "journal": {
+      "facts": 1709,
+      "SoftNavObserved": 2,
+      "ResyncRequested": 0,
+      "ResyncServed": 0,
+      "QueueDropped": 1,
+      "QueueDroppedStages": {
+        "api_fanout_backpressure": 1
+      },
+      "GenerationBumped": 0,
+      "FrameReceived": 1237,
+      "WireDelivered": 256,
+      "FrameReceivedMaxSeq": 1237,
+      "WireDeliveredMaxSeq": 256,
+      "FrMinusWd": 981,
+      "FrMaxMinusWdMax": 981,
+      "silentStallForbidden": false
+    }
+  },
+  "accept": {
+    "belezaNoSilentStall": true,
+    "enebaNoSilentStall": true,
+    "enebaNoAddressMiss": true,
+    "enebaNoGenerationBump": true,
+    "enebaSoftNav": true,
+    "belezaT8Recovered": false,
+    "enebaT8Recovered": false
+  }
+}

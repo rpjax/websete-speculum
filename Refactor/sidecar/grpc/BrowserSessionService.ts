@@ -49,8 +49,10 @@ export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.Un
     ): Promise<void> {
       try {
         const sessionId = requireSessionId(call.request);
-        const { session } = registry.get(sessionId);
-        const ready = await session.launch(toLaunchOptions(call.request));
+        const { session, bridge } = registry.get(sessionId);
+        const options = toLaunchOptions(call.request);
+        bridge.configureDomCapacity(options.pageProjectionDiffQueueCapacity);
+        const ready = await session.launch(options);
         callback(null, ready);
       } catch (err) {
         callback(grpcError(err), null);
@@ -297,6 +299,9 @@ export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.Un
           body: d.body,
         }),
         (bridge) => ({
+          onAfterDequeue: () => {
+            bridge.notifyDomQueueDrained();
+          },
           onRequeueOverflow: (d) => {
             bridge.emitLifecycleQueueDropped({
               reason: 'sidecar_requeue_overflow',
@@ -389,6 +394,7 @@ export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.Un
         sequence: e.sequence,
         lowestDroppedSequence: e.lowestDroppedSequence,
         highestDroppedSequence: e.highestDroppedSequence,
+        payloadJson: e.payloadJson,
       }));
     },
 
@@ -524,7 +530,9 @@ export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.Un
         });
         if (!snap) {
           callback(grpcError(Object.assign(new Error('resync snapshot unavailable'), {
-            code: 'NOT_FOUND',
+            code: 'FAILED_PRECONDITION',
+            errorCode: 'resync_unavailable',
+            phase: 'capture',
           })), null);
           return;
         }
@@ -533,6 +541,12 @@ export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.Un
           coversThroughSequence: snap.coversThroughSequence,
           rootJson: snap.rootJson,
           sheetsJson: snap.sheetsJson,
+          pageEpochId: snap.pageEpochId,
+          source: snap.source,
+          domMapMs: snap.domMapMs,
+          cssomCloneMs: snap.cssomCloneMs,
+          rewriteMs: snap.rewriteMs,
+          serializeMs: snap.serializeMs,
         });
       } catch (err) {
         callback(grpcError(err), null);

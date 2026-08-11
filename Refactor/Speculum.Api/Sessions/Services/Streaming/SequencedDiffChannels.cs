@@ -6,12 +6,23 @@ namespace Speculum.Api.Sessions.Services.Streaming;
 /// <summary>
 /// Bounded channels for sequenced PageProjection diffs (T5/D13).
 /// Connection enqueue uses DropAll-on-overflow (gap → desync, never silent DropOldest chronology).
-/// Per-pipe fan-out targets use Wait + WriteAsync — lossless push; backpressure to connection.
+/// Per-pipe fan-out targets use Wait + small capacity so wire stall quickly back-pressures
+/// the connection queue (api_sequenced DropAll) — never a silent FR≫WD freeze.
 /// </summary>
 internal static class SequencedDiffChannels
 {
-    /// <summary>Matches sidecar EventBridge Dom queue — SPA churn needs headroom before DropAll.</summary>
-    public const int DefaultCapacity = 1024;
+    /// <summary>
+    /// Matches sidecar EventBridge Dom default — SPA boot (e.g. Beleza) emits ~2k diffs
+    /// in seconds; 1024 DropAll'd the establish window (BZ1 sequence_gap).
+    /// </summary>
+    public const int DefaultCapacity = 8192;
+
+    /// <summary>
+    /// Per-pipe Diff fan-out buffer. Must stay ≪ <see cref="DefaultCapacity"/> so a stalled
+    /// data-plane consumer cannot absorb a multi-thousand FR−WD gap without tripping
+    /// connection DropAll (Beleza WIRE_STALL_AT_8192: Wait@8192 hid a 6253-frame freeze).
+    /// </summary>
+    public const int FanOutTargetCapacity = 256;
 
     /// <summary>
     /// Sidecar→API connection queue. Writers use <see cref="WriteDropAllOnOverflowDetailedAsync"/>.
@@ -26,11 +37,10 @@ internal static class SequencedDiffChannels
         });
 
     /// <summary>
-    /// Per-pipe fan-out target. Full → Wait so the fan-out pump blocks (active push) instead of
-    /// DropAll wiping establish/early sequences still buffered for a slow data-plane consumer.
-    /// Loss, if any, stays at the connection queue (<c>api_sequenced</c>).
+/// Per-stream fan-out target. Full → Wait (blocks fan-out pump → connection fills → DropAll).
+/// Capacity defaults to <see cref="FanOutTargetCapacity"/>, not the connection default.
     /// </summary>
-    public static Channel<T> CreateForFanOutTarget<T>(int capacity = DefaultCapacity)
+    public static Channel<T> CreateForFanOutTarget<T>(int capacity = FanOutTargetCapacity)
         => Channel.CreateBounded<T>(new BoundedChannelOptions(capacity)
         {
             FullMode = BoundedChannelFullMode.Wait,

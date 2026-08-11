@@ -502,3 +502,7 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# Local SQLite from telemetry/lab runs
+Refactor/deploy/tmp-telemetry-run/*.db
+Refactor/Speculum.Api/data/

@@ -51,11 +51,46 @@ export function attachDomElementInput(
     raf = requestAnimationFrame(flushMove)
   }
 
-  const anchorOf = (target: EventTarget | null): string | null => {
+  const INTERACTIVE =
+    'a, button, [role="button"], input, select, textarea, summary, label, [role="link"], [role="menuitem"]'
+
+  /**
+   * Resolve the Projected intent target under the pointer (I1 hit-test).
+   * Prefer the topmost interactive anchored node from elementsFromPoint so a
+   * card link wins over a larger category wrapper underneath (SoftNav parity).
+   */
+  const anchorAtPoint = (clientX: number, clientY: number): string | null => {
+    let stack: Element[]
+    try {
+      stack = document.elementsFromPoint(clientX, clientY)
+    } catch {
+      stack = []
+    }
+    let fallback: string | null = null
+    for (const node of stack) {
+      if (!(node instanceof Element) || !surface.contains(node)) continue
+      const anchored =
+        (node.closest(INTERACTIVE) instanceof Element
+          && (node.closest(INTERACTIVE) as Element).hasAttribute('speculum-anchor')
+          ? (node.closest(INTERACTIVE) as Element)
+          : null)
+        ?? (node.hasAttribute('speculum-anchor') ? node : node.closest('[speculum-anchor]'))
+      if (!(anchored instanceof Element) || !surface.contains(anchored)) continue
+      const a = anchored.getAttribute('speculum-anchor')
+      if (!a) continue
+      if (anchored.matches(INTERACTIVE)) return a
+      if (!fallback) fallback = a
+    }
+    return fallback
+  }
+
+  const anchorOf = (target: EventTarget | null, point?: { x: number; y: number }): string | null => {
+    if (point) {
+      const hit = anchorAtPoint(point.x, point.y)
+      if (hit) return hit
+    }
     if (!(target instanceof Element)) return null
-    const actionable = target.closest(
-      'button, a, [role="button"], input, select, textarea, summary, [speculum-anchor]',
-    )
+    const actionable = target.closest(INTERACTIVE)
     const el =
       (actionable instanceof Element && actionable.hasAttribute('speculum-anchor')
         ? actionable
@@ -127,7 +162,7 @@ export function attachDomElementInput(
     }
     const payload = basePayload(event)
     if (!payload) return
-    fire(intent('mousedown', anchorOf(event.target), payload))
+    fire(intent('mousedown', anchorOf(event.target, { x: event.clientX, y: event.clientY }), payload))
   }
 
   const onPointerUp = (event: PointerEvent) => {
@@ -138,7 +173,7 @@ export function attachDomElementInput(
     }
     const payload = basePayload(event)
     if (!payload) return
-    fire(intent('mouseup', anchorOf(event.target), payload))
+    fire(intent('mouseup', anchorOf(event.target, { x: event.clientX, y: event.clientY }), payload))
   }
 
   const onClick = (event: MouseEvent) => {
@@ -165,7 +200,7 @@ export function attachDomElementInput(
       deltaMode: event.deltaMode,
     })
     if (!payload) return
-    fire(intent('wheel', anchorOf(event.target), payload))
+    fire(intent('wheel', anchorOf(event.target, { x: event.clientX, y: event.clientY }), payload))
   }
 
   const onInput = (event: Event) => {

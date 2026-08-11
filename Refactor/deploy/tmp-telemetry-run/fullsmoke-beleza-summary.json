@@ -1,0 +1,10 @@
+{
+  "facts": 22681,
+  "SoftNavObserved": 0,
+  "ResyncRequested": 0,
+  "ResyncServed": 0,
+  "QueueDropped": 0,
+  "GenerationBumped": 0,
+  "FrameReceived": 14445,
+  "WireDelivered": 8192
+}

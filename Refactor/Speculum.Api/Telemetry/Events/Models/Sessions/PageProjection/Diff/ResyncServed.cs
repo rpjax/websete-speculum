@@ -8,9 +8,9 @@ namespace Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Diff;
 /// </summary>
 [JournalFact(
     "Telemetry.Sessions.PageProjection.Diff.ResyncServed",
-    schemaVersion: 1,
+    schemaVersion: 2,
     Name = "PageProjection diff · resync served",
-    Description = "API served a joint Dom+Cssom OOB resync snapshot after capture.",
+    Description = "API served a joint Dom+Cssom OOB resync snapshot after capture (phased durations).",
     Owner = "telemetry",
     PublishPolicy = PublishPolicy.BestEffort)]
 public sealed class ResyncServed
@@ -32,4 +32,16 @@ public sealed class ResyncServed
     public int SeededSheetCount { get; init; }
 
     public long DurationMs { get; init; }
+
+    public string? PageEpochId { get; init; }
+
+    public string? Source { get; init; }
+
+    public long DomMapMs { get; init; }
+
+    public long CssomCloneMs { get; init; }
+
+    public long RewriteMs { get; init; }
+
+    public long SerializeMs { get; init; }
 }

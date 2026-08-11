@@ -311,6 +311,13 @@ public sealed class JournalRepository : IJournalRepository
         return publishedAts.Count(p => p < olderThan.Value);
     }
 
+    public async Task<int> DeleteAllAsync(CancellationToken cancellationToken = default)
+    {
+        var deleted = await Entries.ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
+        _db.ChangeTracker.Clear();
+        return deleted;
+    }
+
     private async Task<int> DeleteOlderThanAsync(
         IQueryable<JournalEntryRecord> source,
         DateTimeOffset olderThan,

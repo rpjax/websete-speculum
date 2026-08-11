@@ -1,0 +1,57 @@
+{
+  "facts": 1733,
+  "SoftNavObserved": 2,
+  "ResyncRequested": 2,
+  "ResyncServed": 2,
+  "QueueDropped": 0,
+  "GenerationBumped": 0,
+  "FrameReceived": 836,
+  "WireDelivered": 836,
+  "InputApplied": 11,
+  "InputRejected": 0,
+  "softNav": [
+    {
+      "at": "2026-08-10T08:08:09.4185132-03:00",
+      "profileId": "d11b6b93-5085-4ed8-a295-a740a1a6de8d",
+      "sessionId": "3a6dafab-1d53-4dd9-9ba0-7b23eca02795",
+      "generation": 1,
+      "url": "https://www.eneba.com/",
+      "documentEpoch": "eghn1jc9pmsn4o9uj",
+      "liveArmed": false
+    },
+    {
+      "at": "2026-08-10T08:09:43.7629408-03:00",
+      "profileId": "d11b6b93-5085-4ed8-a295-a740a1a6de8d",
+      "sessionId": "3a6dafab-1d53-4dd9-9ba0-7b23eca02795",
+      "generation": 1,
+      "url": "https://www.eneba.com/steam-marvels-spider-man-remastered-pc-steam-key-latam?itm_campaign=Algolia%20Recommended%20Homepage&itm_content=recommended%20for%20you%20section&itm_medium=product%20card&itm_term=1",
+      "documentEpoch": "eghn1jc9pmsn4o9uj",
+      "liveArmed": true
+    }
+  ],
+  "resyncServed": [
+    {
+      "at": "2026-08-10T08:09:50.4592629-03:00",
+      "profileId": "d11b6b93-5085-4ed8-a295-a740a1a6de8d",
+      "sessionId": "3a6dafab-1d53-4dd9-9ba0-7b23eca02795",
+      "generation": 1,
+      "coversThroughSequence": 615,
+      "sheetCount": 3,
+      "ruleCount": 3,
+      "seededSheetCount": 3,
+      "durationMs": 640
+    },
+    {
+      "at": "2026-08-10T08:09:51.0233866-03:00",
+      "profileId": "d11b6b93-5085-4ed8-a295-a740a1a6de8d",
+      "sessionId": "3a6dafab-1d53-4dd9-9ba0-7b23eca02795",
+      "generation": 1,
+      "coversThroughSequence": 682,
+      "sheetCount": 5,
+      "ruleCount": 179,
+      "seededSheetCount": 3,
+      "durationMs": 460
+    }
+  ],
+  "queueDrop": []
+}

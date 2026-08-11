@@ -1,0 +1,67 @@
+{
+  "sessionId": "5040252f-ed9b-4e3b-909e-d64c498bab61",
+  "href": "http://127.0.0.1:8080/br/?_w7s_nso=eyJ2IjoxLCJoIjoiIn0%3D",
+  "htmlLen": 550679,
+  "textLen": 5067,
+  "text": "Português Brasileiro\nBRL\nLog in\n | \nRegistrar-se\nCategorias\nJogos -90%\nSoftware\neCartões\nNordVPN\nGift Cards Eneba\nFC27\nPontos do Jogo ⚡\nSurfshark VPN\nGAME POINTS | AUG 26\nSURFSHARK | AUG 26\nPSN GIFT CARDS | MAY 26\nJogos\nCartões de jogos\neCa",
+  "accessDenied": false,
+  "ownedRules": 1832,
+  "brokenImgs": 0,
+  "imgCount": 82,
+  "virtualData1x1": 3,
+  "truncatedAvif": 0,
+  "cloudinaryFull": 0,
+  "srcsetSample": [
+    {
+      "tag": "SOURCE",
+      "srcset": "/w7s/virtual-assets/static.eneba.games/9b35a9095c42fb593f03.png?speculum-session-token=4047327779b44940a63316243afe5f88"
+    },
+    {
+      "tag": "SOURCE",
+      "srcset": "/w7s/virtual-assets/static.eneba.games/cd7b069788375466eed5.png?speculum-session-token=4047327779b44940a63316243afe5f88"
+    },
+    {
+      "tag": "SOURCE",
+      "srcset": "/w7s/virtual-assets/static.eneba.games/77b7dedacd3c7ea3e236.png?speculum-session-token=4047327779b44940a63316243afe5f88"
+    },
+    {
+      "tag": "SOURCE",
+      "srcset": "/w7s/virtual-assets/imgproxy.eneba.games/Yr1ptDA8tSL33il5cQuilUtnUxzQhy0CrBmchHLjH-A/rs:fit:95/ar:1/czM6Ly9wcm9kdWN0/cy5lbmViYS5nYW1l/cy9wcm9kdWN0cy94/QWc1VzBpeWpXYWJP/UGZLQWVhTDhoR3Iy/WUFHS19CckdXYlgz/dURXTHVFLmpwZw?speculum-session-token=4047327779b44940a63316243afe5f88 1x, /w7s/virtual-assets/imgproxy.eneba.games/3oVuh0nNqN7d1Ug_ORJe4bOripQiyza0OzIi6t3FO_0/rs:fit:190/ar:1/czM6Ly9wcm9kdWN0/cy5lb"
+    },
+    {
+      "tag": "SOURCE",
+      "srcset": "/w7s/virtual-assets/imgproxy.eneba.games/VbKcF81dHz0WvOIjjz7VgFIIZYfU3uzTo-iA9myEuo0/rs:fit:300/ar:1/czM6Ly9wcm9kdWN0/cy5lbmViYS5nYW1l/cy9wcm9kdWN0cy94/QWc1VzBpeWpXYWJP/UGZLQWVhTDhoR3Iy/WUFHS19CckdXYlgz/dURXTHVFLmpwZw?speculum-session-token=4047327779b44940a63316243afe5f88 1x, /w7s/virtual-assets/imgproxy.eneba.games/ptKBZAc3uhB9albcihiIzV1IyqtZtwDhUweeZy8XrRc/rs:fit:600/ar:1/czM6Ly9wcm9kdWN0/cy5l"
+    }
+  ],
+  "desyncs": [
+    {
+      "reason": "queue_dropped",
+      "seq": 257,
+      "expected": 257,
+      "phase": null
+    },
+    {
+      "reason": "wire_stall",
+      "seq": 257,
+      "expected": 257,
+      "phase": null
+    }
+  ],
+  "addressMiss": 0,
+  "sequenceGap": 0,
+  "hops": {
+    "lifecycle": 195,
+    "syncUrl": 4,
+    "client_recv": 261,
+    "client_arm": 3,
+    "client_apply": 255,
+    "cssom/install": 1,
+    "client_sent": 62,
+    "client_disarm": 1,
+    "client_desync": 2,
+    "client_resync_request": 1,
+    "client_drop": 1,
+    "client_resync_apply": 1
+  },
+  "armed": false
+}

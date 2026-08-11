@@ -25,24 +25,29 @@ internal static class SessionDataStreamsHost
     public static async Task RunAsync(
         ILiveSession live,
         IDataStreamSession session,
+        Guid consumerId,
         CancellationTokenSource lifetime)
     {
         ArgumentNullException.ThrowIfNull(live);
         ArgumentNullException.ThrowIfNull(session);
         ArgumentNullException.ThrowIfNull(lifetime);
+        if (consumerId == Guid.Empty)
+        {
+            throw new ArgumentException("Consumer id is required", nameof(consumerId));
+        }
 
         var ct = lifetime.Token;
-        var acceptTask = AcceptClientPipesAsync(session, live, lifetime);
+        var acceptTask = AcceptClientPipesAsync(session, live, consumerId, lifetime);
 
         try
         {
             var pumps = new List<Task>
             {
                 acceptTask,
-                PumpFramesAsync(session, live, ct),
-                PumpPageProjectionDiffsAsync(session, live, ct),
-                PumpConsoleAsync(session, live, ct),
-                PumpNotificationsAsync(session, live, ct),
+                PumpFramesAsync(session, live, consumerId, ct),
+                PumpPageProjectionDiffsAsync(session, live, consumerId, ct),
+                PumpConsoleAsync(session, live, consumerId, ct),
+                PumpNotificationsAsync(session, live, consumerId, ct),
             };
 
             await Task.WhenAll(pumps.Select(ObservePumpAsync)).ConfigureAwait(false);
@@ -56,6 +61,7 @@ internal static class SessionDataStreamsHost
     private static async Task AcceptClientPipesAsync(
         IDataStreamSession session,
         ILiveSession live,
+        Guid consumerId,
         CancellationTokenSource lifetime)
     {
         var ct = lifetime.Token;
@@ -69,7 +75,7 @@ internal static class SessionDataStreamsHost
                     break;
                 }
 
-                _ = ObservePumpAsync(HandleClientPipeAsync(pipe, live, ct));
+                _ = ObservePumpAsync(HandleClientPipeAsync(pipe, live, consumerId, ct));
             }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -84,9 +90,10 @@ internal static class SessionDataStreamsHost
     private static async Task PumpFramesAsync(
         IDataStreamSession session,
         ILiveSession live,
+        Guid consumerId,
         CancellationToken ct)
     {
-        var opened = live.OpenFrameStream();
+        var opened = live.OpenFrameStream(consumerId);
         if (opened.IsFailure)
         {
             return;
@@ -106,47 +113,119 @@ internal static class SessionDataStreamsHost
     private static async Task PumpPageProjectionDiffsAsync(
         IDataStreamSession session,
         ILiveSession live,
+        Guid consumerId,
         CancellationToken ct)
     {
-        var opened = live.OpenPageProjectionDiffStream();
-        if (opened.IsFailure)
+        try
         {
-            return;
-        }
-
-        using var source = opened.Value;
-        var channel = source.GetPageProjectionDiffsChannel();
-        if (channel.IsFailure)
-        {
-            return;
-        }
-
-        var pipe = await session.OpenUnidirectionalOutputAsync(ct).ConfigureAwait(false);
-        if (pipe?.Output is null)
-        {
-            return;
-        }
-
-        await using (pipe.ConfigureAwait(false))
-        {
-            var output = pipe.Output;
-            await output.WriteAsync(new[] { (byte)SessionPipeKind.PageProjectionDiff }, ct)
-                .ConfigureAwait(false);
-            await output.FlushAsync(ct).ConfigureAwait(false);
-            await foreach (var item in channel.Value.ReadAllAsync(ct).ConfigureAwait(false))
+            var opened = live.OpenPageProjectionDiffStream(consumerId);
+            if (opened.IsFailure)
             {
-                await WriteMessageAsync(output, item, ct).ConfigureAwait(false);
-                live.TracePageProjectionDiffWireDelivered(item);
+                return;
             }
+
+            using var source = opened.Value;
+
+            // After fan-out Completes Diff (EOF), channels are replaced and we reopen a
+            // unidirectional Diff pipe so post-T8 live Diffs can flow again.
+            while (!ct.IsCancellationRequested)
+            {
+                try
+                {
+                    var channel = source.GetPageProjectionDiffsChannel();
+                    if (channel.IsFailure)
+                    {
+                        return;
+                    }
+
+                    var reader = channel.Value;
+                    while (reader.Completion.IsCompleted && !ct.IsCancellationRequested)
+                    {
+                        await Task.Delay(25, ct).ConfigureAwait(false);
+                        channel = source.GetPageProjectionDiffsChannel();
+                        if (channel.IsFailure)
+                        {
+                            return;
+                        }
+
+                        reader = channel.Value;
+                    }
+
+                    if (ct.IsCancellationRequested)
+                    {
+                        return;
+                    }
+
+                    var pipe = await session.OpenUnidirectionalOutputAsync(ct).ConfigureAwait(false);
+                    if (pipe?.Output is null)
+                    {
+                        return;
+                    }
+
+                    await using (pipe.ConfigureAwait(false))
+                    {
+                        var output = pipe.Output;
+                        await output.WriteAsync(new[] { (byte)SessionPipeKind.PageProjectionDiff }, ct)
+                            .ConfigureAwait(false);
+                        await output.FlushAsync(ct).ConfigureAwait(false);
+                        await foreach (var item in reader.ReadAllAsync(ct).ConfigureAwait(false))
+                        {
+                            var epoch = source.GetDiffEpoch();
+                            live.TracePageProjectionDiffStreamDequeued(
+                                item,
+                                source.Id,
+                                source.ConsumerId,
+                                epoch);
+                            long durationMs = 0;
+                            if (live.IsPageProjectionDiffWireDeliveredEnabled())
+                            {
+                                var writeClock = System.Diagnostics.Stopwatch.StartNew();
+                                await WriteMessageAsync(output, item, ct).ConfigureAwait(false);
+                                durationMs = writeClock.ElapsedMilliseconds;
+                            }
+                            else
+                            {
+                                await WriteMessageAsync(output, item, ct).ConfigureAwait(false);
+                            }
+
+                            live.TracePageProjectionDiffWireDelivered(
+                                item,
+                                durationMs,
+                                source.Id,
+                                source.ConsumerId,
+                                epoch);
+                        }
+                    }
+                }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                {
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    // T5/D13: surface QueueDropped, then keep the Diff pump alive for T8 reopen.
+                    live.ReportPageProjectionDiffQueueDropped(
+                        "api_wire_stall",
+                        droppedCount: 1,
+                        capacity: SequencedDiffChannels.FanOutTargetCapacity,
+                        reason: ex.GetType().Name,
+                        streamId: source.Id,
+                        consumerId: source.ConsumerId);
+                }
+            }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
         }
     }
 
     private static async Task PumpConsoleAsync(
         IDataStreamSession session,
         ILiveSession live,
+        Guid consumerId,
         CancellationToken ct)
     {
-        var opened = live.OpenConsoleOutputStream();
+        var opened = live.OpenConsoleOutputStream(consumerId);
         if (opened.IsFailure)
         {
             return;
@@ -166,9 +245,10 @@ internal static class SessionDataStreamsHost
     private static async Task PumpNotificationsAsync(
         IDataStreamSession session,
         ILiveSession live,
+        Guid consumerId,
         CancellationToken ct)
     {
-        var opened = live.OpenNotificationStream();
+        var opened = live.OpenNotificationStream(consumerId);
         if (opened.IsFailure)
         {
             return;
@@ -212,6 +292,7 @@ internal static class SessionDataStreamsHost
     private static async Task HandleClientPipeAsync(
         IDataStreamPipe pipe,
         ILiveSession live,
+        Guid consumerId,
         CancellationToken ct)
     {
         await using (pipe.ConfigureAwait(false))
@@ -237,7 +318,7 @@ internal static class SessionDataStreamsHost
                     await HandlePageProjectionIntentAsync(pipe.Input, live, ct).ConfigureAwait(false);
                     break;
                 case SessionPipeKind.ConsoleInput:
-                    await HandleConsoleInputAsync(pipe, live, ct).ConfigureAwait(false);
+                    await HandleConsoleInputAsync(pipe, live, consumerId, ct).ConfigureAwait(false);
                     break;
                 case SessionPipeKind.Status:
                     await HandleStatusAsync(pipe, live, ct).ConfigureAwait(false);
@@ -281,6 +362,7 @@ internal static class SessionDataStreamsHost
     private static async Task HandleConsoleInputAsync(
         IDataStreamPipe pipe,
         ILiveSession live,
+        Guid consumerId,
         CancellationToken ct)
     {
         if (pipe.Input is null)
@@ -289,7 +371,7 @@ internal static class SessionDataStreamsHost
         }
 
         var channel = DropOldestChannels.Create<ConsoleInput>(16);
-        var consume = live.ConsumeConsoleInputAsync(channel.Reader, ct);
+        var consume = live.ConsumeConsoleInputAsync(consumerId, channel.Reader, ct);
         if (consume.IsFailure)
         {
             await foreach (var input in ReadMessagesAsync<ConsoleInput>(pipe.Input, ct)

@@ -24,8 +24,10 @@ function createBrowserSessionHandlers(registry) {
         async launch(call, callback) {
             try {
                 const sessionId = (0, validate_1.requireSessionId)(call.request);
-                const { session } = registry.get(sessionId);
-                const ready = await session.launch((0, mappers_1.toLaunchOptions)(call.request));
+                const { session, bridge } = registry.get(sessionId);
+                const options = (0, mappers_1.toLaunchOptions)(call.request);
+                bridge.configureDomCapacity(options.pageProjectionDiffQueueCapacity);
+                const ready = await session.launch(options);
                 callback(null, ready);
             }
             catch (err) {
@@ -226,6 +228,9 @@ function createBrowserSessionHandlers(registry) {
                 timestampMs: d.timestampMs,
                 body: d.body,
             }), (bridge) => ({
+                onAfterDequeue: () => {
+                    bridge.notifyDomQueueDrained();
+                },
                 onRequeueOverflow: (d) => {
                     bridge.emitLifecycleQueueDropped({
                         reason: 'sidecar_requeue_overflow',
@@ -306,6 +311,7 @@ function createBrowserSessionHandlers(registry) {
                 sequence: e.sequence,
                 lowestDroppedSequence: e.lowestDroppedSequence,
                 highestDroppedSequence: e.highestDroppedSequence,
+                payloadJson: e.payloadJson,
             }));
         },
         watchAllocationLifecycle(call) {
@@ -430,7 +436,9 @@ function createBrowserSessionHandlers(registry) {
                 });
                 if (!snap) {
                     callback(grpcError(Object.assign(new Error('resync snapshot unavailable'), {
-                        code: 'NOT_FOUND',
+                        code: 'FAILED_PRECONDITION',
+                        errorCode: 'resync_unavailable',
+                        phase: 'capture',
                     })), null);
                     return;
                 }
@@ -439,6 +447,12 @@ function createBrowserSessionHandlers(registry) {
                     coversThroughSequence: snap.coversThroughSequence,
                     rootJson: snap.rootJson,
                     sheetsJson: snap.sheetsJson,
+                    pageEpochId: snap.pageEpochId,
+                    source: snap.source,
+                    domMapMs: snap.domMapMs,
+                    cssomCloneMs: snap.cssomCloneMs,
+                    rewriteMs: snap.rewriteMs,
+                    serializeMs: snap.serializeMs,
                 });
             }
             catch (err) {

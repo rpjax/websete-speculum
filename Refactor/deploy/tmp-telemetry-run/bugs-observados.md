@@ -1,210 +1,241 @@
-# Bugs observados — PageProjection Live (bug hunt)
+# Bugs observados — PageProjection Live
 
-Anotações a partir dos smokes em `Refactor/deploy/tmp-telemetry-run/`  
-Data: **2026-08-09** (retest Eneba) · stack local `http://127.0.0.1:8080/` · `mirrorMode=pageProjection`
+> **SoT operacional (2026-08-11):** ver [`pipehop-bugs-diagnosis.md`](./pipehop-bugs-diagnosis.md) — estado atual, DomMap ~6–7 s, PageEpoch/ParityDebug, o que está fechado vs OPEN.  
+> Este arquivo (`bugs-observados.md`) permanece como **histórico** do re-hunt BZ1–BZ4 (2026-08-10).
 
-| Sessão | Host | Papel |
-|--------|------|--------|
-| `bd500651-3c7e-47e2-8dc1-14e48ace08c6` | belezanaweb (WAF) | 1ª passagem — Access Denied |
-| `c82ed6e8-30ab-4c06-8304-74726ae71c93` | eneba | Hunt completo (cold + acts) |
-| `75ec4723-04b1-4050-9ed6-18698513b7cc` | eneba | Probe wheel-only |
-| `61da7bc4-1159-4584-90b8-4ff4341a4b93` | eneba (input-diag anterior) | Funil de input / SoftNav |
+Stack: `http://127.0.0.1:8080/` · `mirrorMode=pageProjection`  
+**Re-hunt pós-fix BZ1–BZ4:** **2026-08-10** · `1657a57f-82d3-4a41-83c1-2dfc8b2d56f6` · host `www.belezanaweb.com.br`  
+Baseline pré-fix (referência): `be82de20-69f5-48ba-b2bb-7ed0406289be`
 
-Artefatos: `bughunt-*`, `bughunt-wheel-probe.json`, `input-journal-export.json`, `bughunt-front-activity.jsonl`.
-
----
-
-## B1 — TARGET_WAF_ACCESS_DENIED
-
-**Severidade:** blocker (ambiente) · **Status:** confirmado
-
-**O que se vê:** tela preta com “Access Denied” (Akamai / `edgesuite.net`). Árvore projetada “esparsa”, sem nav/search, `scrollHeight === clientHeight`.
-
-**Telemetria / evidência**
-- `Telemetry.Sessions.Start.UrlResolved` → `https://www.belezanaweb.com.br/…`
-- `Sessions.InitialNavigationCompleted` no mesmo URL
-- Só **2** Diffs: `dom/document@seq1` + `cssom/install@seq2` (FrameReceived + WireDelivered); sem storm de `childList`
-- Cold snapshot (`bughunt-cold.json` da 1ª passagem): `text` = Access Denied; `bodyKids=3`; `htmlLen≈1599`; `ownedRules=0`
-- Inputs ainda passam (`Applied` em wheel/mousemove) sobre a página de erro — sem efeito visual útil
-
-**Nota:** não é falha de paint do Speculum; o host default estava em Beleza. Query `?_bughunt=…` no Live era mapeada para o remote start URL e agravava o risco de WAF.
+| Artefato | Path |
+|----------|------|
+| Screenshots | `beleza-early.png`, `beleza-cold.png`, `beleza-settled.png`, `beleza-final.png` |
+| Medidas | `beleza-early/cold/settled/final.json`, `beleza-acts.json`, `beleza-summary.json` |
+| Journal | `beleza-journal-export.json` |
+| Front wire log | `beleza-front-activity.jsonl` |
+| Digest | `beleza-digest.json` |
+| Scripts | `run-beleza-hunt.cjs`, `analyze-beleza-hunt.cjs` |
 
 ---
 
-## B2 — EMPTY_SHELLS_AFTER_SCROLL / cold spinners
+## Checklist BZ1–BZ4 (re-hunt `1657a57f-…`)
 
-**Severidade:** high · **Status:** confirmado (visual + cold)
+| ID | Aceite | Resultado |
+|----|--------|-----------|
+| **BZ1** | Sem `QueueDropped sidecar_bridge` / sem `sequence_gap` no boot | **GREEN** — `QueueDropped=0`; FrameReceived=WireDelivered=6008 |
+| **BZ4** | `duplicateAnchors=[]`; sem `matchCount>1` | **GREEN** — cold/settled/final `dups=[]` |
+| **BZ2** | Resync observável; Served + apply joint | **GREEN** — Served + `client_resync_apply` `joint:true`; `client_resync_failed=0` |
+| **BZ3** | Cascata boot fechada | **PARCIAL** — cold/settled limpos; 1× `address_miss` `matchCount=0` tarde (acts) depois recuperado por resync |
 
-**O que se vê**
-- Cold: header/nav ok; cards de produto com **spinner**; hero com faixa vazia
-- Após wheel: seções tipo “Upcoming games” com **cards roxos vazios** (`bughunt-wheel-only.png`)
-
-**Telemetria / evidência**
-- Sessão hunt: cold `ownedRules=1832`, `htmlLen≈311k`, `client_arm` + `cssom/install` — DOM/CSSOM **ok**
-- Front hops (hunt): `client_apply≈948`, `client_recv≈939` — Diffs fluindo
-- Wheel probe: HTML cresce `150k → 938k` enquanto scroll anda; layout shell permanece, conteúdo de card atrasa/falha
-- Imagens `virtual-assets` amostradas: HTTP **200** (não é 401 de token neste run)
-- Vários `<img>` em `/w7s/virtual-data/…` com `naturalWidth/Height=1` → ver **B3**
-
-**Hipótese:** lazy-load / intersection / rewrite de mídia; não desync (`client_desync=0` neste run).
+Cold armou ~10.7s, `ownedRules=4443`, `htmlLen≈2.27M`, sem Access Denied.
 
 ---
 
-## B3 — VIRTUAL_DATA_1x1
+## Timeline pré-fix (Beleza `be82de20-…`)
 
-**Severidade:** high · **Status:** confirmado (DOM projetado)
+| t | Fase | Visual / estado | Telemetria / front |
+|---|------|-----------------|--------------------|
+| ~2s | early | superfície vazia (`htmlLen=0`) | — |
+| ~9s | cold **armed** | Header+nav+produtos ok; **hero branco**; ícones quebrados na barra inferior | `client_arm` (`document_or_install`); `ownedRules=4443`; `htmlLen≈2.86M`; **sem** desync ainda |
+| ~19s | settled | Hero ainda vazio; **imagens de produto esmagadas** em filetes; 1 âncora duplicada | `client_desync` **sequence_gap** seq 1041 vs expected 17; `client_disarm`; drops `buffered_while_desynced` |
+| ~+acts | final | Search “shampoo” (mutação local); grid de busca com assets faltando / skeletons | 2º desync **address_miss**; resync parcial; **0** `client_sent` / **0** Input facts |
 
-**O que se vê:** placeholders 1×1 onde deveria haver mídia real.
-
-**Telemetria / evidência (front DOM, pós-settle ~8s)**
-- `imgCount=83`, `broken≈10` (critério `!complete || naturalWidth===0`)
-- Amostra repetida: `src=/w7s/virtual-data/77a0041c6516f10f7086818e?speculum-session-token=…` com `nw=1`, `nh=1`, `complete=true`
-- Contraste: `virtual-assets` (logo, flags, imgproxy) com dimensões reais e status 200
-
-**Hipótese:** rewrite blob/data → `virtual-data` colapsa bytes ou serve stub.
+**Akamai:** `sawDenied=false` em todo o wait (90s budget; armou em 9127ms).
 
 ---
 
-## B4 — SOFTNAV_CLICK_COLLAPSE (+ overlays)
+## BZ1 — SEQUENCE_GAP / sidecar_bridge overflow (bloqueador)
 
-**Severidade:** medium (UX / percepção de bug) · **Status:** confirmado
+**Severidade:** blocker · **Status:** **corrigido** (re-hunt `1657a57f-…`)
 
-**O que se vê:** click no centro “apaga” a home e remonta outra página; modal geo (“Achamos que você está em Brasil”) e cookies cobrem CTAs.
+**Fix:** `PageProjectionDiffQueueCapacity` default **8192** (sidecar+API); DropAll mantido (T5); backpressure Virtual (`pauseLiveEmit`).
 
-**Telemetria**
-- Act `click_center`: `hrefChanged=true`, `htmlLen` **539714 → 267587** (`textLen` −2234)
-- Journal:
-  - `Telemetry.Sessions.PageProjection.Diff.SoftNavObserved`  
-    - `url=https://www.eneba.com/`, `documentEpoch=eqm9k4848msmfgfxu`, `liveArmed=false`
-  - SoftNavObserved  
-    - `url=https://www.eneba.com/promo/game-points?…`, mesmo `documentEpoch`, `liveArmed=true`
-- Front: `hop=lifecycle` kind SoftNav/url sync para o promo
-- `GenerationBumped=0` neste SoftNav (epoch estável) — alinhado ao contrato SoftNav, não hard nav
-- `click_navish` falhou: elemento não visível (overlay)
+**Pré-fix:** bridge 1024 DropAll seq 17–1040 → client `sequence_gap`. Front `client_apply=23` vs `recv=1024`.
 
-**Nota:** comportamento do site + SoftNav; não é `address_miss`. Ainda assim explica “tá bugado” ao clicar.
+**Pós-fix:** `QueueDropped=0`; sem `sequence_gap`.
 
----
+<details><summary>Evidência pré-fix</summary>
 
-## B5 — CDP_DROPPED anchor_missing (blur / focus / input)
-
-**Severidade:** medium (ruído) · **Status:** confirmado, recorrente
-
-**Telemetria — hunt Eneba (`c82ed6e8-…`)**
-- `Telemetry.Sessions.PageProjection.Input.CdpDropped` ×1  
-  - `kind=blur`, `reason=anchor_missing`, `generation=1`, `anchor=null`
-
-**Telemetria — input-diag anterior (`61da7bc4-…`)**
-| kind | reason | gen |
-|------|--------|-----|
-| blur | `anchor_missing` | 1 |
-| focus | `generation_stale` | 1 |
-| blur | `anchor_missing` | 2 |
-| input | `anchor_missing` | 2 |
-| keyup | `anchor_missing` | 2 |
-
-Funil input-diag (saudável no geral): DataPlane/Applied/Push **26**; `ScrollEchoHit=1`; `GenerationBumped` 1→2 em `main_frame_navigated` para `/br/`.
-
-**Nota:** drops em foco/blur sem âncora; `generation_stale` em torno de hard nav (mitigado em parte pelo disarm de generation).
-
----
-
-## B6 — HUB_EDITABLEFOCUS_MISSING
-
-**Severidade:** medium · **Status:** confirmado (console)
-
-**O que se vê:** warning no browser.
-
-**Evidência**
+**Journal**
+```text
+Telemetry.Sessions.PageProjection.Diff.QueueDropped
+  stage: sidecar_bridge
+  capacity: 1024
+  droppedCount: 1024
+  sequence: 1041
+  lowestDroppedSequence: 17
+  highestDroppedSequence: 1040
 ```
-[warning] Warning: No client method with the name 'editablefocuschanged' found.
-```
-(`bughunt-browser-console.txt`)
 
-**Hipótese:** hub emite `EditableFocusChanged` sem handler MessagePack/SignalR no client Live.
+</details>
 
 ---
 
-## B7 — QueueDropped api_fanout_pipe_closed
+## BZ2 — RESYNC incompleto / falha após gap
 
-**Severidade:** medium (capacidade / detach) · **Status:** visto em journals anteriores; não no hunt Eneba principal
+**Severidade:** high · **Status:** **corrigido** (observabilidade + joint apply)
 
-**Telemetria (input-diag / full-diag)**
-- `Telemetry.Sessions.PageProjection.Diff.QueueDropped`
-  - `stage=api_fanout_pipe_closed`
-  - `capacity=1024`, `droppedCount=1`, plane `dom`, op `childList` / `patch`
-- Correlato histórico: `FrameReceived` ≫ `WireDelivered` (ex.: 1704 vs 1024) quando o pipe fecha
+**Fix:** `client_resync_failed` em HTTP≠2xx; apply joint (`kind:dom` + `extra.joint`); API/sidecar `phase:capture` quando snapshot null.
 
-**Nota:** funcional ≠ perf; indicar quando a sessão desconecta/timeout no meio do fanout.
+**Pré-fix:** resync CSSOM-only + GET **400** silencioso.
+
+**Pós-fix:** `ResyncServed` + `client_resync_apply` joint; re-`client_arm`; sem `client_resync_failed`.
 
 ---
 
-## B8 — (histórico) DESYNC address_miss matchCount=2
+## BZ3 — ADDRESS_MISS pós-resync (`matchCount=0`)
 
-**Severidade:** blocker quando ocorre · **Status:** **não reproduzido** no hunt Eneba 2026-08-09
+**Severidade:** high · **Status:** cascata boot **fechada**; residual tardio possível
 
-**O que se viu antes (Beleza pintando):** `client_desync` `address_miss` com seletor `speculum-anchor=…` e `matchCount: 2` (contrato exige exatamente 1) → disarm → `buffered_while_desynced` em massa.
+**Pré-fix:** `matchCount=0` logo após resync parcial.
 
-**Neste run Eneba:** `desync=null`, `duplicateAnchors=[]`, front sem `client_desync`.
-
-Manter na lista até retest em host que gerava âncora duplicada.
+**Pós-fix:** cold/settled sem desync. Acts: 1× `address_miss` `matchCount=0` seq 5469 → resync Served/apply/arm.
 
 ---
 
-## B9 — (histórico / mitigado) FRAMED_LENGTH / MaxMessageBytes
+## BZ4 — DUPLICATE_ANCHOR
 
-**Severidade:** blocker se Diff > teto · **Status:** mitigado localmente (teto **10 MB**); não visto no hunt
+**Severidade:** high · **Status:** **corrigido**
 
-**Antes:** `Invalid framed length` com Diff Beleza ~3–4 MB vs teto 1 MB → superfície vazia.  
-**Agora:** bundle com `10485760`; hunt Eneba sem `framedErr`.
+**Fix:** remint global + claim no map + skip childList de identidade já publicada; mint monotônico.
 
----
+**Pré-fix:** ~30 dups no cold; desync seq 6 `matchCount=2`.
 
-## Falsos positivos do analyzer
-
-| Flag do analyzer | Por que descartar |
-|------------------|-------------------|
-| `WHEEL_NO_EFFECT` no hunt principal | Medição após SoftNav / página curta (`scrollHeight=900`) ou mid-rebuild. Probe dedicado: **ΔscrollTop=+2781**, vários `dom/scrollViewport` FrameReceived+WireDelivered+`client_apply`+`programmaticSuppress`. |
-| `SPARSE_PROJECTED_TREE` (Beleza) | HTML da página WAF, não falha de apply. |
-| `NO_SCROLL_RANGE` no final do hunt | Estado pós-promo/modal; cold/wheel-probe tinham `scrollHeight ≫ clientHeight`. |
-
-### Telemetria de scroll que **funcionou** (probe `75ec4723-…`)
-- Intent: `client_sent` `kind=wheel` (âncora presente) → lifecycle `push` / `grpc_pushed` / `sidecar_admitted`
-- Diff: `FrameReceived` + `WireDelivered` `operation=scrollViewport` (seqs 199, 231, 262, 263, 295, 402, …)
-- Front: `client_apply` `target=scrollViewport` + `programmaticSuppress` `target=viewport`
-- Hunt: `ScrollEchoHit` viewport (`scrollX=0`, `scrollY=0` num sample — eco de posição; não prova sozinho falha de scroll)
+**Pós-fix:** `duplicateAnchors=[]` em cold/settled/final.
 
 ---
 
-## Sinais saudáveis (baseline Eneba hunt)
+## BZ5 — HERO / carousel vazio (visual)
 
-| Métrica | Valor |
-|---------|--------|
-| Cold phase | `armed` ~4.6s |
-| ownedRules | 1832 |
-| Desync / framed / dups | 0 |
-| factCount | 2221 |
-| Applied inputs | 27 |
-| SoftNavObserved | 2 |
-| GenerationBumped | 0 |
-| ScrollEchoHit | 1 |
-| programmaticSuppress (front) | 2 |
-| CdpDropped | 1 |
+**Severidade:** high · **Status:** confirmado (cold + settled)
 
-Front `client_sent` kinds (hunt): mousemove, mousedown/up, focus/blur, wheel×2, scrollViewport×1, keydown/keyup, input.
+**Visual (`beleza-cold.png`, `beleza-settled.png`)**
+- Faixa central branca enorme onde deveria estar o banner/carousel
+- Settled: setas ←→ e dots do carousel visíveis, **sem** slides/imagens
+- Cold já armado com CSSOM (`ownedRules` 4k+) — não é framing `Invalid framed length` (`framedErr=null`)
+
+**Telemetria correlata:** não há op Diff específica “hero”; falha de assets (BZ7) + possível conteúdo só via patch após seq 17 (perdido no gap BZ1).
 
 ---
 
-## Prioridade sugerida
+## BZ6 — Imagens de produto esmagadas / layout quebrado pós-desync
 
-1. **B3** virtual-data 1×1 (+ impacto em **B2** shells vazios)  
-2. **B6** handler `editablefocuschanged`  
-3. **B5** âncora nula em blur/focus (se afetar edição)  
-4. Repro **B8** em host que gerava âncora duplicada  
-5. Tratar **B1** como config/host (não como bug de Diff)
+**Severidade:** high · **Status:** confirmado
+
+**Visual**
+- **Cold:** cards Lançamentos/Promoções/Em alta com thumbnails razoáveis
+- **Settled (após sequence_gap):** mesmas seções com imagens em **filetes verticais** (largura ~0); badges “-32%” etc. ainda legíveis
+- **Final (busca):** cards com foto ausente / `…` / skeletons cinza; botões roxos sem ícone
+
+**Telemetria:** degradação alinhada ao desync + apply quase parado (`client_apply=23`) enquanto `client_recv` satura.
 
 ---
 
-## Config local após o hunt
+## BZ7 — Assets virtual-assets 400/404 + ícones quebrados
 
-`Navigation.defaultTargetHost` ficou em **`www.eneba.com`** (antes Beleza). Restaurar Beleza só se quiser revalidar WAF / B8.
+**Severidade:** high · **Status:** confirmado
+
+**Visual:** ícone “Outlet BLZ” quebrado no menu; barra “Ofertas do Dia / Outlet / Brinde / …” com placeholders de imagem quebrada.
+
+**Medidas**
+| Fase | brokenImgs | virtualData1x1 | imgCount (implícito) |
+|------|------------:|---------------:|----------------------|
+| cold | 86 | 21 | — |
+| settled | 74 | 21 | — |
+
+**Net fails (`beleza-net-fails.json`)**
+| status | URL (amostra) |
+|--------|----------------|
+| 400 | `/w7s/virtual-assets/www.belezanaweb.com.br/?speculum-session-token=…` |
+| 404 | `/w7s/virtual-assets/res.cloudinary.com/beleza-na-web/image/upload/f_avif?…` |
+| 404 | `/w7s/virtual-assets/res.cloudinary.com/beleza-na-web/image/upload/f_webp?…` |
+| 400 | `/w7s/api/sessions/…/page-projection/resync?…` |
+
+**Console:** vários `Failed to load resource` 400/404/403; preload warnings de CSS Beleza e cloudinary `f_avif`.
+
+**Nota:** paths cloudinary só com `f_avif`/`f_webp` (sem public id) sugerem rewrite/preload incompleto.
+
+---
+
+## BZ8 — VIRTUAL_DATA_1x1
+
+**Severidade:** medium/high · **Status:** confirmado
+
+**Medida:** `virtualData1x1=21` (cold e settled) — `<img src="/w7s/virtual-data/…">` com `naturalWidth≤1`.
+
+Mesmo padrão visto no hunt Eneba (blob/data → stub 1×1).
+
+---
+
+## BZ9 — Input path morto após desync (telemetria + wire)
+
+**Severidade:** high · **Status:** confirmado
+
+**Journal:** **0** facts `Telemetry.Sessions.PageProjection.Input.*` (Applied/DataPlane/CdpDropped/ScrollEcho = 0).
+
+**Front:** **0** `client_sent` em todo o log exportado.
+
+**Acts (após desync já ativo)**
+| Act | Δscroll | Δhtml | err | desyncAfter |
+|-----|--------:|------:|-----|-------------|
+| wheel_down_800 | +1600 | 0 | — | Y |
+| wheel_up_400 | −400 | 0 | — | Y |
+| click_center | 0 | 0 | — | Y |
+| click_navish | 0 | 0 | element not visible | Y |
+| search_type | 0 | 0 | — | Y |
+| search_enter | 0 | 0 | — | Y |
+
+**Visual final:** campo de busca mostra **“shampoo”** — tipagem provavelmente **local no DOM projetado** (Playwright → nó real), sem intents Speculum (`client_sent=0`). Isso é vazamento de input local pós-`client_disarm`, não o funil PageProjectionIntent.
+
+Scroll Δ±1600 com `scrollHeight≈8758` também pode ser scroll **local** na surface sem eco remoto (sem ScrollEchoHit / Applied).
+
+---
+
+## BZ10 — Click navish / overlays (UX)
+
+**Severidade:** medium · **Status:** confirmado
+
+`click_navish` timeout: elemento com texto de categoria **not visible** (hero vazio / layout / possível overlay). Categorias no texto existem (`Cabelos`, `Perfumes`… em `settled.text`), mas o locator visível falhou.
+
+---
+
+## Resumo de prioridade (Beleza 2026-08-10)
+
+1. **BZ1** — `sidecar_bridge` drop 1024 frames (seq 17→1040) → root do `sequence_gap`
+2. **BZ2/BZ3** — resync não recupera DOM; `address_miss` em seguida; resync HTTP 400
+3. **BZ4** — âncora duplicada `a6jzaggvsnxe6`
+4. **BZ5–BZ7** — hero vazio + assets 400/404 + layout esmagado
+5. **BZ8** — virtual-data 1×1
+6. **BZ9** — após disarm, zero input telemetria; tipagem local no projected DOM
+
+---
+
+## O que NÃO ocorreu neste run Beleza
+
+- Access Denied / Akamai block (`sawDenied=false`)
+- `Invalid framed length` / `framedErr`
+- SoftNav / GenerationBumped
+- Input `CdpDropped` / `generation_stale` (porque o funil de input nem chegou a emitir)
+
+---
+
+## Apêndice A — Eneba (2026-08-09) — referência
+
+Sessões: `c82ed6e8-…` (hunt), `75ec4723-…` (wheel). Artefatos `bughunt-*`.
+
+| ID | Nota curta |
+|----|------------|
+| EN1 EMPTY_SHELLS | Cards vazios pós-scroll; spinners no cold |
+| EN2 VIRTUAL_DATA_1x1 | Mesmo padrão BZ8 |
+| EN3 SOFTNAV_CLICK | SoftNav para `/promo/game-points`; html colapsa/remonta |
+| EN4 CDP blur anchor_missing | 1× no hunt; mais no input-diag |
+| EN5 editablefocuschanged | Warning SignalR sem handler client |
+| EN6 QueueDropped | Histórico `api_fanout_pipe_closed` (outro stage que BZ1) |
+
+Wheel em Eneba **funcionou** quando armado (probe ΔscrollTop=+2781 + `scrollViewport` + `programmaticSuppress`).
+
+---
+
+## Apêndice B — Run Beleza antigo (Access Denied)
+
+Sessão `bd500651-…`: página Akamai projetada corretamente (HTML curto). **Não** repetido em 2026-08-10 — aguardar alguns segundos basta quando o interstitial aparece.

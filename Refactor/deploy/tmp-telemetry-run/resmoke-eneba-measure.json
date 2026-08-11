@@ -1,0 +1,48 @@
+{
+  "sessionId": "44b98b90-12cc-40ac-acf5-4fb18ec5cc73",
+  "href": "http://127.0.0.1:8080/br/?_w7s_nso=eyJ2IjoxLCJoIjoiIn0%3D",
+  "htmlLen": 648327,
+  "textLen": 4509,
+  "text": "English EU\nBRL\nLog in\n | \nRegister\nCategories\nGames -90%\nSoftware\neGift Cards\nNordVPN\nEneba Gift Cards\nFC27\nGame Points ⚡\nSurfshark VPN\nGAME POINTS | AUG 26\nSURFSHARK | AUG 26\nPSN GIFT CARDS | MAY 26\nUP TO -90% CHEAPER\nGames\nGaming eCards\ne",
+  "accessDenied": false,
+  "ownedRules": 1832,
+  "brokenImgs": 10,
+  "imgCount": 83,
+  "virtualData1x1": 3,
+  "truncatedAvif": 0,
+  "cloudinaryFull": 0,
+  "srcsetSample": [
+    {
+      "tag": "SOURCE",
+      "srcset": "/w7s/virtual-assets/static.eneba.games/9b35a9095c42fb593f03.png?speculum-session-token=c13109835ae74ef9baf0fa6744bab784"
+    },
+    {
+      "tag": "SOURCE",
+      "srcset": "/w7s/virtual-assets/static.eneba.games/cd7b069788375466eed5.png?speculum-session-token=c13109835ae74ef9baf0fa6744bab784"
+    },
+    {
+      "tag": "SOURCE",
+      "srcset": "/w7s/virtual-assets/static.eneba.games/77b7dedacd3c7ea3e236.png?speculum-session-token=c13109835ae74ef9baf0fa6744bab784"
+    },
+    {
+      "tag": "SOURCE",
+      "srcset": "/w7s/virtual-assets/imgproxy.eneba.games/Yr1ptDA8tSL33il5cQuilUtnUxzQhy0CrBmchHLjH-A/rs:fit:95/ar:1/czM6Ly9wcm9kdWN0/cy5lbmViYS5nYW1l/cy9wcm9kdWN0cy94/QWc1VzBpeWpXYWJP/UGZLQWVhTDhoR3Iy/WUFHS19CckdXYlgz/dURXTHVFLmpwZw?speculum-session-token=c13109835ae74ef9baf0fa6744bab784 1x, /w7s/virtual-assets/imgproxy.eneba.games/3oVuh0nNqN7d1Ug_ORJe4bOripQiyza0OzIi6t3FO_0/rs:fit:190/ar:1/czM6Ly9wcm9kdWN0/cy5lb"
+    },
+    {
+      "tag": "SOURCE",
+      "srcset": "/w7s/virtual-assets/imgproxy.eneba.games/VbKcF81dHz0WvOIjjz7VgFIIZYfU3uzTo-iA9myEuo0/rs:fit:300/ar:1/czM6Ly9wcm9kdWN0/cy5lbmViYS5nYW1l/cy9wcm9kdWN0cy94/QWc1VzBpeWpXYWJP/UGZLQWVhTDhoR3Iy/WUFHS19CckdXYlgz/dURXTHVFLmpwZw?speculum-session-token=c13109835ae74ef9baf0fa6744bab784 1x, /w7s/virtual-assets/imgproxy.eneba.games/ptKBZAc3uhB9albcihiIzV1IyqtZtwDhUweeZy8XrRc/rs:fit:600/ar:1/czM6Ly9wcm9kdWN0/cy5l"
+    }
+  ],
+  "desyncs": [],
+  "addressMiss": 0,
+  "hops": {
+    "lifecycle": 115,
+    "syncUrl": 4,
+    "client_recv": 348,
+    "client_arm": 1,
+    "client_apply": 347,
+    "cssom/install": 1,
+    "client_sent": 39
+  },
+  "armed": true
+}

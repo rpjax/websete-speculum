@@ -105,6 +105,8 @@ message LaunchRequest {
   double screencast_max_encode_scale = 16;
   // Sessions.MirrorMode — videoStreaming | pageProjection (admin engine config; Launch-scoped).
   string mirror_mode = 17;
+  // Sessions.PageProjectionDiffQueueCapacity — sidecar EventBridge Dom queue (T5 DropAll).
+  int32 page_projection_diff_queue_capacity = 18;
 }
 
 message ReadyInfo {
@@ -313,6 +315,8 @@ message PageProjectionLifecycleEvent {
   optional int64 sequence = 10; // queue_dropped kept envelope (surviving write)
   optional int64 lowest_dropped_sequence = 11; // queue_dropped drained backlog min
   optional int64 highest_dropped_sequence = 12; // queue_dropped drained backlog max
+  // PageEpoch parity telemetry (parity_* kinds) — UTF-8 JSON of the kind's payload object.
+  optional string payload_json = 13;
 }
 
 // Opt-in allocation lifecycle (API journals Telemetry.Sessions.Sidecar.* when enabled).
@@ -377,6 +381,13 @@ message PageProjectionResyncResponse {
   int64 covers_through_sequence = 2;
   bytes root_json = 3;   // F(html) DomNode JSON
   bytes sheets_json = 4; // Cssom install sheets JSON array
+  // PageEpoch parity telemetry — resync phase timings (best-effort).
+  optional string page_epoch_id = 5;
+  optional string source = 6; // mirror | dump_fallback
+  optional int64 dom_map_ms = 7;
+  optional int64 cssom_clone_ms = 8;
+  optional int64 rewrite_ms = 9;
+  optional int64 serialize_ms = 10;
 }
 
 message PutDomUploadRequest {

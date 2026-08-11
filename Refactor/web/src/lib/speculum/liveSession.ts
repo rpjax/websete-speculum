@@ -103,6 +103,7 @@ export class LiveSession extends Emitter<SessionEventMap> {
     this.forward('frame')
     this.forward('pageProjectionDiff')
     this.forward('pageProjectionDiffRejected')
+    this.forward('pageProjectionDiffEnded')
     this.forward('console')
     this.forward('notification')
     this.forward('error')

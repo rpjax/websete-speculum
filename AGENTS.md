@@ -14,6 +14,7 @@ You are working in the **Speculum** remote browser isolation repository.
 
 ## Non-negotiable
 
+- **PageProjection accept = absolute 1:1 parity** with the original site (Projected ≈ opening Virtual’s target in a normal browser). Protocol recovery / green smoke alone never prove accept — see [docs/page-projection-acceptance.md](docs/page-projection-acceptance.md).
 - **Effect asserts**, not smoke (`200` / `ok: true` alone).
 - Missing JSON properties **fail** — never skip-if-absent.
 - Never publish a catalogued Sessions/Sidecar DiagProbe **failure** without `errorCode` + `phase` (see [docs/diagnostics.md](docs/diagnostics.md)).

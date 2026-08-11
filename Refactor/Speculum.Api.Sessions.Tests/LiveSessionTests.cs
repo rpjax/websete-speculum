@@ -23,6 +23,13 @@ namespace Speculum.Api.Sessions.Tests;
 
 public sealed class LiveSessionTests
 {
+    private static Guid AttachAndObserve(ILiveSession live, IAttachedSessionClient client)
+    {
+        var attachmentId = live.Attach(client).Value;
+        var notifications = live.OpenNotificationStream(attachmentId).Value;
+        Assert.True(live.ObserveSessionNotifications(notifications).IsSuccess);
+        return attachmentId;
+    }
     [Fact]
     public async Task Create_OneContextPerSession_SecondCreateFails()
     {
@@ -56,8 +63,8 @@ public sealed class LiveSessionTests
         var connection = new LiveFakeConnection(sessionId);
         var live = CreateService().Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
 
-        var a = live.OpenFrameStream().Value;
-        var b = live.OpenFrameStream().Value;
+        var a = live.OpenFrameStream(Guid.NewGuid()).Value;
+        var b = live.OpenFrameStream(Guid.NewGuid()).Value;
 
         await connection.Frames.Writer.WriteAsync(new Frame { Sequence = 7 });
         Assert.Equal(7, (await a.GetFramesChannel().Value.ReadAsync()).Sequence);
@@ -73,8 +80,8 @@ public sealed class LiveSessionTests
         var connection = new LiveFakeConnection(sessionId);
         var live = CreateService().Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
 
-        Assert.True(live.Attach(new RecordingAttachedClient()).IsSuccess);
-        var frames = live.OpenFrameStream().Value;
+        var attachmentId = AttachAndObserve(live, new RecordingAttachedClient());
+        var frames = live.OpenFrameStream(attachmentId).Value;
 
         await connection.Frames.Writer.WriteAsync(new Frame { Sequence = 42 });
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
@@ -98,8 +105,8 @@ public sealed class LiveSessionTests
             },
         })).Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
 
-        var first = live.OpenFrameStream().Value;
-        var second = live.OpenFrameStream().Value;
+        var first = live.OpenFrameStream(Guid.NewGuid()).Value;
+        var second = live.OpenFrameStream(Guid.NewGuid()).Value;
 
         await connection.Frames.Writer.WriteAsync(new Frame { Sequence = 9 });
 
@@ -118,8 +125,8 @@ public sealed class LiveSessionTests
         var connection = new LiveFakeConnection(sessionId);
         var live = CreateService().Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
 
-        var a = live.OpenFrameStream().Value;
-        var b = live.OpenFrameStream().Value;
+        var a = live.OpenFrameStream(Guid.NewGuid()).Value;
+        var b = live.OpenFrameStream(Guid.NewGuid()).Value;
         a.Dispose();
         Assert.True(a.GetFramesChannel().IsFailure);
 
@@ -134,10 +141,10 @@ public sealed class LiveSessionTests
         var connection = new LiveFakeConnection(sessionId);
         var live = CreateService().Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
 
-        var first = live.OpenFrameStream().Value;
+        var first = live.OpenFrameStream(Guid.NewGuid()).Value;
         first.Dispose();
 
-        var second = live.OpenFrameStream().Value;
+        var second = live.OpenFrameStream(Guid.NewGuid()).Value;
         await connection.Frames.Writer.WriteAsync(new Frame { Sequence = 99 });
         Assert.Equal(99, (await second.GetFramesChannel().Value.ReadAsync()).Sequence);
     }
@@ -150,11 +157,12 @@ public sealed class LiveSessionTests
         var live = CreateService().Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
 
         Assert.Equal(MirrorMode.VideoStreaming, live.MirrorMode);
-        Assert.True(live.OpenFrameStream().IsSuccess);
-        Assert.True(live.OpenPageProjectionDiffStream().IsFailure);
+        Assert.True(live.OpenFrameStream(Guid.NewGuid()).IsSuccess);
+        Assert.True(live.OpenPageProjectionDiffStream(Guid.NewGuid()).IsFailure);
         Assert.Contains(
             SessionMirrorErrors.PageProjectionRequiredMessage,
-            live.OpenPageProjectionDiffStream().Errors.Select(e => e.Message));
+            live.OpenPageProjectionDiffStream(Guid.NewGuid()).Errors.Select(e => e.Message));
+        Assert.True(live.Attach(new RecordingAttachedClient()).IsSuccess);
         Assert.True(live.AdmitVideoStreamingInput(new VideoStreamingInput
         {
             Type = "mousemove",
@@ -198,17 +206,17 @@ public sealed class LiveSessionTests
             .Value;
 
         Assert.Equal(MirrorMode.PageProjection, live.MirrorMode);
-        Assert.True(live.OpenFrameStream().IsFailure);
+        Assert.True(live.OpenFrameStream(Guid.NewGuid()).IsFailure);
         Assert.Contains(
             SessionMirrorErrors.VideoStreamingRequiredMessage,
-            live.OpenFrameStream().Errors.Select(e => e.Message));
+            live.OpenFrameStream(Guid.NewGuid()).Errors.Select(e => e.Message));
         Assert.True(live.AdmitVideoStreamingInput(new VideoStreamingInput
         {
             Type = "mousemove",
             Payload = """{"type":"mousemove","x":1,"y":2}""",
         }).IsFailure);
 
-        var openDom = live.OpenPageProjectionDiffStream();
+        var openDom = live.OpenPageProjectionDiffStream(Guid.NewGuid());
         Assert.True(openDom.IsSuccess);
 
         var admitDom = live.AdmitPageProjectionInput(new PageProjectionIntent
@@ -249,7 +257,7 @@ public sealed class LiveSessionTests
             collector);
         var live = service.Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
 
-        var stream = live.OpenFrameStream().Value;
+        var stream = live.OpenFrameStream(Guid.NewGuid()).Value;
         stream.Dispose();
         Assert.Equal(0, collector.AddRefs);
         Assert.Equal(0, collector.Releases);
@@ -281,7 +289,7 @@ public sealed class LiveSessionTests
         });
 
         var client = new RecordingAttachedClient();
-        Assert.True(live.Attach(client).IsSuccess);
+        _ = AttachAndObserve(live, client);
 
         var url = await client.WaitSyncUrlAsync(TimeSpan.FromSeconds(2));
         Assert.Equal("https://speculum.test/before-attach", url);
@@ -294,7 +302,7 @@ public sealed class LiveSessionTests
         var connection = new LiveFakeConnection(sessionId);
         var live = CreateService().Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
         var client = new RecordingAttachedClient();
-        Assert.True(live.Attach(client).IsSuccess);
+        _ = AttachAndObserve(live, client);
 
         await connection.Notifications.Writer.WriteAsync(new SessionNotification
         {
@@ -340,7 +348,7 @@ public sealed class LiveSessionTests
             .Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true)
             .Value;
         var client = new RecordingAttachedClient();
-        Assert.True(live.Attach(client).IsSuccess);
+        _ = AttachAndObserve(live, client);
 
         await connection.Notifications.Writer.WriteAsync(new SessionNotification
         {
@@ -369,7 +377,7 @@ public sealed class LiveSessionTests
         var live = CreateService(urls: new FailingUrlResolver())
             .Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
         var client = new RecordingAttachedClient();
-        Assert.True(live.Attach(client).IsSuccess);
+        _ = AttachAndObserve(live, client);
 
         await connection.Notifications.Writer.WriteAsync(new SessionNotification
         {
@@ -388,7 +396,7 @@ public sealed class LiveSessionTests
         var connection = new LiveFakeConnection(sessionId);
         var live = CreateService().Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
         var client = new RecordingAttachedClient();
-        Assert.True(live.Attach(client).IsSuccess);
+        _ = AttachAndObserve(live, client);
 
         await connection.Notifications.Writer.WriteAsync(new SessionNotification
         {
@@ -408,7 +416,7 @@ public sealed class LiveSessionTests
         var faults = new RecordingFaultScheduler();
         var live = CreateService(faults).Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
         var client = new RecordingAttachedClient();
-        Assert.True(live.Attach(client).IsSuccess);
+        _ = AttachAndObserve(live, client);
 
         await connection.Notifications.Writer.WriteAsync(new SessionNotification
         {
@@ -438,7 +446,7 @@ public sealed class LiveSessionTests
         var live = CreateService(faults, liveEvents: liveEvents)
             .Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
         var client = new RecordingAttachedClient();
-        Assert.True(live.Attach(client).IsSuccess);
+        _ = AttachAndObserve(live, client);
 
         await connection.Notifications.Writer.WriteAsync(new SessionNotification
         {
@@ -462,7 +470,7 @@ public sealed class LiveSessionTests
         var faults = new RecordingFaultScheduler();
         var live = CreateService(faults).Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
         var client = new RecordingAttachedClient();
-        Assert.True(live.Attach(client).IsSuccess);
+        _ = AttachAndObserve(live, client);
 
         await connection.Notifications.Writer.WriteAsync(new SessionNotification
         {
@@ -498,7 +506,7 @@ public sealed class LiveSessionTests
         var live = CreateService(faults, liveEvents: liveEvents)
             .Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
         var client = new RecordingAttachedClient();
-        Assert.True(live.Attach(client).IsSuccess);
+        _ = AttachAndObserve(live, client);
 
         connection.Notifications.Writer.TryComplete();
 
@@ -521,7 +529,7 @@ public sealed class LiveSessionTests
         var connection = new LiveFakeConnection(sessionId);
         var live = CreateService().Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
         var client = new RecordingAttachedClient();
-        Assert.True(live.Attach(client).IsSuccess);
+        _ = AttachAndObserve(live, client);
 
         await connection.Notifications.Writer.WriteAsync(new SessionNotification
         {
@@ -548,7 +556,7 @@ public sealed class LiveSessionTests
         var live = CreateService(telemetry: new NoOpSessionTelemetryEventsFactory(browse: browse))
             .Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
         var first = new RecordingAttachedClient();
-        var attachmentId = live.Attach(first).Value;
+        var attachmentId = AttachAndObserve(live, first);
 
         Assert.True(live.Detach(attachmentId).IsSuccess);
 
@@ -564,7 +572,7 @@ public sealed class LiveSessionTests
         Assert.Equal(0, first.SyncUrlCount);
 
         var second = new RecordingAttachedClient();
-        Assert.True(live.Attach(second).IsSuccess);
+        Assert.True(live.Attach(second).IsSuccess); // feature loop already observing
         await connection.Notifications.Writer.WriteAsync(new SessionNotification
         {
             Kind = SessionNotificationKind.LocationChanged,
@@ -582,7 +590,7 @@ public sealed class LiveSessionTests
         var connection = new LiveFakeConnection(sessionId);
         var live = CreateService().Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
 
-        var stream = live.OpenNotificationStream().Value;
+        var stream = live.OpenNotificationStream(Guid.NewGuid()).Value;
         await connection.Notifications.Writer.WriteAsync(new SessionNotification
         {
             Kind = SessionNotificationKind.LocationChanged,
@@ -700,8 +708,8 @@ public sealed class LiveSessionTests
 
         var inputA = Channel.CreateUnbounded<VideoStreamingInput>();
         var inputB = Channel.CreateUnbounded<VideoStreamingInput>();
-        Assert.True(live.ConsumeVideoStreamingInputAsync(inputA.Reader).IsSuccess);
-        Assert.True(live.ConsumeVideoStreamingInputAsync(inputB.Reader).IsSuccess);
+        Assert.True(live.ConsumeVideoStreamingInputAsync(Guid.NewGuid(), inputA.Reader).IsSuccess);
+        Assert.True(live.ConsumeVideoStreamingInputAsync(Guid.NewGuid(), inputB.Reader).IsSuccess);
     }
 
     [Fact]
@@ -741,7 +749,7 @@ public sealed class LiveSessionTests
         var live = CreateService().Create(sessionId, Guid.NewGuid(), connection, "speculum.test", false).Value;
         var input = Channel.CreateUnbounded<ConsoleInput>();
 
-        var consume = live.ConsumeConsoleInputAsync(input.Reader);
+        var consume = live.ConsumeConsoleInputAsync(Guid.NewGuid(), input.Reader);
 
         Assert.True(consume.IsFailure);
         Assert.True((await live.GetStatusAsync()).IsSuccess);
@@ -785,7 +793,7 @@ public sealed class LiveSessionTests
 
         Assert.False(service.TryGet(sessionId, out _));
         Assert.Equal(PermissionDecision.Deny, await connection.CameraHandler!(CancellationToken.None));
-        Assert.True(live.OpenFrameStream().IsFailure);
+        Assert.True(live.OpenFrameStream(Guid.NewGuid()).IsFailure);
         Assert.True((await live.GetStatusAsync()).IsFailure);
     }
 
@@ -809,8 +817,8 @@ public sealed class LiveSessionTests
 
         var inputA = Channel.CreateUnbounded<VideoStreamingInput>();
         var inputB = Channel.CreateUnbounded<VideoStreamingInput>();
-        Assert.True(live.ConsumeVideoStreamingInputAsync(inputA.Reader).IsSuccess);
-        var second = live.ConsumeVideoStreamingInputAsync(inputB.Reader);
+        Assert.True(live.ConsumeVideoStreamingInputAsync(Guid.NewGuid(), inputA.Reader).IsSuccess);
+        var second = live.ConsumeVideoStreamingInputAsync(Guid.NewGuid(), inputB.Reader);
         Assert.True(second.IsFailure);
     }
 
@@ -833,13 +841,13 @@ public sealed class LiveSessionTests
         var live = service.Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
 
         var inputA = Channel.CreateUnbounded<VideoStreamingInput>();
-        var first = live.ConsumeVideoStreamingInputAsync(inputA.Reader);
+        var first = live.ConsumeVideoStreamingInputAsync(Guid.NewGuid(), inputA.Reader);
         Assert.True(first.IsSuccess);
         inputA.Writer.TryComplete();
         await first.Value;
 
         var inputB = Channel.CreateUnbounded<VideoStreamingInput>();
-        Assert.True(live.ConsumeVideoStreamingInputAsync(inputB.Reader).IsSuccess);
+        Assert.True(live.ConsumeVideoStreamingInputAsync(Guid.NewGuid(), inputB.Reader).IsSuccess);
     }
 
     [Fact]
@@ -851,7 +859,7 @@ public sealed class LiveSessionTests
         var clientEvents = new RecordingSessionClientTelemetryEvents();
         var service = CreateService(telemetry: new NoOpSessionTelemetryEventsFactory(clientEvents));
         var live = service.Create(sessionId, profileId, connection, "speculum.test", true).Value;
-        Assert.True(live.Attach(new ThrowingAttachedClient()).IsSuccess);
+        _ = AttachAndObserve(live, new ThrowingAttachedClient());
 
         await connection.Notifications.Writer.WriteAsync(new SessionNotification
         {
@@ -1497,6 +1505,32 @@ public sealed class LiveSessionTests
 
         public void BindPageProjectionDiffTelemetry(IPageProjectionDiffTelemetry? telemetry) { }
 
+        public bool IsPageProjectionDiffFanOutEnqueuedEnabled() => false;
+
+        public void ReportPageProjectionDiffFanOutEnqueued(
+            PageProjectionDiff diff,
+            long waitMs,
+            Guid streamId,
+            Guid consumerId,
+            string kind,
+            int targetIndex,
+            int targetCount,
+            int diffChannelCount,
+            long diffEpoch) { }
+
+        public void ReportPageProjectionDiffOutputStreamOpened(
+            Guid streamId,
+            Guid consumerId,
+            string kind,
+            int openStreamCount,
+            int diffChannelCapacity) { }
+
+        public void ReportPageProjectionDiffOutputStreamClosed(
+            Guid streamId,
+            Guid consumerId,
+            string kind,
+            int openStreamCount) { }
+
         public void ReportPageProjectionDiffQueueDropped(
             string stage,
             int droppedCount,
@@ -1507,7 +1541,13 @@ public sealed class LiveSessionTests
             string? operation = null,
             long? lowestDroppedSequence = null,
             long? highestDroppedSequence = null,
-            string? reason = null) { }
+            string? reason = null,
+            Guid? streamId = null,
+            Guid? consumerId = null,
+            string? kind = null,
+            int? targetCount = null,
+            int? diffChannelCount = null,
+            long? diffEpoch = null) { }
 
         private static async Task DrainAsync<T>(ChannelReader<T> source, ChannelWriter<T> dest)
         {

@@ -1,0 +1,2590 @@
+{
+  "version": 1,
+  "generatedAt": "2026-08-11T13:50:30.690Z",
+  "epochCount": 1,
+  "epochOrder": [
+    "73ac6365-6b53-414b-8931-458775003f24"
+  ],
+  "epochs": {
+    "73ac6365-6b53-414b-8931-458775003f24": {
+      "pageEpochId": "73ac6365-6b53-414b-8931-458775003f24",
+      "virtual": {
+        "bootMarked": {
+          "browserLaunchedAtMs": 1786456113623,
+          "firstCommitAtMs": 1786456116823,
+          "bootMs": 3200
+        },
+        "navCommit": {
+          "url": "https://www.belezanaweb.com.br/",
+          "generation": 1,
+          "documentEpoch": "ewq652iyjmsopuhoq",
+          "navigationType": "goto",
+          "tVirtualMs": 3201
+        },
+        "navTiming": {
+          "redirectMs": 0,
+          "dnsMs": 0,
+          "connectMs": 0,
+          "ttfbMs": 1593,
+          "domInteractiveMs": 0,
+          "domContentLoadedMs": 0,
+          "loadEventMs": 0
+        },
+        "resourceSummary": {
+          "byType": "[]",
+          "topSlow": "[]"
+        },
+        "pageErrors": [
+          {
+            "source": "requestfailed",
+            "message": "net::ERR_ABORTED",
+            "urlKey": "ad.doubleclick.net/ccm/s/collect",
+            "count": 3
+          },
+          {
+            "source": "requestfailed",
+            "message": "net::ERR_ABORTED",
+            "urlKey": "www.google.com/ccm/collect",
+            "count": 13
+          },
+          {
+            "source": "requestfailed",
+            "message": "net::ERR_ABORTED",
+            "urlKey": "analytics.google.com/g/collect",
+            "count": 2
+          },
+          {
+            "source": "requestfailed",
+            "message": "net::ERR_NAME_NOT_RESOLVED",
+            "urlKey": "i.liadm.com/s/28292",
+            "count": 2
+          },
+          {
+            "source": "console",
+            "message": "Failed to load resource: net::ERR_NAME_NOT_RESOLVED",
+            "urlKey": null,
+            "count": 2
+          },
+          {
+            "source": "requestfailed",
+            "message": "net::ERR_BLOCKED_BY_ORB",
+            "urlKey": "trends.revcontent.com/cm/pixel_sync",
+            "count": 2
+          },
+          {
+            "source": "requestfailed",
+            "message": "net::ERR_ABORTED",
+            "urlKey": "analytics.google.com/g/collect",
+            "count": 2
+          }
+        ],
+        "lifecycle": [
+          {
+            "name": "domcontentloaded",
+            "tSinceCommitMs": 27152
+          },
+          {
+            "name": "load",
+            "tSinceCommitMs": 39233
+          }
+        ]
+      },
+      "establish": {
+        "stylesWait": {
+          "started": {
+            "timeoutMs": 2500
+          },
+          "completed": {
+            "waitedMs": 983,
+            "timedOut": false
+          }
+        },
+        "domMap": {
+          "started": {
+            "path": "establish"
+          },
+          "completed": {
+            "path": "establish",
+            "durationMs": 6163,
+            "approxNodes": 23030
+          }
+        },
+        "cssomInstall": {
+          "started": {
+            "source": "live"
+          },
+          "completed": {
+            "source": "live",
+            "durationMs": 18,
+            "sheetCount": 3,
+            "ruleCount": 4462,
+            "seededSheetCount": 0
+          }
+        },
+        "firstDiffEmitted": {
+          "plane": "dom",
+          "operation": "document",
+          "sequence": 1,
+          "tSinceCommitMs": 8680
+        },
+        "completed": {
+          "totalMs": 7733,
+          "tSinceCommitMs": 39601
+        },
+        "failed": null
+      },
+      "asset": {
+        "rewriteSummary": {
+          "candidates": 1,
+          "rewritten": 1,
+          "bareSkipped": 0,
+          "dataInlined": 0,
+          "blobQueued": 0,
+          "deferredFetches": 0
+        },
+        "fetches": [
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2024_08_24_23_06_40_4/67c76f26-4a86-4829-a9d3-29f5e99c9a7a-eudora.svg",
+            "durationMs": 308,
+            "bytes": 275,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2024_08_24_23_09_08_1/bb24e5d1-9df9-4916-9a43-2536417b875c-drjones.svg",
+            "durationMs": 309,
+            "bytes": 269,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2024_10_25_09_44_49_8/c4427b18-1eda-4069-87ec-94ecb79c0fa9-vult.svg",
+            "durationMs": 309,
+            "bytes": 325,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2024_08_24_23_07_51_3/b77b82ea-f575-49b4-bd91-c10a44eb11e0-quem.svg",
+            "durationMs": 310,
+            "bytes": 350,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2024_08_24_23_10_54_7/32686ebe-cd84-4c74-9d7d-ff23a4df1d5f-truss.svg",
+            "durationMs": 310,
+            "bytes": 336,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2024_08_24_23_04_10_1/5f2aa187-3d66-4fe4-8213-1941e8a4703f-belezanaweb.svg",
+            "durationMs": 340,
+            "bytes": 350,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2025_05_16_17_13_37_1/20362851-5a94-4e12-965a-4b09597a3baa-location-pin.png",
+            "durationMs": 339,
+            "bytes": 393,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2024_08_24_23_12_51_0/a13843b8-8917-45f3-82f6-99eab232c045-pedidos.svg",
+            "durationMs": 339,
+            "bytes": 177,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2024_08_24_23_08_43_2/85622153-c1ca-4ea2-8596-bedabd123ddb-oui.svg",
+            "durationMs": 340,
+            "bytes": 420,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_svg,fl_progressive,q_auto:eco/v1/blz/assets-store/0.0.612/images/icons/info.svg",
+            "durationMs": 340,
+            "bytes": 701,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_svg,fl_progressive,q_auto:eco/v1/blz/assets-store/0.0.612/images/icons/error-icon.svg",
+            "durationMs": 341,
+            "bytes": 311,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_svg,fl_progressive,q_auto:eco/v1/blz/assets-store/0.0.612/images/store/1/logo.svg",
+            "durationMs": 342,
+            "bytes": 2291,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2026_07_31_17_49_28_3/90b8d642-8acc-41c3-9a57-1ba73e5bcd95-botao-2-3.png",
+            "durationMs": 351,
+            "bytes": 2033,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2024_08_24_23_13_17_5/15a4c21e-4919-4caa-9dd0-9420440acdbc-coracao.svg",
+            "durationMs": 351,
+            "bytes": 203,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2024_08_24_23_12_01_8/e8cb6691-bd4f-4e56-8477-04f4ade72c71-ajuda.svg",
+            "durationMs": 352,
+            "bytes": 207,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2024_08_24_21_11_21_5/944e623f-3b1e-4854-bd7b-c499904c16d5-acessibilidade.svg",
+            "durationMs": 353,
+            "bytes": 234,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2024_08_24_23_02_59_4/2acabc9a-fc68-4a33-9aa6-1d7e376b89e7-boticario.svg",
+            "durationMs": 354,
+            "bytes": 263,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "www.belezanaweb.com.br/assets/blzstore/css/app-c76cea81f3.css",
+            "durationMs": 365,
+            "bytes": 605756,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2024_08_24_22_18_58_1/7dbc88c8-6c9c-4d53-8e2a-65820b4ec63f-marcas-do-grupo.svg",
+            "durationMs": 370,
+            "bytes": 198,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_svg,fl_progressive,q_auto:eco/v1/blz/assets-store/0.0.612/images/icons/avatar.svg",
+            "durationMs": 504,
+            "bytes": 540,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_svg,fl_progressive,q_auto:eco/v1/blz/assets-store/0.0.612/images/icons/filled-trophy.svg",
+            "durationMs": 504,
+            "bytes": 1445,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:low,w_400/v1/banner/2026_06_29_10_03_00_5/d80797b4-aa89-4217-bb45-a339c3ae0568-marcas-20260629-giorgio-armani-mob-home-g.jpg",
+            "durationMs": 501,
+            "bytes": 9588,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_png,w_57,h_57,fl_progressive,q_auto:eco/v1/blz/assets-store/0.0.612/images/store/1/icon.svg",
+            "durationMs": 502,
+            "bytes": 611,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_png,w_60,h_60,fl_progressive,q_auto:eco/v1/blz/assets-store/0.0.612/images/store/1/icon.svg",
+            "durationMs": 502,
+            "bytes": 612,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:low,w_400/v1/banner/2026_08_07_19_35_41_3/810cefda-1ae3-42b1-bde3-649f4e63256f-marcas-20260810-loreal-mob-home-g.jpg",
+            "durationMs": 518,
+            "bytes": 14157,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/dpr_2.0/v1/banner/2026_07_31_17_49_28_3/90b8d642-8acc-41c3-9a57-1ba73e5bcd95-botao-2-3.png",
+            "durationMs": 520,
+            "bytes": 4220,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:low,w_400/v1/banner/2026_08_06_17_27_36_5/29a037dc-c2d9-40f7-9755-23502d3f6f1d-marcas-20260810-shiseido-mob-home-g.jpg",
+            "durationMs": 517,
+            "bytes": 8617,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2023_10_26_11_52_55_9/2e59407d-a7c7-4677-8e17-868dd1f2b690-comb.svg",
+            "durationMs": 519,
+            "bytes": 360,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2023_10_26_11_56_49_7/3ff96d76-a823-4388-95f5-dce312c0013f-dermocosmetic.svg",
+            "durationMs": 529,
+            "bytes": 406,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2025_11_06_09_34_44_8/4a11eab6-2346-4cc9-aa01-ce46113f0917-bb877c96-637b-4cf3-b330-e15673a2ff01-body-splash.jpg",
+            "durationMs": 548,
+            "bytes": 265,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:low,w_400/v1/banner/2026_08_07_20_18_17_6/71ee05e1-b49a-495e-908b-1109485d1d59-marcas-20260810-oboticario-mob-home-g.jpg",
+            "durationMs": 547,
+            "bytes": 11755,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2023_10_26_11_56_33_5/17682cf9-db61-4342-8d41-69c99fd86ef3-skincare.svg",
+            "durationMs": 548,
+            "bytes": 363,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2025_10_13_11_25_41_3/e4c38339-e796-48a6-bec9-1b06f2c21a89-prancheta-4-1.png",
+            "durationMs": 548,
+            "bytes": 6587,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2025_12_02_09_40_16_6/825238e3-4b2f-411a-953a-68addfecadcc-botao-outlet-desk.png",
+            "durationMs": 567,
+            "bytes": 3004,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:low,w_400/v1/banner/2026_08_07_20_07_14_2/f4f86c31-9179-41b2-a223-f307166b3328-marcas-20260810-truss-mob-home-g.jpg",
+            "durationMs": 567,
+            "bytes": 16103,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/dpr_2.0/v1/banner/2025_10_13_11_25_41_3/e4c38339-e796-48a6-bec9-1b06f2c21a89-prancheta-4-1.png",
+            "durationMs": 568,
+            "bytes": 8437,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2023_10_26_11_53_35_9/bb877c96-637b-4cf3-b330-e15673a2ff01-body-splash.svg",
+            "durationMs": 568,
+            "bytes": 265,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:low,w_400/v1/banner/2026_08_06_17_16_43_2/e0a0edb4-6059-4315-9b78-44fc11f26c86-marcas-20260810-eucerin-mob-home-g.jpg",
+            "durationMs": 566,
+            "bytes": 10335,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2023_10_26_11_56_07_7/0d5b75eb-e2a4-4f4e-ae0f-649cac61af70-makeup.svg",
+            "durationMs": 568,
+            "bytes": 271,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/dpr_2.0/v1/banner/2026_08_06_13_52_07_8/2de8e37b-33dc-4e00-bbce-631a1f5ffc69-card-3.jpg",
+            "durationMs": 567,
+            "bytes": 15119,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:low,w_400/v1/banner/2026_08_07_18_34_31_7/0fd5eaf2-ab62-48d7-8cce-d226650daf74-sec-cabelos-100826-mob-home-g.jpg",
+            "durationMs": 567,
+            "bytes": 8842,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_png,w_72,h_72,fl_progressive,q_auto:eco/v1/blz/assets-store/0.0.612/images/store/1/icon.svg",
+            "durationMs": 566,
+            "bytes": 769,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/dpr_2.0/v1/banner/2025_12_02_09_40_16_6/825238e3-4b2f-411a-953a-68addfecadcc-botao-outlet-desk.png",
+            "durationMs": 569,
+            "bytes": 3892,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:low,w_400/v1/banner/2026_08_06_20_56_29_7/3bc9753b-dae5-48a8-adcf-71ee68b4cf57-mmarcas-20260810-calvin-klein-mob-home-g.jpg",
+            "durationMs": 579,
+            "bytes": 11145,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:low,w_400/v1/banner/2026_08_07_20_44_39_6/0fae5016-6a64-4b8a-adc6-42480d645117-sec-multi-100826-mob-home-g.jpg",
+            "durationMs": 579,
+            "bytes": 17033,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2026_08_06_13_51_14_7/2a24df32-f702-4c1f-9b03-e075164e5a7b-card-2.jpg",
+            "durationMs": 580,
+            "bytes": 13660,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_png,w_30,dpr_3.0,e_colorize,co_rgb:fff/blz/assets-store/0.0.612/images/icons/filled-trophy.svg",
+            "durationMs": 185,
+            "bytes": 753,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2023_10_26_11_58_35_9/6d4288ce-b430-4d4d-9618-74ab20504900-aromatizador.svg",
+            "durationMs": 615,
+            "bytes": 339,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_png,w_30,dpr_3.0,e_colorize,co_rgb:222/blz/assets-store/0.0.612/images/icons/credibility/chart_up.svg",
+            "durationMs": 185,
+            "bytes": 532,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2026_03_16_10_18_12_6/33a22cd6-22bd-4080-b60c-266b61bafc9f-card-1.png",
+            "durationMs": 616,
+            "bytes": 28967,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_png,w_30,dpr_3.0,e_colorize,co_rgb:5466ab/blz/assets-store/0.0.612/images/icons/ecomm-trash.svg",
+            "durationMs": 185,
+            "bytes": 921,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:low,w_400/v1/banner/2026_08_10_17_26_06_1/9a80a770-996d-47c3-8567-ff59767ddc98-crono-kit-wella-110826-mob-homeg.jpg",
+            "durationMs": 614,
+            "bytes": 9884,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2023_10_26_11_57_30_7/de184b60-1235-4ee8-9656-bfa52e6209b3-body-and-bath.svg",
+            "durationMs": 615,
+            "bytes": 263,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,e_colorize,co_rgb:212121,fl_progressive,q_auto:eco/v1/blz/assets-store/0.0.612/images/icons/position.svg",
+            "durationMs": 186,
+            "bytes": 3286,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/raw/upload/blz/assets-store/0.0.612/images/store/1/fonts/Jost-SemiBold.woff2",
+            "durationMs": 182,
+            "bytes": 10028,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/raw/upload/blz/assets-store/0.0.612/images/store/1/fonts/Jost-Medium.woff2",
+            "durationMs": 183,
+            "bytes": 10040,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_png,w_76,h_76,fl_progressive,q_auto:eco/v1/blz/assets-store/0.0.612/images/store/1/icon.svg",
+            "durationMs": 614,
+            "bytes": 767,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,e_colorize,co_rgb:5466ab,fl_progressive,q_auto:eco/v1/blz/assets-store/0.0.612/images/icons/arrow-downward.svg",
+            "durationMs": 185,
+            "bytes": 177,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:low,w_400/v1/banner/2026_08_10_12_51_56_8/89be21ba-0573-49f2-a437-eb41b20715e5-sec-perfumes-60off-100826-mob-home-g.jpg",
+            "durationMs": 615,
+            "bytes": 8360,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/raw/upload/blz/assets-store/0.0.612/images/store/1/fonts/Jost-Bold.woff2",
+            "durationMs": 196,
+            "bytes": 10052,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,e_colorize,co_rgb:5466ab,fl_progressive,q_auto:eco/v1/blz/assets-store/0.0.612/images/icons/close-black.svg",
+            "durationMs": 207,
+            "bytes": 159,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_png,w_30,dpr_3.0,e_colorize,co_rgb:cf9748/blz/assets-store/0.0.612/images/icons/filled-trophy.svg",
+            "durationMs": 206,
+            "bytes": 756,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/raw/upload/blz/assets-store/0.0.612/images/store/1/fonts/Jost-thin.woff2",
+            "durationMs": 207,
+            "bytes": 9376,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/raw/upload/blz/assets-store/0.0.612/images/store/1/fonts/Jost-regular.woff2",
+            "durationMs": 207,
+            "bytes": 9044,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,e_colorize,co_rgb:5466ab,fl_progressive,q_auto:eco/v1/blz/assets-store/0.0.612/images/icons/my_location.svg",
+            "durationMs": 209,
+            "bytes": 237,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,e_colorize,co_rgb:878787,fl_progressive,q_auto:eco/v1/blz/assets-store/0.0.612/images/icons/user_gray.svg",
+            "durationMs": 209,
+            "bytes": 177,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_png,w_30,dpr_3.0,e_colorize,co_rgb:fff/blz/assets-store/0.0.612/images/icons/ecomm-trash.svg",
+            "durationMs": 210,
+            "bytes": 919,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:eco/v1/blz/assets-store/0.0.612/images/statics/loading-dot.gif",
+            "durationMs": 208,
+            "bytes": 587,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/raw/upload/blz/assets-store/0.0.612/images/store/1/fonts/Jost-Regularitalic.woff2",
+            "durationMs": 207,
+            "bytes": 10652,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2026_08_06_13_52_49_8/02fa331b-b6e2-48f5-b7e8-9d550558a3a0-card-4.jpg",
+            "durationMs": 639,
+            "bytes": 31243,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:low,w_400/v1/banner/2026_08_10_12_18_38_2/f90ff1f5-6080-4d75-92a5-45bfb41b09cd-banner-home-brindes-mob-homeg.png",
+            "durationMs": 639,
+            "bytes": 6966,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_png,w_30,dpr_3.0,e_colorize,co_rgb:666/blz/assets-store/0.0.612/images/icons/filled-trophy.svg",
+            "durationMs": 208,
+            "bytes": 756,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2026_08_06_13_49_39_5/3463c4a9-afc0-432f-a85e-894e4c0696f0-card-1.jpg",
+            "durationMs": 641,
+            "bytes": 22463,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2026_03_16_10_19_39_8/c935d650-6d19-4c8f-bb75-342a701a9457-card-4.png",
+            "durationMs": 642,
+            "bytes": 33119,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/dpr_2.0/v1/banner/2026_08_06_13_51_14_7/2a24df32-f702-4c1f-9b03-e075164e5a7b-card-2.jpg",
+            "durationMs": 641,
+            "bytes": 18461,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2026_08_06_13_52_07_8/2de8e37b-33dc-4e00-bbce-631a1f5ffc69-card-3.jpg",
+            "durationMs": 641,
+            "bytes": 8454,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_svg,fl_progressive,q_auto:eco/v1/blz/assets-store/0.0.612/images/store/1/title-decoration.svg",
+            "durationMs": 210,
+            "bytes": 224,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_png,w_30,dpr_3.0,e_colorize,co_rgb:222/blz/assets-store/0.0.612/images/icons/round-circle-clock.svg",
+            "durationMs": 226,
+            "bytes": 749,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/dpr_2.0/v1/banner/2026_08_06_13_49_39_5/3463c4a9-afc0-432f-a85e-894e4c0696f0-card-1.jpg",
+            "durationMs": 664,
+            "bytes": 33215,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/dpr_2.0/v1/banner/2026_03_16_10_19_24_0/8b9a8e7a-80e6-4136-93ba-ce83f7c17405-card-3.png",
+            "durationMs": 666,
+            "bytes": 38869,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/dpr_2.0/v1/banner/2026_03_16_10_18_12_6/33a22cd6-22bd-4080-b60c-266b61bafc9f-card-1.png",
+            "durationMs": 667,
+            "bytes": 41890,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/dpr_2.0/v1/banner/2026_03_16_10_19_39_8/c935d650-6d19-4c8f-bb75-342a701a9457-card-4.png",
+            "durationMs": 667,
+            "bytes": 46705,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_png,w_30,dpr_3.0,e_colorize,co_rgb:666/blz/assets-store/0.0.612/images/icons/filled-trophy.svg",
+            "durationMs": 251,
+            "bytes": 756,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/dpr_2.0/v1/banner/2026_08_06_13_52_49_8/02fa331b-b6e2-48f5-b7e8-9d550558a3a0-card-4.jpg",
+            "durationMs": 684,
+            "bytes": 46617,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_png,w_30,dpr_3.0,e_colorize,co_rgb:cf9748/blz/assets-store/0.0.612/images/icons/filled-trophy.svg",
+            "durationMs": 260,
+            "bytes": 756,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2026_03_16_10_19_24_0/8b9a8e7a-80e6-4136-93ba-ce83f7c17405-card-3.png",
+            "durationMs": 1144,
+            "bytes": 23576,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "www.belezanaweb.com.br/statics_physicalstore_map",
+            "durationMs": 894,
+            "bytes": 0,
+            "mode": "cache",
+            "ok": false
+          },
+          {
+            "urlKey": "www.googletagmanager.com/gtag/js",
+            "durationMs": 419,
+            "bytes": 455573,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "analytics.tiktok.com/i18n/pixel/events.js",
+            "durationMs": 791,
+            "bytes": 9403,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "www.belezanaweb.com.br/assets/js/commons.e0356a2344.js",
+            "durationMs": 204,
+            "bytes": 159357,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "www.belezanaweb.com.br/assets/js/segmentation.6928244a7b.js",
+            "durationMs": 177,
+            "bytes": 3362,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "www.belezanaweb.com.br/assets/js/ab-tests.685664a7e1.js",
+            "durationMs": 508,
+            "bytes": 1614,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "www.belezanaweb.com.br/assets/js/vendors.267bdc37a4.js",
+            "durationMs": 536,
+            "bytes": 87563,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "www.belezanaweb.com.br/assets/js/app.092eec7b31.js",
+            "durationMs": 212,
+            "bytes": 403280,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "analytics.tiktok.com/i18n/pixel/static/main.MTJjNTgwMmFjMQ.js",
+            "durationMs": 537,
+            "bytes": 496640,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "www.belezanaweb.com.br/assets/js/request-metrics.d558bfb3f3.js",
+            "durationMs": 508,
+            "bytes": 43166,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "www.belezanaweb.com.br/assets/js/retail-media-carousel-home.790d9378c7.js",
+            "durationMs": 502,
+            "bytes": 1658,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "www.belezanaweb.com.br/assets/js/assistant.bb17745a76.js",
+            "durationMs": 679,
+            "bytes": 269355,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2024_08_24_21_11_21_5/944e623f-3b1e-4854-bd7b-c499904c16d5-acessibilidade.svg",
+            "durationMs": 235,
+            "bytes": 234,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2024_08_24_23_10_54_7/32686ebe-cd84-4c74-9d7d-ff23a4df1d5f-truss.svg",
+            "durationMs": 231,
+            "bytes": 336,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2024_08_24_22_18_58_1/7dbc88c8-6c9c-4d53-8e2a-65820b4ec63f-marcas-do-grupo.svg",
+            "durationMs": 232,
+            "bytes": 198,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2024_08_24_23_08_43_2/85622153-c1ca-4ea2-8596-bedabd123ddb-oui.svg",
+            "durationMs": 231,
+            "bytes": 420,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2024_08_24_23_06_40_4/67c76f26-4a86-4829-a9d3-29f5e99c9a7a-eudora.svg",
+            "durationMs": 240,
+            "bytes": 275,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2024_08_24_23_12_01_8/e8cb6691-bd4f-4e56-8477-04f4ade72c71-ajuda.svg",
+            "durationMs": 240,
+            "bytes": 207,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2024_08_24_23_13_17_5/15a4c21e-4919-4caa-9dd0-9420440acdbc-coracao.svg",
+            "durationMs": 240,
+            "bytes": 203,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2025_05_16_17_13_37_1/20362851-5a94-4e12-965a-4b09597a3baa-location-pin.png",
+            "durationMs": 240,
+            "bytes": 393,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2024_08_24_23_07_51_3/b77b82ea-f575-49b4-bd91-c10a44eb11e0-quem.svg",
+            "durationMs": 247,
+            "bytes": 350,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2024_08_24_23_12_51_0/a13843b8-8917-45f3-82f6-99eab232c045-pedidos.svg",
+            "durationMs": 259,
+            "bytes": 177,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_svg,fl_progressive,q_auto:eco/v1/blz/assets-store/0.0.612/images/store/1/logo.svg",
+            "durationMs": 273,
+            "bytes": 2291,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_svg,fl_progressive,q_auto:eco/v1/blz/assets-store/0.0.612/images/icons/info.svg",
+            "durationMs": 273,
+            "bytes": 701,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_svg,fl_progressive,q_auto:eco/v1/blz/assets-store/0.0.612/images/icons/avatar.svg",
+            "durationMs": 272,
+            "bytes": 540,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_svg,fl_progressive,q_auto:eco/v1/blz/assets-store/0.0.612/images/icons/error-icon.svg",
+            "durationMs": 281,
+            "bytes": 311,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2024_08_24_23_02_59_4/2acabc9a-fc68-4a33-9aa6-1d7e376b89e7-boticario.svg",
+            "durationMs": 287,
+            "bytes": 263,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2024_08_24_23_04_10_1/5f2aa187-3d66-4fe4-8213-1941e8a4703f-belezanaweb.svg",
+            "durationMs": 289,
+            "bytes": 350,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2024_08_24_23_09_08_1/bb24e5d1-9df9-4916-9a43-2536417b875c-drjones.svg",
+            "durationMs": 288,
+            "bytes": 269,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/dpr_2.0/v1/banner/2026_07_31_17_49_28_3/90b8d642-8acc-41c3-9a57-1ba73e5bcd95-botao-2-3.png",
+            "durationMs": 287,
+            "bytes": 4220,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2024_10_25_09_44_49_8/c4427b18-1eda-4069-87ec-94ecb79c0fa9-vult.svg",
+            "durationMs": 288,
+            "bytes": 325,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2026_07_31_17_49_28_3/90b8d642-8acc-41c3-9a57-1ba73e5bcd95-botao-2-3.png",
+            "durationMs": 287,
+            "bytes": 2033,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2026_03_16_10_19_24_0/8b9a8e7a-80e6-4136-93ba-ce83f7c17405-card-3.png",
+            "durationMs": 287,
+            "bytes": 23576,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2023_10_26_11_56_33_5/17682cf9-db61-4342-8d41-69c99fd86ef3-skincare.svg",
+            "durationMs": 287,
+            "bytes": 363,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2023_10_26_11_52_55_9/2e59407d-a7c7-4677-8e17-868dd1f2b690-comb.svg",
+            "durationMs": 289,
+            "bytes": 360,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2023_10_26_11_56_07_7/0d5b75eb-e2a4-4f4e-ae0f-649cac61af70-makeup.svg",
+            "durationMs": 289,
+            "bytes": 271,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2023_10_26_11_56_49_7/3ff96d76-a823-4388-95f5-dce312c0013f-dermocosmetic.svg",
+            "durationMs": 288,
+            "bytes": 406,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2026_03_16_10_18_12_6/33a22cd6-22bd-4080-b60c-266b61bafc9f-card-1.png",
+            "durationMs": 290,
+            "bytes": 28967,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_svg,fl_progressive,q_auto:eco/v1/blz/assets-store/0.0.612/images/icons/filled-trophy.svg",
+            "durationMs": 290,
+            "bytes": 1445,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2023_10_26_11_58_35_9/6d4288ce-b430-4d4d-9618-74ab20504900-aromatizador.svg",
+            "durationMs": 289,
+            "bytes": 339,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2025_11_06_09_34_44_8/4a11eab6-2346-4cc9-aa01-ce46113f0917-bb877c96-637b-4cf3-b330-e15673a2ff01-body-splash.jpg",
+            "durationMs": 290,
+            "bytes": 265,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/dpr_2.0/v1/banner/2025_12_02_09_40_16_6/825238e3-4b2f-411a-953a-68addfecadcc-botao-outlet-desk.png",
+            "durationMs": 289,
+            "bytes": 3892,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2025_10_13_11_25_41_3/e4c38339-e796-48a6-bec9-1b06f2c21a89-prancheta-4-1.png",
+            "durationMs": 300,
+            "bytes": 6587,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/dpr_2.0/v1/banner/2025_10_13_11_25_41_3/e4c38339-e796-48a6-bec9-1b06f2c21a89-prancheta-4-1.png",
+            "durationMs": 308,
+            "bytes": 8437,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/dpr_2.0/v1/banner/2026_08_06_13_49_39_5/3463c4a9-afc0-432f-a85e-894e4c0696f0-card-1.jpg",
+            "durationMs": 309,
+            "bytes": 33215,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:low,w_400/v1/banner/2026_08_10_12_18_38_2/f90ff1f5-6080-4d75-92a5-45bfb41b09cd-banner-home-brindes-mob-homeg.png",
+            "durationMs": 310,
+            "bytes": 6966,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2026_08_06_13_52_07_8/2de8e37b-33dc-4e00-bbce-631a1f5ffc69-card-3.jpg",
+            "durationMs": 315,
+            "bytes": 8454,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2025_12_02_09_40_16_6/825238e3-4b2f-411a-953a-68addfecadcc-botao-outlet-desk.png",
+            "durationMs": 330,
+            "bytes": 3004,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2026_08_06_13_51_14_7/2a24df32-f702-4c1f-9b03-e075164e5a7b-card-2.jpg",
+            "durationMs": 329,
+            "bytes": 13660,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2026_08_06_13_49_39_5/3463c4a9-afc0-432f-a85e-894e4c0696f0-card-1.jpg",
+            "durationMs": 330,
+            "bytes": 22463,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:low,w_400/v1/banner/2026_08_10_12_51_56_8/89be21ba-0573-49f2-a437-eb41b20715e5-sec-perfumes-60off-100826-mob-home-g.jpg",
+            "durationMs": 330,
+            "bytes": 8360,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:low,w_400/v1/banner/2026_08_06_17_16_43_2/e0a0edb4-6059-4315-9b78-44fc11f26c86-marcas-20260810-eucerin-mob-home-g.jpg",
+            "durationMs": 330,
+            "bytes": 10335,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/w_130,f_avif,fl_progressive,q_auto:good/v1/imagens/product/20081444/c1baee88-2567-4ae3-bb85-1c10771b488c-20081444-dior-capture-hyalushot-15ml.png",
+            "durationMs": 330,
+            "bytes": 994,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:low,w_400/v1/banner/2026_08_07_18_34_31_7/0fd5eaf2-ab62-48d7-8cce-d226650daf74-sec-cabelos-100826-mob-home-g.jpg",
+            "durationMs": 331,
+            "bytes": 8842,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2023_10_26_11_57_30_7/de184b60-1235-4ee8-9656-bfa52e6209b3-body-and-bath.svg",
+            "durationMs": 332,
+            "bytes": 263,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2023_10_26_11_53_35_9/bb877c96-637b-4cf3-b330-e15673a2ff01-body-splash.svg",
+            "durationMs": 333,
+            "bytes": 265,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:low,w_400/v1/banner/2026_08_07_20_44_39_6/0fae5016-6a64-4b8a-adc6-42480d645117-sec-multi-100826-mob-home-g.jpg",
+            "durationMs": 349,
+            "bytes": 17033,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:low,w_400/v1/banner/2026_08_10_17_26_06_1/9a80a770-996d-47c3-8567-ff59767ddc98-crono-kit-wella-110826-mob-homeg.jpg",
+            "durationMs": 360,
+            "bytes": 9884,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/w_130,f_avif,fl_progressive,q_auto:good/v1/imagens/product/20081580/f2ee55ae-d19b-498b-9d14-fb92f59d666d-20081580.png",
+            "durationMs": 361,
+            "bytes": 1478,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:low,w_400/v1/banner/2026_08_07_20_18_17_6/71ee05e1-b49a-495e-908b-1109485d1d59-marcas-20260810-oboticario-mob-home-g.jpg",
+            "durationMs": 362,
+            "bytes": 11755,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/dpr_2.0/v1/banner/2026_08_06_13_52_07_8/2de8e37b-33dc-4e00-bbce-631a1f5ffc69-card-3.jpg",
+            "durationMs": 363,
+            "bytes": 15119,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:low,w_400/v1/banner/2026_08_06_20_56_29_7/3bc9753b-dae5-48a8-adcf-71ee68b4cf57-mmarcas-20260810-calvin-klein-mob-home-g.jpg",
+            "durationMs": 362,
+            "bytes": 11145,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:low,w_400/v1/banner/2026_08_06_17_27_36_5/29a037dc-c2d9-40f7-9755-23502d3f6f1d-marcas-20260810-shiseido-mob-home-g.jpg",
+            "durationMs": 362,
+            "bytes": 8617,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/w_130,f_avif,fl_progressive,q_auto:good/v1/imagens/product/20081665/b6504a7c-cd6b-4eec-b67b-7a7a86ce6fa8-20081665-mac-fix-stay-over-matte-fix-d-maq-100ml.png",
+            "durationMs": 362,
+            "bytes": 1277,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:low,w_400/v1/banner/2026_08_07_19_35_41_3/810cefda-1ae3-42b1-bde3-649f4e63256f-marcas-20260810-loreal-mob-home-g.jpg",
+            "durationMs": 362,
+            "bytes": 14157,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:low,w_400/v1/banner/2026_06_29_10_03_00_5/d80797b4-aa89-4217-bb45-a339c3ae0568-marcas-20260629-giorgio-armani-mob-home-g.jpg",
+            "durationMs": 364,
+            "bytes": 9588,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/dpr_2.0/v1/banner/2026_08_06_13_52_49_8/02fa331b-b6e2-48f5-b7e8-9d550558a3a0-card-4.jpg",
+            "durationMs": 396,
+            "bytes": 46617,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "www.belezanaweb.com.br/assets/blzstore/css/app-c76cea81f3.css",
+            "durationMs": 446,
+            "bytes": 605756,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2026_03_16_10_19_39_8/c935d650-6d19-4c8f-bb75-342a701a9457-card-4.png",
+            "durationMs": 704,
+            "bytes": 33119,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/dpr_2.0/v1/banner/2026_03_16_10_19_39_8/c935d650-6d19-4c8f-bb75-342a701a9457-card-4.png",
+            "durationMs": 738,
+            "bytes": 46705,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/dpr_2.0/v1/banner/2026_03_16_10_19_24_0/8b9a8e7a-80e6-4136-93ba-ce83f7c17405-card-3.png",
+            "durationMs": 789,
+            "bytes": 38869,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/dpr_2.0/v1/banner/2026_03_16_10_18_12_6/33a22cd6-22bd-4080-b60c-266b61bafc9f-card-1.png",
+            "durationMs": 798,
+            "bytes": 41890,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:low,w_400/v1/banner/2026_08_07_20_07_14_2/f4f86c31-9179-41b2-a223-f307166b3328-marcas-20260810-truss-mob-home-g.jpg",
+            "durationMs": 840,
+            "bytes": 16103,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2026_08_06_13_52_49_8/02fa331b-b6e2-48f5-b7e8-9d550558a3a0-card-4.jpg",
+            "durationMs": 869,
+            "bytes": 31243,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/dpr_2.0/v1/banner/2026_08_06_13_51_14_7/2a24df32-f702-4c1f-9b03-e075164e5a7b-card-2.jpg",
+            "durationMs": 920,
+            "bytes": 18461,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2024_08_24_22_18_58_1/7dbc88c8-6c9c-4d53-8e2a-65820b4ec63f-marcas-do-grupo.svg",
+            "durationMs": 283,
+            "bytes": 198,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2024_08_24_21_11_21_5/944e623f-3b1e-4854-bd7b-c499904c16d5-acessibilidade.svg",
+            "durationMs": 283,
+            "bytes": 234,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2024_08_24_23_04_10_1/5f2aa187-3d66-4fe4-8213-1941e8a4703f-belezanaweb.svg",
+            "durationMs": 283,
+            "bytes": 350,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2024_08_24_23_10_54_7/32686ebe-cd84-4c74-9d7d-ff23a4df1d5f-truss.svg",
+            "durationMs": 282,
+            "bytes": 336,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2024_08_24_23_06_40_4/67c76f26-4a86-4829-a9d3-29f5e99c9a7a-eudora.svg",
+            "durationMs": 283,
+            "bytes": 275,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2024_08_24_23_02_59_4/2acabc9a-fc68-4a33-9aa6-1d7e376b89e7-boticario.svg",
+            "durationMs": 284,
+            "bytes": 263,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2024_08_24_23_07_51_3/b77b82ea-f575-49b4-bd91-c10a44eb11e0-quem.svg",
+            "durationMs": 296,
+            "bytes": 350,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2024_10_25_09_44_49_8/c4427b18-1eda-4069-87ec-94ecb79c0fa9-vult.svg",
+            "durationMs": 296,
+            "bytes": 325,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2024_08_24_23_08_43_2/85622153-c1ca-4ea2-8596-bedabd123ddb-oui.svg",
+            "durationMs": 296,
+            "bytes": 420,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2024_08_24_23_09_08_1/bb24e5d1-9df9-4916-9a43-2536417b875c-drjones.svg",
+            "durationMs": 296,
+            "bytes": 269,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2024_08_24_23_12_01_8/e8cb6691-bd4f-4e56-8477-04f4ade72c71-ajuda.svg",
+            "durationMs": 296,
+            "bytes": 207,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2024_08_24_23_13_17_5/15a4c21e-4919-4caa-9dd0-9420440acdbc-coracao.svg",
+            "durationMs": 306,
+            "bytes": 203,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2025_05_16_17_13_37_1/20362851-5a94-4e12-965a-4b09597a3baa-location-pin.png",
+            "durationMs": 307,
+            "bytes": 393,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2024_08_24_23_12_51_0/a13843b8-8917-45f3-82f6-99eab232c045-pedidos.svg",
+            "durationMs": 306,
+            "bytes": 177,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2026_07_31_17_49_28_3/90b8d642-8acc-41c3-9a57-1ba73e5bcd95-botao-2-3.png",
+            "durationMs": 316,
+            "bytes": 2033,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/dpr_2.0/v1/banner/2026_07_31_17_49_28_3/90b8d642-8acc-41c3-9a57-1ba73e5bcd95-botao-2-3.png",
+            "durationMs": 316,
+            "bytes": 4220,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_svg,fl_progressive,q_auto:eco/v1/blz/assets-store/0.0.612/images/store/1/logo.svg",
+            "durationMs": 320,
+            "bytes": 2291,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_svg,fl_progressive,q_auto:eco/v1/blz/assets-store/0.0.612/images/icons/info.svg",
+            "durationMs": 320,
+            "bytes": 701,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_svg,fl_progressive,q_auto:eco/v1/blz/assets-store/0.0.612/images/icons/error-icon.svg",
+            "durationMs": 320,
+            "bytes": 311,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2023_10_26_11_56_07_7/0d5b75eb-e2a4-4f4e-ae0f-649cac61af70-makeup.svg",
+            "durationMs": 319,
+            "bytes": 271,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2023_10_26_11_57_30_7/de184b60-1235-4ee8-9656-bfa52e6209b3-body-and-bath.svg",
+            "durationMs": 319,
+            "bytes": 263,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_svg,fl_progressive,q_auto:eco/v1/blz/assets-store/0.0.612/images/icons/filled-trophy.svg",
+            "durationMs": 337,
+            "bytes": 1445,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_svg,fl_progressive,q_auto:eco/v1/blz/assets-store/0.0.612/images/icons/avatar.svg",
+            "durationMs": 337,
+            "bytes": 540,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2025_11_06_09_34_44_8/4a11eab6-2346-4cc9-aa01-ce46113f0917-bb877c96-637b-4cf3-b330-e15673a2ff01-body-splash.jpg",
+            "durationMs": 336,
+            "bytes": 265,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2023_10_26_11_56_49_7/3ff96d76-a823-4388-95f5-dce312c0013f-dermocosmetic.svg",
+            "durationMs": 336,
+            "bytes": 406,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2023_10_26_11_58_35_9/6d4288ce-b430-4d4d-9618-74ab20504900-aromatizador.svg",
+            "durationMs": 351,
+            "bytes": 339,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2026_03_16_10_19_24_0/8b9a8e7a-80e6-4136-93ba-ce83f7c17405-card-3.png",
+            "durationMs": 351,
+            "bytes": 23576,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2023_10_26_11_56_33_5/17682cf9-db61-4342-8d41-69c99fd86ef3-skincare.svg",
+            "durationMs": 351,
+            "bytes": 363,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2023_10_26_11_53_35_9/bb877c96-637b-4cf3-b330-e15673a2ff01-body-splash.svg",
+            "durationMs": 351,
+            "bytes": 265,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2023_10_26_11_52_55_9/2e59407d-a7c7-4677-8e17-868dd1f2b690-comb.svg",
+            "durationMs": 351,
+            "bytes": 360,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/dpr_2.0/v1/banner/2025_12_02_09_40_16_6/825238e3-4b2f-411a-953a-68addfecadcc-botao-outlet-desk.png",
+            "durationMs": 351,
+            "bytes": 3892,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2025_10_13_11_25_41_3/e4c38339-e796-48a6-bec9-1b06f2c21a89-prancheta-4-1.png",
+            "durationMs": 354,
+            "bytes": 6587,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:low,w_400/v1/banner/2026_08_07_18_34_31_7/0fd5eaf2-ab62-48d7-8cce-d226650daf74-sec-cabelos-100826-mob-home-g.jpg",
+            "durationMs": 353,
+            "bytes": 8842,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:low,w_400/v1/banner/2026_08_10_12_18_38_2/f90ff1f5-6080-4d75-92a5-45bfb41b09cd-banner-home-brindes-mob-homeg.png",
+            "durationMs": 354,
+            "bytes": 6966,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2026_08_06_13_52_07_8/2de8e37b-33dc-4e00-bbce-631a1f5ffc69-card-3.jpg",
+            "durationMs": 366,
+            "bytes": 8454,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/dpr_2.0/v1/banner/2025_10_13_11_25_41_3/e4c38339-e796-48a6-bec9-1b06f2c21a89-prancheta-4-1.png",
+            "durationMs": 367,
+            "bytes": 8437,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/dpr_2.0/v1/banner/2026_03_16_10_18_12_6/33a22cd6-22bd-4080-b60c-266b61bafc9f-card-1.png",
+            "durationMs": 367,
+            "bytes": 41890,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2026_08_06_13_51_14_7/2a24df32-f702-4c1f-9b03-e075164e5a7b-card-2.jpg",
+            "durationMs": 375,
+            "bytes": 13660,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/dpr_2.0/v1/banner/2026_08_06_13_51_14_7/2a24df32-f702-4c1f-9b03-e075164e5a7b-card-2.jpg",
+            "durationMs": 375,
+            "bytes": 18461,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2025_12_02_09_40_16_6/825238e3-4b2f-411a-953a-68addfecadcc-botao-outlet-desk.png",
+            "durationMs": 376,
+            "bytes": 3004,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:low,w_400/v1/banner/2026_08_10_12_51_56_8/89be21ba-0573-49f2-a437-eb41b20715e5-sec-perfumes-60off-100826-mob-home-g.jpg",
+            "durationMs": 391,
+            "bytes": 8360,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2026_03_16_10_18_12_6/33a22cd6-22bd-4080-b60c-266b61bafc9f-card-1.png",
+            "durationMs": 393,
+            "bytes": 28967,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2026_03_16_10_19_39_8/c935d650-6d19-4c8f-bb75-342a701a9457-card-4.png",
+            "durationMs": 392,
+            "bytes": 33119,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:low,w_400/v1/banner/2026_08_07_20_18_17_6/71ee05e1-b49a-495e-908b-1109485d1d59-marcas-20260810-oboticario-mob-home-g.jpg",
+            "durationMs": 391,
+            "bytes": 11755,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/dpr_2.0/v1/banner/2026_03_16_10_19_24_0/8b9a8e7a-80e6-4136-93ba-ce83f7c17405-card-3.png",
+            "durationMs": 444,
+            "bytes": 38869,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:low,w_400/v1/banner/2026_08_06_17_16_43_2/e0a0edb4-6059-4315-9b78-44fc11f26c86-marcas-20260810-eucerin-mob-home-g.jpg",
+            "durationMs": 442,
+            "bytes": 10335,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:low,w_400/v1/banner/2026_06_29_10_03_00_5/d80797b4-aa89-4217-bb45-a339c3ae0568-marcas-20260629-giorgio-armani-mob-home-g.jpg",
+            "durationMs": 443,
+            "bytes": 9588,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/w_130,f_avif,fl_progressive,q_auto:good/v1/imagens/product/20081580/f2ee55ae-d19b-498b-9d14-fb92f59d666d-20081580.png",
+            "durationMs": 443,
+            "bytes": 1478,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/w_130,f_avif,fl_progressive,q_auto:good/v1/imagens/product/Z59426/d81f47c6-0380-40ae-98e7-436ae48d2793-z59426-a.png",
+            "durationMs": 443,
+            "bytes": 2293,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2026_08_06_13_49_39_5/3463c4a9-afc0-432f-a85e-894e4c0696f0-card-1.jpg",
+            "durationMs": 444,
+            "bytes": 22463,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/dpr_2.0/v1/banner/2026_08_06_13_49_39_5/3463c4a9-afc0-432f-a85e-894e4c0696f0-card-1.jpg",
+            "durationMs": 444,
+            "bytes": 33215,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/w_130,f_avif,fl_progressive,q_auto:good/v1/imagens/product/20081444/c1baee88-2567-4ae3-bb85-1c10771b488c-20081444-dior-capture-hyalushot-15ml.png",
+            "durationMs": 443,
+            "bytes": 994,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/w_130,f_avif,fl_progressive,q_auto:good/v1/imagens/product/20081665/b6504a7c-cd6b-4eec-b67b-7a7a86ce6fa8-20081665-mac-fix-stay-over-matte-fix-d-maq-100ml.png",
+            "durationMs": 443,
+            "bytes": 1277,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:low,w_400/v1/banner/2026_08_07_20_07_14_2/f4f86c31-9179-41b2-a223-f307166b3328-marcas-20260810-truss-mob-home-g.jpg",
+            "durationMs": 447,
+            "bytes": 16103,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/dpr_2.0/v1/banner/2026_08_06_13_52_07_8/2de8e37b-33dc-4e00-bbce-631a1f5ffc69-card-3.jpg",
+            "durationMs": 447,
+            "bytes": 15119,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:low,w_400/v1/banner/2026_08_07_19_35_41_3/810cefda-1ae3-42b1-bde3-649f4e63256f-marcas-20260810-loreal-mob-home-g.jpg",
+            "durationMs": 447,
+            "bytes": 14157,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:low,w_400/v1/banner/2026_08_06_20_56_29_7/3bc9753b-dae5-48a8-adcf-71ee68b4cf57-mmarcas-20260810-calvin-klein-mob-home-g.jpg",
+            "durationMs": 446,
+            "bytes": 11145,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2026_08_06_13_52_49_8/02fa331b-b6e2-48f5-b7e8-9d550558a3a0-card-4.jpg",
+            "durationMs": 447,
+            "bytes": 31243,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/dpr_2.0/v1/banner/2026_03_16_10_19_39_8/c935d650-6d19-4c8f-bb75-342a701a9457-card-4.png",
+            "durationMs": 448,
+            "bytes": 46705,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:low,w_400/v1/banner/2026_08_07_20_44_39_6/0fae5016-6a64-4b8a-adc6-42480d645117-sec-multi-100826-mob-home-g.jpg",
+            "durationMs": 448,
+            "bytes": 17033,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:low,w_400/v1/banner/2026_08_06_17_27_36_5/29a037dc-c2d9-40f7-9755-23502d3f6f1d-marcas-20260810-shiseido-mob-home-g.jpg",
+            "durationMs": 447,
+            "bytes": 8617,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/dpr_2.0/v1/banner/2026_08_06_13_52_49_8/02fa331b-b6e2-48f5-b7e8-9d550558a3a0-card-4.jpg",
+            "durationMs": 449,
+            "bytes": 46617,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "www.belezanaweb.com.br/assets/blzstore/css/app-c76cea81f3.css",
+            "durationMs": 477,
+            "bytes": 605756,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,e_colorize,co_rgb:212121,fl_progressive,q_auto:eco/v1/blz/assets-store/0.0.612/images/icons/position.svg",
+            "durationMs": 112,
+            "bytes": 3286,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_png,w_30,dpr_3.0,e_colorize,co_rgb:5466ab/blz/assets-store/0.0.612/images/icons/ecomm-trash.svg",
+            "durationMs": 111,
+            "bytes": 921,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_png,w_30,dpr_3.0,e_colorize,co_rgb:222/blz/assets-store/0.0.612/images/icons/round-circle-clock.svg",
+            "durationMs": 112,
+            "bytes": 749,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,e_colorize,co_rgb:5466ab,fl_progressive,q_auto:eco/v1/blz/assets-store/0.0.612/images/icons/arrow-downward.svg",
+            "durationMs": 109,
+            "bytes": 177,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_png,w_30,dpr_3.0,e_colorize,co_rgb:fff/blz/assets-store/0.0.612/images/icons/ecomm-trash.svg",
+            "durationMs": 111,
+            "bytes": 919,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,e_colorize,co_rgb:878787,fl_progressive,q_auto:eco/v1/blz/assets-store/0.0.612/images/icons/user_gray.svg",
+            "durationMs": 109,
+            "bytes": 177,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,e_colorize,co_rgb:5466ab,fl_progressive,q_auto:eco/v1/blz/assets-store/0.0.612/images/icons/my_location.svg",
+            "durationMs": 109,
+            "bytes": 237,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:eco/v1/blz/assets-store/0.0.612/images/statics/loading-dot.gif",
+            "durationMs": 110,
+            "bytes": 587,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_auto,e_colorize,co_rgb:5466ab,fl_progressive,q_auto:eco/v1/blz/assets-store/0.0.612/images/icons/close-black.svg",
+            "durationMs": 110,
+            "bytes": 159,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/raw/upload/blz/assets-store/0.0.612/images/store/1/fonts/Jost-regular.woff2",
+            "durationMs": 124,
+            "bytes": 9044,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/raw/upload/blz/assets-store/0.0.612/images/store/1/fonts/Jost-Regularitalic.woff2",
+            "durationMs": 124,
+            "bytes": 10652,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/raw/upload/blz/assets-store/0.0.612/images/store/1/fonts/Jost-thin.woff2",
+            "durationMs": 137,
+            "bytes": 9376,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/raw/upload/blz/assets-store/0.0.612/images/store/1/fonts/Jost-Medium.woff2",
+            "durationMs": 137,
+            "bytes": 10040,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/raw/upload/blz/assets-store/0.0.612/images/store/1/fonts/Jost-SemiBold.woff2",
+            "durationMs": 137,
+            "bytes": 10028,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_png,w_30,dpr_3.0,e_colorize,co_rgb:cf9748/blz/assets-store/0.0.612/images/icons/filled-trophy.svg",
+            "durationMs": 136,
+            "bytes": 756,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/raw/upload/blz/assets-store/0.0.612/images/store/1/fonts/Jost-Bold.woff2",
+            "durationMs": 136,
+            "bytes": 10052,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_png,w_30,dpr_3.0,e_colorize,co_rgb:cf9748/blz/assets-store/0.0.612/images/icons/filled-trophy.svg",
+            "durationMs": 135,
+            "bytes": 756,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_png,w_30,dpr_3.0,e_colorize,co_rgb:666/blz/assets-store/0.0.612/images/icons/filled-trophy.svg",
+            "durationMs": 136,
+            "bytes": 756,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_png,w_30,dpr_3.0,e_colorize,co_rgb:666/blz/assets-store/0.0.612/images/icons/filled-trophy.svg",
+            "durationMs": 136,
+            "bytes": 756,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "i.liadm.com/s/28292",
+            "durationMs": 126,
+            "bytes": 0,
+            "mode": "cache",
+            "ok": false
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_svg,fl_progressive,q_auto:eco/v1/blz/assets-store/0.0.612/images/store/1/title-decoration.svg",
+            "durationMs": 153,
+            "bytes": 224,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "ct.pinterest.com/static/ct/token_create.js",
+            "durationMs": 211,
+            "bytes": 4138,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "resources.digital-cloud-west.medallia.com/wdcwest/191667/onsite/generic1786276738150.js",
+            "durationMs": 218,
+            "bytes": 252198,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "js-agent.newrelic.com/nr-spa-1.319.0.min.js",
+            "durationMs": 222,
+            "bytes": 109508,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "ct.pinterest.com/ct.html",
+            "durationMs": 324,
+            "bytes": 565,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "c.bing.com/c.gif",
+            "durationMs": 336,
+            "bytes": 42,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "ct.pinterest.com/ct.html",
+            "durationMs": 339,
+            "bytes": 565,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "criteo-sync.teads.tv/um",
+            "durationMs": 340,
+            "bytes": 23,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "cs.media.net/cksync.php",
+            "durationMs": 465,
+            "bytes": 43,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "simage2.pubmatic.com/AdServer/Pug",
+            "durationMs": 545,
+            "bytes": 42,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "trends.revcontent.com/cm/pixel_sync",
+            "durationMs": 595,
+            "bytes": 78,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "criteo-partners.tremorhub.com/sync",
+            "durationMs": 644,
+            "bytes": 43,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "pixel.rubiconproject.com/tap.php",
+            "durationMs": 645,
+            "bytes": 42,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "r.casalemedia.com/rum",
+            "durationMs": 661,
+            "bytes": 43,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "gum.criteo.com/sync",
+            "durationMs": 666,
+            "bytes": 49,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "simage4.pubmatic.com/AdServer/SPug",
+            "durationMs": 680,
+            "bytes": 0,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "sync.outbrain.com/cookie-sync",
+            "durationMs": 696,
+            "bytes": 0,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "jadserve.postrelease.com/suid/1017",
+            "durationMs": 731,
+            "bytes": 43,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "cm.g.doubleclick.net/pixel",
+            "durationMs": 769,
+            "bytes": 43,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "x.bidswitch.net/sync",
+            "durationMs": 1045,
+            "bytes": 43,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "www.belezanaweb.com.br/statics_physicalstore_map",
+            "durationMs": 1171,
+            "bytes": 0,
+            "mode": "cache",
+            "ok": false
+          },
+          {
+            "urlKey": "eb2.3lift.com/xuid",
+            "durationMs": 1176,
+            "bytes": 37,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "ade.clmbtech.com/uid/sync.htm",
+            "durationMs": 1226,
+            "bytes": 68,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "ib.adnxs.com/getuid",
+            "durationMs": 1420,
+            "bytes": 43,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "sync.1rx.io/usersync/criteodsp/k-7lQsjtA4O45oj6NLZ9e9Fj5p6L3pItkZZYovgA",
+            "durationMs": 1697,
+            "bytes": 43,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "ad.360yield.com/match",
+            "durationMs": 1740,
+            "bytes": 43,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "c.bing.com/c.gif",
+            "durationMs": 171,
+            "bytes": 42,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "criteo-sync.teads.tv/um",
+            "durationMs": 178,
+            "bytes": 23,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "simage2.pubmatic.com/AdServer/Pug",
+            "durationMs": 187,
+            "bytes": 42,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "x.bidswitch.net/sync",
+            "durationMs": 194,
+            "bytes": 43,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "trends.revcontent.com/cm/pixel_sync",
+            "durationMs": 195,
+            "bytes": 78,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "jadserve.postrelease.com/suid/1017",
+            "durationMs": 204,
+            "bytes": 43,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "pixel.rubiconproject.com/tap.php",
+            "durationMs": 210,
+            "bytes": 42,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "cs.media.net/cksync.php",
+            "durationMs": 209,
+            "bytes": 43,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "criteo-partners.tremorhub.com/sync",
+            "durationMs": 212,
+            "bytes": 43,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "eb2.3lift.com/xuid",
+            "durationMs": 215,
+            "bytes": 37,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "simage4.pubmatic.com/AdServer/SPug",
+            "durationMs": 222,
+            "bytes": 0,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "ad.360yield.com/match",
+            "durationMs": 245,
+            "bytes": 43,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "sync.outbrain.com/cookie-sync",
+            "durationMs": 248,
+            "bytes": 0,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "r.casalemedia.com/rum",
+            "durationMs": 254,
+            "bytes": 43,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "cm.g.doubleclick.net/pixel",
+            "durationMs": 347,
+            "bytes": 43,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "ade.clmbtech.com/uid/sync.htm",
+            "durationMs": 580,
+            "bytes": 68,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "gum.criteo.com/sync",
+            "durationMs": 676,
+            "bytes": 49,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "sync.1rx.io/usersync/criteodsp/k-7lQsjtA4O45oj6NLZ9e9Fj5p6L3pItkZZYovgA",
+            "durationMs": 689,
+            "bytes": 43,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "ib.adnxs.com/getuid",
+            "durationMs": 746,
+            "bytes": 43,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:low,w_400/v1/banner/2026_08_07_18_34_31_7/0fd5eaf2-ab62-48d7-8cce-d226650daf74-sec-cabelos-100826-mob-home-g.jpg",
+            "durationMs": 164,
+            "bytes": 8842,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:low,w_400/v1/banner/2026_08_07_18_34_31_7/0fd5eaf2-ab62-48d7-8cce-d226650daf74-sec-cabelos-100826-mob-home-g.jpg",
+            "durationMs": 165,
+            "bytes": 8842,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:low,w_1920/v1/banner/2026_08_07_18_34_23_9/b8c12dc4-30dc-4b92-b720-bd67602615e8-sec-cabelos-100826-desk-home-g.jpg",
+            "durationMs": 177,
+            "bytes": 33678,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:low,w_400/dpr_2.0/v1/banner/2026_08_07_18_34_31_7/0fd5eaf2-ab62-48d7-8cce-d226650daf74-sec-cabelos-100826-mob-home-g.jpg",
+            "durationMs": 180,
+            "bytes": 21777,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:low,w_1920/dpr_2.0/v1/banner/2026_08_07_18_34_23_9/b8c12dc4-30dc-4b92-b720-bd67602615e8-sec-cabelos-100826-desk-home-g.jpg",
+            "durationMs": 196,
+            "bytes": 76841,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/w_1500,f_avif,fl_progressive,q_auto:eco,w_210,h_210/dpr_2.0/v1/imagens/product/20071733/7ddb01fc-b890-429a-a917-7c3da362a17a-eucerin-dermopure-oil-control-concentrado-gel-de-limpeza-facial-antiacne-400g.png",
+            "durationMs": 112,
+            "bytes": 5935,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/w_1500,f_avif,fl_progressive,q_auto:eco,w_210,h_210/dpr_2.0/v1/imagens/product/KT005408/f7f4b890-a60d-4523-8cc0-bb21d5545441-kt005408-20057117-2.png",
+            "durationMs": 112,
+            "bytes": 8038,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/w_1500,f_avif,fl_progressive,q_auto:eco,w_210,h_210/dpr_2.0/v1/imagens/product/20066673/6cb1598d-4e37-496c-b532-671bad433d50-eucerin-antipigment-areas-especificas-creme-corporal-uniformizador-intenso-200ml.png",
+            "durationMs": 111,
+            "bytes": 6990,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/w_1500,f_avif,fl_progressive,q_auto:eco,w_210,h_210/dpr_2.0/v1/imagens/product/82323/9b23d073-3c11-4505-9ca3-2d4c546a6f16-le-male-le-parfum-jean-paul-gaultier-eau-de-parfum-perfume-masculino-125ml.png",
+            "durationMs": 112,
+            "bytes": 5316,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/w_1500,f_avif,fl_progressive,q_auto:eco,w_210,h_210/dpr_2.0/v1/imagens/product/20054690/93da1a8a-7de4-42d3-be06-a5c32da90009-20054690-la-roche-posay-effaclar-reequilibra-100g.png",
+            "durationMs": 111,
+            "bytes": 5493,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/w_1500,f_avif,fl_progressive,q_auto:eco,w_210,h_210/dpr_2.0/v1/imagens/product/22810/2624d85e-4ae3-4a5a-8582-4c5015b04190-carolina-herrera-perfume-masculino-212-vip-men-eau-de-toilette.png",
+            "durationMs": 111,
+            "bytes": 5592,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/w_1500,f_avif,fl_progressive,q_auto:eco,w_210,h_210/dpr_2.0/v1/imagens/product/20078291/1fc1a112-c5c2-4097-85db-7a9f1115e5bf-20078291-skinceuticals-age-inter-ultra-serum-30ml.png",
+            "durationMs": 111,
+            "bytes": 6415,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/w_1500,f_avif,fl_progressive,q_auto:eco,w_210,h_210/dpr_2.0/v1/imagens/product/KT005052/859c19d8-807e-4143-9800-6e0aac42d8e1-kit-kerastase-gloss-absolu-squad-4-produtos.png",
+            "durationMs": 111,
+            "bytes": 16417,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/w_1500,f_avif,fl_progressive,q_auto:eco,w_210,h_210/dpr_2.0/v1/imagens/product/20073472/0d96590b-e251-4918-9a90-c1e32df859db-20073472.png",
+            "durationMs": 111,
+            "bytes": 6485,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/w_1500,f_avif,fl_progressive,q_auto:eco,w_210,h_210/dpr_2.0/v1/imagens/product/11676/169849be-e5ca-4f87-99b6-6365bcf2a3c8-carolina-herrera-212-nyc-seductive-body-spray-masculino-250ml.png",
+            "durationMs": 115,
+            "bytes": 9085,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/w_1500,f_avif,fl_progressive,q_auto:eco,w_210,h_210/dpr_2.0/v1/imagens/products/75794/75794.png",
+            "durationMs": 115,
+            "bytes": 13452,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/w_1500,f_avif,fl_progressive,q_auto:eco,w_210,h_210/dpr_2.0/v1/imagens/product/64994/12a33ed6-b28e-4069-95e3-46ef264502d7-64994-pai-42743-42773.png",
+            "durationMs": 117,
+            "bytes": 10606,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/w_1500,f_avif,fl_progressive,q_auto:eco,w_210,h_210/dpr_2.0/v1/imagens/product/20058385/88849e5f-21cc-49ba-a10a-20ddbe108989-kerastase-nutritive-masquintense-mascara-capilar-200ml.png",
+            "durationMs": 118,
+            "bytes": 6315,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/w_1500,f_avif,fl_progressive,q_auto:eco,w_210,h_210/dpr_2.0/v1/imagens/product/20080123/47087409-ef3f-4583-8222-03bf0d4d1a04-20080123-laroche-posay-melab3-doub-dose-antm-40ml.png",
+            "durationMs": 118,
+            "bytes": 3628,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "res.cloudinary.com/beleza-na-web/image/upload/w_1500,f_avif,fl_progressive,q_auto:eco,w_210,h_210/dpr_2.0/v1/imagens/product/50666/7c741027-4f52-4f9a-848a-3b7ee1513aab-or-oil-reflections-light-30ml.png",
+            "durationMs": 118,
+            "bytes": 3269,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "cdn.cookielaw.org/logos/static/ot_persistent_cookie_icon.png",
+            "durationMs": 122,
+            "bytes": 3874,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "ib.adnxs.com/setuid",
+            "durationMs": 544,
+            "bytes": 43,
+            "mode": "cache",
+            "ok": true
+          },
+          {
+            "urlKey": "gum.criteo.com/syncframe",
+            "durationMs": 408,
+            "bytes": 12662,
+            "mode": "cache",
+            "ok": true
+          }
+        ]
+      },
+      "diff": {
+        "generation": 1,
+        "frameReceived": 6964,
+        "wireDelivered": 6964,
+        "queueDropped": 0,
+        "softNavObserved": 0,
+        "generationBumped": 0,
+        "resyncRequested": 0,
+        "resyncServed": 1
+      },
+      "client": {
+        "armCount": 4,
+        "epochArmCount": 4,
+        "disarmCount": 1,
+        "desyncCount": 1,
+        "surfaceProbes": [
+          {
+            "tClient": 17153.30000000447,
+            "htmlLen": 2354374,
+            "ownedRules": 4463,
+            "imgCount": 100,
+            "brokenImgs": 0,
+            "brokenImgsInViewport": 0,
+            "armed": true,
+            "lastSequence": 1069,
+            "lagMsP50": 12.5
+          },
+          {
+            "tClient": 22151,
+            "htmlLen": 2505603,
+            "ownedRules": 4463,
+            "imgCount": 107,
+            "brokenImgs": 0,
+            "brokenImgsInViewport": 0,
+            "armed": true,
+            "lastSequence": 3277,
+            "lagMsP50": 15
+          },
+          {
+            "tClient": 27188.89999999851,
+            "htmlLen": 2641596,
+            "ownedRules": 4462,
+            "imgCount": 119,
+            "brokenImgs": 0,
+            "brokenImgsInViewport": 0,
+            "armed": true,
+            "lastSequence": 4518,
+            "lagMsP50": 27.5
+          },
+          {
+            "tClient": 32161.60000000149,
+            "htmlLen": 2637906,
+            "ownedRules": 4462,
+            "imgCount": 120,
+            "brokenImgs": 0,
+            "brokenImgsInViewport": 0,
+            "armed": false,
+            "lastSequence": 4531,
+            "lagMsP50": 28
+          },
+          {
+            "tClient": 37152,
+            "htmlLen": 2387291,
+            "ownedRules": 4463,
+            "imgCount": 129,
+            "brokenImgs": 0,
+            "brokenImgsInViewport": 0,
+            "armed": true,
+            "lastSequence": 4570,
+            "lagMsP50": 28
+          },
+          {
+            "tClient": 42162,
+            "htmlLen": 2387291,
+            "ownedRules": 4463,
+            "imgCount": 129,
+            "brokenImgs": 0,
+            "brokenImgsInViewport": 0,
+            "armed": true,
+            "lastSequence": 4570,
+            "lagMsP50": 28
+          },
+          {
+            "tClient": 47181.70000000298,
+            "htmlLen": 3243900,
+            "ownedRules": 4710,
+            "imgCount": 223,
+            "brokenImgs": 11,
+            "brokenImgsInViewport": 0,
+            "armed": true,
+            "lastSequence": 5039,
+            "lagMsP50": 403.5
+          },
+          {
+            "tClient": 52163.70000000298,
+            "htmlLen": 3244449,
+            "ownedRules": 4710,
+            "imgCount": 223,
+            "brokenImgs": 11,
+            "brokenImgsInViewport": 0,
+            "armed": true,
+            "lastSequence": 5265,
+            "lagMsP50": 36
+          },
+          {
+            "tClient": 57159.89999999851,
+            "htmlLen": 3244449,
+            "ownedRules": 4710,
+            "imgCount": 223,
+            "brokenImgs": 11,
+            "brokenImgsInViewport": 0,
+            "armed": true,
+            "lastSequence": 5295,
+            "lagMsP50": 17
+          },
+          {
+            "tClient": 62155,
+            "htmlLen": 3244980,
+            "ownedRules": 4710,
+            "imgCount": 223,
+            "brokenImgs": 11,
+            "brokenImgsInViewport": 0,
+            "armed": true,
+            "lastSequence": 5586,
+            "lagMsP50": 19
+          },
+          {
+            "tClient": 67159.30000000447,
+            "htmlLen": 3243268,
+            "ownedRules": 4710,
+            "imgCount": 223,
+            "brokenImgs": 11,
+            "brokenImgsInViewport": 0,
+            "armed": true,
+            "lastSequence": 5906,
+            "lagMsP50": 45
+          },
+          {
+            "tClient": 72159.20000000298,
+            "htmlLen": 3243268,
+            "ownedRules": 4710,
+            "imgCount": 223,
+            "brokenImgs": 11,
+            "brokenImgsInViewport": 0,
+            "armed": true,
+            "lastSequence": 5936,
+            "lagMsP50": 18.5
+          },
+          {
+            "tClient": 77158.30000000447,
+            "htmlLen": 3243822,
+            "ownedRules": 4710,
+            "imgCount": 223,
+            "brokenImgs": 11,
+            "brokenImgsInViewport": 0,
+            "armed": true,
+            "lastSequence": 6242,
+            "lagMsP50": 42.5
+          },
+          {
+            "tClient": 82160.70000000298,
+            "htmlLen": 3244386,
+            "ownedRules": 4710,
+            "imgCount": 223,
+            "brokenImgs": 11,
+            "brokenImgsInViewport": 0,
+            "armed": true,
+            "lastSequence": 6560,
+            "lagMsP50": 67.5
+          },
+          {
+            "tClient": 87167.70000000298,
+            "htmlLen": 3244386,
+            "ownedRules": 4710,
+            "imgCount": 223,
+            "brokenImgs": 11,
+            "brokenImgsInViewport": 0,
+            "armed": true,
+            "lastSequence": 6590,
+            "lagMsP50": 19
+          }
+        ],
+        "lastSurfaceProbe": {
+          "tClient": 87167.70000000298,
+          "htmlLen": 3244386,
+          "ownedRules": 4710,
+          "imgCount": 223,
+          "brokenImgs": 11,
+          "brokenImgsInViewport": 0,
+          "armed": true,
+          "lastSequence": 6590,
+          "lagMsP50": 19
+        }
+      },
+      "timings": {
+        "bootMs": 3200,
+        "tSinceCommitFirstDiffMs": 8680,
+        "tSinceCommitEstablishMs": 39601,
+        "establishTotalMs": 7733
+      },
+      "verdictHints": [
+        "virtual_ttfb_high",
+        "establish_dom_map_gt_2s",
+        "oob_dom_map_dominant",
+        "virtual_page_errors_present",
+        "client_broken_imgs_present",
+        "asset_fetch_failures"
+      ]
+    }
+  },
+  "globals": {
+    "bootMarked": [
+      {
+        "browserLaunchedAtMs": 1786456113623,
+        "firstCommitAtMs": 1786456116823,
+        "bootMs": 3200
+      }
+    ],
+    "serveMiss": [
+      {
+        "urlKey": "i.liadm.com/s/28292",
+        "durationMs": 70,
+        "status": 404
+      },
+      {
+        "urlKey": "i.liadm.com/s/28292",
+        "durationMs": 160,
+        "status": 404
+      }
+    ],
+    "serveSlow": [
+      {
+        "urlKey": "bat.bing.com/action/0",
+        "durationMs": 200,
+        "status": 204
+      },
+      {
+        "urlKey": "sync.outbrain.com/cookie-sync",
+        "durationMs": 670,
+        "status": 200
+      },
+      {
+        "urlKey": "simage4.pubmatic.com/AdServer/SPug",
+        "durationMs": 710,
+        "status": 200
+      },
+      {
+        "urlKey": "sync.outbrain.com/cookie-sync",
+        "durationMs": 380,
+        "status": 200
+      },
+      {
+        "urlKey": "simage4.pubmatic.com/AdServer/SPug",
+        "durationMs": 390,
+        "status": 200
+      }
+    ]
+  }
+}

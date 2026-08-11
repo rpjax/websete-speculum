@@ -25,9 +25,12 @@ type MaintenanceDeletionResult = {
   sessionsDeleted: number
   journalFactsDeleted: number
   profilesDeleted: number
+  resourceSignalsDeleted?: number
+  resourceReportsDeleted?: number
+  vacuumRan?: boolean
 }
 
-type PendingAction = 'endedSessions' | 'independentFacts' | 'inactiveProfiles' | null
+type PendingAction = 'endedSessions' | 'independentFacts' | 'inactiveProfiles' | 'labReset' | null
 
 /** Days → an ISO cutoff instant in the past, or null when the field is blank ("no bound"). */
 function daysToCutoffIso(days: string): string | null {
@@ -111,6 +114,26 @@ export function MaintenancePage() {
       load()
     } catch (cause) {
       toast.error(cause instanceof Error ? cause.message : 'Unable to delete inactive profiles.')
+    } finally {
+      setPending(null)
+    }
+  }
+
+  const runLabReset = async () => {
+    try {
+      const result = await adminJson<MaintenanceDeletionResult>('/api/admin/maintenance/lab-reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirm: 'RESET' }),
+      })
+      toast.success(
+        `Lab reset: ${result.sessionsDeleted} sessions, ${result.journalFactsDeleted} facts, ${result.profilesDeleted} profiles` +
+          `, ${result.resourceSignalsDeleted ?? 0} signals, ${result.resourceReportsDeleted ?? 0} reports` +
+          (result.vacuumRan ? ' (VACUUM ok).' : '.'),
+      )
+      load()
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : 'Lab reset failed.')
     } finally {
       setPending(null)
     }
@@ -257,6 +280,22 @@ export function MaintenancePage() {
         </Button>
       </DataCard>
 
+      <DataCard className="space-y-4 border-destructive/40 p-4">
+        <div>
+          <h2 className="flex items-center gap-2 font-semibold text-destructive">
+            <Trash2 className="h-4 w-4" /> Lab reset
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Wipes ended sessions (with journal cascade), all remaining journal facts, inactive profiles, resource
+            signals/reports, then runs SQLite VACUUM. Refuses if any session is live. Does not touch configuration or
+            auth.
+          </p>
+        </div>
+        <Button variant="destructive" onClick={() => setPending('labReset')}>
+          Lab reset (confirm RESET)
+        </Button>
+      </DataCard>
+
       <ConfirmDestructive
         open={pending === 'endedSessions'}
         onOpenChange={(open) => !open && setPending(null)}
@@ -280,6 +319,14 @@ export function MaintenancePage() {
         body="This permanently deletes matching profiles and their persisted browser state. This cannot be undone."
         confirmLabel="Delete profiles"
         onConfirm={() => void runDeleteInactiveProfiles()}
+      />
+      <ConfirmDestructive
+        open={pending === 'labReset'}
+        onOpenChange={(open) => !open && setPending(null)}
+        title="Lab reset entire lab DB?"
+        body="Deletes all ended sessions, journal facts, inactive profiles, and resource monitoring rows, then VACUUMs. Live sessions must be stopped first. Configuration and auth are preserved. This cannot be undone."
+        confirmLabel="RESET lab"
+        onConfirm={() => void runLabReset()}
       />
     </AdminPage>
   )

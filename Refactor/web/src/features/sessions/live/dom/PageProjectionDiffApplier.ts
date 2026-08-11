@@ -12,6 +12,7 @@ import {
   rewriteRemToPx,
   rewriteViewportUnits,
 } from './rewriteHtmlBodySelectors'
+import { mapSrcset } from './srcsetParse'
 
 /** Stamps the reserved session-auth parameter onto a `/w7s/virtual-*` URL. */
 export type DomAssetAuthAppender = (url: string) => string
@@ -66,6 +67,10 @@ export type PageProjectionDesyncReason =
   | 'unknown_op'
   | 'establish_required'
   | 'install_failed'
+  /** Diff uni-stream EOF while session live (fan-out Complete). */
+  | 'wire_stall'
+  /** Client-visible PageProjectionLifecycle phase=queue_dropped. */
+  | 'queue_dropped'
 
 export type PageProjectionDropReason =
   | PageProjectionDesyncReason
@@ -124,6 +129,8 @@ export class PageProjectionDiffApplier {
   private generation = 0
   private lastSequence = 0
   private desynced = false
+  /** Reason for the current desync window — SoftNav address_miss discards mid-wipe buffer. */
+  private lastDesyncReason: PageProjectionDesyncReason | null = null
   private pendingRaf: number | null = null
   private queued: PageProjectionDiff[] = []
   /** Live envelopes withheld while desynced — drained after OOB joint resync. */
@@ -223,9 +230,34 @@ export class PageProjectionDiffApplier {
     return this.lastSequence
   }
 
+  /** Total owned Cssom rules across every installed sheet (client_surface_probe). */
+  getOwnedRuleCount(): number {
+    let count = 0
+    for (const owned of this.ownedSheets.values()) count += owned.ruleIds.length
+    return count
+  }
+
   /** True while the projected tree is not provably contiguous with Virtual. */
   isDesynced(): boolean {
     return this.desynced
+  }
+
+  /**
+   * Diff pipe cut / queue_dropped lifecycle — force desync so T8 OOB resync runs.
+   * Re-notifies even when already desynced so a coalesced resync can still fire.
+   */
+  noteWireCut(reason: 'wire_stall' | 'queue_dropped'): void {
+    if (this.desynced) {
+      this.lastDesyncReason = reason
+      this.onDesync?.({
+        expected: this.lastSequence + 1,
+        got: this.lastSequence + 1,
+        reason,
+        generation: this.generation,
+      })
+      return
+    }
+    this.desync(this.lastSequence + 1, reason)
   }
 
   /**
@@ -256,9 +288,23 @@ export class PageProjectionDiffApplier {
     }
 
     this.lastSequence = Number(snap.coversThroughSequence ?? 0)
+    // SoftNav SPA wipes leave buffered childList/patch against orphaned anchors.
+    // Replaying that mid-wipe history after the joint snapshot re-desyncs (cascade).
+    // Resume only with live sequence > coversThrough; keep qSA===1 on live apply.
+    if (this.lastDesyncReason === 'address_miss') {
+      this.buffered = []
+      this.bufferedWhileDesyncedCount = 0
+      this.lastDesyncReason = null
+      if (!this.desynced) {
+        this.onGeneration?.(this.generation)
+      }
+      return
+    }
+
+    // T8: drop obsolete, apply contiguous newer envelopes; gap → desync → another OOB
+    // (no silent sequence jump). Fast OOB + emit pause keep this from cascading.
     this.drainBuffered()
-    // Live document/install still arms via onGeneration; OOB path arms only when
-    // drain left us synced.
+    this.lastDesyncReason = null
     if (!this.desynced) {
       this.onGeneration?.(this.generation)
     }
@@ -297,6 +343,7 @@ export class PageProjectionDiffApplier {
     this.generation = 0
     this.lastSequence = 0
     this.desynced = false
+    this.lastDesyncReason = null
     this.clearScrollEchoMarks()
     this.localDirtyUntil.clear()
     for (const p of this.pendingControls.values()) clearTimeout(p.timer)
@@ -435,6 +482,7 @@ export class PageProjectionDiffApplier {
     },
   ): void {
     this.desynced = true
+    this.lastDesyncReason = reason
     const diff = this.activeDiff
     this.onDesync?.({
       expected: this.lastSequence + 1,
@@ -979,16 +1027,9 @@ export class PageProjectionDiffApplier {
         }
       } else if (this.appendAssetToken) {
         if (name === 'srcset' || name === 'imagesrcset') {
-          value = raw
-            .split(',')
-            .map((part) => {
-              const bits = part.trim().split(/\s+/)
-              if (bits[0] && bits[0].startsWith('/w7s/virtual-')) {
-                bits[0] = this.appendAssetToken!(bits[0]!)
-              }
-              return bits.join(' ')
-            })
-            .join(', ')
+          value = mapSrcset(raw, (u) =>
+            u.startsWith('/w7s/virtual-') ? this.appendAssetToken!(u) : u,
+          )
         } else if (
           URL_ATTRIBUTES.has(name)
           && (value.startsWith('/w7s/virtual-') || value.includes('/virtual-'))

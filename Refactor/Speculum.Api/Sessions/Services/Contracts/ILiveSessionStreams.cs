@@ -10,6 +10,8 @@ public interface IFrameStream : IDisposable
 {
     Guid Id { get; }
 
+    Guid ConsumerId { get; }
+
     IResult<ChannelReader<Frame>> GetFramesChannel();
 }
 
@@ -18,13 +20,20 @@ public interface IPageProjectionDiffStream : IDisposable
 {
     Guid Id { get; }
 
+    Guid ConsumerId { get; }
+
     IResult<ChannelReader<PageProjectionDiff>> GetPageProjectionDiffsChannel();
+
+    /// <summary>Current Diff channel epoch for this stream (-1 when unregistered).</summary>
+    long GetDiffEpoch();
 }
 
 /// <summary>Per-consumer browser console output stream. Dispose unregisters from the mux.</summary>
 public interface IConsoleOutputStream : IDisposable
 {
     Guid Id { get; }
+
+    Guid ConsumerId { get; }
 
     IResult<ChannelReader<ConsoleOutput>> GetConsoleOutputChannel();
 }
@@ -33,6 +42,8 @@ public interface IConsoleOutputStream : IDisposable
 public interface INotificationStream : IDisposable
 {
     Guid Id { get; }
+
+    Guid ConsumerId { get; }
 
     IResult<ChannelReader<SessionNotification>> GetNotificationChannel();
 }

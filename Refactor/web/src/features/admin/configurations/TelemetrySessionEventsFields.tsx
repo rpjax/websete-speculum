@@ -1,9 +1,10 @@
 import { useState } from 'react'
-import { ChevronDown, Route } from 'lucide-react'
+import { ChevronDown, Route, ScanSearch } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
 import {
+  TELEMETRY_PARITY_DEBUG_TYPES,
   TELEMETRY_SESSION_EVENT_GROUPS,
   TELEMETRY_SESSION_EVENT_TYPES,
   TELEMETRY_VIDEO_STREAMING_INPUT_PATH_TYPES,
@@ -11,6 +12,17 @@ import {
   type TelemetrySessionEventGroup,
   type TelemetrySessionEventType,
 } from './telemetrySessionEventsCatalog'
+
+/** Groups opened by the ParityDebug pack shortcut (mirrors TELEMETRY_PARITY_DEBUG_TYPES). */
+const PARITY_DEBUG_GROUP_IDS = [
+  'page-projection-diff',
+  'page-projection-input-path',
+  'page-projection-input-outcomes',
+  'browse',
+  'page-projection-virtual',
+  'page-projection-establish',
+  'page-projection-asset',
+] as const
 
 export type TelemetrySessionEventsMap = Record<TelemetrySessionEventType, boolean>
 
@@ -92,6 +104,21 @@ export function TelemetrySessionEventsFields({
     setOpenGroups((prev) => ({ ...prev, 'video-streaming-input-path': true }))
   }
 
+  const enableParityDebugPack = () => {
+    const next = { ...events }
+    for (const type of TELEMETRY_PARITY_DEBUG_TYPES) {
+      next[type] = true
+    }
+    applyOrChange(next)
+    setOpenGroups((prev) => {
+      const opened = { ...prev }
+      for (const id of PARITY_DEBUG_GROUP_IDS) {
+        opened[id] = true
+      }
+      return opened
+    })
+  }
+
   const turnOffHotPath = () => {
     const next = { ...events }
     for (const group of TELEMETRY_SESSION_EVENT_GROUPS) {
@@ -128,6 +155,16 @@ export function TelemetrySessionEventsFields({
           >
             <Route className="h-3.5 w-3.5" aria-hidden />
             Trace video path
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={busy}
+            onClick={enableParityDebugPack}
+          >
+            <ScanSearch className="h-3.5 w-3.5" aria-hidden />
+            ParityDebug pack
           </Button>
           <Button
             type="button"

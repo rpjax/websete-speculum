@@ -53,7 +53,7 @@ public sealed class SessionBindingRegistryTests
     }
 
     [Fact]
-    public void CloseCaller_DisposesPipes_AndDetachesPresence()
+    public void CloseCaller_DisposesCarriers_AndDetachesPresence()
     {
         var sessionId = Guid.NewGuid();
         var live = new FakeLiveSession(sessionId);
@@ -65,16 +65,16 @@ public sealed class SessionBindingRegistryTests
             sessionId,
             Guid.Parse("00000000-0000-0000-0000-000000000123"),
             "token"));
-        var pipe = new RecordingDisposable();
-        Assert.True(registry.RegisterPipe(
+        var carrier = new RecordingDisposable();
+        Assert.True(registry.RegisterCarrier(
             sessionId,
             "token",
             Guid.NewGuid(),
-            pipe).IsSuccess);
+            carrier).IsSuccess);
 
         registry.CloseCaller("caller");
 
-        Assert.True(pipe.IsDisposed);
+        Assert.True(carrier.IsDisposed);
         Assert.Equal(
             Guid.Parse("00000000-0000-0000-0000-000000000123"),
             live.DetachedAttachmentId);
@@ -82,7 +82,7 @@ public sealed class SessionBindingRegistryTests
     }
 
     [Fact]
-    public void WebTransportPipe_OpenClose_RegistersAndClearsOwnership()
+    public void WebTransportCarrier_OpenClose_RegistersAndClearsOwnership()
     {
         var sessionId = Guid.NewGuid();
         var live = new FakeLiveSession(sessionId);
@@ -93,13 +93,13 @@ public sealed class SessionBindingRegistryTests
             sessionId,
             Guid.NewGuid(),
             "token"));
-        var pipeId = Guid.NewGuid();
-        var pipe = new RecordingDisposable();
+        var carrierId = Guid.NewGuid();
+        var carrier = new RecordingDisposable();
 
-        Assert.True(registry.RegisterPipe(sessionId, "token", pipeId, pipe).IsSuccess);
-        registry.UnregisterPipe(pipeId);
+        Assert.True(registry.RegisterCarrier(sessionId, "token", carrierId, carrier).IsSuccess);
+        registry.UnregisterCarrier(carrierId);
 
-        Assert.True(pipe.IsDisposed);
+        Assert.True(carrier.IsDisposed);
         Assert.True(registry.TryGetLive(sessionId, "token", out _));
     }
 
@@ -162,12 +162,16 @@ public sealed class SessionBindingRegistryTests
             return Result.Success();
         }
 
-        public IResult<IFrameStream> OpenFrameStream() => throw new NotSupportedException();
-        public IResult<IPageProjectionDiffStream> OpenPageProjectionDiffStream() => throw new NotSupportedException();
-        public IResult<IConsoleOutputStream> OpenConsoleOutputStream() => throw new NotSupportedException();
-        public IResult<INotificationStream> OpenNotificationStream() => throw new NotSupportedException();
+        public IResult ObserveSessionNotifications(INotificationStream stream)
+            => Result.Success();
+
+        public IResult<IFrameStream> OpenFrameStream(Guid consumerId) => throw new NotSupportedException();
+        public IResult<IPageProjectionDiffStream> OpenPageProjectionDiffStream(Guid consumerId) => throw new NotSupportedException();
+        public IResult<IConsoleOutputStream> OpenConsoleOutputStream(Guid consumerId) => throw new NotSupportedException();
+        public IResult<INotificationStream> OpenNotificationStream(Guid consumerId) => throw new NotSupportedException();
 
         public IResult<Task> ConsumeVideoStreamingInputAsync(
+            Guid consumerId,
             ChannelReader<VideoStreamingInput> channelReader,
             CancellationToken ct = default)
             => throw new NotSupportedException();
@@ -178,6 +182,7 @@ public sealed class SessionBindingRegistryTests
             => Result.Success();
 
         public IResult<Task> ConsumeConsoleInputAsync(
+            Guid consumerId,
             ChannelReader<ConsoleInput> channelReader,
             CancellationToken ct = default)
             => throw new NotSupportedException();
@@ -199,7 +204,31 @@ public sealed class SessionBindingRegistryTests
             string? traceId = null,
             long? clientTimestampMs = null) { }
 
-        public void TracePageProjectionDiffWireDelivered(PageProjectionDiff diff) { }
+        public void TracePageProjectionDiffWireDelivered(
+            PageProjectionDiff diff,
+            long durationMs = 0,
+            Guid streamId = default,
+            Guid consumerId = default,
+            long diffEpoch = 0) { }
+
+        public void TracePageProjectionDiffFanOutEnqueued(
+            PageProjectionDiff diff,
+            long waitMs,
+            Guid streamId,
+            Guid consumerId,
+            string kind,
+            int targetIndex,
+            int targetCount,
+            int diffChannelCount,
+            long diffEpoch) { }
+
+        public void TracePageProjectionDiffStreamDequeued(
+            PageProjectionDiff diff,
+            Guid streamId = default,
+            Guid consumerId = default,
+            long diffEpoch = 0) { }
+
+        public bool IsPageProjectionDiffWireDeliveredEnabled() => false;
 
         public void TracePageProjectionDiffFrameReceived(PageProjectionDiff diff) { }
 
@@ -213,7 +242,31 @@ public sealed class SessionBindingRegistryTests
             string? operation = null,
             long? lowestDroppedSequence = null,
             long? highestDroppedSequence = null,
-            string? reason = null) { }
+            string? reason = null,
+            Guid? streamId = null,
+            Guid? consumerId = null,
+            string? kind = null,
+            int? targetCount = null,
+            int? diffChannelCount = null,
+            long? diffEpoch = null) { }
+
+        public void ReportPageProjectionDiffQueueDropped(
+            string stage,
+            int droppedCount,
+            int capacity,
+            long? sequence = null,
+            long? generation = null,
+            string? plane = null,
+            string? operation = null,
+            long? lowestDroppedSequence = null,
+            long? highestDroppedSequence = null,
+            string? reason = null,
+            Guid? streamId = null,
+            Guid? consumerId = null,
+            string? kind = null,
+            int? targetCount = null,
+            int? diffChannelCount = null,
+            long? diffEpoch = null) { }
 
         public Task<IResult<SessionStatus>> GetStatusAsync(CancellationToken ct = default)
             => throw new NotSupportedException();

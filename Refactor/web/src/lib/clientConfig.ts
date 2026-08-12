@@ -87,6 +87,34 @@ export function readSessionViewportPolicy(
   }
 }
 
+/** Sessions.PageProjection knobs the SPA must honor (swap / client-state / apply budget). */
+export type PageProjectionClientKnobs = {
+  swapTimeoutMs: number
+  clientStateMs: number
+  applyBudgetMs: number
+}
+
+export const FALLBACK_PAGE_PROJECTION_CLIENT_KNOBS: PageProjectionClientKnobs = {
+  swapTimeoutMs: 1500,
+  clientStateMs: 1000,
+  applyBudgetMs: 4,
+}
+
+export function readPageProjectionClientKnobs(
+  config: ClientConfig | null | undefined,
+): PageProjectionClientKnobs {
+  const s = config?.sessions
+  const pick = (value: unknown, fallback: number): number => {
+    const n = Number(value)
+    return Number.isFinite(n) && n > 0 ? Math.round(n) : fallback
+  }
+  return {
+    swapTimeoutMs: pick(s?.pageProjectionSwapTimeoutMs, FALLBACK_PAGE_PROJECTION_CLIENT_KNOBS.swapTimeoutMs),
+    clientStateMs: pick(s?.pageProjectionClientStateMs, FALLBACK_PAGE_PROJECTION_CLIENT_KNOBS.clientStateMs),
+    applyBudgetMs: pick(s?.pageProjectionApplyBudgetMs, FALLBACK_PAGE_PROJECTION_CLIENT_KNOBS.applyBudgetMs),
+  }
+}
+
 /** V1 public client-config — Refactor contract (no legacy forwardingHost alias). */
 export interface ClientConfig {
   schemaVersion: 1
@@ -112,6 +140,12 @@ export interface ClientConfig {
     viewportPolicy: SessionViewportPolicyConfig
     /** Sessions.ScreencastPolicy.MaxEncodeScale — CSS→JPEG scale cap (1..2). */
     screencastMaxEncodeScale: number
+    /** Sessions.PageProjection.SwapTimeoutMs — SurfaceHost swap fallback. */
+    pageProjectionSwapTimeoutMs?: number
+    /** Sessions.PageProjection.ClientStateMs — ClientState report interval. */
+    pageProjectionClientStateMs?: number
+    /** Sessions.PageProjection.ApplyBudgetMs — E9 apply overrun threshold. */
+    pageProjectionApplyBudgetMs?: number
   }
   resourceManagement: {
     maxConcurrentSessions: number

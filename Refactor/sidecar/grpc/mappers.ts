@@ -63,7 +63,30 @@ export function toLaunchOptions(req: any): BrowserLaunchOptions {
     browserPoolRefillPerSec: resolvePositiveIntOrUndefined(
       req.browserPoolRefillPerSec ?? req.browser_pool_refill_per_sec,
     ),
+    frameRateLadder: resolveRateLadder(req.frameRateLadder ?? req.frame_rate_ladder),
+    hiddenRateHz: resolvePositiveIntOrUndefined(req.hiddenRateHz ?? req.hidden_rate_hz),
+    rateRecoverMs: resolvePositiveIntOrUndefined(req.rateRecoverMs ?? req.rate_recover_ms),
+    frameStallMs: resolvePositiveIntOrUndefined(req.frameStallMs ?? req.frame_stall_ms),
+    establishChunkBytes: resolvePositiveIntOrUndefined(
+      req.establishChunkBytes ?? req.establish_chunk_bytes,
+    ),
+    mirrorMaxBytes: resolvePositiveIntOrUndefined(req.mirrorMaxBytes ?? req.mirror_max_bytes),
+    assetCacheL1MaxBytes: resolvePositiveIntOrUndefined(
+      req.assetCacheL1MaxBytes ?? req.asset_cache_l1_max_bytes,
+    ),
+    assetPriorityViewportPx: resolvePositiveIntOrUndefined(
+      req.assetPriorityViewportPx ?? req.asset_priority_viewport_px,
+    ),
+    aggregateIntervalMs: resolvePositiveIntOrUndefined(
+      req.aggregateIntervalMs ?? req.aggregate_interval_ms,
+    ),
   };
+}
+
+function resolveRateLadder(raw: unknown): number[] | undefined {
+  if (!Array.isArray(raw) || raw.length === 0) return undefined;
+  const out = raw.map((v) => Number(v)).filter((n) => Number.isFinite(n) && n > 0).map((n) => Math.floor(n));
+  return out.length > 0 ? out : undefined;
 }
 
 /** §5.16 knobs relayed verbatim when positive; 0/absent lets the sidecar default apply. */

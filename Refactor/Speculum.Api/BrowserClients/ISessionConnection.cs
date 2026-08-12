@@ -196,6 +196,14 @@ public interface ISessionConnection
         CancellationToken ct = default);
 
     /// <summary>
+    /// Client → server control channel (§5.9.5) — a control report, never a diff;
+    /// does not advance the live `sequence`.
+    /// </summary>
+    Task<IResult> ReportPageProjectionClientStateAsync(
+        PageProjectionClientStateReport report,
+        CancellationToken ct = default);
+
+    /// <summary>
     /// Pumps console input from <paramref name="channelReader"/> into the sidecar until the
     /// channel completes or the connection closes.
     /// </summary>

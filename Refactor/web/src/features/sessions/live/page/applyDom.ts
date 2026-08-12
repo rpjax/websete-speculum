@@ -10,7 +10,7 @@
  * No layout reads (`getBoundingClientRect`, `offsetTop`, computed style) occur
  * anywhere on this path.
  */
-import type { AssembledFrame, DecodedNode, DecodedOp, PatchSnapshot } from './decode'
+import type { AssembledFrame, DecodedNode, DecodedOp, DocumentStateOp, PatchSnapshot } from './decode'
 import type { PageProjectionRegistry } from './registry'
 import { reconcileControlValue } from './interaction'
 
@@ -102,6 +102,8 @@ export class DomFrameApplier {
     }
     const cssomOps = frame.ops.filter((op) => CSSOM_OP_NAMES.has(op.op))
     if (cssomOps.length > 0) this.options.onCssomOps?.(cssomOps)
+    const documentStateOp = frame.ops.find((op): op is DocumentStateOp => op.op === 'documentState')
+    if (documentStateOp) applyDocumentState(this.doc, documentStateOp)
     this.options.onApplied?.(frame)
   }
 }
@@ -269,7 +271,7 @@ function applyNodeState(el: Element, attrs: Record<string, string>): void {
       if (paused === 'true' && !el.paused) el.pause()
       else if (paused !== 'true' && el.paused) void el.play().catch(() => {})
     }
-    const currentTime = attrs['speculum-media-currentTime']
+    const currentTime = attrs['speculum-media-current-time']
     if (currentTime != null) el.currentTime = Number(currentTime) || 0
     const muted = attrs['speculum-media-muted']
     if (muted != null) el.muted = muted === 'true'
@@ -290,4 +292,35 @@ function isSvgTag(tag: string): boolean {
 /** Exported for `surface.tsx` establish handoff (§5.6.6) — materializes one fresh subtree. */
 export function materializeFreshNode(doc: Document, registry: PageProjectionRegistry, node: DecodedNode): Node {
   return materialize(doc, registry, node)
+}
+
+/**
+ * §5.2.6 — applies `<title>`, `documentElement.lang`/`.dir` and `meta[viewport].content`.
+ * Exported so `ProjectionClient` can apply the same op while it arrives mid-establish,
+ * before a `DomFrameApplier` exists for the standby document.
+ */
+export function applyDocumentState(doc: Document, op: DocumentStateOp): void {
+  doc.title = op.title
+  const html = doc.documentElement
+  if (html) {
+    if (op.lang !== null) html.setAttribute('lang', op.lang)
+    else html.removeAttribute('lang')
+    if (op.dir !== null) html.setAttribute('dir', op.dir)
+    else html.removeAttribute('dir')
+  }
+  applyViewportMeta(doc, op.viewportContent)
+}
+
+function applyViewportMeta(doc: Document, content: string | null): void {
+  const existing = doc.querySelector('meta[name="viewport"]')
+  if (content === null) {
+    existing?.remove()
+    return
+  }
+  const meta = existing ?? doc.createElement('meta')
+  if (!existing) {
+    meta.setAttribute('name', 'viewport')
+    ;(doc.head ?? doc.documentElement)?.appendChild(meta)
+  }
+  meta.setAttribute('content', content)
 }

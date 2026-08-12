@@ -1,17 +1,17 @@
 namespace Speculum.Api.Sessions.Mirror.PageProjection;
 
-/// <summary>OOB PageProjection.Resync body (T8/C8) — does not advance live sequence.</summary>
+/// <summary>
+/// OOB PageProjection.Resync body (§5.7.2) — does not advance live sequence.
+/// <see cref="FrameParts"/> are opaque §5.5 binary wire parts with the resync flag set.
+/// </summary>
 public sealed class PageProjectionResyncSnapshot
 {
     public long Generation { get; init; }
 
     public long CoversThroughSequence { get; init; }
 
-    /// <summary>UTF-8 JSON of Dom <c>document.root</c> (F html).</summary>
-    public required byte[] RootJson { get; init; }
-
-    /// <summary>UTF-8 JSON array of Cssom sheets (install payload).</summary>
-    public required byte[] SheetsJson { get; init; }
+    /// <summary>Opaque §5.5 binary frame parts (resync flag). Never parsed by the API.</summary>
+    public required IReadOnlyList<byte[]> FrameParts { get; init; }
 
     public string? PageEpochId { get; init; }
 

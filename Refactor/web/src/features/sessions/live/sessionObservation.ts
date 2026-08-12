@@ -14,7 +14,7 @@ import {
   type FrontDebugLogFields,
   type FrontDebugLogLevel,
 } from '@/features/sessions/debug/frontDebugLog'
-import { pageProjectionLagMs } from '@/features/sessions/live/dom/PageProjectionDiffApplier'
+import { pageProjectionLagMs } from '@/features/sessions/live/page/pageProjectionLag'
 import {
   inputConsoleLine,
   lineFromConsoleOutput,

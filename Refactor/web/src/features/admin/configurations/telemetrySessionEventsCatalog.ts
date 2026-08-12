@@ -57,6 +57,12 @@ export const TELEMETRY_SESSION_EVENT_TYPES = [
   'Telemetry.Sessions.PageProjection.Asset.FetchFinished',
   'Telemetry.Sessions.PageProjection.Asset.ServeMiss',
   'Telemetry.Sessions.PageProjection.Asset.ServeSlow',
+  'Telemetry.Sessions.PageProjection.Frame.RateChanged',
+  'Telemetry.Sessions.PageProjection.Frame.ClockStalled',
+  'Telemetry.Sessions.PageProjection.Frame.ApplyOverrun',
+  'Telemetry.Sessions.PageProjection.Frame.Aggregate',
+  'Telemetry.Sessions.PageProjection.Session.PoolAcquired',
+  'Telemetry.Sessions.PageProjection.Session.PoolReleased',
   'Telemetry.Sessions.Resize.Applied',
   'Telemetry.Sessions.Resize.Rejected',
   'Telemetry.Sessions.Browse.LocationChanged',
@@ -81,6 +87,8 @@ export type TelemetrySessionEventGroupId =
   | 'page-projection-virtual'
   | 'page-projection-establish'
   | 'page-projection-asset'
+  | 'page-projection-frame'
+  | 'page-projection-pool'
   | 'resize'
   | 'capacity'
   | 'start-navigate'
@@ -406,6 +414,50 @@ export const TELEMETRY_SESSION_EVENT_GROUPS: TelemetrySessionEventGroup[] = [
         label: 'Asset · serve slow',
         help: 'DomAsset proxy exceeded the slow-serve threshold (urlKey, durationMs).',
         hotPath: true,
+      },
+    ],
+  },
+  {
+    id: 'page-projection-frame',
+    title: 'PageProjection Frame',
+    blurb: 'Frame clock rate / stall / apply overrun / periodic aggregate (§5.15).',
+    events: [
+      {
+        type: 'Telemetry.Sessions.PageProjection.Frame.RateChanged',
+        label: 'Frame · rate changed',
+        help: 'Ladder step on the frame clock (fromHz → toHz).',
+      },
+      {
+        type: 'Telemetry.Sessions.PageProjection.Frame.ClockStalled',
+        label: 'Frame · clock stalled',
+        help: 'Watchdog fired — no tick within frameStallMs.',
+      },
+      {
+        type: 'Telemetry.Sessions.PageProjection.Frame.ApplyOverrun',
+        label: 'Frame · apply overrun',
+        help: 'Client reported applyBudgetMs overrun (E9).',
+      },
+      {
+        type: 'Telemetry.Sessions.PageProjection.Frame.Aggregate',
+        label: 'Frame · aggregate',
+        help: 'Periodic counters (frames/bytes/rate/stalls/mirrorBytes).',
+      },
+    ],
+  },
+  {
+    id: 'page-projection-pool',
+    title: 'PageProjection Session pool',
+    blurb: 'Pre-warmed browser pool acquire/release (§5.13).',
+    events: [
+      {
+        type: 'Telemetry.Sessions.PageProjection.Session.PoolAcquired',
+        label: 'Pool · acquired',
+        help: 'Session adopted a never-navigated pooled browser.',
+      },
+      {
+        type: 'Telemetry.Sessions.PageProjection.Session.PoolReleased',
+        label: 'Pool · released',
+        help: 'Pooled browser destroyed on release (PP-SESS-2).',
       },
     ],
   },

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { MirrorMode } from '@/lib/speculum'
-import type { CanvasSize } from './CanvasViewportSync'
 import {
   fetchClientConfig,
   normalizeMirrorMode,
@@ -15,6 +14,7 @@ import {
 } from '@/features/sessions/debug/frontDebugLog'
 import type { LiveSession } from '@/lib/speculum'
 import type { SessionViewportBounds } from './sessionViewportPolicy'
+import type { LayoutWaiter } from './layoutWaiter'
 
 export type LiveSessionPhase =
   | 'idle'
@@ -30,40 +30,14 @@ export interface LiveSessionViewport {
   height: number
 }
 
-/**
- * Poll CSS host size until laid out (≥100×100) so StartSession matches the surface.
- * Returns null when the definitive host never reports a usable box — Start must fail
- * closed (a silent fallback viewport forces a corrective Resize after Start).
- */
-export async function waitForCanvasLayout(
-  layoutRef: { current: CanvasSize },
-  budgetMs = 600,
-): Promise<CanvasSize | null> {
-  const deadline = performance.now() + budgetMs
-  while (performance.now() < deadline) {
-    const size = layoutRef.current
-    if (size.width >= 100 && size.height >= 100) {
-      return { width: size.width, height: size.height }
-    }
-    await new Promise<void>((resolve) => {
-      requestAnimationFrame(() => resolve())
-    })
-  }
-  const size = layoutRef.current
-  if (size.width >= 100 && size.height >= 100) {
-    return { width: size.width, height: size.height }
-  }
-  return null
-}
-
 export interface UseSessionPreStartOptions {
-  canvasLayoutRef: React.MutableRefObject<CanvasSize>
+  layoutWaiter: LayoutWaiter
   sessionRef: React.MutableRefObject<LiveSession | null>
   phaseRef: React.MutableRefObject<LiveSessionPhase>
 }
 
 export function useSessionPreStart({
-  canvasLayoutRef,
+  layoutWaiter,
   sessionRef,
   phaseRef,
 }: UseSessionPreStartOptions) {
@@ -114,10 +88,9 @@ export function useSessionPreStart({
     }
     mirrorModeRef.current = nextMirrorMode
     setMirrorMode(nextMirrorMode)
-    // The surface is being swapped — drop the outgoing host's measurement so
-    // StartSession can only ever measure the surface that will stay mounted.
-    canvasLayoutRef.current = { width: 0, height: 0 }
-  }, [canvasLayoutRef, phaseRef, sessionRef])
+    // Surface swap — require a fresh layout report from the definitive host.
+    layoutWaiter.invalidate()
+  }, [layoutWaiter, phaseRef, sessionRef])
 
   /** In-flight mount load, so `start` reuses it instead of racing a second fetch. */
   const clientConfigLoadRef = useRef<Promise<ClientConfig | null> | null>(null)

@@ -53,7 +53,22 @@ internal static class GrpcSessionMappers
             MaxFrameBytes = (int)Math.Clamp(pp.MaxFrameBytes, 0, int.MaxValue),
             BrowserPoolSize = Math.Max(0, pp.BrowserPoolSize),
             BrowserPoolRefillPerSec = Math.Max(0, pp.BrowserPoolRefillPerSec),
+            HiddenRateHz = Math.Max(0, pp.HiddenRateHz),
+            RateRecoverMs = Math.Max(0, pp.RateRecoverMs),
+            FrameStallMs = Math.Max(0, pp.FrameStallMs),
+            EstablishChunkBytes = Math.Max(0, pp.EstablishChunkBytes),
+            MirrorMaxBytes = Math.Max(0, pp.MirrorMaxBytes),
+            AssetCacheL1MaxBytes = Math.Max(0, pp.AssetCacheL1MaxBytes),
+            AssetPriorityViewportPx = Math.Max(0, pp.AssetPriorityViewportPx),
+            AggregateIntervalMs = Math.Max(0, pp.AggregateIntervalMs),
+            SwapTimeoutMs = Math.Max(0, pp.SwapTimeoutMs),
+            ClientStateMs = Math.Max(0, pp.ClientStateMs),
+            ApplyBudgetMs = Math.Max(0, pp.ApplyBudgetMs),
         };
+        foreach (var hz in pp.FrameRateLadder)
+        {
+            if (hz > 0) request.FrameRateLadder.Add(hz);
+        }
 
         var environment = configuration.ClientEnvironment
             ?? throw new ArgumentException(
@@ -843,6 +858,7 @@ internal static class GrpcSessionMappers
         ContentRange = string.IsNullOrWhiteSpace(response.ContentRange) ? null : response.ContentRange,
         PassThrough = response.PassThrough,
         RequestHadCookie = response.RequestHadCookie,
+        RequestHadAuthorization = response.RequestHadAuthorization,
         CacheControl = string.IsNullOrWhiteSpace(response.CacheControl) ? null : response.CacheControl,
         Vary = string.IsNullOrWhiteSpace(response.Vary) ? null : response.Vary,
     };

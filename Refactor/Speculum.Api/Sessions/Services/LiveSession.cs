@@ -2123,9 +2123,7 @@ internal sealed class LiveSession : ILiveSession
         var descriptor = new SharedAssetShareabilityDescriptor
         {
             RequestHadCookie = asset.RequestHadCookie,
-            // Sidecar out-of-band asset fetches never add an Authorization header today;
-            // there is no signal to read this from yet (reported as a known gap).
-            RequestHadAuthorization = false,
+            RequestHadAuthorization = asset.RequestHadAuthorization,
             CacheControlDirectives = SplitHeaderList(asset.CacheControl),
             VaryValues = [],
             StatusCode = asset.StatusCode,
@@ -2199,13 +2197,15 @@ internal sealed class LiveSession : ILiveSession
         {
             try
             {
-                var (sheetCount, ruleCount, seededSheetCount) = CountCssomSheets(result.Value.SheetsJson);
+                // Binary §5.7.2 resync — sheet/rule counts are not JSON-parsed (PP-WIRE-1).
+                // Report part count in SheetCount so telemetry still has a size signal.
+                var partCount = result.Value.FrameParts.Count;
                 _telemetry.PageProjection.Diff.ResyncServed(
                     result.Value.Generation,
                     result.Value.CoversThroughSequence,
-                    sheetCount,
-                    ruleCount,
-                    seededSheetCount,
+                    partCount,
+                    0,
+                    0,
                     Math.Max(0, Environment.TickCount64 - started),
                     result.Value.PageEpochId,
                     result.Value.Source,
@@ -2301,6 +2301,25 @@ internal sealed class LiveSession : ILiveSession
 
         return await _connection
             .PutDomUploadAsync(uploadId.Trim(), body, contentType, name, ct)
+            .ConfigureAwait(false);
+    }
+
+    public async Task<IResult> ReportPageProjectionClientStateAsync(
+        PageProjectionClientStateReport report,
+        CancellationToken ct = default)
+    {
+        if (_mirrorMode != MirrorMode.PageProjection)
+        {
+            return Result.Failure(SessionMirrorErrors.PageProjectionRequiredMessage);
+        }
+
+        if (IsReleased || !_connection.IsOpen)
+        {
+            return Result.Failure("Live session is released");
+        }
+
+        return await _connection
+            .ReportPageProjectionClientStateAsync(report, ct)
             .ConfigureAwait(false);
     }
 

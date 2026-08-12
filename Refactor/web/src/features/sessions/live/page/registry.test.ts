@@ -101,8 +101,37 @@ describe('PageProjectionRegistry', () => {
     root.appendChild(noise)
 
     const { nodeCount } = registry.buildFromDocument(root)
+    // Checksum counts anchored elements only (noise has no speculum-anchor).
     expect(nodeCount).toBe(1)
     expect(registry.idOf(noise)).toBeUndefined()
+    expect(registry.get(1)).toBe(root)
+  })
+
+  it('buildFromDocument checksum matches sidecar tag-stream FNV (elements only)', () => {
+    const registry = new PageProjectionRegistry()
+    const root = document.createElement('div')
+    root.setAttribute('speculum-anchor', '1')
+    root.appendChild(document.createTextNode('hi'))
+    root.appendChild(document.createComment('c'))
+    const child = document.createElement('span')
+    child.setAttribute('speculum-anchor', '2')
+    root.appendChild(child)
+    const { nodeCount, checksum } = registry.buildFromDocument(root)
+    expect(nodeCount).toBe(2)
+    let hash = 0x811c9dc5
+    let count = 0
+    const add = (tag: string) => {
+      count += 1
+      for (let i = 0; i < tag.length; i++) {
+        hash ^= tag.charCodeAt(i)
+        hash = Math.imul(hash, 0x01000193)
+      }
+      hash ^= count & 0xff
+      hash = Math.imul(hash, 0x01000193)
+    }
+    add('div')
+    add('span')
+    expect(checksum).toBe(hash >>> 0)
   })
 
   it('clear drops every entry', () => {

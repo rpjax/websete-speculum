@@ -4,6 +4,7 @@ import type { EditingState, SessionStatus } from '@/lib/speculum'
 import type { CanvasSize } from './CanvasViewportSync'
 import { loadEnvOrigins, loadProfileId, type SessionOrigins } from './sessionConfig'
 import { useSessionPreStart, type LiveSessionPhase, type LiveSessionViewport } from './sessionPreStart'
+import { createLayoutWaiter } from './layoutWaiter'
 import {
   EMPTY_JOURNAL,
   EMPTY_STATS,
@@ -60,6 +61,8 @@ export function useLiveSession({
     width: viewport.width,
     height: viewport.height,
   })
+  const layoutWaiterRef = useRef(createLayoutWaiter(canvasLayoutRef))
+  const layoutWaiter = layoutWaiterRef.current
   const sessionRef = useRef<import('@/lib/speculum').LiveSession | null>(null)
   const phaseRef = useRef(phase)
   phaseRef.current = phase
@@ -67,7 +70,7 @@ export function useLiveSession({
   sessionIdRef.current = sessionId
 
   const preStart = useSessionPreStart({
-    canvasLayoutRef,
+    layoutWaiter,
     sessionRef,
     phaseRef,
   })
@@ -95,6 +98,7 @@ export function useLiveSession({
     origins,
     viewport,
     canvasLayoutRef,
+    layoutWaiter,
     sessionRef,
     mirrorModeRef: preStart.mirrorModeRef,
     clientConfigLoadRef: preStart.clientConfigLoadRef,

@@ -71,6 +71,9 @@ public sealed class PublicClientConfigProjector : IPublicClientConfigProjector
                 },
                 ScreencastMaxEncodeScale = ClampEncodeScale(
                     engine.Sessions.ScreencastPolicy.MaxEncodeScale),
+                PageProjectionSwapTimeoutMs = Math.Max(0, engine.Sessions.PageProjection.SwapTimeoutMs),
+                PageProjectionClientStateMs = Math.Max(1, engine.Sessions.PageProjection.ClientStateMs),
+                PageProjectionApplyBudgetMs = Math.Max(1, engine.Sessions.PageProjection.ApplyBudgetMs),
             },
             ResourceManagement = new PublicResourceManagementConfig
             {
@@ -139,6 +142,12 @@ public sealed class PublicSessionsConfig
     public string MirrorMode { get; init; } = "videoStreaming";
     public PublicViewportPolicyConfig ViewportPolicy { get; init; } = new();
     public double ScreencastMaxEncodeScale { get; init; } = 2;
+    /// <summary>Sessions.PageProjection.SwapTimeoutMs — SPA double-buffer swap fallback.</summary>
+    public int PageProjectionSwapTimeoutMs { get; init; } = 1500;
+    /// <summary>Sessions.PageProjection.ClientStateMs — client→server control report interval.</summary>
+    public int PageProjectionClientStateMs { get; init; } = 1000;
+    /// <summary>Sessions.PageProjection.ApplyBudgetMs — E9 apply overrun threshold.</summary>
+    public int PageProjectionApplyBudgetMs { get; init; } = 4;
 }
 
 public sealed class PublicViewportPolicyConfig

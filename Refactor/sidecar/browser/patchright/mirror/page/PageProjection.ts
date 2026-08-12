@@ -2,7 +2,7 @@ import { IdentitySpace } from './identity';
 import { createDirtyState, type DirtyState } from './observe';
 import { FrameAccumulator, type FrameOp, type FrameTreeQuery } from './frame';
 import { FrameClock, type FrameClockScheduler } from './clock';
-import { encodeFrame, type EncodedFrameMeta, type WireOp } from './encode';
+import { encodeFrame, type DocumentStateOp, type EncodedFrameMeta, type WireOp } from './encode';
 import { CssomCoalescer } from './cssom';
 import { createEstablishHandoff } from './establish';
 import type { PageToNodeChannel } from './channel';
@@ -34,6 +34,10 @@ export type PageProjectionEngineOptions<TNode extends object = object> = {
   originHost: string;
   frameRateHz?: number;
   maxFrameBytes?: number;
+  hiddenRateHz?: number;
+  rateRecoverMs?: number;
+  frameStallMs?: number;
+  rateLadder?: readonly number[];
 };
 
 export class PageProjectionEngine<TNode extends object = object> {
@@ -46,6 +50,8 @@ export class PageProjectionEngine<TNode extends object = object> {
   private readonly clock: FrameClock;
   private sequence = 0;
   private generation = 1;
+  /** §5.2.6 — set by the caller (`liveAttach.ts`) when title/lang/dir/viewport meta changes; emitted on the next tick alongside whatever else is dirty, then cleared. */
+  private pendingDocumentState: DocumentStateOp | null = null;
 
   constructor(private readonly opts: PageProjectionEngineOptions<TNode>) {
     this.rewriter = new UrlRewriter({ originHost: opts.originHost });
@@ -55,6 +61,10 @@ export class PageProjectionEngine<TNode extends object = object> {
       onTick: () => this.onClockTick(),
       onStall: (info) => opts.events.onClockStalled?.(info),
       frameRateHz: opts.frameRateHz,
+      hiddenRateHz: opts.hiddenRateHz,
+      rateRecoverMs: opts.rateRecoverMs,
+      frameStallMs: opts.frameStallMs,
+      rateLadder: opts.rateLadder,
     });
   }
 
@@ -81,6 +91,11 @@ export class PageProjectionEngine<TNode extends object = object> {
   /** Feed one `observe.ts` `DirtyState` snapshot into the accumulator. */
   ingestDirty(dirty: DirtyState): void {
     this.frame.absorb(dirty);
+  }
+
+  /** §5.2.6 — last-writer-wins; consumed (and cleared) by the next `onClockTick`, independent of DOM/Cssom dirtiness. */
+  noteDocumentState(state: DocumentStateOp): void {
+    this.pendingDocumentState = state;
   }
 
   /** §5.3.5.1 backpressure hook — degrades the rate ladder one step; never desyncs. */
@@ -118,9 +133,11 @@ export class PageProjectionEngine<TNode extends object = object> {
   private onClockTick(): void {
     const domOps = this.frame.flush();
     const cssomOps = this.cssom.isEmpty ? [] : this.cssom.flush();
-    if (domOps === null && cssomOps.length === 0) return; // PP-FR-4 — no ops, no sequence.
+    const documentStateOp = this.pendingDocumentState;
+    this.pendingDocumentState = null;
+    if (domOps === null && cssomOps.length === 0 && documentStateOp === null) return; // PP-FR-4 — no ops, no sequence.
 
-    const ops: WireOp[] = [...(domOps ?? []), ...cssomOps];
+    const ops: WireOp[] = [...(domOps ?? []), ...cssomOps, ...(documentStateOp ? [documentStateOp] : [])];
     this.mirror.applyFrame(domOps ?? []);
     this.sequence += 1;
     const meta: EncodedFrameMeta = { generation: this.generation, sequence: this.sequence };
@@ -132,3 +149,4 @@ export class PageProjectionEngine<TNode extends object = object> {
 
 export type { FrameOp, FrameTreeQuery } from './frame';
 export type { CssomOp } from './cssom';
+export type { DocumentStateOp } from './encode';

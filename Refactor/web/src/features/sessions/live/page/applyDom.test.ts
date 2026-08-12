@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { AssembledFrame, ChildListOp } from './decode'
-import { DomFrameApplier } from './applyDom'
+import type { AssembledFrame, ChildListOp, DocumentStateOp } from './decode'
+import { applyDocumentState, DomFrameApplier } from './applyDom'
 import { PageProjectionRegistry } from './registry'
 
 function frameOf(ops: AssembledFrame['ops'], sequence = 1, generation = 1): AssembledFrame {
@@ -159,5 +159,43 @@ describe('DomFrameApplier — childList FULL (§5.4.2)', () => {
 
     expect(target.getAttribute('data-x')).toBe('1')
     expect(target.textContent).toBe('inner')
+  })
+})
+
+describe('applyDocumentState (§5.2.6)', () => {
+  function freshDoc(): Document {
+    return document.implementation.createHTMLDocument('')
+  }
+
+  it('sets title, lang, dir and creates the viewport meta tag when present', () => {
+    const doc = freshDoc()
+    const op: DocumentStateOp = { op: 'documentState', title: 'Example', lang: 'en', dir: 'ltr', viewportContent: 'width=device-width' }
+    applyDocumentState(doc, op)
+    expect(doc.title).toBe('Example')
+    expect(doc.documentElement.getAttribute('lang')).toBe('en')
+    expect(doc.documentElement.getAttribute('dir')).toBe('ltr')
+    expect(doc.querySelector('meta[name="viewport"]')?.getAttribute('content')).toBe('width=device-width')
+  })
+
+  it('removes lang/dir/viewport meta when null, and updates an existing viewport tag in place', () => {
+    const doc = freshDoc()
+    applyDocumentState(doc, { op: 'documentState', title: 'A', lang: 'en', dir: 'ltr', viewportContent: 'width=device-width' })
+    const metaBefore = doc.querySelector('meta[name="viewport"]')
+
+    applyDocumentState(doc, { op: 'documentState', title: 'B', lang: null, dir: null, viewportContent: 'width=1024' })
+
+    expect(doc.title).toBe('B')
+    expect(doc.documentElement.hasAttribute('lang')).toBe(false)
+    expect(doc.documentElement.hasAttribute('dir')).toBe(false)
+    const metaAfter = doc.querySelector('meta[name="viewport"]')
+    expect(metaAfter).toBe(metaBefore) // same element mutated in place, not remove+recreate.
+    expect(metaAfter?.getAttribute('content')).toBe('width=1024')
+  })
+
+  it('removes the viewport meta tag entirely when viewportContent is null', () => {
+    const doc = freshDoc()
+    applyDocumentState(doc, { op: 'documentState', title: 'A', lang: null, dir: null, viewportContent: 'width=device-width' })
+    applyDocumentState(doc, { op: 'documentState', title: 'A', lang: null, dir: null, viewportContent: null })
+    expect(doc.querySelector('meta[name="viewport"]')).toBeNull()
   })
 })

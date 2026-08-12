@@ -21,7 +21,9 @@ export interface SurfaceBuildHandle {
   readonly document: Document
   /** Feeds one HTML chunk into the standby document's streaming parser (§5.6.4). */
   writeChunk(html: string): void
-  /** `establishEnd` applied — closes the parser and re-checks the swap threshold. */
+  /** Closes the parser without swapping — call before establishEnd checksum verify. */
+  finalizeParser(): void
+  /** `establishEnd` applied — closes the parser (if needed) and re-checks the swap threshold. */
   markEstablishEnd(): void
   /** `cssomInstall` applied on the standby buffer. */
   markCssomReady(): void
@@ -76,15 +78,23 @@ export const SurfaceHost = forwardRef<SurfaceHostHandle, SurfaceHostProps>(funct
       beginBuild: () => {
         const standbySlot = activeSlotRef.current === 'a' ? 'b' : 'a'
         const frame = standbySlot === 'a' ? frameARef.current : frameBRef.current
-        if (!frame?.contentDocument) throw new Error('page-projection: standby iframe not mounted')
-        return buildInto(frame.contentDocument, swapTimeoutMs, () => setActiveSlot(standbySlot), onSwap)
+        if (!frame) throw new Error('page-projection: standby iframe not mounted')
+        // Pass the iframe element — document.open() can replace contentDocument;
+        // always read it fresh from the frame (§5.6 / SurfaceBuildHandle).
+        return buildInto(frame, swapTimeoutMs, () => setActiveSlot(standbySlot), onSwap)
       },
     }),
     [swapTimeoutMs, onSwap],
   )
 
   return (
-    <div className={className} style={{ position: 'relative', width, height, overflow: 'hidden' }} data-pp-surface-host="">
+    <div
+      className={className}
+      style={{ position: 'relative', width, height, overflow: 'hidden' }}
+      data-pp-surface-host=""
+      data-speculum-dom-surface=""
+      data-speculum-armed={activeSlot ? 'true' : 'false'}
+    >
       <iframe
         ref={frameARef}
         title="Projected surface (buffer A)"
@@ -118,12 +128,20 @@ function surfaceFrameStyle(visible: boolean): CSSProperties {
  * paints progressively — the same way the original site would.
  */
 function buildInto(
-  doc: Document,
+  frame: HTMLIFrameElement,
   swapTimeoutMs: number,
   doSwap: () => void,
   onSwap: ((doc: Document) => void) | undefined,
 ): SurfaceBuildHandle {
-  doc.open()
+  const initial = frame.contentDocument
+  if (!initial) throw new Error('page-projection: standby iframe has no contentDocument')
+  initial.open()
+  /** Always resolve through the iframe — `Document.open()` may replace the Document object. */
+  const currentDoc = (): Document => {
+    const doc = frame.contentDocument
+    if (!doc) throw new Error('page-projection: standby iframe lost contentDocument')
+    return doc
+  }
   let cancelled = false
   let swapped = false
   let establishEnded = false
@@ -137,7 +155,11 @@ function buildInto(
 
   function attemptSwap(force: boolean): void {
     if (swapped || cancelled) return
+    const doc = currentDoc()
+    // §5.8.5 — timeout may force swap after establish ends without FMP, but never
+    // promote an empty standby that has not received establishEnd (would arm blank).
     if (!force && !(establishEnded && cssomReady && hasPaintableBody(doc))) return
+    if (force && !establishEnded) return
     swapped = true
     window.clearTimeout(timeoutId)
     doSwap()
@@ -146,19 +168,32 @@ function buildInto(
   }
 
   return {
-    document: doc,
+    get document() {
+      return currentDoc()
+    },
     writeChunk(html: string) {
       if (cancelled || establishEnded) return
-      doc.write(html)
+      currentDoc().write(html)
       attemptSwap(false)
+    },
+    finalizeParser() {
+      if (cancelled || establishEnded) return
+      establishEnded = true
+      try {
+        currentDoc().close()
+      } catch {
+        /* already closed */
+      }
     },
     markEstablishEnd() {
       if (cancelled) return
-      establishEnded = true
-      try {
-        doc.close()
-      } catch {
-        /* already closed */
+      if (!establishEnded) {
+        establishEnded = true
+        try {
+          currentDoc().close()
+        } catch {
+          /* already closed */
+        }
       }
       attemptSwap(false)
     },
@@ -172,7 +207,7 @@ function buildInto(
       cancelled = true
       window.clearTimeout(timeoutId)
       try {
-        doc.close()
+        frame.contentDocument?.close()
       } catch {
         /* already closed */
       }

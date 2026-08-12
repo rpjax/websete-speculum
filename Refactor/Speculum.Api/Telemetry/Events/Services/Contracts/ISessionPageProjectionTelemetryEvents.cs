@@ -8,4 +8,6 @@ public interface ISessionPageProjectionTelemetryEvents
     ISessionPageProjectionVirtualTelemetryEvents Virtual { get; }
     ISessionPageProjectionEstablishTelemetryEvents Establish { get; }
     ISessionPageProjectionAssetTelemetryEvents Asset { get; }
+    ISessionPageProjectionFrameTelemetryEvents Frame { get; }
+    ISessionPageProjectionPoolTelemetryEvents Pool { get; }
 }

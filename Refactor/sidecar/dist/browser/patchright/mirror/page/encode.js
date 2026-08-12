@@ -82,6 +82,7 @@ function opCodeOf(op) {
         case 'establishBegin': return opcodes_1.OpCode.EstablishBegin;
         case 'establishChunk': return opcodes_1.OpCode.EstablishChunk;
         case 'establishEnd': return opcodes_1.OpCode.EstablishEnd;
+        case 'documentState': return opcodes_1.OpCode.DocumentState;
         default: {
             const exhaustive = op;
             throw new Error(`encodeFrame: unknown op ${JSON.stringify(exhaustive)}`);
@@ -134,9 +135,12 @@ function writePatchSnapshot(buf, table, node) {
     buf.writeU32(table.intern(node.value));
 }
 function writeSheet(buf, table, sheet) {
+    // Always write hostId (0 for main) so decodeSheet can read a fixed layout.
     buf.writeU32(sheet.id);
-    if (sheet.scope.kind === 'main')
+    if (sheet.scope.kind === 'main') {
         buf.writeU8(0);
+        buf.writeU32(0);
+    }
     else {
         buf.writeU8(1);
         buf.writeU32(sheet.scope.hostId);
@@ -148,6 +152,15 @@ function writeSheet(buf, table, sheet) {
 function writeRule(buf, table, rule) {
     buf.writeU32(rule.id);
     buf.writeU32(table.intern(rule.cssText));
+}
+/** Presence byte + interned index — `null` (absent) never allocates a string-table slot. */
+function writeNullableString(buf, table, value) {
+    if (value === null) {
+        buf.writeU8(0);
+        return;
+    }
+    buf.writeU8(1);
+    buf.writeU32(table.intern(value));
 }
 function writeOp(buf, table, op) {
     buf.writeU8(opCodeOf(op));
@@ -222,6 +235,12 @@ function writeOp(buf, table, op) {
         case 'establishEnd':
             buf.writeU32(op.nodeCount);
             buf.writeU32(op.checksum);
+            return;
+        case 'documentState':
+            buf.writeU32(table.intern(op.title));
+            writeNullableString(buf, table, op.lang);
+            writeNullableString(buf, table, op.dir);
+            writeNullableString(buf, table, op.viewportContent);
             return;
         default: {
             const exhaustive = op;

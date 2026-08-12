@@ -55,7 +55,7 @@ const DomAssetCache_1 = require("./browser/patchright/mirror/dom/DomAssetCache")
 const page_unit_1 = require("./browser/patchright/mirror/page/page.unit");
 const DomTreeSerializer_1 = require("./browser/patchright/mirror/dom/DomTreeSerializer");
 const srcsetParse_1 = require("./browser/patchright/mirror/dom/srcsetParse");
-const PageProjection_1 = require("./browser/patchright/mirror/dom/PageProjection");
+const parseDataUrl_1 = require("./browser/patchright/mirror/page/parseDataUrl");
 const collectTelemetry_1 = require("./telemetry/collectTelemetry");
 const hostResources_1 = require("./host/hostResources");
 /** Test stand-in for Sessions.ViewportPolicy — production gets this on Launch. */
@@ -1624,13 +1624,13 @@ function testSrcsetParseCloudinary() {
 }
 function testParseDataUrlHardening() {
     const png = 'data:image/png;charset=utf-8;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
-    const ok = (0, PageProjection_1.parseDataUrl)(png);
+    const ok = (0, parseDataUrl_1.parseDataUrl)(png);
     assert_1.default.ok(ok, 'charset before base64 must parse');
     assert_1.default.ok(ok.body.length > 0);
     assert_1.default.ok(ok.contentType.includes('image/png'));
-    assert_1.default.strictEqual((0, PageProjection_1.parseDataUrl)('data:image/png;base64'), null, 'missing comma must fail');
-    assert_1.default.strictEqual((0, PageProjection_1.parseDataUrl)('not-a-data-url'), null);
-    assert_1.default.strictEqual((0, PageProjection_1.parseDataUrl)('data:text/plain,hello')?.body.toString('utf8'), 'hello');
+    assert_1.default.strictEqual((0, parseDataUrl_1.parseDataUrl)('data:image/png;base64'), null, 'missing comma must fail');
+    assert_1.default.strictEqual((0, parseDataUrl_1.parseDataUrl)('not-a-data-url'), null);
+    assert_1.default.strictEqual((0, parseDataUrl_1.parseDataUrl)('data:text/plain,hello')?.body.toString('utf8'), 'hello');
     console.log('[unit] parseDataUrl hardening contract ok');
 }
 /**

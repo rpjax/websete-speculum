@@ -129,6 +129,25 @@ class NodeMirror {
             return '';
         return this.serializeNode(node, rootId);
     }
+    /**
+     * §5.7.2 — preorder tag stream read directly off the already-materialized mirror
+     * (never a fresh page walk), for the OOB resync `establishEnd.nodeCount`/`.checksum`
+     * — the same shape `collectTagsPreorder` derives from a live `FNode` walk in
+     * `runEstablish`, so both paths feed `computeEstablishChecksum` identically.
+     */
+    collectTagsPreorder(rootId = this.rootId, out = []) {
+        if (rootId === null)
+            return out;
+        const node = this.nodes.get(rootId);
+        if (!node)
+            return out;
+        out.push(node.kind === 'element' ? node.tag : node.kind === 'text' ? '#text' : '#comment');
+        if (node.kind === 'element') {
+            for (const childId of node.childIds)
+                this.collectTagsPreorder(childId, out);
+        }
+        return out;
+    }
     serializeNode(node, id) {
         if (node.kind === 'text')
             return escapeHtmlText(node.value ?? '');
@@ -147,6 +166,60 @@ class NodeMirror {
         })
             .join('');
         return `<${node.tag}${anchorAttr}${attrPairs}>${inner}</${node.tag}>`;
+    }
+    /** Approximate UTF-8 payload size of the flat mirror (E7 budget accounting). */
+    estimateBytes() {
+        let bytes = 0;
+        for (const [id, node] of this.nodes) {
+            bytes += 8; // id + kind overhead
+            bytes += node.tag.length * 2;
+            if (node.value)
+                bytes += node.value.length * 2;
+            for (const [k, v] of Object.entries(node.attrs))
+                bytes += (k.length + v.length) * 2;
+            bytes += node.childIds.length * 4;
+            void id;
+        }
+        return bytes;
+    }
+    /**
+     * Trim detached/leaf-heavy subtrees until under `maxBytes`. Returns removed node count.
+     * Prefer dropping comment leaves, then empty text, then deepest element leaves — never silent.
+     */
+    trimToBudget(maxBytes) {
+        let removed = 0;
+        const pass = (predicate) => {
+            if (this.estimateBytes() <= maxBytes)
+                return;
+            for (const [id, node] of [...this.nodes.entries()]) {
+                if (id === this.rootId)
+                    continue;
+                if (!predicate(node))
+                    continue;
+                // Only drop leaves (no children) that are not referenced as sole content of a required shell.
+                if (node.childIds.length > 0)
+                    continue;
+                let referenced = false;
+                for (const parent of this.nodes.values()) {
+                    if (parent.childIds.includes(id)) {
+                        parent.childIds = parent.childIds.filter((c) => c !== id);
+                        referenced = true;
+                        break;
+                    }
+                }
+                if (referenced || !this.nodes.has(id)) {
+                    this.nodes.delete(id);
+                    removed += 1;
+                }
+                if (this.estimateBytes() <= maxBytes)
+                    return;
+            }
+        };
+        pass((n) => n.kind === 'comment');
+        pass((n) => n.kind === 'text' && !(n.value && n.value.trim()));
+        pass((n) => n.kind === 'text');
+        pass((n) => n.kind === 'element' && n.childIds.length === 0);
+        return removed;
     }
 }
 exports.NodeMirror = NodeMirror;

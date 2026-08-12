@@ -21,6 +21,8 @@ var OpCode;
     OpCode[OpCode["CssomSheetList"] = 9] = "CssomSheetList";
     OpCode[OpCode["CssomRuleList"] = 10] = "CssomRuleList";
     OpCode[OpCode["CssomPatch"] = 11] = "CssomPatch";
+    /** §5.2.6 — title/lang/dir/meta[viewport]. Appended out of plane order; never renumber. */
+    OpCode[OpCode["DocumentState"] = 12] = "DocumentState";
 })(OpCode || (exports.OpCode = OpCode = {}));
 const NAMES = {
     [OpCode.EstablishBegin]: 'establishBegin',
@@ -34,12 +36,20 @@ const NAMES = {
     [OpCode.CssomSheetList]: 'cssomSheetList',
     [OpCode.CssomRuleList]: 'cssomRuleList',
     [OpCode.CssomPatch]: 'cssomPatch',
+    [OpCode.DocumentState]: 'documentState',
 };
 function opCodeName(code) {
     return NAMES[code] ?? `unknown(${code})`;
 }
+/** Explicit membership, not a range check — `DocumentState` (12) rides in the `dom` plane despite sorting after the Cssom codes (Q19). */
+const CSSOM_CODES = new Set([
+    OpCode.CssomInstall,
+    OpCode.CssomSheetList,
+    OpCode.CssomRuleList,
+    OpCode.CssomPatch,
+]);
 /** `dom` ops ride in an establish/live frame; `cssom` ops ride in either — never a `plane` header. */
 function opCodePlane(code) {
-    return code >= OpCode.CssomInstall ? 'cssom' : 'dom';
+    return CSSOM_CODES.has(code) ? 'cssom' : 'dom';
 }
 //# sourceMappingURL=opcodes.js.map

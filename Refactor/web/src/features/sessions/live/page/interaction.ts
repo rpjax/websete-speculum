@@ -29,6 +29,10 @@ export interface InteractionOptions {
   onProgrammaticScrollSuppress?: (target: 'viewport' | number) => void
   /** Dom-plane echo filter mirror (§5.9.4) — true suppresses the intent. */
   consumeScrollEcho?: (target: 'viewport' | number, observed: { top: number; left: number }) => boolean
+  /** Required for `setFiles` upload path (§6.9). */
+  sessionId?: string | null
+  token?: string | null
+  assetBaseUrl?: string
 }
 
 const INTERACTIVE =
@@ -319,6 +323,70 @@ export function attachPageProjectionInteraction(
     fire(intent('blur', nodeId, '{}'))
   }
 
+  const INLINE_MAX_BYTES = 256 * 1024
+  const onFileActivate = (event: Event) => {
+    const target = event.target
+    if (!(target instanceof HTMLInputElement) || target.type !== 'file') return
+    event.preventDefault()
+    event.stopPropagation()
+    if (!opts.isArmed()) return
+    const nodeId = registry.idOfNearest(target)
+    if (nodeId == null) return
+    const sid = opts.sessionId
+    const tok = opts.token
+    if (!sid || !tok) return
+
+    const picker = document.createElement('input')
+    picker.type = 'file'
+    picker.multiple = target.multiple
+    if (target.accept) picker.accept = target.accept
+    picker.style.display = 'none'
+    document.body.appendChild(picker)
+    picker.addEventListener('change', () => {
+      void (async () => {
+        const files = Array.from(picker.files ?? [])
+        document.body.removeChild(picker)
+        if (!files.length) return
+        const refs: Array<Record<string, unknown>> = []
+        for (const file of files) {
+          if (file.size <= INLINE_MAX_BYTES) {
+            const buf = new Uint8Array(await file.arrayBuffer())
+            let binary = ''
+            for (let i = 0; i < buf.length; i++) binary += String.fromCharCode(buf[i]!)
+            refs.push({
+              name: file.name,
+              type: file.type,
+              lastModified: file.lastModified,
+              size: file.size,
+              bytesBase64: btoa(binary),
+            })
+          } else {
+            const uploadId = crypto.randomUUID().replace(/-/g, '')
+            const base = (opts.assetBaseUrl ?? '').replace(/\/$/, '') || window.location.origin
+            const url = new URL(`/w7s/api/sessions/${sid}/dom-uploads`, base)
+            url.searchParams.set('uploadId', uploadId)
+            url.searchParams.set('name', file.name)
+            url.searchParams.set('speculum-session-token', tok)
+            await fetch(url.toString(), {
+              method: 'POST',
+              headers: { 'Content-Type': file.type || 'application/octet-stream' },
+              body: file,
+            })
+            refs.push({
+              uploadId,
+              name: file.name,
+              type: file.type,
+              lastModified: file.lastModified,
+              size: file.size,
+            })
+          }
+        }
+        fire(intent('setFiles', nodeId, JSON.stringify({ files: refs })))
+      })()
+    })
+    picker.click()
+  }
+
   surface.addEventListener('pointermove', onPointerMove)
   surface.addEventListener('pointerdown', onPointerDown)
   surface.addEventListener('pointerup', onPointerUp)
@@ -333,6 +401,7 @@ export function attachPageProjectionInteraction(
   surface.addEventListener('scroll', onScroll, true)
   surface.addEventListener('focusin', onFocusIn, true)
   surface.addEventListener('focusout', onFocusOut, true)
+  surface.addEventListener('click', onFileActivate, true)
 
   return () => {
     if (moveRaf) cancelAnimationFrame(moveRaf)
@@ -351,5 +420,6 @@ export function attachPageProjectionInteraction(
     surface.removeEventListener('scroll', onScroll, true)
     surface.removeEventListener('focusin', onFocusIn, true)
     surface.removeEventListener('focusout', onFocusOut, true)
+    surface.removeEventListener('click', onFileActivate, true)
   }
 }

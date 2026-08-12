@@ -16,7 +16,16 @@ export type EstablishChunkOp = { op: 'establishChunk'; bytes: Uint8Array };
 export type EstablishEndOp = { op: 'establishEnd'; nodeCount: number; checksum: number };
 export type EstablishOp = EstablishBeginOp | EstablishChunkOp | EstablishEndOp;
 
-export type WireOp = FrameOp | CssomOp | EstablishOp;
+/** §5.2.6 — carries `<title>`, `documentElement.lang`/`.dir` and `meta[viewport].content`; `null` means absent. */
+export type DocumentStateOp = {
+  op: 'documentState';
+  title: string;
+  lang: string | null;
+  dir: string | null;
+  viewportContent: string | null;
+};
+
+export type WireOp = FrameOp | CssomOp | EstablishOp | DocumentStateOp;
 
 export type EncodedFrameMeta = {
   generation: number;
@@ -111,6 +120,7 @@ function opCodeOf(op: WireOp): OpCode {
     case 'establishBegin': return OpCode.EstablishBegin;
     case 'establishChunk': return OpCode.EstablishChunk;
     case 'establishEnd': return OpCode.EstablishEnd;
+    case 'documentState': return OpCode.DocumentState;
     default: {
       const exhaustive: never = op;
       throw new Error(`encodeFrame: unknown op ${JSON.stringify(exhaustive)}`);
@@ -166,9 +176,15 @@ function writePatchSnapshot(buf: GrowableBuffer, table: StringTable, node: FNode
 }
 
 function writeSheet(buf: GrowableBuffer, table: StringTable, sheet: CssomSheetDescriptor): void {
+  // Always write hostId (0 for main) so decodeSheet can read a fixed layout.
   buf.writeU32(sheet.id);
-  if (sheet.scope.kind === 'main') buf.writeU8(0);
-  else { buf.writeU8(1); buf.writeU32(sheet.scope.hostId); }
+  if (sheet.scope.kind === 'main') {
+    buf.writeU8(0);
+    buf.writeU32(0);
+  } else {
+    buf.writeU8(1);
+    buf.writeU32(sheet.scope.hostId);
+  }
   buf.writeU32(sheet.rules.length);
   for (const rule of sheet.rules) writeRule(buf, table, rule);
 }
@@ -176,6 +192,16 @@ function writeSheet(buf: GrowableBuffer, table: StringTable, sheet: CssomSheetDe
 function writeRule(buf: GrowableBuffer, table: StringTable, rule: CssomRuleDescriptor): void {
   buf.writeU32(rule.id);
   buf.writeU32(table.intern(rule.cssText));
+}
+
+/** Presence byte + interned index — `null` (absent) never allocates a string-table slot. */
+function writeNullableString(buf: GrowableBuffer, table: StringTable, value: string | null): void {
+  if (value === null) {
+    buf.writeU8(0);
+    return;
+  }
+  buf.writeU8(1);
+  buf.writeU32(table.intern(value));
 }
 
 function writeOp(buf: GrowableBuffer, table: StringTable, op: WireOp): void {
@@ -241,6 +267,12 @@ function writeOp(buf: GrowableBuffer, table: StringTable, op: WireOp): void {
     case 'establishEnd':
       buf.writeU32(op.nodeCount);
       buf.writeU32(op.checksum);
+      return;
+    case 'documentState':
+      buf.writeU32(table.intern(op.title));
+      writeNullableString(buf, table, op.lang);
+      writeNullableString(buf, table, op.dir);
+      writeNullableString(buf, table, op.viewportContent);
       return;
     default: {
       const exhaustive: never = op;

@@ -171,6 +171,73 @@ describe('decodeFramePart', () => {
     if (result.ok) return
     expect(result.reason).toBe('malformed')
   })
+
+  it('decodes cssomInstall main+pierceHost with fixed hostId layout (W0)', () => {
+    const bytes = buildFrame({
+      generation: 1,
+      sequence: 1,
+      strings: ['body{margin:0}', '.x{color:red}'],
+      ops: [
+        {
+          code: PageProjectionOp.cssomInstall,
+          write: (w) => {
+            w.u32(2) // sheet count
+            // main sheet — hostId always present (0)
+            w.u32(1)
+            w.u8(0)
+            w.u32(0)
+            w.u32(1) // rules
+            w.u32(10)
+            w.u32(0) // cssText idx
+            // pierceHost
+            w.u32(2)
+            w.u8(1)
+            w.u32(99)
+            w.u32(1)
+            w.u32(11)
+            w.u32(1)
+          },
+        },
+      ],
+    })
+    const result = decodeFramePart(bytes)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.part.ops).toEqual([
+      {
+        op: 'cssomInstall',
+        sheets: [
+          { id: 1, scope: 'main', hostAnchor: null, rules: [{ id: 10, cssText: 'body{margin:0}' }] },
+          { id: 2, scope: 'pierceHost', hostAnchor: 99, rules: [{ id: 11, cssText: '.x{color:red}' }] },
+        ],
+      },
+    ])
+  })
+
+  it('decodes documentState with a present lang and absent dir/viewportContent (§5.2.6)', () => {
+    const bytes = buildFrame({
+      generation: 1,
+      sequence: 3,
+      strings: ['Example', 'en'],
+      ops: [
+        {
+          code: PageProjectionOp.documentState,
+          write: (w) => {
+            w.u32(0) // title -> 'Example'
+            w.u8(1).u32(1) // lang present -> 'en'
+            w.u8(0) // dir absent
+            w.u8(0) // viewportContent absent
+          },
+        },
+      ],
+    })
+    const result = decodeFramePart(bytes)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.part.ops).toEqual([
+      { op: 'documentState', title: 'Example', lang: 'en', dir: null, viewportContent: null },
+    ])
+  })
 })
 
 describe('FramePartAssembler', () => {

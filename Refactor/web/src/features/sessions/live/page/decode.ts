@@ -44,11 +44,14 @@ export interface CssomInstallOp { op: 'cssomInstall'; sheets: CssomSheetWire[] }
 export interface CssomSheetListOp { op: 'cssomSheetList'; removed: number[]; added: Array<{ index: number; sheet: CssomSheetWire }> }
 export interface CssomRuleListOp { op: 'cssomRuleList'; sheet: number; removed: number[]; added: Array<{ index: number; rule: CssomRuleWire }> }
 export interface CssomPatchOp { op: 'cssomPatch'; rule: number; cssText: string }
+/** §5.2.6 — `<title>`, `documentElement.lang`/`.dir` and `meta[viewport].content`; `null` means absent. */
+export interface DocumentStateOp { op: 'documentState'; title: string; lang: string | null; dir: string | null; viewportContent: string | null }
 
 export type DecodedOp =
   | EstablishBeginOp | EstablishChunkOp | EstablishEndOp
   | ChildListOp | PatchOp | ScrollViewportOp | ScrollElementOp
   | CssomInstallOp | CssomSheetListOp | CssomRuleListOp | CssomPatchOp
+  | DocumentStateOp
 
 export interface DecodedFramePart { version: number; establish: boolean; resync: boolean; generation: number; sequence: number; partIndex: number; partCount: number; ops: DecodedOp[] }
 /** One or more parts assembled into the atomic unit the client applies (§5.5.3). */
@@ -72,6 +75,7 @@ class ByteReader {
   u8(): number { const v = this.view.getUint8(this.offset); this.offset += 1; return v }
   u16(): number { const v = this.view.getUint16(this.offset, true); this.offset += 2; return v }
   u32(): number { const v = this.view.getUint32(this.offset, true); this.offset += 4; return v }
+  i32(): number { const v = this.view.getInt32(this.offset, true); this.offset += 4; return v }
   bytes_(len: number): Uint8Array { const v = this.bytes.subarray(this.offset, this.offset + len); this.offset += len; return v }
   utf8(len: number): string { return textDecoder.decode(this.bytes_(len)) }
 }
@@ -134,11 +138,11 @@ function decodeOp(opCode: number, r: ByteReader, strings: string[]): DecodedOp |
       const generation = r.u32()
       const viewportWidth = r.u32()
       const viewportHeight = r.u32()
-      const scrollX = r.u32()
-      const scrollY = r.u32()
+      const scrollX = r.i32()
+      const scrollY = r.i32()
       const count = r.u32()
       const scrollElements: ScrollElementRef[] = new Array(count)
-      for (let i = 0; i < count; i++) scrollElements[i] = { id: r.u32(), scrollTop: r.u32(), scrollLeft: r.u32() }
+      for (let i = 0; i < count; i++) scrollElements[i] = { id: r.u32(), scrollTop: r.i32(), scrollLeft: r.i32() }
       return { op: 'establishBegin', generation, viewportWidth, viewportHeight, scrollX, scrollY, scrollElements }
     }
     case PageProjectionOp.establishChunk:
@@ -161,9 +165,9 @@ function decodeOp(opCode: number, r: ByteReader, strings: string[]): DecodedOp |
     case PageProjectionOp.patch:
       return { op: 'patch', node: r.u32(), snapshot: decodePatchSnapshot(r, strings) }
     case PageProjectionOp.scrollViewport:
-      return { op: 'scrollViewport', scrollX: r.u32(), scrollY: r.u32() }
+      return { op: 'scrollViewport', scrollX: r.i32(), scrollY: r.i32() }
     case PageProjectionOp.scrollElement:
-      return { op: 'scrollElement', node: r.u32(), scrollTop: r.u32(), scrollLeft: r.u32() }
+      return { op: 'scrollElement', node: r.u32(), scrollTop: r.i32(), scrollLeft: r.i32() }
     case PageProjectionOp.cssomInstall:
       return { op: 'cssomInstall', sheets: decodeList(r, strings, decodeSheet) }
     case PageProjectionOp.cssomSheetList:
@@ -174,9 +178,21 @@ function decodeOp(opCode: number, r: ByteReader, strings: string[]): DecodedOp |
     }
     case PageProjectionOp.cssomPatch:
       return { op: 'cssomPatch', rule: r.u32(), cssText: strings[r.u32()] ?? '' }
+    case PageProjectionOp.documentState: {
+      const title = strings[r.u32()] ?? ''
+      const lang = decodeNullableString(r, strings)
+      const dir = decodeNullableString(r, strings)
+      const viewportContent = decodeNullableString(r, strings)
+      return { op: 'documentState', title, lang, dir, viewportContent }
+    }
     default:
       return null
   }
+}
+
+/** Presence byte + interned index — mirrors `encode.ts`'s `writeNullableString`. */
+function decodeNullableString(r: ByteReader, strings: string[]): string | null {
+  return r.u8() === 0 ? null : strings[r.u32()] ?? ''
 }
 
 function decodeNode(r: ByteReader, strings: string[]): DecodedNode {

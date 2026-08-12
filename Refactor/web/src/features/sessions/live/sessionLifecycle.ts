@@ -35,7 +35,7 @@ import {
 import { resolveDataStreamForPage } from './resolveDataStream'
 import { applySyncedBrowserUrl } from './sessionUrlSync'
 import { detectClientEnvironment } from './detectClientEnvironment'
-import { waitForCanvasLayout } from './sessionPreStart'
+import type { LayoutWaiter } from './layoutWaiter'
 import type { FrameCounters } from './sessionObservation'
 import type {
   FrontDebugLogFields,
@@ -47,6 +47,7 @@ export interface UseSessionLifecycleOptions {
   origins: SessionOrigins
   viewport: LiveSessionViewport
   canvasLayoutRef: React.MutableRefObject<CanvasSize>
+  layoutWaiter: LayoutWaiter
   sessionRef: React.MutableRefObject<LiveSession | null>
   mirrorModeRef: React.MutableRefObject<import('@/lib/speculum').MirrorMode>
   clientConfigLoadRef: React.MutableRefObject<Promise<ClientConfig | null> | null>
@@ -93,6 +94,7 @@ export function useSessionLifecycle({
   origins,
   viewport,
   canvasLayoutRef,
+  layoutWaiter,
   sessionRef,
   mirrorModeRef,
   clientConfigLoadRef,
@@ -298,8 +300,11 @@ export function useSessionLifecycle({
           requireOperationalSessionsConfig(config)
         }
         const configuredMirrorMode = mirrorModeRef.current
-        // Wait for a layout report from the definitive surface — fail closed if absent.
-        const layout = await waitForCanvasLayout(canvasLayoutRef)
+        // Let React commit the definitive mirror surface after any mode swap, then wait for layout.
+        await new Promise<void>((resolve) => {
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+        })
+        const layout = await layoutWaiter.wait(3000)
         if (!layout) {
           setPhase('error')
           log('error', 'mirror surface has no layout — refusing StartSession')
@@ -385,6 +390,7 @@ export function useSessionLifecycle({
     [
       bind,
       canvasLayoutRef,
+      layoutWaiter,
       client,
       clientConfigLoadRef,
       connect,
@@ -563,10 +569,8 @@ export function useSessionLifecycle({
   )
 
   const onCanvasLayout = useCallback((size: CanvasSize) => {
-    if (size.width > 0 && size.height > 0) {
-      canvasLayoutRef.current = size
-    }
-  }, [canvasLayoutRef])
+    layoutWaiter.report(size)
+  }, [layoutWaiter])
 
   const onRemoteViewportApplied = useCallback((size: CanvasSize) => {
     setRemoteViewport({ width: size.width, height: size.height })

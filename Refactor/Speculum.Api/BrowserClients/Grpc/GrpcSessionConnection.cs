@@ -580,12 +580,17 @@ public sealed class GrpcSessionConnection : ISessionConnection
                         Sequence = sequence,
                     },
                     cancellationToken: token).ResponseAsync);
+            var parts = new List<byte[]>(response.FrameParts.Count);
+            foreach (var part in response.FrameParts)
+            {
+                parts.Add(part.ToByteArray());
+            }
+
             return Result<PageProjectionResyncSnapshot>.Success(new PageProjectionResyncSnapshot
             {
                 Generation = response.Generation,
                 CoversThroughSequence = response.CoversThroughSequence,
-                RootJson = response.RootJson.ToByteArray(),
-                SheetsJson = response.SheetsJson.ToByteArray(),
+                FrameParts = parts,
                 PageEpochId = response.HasPageEpochId ? response.PageEpochId : null,
                 Source = response.HasSource ? response.Source : null,
                 DomMapMs = response.DomMapMs,
@@ -621,6 +626,29 @@ public sealed class GrpcSessionConnection : ISessionConnection
                             ? "application/octet-stream"
                             : contentType,
                         Name = string.IsNullOrWhiteSpace(name) ? "file" : name,
+                    },
+                    cancellationToken: token).ResponseAsync);
+            return Result.Success();
+        });
+    }
+
+    public async Task<IResult> ReportPageProjectionClientStateAsync(
+        PageProjectionClientStateReport report,
+        CancellationToken ct = default)
+    {
+        return await CallAsync(async () =>
+        {
+            await WithLinkedAsync(ct, token =>
+                _client.ReportPageProjectionClientStateAsync(
+                    new PageProjectionClientStateRequest
+                    {
+                        SessionId = SessionId.ToString("D"),
+                        Visibility = report.Visibility,
+                        AppliedThroughSequence = report.AppliedThroughSequence,
+                        QueuedFrames = report.QueuedFrames,
+                        ApplyP50Ms = report.ApplyP50Ms,
+                        ApplyP95Ms = report.ApplyP95Ms,
+                        OverrunCount = report.OverrunCount,
                     },
                     cancellationToken: token).ResponseAsync);
             return Result.Success();

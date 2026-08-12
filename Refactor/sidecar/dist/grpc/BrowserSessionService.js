@@ -389,6 +389,23 @@ function createBrowserSessionHandlers(registry) {
                 }
             });
         },
+        reportPageProjectionClientState(call, callback) {
+            try {
+                const { session } = registry.get((0, validate_1.requireSessionId)(call.request));
+                session.reportPageProjectionClientState?.({
+                    visibility: String(call.request.visibility ?? '') === 'hidden' ? 'hidden' : 'visible',
+                    appliedThroughSequence: Number(call.request.appliedThroughSequence ?? call.request.applied_through_sequence ?? 0) || 0,
+                    queuedFrames: Number(call.request.queuedFrames ?? call.request.queued_frames ?? 0) || 0,
+                    applyP50Ms: Number(call.request.applyP50Ms ?? call.request.apply_p50_ms ?? 0) || 0,
+                    applyP95Ms: Number(call.request.applyP95Ms ?? call.request.apply_p95_ms ?? 0) || 0,
+                    overrunCount: Number(call.request.overrunCount ?? call.request.overrun_count ?? 0) || 0,
+                });
+                callback(null, {});
+            }
+            catch (err) {
+                callback(grpcError(err), null);
+            }
+        },
         async getDomAsset(call, callback) {
             try {
                 const { session } = registry.get((0, validate_1.requireSessionId)(call.request));
@@ -426,6 +443,7 @@ function createBrowserSessionHandlers(registry) {
                     // §5.12.2.1 — only populated for a fresh, non-pass-through "asset" fetch; the
                     // API's SharedAssetCacheL2 predicate treats absent/false as never-shareable.
                     requestHadCookie: !!hit.requestHadCookie,
+                    requestHadAuthorization: !!hit.requestHadAuthorization,
                     cacheControl: hit.cacheControl ?? '',
                     vary: hit.vary ?? '',
                 });
@@ -458,8 +476,7 @@ function createBrowserSessionHandlers(registry) {
                 callback(null, {
                     generation: snap.generation,
                     coversThroughSequence: snap.coversThroughSequence,
-                    rootJson: snap.rootJson,
-                    sheetsJson: snap.sheetsJson,
+                    frameParts: (snap.frameParts ?? []).map((p) => Buffer.isBuffer(p) ? p : Buffer.from(p)),
                     pageEpochId: snap.pageEpochId,
                     source: snap.source,
                     domMapMs: snap.domMapMs,

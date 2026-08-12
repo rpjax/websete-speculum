@@ -10,7 +10,8 @@
     "oracle:o1-fixture": "node bin/run-o1-fixture.cjs",
     "oracle:o2-fixture": "node bin/run-o2-fixture.cjs",
     "oracle:o5-fixture": "node bin/run-o5-fixture.cjs",
-    "oracle:density-baseline": "node bin/run-o4-density-baseline.cjs"
+    "oracle:density-baseline": "node bin/run-o4-density-baseline.cjs",
+    "oracle:live": "node bin/live-runner.cjs"
   },
   "engines": {
     "node": ">=20"

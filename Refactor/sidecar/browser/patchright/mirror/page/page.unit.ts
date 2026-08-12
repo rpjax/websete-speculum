@@ -18,7 +18,7 @@ import {
 import { FrameAccumulator, type ChildRef, type FrameOp, type FrameTreeQuery } from './frame';
 import { FrameClock, RATE_LADDER, type FrameClockScheduler } from './clock';
 import { encodeFrame, DEFAULT_MAX_FRAME_BYTES, type WireOp } from './encode';
-import { OpCode } from './opcodes';
+import { OpCode, opCodePlane } from './opcodes';
 import {
   EstablishChecksum,
   computeEstablishChecksum,
@@ -35,6 +35,8 @@ import { pushChunked, pushFrameParts, createBindingChannel } from './channel';
 import { NodeMirror, MirrorDesyncError } from './node/mirror';
 import { UrlRewriter } from './node/rewrite';
 import { EventBridge } from '../../../../host/EventBridge';
+import { runCdpPierceUnit } from './cdpPierce.unit';
+import { AssetPriorityQueue } from './assetPriority';
 
 // ------------------------------------------------------------ identity.ts
 
@@ -417,6 +419,124 @@ function testEncodeFrameEstablishOpsSetEstablishFlag(): void {
   console.log('[unit] page/encode establish ops set establish flag ok');
 }
 
+/** W0 — main-scope sheets must write hostId=0 so the client decoder stays aligned. */
+function testEncodeCssomInstallMainAndPierceHostLayout(): void {
+  const ops: WireOp[] = [
+    {
+      op: 'cssomInstall',
+      sheets: [
+        { id: 1, scope: { kind: 'main' }, rules: [{ id: 10, cssText: 'body{margin:0}' }] },
+        { id: 2, scope: { kind: 'pierceHost', hostId: 99 }, rules: [{ id: 11, cssText: '.x{color:red}' }] },
+      ],
+    },
+  ];
+  const parts = encodeFrame(ops, { generation: 1, sequence: 1 });
+  assert.strictEqual(parts.length, 1);
+  const body = parts[0]!;
+  const view = new DataView(body.buffer, body.byteOffset, body.byteLength);
+  // Skip header (HEADER_BYTES) + string table — locate first op after string table.
+  let o = 2 + 1 + 1 + 4 + 4 + 2 + 2; // magic..partCount
+  const strCount = view.getUint32(o, true);
+  o += 4;
+  for (let i = 0; i < strCount; i++) {
+    const len = view.getUint32(o, true);
+    o += 4 + len;
+  }
+  const opCount = view.getUint32(o, true);
+  o += 4;
+  assert.strictEqual(opCount, 1);
+  assert.strictEqual(view.getUint8(o), OpCode.CssomInstall);
+  o += 1;
+  const sheetCount = view.getUint32(o, true);
+  o += 4;
+  assert.strictEqual(sheetCount, 2);
+  // Sheet 1 (main): id, scopeByte=0, hostId=0, ruleCount
+  assert.strictEqual(view.getUint32(o, true), 1);
+  o += 4;
+  assert.strictEqual(view.getUint8(o), 0);
+  o += 1;
+  assert.strictEqual(view.getUint32(o, true), 0, 'main scope always writes hostId=0');
+  o += 4;
+  const ruleCount1 = view.getUint32(o, true);
+  o += 4;
+  assert.strictEqual(ruleCount1, 1);
+  o += 4; // rule id
+  o += 4; // cssText string idx
+  // Sheet 2 (pierceHost): id, scopeByte=1, hostId=99
+  assert.strictEqual(view.getUint32(o, true), 2);
+  o += 4;
+  assert.strictEqual(view.getUint8(o), 1);
+  o += 1;
+  assert.strictEqual(view.getUint32(o, true), 99);
+  console.log('[unit] page/encode cssomInstall main+pierceHost layout ok');
+}
+
+/** W2 — `runEstablish` must emit `cssomInstall` before `establishBegin` so the client's stylesheet set exists pre-parse (D-FLASH). */
+function testEstablishFrameCssomInstallFirst(): void {
+  const ops: WireOp[] = [
+    { op: 'cssomInstall', sheets: [] },
+    { op: 'establishBegin', payload: buildEstablishBegin(1, { width: 800, height: 600 }, { x: 0, y: 0 }) },
+    { op: 'establishChunk', bytes: Buffer.from('<html></html>', 'utf8') },
+    { op: 'establishEnd', nodeCount: 1, checksum: 1 },
+  ];
+  const parts = encodeFrame(ops, { generation: 1, sequence: 0, establish: true });
+  assert.strictEqual(parts.length, 1);
+  const header = readWireHeader(parts[0]!);
+  assert.strictEqual(header.opCount, 4);
+  assert.strictEqual(header.firstOpCode, OpCode.CssomInstall, 'cssomInstall must ride first in the establish-shaped frame');
+  console.log('[unit] page/encode establish frame cssomInstall-first ok');
+}
+
+/** §5.2.6 — `documentState` wire shape: interned title, then a presence byte + interned index per nullable field. */
+function testEncodeDocumentStateOp(): void {
+  const ops: WireOp[] = [
+    { op: 'documentState', title: 'Example', lang: 'en', dir: null, viewportContent: 'width=device-width' },
+  ];
+  const parts = encodeFrame(ops, { generation: 1, sequence: 1 });
+  assert.strictEqual(parts.length, 1);
+  const body = parts[0]!;
+  const view = new DataView(body.buffer, body.byteOffset, body.byteLength);
+  let o = 2 + 1 + 1 + 4 + 4 + 2 + 2; // magic..partCount
+  const strCount = view.getUint32(o, true);
+  o += 4;
+  const strings: string[] = [];
+  for (let i = 0; i < strCount; i++) {
+    const len = view.getUint32(o, true);
+    o += 4;
+    strings.push(Buffer.from(body.subarray(o, o + len)).toString('utf8'));
+    o += len;
+  }
+  const opCount = view.getUint32(o, true);
+  o += 4;
+  assert.strictEqual(opCount, 1);
+  assert.strictEqual(view.getUint8(o), OpCode.DocumentState);
+  o += 1;
+  const titleIdx = view.getUint32(o, true);
+  o += 4;
+  assert.strictEqual(strings[titleIdx], 'Example');
+  assert.strictEqual(view.getUint8(o), 1, 'lang is present');
+  o += 1;
+  const langIdx = view.getUint32(o, true);
+  o += 4;
+  assert.strictEqual(strings[langIdx], 'en');
+  assert.strictEqual(view.getUint8(o), 0, 'dir is absent — presence byte 0, no string-table slot consumed');
+  o += 1;
+  assert.strictEqual(view.getUint8(o), 1, 'viewportContent is present');
+  o += 1;
+  const viewportIdx = view.getUint32(o, true);
+  o += 4;
+  assert.strictEqual(strings[viewportIdx], 'width=device-width');
+  console.log('[unit] page/encode documentState op ok');
+}
+
+/** DocumentState (12) sorts numerically after the Cssom codes but must still ride the `dom` plane (Q19). */
+function testOpCodePlaneDocumentStateRidesDom(): void {
+  assert.strictEqual(opCodePlane(OpCode.DocumentState), 'dom');
+  assert.strictEqual(opCodePlane(OpCode.CssomPatch), 'cssom');
+  assert.strictEqual(opCodePlane(OpCode.ChildList), 'dom');
+  console.log('[unit] page/opcodes documentState rides dom plane ok');
+}
+
 /** Live cutover (Phase C1) — EventBridge/DropOldestQueue must relay an opaque §5.5 part unmodified. */
 function testEventBridgeAcceptsBinaryShapedDiff(): void {
   const bridge = new EventBridge('s-page-projection-v2-unit');
@@ -633,6 +753,10 @@ export async function runPageProjectionUnitTests(): Promise<void> {
   testEncodeFrameHeaderAndPatch();
   testEncodeFramePartSplitting();
   testEncodeFrameEstablishOpsSetEstablishFlag();
+  testEncodeCssomInstallMainAndPierceHostLayout();
+  testEstablishFrameCssomInstallFirst();
+  testEncodeDocumentStateOp();
+  testOpCodePlaneDocumentStateRidesDom();
   testEventBridgeAcceptsBinaryShapedDiff();
   testEstablishChecksumDeterministic();
   testEstablishHandoff();
@@ -643,5 +767,17 @@ export async function runPageProjectionUnitTests(): Promise<void> {
   testNodeMirrorDesyncOnMissingId();
   testUrlRewriterBasicsAndMemoIsolation();
   testOpCodesAreStableAndUnique();
+  runCdpPierceUnit();
+  testAssetPriorityQueueOrdersCssAndViewport();
   console.log('[unit] page/* PageProjection producer modules all passed');
+}
+
+function testAssetPriorityQueueOrdersCssAndViewport(): void {
+  const q = new AssetPriorityQueue(200);
+  q.enqueue({ key: 'far', sourceUrl: 'https://x/far', distancePx: 2000, isCss: false });
+  q.enqueue({ key: 'near', sourceUrl: 'https://x/near', distancePx: 10, isCss: false });
+  q.enqueue({ key: 'css', sourceUrl: 'https://x/a.css', distancePx: 5000, isCss: true });
+  assert.equal(q.takeNext()?.key, 'css');
+  assert.equal(q.takeNext()?.key, 'near');
+  assert.equal(q.takeNext()?.key, 'far');
 }

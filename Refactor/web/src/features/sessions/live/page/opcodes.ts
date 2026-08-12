@@ -17,6 +17,8 @@ export const PageProjectionOp = {
   cssomSheetList: 9,
   cssomRuleList: 10,
   cssomPatch: 11,
+  /** §5.2.6 — title/lang/dir/meta[viewport]. Rides in the `dom` plane despite sorting after the Cssom codes. */
+  documentState: 12,
 } as const
 
 export type PageProjectionOpCode = (typeof PageProjectionOp)[keyof typeof PageProjectionOp]

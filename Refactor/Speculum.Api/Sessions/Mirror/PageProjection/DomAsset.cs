@@ -16,6 +16,9 @@ public sealed class DomAsset
     /// <summary>§5.12.2.1 shareability input — the origin request carried a <c>Cookie</c> header.</summary>
     public bool RequestHadCookie { get; init; }
 
+    /// <summary>§5.12.2.1 — the origin request carried an <c>Authorization</c> header.</summary>
+    public bool RequestHadAuthorization { get; init; }
+
     /// <summary>Raw <c>Cache-Control</c> response header value (comma-joined directives), or null when absent.</summary>
     public string? CacheControl { get; init; }
 

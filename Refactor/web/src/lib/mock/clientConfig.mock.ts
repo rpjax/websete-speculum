@@ -20,6 +20,9 @@ const mockConfig: ClientConfig = {
       defaultHeight: 720,
     },
     screencastMaxEncodeScale: 2,
+    pageProjectionSwapTimeoutMs: 1500,
+    pageProjectionClientStateMs: 1000,
+    pageProjectionApplyBudgetMs: 4,
   },
   resourceManagement: { maxConcurrentSessions: 8 },
   telemetry: {

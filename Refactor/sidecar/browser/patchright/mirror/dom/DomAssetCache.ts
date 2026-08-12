@@ -12,6 +12,8 @@ const DEFAULT_MAX_ENTRIES = 512;
 export type DomAssetShareability = {
   /** The outgoing request would have carried a `Cookie` header for this URL. */
   requestHadCookie: boolean;
+  /** The original in-page fetch carried an `Authorization` header (Network). */
+  requestHadAuthorization?: boolean;
   /** Raw `Cache-Control` response header value, if present. */
   cacheControl?: string;
   /** Raw `Vary` response header value, if present. */

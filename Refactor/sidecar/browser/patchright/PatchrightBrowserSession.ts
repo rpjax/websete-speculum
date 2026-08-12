@@ -208,6 +208,21 @@ export class PatchrightBrowserSession implements BrowserSession {
         : null;
 
       if (pooled) {
+        const waitMs = 0;
+        this.events.onPageProjectionParity?.('parity_session_pool_acquired', {
+          maxWidth: maxW,
+          maxHeight: maxH,
+          poolSize: options.browserPoolSize ?? 0,
+          waitMs,
+        });
+        const acquiredAt = Date.now();
+        const priorRelease = pooled.release.bind(pooled);
+        pooled.release = async () => {
+          this.events.onPageProjectionParity?.('parity_session_pool_released', {
+            heldMs: Date.now() - acquiredAt,
+          });
+          await priorRelease();
+        };
         await this.adoptPooledBrowser(pooled, options, { maxW, maxH, width, height });
       } else {
         // Capacity only — logical client size applied via Chrome window + metrics.
@@ -300,6 +315,15 @@ export class PatchrightBrowserSession implements BrowserSession {
             browserLaunchedAtMs: this.browserLaunchedAtMs,
             frameRateHz: options.frameRateHz,
             maxFrameBytes: options.maxFrameBytes,
+            establishChunkBytes: options.establishChunkBytes,
+            hiddenRateHz: options.hiddenRateHz,
+            rateRecoverMs: options.rateRecoverMs,
+            frameStallMs: options.frameStallMs,
+            rateLadder: options.frameRateLadder,
+            mirrorMaxBytes: options.mirrorMaxBytes,
+            assetCacheL1MaxBytes: options.assetCacheL1MaxBytes,
+            assetPriorityViewportPx: options.assetPriorityViewportPx,
+            aggregateIntervalMs: options.aggregateIntervalMs,
           },
         );
         if (this.events instanceof EventBridge) {
@@ -403,19 +427,47 @@ export class PatchrightBrowserSession implements BrowserSession {
     });
 
     const { cdp, context } = this.chrome;
-    await cdp.send('Emulation.setLocaleOverride', { locale: options.locale });
-    await cdp.send('Emulation.setTimezoneOverride', { timezoneId: options.timeZoneId });
+    // Pool launch may already have stamped locale/timezone (generic en-US/UTC). Clear
+    // before re-applying the session's values — CDP rejects a second override otherwise.
+    try {
+      await cdp.send('Emulation.setLocaleOverride', { locale: '' });
+    } catch {
+      /* already clear / unsupported */
+    }
+    try {
+      await cdp.send('Emulation.setLocaleOverride', { locale: options.locale });
+    } catch {
+      /* Accept-Language header below still carries language */
+    }
+    try {
+      await cdp.send('Emulation.setTimezoneOverride', { timezoneId: '' });
+    } catch {
+      /* already clear */
+    }
+    try {
+      await cdp.send('Emulation.setTimezoneOverride', { timezoneId: options.timeZoneId });
+    } catch {
+      /* keep pool default if CDP still blocks */
+    }
     if (options.colorScheme === 'light' || options.colorScheme === 'dark') {
-      await cdp.send('Emulation.setEmulatedMedia', {
-        features: [{ name: 'prefers-color-scheme', value: options.colorScheme }],
-      });
+      try {
+        await cdp.send('Emulation.setEmulatedMedia', {
+          features: [{ name: 'prefers-color-scheme', value: options.colorScheme }],
+        });
+      } catch {
+        /* optional */
+      }
     }
     if (options.geolocation) {
-      await cdp.send('Emulation.setGeolocationOverride', {
-        latitude: options.geolocation.latitude,
-        longitude: options.geolocation.longitude,
-        accuracy: options.geolocation.accuracy,
-      });
+      try {
+        await cdp.send('Emulation.setGeolocationOverride', {
+          latitude: options.geolocation.latitude,
+          longitude: options.geolocation.longitude,
+          accuracy: options.geolocation.accuracy,
+        });
+      } catch {
+        /* optional */
+      }
     }
     await context.setExtraHTTPHeaders({ 'Accept-Language': options.language });
   }
@@ -1002,6 +1054,18 @@ export class PatchrightBrowserSession implements BrowserSession {
     return await this.domElementInput.dispatch(input);
   }
 
+  reportPageProjectionClientState(state: {
+    visibility: 'visible' | 'hidden';
+    appliedThroughSequence: number;
+    queuedFrames: number;
+    applyP50Ms: number;
+    applyP95Ms: number;
+    overrunCount: number;
+  }): void {
+    if (this.mirrorMode !== 'pageProjection' || !this.pageProjection) return;
+    this.pageProjection.reportClientState(state);
+  }
+
   async getDomAsset(
     key: string,
     opts?: { kind?: string; rangeHeader?: string },
@@ -1012,6 +1076,7 @@ export class PatchrightBrowserSession implements BrowserSession {
     contentRange?: string;
     passThrough?: boolean;
     requestHadCookie?: boolean;
+    requestHadAuthorization?: boolean;
     cacheControl?: string;
     vary?: string;
   } | null> {
@@ -1070,8 +1135,7 @@ export class PatchrightBrowserSession implements BrowserSession {
   }): Promise<{
     generation: number;
     coversThroughSequence: number;
-    rootJson: Uint8Array;
-    sheetsJson: Uint8Array;
+    frameParts: Uint8Array[];
     pageEpochId?: string;
     source?: 'mirror' | 'dump_fallback';
     domMapMs?: number;
@@ -1086,8 +1150,7 @@ export class PatchrightBrowserSession implements BrowserSession {
     return {
       generation: snap.generation,
       coversThroughSequence: snap.coversThroughSequence,
-      rootJson: Buffer.from(JSON.stringify(snap.root), 'utf8'),
-      sheetsJson: Buffer.from(JSON.stringify(snap.sheets), 'utf8'),
+      frameParts: snap.parts,
       pageEpochId: snap.pageEpochId,
       source: snap.source,
       domMapMs: snap.domMapMs,
@@ -1158,7 +1221,17 @@ function safeUrl(page: { url(): string }): string {
  */
 function shareabilityFields(
   s?: DomAssetShareability,
-): { requestHadCookie?: boolean; cacheControl?: string; vary?: string } {
+): {
+  requestHadCookie?: boolean;
+  requestHadAuthorization?: boolean;
+  cacheControl?: string;
+  vary?: string;
+} {
   if (!s) return {};
-  return { requestHadCookie: s.requestHadCookie, cacheControl: s.cacheControl, vary: s.vary };
+  return {
+    requestHadCookie: s.requestHadCookie,
+    requestHadAuthorization: s.requestHadAuthorization,
+    cacheControl: s.cacheControl,
+    vary: s.vary,
+  };
 }

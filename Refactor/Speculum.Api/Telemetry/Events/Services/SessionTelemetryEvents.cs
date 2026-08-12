@@ -37,6 +37,12 @@ using PageProjectionAssetRewriteSummary = Speculum.Api.Telemetry.Events.Models.S
 using PageProjectionAssetFetchFinished = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Asset.FetchFinished;
 using PageProjectionAssetServeMiss = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Asset.ServeMiss;
 using PageProjectionAssetServeSlow = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Asset.ServeSlow;
+using PageProjectionFrameRateChanged = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Frame.RateChanged;
+using PageProjectionFrameClockStalled = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Frame.ClockStalled;
+using PageProjectionFrameApplyOverrun = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Frame.ApplyOverrun;
+using PageProjectionFrameAggregate = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Frame.Aggregate;
+using PageProjectionSessionPoolAcquired = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Session.PoolAcquired;
+using PageProjectionSessionPoolReleased = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Session.PoolReleased;
 using DomInputAdmissionDropped = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Input.AdmissionDropped;
 using DomInputApplied = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Input.Applied;
 using DomInputCdpDropped = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Input.CdpDropped;
@@ -275,6 +281,12 @@ internal sealed class SessionTelemetryEvents : ISessionTelemetryEvents
 
         public ISessionPageProjectionAssetTelemetryEvents Asset { get; } =
             new PageProjectionAssetEvents(writer, sessionId, profileId);
+
+        public ISessionPageProjectionFrameTelemetryEvents Frame { get; } =
+            new PageProjectionFrameEvents(writer, sessionId, profileId);
+
+        public ISessionPageProjectionPoolTelemetryEvents Pool { get; } =
+            new PageProjectionPoolEvents(writer, sessionId, profileId);
     }
 
     private sealed class PageProjectionDiffEvents(IJournalWriter writer, Guid sessionId, Guid profileId)
@@ -965,6 +977,104 @@ internal sealed class SessionTelemetryEvents : ISessionTelemetryEvents
                 UrlKey = urlKey.Trim(),
                 DurationMs = durationMs,
                 Status = status,
+            });
+        }
+    }
+
+    private sealed class PageProjectionFrameEvents(IJournalWriter writer, Guid sessionId, Guid profileId)
+        : Scoped(writer, sessionId, profileId), ISessionPageProjectionFrameTelemetryEvents
+    {
+        public void RateChanged(string pageEpochId, long fromHz, long toHz, long generation)
+        {
+            Writer.Append(new PageProjectionFrameRateChanged
+            {
+                SessionId = SessionId,
+                ProfileId = ProfileId,
+                PageEpochId = pageEpochId?.Trim() ?? "",
+                FromHz = fromHz,
+                ToHz = toHz,
+                Generation = generation,
+            });
+        }
+
+        public void ClockStalled(string pageEpochId, long sinceLastTickMs, long generation)
+        {
+            Writer.Append(new PageProjectionFrameClockStalled
+            {
+                SessionId = SessionId,
+                ProfileId = ProfileId,
+                PageEpochId = pageEpochId?.Trim() ?? "",
+                SinceLastTickMs = sinceLastTickMs,
+                Generation = generation,
+            });
+        }
+
+        public void ApplyOverrun(string pageEpochId, long overrunCount, long queuedFrames, long generation)
+        {
+            Writer.Append(new PageProjectionFrameApplyOverrun
+            {
+                SessionId = SessionId,
+                ProfileId = ProfileId,
+                PageEpochId = pageEpochId?.Trim() ?? "",
+                OverrunCount = overrunCount,
+                QueuedFrames = queuedFrames,
+                Generation = generation,
+            });
+        }
+
+        public void Aggregate(
+            string pageEpochId,
+            long generation,
+            long framesEmitted,
+            long bytesEmitted,
+            long rateHz,
+            long stallCount,
+            long applyOverrunReports,
+            long mirrorBytes,
+            long intervalMs,
+            long tVirtualMs)
+        {
+            Writer.Append(new PageProjectionFrameAggregate
+            {
+                SessionId = SessionId,
+                ProfileId = ProfileId,
+                PageEpochId = pageEpochId?.Trim() ?? "",
+                Generation = generation,
+                FramesEmitted = framesEmitted,
+                BytesEmitted = bytesEmitted,
+                RateHz = rateHz,
+                StallCount = stallCount,
+                ApplyOverrunReports = applyOverrunReports,
+                MirrorBytes = mirrorBytes,
+                IntervalMs = intervalMs,
+                TVirtualMs = tVirtualMs,
+            });
+        }
+    }
+
+    private sealed class PageProjectionPoolEvents(IJournalWriter writer, Guid sessionId, Guid profileId)
+        : Scoped(writer, sessionId, profileId), ISessionPageProjectionPoolTelemetryEvents
+    {
+        public void PoolAcquired(int maxWidth, int maxHeight, int poolSize, long waitMs)
+        {
+            Writer.Append(new PageProjectionSessionPoolAcquired
+            {
+                SessionId = SessionId,
+                ProfileId = ProfileId,
+                MaxWidth = maxWidth,
+                MaxHeight = maxHeight,
+                PoolSize = poolSize,
+                WaitMs = waitMs,
+            });
+        }
+
+        public void PoolReleased(long heldMs)
+        {
+            Writer.Append(new PageProjectionSessionPoolReleased
+            {
+                SessionId = SessionId,
+                ProfileId = ProfileId,
+                HeldMs = heldMs,
             });
         }
     }

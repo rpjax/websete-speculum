@@ -15,7 +15,7 @@
 import type { AssembledFrame, CssomInstallOp, DecodedOp, EstablishEndOp } from './decode'
 import { decodeFramePart, FramePartAssembler } from './decode'
 import { PageProjectionRegistry } from './registry'
-import { DomFrameApplier } from './applyDom'
+import { DomFrameApplier, applyDocumentState } from './applyDom'
 import { CssomApplier } from './applyCssom'
 import type { SurfaceBuildHandle, SurfaceHostHandle } from './surface'
 import { attachPageProjectionInteraction, attachVisibilityReporter } from './interaction'
@@ -43,6 +43,9 @@ export interface ProjectionClientOptions {
   applyBudgetMs?: number
   /** Consumer issues the OOB `PageProjection.Resync` request; feed the response back into `ingest`. */
   onDesync?: (reason: PageProjectionDesyncReason, generation: number) => void
+  sessionId?: string | null
+  token?: string | null
+  assetBaseUrl?: string
 }
 
 export class ProjectionClient {
@@ -60,6 +63,8 @@ export class ProjectionClient {
   private build: SurfaceBuildHandle | null = null
   private buildRegistry: PageProjectionRegistry | null = null
   private buildCssom: CssomApplier | null = null
+  /** cssomInstall arrives before the standby doc has a <head> — flush after first chunk. */
+  private pendingCssom: CssomInstallOp | null = null
 
   private generation = 0
   private lastSequence = 0
@@ -98,6 +103,9 @@ export class ProjectionClient {
       getGeneration: () => this.generation,
       getViewportSize: this.options.getViewportSize,
       isArmed: () => this.isArmed(),
+      sessionId: this.options.sessionId,
+      token: this.options.token,
+      assetBaseUrl: this.options.assetBaseUrl,
     })
   }
 
@@ -133,10 +141,21 @@ export class ProjectionClient {
     if (!this.surface) return
     if (!this.build) this.beginBuild()
     for (const op of frame.ops) {
-      if (op.op === 'cssomInstall') this.applyBuildCssomInstall(op)
-      else if (op.op === 'establishBegin') this.generation = op.generation
-      else if (op.op === 'establishChunk') this.build?.writeChunk(op.html)
-      else if (op.op === 'establishEnd') this.finishEstablish(op)
+      if (op.op === 'cssomInstall') {
+        // After doc.open() there is no <head> yet — buffer until a chunk creates one (§5.4.3).
+        this.pendingCssom = op
+        this.flushPendingCssom()
+      } else if (op.op === 'establishBegin') {
+        this.generation = op.generation
+      } else if (op.op === 'establishChunk') {
+        this.build?.writeChunk(op.html)
+        this.flushPendingCssom()
+      } else if (op.op === 'establishEnd') {
+        this.flushPendingCssom()
+        this.finishEstablish(op)
+      } else if (op.op === 'documentState' && this.build) {
+        applyDocumentState(this.build.document, op)
+      }
     }
   }
 
@@ -144,7 +163,15 @@ export class ProjectionClient {
     this.build = this.surface!.beginBuild()
     this.buildRegistry = new PageProjectionRegistry()
     this.buildCssom = new CssomApplier(this.build.document, this.buildRegistry, () => this.triggerDesync('address_miss'))
+    this.pendingCssom = null
     void this.build.swap().catch(() => {})
+  }
+
+  private flushPendingCssom(): void {
+    if (!this.pendingCssom || !this.build || !this.buildCssom) return
+    if (!this.build.document.head && !this.build.document.documentElement) return
+    this.applyBuildCssomInstall(this.pendingCssom)
+    this.pendingCssom = null
   }
 
   private applyBuildCssomInstall(op: CssomInstallOp): void {
@@ -159,15 +186,25 @@ export class ProjectionClient {
     const registry = this.buildRegistry
     const cssom = this.buildCssom
     if (!build || !registry || !cssom) return
-    build.markEstablishEnd()
 
+    // Close the streaming parser first so the client tree is complete (§5.6.4),
+    // verify checksum, then swap. Never swap an unverified establish.
+    build.finalizeParser()
     const { nodeCount, checksum } = registry.buildFromDocument(build.document.documentElement)
     if (nodeCount !== op.nodeCount || checksum !== op.checksum) {
+      console.error('[page-projection] establish_mismatch', {
+        clientNodeCount: nodeCount,
+        wireNodeCount: op.nodeCount,
+        clientChecksum: checksum,
+        wireChecksum: op.checksum,
+      })
       this.triggerDesync('establish_mismatch')
       build.cancel()
       this.clearBuild()
       return
     }
+
+    build.markEstablishEnd()
 
     this.domApplier?.reset()
     this.cssomApplier?.reset()
@@ -193,6 +230,7 @@ export class ProjectionClient {
     this.build = null
     this.buildRegistry = null
     this.buildCssom = null
+    this.pendingCssom = null
   }
 
   private applyLive(frame: AssembledFrame): void {

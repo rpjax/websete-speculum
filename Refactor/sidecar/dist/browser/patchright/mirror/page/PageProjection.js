@@ -21,6 +21,8 @@ class PageProjectionEngine {
     clock;
     sequence = 0;
     generation = 1;
+    /** §5.2.6 — set by the caller (`liveAttach.ts`) when title/lang/dir/viewport meta changes; emitted on the next tick alongside whatever else is dirty, then cleared. */
+    pendingDocumentState = null;
     constructor(opts) {
         this.opts = opts;
         this.rewriter = new rewrite_1.UrlRewriter({ originHost: opts.originHost });
@@ -30,6 +32,10 @@ class PageProjectionEngine {
             onTick: () => this.onClockTick(),
             onStall: (info) => opts.events.onClockStalled?.(info),
             frameRateHz: opts.frameRateHz,
+            hiddenRateHz: opts.hiddenRateHz,
+            rateRecoverMs: opts.rateRecoverMs,
+            frameStallMs: opts.frameStallMs,
+            rateLadder: opts.rateLadder,
         });
     }
     get currentGeneration() {
@@ -50,6 +56,10 @@ class PageProjectionEngine {
     /** Feed one `observe.ts` `DirtyState` snapshot into the accumulator. */
     ingestDirty(dirty) {
         this.frame.absorb(dirty);
+    }
+    /** §5.2.6 — last-writer-wins; consumed (and cleared) by the next `onClockTick`, independent of DOM/Cssom dirtiness. */
+    noteDocumentState(state) {
+        this.pendingDocumentState = state;
     }
     /** §5.3.5.1 backpressure hook — degrades the rate ladder one step; never desyncs. */
     degradeRate() {
@@ -82,9 +92,11 @@ class PageProjectionEngine {
     onClockTick() {
         const domOps = this.frame.flush();
         const cssomOps = this.cssom.isEmpty ? [] : this.cssom.flush();
-        if (domOps === null && cssomOps.length === 0)
+        const documentStateOp = this.pendingDocumentState;
+        this.pendingDocumentState = null;
+        if (domOps === null && cssomOps.length === 0 && documentStateOp === null)
             return; // PP-FR-4 — no ops, no sequence.
-        const ops = [...(domOps ?? []), ...cssomOps];
+        const ops = [...(domOps ?? []), ...cssomOps, ...(documentStateOp ? [documentStateOp] : [])];
         this.mirror.applyFrame(domOps ?? []);
         this.sequence += 1;
         const meta = { generation: this.generation, sequence: this.sequence };

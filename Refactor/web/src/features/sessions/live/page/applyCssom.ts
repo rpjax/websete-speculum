@@ -139,6 +139,7 @@ export class CssomApplier {
     const element = this.doc.createElement('style')
     element.setAttribute(SHEET_ID_ATTR, String(sheet.id))
     const parent = this.doc.head ?? this.doc.documentElement
+    if (!parent) return false
     parent.appendChild(element)
     if (index != null) {
       const siblings = Array.from(this.doc.querySelectorAll(`style[${SHEET_ID_ATTR}]`))

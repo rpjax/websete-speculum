@@ -261,6 +261,14 @@ public interface ILiveSession
         string name,
         CancellationToken ct = default);
 
+    /// <summary>
+    /// Client → server control channel (§5.9.5, MirrorMode.PageProjection only). A control
+    /// report, not a diff — never advances the live `sequence`.
+    /// </summary>
+    Task<IResult> ReportPageProjectionClientStateAsync(
+        PageProjectionClientStateReport report,
+        CancellationToken ct = default);
+
     // ── Hooks ────────────────────────────────────────────────────────────────
 
     IResult<Guid> RegisterCameraPermission(

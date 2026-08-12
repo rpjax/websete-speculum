@@ -119,6 +119,21 @@ message LaunchRequest {
   // Sessions.PageProjection.BrowserPoolRefillPerSec (§5.13) — throttle for pool refill after
   // a session claims a pre-warmed instance.
   int32 browser_pool_refill_per_sec = 22;
+  // Remaining §5.16 knobs (W6) — 0/absent ⇒ sidecar module defaults.
+  repeated int32 frame_rate_ladder = 23;
+  int32 hidden_rate_hz = 24;
+  int32 rate_recover_ms = 25;
+  int32 frame_stall_ms = 26;
+  int32 establish_chunk_bytes = 27;
+  int64 mirror_max_bytes = 28;
+  int64 asset_cache_l1_max_bytes = 29;
+  int32 asset_priority_viewport_px = 30;
+  int32 aggregate_interval_ms = 31;
+  // Client-facing knobs also projected for SPA config (SwapTimeoutMs / ClientStateMs / ApplyBudgetMs
+  // ride the public client-config path separately; echoed here for sidecar awareness / future use).
+  int32 swap_timeout_ms = 32;
+  int32 client_state_ms = 33;
+  int32 apply_budget_ms = 34;
 }
 
 message ReadyInfo {
@@ -367,6 +382,20 @@ message PageProjectionDiffFrame {
   uint32 version = 10; // wire format version; an unknown version desyncs (PP-WIRE-2)
 }
 
+// Client → server control channel (§5.9.5) — NOT a diff, MUST NOT affect `sequence`.
+// Dedicated unary channel (deliberately not DomInputEvent — a control report, not an intent).
+message PageProjectionClientStateRequest {
+  string session_id = 1;
+  // "visible" | "hidden" (§5.3.5.3) — client tab visibility.
+  string visibility = 2;
+  int64 applied_through_sequence = 3;
+  int32 queued_frames = 4;
+  double apply_p50_ms = 5;
+  double apply_p95_ms = 6;
+  // Applies exceeding applyBudgetMs (E9) since the last report.
+  int32 overrun_count = 7;
+}
+
 message DomInputEvent {
   string session_id = 1;
   string type = 2; // mousemove | mousedown | mouseup | input | keydown | … (no wire click)
@@ -402,6 +431,9 @@ message GetDomAssetResponse {
   string cache_control = 7;
   // Raw `Vary` response header value, comma-joined values as sent.
   string vary = 8;
+  // §5.12.2.1 — true when the *original* in-page fetch carried an Authorization header
+  // (recorded via Network.requestWillBeSent). Always false for pass-through / range / blob / data.
+  bool request_had_authorization = 9;
 }
 
 // OOB PageProjection.Resync (T8/C8) — does not advance live sequence.
@@ -414,8 +446,9 @@ message PageProjectionResyncRequest {
 message PageProjectionResyncResponse {
   int64 generation = 1;
   int64 covers_through_sequence = 2;
-  bytes root_json = 3;   // F(html) DomNode JSON
-  bytes sheets_json = 4; // Cssom install sheets JSON array
+  // §5.7.2 / W3 — opaque §5.5 binary wire parts (resync flag set). Relayed without
+  // parsing (PP-WIRE-1). Replaces the retired V1 root_json / sheets_json JSON body.
+  repeated bytes frame_parts = 3;
   // PageEpoch parity telemetry — resync phase timings (best-effort).
   optional string page_epoch_id = 5;
   optional string source = 6; // mirror | dump_fallback
@@ -686,6 +719,8 @@ service BrowserSessionService {
 
   rpc PushInput(stream InputEvent) returns (Empty);
   rpc PushDomInput(stream DomInputEvent) returns (Empty);
+  // Dedicated unary control channel (§5.9.5) — not routed through PushDomInput.
+  rpc ReportPageProjectionClientState(PageProjectionClientStateRequest) returns (Empty);
   rpc PushCamera(stream MediaChunk) returns (Empty);
   rpc PushMicrophone(stream MediaChunk) returns (Empty);
 

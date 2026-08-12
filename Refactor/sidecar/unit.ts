@@ -36,7 +36,7 @@ import {
   PAGE_PROJECTION_PAGE_SCRIPT,
 } from './browser/patchright/mirror/dom/DomTreeSerializer';
 import { mapSrcset, parseSrcset } from './browser/patchright/mirror/dom/srcsetParse';
-import { parseDataUrl } from './browser/patchright/mirror/dom/PageProjection';
+import { parseDataUrl } from './browser/patchright/mirror/page/parseDataUrl';
 import type { BrowserCookieState } from './browser/BrowserSession';
 import { collectTelemetry } from './telemetry/collectTelemetry';
 import { applyHostResources } from './host/hostResources';

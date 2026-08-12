@@ -160,6 +160,21 @@ class PatchrightBrowserSession {
                 })
                 : null;
             if (pooled) {
+                const waitMs = 0;
+                this.events.onPageProjectionParity?.('parity_session_pool_acquired', {
+                    maxWidth: maxW,
+                    maxHeight: maxH,
+                    poolSize: options.browserPoolSize ?? 0,
+                    waitMs,
+                });
+                const acquiredAt = Date.now();
+                const priorRelease = pooled.release.bind(pooled);
+                pooled.release = async () => {
+                    this.events.onPageProjectionParity?.('parity_session_pool_released', {
+                        heldMs: Date.now() - acquiredAt,
+                    });
+                    await priorRelease();
+                };
                 await this.adoptPooledBrowser(pooled, options, { maxW, maxH, width, height });
             }
             else {
@@ -241,6 +256,15 @@ class PatchrightBrowserSession {
                     browserLaunchedAtMs: this.browserLaunchedAtMs,
                     frameRateHz: options.frameRateHz,
                     maxFrameBytes: options.maxFrameBytes,
+                    establishChunkBytes: options.establishChunkBytes,
+                    hiddenRateHz: options.hiddenRateHz,
+                    rateRecoverMs: options.rateRecoverMs,
+                    frameStallMs: options.frameStallMs,
+                    rateLadder: options.frameRateLadder,
+                    mirrorMaxBytes: options.mirrorMaxBytes,
+                    assetCacheL1MaxBytes: options.assetCacheL1MaxBytes,
+                    assetPriorityViewportPx: options.assetPriorityViewportPx,
+                    aggregateIntervalMs: options.aggregateIntervalMs,
                 });
                 if (this.events instanceof EventBridge_1.EventBridge) {
                     this.events.setDomBackpressureHandler((paused) => {
@@ -850,6 +874,11 @@ class PatchrightBrowserSession {
         }
         return await this.domElementInput.dispatch(input);
     }
+    reportPageProjectionClientState(state) {
+        if (this.mirrorMode !== 'pageProjection' || !this.pageProjection)
+            return;
+        this.pageProjection.reportClientState(state);
+    }
     async getDomAsset(key, opts) {
         this.ensureLive();
         if (!this.pageProjection || !key)
@@ -913,8 +942,7 @@ class PatchrightBrowserSession {
         return {
             generation: snap.generation,
             coversThroughSequence: snap.coversThroughSequence,
-            rootJson: Buffer.from(JSON.stringify(snap.root), 'utf8'),
-            sheetsJson: Buffer.from(JSON.stringify(snap.sheets), 'utf8'),
+            frameParts: snap.parts,
             pageEpochId: snap.pageEpochId,
             source: snap.source,
             domMapMs: snap.domMapMs,
@@ -979,6 +1007,11 @@ function safeUrl(page) {
 function shareabilityFields(s) {
     if (!s)
         return {};
-    return { requestHadCookie: s.requestHadCookie, cacheControl: s.cacheControl, vary: s.vary };
+    return {
+        requestHadCookie: s.requestHadCookie,
+        requestHadAuthorization: s.requestHadAuthorization,
+        cacheControl: s.cacheControl,
+        vary: s.vary,
+    };
 }
 //# sourceMappingURL=PatchrightBrowserSession.js.map

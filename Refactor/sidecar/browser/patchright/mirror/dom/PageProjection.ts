@@ -15,6 +15,7 @@ import {
 import { mapSrcset, parseSrcset } from './srcsetParse';
 import { countNodesApprox, summarizeSheets, urlKeyOf } from './parityUtil';
 import { VirtualEpochTelemetry } from './VirtualEpochTelemetry';
+import { parseDataUrl } from '../page/parseDataUrl';
 
 /** In-page DomMap phase timings (Date.now in the page) — excludes CDP transfer. */
 export type DomMapPhaseTimings = {
@@ -2205,31 +2206,6 @@ type CssomMirrorSheet = {
   scope?: { kind?: string; hostAnchor?: string };
   [key: string]: unknown;
 };
-
-function parseDataUrl(url: string): { body: Buffer; contentType: string } | null {
-  if (typeof url !== 'string' || !url.startsWith('data:')) return null;
-  const comma = url.indexOf(',');
-  if (comma < 5) return null;
-  const meta = url.slice(5, comma);
-  const data = url.slice(comma + 1);
-  const parts = meta.split(';').map((p) => p.trim()).filter(Boolean);
-  const typePart = parts.find((p) => p.includes('/'));
-  const contentType = typePart || 'application/octet-stream';
-  const b64 = parts.some((p) => p.toLowerCase() === 'base64');
-  try {
-    const body = b64
-      ? Buffer.from(data.replace(/\s/g, ''), 'base64')
-      : Buffer.from(decodeURIComponent(data), 'utf8');
-    // Reject base64 that decoded to empty while the payload was non-empty (corrupt).
-    if (b64 && data.replace(/\s/g, '').length > 0 && body.length === 0) return null;
-    return { body, contentType };
-  } catch {
-    return null;
-  }
-}
-
-/** Exported for unit effect asserts (ingest gate for virtual-data). */
-export { parseDataUrl };
 
 function rewriteCssUrlsToVirtual(css: string): string {
   let out = css.replace(/url\(\s*(['"]?)([^)'"]+)\1\s*\)/gi, (match, quote: string, raw: string) => {

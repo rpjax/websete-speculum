@@ -28,6 +28,8 @@ public static class DomAssetEndpoints
             .WithTags("Sessions");
         endpoints.MapPost("/api/sessions/{sessionId:guid}/page-projection/resync", PostPageProjectionResync)
             .WithTags("Sessions");
+        endpoints.MapPost("/api/sessions/{sessionId:guid}/page-projection/client-state", PostPageProjectionClientState)
+            .WithTags("Sessions");
 
         return endpoints;
     }
@@ -222,13 +224,115 @@ public static class DomAssetEndpoints
         }
 
         var snap = result.Value;
-        return Results.Json(new
+        // §5.7.2 W3 — length-prefixed §5.5 parts (u32 LE length + bytes). Generation /
+        // coversThroughSequence ride response headers so the body stays pure opaque wire.
+        var total = 0;
+        foreach (var part in snap.FrameParts)
         {
-            generation = snap.Generation,
-            coversThroughSequence = snap.CoversThroughSequence,
-            root = System.Text.Json.JsonSerializer.Deserialize<object>(snap.RootJson),
-            sheets = System.Text.Json.JsonSerializer.Deserialize<object>(snap.SheetsJson),
-        });
+            total = checked(total + 4 + part.Length);
+        }
+
+        var body = new byte[total];
+        var offset = 0;
+        foreach (var part in snap.FrameParts)
+        {
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(
+                body.AsSpan(offset, 4),
+                (uint)part.Length);
+            offset += 4;
+            Buffer.BlockCopy(part, 0, body, offset, part.Length);
+            offset += part.Length;
+        }
+
+        return Results.Bytes(body, "application/octet-stream");
+        // Note: generation / coversThroughSequence are recoverable from the §5.5 part
+        // headers themselves (encode.ts); HTTP response status is the only extra signal.
+    }
+
+    /// <summary>
+    /// Client → server control channel (§5.9.5) wire body. A control report, not a diff —
+    /// never advances the live `sequence`.
+    /// </summary>
+    private sealed class PageProjectionClientStateHttpRequest
+    {
+        /// <summary>"visible" | "hidden" (§5.3.5.3).</summary>
+        public string Visibility { get; set; } = "visible";
+
+        public long AppliedThroughSequence { get; set; }
+
+        public int QueuedFrames { get; set; }
+
+        public double ApplyP50Ms { get; set; }
+
+        public double ApplyP95Ms { get; set; }
+
+        /// <summary>Applies exceeding `applyBudgetMs` (E9) since the last report.</summary>
+        public int OverrunCount { get; set; }
+    }
+
+    private static async Task<IResult> PostPageProjectionClientState(
+        Guid sessionId,
+        PageProjectionClientStateHttpRequest? body,
+        HttpRequest request,
+        ILiveSessionService liveSessions,
+        ISessionBindingRegistry bindings,
+        CancellationToken ct)
+    {
+        if (!SessionBindingAuth.TryAuthorize(
+                request,
+                bindings,
+                liveSessions,
+                out var live,
+                out _,
+                expectedSessionId: sessionId))
+        {
+            return Results.Unauthorized();
+        }
+
+        if (live.MirrorMode != MirrorMode.PageProjection)
+        {
+            return Results.BadRequest(new
+            {
+                errorCode = SessionMirrorErrors.MirrorModeMismatchErrorCode,
+                message = SessionMirrorErrors.PageProjectionRequiredMessage,
+            });
+        }
+
+        if (body is null)
+        {
+            return Results.ValidationProblem(new Dictionary<string, string[]>
+            {
+                ["body"] = ["A PageProjectionClientState body is required."],
+            });
+        }
+
+        var visibility = string.Equals(body.Visibility?.Trim(), "hidden", StringComparison.OrdinalIgnoreCase)
+            ? "hidden"
+            : "visible";
+
+        var result = await live
+            .ReportPageProjectionClientStateAsync(
+                new PageProjectionClientStateReport
+                {
+                    Visibility = visibility,
+                    AppliedThroughSequence = body.AppliedThroughSequence,
+                    QueuedFrames = body.QueuedFrames,
+                    ApplyP50Ms = body.ApplyP50Ms,
+                    ApplyP95Ms = body.ApplyP95Ms,
+                    OverrunCount = body.OverrunCount,
+                },
+                ct)
+            .ConfigureAwait(false);
+        if (result.IsFailure)
+        {
+            return Results.BadRequest(new
+            {
+                errorCode = "client_state_report_failed",
+                message = string.Join("; ", result.Errors.Select(e => e.Message)),
+            });
+        }
+
+        return Results.Json(new { ok = true });
     }
 
     private static async Task<IResult> ServeKeyAsync(

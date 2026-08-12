@@ -1,7 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.PageProjection = void 0;
-exports.parseDataUrl = parseDataUrl;
 exports.attachDomAssetFetch = attachDomAssetFetch;
 const node_crypto_1 = require("node:crypto");
 const DomAssetCache_1 = require("./DomAssetCache");
@@ -9,6 +8,7 @@ const DomTreeSerializer_1 = require("./DomTreeSerializer");
 const srcsetParse_1 = require("./srcsetParse");
 const parityUtil_1 = require("./parityUtil");
 const VirtualEpochTelemetry_1 = require("./VirtualEpochTelemetry");
+const parseDataUrl_1 = require("../page/parseDataUrl");
 const MAX_ASSET_FETCHES_PER_DIFF = 64;
 const VIRTUAL_ASSETS_PREFIX = '/w7s/virtual-assets/';
 const VIRTUAL_BLOB_PREFIX = '/w7s/virtual-blob/';
@@ -1625,7 +1625,7 @@ class PageProjection {
         const urlToVirtual = new Map();
         for (const { url } of candidates) {
             if (url.startsWith('data:')) {
-                const parsed = parseDataUrl(url);
+                const parsed = (0, parseDataUrl_1.parseDataUrl)(url);
                 // Never invent /w7s/virtual-data/... without a successful ingest put.
                 if (!parsed)
                     continue;
@@ -2039,31 +2039,6 @@ function safePageUrl(page) {
     }
     catch {
         return undefined;
-    }
-}
-function parseDataUrl(url) {
-    if (typeof url !== 'string' || !url.startsWith('data:'))
-        return null;
-    const comma = url.indexOf(',');
-    if (comma < 5)
-        return null;
-    const meta = url.slice(5, comma);
-    const data = url.slice(comma + 1);
-    const parts = meta.split(';').map((p) => p.trim()).filter(Boolean);
-    const typePart = parts.find((p) => p.includes('/'));
-    const contentType = typePart || 'application/octet-stream';
-    const b64 = parts.some((p) => p.toLowerCase() === 'base64');
-    try {
-        const body = b64
-            ? Buffer.from(data.replace(/\s/g, ''), 'base64')
-            : Buffer.from(decodeURIComponent(data), 'utf8');
-        // Reject base64 that decoded to empty while the payload was non-empty (corrupt).
-        if (b64 && data.replace(/\s/g, '').length > 0 && body.length === 0)
-            return null;
-        return { body, contentType };
-    }
-    catch {
-        return null;
     }
 }
 function rewriteCssUrlsToVirtual(css) {

@@ -202,6 +202,55 @@ internal static class PageProjectionParityTelemetryJournal
                     Bool(root, "ok"),
                     Long(root, "tVirtualMs"));
                 break;
+            case "parity_frame_rate_changed":
+                if (!catalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionFrameRateChanged)) return;
+                pageProjection.Frame.RateChanged(
+                    Str(root, "pageEpochId") ?? "",
+                    Long(root, "fromHz"),
+                    Long(root, "toHz"),
+                    Long(root, "generation"));
+                break;
+            case "parity_frame_clock_stalled":
+                if (!catalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionFrameClockStalled)) return;
+                pageProjection.Frame.ClockStalled(
+                    Str(root, "pageEpochId") ?? "",
+                    Long(root, "sinceLastTickMs"),
+                    Long(root, "generation"));
+                break;
+            case "parity_frame_apply_overrun":
+                if (!catalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionFrameApplyOverrun)) return;
+                pageProjection.Frame.ApplyOverrun(
+                    Str(root, "pageEpochId") ?? "",
+                    Long(root, "overrunCount"),
+                    Long(root, "queuedFrames"),
+                    Long(root, "generation"));
+                break;
+            case "parity_frame_aggregate":
+                if (!catalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionFrameAggregate)) return;
+                pageProjection.Frame.Aggregate(
+                    Str(root, "pageEpochId") ?? "",
+                    Long(root, "generation"),
+                    Long(root, "framesEmitted"),
+                    Long(root, "bytesEmitted"),
+                    Long(root, "rateHz"),
+                    Long(root, "stallCount"),
+                    Long(root, "applyOverrunReports"),
+                    Long(root, "mirrorBytes"),
+                    Long(root, "intervalMs"),
+                    Long(root, "tVirtualMs"));
+                break;
+            case "parity_session_pool_acquired":
+                if (!catalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionSessionPoolAcquired)) return;
+                pageProjection.Pool.PoolAcquired(
+                    (int)Long(root, "maxWidth"),
+                    (int)Long(root, "maxHeight"),
+                    (int)Long(root, "poolSize"),
+                    Long(root, "waitMs"));
+                break;
+            case "parity_session_pool_released":
+                if (!catalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionSessionPoolReleased)) return;
+                pageProjection.Pool.PoolReleased(Long(root, "heldMs"));
+                break;
         }
     }
 

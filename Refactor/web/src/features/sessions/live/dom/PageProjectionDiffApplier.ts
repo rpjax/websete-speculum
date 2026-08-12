@@ -102,14 +102,7 @@ export type PageProjectionDesyncInfo = {
 }
 
 /** Wall-clock lag vs sidecar `Date.now()` stamp (epoch ms). */
-export function pageProjectionLagMs(
-  sidecarTimestamp: number | null | undefined,
-  nowMs: number = Date.now(),
-): number | null {
-  if (sidecarTimestamp == null || !Number.isFinite(sidecarTimestamp)) return null
-  if (sidecarTimestamp < 1e12) return null
-  return nowMs - sidecarTimestamp
-}
+export { pageProjectionLagMs } from '../page/pageProjectionLag'
 
 type ResolveDetail = {
   node: Node | null

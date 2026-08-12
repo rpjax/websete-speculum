@@ -79,28 +79,49 @@ export class PageProjectionRegistry {
   }
 
   /**
-   * Walks a parsed establish document exactly once, registering every element
-   * carrying a `speculum-anchor` id (§5.1.7: identity rides as this attribute
-   * only in establish HTML; live frames address by the numeric id directly).
-   *
-   * @returns `nodeCount` and a rolling checksum over ids in visit order, for
-   * the `establishEnd.nodeCount` / `.checksum` verification (§5.6.4, §5.7.1).
+   * Walks a parsed establish document exactly once:
+   * - registers every element carrying `speculum-anchor` (§5.1.7)
+   * - returns `nodeCount`/`checksum` matching sidecar `computeEstablishChecksum`
+   *   (FNV-1a over the preorder tag stream including `#text` / `#comment`)
+   *   so `establishEnd` verification can succeed (§5.6.4, §5.7.1).
    */
   buildFromDocument(root: ParentNode): { nodeCount: number; checksum: number } {
-    let nodeCount = 0
-    let checksum = FNV_OFFSET_BASIS
-    const visit = (el: Element) => {
-      const id = readAnchorId(el)
-      if (id != null) {
-        this.register(id, el)
-        nodeCount += 1
-        checksum = fnv1a32Step(checksum, id)
+    let hash = FNV_OFFSET_BASIS
+    let count = 0
+    const addTag = (tag: string) => {
+      count += 1
+      for (let i = 0; i < tag.length; i++) {
+        hash ^= tag.charCodeAt(i)
+        hash = Math.imul(hash, FNV_PRIME)
+      }
+      hash ^= count & 0xff
+      hash = Math.imul(hash, FNV_PRIME)
+    }
+    const walk = (node: Node) => {
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        const el = node as Element
+        // Client-only Cssom owned sheets (§5.10) — not part of the establish tag stream.
+        if (el.hasAttribute('data-pp-cssom-id')) {
+          return
+        }
+        const id = readAnchorId(el)
+        // Checksum only anchored elements — HTML parse may insert unanchored nodes
+        // (and all Virtual elements carry anchors through serialize).
+        if (id != null) {
+          addTag(el.tagName.toLowerCase())
+          this.register(id, el)
+        }
+        for (const child of Array.from(el.childNodes)) walk(child)
       }
     }
-    if (root instanceof Element) visit(root)
-    const walker = (root.ownerDocument ?? (root as unknown as Document)).createTreeWalker(root, NodeFilter.SHOW_ELEMENT)
-    for (let node = walker.nextNode(); node; node = walker.nextNode()) visit(node as Element)
-    return { nodeCount, checksum }
+    // Use nodeType — not `instanceof Element` — because the establish document
+    // lives in an iframe realm and parent-realm instanceof checks always fail.
+    if (root && (root as Node).nodeType === Node.ELEMENT_NODE) walk(root as Element)
+    else if (root && (root as Node).nodeType === Node.DOCUMENT_NODE) {
+      const de = (root as Document).documentElement
+      if (de) walk(de)
+    }
+    return { nodeCount: count, checksum: hash >>> 0 }
   }
 }
 
@@ -113,13 +134,3 @@ function readAnchorId(el: Element): number | null {
 
 const FNV_OFFSET_BASIS = 0x811c9dc5
 const FNV_PRIME = 0x01000193
-
-/** FNV-1a over the id's 4 bytes (little-endian) — provisional until the sidecar's establish.ts fixes the algorithm. */
-function fnv1a32Step(hash: number, id: number): number {
-  let h = hash
-  for (let shift = 0; shift < 32; shift += 8) {
-    h ^= (id >>> shift) & 0xff
-    h = Math.imul(h, FNV_PRIME)
-  }
-  return h >>> 0
-}

@@ -57,7 +57,7 @@ class FrameClock {
     degrade() {
         if (this.hidden)
             return;
-        const ladder = exports.RATE_LADDER;
+        const ladder = this.opts.rateLadder ?? exports.RATE_LADDER;
         const idx = ladder.indexOf(this.currentRateHz);
         const nextIdx = idx === -1 ? 0 : Math.min(idx + 1, ladder.length - 1);
         this.applyRate(ladder[nextIdx]);
@@ -70,7 +70,7 @@ class FrameClock {
         const recoverMs = this.opts.rateRecoverMs ?? DEFAULTS.rateRecoverMs;
         if (now - this.lastRecoverAtMs < recoverMs)
             return false;
-        const ladder = exports.RATE_LADDER;
+        const ladder = this.opts.rateLadder ?? exports.RATE_LADDER;
         const idx = ladder.indexOf(this.currentRateHz);
         if (idx <= 0)
             return false;

@@ -25,6 +25,8 @@ export type FrameClockOptions = {
   hiddenRateHz?: number;
   rateRecoverMs?: number;
   frameStallMs?: number;
+  /** §5.3.5.1 degradation ladder, highest first. */
+  rateLadder?: readonly number[];
 };
 
 const DEFAULTS = {
@@ -78,7 +80,7 @@ export class FrameClock {
   /** §5.3.5.1 — one step down the ladder. Never desyncs; a congested pipe just gets fewer, larger frames. */
   degrade(): void {
     if (this.hidden) return;
-    const ladder = RATE_LADDER;
+    const ladder = this.opts.rateLadder ?? RATE_LADDER;
     const idx = ladder.indexOf(this.currentRateHz);
     const nextIdx = idx === -1 ? 0 : Math.min(idx + 1, ladder.length - 1);
     this.applyRate(ladder[nextIdx]!);
@@ -90,7 +92,7 @@ export class FrameClock {
     const now = this.opts.scheduler.now();
     const recoverMs = this.opts.rateRecoverMs ?? DEFAULTS.rateRecoverMs;
     if (now - this.lastRecoverAtMs < recoverMs) return false;
-    const ladder = RATE_LADDER;
+    const ladder = this.opts.rateLadder ?? RATE_LADDER;
     const idx = ladder.indexOf(this.currentRateHz);
     if (idx <= 0) return false;
     this.applyRate(ladder[idx - 1]!);

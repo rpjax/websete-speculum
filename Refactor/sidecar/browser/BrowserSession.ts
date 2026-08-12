@@ -232,6 +232,16 @@ export interface BrowserLaunchOptions {
   browserPoolSize?: number;
   /** Sessions.PageProjection.BrowserPoolRefillPerSec (§5.13). */
   browserPoolRefillPerSec?: number;
+  /** §5.6.3 establish HTML chunk byte budget. */
+  establishChunkBytes?: number;
+  frameRateLadder?: number[];
+  hiddenRateHz?: number;
+  rateRecoverMs?: number;
+  frameStallMs?: number;
+  mirrorMaxBytes?: number;
+  assetCacheL1MaxBytes?: number;
+  assetPriorityViewportPx?: number;
+  aggregateIntervalMs?: number;
   locale: string;
   language: string;
   timeZoneId: string;
@@ -486,6 +496,19 @@ export interface BrowserSession {
     payloadJson?: string;
   }): Promise<{ status: 'dispatched' } | { status: 'dropped'; reason: string }>;
 
+  /**
+   * §5.9.5 client → server control channel. Control message, not a diff — never
+   * affects `sequence`. No-op / throw when MirrorMode is not PageProjection.
+   */
+  reportPageProjectionClientState?(state: {
+    visibility: 'visible' | 'hidden';
+    appliedThroughSequence: number;
+    queuedFrames: number;
+    applyP50Ms: number;
+    applyP95Ms: number;
+    overrunCount: number;
+  }): void;
+
   /** Dom Projection virtual resource by path key / blob / data id. */
   getDomAsset?(
     key: string,
@@ -502,19 +525,23 @@ export interface BrowserSession {
      * deciding whether the body may be dedup-served host-wide.
      */
     requestHadCookie?: boolean;
+    requestHadAuthorization?: boolean;
     cacheControl?: string;
     vary?: string;
   } | null>;
 
-  /** OOB PageProjection.Resync snapshot (does not advance live sequence). */
+  /**
+   * OOB PageProjection.Resync snapshot (does not advance live sequence). §5.7.2 W3 —
+   * `frameParts` are opaque §5.5 binary wire parts (resync flag set), the same shape
+   * `onPageProjectionDiff.body` carries; no V1 JSON `{ root, sheets }` shim.
+   */
   getPageProjectionResync?(hint?: {
     generation?: number;
     sequence?: number;
   }): Promise<{
     generation: number;
     coversThroughSequence: number;
-    rootJson: Uint8Array;
-    sheetsJson: Uint8Array;
+    frameParts: Uint8Array[];
     /** PageEpoch parity telemetry — best-effort resync phase timings. */
     pageEpochId?: string;
     source?: 'mirror' | 'dump_fallback';

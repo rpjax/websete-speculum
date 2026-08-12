@@ -103,6 +103,19 @@ public static class TelemetryJournalFacts
     public const string PageProjectionAssetServeSlow =
         "Telemetry.Sessions.PageProjection.Asset.ServeSlow";
 
+    public const string PageProjectionFrameRateChanged =
+        "Telemetry.Sessions.PageProjection.Frame.RateChanged";
+    public const string PageProjectionFrameClockStalled =
+        "Telemetry.Sessions.PageProjection.Frame.ClockStalled";
+    public const string PageProjectionFrameApplyOverrun =
+        "Telemetry.Sessions.PageProjection.Frame.ApplyOverrun";
+    public const string PageProjectionFrameAggregate =
+        "Telemetry.Sessions.PageProjection.Frame.Aggregate";
+    public const string PageProjectionSessionPoolAcquired =
+        "Telemetry.Sessions.PageProjection.Session.PoolAcquired";
+    public const string PageProjectionSessionPoolReleased =
+        "Telemetry.Sessions.PageProjection.Session.PoolReleased";
+
     public static bool Owns(string type)
         => !string.IsNullOrWhiteSpace(type)
             && type.StartsWith("Telemetry.", StringComparison.Ordinal);

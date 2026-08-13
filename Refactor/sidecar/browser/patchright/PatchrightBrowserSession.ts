@@ -1086,6 +1086,11 @@ export class PatchrightBrowserSession implements BrowserSession {
     const kind = (opts?.kind ?? '').toLowerCase();
     if (kind === 'blob') lookup = key.startsWith('_blob/') ? key : `_blob/${key}`;
     else if (kind === 'data') lookup = key.startsWith('_data/') ? key : `_data/${key}`;
+    else if (kind === '' || kind === 'asset') {
+      // Align with DomAssetEndpoints serve key (`host/path?q`, no /w7s/virtual-assets/).
+      const prefix = '/w7s/virtual-assets/';
+      if (lookup.startsWith(prefix)) lookup = lookup.slice(prefix.length);
+    }
     // §5.12.2 — only a plain "asset" fetch (never blob/data, which are session-synthesized,
     // never origin subresources) is ever eligible for the API's SharedAssetCacheL2 tier.
     const isAssetKind = kind === '' || kind === 'asset';
@@ -1137,7 +1142,7 @@ export class PatchrightBrowserSession implements BrowserSession {
     coversThroughSequence: number;
     frameParts: Uint8Array[];
     pageEpochId?: string;
-    source?: 'mirror' | 'dump_fallback';
+    source?: 'mirror';
     domMapMs?: number;
     cssomCloneMs?: number;
     rewriteMs?: number;

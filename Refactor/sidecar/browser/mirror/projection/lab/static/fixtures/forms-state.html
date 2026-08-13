@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Forms state fixture</title>
+    <style>
+      body { margin: 1.5rem; font-family: system-ui, sans-serif; }
+      label { display: block; margin: 0.5rem 0; }
+    </style>
+  </head>
+  <body>
+    <h1>Forms / state sensors</h1>
+    <form id="f">
+      <label>Name <input id="name" name="name" value="Ada" /></label>
+      <label>Agree <input id="agree" name="agree" type="checkbox" checked /></label>
+      <label>
+        Role
+        <select id="role" name="role">
+          <option value="a">Alpha</option>
+          <option value="b" selected>Beta</option>
+        </select>
+      </label>
+      <textarea id="notes" name="notes">hello</textarea>
+    </form>
+    <script>
+      const name = document.getElementById('name');
+      let tick = 0;
+      setInterval(() => {
+        tick += 1;
+        name.value = 'Ada-' + tick;
+        name.dispatchEvent(new Event('input', { bubbles: true }));
+        document.getElementById('agree').checked = tick % 2 === 0;
+        document.getElementById('agree').dispatchEvent(new Event('change', { bubbles: true }));
+      }, 800);
+    </script>
+  </body>
+</html>

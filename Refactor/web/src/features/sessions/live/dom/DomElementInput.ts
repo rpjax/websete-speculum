@@ -1,8 +1,21 @@
 import { SessionAuthQueryParam, type PageProjectionIntent } from '@/lib/speculum'
-import type { PageProjectionDiffApplier } from './PageProjectionDiffApplier'
 import { w7sPath } from '@/lib/w7s'
 
 export type DomElementInputSender = (input: PageProjectionIntent) => void | Promise<void>
+
+/** Duck type for local-edit / scroll-echo coordination (V2 ProjectionClient or tests). */
+export type DomElementInputApplier = {
+  noteLocalEdit(anchor: string): void
+  consumeScrollEcho(
+    target: 'viewport' | string,
+    observed: {
+      scrollX?: number
+      scrollY?: number
+      scrollTop?: number
+      scrollLeft?: number
+    },
+  ): boolean
+}
 
 export type DomElementInputOptions = {
   sessionId: string
@@ -11,14 +24,14 @@ export type DomElementInputOptions = {
   /** Virtual viewport CSS size (session lockstep). */
   getViewportSize: () => { width: number; height: number }
   getGeneration: () => number
-  applier?: PageProjectionDiffApplier | null
+  applier?: DomElementInputApplier | null
   /** Arm pointer only after first document diff for a generation. */
   isArmed: () => boolean
   /** Observe-only: Diff-applied scroll echo consumed (mirror of Virtual scroll echo). */
   onProgrammaticScrollSuppress?: (target: 'viewport' | string) => void
 }
 
-/** Matches docs/page-projection-input.md fileUploadInlineMaxBytes default. */
+/** Matches docs/page-projection/spec/input.md fileUploadInlineMaxBytes default. */
 const INLINE_MAX_BYTES = 256 * 1024
 
 /**

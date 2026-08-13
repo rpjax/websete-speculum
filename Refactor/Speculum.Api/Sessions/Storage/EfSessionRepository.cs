@@ -76,6 +76,14 @@ public sealed class EfSessionRepository : ISessionRepository
         return ids.ToHashSet();
     }
 
+    public async Task<IReadOnlyList<Guid>> ListLiveSessionIdsAsync(CancellationToken ct = default)
+        => await _db.Sessions
+            .AsNoTracking()
+            .Where(s => s.State == LifecycleState.Live)
+            .Select(s => s.Id)
+            .ToListAsync(ct)
+            .ConfigureAwait(false);
+
     public async Task<int> DeleteNonLiveByProfileAsync(Guid profileId, CancellationToken ct = default)
         => await _db.Sessions
             .Where(s => s.ProfileId == profileId && s.State != LifecycleState.Live)

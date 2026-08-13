@@ -32,8 +32,12 @@ function compareStillPair(virtualPng, projectedPng, opts = {}) {
   const { width, height } = v
   const diff = new PNG({ width, height })
   const mismatched = pixelmatch(v.data, p.data, diff.data, width, height, {
-    threshold: 0.1,
+    // Speculum Chrome Virtual vs Playwright iframe Projected: raise threshold slightly
+    // so subpixel font rasterization is not counted as a structural miss.
+    threshold: 0.25,
     includeAA: false,
+    // Only paint mismatches — grayscale “same” pixels must not inflate structural regions.
+    diffMask: true,
   })
   const total = width * height
   const diffPct = total === 0 ? 0 : (mismatched / total) * 100

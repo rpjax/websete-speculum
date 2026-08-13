@@ -60,13 +60,51 @@ export const EMPTY_JOURNAL: JournalFeed = {
 
 type FrameSink = (frame: SessionFrame) => void
 type PageProjectionDiffSink = (diff: PageProjectionDiff) => void
-type PageProjectionLifecycleSink = (notification: SessionNotification) => void
-type PageProjectionDiffEndedSink = (info: { reason: 'wire_stall' }) => void
+
+/** Lab/Live attach for PageProjection lifecycle notifications (V2 surface API). */
+export type PageProjectionLifecycleSink = (notification: SessionNotification) => void
+/** Diff uni-stream EOF while session live → T8 OOB resync. */
+export type PageProjectionDiffEndedSink = (info: { reason: 'wire_stall' }) => void
 
 export type PageProjectionApplierProbe = () => {
   generation: number
   lastSequence: number
   desynced: boolean
+}
+
+/** Opt-in apply/drop/desync/resync/arm hops for front observation ring. */
+export type PageProjectionDiffObserveEvent = {
+  kind: string
+  hop:
+    | 'client_apply'
+    | 'client_drop'
+    | 'client_desync'
+    | 'client_resync_request'
+    | 'client_resync_apply'
+    | 'client_resync_failed'
+    | 'client_arm'
+    | 'client_epoch_arm'
+    | 'client_disarm'
+    | 'client_surface_probe'
+    | 'programmaticSuppress'
+    | `cssom/${string}`
+    | (string & {})
+  reason?: string
+  generation?: number | null
+  sequence?: number | null
+  expectedSequence?: number | null
+  remount?: boolean
+  seeded?: boolean
+  sheetCount?: number
+  ruleCount?: number
+  dropped?: boolean
+  armed?: boolean
+  timestamp?: number | null
+  tClient?: number
+  lagMs?: number | null
+  level?: FrontDebugLogLevel
+  target?: string | null
+  extra?: Record<string, unknown>
 }
 
 export interface FrameCounters {
@@ -128,6 +166,8 @@ export function useSessionObservation({
 
   const sinksRef = useRef(new Set<FrameSink>())
   const domDiffSinksRef = useRef(new Set<PageProjectionDiffSink>())
+  /** Establish can finish before React mounts the V2 sink — replay until first attach. */
+  const preSinkDiffsRef = useRef<PageProjectionDiff[]>([])
   const lifecycleSinksRef = useRef(new Set<PageProjectionLifecycleSink>())
   const diffEndedSinksRef = useRef(new Set<PageProjectionDiffEndedSink>())
   const countersRef = useRef<FrameCounters>(freshCounters())
@@ -221,6 +261,9 @@ export function useSessionObservation({
 
   const attachPageProjectionDiffSink = useCallback((sink: PageProjectionDiffSink) => {
     domDiffSinksRef.current.add(sink)
+    const buffered = preSinkDiffsRef.current
+    preSinkDiffsRef.current = []
+    for (const diff of buffered) sink(diff)
     return () => {
       domDiffSinksRef.current.delete(sink)
     }
@@ -329,41 +372,14 @@ export function useSessionObservation({
     for (const sink of domDiffSinksRef.current) {
       sink(diff)
     }
+    if (domDiffSinksRef.current.size === 0) {
+      // Cap so a detached lab tab cannot retain unbounded establish/live traffic.
+      if (preSinkDiffsRef.current.length < 4096) preSinkDiffsRef.current.push(diff)
+    }
   }, [observationRef, trace])
 
   const observePageProjectionDiffApply = useCallback(
-    (event: {
-      kind: string
-      hop:
-        | 'client_apply'
-        | 'client_drop'
-        | 'client_desync'
-        | 'client_resync_request'
-        | 'client_resync_apply'
-        | 'client_arm'
-        | 'client_epoch_arm'
-        | 'client_disarm'
-        | 'client_surface_probe'
-        | 'programmaticSuppress'
-        | `cssom/${string}`
-        | (string & {})
-      reason?: string
-      generation?: number | null
-      sequence?: number | null
-      expectedSequence?: number | null
-      remount?: boolean
-      seeded?: boolean
-      sheetCount?: number
-      ruleCount?: number
-      dropped?: boolean
-      armed?: boolean
-      timestamp?: number | null
-      tClient?: number
-      lagMs?: number | null
-      level?: FrontDebugLogLevel
-      target?: string | null
-      extra?: Record<string, unknown>
-    }) => {
+    (event: PageProjectionDiffObserveEvent) => {
       if (!observationAllowsPlane(observationRef.current, 'pageProjectionDiff')) {
         return
       }

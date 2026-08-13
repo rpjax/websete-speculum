@@ -1,5 +1,5 @@
 /**
- * Cssom-plane apply — docs/page-projection-engine-redesign.md §5.10, C1-C9.
+ * Cssom-plane apply — docs/page-projection/spec/engine-redesign.md §5.10, C1-C9.
  *
  * Owned CSSOM: every projected stylesheet is a client-created `<style>`
  * mutated through the live `CSSStyleSheet`, never a URL reload (C6). Scope
@@ -9,6 +9,7 @@
  */
 import type { CssomInstallOp, CssomPatchOp, CssomRuleListOp, CssomSheetListOp, CssomSheetWire } from './decode'
 import type { PageProjectionRegistry } from './registry'
+import { stampCssVirtualUrls, type VirtualAuthAppender } from './stampVirtualAuth'
 
 interface OwnedSheet {
   element: HTMLStyleElement
@@ -18,7 +19,7 @@ interface OwnedSheet {
   hostAnchor: number | null
 }
 
-export type CssomDesyncReason = 'address_miss' | 'install_failed'
+export type CssomDesyncReason = 'address_miss' | 'install_failed' | 'cssom_apply_failed'
 export interface CssomDesyncInfo { reason: CssomDesyncReason; op: string; id?: number }
 
 /** Marks the pierce-host element for `@scope` targeting — Projected-side only, never Virtual. */
@@ -30,23 +31,63 @@ export class CssomApplier {
   private readonly doc: Document
   private readonly registry: PageProjectionRegistry
   private readonly onDesync?: (info: CssomDesyncInfo) => void
+  /** Pierce-host sheets deferred until anchors exist in the parsed document. */
+  private pendingPierce: CssomSheetWire[] = []
+  private readonly getStampAuth: () => VirtualAuthAppender | null
 
-  constructor(doc: Document, registry: PageProjectionRegistry, onDesync?: (info: CssomDesyncInfo) => void) {
+  constructor(
+    doc: Document,
+    registry: PageProjectionRegistry,
+    onDesync?: (info: CssomDesyncInfo) => void,
+    getStampAuth?: () => VirtualAuthAppender | null,
+  ) {
     this.doc = doc
     this.registry = registry
     this.onDesync = onDesync
+    this.getStampAuth = getStampAuth ?? (() => null)
+  }
+
+  private stampAuth(): VirtualAuthAppender | null {
+    return this.getStampAuth()
   }
 
   /** `cssomInstall` — MUST be applied before the first establish chunk reaches the parser (D-FLASH). */
   applyInstall(op: CssomInstallOp): boolean {
     this.reset()
+    this.pendingPierce = []
     for (const sheet of op.sheets) {
+      if (sheet.scope === 'pierceHost' && !this.resolvePierceHost(sheet.hostAnchor)) {
+        this.pendingPierce.push(sheet)
+        continue
+      }
       if (!this.installSheet(sheet, null)) {
         this.onDesync?.({ reason: 'install_failed', op: 'cssomInstall', id: sheet.id })
         return false
       }
     }
     return true
+  }
+
+  /**
+   * Retries pierce-host sheets after establish HTML has anchors (registry and/or
+   * `speculum-anchor` in the document). Returns false if any remaining sheet fails.
+   */
+  flushPendingPierce(): boolean {
+    if (this.pendingPierce.length === 0) return true
+    const still: CssomSheetWire[] = []
+    for (const sheet of this.pendingPierce) {
+      if (!this.resolvePierceHost(sheet.hostAnchor)) {
+        still.push(sheet)
+        continue
+      }
+      if (!this.installSheet(sheet, null)) {
+        this.onDesync?.({ reason: 'install_failed', op: 'cssomInstall', id: sheet.id })
+        this.pendingPierce = still
+        return false
+      }
+    }
+    this.pendingPierce = still
+    return still.length === 0
   }
 
   applySheetList(op: CssomSheetListOp): boolean {
@@ -89,7 +130,10 @@ export class CssomApplier {
       owned.ruleIds.splice(idx, 1)
     }
     for (const entry of [...op.added].sort((a, b) => a.index - b.index)) {
-      insertOwnedRule(owned, entry.rule.id, entry.rule.cssText, entry.index)
+      if (!insertOwnedRule(owned, entry.rule.id, entry.rule.cssText, entry.index, this.stampAuth())) {
+        this.onDesync?.({ reason: 'cssom_apply_failed', op: 'cssomRuleList', id: entry.rule.id })
+        return false
+      }
     }
     return true
   }
@@ -130,6 +174,7 @@ export class CssomApplier {
   reset(): void {
     for (const owned of this.owned.values()) owned.element.remove()
     this.owned.clear()
+    this.pendingPierce = []
   }
 
   private installSheet(sheet: CssomSheetWire, index: number | null): boolean {
@@ -154,29 +199,52 @@ export class CssomApplier {
 
     const owned: OwnedSheet = { element, sheet: live, ruleIds: [], scope: sheet.scope, hostAnchor: sheet.hostAnchor }
     this.owned.set(sheet.id, owned)
-    for (const rule of sheet.rules) insertOwnedRule(owned, rule.id, rule.cssText, owned.ruleIds.length)
+    for (const rule of sheet.rules) {
+      if (!insertOwnedRule(owned, rule.id, rule.cssText, owned.ruleIds.length, this.stampAuth())) {
+        element.remove()
+        this.owned.delete(sheet.id)
+        return false
+      }
+    }
     return true
   }
 
   private resolvePierceHost(hostAnchor: number | null): Element | null {
     if (hostAnchor == null) return null
-    const node = this.registry.get(hostAnchor)
-    if (!(node instanceof Element)) return null
+    let node: Element | null = null
+    const registered = this.registry.get(hostAnchor)
+    if (registered instanceof Element) node = registered
+    if (!node) {
+      try {
+        node = this.doc.querySelector(`[speculum-anchor="${hostAnchor}"]`)
+      } catch {
+        node = null
+      }
+    }
+    if (!node) return null
     if (!node.hasAttribute(PIERCE_HOST_ATTR)) node.setAttribute(PIERCE_HOST_ATTR, String(hostAnchor))
     return node
   }
 }
 
-function insertOwnedRule(owned: OwnedSheet, id: number, cssText: string, index: number): void {
+function insertOwnedRule(
+  owned: OwnedSheet,
+  id: number,
+  cssText: string,
+  index: number,
+  stampAuth?: VirtualAuthAppender | null,
+): boolean {
   const at = Math.min(Math.max(index, 0), owned.ruleIds.length)
-  const scoped = owned.scope === 'pierceHost' && owned.hostAnchor != null ? scopeRule(cssText, owned.hostAnchor) : cssText
+  const stamped = stampAuth ? stampCssVirtualUrls(cssText, stampAuth) : cssText
+  const scoped = owned.scope === 'pierceHost' && owned.hostAnchor != null ? scopeRule(stamped, owned.hostAnchor) : stamped
   try {
     owned.sheet.insertRule(scoped, at)
   } catch {
-    // A rejected body must not shift the id ↔ index mapping of its siblings.
-    owned.sheet.insertRule('speculum-unparsed-rule{}', at)
+    // Fail closed — never lie with placeholder rules that inflate ownedRules.
+    return false
   }
   owned.ruleIds.splice(at, 0, id)
+  return true
 }
 
 /** Wraps pierce-scoped author CSS so rules only match under the host subtree (C7). */

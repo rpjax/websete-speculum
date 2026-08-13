@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Scroll fixture</title>
+    <style>
+      body { margin: 0; font-family: system-ui, sans-serif; }
+      #scroller {
+        height: 240px;
+        overflow: auto;
+        border: 2px solid #333;
+        margin: 1rem;
+        background: #fff8f0;
+      }
+      .pad { height: 1200px; padding: 1rem; }
+    </style>
+  </head>
+  <body>
+    <h1 style="margin:1rem">Scroll containers</h1>
+    <div id="scroller">
+      <div class="pad">Tall content for scroll sensors.</div>
+    </div>
+    <script>
+      const scroller = document.getElementById('scroller');
+      let y = 0;
+      setInterval(() => {
+        y = (y + 40) % 900;
+        scroller.scrollTop = y;
+      }, 500);
+    </script>
+  </body>
+</html>

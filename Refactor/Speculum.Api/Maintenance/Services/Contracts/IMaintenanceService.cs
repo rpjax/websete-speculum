@@ -57,4 +57,16 @@ public interface IMaintenanceService
     Task<IResult<MaintenanceDeletionResult>> LabResetAsync(
         LabResetRequest request,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Stops every Live session (ForceStop). Does not delete durable rows — use delete-ended / lab-reset after.
+    /// </summary>
+    Task<IResult<MaintenanceDeletionResult>> StopLiveSessionsAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Stops one Live session (ForceStop) when present. Idempotent for already-ended sessions.
+    /// </summary>
+    Task<IResult<MaintenanceDeletionResult>> StopLiveSessionAsync(
+        Guid sessionId,
+        CancellationToken ct = default);
 }

@@ -82,6 +82,34 @@ public sealed class SessionBindingRegistryTests
     }
 
     [Fact]
+    public void CloseCaller_ReturnsLiveSessionId_WhenPromoted()
+    {
+        var sessionId = Guid.NewGuid();
+        var live = new FakeLiveSession(sessionId);
+        var registry = new SessionBindingRegistry(new FakeLiveSessionService(live));
+        registry.BeginStart("caller", sessionId);
+        Assert.True(registry.TryPromote(
+            "caller",
+            sessionId,
+            Guid.NewGuid(),
+            "token"));
+
+        var closed = registry.CloseCaller("caller");
+
+        Assert.Equal(sessionId, closed);
+        Assert.NotNull(live.DetachedAttachmentId);
+    }
+
+    [Fact]
+    public void CloseCaller_ReturnsNull_WhenStartNotPromoted()
+    {
+        var registry = new SessionBindingRegistry(new FakeLiveSessionService());
+        registry.BeginStart("caller", Guid.NewGuid());
+
+        Assert.Null(registry.CloseCaller("caller"));
+    }
+
+    [Fact]
     public void WebTransportCarrier_OpenClose_RegistersAndClearsOwnership()
     {
         var sessionId = Guid.NewGuid();
@@ -310,6 +338,11 @@ public sealed class SessionBindingRegistryTests
             byte[] body,
             string contentType,
             string name,
+            CancellationToken ct = default)
+            => throw new NotSupportedException();
+
+        public Task<IResult> ReportPageProjectionClientStateAsync(
+            PageProjectionClientStateReport report,
             CancellationToken ct = default)
             => throw new NotSupportedException();
 

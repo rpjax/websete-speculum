@@ -27,7 +27,7 @@ public class SessionsConfiguration
     /// Default matches <c>SequencedDiffChannels.DefaultCapacity</c>.
     /// </summary>
     /// <remarks>
-    /// Obsolete as a load control (<c>docs/page-projection-engine-redesign.md</c> §5.16):
+    /// Obsolete as a load control (<c>docs/page-projection/spec/engine-redesign.md</c> §5.16):
     /// backpressure is now the frame-rate ladder in <see cref="PageProjection"/>, which
     /// never drops a frame. This property is kept only to size the transport queue itself.
     /// </remarks>

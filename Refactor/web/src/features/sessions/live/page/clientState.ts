@@ -1,5 +1,5 @@
 /**
- * Client → server control channel — docs/page-projection-engine-redesign.md §5.9.5.
+ * Client → server control channel — docs/page-projection/spec/engine-redesign.md §5.9.5.
  * A control message, not a diff: it MUST NOT affect `sequence`.
  */
 export interface PageProjectionClientState {

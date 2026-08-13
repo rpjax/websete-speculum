@@ -1,5 +1,5 @@
 /**
- * Dual-run comparison fixture — docs/page-projection-engine-redesign.md §9.
+ * Dual-run comparison fixture — docs/page-projection/spec/engine-redesign.md §9.
  *
  * "Verification during the rewrite: run the old and the new producer against
  * the same page inside the harness and compare outputs node by node. This is

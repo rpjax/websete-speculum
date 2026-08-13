@@ -39,7 +39,12 @@ public interface ISessionBindingRegistry
 
     void UnregisterCarrier(Guid carrierId);
 
-    void CloseCaller(string callerId);
+    /// <summary>
+    /// Removes the caller's binding, detaches presence, and disposes carriers.
+    /// Returns the live session id when the closed entry was promoted (caller must stop it);
+    /// null when absent or still in-flight start.
+    /// </summary>
+    Guid? CloseCaller(string callerId);
 
     void CloseSession(Guid sessionId);
 }

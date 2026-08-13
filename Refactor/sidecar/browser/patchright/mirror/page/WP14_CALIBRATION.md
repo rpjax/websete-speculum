@@ -1,17 +1,19 @@
 # WP14 — Density calibration status
 
-**Status:** Armed gate unblocked (2026-08-12). Live O1/O2/O5 **execute** on V2 but are **not green** → **F8 / §9 V1 deletion blocked**.
+**Status (2026-08-12):** Stack operational. Algorithm path improved (CSSOM W4 events, auth stamp, honest cssomReady, liveAttach ≤600). **Live O1/O2/O5 three-site accept still red** → **F8 V1 file deletion still blocked**. Density baseline remains synthetic until live densify after accept.
 
 | Item | Value |
 |------|-------|
 | `PP-DEN-2` baseline | [page-projection-oracles/artifacts/pp-den-2-baseline.json](../../../page-projection-oracles/artifacts/pp-den-2-baseline.json) (synthetic until live densify) |
-| Live producer | **V2** `LivePageProjection` — closed-shadow+XO pierce, PageEpoch, Frame.Aggregate, mirror/asset knobs, SPA Swap/ClientState/ApplyBudget |
-| Armed gate | **Fixed** — layout waiter, surface attach, NSO runner, cssom-before-head buffer, iframe `instanceof` registry walk, element-only establish checksum, fresh `contentDocument` after `open()` |
-| Live O1 / O2 / O5 | **Partial** — `example.com` **PASS** via `bin/live-one.cjs`. Beleza arms but O1/O2 fail (Virtual often WAF/minimal). Eneba flaky under SignalR timeout after heavy sessions. Three-site exit still red. |
+| Live producer | **V2** `LivePageProjection` — closed-shadow+XO pierce, PageEpoch, Frame.Aggregate, W4 XO CSSOM via `styleSheetAdded`+`getStyleSheetText`, PP-EST-3 handoff, nav-aware settle |
+| Collector / orphans | Hub disconnect **stops** Live; `DetachedSessionTimeout=3s` backstop; admin `stop-live` |
+| Oracles | F-aware O2; `PP-ASSET-3`; hub StopSession teardown; softNav Eneba; patchright Virtual |
+| Live O1 / O2 / O5 | example.com nearly green (O1 structural residual); Eneba paints but O1/O2 red; Beleza egress deny |
 | C5 / W9 / F8 V1 deletion | **Deferred** until live oracles pass on Beleza / Eneba / odds |
 | §5.16 knobs | LaunchRequest + public client-config projection + SurfaceHost/ProjectionClient |
+| `liveAttach.ts` | **596 LOC** orch (≤600) — `cdpLive` / `assetsLive` / `emitLive` / `establishLive` |
 | E6 / E7b / E11 | Revisit after O4 live densify |
-| Follow-ups | W4 XO CSSOM bodies; `liveAttach.ts` LOC split (§9); L2 oracle proof; WP16 doc closure |
+| Follow-ups | Three-site accept; L2 live proof; WP16; E8 gate; density baseline on live N |
 
 ## Recalibration trigger
 

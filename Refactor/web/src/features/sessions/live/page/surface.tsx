@@ -1,5 +1,5 @@
 /**
- * Projected surface host — docs/page-projection-engine-redesign.md §5.8.
+ * Projected surface host — docs/page-projection/spec/engine-redesign.md §5.8.
  *
  * Same-origin iframe, `sandbox` WITHOUT `allow-scripts` (K5 becomes
  * browser-enforced rather than dependent on a deny-list completeness).
@@ -11,7 +11,8 @@
  * builds into the standby one while the current surface stays visible; the
  * swap happens at the first-meaningful-paint threshold — `establishEnd`
  * applied AND `cssomInstall` applied AND the body has a non-empty layout box —
- * or `swapTimeoutMs` elapses, whichever comes first (§5.8.5).
+ * or `swapTimeoutMs` elapses after establishEnd+cssomReady (layout wait only),
+ * whichever comes first (§5.8.5). Never swap without cssomInstall success.
  */
 import type { CSSProperties } from 'react'
 import { forwardRef, useImperativeHandle, useRef, useState } from 'react'
@@ -146,22 +147,34 @@ function buildInto(
   let swapped = false
   let establishEnded = false
   let cssomReady = false
+  let timeoutId: number | null = null
   let resolveSwap: (doc: Document) => void = () => {}
   const swapPromise = new Promise<Document>((resolve) => {
     resolveSwap = resolve
   })
 
-  const timeoutId = window.setTimeout(() => attemptSwap(true), swapTimeoutMs)
+  function clearForceTimer(): void {
+    if (timeoutId != null) {
+      window.clearTimeout(timeoutId)
+      timeoutId = null
+    }
+  }
+
+  /** §5.8.5 — force timer starts only after establishEnd+cssomReady (skips layout wait only). */
+  function armForceTimer(): void {
+    if (timeoutId != null || swapped || cancelled) return
+    if (!(establishEnded && cssomReady)) return
+    timeoutId = window.setTimeout(() => attemptSwap(true), swapTimeoutMs)
+  }
 
   function attemptSwap(force: boolean): void {
     if (swapped || cancelled) return
     const doc = currentDoc()
-    // §5.8.5 — timeout may force swap after establish ends without FMP, but never
-    // promote an empty standby that has not received establishEnd (would arm blank).
-    if (!force && !(establishEnded && cssomReady && hasPaintableBody(doc))) return
-    if (force && !establishEnded) return
+    // Never arm without establishEnd + cssomInstall (unstyled/black).
+    if (!(establishEnded && cssomReady)) return
+    if (!force && !hasPaintableBody(doc)) return
     swapped = true
-    window.clearTimeout(timeoutId)
+    clearForceTimer()
     doSwap()
     onSwap?.(doc)
     resolveSwap(doc)
@@ -184,6 +197,7 @@ function buildInto(
       } catch {
         /* already closed */
       }
+      armForceTimer()
     },
     markEstablishEnd() {
       if (cancelled) return
@@ -195,17 +209,19 @@ function buildInto(
           /* already closed */
         }
       }
+      armForceTimer()
       attemptSwap(false)
     },
     markCssomReady() {
       if (cancelled) return
       cssomReady = true
+      armForceTimer()
       attemptSwap(false)
     },
     swap: () => swapPromise,
     cancel() {
       cancelled = true
-      window.clearTimeout(timeoutId)
+      clearForceTimer()
       try {
         frame.contentDocument?.close()
       } catch {

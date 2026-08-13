@@ -236,11 +236,9 @@ export class Navigation {
           );
           targetUrl = newPage.url();
         } catch {
-          try {
-            targetUrl = newPage.url();
-          } catch {
-            /* gone */
-          }
+          // Stayed about:/chrome: — leave alone. PP-EST-7 checksum uses an ephemeral
+          // about:blank in this context; closing it mid-walk fails establish.
+          return;
         }
         try {
           await newPage.close();
@@ -280,17 +278,28 @@ export class Navigation {
     const scriptMap = new Map(storedScripts.map((s) => [s.file, s] as const));
     const hasScripts = storedScripts.length > 0;
     const hasGuard = !!allowedNavigationDomains && allowedNavigationDomains.length > 0;
+    // Prefer Page.setBypassCSP so producer / injected scripts run without rewriting
+    // every main-frame HTML Document (Fetch.fulfillRequest fingerprints WAFs).
+    await cdp.send('Page.enable', {});
+    try {
+      await cdp.send('Page.setBypassCSP', { enabled: true });
+    } catch {
+      /* older Chromium — Fetch mutate path below still covers script tags when needed */
+    }
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const patterns: any[] = [];
     for (const s of storedScripts) {
       patterns.push({ requestStage: 'Request', urlPattern: `*${s.file}*` });
     }
     if (hasGuard) patterns.push({ requestStage: 'Request', resourceType: 'Document' });
-    // Always rewrite main-frame HTML CSP; inject only rule-matching scripts.
-    patterns.push({ requestStage: 'Response', resourceType: 'Document' });
+    // Document Response mutate only when stored script tags must be injected into HTML.
+    // CSP meta/header rewrite is unnecessary when setBypassCSP succeeded.
+    if (hasScripts) {
+      patterns.push({ requestStage: 'Response', resourceType: 'Document' });
+    }
     if (patterns.length === 0) return;
 
-    await cdp.send('Page.enable', {});
     await cdp.send('Fetch.enable', { patterns });
 
     try {
@@ -343,22 +352,25 @@ export class Navigation {
           return;
         }
         try {
+          const documentUrl = new URL(url);
+          const matchedScripts = scripts.filter((script) => scriptMatchesUrl(script, documentUrl));
+          if (matchedScripts.length === 0) {
+            await cdp.send('Fetch.continueResponse', { requestId });
+            return;
+          }
           const { body, base64Encoded } = await cdp.send('Fetch.getResponseBody', { requestId });
           const html = base64Encoded
             ? Buffer.from(body as string, 'base64').toString('utf-8')
             : (body as string);
-          const documentUrl = new URL(url);
-          const matchedScripts = scripts.filter((script) => scriptMatchesUrl(script, documentUrl));
-          const withTags = matchedScripts.length > 0
-            ? injectScriptTags(html, matchedScripts)
-            : html;
-          const patched = injectPermissiveMainFrameCsp(withTags);
-          const headers = relaxMainFrameCspHeaders(
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (responseHeaders as any[] ?? []).filter(
-              (h: any) => !['content-encoding', 'content-length'].includes(h.name.toLowerCase()),
-            ),
-          );
+          const patched = injectScriptTags(html, matchedScripts);
+          // Keep origin CSP headers when bypass is on; only strip encoding/length for body rewrite.
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const headers = ((responseHeaders as any[] ?? []) as Array<{ name?: string; value?: string }>)
+            .filter((h) => {
+              const n = (h.name ?? '').toLowerCase();
+              return n && n !== 'content-encoding' && n !== 'content-length';
+            })
+            .map((h) => ({ name: h.name!.trim(), value: h.value ?? '' }));
           await cdp.send('Fetch.fulfillRequest', {
             requestId,
             responseCode: responseStatusCode,

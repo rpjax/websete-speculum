@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Threading.Channels;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.Extensions.Logging;
 using Speculum.Api.Configurations.Services.Contracts;
 using Speculum.Api.Journal.Services.Contracts;
 using Speculum.Api.Presentation.Journal;
@@ -16,7 +17,9 @@ namespace Speculum.Api.Presentation.Sessions;
 /// <summary>
 /// SignalR control plane for live sessions: RPCs plus the Journal observation stream.
 /// Data streams (frames, user input, console) use the data-plane carrier (/vtransport or /vstream).
-/// StartSession attaches the hub client before return (detached timeout holds while attached).
+/// StartSession attaches the hub client before return. Control-plane disconnect stops the
+/// live session immediately (<see cref="StopReason.Disconnected"/>); DetachedSessionTimeout
+/// remains the backstop when presence drops without a hub close.
 /// </summary>
 public sealed class SessionHub : Hub<ISessionHubClient>
 {
@@ -26,6 +29,7 @@ public sealed class SessionHub : Hub<ISessionHubClient>
     private readonly ISessionBindingRegistry _bindings;
     private readonly IProfileService _profiles;
     private readonly IJournalLiveFeed _journalFeed;
+    private readonly ILogger<SessionHub> _logger;
 
     public SessionHub(
         ISessionService sessions,
@@ -33,7 +37,8 @@ public sealed class SessionHub : Hub<ISessionHubClient>
         IConfigurationService configuration,
         ISessionBindingRegistry bindings,
         IProfileService profiles,
-        IJournalLiveFeed journalFeed)
+        IJournalLiveFeed journalFeed,
+        ILogger<SessionHub> logger)
     {
         _sessions = sessions;
         _liveSessions = liveSessions;
@@ -41,6 +46,7 @@ public sealed class SessionHub : Hub<ISessionHubClient>
         _bindings = bindings;
         _profiles = profiles;
         _journalFeed = journalFeed;
+        _logger = logger;
     }
 
     /// <summary>
@@ -242,7 +248,27 @@ public sealed class SessionHub : Hub<ISessionHubClient>
 
     public override async Task OnDisconnectedAsync(Exception? exception)
     {
-        _bindings.CloseCaller(Context.ConnectionId);
-        await base.OnDisconnectedAsync(exception);
+        var liveSessionId = _bindings.CloseCaller(Context.ConnectionId);
+        if (liveSessionId is Guid sessionId)
+        {
+            // Do not wait on Context.ConnectionAborted — disconnect already cancelled it.
+            var stop = await _sessions.StopSessionAsync(
+                    new StopSession
+                    {
+                        SessionId = sessionId,
+                        Reason = StopReason.Disconnected,
+                    },
+                    CancellationToken.None)
+                .ConfigureAwait(false);
+            if (stop.IsFailure)
+            {
+                _logger.LogWarning(
+                    "Hub disconnect stop for session {SessionId} failed: {Errors}",
+                    sessionId,
+                    string.Join("; ", stop.Errors.Select(static e => e.Message)));
+            }
+        }
+
+        await base.OnDisconnectedAsync(exception).ConfigureAwait(false);
     }
 }

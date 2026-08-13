@@ -356,19 +356,53 @@ class PatchrightBrowserSession {
             logicalHeight: dims.height,
         });
         const { cdp, context } = this.chrome;
-        await cdp.send('Emulation.setLocaleOverride', { locale: options.locale });
-        await cdp.send('Emulation.setTimezoneOverride', { timezoneId: options.timeZoneId });
+        // Pool launch may already have stamped locale/timezone (generic en-US/UTC). Clear
+        // before re-applying the session's values — CDP rejects a second override otherwise.
+        try {
+            await cdp.send('Emulation.setLocaleOverride', { locale: '' });
+        }
+        catch {
+            /* already clear / unsupported */
+        }
+        try {
+            await cdp.send('Emulation.setLocaleOverride', { locale: options.locale });
+        }
+        catch {
+            /* Accept-Language header below still carries language */
+        }
+        try {
+            await cdp.send('Emulation.setTimezoneOverride', { timezoneId: '' });
+        }
+        catch {
+            /* already clear */
+        }
+        try {
+            await cdp.send('Emulation.setTimezoneOverride', { timezoneId: options.timeZoneId });
+        }
+        catch {
+            /* keep pool default if CDP still blocks */
+        }
         if (options.colorScheme === 'light' || options.colorScheme === 'dark') {
-            await cdp.send('Emulation.setEmulatedMedia', {
-                features: [{ name: 'prefers-color-scheme', value: options.colorScheme }],
-            });
+            try {
+                await cdp.send('Emulation.setEmulatedMedia', {
+                    features: [{ name: 'prefers-color-scheme', value: options.colorScheme }],
+                });
+            }
+            catch {
+                /* optional */
+            }
         }
         if (options.geolocation) {
-            await cdp.send('Emulation.setGeolocationOverride', {
-                latitude: options.geolocation.latitude,
-                longitude: options.geolocation.longitude,
-                accuracy: options.geolocation.accuracy,
-            });
+            try {
+                await cdp.send('Emulation.setGeolocationOverride', {
+                    latitude: options.geolocation.latitude,
+                    longitude: options.geolocation.longitude,
+                    accuracy: options.geolocation.accuracy,
+                });
+            }
+            catch {
+                /* optional */
+            }
         }
         await context.setExtraHTTPHeaders({ 'Accept-Language': options.language });
     }
@@ -889,6 +923,12 @@ class PatchrightBrowserSession {
             lookup = key.startsWith('_blob/') ? key : `_blob/${key}`;
         else if (kind === 'data')
             lookup = key.startsWith('_data/') ? key : `_data/${key}`;
+        else if (kind === '' || kind === 'asset') {
+            // Align with DomAssetEndpoints serve key (`host/path?q`, no /w7s/virtual-assets/).
+            const prefix = '/w7s/virtual-assets/';
+            if (lookup.startsWith(prefix))
+                lookup = lookup.slice(prefix.length);
+        }
         // §5.12.2 — only a plain "asset" fetch (never blob/data, which are session-synthesized,
         // never origin subresources) is ever eligible for the API's SharedAssetCacheL2 tier.
         const isAssetKind = kind === '' || kind === 'asset';

@@ -8,7 +8,7 @@ const mockConfig: ClientConfig = {
   nsoParamName: '_w7s_nso',
   navigation: { defaultTargetHost: 'www.example.com' },
   sessions: {
-    detachedSessionTimeoutSeconds: 300,
+    detachedSessionTimeoutSeconds: 3,
     dataStreamTransport: 'webTransport',
     mirrorMode: 'videoStreaming',
     viewportPolicy: {

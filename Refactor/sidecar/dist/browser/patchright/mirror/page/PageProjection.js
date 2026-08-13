@@ -16,6 +16,7 @@ class PageProjectionEngine {
     mirror = new mirror_1.NodeMirror();
     rewriter;
     cssom = new cssom_1.CssomCoalescer();
+    /** §5.6.6 — live WireOp frames buffered across establish (PP-EST-3). */
     handoff = (0, establish_1.createEstablishHandoff)();
     frame;
     clock;
@@ -89,6 +90,47 @@ class PageProjectionEngine {
         this.opts.events.onGenerationBumped?.({ fromGeneration, toGeneration: this.generation });
         return this.generation;
     }
+    /** §5.6.6.a — open handoff before the establish walk; live ticks accumulate until drain. */
+    beginEstablishHandoff() {
+        (0, establish_1.openEstablishEpoch)(this.handoff);
+    }
+    /** §5.6.6.b — walk snapshot captured; frames keep accumulating until establishEnd. */
+    markEstablishSnapshot() {
+        (0, establish_1.markSnapshotTaken)(this.handoff);
+    }
+    /**
+     * §5.6.6.c — after establishEnd is on the wire, emit buffered frames in order
+     * (declarative childList / full patch — safe over the snapshot).
+     */
+    flushEstablishHandoff() {
+        const frames = (0, establish_1.drainForEmitAfterEnd)(this.handoff);
+        for (const ops of frames) {
+            const domOps = ops.filter((op) => op.op === 'childList' || op.op === 'patch' || op.op === 'scrollViewport' || op.op === 'scrollElement');
+            this.mirror.applyFrame(domOps);
+            this.sequence += 1;
+            const meta = { generation: this.generation, sequence: this.sequence };
+            const parts = (0, encode_1.encodeFrame)(ops, meta, this.opts.maxFrameBytes);
+            (0, channel_1.pushFrameParts)(this.opts.channel, parts);
+            this.opts.events.onFrame(parts, meta);
+        }
+    }
+    /**
+     * §5.10 — full `cssomInstall` supersedes any CSSOM ops buffered during settle.
+     * DOM/scroll frames stay queued for PP-EST-3 drain.
+     */
+    dropBufferedCssomFromHandoff() {
+        if (this.handoff.phase !== 'accumulate' && this.handoff.phase !== 'snapshot')
+            return;
+        this.handoff.pendingFrames = this.handoff.pendingFrames
+            .map((ops) => ops.filter((op) => op.op !== 'cssomInstall'
+            && op.op !== 'cssomSheetList'
+            && op.op !== 'cssomRuleList'
+            && op.op !== 'cssomPatch'))
+            .filter((ops) => ops.length > 0);
+    }
+    get establishHandoffOpen() {
+        return this.handoff.phase === 'accumulate' || this.handoff.phase === 'snapshot';
+    }
     onClockTick() {
         const domOps = this.frame.flush();
         const cssomOps = this.cssom.isEmpty ? [] : this.cssom.flush();
@@ -97,6 +139,10 @@ class PageProjectionEngine {
         if (domOps === null && cssomOps.length === 0 && documentStateOp === null)
             return; // PP-FR-4 — no ops, no sequence.
         const ops = [...(domOps ?? []), ...cssomOps, ...(documentStateOp ? [documentStateOp] : [])];
+        if ((0, establish_1.accumulateDuringEstablish)(this.handoff, ops)) {
+            // PP-EST-3 — do not emit or mutate the establish mirror until after establishEnd.
+            return;
+        }
         this.mirror.applyFrame(domOps ?? []);
         this.sequence += 1;
         const meta = { generation: this.generation, sequence: this.sequence };

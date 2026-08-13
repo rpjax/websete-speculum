@@ -199,3 +199,97 @@ describe('applyDocumentState (§5.2.6)', () => {
     expect(doc.querySelector('meta[name="viewport"]')).toBeNull()
   })
 })
+
+describe('DomFrameApplier — §5.2.1 dialog / popover (PP-D16)', () => {
+  it('opens a dialog as modal from speculum-dialog-modal on patch', () => {
+    const registry = new PageProjectionRegistry()
+    const parent = document.createElement('div')
+    const dialog = document.createElement('dialog')
+    parent.appendChild(dialog)
+    document.body.appendChild(parent)
+    registry.register(1, parent)
+    registry.register(2, dialog)
+
+    const showModal = vi.fn(function (this: HTMLDialogElement) {
+      Object.defineProperty(this, 'open', { configurable: true, get: () => true })
+    })
+    Object.defineProperty(dialog, 'showModal', { configurable: true, value: showModal })
+    Object.defineProperty(dialog, 'close', {
+      configurable: true,
+      value: vi.fn(function (this: HTMLDialogElement) {
+        Object.defineProperty(this, 'open', { configurable: true, get: () => false })
+      }),
+    })
+    Object.defineProperty(dialog, 'open', { configurable: true, get: () => false })
+
+    const applier = new DomFrameApplier(document, registry)
+    applier.enqueue(
+      frameOf([
+        {
+          op: 'patch',
+          node: 2,
+          snapshot: {
+            kind: 'element',
+            tag: 'dialog',
+            attrs: { 'speculum-dialog-modal': 'true' },
+          },
+        },
+      ]),
+    )
+    applier.flush()
+
+    expect(showModal).toHaveBeenCalled()
+    parent.remove()
+  })
+
+  it('toggles popover via speculum-popover-open on patch', () => {
+    const registry = new PageProjectionRegistry()
+    const parent = document.createElement('div')
+    const host = document.createElement('div')
+    parent.appendChild(host)
+    document.body.appendChild(parent)
+    registry.register(1, parent)
+    registry.register(2, host)
+
+    const showPopover = vi.fn()
+    const hidePopover = vi.fn()
+    Object.assign(host, { showPopover, hidePopover })
+
+    const applier = new DomFrameApplier(document, registry)
+    applier.enqueue(
+      frameOf([
+        {
+          op: 'patch',
+          node: 2,
+          snapshot: {
+            kind: 'element',
+            tag: 'div',
+            attrs: { 'speculum-popover-open': 'true' },
+          },
+        },
+      ]),
+    )
+    applier.flush()
+    expect(showPopover).toHaveBeenCalled()
+
+    applier.enqueue(
+      frameOf(
+        [
+          {
+            op: 'patch',
+            node: 2,
+            snapshot: {
+              kind: 'element',
+              tag: 'div',
+              attrs: { 'speculum-popover-open': 'false' },
+            },
+          },
+        ],
+        2,
+      ),
+    )
+    applier.flush()
+    expect(hidePopover).toHaveBeenCalled()
+    parent.remove()
+  })
+})

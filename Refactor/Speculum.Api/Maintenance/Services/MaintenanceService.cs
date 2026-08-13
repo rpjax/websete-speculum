@@ -9,6 +9,7 @@ using Speculum.Api.Maintenance.Services.Contracts;
 using Speculum.Api.Profiles.Retention;
 using Speculum.Api.Profiles.Services.Contracts;
 using Speculum.Api.Sessions.Models;
+using Speculum.Api.Sessions.Requests;
 using Speculum.Api.Sessions.Services.Contracts;
 
 namespace Speculum.Api.Maintenance.Services;
@@ -23,6 +24,7 @@ public sealed class MaintenanceService : IMaintenanceService
 {
     private readonly SpeculumDbContext _db;
     private readonly ISessionRepository _sessions;
+    private readonly ISessionService _sessionLifecycle;
     private readonly IJournalRepository _journal;
     private readonly IProfileRepository _profiles;
     private readonly ILogger<MaintenanceService> _logger;
@@ -30,12 +32,14 @@ public sealed class MaintenanceService : IMaintenanceService
     public MaintenanceService(
         SpeculumDbContext db,
         ISessionRepository sessions,
+        ISessionService sessionLifecycle,
         IJournalRepository journal,
         IProfileRepository profiles,
         ILogger<MaintenanceService> logger)
     {
         _db = db ?? throw new ArgumentNullException(nameof(db));
         _sessions = sessions ?? throw new ArgumentNullException(nameof(sessions));
+        _sessionLifecycle = sessionLifecycle ?? throw new ArgumentNullException(nameof(sessionLifecycle));
         _journal = journal ?? throw new ArgumentNullException(nameof(journal));
         _profiles = profiles ?? throw new ArgumentNullException(nameof(profiles));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -50,6 +54,7 @@ public sealed class MaintenanceService : IMaintenanceService
             .CountIndependentFactsAsync(type: null, olderThan: null, ct)
             .ConfigureAwait(false);
         var live = await _sessions.ListLiveProfileIdsAsync(ct).ConfigureAwait(false);
+        var liveSessionIds = await _sessions.ListLiveSessionIdsAsync(ct).ConfigureAwait(false);
 
         var idleCandidates = await _profiles.ListExpiredInactiveAsync(
                 DateTimeOffset.UtcNow - TimeSpan.FromDays(1),
@@ -61,6 +66,7 @@ public sealed class MaintenanceService : IMaintenanceService
         return Result<MaintenanceSummary>.Success(new MaintenanceSummary
         {
             EndedSessionsCount = endedSessionIds.Count,
+            LiveSessionsCount = liveSessionIds.Count,
             IndependentJournalFactsCount = independentFacts,
             InactiveProfilesCount = idleCandidates.Count,
         });
@@ -244,6 +250,48 @@ public sealed class MaintenanceService : IMaintenanceService
             ResourceSignalsDeleted = signalsDeleted,
             ResourceReportsDeleted = reportsDeleted,
             VacuumRan = true,
+        });
+    }
+
+    public async Task<IResult<MaintenanceDeletionResult>> StopLiveSessionsAsync(
+        CancellationToken ct = default)
+    {
+        var stop = await _sessionLifecycle
+            .StopAllLiveSessionsAsync(StopReason.ForceStop, ct)
+            .ConfigureAwait(false);
+        if (stop.IsFailure)
+        {
+            return Result<MaintenanceDeletionResult>.Failure(stop.Errors.ToArray());
+        }
+
+        _logger.LogWarning("Maintenance stopped {Count} live session(s).", stop.Value);
+        return Result<MaintenanceDeletionResult>.Success(new MaintenanceDeletionResult
+        {
+            SessionsStopped = stop.Value,
+        });
+    }
+
+    public async Task<IResult<MaintenanceDeletionResult>> StopLiveSessionAsync(
+        Guid sessionId,
+        CancellationToken ct = default)
+    {
+        var stop = await _sessionLifecycle
+            .StopSessionAsync(
+                new StopSession
+                {
+                    SessionId = sessionId,
+                    Reason = StopReason.ForceStop,
+                },
+                ct)
+            .ConfigureAwait(false);
+        if (stop.IsFailure)
+        {
+            return Result<MaintenanceDeletionResult>.Failure(stop.Errors.ToArray());
+        }
+
+        return Result<MaintenanceDeletionResult>.Success(new MaintenanceDeletionResult
+        {
+            SessionsStopped = 1,
         });
     }
 }

@@ -417,5 +417,10 @@ public sealed class DiffRecoveryTests
             string name,
             CancellationToken ct = default)
             => throw new NotSupportedException();
+
+        public Task<IResult> ReportPageProjectionClientStateAsync(
+            PageProjectionClientStateReport report,
+            CancellationToken ct = default)
+            => throw new NotSupportedException();
     }
 }

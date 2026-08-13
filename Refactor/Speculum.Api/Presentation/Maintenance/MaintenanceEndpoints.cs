@@ -75,6 +75,27 @@ public static class MaintenanceEndpoints
                 : Results.BadRequest(new { error = result.Errors.FirstOrDefault()?.ToString() ?? "Delete failed" });
         }).WithTags("Maintenance");
 
+        endpoints.MapPost("/api/admin/maintenance/sessions/stop-live", async (
+            IMaintenanceService maintenance,
+            CancellationToken ct) =>
+        {
+            var result = await maintenance.StopLiveSessionsAsync(ct).ConfigureAwait(false);
+            return result.IsSuccess
+                ? Results.Ok(result.Value)
+                : Results.BadRequest(new { error = result.Errors.FirstOrDefault()?.ToString() ?? "Stop live failed" });
+        }).WithTags("Maintenance");
+
+        endpoints.MapPost("/api/admin/maintenance/sessions/{sessionId:guid}/stop", async (
+            Guid sessionId,
+            IMaintenanceService maintenance,
+            CancellationToken ct) =>
+        {
+            var result = await maintenance.StopLiveSessionAsync(sessionId, ct).ConfigureAwait(false);
+            return result.IsSuccess
+                ? Results.Ok(result.Value)
+                : Results.BadRequest(new { error = result.Errors.FirstOrDefault()?.ToString() ?? "Stop session failed" });
+        }).WithTags("Maintenance");
+
         endpoints.MapPost("/api/admin/maintenance/lab-reset", async (
             LabResetRequest? body,
             IMaintenanceService maintenance,

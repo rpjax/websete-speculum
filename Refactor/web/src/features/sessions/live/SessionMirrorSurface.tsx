@@ -10,7 +10,6 @@ import {
   type PageProjectionClientKnobs,
 } from '@/lib/clientConfig'
 import type { CanvasSize } from './CanvasViewportSync'
-import { DomProjector, type DomProjectorProps } from './dom/DomProjector'
 import { SessionViewport, type SessionViewportProps } from './SessionViewport'
 import { SurfaceHost, type SurfaceHostHandle } from './page/surface'
 import { ProjectionClient } from './page/ProjectionClient'
@@ -18,9 +17,15 @@ import type { PageProjectionClientState } from './page/clientState'
 import { useMeasureHostSync } from './useMeasureHostSync'
 import { measureCanvasElement } from './CanvasViewportSync'
 import type { SessionViewportBounds } from './sessionViewportPolicy'
+import type {
+  PageProjectionApplierProbe,
+  PageProjectionDiffEndedSink,
+  PageProjectionDiffObserveEvent,
+  PageProjectionLifecycleSink,
+} from './sessionObservation'
 
 /**
- * Redesigned engine (docs/page-projection-engine-redesign.md) — live V2 path.
+ * Redesigned engine (docs/page-projection/spec/engine-redesign.md) — live V2 path.
  * Binary §5.5 diffs → `ProjectionClient.ingest`. OOB resync returns length-prefixed
  * binary parts (§5.7.2) — never a JSON→binary adapter (AGENTS.md ad-hoc ban).
  */
@@ -37,16 +42,16 @@ export type SessionMirrorSurfaceProps = Omit<SessionViewportProps, 'attachFrameS
   assetBaseUrl?: string
   attachFrameSink: (sink: (frame: SessionFrame) => void) => () => void
   attachPageProjectionDiffSink: (sink: (diff: PageProjectionDiff) => void) => () => void
-  attachPageProjectionLifecycleSink?: DomProjectorProps['attachPageProjectionLifecycleSink']
-  attachPageProjectionDiffEndedSink?: DomProjectorProps['attachPageProjectionDiffEndedSink']
+  attachPageProjectionLifecycleSink?: (
+    sink: PageProjectionLifecycleSink,
+  ) => () => void
+  attachPageProjectionDiffEndedSink?: (
+    sink: PageProjectionDiffEndedSink,
+  ) => () => void
   onInput: (input: SessionInput) => void
   onDomInput: (input: PageProjectionIntent) => void
-  onDiffObserve?: DomProjectorProps['onDiffObserve']
-  registerApplierProbe?: DomProjectorProps['registerApplierProbe']
-  /**
-   * Cutover switch. Default `'v2'`. Removed with §9 V1 deletion (F8).
-   */
-  engine?: 'v1' | 'v2'
+  onDiffObserve?: (event: PageProjectionDiffObserveEvent) => void
+  registerApplierProbe?: (probe: PageProjectionApplierProbe | null) => void
   /** Optional override; otherwise loaded from public client-config PageProjection knobs. */
   pageProjectionKnobs?: PageProjectionClientKnobs
 }
@@ -85,9 +90,11 @@ interface PageProjectionV2SurfaceProps {
   token: string | null
   assetBaseUrl?: string
   attachPageProjectionDiffSink: (sink: (diff: PageProjectionDiff) => void) => () => void
-  attachPageProjectionDiffEndedSink?: DomProjectorProps['attachPageProjectionDiffEndedSink']
+  attachPageProjectionDiffEndedSink?: (
+    sink: PageProjectionDiffEndedSink,
+  ) => () => void
   onDomInput: (input: PageProjectionIntent) => void
-  onDiffObserve?: DomProjectorProps['onDiffObserve']
+  onDiffObserve?: (event: PageProjectionDiffObserveEvent) => void
   knobs?: PageProjectionClientKnobs
   requestRemoteResize?: SessionViewportProps['requestRemoteResize']
   viewportPolicy?: SessionViewportBounds
@@ -198,10 +205,45 @@ function PageProjectionV2Surface({
   }, [knobsProp])
 
   const runOobResync = async (reason: string, generation: number) => {
-    const { sessionId: sid, token: tok, assetBaseUrl: baseUrl } = sessionRef.current
-    if (!sid || !tok) return
     const attempt = ++resyncAttemptRef.current
     const expected = lastSequenceRef.current
+    let sid = sessionRef.current.sessionId
+    let tok = sessionRef.current.token
+    let baseUrl = sessionRef.current.assetBaseUrl
+    if (!sid || !tok) {
+      onDiffObserveRef.current?.({
+        kind: 'pageProjection',
+        hop: 'client_resync_failed',
+        reason: 'auth_token_missing',
+        generation,
+        expectedSequence: expected,
+        tClient: performance.now(),
+        level: 'warn',
+        extra: { phase: 'wait_binding', priorReason: reason },
+      })
+      const deadline = Date.now() + 5_000
+      while (Date.now() < deadline) {
+        await new Promise((r) => window.setTimeout(r, 50))
+        if (attempt !== resyncAttemptRef.current) return
+        sid = sessionRef.current.sessionId
+        tok = sessionRef.current.token
+        baseUrl = sessionRef.current.assetBaseUrl
+        if (sid && tok) break
+      }
+      if (!sid || !tok) {
+        onDiffObserveRef.current?.({
+          kind: 'pageProjection',
+          hop: 'client_resync_failed',
+          reason: 'auth_token_missing',
+          generation,
+          expectedSequence: expected,
+          tClient: performance.now(),
+          level: 'warn',
+          extra: { phase: 'binding_timeout', priorReason: reason },
+        })
+        return
+      }
+    }
     onDiffObserveRef.current?.({
       kind: 'pageProjection',
       hop: 'client_resync_request',
@@ -326,6 +368,10 @@ function PageProjectionV2Surface({
       sessionId: sessionRef.current.sessionId,
       token: sessionRef.current.token,
       assetBaseUrl: sessionRef.current.assetBaseUrl,
+      getSessionId: () => sessionRef.current.sessionId,
+      getToken: () => sessionRef.current.token,
+      getAssetBaseUrl: () =>
+        sessionRef.current.assetBaseUrl?.replace(/\/$/, '') || window.location.origin,
       onDesync: (reason, generation) => {
         onDiffObserveRef.current?.({
           kind: 'pageProjection',
@@ -373,6 +419,29 @@ function PageProjectionV2Surface({
     })
   }, [attachPageProjectionDiffEndedSink])
 
+  // Heavy establishes can finish before the data-stream sink is attached (or be
+  // DropAll'd). If FMP never arms, request OOB resync from the mirror once.
+  useEffect(() => {
+    if (!sessionId) return
+    const timer = window.setTimeout(() => {
+      const host = hostRef.current
+      const armed =
+        host?.getAttribute('data-speculum-armed') === 'true' ||
+        Boolean(host?.querySelector('[data-speculum-armed="true"]'))
+      if (armed) return
+      onDiffObserveRef.current?.({
+        kind: 'pageProjection',
+        hop: 'client_desync',
+        reason: 'establish_miss',
+        dropped: true,
+        tClient: performance.now(),
+        level: 'warn',
+      })
+      requestResync('establish_miss', 1)
+    }, Math.max(20_000, knobs.swapTimeoutMs * 8))
+    return () => window.clearTimeout(timer)
+  }, [sessionId, knobs.swapTimeoutMs])
+
   return (
     <div ref={hostRef} className={className} style={{ position: 'relative', width: '100%', height: '100%' }}>
       <SurfaceHost
@@ -399,20 +468,17 @@ export function SessionMirrorSurface({
   assetBaseUrl,
   attachFrameSink,
   attachPageProjectionDiffSink,
-  attachPageProjectionLifecycleSink,
   attachPageProjectionDiffEndedSink,
   onInput,
   onDomInput,
   onDiffObserve,
-  registerApplierProbe,
-  engine = 'v2',
   pageProjectionKnobs,
   className,
   ...viewportProps
 }: SessionMirrorSurfaceProps) {
   const hostClass = cn(SESSION_MEASURE_HOST_CLASS, className)
 
-  if (mirrorMode === 'pageProjection' && engine === 'v2') {
+  if (mirrorMode === 'pageProjection') {
     return (
       <PageProjectionV2Surface
         width={viewportProps.width}
@@ -431,32 +497,6 @@ export function SessionMirrorSurface({
         viewportPolicy={viewportProps.viewportPolicy}
         onCanvasLayout={viewportProps.onCanvasLayout}
         onRemoteViewportApplied={viewportProps.onRemoteViewportApplied}
-      />
-    )
-  }
-
-  if (mirrorMode === 'pageProjection') {
-    return (
-      <DomProjector
-        width={viewportProps.width}
-        height={viewportProps.height}
-        live={viewportProps.live}
-        sessionId={sessionId}
-        token={token}
-        assetBaseUrl={assetBaseUrl}
-        attachPageProjectionDiffSink={attachPageProjectionDiffSink}
-        attachPageProjectionLifecycleSink={attachPageProjectionLifecycleSink}
-        attachPageProjectionDiffEndedSink={attachPageProjectionDiffEndedSink}
-        onDomInput={onDomInput}
-        onDiffObserve={onDiffObserve}
-        registerApplierProbe={registerApplierProbe}
-        requestRemoteResize={viewportProps.requestRemoteResize}
-        viewportPolicy={viewportProps.viewportPolicy}
-        onCanvasLayout={viewportProps.onCanvasLayout}
-        onRemoteViewportApplied={viewportProps.onRemoteViewportApplied}
-        presentation={viewportProps.presentation}
-        className={hostClass}
-        label={viewportProps.label}
       />
     )
   }

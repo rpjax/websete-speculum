@@ -4,7 +4,7 @@
 scheme (§5.1) as the default and only implementation. This file is the evidence record required
 before WP15 can be revisited; it does not commit to anything.
 
-Canon: [`docs/page-projection-engine-redesign.md`](../../../../../../docs/page-projection-engine-redesign.md)
+Canon: [`docs/page-projection/spec/engine-redesign.md`](../../../../../../docs/page-projection/spec/engine-redesign.md)
 §10 (WP15) and §12 (Q-series decisions). Per the redesign, WP15 is **"a spike, not a commitment"** —
 relocating work does not by itself reduce host CPU; at 100 concurrent sessions the total host cost is
 what binds, so a change is only worth adopting if it *reduces total work*, not merely moves it off the

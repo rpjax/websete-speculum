@@ -14,5 +14,11 @@
     "sourceMap": true
   },
   "include": ["./**/*.ts"],
-  "exclude": ["node_modules", "dist"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    "browser/mirror/projection/virtual",
+    "browser/mirror/projection/lab/client",
+    "browser/mirror/projection/client"
+  ]
 }

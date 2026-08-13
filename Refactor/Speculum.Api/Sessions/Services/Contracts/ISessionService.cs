@@ -1,4 +1,5 @@
 using Aidan.Core.Patterns;
+using Speculum.Api.Sessions.Models;
 using Speculum.Api.Sessions.Requests;
 using Speculum.Api.Sessions.Responses;
 
@@ -35,5 +36,13 @@ public interface ISessionService
     /// </summary>
     Task<IResult> StopSessionAsync(
         StopSession request,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Stops every Live session (runtime snapshots ∪ durable Live rows).
+    /// Best-effort per id; returns how many stop attempts succeeded.
+    /// </summary>
+    Task<IResult<int>> StopAllLiveSessionsAsync(
+        StopReason reason,
         CancellationToken ct = default);
 }

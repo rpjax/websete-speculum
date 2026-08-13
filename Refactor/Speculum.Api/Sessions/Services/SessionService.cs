@@ -416,6 +416,42 @@ public sealed class SessionService : ISessionService
         }
     }
 
+    public async Task<IResult<int>> StopAllLiveSessionsAsync(
+        StopReason reason,
+        CancellationToken ct = default)
+    {
+        var ids = new HashSet<Guid>();
+        foreach (var snap in _liveSessions.ListSnapshots())
+        {
+            ids.Add(snap.SessionId);
+        }
+
+        foreach (var id in await _sessions.ListLiveSessionIdsAsync(ct).ConfigureAwait(false))
+        {
+            ids.Add(id);
+        }
+
+        var stopped = 0;
+        foreach (var sessionId in ids)
+        {
+            ct.ThrowIfCancellationRequested();
+            var stop = await StopSessionAsync(
+                    new StopSession
+                    {
+                        SessionId = sessionId,
+                        Reason = reason,
+                    },
+                    ct)
+                .ConfigureAwait(false);
+            if (stop.IsSuccess)
+            {
+                stopped++;
+            }
+        }
+
+        return Result<int>.Success(stopped);
+    }
+
     private async Task<IResult<StartSessionResponse>> AbortStartAsync(
         string callerId,
         Guid sessionId,

@@ -17,6 +17,9 @@ public interface ISessionRepository
     /// <summary>Distinct profile ids that currently have at least one Live session row.</summary>
     Task<IReadOnlySet<Guid>> ListLiveProfileIdsAsync(CancellationToken ct = default);
 
+    /// <summary>Ids of every durable session row currently in Live state.</summary>
+    Task<IReadOnlyList<Guid>> ListLiveSessionIdsAsync(CancellationToken ct = default);
+
     /// <summary>Deletes non-Live session rows for a profile (orphan cleanup before profile purge).</summary>
     Task<int> DeleteNonLiveByProfileAsync(Guid profileId, CancellationToken ct = default);
 

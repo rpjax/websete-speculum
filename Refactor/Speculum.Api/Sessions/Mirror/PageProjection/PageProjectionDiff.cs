@@ -6,7 +6,7 @@ namespace Speculum.Api.Sessions.Mirror.PageProjection;
 /// PageProjection outbound unit — Dom or Cssom plane (exclusive payload per operation).
 /// </summary>
 /// <remarks>
-/// Transitional wire shape (<c>docs/page-projection-engine-redesign.md</c> §5.5, §5.16).
+/// Transitional wire shape (<c>docs/page-projection/spec/engine-redesign.md</c> §5.5, §5.16).
 /// <see cref="Plane"/>/<see cref="Operation"/> and the parsed payload properties below are
 /// the V1 JSON-body scheme and are DEPRECATED for the redesigned binary wire. On the
 /// redesigned path <see cref="Body"/> carries the opaque §5.5 binary frame/part and

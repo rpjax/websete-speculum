@@ -68,6 +68,30 @@ public sealed class SessionCollectorTests
     }
 
     [Fact]
+    public void AttachedSession_DoesNotTimeOutWithoutRelease()
+    {
+        // Documents why DetachedSessionTimeout alone cannot reap orphans that stay attached.
+        var lifecycle = new RecordingLifecycleEvents();
+        var services = new ServiceCollection();
+        services.AddSingleton<ISessionService>(new FakeSessionService());
+        services.AddSingleton<ISessionRepository>(new InMemorySessionRepository());
+        var provider = services.BuildServiceProvider();
+
+        using var collector = new SessionCollector(
+            provider.GetRequiredService<IServiceScopeFactory>(),
+            new RecordingEventsFactory(lifecycle),
+            SessionsTestHarness.Configuration(SessionsTestHarness.Sessions(TimeSpan.FromMilliseconds(50))),
+            NullLogger<SessionCollector>.Instance);
+
+        var sessionId = Guid.NewGuid();
+        collector.Watch(sessionId);
+        collector.AddRef(sessionId);
+
+        Thread.Sleep(150);
+        Assert.Empty(lifecycle.TimedOutIds);
+    }
+
+    [Fact]
     public async Task TimedOut_DoesNotStopAlreadyStoppedSession()
     {
         var lifecycle = new RecordingLifecycleEvents();
@@ -246,6 +270,13 @@ public sealed class SessionCollectorTests
                     .Select(s => s.ProfileId)
                     .ToHashSet());
 
+        public Task<IReadOnlyList<Guid>> ListLiveSessionIdsAsync(CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<Guid>>(
+                _sessions.Values
+                    .Where(s => s.State == LifecycleState.Live)
+                    .Select(s => s.Id)
+                    .ToList());
+
         public Task<int> DeleteNonLiveByProfileAsync(Guid profileId, CancellationToken ct = default)
         {
             var remove = _sessions.Values
@@ -299,6 +330,11 @@ public sealed class SessionCollectorTests
             _stopSignal?.TrySetResult(request.SessionId);
             return Task.FromResult<IResult>(Result.Success());
         }
+
+        public Task<IResult<int>> StopAllLiveSessionsAsync(
+            StopReason reason,
+            CancellationToken ct = default)
+            => Task.FromResult<IResult<int>>(Result<int>.Success(0));
     }
 
     private sealed class FailingSessionService : ISessionService
@@ -330,5 +366,10 @@ public sealed class SessionCollectorTests
             StopSignal?.TrySetResult(request.SessionId);
             return Task.FromResult<IResult>(Result.Success());
         }
+
+        public Task<IResult<int>> StopAllLiveSessionsAsync(
+            StopReason reason,
+            CancellationToken ct = default)
+            => Task.FromResult<IResult<int>>(Result<int>.Success(0));
     }
 }

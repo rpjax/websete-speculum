@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Speculum projection lab</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f4f4f1;
+        --ink: #1a1a1a;
+        --muted: #5c5c5c;
+        --line: #d0d0c8;
+        --accent: #0b5fff;
+        --panel: #fff;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font: 14px/1.45 "Segoe UI", system-ui, sans-serif;
+        background: var(--bg);
+        color: var(--ink);
+        min-height: 100vh;
+        display: grid;
+        grid-template-rows: auto 1fr;
+      }
+      header {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem 1rem;
+        align-items: center;
+        padding: 0.75rem 1rem;
+        border-bottom: 1px solid var(--line);
+        background: var(--panel);
+      }
+      header h1 {
+        font-size: 1rem;
+        font-weight: 650;
+        margin: 0 1rem 0 0;
+      }
+      header input[type="url"] {
+        flex: 1 1 280px;
+        min-width: 200px;
+        padding: 0.4rem 0.55rem;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+      }
+      header button, aside button {
+        padding: 0.4rem 0.75rem;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        background: #fff;
+        cursor: pointer;
+      }
+      header button:disabled { opacity: 0.45; cursor: not-allowed; }
+      header button.primary {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: #fff;
+      }
+      #status { color: var(--muted); font-size: 12px; width: 100%; }
+      main {
+        display: grid;
+        grid-template-columns: 1fr 360px;
+        min-height: 0;
+      }
+      @media (max-width: 960px) {
+        main { grid-template-columns: 1fr; }
+      }
+      .surface-wrap {
+        position: relative;
+        background: #111;
+        min-height: 480px;
+        overflow: auto;
+      }
+      #surfaceHost {
+        min-height: 480px;
+        width: 100%;
+      }
+      aside {
+        border-left: 1px solid var(--line);
+        background: var(--panel);
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        max-height: calc(100vh - 72px);
+      }
+      .tabs {
+        display: flex;
+        gap: 0;
+        border-bottom: 1px solid var(--line);
+      }
+      .tabs button {
+        flex: 1;
+        border: 0;
+        border-radius: 0;
+        border-bottom: 2px solid transparent;
+        background: transparent;
+        padding: 0.55rem 0.4rem;
+        color: var(--muted);
+      }
+      .tabs button.active {
+        color: var(--ink);
+        border-bottom-color: var(--accent);
+        font-weight: 600;
+      }
+      .panel {
+        flex: 1;
+        overflow: auto;
+        padding: 0.75rem 1rem 1rem;
+        min-height: 0;
+      }
+      .metric-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.5rem;
+      }
+      .metric {
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        padding: 0.5rem 0.65rem;
+        background: #fafaf7;
+      }
+      .metric .label {
+        font-size: 11px;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+      .metric .value {
+        font-family: ui-monospace, Consolas, monospace;
+        font-size: 1.05rem;
+        margin-top: 0.15rem;
+      }
+      #hostStats {
+        margin-top: 0.75rem;
+        font-family: ui-monospace, Consolas, monospace;
+        font-size: 11px;
+        color: var(--muted);
+      }
+      #activity {
+        font-family: ui-monospace, Consolas, monospace;
+        font-size: 11px;
+      }
+      #activity div {
+        padding: 0.2rem 0;
+        border-bottom: 1px solid #f0f0ea;
+        word-break: break-word;
+      }
+      .cfg-row {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin: 0.35rem 0;
+      }
+      .cfg-row label { flex: 1; }
+      .cfg-row input[type="number"] {
+        width: 5.5rem;
+        padding: 0.25rem 0.4rem;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+      }
+      h2.panel-title {
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--muted);
+        margin: 0 0 0.65rem;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Projection lab</h1>
+      <input id="url" type="url" spellcheck="false" />
+      <button type="button" id="connect" class="primary">Connect</button>
+      <button type="button" id="start" disabled>Start Virtual</button>
+      <button type="button" id="stop" disabled>Stop</button>
+      <div id="status">idle</div>
+    </header>
+    <main>
+      <div class="surface-wrap">
+        <div id="surfaceHost"></div>
+      </div>
+      <aside>
+        <div class="tabs">
+          <button type="button" data-tab="Stream" class="active">Stream</button>
+          <button type="button" data-tab="Activity">Activity</button>
+          <button type="button" data-tab="Config">Config</button>
+        </div>
+        <div id="panelStream" class="panel">
+          <h2 class="panel-title">Stream</h2>
+          <div class="metric-grid">
+            <div class="metric">
+              <div class="label">Frames</div>
+              <div class="value" id="streamFrames">0</div>
+            </div>
+            <div class="metric">
+              <div class="label">Establish</div>
+              <div class="value" id="streamEstablish">—</div>
+            </div>
+            <div class="metric">
+              <div class="label">Generation</div>
+              <div class="value" id="streamGen">—</div>
+            </div>
+            <div class="metric">
+              <div class="label">Sequence</div>
+              <div class="value" id="streamSeq">—</div>
+            </div>
+            <div class="metric">
+              <div class="label">Apply OK</div>
+              <div class="value" id="streamApply">0</div>
+            </div>
+            <div class="metric">
+              <div class="label">Desync</div>
+              <div class="value" id="streamDesync">0</div>
+            </div>
+            <div class="metric">
+              <div class="label">Append∅</div>
+              <div class="value" id="streamAppendEmpty">0</div>
+            </div>
+            <div class="metric">
+              <div class="label">Dup h1</div>
+              <div class="value" id="streamDupH1">—</div>
+            </div>
+          </div>
+          <div id="hostStats">host —</div>
+        </div>
+        <div id="panelActivity" class="panel" hidden>
+          <h2 class="panel-title">Activity</h2>
+          <div id="activity"></div>
+        </div>
+        <div id="panelConfig" class="panel" hidden>
+          <h2 class="panel-title">Telemetry</h2>
+          <div class="cfg-row">
+            <label for="telEnabled">enabled</label>
+            <input id="telEnabled" type="checkbox" checked />
+          </div>
+          <div class="cfg-row">
+            <label for="telEstablish">establish</label>
+            <input id="telEstablish" type="checkbox" checked />
+          </div>
+          <div class="cfg-row">
+            <label for="telFrameEmitted">frameEmitted</label>
+            <input id="telFrameEmitted" type="checkbox" checked />
+          </div>
+          <div class="cfg-row">
+            <label for="telDeferred">transportDeferred</label>
+            <input id="telDeferred" type="checkbox" checked />
+          </div>
+          <div class="cfg-row">
+            <label for="telAggregate">aggregate</label>
+            <input id="telAggregate" type="checkbox" checked />
+          </div>
+          <div class="cfg-row">
+            <label for="telBuilder">builderStats</label>
+            <input id="telBuilder" type="checkbox" checked />
+          </div>
+          <div class="cfg-row">
+            <label for="telApply">applyResult (client)</label>
+            <input id="telApply" type="checkbox" checked />
+          </div>
+          <div class="cfg-row">
+            <label for="telDesync">desync</label>
+            <input id="telDesync" type="checkbox" checked />
+          </div>
+          <div class="cfg-row">
+            <label for="telOverrun">applyOverrun</label>
+            <input id="telOverrun" type="checkbox" checked />
+          </div>
+          <div class="cfg-row">
+            <label for="telClock">clock</label>
+            <input id="telClock" type="checkbox" checked />
+          </div>
+          <div class="cfg-row">
+            <label for="telHandoff">handoff</label>
+            <input id="telHandoff" type="checkbox" checked />
+          </div>
+          <div class="cfg-row">
+            <label for="telDecision">frameDecision</label>
+            <input id="telDecision" type="checkbox" checked />
+          </div>
+          <div class="cfg-row">
+            <label for="telParity">parityFingerprint</label>
+            <input id="telParity" type="checkbox" checked />
+          </div>
+          <div class="cfg-row">
+            <label for="telEncoder">encoder</label>
+            <input id="telEncoder" type="checkbox" checked />
+          </div>
+          <div class="cfg-row">
+            <label for="telAggMs">aggregateIntervalMs</label>
+            <input id="telAggMs" type="number" min="200" step="100" value="2000" />
+          </div>
+          <h2 class="panel-title" style="margin-top:1rem">Inject</h2>
+          <div class="cfg-row">
+            <label for="cfgFrameRate">frameRateHz</label>
+            <input id="cfgFrameRate" type="number" min="1" max="120" value="60" />
+          </div>
+          <p style="font-size:12px;color:var(--muted);margin:0.75rem 0 0">
+            Start Virtual relaunches Chrome with these inject knobs.
+          </p>
+        </div>
+      </aside>
+    </main>
+    <script src="/lab/client.js"></script>
+  </body>
+</html>

@@ -1,6 +1,9 @@
 import type { BrowserContext, CDPSession, Page } from 'patchright';
 import type { BrowserProbeRequest, BrowserProbeResult } from '../BrowserSession';
 import type { Display } from './Display';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 
 export class Probe {
   async run(
@@ -63,6 +66,15 @@ export class Probe {
 
       if (opSet.has('evaluate') && request.evaluateExpression) {
         data.evaluate = await ctx.page.evaluate(request.evaluateExpression);
+      }
+
+      // Viewport still of Speculum Virtual — O1 accept bar (not host Playwright).
+      // Always spill to a sidecar temp path so gRPC/JSON probe budgets never truncate PNGs.
+      if (opSet.has('screenshot')) {
+        const buf = await ctx.page.screenshot({ type: 'png', fullPage: false });
+        const file = path.join(os.tmpdir(), `speculum-virtual-still-${Date.now()}.png`);
+        fs.writeFileSync(file, buf);
+        data.screenshot = { path: file, byteLength: buf.byteLength };
       }
 
       return { ok: true, data };

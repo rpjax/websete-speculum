@@ -4,7 +4,7 @@ import { FrameAccumulator, type FrameOp, type FrameTreeQuery } from './frame';
 import { FrameClock, type FrameClockScheduler } from './clock';
 import { encodeFrame, type DocumentStateOp, type EncodedFrameMeta, type WireOp } from './encode';
 import { CssomCoalescer } from './cssom';
-import { createEstablishHandoff } from './establish';
+import { createEstablishHandoff, openEstablishEpoch, accumulateDuringEstablish, markSnapshotTaken, drainForEmitAfterEnd } from './establish';
 import type { PageToNodeChannel } from './channel';
 import { pushFrameParts } from './channel';
 import { NodeMirror } from './node/mirror';
@@ -45,7 +45,8 @@ export class PageProjectionEngine<TNode extends object = object> {
   readonly mirror = new NodeMirror();
   readonly rewriter: UrlRewriter;
   readonly cssom = new CssomCoalescer();
-  readonly handoff = createEstablishHandoff<FrameOp[]>();
+  /** §5.6.6 — live WireOp frames buffered across establish (PP-EST-3). */
+  readonly handoff = createEstablishHandoff<WireOp[]>();
   private readonly frame: FrameAccumulator<TNode>;
   private readonly clock: FrameClock;
   private sequence = 0;
@@ -130,6 +131,57 @@ export class PageProjectionEngine<TNode extends object = object> {
     return this.generation;
   }
 
+  /** §5.6.6.a — open handoff before the establish walk; live ticks accumulate until drain. */
+  beginEstablishHandoff(): void {
+    openEstablishEpoch(this.handoff);
+  }
+
+  /** §5.6.6.b — walk snapshot captured; frames keep accumulating until establishEnd. */
+  markEstablishSnapshot(): void {
+    markSnapshotTaken(this.handoff);
+  }
+
+  /**
+   * §5.6.6.c — after establishEnd is on the wire, emit buffered frames in order
+   * (declarative childList / full patch — safe over the snapshot).
+   */
+  flushEstablishHandoff(): void {
+    const frames = drainForEmitAfterEnd(this.handoff);
+    for (const ops of frames) {
+      const domOps = ops.filter((op): op is FrameOp =>
+        op.op === 'childList' || op.op === 'patch' || op.op === 'scrollViewport' || op.op === 'scrollElement');
+      this.mirror.applyFrame(domOps);
+      this.sequence += 1;
+      const meta: EncodedFrameMeta = { generation: this.generation, sequence: this.sequence };
+      const parts = encodeFrame(ops, meta, this.opts.maxFrameBytes);
+      pushFrameParts(this.opts.channel, parts);
+      this.opts.events.onFrame(parts, meta);
+    }
+  }
+
+  /**
+   * §5.10 — full `cssomInstall` supersedes any CSSOM ops buffered during settle.
+   * DOM/scroll frames stay queued for PP-EST-3 drain.
+   */
+  dropBufferedCssomFromHandoff(): void {
+    if (this.handoff.phase !== 'accumulate' && this.handoff.phase !== 'snapshot') return;
+    this.handoff.pendingFrames = this.handoff.pendingFrames
+      .map((ops) =>
+        ops.filter(
+          (op) =>
+            op.op !== 'cssomInstall'
+            && op.op !== 'cssomSheetList'
+            && op.op !== 'cssomRuleList'
+            && op.op !== 'cssomPatch',
+        ),
+      )
+      .filter((ops) => ops.length > 0);
+  }
+
+  get establishHandoffOpen(): boolean {
+    return this.handoff.phase === 'accumulate' || this.handoff.phase === 'snapshot';
+  }
+
   private onClockTick(): void {
     const domOps = this.frame.flush();
     const cssomOps = this.cssom.isEmpty ? [] : this.cssom.flush();
@@ -138,6 +190,11 @@ export class PageProjectionEngine<TNode extends object = object> {
     if (domOps === null && cssomOps.length === 0 && documentStateOp === null) return; // PP-FR-4 — no ops, no sequence.
 
     const ops: WireOp[] = [...(domOps ?? []), ...cssomOps, ...(documentStateOp ? [documentStateOp] : [])];
+    if (accumulateDuringEstablish(this.handoff, ops)) {
+      // PP-EST-3 — do not emit or mutate the establish mirror until after establishEnd.
+      return;
+    }
+
     this.mirror.applyFrame(domOps ?? []);
     this.sequence += 1;
     const meta: EncodedFrameMeta = { generation: this.generation, sequence: this.sequence };

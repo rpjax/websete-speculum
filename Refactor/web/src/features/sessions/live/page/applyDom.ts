@@ -1,5 +1,5 @@
 /**
- * Dom-plane apply — docs/page-projection-engine-redesign.md §5.4, §5.9.1.
+ * Dom-plane apply — docs/page-projection/spec/engine-redesign.md §5.4, §5.9.1.
  *
  * ACID: every address referenced by the frame's Dom ops is resolved against
  * the registry *before* anything mutates; a single miss desyncs the whole
@@ -13,6 +13,7 @@
 import type { AssembledFrame, DecodedNode, DecodedOp, DocumentStateOp, PatchSnapshot } from './decode'
 import type { PageProjectionRegistry } from './registry'
 import { reconcileControlValue } from './interaction'
+import { stampAttrVirtualUrl, type VirtualAuthAppender } from './stampVirtualAuth'
 
 export type DomDesyncReason = 'address_miss'
 export interface DomDesyncInfo { reason: DomDesyncReason; op: DecodedOp['op']; id: number }
@@ -28,6 +29,10 @@ export interface DomFrameApplierOptions {
    * Skipped when the frame's Dom ops fail to resolve (whole-frame ACID).
    */
   onCssomOps?: (ops: DecodedOp[]) => void
+  /** Stamp `speculum-session-token` onto `/w7s/virtual-*` attrs as they apply. Prefer `getStampAuth` for live token. */
+  stampAuth?: VirtualAuthAppender | null
+  /** Live token getter — consulted on every apply (avoids frozen null stampers). */
+  getStampAuth?: () => VirtualAuthAppender | null
 }
 
 type ResolvedChild = { kind: 'existing'; node: Node } | { kind: 'fresh'; node: DecodedNode }
@@ -39,6 +44,11 @@ type ResolvedOp =
 
 const DOM_OP_NAMES = new Set(['childList', 'patch', 'scrollViewport', 'scrollElement'])
 const CSSOM_OP_NAMES = new Set(['cssomInstall', 'cssomSheetList', 'cssomRuleList', 'cssomPatch'])
+
+function resolveStampAuth(options: DomFrameApplierOptions): VirtualAuthAppender | null {
+  if (options.getStampAuth) return options.getStampAuth()
+  return options.stampAuth ?? null
+}
 
 /**
  * Queues assembled frames and applies them inside `requestAnimationFrame`,
@@ -98,7 +108,7 @@ export class DomFrameApplier {
         this.options.onDesync?.({ reason: 'address_miss', op: resolved.op, id: resolved.id })
         return
       }
-      applyResolvedOps(this.doc, this.registry, resolved.ops)
+      applyResolvedOps(this.doc, this.registry, resolved.ops, resolveStampAuth(this.options))
     }
     const cssomOps = frame.ops.filter((op) => CSSOM_OP_NAMES.has(op.op))
     if (cssomOps.length > 0) this.options.onCssomOps?.(cssomOps)
@@ -145,12 +155,17 @@ function resolveDomOps(
 }
 
 /** Phase 2 — mutate using the node references resolved in phase 1 only. */
-function applyResolvedOps(doc: Document, registry: PageProjectionRegistry, ops: ResolvedOp[]): void {
+function applyResolvedOps(
+  doc: Document,
+  registry: PageProjectionRegistry,
+  ops: ResolvedOp[],
+  stampAuth?: VirtualAuthAppender | null,
+): void {
   for (const op of ops) {
     if (op.op === 'childList') {
-      applyChildList(doc, registry, op)
+      applyChildList(doc, registry, op, stampAuth)
     } else if (op.op === 'patch') {
-      applyPatch(op.target, op.snapshot)
+      applyPatch(op.target, op.snapshot, stampAuth)
     } else if (op.op === 'scrollViewport') {
       doc.defaultView?.scrollTo(op.scrollX, op.scrollY)
     } else {
@@ -165,8 +180,11 @@ function applyChildList(
   doc: Document,
   registry: PageProjectionRegistry,
   op: { parent: Element; mode: 'full' | 'append'; children: ResolvedChild[] },
+  stampAuth?: VirtualAuthAppender | null,
 ): void {
-  const wanted = op.children.map((c) => (c.kind === 'existing' ? c.node : materialize(doc, registry, c.node)))
+  const wanted = op.children.map((c) =>
+    c.kind === 'existing' ? c.node : materialize(doc, registry, c.node, stampAuth),
+  )
 
   if (op.mode === 'append') {
     for (const node of wanted) op.parent.appendChild(node)
@@ -192,17 +210,22 @@ function applyChildList(
   }
 }
 
-function applyPatch(target: Node, snapshot: PatchSnapshot): void {
+function applyPatch(target: Node, snapshot: PatchSnapshot, stampAuth?: VirtualAuthAppender | null): void {
   if (snapshot.kind === 'text' || snapshot.kind === 'comment') {
     target.textContent = snapshot.value ?? ''
     return
   }
   if (!(target instanceof Element)) return
-  applyElementSnapshot(target, snapshot.attrs ?? {})
+  applyElementSnapshot(target, snapshot.attrs ?? {}, stampAuth)
 }
 
 /** Constructs a fresh node from a decoded subtree, registering every id (§5.9.1). */
-function materialize(doc: Document, registry: PageProjectionRegistry, node: DecodedNode): Node {
+function materialize(
+  doc: Document,
+  registry: PageProjectionRegistry,
+  node: DecodedNode,
+  stampAuth?: VirtualAuthAppender | null,
+): Node {
   if (node.kind === 'text') {
     const n = doc.createTextNode(node.value ?? '')
     registry.register(node.id, n)
@@ -216,19 +239,24 @@ function materialize(doc: Document, registry: PageProjectionRegistry, node: Deco
   const tag = node.tag ?? 'div'
   const el = isSvgTag(tag) ? doc.createElementNS('http://www.w3.org/2000/svg', tag) : doc.createElement(tag)
   registry.register(node.id, el)
-  applyElementSnapshot(el, node.attrs ?? {})
-  for (const child of node.children ?? []) el.appendChild(materialize(doc, registry, child))
+  applyElementSnapshot(el, node.attrs ?? {}, stampAuth)
+  for (const child of node.children ?? []) el.appendChild(materialize(doc, registry, child, stampAuth))
   return el
 }
 
 /** Full attribute + §5.2.1 node-state sync — idempotent, safe to re-run on any patch. */
-function applyElementSnapshot(el: Element, attrs: Record<string, string>): void {
+function applyElementSnapshot(
+  el: Element,
+  attrs: Record<string, string>,
+  stampAuth?: VirtualAuthAppender | null,
+): void {
   for (const name of Array.from(el.getAttributeNames())) {
     if (!(name in attrs)) el.removeAttribute(name)
   }
   for (const [name, value] of Object.entries(attrs)) {
+    const stamped = stampAuth ? stampAttrVirtualUrl(name, value, stampAuth) : value
     try {
-      el.setAttribute(name, value)
+      el.setAttribute(name, stamped)
     } catch {
       /* invalid attribute name/value — keep the rest of the snapshot */
     }
@@ -290,8 +318,13 @@ function isSvgTag(tag: string): boolean {
 }
 
 /** Exported for `surface.tsx` establish handoff (§5.6.6) — materializes one fresh subtree. */
-export function materializeFreshNode(doc: Document, registry: PageProjectionRegistry, node: DecodedNode): Node {
-  return materialize(doc, registry, node)
+export function materializeFreshNode(
+  doc: Document,
+  registry: PageProjectionRegistry,
+  node: DecodedNode,
+  stampAuth?: VirtualAuthAppender | null,
+): Node {
+  return materialize(doc, registry, node, stampAuth)
 }
 
 /**

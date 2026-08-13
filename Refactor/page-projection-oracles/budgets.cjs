@@ -1,5 +1,5 @@
 /**
- * Normative budgets from docs/page-projection-engine-redesign.md §2.
+ * Normative budgets from docs/page-projection/spec/engine-redesign.md §2.
  * Starting defaults until O4 recalibrates E6/E7b/E11/pool knobs.
  */
 'use strict'

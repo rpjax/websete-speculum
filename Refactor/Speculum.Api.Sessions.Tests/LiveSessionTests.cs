@@ -1611,6 +1611,11 @@ public sealed class LiveSessionTests
             CancellationToken ct = default)
             => Task.FromResult<IResult>(Result.Success());
 
+        public Task<IResult> ReportPageProjectionClientStateAsync(
+            PageProjectionClientStateReport report,
+            CancellationToken ct = default)
+            => Task.FromResult<IResult>(Result.Success());
+
         public IResult<Task> ConsumeConsoleInputAsync(ChannelReader<ConsoleInput> channelReader)
             => Result<Task>.Success(DrainAsync(channelReader, ConsoleInputReceived.Writer));
 

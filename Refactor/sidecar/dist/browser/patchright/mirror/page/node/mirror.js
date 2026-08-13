@@ -141,8 +141,9 @@ class NodeMirror {
         const node = this.nodes.get(rootId);
         if (!node)
             return out;
-        out.push(node.kind === 'element' ? node.tag : node.kind === 'text' ? '#text' : '#comment');
+        // Element-only — must match liveAttach.collectTagsPreorder / client registry.
         if (node.kind === 'element') {
+            out.push(node.tag);
             for (const childId of node.childIds)
                 this.collectTagsPreorder(childId, out);
         }
@@ -157,14 +158,36 @@ class NodeMirror {
             .map(([name, value]) => ` ${name}="${escapeHtmlAttr(value)}"`)
             .join('');
         const anchorAttr = ` speculum-anchor="${id}"`;
-        if (VOID_TAGS.has(node.tag))
+        // iframe element children are dropped by the HTML parser — park pierce interiors
+        // in srcdoc so Projected contentDocument rebuilds the same anchored tree (K5:
+        // surface sandbox still has no allow-scripts).
+        if (node.tag === 'iframe' && node.childIds.length > 0) {
+            const attrsNoSrcdoc = Object.entries(node.attrs)
+                .filter(([name]) => name.toLowerCase() !== 'srcdoc')
+                .map(([name, value]) => ` ${name}="${escapeHtmlAttr(value)}"`)
+                .join('');
+            const inner = node.childIds
+                .map((childId) => {
+                const child = this.nodes.get(childId);
+                return child ? this.serializeNode(child, childId) : '';
+            })
+                .join('');
+            return `<iframe${anchorAttr}${attrsNoSrcdoc} srcdoc="${escapeHtmlAttr(inner)}"></iframe>`;
+        }
+        // Void tags with children (illegal tree / pierce mis-parent) must still emit
+        // interiors — the void short form would drop them and break establish checksum.
+        if (VOID_TAGS.has(node.tag) && node.childIds.length === 0) {
             return `<${node.tag}${anchorAttr}${attrPairs}>`;
+        }
         const inner = node.childIds
             .map((childId) => {
             const child = this.nodes.get(childId);
             return child ? this.serializeNode(child, childId) : '';
         })
             .join('');
+        if (VOID_TAGS.has(node.tag)) {
+            return `<${node.tag}${anchorAttr}${attrPairs}>${inner}`;
+        }
         return `<${node.tag}${anchorAttr}${attrPairs}>${inner}</${node.tag}>`;
     }
     /** Approximate UTF-8 payload size of the flat mirror (E7 budget accounting). */

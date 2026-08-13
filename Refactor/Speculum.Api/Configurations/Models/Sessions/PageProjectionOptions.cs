@@ -2,7 +2,7 @@ namespace Speculum.Api.Configurations.Models.Sessions;
 
 /// <summary>
 /// Runtime-configurable knobs for the PageProjection engine — Sessions → PageProjection
-/// (<c>docs/page-projection-engine-redesign.md</c> §5.16). Every value is a starting
+/// (<c>docs/page-projection/spec/engine-redesign.md</c> §5.16). Every value is a starting
 /// default that <c>WP14</c> density calibration is expected to revise.
 /// </summary>
 public sealed class PageProjectionOptions
@@ -38,7 +38,7 @@ public sealed class PageProjectionOptions
     public int ApplyBudgetMs { get; init; } = 4;
 
     /// <summary>Per-session Node mirror byte cap (E7).</summary>
-    public long MirrorMaxBytes { get; init; } = 4L * 1024 * 1024;
+    public long MirrorMaxBytes { get; init; } = 32L * 1024 * 1024;
 
     /// <summary>Per-session L1 asset cache LRU byte cap (E7, §5.12.2).</summary>
     public long AssetCacheL1MaxBytes { get; init; } = 8L * 1024 * 1024;

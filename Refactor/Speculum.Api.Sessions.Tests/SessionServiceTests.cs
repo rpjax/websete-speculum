@@ -516,6 +516,13 @@ public sealed class SessionServiceTests
                     .Select(s => s.ProfileId)
                     .ToHashSet());
 
+        public Task<IReadOnlyList<Guid>> ListLiveSessionIdsAsync(CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<Guid>>(
+                _sessions.Values
+                    .Where(s => s.State == LifecycleState.Live)
+                    .Select(s => s.Id)
+                    .ToList());
+
         public Task<int> DeleteNonLiveByProfileAsync(Guid profileId, CancellationToken ct = default)
         {
             var remove = _sessions.Values
@@ -838,6 +845,11 @@ public sealed class SessionServiceTests
             byte[] body,
             string contentType,
             string name,
+            CancellationToken ct = default)
+            => Task.FromResult<IResult>(Result.Success());
+
+        public Task<IResult> ReportPageProjectionClientStateAsync(
+            PageProjectionClientStateReport report,
             CancellationToken ct = default)
             => Task.FromResult<IResult>(Result.Success());
 

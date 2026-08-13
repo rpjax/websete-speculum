@@ -14,6 +14,8 @@ export type CssomSheetDescriptor = {
   id: CssomId;
   scope: CssomScope;
   rules: CssomRuleDescriptor[];
+  /** Producer-only: external sheet URL for W4 CDP body fill; stripped before wire. */
+  href?: string;
 };
 
 export type CssomInstallOp = { op: 'cssomInstall'; sheets: CssomSheetDescriptor[] };

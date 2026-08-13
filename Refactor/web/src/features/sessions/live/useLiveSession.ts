@@ -146,9 +146,43 @@ export function useLiveSession({
       for (const dispose of disposers) {
         dispose()
       }
-      void client.disconnect()
+      const live = sessionRef.current
+      sessionRef.current = null
+      void (async () => {
+        if (live) {
+          try {
+            await live.stop()
+          } catch {
+            /* best-effort — hub disconnect also stops via OnDisconnected */
+          }
+        }
+        await client.disconnect()
+      })()
     }
-  }, [client, observation.log])
+  }, [client, observation.log, sessionRef])
+
+  // Oracle / lab: always expose stop + session id/token (not gated on ClientObservation).
+  useEffect(() => {
+    const w = window as Window & {
+      __speculumSessionId?: string | null
+      __speculumSessionToken?: string | null
+      __speculumStopSession?: () => Promise<void>
+    }
+    w.__speculumSessionId = sessionId
+    w.__speculumSessionToken = sessionToken
+    w.__speculumStopSession = () => {
+      const live = sessionRef.current
+      if (!live) {
+        return Promise.resolve()
+      }
+      return live.stop()
+    }
+    return () => {
+      delete w.__speculumSessionId
+      delete w.__speculumSessionToken
+      delete w.__speculumStopSession
+    }
+  }, [sessionId, sessionToken, sessionRef])
 
   // Diagnostics: expose front Activity ring for Playwright / Cursor smoke export
   // when ClientObservation is on (same ring as SessionObservationChrome).
@@ -159,9 +193,7 @@ export function useLiveSession({
     const w = window as Window & {
       __speculumFrontDebugLog?: unknown
       __speculumExportFrontDebugJsonl?: unknown
-      __speculumSessionId?: string | null
     }
-    w.__speculumSessionId = sessionId
     w.__speculumFrontDebugLog = () =>
       observation.entries
         .slice()
@@ -183,13 +215,11 @@ export function useLiveSession({
     return () => {
       delete w.__speculumFrontDebugLog
       delete w.__speculumExportFrontDebugJsonl
-      delete w.__speculumSessionId
     }
   }, [
     debug,
     preStart.clientObservation.isEnabled,
     observation.entries,
-    sessionId,
   ])
 
   return {

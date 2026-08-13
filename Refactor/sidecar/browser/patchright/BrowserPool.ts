@@ -1,5 +1,5 @@
 /**
- * Pre-warmed browser pool — docs/page-projection-engine-redesign.md §5.13, WP13.
+ * Pre-warmed browser pool — docs/page-projection/spec/engine-redesign.md §5.13, WP13.
  *
  * Boots Chromium instances ahead of any session (E10: session-start Chromium
  * boot MUST NOT sit on the user's critical path). Every pooled instance is

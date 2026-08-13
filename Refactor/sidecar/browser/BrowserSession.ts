@@ -544,7 +544,7 @@ export interface BrowserSession {
     frameParts: Uint8Array[];
     /** PageEpoch parity telemetry — best-effort resync phase timings. */
     pageEpochId?: string;
-    source?: 'mirror' | 'dump_fallback';
+    source?: 'mirror';
     domMapMs?: number;
     cssomCloneMs?: number;
     rewriteMs?: number;

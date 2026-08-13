@@ -187,6 +187,62 @@ public static class SessionHarnessEndpoints
             return Results.Ok(result.Value);
         }).WithTags("Sessions");
 
+        endpoints.MapPost("/api/sessions/{sessionId:guid}/screenshot", async (
+            Guid sessionId,
+            SessionHarnessScreenshotRequest body,
+            ILiveSessionService liveSessions,
+            ISessionBindingRegistry bindings,
+            CancellationToken ct) =>
+        {
+            ArgumentNullException.ThrowIfNull(body);
+            if (string.IsNullOrWhiteSpace(body.Token))
+                return Results.Unauthorized();
+
+            if (!bindings.TryGetLive(sessionId, body.Token.Trim(), out _)
+                || !liveSessions.TryGet(sessionId, out var live))
+            {
+                return Results.NotFound(new { errorCode = "session_gone" });
+            }
+
+            var result = await live.RequestDiagnosticsAsync(
+                new ProbeSession
+                {
+                    SessionId = sessionId,
+                    Probe = new DiagProbeRequest
+                    {
+                        Ops = ["screenshot"],
+                        MaxProbeResponseBytes = 4 * 1024 * 1024,
+                    },
+                },
+                ct).ConfigureAwait(false);
+
+            if (result.IsFailure)
+            {
+                return Results.BadRequest(new
+                {
+                    errorCode = "screenshot_failed",
+                    message = string.Join("; ", result.Errors.Select(e => e.Message)),
+                });
+            }
+
+            if (!result.Value.Ok)
+            {
+                return Results.BadRequest(new
+                {
+                    ok = false,
+                    errorCode = result.Value.ErrorCode ?? "screenshot_failed",
+                    message = result.Value.Message,
+                    data = result.Value.Data,
+                });
+            }
+
+            return Results.Ok(new
+            {
+                ok = true,
+                data = result.Value.Data,
+            });
+        }).WithTags("Sessions");
+
         return endpoints;
     }
 }
@@ -211,4 +267,9 @@ public sealed class SessionHarnessResizeRequest
     public int Height { get; init; }
     public string? RequestId { get; init; }
     public DeviceProfile? Device { get; init; }
+}
+
+public sealed class SessionHarnessScreenshotRequest
+{
+    public required string Token { get; init; }
 }

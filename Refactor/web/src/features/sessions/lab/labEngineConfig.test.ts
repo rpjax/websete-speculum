@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { TELEMETRY_SESSION_EVENT_TYPES } from '@/features/admin/configurations/telemetrySessionEventsCatalog'
 import {
   createLabReadyNavigation,
   createLabScriptingBaseline,
@@ -118,50 +119,7 @@ describe('createLabTelemetryBaseline', () => {
       pageProjectionIntent: false,
     })
     expect(Object.keys(baseline.events).sort()).toEqual(
-      [
-        'Telemetry.Sessions.Browse.LocationChanged',
-        'Telemetry.Sessions.Capacity.NoSlotAvailable',
-        'Telemetry.Sessions.Capacity.SlotAcquired',
-        'Telemetry.Sessions.Capacity.SlotReleased',
-        'Telemetry.Sessions.Client.AttachedCommandFailed',
-        'Telemetry.Sessions.PageProjection.Diff.FrameReceived',
-        'Telemetry.Sessions.PageProjection.Diff.GenerationBumped',
-        'Telemetry.Sessions.PageProjection.Diff.QueueDropped',
-        'Telemetry.Sessions.PageProjection.Diff.FanOutEnqueued',
-        'Telemetry.Sessions.PageProjection.Diff.OutputStreamClosed',
-        'Telemetry.Sessions.PageProjection.Diff.OutputStreamOpened',
-        'Telemetry.Sessions.PageProjection.Diff.ResyncRequested',
-        'Telemetry.Sessions.PageProjection.Diff.ResyncServed',
-        'Telemetry.Sessions.PageProjection.Diff.SoftNavObserved',
-        'Telemetry.Sessions.PageProjection.Diff.StreamDequeued',
-        'Telemetry.Sessions.PageProjection.Diff.WireDelivered',
-        'Telemetry.Sessions.PageProjection.Input.AdmissionDropped',
-        'Telemetry.Sessions.PageProjection.Input.Applied',
-        'Telemetry.Sessions.PageProjection.Input.CdpDropped',
-        'Telemetry.Sessions.PageProjection.Input.DataPlaneReceived',
-        'Telemetry.Sessions.PageProjection.Input.Rejected',
-        'Telemetry.Sessions.PageProjection.Input.ScrollEchoHit',
-        'Telemetry.Sessions.PageProjection.Input.SidecarAdmitted',
-        'Telemetry.Sessions.PageProjection.Input.SidecarPushWritten',
-        'Telemetry.Sessions.Navigate.UrlResolved',
-        'Telemetry.Sessions.Persist.SkippedNoConnection',
-        'Telemetry.Sessions.Persist.SkippedProfileNotFound',
-        'Telemetry.Sessions.Resize.Applied',
-        'Telemetry.Sessions.Resize.Rejected',
-        'Telemetry.Sessions.Sidecar.AllocationFaulted',
-        'Telemetry.Sessions.Sidecar.DisplayAllocated',
-        'Telemetry.Sessions.Sidecar.DisplayReleased',
-        'Telemetry.Sessions.Sidecar.SessionAllocated',
-        'Telemetry.Sessions.Sidecar.SessionReleased',
-        'Telemetry.Sessions.Start.UrlResolveFailed',
-        'Telemetry.Sessions.Start.UrlResolved',
-        'Telemetry.Sessions.VideoStreamingInput.Applied',
-        'Telemetry.Sessions.VideoStreamingInput.ControlReceived',
-        'Telemetry.Sessions.VideoStreamingInput.DataPlaneReceived',
-        'Telemetry.Sessions.VideoStreamingInput.Rejected',
-        'Telemetry.Sessions.VideoStreamingInput.SidecarAdmitted',
-        'Telemetry.Sessions.VideoStreamingInput.SidecarPushWritten',
-      ].sort(),
+      [...TELEMETRY_SESSION_EVENT_TYPES].sort(),
     )
     expect(Object.values(baseline.events).every((on) => on === false)).toBe(true)
   })

@@ -1,5 +1,5 @@
 /**
- * Local-first interaction — docs/page-projection-engine-redesign.md §5.9, §5.11.
+ * Local-first interaction — docs/page-projection/spec/engine-redesign.md §5.9, §5.11.
  *
  * Perception is local; truth is authoritative (D6). Hover/active/focus-visible
  * and CSS transitions are free once the surface is a real document — nothing
@@ -29,10 +29,13 @@ export interface InteractionOptions {
   onProgrammaticScrollSuppress?: (target: 'viewport' | number) => void
   /** Dom-plane echo filter mirror (§5.9.4) — true suppresses the intent. */
   consumeScrollEcho?: (target: 'viewport' | number, observed: { top: number; left: number }) => boolean
-  /** Required for `setFiles` upload path (§6.9). */
+  /** Required for `setFiles` upload path (§6.9). Prefer live getters. */
   sessionId?: string | null
   token?: string | null
   assetBaseUrl?: string
+  getSessionId?: () => string | null | undefined
+  getToken?: () => string | null | undefined
+  getAssetBaseUrl?: () => string | undefined
 }
 
 const INTERACTIVE =
@@ -123,16 +126,37 @@ export function attachPageProjectionInteraction(
   })
 
   const nodeIdAtPoint = (clientX: number, clientY: number): number | null => {
-    const doc = surface.ownerDocument
+    const parentDoc = surface.ownerDocument
     let stack: Element[]
     try {
-      stack = doc.elementsFromPoint(clientX, clientY)
+      stack = parentDoc.elementsFromPoint(clientX, clientY)
     } catch {
       stack = []
     }
+    // Same-origin projected iframe — hit-test inside the active buffer (parent
+    // elementsFromPoint only returns the <iframe> element itself).
+    for (const node of stack) {
+      if (!(node instanceof HTMLIFrameElement) || !surface.contains(node)) continue
+      const childDoc = node.contentDocument
+      if (!childDoc) continue
+      const rect = node.getBoundingClientRect()
+      const cx = clientX - rect.left
+      const cy = clientY - rect.top
+      let inner: Element[]
+      try {
+        inner = childDoc.elementsFromPoint(cx, cy)
+      } catch {
+        continue
+      }
+      const hit = pickInteractiveId(inner)
+      if (hit != null) return hit
+    }
+    return pickInteractiveId(stack.filter((n) => surface.contains(n)))
+  }
+
+  const pickInteractiveId = (stack: Element[]): number | null => {
     let fallback: number | null = null
     for (const node of stack) {
-      if (!surface.contains(node)) continue
       const anchored = node.closest(INTERACTIVE) ?? node
       const id = registry.idOfNearest(anchored)
       if (id == null) continue
@@ -332,8 +356,8 @@ export function attachPageProjectionInteraction(
     if (!opts.isArmed()) return
     const nodeId = registry.idOfNearest(target)
     if (nodeId == null) return
-    const sid = opts.sessionId
-    const tok = opts.token
+    const sid = opts.getSessionId?.() ?? opts.sessionId
+    const tok = opts.getToken?.() ?? opts.token
     if (!sid || !tok) return
 
     const picker = document.createElement('input')
@@ -362,7 +386,8 @@ export function attachPageProjectionInteraction(
             })
           } else {
             const uploadId = crypto.randomUUID().replace(/-/g, '')
-            const base = (opts.assetBaseUrl ?? '').replace(/\/$/, '') || window.location.origin
+            const base =
+              (opts.getAssetBaseUrl?.() ?? opts.assetBaseUrl ?? '').replace(/\/$/, '') || window.location.origin
             const url = new URL(`/w7s/api/sessions/${sid}/dom-uploads`, base)
             url.searchParams.set('uploadId', uploadId)
             url.searchParams.set('name', file.name)

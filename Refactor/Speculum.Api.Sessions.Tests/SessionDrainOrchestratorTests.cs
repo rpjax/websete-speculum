@@ -183,6 +183,11 @@ public sealed class SessionDrainOrchestratorTests
             Live?.Remove(request.SessionId);
             return Result.Success();
         }
+
+        public Task<IResult<int>> StopAllLiveSessionsAsync(
+            StopReason reason,
+            CancellationToken ct = default)
+            => Task.FromResult<IResult<int>>(Result<int>.Success(0));
     }
 
     private sealed class DrainFakeLiveSessions : ILiveSessionService

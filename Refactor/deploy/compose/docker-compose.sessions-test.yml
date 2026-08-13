@@ -69,7 +69,7 @@ services:
       Telemetry__Docker__Endpoint: unix:///var/run/docker.sock
       Sessions__InputMultiplexingPolicy__Access: Shared
       ResourceManagement__Sessions__MaxConcurrentSessions: "10"
-      Sessions__DetachedSessionTimeout: "00:05:00"
+      Sessions__DetachedSessionTimeout: "00:00:03"
       Sessions__IsJsBridgeEnabled: "true"
       Sessions__ViewportPolicy__Default__Width: "1280"
       Sessions__ViewportPolicy__Default__Height: "720"

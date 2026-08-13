@@ -1,7 +1,7 @@
 namespace Speculum.Api.Sessions.Mirror.PageProjection;
 
 /// <summary>
-/// Client → server control channel (docs/page-projection-engine-redesign.md §5.9.5).
+/// Client → server control channel (docs/page-projection/spec/engine-redesign.md §5.9.5).
 /// A control report, not a diff — carries no `sequence` and never advances one.
 /// </summary>
 public sealed class PageProjectionClientStateReport

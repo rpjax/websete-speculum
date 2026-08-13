@@ -230,7 +230,7 @@ public sealed class SessionBindingRegistry : ISessionBindingRegistry, IDisposabl
         DisposeResource(resource);
     }
 
-    public void CloseCaller(string callerId)
+    public Guid? CloseCaller(string callerId)
     {
         Entry? entry;
         lock (_gate)
@@ -238,7 +238,9 @@ public sealed class SessionBindingRegistry : ISessionBindingRegistry, IDisposabl
             _byCaller.Remove(callerId, out entry);
         }
 
+        Guid? liveSessionId = entry is { IsLive: true } ? entry.SessionId : null;
         CloseEntry(entry);
+        return liveSessionId;
     }
 
     public void CloseSession(Guid sessionId)

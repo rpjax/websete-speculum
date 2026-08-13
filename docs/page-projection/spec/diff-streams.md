@@ -1,23 +1,23 @@
 # PageProjection — Dom plane redesign (sealed)
 
-> **Amended by** [page-projection-engine-redesign.md](page-projection-engine-redesign.md) rev 4:
+> **Amended by** [engine-redesign.md](engine-redesign.md) rev 4:
 > **T4/T5** — the **frame** is the atom (net-effect coalesce; one `sequence` per frame; backpressure
 > degrades rate, never desyncs). **T7/T9/G-A** — identity is off-DOM `uint32` (forward+reverse maps);
 > address is the id; `childAt`, F-visible index space, and text-run collapsing are deleted.
 > **T2/T6** — binary frame with part splitting; API relays without parsing; `document` op deleted in
 > favour of `establishBegin`/`Chunk`/`End`. **Q19** — wire `plane` header removed (one opcode space).
 > Where this sealed file conflicts with the redesign on those topics, **the redesign wins**.
-> Acceptance still wins over both: [page-projection-acceptance.md](page-projection-acceptance.md).
+> Acceptance still wins over both: [acceptance.md](acceptance.md).
 
-> Filename: `page-projection-diff-streams.md` (T12). Vocabulary:
+> Filename: `diff-streams.md` (T12). Vocabulary:
 > **PageProjection** mode/pipe; this file = **Dom plane** contract. CSSOM plane =
-> [page-projection-cssom.md](page-projection-cssom.md).
+> [cssom.md](cssom.md).
 
 **Status:** **SEALED** — Dom plane behaviour. Together with
-[page-projection-cssom.md](page-projection-cssom.md): **PageProjection behaviour
+[cssom.md](cssom.md): **PageProjection behaviour
 design complete** (Dom + Cssom planes).  
 **Cutover:** T11 code implement · T12 doc filenames **done**.  
-**Pipeline file** [page-projection-diff-pipeline.md](page-projection-diff-pipeline.md)
+**Pipeline file** [diff-pipeline.md](diff-pipeline.md)
 is legacy SoT for the old producer until fully superseded by this sealed contract.
 
 **Purpose of this file**
@@ -26,11 +26,11 @@ is legacy SoT for the old producer until fully superseded by this sealed contrac
 2. Historical notepad / decision log for how we got here.  
 3. Pointers to CSSOM plane + cutover (T11/T12).
 
-**Related:** [page-projection-cssom.md](page-projection-cssom.md) (CSSOM plane) ·
-[page-projection-diff-pipeline.md](page-projection-diff-pipeline.md) ·
-[page-projection-input.md](page-projection-input.md) ·
-[page-projection-virtual-assets.md](page-projection-virtual-assets.md) ·
-[naming.md](naming.md)
+**Related:** [cssom.md](cssom.md) (CSSOM plane) ·
+[diff-pipeline.md](diff-pipeline.md) ·
+[input.md](input.md) ·
+[virtual-assets.md](virtual-assets.md) ·
+[naming.md](../../naming.md)
 
 **How to use**
 
@@ -46,7 +46,7 @@ is legacy SoT for the old producer until fully superseded by this sealed contrac
 | # | Topic | State |
 |---|--------|--------|
 | T0 | CSS vs CSSOM vs animation (facts) | NOTE (read first) |
-| T1 | CSSOM plane (moved out) | **SEALED** → [page-projection-cssom.md](page-projection-cssom.md) |
+| T1 | CSSOM plane (moved out) | **SEALED** → [cssom.md](cssom.md) |
 | T2 | Diff package: exclusive payload per op | **LOCKED** for DOM |
 | T3 | `document` establish + generation bump policy | **LOCKED** — minimize document; bump only on Document object swap |
 | T4 | Dirty / observe → emit (D2) | **LOCKED** — 1 MO record = 1 atomic ACID diff |
@@ -171,7 +171,7 @@ honest DOM contract; “Can defer” = wire/DTO polish after behaviour is locked
 | D11 | Resync route/DTO | **LOCKED** naming below (T8); telemetry catalog soft | Soft: telemetry ids |
 | D12 | Input arm during desync | **LOCKED** — disarm until resync `document` applied | Done |
 | D13 | Backpressure → desync | **LOCKED** — overflow/degraded → desync (never silent drop) | Done |
-| D14 | Sequence shared with CSSOM | **LOCKED** in [page-projection-cssom.md](page-projection-cssom.md) C1 — shared seq+gen | Done |
+| D14 | Sequence shared with CSSOM | **LOCKED** in [cssom.md](cssom.md) C1 — shared seq+gen | Done |
 | D15 | Docs cutover | T12 | After DOM sealed |
 | D16 | Internal element state in `F` / patch | **LOCKED** form controls; scroll = separate op (above) | Done |
 | G-A | Non-element (text/comment) addressing | **LOCKED** — `DomSelector` object: `element` \| `childAt` | Done |
@@ -223,14 +223,14 @@ animates the site” overstates it.
   mutations we project.
 - Stylesheets on the projected side are mostly **materialized CSS text** in
   `<style>` placeholders (today). Rule-op mapping lives on the **CSSOM track**
-  — [page-projection-cssom.md](page-projection-cssom.md).
+  — [cssom.md](cssom.md).
 
 ---
 
 ## T1 — CSSOM plane (sealed elsewhere)
 
 Dom plane is **sealed in this file**. CSSOM plane + PageProjection naming are
-**sealed** in [page-projection-cssom.md](page-projection-cssom.md).
+**sealed** in [cssom.md](cssom.md).
 
 One PageProjection pipe; envelopes use `plane: dom | cssom` (not two streams).
 Do **not** expand CSSOM gaps here.
@@ -281,7 +281,7 @@ catch-up + live MO as `childList`/`patch` → Cssom live with Dom. Full DomMap
 (`MapAndArm` / equivalent dump) is **fail-safe OOB mirror-miss + lab only**.
 Never reintroduce a second full DomMap “bootstrap” after seed to paper over
 MO flood, queue DropAll, or `address_miss`. Fix seed / catch-up / ledger /
-apply / pacing instead. See `docs/page-projection-acceptance.md`.
+apply / pacing instead. See `docs/page-projection/spec/acceptance.md`.
 
 ### DOM `document` op (aligned with T6)
 
@@ -873,9 +873,9 @@ pipeline/coalesce supersession).
 Behaviour sealed; with or after T11:
 
 - Rename `page-projection-*.md` → `page-projection-*.md` (or permanent banners).  
-- Rewrite/supersede [page-projection-diff-pipeline.md](page-projection-diff-pipeline.md)
+- Rewrite/supersede [diff-pipeline.md](diff-pipeline.md)
   (dirty-climb / URL-reload cssom).  
-- Revisit [page-projection-coalesce.md](page-projection-coalesce.md) (correctness:
+- Revisit [coalesce.md](coalesce.md) (correctness:
   no intentional time coalesce — T5).  
 - Update input + virtual-assets docs to `MirrorMode.PageProjection` vocabulary.  
 - Cssom plane stays specified in the CSSOM doc (renamed under PageProjection).
@@ -927,7 +927,7 @@ Behaviour sealed; with or after T11:
 | 2026-08-06 | G-A | **LOCKED** text stays a real node; `selector` becomes object `DomSelector` = `element{query}` \| `childAt{query,index}`; qSA+length===1 unchanged; F collapses adjacent text runs, client never normalizes; validate resolves all addresses before mutating. |
 | 2026-08-06 | T7 | **LOCKED (stone)** selector always = op target; resolve deterministic → one node or desync; no per-op ad-hoc resolve — edge cases absorbed by `DomSelector`; “parent” for `childList` is op semantics. |
 | 2026-08-06 | DOM | **SEALED** — Dom plane; CSSOM + PageProjection naming sealed in cssom doc; remaining OPEN = T11 cutover + T12 docs. |
-| 2026-08-06 | Meta | CSSOM track split to [page-projection-cssom.md](page-projection-cssom.md); this file = sealed DOM contract. T2 marked LOCKED for DOM; T1 becomes pointer. |
+| 2026-08-06 | Meta | CSSOM track split to [cssom.md](cssom.md); this file = sealed DOM contract. T2 marked LOCKED for DOM; T1 becomes pointer. |
 | 2026-08-06 | PageProjection | **LOCKED** (CSSOM C9) Mirror=technique; mode/pipe=`PageProjection` replaces `DomProjection`; envelope `plane: dom\|cssom`; E2E rename at cutover. |
 | 2026-08-06 | Meta | **SEALED** PageProjection behaviour (Dom plane this file + Cssom plane cssom doc). Remaining OPEN = T11 implementation cutover + T12 docs only. |
 

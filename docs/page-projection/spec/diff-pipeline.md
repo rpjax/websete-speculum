@@ -1,7 +1,7 @@
 # Dom Projection — F (Virtual DOM → Projected DOM)
 
 > **SUPERSEDED — WP16.** This document is entirely superseded by
-> [page-projection-engine-redesign.md](page-projection-engine-redesign.md), which is now the
+> [engine-redesign.md](engine-redesign.md), which is now the
 > sole canon for F, the wire, establish, recovery, the surface, interaction, the asset plane,
 > the browser pool and configuration (§5, §8, §9). Do not implement or extend against this
 > file. It is kept only as V1 implementation history until the redesign's WP1–WP16 cutover
@@ -11,8 +11,8 @@
 
 > **Supersession in progress:** the op-based **PageProjection** contract
 > (Dom + Cssom planes) is **behaviour-sealed** in
-> [page-projection-diff-streams.md](page-projection-diff-streams.md) +
-> [page-projection-cssom.md](page-projection-cssom.md). Cutover renames
+> [diff-streams.md](diff-streams.md) +
+> [cssom.md](cssom.md). Cutover renames
 > `DomProjection` → `PageProjection` end-to-end. Until then, **this file
 > remains the implemented F contract**.
 
@@ -25,14 +25,14 @@ Virtual DOM  →  observe → anchor → coalesce → map → asset rewrite → 
 Not this document:
 
 - **Input remoting & bindings** —
-  [page-projection-input.md](page-projection-input.md)
+  [input.md](input.md)
 - How bytes are **served** after rewrite —
-  [page-projection-virtual-assets.md](page-projection-virtual-assets.md)
+  [virtual-assets.md](virtual-assets.md)
 - Coalesce **knobs / admin config** —
-  [page-projection-coalesce.md](page-projection-coalesce.md)
+  [coalesce.md](coalesce.md)
 - Session viewport / video mirror
 
-**Related:** [architecture.md](architecture.md) · [naming.md](naming.md) ·
+**Related:** [architecture.md](../../architecture.md) · [naming.md](../../naming.md) ·
 Sessions `MirrorMode.DomProjection` (→ `PageProjection` at cutover)
 
 ---
@@ -108,7 +108,7 @@ mutations → Anchorer → Coalesce → DiffProducer → map / cssom → kick fe
 ```
 
 Coalesce **behavior** is part of F; **numeric knobs / admin config** are
-[page-projection-coalesce.md](page-projection-coalesce.md).
+[coalesce.md](coalesce.md).
 
 ### 4.1 Anchorer
 
@@ -234,7 +234,7 @@ Absent those attrs ⇒ treat as normal URL-backed media (file / HLS / DASH via
 serve plane). V1 does **not** implement MSE/DRM playback; attrs reserve wiring
 and honest UX (poster/placeholder).
 
-Serve: [page-projection-virtual-assets.md](page-projection-virtual-assets.md).
+Serve: [virtual-assets.md](virtual-assets.md).
 
 ---
 
@@ -327,7 +327,7 @@ executable SVG vectors as tests require.
 F buffers dirty signals between Anchorer and DiffProducer flush. Strategies and
 caps exist; **defaults, admin surface, and which knobs are runtime-configurable**
 are specified only in
-[page-projection-coalesce.md](page-projection-coalesce.md).
+[coalesce.md](coalesce.md).
 
 Forced immediate flush: `target=document` establishes, configured caps, shutdown best-effort.
 

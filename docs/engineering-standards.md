@@ -20,7 +20,7 @@ Read this **before** multi-file or sessions/diagnostics/CI changes. Deeper detai
 | 6 | Before changing a failing hardened assert: [assert-failure-policy.md](assert-failure-policy.md) |
 | 7 | Cursor injects a short always-on summary: [../.cursor/rules/speculum-engineering-standards.mdc](../.cursor/rules/speculum-engineering-standards.mdc) |
 | 8 | Before UI work under `web/`: [frontend-standards.md](frontend-standards.md) + [frontend-patterns.md](frontend-patterns.md); Cursor: [../.cursor/rules/speculum-frontend-standards.mdc](../.cursor/rules/speculum-frontend-standards.mdc) |
-| 9 | PageProjection Live work: [page-projection-acceptance.md](page-projection-acceptance.md) — **absolute 1:1 parity** with the original site |
+| 9 | PageProjection Live work: [page-projection/spec/acceptance.md](page-projection/spec/acceptance.md) — **absolute 1:1 parity** with the original site |
 
 **Hard bans before you type:**
 
@@ -29,7 +29,7 @@ Read this **before** multi-file or sessions/diagnostics/CI changes. Deeper detai
 - Do not add config key aliases or “deprecated” API paths during V1 development.
 - Do not treat `Task.Delay` as the primary Act→Assert synchronizer.
 - Do not assume `200` / `ok: true` proves session truth.
-- Do not treat PageProjection protocol recovery (QD / Resync / WD) or smoke PASS as accept unless **Projected ≈ original site 1:1** — see [page-projection-acceptance.md](page-projection-acceptance.md).
+- Do not treat PageProjection protocol recovery (QD / Resync / WD) or smoke PASS as accept unless **Projected ≈ original site 1:1** — see [page-projection/spec/acceptance.md](page-projection/spec/acceptance.md).
 
 ---
 

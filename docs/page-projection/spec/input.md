@@ -1,6 +1,6 @@
 # Dom Projection — input propagation & bindings
 
-> **Amended by** [page-projection-engine-redesign.md](page-projection-engine-redesign.md) rev 4
+> **Amended by** [engine-redesign.md](engine-redesign.md) rev 4
 > (WP16 / Q8 / Q14 / Q18): §§6.3 (iframe surface coords), 6.7 (intents address by `uint32` id via
 > reverse map — not `speculum-anchor` on Virtual), 7.2 (caret **client-authoritative**), 11 (control
 > knobs; coalesce knobs deleted), 14.3 (hit-test / iframe boundary). Local-first interaction
@@ -17,8 +17,8 @@
 > this input contract** — `DomProjectionIntent` → `PageProjectionIntent`,
 > telemetry `…PageProjection.Input.*`, mode checks, client/sidecar APIs (T11).
 > Sealed Dom/Cssom planes:
-> [page-projection-diff-streams.md](page-projection-diff-streams.md),
-> [page-projection-cssom.md](page-projection-cssom.md).
+> [diff-streams.md](diff-streams.md),
+> [cssom.md](cssom.md).
 > This file remains the implemented V1 behaviour until cutover (names update
 > with T11; no V1 aliases).
 
@@ -28,11 +28,11 @@ applied on the **Virtual DOM** — and how upstream control state from F binds
 back without fighting the user.
 
 **Not this document:** F (Virtual → DomDiff) —
-[page-projection-diff-pipeline.md](page-projection-diff-pipeline.md); virtual
+[diff-pipeline.md](diff-pipeline.md); virtual
 asset serve; F coalesce knobs; **video-mirror / OS (uinput) input** — that
 stack stays on `MirrorMode.VideoStreaming` and is intentionally separate.
 
-**Related:** [architecture.md](architecture.md) · [naming.md](naming.md) ·
+**Related:** [architecture.md](../../architecture.md) · [naming.md](../../naming.md) ·
 Sessions `MirrorMode.DomProjection` (→ `PageProjection` at cutover)
 
 ---

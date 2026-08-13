@@ -7,7 +7,7 @@ alwaysApply: true
 
 **Bar:** Projected Live (`MirrorMode.PageProjection`) must be **1:1** with opening the same site in a normal browser on Virtual. Design intent = indistinguishable UX. **Anything less is unacceptable.**
 
-Full text: `docs/page-projection-acceptance.md`.
+Full text: `docs/page-projection/spec/acceptance.md`.
 
 ## Hard bans
 

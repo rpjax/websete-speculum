@@ -19,16 +19,9 @@ Technical documentation for the **Speculum** remote browser isolation platform (
 | [../.cursor/rules/speculum-frontend-standards.mdc](../.cursor/rules/speculum-frontend-standards.mdc) | Cursor | Frontend rule when editing `web/**` |
 | [../readme.md](../readme.md) | Everyone | Project overview, quick start, repository map |
 | [architecture.md](architecture.md) | Architects, operators | System design, data flows, security boundaries |
-| **[page-projection-acceptance.md](page-projection-acceptance.md)** | **Agents + Sessions (mandatory)** | **PageProjection accept = absolute 1:1 parity with the original site** |
-| **[page-projection-engine-redesign.md](page-projection-engine-redesign.md)** | **Agents + Sessions (mandatory)** | **Sole canon for the redesigned engine** — F, wire, establish, recovery, surface, interaction, assets, browser pool, config (supersedes the two rows below) |
-| [page-projection-support-matrix.md](page-projection-support-matrix.md) | Agents + Sessions | Published §11 accepted gaps — K1/K5 boundaries; everything else is 1:1 parity |
-| [page-projection-test-matrix.md](page-projection-test-matrix.md) | Agents + Sessions | `PP-*` coverage truth for the redesigned engine, with WP ownership |
-| [page-projection-diff-pipeline.md](page-projection-diff-pipeline.md) | Architects / Sessions | **Superseded** — Dom Projection **F** V1 contract, kept as implementation history |
-| [page-projection-diff-streams.md](page-projection-diff-streams.md) | Architects / Sessions | **Sealed** Dom plane contract (ops, selectors, chronology) |
-| [page-projection-cssom.md](page-projection-cssom.md) | Architects / Sessions | **Sealed** Cssom plane contract |
-| [page-projection-input.md](page-projection-input.md) | Architects / Sessions | PageProjection **input**: Projected → Virtual intents & control bindings |
-| [page-projection-virtual-assets.md](page-projection-virtual-assets.md) | Architects / Sessions | Virtual URL **serve** plane: cache, pass-through, HLS/DASH, MSE/DRM stubs |
-| [page-projection-coalesce.md](page-projection-coalesce.md) | Architects / Sessions | **Superseded** — V1 coalesce knobs, kept as implementation history |
+| **[page-projection/spec/acceptance.md](page-projection/spec/acceptance.md)** | **Agents + Sessions (mandatory)** | **PageProjection accept = absolute 1:1 parity with the original site** |
+| **[page-projection/spec/engine-redesign.md](page-projection/spec/engine-redesign.md)** | **Agents + Sessions (mandatory)** | **Sole canon for the redesigned engine** |
+| **[page-projection/spec/README.md](page-projection/spec/README.md)** | Agents + Sessions | Spec pack index — contracts, implementation, sealed planes, matrices, work order |
 | [naming.md](naming.md) | Developers / agents | Speculum / Sessions / W7S vocabulary |
 | [diagnostics.md](diagnostics.md) | Backend / QA | Assertable observability contracts + Assert Cookbook |
 | [stealth-suite.md](stealth-suite.md) | Agents / QA | In-session antibot fingerprint suite (CreepJS etc.) + report template |

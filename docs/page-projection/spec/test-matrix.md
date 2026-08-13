@@ -1,6 +1,6 @@
 # PageProjection — test matrix
 
-**Status:** coverage truth for the redesigned engine (WP16). Canon: [page-projection-engine-redesign.md](page-projection-engine-redesign.md)
+**Status:** coverage truth for the redesigned engine (WP16). Canon: [engine-redesign.md](engine-redesign.md)
 §8 (asserts) + §10 (work package ownership), in the style of `Speculum.MotorAssert.Tests/MATRIX.md`.
 
 Every row below MUST be an effect assert. `200` / `ok: true` / a delivered frame count never proves a

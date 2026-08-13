@@ -13,7 +13,7 @@ Thank you for improving Speculum. This guide covers local workflow, quality expe
 3. Read [readme.md](readme.md) for repository layout.
 4. Read [docs/architecture.md](docs/architecture.md) if your change crosses API, web, or sidecar boundaries.
 5. Deploy changes should go through [deploy/README.md](deploy/README.md) (dockup manifest), not ad-hoc compose edits in `deploy/out/`.
-6. **Ad-hoc / workaround code is strictly forbidden** — fix the designed algorithm (stream, mirror, ledger, apply). Never paper over failures with a second path that restores a banned cost (e.g. cold full DomMap “bootstrap” after a stream seed). See [docs/page-projection-acceptance.md](docs/page-projection-acceptance.md).
+6. **Ad-hoc / workaround code is strictly forbidden** — fix the designed algorithm (stream, mirror, ledger, apply). Never paper over failures with a second path that restores a banned cost (e.g. cold full DomMap “bootstrap” after a stream seed). See [docs/page-projection/spec/acceptance.md](docs/page-projection/spec/acceptance.md).
 
 ---
 

@@ -7,15 +7,15 @@ contract for the PageProjection engine.
 apply, interaction, surface, assets, session lifecycle, admission, telemetry, configuration, module
 layout, test matrix and work packages.
 **Amends:** **T4**, **T5**, **T7**, **T9**, **G-A** and the **T2/T6** wire encoding in
-[page-projection-diff-streams.md](page-projection-diff-streams.md); **C3** encoding in
-[page-projection-cssom.md](page-projection-cssom.md); §6.3, §6.7, §7.2, §11 and §14.3 of
-[page-projection-input.md](page-projection-input.md).
-**Supersedes:** [page-projection-diff-pipeline.md](page-projection-diff-pipeline.md) and
-[page-projection-coalesce.md](page-projection-coalesce.md) entirely.
+[diff-streams.md](diff-streams.md); **C3** encoding in
+[cssom.md](cssom.md); §6.3, §6.7, §7.2, §11 and §14.3 of
+[input.md](input.md).
+**Supersedes:** [diff-pipeline.md](diff-pipeline.md) and
+[coalesce.md](coalesce.md) entirely.
 
-**Related:** [page-projection-acceptance.md](page-projection-acceptance.md) ·
-[page-projection-virtual-assets.md](page-projection-virtual-assets.md) · [telemetry.md](telemetry.md) ·
-[engineering-standards.md](engineering-standards.md) · [frontend-standards.md](frontend-standards.md)
+**Related:** [acceptance.md](acceptance.md) ·
+[virtual-assets.md](virtual-assets.md) · [telemetry.md](../../telemetry.md) ·
+[engineering-standards.md](../../engineering-standards.md) · [frontend-standards.md](../../frontend-standards.md)
 
 **Evidence base:** `Refactor/deploy/tmp-telemetry-run/pipehop-bugs-diagnosis.md`
 (`parityhop-*`, `dommaphop-*`, `dommapfix-*`, `pipehop-*`) and `tmp-telemetry-run/bugs-observados.md`
@@ -32,7 +32,7 @@ layout, test matrix and work packages.
 - §10 is the implementation order. **WP1 and WP2 (the oracles) MUST land before any engine work.**
   An engine change that cannot be measured is not an improvement, it is a claim.
 - Where this document conflicts with a superseded doc, this one wins. Where it conflicts with
-  [page-projection-acceptance.md](page-projection-acceptance.md), **acceptance wins**.
+  [acceptance.md](acceptance.md), **acceptance wins**.
 - **When something here is genuinely ambiguous, stop and ask — do not choose.** An implementation
   that guesses and passes the pipe metrics is exactly the failure this document exists to prevent.
 
@@ -73,7 +73,7 @@ pipe. None measures the product. §7 closes this permanently.
 | **K1** | **No pixel/video streaming in PageProjection, ever** — not partial, not per-element. Screencast belongs exclusively to `MirrorMode.VideoStreaming`. |
 | **K2** | **Session state is never shared.** Cookies, storage, credentials, identity, DOM, CSSOM, the id space, and any response fetched with credentials are strictly per session. **Exception:** immutable, credential-less **public byte content** is deduplicated in a shared asset tier under the predicate in §5.12.2 — byte content carrying no session identity is not session state. Shared CSSOM, shared rewrite memo and shared id space remain rejected. |
 | **K3** | **≥100 concurrent sessions** on an appropriately provisioned VPS, **with no degradation**. |
-| **K4** | **Absolute 1:1 parity**, visual and interactive, per [page-projection-acceptance.md](page-projection-acceptance.md). |
+| **K4** | **Absolute 1:1 parity**, visual and interactive, per [acceptance.md](acceptance.md). |
 | **K5** | **Site JavaScript executes only in the Virtual Chromium.** No page JS on the Projected surface, in any form. |
 
 **Media clarification (so K1 is not misread):** `<video>`/`<audio>`/HLS/DASH are served as **bytes**
@@ -282,7 +282,7 @@ ids are stable, so resolution order is irrelevant.
    `/w7s/virtual-data/{id}` covers `src`, `href`, `xlink:href`, `data-src`, `poster`, `srcset`,
    `imagesrcset`, inline `style`, CSS `url()`, and the bare-string forms of `@import` and
    `image-set()`. Reserved query parameters per
-   [page-projection-virtual-assets.md](page-projection-virtual-assets.md) §1.1.
+   [virtual-assets.md](virtual-assets.md) §1.1.
 5. **Pierce is mandatory**: main document, open and closed shadow roots, same-origin and cross-origin
    iframes, flattened into one tree. Boundary hosts carry `speculum-shadow-root`,
    `speculum-shadow-closed`, `speculum-iframe`. Shadow **slot assignment** MUST be published as the
@@ -682,7 +682,7 @@ single document would otherwise let pierced CSS leak into the parent. Measured `
    follows the existing race policy (input §8: retry, then drop with `AnchorMiss`).
 2. Pointer coordinates remain surface CSS pixels mapped to the Virtual viewport (input §6.3), with the
    iframe adjustment of §5.8.7.
-3. Everything else in [page-projection-input.md](page-projection-input.md) stands: no wire `click`,
+3. Everything else in [input.md](input.md) stands: no wire `click`,
    CDP-only dispatch, the inject chain, move collapsing under pressure, file upload via `setFiles`,
    disarm while desynced, the two scroll intent types.
 4. Input intents MUST NOT be sent before arming (§5.6.7).
@@ -819,7 +819,7 @@ an implementation MUST use until **O4** replaces it.
 | `aggregateIntervalMs` | 10000 | `Frame.Aggregate` period |
 | existing input knobs (input §11) | unchanged | |
 
-**Deleted:** every coalesce knob from `page-projection-coalesce.md` (`strategy`, `coalesceWindowMs`,
+**Deleted:** every coalesce knob from `coalesce.md` (`strategy`, `coalesceWindowMs`,
 `maxWaitMs`, `maxBufferBytes`, `maxOpsPerFlush`) and `PageProjectionDiffQueueCapacity` as a load
 control. Validation MUST reject values that could stall emission indefinitely.
 
@@ -847,7 +847,7 @@ control. Validation MUST reject values that could stall emission indefinitely.
 The engine degenerated because **the only automated verdict measured the pipe**: a run could report
 `FrameReceived = WireDelivered = 6964`, `QueueDropped = 0` and a contiguous sequence while the hero
 banner was blank (BZ5) and product images were collapsed to slivers (BZ6).
-[page-projection-acceptance.md](page-projection-acceptance.md) states the right bar in prose and has
+[acceptance.md](acceptance.md) states the right bar in prose and has
 **no assert**.
 
 | # | Oracle | Definition |

@@ -1,6 +1,6 @@
 # PageProjection — CSSOM plane redesign
 
-> **Amended by** [page-projection-engine-redesign.md](page-projection-engine-redesign.md) rev 4
+> **Amended by** [engine-redesign.md](engine-redesign.md) rev 4
 > (§5.10 / Q4 / Q19): encoding follows the binary frame (§5.5); Cssom ids are `uint32` in the same
 > numeric space as Dom ids (opcode disambiguates); chronology follows the **frame** model (shared
 > `sequence`); `cssomInstall` precedes `establishChunk` (D-FLASH); within-frame coalescing applies
@@ -12,7 +12,7 @@
 complete (C0–C9, C3.1).  
 **Cutover only:** T11 rename `DomProjection`→`PageProjection` + implement ops
 (front/API/sidecar). No V1 shims.  
-**Dom plane (sealed):** [page-projection-diff-streams.md](page-projection-diff-streams.md)
+**Dom plane (sealed):** [diff-streams.md](diff-streams.md)
 
 **Purpose of this file**
 
@@ -20,9 +20,9 @@ complete (C0–C9, C3.1).
 2. Inherit the **behavioural model** already locked for the DOM plane.  
 3. Record sealed decisions; do not reopen DOM-plane behaviour here.
 
-**Related:** [page-projection-diff-streams.md](page-projection-diff-streams.md)
-(DOM plane) · [page-projection-diff-pipeline.md](page-projection-diff-pipeline.md)
-(legacy implemented) · [naming.md](naming.md)
+**Related:** [diff-streams.md](diff-streams.md)
+(DOM plane) · [diff-pipeline.md](diff-pipeline.md)
+(legacy implemented) · [naming.md](../../naming.md)
 
 **How to use**
 

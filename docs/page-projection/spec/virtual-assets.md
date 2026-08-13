@@ -3,14 +3,14 @@
 
 > **Naming / supersession:** product mode/pipe is **PageProjection**
 > (`MirrorMode.PageProjection`), not `DomProjection`. Sealed contracts:
-> [page-projection-diff-streams.md](page-projection-diff-streams.md) (Dom plane),
-> [page-projection-cssom.md](page-projection-cssom.md) (Cssom plane). This file
+> [diff-streams.md](diff-streams.md) (Dom plane),
+> [cssom.md](cssom.md) (Cssom plane). This file
 > remains the implemented V1 contract until T11/T12 cutover.
 
 **Status:** design (initial plan).
 
 **Scope:** how Speculum **serves** bytes for URLs that F rewrote. Not F itself —
-[page-projection-diff-pipeline.md](page-projection-diff-pipeline.md).
+[diff-pipeline.md](diff-pipeline.md).
 
 **Related:** Sessions `MirrorMode.DomProjection` (→ `PageProjection` at cutover) · PathBase `/w7s`
 
@@ -121,9 +121,9 @@ Reserved future wiring (no V1 behavior):
 
 | Concern | Doc |
 |---------|-----|
-| Map + rewrite to Speculum URL prefixes; dedicated media/boundary attrs | [page-projection-diff-pipeline.md](page-projection-diff-pipeline.md) |
+| Map + rewrite to Speculum URL prefixes; dedicated media/boundary attrs | [diff-pipeline.md](diff-pipeline.md) |
 | Cache vs pass-through; Range; HLS/DASH body rewrite; bridges | **This doc** |
-| Coalesce admin knobs | [page-projection-coalesce.md](page-projection-coalesce.md) |
+| Coalesce admin knobs | [coalesce.md](coalesce.md) |
 
 ---
 

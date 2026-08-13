@@ -1,7 +1,7 @@
 # Dom Projection — coalesce configuration
 
 > **SUPERSEDED — WP16.** This document is entirely superseded by
-> [page-projection-engine-redesign.md](page-projection-engine-redesign.md). The coalesce knobs
+> [engine-redesign.md](engine-redesign.md). The coalesce knobs
 > below (`strategy`, `coalesceWindowMs`, `maxWaitMs`, `maxBufferBytes`, `maxOpsPerFlush`) and
 > `PageProjectionDiffQueueCapacity` as a load control are **deleted** by the redesign (§5.16):
 > backpressure is the frame-rate ladder (§5.3.5), which never drops a frame. See §5.16 for the
@@ -11,8 +11,8 @@
 
 > **Naming / supersession:** product mode/pipe is **PageProjection**
 > (`MirrorMode.PageProjection`), not `DomProjection`. Sealed contracts:
-> [page-projection-diff-streams.md](page-projection-diff-streams.md) (Dom plane),
-> [page-projection-cssom.md](page-projection-cssom.md) (Cssom plane). This file
+> [diff-streams.md](diff-streams.md) (Dom plane),
+> [cssom.md](cssom.md) (Cssom plane). This file
 > remains the implemented V1 contract until T11/T12 cutover.
 
 
@@ -20,7 +20,7 @@
 flush — **knobs, defaults, and admin/runtime configurability**.
 
 This is **not** F’s mapping algorithm. F assumes a coalesce buffer exists; see
-[page-projection-diff-pipeline.md](page-projection-diff-pipeline.md) §8.
+[diff-pipeline.md](diff-pipeline.md) §8.
 
 **Related:** Sessions admin config · `MirrorMode.DomProjection` (→ `PageProjection` at cutover)
 
@@ -103,6 +103,6 @@ same knob names).
 
 | Doc | Owns |
 |-----|------|
-| [page-projection-diff-pipeline.md](page-projection-diff-pipeline.md) | F algorithm; coalesce exists between Anchorer and DiffProducer |
+| [diff-pipeline.md](diff-pipeline.md) | F algorithm; coalesce exists between Anchorer and DiffProducer |
 | **This doc** | Strategy meanings, defaults, admin-configurable surface |
-| [page-projection-virtual-assets.md](page-projection-virtual-assets.md) | Serving rewritten URLs (independent of coalesce) |
+| [virtual-assets.md](virtual-assets.md) | Serving rewritten URLs (independent of coalesce) |

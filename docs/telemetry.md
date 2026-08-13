@@ -220,7 +220,7 @@ Telemetry__Docker__Endpoint=unix:///var/run/docker.sock
 
 `PageProjection.{Virtual,Establish,Asset}` facts are keyed by **`pageEpochId`** — one Virtual
 navigation identity minted on hard navigation and on SoftNav (never on Diff-only churn; see
-`docs/page-projection-acceptance.md`). They exist to separate two costs that used to be conflated
+`docs/page-projection/spec/acceptance.md`). They exist to separate two costs that used to be conflated
 in a single "time to first paint" number:
 
 - **`bootMs`** (`Virtual.BootMarked`) — Chromium process launch → first commit. This is sidecar/
@@ -290,4 +290,4 @@ front `client_*` correlation, and `timings.bootMs` / `timings.tSinceCommit*Ms`),
 (non-zero exit) when the ParityDebug pack was on (any `Virtual.NavCommit` or `Establish.*` fact
 present) but the story is incomplete for a non-soft-nav epoch — missing `NavCommit`, or neither
 `EstablishCompleted` nor `EstablishFailed`. A green protocol diagnose with an incomplete PageEpoch
-story is not accept; see `docs/page-projection-acceptance.md`.
+story is not accept; see `docs/page-projection/spec/acceptance.md`.

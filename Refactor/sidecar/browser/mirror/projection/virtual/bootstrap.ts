@@ -25,8 +25,9 @@ import type { FrameTransport } from './transport/frameTransport';
 import { ConsoleFrameTransport } from './transport/consoleFrameTransport';
 import { LoopbackFrameTransport } from './transport/loopbackFrameTransport';
 import { NullFrameTransport } from './transport/nullFrameTransport';
-import { compareTableToLiveDom } from './dom/tableLiveOracle';
+import { digestReplicatedTable } from '../models/tableDigest';
 import type { TableLiveOracleResult } from '../models/tableLiveOracle';
+import { compareTableToLiveDom } from './dom/tableLiveOracle';
 
 declare global {
   var __speculumProjection:
@@ -42,6 +43,20 @@ declare global {
         readonly frameTransport: FrameTransport;
         readonly telemetry: ProjectionTelemetry;
         readonly compareTableToLiveDom: () => TableLiveOracleResult;
+        haltWorld: () => void;
+        resumeWorld: () => void;
+        flushFrame: () => { generation: number; sequence: number };
+        /**
+         * One JS turn: drain MO buffer → emit frame → O2. DOM cannot mutate mid-call
+         * (run-to-completion). Stops the frame clock afterwards so no sequence S+1
+         * races the client applying S. Caller must resumeWorld().
+         */
+        flushAndSnapshot: () => {
+          generation: number;
+          sequence: number;
+          o2: TableLiveOracleResult;
+          table: { rowCount: number; tableHash: string };
+        };
       }
     | undefined;
 }
@@ -130,6 +145,7 @@ void (async () => {
     encoder,
     transport: frameTransport,
     domNodes,
+    table,
     telemetry,
   });
 
@@ -197,5 +213,30 @@ void (async () => {
     frameTransport,
     telemetry,
     compareTableToLiveDom: () => compareTableToLiveDom(table, domNodes, document),
+    haltWorld: () => {
+      frameEmitter.stop();
+    },
+    resumeWorld: () => {
+      frameEmitter.start();
+    },
+    flushFrame: () => {
+      frameEmitter.flushNow();
+      return { generation: domNodes.generation, sequence: frameEmitter.currentSequence };
+    },
+    flushAndSnapshot: () => {
+      // Same turn as this call: rAF / timers / MO callbacks cannot run. Drain whatever
+      // the observer already queued, emit that frame, then oracle the table against live
+      // DOM — both still frozen. Then stop the clock so the client can apply this sequence
+      // before a later tick publishes S+1.
+      frameEmitter.flushNow();
+      const o2 = compareTableToLiveDom(table, domNodes, document);
+      frameEmitter.stop();
+      return {
+        generation: domNodes.generation,
+        sequence: frameEmitter.currentSequence,
+        o2,
+        table: digestReplicatedTable(table),
+      };
+    },
   };
 })();

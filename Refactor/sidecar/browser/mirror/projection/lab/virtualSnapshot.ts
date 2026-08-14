@@ -41,6 +41,31 @@ function loadSnapshotScript(): string {
   );
 }
 
+/** Expression: flush+O2 (+ optional tree) in one document JS turn — DOM cannot mutate mid-call. */
+export function coherentSnapshotExpression(includeTree: boolean): string {
+  const treePart = includeTree
+    ? `${loadSnapshotScript()}\n    tree = __speculumSnapshot.snapshotTree();\n`
+    : '';
+  return `(() => {
+    const p = globalThis.__speculumProjection;
+    if (!p || typeof p.flushAndSnapshot !== 'function') {
+      return { ok: false, reason: 'flushAndSnapshot missing' };
+    }
+    const flushed = p.flushAndSnapshot();
+    let tree = null;
+    ${treePart}
+    return {
+      ok: true,
+      generation: flushed.generation,
+      sequence: flushed.sequence,
+      tableSize: p.table.size,
+      o2: flushed.o2,
+      table: flushed.table,
+      tree,
+    };
+  })()`;
+}
+
 /** Captures a structural snapshot of the Virtual page's live `document` (no pixels, no CSSOM). */
 export async function captureVirtualSnapshot(page: Page): Promise<TreeNode> {
   const source = loadSnapshotScript();

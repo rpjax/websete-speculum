@@ -20,7 +20,7 @@ V4 spec + lab engine (DONE)
 | Piece | Status |
 |-------|--------|
 | V4 protocol spec | **In force** — [frame-protocol.md](frame-protocol.md) |
-| Lab engine `Refactor/sidecar/browser/mirror/projection/` | **DONE** single-document core: Stages 1 (table/wire/apply), 2 (malformed/precondition abort), 3 (`EPOCH_RESET` / `NODE_DROP` / limits), 4 (client resync + double buffer). `unit.js` + 10/10 `smoke-projection-lab.js` green |
+| Lab engine `Refactor/sidecar/browser/mirror/projection/` | **DONE** single-document core Stages 1–4. Lab **caller** of `V4ProjectionBrowserSession` (no second Chromium). Coherent snapshot probe + CLI `lab:run` / `report.json` — [observability.md](observability.md). Units include `v4ProjectionSession.unit.ts`. Smoke still in `smoke-projection-lab.js` |
 | Production path `PatchrightBrowserSession.ts` | **Legacy** `LivePageProjection` / `mirror/page/liveAttach` — **not** V4 |
 | M1 overall | **Blocked on cutover gates**, not on writing the engine |
 | M2 / M3 | Blocked on M1 cutover |
@@ -89,5 +89,7 @@ Do not run M3 to hide an M2 bug.
 | 2 | `preTableHash` / `CHECK` / limits; hostile/corrupted frame aborts before DOM |
 | 3 | `EPOCH_RESET`, `NODE_DROP` GC, MAX_* |
 | 4 | Client `requestResync` → producer `emitResyncFrame` halt-in-emitter → standby iframe → swap on CHECK; bounded retry |
+| Lab-as-caller | `V4ProjectionBrowserSession` owns Patchright/inject/dataplane/probes; `LabSession` + `lab:run` compose `report.json` |
+| Coherent iso | `flushAndSnapshot` one JS turn; O2 + table digest + tree bound to sequence S; events not used as table asserts |
 
-Code: `Refactor/sidecar/browser/mirror/projection/`.
+Code: `Refactor/sidecar/browser/mirror/projection/`. Observability rules: [observability.md](observability.md).

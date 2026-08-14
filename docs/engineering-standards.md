@@ -20,7 +20,7 @@ Read this **before** multi-file or sessions/diagnostics/CI changes. Deeper detai
 | 6 | Before changing a failing hardened assert: [assert-failure-policy.md](assert-failure-policy.md) |
 | 7 | Cursor injects a short always-on summary: [../.cursor/rules/speculum-engineering-standards.mdc](../.cursor/rules/speculum-engineering-standards.mdc) |
 | 8 | Before UI work under `web/`: [frontend-standards.md](frontend-standards.md) + [frontend-patterns.md](frontend-patterns.md); Cursor: [../.cursor/rules/speculum-frontend-standards.mdc](../.cursor/rules/speculum-frontend-standards.mdc) |
-| 9 | PageProjection: start at [page-projection/spec/README.md](page-projection/spec/README.md); accept = [page-projection/spec/acceptance.md](page-projection/spec/acceptance.md). Do not implement from `page-projection/archive/`. |
+| 9 | PageProjection: start at [page-projection/spec/README.md](page-projection/spec/README.md); accept = [page-projection/spec/acceptance.md](page-projection/spec/acceptance.md). Lab/telemetry/probes: [page-projection/spec/observability.md](page-projection/spec/observability.md). Do not implement from `page-projection/archive/`. |
 
 **Hard bans before you type:**
 
@@ -30,6 +30,7 @@ Read this **before** multi-file or sessions/diagnostics/CI changes. Deeper detai
 - Do not treat `Task.Delay` as the primary Act→Assert synchronizer.
 - Do not assume `200` / `ok: true` proves session truth.
 - Do not treat PageProjection protocol recovery (QD / Resync / WD) or smoke PASS as accept unless **Projected ≈ original site 1:1** — see [page-projection/spec/acceptance.md](page-projection/spec/acceptance.md).
+- Do not pass/fail PageProjection **state** invariants (table identity, DOM isomorphism) from event telemetry; use coherent snapshot **probes** — [page-projection/spec/observability.md](page-projection/spec/observability.md).
 
 ---
 

@@ -17,6 +17,7 @@ If you are an agent with limited context: **read this file, then `acceptance.md`
 | Accept / anti-protocol-PASS / no ad-hoc | **[acceptance.md](acceptance.md)** |
 | K1–K5, P1–P7, E1–E11 | **[budgets.md](budgets.md)** |
 | Oracles O1–O5 | **[oracles.md](oracles.md)** |
+| Lab / probes / event telemetry vs asserts | **[observability.md](observability.md)** |
 | CSSOM materialization detail | **[cssom.md](cssom.md)** — opcodes live in frame-protocol §4.6 |
 | Input intents | **[input.md](input.md)** — address by `uint32` only |
 | Asset serve plane | **[virtual-assets.md](virtual-assets.md)** |
@@ -41,8 +42,9 @@ If two live docs disagree on the protocol layer, **frame-protocol.md wins**. Do 
 | 4 | [roadmap.md](roadmap.md) | Ordered gates to production |
 | 5 | [frame-protocol.md](frame-protocol.md) | The engine |
 | 6 | [budgets.md](budgets.md) + [oracles.md](oracles.md) | If touching cost, CI, or accept |
-| 7 | Adjacent layer file | cssom / input / virtual-assets / support-matrix / test-matrix |
-| 8 | [decision-log.md](decision-log.md) | Only when you need *why* |
+| 7 | [observability.md](observability.md) | If touching lab, telemetry events, probes, `report.json`, isomorphism |
+| 8 | Adjacent layer file | cssom / input / virtual-assets / support-matrix / test-matrix |
+| 9 | [decision-log.md](decision-log.md) | Only when you need *why* |
 
 ---
 
@@ -57,6 +59,7 @@ docs/page-projection/
     frame-protocol.md       V4 protocol (normative)
     budgets.md              K1–K5, P*, E*
     oracles.md              O1–O5
+    observability.md        probes vs events; coherent snapshot; lab as caller
     cssom.md                CSSOM plane (materialize)
     input.md                Projected → Virtual intents
     virtual-assets.md       URL serve plane
@@ -69,8 +72,10 @@ docs/page-projection/
 ```
 
 Code that implements V4: `Refactor/sidecar/browser/mirror/projection/`.  
+Lab is a **caller** of `V4ProjectionBrowserSession` — [observability.md](observability.md).  
+Lab UI: `npm run lab:projection`. Agent: `npm run lab:run` → `lab-runs/<ts>-<slug>/report.json`.  
 Lab smoke: `Refactor/sidecar/scripts/smoke-projection-lab.js`.  
-Lab units: `Refactor/sidecar/unit.ts`.
+Lab units: `Refactor/sidecar/unit.ts` (includes `v4ProjectionSession.unit.ts`).
 
 ---
 

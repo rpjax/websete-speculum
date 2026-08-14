@@ -37,6 +37,9 @@
 | 2026-08-14 | Spec tree sanitized: live V4 vs `archive/` | this reorganization |
 | 2026-08-14 | OPEN-7 **CLOSED** — `insertBatch` reverse link + unit falsifier | frame-protocol.md §10 + [open.md](open.md) |
 | 2026-08-14 | O2 local oracle (table × Virtual live DOM) — lab gate 2 | [oracles.md](oracles.md) + `tableLiveOracle.ts` |
+| 2026-08-14 | Lab is a BrowserSession **caller**; three telemetry kinds; CPU is a probe; `report.json` is lab-composed | [observability.md](observability.md) |
+| 2026-08-14 | Events never assert state; coherent snapshot at sequence S (one JS turn); `tableSize` = `ReplicatedTable.size` | [observability.md](observability.md) |
+| 2026-08-14 | OPEN-8 last-child unlink `nextSiblingOf[prev]` — prepend-stress O2 | frame-protocol.md §10 + [open.md](open.md) |
 
 **Stage 4 confirmed (Rodrigo):** mid-session recovery = **`emitResyncFrame` alone** (ids preserved; does not self-heal a corrupt map shape). Client = **real double buffer**, swap only after resync frame CHECK. Lab transport = existing control WS + `PlaneChannel.Control`. Production hub/gRPC is gate 5.
 
@@ -144,3 +147,18 @@ Docs are the V4 source of truth; code reflects them. Stale text fixed, **no beha
 - **Broken links** repaired: input.md / virtual-assets.md pointed at archived `diff-pipeline.md` /
   `coalesce.md`; now point at frame-protocol.md (live) with the archived pre-V4 doc noted.
 - **Still pending:** cssom.md "establish/install" vocabulary (separate careful pass).
+
+---
+
+## G. Lab / observability (2026-08-14)
+
+Full text: [observability.md](observability.md). Sealed with Rodrigo:
+
+- One Chromium path (`BrowserSession`). Lab does not launch Chromium or `page.evaluate`.
+- Telemetry = **events** (push, time-series) + **embedded** + **probes** (caller fetch). CPU = CDP probe.
+- **Events are not asserts.** Table×table, table×DOM, tree×tree at frame S = coherent snapshot probe.
+- Halt/flush/oracle/tree in **one** in-page turn (`flushAndSnapshot`); split evaluates are torn reads.
+- Snapshot is **state** (replicated table digest + whatever indexers matter), not DOM-only.
+- `frameEmitted.tableSize` = protocol table size; `identitySize` = WeakRef map (diagnostic only).
+- `FrameInvariantMonitor` = wire bytes only. `report.json` = lab dossier, not a session RPC.
+

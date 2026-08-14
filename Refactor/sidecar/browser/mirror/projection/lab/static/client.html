@@ -187,7 +187,7 @@
           <button type="button" data-tab="Stream" class="active">Stream</button>
           <button type="button" data-tab="Activity">Activity</button>
           <button type="button" data-tab="Config">Config</button>
-          <button type="button" data-tab="Benchmark">Benchmark</button>
+          <button type="button" data-tab="Run">Run</button>
         </div>
         <div id="panelStream" class="panel">
           <h2 class="panel-title">Stream</h2>
@@ -282,14 +282,14 @@
             Start Virtual relaunches Chrome with these inject knobs.
           </p>
         </div>
-        <div id="panelBenchmark" class="panel" hidden>
-          <h2 class="panel-title">Benchmark</h2>
+        <div id="panelRun" class="panel" hidden>
+          <h2 class="panel-title">Run</h2>
           <div class="cfg-row">
             <label for="benchDurationMs">durationMs</label>
             <input id="benchDurationMs" type="number" min="1000" step="1000" value="15000" />
           </div>
           <div class="cfg-row">
-            <label for="benchCpuProfile">CPU profile (Virtual, CDP)</label>
+            <label for="benchCpuProfile">CPU profile (session probe)</label>
             <input id="benchCpuProfile" type="checkbox" checked />
           </div>
           <div class="cfg-row">
@@ -300,7 +300,11 @@
             <label for="benchStructuralDiff">Structural diff (Virtual vs Client)</label>
             <input id="benchStructuralDiff" type="checkbox" checked />
           </div>
-          <button type="button" id="runBenchmark" class="primary" style="margin-top:0.5rem">Run Benchmark</button>
+          <div class="cfg-row">
+            <label for="benchIso">Isomorphism (halt / flush / O2)</label>
+            <input id="benchIso" type="checkbox" />
+          </div>
+          <button type="button" id="runBenchmark" class="primary" style="margin-top:0.5rem">Run</button>
           <div id="benchStatus" style="margin-top:0.5rem;color:var(--muted);font-size:12px">idle</div>
           <div id="benchResults" style="margin-top:0.75rem;font-family:ui-monospace,Consolas,monospace;font-size:11.5px;white-space:pre-wrap"></div>
         </div>

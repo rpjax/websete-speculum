@@ -7,7 +7,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { LabSession } from './session';
-import { labAssetRoots } from './virtualBrowser';
+import { labAssetRoots } from './assetRoots';
 
 export type LabServerOptions = {
   host: string;

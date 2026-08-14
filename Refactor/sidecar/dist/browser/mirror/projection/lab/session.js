@@ -1,21 +1,47 @@
 "use strict";
 /**
- * One lab session: client control WS + Virtual Chromium + Virtual data-plane WS.
- * Relays Frame bytes + Telemetry (JSON) Virtual → Client. No .NET / gRPC.
+ * One lab session: client control WS + V4 BrowserSession. Relays frames + telemetry. No Chromium here.
  */
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.LabSession = void 0;
 const node_crypto_1 = require("node:crypto");
-const plane_1 = require("../plane");
 const telemetry_1 = require("../models/telemetry");
-const nodeDataPlane_1 = require("./nodeDataPlane");
-const virtualBrowser_1 = require("./virtualBrowser");
-const cpuProfile_1 = require("./cpuProfile");
-const frameInvariantMonitor_1 = require("./frameInvariantMonitor");
-const metricsAggregator_1 = require("./metricsAggregator");
-const virtualSnapshot_1 = require("./virtualSnapshot");
-const structuralDiff_1 = require("./structuralDiff");
-const runReport_1 = require("./runReport");
+const V4ProjectionBrowserSession_1 = require("../session/V4ProjectionBrowserSession");
+const v4LabLaunch_1 = require("../session/v4LabLaunch");
+const runTools_1 = require("./runTools");
 function peekFrameHeader(buf) {
     if (buf.length < 12)
         return null;
@@ -30,13 +56,12 @@ class LabSession {
     id;
     opts;
     client;
-    virtualData = new nodeDataPlane_1.NodeDataPlane();
-    browser = null;
+    session = null;
     closed = false;
     injectTelemetry;
     frameRateHz = 60;
     pendingSnapshot = null;
-    activeBenchmark = null;
+    runCollectors = null;
     benchmarkRunning = false;
     stats = {
         framesFromVirtual: 0,
@@ -49,36 +74,19 @@ class LabSession {
         this.id = (0, node_crypto_1.randomUUID)();
         this.client = client;
         this.opts = opts;
-        this.virtualData.setHandler((channel, payload) => {
-            if (channel === plane_1.PlaneChannel.Frame) {
-                this.onVirtualFrame(Buffer.from(payload));
-                return;
-            }
-            if (channel === plane_1.PlaneChannel.Telemetry) {
-                this.onVirtualTelemetry(payload);
-                return;
-            }
-            // Control: reserved.
-        });
         this.sendJson({ type: 'hello', sessionId: this.id });
     }
+    /** Kept so older smoke that probes the path still compiles; dataplane is owned by BrowserSession. */
     get virtualDataPath() {
         return `/lab/virtual/${this.id}`;
     }
-    /** Lab sink: push telemetry to the client WSS. */
+    attachVirtualData(_socket) {
+        _socket.close();
+    }
     onProjectionTelemetry(message) {
         this.stats.telemetryMessages += 1;
         this.sendJson({ type: 'telemetry', message });
-        this.activeBenchmark?.metrics.observeTelemetry(message);
-        this.activeBenchmark?.invariantMonitor?.observeTelemetry(message);
-    }
-    attachVirtualData(socket) {
-        if (this.closed) {
-            socket.close();
-            return;
-        }
-        this.virtualData.attach(socket);
-        this.sendJson({ type: 'virtualDataOpen' });
+        this.runCollectors?.observeTelemetry(message);
     }
     async handleClientMessage(raw, isBinary) {
         if (isBinary || this.closed)
@@ -107,14 +115,13 @@ class LabSession {
             if (typeof start.frameRateHz === 'number' && Number.isFinite(start.frameRateHz) && start.frameRateHz > 0) {
                 this.frameRateHz = start.frameRateHz;
             }
-            await this.start(url.trim(), { relaunch: true });
+            await this.start(url.trim());
             return;
         }
         if (type === 'clientTelemetry') {
             const message = msg.message;
-            if ((0, telemetry_1.isProjectionTelemetryMessage)(message)) {
+            if ((0, telemetry_1.isProjectionTelemetryMessage)(message))
                 this.onProjectionTelemetry(message);
-            }
             return;
         }
         if (type === 'navigate') {
@@ -148,21 +155,15 @@ class LabSession {
                 this.injectTelemetry = rb.telemetry;
             }
             const optsRaw = (rb.options ?? {});
-            const options = {
+            await this.runBenchmark(url.trim(), durationMs, {
                 cpuProfile: optsRaw.cpuProfile !== false,
                 invariants: optsRaw.invariants !== false,
                 structuralDiff: optsRaw.structuralDiff !== false,
-            };
-            await this.runBenchmark(url.trim(), durationMs, options);
+                isomorphism: optsRaw.isomorphism === true,
+            });
             return;
         }
         if (type === 'injectRawFrame') {
-            // Lab-only test harness hook (frame-protocol-production-completeness Stage 2 gate) —
-            // sends caller-supplied bytes to the client verbatim, bypassing Virtual entirely, so a
-            // test can hand-craft a deliberately-corrupted frame (wrong preTableHash / bad CHECK) and
-            // observe the real client (`client/applyDom.ts`) abort it before touching the DOM. Not
-            // part of the wire protocol or any production path — purely drives the already-running
-            // client with test-controlled bytes, the same way `requestSnapshot` reads it out.
             const bytesBase64 = msg.bytesBase64;
             if (typeof bytesBase64 !== 'string') {
                 this.sendJson({ type: 'error', message: 'injectRawFrame.bytesBase64 required' });
@@ -175,34 +176,23 @@ class LabSession {
             return;
         }
         if (type === 'requestResync') {
-            // Stage 4 (frame-protocol-production-completeness) §5.8 — relays the client's out-of-band
-            // resync request onto the Virtual control channel (`PlaneChannel.Control`, reserved since
-            // E-03, previously unused). Pure relay: no validation beyond "these are JSON-serializable" —
-            // `generation`/`sequence` are diagnostic-only on the Virtual side too (`bootstrap.ts`), never
-            // load-bearing for what `emitResyncFrame` actually re-describes.
             const req = msg;
-            const payload = JSON.stringify({
+            this.session?.sendPageProjectionControl?.({
                 type: 'requestResync',
                 reason: typeof req.reason === 'string' ? req.reason : 'unknown',
                 generation: typeof req.generation === 'number' ? req.generation : null,
                 sequence: typeof req.sequence === 'number' ? req.sequence : null,
             });
-            this.virtualData.send(plane_1.PlaneChannel.Control, new TextEncoder().encode(payload));
             return;
         }
         if (type === 'requestStructuralDiff') {
-            // Stage 4 test-only entry point: the same virtual-vs-client structural diff
-            // `runBenchmark` already performs at the end of a full run (`captureVirtualSnapshot` +
-            // `requestClientSnapshot` + `diffTrees`, lab/structuralDiff.ts), available standalone so a
-            // smoke test can ask "did the projection actually heal" right after a resync, without
-            // spinning up an entire benchmark run just to get one diff.
-            if (this.browser === null) {
+            if (this.session === null) {
                 this.sendJson({ type: 'structuralDiffResult', status: 'unavailable', reason: 'no virtual browser running' });
                 return;
             }
-            const virtualTree = await (0, virtualSnapshot_1.captureVirtualSnapshot)(this.browser.page);
-            const clientTree = await this.requestClientSnapshot();
-            if (clientTree === null) {
+            const virtual = await this.session.snapshotProjectionVirtual?.({ includeTree: true });
+            const clientSnap = await this.requestClientSnapshot();
+            if (clientSnap === null || clientSnap.tree === null) {
                 this.sendJson({
                     type: 'structuralDiffResult',
                     status: 'unavailable',
@@ -210,62 +200,63 @@ class LabSession {
                 });
                 return;
             }
-            this.sendJson({ type: 'structuralDiffResult', status: 'ok', result: (0, structuralDiff_1.diffTrees)(virtualTree, clientTree) });
+            if (!virtual?.ok || virtual.tree == null) {
+                this.sendJson({
+                    type: 'structuralDiffResult',
+                    status: 'unavailable',
+                    reason: virtual?.reason ?? 'virtual snapshot failed',
+                });
+                return;
+            }
+            const { diffTrees } = await Promise.resolve().then(() => __importStar(require('./structuralDiff')));
+            this.sendJson({
+                type: 'structuralDiffResult',
+                status: 'ok',
+                result: diffTrees(virtual.tree, clientSnap.tree),
+            });
             return;
         }
         if (type === 'requestTableLiveOracle') {
-            if (this.browser === null) {
+            if (this.session === null) {
                 this.sendJson({ type: 'tableLiveOracleResult', status: 'unavailable', reason: 'no virtual browser running' });
                 return;
             }
-            try {
-                const result = await this.browser.page.evaluate(`(() => {
-            const p = globalThis.__speculumProjection;
-            if (!p || typeof p.compareTableToLiveDom !== 'function') return null;
-            return p.compareTableToLiveDom();
-          })()`);
-                if (result === null) {
-                    this.sendJson({
-                        type: 'tableLiveOracleResult',
-                        status: 'unavailable',
-                        reason: '__speculumProjection.compareTableToLiveDom missing',
-                    });
-                    return;
-                }
-                this.sendJson({ type: 'tableLiveOracleResult', status: 'ok', result });
-            }
-            catch (err) {
+            const o2 = await this.session.compareProjectionTableToLiveDom?.();
+            if (!o2?.ok || !o2.result) {
                 this.sendJson({
                     type: 'tableLiveOracleResult',
                     status: 'unavailable',
-                    reason: err instanceof Error ? err.message : String(err),
+                    reason: o2?.reason ?? 'O2 probe failed',
                 });
+                return;
             }
+            this.sendJson({ type: 'tableLiveOracleResult', status: 'ok', result: o2.result });
             return;
         }
         if (type === 'snapshotResult') {
             const tree = msg.tree;
+            const tableRaw = msg.table;
             const pending = this.pendingSnapshot;
             if (pending !== null) {
                 this.pendingSnapshot = null;
                 clearTimeout(pending.timer);
-                pending.resolve(tree ?? null);
+                const table = typeof tableRaw === 'object' &&
+                    tableRaw !== null &&
+                    typeof tableRaw.rowCount === 'number' &&
+                    typeof tableRaw.tableHash === 'string'
+                    ? tableRaw
+                    : null;
+                pending.resolve({ tree: tree ?? null, table });
             }
             return;
         }
         this.sendJson({ type: 'error', message: `unknown control type: ${String(type)}` });
     }
-    /**
-     * Structural diff's client-side half (lab/structuralDiff.ts, component 4) — asks the
-     * already-connected lab client to snapshot its surface iframe over the existing control WS,
-     * bounded so a client that never answers (closed tab, no client attached) fails the
-     * *benchmark step*, not the whole run.
-     */
     async requestClientSnapshot(timeoutMs = 5000) {
         if (this.client === null || this.client.readyState !== this.client.OPEN)
             return null;
         if (this.pendingSnapshot !== null)
-            return null; // one in flight at a time — benchmark orchestration is serial
+            return null;
         return new Promise((resolve) => {
             const timer = setTimeout(() => {
                 this.pendingSnapshot = null;
@@ -280,7 +271,6 @@ class LabSession {
             return;
         this.closed = true;
         await this.stopBrowser();
-        this.virtualData.close();
         this.client = null;
         if (this.pendingSnapshot !== null) {
             clearTimeout(this.pendingSnapshot.timer);
@@ -288,43 +278,47 @@ class LabSession {
             this.pendingSnapshot = null;
         }
     }
-    onVirtualTelemetry(payload) {
-        let parsed;
-        try {
-            parsed = JSON.parse(new TextDecoder().decode(payload));
-        }
-        catch {
-            return;
-        }
-        if (!(0, telemetry_1.isProjectionTelemetryMessage)(parsed))
-            return;
-        this.onProjectionTelemetry(parsed);
+    browserEvents() {
+        return {
+            onVideoFrame: () => undefined,
+            onAudioFrame: () => undefined,
+            onPageProjectionDiff: (diff) => {
+                this.onVirtualFrame(Buffer.from(diff.body));
+            },
+            onPageProjectionTelemetry: (message) => {
+                this.onProjectionTelemetry(message);
+            },
+            onConsole: () => undefined,
+            onLocationChanged: () => undefined,
+            onMainFrameNavigationBlocked: () => undefined,
+            onEditableFocusChanged: () => undefined,
+            onCameraPermissionRequested: async () => 'deny',
+            onMicrophonePermissionRequested: async () => 'deny',
+            onCrash: () => undefined,
+        };
     }
-    async start(url, opts) {
-        if (this.browser !== null && !opts?.relaunch) {
-            await this.navigate(url);
-            return;
-        }
-        if (this.browser !== null) {
-            await this.stopBrowser();
-        }
-        const dataPlaneUrl = `${this.opts.publicWsOrigin}${this.virtualDataPath}`;
+    async start(url) {
+        await this.stopBrowser();
+        const factory = (0, V4ProjectionBrowserSession_1.createV4ProjectionBrowserSessionFactory)({ headless: this.opts.headless });
+        const session = factory.create(this.id, this.browserEvents());
+        this.session = session;
         try {
-            this.browser = await (0, virtualBrowser_1.launchVirtualBrowser)({
-                dataPlaneUrl,
-                startUrl: url,
-                headless: this.opts.headless,
+            await session.launch((0, v4LabLaunch_1.v4LabLaunchOptions)({
                 frameRateHz: this.frameRateHz,
-                telemetry: this.injectTelemetry ?? { ...telemetry_1.LAB_TELEMETRY_DEFAULTS },
-            });
+                projectionTelemetry: (this.injectTelemetry ?? { ...telemetry_1.LAB_TELEMETRY_DEFAULTS }),
+                cpuProfiling: true,
+            }));
+            await session.navigate(url);
             this.sendJson({
                 type: 'ready',
                 sessionId: this.id,
                 url,
-                dataPlaneUrl,
+                dataPlaneUrl: 'session-owned',
             });
         }
         catch (err) {
+            await session.dispose();
+            this.session = null;
             this.sendJson({
                 type: 'error',
                 message: err instanceof Error ? err.message : String(err),
@@ -332,12 +326,12 @@ class LabSession {
         }
     }
     async navigate(url) {
-        if (this.browser === null) {
-            await this.start(url, { relaunch: true });
+        if (this.session === null) {
+            await this.start(url);
             return;
         }
         try {
-            await this.browser.navigate(url);
+            await this.session.navigate(url);
             this.sendJson({ type: 'navigated', url });
         }
         catch (err) {
@@ -347,13 +341,6 @@ class LabSession {
             });
         }
     }
-    /**
-     * Benchmark orchestration (plan component 5): (re)start → start CPU profile + attach the
-     * invariant monitor (if enabled) → wait `durationMs` → stop CPU profile → structural
-     * snapshot/diff (if enabled) → assemble + write report → reply `benchmarkComplete`. Every
-     * step is independently optional per `options` and independently failure-tolerant — a
-     * missing client snapshot degrades that one field to `unavailable`, it does not abort the run.
-     */
     async runBenchmark(url, durationMs, options) {
         if (this.benchmarkRunning) {
             this.sendJson({ type: 'error', message: 'a benchmark is already running on this session' });
@@ -362,53 +349,35 @@ class LabSession {
         this.benchmarkRunning = true;
         this.sendJson({ type: 'benchmarkStarted', url, durationMs, options });
         try {
-            await this.start(url, { relaunch: true });
-            const browser = this.browser;
-            if (browser === null) {
+            await this.start(url);
+            const session = this.session;
+            if (session === null) {
                 this.sendJson({ type: 'error', message: 'benchmark: Virtual failed to start' });
                 return;
             }
-            const metrics = new metricsAggregator_1.MetricsAggregator();
-            const invariantMonitor = options.invariants ? new frameInvariantMonitor_1.FrameInvariantMonitor() : null;
-            this.activeBenchmark = { metrics, invariantMonitor };
-            let cdp = null;
-            if (options.cpuProfile) {
-                cdp = await browser.cdp();
-                await (0, cpuProfile_1.startCpuProfile)(cdp);
-            }
-            const startedAt = Date.now();
-            await new Promise((resolve) => setTimeout(resolve, durationMs));
-            const wallMs = Date.now() - startedAt;
-            const cpuProfileResult = cdp !== null ? await (0, cpuProfile_1.stopCpuProfile)(cdp, 20) : null;
-            let structuralDiff = null;
-            if (options.structuralDiff) {
-                if (this.browser === null) {
-                    structuralDiff = { status: 'unavailable', reason: 'Virtual stopped before the structural snapshot ran' };
-                }
-                else {
-                    const virtualTree = await (0, virtualSnapshot_1.captureVirtualSnapshot)(this.browser.page);
-                    const clientTree = await this.requestClientSnapshot(5_000);
-                    structuralDiff =
-                        clientTree === null
-                            ? { status: 'unavailable', reason: 'client did not reply to requestSnapshot within 5000ms' }
-                            : { status: 'ok', result: (0, structuralDiff_1.diffTrees)(virtualTree, clientTree) };
-                }
-            }
-            const report = {
-                meta: {
-                    timestamp: new Date(startedAt).toISOString(),
-                    url,
-                    requestedDurationMs: durationMs,
-                    frameRateHz: this.frameRateHz,
-                    options,
-                },
-                metrics: metrics.getSummary(wallMs),
-                cpuProfile: cpuProfileResult ? { summary: cpuProfileResult.summary, profileFile: 'profile.cpuprofile' } : null,
-                invariants: invariantMonitor?.getSummary() ?? null,
-                structuralDiff,
-            };
-            const written = await (0, runReport_1.writeRunReport)((0, runReport_1.defaultLabRunsDir)(), report, cpuProfileResult?.raw ?? null);
-            this.sendJson({ type: 'benchmarkComplete', report, reportDir: written.reportDir, reportPath: written.reportPath });
+            const collectors = (0, runTools_1.createRunCollectors)();
+            this.runCollectors = collectors;
+            const result = await (0, runTools_1.executeLabRun)({
+                session,
+                observeFrameBytes: collectors.observeFrameBytes,
+                observeTelemetry: collectors.observeTelemetry,
+                requestClientSnapshot: () => this.requestClientSnapshot(5_000),
+            }, {
+                url,
+                durationMs,
+                frameRateHz: this.frameRateHz,
+                telemetry: (this.injectTelemetry ?? { ...telemetry_1.LAB_TELEMETRY_DEFAULTS }),
+                cpuProfile: options.cpuProfile,
+                invariants: options.invariants,
+                structuralDiff: options.structuralDiff,
+                isomorphism: options.isomorphism,
+            }, collectors);
+            this.sendJson({
+                type: 'benchmarkComplete',
+                report: result.report,
+                reportDir: result.written.reportDir,
+                reportPath: result.written.reportPath,
+            });
         }
         catch (err) {
             this.sendJson({
@@ -417,16 +386,16 @@ class LabSession {
             });
         }
         finally {
-            this.activeBenchmark = null;
+            this.runCollectors = null;
             this.benchmarkRunning = false;
         }
     }
     async stopBrowser() {
-        const handle = this.browser;
-        this.browser = null;
-        if (handle === null)
+        const session = this.session;
+        this.session = null;
+        if (session === null)
             return;
-        await handle.close();
+        await session.dispose();
     }
     onVirtualFrame(buf) {
         this.stats.framesFromVirtual += 1;
@@ -441,13 +410,7 @@ class LabSession {
         if (client !== null && client.readyState === client.OPEN) {
             client.send(buf, { binary: true });
         }
-        this.activeBenchmark?.metrics.observeWireBytes(buf.length);
-        this.activeBenchmark?.invariantMonitor?.observeFrameBytes(buf);
-        // §1.2/§4.1 EPOCH_RESET (Stage 3) must be observable the moment it happens, not only on the
-        // periodic every-15th-frame cadence below — a fixture with few/no mutations after a hard
-        // navigation (e.g. an establish-only page) could otherwise never accumulate 15 more frames,
-        // leaving the lab UI (and this session's own telemetry) reporting the *previous* generation
-        // indefinitely (found via the smoke suite's EPOCH_RESET gate, 2026-08-14).
+        this.runCollectors?.observeFrameBytes(buf);
         const generationChanged = header !== null && this.stats.lastGeneration !== priorGeneration;
         if (this.stats.framesFromVirtual === 1 || this.stats.framesFromVirtual % 15 === 0 || generationChanged) {
             this.sendJson({

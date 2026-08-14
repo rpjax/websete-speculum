@@ -1,32 +1,42 @@
-const { launchVirtualBrowser } = require('../dist/browser/mirror/projection/lab/virtualBrowser');
+const { createV4ProjectionBrowserSessionFactory } = require('../dist/browser/mirror/projection/session/V4ProjectionBrowserSession');
+const { v4LabLaunchOptions } = require('../dist/browser/mirror/projection/session/v4LabLaunch');
+
+function events() {
+  return {
+    onVideoFrame() {},
+    onAudioFrame() {},
+    onPageProjectionDiff() {},
+    onConsole() {},
+    onLocationChanged() {},
+    onMainFrameNavigationBlocked() {},
+    onEditableFocusChanged() {},
+    onCameraPermissionRequested: async () => 'deny',
+    onMicrophonePermissionRequested: async () => 'deny',
+    onCrash() {},
+  };
+}
 
 (async () => {
-  const handle = await launchVirtualBrowser({
-    dataPlaneUrl: 'ws://127.0.0.1:4098/lab/virtual/debug1',
-    startUrl: 'http://127.0.0.1:4098/fixtures/demo.html',
-    headless: true,
-    frameRateHz: 30,
-    telemetry: { enabled: true, frameEmitted: true },
-  });
+  const factory = createV4ProjectionBrowserSessionFactory({ headless: true });
+  const session = factory.create('debug1', events());
+  await session.launch(v4LabLaunchOptions({ frameRateHz: 30 }));
+  await session.navigate('http://127.0.0.1:4098/fixtures/demo.html');
   await new Promise((r) => setTimeout(r, 1500));
-  const before = await handle.page.evaluate(() => ({
+  const before = await session.evaluate(`({
     hasProjection: typeof globalThis.__speculumProjection !== 'undefined',
     generation: globalThis.__speculumProjection ? globalThis.__speculumProjection.domNodes.generation : -1,
-    config: globalThis.__SPECULUM_PROJECTION__,
-  }));
+  })`);
   console.log('before navigate', before);
 
-  await handle.navigate('http://127.0.0.1:4098/fixtures/static-dom.html');
+  await session.navigate('http://127.0.0.1:4098/fixtures/static-dom.html');
   await new Promise((r) => setTimeout(r, 1500));
-  const after = await handle.page.evaluate(() => ({
+  const after = await session.evaluate(`({
     hasProjection: typeof globalThis.__speculumProjection !== 'undefined',
     generation: globalThis.__speculumProjection ? globalThis.__speculumProjection.domNodes.generation : -1,
-    config: globalThis.__SPECULUM_PROJECTION__,
     title: document.title,
-  }));
+  })`);
   console.log('after navigate', after);
-
-  await handle.close();
+  await session.dispose();
 })().catch((e) => {
   console.error('FAIL', e);
   process.exit(1);

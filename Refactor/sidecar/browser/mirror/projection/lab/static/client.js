@@ -1049,21 +1049,9 @@
     };
   }
 
-  // browser/mirror/projection/models/telemetry.ts
-  function desyncPhase(errorCode) {
-    switch (errorCode) {
-      case "malformed":
-      case "unknown_version":
-        return "decode";
-      case "missing_part":
-        return "assemble";
-      case "sequence_gap":
-        return "sequence";
-      case "generation_mismatch":
-        return "generation";
-      default:
-        return "apply";
-    }
+  // browser/mirror/projection/models/tableDigest.ts
+  function digestReplicatedTable(table) {
+    return { rowCount: table.size, tableHash: table.tableHash.toString() };
   }
 
   // browser/mirror/projection/client/labProjectionClient.ts
@@ -1126,6 +1114,13 @@
     /** Surface's currently-*active* document — changes identity across a resync swap (Stage 4). */
     get document() {
       return this.surface.document;
+    }
+    /** Probe: replicated table at the last applied sequence (same turn as the caller). */
+    snapshotTable() {
+      return {
+        sequence: this.lastSequence,
+        table: digestReplicatedTable(this.live.applier.replicatedTable)
+      };
     }
     ingest(bytes) {
       const decoded = decodeFramePart(bytes, this.persistentStrings);
@@ -1368,7 +1363,7 @@
         ok: info.ok,
         opCount: info.opCount,
         applyMs: info.applyMs,
-        tableSize: this.live.registry.size,
+        tableSize: this.live.applier.replicatedTable.size,
         reason: info.reason
       });
     }
@@ -1479,6 +1474,10 @@
     const m = report.metrics;
     const lines = [];
     lines.push(`${report.meta.url}`);
+    if (report.verdicts && report.verdicts.length > 0) {
+      lines.push("verdicts:");
+      for (const v of report.verdicts) lines.push(`  ${v.status.toUpperCase()} ${v.id}: ${v.reason}`);
+    }
     lines.push(`wallMs=${m.wallMs.toFixed(0)}  steadyFrames=${m.steadyFrameCount} (~${m.steadyFps.toFixed(1)}fps)  lastTableSize=${m.lastTableSize}  wireBytes=${m.wireBytesTotal}`);
     if (m.bootstrap) {
       lines.push(`bootstrap: seq=${m.bootstrap.sequence} opCount=${m.bootstrap.opCount} bytes=${m.bootstrap.bytes} tableSize=${m.bootstrap.tableSize} buildMs=${m.bootstrap.buildMs.toFixed(2)}`);
@@ -1592,7 +1591,7 @@
       runBenchmarkBtn.disabled = !on;
     }
     function showTab(name) {
-      for (const id of ["panelStream", "panelActivity", "panelConfig", "panelBenchmark"]) {
+      for (const id of ["panelStream", "panelActivity", "panelConfig", "panelRun"]) {
         $(id).hidden = id !== `panel${name}`;
       }
       for (const btn of document.querySelectorAll("[data-tab]")) {
@@ -1674,7 +1673,8 @@
         }
         if (msg.type === "requestSnapshot") {
           const tree = snapshotTree(projection.document);
-          ws?.send(JSON.stringify({ type: "snapshotResult", tree }));
+          const tableSnap = projection.snapshotTable();
+          ws?.send(JSON.stringify({ type: "snapshotResult", tree, table: tableSnap.table, sequence: tableSnap.sequence }));
           logActivity("snapshot captured \u2014 sent to session");
           return;
         }
@@ -1733,7 +1733,8 @@
           options: {
             cpuProfile: $("benchCpuProfile").checked,
             invariants: $("benchInvariants").checked,
-            structuralDiff: $("benchStructuralDiff").checked
+            structuralDiff: $("benchStructuralDiff").checked,
+            isomorphism: $("benchIso").checked
           }
         })
       );

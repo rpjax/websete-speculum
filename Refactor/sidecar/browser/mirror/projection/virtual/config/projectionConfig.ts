@@ -37,7 +37,7 @@ export type ProjectionConfig = {
   /**
    * §1.2/§4.1 `EPOCH_RESET` trigger (Stage 3): which generation *this* script injection is.
    * `1` for a session's first navigation (the client's own default — no `EPOCH_RESET` needed);
-   * `> 1` means the orchestrator (`lab/virtualBrowser.ts`'s `navigate()`) re-injected this bundle
+   * `> 1` means the orchestrator (`V4ProjectionBrowserSession.navigate`) re-injected this bundle
    * for a hard navigation within the same session, and `bootstrap.ts` must announce it.
    */
   generation: number;

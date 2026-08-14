@@ -101,6 +101,12 @@ export interface BrowserSessionEvents {
    */
   onPageProjectionParity?(kind: string, payload: Record<string, unknown>): void;
 
+  /**
+   * PageProjection telemetry pushed on the dataplane Telemetry channel (opt-in caps at launch).
+   * Off = zero messages.
+   */
+  onPageProjectionTelemetry?(message: import('./mirror/projection/models/telemetry').ProjectionTelemetryMessage): void;
+
   // page console (side effects of page scripts / evaluate; not the eval return value)
   onConsole(level: number, text: string): void;
 
@@ -226,6 +232,15 @@ export interface BrowserLaunchOptions {
   pageProjectionDiffQueueCapacity: number;
   /** Sessions.PageProjection.FrameRateHz (§5.3.4) — PageProjectionEngine top clock rate. */
   frameRateHz?: number;
+  /**
+   * PageProjection in-page telemetry caps, injected at boot (`__SPECULUM_PROJECTION__`).
+   * Default off (zero cost). Lab composition typically passes {@link LAB_TELEMETRY_DEFAULTS}.
+   */
+  projectionTelemetry?: Partial<
+    import('./mirror/projection/models/telemetry').ProjectionTelemetryConfig
+  >;
+  /** When false, {@link BrowserSession.startCpuProfile} must not enable CDP Profiler. */
+  cpuProfiling?: boolean;
   /** Sessions.PageProjection.MaxFrameBytes (§5.3.5.5) — one wire message cap before splitting. */
   maxFrameBytes?: number;
   /** Sessions.PageProjection.BrowserPoolSize (§5.13, WP13) — 0 disables the pre-warm pool. */
@@ -552,6 +567,61 @@ export interface BrowserSession {
   } | null>;
 
   putDomUpload?(id: string, body: Uint8Array, contentType: string, name: string): Promise<void>;
+
+  /**
+   * PageProjection V4 probes — optional; no-op / throw when MirrorMode is not PageProjection.
+   * Callers (lab, tests) invoke these; unused production paths pay zero cost.
+   */
+  haltProjectionWorld?(): Promise<{ ok: boolean; reason?: string }>;
+  resumeProjectionWorld?(): Promise<{ ok: boolean; reason?: string }>;
+  flushProjectionFrame?(): Promise<{
+    ok: boolean;
+    generation?: number;
+    sequence?: number;
+    reason?: string;
+  }>;
+  snapshotProjectionVirtual?(opts?: { includeTree?: boolean }): Promise<{
+    ok: boolean;
+    generation?: number;
+    sequence?: number;
+    tableSize?: number;
+    tree?: unknown;
+    reason?: string;
+  }>;
+  compareProjectionTableToLiveDom?(): Promise<{
+    ok: boolean;
+    result?: import('./mirror/projection/models/tableLiveOracle').TableLiveOracleResult;
+    reason?: string;
+  }>;
+  /**
+   * Coherent Virtual snapshot: one in-page JS turn drains the mutation buffer, emits a
+   * frame, then captures replicated-table digest, table×DOM (O2), and optional tree.
+   * Sequence is that frame. Stops the producer clock until {@link resumeProjectionWorld}.
+   */
+  flushProjectionSnapshot?(opts?: { includeTree?: boolean }): Promise<{
+    ok: boolean;
+    generation?: number;
+    sequence?: number;
+    tableSize?: number;
+    o2?: import('./mirror/projection/models/tableLiveOracle').TableLiveOracleResult;
+    table?: { rowCount: number; tableHash: string };
+    tree?: unknown;
+    reason?: string;
+  }>;
+  startCpuProfile?(): Promise<{ ok: boolean; reason?: string }>;
+  stopCpuProfile?(): Promise<{
+    ok: boolean;
+    summary?: {
+      totalSamples: number;
+      wallMs: number;
+      approxCpuMs: number;
+      ourCode: { totalPct: number; totalMs: number };
+    };
+    profileBytes?: Uint8Array;
+    reason?: string;
+  }>;
+  /** Lab/test control-plane relay onto PlaneChannel.Control (e.g. requestResync). */
+  sendPageProjectionControl?(message: Record<string, unknown>): void;
 
   /** Client camera frame → virtual browser capture / getUserMedia path. */
   pushCameraFrame(frame: Uint8Array): Promise<void>;

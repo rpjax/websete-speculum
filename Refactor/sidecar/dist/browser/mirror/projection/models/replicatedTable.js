@@ -87,6 +87,18 @@ class ReplicatedTable {
         backwards.reverse();
         return backwards;
     }
+    /** Rows with hashed `parent` — O(table). Lab O2 uses this to detect a broken `lastChildOf` walk. */
+    lastChildId(parent) {
+        return this.lastChildOf.get(parent) ?? NONE;
+    }
+    countAttachedChildren(parent) {
+        let n = 0;
+        for (const row of this.rows.values()) {
+            if (row.parent === parent)
+                n += 1;
+        }
+        return n;
+    }
     /** Every stored row id (excludes implicit Document `1`). */
     forEachRow(fn) {
         for (const [id, row] of this.rows)
@@ -302,6 +314,12 @@ class ReplicatedTable {
         }
         else if (this.lastChildOf.get(row.parent) === id) {
             this.lastChildOf.set(row.parent, row.prevSibling);
+            // Prev's derived next still pointed at `id` (the old last child). Leaving it set makes the
+            // next unlink of `prev` take the "has next" branch and skip lastChildOf — OPEN-8, the
+            // prepend+tail-evict shape: lastChildOf stays on a now-detached row and orderedChildIds
+            // walks a single id (O2 `table=[118]` vs hundreds live).
+            if (row.prevSibling !== NONE)
+                this.nextSiblingOf.delete(row.prevSibling);
         }
     }
 }

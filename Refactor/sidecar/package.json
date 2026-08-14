@@ -16,6 +16,7 @@
     "start": "node dist/index.js",
     "dev": "ts-node index.ts",
     "lab:projection": "npm run build:virtual && npm run build:lab-client && npm run build:snapshot && tsc && node dist/browser/mirror/projection/lab/index.js",
+    "lab:run": "node scripts/lab-run.js",
     "smoke:projection-lab": "npm run build:virtual && npm run build:lab-client && npm run build:snapshot && tsc && node scripts/smoke-projection-lab.js",
     "smoke": "npm run build && node dist/smoke.js",
     "smoke:remote": "npm run build && node dist/smoke-remote.js",

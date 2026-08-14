@@ -35,7 +35,7 @@ export class DomNodeTable {
    * navigation re-injects this whole script into a fresh JS realm, so the *identity map* is
    * already empty by construction — there is nothing to clear here, unlike `bumpGeneration()`.
    * This exists purely so a fresh instance reports the `generation` the orchestrator
-   * (`lab/virtualBrowser.ts`) already knows this navigation is (via `ProjectionConfig.generation`),
+   * (`V4ProjectionBrowserSession`) already knows this navigation is (via `ProjectionConfig.generation`),
    * so `resyncVirtual`'s frame — and every ordinary tick after it — carries the right number for
    * `bootstrap.ts` to decide whether to prepend `EPOCH_RESET`.
    */

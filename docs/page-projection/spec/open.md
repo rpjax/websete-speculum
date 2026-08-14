@@ -21,7 +21,7 @@
 
 ## Bugs
 
-None named as of 2026-08-14. **OPEN-7** (`insertBatch` reverse `nextSiblingOf`) is closed — see Closed recently.
+None named as of 2026-08-14. **OPEN-7** and **OPEN-8** (derived `nextSiblingOf` / `lastChildOf`) are closed — see Closed recently.
 
 ---
 
@@ -36,6 +36,7 @@ None named as of 2026-08-14. **OPEN-7** (`insertBatch` reverse `nextSiblingOf`) 
 | **OPEN-5** | Recovery / mid-session attach | **CLOSED — §5.8.** Residuals below. |
 | **OPEN-6** | Multi-document / nested documents (cross-origin iframes) | **PINNED.** Protocol must be per-document streams, not one flat id space. Revisit before pierce/iframe fixtures — not before. Not a first-cutover blocker for single-document sites. |
 | **OPEN-7** | `insertBatch` reverse-link | **CLOSED** — `nextSiblingOf.set(prev, before)` on insert-before-existing; unit falsifier in `unit.ts`. |
+| **OPEN-8** | `unlink` last-child leaves `nextSiblingOf[prev]` | **CLOSED 2026-08-14** — tail REMOVE after prepend; see frame-protocol §10. |
 
 ---
 
@@ -82,3 +83,7 @@ See [support-matrix.md](support-matrix.md). Canvas/WebGL pixels, MSE/DRM, IME, t
 | 2026-08-14 | Spec tree reorganized to V4 live + `archive/` |
 | 2026-08-14 | OPEN-7 `insertBatch` reverse `nextSiblingOf` — fixed + unit falsifier |
 | 2026-08-14 | O2 local oracle (table × live DOM) wired in lab |
+| 2026-08-14 | Lab Chromium path folded into `V4ProjectionBrowserSession`; lab is caller only |
+| 2026-08-14 | Torn O2 (split `page.evaluate`) → `flushAndSnapshot` one JS turn |
+| 2026-08-14 | Telemetry-as-assert (`table_size_matches_telemetry`) removed; digest probe at sequence S |
+| 2026-08-14 | OPEN-8 `unlink` last-child `nextSiblingOf[prev]` — prepend-stress O2 / table walk `[118]` |

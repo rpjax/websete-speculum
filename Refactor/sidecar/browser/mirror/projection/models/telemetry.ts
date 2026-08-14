@@ -73,7 +73,13 @@ export type TelemetryFrameEmitted = {
   opCount: number;
   partCount: number;
   bytes: number;
+  /**
+   * Replicated table row count (`ReplicatedTable.size`) after this frame's ops.
+   * Detached rows remain until NODE_DROP. Diagnostic / time-series only — not an assert source.
+   */
   tableSize: number;
+  /** Identity-map size (`DomNodeTable`) — WeakRef, GC-sensitive. Diagnostic only. */
+  identitySize?: number;
   buildMs: number;
   encodeMs: number;
 };
@@ -128,6 +134,7 @@ export type TelemetryApplyResult = {
   ok: boolean;
   opCount: number;
   applyMs: number;
+  /** Replicated table row count after apply. Time-series only — not an assert source. */
   tableSize: number;
   reason?: string;
 };

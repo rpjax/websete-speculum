@@ -57,6 +57,7 @@ export class ProjectionTelemetry {
     partCount: number;
     bytes: number;
     tableSize: number;
+    identitySize?: number;
     buildMs: number;
     encodeMs: number;
   }): void {
@@ -79,6 +80,7 @@ export class ProjectionTelemetry {
       partCount: info.partCount,
       bytes: info.bytes,
       tableSize: info.tableSize,
+      identitySize: info.identitySize,
       buildMs: info.buildMs,
       encodeMs: info.encodeMs,
     });

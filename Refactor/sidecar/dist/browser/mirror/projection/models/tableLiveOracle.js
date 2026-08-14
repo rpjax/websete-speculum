@@ -41,7 +41,12 @@ function compareTableToLiveOrder(table, liveChildren) {
         const tableOrder = table.orderedChildIds(parent);
         const liveOrder = liveChildren.get(parent) ?? [];
         if (!idsEqual(tableOrder, liveOrder)) {
-            record(`#${parent}`, 'child_order_mismatch', `table=[${tableOrder.join(',')}] live=[${liveOrder.join(',')}]`);
+            const hashed = table.countAttachedChildren(parent);
+            const lastWalk = tableOrder.length > 0 ? tableOrder[tableOrder.length - 1] : 0;
+            const lastRow = lastWalk !== 0 ? table.getRow(lastWalk) : undefined;
+            record(`#${parent}`, 'child_order_mismatch', `walkLen=${tableOrder.length} hashedAttached=${hashed} liveLen=${liveOrder.length}` +
+                ` tableHead=[${tableOrder.slice(0, 8).join(',')}] liveHead=[${liveOrder.slice(0, 8).join(',')}]` +
+                ` lastWalk=#${lastWalk} lastRow=${lastRow ? `parent=${lastRow.parent} prev=${lastRow.prevSibling}` : 'missing'}`);
         }
     }
     for (const id of liveIds) {

@@ -12,7 +12,7 @@ const node_http_1 = __importDefault(require("node:http"));
 const node_path_1 = __importDefault(require("node:path"));
 const ws_1 = require("ws");
 const session_1 = require("./session");
-const virtualBrowser_1 = require("./virtualBrowser");
+const assetRoots_1 = require("./assetRoots");
 const MIME = {
     '.html': 'text/html; charset=utf-8',
     '.js': 'text/javascript; charset=utf-8',
@@ -39,7 +39,7 @@ function safeJoin(root, urlPath) {
     return full;
 }
 async function createLabServer(opts) {
-    const { staticDir, fixturesDir } = (0, virtualBrowser_1.labAssetRoots)();
+    const { staticDir, fixturesDir } = (0, assetRoots_1.labAssetRoots)();
     const sessions = new Map();
     const publicOrigin = `http://${opts.host}:${opts.port}`;
     const publicWsOrigin = `ws://${opts.host}:${opts.port}`;

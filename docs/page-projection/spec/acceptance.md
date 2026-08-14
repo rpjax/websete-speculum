@@ -51,6 +51,8 @@ Journal, ClientObservation, screenshots, and smoke/diagnose scripts must **fail*
 
 Protocol health is a **means**. Parity is the **end**.
 
+**Events vs probes (lab, V4):** capability-toggled **event** telemetry (`frameEmitted`, `applyResult`, desync, percentiles) is for investigation and O3 *inputs*. It MUST NOT be the pass/fail source for table identity, DOM isomorphism, or “producer/client agree.” Those asserts use **probes**: a coherent state snapshot at sequence S (table digest, table×DOM, tree×tree) — [observability.md](observability.md). A wire monitor may fail on malformed bytes; it must not fail because a telemetry field disagreed with a shadow counter.
+
 ## Scope note
 
 Capacity/SLO ceilings remain in `perf.yml` (functional ≠ Perf). That does **not** excuse an unusable Projected page under ordinary lab load: if the user cannot use the site 1:1, the build has not met accept — fix product or declare the gap explicitly as open defect, never as green.

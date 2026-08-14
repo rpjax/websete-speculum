@@ -11,6 +11,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.coherentSnapshotExpression = coherentSnapshotExpression;
 exports.captureVirtualSnapshot = captureVirtualSnapshot;
 const node_fs_1 = __importDefault(require("node:fs"));
 const node_path_1 = __importDefault(require("node:path"));
@@ -36,6 +37,30 @@ function loadSnapshotScript() {
     throw new Error(`PageProjection snapshot bundle missing (${BUNDLE_NAME}). ` +
         `Run \`npm run build:snapshot\` from the sidecar package. Looked in:\n` +
         tried.map((p) => `  - ${p}`).join('\n'));
+}
+/** Expression: flush+O2 (+ optional tree) in one document JS turn — DOM cannot mutate mid-call. */
+function coherentSnapshotExpression(includeTree) {
+    const treePart = includeTree
+        ? `${loadSnapshotScript()}\n    tree = __speculumSnapshot.snapshotTree();\n`
+        : '';
+    return `(() => {
+    const p = globalThis.__speculumProjection;
+    if (!p || typeof p.flushAndSnapshot !== 'function') {
+      return { ok: false, reason: 'flushAndSnapshot missing' };
+    }
+    const flushed = p.flushAndSnapshot();
+    let tree = null;
+    ${treePart}
+    return {
+      ok: true,
+      generation: flushed.generation,
+      sequence: flushed.sequence,
+      tableSize: p.table.size,
+      o2: flushed.o2,
+      table: flushed.table,
+      tree,
+    };
+  })()`;
 }
 /** Captures a structural snapshot of the Virtual page's live `document` (no pixels, no CSSOM). */
 async function captureVirtualSnapshot(page) {

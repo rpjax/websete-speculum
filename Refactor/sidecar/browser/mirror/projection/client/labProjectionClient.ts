@@ -22,7 +22,7 @@ import { DomFrameApplier } from './applyDom';
 import { PageProjectionRegistry } from './registry';
 import { createSurfaceHost, type SurfaceHost } from './surface';
 import { captureParityFingerprint } from './parityFingerprint';
-import { desyncPhase, type TelemetryPhase } from '../models/telemetry';
+import { digestReplicatedTable } from '../models/tableDigest';
 import { DOCUMENT_ID } from '../models/frame';
 import { OpCode } from '../models/opcodes';
 
@@ -122,6 +122,14 @@ export class LabProjectionClient {
   /** Surface's currently-*active* document — changes identity across a resync swap (Stage 4). */
   get document(): Document {
     return this.surface.document;
+  }
+
+  /** Probe: replicated table at the last applied sequence (same turn as the caller). */
+  snapshotTable(): { sequence: number; table: ReturnType<typeof digestReplicatedTable> } {
+    return {
+      sequence: this.lastSequence,
+      table: digestReplicatedTable(this.live.applier.replicatedTable),
+    };
   }
 
   ingest(bytes: Uint8Array): void {
@@ -398,7 +406,7 @@ export class LabProjectionClient {
       ok: info.ok,
       opCount: info.opCount,
       applyMs: info.applyMs,
-      tableSize: this.live.registry.size,
+      tableSize: this.live.applier.replicatedTable.size,
       reason: info.reason,
     });
   }

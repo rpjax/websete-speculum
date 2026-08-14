@@ -46,6 +46,7 @@ export type MetricsSummary = {
   opCount: Stats;
   bytes: Stats;
   applyMs: Stats;
+  /** Last `frameEmitted.tableSize` in the window (replicated rows). Time-series, not an assert. */
   lastTableSize: number;
   wireBytesTotal: number;
   applyOk: number;

@@ -35,6 +35,7 @@ type StatBlock = { min: number; avg: number; p50: number; p95: number; max: numb
 
 type BenchmarkReport = {
   meta: { timestamp: string; url: string; requestedDurationMs: number; frameRateHz: number };
+  verdicts?: { id: string; status: string; reason: string }[];
   metrics: {
     wallMs: number;
     bootstrap: { sequence: number; opCount: number; bytes: number; tableSize: number; buildMs: number } | null;
@@ -105,6 +106,10 @@ function renderBenchmarkReport(report: BenchmarkReport): string {
   const m = report.metrics;
   const lines: string[] = [];
   lines.push(`${report.meta.url}`);
+  if (report.verdicts && report.verdicts.length > 0) {
+    lines.push('verdicts:');
+    for (const v of report.verdicts) lines.push(`  ${v.status.toUpperCase()} ${v.id}: ${v.reason}`);
+  }
   lines.push(`wallMs=${m.wallMs.toFixed(0)}  steadyFrames=${m.steadyFrameCount} (~${m.steadyFps.toFixed(1)}fps)  lastTableSize=${m.lastTableSize}  wireBytes=${m.wireBytesTotal}`);
   if (m.bootstrap) {
     lines.push(`bootstrap: seq=${m.bootstrap.sequence} opCount=${m.bootstrap.opCount} bytes=${m.bootstrap.bytes} tableSize=${m.bootstrap.tableSize} buildMs=${m.bootstrap.buildMs.toFixed(2)}`);
@@ -251,7 +256,7 @@ export function bootLabClient(): void {
   }
 
   function showTab(name: string): void {
-    for (const id of ['panelStream', 'panelActivity', 'panelConfig', 'panelBenchmark']) {
+    for (const id of ['panelStream', 'panelActivity', 'panelConfig', 'panelRun']) {
       $(id).hidden = id !== `panel${name}`;
     }
     for (const btn of document.querySelectorAll<HTMLButtonElement>('[data-tab]')) {
@@ -336,7 +341,8 @@ export function bootLabClient(): void {
       }
       if (msg.type === 'requestSnapshot') {
         const tree = snapshotTree(projection.document);
-        ws?.send(JSON.stringify({ type: 'snapshotResult', tree }));
+        const tableSnap = projection.snapshotTable();
+        ws?.send(JSON.stringify({ type: 'snapshotResult', tree, table: tableSnap.table, sequence: tableSnap.sequence }));
         logActivity('snapshot captured — sent to session');
         return;
       }
@@ -399,6 +405,7 @@ export function bootLabClient(): void {
           cpuProfile: ($('benchCpuProfile') as HTMLInputElement).checked,
           invariants: ($('benchInvariants') as HTMLInputElement).checked,
           structuralDiff: ($('benchStructuralDiff') as HTMLInputElement).checked,
+          isomorphism: ($('benchIso') as HTMLInputElement).checked,
         },
       }),
     );

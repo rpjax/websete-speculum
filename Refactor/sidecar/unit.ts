@@ -30,6 +30,7 @@ import {
 } from './browser/patchright/PageState';
 import { DomAssetCache } from './browser/patchright/mirror/dom/DomAssetCache';
 import { runPageProjectionUnitTests } from './browser/patchright/mirror/page/page.unit';
+import { runV4ProjectionSessionUnitTests } from './browser/mirror/projection/session/v4ProjectionSession.unit';
 import { mapSrcset, parseSrcset } from './browser/patchright/mirror/dom/srcsetParse';
 import { parseDataUrl } from './browser/patchright/mirror/page/parseDataUrl';
 import type { BrowserCookieState } from './browser/BrowserSession';
@@ -1877,6 +1878,63 @@ function testReplicatedTableInsertBeforeNextSiblingRepair(): void {
   console.log('[unit] ReplicatedTable insert-before nextSiblingOf repair (OPEN-7) ok');
 }
 
+/**
+ * prepend-stress shape at the table layer: INSERT-before-first batches + tail REMOVE + aged NODE_DROP.
+ * Derived lastChildOf walk must stay identical to hashed parent (OPEN-8: live O2 failed this shape).
+ */
+function testReplicatedTablePrependEvictDerivedLinks(): void {
+  const table = new ReplicatedTable();
+  const LIST = 19;
+  const BATCH = 50;
+  const MAX_LIVE = 400;
+  const AGE = 20;
+  table.createElementRow(LIST, 'div', []);
+  table.insertBatch(1, 0, [LIST]);
+  let nextId = 100;
+  const live: number[] = [];
+  const detachedAt = new Map<number, number>();
+
+  for (let seq = 1; seq <= 200; seq++) {
+    table.setSequence(seq);
+    const batch: number[] = [];
+    for (let i = 0; i < BATCH; i++) {
+      const id = nextId++;
+      table.createElementRow(id, 'div', []);
+      batch.push(id);
+    }
+    const before = live[0] ?? 0;
+    table.insertBatch(LIST, before, batch);
+    live.unshift(...batch);
+    while (live.length > MAX_LIVE) {
+      const old = live.pop()!;
+      table.removeBatch(LIST, [old]);
+      detachedAt.set(old, seq);
+    }
+    const droppable: number[] = [];
+    for (const [id, at] of detachedAt) {
+      if (seq - at >= AGE) droppable.push(id);
+    }
+    for (const id of droppable) {
+      table.dropSubtree(id);
+      detachedAt.delete(id);
+    }
+    const walked = table.orderedChildIds(LIST);
+    const hashed = table.countAttachedChildren(LIST);
+    if (walked.length !== hashed) {
+      const lastId = table.lastChildId(LIST);
+      const lastRow = table.getRow(lastId);
+      assert.fail(
+        `seq ${seq}: lastChildOf walk ${walked.length} !== hashed parent ${hashed}` +
+          ` lastChildId=${lastId} lastRow=${lastRow ? `parent=${lastRow.parent} prev=${lastRow.prevSibling}` : 'missing'}` +
+          ` liveFirst=${live[0]} liveLast=${live[live.length - 1]}`,
+      );
+    }
+    assert.strictEqual(walked.length, live.length, `seq ${seq}: walk ${walked.length} !== live ${live.length}`);
+    assert.deepStrictEqual(walked, live, `seq ${seq}: sibling order diverged from prepend+evict model`);
+  }
+  console.log('[unit] ReplicatedTable prepend+evict derived lastChildOf matches hashed parent ok');
+}
+
 function open7Table(): ReplicatedTable {
   const table = new ReplicatedTable();
   const NONE = 0;
@@ -2413,6 +2471,7 @@ async function main(): Promise<void> {
   testReplicatedTableRowContentHash();
   testReplicatedTableTopologyRepair();
   testReplicatedTableInsertBeforeNextSiblingRepair();
+  testReplicatedTablePrependEvictDerivedLinks();
   testTableLiveOracle();
   testReplicatedTableApplyOpsParity();
   testReplicatedTableResyncWholesaleReplace();
@@ -2428,6 +2487,7 @@ async function main(): Promise<void> {
   testApplyFrameToTableCheckedRejectsNodeDropAttachedId();
   testApplyFrameToTableCheckedEnforcesMaxRows();
   await runPageProjectionUnitTests();
+  await runV4ProjectionSessionUnitTests();
   console.log('[unit] all passed');
 }
 

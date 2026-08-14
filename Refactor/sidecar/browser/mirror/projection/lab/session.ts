@@ -1,32 +1,24 @@
 /**
- * One lab session: client control WS + Virtual Chromium + Virtual data-plane WS.
- * Relays Frame bytes + Telemetry (JSON) Virtual → Client. No .NET / gRPC.
+ * One lab session: client control WS + V4 BrowserSession. Relays frames + telemetry. No Chromium here.
  */
 
 import { randomUUID } from 'node:crypto';
 import type { WebSocket } from 'ws';
-import type { CDPSession } from 'patchright';
-import { PlaneChannel } from '../plane';
+import type { BrowserSession, BrowserSessionEvents } from '../../../BrowserSession';
 import {
   LAB_TELEMETRY_DEFAULTS,
   isProjectionTelemetryMessage,
   type ProjectionTelemetryMessage,
 } from '../models/telemetry';
-import { NodeDataPlane } from './nodeDataPlane';
-import type { ProjectionTelemetrySink } from './projectionTelemetrySink';
-import { launchVirtualBrowser, type VirtualBrowserHandle } from './virtualBrowser';
 import type { TreeNode } from '../models/treeNode';
-import { startCpuProfile, stopCpuProfile } from './cpuProfile';
-import { FrameInvariantMonitor } from './frameInvariantMonitor';
-import { MetricsAggregator } from './metricsAggregator';
-import { captureVirtualSnapshot } from './virtualSnapshot';
-import { diffTrees } from './structuralDiff';
-import { defaultLabRunsDir, writeRunReport, type BenchmarkReport, type StructuralDiffOutcome } from './runReport';
+import type { ReplicatedTableDigest } from '../models/tableDigest';
+import type { ClientStateSnapshot } from './isomorphism';
+import { createV4ProjectionBrowserSessionFactory } from '../session/V4ProjectionBrowserSession';
+import { v4LabLaunchOptions } from '../session/v4LabLaunch';
+import { createRunCollectors, executeLabRun, type LabRunRequest } from './runTools';
 
 export type LabSessionOptions = {
-  /** Base HTTP origin for fixtures / data-plane URL advertised to Virtual (e.g. http://127.0.0.1:4077). */
   publicOrigin: string;
-  /** ws:// origin matching the HTTP server (e.g. ws://127.0.0.1:4077). */
   publicWsOrigin: string;
   headless: boolean;
 };
@@ -38,8 +30,6 @@ type StartControlMessage = {
   frameRateHz?: unknown;
 };
 
-type RunBenchmarkOptions = { cpuProfile: boolean; invariants: boolean; structuralDiff: boolean };
-
 type RunBenchmarkControlMessage = {
   type: 'runBenchmark';
   url?: unknown;
@@ -47,11 +37,6 @@ type RunBenchmarkControlMessage = {
   frameRateHz?: unknown;
   telemetry?: unknown;
   options?: unknown;
-};
-
-type ActiveBenchmark = {
-  metrics: MetricsAggregator;
-  invariantMonitor: FrameInvariantMonitor | null;
 };
 
 export type SessionStats = {
@@ -71,18 +56,19 @@ function peekFrameHeader(buf: Buffer): { generation: number; sequence: number } 
   };
 }
 
-export class LabSession implements ProjectionTelemetrySink {
+export class LabSession {
   readonly id: string;
   private readonly opts: LabSessionOptions;
   private client: WebSocket | null;
-  private readonly virtualData = new NodeDataPlane();
-  private browser: VirtualBrowserHandle | null = null;
+  private session: BrowserSession | null = null;
   private closed = false;
   private injectTelemetry: Record<string, unknown> | undefined;
   private frameRateHz = 60;
-  private pendingSnapshot: { resolve: (tree: TreeNode | null) => void; timer: ReturnType<typeof setTimeout> } | null =
-    null;
-  private activeBenchmark: ActiveBenchmark | null = null;
+  private pendingSnapshot: {
+    resolve: (snap: ClientStateSnapshot | null) => void;
+    timer: ReturnType<typeof setTimeout>;
+  } | null = null;
+  private runCollectors: ReturnType<typeof createRunCollectors> | null = null;
   private benchmarkRunning = false;
   private readonly stats: SessionStats = {
     framesFromVirtual: 0,
@@ -96,39 +82,22 @@ export class LabSession implements ProjectionTelemetrySink {
     this.id = randomUUID();
     this.client = client;
     this.opts = opts;
-    this.virtualData.setHandler((channel, payload) => {
-      if (channel === PlaneChannel.Frame) {
-        this.onVirtualFrame(Buffer.from(payload));
-        return;
-      }
-      if (channel === PlaneChannel.Telemetry) {
-        this.onVirtualTelemetry(payload);
-        return;
-      }
-      // Control: reserved.
-    });
     this.sendJson({ type: 'hello', sessionId: this.id });
   }
 
+  /** Kept so older smoke that probes the path still compiles; dataplane is owned by BrowserSession. */
   get virtualDataPath(): string {
     return `/lab/virtual/${this.id}`;
   }
 
-  /** Lab sink: push telemetry to the client WSS. */
+  attachVirtualData(_socket: WebSocket): void {
+    _socket.close();
+  }
+
   onProjectionTelemetry(message: ProjectionTelemetryMessage): void {
     this.stats.telemetryMessages += 1;
     this.sendJson({ type: 'telemetry', message });
-    this.activeBenchmark?.metrics.observeTelemetry(message);
-    this.activeBenchmark?.invariantMonitor?.observeTelemetry(message);
-  }
-
-  attachVirtualData(socket: WebSocket): void {
-    if (this.closed) {
-      socket.close();
-      return;
-    }
-    this.virtualData.attach(socket);
-    this.sendJson({ type: 'virtualDataOpen' });
+    this.runCollectors?.observeTelemetry(message);
   }
 
   async handleClientMessage(raw: Buffer | ArrayBuffer | Buffer[], isBinary: boolean): Promise<void> {
@@ -155,14 +124,12 @@ export class LabSession implements ProjectionTelemetrySink {
       if (typeof start.frameRateHz === 'number' && Number.isFinite(start.frameRateHz) && start.frameRateHz > 0) {
         this.frameRateHz = start.frameRateHz;
       }
-      await this.start(url.trim(), { relaunch: true });
+      await this.start(url.trim());
       return;
     }
     if (type === 'clientTelemetry') {
       const message = (msg as { message?: unknown }).message;
-      if (isProjectionTelemetryMessage(message)) {
-        this.onProjectionTelemetry(message);
-      }
+      if (isProjectionTelemetryMessage(message)) this.onProjectionTelemetry(message);
       return;
     }
     if (type === 'navigate') {
@@ -197,21 +164,15 @@ export class LabSession implements ProjectionTelemetrySink {
         this.injectTelemetry = rb.telemetry as Record<string, unknown>;
       }
       const optsRaw = (rb.options ?? {}) as Record<string, unknown>;
-      const options: RunBenchmarkOptions = {
+      await this.runBenchmark(url.trim(), durationMs, {
         cpuProfile: optsRaw.cpuProfile !== false,
         invariants: optsRaw.invariants !== false,
         structuralDiff: optsRaw.structuralDiff !== false,
-      };
-      await this.runBenchmark(url.trim(), durationMs, options);
+        isomorphism: optsRaw.isomorphism === true,
+      });
       return;
     }
     if (type === 'injectRawFrame') {
-      // Lab-only test harness hook (frame-protocol-production-completeness Stage 2 gate) —
-      // sends caller-supplied bytes to the client verbatim, bypassing Virtual entirely, so a
-      // test can hand-craft a deliberately-corrupted frame (wrong preTableHash / bad CHECK) and
-      // observe the real client (`client/applyDom.ts`) abort it before touching the DOM. Not
-      // part of the wire protocol or any production path — purely drives the already-running
-      // client with test-controlled bytes, the same way `requestSnapshot` reads it out.
       const bytesBase64 = (msg as { bytesBase64?: unknown }).bytesBase64;
       if (typeof bytesBase64 !== 'string') {
         this.sendJson({ type: 'error', message: 'injectRawFrame.bytesBase64 required' });
@@ -224,34 +185,23 @@ export class LabSession implements ProjectionTelemetrySink {
       return;
     }
     if (type === 'requestResync') {
-      // Stage 4 (frame-protocol-production-completeness) §5.8 — relays the client's out-of-band
-      // resync request onto the Virtual control channel (`PlaneChannel.Control`, reserved since
-      // E-03, previously unused). Pure relay: no validation beyond "these are JSON-serializable" —
-      // `generation`/`sequence` are diagnostic-only on the Virtual side too (`bootstrap.ts`), never
-      // load-bearing for what `emitResyncFrame` actually re-describes.
       const req = msg as { reason?: unknown; generation?: unknown; sequence?: unknown };
-      const payload = JSON.stringify({
+      this.session?.sendPageProjectionControl?.({
         type: 'requestResync',
         reason: typeof req.reason === 'string' ? req.reason : 'unknown',
         generation: typeof req.generation === 'number' ? req.generation : null,
         sequence: typeof req.sequence === 'number' ? req.sequence : null,
       });
-      this.virtualData.send(PlaneChannel.Control, new TextEncoder().encode(payload));
       return;
     }
     if (type === 'requestStructuralDiff') {
-      // Stage 4 test-only entry point: the same virtual-vs-client structural diff
-      // `runBenchmark` already performs at the end of a full run (`captureVirtualSnapshot` +
-      // `requestClientSnapshot` + `diffTrees`, lab/structuralDiff.ts), available standalone so a
-      // smoke test can ask "did the projection actually heal" right after a resync, without
-      // spinning up an entire benchmark run just to get one diff.
-      if (this.browser === null) {
+      if (this.session === null) {
         this.sendJson({ type: 'structuralDiffResult', status: 'unavailable', reason: 'no virtual browser running' });
         return;
       }
-      const virtualTree = await captureVirtualSnapshot(this.browser.page);
-      const clientTree = await this.requestClientSnapshot();
-      if (clientTree === null) {
+      const virtual = await this.session.snapshotProjectionVirtual?.({ includeTree: true });
+      const clientSnap = await this.requestClientSnapshot();
+      if (clientSnap === null || clientSnap.tree === null) {
         this.sendJson({
           type: 'structuralDiffResult',
           status: 'unavailable',
@@ -259,63 +209,64 @@ export class LabSession implements ProjectionTelemetrySink {
         });
         return;
       }
-      this.sendJson({ type: 'structuralDiffResult', status: 'ok', result: diffTrees(virtualTree, clientTree) });
+      if (!virtual?.ok || virtual.tree == null) {
+        this.sendJson({
+          type: 'structuralDiffResult',
+          status: 'unavailable',
+          reason: virtual?.reason ?? 'virtual snapshot failed',
+        });
+        return;
+      }
+      const { diffTrees } = await import('./structuralDiff');
+      this.sendJson({
+        type: 'structuralDiffResult',
+        status: 'ok',
+        result: diffTrees(virtual.tree as TreeNode, clientSnap.tree),
+      });
       return;
     }
     if (type === 'requestTableLiveOracle') {
-      if (this.browser === null) {
+      if (this.session === null) {
         this.sendJson({ type: 'tableLiveOracleResult', status: 'unavailable', reason: 'no virtual browser running' });
         return;
       }
-      try {
-        const result = await this.browser.page.evaluate(
-          `(() => {
-            const p = globalThis.__speculumProjection;
-            if (!p || typeof p.compareTableToLiveDom !== 'function') return null;
-            return p.compareTableToLiveDom();
-          })()`,
-        );
-        if (result === null) {
-          this.sendJson({
-            type: 'tableLiveOracleResult',
-            status: 'unavailable',
-            reason: '__speculumProjection.compareTableToLiveDom missing',
-          });
-          return;
-        }
-        this.sendJson({ type: 'tableLiveOracleResult', status: 'ok', result });
-      } catch (err) {
+      const o2 = await this.session.compareProjectionTableToLiveDom?.();
+      if (!o2?.ok || !o2.result) {
         this.sendJson({
           type: 'tableLiveOracleResult',
           status: 'unavailable',
-          reason: err instanceof Error ? err.message : String(err),
+          reason: o2?.reason ?? 'O2 probe failed',
         });
+        return;
       }
+      this.sendJson({ type: 'tableLiveOracleResult', status: 'ok', result: o2.result });
       return;
     }
     if (type === 'snapshotResult') {
       const tree = (msg as { tree?: unknown }).tree;
+      const tableRaw = (msg as { table?: unknown }).table;
       const pending = this.pendingSnapshot;
       if (pending !== null) {
         this.pendingSnapshot = null;
         clearTimeout(pending.timer);
-        pending.resolve((tree as TreeNode) ?? null);
+        const table =
+          typeof tableRaw === 'object' &&
+          tableRaw !== null &&
+          typeof (tableRaw as { rowCount?: unknown }).rowCount === 'number' &&
+          typeof (tableRaw as { tableHash?: unknown }).tableHash === 'string'
+            ? (tableRaw as ReplicatedTableDigest)
+            : null;
+        pending.resolve({ tree: (tree as TreeNode) ?? null, table });
       }
       return;
     }
     this.sendJson({ type: 'error', message: `unknown control type: ${String(type)}` });
   }
 
-  /**
-   * Structural diff's client-side half (lab/structuralDiff.ts, component 4) — asks the
-   * already-connected lab client to snapshot its surface iframe over the existing control WS,
-   * bounded so a client that never answers (closed tab, no client attached) fails the
-   * *benchmark step*, not the whole run.
-   */
-  async requestClientSnapshot(timeoutMs = 5000): Promise<TreeNode | null> {
+  async requestClientSnapshot(timeoutMs = 5000): Promise<ClientStateSnapshot | null> {
     if (this.client === null || this.client.readyState !== this.client.OPEN) return null;
-    if (this.pendingSnapshot !== null) return null; // one in flight at a time — benchmark orchestration is serial
-    return new Promise<TreeNode | null>((resolve) => {
+    if (this.pendingSnapshot !== null) return null;
+    return new Promise<ClientStateSnapshot | null>((resolve) => {
       const timer = setTimeout(() => {
         this.pendingSnapshot = null;
         resolve(null);
@@ -329,7 +280,6 @@ export class LabSession implements ProjectionTelemetrySink {
     if (this.closed) return;
     this.closed = true;
     await this.stopBrowser();
-    this.virtualData.close();
     this.client = null;
     if (this.pendingSnapshot !== null) {
       clearTimeout(this.pendingSnapshot.timer);
@@ -338,41 +288,49 @@ export class LabSession implements ProjectionTelemetrySink {
     }
   }
 
-  private onVirtualTelemetry(payload: Uint8Array): void {
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(new TextDecoder().decode(payload));
-    } catch {
-      return;
-    }
-    if (!isProjectionTelemetryMessage(parsed)) return;
-    this.onProjectionTelemetry(parsed);
+  private browserEvents(): BrowserSessionEvents {
+    return {
+      onVideoFrame: () => undefined,
+      onAudioFrame: () => undefined,
+      onPageProjectionDiff: (diff) => {
+        this.onVirtualFrame(Buffer.from(diff.body));
+      },
+      onPageProjectionTelemetry: (message) => {
+        this.onProjectionTelemetry(message);
+      },
+      onConsole: () => undefined,
+      onLocationChanged: () => undefined,
+      onMainFrameNavigationBlocked: () => undefined,
+      onEditableFocusChanged: () => undefined,
+      onCameraPermissionRequested: async () => 'deny',
+      onMicrophonePermissionRequested: async () => 'deny',
+      onCrash: () => undefined,
+    };
   }
 
-  private async start(url: string, opts?: { relaunch?: boolean }): Promise<void> {
-    if (this.browser !== null && !opts?.relaunch) {
-      await this.navigate(url);
-      return;
-    }
-    if (this.browser !== null) {
-      await this.stopBrowser();
-    }
-    const dataPlaneUrl = `${this.opts.publicWsOrigin}${this.virtualDataPath}`;
+  private async start(url: string): Promise<void> {
+    await this.stopBrowser();
+    const factory = createV4ProjectionBrowserSessionFactory({ headless: this.opts.headless });
+    const session = factory.create(this.id, this.browserEvents());
+    this.session = session;
     try {
-      this.browser = await launchVirtualBrowser({
-        dataPlaneUrl,
-        startUrl: url,
-        headless: this.opts.headless,
-        frameRateHz: this.frameRateHz,
-        telemetry: this.injectTelemetry ?? { ...LAB_TELEMETRY_DEFAULTS },
-      });
+      await session.launch(
+        v4LabLaunchOptions({
+          frameRateHz: this.frameRateHz,
+          projectionTelemetry: (this.injectTelemetry ?? { ...LAB_TELEMETRY_DEFAULTS }) as LabRunRequest['telemetry'],
+          cpuProfiling: true,
+        }),
+      );
+      await session.navigate(url);
       this.sendJson({
         type: 'ready',
         sessionId: this.id,
         url,
-        dataPlaneUrl,
+        dataPlaneUrl: 'session-owned',
       });
     } catch (err) {
+      await session.dispose();
+      this.session = null;
       this.sendJson({
         type: 'error',
         message: err instanceof Error ? err.message : String(err),
@@ -381,12 +339,12 @@ export class LabSession implements ProjectionTelemetrySink {
   }
 
   private async navigate(url: string): Promise<void> {
-    if (this.browser === null) {
-      await this.start(url, { relaunch: true });
+    if (this.session === null) {
+      await this.start(url);
       return;
     }
     try {
-      await this.browser.navigate(url);
+      await this.session.navigate(url);
       this.sendJson({ type: 'navigated', url });
     } catch (err) {
       this.sendJson({
@@ -396,91 +354,67 @@ export class LabSession implements ProjectionTelemetrySink {
     }
   }
 
-  /**
-   * Benchmark orchestration (plan component 5): (re)start → start CPU profile + attach the
-   * invariant monitor (if enabled) → wait `durationMs` → stop CPU profile → structural
-   * snapshot/diff (if enabled) → assemble + write report → reply `benchmarkComplete`. Every
-   * step is independently optional per `options` and independently failure-tolerant — a
-   * missing client snapshot degrades that one field to `unavailable`, it does not abort the run.
-   */
-  private async runBenchmark(url: string, durationMs: number, options: RunBenchmarkOptions): Promise<void> {
+  private async runBenchmark(
+    url: string,
+    durationMs: number,
+    options: { cpuProfile: boolean; invariants: boolean; structuralDiff: boolean; isomorphism: boolean },
+  ): Promise<void> {
     if (this.benchmarkRunning) {
       this.sendJson({ type: 'error', message: 'a benchmark is already running on this session' });
       return;
     }
     this.benchmarkRunning = true;
     this.sendJson({ type: 'benchmarkStarted', url, durationMs, options });
-
     try {
-      await this.start(url, { relaunch: true });
-      const browser = this.browser;
-      if (browser === null) {
+      await this.start(url);
+      const session = this.session;
+      if (session === null) {
         this.sendJson({ type: 'error', message: 'benchmark: Virtual failed to start' });
         return;
       }
-
-      const metrics = new MetricsAggregator();
-      const invariantMonitor = options.invariants ? new FrameInvariantMonitor() : null;
-      this.activeBenchmark = { metrics, invariantMonitor };
-
-      let cdp: CDPSession | null = null;
-      if (options.cpuProfile) {
-        cdp = await browser.cdp();
-        await startCpuProfile(cdp);
-      }
-
-      const startedAt = Date.now();
-      await new Promise<void>((resolve) => setTimeout(resolve, durationMs));
-      const wallMs = Date.now() - startedAt;
-
-      const cpuProfileResult = cdp !== null ? await stopCpuProfile(cdp, 20) : null;
-
-      let structuralDiff: StructuralDiffOutcome | null = null;
-      if (options.structuralDiff) {
-        if (this.browser === null) {
-          structuralDiff = { status: 'unavailable', reason: 'Virtual stopped before the structural snapshot ran' };
-        } else {
-          const virtualTree = await captureVirtualSnapshot(this.browser.page);
-          const clientTree = await this.requestClientSnapshot(5_000);
-          structuralDiff =
-            clientTree === null
-              ? { status: 'unavailable', reason: 'client did not reply to requestSnapshot within 5000ms' }
-              : { status: 'ok', result: diffTrees(virtualTree, clientTree) };
-        }
-      }
-
-      const report: BenchmarkReport = {
-        meta: {
-          timestamp: new Date(startedAt).toISOString(),
-          url,
-          requestedDurationMs: durationMs,
-          frameRateHz: this.frameRateHz,
-          options,
+      const collectors = createRunCollectors();
+      this.runCollectors = collectors;
+      const result = await executeLabRun(
+        {
+          session,
+          observeFrameBytes: collectors.observeFrameBytes,
+          observeTelemetry: collectors.observeTelemetry,
+          requestClientSnapshot: () => this.requestClientSnapshot(5_000),
         },
-        metrics: metrics.getSummary(wallMs),
-        cpuProfile: cpuProfileResult ? { summary: cpuProfileResult.summary, profileFile: 'profile.cpuprofile' } : null,
-        invariants: invariantMonitor?.getSummary() ?? null,
-        structuralDiff,
-      };
-
-      const written = await writeRunReport(defaultLabRunsDir(), report, cpuProfileResult?.raw ?? null);
-      this.sendJson({ type: 'benchmarkComplete', report, reportDir: written.reportDir, reportPath: written.reportPath });
+        {
+          url,
+          durationMs,
+          frameRateHz: this.frameRateHz,
+          telemetry: (this.injectTelemetry ?? { ...LAB_TELEMETRY_DEFAULTS }) as LabRunRequest['telemetry'],
+          cpuProfile: options.cpuProfile,
+          invariants: options.invariants,
+          structuralDiff: options.structuralDiff,
+          isomorphism: options.isomorphism,
+        },
+        collectors,
+      );
+      this.sendJson({
+        type: 'benchmarkComplete',
+        report: result.report,
+        reportDir: result.written.reportDir,
+        reportPath: result.written.reportPath,
+      });
     } catch (err) {
       this.sendJson({
         type: 'error',
         message: `benchmark failed: ${err instanceof Error ? err.message : String(err)}`,
       });
     } finally {
-      this.activeBenchmark = null;
+      this.runCollectors = null;
       this.benchmarkRunning = false;
     }
   }
 
   private async stopBrowser(): Promise<void> {
-    const handle = this.browser;
-    this.browser = null;
-    if (handle === null) return;
-    await handle.close();
+    const session = this.session;
+    this.session = null;
+    if (session === null) return;
+    await session.dispose();
   }
 
   private onVirtualFrame(buf: Buffer): void {
@@ -496,13 +430,7 @@ export class LabSession implements ProjectionTelemetrySink {
     if (client !== null && client.readyState === client.OPEN) {
       client.send(buf, { binary: true });
     }
-    this.activeBenchmark?.metrics.observeWireBytes(buf.length);
-    this.activeBenchmark?.invariantMonitor?.observeFrameBytes(buf);
-    // §1.2/§4.1 EPOCH_RESET (Stage 3) must be observable the moment it happens, not only on the
-    // periodic every-15th-frame cadence below — a fixture with few/no mutations after a hard
-    // navigation (e.g. an establish-only page) could otherwise never accumulate 15 more frames,
-    // leaving the lab UI (and this session's own telemetry) reporting the *previous* generation
-    // indefinitely (found via the smoke suite's EPOCH_RESET gate, 2026-08-14).
+    this.runCollectors?.observeFrameBytes(buf);
     const generationChanged = header !== null && this.stats.lastGeneration !== priorGeneration;
     if (this.stats.framesFromVirtual === 1 || this.stats.framesFromVirtual % 15 === 0 || generationChanged) {
       this.sendJson({

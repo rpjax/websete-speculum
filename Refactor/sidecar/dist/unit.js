@@ -53,6 +53,7 @@ const browserRace_1 = require("./host/browserRace");
 const PageState_1 = require("./browser/patchright/PageState");
 const DomAssetCache_1 = require("./browser/patchright/mirror/dom/DomAssetCache");
 const page_unit_1 = require("./browser/patchright/mirror/page/page.unit");
+const v4ProjectionSession_unit_1 = require("./browser/mirror/projection/session/v4ProjectionSession.unit");
 const srcsetParse_1 = require("./browser/patchright/mirror/dom/srcsetParse");
 const parseDataUrl_1 = require("./browser/patchright/mirror/page/parseDataUrl");
 const collectTelemetry_1 = require("./telemetry/collectTelemetry");
@@ -1571,6 +1572,60 @@ function testReplicatedTableInsertBeforeNextSiblingRepair() {
     assert_1.default.strictEqual(first.getRow(X).prevSibling, NONE, 'OPEN-7: REMOVE of a single prepended id must restore first-child prevSibling=0');
     console.log('[unit] ReplicatedTable insert-before nextSiblingOf repair (OPEN-7) ok');
 }
+/**
+ * prepend-stress shape at the table layer: INSERT-before-first batches + tail REMOVE + aged NODE_DROP.
+ * Derived lastChildOf walk must stay identical to hashed parent (OPEN-8: live O2 failed this shape).
+ */
+function testReplicatedTablePrependEvictDerivedLinks() {
+    const table = new replicatedTable_1.ReplicatedTable();
+    const LIST = 19;
+    const BATCH = 50;
+    const MAX_LIVE = 400;
+    const AGE = 20;
+    table.createElementRow(LIST, 'div', []);
+    table.insertBatch(1, 0, [LIST]);
+    let nextId = 100;
+    const live = [];
+    const detachedAt = new Map();
+    for (let seq = 1; seq <= 200; seq++) {
+        table.setSequence(seq);
+        const batch = [];
+        for (let i = 0; i < BATCH; i++) {
+            const id = nextId++;
+            table.createElementRow(id, 'div', []);
+            batch.push(id);
+        }
+        const before = live[0] ?? 0;
+        table.insertBatch(LIST, before, batch);
+        live.unshift(...batch);
+        while (live.length > MAX_LIVE) {
+            const old = live.pop();
+            table.removeBatch(LIST, [old]);
+            detachedAt.set(old, seq);
+        }
+        const droppable = [];
+        for (const [id, at] of detachedAt) {
+            if (seq - at >= AGE)
+                droppable.push(id);
+        }
+        for (const id of droppable) {
+            table.dropSubtree(id);
+            detachedAt.delete(id);
+        }
+        const walked = table.orderedChildIds(LIST);
+        const hashed = table.countAttachedChildren(LIST);
+        if (walked.length !== hashed) {
+            const lastId = table.lastChildId(LIST);
+            const lastRow = table.getRow(lastId);
+            assert_1.default.fail(`seq ${seq}: lastChildOf walk ${walked.length} !== hashed parent ${hashed}` +
+                ` lastChildId=${lastId} lastRow=${lastRow ? `parent=${lastRow.parent} prev=${lastRow.prevSibling}` : 'missing'}` +
+                ` liveFirst=${live[0]} liveLast=${live[live.length - 1]}`);
+        }
+        assert_1.default.strictEqual(walked.length, live.length, `seq ${seq}: walk ${walked.length} !== live ${live.length}`);
+        assert_1.default.deepStrictEqual(walked, live, `seq ${seq}: sibling order diverged from prepend+evict model`);
+    }
+    console.log('[unit] ReplicatedTable prepend+evict derived lastChildOf matches hashed parent ok');
+}
 function open7Table() {
     const table = new replicatedTable_1.ReplicatedTable();
     const NONE = 0;
@@ -2048,6 +2103,7 @@ async function main() {
     testReplicatedTableRowContentHash();
     testReplicatedTableTopologyRepair();
     testReplicatedTableInsertBeforeNextSiblingRepair();
+    testReplicatedTablePrependEvictDerivedLinks();
     testTableLiveOracle();
     testReplicatedTableApplyOpsParity();
     testReplicatedTableResyncWholesaleReplace();
@@ -2063,6 +2119,7 @@ async function main() {
     testApplyFrameToTableCheckedRejectsNodeDropAttachedId();
     testApplyFrameToTableCheckedEnforcesMaxRows();
     await (0, page_unit_1.runPageProjectionUnitTests)();
+    await (0, v4ProjectionSession_unit_1.runV4ProjectionSessionUnitTests)();
     console.log('[unit] all passed');
 }
 function testSrcsetParseCloudinary() {

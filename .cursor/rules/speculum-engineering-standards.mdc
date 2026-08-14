@@ -10,7 +10,7 @@ Before multi-file, sessions, diagnostics, or CI work, read and obey:
 1. `AGENTS.md`
 2. `docs/engineering-standards.md`
 3. `docs/naming.md`
-4. PageProjection: `docs/page-projection/spec/README.md` then `acceptance.md` (**1:1 parity**). Never implement from `docs/page-projection/archive/`.
+4. PageProjection: `docs/page-projection/spec/README.md` then `acceptance.md` (**1:1 parity**). Lab/telemetry/probes: `docs/page-projection/spec/observability.md`. Never implement from `docs/page-projection/archive/`.
 
 Vocabulary: **Speculum** = platform; **Sessions** = live browsing; **W7S** = wire/client boundary only (`_w7s_nso`). `Motor` is restricted to existing legacy proper names.
 `LiveSession` (live) ≠ `BrowserSessionStore` (persisted). Domain types must not depend on ASP.NET/SignalR/`IServiceProvider`.
@@ -21,6 +21,7 @@ Vocabulary: **Speculum** = platform; **Sessions** = live browsing; **W7S** = wir
 - Never skip/ignore/soften MotorAssert asserts to get green — fix the product (`docs/assert-failure-policy.md`).
 - Never use missing-property soft skips (`if (TryGetProperty) continue`) as pass conditions.
 - Never prove session truth with `200` / `ok: true` alone — Act→Assert via events, snapshots, probes.
+- Never pass/fail PageProjection table/DOM isomorphism from event telemetry (`docs/page-projection/spec/observability.md`).
 - Never declare PageProjection accept from protocol-only greens while Projected ≠ original 1:1 (`docs/page-projection/spec/acceptance.md`).
 - Never publish catalog Sessions/Sidecar.DiagProbe failure without `errorCode`+`phase` (`docs/diagnostics.md`).
 - Diagnostics = **capability toggles per domain** (not levels); transport stays domain-agnostic (gate by catalog `descriptor` + `IsCapabilityEnabled`, never string-match event/domain names; every emitted event has a descriptor). `Telemetry.SampleCollected` = one composite sample, sections/identity opt-in per toggle.

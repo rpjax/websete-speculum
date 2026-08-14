@@ -9,6 +9,7 @@ import type { FrameTransport } from '../transport/frameTransport';
 import type { Frame } from '../../models/frame';
 import type { MutationBuffer } from '../dom/mutationBuffer';
 import type { DomNodeTable } from '../dom/domNodeTable';
+import type { ReplicatedTable } from '../../models/replicatedTable';
 import type { ProjectionTelemetry } from '../telemetry/projectionTelemetry';
 
 export type FrameEmitterOptions = {
@@ -18,6 +19,7 @@ export type FrameEmitterOptions = {
   encoder: FrameEncoder;
   transport: FrameTransport;
   domNodes: DomNodeTable;
+  table: ReplicatedTable;
   telemetry?: ProjectionTelemetry | null;
 };
 
@@ -38,6 +40,7 @@ export class FrameEmitter {
   private readonly encoder: FrameEncoder;
   private readonly transport: FrameTransport;
   private readonly domNodes: DomNodeTable;
+  private readonly table: ReplicatedTable;
   private readonly telemetry: ProjectionTelemetry | null;
 
   private sequence = 0;
@@ -55,6 +58,7 @@ export class FrameEmitter {
     this.encoder = opts.encoder;
     this.transport = opts.transport;
     this.domNodes = opts.domNodes;
+    this.table = opts.table;
     this.telemetry = opts.telemetry ?? null;
   }
 
@@ -64,6 +68,14 @@ export class FrameEmitter {
 
   stop(): void {
     this.clock.stop();
+  }
+
+  /**
+   * Drain / build / send one frame without waiting for the clock (halt+flush / isomorphism).
+   * Safe while the clock is stopped.
+   */
+  flushNow(): void {
+    this.onBoundary();
   }
 
   get currentSequence(): number {
@@ -101,7 +113,8 @@ export class FrameEmitter {
       opCount: frame.ops.length,
       partCount: parts.length,
       bytes: totalBytes,
-      tableSize: this.domNodes.size,
+      tableSize: this.table.size,
+      identitySize: this.domNodes.size,
       buildMs: 0,
       encodeMs: 0,
     });
@@ -215,7 +228,8 @@ export class FrameEmitter {
       opCount: frame.ops.length,
       partCount: parts.length,
       bytes: totalBytes,
-      tableSize: this.domNodes.size,
+      tableSize: this.table.size,
+      identitySize: this.domNodes.size,
       buildMs: stats?.buildMs ?? 0,
       encodeMs: 0,
     });

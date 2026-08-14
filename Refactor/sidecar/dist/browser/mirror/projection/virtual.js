@@ -319,7 +319,7 @@
      * navigation re-injects this whole script into a fresh JS realm, so the *identity map* is
      * already empty by construction — there is nothing to clear here, unlike `bumpGeneration()`.
      * This exists purely so a fresh instance reports the `generation` the orchestrator
-     * (`lab/virtualBrowser.ts`) already knows this navigation is (via `ProjectionConfig.generation`),
+     * (`V4ProjectionBrowserSession`) already knows this navigation is (via `ProjectionConfig.generation`),
      * so `resyncVirtual`'s frame — and every ordinary tick after it — carries the right number for
      * `bootstrap.ts` to decide whether to prepend `EPOCH_RESET`.
      */
@@ -581,6 +581,17 @@
       backwards.reverse();
       return backwards;
     }
+    /** Rows with hashed `parent` — O(table). Lab O2 uses this to detect a broken `lastChildOf` walk. */
+    lastChildId(parent) {
+      return this.lastChildOf.get(parent) ?? NONE;
+    }
+    countAttachedChildren(parent) {
+      let n = 0;
+      for (const row of this.rows.values()) {
+        if (row.parent === parent) n += 1;
+      }
+      return n;
+    }
     /** Every stored row id (excludes implicit Document `1`). */
     forEachRow(fn) {
       for (const [id, row] of this.rows) fn(id, row);
@@ -776,6 +787,7 @@
         if (row.prevSibling !== NONE) this.nextSiblingOf.set(row.prevSibling, nextId);
       } else if (this.lastChildOf.get(row.parent) === id) {
         this.lastChildOf.set(row.parent, row.prevSibling);
+        if (row.prevSibling !== NONE) this.nextSiblingOf.delete(row.prevSibling);
       }
     }
   };
@@ -1093,6 +1105,7 @@
     encoder;
     transport;
     domNodes;
+    table;
     telemetry;
     sequence = 0;
     idleTicks = 0;
@@ -1108,6 +1121,7 @@
       this.encoder = opts.encoder;
       this.transport = opts.transport;
       this.domNodes = opts.domNodes;
+      this.table = opts.table;
       this.telemetry = opts.telemetry ?? null;
     }
     start() {
@@ -1115,6 +1129,13 @@
     }
     stop() {
       this.clock.stop();
+    }
+    /**
+     * Drain / build / send one frame without waiting for the clock (halt+flush / isomorphism).
+     * Safe while the clock is stopped.
+     */
+    flushNow() {
+      this.onBoundary();
     }
     get currentSequence() {
       return this.sequence;
@@ -1147,7 +1168,8 @@
         opCount: frame.ops.length,
         partCount: parts.length,
         bytes: totalBytes,
-        tableSize: this.domNodes.size,
+        tableSize: this.table.size,
+        identitySize: this.domNodes.size,
         buildMs: 0,
         encodeMs: 0
       });
@@ -1244,7 +1266,8 @@
         opCount: frame.ops.length,
         partCount: parts.length,
         bytes: totalBytes,
-        tableSize: this.domNodes.size,
+        tableSize: this.table.size,
+        identitySize: this.domNodes.size,
         buildMs: stats?.buildMs ?? 0,
         encodeMs: 0
       });
@@ -1722,6 +1745,7 @@
         partCount: info.partCount,
         bytes: info.bytes,
         tableSize: info.tableSize,
+        identitySize: info.identitySize,
         buildMs: info.buildMs,
         encodeMs: info.encodeMs
       });
@@ -1969,6 +1993,11 @@
     }
   };
 
+  // browser/mirror/projection/models/tableDigest.ts
+  function digestReplicatedTable(table) {
+    return { rowCount: table.size, tableHash: table.tableHash.toString() };
+  }
+
   // browser/mirror/projection/models/tableLiveOracle.ts
   var MAX_DIVERGENCES = 50;
   var NONE2 = 0;
@@ -1996,10 +2025,13 @@
       const tableOrder = table.orderedChildIds(parent);
       const liveOrder = liveChildren.get(parent) ?? [];
       if (!idsEqual(tableOrder, liveOrder)) {
+        const hashed = table.countAttachedChildren(parent);
+        const lastWalk = tableOrder.length > 0 ? tableOrder[tableOrder.length - 1] : 0;
+        const lastRow = lastWalk !== 0 ? table.getRow(lastWalk) : void 0;
         record(
           `#${parent}`,
           "child_order_mismatch",
-          `table=[${tableOrder.join(",")}] live=[${liveOrder.join(",")}]`
+          `walkLen=${tableOrder.length} hashedAttached=${hashed} liveLen=${liveOrder.length} tableHead=[${tableOrder.slice(0, 8).join(",")}] liveHead=[${liveOrder.slice(0, 8).join(",")}] lastWalk=#${lastWalk} lastRow=${lastRow ? `parent=${lastRow.parent} prev=${lastRow.prevSibling}` : "missing"}`
         );
       }
     }
@@ -2115,6 +2147,7 @@
       encoder,
       transport: frameTransport,
       domNodes,
+      table,
       telemetry
     });
     if (loopback) {
@@ -2157,7 +2190,28 @@
       frameEmitter,
       frameTransport,
       telemetry,
-      compareTableToLiveDom: () => compareTableToLiveDom(table, domNodes, document)
+      compareTableToLiveDom: () => compareTableToLiveDom(table, domNodes, document),
+      haltWorld: () => {
+        frameEmitter.stop();
+      },
+      resumeWorld: () => {
+        frameEmitter.start();
+      },
+      flushFrame: () => {
+        frameEmitter.flushNow();
+        return { generation: domNodes.generation, sequence: frameEmitter.currentSequence };
+      },
+      flushAndSnapshot: () => {
+        frameEmitter.flushNow();
+        const o2 = compareTableToLiveDom(table, domNodes, document);
+        frameEmitter.stop();
+        return {
+          generation: domNodes.generation,
+          sequence: frameEmitter.currentSequence,
+          o2,
+          table: digestReplicatedTable(table)
+        };
+      }
     };
   })();
 })();

@@ -504,6 +504,20 @@
       return ids;
     }
     /**
+     * Read-only twin of {@link dropSubtree}'s discovery walk — same root+descendants list, no
+     * mutation. Lets a caller that needs to know the *full* set before the table effect actually
+     * runs (producer: `tableFrameBuilder.ts`'s `emitNodeDropSweep`, which must release every
+     * descendant's `DomNodeTable` identity too, not just the swept root's — a live JS reference
+     * that later reinserts an unreleased descendant would otherwise be handed back its old,
+     * already-dropped id, corrupting `ReplicatedTable` silently instead of being re-described as
+     * new content) query it ahead of the real drop.
+     */
+    subtreeIds(id) {
+      const ids = [];
+      this.collectSubtreeIds(id, ids);
+      return ids;
+    }
+    /**
      * Detached (`parent === 0`) subtree roots whose `lms` is at least `maxAge` frame-`sequence`s
      * behind `currentSequence` — OPEN-2's deferred-age GC sweep candidates (§1.6). Non-root
      * detached descendants (`parent !== 0`, pointing at another detached row) are excluded: they
@@ -941,12 +955,7 @@
   };
 
   // browser/mirror/projection/client/surface.ts
-  function createSurfaceHost(container, opts = { width: 1280, height: 720 }) {
-    container.style.position = "relative";
-    container.style.width = `${opts.width}px`;
-    container.style.height = `${opts.height}px`;
-    container.style.overflow = "hidden";
-    container.replaceChildren();
+  function attachBareIframe(container) {
     const iframe = document.createElement("iframe");
     iframe.title = "Projected surface";
     iframe.sandbox.add("allow-same-origin");
@@ -955,7 +964,49 @@
     const doc = iframe.contentDocument;
     if (!doc) throw new Error("surface: no contentDocument");
     while (doc.firstChild) doc.removeChild(doc.firstChild);
-    return { document: doc };
+    return iframe;
+  }
+  function docOf(iframe) {
+    const doc = iframe.contentDocument;
+    if (!doc) throw new Error("surface: no contentDocument");
+    return doc;
+  }
+  function createSurfaceHost(container, opts = { width: 1280, height: 720 }) {
+    container.style.position = "relative";
+    container.style.width = `${opts.width}px`;
+    container.style.height = `${opts.height}px`;
+    container.style.overflow = "hidden";
+    container.replaceChildren();
+    let activeIframe = attachBareIframe(container);
+    let standbyIframe = null;
+    return {
+      get document() {
+        return docOf(activeIframe);
+      },
+      beginResyncBuild() {
+        if (standbyIframe !== null) standbyIframe.remove();
+        standbyIframe = attachBareIframe(container);
+        standbyIframe.style.visibility = "hidden";
+        return docOf(standbyIframe);
+      },
+      commitSwap() {
+        const standby = standbyIframe;
+        if (standby === null) {
+          throw new Error("surface: commitSwap called with no resync build in progress");
+        }
+        standby.style.visibility = "";
+        const old = activeIframe;
+        activeIframe = standby;
+        standbyIframe = null;
+        old.remove();
+        return docOf(activeIframe);
+      },
+      discardBuild() {
+        if (standbyIframe === null) return;
+        standbyIframe.remove();
+        standbyIframe = null;
+      }
+    };
   }
 
   // browser/mirror/projection/client/parityFingerprint.ts
@@ -992,60 +1043,50 @@
   }
 
   // browser/mirror/projection/client/labProjectionClient.ts
+  var MAX_RESYNC_ATTEMPTS = 3;
+  var RESYNC_BACKOFF_MS = 300;
+  var RESYNC_RESPONSE_TIMEOUT_MS = 5e3;
   var LabProjectionClient = class {
-    registry = new PageProjectionRegistry();
     persistentStrings = new PersistentStringTable();
     assembler = new FramePartAssembler();
-    doc;
-    applier;
+    surface;
     onTelemetry;
     onArmedCb;
     onDesyncCb;
+    onRequestResyncCb;
+    /** The currently-live target — reassigned wholesale on a successful resync swap. */
+    live;
+    /** Set only while a resync response is being built into the standby surface; `null` otherwise. */
+    resync = null;
+    resyncAttempts = 0;
+    resyncExhausted = false;
+    resyncBackoffTimer = null;
+    resyncTimeoutTimer = null;
     lastSequence = 0;
     generation = 1;
     armed = false;
+    /**
+     * Stage 4 — distinguishes cold start from mid-session recovery. `resync: true` is not unique to
+     * `emitResyncFrame`: bootstrap's own cold-start frame (`resyncVirtual`) sets it too, for the
+     * same reason (§2 — "no prior state to check against a wholesale replace", the *first* frame
+     * has no prior state either). The double buffer exists to protect an already-good live surface
+     * while a replacement is built off to the side; at cold start there is no live surface yet to
+     * protect, so a resync-flagged frame is only routed into a standby build once this has been
+     * `true` at least once — i.e. once the ordinary live target has actually shown something.
+     */
+    everArmed = false;
     constructor(opts) {
-      const surface = createSurfaceHost(opts.surfaceHost, {
+      this.surface = createSurfaceHost(opts.surfaceHost, {
         width: opts.width ?? 1280,
         height: opts.height ?? 720
       });
-      this.doc = surface.document;
-      this.registry.register(DOCUMENT_ID, this.doc);
       this.onTelemetry = opts.onTelemetry;
       this.onArmedCb = opts.onArmed;
       this.onDesyncCb = opts.onDesync;
-      this.applier = new DomFrameApplier(this.doc, this.registry, {
-        onDesync: (info) => {
-          this.reportApplyResult({ ok: false, sequence: this.lastSequence, opCount: 0, applyMs: 0, reason: info.reason });
-          this.desync(info.reason, {
-            op: info.op,
-            id: info.id,
-            expected: info.expected,
-            actual: info.actual,
-            message: info.message,
-            phase: info.phase
-          });
-        },
-        onApplied: (frame, applyMs) => {
-          this.reportApplyResult({ ok: true, sequence: frame.sequence, opCount: frame.ops.length, applyMs });
-          this.emitFingerprint(frame.sequence);
-          if (!this.armed) {
-            this.armed = true;
-            this.onArmedCb?.();
-          }
-        },
-        onOverrun: (durationMs, lastSequence) => {
-          this.onTelemetry?.({
-            v: 1,
-            kind: "applyOverrun",
-            t: performance.now(),
-            generation: this.generation,
-            sequence: lastSequence,
-            durationMs,
-            budgetMs: 4
-          });
-        }
-      });
+      this.onRequestResyncCb = opts.onRequestResync;
+      const registry = new PageProjectionRegistry();
+      registry.register(DOCUMENT_ID, this.surface.document);
+      this.live = { applier: this.createApplier(this.surface.document, registry, true), registry };
     }
     get isArmed() {
       return this.armed;
@@ -1058,9 +1099,9 @@
     get lastAcceptedSequence() {
       return this.lastSequence;
     }
-    /** Surface iframe's `contentDocument` — used for structural snapshots (lab/structuralDiff.ts). */
+    /** Surface's currently-*active* document — changes identity across a resync swap (Stage 4). */
     get document() {
-      return this.doc;
+      return this.surface.document;
     }
     ingest(bytes) {
       const decoded = decodeFramePart(bytes, this.persistentStrings);
@@ -1086,16 +1127,204 @@
         }
         this.generation = frame.generation;
         this.lastSequence = frame.sequence - 1;
+        this.abandonResyncAttempt();
+        this.resyncAttempts = 0;
+        this.resyncExhausted = false;
+      }
+      if (frame.resync) {
+        this.lastSequence = frame.sequence - 1;
+        if (this.everArmed) this.beginResyncTarget();
       }
       if (frame.sequence !== this.lastSequence + 1) {
         this.desync("sequence_gap", { expectedSequence: this.lastSequence + 1, gotSequence: frame.sequence });
         return;
       }
       this.lastSequence = frame.sequence;
-      this.applier.enqueue(frame);
+      const target = this.resync ?? this.live;
+      target.applier.enqueue(frame);
+    }
+    /**
+     * Stage 4 — one independent `DomFrameApplier` per target (live or standby-under-resync), never
+     * a single mutable target: each owns its own `ReplicatedTable` (constructed internally by
+     * `DomFrameApplier`) and registry, so a resync build's phase 1/2 can never observe or corrupt
+     * the live surface's own table, and vice versa. `swapped` starts `false` for a resync target and
+     * flips exactly once, on its first successful apply (always the resync frame itself, since
+     * that's what creates this target) — every callback after that behaves like an ordinary live
+     * frame, whether this *is* the live target from construction or was just promoted to it.
+     */
+    createApplier(doc, registry, initiallyLive) {
+      const state = { swapped: initiallyLive };
+      const applier = new DomFrameApplier(doc, registry, {
+        onDesync: (info) => {
+          if (state.swapped) {
+            this.reportApplyResult({ ok: false, sequence: this.lastSequence, opCount: 0, applyMs: 0, reason: info.reason });
+            this.desync(info.reason, {
+              op: info.op,
+              id: info.id,
+              expected: info.expected,
+              actual: info.actual,
+              message: info.message,
+              phase: info.phase
+            });
+          } else {
+            this.failResyncAttempt(info.reason);
+          }
+        },
+        onApplied: (frame, applyMs) => {
+          if (state.swapped) {
+            this.reportApplyResult({ ok: true, sequence: frame.sequence, opCount: frame.ops.length, applyMs });
+            this.emitFingerprint(frame.sequence);
+            if (!this.armed) {
+              this.armed = true;
+              this.everArmed = true;
+              this.onArmedCb?.();
+            }
+          } else {
+            state.swapped = true;
+            this.commitResyncSwap(frame, applyMs);
+          }
+        },
+        onOverrun: (durationMs, lastSequence) => {
+          this.onTelemetry?.({
+            v: 1,
+            kind: "applyOverrun",
+            t: performance.now(),
+            generation: this.generation,
+            sequence: lastSequence,
+            durationMs,
+            budgetMs: 4
+          });
+        }
+      });
+      return applier;
+    }
+    /** Begins (or restarts) a standby build the moment a `resync`-flagged frame is first seen. */
+    beginResyncTarget() {
+      if (this.resyncTimeoutTimer !== null) {
+        clearTimeout(this.resyncTimeoutTimer);
+        this.resyncTimeoutTimer = null;
+      }
+      if (this.resync !== null) {
+        this.surface.discardBuild();
+        this.resync = null;
+      }
+      const doc = this.surface.beginResyncBuild();
+      const registry = new PageProjectionRegistry();
+      registry.register(DOCUMENT_ID, doc);
+      const applier = this.createApplier(doc, registry, false);
+      this.resync = { applier, registry, attempt: this.resyncAttempts };
+    }
+    /** Stage 4, §5.8: closing `CHECK` verified OK (this is what `DomFrameApplier`'s `onApplied` already gates on) — swap. */
+    commitResyncSwap(frame, applyMs) {
+      const built = this.resync;
+      if (built === null) return;
+      this.surface.commitSwap();
+      this.live = { applier: built.applier, registry: built.registry };
+      this.resync = null;
+      this.resyncAttempts = 0;
+      this.resyncExhausted = false;
+      this.onTelemetry?.({
+        v: 1,
+        kind: "resyncCompleted",
+        t: performance.now(),
+        generation: this.generation,
+        sequence: frame.sequence,
+        attempt: built.attempt
+      });
+      this.reportApplyResult({ ok: true, sequence: frame.sequence, opCount: frame.ops.length, applyMs });
+      this.emitFingerprint(frame.sequence);
+      if (!this.armed) {
+        this.armed = true;
+        this.everArmed = true;
+        this.onArmedCb?.();
+      }
+    }
+    /**
+     * A resync frame's own phase 1/2 failed (frame-protocol.md: "a resync frame whose closing CHECK
+     * fails is a defect, not a recoverable state") or the producer never answered in time. Neither
+     * touches the live surface — `this.live` is untouched, still showing whatever it showed before
+     * this attempt, stale but not broken further. Retries (bounded) rather than giving up on one
+     * failure, purely as defensive engineering against a transient blip, not because failure here
+     * is expected to be routine.
+     */
+    failResyncAttempt(reason) {
+      const attempt = this.resync?.attempt ?? this.resyncAttempts;
+      if (this.resync !== null) {
+        this.surface.discardBuild();
+        this.resync = null;
+      }
+      this.onTelemetry?.({
+        v: 1,
+        kind: "resyncFailed",
+        t: performance.now(),
+        generation: this.generation,
+        sequence: this.lastSequence,
+        attempt,
+        reason,
+        exhausted: false
+      });
+      this.scheduleResyncAttempt(reason);
+    }
+    abandonResyncAttempt() {
+      if (this.resyncBackoffTimer !== null) {
+        clearTimeout(this.resyncBackoffTimer);
+        this.resyncBackoffTimer = null;
+      }
+      if (this.resyncTimeoutTimer !== null) {
+        clearTimeout(this.resyncTimeoutTimer);
+        this.resyncTimeoutTimer = null;
+      }
+      if (this.resync !== null) {
+        this.surface.discardBuild();
+        this.resync = null;
+      }
+    }
+    /**
+     * Bounded retry with backoff (frame-protocol.md §5.8: "ordinary defensive engineering against a
+     * retry storm ... exceeding the bound MUST surface as a hard, catalogued session failure ...
+     * never a silent, indefinite retry loop"). One attempt in flight at a time — a concurrent
+     * backoff timer or an already-answered-and-building resync makes this a no-op.
+     */
+    scheduleResyncAttempt(reason) {
+      if (this.resyncExhausted) return;
+      if (this.resyncBackoffTimer !== null || this.resyncTimeoutTimer !== null || this.resync !== null) return;
+      const attempt = this.resyncAttempts + 1;
+      if (attempt > MAX_RESYNC_ATTEMPTS) {
+        this.resyncExhausted = true;
+        this.onTelemetry?.({
+          v: 1,
+          kind: "resyncFailed",
+          t: performance.now(),
+          generation: this.generation,
+          sequence: this.lastSequence,
+          attempt: this.resyncAttempts,
+          reason,
+          exhausted: true
+        });
+        return;
+      }
+      const delay = attempt === 1 ? 0 : RESYNC_BACKOFF_MS * (attempt - 1);
+      this.resyncBackoffTimer = setTimeout(() => {
+        this.resyncBackoffTimer = null;
+        this.resyncAttempts = attempt;
+        this.onTelemetry?.({
+          v: 1,
+          kind: "resyncRequested",
+          t: performance.now(),
+          generation: this.generation,
+          sequence: this.lastSequence,
+          reason,
+          attempt
+        });
+        this.onRequestResyncCb?.({ generation: this.generation, sequence: this.lastSequence, reason });
+        this.resyncTimeoutTimer = setTimeout(() => {
+          this.resyncTimeoutTimer = null;
+          this.failResyncAttempt("resync_timeout");
+        }, RESYNC_RESPONSE_TIMEOUT_MS);
+      }, delay);
     }
     emitFingerprint(sequence) {
-      const fp = captureParityFingerprint(this.doc, this.registry);
+      const fp = captureParityFingerprint(this.surface.document, this.live.registry);
       this.onTelemetry?.({
         v: 1,
         kind: "parityFingerprint",
@@ -1115,7 +1344,7 @@
         ok: info.ok,
         opCount: info.opCount,
         applyMs: info.applyMs,
-        tableSize: this.registry.size,
+        tableSize: this.live.registry.size,
         reason: info.reason
       });
     }
@@ -1139,8 +1368,9 @@
       });
       this.armed = false;
       this.assembler.reset();
-      this.applier.reset();
+      this.live.applier.reset();
       this.onDesyncCb?.(reason);
+      this.scheduleResyncAttempt(reason);
     }
   };
 
@@ -1270,6 +1500,7 @@
     let frames = 0;
     let applyOk = 0;
     let desyncCount = 0;
+    let resyncCount = 0;
     let opsTotal = 0;
     let lastBuildMs = 0;
     const projection = new LabProjectionClient({
@@ -1285,6 +1516,16 @@
         logActivity(`desync ${reason}`, "desynced");
         speculumLabTestHooks.onDesync?.(reason);
       },
+      // Stage 4 (frame-protocol-production-completeness) §5.8 — the client's own recovery
+      // mechanism has no transport of its own; relay its request over the same session control
+      // WS `injectRawFrame`/`clientTelemetry` already use, to `lab/session.ts`'s `requestResync`
+      // case, which forwards it onto `PlaneChannel.Control` for the Virtual page to answer.
+      onRequestResync: (info) => {
+        logActivity(`resync requested reason=${info.reason} gen=${info.generation} seq=${info.sequence}`, "resyncRequested");
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: "requestResync", ...info }));
+        }
+      },
       onTelemetry: (msg) => {
         const kind = String(msg.kind ?? "applyResult");
         const send = clientKindEnabled(kind);
@@ -1295,6 +1536,10 @@
         }
         if (msg.ok === true) applyOk += 1;
         $("streamApply").textContent = String(applyOk);
+        if (kind === "resyncCompleted") {
+          resyncCount += 1;
+          $("streamResync").textContent = String(resyncCount);
+        }
         if (typeof msg.opCount === "number") {
           opsTotal += msg.opCount;
           $("streamOps").textContent = String(opsTotal);
@@ -1365,6 +1610,7 @@
           logActivity(`bad control: ${ev.data.slice(0, 80)}`);
           return;
         }
+        speculumLabTestHooks.onControlMessage?.(msg);
         if (msg.type === "hello") {
           logActivity(`hello session=${msg.sessionId ?? "?"}`);
           return;
@@ -1430,8 +1676,10 @@
       frames = 0;
       applyOk = 0;
       desyncCount = 0;
+      resyncCount = 0;
       opsTotal = 0;
       $("streamDesync").textContent = "0";
+      $("streamResync").textContent = "0";
       $("streamOps").textContent = "0";
       ws.send(
         JSON.stringify({

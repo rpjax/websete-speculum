@@ -46,6 +46,7 @@ export class FrameEmitter {
   private pendingParts: Uint8Array[] | null = null;
   private pendingPartIndex = 0;
   private pendingRecords: MutationRecord[] | null = null;
+  private pendingResyncBuild: ((nextSequence: number) => Frame) | null = null;
 
   constructor(opts: FrameEmitterOptions) {
     this.clock = opts.clock;
@@ -108,8 +109,50 @@ export class FrameEmitter {
     this.sequence = frame.sequence;
   }
 
+  /**
+   * Stage 4 (frame-protocol-production-completeness) — client-initiated resync, frame-protocol.md
+   * §5.8 step 1, "Halt": queues `build` to run at the next tick boundary *instead of* the ordinary
+   * mutation-buffer-driven build, and returns immediately — the caller (`bootstrap.ts`'s
+   * `PlaneChannel.Control` handler) never awaits this, matching §5.8's "no `await` between any
+   * step" atomicity requirement for whichever synchronous DOM/map read `build` itself performs.
+   *
+   * No separate pause/resume primitive on `clock`/`buffer` exists or is needed: `emitResyncFrame`
+   * is itself fully synchronous, and this method's caller only ever runs between ticks (JS
+   * run-to-completion), so there is no way for an ordinary `onBoundary()` build to interleave with
+   * it regardless. "Halt" reduces to *which* build `onBoundary()` runs at its next boundary — the
+   * mutation buffer is simply not drained that tick, so nothing buffered is lost or double-counted
+   * (§5.8 step 1: "the MutationObserver keeps recording ... nothing is lost, it simply waits").
+   *
+   * If a previously-built frame is still mid-send (`pendingParts` non-null, transport backpressure
+   * — §5.3), the resync build is stashed and only serviced once that frame's own parts finish
+   * draining (`trySendPending`'s own completion falls through to the next `onBoundary()`, which
+   * checks this field first) — this never interleaves one frame's parts with another's on the wire.
+   */
+  requestResync(build: (nextSequence: number) => Frame): void {
+    this.pendingResyncBuild = build;
+  }
+
   private onBoundary(): void {
     if (this.pendingParts !== null && this.pendingFrame !== null) {
+      this.trySendPending();
+      return;
+    }
+
+    if (this.pendingResyncBuild !== null) {
+      const build = this.pendingResyncBuild;
+      this.pendingResyncBuild = null;
+      this.idleTicks = 0;
+      // Discard any stale opCounts/buildMs left over from the ordinary builder — `build` here is
+      // `emitResyncFrame`, not `this.builder`, so `takeBuildStats()` would otherwise hand
+      // `trySendPending` a leftover value from a previous ordinary tick and misattribute it.
+      this.builder.takeBuildStats?.();
+      const frame = build(this.sequence + 1);
+      const parts = this.encoder.encode(frame);
+      if (parts.length === 0) return;
+      this.pendingFrame = frame;
+      this.pendingParts = parts;
+      this.pendingPartIndex = 0;
+      this.pendingRecords = null;
       this.trySendPending();
       return;
     }

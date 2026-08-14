@@ -1,3 +1,11 @@
+<!-- reconciled-2026-08-14 -->
+> **SUPERSEDED — do not implement from this file.** The Node-mirror / HTML-serialize /
+> `speculum-anchor` / `establishBegin`·`establishChunk`·`establishEnd` recovery design is
+> replaced by [`frame-protocol.md`](../frame-protocol.md) §5.8 — identity-map two-pass resync,
+> existing opcodes, an in-band `resync`-flagged frame. Only the desync-trigger list (§PP-REC-1)
+> survives (it lives in the test matrix). Retained only as historical context. See
+> [`../RECONCILIATION.md`](../RECONCILIATION.md).
+
 # Contract 07 — Recovery and Node mirror
 
 **Norm:** redesign §5.7. **Tests:** PP-REC-1..3. **Impl:** `node-mirror.md`, client orchestration.

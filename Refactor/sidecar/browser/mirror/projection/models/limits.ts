@@ -35,10 +35,24 @@ export const MAX_DIRTY_NODES = 20_000;
 /**
  * OPEN-2 deferred-age GC (§1.6): a detached row idle this many frame `sequence`s is a sweep
  * candidate. Not a wire constant — tunable per deployment. At a 30-60Hz tick rate this is
- * roughly 2-4 seconds, long enough that an ordinary same-tick or next-tick re-insert (§5.6 move
- * detection) never races with the sweep.
+ * roughly 0.7-1.3 seconds — tens of ticks of margin over the same-tick/next-tick reuse window
+ * `emitNodeDropSweep`'s own ordering fix (2026-08-14, folding this tick's ops into the table
+ * before the sweep runs) already closes exactly, so this age margin is purely a cushion for a
+ * legitimate multi-tick reuse pattern (e.g. a pooled/recycled node held detached briefly), not
+ * load-bearing for same-tick correctness.
+ *
+ * Retuned down from 120 (2026-08-13's original pick, ~2-4s) after `smokeNodeDropGcBounded`
+ * (`scripts/smoke-projection-lab.js`) measured a producer table-size *peak* of 6823 rows against
+ * `stress-churn.html`'s sustained ~23 detached-rows/tick churn — not unbounded growth (the
+ * steady-state average, ~3350-3597, was already flat/shrinking), but a one-time ramp-up backlog:
+ * for the first `NODE_DROP_AGE_SEQUENCES` ticks after churn starts, nothing is old enough to
+ * sweep yet, so the backlog grows roughly `churnRate * ageThreshold` before the first sweep ever
+ * fires. 40 (~1s) still measured peak=5223, over the gate's 5000-row bound; 20 (~0.3-0.7s) — still
+ * an order of magnitude past the same-tick/next-tick margin it actually needs to cover — measured
+ * peak=4423, middleAvg=2716, lastAvg=2686 (comfortably under the bound, steady-state flat; see
+ * decision log, 2026-08-14).
  */
-export const NODE_DROP_AGE_SEQUENCES = 120;
+export const NODE_DROP_AGE_SEQUENCES = 20;
 
 /** Bounds one tick's GC-sweep cost — same "forced flush over unbounded per-tick work" family as `MAX_DIRTY_NODES`. */
 export const MAX_NODE_DROPS_PER_SWEEP = 500;

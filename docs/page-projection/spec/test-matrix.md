@@ -1,3 +1,11 @@
+<!-- reconciled-2026-08-14 -->
+> **RECONCILIATION NEEDED (partial).** Rows `PP-EST-1..7` (establish) and `PP-REC-2`/`PP-REC-3`
+> (Node-mirror resync + watermark) describe the pre-redesign design and must be **re-authored
+> against the opcode / resync model** of [`frame-protocol.md`](frame-protocol.md) §4 and §5.8
+> before use (a listed §5.8 residual). `PP-REC-1` (desync triggers) survives unchanged. `PP-DEN-1`
+> (100 concurrent sessions) remains the **unrun density gate**. Budgets and oracles are unchanged.
+> See [`RECONCILIATION.md`](RECONCILIATION.md).
+
 # PageProjection — test matrix
 
 **Status:** coverage truth for the redesigned engine (WP16). Canon: [engine-redesign.md](engine-redesign.md)

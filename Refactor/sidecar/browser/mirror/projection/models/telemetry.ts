@@ -163,6 +163,52 @@ export type TelemetryApplyOverrun = {
   budgetMs: number;
 };
 
+/**
+ * Stage 4 (frame-protocol-production-completeness) resync lifecycle — client → session WS →
+ * re-broadcast, same path as `TelemetryApplyResult`/`TelemetryDesynced`. `generation`/`sequence`
+ * are the client's own last-known-good values at request time (`resyncRequested`) or the
+ * resync frame's own values (`resyncCompleted`/`resyncFailed`) — diagnostic only, never
+ * load-bearing (the producer's `emitResyncFrame` always re-describes current truth regardless).
+ */
+export type TelemetryResyncRequested = {
+  v: typeof TELEMETRY_WIRE_VERSION;
+  kind: 'resyncRequested';
+  t: number;
+  generation: number;
+  sequence: number;
+  reason: string;
+  attempt: number;
+};
+
+export type TelemetryResyncCompleted = {
+  v: typeof TELEMETRY_WIRE_VERSION;
+  kind: 'resyncCompleted';
+  t: number;
+  generation: number;
+  sequence: number;
+  attempt: number;
+};
+
+/**
+ * A resync attempt failed — either no resync frame arrived before its own request timed out, or
+ * the resync frame itself failed phase 1/2 (its own closing `CHECK` mismatched, an address miss
+ * while materializing it, etc. — frame-protocol.md: "a resync frame whose closing CHECK fails is
+ * a defect, not a recoverable state"). `exhausted: true` marks the last allowed attempt — the
+ * client stops requesting further resyncs and the session stays permanently desynced, the
+ * "catalogued hard failure, never a silent indefinite retry" this repo's engineering standards
+ * require in place of an unbounded retry loop.
+ */
+export type TelemetryResyncFailed = {
+  v: typeof TELEMETRY_WIRE_VERSION;
+  kind: 'resyncFailed';
+  t: number;
+  generation: number;
+  sequence: number;
+  attempt: number;
+  reason: string;
+  exhausted: boolean;
+};
+
 export type ProjectionTelemetryMessage =
   | TelemetryFrameEmitted
   | TelemetryTransportDeferred
@@ -171,7 +217,10 @@ export type ProjectionTelemetryMessage =
   | TelemetryRateChanged
   | TelemetryApplyResult
   | TelemetryDesynced
-  | TelemetryApplyOverrun;
+  | TelemetryApplyOverrun
+  | TelemetryResyncRequested
+  | TelemetryResyncCompleted
+  | TelemetryResyncFailed;
 
 export function isProjectionTelemetryMessage(value: unknown): value is ProjectionTelemetryMessage {
   if (typeof value !== 'object' || value === null) return false;

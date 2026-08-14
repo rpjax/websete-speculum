@@ -1,3 +1,11 @@
+<!-- reconciled-2026-08-14 -->
+> **SUPERSEDED — do not implement from this file.** Frame construction and the
+> `childList` (`FULL`/`APPEND`) / `patch` / accumulation-set model here are replaced by the
+> table-delta model in [`frame-protocol.md`](../frame-protocol.md) — §5 (producer construction)
+> and §4 (instruction set). In particular, step 4's **ancestor-first document order is inverted**
+> by §5.5's post-order emission, and `childList FULL/APPEND` no longer exists. Retained only as
+> historical context. See [`../RECONCILIATION.md`](../RECONCILIATION.md).
+
 # Contract 03 — Frame model
 
 **Norm:** redesign §5.3. **Tests:** PP-FR-1..8, PP-LOAD-1..4, PP-MOVE-*. **Impl:** `frame.md`, `clock.md`.

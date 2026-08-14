@@ -223,6 +223,45 @@ export class LabSession implements ProjectionTelemetrySink {
       }
       return;
     }
+    if (type === 'requestResync') {
+      // Stage 4 (frame-protocol-production-completeness) §5.8 — relays the client's out-of-band
+      // resync request onto the Virtual control channel (`PlaneChannel.Control`, reserved since
+      // E-03, previously unused). Pure relay: no validation beyond "these are JSON-serializable" —
+      // `generation`/`sequence` are diagnostic-only on the Virtual side too (`bootstrap.ts`), never
+      // load-bearing for what `emitResyncFrame` actually re-describes.
+      const req = msg as { reason?: unknown; generation?: unknown; sequence?: unknown };
+      const payload = JSON.stringify({
+        type: 'requestResync',
+        reason: typeof req.reason === 'string' ? req.reason : 'unknown',
+        generation: typeof req.generation === 'number' ? req.generation : null,
+        sequence: typeof req.sequence === 'number' ? req.sequence : null,
+      });
+      this.virtualData.send(PlaneChannel.Control, new TextEncoder().encode(payload));
+      return;
+    }
+    if (type === 'requestStructuralDiff') {
+      // Stage 4 test-only entry point: the same virtual-vs-client structural diff
+      // `runBenchmark` already performs at the end of a full run (`captureVirtualSnapshot` +
+      // `requestClientSnapshot` + `diffTrees`, lab/structuralDiff.ts), available standalone so a
+      // smoke test can ask "did the projection actually heal" right after a resync, without
+      // spinning up an entire benchmark run just to get one diff.
+      if (this.browser === null) {
+        this.sendJson({ type: 'structuralDiffResult', status: 'unavailable', reason: 'no virtual browser running' });
+        return;
+      }
+      const virtualTree = await captureVirtualSnapshot(this.browser.page);
+      const clientTree = await this.requestClientSnapshot();
+      if (clientTree === null) {
+        this.sendJson({
+          type: 'structuralDiffResult',
+          status: 'unavailable',
+          reason: 'client did not reply to requestSnapshot within 5000ms',
+        });
+        return;
+      }
+      this.sendJson({ type: 'structuralDiffResult', status: 'ok', result: diffTrees(virtualTree, clientTree) });
+      return;
+    }
     if (type === 'snapshotResult') {
       const tree = (msg as { tree?: unknown }).tree;
       const pending = this.pendingSnapshot;

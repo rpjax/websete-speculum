@@ -25,6 +25,10 @@ type ControlMessage = {
   options?: { cpuProfile: boolean; invariants: boolean; structuralDiff: boolean };
   report?: BenchmarkReport;
   reportDir?: string;
+  /** `structuralDiffResult` (Stage 4 test-only, `lab/session.ts`'s `requestStructuralDiff`). */
+  status?: 'ok' | 'unavailable';
+  reason?: string;
+  result?: { identical: boolean; divergenceCount: number; divergences: unknown[] };
 };
 
 type StatBlock = { min: number; avg: number; p50: number; p95: number; max: number; count: number };
@@ -147,6 +151,13 @@ type SpeculumLabTestHooks = {
   onDesync?: (reason: string) => void;
   sendControl?: (message: Record<string, unknown>) => void;
   projection?: LabProjectionClient;
+  /**
+   * Fires for every parsed session-control message this page receives, in addition to (not
+   * instead of) whatever the ordinary handler below already does with it — lets a test observe a
+   * control message type this page has no dedicated UI reaction to (Stage 4's
+   * `structuralDiffResult`, for one) without adding bespoke UI plumbing for a test-only signal.
+   */
+  onControlMessage?: (message: ControlMessage) => void;
 };
 const speculumLabTestHooks: SpeculumLabTestHooks = {};
 (globalThis as unknown as { __speculumLabTestHooks: SpeculumLabTestHooks }).__speculumLabTestHooks =
@@ -168,6 +179,7 @@ export function bootLabClient(): void {
   let frames = 0;
   let applyOk = 0;
   let desyncCount = 0;
+  let resyncCount = 0;
   let opsTotal = 0;
   let lastBuildMs = 0;
 
@@ -184,6 +196,16 @@ export function bootLabClient(): void {
       logActivity(`desync ${reason}`, 'desynced');
       speculumLabTestHooks.onDesync?.(reason);
     },
+    // Stage 4 (frame-protocol-production-completeness) §5.8 — the client's own recovery
+    // mechanism has no transport of its own; relay its request over the same session control
+    // WS `injectRawFrame`/`clientTelemetry` already use, to `lab/session.ts`'s `requestResync`
+    // case, which forwards it onto `PlaneChannel.Control` for the Virtual page to answer.
+    onRequestResync: (info) => {
+      logActivity(`resync requested reason=${info.reason} gen=${info.generation} seq=${info.sequence}`, 'resyncRequested');
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'requestResync', ...info }));
+      }
+    },
     onTelemetry: (msg) => {
       const kind = String(msg.kind ?? 'applyResult');
       const send = clientKindEnabled(kind);
@@ -194,6 +216,10 @@ export function bootLabClient(): void {
       }
       if (msg.ok === true) applyOk += 1;
       $('streamApply').textContent = String(applyOk);
+      if (kind === 'resyncCompleted') {
+        resyncCount += 1;
+        $('streamResync').textContent = String(resyncCount);
+      }
       if (typeof msg.opCount === 'number') {
         opsTotal += msg.opCount;
         $('streamOps').textContent = String(opsTotal);
@@ -269,6 +295,7 @@ export function bootLabClient(): void {
         logActivity(`bad control: ${ev.data.slice(0, 80)}`);
         return;
       }
+      speculumLabTestHooks.onControlMessage?.(msg);
       if (msg.type === 'hello') {
         logActivity(`hello session=${msg.sessionId ?? '?'}`);
         return;
@@ -336,8 +363,10 @@ export function bootLabClient(): void {
     frames = 0;
     applyOk = 0;
     desyncCount = 0;
+    resyncCount = 0;
     opsTotal = 0;
     $('streamDesync').textContent = '0';
+    $('streamResync').textContent = '0';
     $('streamOps').textContent = '0';
     ws.send(
       JSON.stringify({

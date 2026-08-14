@@ -150,14 +150,30 @@ export class TableFrameBuilder implements FrameBuilder {
       this.emitTextPatches(ops);
     }
 
-    this.emitNodeDropSweep(ops, ctx.sequence);
-
-    if (ops.length === 0) return null;
-
     // Virtual side applies phase 1 (table) only, per §6 — the real DOM already mutated, which is
     // what the MutationObserver just reported; there is no phase 2 to run against a live DOM here.
+    //
+    // Fold this tick's own structural ops into `this.table` *before* the GC sweep below queries
+    // it, not after: `collectDroppableIds` (inside `emitNodeDropSweep`) only sees `parent === 0`
+    // rows as drop candidates, but it was reading `this.table`'s state from *before* this tick's
+    // own `INSERT`s (built into `ops` just above, from this tick's own `MutationRecord`s) had
+    // been applied. A node reattached by one of those same-tick `INSERT`s still looked detached
+    // to the sweep, so it could be selected as a GC candidate too — one frame emitting both an
+    // `INSERT` re-attaching an id and a `NODE_DROP` for that same id. The client's own §4.2
+    // precondition guard already rejects that (attached rows can't be dropped) rather than
+    // corrupting silently, but the producer should never construct a self-contradictory frame in
+    // the first place (found by inspection, 2026-08-14, the same-tick sibling of the subtree-
+    // resurrection gap fixed just above in `emitNodeDropSweep`). Applying these ops first means
+    // the sweep always sees this tick's *final* topology, so a same-tick reattach makes the node
+    // `parent !== 0` before `collectDroppableIds` ever looks at it.
     this.table.setSequence(ctx.sequence);
     applyOpsToTable(this.table, ops);
+
+    const dropOpIndex = ops.length;
+    this.emitNodeDropSweep(ops, ctx.sequence);
+    if (ops.length > dropOpIndex) applyOpsToTable(this.table, ops.slice(dropOpIndex));
+
+    if (ops.length === 0) return null;
 
     let opCounts: Record<string, number> = EMPTY_OP_COUNTS;
     if (this.collectOpCounts) {
@@ -178,15 +194,29 @@ export class TableFrameBuilder implements FrameBuilder {
    * without anything mutating it further) and, for whatever the sweep selects, release the
    * matching `DomNodeTable` identity entry too — the whole point of the sweep is bounding *this*
    * producer-side map's growth, not just the wire-visible table's.
+   *
+   * Releases the *whole* subtree (root + every descendant, via `ReplicatedTable.subtreeIds` —
+   * the same discovery walk `dropSubtree` itself uses, queried read-only here before the table
+   * effect runs), not just the swept root id: `collectDroppableIds` only ever returns detached
+   * roots (§4.2 — descendants are never listed on the wire on their own), so releasing only the
+   * root left every descendant's `DomNodeTable` entry stale. A live page-JS reference that later
+   * reinserts such a descendant would have found `domNodes.keyOf()` still resolving to its old,
+   * by-then-already-dropped id — treating it as "already indexed, just move" instead of
+   * re-describing it as new content, silently corrupting `ReplicatedTable` with a bogus
+   * fallback row (`replicatedTable.ts`'s `linkAfter`) instead of a clean re-`NODE_NEW` (found by
+   * inspection, 2026-08-14, chasing whether subtree resurrection is handled naturally).
    */
   private emitNodeDropSweep(ops: FrameOp[], sequence: number): void {
-    const ids = this.table.collectDroppableIds(sequence, this.nodeDropAgeSequences, this.maxNodeDropsPerSweep);
-    if (ids.length === 0) return;
-    for (let i = 0; i < ids.length; i++) {
-      const node = this.domNodes.get(ids[i]!);
-      if (node !== undefined) this.domNodes.release(node);
+    const rootIds = this.table.collectDroppableIds(sequence, this.nodeDropAgeSequences, this.maxNodeDropsPerSweep);
+    if (rootIds.length === 0) return;
+    for (let i = 0; i < rootIds.length; i++) {
+      const subtreeIds = this.table.subtreeIds(rootIds[i]!);
+      for (let j = 0; j < subtreeIds.length; j++) {
+        const node = this.domNodes.get(subtreeIds[j]!);
+        if (node !== undefined) this.domNodes.release(node);
+      }
     }
-    ops.push({ op: OpCode.NodeDrop, ids });
+    ops.push({ op: OpCode.NodeDrop, ids: rootIds });
   }
 
   private walkChildList(record: MutationRecord, ops: FrameOp[]): void {

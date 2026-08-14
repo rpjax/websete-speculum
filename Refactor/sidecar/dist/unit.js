@@ -1790,6 +1790,40 @@ function testCollectDroppableIdsAgeAndLimitBound() {
     console.log('[unit] collectDroppableIds respects age threshold + detached-only + limit bound (§1.6/OPEN-2) ok');
 }
 /**
+ * frame-protocol.md §1.6/OPEN-2 Stage 3 GATE — the same-tick sibling of the subtree-resurrection
+ * bug fixed in `emitNodeDropSweep`/`replicatedTable.ts` (2026-08-14): a row that crosses the GC
+ * age threshold in the *same* tick a live reference reattaches it must never be selected by
+ * `collectDroppableIds`, or the producer would emit a self-contradictory frame (an `INSERT`
+ * reattaching an id and a `NODE_DROP` of that same id). `tableFrameBuilder.ts`'s `build()` avoids
+ * this by folding this tick's own structural ops into the table *before* running the GC sweep —
+ * this test locks in that ordering requirement directly against the shared
+ * `ReplicatedTable`/`applyOpsToTable` primitives, independent of the DOM-coupled builder.
+ */
+function testCollectDroppableIdsExcludesSameTickReattach() {
+    const table = new replicatedTable_1.ReplicatedTable();
+    table.setSequence(1);
+    (0, replicatedTableApply_1.applyOpsToTable)(table, [
+        { op: opcodes_1.OpCode.NodeNew, id: 1, kind: opcodes_1.NodeKind.Element, name: 'div', attrs: [] }, // root
+        { op: opcodes_1.OpCode.NodeNew, id: 20, kind: opcodes_1.NodeKind.Element, name: 'span', attrs: [] },
+    ]);
+    table.insertBatch(1, 0, [20]);
+    table.removeBatch(1, [20]); // 20 is now a detached root, lms stamped at sequence=1
+    // Sequence 100, maxAge 50: id 20's age (99) now crosses the threshold — but this tick's own
+    // (not-yet-applied) ops reattach it. `ops` mirrors exactly what `TableFrameBuilder.build()`
+    // would have queued from this tick's MutationRecords before the ordering fix's `applyOpsToTable`
+    // call runs.
+    const thisTicksOps = [{ op: opcodes_1.OpCode.Insert, parent: 1, before: 0, ids: [20] }];
+    const beforeApply = table.collectDroppableIds(100, 50, 1000);
+    assert_1.default.ok(beforeApply.includes(20), 'sanity: querying before this tick\'s own ops are applied still sees id 20 as stale-detached (the bug\'s precondition)');
+    // The fix: fold this tick's ops into the table first, exactly as `build()` now does.
+    table.setSequence(100);
+    (0, replicatedTableApply_1.applyOpsToTable)(table, thisTicksOps);
+    const afterApply = table.collectDroppableIds(100, 50, 1000);
+    assert_1.default.ok(!afterApply.includes(20), 'a row reattached by this tick\'s own ops must never be selected by the GC sweep that runs after them');
+    assert_1.default.strictEqual(table.getRow(20).parent, 1, 'id 20 must genuinely be attached under 1 after the INSERT');
+    console.log('[unit] collectDroppableIds excludes a row reattached earlier in the same tick (same-tick GC race) ok');
+}
+/**
  * frame-protocol.md OPEN-1 Stage 3 GATE — "NODE_DROP of an absent id is malformed", now actually
  * enforced by `applyFrameToTableChecked` rather than left as a spec-only decision.
  */
@@ -1935,6 +1969,7 @@ async function main() {
     testEpochResetClearsReplicatedTable();
     testNodeDropRemovesSubtreeAndDescendants();
     testCollectDroppableIdsAgeAndLimitBound();
+    testCollectDroppableIdsExcludesSameTickReattach();
     testApplyFrameToTableCheckedRejectsNodeDropAbsentId();
     testApplyFrameToTableCheckedRejectsNodeDropAttachedId();
     testApplyFrameToTableCheckedEnforcesMaxRows();

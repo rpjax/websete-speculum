@@ -685,6 +685,20 @@
       return ids;
     }
     /**
+     * Read-only twin of {@link dropSubtree}'s discovery walk — same root+descendants list, no
+     * mutation. Lets a caller that needs to know the *full* set before the table effect actually
+     * runs (producer: `tableFrameBuilder.ts`'s `emitNodeDropSweep`, which must release every
+     * descendant's `DomNodeTable` identity too, not just the swept root's — a live JS reference
+     * that later reinserts an unreleased descendant would otherwise be handed back its old,
+     * already-dropped id, corrupting `ReplicatedTable` silently instead of being re-described as
+     * new content) query it ahead of the real drop.
+     */
+    subtreeIds(id) {
+      const ids = [];
+      this.collectSubtreeIds(id, ids);
+      return ids;
+    }
+    /**
      * Detached (`parent === 0`) subtree roots whose `lms` is at least `maxAge` frame-`sequence`s
      * behind `currentSequence` — OPEN-2's deferred-age GC sweep candidates (§1.6). Non-root
      * detached descendants (`parent !== 0`, pointing at another detached row) are excluded: they
@@ -1062,6 +1076,7 @@
     pendingParts = null;
     pendingPartIndex = 0;
     pendingRecords = null;
+    pendingResyncBuild = null;
     constructor(opts) {
       this.clock = opts.clock;
       this.buffer = opts.buffer;
@@ -1114,8 +1129,45 @@
       });
       this.sequence = frame.sequence;
     }
+    /**
+     * Stage 4 (frame-protocol-production-completeness) — client-initiated resync, frame-protocol.md
+     * §5.8 step 1, "Halt": queues `build` to run at the next tick boundary *instead of* the ordinary
+     * mutation-buffer-driven build, and returns immediately — the caller (`bootstrap.ts`'s
+     * `PlaneChannel.Control` handler) never awaits this, matching §5.8's "no `await` between any
+     * step" atomicity requirement for whichever synchronous DOM/map read `build` itself performs.
+     *
+     * No separate pause/resume primitive on `clock`/`buffer` exists or is needed: `emitResyncFrame`
+     * is itself fully synchronous, and this method's caller only ever runs between ticks (JS
+     * run-to-completion), so there is no way for an ordinary `onBoundary()` build to interleave with
+     * it regardless. "Halt" reduces to *which* build `onBoundary()` runs at its next boundary — the
+     * mutation buffer is simply not drained that tick, so nothing buffered is lost or double-counted
+     * (§5.8 step 1: "the MutationObserver keeps recording ... nothing is lost, it simply waits").
+     *
+     * If a previously-built frame is still mid-send (`pendingParts` non-null, transport backpressure
+     * — §5.3), the resync build is stashed and only serviced once that frame's own parts finish
+     * draining (`trySendPending`'s own completion falls through to the next `onBoundary()`, which
+     * checks this field first) — this never interleaves one frame's parts with another's on the wire.
+     */
+    requestResync(build) {
+      this.pendingResyncBuild = build;
+    }
     onBoundary() {
       if (this.pendingParts !== null && this.pendingFrame !== null) {
+        this.trySendPending();
+        return;
+      }
+      if (this.pendingResyncBuild !== null) {
+        const build = this.pendingResyncBuild;
+        this.pendingResyncBuild = null;
+        this.idleTicks = 0;
+        this.builder.takeBuildStats?.();
+        const frame2 = build(this.sequence + 1);
+        const parts2 = this.encoder.encode(frame2);
+        if (parts2.length === 0) return;
+        this.pendingFrame = frame2;
+        this.pendingParts = parts2;
+        this.pendingPartIndex = 0;
+        this.pendingRecords = null;
         this.trySendPending();
         return;
       }
@@ -1183,7 +1235,7 @@
   // browser/mirror/projection/models/limits.ts
   var MAX_STR_BYTES = 1 << 20;
   var MAX_DIRTY_NODES = 2e4;
-  var NODE_DROP_AGE_SEQUENCES = 120;
+  var NODE_DROP_AGE_SEQUENCES = 20;
   var MAX_NODE_DROPS_PER_SWEEP = 500;
 
   // browser/mirror/projection/models/replicatedTableApply.ts
@@ -1391,10 +1443,12 @@
         this.emitAttrPatches(ops);
         this.emitTextPatches(ops);
       }
-      this.emitNodeDropSweep(ops, ctx.sequence);
-      if (ops.length === 0) return null;
       this.table.setSequence(ctx.sequence);
       applyOpsToTable(this.table, ops);
+      const dropOpIndex = ops.length;
+      this.emitNodeDropSweep(ops, ctx.sequence);
+      if (ops.length > dropOpIndex) applyOpsToTable(this.table, ops.slice(dropOpIndex));
+      if (ops.length === 0) return null;
       let opCounts = EMPTY_OP_COUNTS;
       if (this.collectOpCounts) {
         opCounts = {};
@@ -1412,15 +1466,29 @@
      * without anything mutating it further) and, for whatever the sweep selects, release the
      * matching `DomNodeTable` identity entry too — the whole point of the sweep is bounding *this*
      * producer-side map's growth, not just the wire-visible table's.
+     *
+     * Releases the *whole* subtree (root + every descendant, via `ReplicatedTable.subtreeIds` —
+     * the same discovery walk `dropSubtree` itself uses, queried read-only here before the table
+     * effect runs), not just the swept root id: `collectDroppableIds` only ever returns detached
+     * roots (§4.2 — descendants are never listed on the wire on their own), so releasing only the
+     * root left every descendant's `DomNodeTable` entry stale. A live page-JS reference that later
+     * reinserts such a descendant would have found `domNodes.keyOf()` still resolving to its old,
+     * by-then-already-dropped id — treating it as "already indexed, just move" instead of
+     * re-describing it as new content, silently corrupting `ReplicatedTable` with a bogus
+     * fallback row (`replicatedTable.ts`'s `linkAfter`) instead of a clean re-`NODE_NEW` (found by
+     * inspection, 2026-08-14, chasing whether subtree resurrection is handled naturally).
      */
     emitNodeDropSweep(ops, sequence) {
-      const ids = this.table.collectDroppableIds(sequence, this.nodeDropAgeSequences, this.maxNodeDropsPerSweep);
-      if (ids.length === 0) return;
-      for (let i = 0; i < ids.length; i++) {
-        const node = this.domNodes.get(ids[i]);
-        if (node !== void 0) this.domNodes.release(node);
+      const rootIds = this.table.collectDroppableIds(sequence, this.nodeDropAgeSequences, this.maxNodeDropsPerSweep);
+      if (rootIds.length === 0) return;
+      for (let i = 0; i < rootIds.length; i++) {
+        const subtreeIds = this.table.subtreeIds(rootIds[i]);
+        for (let j = 0; j < subtreeIds.length; j++) {
+          const node = this.domNodes.get(subtreeIds[j]);
+          if (node !== void 0) this.domNodes.release(node);
+        }
       }
-      ops.push({ op: 33 /* NodeDrop */, ids });
+      ops.push({ op: 33 /* NodeDrop */, ids: rootIds });
     }
     walkChildList(record, ops) {
       const parent = record.target;
@@ -1936,6 +2004,27 @@
       domNodes,
       telemetry
     });
+    if (loopback) {
+      loopback.dataPlane.setHandler((channel, payload) => {
+        if (channel !== 2 /* Control */) return;
+        let msg;
+        try {
+          msg = JSON.parse(new TextDecoder().decode(payload));
+        } catch {
+          return;
+        }
+        if (typeof msg !== "object" || msg === null) return;
+        const req = msg;
+        if (req.type !== "requestResync") return;
+        console.log(
+          "[speculumProjection] resync requested \u2014 reason=%s clientGeneration=%s clientSequence=%s",
+          String(req.reason),
+          String(req.generation),
+          String(req.sequence)
+        );
+        frameEmitter.requestResync((seq) => emitResyncFrame(domNodes, table, domNodes.generation, seq));
+      });
+    }
     const resyncFrame = resyncVirtual(domNodes, table, frameEmitter.currentSequence + 1);
     if (config.generation > 1) {
       resyncFrame.ops.unshift({ op: 2 /* EpochReset */, generation: config.generation });

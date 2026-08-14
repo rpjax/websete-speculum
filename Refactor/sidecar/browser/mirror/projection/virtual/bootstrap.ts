@@ -18,14 +18,14 @@ import { OpCode } from '../models/opcodes';
 import { ReplicatedTable } from '../models/replicatedTable';
 import { BinaryFrameEncoder } from './frame/binaryFrameEncoder';
 import { FrameEmitter } from './frame/frameEmitter';
-import { resyncVirtual } from './frame/resync';
+import { emitResyncFrame, resyncVirtual } from './frame/resync';
 import { TableFrameBuilder } from './frame/tableFrameBuilder';
 import { ProjectionTelemetry } from './telemetry/projectionTelemetry';
 import type { FrameTransport } from './transport/frameTransport';
 import { ConsoleFrameTransport } from './transport/consoleFrameTransport';
 import { LoopbackFrameTransport } from './transport/loopbackFrameTransport';
 import { NullFrameTransport } from './transport/nullFrameTransport';
-import type { DataPlane } from '../plane';
+import { PlaneChannel, type DataPlane } from '../plane';
 
 declare global {
   var __speculumProjection:
@@ -130,6 +130,39 @@ void (async () => {
     domNodes,
     telemetry,
   });
+
+  // Stage 4 (frame-protocol-production-completeness), §5.8: the resync *request* travels on the
+  // existing control channel, not the binary frame body — `PlaneChannel.Control`, reserved since
+  // E-03 and unused until now (`PlaneFrameTransport` only ever sends on `PlaneChannel.Frame`, never
+  // claims the inbound handler). Mid-session recovery uses `emitResyncFrame` alone, not
+  // `resyncVirtual` — the existing identity map's *shape* is trusted, so this re-describes current
+  // truth straight from it rather than paying for a full synchronous DOM walk on every recovery.
+  // The client-supplied `generation`/`sequence` are diagnostic-only: `emitResyncFrame` always
+  // re-describes the map's current truth regardless of what the client last had, and a request that
+  // raced a navigation the client hasn't heard about yet is resolved by the client's own
+  // generation-mismatch handling (`client/labProjectionClient.ts`) once the response arrives, not by
+  // anything read here.
+  if (loopback) {
+    loopback.dataPlane.setHandler((channel, payload) => {
+      if (channel !== PlaneChannel.Control) return;
+      let msg: unknown;
+      try {
+        msg = JSON.parse(new TextDecoder().decode(payload));
+      } catch {
+        return;
+      }
+      if (typeof msg !== 'object' || msg === null) return;
+      const req = msg as { type?: unknown; reason?: unknown; generation?: unknown; sequence?: unknown };
+      if (req.type !== 'requestResync') return;
+      console.log(
+        '[speculumProjection] resync requested — reason=%s clientGeneration=%s clientSequence=%s',
+        String(req.reason),
+        String(req.generation),
+        String(req.sequence),
+      );
+      frameEmitter.requestResync((seq) => emitResyncFrame(domNodes, table, domNodes.generation, seq));
+    });
+  }
 
   // §5.1/§5.8 bootstrap: one synchronous walk closes the gap between "observer attached" and
   // "parser already ran ahead of it". Whatever the observer buffered up to this same point is

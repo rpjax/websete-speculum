@@ -202,6 +202,20 @@ class ReplicatedTable {
         return ids;
     }
     /**
+     * Read-only twin of {@link dropSubtree}'s discovery walk — same root+descendants list, no
+     * mutation. Lets a caller that needs to know the *full* set before the table effect actually
+     * runs (producer: `tableFrameBuilder.ts`'s `emitNodeDropSweep`, which must release every
+     * descendant's `DomNodeTable` identity too, not just the swept root's — a live JS reference
+     * that later reinserts an unreleased descendant would otherwise be handed back its old,
+     * already-dropped id, corrupting `ReplicatedTable` silently instead of being re-described as
+     * new content) query it ahead of the real drop.
+     */
+    subtreeIds(id) {
+        const ids = [];
+        this.collectSubtreeIds(id, ids);
+        return ids;
+    }
+    /**
      * Detached (`parent === 0`) subtree roots whose `lms` is at least `maxAge` frame-`sequence`s
      * behind `currentSequence` — OPEN-2's deferred-age GC sweep candidates (§1.6). Non-root
      * detached descendants (`parent !== 0`, pointing at another detached row) are excluded: they

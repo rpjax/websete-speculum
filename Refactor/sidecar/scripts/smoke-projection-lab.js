@@ -678,6 +678,167 @@ async function smokeNodeDropGcBounded() {
   return { samples: samples.length, middleAvg, lastAvg, peak };
 }
 
+/** One wire part with a sequence miles past anything the client could legitimately be at yet. */
+function buildSequenceGapFrameBytes({ generation, sequence }) {
+  const header = Buffer.alloc(24);
+  header.writeUInt16LE(0x5050, 0);
+  header.writeUInt8(1, 2); // version
+  header.writeUInt8(0, 3); // flags — not resync; an ordinary (hostile) frame
+  header.writeUInt32LE(generation, 4);
+  header.writeUInt32LE(sequence, 8);
+  header.writeUInt16LE(0, 12); // partIndex
+  header.writeUInt16LE(1, 14); // partCount
+  header.writeBigUInt64LE(0n, 16); // preTableHash — irrelevant, the sequence-gap check aborts first
+  const stringTable = Buffer.from([0, 0, 0, 0]); // strCount = 0
+  const opsBody = Buffer.from([0, 0, 0, 0]); // opCount = 0
+  return Buffer.concat([header, stringTable, opsBody]);
+}
+
+async function waitForCondition(predicate, timeoutMs, message) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (predicate()) return;
+    await wait(100);
+  }
+  throw new Error(message);
+}
+
+/**
+ * Stage 4 (frame-protocol-production-completeness) GATE — client-initiated resync recovery +
+ * double-buffer swap, end to end. Unlike `smokeCorruptedFrameAbortsBeforeDom`/
+ * `smokeHostileFrameRejectedBeforeAllocation`, Virtual must stay *alive* here: `emitResyncFrame`
+ * only ever runs from Virtual's own `PlaneChannel.Control` handler (`bootstrap.ts`), driven by
+ * its own still-ticking `FrameEmitter` (`requestResync`, frameEmitter.ts) — a frozen/stopped
+ * Virtual could never answer. Uses `static-dom.html` (no live mutation) specifically so the
+ * structural-diff proof at the end can't be flaky against a fixture that's still changing text
+ * between the two snapshot round-trips it takes.
+ *
+ * Forces a deterministic client-side desync via `injectRawFrame` (a hand-crafted frame whose
+ * `sequence` is a million past what the client could legitimately have received next — never
+ * racy against real traffic, unlike picking `lastAcceptedSequence + 1` on a live producer), then
+ * asserts the *whole* recovery chain, not just that a resync-flagged frame showed up:
+ *   (a) the client requests a resync (`resyncRequested` telemetry over the control WS),
+ *   (b) the live producer answers and the client applies it into its standby buffer,
+ *   (c) the client re-arms (`resyncCompleted` telemetry, `status` back to "armed"),
+ *   (d) a fresh virtual-vs-client structural diff (`lab/structuralDiff.ts`, the same producer
+ *       `runBenchmark`'s own gate already uses, exposed standalone via
+ *       `requestStructuralDiff`/`structuralDiffResult`) is byte-identical — the actual proof the
+ *       surface healed.
+ */
+async function smokeResyncRecovery() {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage();
+
+    const requested = [];
+    const completed = [];
+    const failed = [];
+    page.on('websocket', (ws) => {
+      ws.on('framereceived', (frame) => {
+        if (typeof frame.payload !== 'string') return;
+        try {
+          const msg = JSON.parse(frame.payload);
+          if (msg?.type !== 'telemetry') return;
+          const kind = msg.message?.kind;
+          if (kind === 'resyncRequested') requested.push(msg.message);
+          else if (kind === 'resyncCompleted') completed.push(msg.message);
+          else if (kind === 'resyncFailed') failed.push(msg.message);
+        } catch {
+          // ignore
+        }
+      });
+    });
+
+    await page.goto(`http://${HOST}:${PORT}/`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+    await page.click('#connect');
+    await page.waitForFunction(() => {
+      const s = document.getElementById('status')?.textContent ?? '';
+      return s.includes('connected') || s.includes('press Start');
+    }, null, { timeout: 30_000 });
+
+    await page.fill('#url', `http://${HOST}:${PORT}/fixtures/static-dom.html`);
+    await page.click('#start');
+    await page.waitForFunction(() => {
+      const s = document.getElementById('status')?.textContent ?? '';
+      const apply = Number(document.getElementById('streamApply')?.textContent ?? '0');
+      return apply >= 1 && s.includes('armed');
+    }, null, { timeout: 90_000 });
+
+    const before = await page.evaluate(() => ({
+      lastAcceptedSequence: window.__speculumLabTestHooks?.projection?.lastAcceptedSequence ?? 0,
+    }));
+
+    const desyncSeen = page.evaluate(
+      () =>
+        new Promise((resolve) => {
+          const timer = setTimeout(() => resolve(null), 5000);
+          window.__speculumLabTestHooks.onDesync = (reason) => {
+            clearTimeout(timer);
+            resolve(reason);
+          };
+        }),
+    );
+
+    const gapFrame = buildSequenceGapFrameBytes({
+      generation: 1,
+      sequence: before.lastAcceptedSequence + 1_000_000,
+    });
+    await page.evaluate((bytesBase64) => {
+      window.__speculumLabTestHooks.sendControl({ type: 'injectRawFrame', bytesBase64 });
+    }, gapFrame.toString('base64'));
+
+    const desyncReason = await desyncSeen;
+    if (desyncReason !== 'sequence_gap') {
+      throw new Error(`expected the far-future sequence to desync as 'sequence_gap', got ${JSON.stringify(desyncReason)}`);
+    }
+
+    await waitForCondition(() => requested.length > 0, 10_000, '(a) resyncRequested telemetry never arrived');
+
+    await page.waitForFunction(() => {
+      const s = document.getElementById('status')?.textContent ?? '';
+      return s.includes('armed');
+    }, null, { timeout: 15_000 });
+    await waitForCondition(() => completed.length > 0, 15_000, '(b)/(c) resyncCompleted telemetry never arrived');
+
+    if (failed.length > 0) {
+      throw new Error(`resync attempt(s) failed before recovering: ${JSON.stringify(failed)}`);
+    }
+
+    const diffResult = await page.evaluate(
+      () =>
+        new Promise((resolve) => {
+          const timer = setTimeout(
+            () => resolve({ status: 'unavailable', reason: 'no structuralDiffResult within 10s' }),
+            10_000,
+          );
+          window.__speculumLabTestHooks.onControlMessage = (msg) => {
+            if (msg.type !== 'structuralDiffResult') return;
+            clearTimeout(timer);
+            window.__speculumLabTestHooks.onControlMessage = undefined;
+            resolve(msg);
+          };
+          window.__speculumLabTestHooks.sendControl({ type: 'requestStructuralDiff' });
+        }),
+    );
+
+    if (diffResult.status !== 'ok') {
+      throw new Error(`(d) structural diff unavailable post-recovery: ${diffResult.reason}`);
+    }
+    if (!diffResult.result.identical) {
+      throw new Error(
+        `(d) post-recovery surface diverges from Virtual (${diffResult.result.divergenceCount} divergence(s)): ${JSON.stringify(diffResult.result.divergences.slice(0, 5))}`,
+      );
+    }
+
+    console.log(
+      `DIAG resync recovery — desync=${desyncReason} requested=${requested.length} completed=${completed.length} failed=${failed.length} structuralDiff=identical`,
+    );
+    return { desyncReason, requested: requested.length, completed: completed.length, diffResult };
+  } finally {
+    await browser.close();
+  }
+}
+
 async function main() {
   const env = {
     ...process.env,
@@ -723,7 +884,10 @@ async function main() {
     const gc = await smokeNodeDropGcBounded();
     console.log(`NODE_DROP GC GATE OK — samples=${gc.samples} middleAvg=${gc.middleAvg.toFixed(0)} lastAvg=${gc.lastAvg.toFixed(0)} peak=${gc.peak}`);
 
-    console.log('SMOKE OK — cold-start-as-frame path + live apply + capability gate + two-phase abort gate + Stage 3 (EPOCH_RESET/NODE_DROP/limits) gates');
+    const resync = await smokeResyncRecovery();
+    console.log(`RESYNC RECOVERY GATE OK — desync=${resync.desyncReason} requested=${resync.requested} completed=${resync.completed}`);
+
+    console.log('SMOKE OK — cold-start-as-frame path + live apply + capability gate + two-phase abort gate + Stage 3 (EPOCH_RESET/NODE_DROP/limits) gates + Stage 4 (resync recovery) gate');
   } catch (err) {
     console.error('SMOKE FAIL', err);
     console.error('stderr', stderr);

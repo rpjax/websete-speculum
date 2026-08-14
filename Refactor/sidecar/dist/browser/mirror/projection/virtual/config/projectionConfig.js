@@ -31,9 +31,9 @@ function asPositiveNumber(value, fallback, label) {
 function asTransport(value) {
     if (value === undefined || value === null)
         return DEFAULTS.transport;
-    if (value === 'console' || value === 'loopback')
+    if (value === 'console' || value === 'loopback' || value === 'discard')
         return value;
-    throw new Error(`ProjectionConfig.transport must be "console" | "loopback" (got ${String(value)})`);
+    throw new Error(`ProjectionConfig.transport must be "console" | "loopback" | "discard" (got ${String(value)})`);
 }
 function asBool(value, fallback) {
     if (value === undefined || value === null)
@@ -82,6 +82,7 @@ function readProjectionConfig() {
         bufferedAmountWatermark: asPositiveNumber(bag.bufferedAmountWatermark, DEFAULTS.bufferedAmountWatermark, 'bufferedAmountWatermark'),
         maxFrameBytes: asPositiveNumber(bag.maxFrameBytes, DEFAULTS.maxFrameBytes, 'maxFrameBytes'),
         telemetry: Object.freeze(resolveTelemetry(bag.telemetry)),
+        generation: asPositiveNumber(bag.generation, 1, 'generation'),
     };
     cached = Object.freeze(resolved);
     return cached;

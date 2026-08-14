@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Prepend stress fixture</title>
+    <style>
+      body { margin: 1rem; font-family: system-ui, sans-serif; background: #1f2937; color: #e5e7eb; }
+      #list div { padding: 1px 4px; font-size: 10px; }
+    </style>
+  </head>
+  <body>
+    <h1>Prepend stress</h1>
+    <div id="list"></div>
+    <script>
+      // Adversarial probe for `resolvedBefore` (tableFrameBuilder.ts): every added-nodes batch
+      // is inserted at the FRONT via a single DocumentFragment.prepend(), not appendChild().
+      // A new node's `nextSibling` chain, walked to find the nearest *already-indexed* node,
+      // has to cross every other not-yet-indexed sibling from the same batch before reaching
+      // the old first child — O(batch) per node, O(batch^2) per tick, if the hypothesis holds.
+      // BATCH is a URL param so the harness can scan sizes without editing this file.
+      const params = new URLSearchParams(location.search);
+      const BATCH = Number(params.get('batch') || 50);
+      const MAX_ROWS = Number(params.get('maxRows') || 4000);
+      const list = document.getElementById('list');
+      const rows = [];
+      let n = 0;
+
+      function tick() {
+        const frag = document.createDocumentFragment();
+        for (let i = 0; i < BATCH; i++) {
+          n += 1;
+          const cell = document.createElement('div');
+          cell.textContent = String(n);
+          frag.appendChild(cell);
+          rows.push(cell);
+        }
+        list.prepend(frag);
+        // Oldest-first eviction (`rows[0]` is the oldest — pushed longest ago), so a node that
+        // was just prepended this tick is never the one removed this same tick. `pop()` here
+        // would remove the just-created batch instead (LIFO on an array built via `push`),
+        // confounding this probe with an unrelated same-tick insert+remove case.
+        while (rows.length > MAX_ROWS) {
+          const cell = rows.shift();
+          cell?.remove();
+        }
+        requestAnimationFrame(tick);
+      }
+      requestAnimationFrame(tick);
+    </script>
+  </body>
+</html>

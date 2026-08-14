@@ -139,22 +139,15 @@
   };
 
   // browser/mirror/projection/models/telemetry.ts
-  var CHILD_LIST_FACT_CAP = 32;
   var DEFAULT_TELEMETRY_CONFIG = {
     enabled: false,
     frameEmitted: true,
     transportDeferred: true,
     aggregate: true,
-    establish: true,
-    builderStats: true,
     applyResult: true,
     desync: true,
     applyOverrun: true,
     clock: true,
-    frameDecision: false,
-    parityFingerprint: false,
-    encoder: false,
-    handoff: true,
     aggregateIntervalMs: 1e4
   };
   var TELEMETRY_BOOL_CAPS = [
@@ -162,16 +155,10 @@
     "frameEmitted",
     "transportDeferred",
     "aggregate",
-    "establish",
-    "builderStats",
     "applyResult",
     "desync",
     "applyOverrun",
-    "clock",
-    "frameDecision",
-    "parityFingerprint",
-    "encoder",
-    "handoff"
+    "clock"
   ];
 
   // browser/mirror/projection/virtual/config/projectionConfig.ts
@@ -193,8 +180,10 @@
   }
   function asTransport(value) {
     if (value === void 0 || value === null) return DEFAULTS2.transport;
-    if (value === "console" || value === "loopback") return value;
-    throw new Error(`ProjectionConfig.transport must be "console" | "loopback" (got ${String(value)})`);
+    if (value === "console" || value === "loopback" || value === "discard") return value;
+    throw new Error(
+      `ProjectionConfig.transport must be "console" | "loopback" | "discard" (got ${String(value)})`
+    );
   }
   function asBool(value, fallback) {
     if (value === void 0 || value === null) return fallback;
@@ -244,118 +233,68 @@
         "bufferedAmountWatermark"
       ),
       maxFrameBytes: asPositiveNumber(bag.maxFrameBytes, DEFAULTS2.maxFrameBytes, "maxFrameBytes"),
-      telemetry: Object.freeze(resolveTelemetry(bag.telemetry))
+      telemetry: Object.freeze(resolveTelemetry(bag.telemetry)),
+      generation: asPositiveNumber(bag.generation, 1, "generation")
     };
     cached = Object.freeze(resolved);
     return cached;
   }
 
-  // browser/mirror/projection/models/domNodeKey.ts
-  var NONE_DOM_NODE_KEY = 0;
-
-  // browser/mirror/projection/virtual/models/dirtySets.ts
-  var VIEWPORT_SCROLL_KEY = NONE_DOM_NODE_KEY;
-  function createDirtySets() {
-    return {
-      newKeys: /* @__PURE__ */ new Set(),
-      dirtyParents: /* @__PURE__ */ new Set(),
-      attrDirty: /* @__PURE__ */ new Set(),
-      textDirty: /* @__PURE__ */ new Set(),
-      stateDirty: /* @__PURE__ */ new Set(),
-      scrollDirty: /* @__PURE__ */ new Map(),
-      detached: /* @__PURE__ */ new Set()
-    };
-  }
-  function clearDirtySets(sets) {
-    sets.newKeys.clear();
-    sets.dirtyParents.clear();
-    sets.attrDirty.clear();
-    sets.textDirty.clear();
-    sets.stateDirty.clear();
-    sets.scrollDirty.clear();
-    sets.detached.clear();
-  }
-  function dirtyCard(sets) {
-    return {
-      newKeys: sets.newKeys.size,
-      dirtyParents: sets.dirtyParents.size,
-      attrDirty: sets.attrDirty.size,
-      textDirty: sets.textDirty.size,
-      stateDirty: sets.stateDirty.size,
-      scrollDirty: sets.scrollDirty.size,
-      detached: sets.detached.size
-    };
-  }
-  function dirtySetsHaveWork(sets) {
-    return sets.newKeys.size > 0 || sets.dirtyParents.size > 0 || sets.attrDirty.size > 0 || sets.textDirty.size > 0 || sets.stateDirty.size > 0 || sets.scrollDirty.size > 0 || sets.detached.size > 0;
-  }
-
-  // browser/mirror/projection/virtual/dom/domMutationAccumulator.ts
-  var DomMutationAccumulator = class {
-    active = createDirtySets();
-    frozen = createDirtySets();
-    getActive() {
-      return this.active;
+  // browser/mirror/projection/virtual/dom/mutationBuffer.ts
+  var MutationBuffer = class {
+    records = [];
+    push(batch) {
+      for (let i = 0; i < batch.length; i++) this.records.push(batch[i]);
     }
-    getFrozen() {
-      return this.frozen;
+    hasWork() {
+      return this.records.length > 0;
     }
-    hasActiveWork() {
-      return dirtySetsHaveWork(this.active);
+    /** Freezes and clears the buffer; returns what was pending. */
+    drain() {
+      if (this.records.length === 0) return this.records;
+      const out = this.records;
+      this.records = [];
+      return out;
     }
-    hasFrozenWork() {
-      return dirtySetsHaveWork(this.frozen);
-    }
-    swap() {
-      const previousActive = this.active;
-      this.active = this.frozen;
-      clearDirtySets(this.active);
-      this.frozen = previousActive;
-      return this.frozen;
-    }
-    clearFrozen() {
-      clearDirtySets(this.frozen);
-    }
-    reclaimFrozen() {
-      const from = this.frozen;
-      const to = this.active;
-      for (const key of from.newKeys) to.newKeys.add(key);
-      for (const key of from.dirtyParents) to.dirtyParents.add(key);
-      for (const key of from.attrDirty) to.attrDirty.add(key);
-      for (const key of from.textDirty) to.textDirty.add(key);
-      for (const key of from.stateDirty) to.stateDirty.add(key);
-      for (const key of from.detached) to.detached.add(key);
-      for (const [key, sample] of from.scrollDirty) to.scrollDirty.set(key, sample);
-      clearDirtySets(this.frozen);
-    }
-    markNew(key) {
-      if (key === NONE_DOM_NODE_KEY) return;
-      this.active.newKeys.add(key);
-    }
-    markDirtyParent(key) {
-      if (key === NONE_DOM_NODE_KEY) return;
-      this.active.dirtyParents.add(key);
-    }
-    markAttr(key) {
-      if (key === NONE_DOM_NODE_KEY) return;
-      this.active.attrDirty.add(key);
-    }
-    markText(key) {
-      if (key === NONE_DOM_NODE_KEY) return;
-      this.active.textDirty.add(key);
-    }
-    markState(key) {
-      if (key === NONE_DOM_NODE_KEY) return;
-      this.active.stateDirty.add(key);
-    }
-    markDetached(key) {
-      if (key === NONE_DOM_NODE_KEY) return;
-      this.active.detached.add(key);
-    }
-    markScroll(key, sample) {
-      this.active.scrollDirty.set(key, sample);
+    /** Pushes records back to the front (build failed / needs retry next tick). */
+    reclaim(records) {
+      if (records.length === 0) return;
+      this.records = records.concat(this.records);
     }
   };
+
+  // browser/mirror/projection/virtual/dom/domMutationObserver.ts
+  var OBSERVE_OPTIONS = {
+    subtree: true,
+    childList: true,
+    attributes: true,
+    characterData: true
+  };
+  var DomMutationObserver = class {
+    buffer;
+    root;
+    observer = null;
+    constructor(opts) {
+      this.buffer = opts.buffer;
+      this.root = opts.root ?? document;
+    }
+    start() {
+      this.stop();
+      this.observer = new MutationObserver((records) => this.buffer.push(records));
+      this.observer.observe(this.root, OBSERVE_OPTIONS);
+    }
+    stop() {
+      this.observer?.disconnect();
+      this.observer = null;
+    }
+    /** Test hook: feed records without a live MutationObserver. */
+    ingestForTest(records) {
+      this.buffer.push(records);
+    }
+  };
+
+  // browser/mirror/projection/models/domNodeKey.ts
+  var NONE_DOM_NODE_KEY = 0;
 
   // browser/mirror/projection/virtual/dom/domNodeTable.ts
   var DomNodeTable = class {
@@ -375,6 +314,18 @@
     get generation() {
       return this.currentGeneration;
     }
+    /**
+     * Bootstrap-only initialization (Stage 3, frame-protocol-production-completeness): a hard
+     * navigation re-injects this whole script into a fresh JS realm, so the *identity map* is
+     * already empty by construction — there is nothing to clear here, unlike `bumpGeneration()`.
+     * This exists purely so a fresh instance reports the `generation` the orchestrator
+     * (`lab/virtualBrowser.ts`) already knows this navigation is (via `ProjectionConfig.generation`),
+     * so `resyncVirtual`'s frame — and every ordinary tick after it — carries the right number for
+     * `bootstrap.ts` to decide whether to prepend `EPOCH_RESET`.
+     */
+    setGeneration(generation) {
+      this.currentGeneration = generation;
+    }
     get size() {
       return this.byKey.size;
     }
@@ -387,6 +338,18 @@
       this.byKey.set(key, new WeakRef(node));
       this.finalizers.register(node, key, node);
       return key;
+    }
+    /**
+     * Forces a specific id (frame-protocol.md §1.2 — id `1` is reserved for `Document`, not
+     * allocated like an ordinary node). Idempotent. Advances `nextKey` past `key` so ordinary
+     * `allocate()` calls never collide with it.
+     */
+    bind(node, key) {
+      if (this.byNode.has(node)) return;
+      this.byNode.set(node, key);
+      this.byKey.set(key, new WeakRef(node));
+      this.finalizers.register(node, key, node);
+      if (key >= this.nextKey) this.nextKey = key + 1;
     }
     keyOf(node) {
       return this.byNode.get(node) ?? NONE_DOM_NODE_KEY;
@@ -418,96 +381,38 @@
       this.currentGeneration += 1;
       return this.currentGeneration;
     }
-  };
-
-  // browser/mirror/projection/virtual/dom/domMutationObserver.ts
-  var OBSERVE_OPTIONS = {
-    subtree: true,
-    childList: true,
-    attributes: true,
-    characterData: true
-  };
-  var DomMutationObserver = class {
-    domNodes;
-    accumulator;
-    root;
-    isPublishable;
-    observer = null;
-    constructor(opts) {
-      this.domNodes = opts.domNodes;
-      this.accumulator = opts.accumulator;
-      this.root = opts.root ?? document;
-      this.isPublishable = opts.isPublishable ?? (() => true);
+    /**
+     * frame-protocol.md §5.8 `resyncVirtual` — clears the identity map so it can be rebuilt from a
+     * live walk. Unlike `bumpGeneration()`, this does NOT advance `generation`: `resync` is a
+     * same-generation "the client's copy is being replaced wholesale" signal, not an
+     * `EPOCH_RESET`. `nextKey` is left untouched, so freshly (re)allocated ids never collide with
+     * ids issued before the reset.
+     */
+    resetIdentity() {
+      this.byNode = /* @__PURE__ */ new WeakMap();
+      this.byKey.clear();
     }
-    start() {
-      this.stop();
-      this.observer = new MutationObserver((records) => this.onRecords(records));
-      this.observer.observe(this.root, OBSERVE_OPTIONS);
-    }
-    stop() {
-      this.observer?.disconnect();
-      this.observer = null;
-    }
-    ingestForTest(records) {
-      this.onRecords(records);
-    }
-    onRecords(records) {
-      for (let i = 0; i < records.length; i++) {
-        this.markRecord(records[i]);
-      }
-    }
-    markRecord(record) {
-      const target = record.target;
-      if (!this.isPublishable(target)) return;
-      if (record.type === "childList") {
-        this.markChildList(record);
-        return;
-      }
-      const key = this.domNodes.keyOf(target);
-      if (key === NONE_DOM_NODE_KEY) return;
-      if (record.type === "attributes") this.accumulator.markAttr(key);
-      else if (record.type === "characterData") this.accumulator.markText(key);
-    }
-    markChildList(record) {
-      const parent = record.target;
-      let parentKey = this.domNodes.keyOf(parent);
-      if (parentKey === NONE_DOM_NODE_KEY) {
-        if (!this.isPublishable(parent)) return;
-        parentKey = this.domNodes.allocate(parent);
-        this.accumulator.markNew(parentKey);
-      }
-      this.accumulator.markDirtyParent(parentKey);
-      const added = record.addedNodes;
-      for (let i = 0; i < added.length; i++) {
-        const node = added[i];
-        if (!this.isPublishable(node)) continue;
-        const key = this.domNodes.allocate(node);
-        this.accumulator.markNew(key);
-      }
-      const removed = record.removedNodes;
-      for (let i = 0; i < removed.length; i++) {
-        const node = removed[i];
-        const key = this.domNodes.keyOf(node);
-        if (key === NONE_DOM_NODE_KEY) continue;
-        this.accumulator.markDetached(key);
+    /** Live `[id, node]` pairs, skipping any key whose `WeakRef` has already been collected. */
+    *liveEntries() {
+      for (const [key, ref] of this.byKey) {
+        const node = ref.deref();
+        if (node !== void 0) yield [key, node];
       }
     }
   };
 
   // browser/mirror/projection/models/opcodes.ts
   var NAMES = {
-    [1 /* EstablishBegin */]: "establishBegin",
-    [2 /* EstablishChunk */]: "establishChunk",
-    [3 /* EstablishEnd */]: "establishEnd",
-    [4 /* ChildList */]: "childList",
-    [5 /* Patch */]: "patch",
-    [6 /* ScrollViewport */]: "scrollViewport",
-    [7 /* ScrollElement */]: "scrollElement",
-    [8 /* CssomInstall */]: "cssomInstall",
-    [9 /* CssomSheetList */]: "cssomSheetList",
-    [10 /* CssomRuleList */]: "cssomRuleList",
-    [11 /* CssomPatch */]: "cssomPatch",
-    [12 /* DocumentState */]: "documentState"
+    [1 /* Check */]: "check",
+    [2 /* EpochReset */]: "epochReset",
+    [3 /* StrDef */]: "strDef",
+    [32 /* NodeNew */]: "nodeNew",
+    [33 /* NodeDrop */]: "nodeDrop",
+    [64 /* Insert */]: "insert",
+    [65 /* Remove */]: "remove",
+    [96 /* AttrSet */]: "attrSet",
+    [97 /* AttrDel */]: "attrDel",
+    [98 /* TextSet */]: "textSet"
   };
   function opCodeName(code) {
     return NAMES[code] ?? `unknown(${code})`;
@@ -515,268 +420,327 @@
 
   // browser/mirror/projection/models/frame.ts
   var FRAME_WIRE_VERSION = 1;
-  function createLiveFrame(args) {
+  var DOCUMENT_ID = 1;
+  var INSERT_AT_END = 0;
+  var CHECK_SCOPE_TABLE = 0;
+  function createFrame(args) {
     return {
       version: FRAME_WIRE_VERSION,
-      flags: { establish: false, resync: false },
+      flags: { resync: args.resync ?? false },
       generation: args.generation,
       sequence: args.sequence,
-      ops: args.ops
-    };
-  }
-  function createEstablishFrame(args) {
-    return {
-      version: FRAME_WIRE_VERSION,
-      flags: { establish: true, resync: args.resync ?? false },
-      generation: args.generation,
-      sequence: args.sequence,
+      preTableHash: args.preTableHash ?? 0n,
       ops: args.ops
     };
   }
 
-  // browser/mirror/projection/virtual/frame/fVisible.ts
-  var PLACEHOLDER_TAGS = /* @__PURE__ */ new Set([
-    "script",
-    "noscript",
-    "template",
-    "iframe",
-    "base",
-    "object",
-    "embed",
-    "applet"
-  ]);
-  var DENY_ATTR = /* @__PURE__ */ new Set(["integrity"]);
-  function isPlaceholderTag(tag) {
-    return PLACEHOLDER_TAGS.has(tag.toLowerCase());
-  }
-  function isFVisibleNode(node) {
-    const t = node.nodeType;
-    return t === Node.ELEMENT_NODE || t === Node.TEXT_NODE || t === Node.COMMENT_NODE;
-  }
-  function isPublishableNode(node) {
-    return isFVisibleNode(node);
-  }
-  function listFVisibleChildren(parent) {
-    const out = [];
-    if (parent.nodeType === Node.ELEMENT_NODE) {
-      const tag = parent.tagName.toLowerCase();
-      if (isPlaceholderTag(tag)) return out;
+  // browser/mirror/projection/models/rowHash.ts
+  var FNV_OFFSET_BASIS = 14695981039346656037n;
+  var FNV_PRIME = 1099511628211n;
+  var MASK64 = 0xffffffffffffffffn;
+  var sharedEncoder = new TextEncoder();
+  function h64Bytes(bytes, seed = FNV_OFFSET_BASIS) {
+    let h = seed;
+    for (let i = 0; i < bytes.length; i++) {
+      h ^= BigInt(bytes[i]);
+      h = h * FNV_PRIME & MASK64;
     }
-    const kids = parent.childNodes;
-    for (let i = 0; i < kids.length; i++) {
-      const n = kids[i];
-      if (isFVisibleNode(n)) out.push(n);
+    return h;
+  }
+  function h64Str(value, seed = FNV_OFFSET_BASIS) {
+    return h64Bytes(sharedEncoder.encode(value), seed);
+  }
+  function h64U32(value, seed = FNV_OFFSET_BASIS) {
+    let h = seed;
+    h ^= BigInt(value & 255);
+    h = h * FNV_PRIME & MASK64;
+    h ^= BigInt(value >>> 8 & 255);
+    h = h * FNV_PRIME & MASK64;
+    h ^= BigInt(value >>> 16 & 255);
+    h = h * FNV_PRIME & MASK64;
+    h ^= BigInt(value >>> 24 & 255);
+    h = h * FNV_PRIME & MASK64;
+    return h;
+  }
+  function addMod64(a, b) {
+    return a + b & MASK64;
+  }
+  function subMod64(a, b) {
+    return a - b & MASK64;
+  }
+  function hashName(name) {
+    return h64Str(`\0N${name}`);
+  }
+  function hashValue(value) {
+    return h64Str(`\0V${value}`);
+  }
+  function hashAttr(name, value) {
+    return h64Str(`\0A${name}${value}`);
+  }
+  function computeRowHash(id, kind, parent, prevSibling, contentHash) {
+    let h = h64U32(id);
+    h = h64U32(kind, h);
+    h = h64U32(parent, h);
+    h = h64U32(prevSibling, h);
+    h ^= contentHash;
+    h = h * FNV_PRIME & MASK64;
+    return h;
+  }
+  var TableHashTracker = class {
+    total = 0n;
+    rowHashes = /* @__PURE__ */ new Map();
+    get value() {
+      return this.total;
     }
-    return out;
-  }
-  function isDeniedAttr(name, value) {
-    const lower = name.toLowerCase();
-    if (lower.startsWith("on")) return true;
-    if (DENY_ATTR.has(lower)) return true;
-    if (value.trimStart().toLowerCase().startsWith("javascript:")) return true;
-    return false;
-  }
-  function snapshotAttrs(el) {
-    const out = [];
-    const attrs = el.attributes;
-    for (let i = 0; i < attrs.length; i++) {
-      const a = attrs[i];
-      if (isDeniedAttr(a.name, a.value)) continue;
-      out.push({ name: a.name, value: a.value });
+    get size() {
+      return this.rowHashes.size;
     }
-    return out;
-  }
-  function snapshotNodeFlat(key, node) {
-    if (node.nodeType === Node.ELEMENT_NODE) {
-      const el = node;
-      return {
-        kind: "element",
-        key,
-        tag: el.tagName.toLowerCase(),
-        attrs: snapshotAttrs(el)
-      };
+    has(id) {
+      return this.rowHashes.has(id);
     }
-    if (node.nodeType === Node.TEXT_NODE) {
-      return { kind: "text", key, value: node.data };
+    upsert(id, newRowHash) {
+      const old = this.rowHashes.get(id);
+      if (old !== void 0) this.total = subMod64(this.total, old);
+      this.rowHashes.set(id, newRowHash);
+      this.total = addMod64(this.total, newRowHash);
     }
-    if (node.nodeType === Node.COMMENT_NODE) {
-      return { kind: "comment", key, value: node.data };
+    remove(id) {
+      const old = this.rowHashes.get(id);
+      if (old === void 0) return;
+      this.total = subMod64(this.total, old);
+      this.rowHashes.delete(id);
     }
-    return null;
-  }
-  function snapshotNodeSubtree(key, node, domNodes, onKey) {
-    onKey?.(key);
-    if (node.nodeType === Node.ELEMENT_NODE) {
-      const el = node;
-      const children = [];
-      const kids = listFVisibleChildren(el);
-      for (let i = 0; i < kids.length; i++) {
-        const child = kids[i];
-        const childKey = domNodes.allocate(child);
-        const snap = snapshotNodeSubtree(childKey, child, domNodes, onKey);
-        if (snap !== null) children.push(snap);
-      }
-      return {
-        kind: "element",
-        key,
-        tag: el.tagName.toLowerCase(),
-        attrs: snapshotAttrs(el),
-        children
-      };
+    clear() {
+      this.total = 0n;
+      this.rowHashes.clear();
     }
-    return snapshotNodeFlat(key, node);
-  }
-  function documentOrderCompare(a, b) {
-    if (a === b) return 0;
-    const pos = a.compareDocumentPosition(b);
-    if (pos & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
-    if (pos & Node.DOCUMENT_POSITION_PRECEDING) return 1;
-    return 0;
-  }
-  function escapeAttr(value) {
-    return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  }
-  function escapeText(value) {
-    return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  }
+  };
 
-  // browser/mirror/projection/virtual/establish/establishDom.ts
-  var FNV_OFFSET_BASIS = 2166136261;
-  var FNV_PRIME = 16777619;
-  var DEFAULT_CHUNK_BYTES = 64 * 1024;
-  function buildEstablishDomFrame(opts) {
-    const domNodes = opts.domNodes;
-    const generation = opts.generation;
-    const sequence = opts.sequence ?? 0;
-    const chunkBytes = opts.chunkBytes ?? DEFAULT_CHUNK_BYTES;
-    const root = document.documentElement;
-    if (!root) {
-      throw new Error("establishDom: document.documentElement missing");
+  // browser/mirror/projection/models/replicatedTable.ts
+  var NONE = 0;
+  var ReplicatedTable = class {
+    rows = /* @__PURE__ */ new Map();
+    /** ELEMENT rows only — id -> attrName -> that attribute's own contentHash contribution. */
+    attrHashes = /* @__PURE__ */ new Map();
+    /** Derived, non-hashed: id -> the id currently linked immediately after it under the same parent. */
+    nextSiblingOf = /* @__PURE__ */ new Map();
+    /** Derived, non-hashed: parentId -> the id currently linked last under that parent (0 = none). */
+    lastChildOf = /* @__PURE__ */ new Map();
+    tracker = new TableHashTracker();
+    /** Stamped onto every row `setRow` touches until changed again — one frame, one `lms` (§4 preamble). */
+    currentSequence = 0;
+    get tableHash() {
+      return this.tracker.value;
     }
-    let hash = FNV_OFFSET_BASIS;
-    let nodeCount = 0;
-    const publishedKeys = [];
-    const childLists = [];
-    const addTag = (tag) => {
-      nodeCount += 1;
-      for (let i = 0; i < tag.length; i++) {
-        hash ^= tag.charCodeAt(i);
-        hash = Math.imul(hash, FNV_PRIME);
+    /**
+     * Call once per frame before applying its ops (producer: `tableFrameBuilder.ts`/`resync.ts`;
+     * client: `replicatedTableApply.ts`) — every row touched by a subsequent op this pass stamps
+     * `lms` with this value (§1.3/§4: "every instruction that touches a row sets that row's
+     * `lms = sequence`"). Not part of `rowHash`/`tableHash` (§1.5) — diagnostics/GC only (§1.6).
+     */
+    setSequence(sequence) {
+      this.currentSequence = sequence;
+    }
+    /** Row count — excludes the implicit, never-stored Document row (id 1). */
+    get size() {
+      return this.rows.size;
+    }
+    has(id) {
+      return this.rows.has(id);
+    }
+    getRow(id) {
+      return this.rows.get(id);
+    }
+    /**
+     * §4.1 `CHECK.scope = 1` — Σ `rowHash` (mod 2^64) over ids in `[lo, hi]` inclusive. O(size),
+     * not O(1): OPEN-3 resolves the *model* (id ranges over per-bucket partial sums) but its O(1)
+     * bucket-maintenance mechanism is not built, and the v0 producer never emits `scope: 1` (only
+     * resync's whole-table close, §5.8 step 4) — this exists so a client still decodes and
+     * evaluates one correctly (P7: strict, not silently ignored) rather than leaving it unusable.
+     */
+    hashRange(lo, hi) {
+      let sum = 0n;
+      for (const [id, row] of this.rows) {
+        if (id >= lo && id <= hi) sum = addMod64(sum, row.rowHash);
       }
-      hash ^= nodeCount & 255;
-      hash = Math.imul(hash, FNV_PRIME);
-    };
-    const noteKey = (key) => {
-      publishedKeys.push(key);
-    };
-    const serializeNode = (node) => {
-      if (node.nodeType === Node.TEXT_NODE) {
-        domNodes.allocate(node);
-        return escapeText(node.data);
-      }
-      if (node.nodeType === Node.COMMENT_NODE) {
-        domNodes.allocate(node);
-        return `<!--${node.data}-->`;
-      }
-      if (node.nodeType !== Node.ELEMENT_NODE) return "";
-      const el = node;
-      const tag = el.tagName.toLowerCase();
-      const key = domNodes.allocate(el);
-      noteKey(key);
-      addTag(tag);
-      const attrs = snapshotAttrs(el);
-      let attrStr = ` speculum-anchor="${key}"`;
+      return sum;
+    }
+    /** Drops every row and derived index — `EPOCH_RESET` (§4.1) and resync's wholesale replace (§5.8). */
+    reset() {
+      this.rows.clear();
+      this.attrHashes.clear();
+      this.nextSiblingOf.clear();
+      this.lastChildOf.clear();
+      this.tracker.clear();
+    }
+    // ---- NODE_NEW (§4.2) — always creates a detached row (parent=0, prevSibling=0). ----
+    createElementRow(id, tagName, attrs) {
+      const attrMap = /* @__PURE__ */ new Map();
+      let sum = hashName(tagName);
       for (let i = 0; i < attrs.length; i++) {
-        const a = attrs[i];
-        if (a.name.toLowerCase() === "speculum-anchor") continue;
-        attrStr += ` ${a.name}="${escapeAttr(a.value)}"`;
+        const { name, value } = attrs[i];
+        const h = hashAttr(name, value);
+        attrMap.set(name, h);
+        sum = addMod64(sum, h);
       }
-      if (isPlaceholderTag(tag)) {
-        childLists.push([key, []]);
-        return `<${tag}${attrStr}></${tag}>`;
-      }
-      if (tag === "img" || tag === "br" || tag === "hr" || tag === "input" || tag === "meta" || tag === "link" || tag === "area" || tag === "col" || tag === "embed" || tag === "source" || tag === "track" || tag === "wbr") {
-        childLists.push([key, []]);
-        return `<${tag}${attrStr}>`;
-      }
-      const kids2 = listFVisibleChildren(el);
-      const childKeys = [];
-      let inner2 = "";
-      for (let i = 0; i < kids2.length; i++) {
-        const child = kids2[i];
-        childKeys.push(domNodes.allocate(child));
-        inner2 += serializeNode(child);
-      }
-      childLists.push([key, childKeys]);
-      return `<${tag}${attrStr}>${inner2}</${tag}>`;
-    };
-    const htmlKey = domNodes.allocate(root);
-    noteKey(htmlKey);
-    addTag("html");
-    const htmlAttrs = snapshotAttrs(root);
-    let htmlAttrStr = ` speculum-anchor="${htmlKey}"`;
-    for (let i = 0; i < htmlAttrs.length; i++) {
-      const a = htmlAttrs[i];
-      if (a.name.toLowerCase() === "speculum-anchor") continue;
-      htmlAttrStr += ` ${a.name}="${escapeAttr(a.value)}"`;
+      this.attrHashes.set(id, attrMap);
+      this.setRow(id, 1 /* Element */, NONE, NONE, sum);
     }
-    const kids = listFVisibleChildren(root);
-    const htmlChildKeys = [];
-    let inner = "";
-    for (let i = 0; i < kids.length; i++) {
-      const child = kids[i];
-      htmlChildKeys.push(domNodes.allocate(child));
-      inner += serializeNode(child);
+    /** TEXT/COMMENT (`value`) or DOCTYPE (`name`) — both a single content-carrying string field. */
+    createLeafRow(id, kind, contentField) {
+      this.setRow(id, kind, NONE, NONE, hashValue(contentField));
     }
-    childLists.push([htmlKey, htmlChildKeys]);
-    const full = `<!DOCTYPE html><html${htmlAttrStr}>${inner}</html>`;
-    const chunks = [];
-    for (let i = 0; i < full.length; i += chunkBytes) {
-      chunks.push(full.slice(i, i + chunkBytes));
-    }
-    if (chunks.length === 0) chunks.push(full);
-    const viewport = window.visualViewport;
-    const viewportWidth = Math.round(viewport?.width ?? window.innerWidth);
-    const viewportHeight = Math.round(viewport?.height ?? window.innerHeight);
-    const ops = [
-      {
-        op: 1 /* EstablishBegin */,
-        generation,
-        viewportWidth,
-        viewportHeight,
-        scrollX: window.scrollX,
-        scrollY: window.scrollY,
-        scrollElements: []
+    // ---- ATTR_SET / ATTR_DEL / TEXT_SET (§4.4) — content-only, topology untouched. ----
+    setAttrs(id, attrs) {
+      const row = this.rows.get(id);
+      if (row === void 0) return;
+      const attrMap = this.attrHashes.get(id) ?? /* @__PURE__ */ new Map();
+      let sum = row.contentHash;
+      for (let i = 0; i < attrs.length; i++) {
+        const { name, value } = attrs[i];
+        const old = attrMap.get(name);
+        if (old !== void 0) sum = subMod64(sum, old);
+        const h = hashAttr(name, value);
+        attrMap.set(name, h);
+        sum = addMod64(sum, h);
       }
-    ];
-    const title = document.title ?? "";
-    const lang = root.getAttribute("lang");
-    const dir = root.getAttribute("dir");
-    const viewportMeta = document.querySelector('meta[name="viewport"]');
-    ops.push({
-      op: 12 /* DocumentState */,
-      title,
-      lang,
-      dir,
-      viewportContent: viewportMeta?.getAttribute("content") ?? null
-    });
-    for (let i = 0; i < chunks.length; i++) {
-      ops.push({ op: 2 /* EstablishChunk */, html: chunks[i] });
+      this.attrHashes.set(id, attrMap);
+      this.setRow(id, row.kind, row.parent, row.prevSibling, sum);
     }
-    const checksum = hash >>> 0;
-    ops.push({
-      op: 3 /* EstablishEnd */,
-      nodeCount,
-      checksum
-    });
-    return {
-      frame: createEstablishFrame({ generation, sequence, ops }),
-      nodeCount,
-      checksum,
-      publishedKeys,
-      childLists
-    };
-  }
+    delAttrs(id, names) {
+      const row = this.rows.get(id);
+      if (row === void 0) return;
+      const attrMap = this.attrHashes.get(id);
+      if (attrMap === void 0) return;
+      let sum = row.contentHash;
+      for (let i = 0; i < names.length; i++) {
+        const old = attrMap.get(names[i]);
+        if (old === void 0) continue;
+        sum = subMod64(sum, old);
+        attrMap.delete(names[i]);
+      }
+      this.setRow(id, row.kind, row.parent, row.prevSibling, sum);
+    }
+    setValue(id, value) {
+      const row = this.rows.get(id);
+      if (row === void 0) return;
+      this.setRow(id, row.kind, row.parent, row.prevSibling, hashValue(value));
+    }
+    // ---- INSERT / REMOVE (§4.3) — topology only, content untouched. ----
+    /**
+     * §4.3 `INSERT` table effect: unlinks each id from wherever it currently is (a move), then
+     * links the whole batch, in wire order, immediately before `before` (or at the end of
+     * `parent`'s children when `before === 0`). Exactly two rows change per link (the linked id,
+     * and whichever row now follows it) — never O(children in parent).
+     */
+    insertBatch(parent, before, ids) {
+      let prev = before === NONE ? this.lastChildOf.get(parent) ?? NONE : this.rows.get(before)?.prevSibling ?? NONE;
+      for (let i = 0; i < ids.length; i++) {
+        const id = ids[i];
+        const existing = this.rows.get(id);
+        if (existing !== void 0 && existing.parent !== NONE) this.unlink(id, existing);
+        this.linkAfter(id, parent, prev);
+        prev = id;
+      }
+      if (before !== NONE) this.relinkPrevSibling(before, prev);
+      else this.lastChildOf.set(parent, prev);
+    }
+    /**
+     * §4.3 `REMOVE` table effect: detaches each id and repairs the sibling that followed it.
+     * `parent` is redundant with the table (§4.3: "kept as a cheap assert") — accepted here for
+     * call-site symmetry with `RemoveOp`; precondition validation (Stage 2) is what actually checks
+     * it against `getRow(id).parent`, not this method.
+     */
+    removeBatch(_parent, ids) {
+      for (let i = 0; i < ids.length; i++) {
+        const id = ids[i];
+        const row = this.rows.get(id);
+        if (row === void 0) continue;
+        this.unlink(id, row);
+        this.setRow(id, row.kind, NONE, NONE, row.contentHash);
+      }
+    }
+    /** `NODE_DROP` (§4.2, OPEN-1/OPEN-2, Stage 3) — permanently removes one row's contract state. */
+    dropRow(id) {
+      this.rows.delete(id);
+      this.attrHashes.delete(id);
+      this.nextSiblingOf.delete(id);
+      this.lastChildOf.delete(id);
+      this.tracker.remove(id);
+    }
+    /**
+     * `NODE_DROP`'s actual `Table` effect (§4.2: "drops each row **and all its descendants** — a
+     * detached row may still have children"). `id` is a subtree root (validated by the caller —
+     * `replicatedTableApply.ts` — to have `parent = 0` before this runs); its descendants are
+     * discovered by walking the same derived links `INSERT`/`REMOVE` already maintain
+     * (`lastChildOf` + each child's own `prevSibling`), never touched by `unlink()` when only the
+     * *root* of a detached subtree was itself detached from its old parent. Returns every id
+     * actually dropped (root + descendants) so the caller (producer: `tableFrameBuilder.ts`) can
+     * release the matching `DomNodeTable` identity entries too.
+     */
+    dropSubtree(id) {
+      const ids = [];
+      this.collectSubtreeIds(id, ids);
+      for (let i = 0; i < ids.length; i++) this.dropRow(ids[i]);
+      return ids;
+    }
+    /**
+     * Detached (`parent === 0`) subtree roots whose `lms` is at least `maxAge` frame-`sequence`s
+     * behind `currentSequence` — OPEN-2's deferred-age GC sweep candidates (§1.6). Non-root
+     * detached descendants (`parent !== 0`, pointing at another detached row) are excluded: they
+     * are collected transitively by `dropSubtree` once their root is chosen, never listed on the
+     * wire themselves (§4.2). Bounded by `limit` — same "forced flush over unbounded per-tick
+     * work" reasoning as `MAX_DIRTY_NODES` (§8).
+     */
+    collectDroppableIds(currentSequence, maxAge, limit) {
+      const out = [];
+      for (const [id, row] of this.rows) {
+        if (out.length >= limit) break;
+        if (row.parent !== NONE) continue;
+        if (currentSequence - row.lms >= maxAge) out.push(id);
+      }
+      return out;
+    }
+    collectSubtreeIds(id, out) {
+      out.push(id);
+      let child = this.lastChildOf.get(id) ?? NONE;
+      while (child !== NONE) {
+        this.collectSubtreeIds(child, out);
+        const row = this.rows.get(child);
+        child = row?.prevSibling ?? NONE;
+      }
+    }
+    // ---- internals ----
+    setRow(id, kind, parent, prevSibling, contentHash) {
+      const rowHash = computeRowHash(id, kind, parent, prevSibling, contentHash);
+      this.rows.set(id, { kind, parent, prevSibling, contentHash, rowHash, lms: this.currentSequence });
+      this.tracker.upsert(id, rowHash);
+    }
+    relinkPrevSibling(id, prevSibling) {
+      const row = this.rows.get(id);
+      if (row === void 0) return;
+      this.setRow(id, row.kind, row.parent, prevSibling, row.contentHash);
+    }
+    linkAfter(id, parent, prevId) {
+      const row = this.rows.get(id);
+      const kind = row?.kind ?? 1 /* Element */;
+      const contentHash = row?.contentHash ?? 0n;
+      this.setRow(id, kind, parent, prevId, contentHash);
+      if (prevId !== NONE) this.nextSiblingOf.set(prevId, id);
+    }
+    /** Removes `id` from its current position, repairing its neighbor's `prevSibling`/`lastChildOf`. */
+    unlink(id, row) {
+      if (row.parent === NONE) return;
+      const nextId = this.nextSiblingOf.get(id) ?? NONE;
+      this.nextSiblingOf.delete(id);
+      if (nextId !== NONE) {
+        this.relinkPrevSibling(nextId, row.prevSibling);
+        if (row.prevSibling !== NONE) this.nextSiblingOf.set(row.prevSibling, nextId);
+      } else if (this.lastChildOf.get(row.parent) === id) {
+        this.lastChildOf.set(row.parent, row.prevSibling);
+      }
+    }
+  };
 
   // browser/mirror/projection/virtual/frame/binaryWriter.ts
   var BinaryWriter = class {
@@ -840,6 +804,11 @@
       this.view.setFloat64(this.offset, v, true);
       this.offset += 8;
     }
+    u64(v) {
+      this.ensure(8);
+      this.view.setBigUint64(this.offset, v, true);
+      this.offset += 8;
+    }
     /** Intern string; returns index. */
     str(value) {
       const existing = this.stringIndex.get(value);
@@ -851,6 +820,10 @@
     }
     bytesSoFar() {
       return this.buf.subarray(0, this.offset);
+    }
+    /** Diagnostic only — frame-protocol.md decision-log entry, 2026-08-13 "48KB first-frame". */
+    debugStrings() {
+      return this.strings;
     }
     takeStringTableBytes() {
       const enc = this.textEncoder;
@@ -877,7 +850,7 @@
     }
   };
   function assemblePart(args) {
-    const headerSize = 2 + 1 + 1 + 4 + 4 + 2 + 2;
+    const headerSize = 2 + 1 + 1 + 4 + 4 + 2 + 2 + 8;
     const out = new Uint8Array(headerSize + args.stringTable.length + args.opsBody.length);
     const view = new DataView(out.buffer);
     let o = 0;
@@ -893,6 +866,8 @@
     o += 2;
     view.setUint16(o, args.partCount, true);
     o += 2;
+    view.setBigUint64(o, args.preTableHash, true);
+    o += 8;
     out.set(args.stringTable, o);
     o += args.stringTable.length;
     out.set(args.opsBody, o);
@@ -900,13 +875,8 @@
   }
 
   // browser/mirror/projection/virtual/frame/binaryFrameEncoder.ts
-  var NODE_KIND_ELEMENT = 1;
-  var NODE_KIND_TEXT = 2;
-  var NODE_KIND_COMMENT = 3;
-  var CHILD_EXISTING = 0;
-  var CHILD_FRESH = 1;
-  var MODE_FULL = 0;
-  var MODE_APPEND = 1;
+  var LOCAL_STR_BIT = 2147483648;
+  var DEBUG_FIRST_FRAME_BYTES = false;
   var DEFAULT_MAX_FRAME_BYTES = 1 << 20;
   var BinaryFrameEncoder = class {
     maxFrameBytes;
@@ -942,10 +912,22 @@
       const w = this.scratch;
       w.reset();
       w.u32(ops.length);
-      for (let i = 0; i < ops.length; i++) {
-        this.writeOp(w, ops[i]);
+      for (let i = 0; i < ops.length; i++) this.writeOp(w, ops[i]);
+      const flags = frame.flags.resync ? 2 : 0;
+      const opsBody = w.bytesSoFar().slice();
+      const stringTable = w.takeStringTableBytes();
+      if (DEBUG_FIRST_FRAME_BYTES && frame.sequence === 1) {
+        const strings = w.debugStrings();
+        const record = {
+          ops: ops.length,
+          opsBodyBytes: opsBody.length,
+          stringTableBytes: stringTable.length,
+          stringCount: strings.length,
+          top10ByLen: [...strings].sort((a, b) => b.length - a.length).slice(0, 10).map((s) => ({ len: s.length, preview: s.slice(0, 60) }))
+        };
+        globalThis.__speculumDiag ??= [];
+        globalThis.__speculumDiag.push(record);
       }
-      const flags = (frame.flags.establish ? 1 : 0) | (frame.flags.resync ? 2 : 0);
       return assemblePart({
         version: frame.version,
         flags,
@@ -953,181 +935,136 @@
         sequence: frame.sequence,
         partIndex,
         partCount,
-        stringTable: w.takeStringTableBytes(),
-        opsBody: w.bytesSoFar().slice()
+        preTableHash: frame.preTableHash,
+        stringTable,
+        opsBody
       });
+    }
+    writeStrRef(w, value) {
+      w.u32((w.str(value) | LOCAL_STR_BIT) >>> 0);
+    }
+    writeAttrs(w, attrs) {
+      w.u16(attrs.length);
+      for (let i = 0; i < attrs.length; i++) {
+        this.writeStrRef(w, attrs[i].name);
+        this.writeStrRef(w, attrs[i].value);
+      }
     }
     writeOp(w, op) {
       switch (op.op) {
-        case 1 /* EstablishBegin */:
-          this.writeEstablishBegin(w, op);
-          return;
-        case 2 /* EstablishChunk */:
-          this.writeEstablishChunk(w, op);
-          return;
-        case 3 /* EstablishEnd */:
-          this.writeEstablishEnd(w, op);
-          return;
-        case 12 /* DocumentState */:
-          this.writeDocumentState(w, op);
-          return;
-        case 4 /* ChildList */:
-          this.writeChildList(w, op);
-          return;
-        case 5 /* Patch */:
-          this.writePatch(w, op);
-          return;
-        case 6 /* ScrollViewport */:
-          this.writeScrollViewport(w, op);
-          return;
-        case 7 /* ScrollElement */:
-          this.writeScrollElement(w, op);
-          return;
+        case 1 /* Check */:
+          return this.writeCheck(w, op);
+        case 2 /* EpochReset */:
+          return this.writeEpochReset(w, op);
+        case 3 /* StrDef */:
+          return this.writeStrDef(w, op);
+        case 32 /* NodeNew */:
+          return this.writeNodeNew(w, op);
+        case 33 /* NodeDrop */:
+          return this.writeNodeDrop(w, op);
+        case 64 /* Insert */:
+          return this.writeInsert(w, op);
+        case 65 /* Remove */:
+          return this.writeRemove(w, op);
+        case 96 /* AttrSet */:
+          return this.writeAttrSet(w, op);
+        case 97 /* AttrDel */:
+          return this.writeAttrDel(w, op);
+        case 98 /* TextSet */:
+          return this.writeTextSet(w, op);
         default:
           throw new Error(`BinaryFrameEncoder: unsupported op ${String(op.op)}`);
       }
     }
-    writeEstablishBegin(w, op) {
-      w.u8(1 /* EstablishBegin */);
+    /** §4.1 — `scope u8, lo u32, hi u32, hash u64`. Fixed-width, no varints (P5). */
+    writeCheck(w, op) {
+      w.u8(1 /* Check */);
+      w.u8(op.scope);
+      w.u32(op.lo);
+      w.u32(op.hi);
+      w.u64(op.hash);
+    }
+    writeEpochReset(w, op) {
+      w.u8(2 /* EpochReset */);
       w.u32(op.generation);
-      w.u32(op.viewportWidth);
-      w.u32(op.viewportHeight);
-      w.i32(Math.trunc(op.scrollX));
-      w.i32(Math.trunc(op.scrollY));
-      w.u32(op.scrollElements.length);
-      for (let i = 0; i < op.scrollElements.length; i++) {
-        const s = op.scrollElements[i];
-        w.u32(s.node);
-        w.i32(Math.trunc(s.scrollTop));
-        w.i32(Math.trunc(s.scrollLeft));
-      }
     }
-    writeEstablishChunk(w, op) {
-      w.u8(2 /* EstablishChunk */);
-      w.utf8Raw(op.html);
+    /** Persistent `STR_DEF` bytes are raw (this instruction IS the definition), never interned. */
+    writeStrDef(w, op) {
+      w.u8(3 /* StrDef */);
+      w.u32(op.strId);
+      w.utf8Raw(op.value);
     }
-    writeEstablishEnd(w, op) {
-      w.u8(3 /* EstablishEnd */);
-      w.u32(op.nodeCount);
-      w.u32(op.checksum >>> 0);
-    }
-    writeDocumentState(w, op) {
-      w.u8(12 /* DocumentState */);
-      w.u32(w.str(op.title));
-      this.writeNullableString(w, op.lang);
-      this.writeNullableString(w, op.dir);
-      this.writeNullableString(w, op.viewportContent);
-    }
-    writeNullableString(w, value) {
-      if (value === null) {
-        w.u8(0);
+    writeNodeNew(w, op) {
+      w.u8(32 /* NodeNew */);
+      w.u32(op.id);
+      w.u8(op.kind);
+      if (op.kind === 1 /* Element */) {
+        this.writeStrRef(w, op.name);
+        this.writeAttrs(w, op.attrs);
         return;
       }
-      w.u8(1);
-      w.u32(w.str(value));
+      if (op.kind === 6 /* Doctype */) {
+        this.writeStrRef(w, op.name);
+        return;
+      }
+      this.writeStrRef(w, op.value);
     }
-    writeChildList(w, op) {
-      w.u8(4 /* ChildList */);
+    /** §4.2 — `count: u16, ids: u32[]`; roots only, descendants derived independently on both sides. */
+    writeNodeDrop(w, op) {
+      w.u8(33 /* NodeDrop */);
+      w.u16(op.ids.length);
+      for (let i = 0; i < op.ids.length; i++) w.u32(op.ids[i]);
+    }
+    writeInsert(w, op) {
+      w.u8(64 /* Insert */);
       w.u32(op.parent);
-      w.u8(op.mode === "append" ? MODE_APPEND : MODE_FULL);
-      w.u32(op.children.length);
-      for (let i = 0; i < op.children.length; i++) {
-        const ref = op.children[i];
-        if (ref.kind === "existing") {
-          w.u8(CHILD_EXISTING);
-          w.u32(ref.key);
-        } else {
-          w.u8(CHILD_FRESH);
-          const snap = op.freshSnapshots?.get(ref.key);
-          if (snap === void 0) {
-            throw new Error(`BinaryFrameEncoder: missing fresh snapshot for key ${ref.key}`);
-          }
-          this.writeNode(w, snap);
-        }
-      }
+      w.u32(op.before);
+      w.u16(op.ids.length);
+      for (let i = 0; i < op.ids.length; i++) w.u32(op.ids[i]);
     }
-    writePatch(w, op) {
-      w.u8(5 /* Patch */);
+    writeRemove(w, op) {
+      w.u8(65 /* Remove */);
+      w.u32(op.parent);
+      w.u16(op.ids.length);
+      for (let i = 0; i < op.ids.length; i++) w.u32(op.ids[i]);
+    }
+    writeAttrSet(w, op) {
+      w.u8(96 /* AttrSet */);
       w.u32(op.node);
-      this.writePatchSnapshot(w, op.snapshot);
+      this.writeAttrs(w, op.attrs);
     }
-    writePatchSnapshot(w, snap) {
-      if (snap.kind === "element") {
-        w.u8(NODE_KIND_ELEMENT);
-        w.u32(w.str(snap.tag));
-        w.u16(snap.attrs.length);
-        for (let i = 0; i < snap.attrs.length; i++) {
-          const a = snap.attrs[i];
-          w.u32(w.str(a.name));
-          w.u32(w.str(a.value));
-        }
-        return;
-      }
-      if (snap.kind === "text") {
-        w.u8(NODE_KIND_TEXT);
-        w.u32(w.str(snap.value));
-        return;
-      }
-      w.u8(NODE_KIND_COMMENT);
-      w.u32(w.str(snap.value));
-    }
-    writeScrollViewport(w, op) {
-      w.u8(6 /* ScrollViewport */);
-      w.i32(Math.trunc(op.scrollX));
-      w.i32(Math.trunc(op.scrollY));
-    }
-    writeScrollElement(w, op) {
-      w.u8(7 /* ScrollElement */);
+    writeAttrDel(w, op) {
+      w.u8(97 /* AttrDel */);
       w.u32(op.node);
-      w.i32(Math.trunc(op.scrollTop));
-      w.i32(Math.trunc(op.scrollLeft));
+      w.u16(op.names.length);
+      for (let i = 0; i < op.names.length; i++) this.writeStrRef(w, op.names[i]);
     }
-    writeNode(w, snap) {
-      if (snap.kind === "element") {
-        w.u8(NODE_KIND_ELEMENT);
-        w.u32(snap.key);
-        w.u32(w.str(snap.tag));
-        w.u16(snap.attrs.length);
-        for (let i = 0; i < snap.attrs.length; i++) {
-          const a = snap.attrs[i];
-          w.u32(w.str(a.name));
-          w.u32(w.str(a.value));
-        }
-        const children = snap.children ?? [];
-        w.u32(children.length);
-        for (let i = 0; i < children.length; i++) {
-          this.writeNode(w, children[i]);
-        }
-        return;
-      }
-      if (snap.kind === "text") {
-        w.u8(NODE_KIND_TEXT);
-        w.u32(snap.key);
-        w.u32(w.str(snap.value));
-        return;
-      }
-      w.u8(NODE_KIND_COMMENT);
-      w.u32(snap.key);
-      w.u32(w.str(snap.value));
+    writeTextSet(w, op) {
+      w.u8(98 /* TextSet */);
+      w.u32(op.node);
+      this.writeStrRef(w, op.value);
     }
   };
 
   // browser/mirror/projection/virtual/frame/frameEmitter.ts
+  var IDLE_SWEEP_INTERVAL_TICKS = 30;
   var FrameEmitter = class {
     clock;
-    accumulator;
+    buffer;
     builder;
     encoder;
     transport;
     domNodes;
     telemetry;
     sequence = 0;
+    idleTicks = 0;
     pendingFrame = null;
     pendingParts = null;
     pendingPartIndex = 0;
+    pendingRecords = null;
     constructor(opts) {
       this.clock = opts.clock;
-      this.accumulator = opts.accumulator;
+      this.buffer = opts.buffer;
       this.builder = opts.builder;
       this.encoder = opts.encoder;
       this.transport = opts.transport;
@@ -1143,38 +1080,66 @@
     get currentSequence() {
       return this.sequence;
     }
-    /** After establish frame (typically sequence 0), live continues from here. */
-    setCurrentSequence(sequence) {
-      this.sequence = sequence;
+    /**
+     * Sends a frame built outside the ordinary clock-driven path — bootstrap's `resyncVirtual`
+     * (frame-protocol.md §5.1/§5.8), before `start()` has ever run. Retries a deferred transport
+     * with a short async spin rather than `onBoundary`'s defer-until-next-tick, because there is no
+     * clock ticking yet to drive that retry. Sets `this.sequence` on success so the first
+     * clock-driven frame continues numbering from here, not from 0.
+     */
+    async sendInitial(frame) {
+      const parts = this.encoder.encode(frame);
+      if (parts.length === 0) return;
+      for (let i = 0; i < parts.length; i++) {
+        const bytes = parts[i];
+        let result = this.transport.send(bytes);
+        let spins = 0;
+        while (result === "deferred" && spins < 50) {
+          await new Promise((resolve) => setTimeout(resolve, 20));
+          result = this.transport.send(bytes);
+          spins += 1;
+        }
+      }
+      let totalBytes = 0;
+      for (let i = 0; i < parts.length; i++) totalBytes += parts[i].length;
+      this.telemetry?.recordFrameEmitted({
+        generation: frame.generation,
+        sequence: frame.sequence,
+        opCount: frame.ops.length,
+        partCount: parts.length,
+        bytes: totalBytes,
+        tableSize: this.domNodes.size,
+        buildMs: 0,
+        encodeMs: 0
+      });
+      this.sequence = frame.sequence;
     }
     onBoundary() {
       if (this.pendingParts !== null && this.pendingFrame !== null) {
         this.trySendPending();
         return;
       }
-      if (!this.accumulator.hasActiveWork()) return;
-      const frozen = this.accumulator.swap();
+      const hasWork = this.buffer.hasWork();
+      if (!hasWork) {
+        this.idleTicks += 1;
+        if (this.idleTicks < IDLE_SWEEP_INTERVAL_TICKS) return;
+      }
+      this.idleTicks = 0;
+      const records = hasWork ? this.buffer.drain() : [];
       const nextSequence = this.sequence + 1;
-      const frame = this.builder.build(frozen, {
+      const frame = this.builder.build(records, {
         generation: this.domNodes.generation,
         sequence: nextSequence
       });
-      if (frame === null) {
-        this.accumulator.reclaimFrozen();
-        return;
-      }
-      if (frame.ops.length === 0) {
-        this.accumulator.clearFrozen();
-        return;
-      }
+      const unconsumed = this.builder.takeUnconsumedRecords?.();
+      if (unconsumed && unconsumed.length > 0) this.buffer.reclaim(unconsumed);
+      if (frame === null) return;
       const parts = this.encoder.encode(frame);
-      if (parts.length === 0) {
-        this.accumulator.reclaimFrozen();
-        return;
-      }
+      if (parts.length === 0) return;
       this.pendingFrame = frame;
       this.pendingParts = parts;
       this.pendingPartIndex = 0;
+      this.pendingRecords = null;
       this.trySendPending();
     }
     trySendPending() {
@@ -1196,370 +1161,392 @@
       }
       let totalBytes = 0;
       for (let i = 0; i < parts.length; i++) totalBytes += parts[i].length;
+      const stats = this.builder.takeBuildStats?.() ?? null;
       this.telemetry?.recordFrameEmitted({
         generation: frame.generation,
         sequence: frame.sequence,
         opCount: frame.ops.length,
         partCount: parts.length,
-        bytes: totalBytes
-      });
-      const buildStats = this.builder.takeBuildStats?.() ?? null;
-      if (buildStats !== null) {
-        this.telemetry?.recordBuilderStats({
-          generation: frame.generation,
-          sequence: frame.sequence,
-          ephemeralPruned: buildStats.ephemeralPruned,
-          absorbed: buildStats.absorbed,
-          orphaned: buildStats.orphaned,
-          opCounts: buildStats.opCounts
-        });
-        this.telemetry?.recordFrameDecision({
-          generation: frame.generation,
-          sequence: frame.sequence,
-          publishedCount: buildStats.publishedCount,
-          lastChildListsParents: buildStats.lastChildListsParents,
-          lastChildListsEmpty: buildStats.lastChildListsEmpty,
-          dirtyIn: buildStats.dirtyIn,
-          dirtyOut: buildStats.dirtyOut,
-          ephemeralPruned: buildStats.ephemeralPruned,
-          absorbed: buildStats.absorbed,
-          orphaned: buildStats.orphaned,
-          childLists: buildStats.childLists,
-          childListsOmitted: buildStats.childListsOmitted,
-          patches: buildStats.patches,
-          scrolls: buildStats.scrolls,
-          appendFromEmptyCount: buildStats.appendFromEmptyCount
-        });
-      }
-      this.telemetry?.recordEncoder({
-        generation: frame.generation,
-        sequence: frame.sequence,
-        partCount: parts.length,
         bytes: totalBytes,
-        maxFrameBytes: this.encoder.maxFrameBytes ?? 1 << 20
+        tableSize: this.domNodes.size,
+        buildMs: stats?.buildMs ?? 0,
+        encodeMs: 0
       });
       this.sequence = frame.sequence;
       this.pendingFrame = null;
       this.pendingParts = null;
       this.pendingPartIndex = 0;
-      this.accumulator.clearFrozen();
+      this.pendingRecords = null;
     }
   };
 
-  // browser/mirror/projection/virtual/frame/netEffectFrameBuilder.ts
-  function removeKeyFromSets(sets, key) {
-    sets.newKeys.delete(key);
-    sets.dirtyParents.delete(key);
-    sets.attrDirty.delete(key);
-    sets.textDirty.delete(key);
-    sets.stateDirty.delete(key);
-    sets.detached.delete(key);
-    sets.scrollDirty.delete(key);
-  }
-  function cloneDirtySets(src) {
-    return {
-      newKeys: new Set(src.newKeys),
-      dirtyParents: new Set(src.dirtyParents),
-      attrDirty: new Set(src.attrDirty),
-      textDirty: new Set(src.textDirty),
-      stateDirty: new Set(src.stateDirty),
-      scrollDirty: new Map(src.scrollDirty),
-      detached: new Set(src.detached)
-    };
-  }
-  function isSuffixAppend(prev, next) {
-    if (prev.length === 0) return false;
-    if (next.length <= prev.length) return false;
-    for (let i = 0; i < prev.length; i++) {
-      if (prev[i] !== next[i]) return false;
+  // browser/mirror/projection/models/limits.ts
+  var MAX_STR_BYTES = 1 << 20;
+  var MAX_DIRTY_NODES = 2e4;
+  var NODE_DROP_AGE_SEQUENCES = 120;
+  var MAX_NODE_DROPS_PER_SWEEP = 500;
+
+  // browser/mirror/projection/models/replicatedTableApply.ts
+  function applyOpToTable(table, op) {
+    switch (op.op) {
+      case 1 /* Check */:
+        return;
+      case 2 /* EpochReset */:
+        table.reset();
+        return;
+      case 3 /* StrDef */:
+        return;
+      case 32 /* NodeNew */:
+        if (op.kind === 1 /* Element */) table.createElementRow(op.id, op.name, op.attrs);
+        else if (op.kind === 6 /* Doctype */) table.createLeafRow(op.id, op.kind, op.name);
+        else table.createLeafRow(op.id, op.kind, op.value);
+        return;
+      case 33 /* NodeDrop */:
+        for (let i = 0; i < op.ids.length; i++) table.dropSubtree(op.ids[i]);
+        return;
+      case 64 /* Insert */:
+        table.insertBatch(op.parent, op.before, op.ids);
+        return;
+      case 65 /* Remove */:
+        table.removeBatch(op.parent, op.ids);
+        return;
+      case 96 /* AttrSet */:
+        table.setAttrs(op.node, op.attrs);
+        return;
+      case 97 /* AttrDel */:
+        table.delAttrs(op.node, op.names);
+        return;
+      case 98 /* TextSet */:
+        table.setValue(op.node, op.value);
+        return;
+      default:
+        return;
     }
-    return true;
   }
-  var NetEffectFrameBuilder = class {
+  function applyOpsToTable(table, ops) {
+    for (let i = 0; i < ops.length; i++) applyOpToTable(table, ops[i]);
+  }
+
+  // browser/mirror/projection/virtual/frame/domNodeDescribe.ts
+  function nodeKindOf(node) {
+    switch (node.nodeType) {
+      case Node.ELEMENT_NODE:
+        return 1 /* Element */;
+      case Node.TEXT_NODE:
+        return 2 /* Text */;
+      case Node.COMMENT_NODE:
+        return 3 /* Comment */;
+      case Node.DOCUMENT_TYPE_NODE:
+        return 6 /* Doctype */;
+      default:
+        return null;
+    }
+  }
+  function readAttrs(el) {
+    const attrs = el.attributes;
+    const out = new Array(attrs.length);
+    for (let i = 0; i < attrs.length; i++) {
+      const attr = attrs[i];
+      out[i] = { name: attr.name, value: attr.value };
+    }
+    return out;
+  }
+  function describeNodeNew(id, kind, node) {
+    if (kind === 1 /* Element */) {
+      const el = node;
+      return { op: 32 /* NodeNew */, id, kind, name: el.tagName.toLowerCase(), attrs: readAttrs(el) };
+    }
+    if (kind === 6 /* Doctype */) {
+      return { op: 32 /* NodeNew */, id, kind, name: node.name || "html" };
+    }
+    return { op: 32 /* NodeNew */, id, kind, value: node.textContent ?? "" };
+  }
+
+  // browser/mirror/projection/virtual/frame/resync.ts
+  function emitResyncFrame(domNodes, table, generation, sequence) {
+    const ops = [];
+    for (const [id, node] of domNodes.liveEntries()) {
+      if (id === DOCUMENT_ID) continue;
+      if (!node.isConnected) {
+        domNodes.release(node);
+        continue;
+      }
+      const kind = nodeKindOf(node);
+      if (kind === null) continue;
+      ops.push(describeNodeNew(id, kind, node));
+    }
+    for (const [id, node] of domNodes.liveEntries()) {
+      const children = node.childNodes;
+      if (children.length === 0) continue;
+      const ids = [];
+      for (const child of children) {
+        const childId = domNodes.keyOf(child);
+        if (childId === NONE_DOM_NODE_KEY) continue;
+        ids.push(childId);
+      }
+      if (ids.length > 0) ops.push({ op: 64 /* Insert */, parent: id, before: INSERT_AT_END, ids });
+    }
+    table.reset();
+    table.setSequence(sequence);
+    applyOpsToTable(table, ops);
+    ops.push({ op: 1 /* Check */, scope: CHECK_SCOPE_TABLE, lo: 0, hi: 0, hash: table.tableHash });
+    return createFrame({ generation, sequence, ops, resync: true, preTableHash: 0n });
+  }
+  function resyncVirtual(domNodes, table, sequence) {
+    const generation = domNodes.generation;
+    domNodes.resetIdentity();
+    domNodes.bind(document, DOCUMENT_ID);
+    allocateConnectedSubtree(document, domNodes);
+    return emitResyncFrame(domNodes, table, generation, sequence);
+  }
+  function allocateConnectedSubtree(root, domNodes) {
+    const children = root.childNodes;
+    for (let i = 0; i < children.length; i++) {
+      const child = children[i];
+      if (nodeKindOf(child) !== null) domNodes.allocate(child);
+      allocateConnectedSubtree(child, domNodes);
+    }
+  }
+
+  // browser/mirror/projection/virtual/frame/tableFrameBuilder.ts
+  var EMPTY_OP_COUNTS = {};
+  var TableFrameBuilder = class {
     domNodes;
-    /** Keys successfully published on the wire (this generation). */
-    published = /* @__PURE__ */ new Set();
-    /** Last FULL/APPEND-resolved child key list per parent. */
-    lastChildLists = /* @__PURE__ */ new Map();
+    table;
+    collectOpCounts;
+    nodeDropAgeSequences;
+    maxNodeDropsPerSweep;
     lastStats = null;
-    lastChildListFacts = [];
+    pendingUnconsumed = null;
+    // Reused across ticks (`.clear()`ed at the top of `build()`) instead of allocated fresh every
+    // tick — at a sustained frame rate this is 5 fewer heap allocations per tick, directly the GC
+    // pressure identified in the 2026-08-13 CPU profile behind the buildMs p95/max spikes.
+    visited = /* @__PURE__ */ new Set();
+    createdThisTick = /* @__PURE__ */ new Set();
+    /** node -> the parent it was removed from, captured before any deferred decision (§5.6). */
+    removedThisTick = /* @__PURE__ */ new Map();
+    attrDirty = /* @__PURE__ */ new Map();
+    textDirty = /* @__PURE__ */ new Set();
     constructor(opts) {
       this.domNodes = opts.domNodes;
-    }
-    /** Test / generation bump. */
-    clearPublishState() {
-      this.published.clear();
-      this.lastChildLists.clear();
+      this.table = opts.table;
+      this.collectOpCounts = opts.collectOpCounts ?? false;
+      this.nodeDropAgeSequences = opts.nodeDropAgeSequences ?? NODE_DROP_AGE_SEQUENCES;
+      this.maxNodeDropsPerSweep = opts.maxNodeDropsPerSweep ?? MAX_NODE_DROPS_PER_SWEEP;
     }
     takeBuildStats() {
       const s = this.lastStats;
       this.lastStats = null;
       return s;
     }
-    publishState() {
-      return {
-        publishedCount: this.published.size,
-        lastChildListsParents: this.lastChildLists.size
-      };
+    /** §8 `MAX_DIRTY_NODES` — records left over when this tick's visited-set cap forced an early stop. */
+    takeUnconsumedRecords() {
+      const r = this.pendingUnconsumed;
+      this.pendingUnconsumed = null;
+      return r;
     }
-    /** Seed ids already published by establish. */
-    seedPublished(keys) {
-      for (const key of keys) this.published.add(key);
-    }
-    /** Seed last FULL child lists from the establish walk (handoff). */
-    seedChildLists(lists) {
-      for (const [parent, children] of lists) {
-        this.lastChildLists.set(parent, children.slice());
-      }
-    }
-    build(frozen, ctx) {
-      if (!dirtySetsHaveWork(frozen)) return null;
-      const dirtyIn = dirtyCard(frozen);
-      const work = cloneDirtySets(frozen);
-      const ephemeralPruned = this.pruneEphemerals(work);
-      const absorbed = this.absorbDescendants(work);
-      const orphaned = this.pruneOrphans(work);
-      if (!dirtySetsHaveWork(work)) return null;
-      const dirtyOut = dirtyCard(work);
-      const lastChildListsEmpty = this.lastChildLists.size === 0;
+    /**
+     * `records` may legitimately be empty — `frameEmitter.ts` also calls this on a periodic,
+     * mutation-independent cadence purely so `emitNodeDropSweep` below gets a chance to run during
+     * an otherwise-idle session (a detached row does not need *new* mutations to become GC-eligible,
+     * only time/`sequence` to pass — §1.6).
+     */
+    build(records, ctx) {
+      const start = performance.now();
+      const preTableHash = this.table.tableHash;
       const ops = [];
-      const freshlyEmitted = /* @__PURE__ */ new Set();
-      this.lastChildListFacts = [];
-      this.emitChildLists(work, ops, freshlyEmitted);
-      this.emitPatches(work, ops, freshlyEmitted);
-      this.emitScrolls(work, ops);
-      if (ops.length === 0) return null;
-      for (const key of freshlyEmitted) this.published.add(key);
-      const opCounts = {};
-      for (const op of ops) {
-        const name = opCodeName(op.op);
-        opCounts[name] = (opCounts[name] ?? 0) + 1;
-      }
-      const allFacts = this.lastChildListFacts;
-      const childLists = allFacts.slice(0, CHILD_LIST_FACT_CAP);
-      let appendFromEmptyCount = 0;
-      for (let i = 0; i < allFacts.length; i++) {
-        if (allFacts[i].appendFromEmpty) appendFromEmptyCount += 1;
-      }
-      this.lastStats = {
-        ephemeralPruned,
-        absorbed,
-        orphaned,
-        opCounts,
-        publishedCount: this.published.size,
-        lastChildListsParents: this.lastChildLists.size,
-        lastChildListsEmpty,
-        dirtyIn,
-        dirtyOut,
-        childLists,
-        childListsOmitted: Math.max(0, allFacts.length - childLists.length),
-        patches: opCounts.patch ?? 0,
-        scrolls: (opCounts.scrollViewport ?? 0) + (opCounts.scrollElement ?? 0),
-        appendFromEmptyCount
-      };
-      return createLiveFrame({
-        generation: ctx.generation,
-        sequence: ctx.sequence,
-        ops
-      });
-    }
-    pruneEphemerals(work) {
-      const doomed = [];
-      for (const key of work.newKeys) {
-        const node = this.domNodes.get(key);
-        if (node === void 0 || !node.isConnected) doomed.push(key);
-      }
-      for (const key of doomed) removeKeyFromSets(work, key);
-      return doomed.length;
-    }
-    nearestKeyedAncestor(node) {
-      let cur = node.parentNode;
-      while (cur !== null) {
-        const key = this.domNodes.keyOf(cur);
-        if (key !== NONE_DOM_NODE_KEY) return key;
-        cur = cur.parentNode;
-      }
-      return NONE_DOM_NODE_KEY;
-    }
-    absorbDescendants(work) {
-      let removed = 0;
-      const candidates = /* @__PURE__ */ new Set([
-        ...work.newKeys,
-        ...work.attrDirty,
-        ...work.textDirty,
-        ...work.stateDirty,
-        ...work.dirtyParents,
-        ...work.detached
-      ]);
-      for (const [k] of work.scrollDirty) {
-        if (k !== VIEWPORT_SCROLL_KEY) candidates.add(k);
-      }
-      for (const key of candidates) {
-        if (work.newKeys.has(key) && this.isTopLevelNew(key, work)) continue;
-        const node = this.domNodes.get(key);
-        if (node === void 0) continue;
-        const anc = this.nearestKeyedAncestor(node);
-        if (anc === NONE_DOM_NODE_KEY) continue;
-        if (!work.newKeys.has(anc)) continue;
-        removeKeyFromSets(work, key);
-        removed += 1;
-      }
-      return removed;
-    }
-    /** True if no ancestor is also in newKeys. */
-    isTopLevelNew(key, work) {
-      const node = this.domNodes.get(key);
-      if (node === void 0) return true;
-      let cur = node.parentNode;
-      while (cur !== null) {
-        const anc = this.domNodes.keyOf(cur);
-        if (anc !== NONE_DOM_NODE_KEY && work.newKeys.has(anc)) return false;
-        cur = cur.parentNode;
-      }
-      return true;
-    }
-    pruneOrphans(work) {
-      if (work.detached.size === 0) return 0;
-      let removed = 0;
-      const candidates = /* @__PURE__ */ new Set([
-        ...work.newKeys,
-        ...work.attrDirty,
-        ...work.textDirty,
-        ...work.stateDirty,
-        ...work.dirtyParents
-      ]);
-      for (const [k] of work.scrollDirty) {
-        if (k !== VIEWPORT_SCROLL_KEY) candidates.add(k);
-      }
-      for (const key of candidates) {
-        if (work.detached.has(key)) continue;
-        const node = this.domNodes.get(key);
-        if (node === void 0) {
-          removeKeyFromSets(work, key);
-          removed += 1;
-          continue;
-        }
-        if (this.hasDetachedAncestor(node, work.detached)) {
-          removeKeyFromSets(work, key);
-          removed += 1;
-        }
-      }
-      return removed;
-    }
-    hasDetachedAncestor(node, detached) {
-      let cur = node.parentNode;
-      while (cur !== null) {
-        const key = this.domNodes.keyOf(cur);
-        if (key !== NONE_DOM_NODE_KEY && detached.has(key)) return true;
-        cur = cur.parentNode;
-      }
-      return false;
-    }
-    emitChildLists(work, ops, freshlyEmitted) {
-      const parents = [...work.dirtyParents];
-      parents.sort((a, b) => {
-        const na = this.domNodes.get(a);
-        const nb = this.domNodes.get(b);
-        if (na === void 0 || nb === void 0) return a - b;
-        return documentOrderCompare(na, nb);
-      });
-      for (const parentKey of parents) {
-        const parent = this.domNodes.get(parentKey);
-        if (parent === void 0) continue;
-        const childNodes = listFVisibleChildren(parent);
-        const childKeys = [];
-        for (let i = 0; i < childNodes.length; i++) {
-          childKeys.push(this.domNodes.allocate(childNodes[i]));
-        }
-        const prev = this.lastChildLists.get(parentKey) ?? [];
-        let mode = "full";
-        let emitKeys = childKeys;
-        if (isSuffixAppend(prev, childKeys)) {
-          mode = "append";
-          emitKeys = childKeys.slice(prev.length);
-        }
-        const freshSnapshots = /* @__PURE__ */ new Map();
-        const children = [];
-        let nExisting = 0;
-        let nFresh = 0;
-        for (let i = 0; i < emitKeys.length; i++) {
-          const key = emitKeys[i];
-          const wasPublished = this.published.has(key) && !work.newKeys.has(key);
-          if (wasPublished) {
-            children.push({ kind: "existing", key });
-            freshlyEmitted.add(key);
-            nExisting += 1;
-          } else {
-            children.push({ kind: "fresh", key });
-            nFresh += 1;
-            const node = this.domNodes.get(key);
-            if (node !== void 0) {
-              const snap = snapshotNodeSubtree(
-                key,
-                node,
-                this.domNodes,
-                (k) => freshlyEmitted.add(k)
-              );
-              if (snap !== null) freshSnapshots.set(key, snap);
+      this.pendingUnconsumed = null;
+      if (records.length > 0) {
+        this.visited.clear();
+        this.createdThisTick.clear();
+        this.removedThisTick.clear();
+        this.attrDirty.clear();
+        this.textDirty.clear();
+        let consumedThrough = records.length;
+        for (let i = 0; i < records.length; i++) {
+          const record = records[i];
+          if (record.type === "childList") {
+            this.walkChildList(record, ops);
+            if (this.visited.size >= MAX_DIRTY_NODES) {
+              consumedThrough = i + 1;
+              break;
             }
-            freshlyEmitted.add(key);
+          } else if (record.type === "attributes") {
+            const name = record.attributeName;
+            if (name === null) continue;
+            let set = this.attrDirty.get(record.target);
+            if (set === void 0) {
+              set = /* @__PURE__ */ new Set();
+              this.attrDirty.set(record.target, set);
+            }
+            set.add(name);
+          } else if (record.type === "characterData") {
+            this.textDirty.add(record.target);
           }
         }
-        ops.push({
-          op: 4 /* ChildList */,
-          parent: parentKey,
-          mode,
-          children,
-          freshSnapshots: freshSnapshots.size > 0 ? freshSnapshots : void 0
-        });
-        this.lastChildLists.set(parentKey, childKeys.slice());
-        freshlyEmitted.add(parentKey);
-        this.lastChildListFacts.push({
-          parent: parentKey,
-          mode,
-          childCount: children.length,
-          nExisting,
-          nFresh,
-          prevCount: prev.length,
-          appendFromEmpty: mode === "append" && prev.length === 0 && children.length > 0
-        });
+        if (consumedThrough < records.length) {
+          this.pendingUnconsumed = records.slice(consumedThrough);
+        }
+        this.emitDeferredRemoves(ops);
+        this.emitAttrPatches(ops);
+        this.emitTextPatches(ops);
       }
+      this.emitNodeDropSweep(ops, ctx.sequence);
+      if (ops.length === 0) return null;
+      this.table.setSequence(ctx.sequence);
+      applyOpsToTable(this.table, ops);
+      let opCounts = EMPTY_OP_COUNTS;
+      if (this.collectOpCounts) {
+        opCounts = {};
+        for (let i = 0; i < ops.length; i++) {
+          const name = opCodeName(ops[i].op);
+          opCounts[name] = (opCounts[name] ?? 0) + 1;
+        }
+      }
+      this.lastStats = { opCounts, buildMs: performance.now() - start };
+      return createFrame({ generation: ctx.generation, sequence: ctx.sequence, ops, preTableHash });
     }
-    emitPatches(work, ops, freshlyEmitted) {
-      const patchKeys = /* @__PURE__ */ new Set([
-        ...work.attrDirty,
-        ...work.textDirty,
-        ...work.stateDirty
-      ]);
-      for (const key of patchKeys) {
-        if (work.newKeys.has(key) && !this.published.has(key)) {
+    /**
+     * OPEN-2 deferred-age GC (§1.6, §5.6): sweep the table's own detached-subtree-root candidates
+     * (independent of whatever this tick's `MutationRecord`s were about — a row can go idle
+     * without anything mutating it further) and, for whatever the sweep selects, release the
+     * matching `DomNodeTable` identity entry too — the whole point of the sweep is bounding *this*
+     * producer-side map's growth, not just the wire-visible table's.
+     */
+    emitNodeDropSweep(ops, sequence) {
+      const ids = this.table.collectDroppableIds(sequence, this.nodeDropAgeSequences, this.maxNodeDropsPerSweep);
+      if (ids.length === 0) return;
+      for (let i = 0; i < ids.length; i++) {
+        const node = this.domNodes.get(ids[i]);
+        if (node !== void 0) this.domNodes.release(node);
+      }
+      ops.push({ op: 33 /* NodeDrop */, ids });
+    }
+    walkChildList(record, ops) {
+      const parent = record.target;
+      for (let i = 0; i < record.removedNodes.length; i++) {
+        const node = record.removedNodes[i];
+        if (!this.removedThisTick.has(node)) this.removedThisTick.set(node, parent);
+      }
+      const parentId = this.domNodes.keyOf(parent);
+      if (parentId === NONE_DOM_NODE_KEY) return;
+      this.walkSiblingRun(record.addedNodes, parentId, ops);
+    }
+    /**
+     * §5.5 — reuse-or-create for one run of siblings under `parentId`: either a
+     * `MutationRecord.addedNodes` (added together in one structural op) or a freshly-created
+     * node's own `childNodes` (never observed as its own `MutationRecord` — §5.1, a subtree
+     * built off-DOM then attached in one shot is invisible to the observer while detached).
+     *
+     * Batches each *contiguous* stretch of siblings into one `INSERT` instead of one `INSERT`
+     * (and one `resolvedBefore` anchor walk) per node — contiguity is verified live via
+     * `.nextSibling` right before extending a batch, never assumed from input order (which,
+     * for `addedNodes`, is a snapshot a later mutation this same tick could have broken): a
+     * false negative here only costs a missed batching opportunity, never correctness.
+     *
+     * Found empirically 2026-08-13 (`prepend-stress.html`, a block-prepend fixture — the
+     * "load older messages" / virtualized-list-reorder shape): the old one-`resolvedBefore`-
+     * per-node walk was O(batch²) for a single large sibling block and measured as 34% of
+     * total producer CPU at a 1600-node batch. This makes it O(batch) — one anchor lookup per
+     * contiguous run, not per node.
+     */
+    walkSiblingRun(siblings, parentId, ops) {
+      const n = siblings.length;
+      let i = 0;
+      while (i < n) {
+        const node = siblings[i];
+        if (this.visited.has(node)) {
+          i += 1;
           continue;
         }
-        const node = this.domNodes.get(key);
-        if (node === void 0 || !node.isConnected) continue;
-        const snap = snapshotNodeFlat(key, node);
-        if (snap === null) continue;
-        ops.push({ op: 5 /* Patch */, node: key, snapshot: snap });
-        freshlyEmitted.add(key);
+        this.visited.add(node);
+        const before = this.resolvedBefore(node);
+        const batchIds = [];
+        const firstId = this.prepareChild(node, ops);
+        if (firstId !== NONE_DOM_NODE_KEY) batchIds.push(firstId);
+        let prev = node;
+        let j = i + 1;
+        while (j < n) {
+          const next = siblings[j];
+          if (this.visited.has(next) || prev.nextSibling !== next) break;
+          this.visited.add(next);
+          const id = this.prepareChild(next, ops);
+          if (id !== NONE_DOM_NODE_KEY) batchIds.push(id);
+          prev = next;
+          j += 1;
+        }
+        if (batchIds.length > 0) ops.push({ op: 64 /* Insert */, parent: parentId, before, ids: batchIds });
+        i = j;
       }
     }
-    emitScrolls(work, ops) {
-      for (const [key, sample] of work.scrollDirty) {
-        if (key === VIEWPORT_SCROLL_KEY) continue;
-        ops.push({
-          op: 7 /* ScrollElement */,
-          node: key,
-          scrollTop: sample.y,
-          scrollLeft: sample.x
-        });
+    /**
+     * Reuse-or-create a single node already known to belong in the caller's current `INSERT`
+     * batch — `NODE_NEW` (+ its own children's ops, recursively) on the way down; the caller
+     * emits the batch's `INSERT` on the way up, once, after every sibling in the run returns.
+     * `NONE_DOM_NODE_KEY` means "not part of the DOM-only v0 surface" (`nodeKindOf`) — the
+     * caller drops it from the batch rather than inserting a placeholder id.
+     */
+    prepareChild(node, ops) {
+      const existingId = this.domNodes.keyOf(node);
+      if (existingId !== NONE_DOM_NODE_KEY) return existingId;
+      const kind = nodeKindOf(node);
+      if (kind === null) return NONE_DOM_NODE_KEY;
+      const id = this.domNodes.allocate(node);
+      this.createdThisTick.add(node);
+      ops.push(describeNodeNew(id, kind, node));
+      this.walkSiblingRun(node.childNodes, id, ops);
+      return id;
+    }
+    /**
+     * Nearest live next-sibling that already has a row (existing before this tick, or already
+     * inserted earlier this tick). `INSERT.before` must reference a row that already exists, so
+     * walking forward past not-yet-processed new siblings and inserting each one before this
+     * stable anchor (left to right) reproduces live DOM order without ever forward-referencing
+     * an id that doesn't exist yet.
+     */
+    resolvedBefore(node) {
+      let cur = node.nextSibling;
+      while (cur !== null) {
+        const id = this.domNodes.keyOf(cur);
+        if (id !== NONE_DOM_NODE_KEY) return id;
+        cur = cur.nextSibling;
       }
-      const viewport = work.scrollDirty.get(VIEWPORT_SCROLL_KEY);
-      if (viewport !== void 0) {
-        ops.push({
-          op: 6 /* ScrollViewport */,
-          scrollX: viewport.x,
-          scrollY: viewport.y
-        });
+      return INSERT_AT_END;
+    }
+    /** §5.6 — a node removed and not re-inserted anywhere this tick is a true detach. */
+    emitDeferredRemoves(ops) {
+      for (const [node, oldParent] of this.removedThisTick) {
+        if (this.visited.has(node)) continue;
+        const id = this.domNodes.keyOf(node);
+        if (id === NONE_DOM_NODE_KEY) continue;
+        const oldParentId = this.domNodes.keyOf(oldParent);
+        if (oldParentId === NONE_DOM_NODE_KEY) continue;
+        ops.push({ op: 65 /* Remove */, parent: oldParentId, ids: [id] });
+      }
+    }
+    emitAttrPatches(ops) {
+      for (const [node, names] of this.attrDirty) {
+        if (this.createdThisTick.has(node)) continue;
+        if (!(node instanceof Element)) continue;
+        const id = this.domNodes.keyOf(node);
+        if (id === NONE_DOM_NODE_KEY || !node.isConnected) continue;
+        const setAttrs = [];
+        const delNames = [];
+        for (const name of names) {
+          const value = node.getAttribute(name);
+          if (value === null) delNames.push(name);
+          else setAttrs.push({ name, value });
+        }
+        if (setAttrs.length > 0) ops.push({ op: 96 /* AttrSet */, node: id, attrs: setAttrs });
+        if (delNames.length > 0) ops.push({ op: 97 /* AttrDel */, node: id, names: delNames });
+      }
+    }
+    emitTextPatches(ops) {
+      for (const node of this.textDirty) {
+        if (this.createdThisTick.has(node)) continue;
+        const id = this.domNodes.keyOf(node);
+        if (id === NONE_DOM_NODE_KEY || !node.isConnected) continue;
+        ops.push({ op: 98 /* TextSet */, node: id, value: node.textContent ?? "" });
       }
     }
   };
@@ -1599,10 +1586,13 @@
     now;
     textEncoder = new TextEncoder();
     framesEmitted = 0;
+    opsEmitted = 0;
     partsAccepted = 0;
     bytesAccepted = 0;
     deferredCount = 0;
     lastSequence = 0;
+    buildMsSum = 0;
+    encodeMsSum = 0;
     aggregateTimer = null;
     constructor(opts) {
       this.config = opts.config;
@@ -1620,100 +1610,41 @@
         this.aggregateTimer = null;
       }
     }
-    recordEstablishStarted(generation) {
-      if (!this.config.enabled || !this.config.establish) return;
+    recordFrameEmitted(info) {
+      if (!this.config.enabled) return;
+      this.framesEmitted += 1;
+      this.opsEmitted += info.opCount;
+      this.partsAccepted += info.partCount;
+      this.bytesAccepted += info.bytes;
+      this.lastSequence = info.sequence;
+      this.buildMsSum += info.buildMs;
+      this.encodeMsSum += info.encodeMs;
+      if (!this.config.frameEmitted) return;
       this.push({
         v: 1,
-        kind: "establishStarted",
-        t: this.now(),
-        generation
-      });
-    }
-    recordEstablishCompleted(info) {
-      if (!this.config.enabled || !this.config.establish) return;
-      this.push({
-        v: 1,
-        kind: "establishCompleted",
-        t: this.now(),
-        generation: info.generation,
-        nodeCount: info.nodeCount,
-        checksum: info.checksum,
-        bytes: info.bytes,
-        tableSize: info.tableSize
-      });
-    }
-    recordEstablishFailed(generation, message) {
-      if (!this.config.enabled || !this.config.establish) return;
-      this.push({
-        v: 1,
-        kind: "establishFailed",
-        t: this.now(),
-        generation,
-        message
-      });
-    }
-    recordHandoff(info) {
-      if (!this.config.enabled || !this.config.handoff) return;
-      this.push({
-        v: 1,
-        kind: "handoff",
-        t: this.now(),
-        generation: info.generation,
-        publishedCount: info.publishedCount,
-        tableSize: info.tableSize,
-        lastChildListsSeeded: info.lastChildListsSeeded,
-        lastChildListsParents: info.lastChildListsParents
-      });
-    }
-    recordBuilderStats(info) {
-      if (!this.config.enabled || !this.config.builderStats) return;
-      this.push({
-        v: 1,
-        kind: "builderStats",
+        kind: "frameEmitted",
         t: this.now(),
         generation: info.generation,
         sequence: info.sequence,
-        ephemeralPruned: info.ephemeralPruned,
-        absorbed: info.absorbed,
-        orphaned: info.orphaned,
-        opCounts: info.opCounts
-      });
-    }
-    recordFrameDecision(info) {
-      if (!this.config.enabled || !this.config.frameDecision) return;
-      this.push({
-        v: 1,
-        kind: "frameDecision",
-        t: this.now(),
-        generation: info.generation,
-        sequence: info.sequence,
-        publishedCount: info.publishedCount,
-        lastChildListsParents: info.lastChildListsParents,
-        lastChildListsEmpty: info.lastChildListsEmpty,
-        dirtyIn: info.dirtyIn,
-        dirtyOut: info.dirtyOut,
-        ephemeralPruned: info.ephemeralPruned,
-        absorbed: info.absorbed,
-        orphaned: info.orphaned,
-        childLists: info.childLists,
-        childListsOmitted: info.childListsOmitted,
-        patches: info.patches,
-        scrolls: info.scrolls,
-        appendFromEmptyCount: info.appendFromEmptyCount
-      });
-    }
-    recordEncoder(info) {
-      if (!this.config.enabled || !this.config.encoder) return;
-      this.push({
-        v: 1,
-        kind: "encoder",
-        t: this.now(),
-        generation: info.generation,
-        sequence: info.sequence,
+        opCount: info.opCount,
         partCount: info.partCount,
         bytes: info.bytes,
-        maxFrameBytes: info.maxFrameBytes,
-        split: info.partCount > 1
+        tableSize: info.tableSize,
+        buildMs: info.buildMs,
+        encodeMs: info.encodeMs
+      });
+    }
+    recordTransportDeferred(info) {
+      if (!this.config.enabled) return;
+      this.deferredCount += 1;
+      if (!this.config.transportDeferred) return;
+      this.push({
+        v: 1,
+        kind: "transportDeferred",
+        t: this.now(),
+        generation: info.generation,
+        sequence: info.sequence,
+        pendingParts: info.pendingParts
       });
     }
     recordClockStalled(info) {
@@ -1737,38 +1668,6 @@
         reason: info.reason
       });
     }
-    recordFrameEmitted(info) {
-      if (!this.config.enabled) return;
-      this.framesEmitted += 1;
-      this.partsAccepted += info.partCount;
-      this.bytesAccepted += info.bytes;
-      this.lastSequence = info.sequence;
-      if (!this.config.frameEmitted) return;
-      this.push({
-        v: 1,
-        kind: "frameEmitted",
-        t: this.now(),
-        generation: info.generation,
-        sequence: info.sequence,
-        opCount: info.opCount,
-        partCount: info.partCount,
-        bytes: info.bytes,
-        establish: info.establish
-      });
-    }
-    recordTransportDeferred(info) {
-      if (!this.config.enabled) return;
-      this.deferredCount += 1;
-      if (!this.config.transportDeferred) return;
-      this.push({
-        v: 1,
-        kind: "transportDeferred",
-        t: this.now(),
-        generation: info.generation,
-        sequence: info.sequence,
-        pendingParts: info.pendingParts
-      });
-    }
     pushAggregate() {
       if (!this.config.enabled || !this.config.aggregate) return;
       this.push({
@@ -1776,10 +1675,13 @@
         kind: "aggregate",
         t: this.now(),
         framesEmitted: this.framesEmitted,
+        opsEmitted: this.opsEmitted,
         partsAccepted: this.partsAccepted,
         bytesAccepted: this.bytesAccepted,
         deferredCount: this.deferredCount,
-        lastSequence: this.lastSequence
+        lastSequence: this.lastSequence,
+        avgBuildMs: this.framesEmitted > 0 ? this.buildMsSum / this.framesEmitted : 0,
+        avgEncodeMs: this.framesEmitted > 0 ? this.encodeMsSum / this.framesEmitted : 0
       });
     }
     push(message) {
@@ -1968,70 +1870,33 @@
     }
   };
 
-  // browser/mirror/projection/virtual/dom/stateSensors.ts
-  function attachStateSensors(opts) {
-    const root = opts.root ?? document;
-    const mark = (target) => {
-      if (!(target instanceof Node)) return;
-      const key = opts.domNodes.keyOf(target);
-      if (key === NONE_DOM_NODE_KEY) return;
-      opts.accumulator.markState(key);
-    };
-    const onInput = (ev) => mark(ev.target);
-    const onChange = (ev) => mark(ev.target);
-    const onToggle = (ev) => mark(ev.target);
-    const onClose = (ev) => mark(ev.target);
-    root.addEventListener("input", onInput, true);
-    root.addEventListener("change", onChange, true);
-    root.addEventListener("toggle", onToggle, true);
-    root.addEventListener("close", onClose, true);
-    return () => {
-      root.removeEventListener("input", onInput, true);
-      root.removeEventListener("change", onChange, true);
-      root.removeEventListener("toggle", onToggle, true);
-      root.removeEventListener("close", onClose, true);
-    };
-  }
-
-  // browser/mirror/projection/virtual/dom/scrollSensors.ts
-  function attachScrollSensors(opts) {
-    const onScroll = (ev) => {
-      const target = ev.target;
-      if (target === document || target === document.documentElement || target === document.body) {
-        opts.accumulator.markScroll(VIEWPORT_SCROLL_KEY, {
-          x: window.scrollX,
-          y: window.scrollY
-        });
-        return;
-      }
-      if (!(target instanceof Element)) return;
-      const key = opts.domNodes.keyOf(target);
-      if (key === NONE_DOM_NODE_KEY) return;
-      const el = target;
-      opts.accumulator.markScroll(key, { x: el.scrollLeft, y: el.scrollTop });
-    };
-    window.addEventListener("scroll", onScroll, true);
-    return () => window.removeEventListener("scroll", onScroll, true);
-  }
+  // browser/mirror/projection/virtual/transport/nullFrameTransport.ts
+  var NullFrameTransport = class {
+    send(_bytes) {
+      return "accepted";
+    }
+  };
 
   // browser/mirror/projection/virtual/bootstrap.ts
+  document.currentScript?.remove();
   void (async () => {
     if (globalThis.__speculumProjection) return;
     const config = readProjectionConfig();
     const domNodes = new DomNodeTable();
-    const domMutationAccumulator = new DomMutationAccumulator();
-    const domMutationObserver = new DomMutationObserver({
-      domNodes,
-      accumulator: domMutationAccumulator,
-      isPublishable: isPublishableNode
-    });
-    const frameBuilder = new NetEffectFrameBuilder({ domNodes });
+    domNodes.bind(document, DOCUMENT_ID);
+    domNodes.setGeneration(config.generation);
+    const table = new ReplicatedTable();
+    const mutationBuffer = new MutationBuffer();
+    const domMutationObserver = new DomMutationObserver({ buffer: mutationBuffer });
+    const frameBuilder = new TableFrameBuilder({ domNodes, table });
     const encoder = new BinaryFrameEncoder({ maxFrameBytes: config.maxFrameBytes });
     let frameTransport;
     let dataPlane = null;
     let loopback = null;
     if (config.transport === "console") {
       frameTransport = new ConsoleFrameTransport();
+    } else if (config.transport === "discard") {
+      frameTransport = new NullFrameTransport();
     } else {
       loopback = new LoopbackFrameTransport({
         bufferedAmountWatermark: config.bufferedAmountWatermark
@@ -2055,8 +1920,6 @@
       onRateChanged: (info) => telemetry.recordRateChanged(info)
     });
     domMutationObserver.start();
-    attachStateSensors({ domNodes, accumulator: domMutationAccumulator });
-    attachScrollSensors({ domNodes, accumulator: domMutationAccumulator });
     if (loopback) {
       try {
         await loopback.whenOpen();
@@ -2064,80 +1927,29 @@
         console.error("[speculumProjection] data plane open failed", err);
       }
     }
-    telemetry.recordEstablishStarted(domNodes.generation);
-    let establishOk = false;
-    try {
-      const established = buildEstablishDomFrame({
-        domNodes,
-        generation: domNodes.generation,
-        sequence: 0
-      });
-      frameBuilder.seedPublished(established.publishedKeys);
-      frameBuilder.seedChildLists(established.childLists);
-      const parts = encoder.encode(established.frame);
-      for (let i = 0; i < parts.length; i++) {
-        let result = frameTransport.send(parts[i]);
-        let spins = 0;
-        while (result === "deferred" && spins < 50) {
-          await new Promise((r) => setTimeout(r, 20));
-          result = frameTransport.send(parts[i]);
-          spins += 1;
-        }
-      }
-      const bytes = parts.reduce((n, p) => n + p.length, 0);
-      establishOk = true;
-      telemetry.recordEstablishCompleted({
-        generation: established.frame.generation,
-        nodeCount: established.nodeCount,
-        checksum: established.checksum,
-        bytes,
-        tableSize: domNodes.size
-      });
-      telemetry.recordFrameEmitted({
-        generation: established.frame.generation,
-        sequence: established.frame.sequence,
-        opCount: established.frame.ops.length,
-        partCount: parts.length,
-        bytes,
-        establish: true
-      });
-      telemetry.recordEncoder({
-        generation: established.frame.generation,
-        sequence: established.frame.sequence,
-        partCount: parts.length,
-        bytes,
-        maxFrameBytes: encoder.maxFrameBytes
-      });
-      const publish = frameBuilder.publishState();
-      telemetry.recordHandoff({
-        generation: established.frame.generation,
-        publishedCount: publish.publishedCount,
-        tableSize: domNodes.size,
-        lastChildListsSeeded: publish.lastChildListsParents > 0,
-        lastChildListsParents: publish.lastChildListsParents
-      });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      console.error("[speculumProjection] establish failed", err);
-      telemetry.recordEstablishFailed(domNodes.generation, message);
-    }
     const frameEmitter = new FrameEmitter({
       clock: frameClock,
-      accumulator: domMutationAccumulator,
+      buffer: mutationBuffer,
       builder: frameBuilder,
       encoder,
       transport: frameTransport,
       domNodes,
       telemetry
     });
-    if (establishOk) frameEmitter.setCurrentSequence(0);
+    const resyncFrame = resyncVirtual(domNodes, table, frameEmitter.currentSequence + 1);
+    if (config.generation > 1) {
+      resyncFrame.ops.unshift({ op: 2 /* EpochReset */, generation: config.generation });
+    }
+    mutationBuffer.drain();
+    await frameEmitter.sendInitial(resyncFrame);
     frameEmitter.start();
     telemetry.start();
     globalThis.__speculumProjection = {
       version: 1,
       domNodes,
+      table,
       frameClock,
-      domMutationAccumulator,
+      mutationBuffer,
       domMutationObserver,
       frameBuilder,
       frameEmitter,

@@ -1,63 +1,113 @@
 /**
- * Lab / shared DOM projection client — decode → establish/live apply → surface.
+ * Lab DOM projection client — decode → apply straight into a live document → surface.
+ * No establish / armed-vs-building split (frame-protocol.md §4.7): the first frame this
+ * client ever applies is an ordinary frame carrying the whole initial document as
+ * `NODE_NEW`/`INSERT` ops, applied the same way as every later frame (P8).
  */
 
 import {
   decodeFramePart,
   FramePartAssembler,
+  PersistentStringTable,
   type AssembledFrame,
-  type DocumentStateOp,
-  type EstablishBeginOp,
-  type EstablishEndOp,
-} from './decode';
-import { DomFrameApplier, applyDocumentState, type ApplyFrameNotes } from './applyDom';
+} from '../models/decode';
+import { DomFrameApplier } from './applyDom';
 import { PageProjectionRegistry } from './registry';
-import { createSurfaceHost, type SurfaceBuildHandle, type SurfaceHost } from './surface';
+import { createSurfaceHost } from './surface';
 import { captureParityFingerprint } from './parityFingerprint';
-import { desyncPhase } from '../models/telemetry';
+import { desyncPhase, type TelemetryPhase } from '../models/telemetry';
+import { DOCUMENT_ID } from '../models/frame';
+import { OpCode } from '../models/opcodes';
 
 export type LabProjectionClientOptions = {
   surfaceHost: HTMLElement;
   width?: number;
   height?: number;
   onTelemetry?: (msg: Record<string, unknown>) => void;
+  /** Fires once, after the first frame (sequence 1) applies successfully. */
   onArmed?: () => void;
   onDesync?: (reason: string) => void;
 };
 
 export class LabProjectionClient {
-  private readonly surface: SurfaceHost;
+  private readonly registry = new PageProjectionRegistry();
+  private readonly persistentStrings = new PersistentStringTable();
   private readonly assembler = new FramePartAssembler();
+  private readonly doc: Document;
+  private readonly applier: DomFrameApplier;
   private readonly onTelemetry?: (msg: Record<string, unknown>) => void;
-  private readonly onArmed?: () => void;
+  private readonly onArmedCb?: () => void;
   private readonly onDesyncCb?: (reason: string) => void;
 
-  private lastSequence = -1;
-  private generation = 0;
+  private lastSequence = 0;
+  private generation = 1;
   private armed = false;
-  private build: SurfaceBuildHandle | null = null;
-  private buildRegistry: PageProjectionRegistry | null = null;
-  private liveRegistry: PageProjectionRegistry | null = null;
-  private liveApplier: DomFrameApplier | null = null;
-  private pendingBegin: EstablishBeginOp | null = null;
-  private pendingDocumentState: DocumentStateOp | null = null;
 
   constructor(opts: LabProjectionClientOptions) {
-    this.surface = createSurfaceHost(opts.surfaceHost, {
+    const surface = createSurfaceHost(opts.surfaceHost, {
       width: opts.width ?? 1280,
       height: opts.height ?? 720,
     });
+    this.doc = surface.document;
+    this.registry.register(DOCUMENT_ID, this.doc);
     this.onTelemetry = opts.onTelemetry;
-    this.onArmed = opts.onArmed;
+    this.onArmedCb = opts.onArmed;
     this.onDesyncCb = opts.onDesync;
+
+    this.applier = new DomFrameApplier(this.doc, this.registry, {
+      onDesync: (info) => {
+        this.reportApplyResult({ ok: false, sequence: this.lastSequence, opCount: 0, applyMs: 0, reason: info.reason });
+        this.desync(info.reason, {
+          op: info.op,
+          id: info.id,
+          expected: info.expected,
+          actual: info.actual,
+          message: info.message,
+          phase: info.phase,
+        });
+      },
+      onApplied: (frame, applyMs) => {
+        this.reportApplyResult({ ok: true, sequence: frame.sequence, opCount: frame.ops.length, applyMs });
+        this.emitFingerprint(frame.sequence);
+        if (!this.armed) {
+          this.armed = true;
+          this.onArmedCb?.();
+        }
+      },
+      onOverrun: (durationMs, lastSequence) => {
+        this.onTelemetry?.({
+          v: 1,
+          kind: 'applyOverrun',
+          t: performance.now(),
+          generation: this.generation,
+          sequence: lastSequence,
+          durationMs,
+          budgetMs: 4,
+        });
+      },
+    });
   }
 
   get isArmed(): boolean {
     return this.armed;
   }
 
+  /**
+   * Last sequence accepted into the apply queue (may still be one `requestAnimationFrame` away
+   * from actually hitting the DOM) — lab test introspection only (Stage 2 gate: a test needs
+   * this to construct a corrupted frame's `sequence` field as exactly `lastAcceptedSequence + 1`).
+   */
+  get lastAcceptedSequence(): number {
+    return this.lastSequence;
+  }
+
+  /** Surface iframe's `contentDocument` — used for structural snapshots (lab/structuralDiff.ts). */
+  get document(): Document {
+    return this.doc;
+  }
+
   ingest(bytes: Uint8Array): void {
-    const decoded = decodeFramePart(bytes);
+    const decoded = decodeFramePart(bytes, this.persistentStrings);
     if (!decoded.ok) {
       this.desync(decoded.reason, { message: decoded.message });
       return;
@@ -72,180 +122,49 @@ export class LabProjectionClient {
   }
 
   private applyAssembled(frame: AssembledFrame): void {
-    if (frame.establish) {
-      this.applyEstablish(frame);
-      return;
-    }
-    if (!this.armed || !this.liveApplier || !this.liveRegistry) {
-      this.desync('not_armed');
-      return;
-    }
     if (frame.generation !== this.generation) {
-      this.desync('generation_mismatch', { message: `got ${frame.generation} have ${this.generation}` });
-      return;
+      // §7 ordering rule 1 ("EPOCH_RESET first, if present") — a frame announcing a new
+      // generation is only valid when its own leading op says so explicitly (Stage 3); anything
+      // else claiming a different generation without that announcement is a real mismatch.
+      const firstOp = frame.ops[0];
+      const isEpochReset = firstOp !== undefined && firstOp.op === OpCode.EpochReset;
+      if (!isEpochReset || firstOp.generation !== frame.generation) {
+        this.desync('generation_mismatch', { message: `got ${frame.generation} have ${this.generation}` });
+        return;
+      }
+      // §1.2/§4.1: "this generation is over, nothing carries forward" — a fresh generation
+      // restarts sequence numbering too (bootstrap.ts always sends its first frame at
+      // `sequence: 1` for whichever generation it is), so accepting the transition here means
+      // resetting `lastSequence` to just before it, not carrying the old generation's count.
+      this.generation = frame.generation;
+      this.lastSequence = frame.sequence - 1;
     }
     if (frame.sequence !== this.lastSequence + 1) {
       this.desync('sequence_gap', { expectedSequence: this.lastSequence + 1, gotSequence: frame.sequence });
       return;
     }
     this.lastSequence = frame.sequence;
-    this.liveApplier.enqueue(frame);
+    this.applier.enqueue(frame);
   }
 
-  private applyEstablish(frame: AssembledFrame): void {
-    if (!this.build) {
-      this.build = this.surface.beginBuild();
-      this.buildRegistry = new PageProjectionRegistry();
-      this.pendingBegin = null;
-      this.pendingDocumentState = null;
-    }
-    for (const op of frame.ops) {
-      if (op.op === 'establishBegin') {
-        this.generation = op.generation;
-        this.pendingBegin = op;
-      } else if (op.op === 'establishChunk') {
-        this.build?.writeChunk(op.html);
-      } else if (op.op === 'documentState') {
-        this.pendingDocumentState = op;
-        if (this.build?.document.documentElement) {
-          applyDocumentState(this.build.document, op);
-        }
-      } else if (op.op === 'establishEnd') {
-        this.finishEstablish(op);
-      }
-    }
-  }
-
-  private finishEstablish(op: EstablishEndOp): void {
-    const build = this.build;
-    const registry = this.buildRegistry;
-    if (!build || !registry) return;
-    build.markEstablishEnd();
-    build.markCssomReady();
-
-    if (this.pendingDocumentState && build.document.documentElement) {
-      applyDocumentState(build.document, this.pendingDocumentState);
-    }
-
-    const verified = registry.buildFromDocument(build.document);
-    if (verified.nodeCount !== op.nodeCount || verified.checksum !== op.checksum) {
-      this.reportApply({
-        ok: false,
-        establish: true,
-        sequence: 0,
-        reason: 'checksum_mismatch',
-        nodeCount: verified.nodeCount,
-        checksum: op.checksum,
-        registrySize: registry.size,
-      });
-      this.emitFingerprint(build.document, registry, 0, true);
-      this.desync('establish_checksum', {
-        message: `got nodeCount=${verified.nodeCount} checksum=${verified.checksum} want ${op.nodeCount}/${op.checksum}`,
-      });
-      build.cancel();
-      this.build = null;
-      this.buildRegistry = null;
-      return;
-    }
-
-    void build.swap().then((doc) => {
-      this.liveRegistry = registry;
-      this.liveApplier = new DomFrameApplier(doc, registry, {
-        onDesync: (info) => {
-          this.reportApply({
-            ok: false,
-            establish: false,
-            sequence: this.lastSequence,
-            reason: info.reason,
-            registrySize: registry.size,
-          });
-          this.desync(info.reason, { op: info.op, id: info.id });
-        },
-        onApplied: (f, notes) => {
-          this.reportApply({
-            ok: true,
-            establish: false,
-            sequence: f.sequence,
-            registrySize: registry.size,
-            appendOntoNonEmptyCount: notes.appendOntoNonEmptyCount,
-          });
-          this.emitFingerprint(doc, registry, f.sequence, false);
-          this.emitApplyNotes(f.sequence, notes);
-        },
-        onOverrun: (durationMs, lastSequence) => {
-          this.onTelemetry?.({
-            v: 1,
-            kind: 'applyOverrun',
-            t: performance.now(),
-            generation: this.generation,
-            sequence: lastSequence,
-            durationMs,
-            budgetMs: 4,
-          });
-        },
-      });
-      if (this.pendingBegin) {
-        doc.defaultView?.scrollTo(this.pendingBegin.scrollX, this.pendingBegin.scrollY);
-      }
-      this.lastSequence = 0;
-      this.armed = true;
-      this.build = null;
-      this.buildRegistry = null;
-      this.reportApply({
-        ok: true,
-        establish: true,
-        sequence: 0,
-        nodeCount: verified.nodeCount,
-        checksum: verified.checksum,
-        registrySize: registry.size,
-      });
-      this.emitFingerprint(doc, registry, 0, true);
-      this.onArmed?.();
-    });
-  }
-
-  private emitApplyNotes(sequence: number, notes: ApplyFrameNotes): void {
-    if (notes.appendOntoNonEmptyCount === 0 && notes.childLists.length === 0) return;
-    this.onTelemetry?.({
-      v: 1,
-      kind: 'applyDecision',
-      t: performance.now(),
-      generation: this.generation,
-      sequence,
-      appendOntoNonEmptyCount: notes.appendOntoNonEmptyCount,
-      childLists: notes.childLists,
-      patches: notes.patches,
-      scrolls: notes.scrolls,
-    });
-  }
-
-  private emitFingerprint(
-    doc: Document,
-    registry: PageProjectionRegistry,
-    sequence: number,
-    establish: boolean,
-  ): void {
-    const fp = captureParityFingerprint(doc, registry);
+  private emitFingerprint(sequence: number): void {
+    const fp = captureParityFingerprint(this.doc, this.registry);
     this.onTelemetry?.({
       v: 1,
       kind: 'parityFingerprint',
       t: performance.now(),
       generation: this.generation,
       sequence,
-      establish,
       ...fp,
     });
   }
 
-  private reportApply(info: {
+  private reportApplyResult(info: {
     ok: boolean;
-    establish: boolean;
     sequence: number;
+    opCount: number;
+    applyMs: number;
     reason?: string;
-    nodeCount?: number;
-    checksum?: number;
-    registrySize?: number;
-    appendOntoNonEmptyCount?: number;
   }): void {
     this.onTelemetry?.({
       v: 1,
@@ -254,18 +173,26 @@ export class LabProjectionClient {
       generation: this.generation,
       sequence: info.sequence,
       ok: info.ok,
-      establish: info.establish,
+      opCount: info.opCount,
+      applyMs: info.applyMs,
+      tableSize: this.registry.size,
       reason: info.reason,
-      nodeCount: info.nodeCount,
-      checksum: info.checksum,
-      registrySize: info.registrySize,
-      appendOntoNonEmptyCount: info.appendOntoNonEmptyCount,
     });
   }
 
   private desync(
     reason: string,
-    extra?: { expectedSequence?: number; gotSequence?: number; op?: string; id?: number; message?: string },
+    extra?: {
+      expectedSequence?: number;
+      gotSequence?: number;
+      op?: string;
+      id?: number;
+      message?: string;
+      expected?: bigint;
+      actual?: bigint;
+      /** Overrides the `errorCode → phase` default — see `DomDesyncInfo.phase` (applyDom.ts). */
+      phase?: TelemetryPhase;
+    },
   ): void {
     this.onTelemetry?.({
       v: 1,
@@ -274,15 +201,19 @@ export class LabProjectionClient {
       generation: this.generation,
       sequence: extra?.gotSequence ?? this.lastSequence,
       errorCode: reason,
-      phase: desyncPhase(reason),
+      phase: extra?.phase ?? desyncPhase(reason),
       expectedSequence: extra?.expectedSequence,
       op: extra?.op,
       id: extra?.id,
       message: extra?.message,
+      // §4.1 CHECK / §2 preTableHash mismatch (`reason: 'precondition'`) — u64 rides as a decimal
+      // string, `bigint` is not JSON-serializable.
+      expected: extra?.expected?.toString(),
+      actual: extra?.actual?.toString(),
     });
     this.armed = false;
     this.assembler.reset();
-    this.liveApplier?.reset();
+    this.applier.reset();
     this.onDesyncCb?.(reason);
   }
 }

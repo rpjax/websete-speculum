@@ -1,36 +1,45 @@
 /**
- * FrameEncoder impl — Frame → wire part bytes (§5.5).
- * Layout matches web `decode.ts` (i32 scrolls, patch = id + snapshot without id).
+ * FrameEncoder impl — Frame → wire part bytes (frame-protocol.md §2–§4).
+ * Layout matches client `decode.ts`.
+ *
+ * v0 string policy: every string is encoded as a **frame-local** `StrRef` (bit31 set,
+ * low 31 bits = index into this part's string table via `BinaryWriter.str()`). Persistent,
+ * session-lived interning (`STR_DEF`, §1.7) is part of the wire format (decodable — see
+ * client `decode.ts`) but this producer never emits it yet: interning is a wire-bytes
+ * optimization, and the thing this lab increment measures is CPU per operation, not bytes
+ * (frame-protocol.md decision log, 2026-08-13, "ISA"). Revisit once a perf pass shows bytes
+ * are the binding constraint.
  */
 
-import { OpCode } from '../../models/opcodes';
+import { NodeKind, OpCode } from '../../models/opcodes';
 import type {
-  ChildListOp,
-  DocumentStateOp,
-  DomNodeSnapshot,
-  EstablishBeginOp,
-  EstablishChunkOp,
-  EstablishEndOp,
+  AttrPair,
+  CheckOp,
+  EpochResetOp,
   Frame,
   FrameOp,
-  PatchOp,
-  ScrollElementOp,
-  ScrollViewportOp,
+  InsertOp,
+  NodeDropOp,
+  NodeNewOp,
+  RemoveOp,
+  StrDefOp,
+  AttrSetOp,
+  AttrDelOp,
+  TextSetOp,
 } from '../../models/frame';
 import type { FrameEncoder } from './frameEncoder';
 import { assemblePart, BinaryWriter } from './binaryWriter';
 
 export type { FrameEncoder };
 
-const NODE_KIND_ELEMENT = 1;
-const NODE_KIND_TEXT = 2;
-const NODE_KIND_COMMENT = 3;
-
-const CHILD_EXISTING = 0;
-const CHILD_FRESH = 1;
-
-const MODE_FULL = 0;
-const MODE_APPEND = 1;
+const LOCAL_STR_BIT = 0x80000000;
+/**
+ * Diagnostic only — see `encodeOpsPart`. Off by default; flip on to break down a frame's bytes
+ * between opcodes and the frame-local string table. Closed the 2026-08-13 "48KB first frame for
+ * 34 nodes" question — root cause was Patchright's injected `<script>` tags being mirrored as
+ * page content (fixed in bootstrap.ts / buildConfigPreScript.ts), not string encoding.
+ */
+const DEBUG_FIRST_FRAME_BYTES = false;
 
 export type BinaryFrameEncoderOptions = {
   maxFrameBytes?: number;
@@ -74,20 +83,29 @@ export class BinaryFrameEncoder implements FrameEncoder {
     return out;
   }
 
-  private encodeOpsPart(
-    frame: Frame,
-    ops: FrameOp[],
-    partIndex: number,
-    partCount: number,
-  ): Uint8Array {
+  private encodeOpsPart(frame: Frame, ops: FrameOp[], partIndex: number, partCount: number): Uint8Array {
     const w = this.scratch;
     w.reset();
     w.u32(ops.length);
-    for (let i = 0; i < ops.length; i++) {
-      this.writeOp(w, ops[i]!);
+    for (let i = 0; i < ops.length; i++) this.writeOp(w, ops[i]!);
+    const flags = frame.flags.resync ? 0b10 : 0;
+    const opsBody = w.bytesSoFar().slice();
+    const stringTable = w.takeStringTableBytes();
+    if (DEBUG_FIRST_FRAME_BYTES && frame.sequence === 1) {
+      const strings = w.debugStrings();
+      const record = {
+        ops: ops.length,
+        opsBodyBytes: opsBody.length,
+        stringTableBytes: stringTable.length,
+        stringCount: strings.length,
+        top10ByLen: [...strings]
+          .sort((a, b) => b.length - a.length)
+          .slice(0, 10)
+          .map((s) => ({ len: s.length, preview: s.slice(0, 60) })),
+      };
+      (globalThis as unknown as { __speculumDiag?: unknown[] }).__speculumDiag ??= [];
+      (globalThis as unknown as { __speculumDiag: unknown[] }).__speculumDiag.push(record);
     }
-    const flags =
-      (frame.flags.establish ? 1 : 0) | (frame.flags.resync ? 2 : 0);
     return assemblePart({
       version: frame.version,
       flags,
@@ -95,173 +113,126 @@ export class BinaryFrameEncoder implements FrameEncoder {
       sequence: frame.sequence,
       partIndex,
       partCount,
-      stringTable: w.takeStringTableBytes(),
-      opsBody: w.bytesSoFar().slice(),
+      preTableHash: frame.preTableHash,
+      stringTable,
+      opsBody,
     });
+  }
+
+  private writeStrRef(w: BinaryWriter, value: string): void {
+    w.u32((w.str(value) | LOCAL_STR_BIT) >>> 0);
+  }
+
+  private writeAttrs(w: BinaryWriter, attrs: AttrPair[]): void {
+    w.u16(attrs.length);
+    for (let i = 0; i < attrs.length; i++) {
+      this.writeStrRef(w, attrs[i]!.name);
+      this.writeStrRef(w, attrs[i]!.value);
+    }
   }
 
   private writeOp(w: BinaryWriter, op: FrameOp): void {
     switch (op.op) {
-      case OpCode.EstablishBegin:
-        this.writeEstablishBegin(w, op);
-        return;
-      case OpCode.EstablishChunk:
-        this.writeEstablishChunk(w, op);
-        return;
-      case OpCode.EstablishEnd:
-        this.writeEstablishEnd(w, op);
-        return;
-      case OpCode.DocumentState:
-        this.writeDocumentState(w, op);
-        return;
-      case OpCode.ChildList:
-        this.writeChildList(w, op);
-        return;
-      case OpCode.Patch:
-        this.writePatch(w, op);
-        return;
-      case OpCode.ScrollViewport:
-        this.writeScrollViewport(w, op);
-        return;
-      case OpCode.ScrollElement:
-        this.writeScrollElement(w, op);
-        return;
+      case OpCode.Check:
+        return this.writeCheck(w, op);
+      case OpCode.EpochReset:
+        return this.writeEpochReset(w, op);
+      case OpCode.StrDef:
+        return this.writeStrDef(w, op);
+      case OpCode.NodeNew:
+        return this.writeNodeNew(w, op);
+      case OpCode.NodeDrop:
+        return this.writeNodeDrop(w, op);
+      case OpCode.Insert:
+        return this.writeInsert(w, op);
+      case OpCode.Remove:
+        return this.writeRemove(w, op);
+      case OpCode.AttrSet:
+        return this.writeAttrSet(w, op);
+      case OpCode.AttrDel:
+        return this.writeAttrDel(w, op);
+      case OpCode.TextSet:
+        return this.writeTextSet(w, op);
       default:
         throw new Error(`BinaryFrameEncoder: unsupported op ${String((op as FrameOp).op)}`);
     }
   }
 
-  private writeEstablishBegin(w: BinaryWriter, op: EstablishBeginOp): void {
-    w.u8(OpCode.EstablishBegin);
+  /** §4.1 — `scope u8, lo u32, hi u32, hash u64`. Fixed-width, no varints (P5). */
+  private writeCheck(w: BinaryWriter, op: CheckOp): void {
+    w.u8(OpCode.Check);
+    w.u8(op.scope);
+    w.u32(op.lo);
+    w.u32(op.hi);
+    w.u64(op.hash);
+  }
+
+  private writeEpochReset(w: BinaryWriter, op: EpochResetOp): void {
+    w.u8(OpCode.EpochReset);
     w.u32(op.generation);
-    w.u32(op.viewportWidth);
-    w.u32(op.viewportHeight);
-    w.i32(Math.trunc(op.scrollX));
-    w.i32(Math.trunc(op.scrollY));
-    w.u32(op.scrollElements.length);
-    for (let i = 0; i < op.scrollElements.length; i++) {
-      const s = op.scrollElements[i]!;
-      w.u32(s.node);
-      w.i32(Math.trunc(s.scrollTop));
-      w.i32(Math.trunc(s.scrollLeft));
-    }
   }
 
-  private writeEstablishChunk(w: BinaryWriter, op: EstablishChunkOp): void {
-    w.u8(OpCode.EstablishChunk);
-    w.utf8Raw(op.html);
+  /** Persistent `STR_DEF` bytes are raw (this instruction IS the definition), never interned. */
+  private writeStrDef(w: BinaryWriter, op: StrDefOp): void {
+    w.u8(OpCode.StrDef);
+    w.u32(op.strId);
+    w.utf8Raw(op.value);
   }
 
-  private writeEstablishEnd(w: BinaryWriter, op: EstablishEndOp): void {
-    w.u8(OpCode.EstablishEnd);
-    w.u32(op.nodeCount);
-    w.u32(op.checksum >>> 0);
-  }
-
-  private writeDocumentState(w: BinaryWriter, op: DocumentStateOp): void {
-    w.u8(OpCode.DocumentState);
-    w.u32(w.str(op.title));
-    this.writeNullableString(w, op.lang);
-    this.writeNullableString(w, op.dir);
-    this.writeNullableString(w, op.viewportContent);
-  }
-
-  private writeNullableString(w: BinaryWriter, value: string | null): void {
-    if (value === null) {
-      w.u8(0);
+  private writeNodeNew(w: BinaryWriter, op: NodeNewOp): void {
+    w.u8(OpCode.NodeNew);
+    w.u32(op.id);
+    w.u8(op.kind);
+    if (op.kind === NodeKind.Element) {
+      this.writeStrRef(w, op.name);
+      this.writeAttrs(w, op.attrs);
       return;
     }
-    w.u8(1);
-    w.u32(w.str(value));
+    if (op.kind === NodeKind.Doctype) {
+      this.writeStrRef(w, op.name);
+      return;
+    }
+    this.writeStrRef(w, op.value);
   }
 
-  private writeChildList(w: BinaryWriter, op: ChildListOp): void {
-    w.u8(OpCode.ChildList);
+  /** §4.2 — `count: u16, ids: u32[]`; roots only, descendants derived independently on both sides. */
+  private writeNodeDrop(w: BinaryWriter, op: NodeDropOp): void {
+    w.u8(OpCode.NodeDrop);
+    w.u16(op.ids.length);
+    for (let i = 0; i < op.ids.length; i++) w.u32(op.ids[i]!);
+  }
+
+  private writeInsert(w: BinaryWriter, op: InsertOp): void {
+    w.u8(OpCode.Insert);
     w.u32(op.parent);
-    w.u8(op.mode === 'append' ? MODE_APPEND : MODE_FULL);
-    w.u32(op.children.length);
-    for (let i = 0; i < op.children.length; i++) {
-      const ref = op.children[i]!;
-      if (ref.kind === 'existing') {
-        w.u8(CHILD_EXISTING);
-        w.u32(ref.key);
-      } else {
-        w.u8(CHILD_FRESH);
-        const snap = op.freshSnapshots?.get(ref.key);
-        if (snap === undefined) {
-          throw new Error(`BinaryFrameEncoder: missing fresh snapshot for key ${ref.key}`);
-        }
-        this.writeNode(w, snap);
-      }
-    }
+    w.u32(op.before);
+    w.u16(op.ids.length);
+    for (let i = 0; i < op.ids.length; i++) w.u32(op.ids[i]!);
   }
 
-  private writePatch(w: BinaryWriter, op: PatchOp): void {
-    w.u8(OpCode.Patch);
+  private writeRemove(w: BinaryWriter, op: RemoveOp): void {
+    w.u8(OpCode.Remove);
+    w.u32(op.parent);
+    w.u16(op.ids.length);
+    for (let i = 0; i < op.ids.length; i++) w.u32(op.ids[i]!);
+  }
+
+  private writeAttrSet(w: BinaryWriter, op: AttrSetOp): void {
+    w.u8(OpCode.AttrSet);
     w.u32(op.node);
-    this.writePatchSnapshot(w, op.snapshot);
+    this.writeAttrs(w, op.attrs);
   }
 
-  private writePatchSnapshot(w: BinaryWriter, snap: DomNodeSnapshot): void {
-    if (snap.kind === 'element') {
-      w.u8(NODE_KIND_ELEMENT);
-      w.u32(w.str(snap.tag));
-      w.u16(snap.attrs.length);
-      for (let i = 0; i < snap.attrs.length; i++) {
-        const a = snap.attrs[i]!;
-        w.u32(w.str(a.name));
-        w.u32(w.str(a.value));
-      }
-      return;
-    }
-    if (snap.kind === 'text') {
-      w.u8(NODE_KIND_TEXT);
-      w.u32(w.str(snap.value));
-      return;
-    }
-    w.u8(NODE_KIND_COMMENT);
-    w.u32(w.str(snap.value));
-  }
-
-  private writeScrollViewport(w: BinaryWriter, op: ScrollViewportOp): void {
-    w.u8(OpCode.ScrollViewport);
-    w.i32(Math.trunc(op.scrollX));
-    w.i32(Math.trunc(op.scrollY));
-  }
-
-  private writeScrollElement(w: BinaryWriter, op: ScrollElementOp): void {
-    w.u8(OpCode.ScrollElement);
+  private writeAttrDel(w: BinaryWriter, op: AttrDelOp): void {
+    w.u8(OpCode.AttrDel);
     w.u32(op.node);
-    w.i32(Math.trunc(op.scrollTop));
-    w.i32(Math.trunc(op.scrollLeft));
+    w.u16(op.names.length);
+    for (let i = 0; i < op.names.length; i++) this.writeStrRef(w, op.names[i]!);
   }
 
-  private writeNode(w: BinaryWriter, snap: DomNodeSnapshot): void {
-    if (snap.kind === 'element') {
-      w.u8(NODE_KIND_ELEMENT);
-      w.u32(snap.key);
-      w.u32(w.str(snap.tag));
-      w.u16(snap.attrs.length);
-      for (let i = 0; i < snap.attrs.length; i++) {
-        const a = snap.attrs[i]!;
-        w.u32(w.str(a.name));
-        w.u32(w.str(a.value));
-      }
-      const children = snap.children ?? [];
-      w.u32(children.length);
-      for (let i = 0; i < children.length; i++) {
-        this.writeNode(w, children[i]!);
-      }
-      return;
-    }
-    if (snap.kind === 'text') {
-      w.u8(NODE_KIND_TEXT);
-      w.u32(snap.key);
-      w.u32(w.str(snap.value));
-      return;
-    }
-    w.u8(NODE_KIND_COMMENT);
-    w.u32(snap.key);
-    w.u32(w.str(snap.value));
+  private writeTextSet(w: BinaryWriter, op: TextSetOp): void {
+    w.u8(OpCode.TextSet);
+    w.u32(op.node);
+    this.writeStrRef(w, op.value);
   }
 }

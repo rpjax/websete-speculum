@@ -1,57 +1,53 @@
 /**
- * Dom-plane apply — ported for lab/client (no asset stamp / React).
- * docs/page-projection/spec/engine-redesign.md §5.4, §5.9.1.
+ * Frame → live DOM apply — frame-protocol.md §6 (client apply). v0 core scope: no CSSOM.
+ *
+ * `Remove` detaches nodes from the DOM but does not unregister them from the registry — a
+ * detached row survives, address-registered, until the producer's own age-threshold GC sweep
+ * emits `NODE_DROP` for it (§1.6/§5.6, OPEN-2, Stage 3 of frame-protocol-production-completeness)
+ * and this client's `applyNodeDrop` unregisters the subtree in response. Ids are monotonic and
+ * never reused within a generation, so an un-swept detached row costs memory, not correctness.
+ *
+ * `ReplicatedTable` (§1.3-§1.5) — real two-phase apply (§6, §P3, Stage 2 of
+ * frame-protocol-production-completeness): Phase 1 verifies `preTableHash`, applies every op's
+ * table effect, and evaluates any `CHECK` (`models/replicatedTableApply.ts`'s
+ * `applyFrameToTableChecked`) — pure memory, no DOM. Only if phase 1 fully succeeds does Phase 2
+ * run, reflecting the frame's ops into the live DOM (`applyOp` below) — Phase 2 "cannot fail"
+ * (§6) because everything it touches was already validated. A phase-1 failure aborts the whole
+ * frame via `onDesync({ reason: 'precondition', ... })` before any DOM node is touched — the same
+ * desync path as an address-miss, carrying `expected`/`actual` hashes instead of an op/id.
  */
 
-import type {
-  AssembledFrame,
-  DecodedNode,
-  DecodedOp,
-  DocumentStateOp,
-  PatchSnapshot,
-} from './decode';
+import { NodeKind, OpCode } from '../models/opcodes';
+import { DOCUMENT_ID, INSERT_AT_END, type AttrPair, type FrameOp } from '../models/frame';
+import type { AssembledFrame } from '../models/decode';
+import { ReplicatedTable } from '../models/replicatedTable';
+import { applyFrameToTableChecked } from '../models/replicatedTableApply';
 import type { PageProjectionRegistry } from './registry';
 
-export type DomDesyncReason = 'address_miss';
+export type DomDesyncReason = 'address_miss' | 'bad_target' | 'precondition' | 'malformed';
 export interface DomDesyncInfo {
   reason: DomDesyncReason;
-  op: DecodedOp['op'];
+  op: string;
   id: number;
+  /** Only set for `reason: 'precondition'` (§6 phase-1 abort) — the table hashes that disagreed. */
+  expected?: bigint;
+  actual?: bigint;
+  /** `NODE_DROP`/`MAX_ROWS` failures (Stage 3) — human-readable diagnostic detail. */
+  message?: string;
+  /**
+   * Overrides `models/telemetry.ts`'s `errorCode → phase` default for this desync — needed for
+   * `reason: 'malformed'` raised here (OPEN-1's absent-id `NODE_DROP`), which is caught during
+   * phase-1 *apply*, not decode, unlike every other `'malformed'` source (`models/decode.ts`).
+   */
+  phase?: 'apply';
 }
-
-export type ApplyChildListNote = {
-  parent: number;
-  mode: 'full' | 'append';
-  nExisting: number;
-  nFresh: number;
-  parentChildCountBefore: number;
-  appendOntoNonEmpty: boolean;
-};
-
-export type ApplyFrameNotes = {
-  appendOntoNonEmptyCount: number;
-  childLists: ApplyChildListNote[];
-  patches: number;
-  scrolls: number;
-};
 
 export interface DomFrameApplierOptions {
   onDesync?: (info: DomDesyncInfo) => void;
-  onApplied?: (frame: AssembledFrame, notes: ApplyFrameNotes) => void;
+  onApplied?: (frame: AssembledFrame, applyMs: number) => void;
   onOverrun?: (durationMs: number, lastSequence: number) => void;
   applyBudgetMs?: number;
 }
-
-type ResolvedChild =
-  | { kind: 'existing'; node: Node }
-  | { kind: 'fresh'; node: DecodedNode };
-type ResolvedOp =
-  | { op: 'childList'; parent: Element; mode: 'full' | 'append'; children: ResolvedChild[] }
-  | { op: 'patch'; target: Node; snapshot: PatchSnapshot }
-  | { op: 'scrollViewport'; scrollX: number; scrollY: number }
-  | { op: 'scrollElement'; target: Element; scrollTop: number; scrollLeft: number };
-
-const DOM_OP_NAMES = new Set(['childList', 'patch', 'scrollViewport', 'scrollElement']);
 
 export class DomFrameApplier {
   private queued: AssembledFrame[] = [];
@@ -59,11 +55,17 @@ export class DomFrameApplier {
   private readonly doc: Document;
   private readonly registry: PageProjectionRegistry;
   private readonly options: DomFrameApplierOptions;
+  private readonly table = new ReplicatedTable();
 
   constructor(doc: Document, registry: PageProjectionRegistry, options: DomFrameApplierOptions = {}) {
     this.doc = doc;
     this.registry = registry;
     this.options = options;
+  }
+
+  /** Client's own row/hash table (§1.3-§1.5) — read-only outside this class. */
+  get replicatedTable(): ReplicatedTable {
+    return this.table;
   }
 
   enqueue(frame: AssembledFrame): void {
@@ -100,234 +102,182 @@ export class DomFrameApplier {
       this.raf = null;
     }
     this.queued = [];
+    this.table.reset();
   }
 
   private applyFrame(frame: AssembledFrame): void {
-    const notes: ApplyFrameNotes = {
-      appendOntoNonEmptyCount: 0,
-      childLists: [],
-      patches: 0,
-      scrolls: 0,
-    };
-    const domOps = frame.ops.filter((op) => DOM_OP_NAMES.has(op.op));
-    if (domOps.length > 0) {
-      const resolved = resolveDomOps(domOps, this.registry);
-      if (!resolved.ok) {
-        this.options.onDesync?.({ reason: 'address_miss', op: resolved.op, id: resolved.id });
-        return;
-      }
-      applyResolvedOps(this.doc, this.registry, resolved.ops, notes);
-    }
-    const documentStateOp = frame.ops.find((op): op is DocumentStateOp => op.op === 'documentState');
-    if (documentStateOp) applyDocumentState(this.doc, documentStateOp);
-    this.options.onApplied?.(frame, notes);
-  }
-}
+    const start = performance.now();
 
-function resolveDomOps(
-  ops: DecodedOp[],
-  registry: PageProjectionRegistry,
-): { ok: true; ops: ResolvedOp[] } | { ok: false; op: DecodedOp['op']; id: number } {
-  const resolved: ResolvedOp[] = [];
-  for (const op of ops) {
-    if (op.op === 'childList') {
-      const parent = registry.get(op.parent);
-      if (!(parent instanceof Element) && parent?.nodeType !== 1) {
-        return { ok: false, op: op.op, id: op.parent };
-      }
-      if (!parent || parent.nodeType !== 1) return { ok: false, op: op.op, id: op.parent };
-      const children: ResolvedChild[] = [];
-      for (const ref of op.children) {
-        if (ref.kind === 'fresh') {
-          children.push({ kind: 'fresh', node: ref.node });
-          continue;
-        }
-        const node = registry.get(ref.id);
-        if (!node) return { ok: false, op: op.op, id: ref.id };
-        children.push({ kind: 'existing', node });
-      }
-      resolved.push({
-        op: 'childList',
-        parent: parent as Element,
-        mode: op.mode,
-        children,
-      });
-    } else if (op.op === 'patch') {
-      const target = registry.get(op.node);
-      if (!target) return { ok: false, op: op.op, id: op.node };
-      resolved.push({ op: 'patch', target, snapshot: op.snapshot });
-    } else if (op.op === 'scrollViewport') {
-      resolved.push({ op: 'scrollViewport', scrollX: op.scrollX, scrollY: op.scrollY });
-    } else if (op.op === 'scrollElement') {
-      const target = registry.get(op.node);
-      if (!target || target.nodeType !== 1) return { ok: false, op: op.op, id: op.node };
-      resolved.push({
-        op: 'scrollElement',
-        target: target as Element,
-        scrollTop: op.scrollTop,
-        scrollLeft: op.scrollLeft,
-      });
+    // Phase 1 (table) — §6, §P3: pure memory, no DOM. `preTableHash` is unchecked for resync
+    // frames (§2 — "no prior state to check against a wholesale replace"); an ordinary frame's
+    // `preTableHash` must match this client's own table *before* any op in it applies.
+    if (!frame.resync && frame.preTableHash !== this.table.tableHash) {
+      this.fail('precondition', 'preTableHash', frame.preTableHash, this.table.tableHash);
+      return;
     }
-  }
-  return { ok: true, ops: resolved };
-}
+    const result = applyFrameToTableChecked(this.table, frame.resync, frame.ops, frame.sequence);
+    if (!result.ok) {
+      if (result.opName === 'check') {
+        this.fail('precondition', 'check', result.expected, result.actual);
+      } else {
+        this.failOp(result.reason, result.opName, result.id, result.message);
+      }
+      return;
+    }
 
-function applyResolvedOps(
-  doc: Document,
-  registry: PageProjectionRegistry,
-  ops: ResolvedOp[],
-  notes: ApplyFrameNotes,
-): void {
-  for (const op of ops) {
-    if (op.op === 'childList') applyChildList(doc, registry, op, notes);
-    else if (op.op === 'patch') {
-      notes.patches += 1;
-      applyPatch(op.target, op.snapshot);
-    } else if (op.op === 'scrollViewport') {
-      notes.scrolls += 1;
-      doc.defaultView?.scrollTo(op.scrollX, op.scrollY);
+    // Phase 2 (materialize) — §6. Only reached once phase 1 has fully succeeded for the whole
+    // frame — "cannot fail" (§6) because every op it touches was already validated above.
+    for (let i = 0; i < frame.ops.length; i++) {
+      if (!this.applyOp(frame.ops[i]!)) return; // onDesync already fired inside applyOp
+    }
+    this.options.onApplied?.(frame, performance.now() - start);
+  }
+
+  private fail(reason: DomDesyncReason, opName: string, expected: bigint, actual: bigint): false;
+  private fail(reason: DomDesyncReason, opName: string, id: number): false;
+  private fail(reason: DomDesyncReason, opName: string, a: number | bigint, b?: bigint): false {
+    if (typeof a === 'bigint') {
+      this.options.onDesync?.({ reason, op: opName, id: 0, expected: a, actual: b });
     } else {
-      notes.scrolls += 1;
-      const el = op.target as HTMLElement;
-      el.scrollTop = op.scrollTop;
-      el.scrollLeft = op.scrollLeft;
+      this.options.onDesync?.({ reason, op: opName, id: a });
+    }
+    return false;
+  }
+
+  /** `NODE_DROP`/`MAX_ROWS` phase-1 failures (Stage 3) — `message` for diagnostics, explicit `phase`. */
+  private failOp(reason: 'malformed' | 'precondition', opName: string, id: number, message: string): false {
+    this.options.onDesync?.({ reason, op: opName, id, message, phase: 'apply' });
+    return false;
+  }
+
+  private applyOp(op: FrameOp): boolean {
+    switch (op.op) {
+      case OpCode.Check:
+        return true; // §4.1 — no DOM effect; already evaluated in phase 1
+      case OpCode.EpochReset:
+        return this.applyEpochReset();
+      case OpCode.StrDef:
+        return true; // already resolved at decode time (decode.ts PersistentStringTable)
+      case OpCode.NodeNew:
+        return this.applyNodeNew(op);
+      case OpCode.NodeDrop:
+        return this.applyNodeDrop(op);
+      case OpCode.Insert:
+        return this.applyInsert(op);
+      case OpCode.Remove:
+        return this.applyRemove(op);
+      case OpCode.AttrSet:
+        return this.applyAttrSet(op);
+      case OpCode.AttrDel:
+        return this.applyAttrDel(op);
+      case OpCode.TextSet:
+        return this.applyTextSet(op);
+      default:
+        return true;
     }
   }
-}
 
-function applyChildList(
-  doc: Document,
-  registry: PageProjectionRegistry,
-  op: { parent: Element; mode: 'full' | 'append'; children: ResolvedChild[] },
-  notes: ApplyFrameNotes,
-): void {
-  const parentChildCountBefore = op.parent.childNodes.length;
-  let nExisting = 0;
-  let nFresh = 0;
-  for (const c of op.children) {
-    if (c.kind === 'existing') nExisting += 1;
-    else nFresh += 1;
-  }
-  const appendOntoNonEmpty = op.mode === 'append' && parentChildCountBefore > 0 && op.children.length > 0;
-  if (appendOntoNonEmpty) notes.appendOntoNonEmptyCount += 1;
-  if (notes.childLists.length < 32) {
-    notes.childLists.push({
-      parent: registry.idOf(op.parent) ?? 0,
-      mode: op.mode,
-      nExisting,
-      nFresh,
-      parentChildCountBefore,
-      appendOntoNonEmpty,
-    });
+  /**
+   * §4.1 `EPOCH_RESET` `DOM` effect: "the surface is discarded (a new document buffer is
+   * prepared — §6)." No double-buffer surface exists yet (Stage 4) — discards in place, which is
+   * safe here specifically because phase 1 already validated the *whole* frame (§P3: "if phase
+   * 1 fails, the DOM was never touched") and `EPOCH_RESET` is ordering-guaranteed first (§7 rule
+   * 1), so every `NODE_NEW`/`INSERT` immediately following in this same frame rebuilds the
+   * surface before Phase 2 returns — there is no observable empty-document frame.
+   */
+  private applyEpochReset(): boolean {
+    this.doc.replaceChildren();
+    this.registry.clear();
+    this.registry.register(DOCUMENT_ID, this.doc);
+    return true;
   }
 
-  const wanted = op.children.map((c) =>
-    c.kind === 'existing' ? c.node : materialize(doc, registry, c.node),
-  );
-
-  if (op.mode === 'append') {
-    for (const node of wanted) op.parent.appendChild(node);
-    return;
-  }
-
-  const wantedSet = new Set(wanted);
-  for (const child of Array.from(op.parent.childNodes)) {
-    if (wantedSet.has(child)) continue;
-    registry.unregisterSubtree(child);
-    child.parentNode?.removeChild(child);
-  }
-
-  let cursor: Node | null = op.parent.firstChild;
-  for (const node of wanted) {
-    if (cursor === node) {
-      cursor = node.nextSibling;
-      continue;
+  /** §4.2 `NODE_DROP` `DOM` effect: "none — the subtree is already detached." Registry-only. */
+  private applyNodeDrop(op: Extract<FrameOp, { op: OpCode.NodeDrop }>): boolean {
+    for (let i = 0; i < op.ids.length; i++) {
+      const node = this.registry.get(op.ids[i]!);
+      if (node !== undefined) this.registry.unregisterSubtree(node);
     }
-    op.parent.insertBefore(node, cursor);
+    return true;
+  }
+
+  private applyNodeNew(op: Extract<FrameOp, { op: OpCode.NodeNew }>): boolean {
+    let node: Node;
+    if (op.kind === NodeKind.Element) {
+      node = this.doc.createElement(op.name);
+      applyAttrs(node as Element, op.attrs);
+    } else if (op.kind === NodeKind.Text) {
+      node = this.doc.createTextNode(op.value);
+    } else if (op.kind === NodeKind.Comment) {
+      node = this.doc.createComment(op.value);
+    } else if (op.kind === NodeKind.Doctype) {
+      node = this.doc.implementation.createDocumentType(op.name || 'html', '', '');
+    } else {
+      return this.fail('bad_target', 'nodeNew', op.id);
+    }
+    this.registry.register(op.id, node);
+    return true;
+  }
+
+  private applyInsert(op: Extract<FrameOp, { op: OpCode.Insert }>): boolean {
+    const parent = this.registry.get(op.parent);
+    if (!parent) return this.fail('address_miss', 'insert', op.parent);
+    let before: Node | null = null;
+    if (op.before !== INSERT_AT_END) {
+      before = this.registry.get(op.before) ?? null;
+      if (before === null) return this.fail('address_miss', 'insert', op.before);
+    }
+    for (let i = 0; i < op.ids.length; i++) {
+      const id = op.ids[i]!;
+      const node = this.registry.get(id);
+      if (!node) return this.fail('address_miss', 'insert', id);
+      parent.insertBefore(node, before);
+    }
+    return true;
+  }
+
+  private applyRemove(op: Extract<FrameOp, { op: OpCode.Remove }>): boolean {
+    const parent = this.registry.get(op.parent);
+    if (!parent) return this.fail('address_miss', 'remove', op.parent);
+    for (let i = 0; i < op.ids.length; i++) {
+      const id = op.ids[i]!;
+      const node = this.registry.get(id);
+      if (!node) return this.fail('address_miss', 'remove', id);
+      if (node.parentNode === parent) parent.removeChild(node);
+    }
+    return true;
+  }
+
+  private applyAttrSet(op: Extract<FrameOp, { op: OpCode.AttrSet }>): boolean {
+    const node = this.registry.get(op.node);
+    if (!node || node.nodeType !== Node.ELEMENT_NODE) return this.fail('address_miss', 'attrSet', op.node);
+    applyAttrs(node as Element, op.attrs);
+    return true;
+  }
+
+  private applyAttrDel(op: Extract<FrameOp, { op: OpCode.AttrDel }>): boolean {
+    const node = this.registry.get(op.node);
+    if (!node || node.nodeType !== Node.ELEMENT_NODE) return this.fail('address_miss', 'attrDel', op.node);
+    const el = node as Element;
+    for (let i = 0; i < op.names.length; i++) el.removeAttribute(op.names[i]!);
+    return true;
+  }
+
+  private applyTextSet(op: Extract<FrameOp, { op: OpCode.TextSet }>): boolean {
+    const node = this.registry.get(op.node);
+    if (!node) return this.fail('address_miss', 'textSet', op.node);
+    node.textContent = op.value;
+    return true;
   }
 }
 
-function applyPatch(target: Node, snapshot: PatchSnapshot): void {
-  if (snapshot.kind === 'text' || snapshot.kind === 'comment') {
-    target.textContent = snapshot.value ?? '';
-    return;
-  }
-  if (target.nodeType !== 1) return;
-  applyElementSnapshot(target as Element, snapshot.attrs ?? {});
-}
-
-function materialize(doc: Document, registry: PageProjectionRegistry, node: DecodedNode): Node {
-  if (node.kind === 'text') {
-    const n = doc.createTextNode(node.value ?? '');
-    registry.register(node.id, n);
-    return n;
-  }
-  if (node.kind === 'comment') {
-    const n = doc.createComment(node.value ?? '');
-    registry.register(node.id, n);
-    return n;
-  }
-  const tag = node.tag ?? 'div';
-  const el =
-    tag === 'svg' || tag.startsWith('svg:')
-      ? doc.createElementNS('http://www.w3.org/2000/svg', tag)
-      : doc.createElement(tag);
-  registry.register(node.id, el);
-  applyElementSnapshot(el, node.attrs ?? {});
-  for (const child of node.children ?? []) el.appendChild(materialize(doc, registry, child));
-  return el;
-}
-
-function applyElementSnapshot(el: Element, attrs: Record<string, string>): void {
-  for (const name of Array.from(el.getAttributeNames())) {
-    if (!(name in attrs)) el.removeAttribute(name);
-  }
-  for (const [name, value] of Object.entries(attrs)) {
+function applyAttrs(el: Element, attrs: AttrPair[]): void {
+  for (let i = 0; i < attrs.length; i++) {
+    const { name, value } = attrs[i]!;
     try {
       el.setAttribute(name, value);
     } catch {
-      /* ignore */
+      /* invalid attribute name from a hostile/unusual page — ignore, not a desync */
     }
   }
-  applyNodeState(el, attrs);
-}
-
-function applyNodeState(el: Element, attrs: Record<string, string>): void {
-  const value = attrs['speculum-input-value'];
-  if (value != null && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) {
-    if (el.value !== value) el.value = value;
-  } else if (value != null && el instanceof HTMLSelectElement) {
-    el.value = value;
-  }
-  const checked = attrs['speculum-input-checked'];
-  if (checked != null && el instanceof HTMLInputElement) el.checked = checked === 'true';
-  const selected = attrs['speculum-option-selected'];
-  if (selected != null && el instanceof HTMLOptionElement) el.selected = selected === 'true';
-  if (el instanceof HTMLDialogElement) {
-    const modal = attrs['speculum-dialog-modal'];
-    if (modal === 'true' && !el.open) el.showModal();
-    else if (modal !== 'true' && el.open) el.close();
-  }
-}
-
-export function applyDocumentState(doc: Document, op: DocumentStateOp): void {
-  doc.title = op.title;
-  const html = doc.documentElement;
-  if (html) {
-    if (op.lang !== null) html.setAttribute('lang', op.lang);
-    else html.removeAttribute('lang');
-    if (op.dir !== null) html.setAttribute('dir', op.dir);
-    else html.removeAttribute('dir');
-  }
-  const existing = doc.querySelector('meta[name="viewport"]');
-  if (op.viewportContent === null) {
-    existing?.remove();
-    return;
-  }
-  const meta = existing ?? doc.createElement('meta');
-  if (!existing) {
-    meta.setAttribute('name', 'viewport');
-    (doc.head ?? doc.documentElement)?.appendChild(meta);
-  }
-  meta.setAttribute('content', op.viewportContent);
 }

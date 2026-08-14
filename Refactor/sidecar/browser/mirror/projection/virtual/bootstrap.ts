@@ -1,36 +1,42 @@
 /**
  * Virtual-side PageProjection bootstrap — sole esbuild entry for Isolated World.
- * DOM seal: establish → live MO/emitter; telemetry push on DataPlane.
+ * MutationObserver → buffer → emitter, per frame-protocol.md §5. No establish (§4.7) — but,
+ * corrected 2026-08-13 (§5.1), the observer does **not** reliably attach before the parser
+ * produces content, so cold start is not purely "ordinary frames against an empty table": one
+ * synchronous `resyncVirtual` call (§5.8) runs immediately after `observe()` to walk whatever the
+ * parser already produced and populate the table from it, before the ordinary tick loop starts.
  */
 
 import type { FrameClock } from './clock/frameClock';
 import { TimerFrameClock } from './clock/timerFrameClock';
 import { readProjectionConfig } from './config/projectionConfig';
-import { DomMutationAccumulator } from './dom/domMutationAccumulator';
+import { MutationBuffer } from './dom/mutationBuffer';
 import { DomMutationObserver } from './dom/domMutationObserver';
 import { DomNodeTable } from './dom/domNodeTable';
-import { buildEstablishDomFrame } from './establish/establishDom';
+import { DOCUMENT_ID } from '../models/frame';
+import { OpCode } from '../models/opcodes';
+import { ReplicatedTable } from '../models/replicatedTable';
 import { BinaryFrameEncoder } from './frame/binaryFrameEncoder';
 import { FrameEmitter } from './frame/frameEmitter';
-import { NetEffectFrameBuilder } from './frame/netEffectFrameBuilder';
-import { isPublishableNode } from './frame/fVisible';
+import { resyncVirtual } from './frame/resync';
+import { TableFrameBuilder } from './frame/tableFrameBuilder';
 import { ProjectionTelemetry } from './telemetry/projectionTelemetry';
 import type { FrameTransport } from './transport/frameTransport';
 import { ConsoleFrameTransport } from './transport/consoleFrameTransport';
 import { LoopbackFrameTransport } from './transport/loopbackFrameTransport';
+import { NullFrameTransport } from './transport/nullFrameTransport';
 import type { DataPlane } from '../plane';
-import { attachStateSensors } from './dom/stateSensors';
-import { attachScrollSensors } from './dom/scrollSensors';
 
 declare global {
   var __speculumProjection:
     | {
         readonly version: 1;
         readonly domNodes: DomNodeTable;
+        readonly table: ReplicatedTable;
         readonly frameClock: FrameClock;
-        readonly domMutationAccumulator: DomMutationAccumulator;
+        readonly mutationBuffer: MutationBuffer;
         readonly domMutationObserver: DomMutationObserver;
-        readonly frameBuilder: NetEffectFrameBuilder;
+        readonly frameBuilder: TableFrameBuilder;
         readonly frameEmitter: FrameEmitter;
         readonly frameTransport: FrameTransport;
         readonly telemetry: ProjectionTelemetry;
@@ -38,19 +44,33 @@ declare global {
     | undefined;
 }
 
+// Patchright's `addInitScript` leaves its own `<script>` tag attached to the document (unlike
+// a raw invisible CDP `Page.addScriptToEvaluateOnNewDocument` context, which this is NOT — a
+// real, connected DOM node). Left in place, `resyncVirtual`'s walk (§5.8) — and every ordinary
+// tick's MutationObserver after it — treats it as real page content and mirrors it: found via
+// the 2026-08-13 "48KB first frame for 34 nodes" diagnosis, where the entire ~46KB bundle
+// source text of *this script* was the dominant string in its own first frame. `currentScript`
+// is only valid for the synchronous portion of this script's execution — must run before
+// anything else, including before any `await`.
+document.currentScript?.remove();
+
 void (async () => {
   if (globalThis.__speculumProjection) return;
 
   const config = readProjectionConfig();
 
   const domNodes = new DomNodeTable();
-  const domMutationAccumulator = new DomMutationAccumulator();
-  const domMutationObserver = new DomMutationObserver({
-    domNodes,
-    accumulator: domMutationAccumulator,
-    isPublishable: isPublishableNode,
-  });
-  const frameBuilder = new NetEffectFrameBuilder({ domNodes });
+  domNodes.bind(document, DOCUMENT_ID);
+  // §1.2/§4.1 EPOCH_RESET (Stage 3): a fresh script injection is itself always a fresh identity
+  // map (a new JS realm — there is nothing stale to clear here, unlike mid-realm `bumpGeneration()`),
+  // but it must still *report* the generation the orchestrator says this navigation is, so the
+  // resync frame built below knows whether to announce a new epoch to the client.
+  domNodes.setGeneration(config.generation);
+  const table = new ReplicatedTable();
+
+  const mutationBuffer = new MutationBuffer();
+  const domMutationObserver = new DomMutationObserver({ buffer: mutationBuffer });
+  const frameBuilder = new TableFrameBuilder({ domNodes, table });
   const encoder = new BinaryFrameEncoder({ maxFrameBytes: config.maxFrameBytes });
 
   let frameTransport: FrameTransport;
@@ -58,6 +78,8 @@ void (async () => {
   let loopback: LoopbackFrameTransport | null = null;
   if (config.transport === 'console') {
     frameTransport = new ConsoleFrameTransport();
+  } else if (config.transport === 'discard') {
+    frameTransport = new NullFrameTransport();
   } else {
     loopback = new LoopbackFrameTransport({
       bufferedAmountWatermark: config.bufferedAmountWatermark,
@@ -83,9 +105,13 @@ void (async () => {
     onRateChanged: (info) => telemetry.recordRateChanged(info),
   });
 
+  // Must start observing before anything else touches the document — a mutation that
+  // happens before `start()` is a mutation this producer can never recover (no establish
+  // fallback exists to paper over it, per P8 / §4.7). It does NOT mean the table starts
+  // accurate (§5.1, corrected): whatever the parser already produced by the time `observe()`
+  // actually attaches is invisible to the observer and must be recovered by `resyncVirtual`
+  // below, not assumed away.
   domMutationObserver.start();
-  attachStateSensors({ domNodes, accumulator: domMutationAccumulator });
-  attachScrollSensors({ domNodes, accumulator: domMutationAccumulator });
 
   if (loopback) {
     try {
@@ -95,68 +121,9 @@ void (async () => {
     }
   }
 
-  telemetry.recordEstablishStarted(domNodes.generation);
-
-  let establishOk = false;
-  try {
-    const established = buildEstablishDomFrame({
-      domNodes,
-      generation: domNodes.generation,
-      sequence: 0,
-    });
-    frameBuilder.seedPublished(established.publishedKeys);
-    frameBuilder.seedChildLists(established.childLists);
-    const parts = encoder.encode(established.frame);
-    for (let i = 0; i < parts.length; i++) {
-      let result = frameTransport.send(parts[i]!);
-      let spins = 0;
-      while (result === 'deferred' && spins < 50) {
-        await new Promise((r) => setTimeout(r, 20));
-        result = frameTransport.send(parts[i]!);
-        spins += 1;
-      }
-    }
-    const bytes = parts.reduce((n, p) => n + p.length, 0);
-    establishOk = true;
-    telemetry.recordEstablishCompleted({
-      generation: established.frame.generation,
-      nodeCount: established.nodeCount,
-      checksum: established.checksum,
-      bytes,
-      tableSize: domNodes.size,
-    });
-    telemetry.recordFrameEmitted({
-      generation: established.frame.generation,
-      sequence: established.frame.sequence,
-      opCount: established.frame.ops.length,
-      partCount: parts.length,
-      bytes,
-      establish: true,
-    });
-    telemetry.recordEncoder({
-      generation: established.frame.generation,
-      sequence: established.frame.sequence,
-      partCount: parts.length,
-      bytes,
-      maxFrameBytes: encoder.maxFrameBytes,
-    });
-    const publish = frameBuilder.publishState();
-    telemetry.recordHandoff({
-      generation: established.frame.generation,
-      publishedCount: publish.publishedCount,
-      tableSize: domNodes.size,
-      lastChildListsSeeded: publish.lastChildListsParents > 0,
-      lastChildListsParents: publish.lastChildListsParents,
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error('[speculumProjection] establish failed', err);
-    telemetry.recordEstablishFailed(domNodes.generation, message);
-  }
-
   const frameEmitter = new FrameEmitter({
     clock: frameClock,
-    accumulator: domMutationAccumulator,
+    buffer: mutationBuffer,
     builder: frameBuilder,
     encoder,
     transport: frameTransport,
@@ -164,7 +131,21 @@ void (async () => {
     telemetry,
   });
 
-  if (establishOk) frameEmitter.setCurrentSequence(0);
+  // §5.1/§5.8 bootstrap: one synchronous walk closes the gap between "observer attached" and
+  // "parser already ran ahead of it". Whatever the observer buffered up to this same point is
+  // redundant with what the walk just captured wholesale, so it is discarded, not built into a
+  // frame — the ordinary tick path only ever sees mutations that happen *after* this line.
+  const resyncFrame = resyncVirtual(domNodes, table, frameEmitter.currentSequence + 1);
+  // §7 ordering rule 1 ("EPOCH_RESET first, if present") — table state is already correct here
+  // (`resyncVirtual`/`emitResyncFrame` already reset+rebuilt `table` above; EPOCH_RESET's own
+  // `Table` effect, §4.1, is a clear-then-empty that a fresh rebuild already equals), this only
+  // adds the wire-level announcement so the client knows to discard its old generation's surface
+  // (§6, `client/applyDom.ts`) instead of treating this as an ordinary same-generation resync.
+  if (config.generation > 1) {
+    resyncFrame.ops.unshift({ op: OpCode.EpochReset, generation: config.generation });
+  }
+  mutationBuffer.drain();
+  await frameEmitter.sendInitial(resyncFrame);
 
   frameEmitter.start();
   telemetry.start();
@@ -172,8 +153,9 @@ void (async () => {
   globalThis.__speculumProjection = {
     version: 1,
     domNodes,
+    table,
     frameClock,
-    domMutationAccumulator,
+    mutationBuffer,
     domMutationObserver,
     frameBuilder,
     frameEmitter,

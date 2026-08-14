@@ -187,6 +187,7 @@
           <button type="button" data-tab="Stream" class="active">Stream</button>
           <button type="button" data-tab="Activity">Activity</button>
           <button type="button" data-tab="Config">Config</button>
+          <button type="button" data-tab="Benchmark">Benchmark</button>
         </div>
         <div id="panelStream" class="panel">
           <h2 class="panel-title">Stream</h2>
@@ -194,10 +195,6 @@
             <div class="metric">
               <div class="label">Frames</div>
               <div class="value" id="streamFrames">0</div>
-            </div>
-            <div class="metric">
-              <div class="label">Establish</div>
-              <div class="value" id="streamEstablish">—</div>
             </div>
             <div class="metric">
               <div class="label">Generation</div>
@@ -216,12 +213,16 @@
               <div class="value" id="streamDesync">0</div>
             </div>
             <div class="metric">
-              <div class="label">Append∅</div>
-              <div class="value" id="streamAppendEmpty">0</div>
+              <div class="label">Ops total</div>
+              <div class="value" id="streamOps">0</div>
             </div>
             <div class="metric">
-              <div class="label">Dup h1</div>
-              <div class="value" id="streamDupH1">—</div>
+              <div class="label">Build ms</div>
+              <div class="value" id="streamBuildMs">—</div>
+            </div>
+            <div class="metric">
+              <div class="label">Apply ms</div>
+              <div class="value" id="streamApplyMs">—</div>
             </div>
           </div>
           <div id="hostStats">host —</div>
@@ -237,10 +238,6 @@
             <input id="telEnabled" type="checkbox" checked />
           </div>
           <div class="cfg-row">
-            <label for="telEstablish">establish</label>
-            <input id="telEstablish" type="checkbox" checked />
-          </div>
-          <div class="cfg-row">
             <label for="telFrameEmitted">frameEmitted</label>
             <input id="telFrameEmitted" type="checkbox" checked />
           </div>
@@ -251,10 +248,6 @@
           <div class="cfg-row">
             <label for="telAggregate">aggregate</label>
             <input id="telAggregate" type="checkbox" checked />
-          </div>
-          <div class="cfg-row">
-            <label for="telBuilder">builderStats</label>
-            <input id="telBuilder" type="checkbox" checked />
           </div>
           <div class="cfg-row">
             <label for="telApply">applyResult (client)</label>
@@ -273,22 +266,6 @@
             <input id="telClock" type="checkbox" checked />
           </div>
           <div class="cfg-row">
-            <label for="telHandoff">handoff</label>
-            <input id="telHandoff" type="checkbox" checked />
-          </div>
-          <div class="cfg-row">
-            <label for="telDecision">frameDecision</label>
-            <input id="telDecision" type="checkbox" checked />
-          </div>
-          <div class="cfg-row">
-            <label for="telParity">parityFingerprint</label>
-            <input id="telParity" type="checkbox" checked />
-          </div>
-          <div class="cfg-row">
-            <label for="telEncoder">encoder</label>
-            <input id="telEncoder" type="checkbox" checked />
-          </div>
-          <div class="cfg-row">
             <label for="telAggMs">aggregateIntervalMs</label>
             <input id="telAggMs" type="number" min="200" step="100" value="2000" />
           </div>
@@ -300,6 +277,28 @@
           <p style="font-size:12px;color:var(--muted);margin:0.75rem 0 0">
             Start Virtual relaunches Chrome with these inject knobs.
           </p>
+        </div>
+        <div id="panelBenchmark" class="panel" hidden>
+          <h2 class="panel-title">Benchmark</h2>
+          <div class="cfg-row">
+            <label for="benchDurationMs">durationMs</label>
+            <input id="benchDurationMs" type="number" min="1000" step="1000" value="15000" />
+          </div>
+          <div class="cfg-row">
+            <label for="benchCpuProfile">CPU profile (Virtual, CDP)</label>
+            <input id="benchCpuProfile" type="checkbox" checked />
+          </div>
+          <div class="cfg-row">
+            <label for="benchInvariants">Frame-stream invariants</label>
+            <input id="benchInvariants" type="checkbox" checked />
+          </div>
+          <div class="cfg-row">
+            <label for="benchStructuralDiff">Structural diff (Virtual vs Client)</label>
+            <input id="benchStructuralDiff" type="checkbox" checked />
+          </div>
+          <button type="button" id="runBenchmark" class="primary" style="margin-top:0.5rem">Run Benchmark</button>
+          <div id="benchStatus" style="margin-top:0.5rem;color:var(--muted);font-size:12px">idle</div>
+          <div id="benchResults" style="margin-top:0.75rem;font-family:ui-monospace,Consolas,monospace;font-size:11.5px;white-space:pre-wrap"></div>
         </div>
       </aside>
     </main>

@@ -13,7 +13,7 @@ import {
 
 export const PROJECTION_CONFIG_GLOBAL = '__SPECULUM_PROJECTION__' as const;
 
-export type ProjectionTransportKind = 'console' | 'loopback';
+export type ProjectionTransportKind = 'console' | 'loopback' | 'discard';
 
 export type ProjectionConfigBag = {
   dataPlaneUrl?: unknown;
@@ -22,6 +22,7 @@ export type ProjectionConfigBag = {
   maxFrameBytes?: unknown;
   transport?: unknown;
   telemetry?: unknown;
+  generation?: unknown;
 };
 
 /** Resolved config available to Virtual modules after {@link readProjectionConfig}. */
@@ -33,6 +34,13 @@ export type ProjectionConfig = {
   bufferedAmountWatermark: number;
   maxFrameBytes: number;
   telemetry: ProjectionTelemetryConfig;
+  /**
+   * §1.2/§4.1 `EPOCH_RESET` trigger (Stage 3): which generation *this* script injection is.
+   * `1` for a session's first navigation (the client's own default — no `EPOCH_RESET` needed);
+   * `> 1` means the orchestrator (`lab/virtualBrowser.ts`'s `navigate()`) re-injected this bundle
+   * for a hard navigation within the same session, and `bootstrap.ts` must announce it.
+   */
+  generation: number;
 };
 
 const DEFAULTS = {
@@ -60,8 +68,10 @@ function asPositiveNumber(value: unknown, fallback: number, label: string): numb
 
 function asTransport(value: unknown): ProjectionTransportKind {
   if (value === undefined || value === null) return DEFAULTS.transport;
-  if (value === 'console' || value === 'loopback') return value;
-  throw new Error(`ProjectionConfig.transport must be "console" | "loopback" (got ${String(value)})`);
+  if (value === 'console' || value === 'loopback' || value === 'discard') return value;
+  throw new Error(
+    `ProjectionConfig.transport must be "console" | "loopback" | "discard" (got ${String(value)})`,
+  );
 }
 
 function asBool(value: unknown, fallback: boolean): boolean {
@@ -125,6 +135,7 @@ export function readProjectionConfig(): Readonly<ProjectionConfig> {
     ),
     maxFrameBytes: asPositiveNumber(bag.maxFrameBytes, DEFAULTS.maxFrameBytes, 'maxFrameBytes'),
     telemetry: Object.freeze(resolveTelemetry(bag.telemetry)),
+    generation: asPositiveNumber(bag.generation, 1, 'generation'),
   };
 
   cached = Object.freeze(resolved);

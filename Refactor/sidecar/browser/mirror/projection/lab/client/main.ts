@@ -1,8 +1,12 @@
 /**
  * Lab client — Stream / Activity / Config + DOM projection apply.
+ * No establish / handoff / frameDecision panels (frame-protocol.md §4.7 — those concepts
+ * don't exist anymore); Stream now surfaces the table-replicated algorithm's own signals:
+ * frame/op volume and per-frame build/apply cost (frame-protocol.md §5).
  */
 
 import { LabProjectionClient } from '../../client/labProjectionClient';
+import { snapshotTree } from '../../client/domTreeSnapshot';
 
 type TelMsg = { kind?: string; [k: string]: unknown };
 
@@ -17,6 +21,39 @@ type ControlMessage = {
   sequence?: number | null;
   dataPlaneUrl?: string;
   telemetryMessages?: number;
+  durationMs?: number;
+  options?: { cpuProfile: boolean; invariants: boolean; structuralDiff: boolean };
+  report?: BenchmarkReport;
+  reportDir?: string;
+};
+
+type StatBlock = { min: number; avg: number; p50: number; p95: number; max: number; count: number };
+
+type BenchmarkReport = {
+  meta: { timestamp: string; url: string; requestedDurationMs: number; frameRateHz: number };
+  metrics: {
+    wallMs: number;
+    bootstrap: { sequence: number; opCount: number; bytes: number; tableSize: number; buildMs: number } | null;
+    steadyFrameCount: number;
+    steadyFps: number;
+    buildMs: StatBlock;
+    opCount: StatBlock;
+    bytes: StatBlock;
+    applyMs: StatBlock;
+    lastTableSize: number;
+    wireBytesTotal: number;
+    applyOk: number;
+    applyFail: number;
+    desyncCount: number;
+    applyOverrunCount: number;
+    transportDeferredCount: number;
+  };
+  cpuProfile: { summary: { ourCode: { totalPct: number; totalMs: number }; totalSamples: number; wallMs: number } } | null;
+  invariants: { id: string; description: string; passCount: number; failCount: number }[] | null;
+  structuralDiff:
+    | { status: 'ok'; result: { identical: boolean; divergenceCount: number } }
+    | { status: 'unavailable'; reason: string }
+    | null;
 };
 
 function $(id: string): HTMLElement {
@@ -48,25 +85,77 @@ function readConfigFromUi(): Record<string, unknown> {
     frameEmitted: ($('telFrameEmitted') as HTMLInputElement).checked,
     transportDeferred: ($('telDeferred') as HTMLInputElement).checked,
     aggregate: ($('telAggregate') as HTMLInputElement).checked,
-    establish: ($('telEstablish') as HTMLInputElement).checked,
-    builderStats: ($('telBuilder') as HTMLInputElement).checked,
     applyResult: ($('telApply') as HTMLInputElement).checked,
     desync: ($('telDesync') as HTMLInputElement).checked,
     applyOverrun: ($('telOverrun') as HTMLInputElement).checked,
     clock: ($('telClock') as HTMLInputElement).checked,
-    handoff: ($('telHandoff') as HTMLInputElement).checked,
-    frameDecision: ($('telDecision') as HTMLInputElement).checked,
-    parityFingerprint: ($('telParity') as HTMLInputElement).checked,
-    encoder: ($('telEncoder') as HTMLInputElement).checked,
     aggregateIntervalMs: Number(($('telAggMs') as HTMLInputElement).value) || 2000,
   };
 }
 
+function fmtStat(label: string, s: StatBlock, unit = ''): string {
+  return `  ${label.padEnd(9)} min=${s.min.toFixed(2)}${unit} avg=${s.avg.toFixed(2)}${unit} p50=${s.p50.toFixed(2)}${unit} p95=${s.p95.toFixed(2)}${unit} max=${s.max.toFixed(2)}${unit}  (n=${s.count})`;
+}
+
+function renderBenchmarkReport(report: BenchmarkReport): string {
+  const m = report.metrics;
+  const lines: string[] = [];
+  lines.push(`${report.meta.url}`);
+  lines.push(`wallMs=${m.wallMs.toFixed(0)}  steadyFrames=${m.steadyFrameCount} (~${m.steadyFps.toFixed(1)}fps)  lastTableSize=${m.lastTableSize}  wireBytes=${m.wireBytesTotal}`);
+  if (m.bootstrap) {
+    lines.push(`bootstrap: seq=${m.bootstrap.sequence} opCount=${m.bootstrap.opCount} bytes=${m.bootstrap.bytes} tableSize=${m.bootstrap.tableSize} buildMs=${m.bootstrap.buildMs.toFixed(2)}`);
+  }
+  lines.push('steady-state:');
+  lines.push(fmtStat('buildMs', m.buildMs, 'ms'));
+  lines.push(fmtStat('opCount', m.opCount));
+  lines.push(fmtStat('bytes', m.bytes));
+  lines.push(fmtStat('applyMs', m.applyMs, 'ms'));
+  lines.push(`applyOk=${m.applyOk} applyFail=${m.applyFail} desync=${m.desyncCount} overrun=${m.applyOverrunCount} deferred=${m.transportDeferredCount}`);
+
+  if (report.cpuProfile) {
+    const oc = report.cpuProfile.summary.ourCode;
+    lines.push(`cpu (Virtual, CDP): our-code=${oc.totalPct.toFixed(2)}% (${oc.totalMs.toFixed(2)}ms of ${report.cpuProfile.summary.wallMs.toFixed(0)}ms, ${report.cpuProfile.summary.totalSamples} samples)`);
+  }
+
+  if (report.invariants) {
+    const failed = report.invariants.filter((i) => i.failCount > 0);
+    lines.push(`invariants: ${report.invariants.length} checks, ${failed.length} with failures`);
+    for (const i of failed) lines.push(`  FAIL ${i.id}: ${i.failCount} failures / ${i.passCount} passes`);
+  }
+
+  if (report.structuralDiff) {
+    if (report.structuralDiff.status === 'ok') {
+      const r = report.structuralDiff.result;
+      lines.push(`structuralDiff: ${r.identical ? 'identical' : `${r.divergenceCount} divergence(s)`}`);
+    } else {
+      lines.push(`structuralDiff: unavailable (${report.structuralDiff.reason})`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+/**
+ * Lab-only test introspection (frame-protocol-production-completeness Stage 2 gate,
+ * `scripts/smoke-projection-lab.js`) — every field is optional/no-op until a test wires it up.
+ * Not part of the wire protocol or any production path; exists so an external Playwright-driven
+ * test can (a) read the client's own sequence counter, (b) push a hand-crafted control message
+ * over the same session WS the page already uses, and (c) observe the real client's `onDesync`
+ * callback fire — without reaching into `bootLabClient`'s otherwise-private closure state.
+ */
+type SpeculumLabTestHooks = {
+  onDesync?: (reason: string) => void;
+  sendControl?: (message: Record<string, unknown>) => void;
+  projection?: LabProjectionClient;
+};
+const speculumLabTestHooks: SpeculumLabTestHooks = {};
+(globalThis as unknown as { __speculumLabTestHooks: SpeculumLabTestHooks }).__speculumLabTestHooks =
+  speculumLabTestHooks;
+
 function clientKindEnabled(kind: string): boolean {
   if (kind === 'desynced') return ($('telDesync') as HTMLInputElement).checked;
   if (kind === 'applyOverrun') return ($('telOverrun') as HTMLInputElement).checked;
-  if (kind === 'parityFingerprint') return ($('telParity') as HTMLInputElement).checked;
-  if (kind === 'applyDecision') return ($('telDecision') as HTMLInputElement).checked;
+  if (kind === 'parityFingerprint') return true;
   if (kind === 'applyResult') return ($('telApply') as HTMLInputElement).checked;
   return true;
 }
@@ -79,74 +168,64 @@ export function bootLabClient(): void {
   let frames = 0;
   let applyOk = 0;
   let desyncCount = 0;
-  let lastSeq = -1;
-  let armed = false;
-
-  const metrics = {
-    frames: 0,
-    establish: '—',
-    gen: '—',
-    seq: '—',
-    applyOk: 0,
-  };
+  let opsTotal = 0;
+  let lastBuildMs = 0;
 
   const projection = new LabProjectionClient({
     surfaceHost: $('surfaceHost'),
     onArmed: () => {
-      armed = true;
-      metrics.establish = 'armed';
-      $('streamEstablish').textContent = 'armed';
       setStatus('armed — live apply');
-      logActivity('surface armed', 'applyResult');
+      logActivity('first frame applied', 'applyResult');
     },
     onDesync: (reason) => {
-      armed = false;
       desyncCount += 1;
       $('streamDesync').textContent = String(desyncCount);
       setStatus(`desync: ${reason}`);
       logActivity(`desync ${reason}`, 'desynced');
+      speculumLabTestHooks.onDesync?.(reason);
     },
     onTelemetry: (msg) => {
       const kind = String(msg.kind ?? 'applyResult');
       const send = clientKindEnabled(kind);
-      if (kind === 'desynced' || msg.ok === false) {
+      if ((kind === 'desynced' || msg.ok === false) || send) {
         if (ws && ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: 'clientTelemetry', message: msg }));
         }
-      } else if (send && ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'clientTelemetry', message: msg }));
       }
       if (msg.ok === true) applyOk += 1;
-      metrics.applyOk = applyOk;
       $('streamApply').textContent = String(applyOk);
-      if (kind === 'parityFingerprint') {
-        $('streamDupH1').textContent = msg.duplicateH1 === true ? 'YES' : 'no';
+      if (typeof msg.opCount === 'number') {
+        opsTotal += msg.opCount;
+        $('streamOps').textContent = String(opsTotal);
       }
-      if (kind === 'applyDecision' && typeof msg.appendOntoNonEmptyCount === 'number') {
-        $('streamAppendEmpty').textContent = String(msg.appendOntoNonEmptyCount);
-      }
-      if (kind === 'frameDecision' && typeof msg.appendFromEmptyCount === 'number') {
-        $('streamAppendEmpty').textContent = String(msg.appendFromEmptyCount);
+      if (typeof msg.applyMs === 'number') {
+        $('streamApplyMs').textContent = msg.applyMs.toFixed(2);
       }
       logActivity(
-        `${kind} ok=${String(msg.ok ?? '-')} seq=${String(msg.sequence ?? '-')} ${msg.reason ? msg.reason : ''}${msg.duplicateH1 === true ? ' DUP_H1' : ''}${typeof msg.appendFromEmptyCount === 'number' ? ` append∅=${msg.appendFromEmptyCount}` : ''}${typeof msg.appendOntoNonEmptyCount === 'number' ? ` onto=${msg.appendOntoNonEmptyCount}` : ''}`,
+        `${kind} ok=${String(msg.ok ?? '-')} seq=${String(msg.sequence ?? '-')} ops=${String(msg.opCount ?? '-')} ${msg.reason ? msg.reason : ''}`,
         kind,
       );
     },
   });
+  speculumLabTestHooks.projection = projection;
+  speculumLabTestHooks.sendControl = (message) => {
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(message));
+  };
 
   const connectBtn = $('connect') as HTMLButtonElement;
   const startBtn = $('start') as HTMLButtonElement;
   const stopBtn = $('stop') as HTMLButtonElement;
+  const runBenchmarkBtn = $('runBenchmark') as HTMLButtonElement;
 
   function setConnected(on: boolean): void {
     connectBtn.disabled = on;
     startBtn.disabled = !on;
     stopBtn.disabled = !on;
+    runBenchmarkBtn.disabled = !on;
   }
 
   function showTab(name: string): void {
-    for (const id of ['panelStream', 'panelActivity', 'panelConfig']) {
+    for (const id of ['panelStream', 'panelActivity', 'panelConfig', 'panelBenchmark']) {
       $(id).hidden = id !== `panel${name}`;
     }
     for (const btn of document.querySelectorAll<HTMLButtonElement>('[data-tab]')) {
@@ -179,7 +258,6 @@ export function bootLabClient(): void {
     ws.addEventListener('message', (ev) => {
       if (typeof ev.data !== 'string') {
         frames += 1;
-        metrics.frames = frames;
         $('streamFrames').textContent = String(frames);
         projection.ingest(new Uint8Array(ev.data as ArrayBuffer));
         return;
@@ -203,41 +281,50 @@ export function bootLabClient(): void {
       if (msg.type === 'stats') {
         $('hostStats').textContent =
           `host frames=${msg.frames ?? 0} bytes=${msg.bytes ?? 0} gen=${msg.generation ?? '-'} seq=${msg.sequence ?? '-'} tel=${msg.telemetryMessages ?? 0}`;
-        if (msg.sequence != null) {
-          lastSeq = msg.sequence;
-          metrics.seq = String(msg.sequence);
-          $('streamSeq').textContent = String(msg.sequence);
-        }
-        if (msg.generation != null) {
-          metrics.gen = String(msg.generation);
-          $('streamGen').textContent = String(msg.generation);
-        }
+        if (msg.sequence != null) $('streamSeq').textContent = String(msg.sequence);
+        if (msg.generation != null) $('streamGen').textContent = String(msg.generation);
         return;
       }
       if (msg.type === 'telemetry') {
         const tel = msg.message as TelMsg | undefined;
         const kind = tel?.kind ?? '?';
         logActivity(`telemetry ${kind} ${JSON.stringify(tel).slice(0, 120)}`, kind);
-        if (kind === 'establishCompleted') {
-          if (!armed) {
-            metrics.establish = 'completed';
-            $('streamEstablish').textContent = 'completed';
+        if (kind === 'frameEmitted') {
+          if (tel?.sequence != null) $('streamSeq').textContent = String(tel.sequence);
+          if (typeof tel?.buildMs === 'number') {
+            lastBuildMs = tel.buildMs;
+            $('streamBuildMs').textContent = lastBuildMs.toFixed(2);
           }
-        }
-        if (kind === 'frameEmitted' && tel?.sequence != null) {
-          $('streamSeq').textContent = String(tel.sequence);
-        }
-        if (kind === 'frameDecision' && tel?.appendFromEmptyCount != null) {
-          $('streamAppendEmpty').textContent = String(tel.appendFromEmptyCount);
-        }
-        if (kind === 'parityFingerprint') {
-          $('streamDupH1').textContent = tel?.duplicateH1 === true ? 'YES' : 'no';
         }
         return;
       }
       if (msg.type === 'error') {
         setStatus(`error: ${typeof msg.message === 'string' ? msg.message : '?'}`);
         logActivity(`error ${typeof msg.message === 'string' ? msg.message : '?'}`);
+        if (runBenchmarkBtn.disabled) {
+          runBenchmarkBtn.disabled = false;
+          $('benchStatus').textContent = `error: ${typeof msg.message === 'string' ? msg.message : '?'}`;
+        }
+        return;
+      }
+      if (msg.type === 'requestSnapshot') {
+        const tree = snapshotTree(projection.document);
+        ws?.send(JSON.stringify({ type: 'snapshotResult', tree }));
+        logActivity('snapshot captured — sent to session');
+        return;
+      }
+      if (msg.type === 'benchmarkStarted') {
+        runBenchmarkBtn.disabled = true;
+        $('benchStatus').textContent = `running — ${msg.url ?? ''} for ${msg.durationMs ?? '?'}ms…`;
+        $('benchResults').textContent = '';
+        logActivity(`benchmark started ${msg.url ?? ''} durationMs=${msg.durationMs ?? '?'}`);
+        return;
+      }
+      if (msg.type === 'benchmarkComplete') {
+        runBenchmarkBtn.disabled = false;
+        $('benchStatus').textContent = `done — report: ${msg.reportDir ?? '?'}`;
+        $('benchResults').textContent = msg.report ? renderBenchmarkReport(msg.report) : '(no report)';
+        logActivity(`benchmark complete reportDir=${msg.reportDir ?? '?'}`);
         return;
       }
       logActivity(`control ${msg.type}`);
@@ -249,10 +336,9 @@ export function bootLabClient(): void {
     frames = 0;
     applyOk = 0;
     desyncCount = 0;
-    armed = false;
+    opsTotal = 0;
     $('streamDesync').textContent = '0';
-    $('streamAppendEmpty').textContent = '0';
-    $('streamDupH1').textContent = '—';
+    $('streamOps').textContent = '0';
     ws.send(
       JSON.stringify({
         type: 'start',
@@ -269,10 +355,28 @@ export function bootLabClient(): void {
     ws.send(JSON.stringify({ type: 'stop' }));
   });
 
+  runBenchmarkBtn.addEventListener('click', () => {
+    if (ws === null || ws.readyState !== WebSocket.OPEN) return;
+    runBenchmarkBtn.disabled = true;
+    $('benchStatus').textContent = 'starting…';
+    ws.send(
+      JSON.stringify({
+        type: 'runBenchmark',
+        url: urlInput.value.trim(),
+        durationMs: Number(($('benchDurationMs') as HTMLInputElement).value) || 15_000,
+        telemetry: readConfigFromUi(),
+        frameRateHz: Number(($('cfgFrameRate') as HTMLInputElement).value) || 60,
+        options: {
+          cpuProfile: ($('benchCpuProfile') as HTMLInputElement).checked,
+          invariants: ($('benchInvariants') as HTMLInputElement).checked,
+          structuralDiff: ($('benchStructuralDiff') as HTMLInputElement).checked,
+        },
+      }),
+    );
+  });
+
   setConnected(false);
   setStatus('idle');
-  void armed;
-  void lastSeq;
 }
 
 bootLabClient();

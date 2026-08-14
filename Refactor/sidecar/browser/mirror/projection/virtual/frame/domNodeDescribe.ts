@@ -1,0 +1,57 @@
+/**
+ * Shared node → wire-descriptor helpers — frame-protocol.md §4.2. Used by both the incremental
+ * builder (`tableFrameBuilder.ts`, §5.5) and the resync builder (`resync.ts`, §5.8): both need
+ * exactly the same "read a live node, produce its `NODE_NEW` descriptor" logic, just triggered
+ * from a different traversal (mutation-driven DFS vs. identity-map iteration).
+ */
+
+import { NodeKind, OpCode } from '../../models/opcodes';
+import type { AttrPair, FrameOp } from '../../models/frame';
+import type { DomNodeKey } from '../../models/domNodeKey';
+
+/** The only kinds a live DOM node can ever produce (Sheet/Rule are CSSOM-only, out of v0 scope). */
+export type DomNodeKind = NodeKind.Element | NodeKind.Text | NodeKind.Comment | NodeKind.Doctype;
+
+export function nodeKindOf(node: Node): DomNodeKind | null {
+  switch (node.nodeType) {
+    case Node.ELEMENT_NODE:
+      return NodeKind.Element;
+    case Node.TEXT_NODE:
+      return NodeKind.Text;
+    case Node.COMMENT_NODE:
+      return NodeKind.Comment;
+    case Node.DOCUMENT_TYPE_NODE:
+      return NodeKind.Doctype;
+    default:
+      // Fragments never appear in addedNodes (browsers unwrap them); anything else
+      // (CDATA, PI) is not part of the DOM-only v0 surface.
+      return null;
+  }
+}
+
+/**
+ * Single `NamedNodeMap` iteration instead of `getAttributeNames()` + one `getAttribute()` call
+ * per name — the latter is two native (V8 <-> Blink) round-trips per attribute where one
+ * suffices; per the 2026-08-13 CPU profile this was ~16.5% of producer build time.
+ */
+export function readAttrs(el: Element): AttrPair[] {
+  const attrs = el.attributes;
+  const out: AttrPair[] = new Array(attrs.length);
+  for (let i = 0; i < attrs.length; i++) {
+    const attr = attrs[i]!;
+    out[i] = { name: attr.name, value: attr.value };
+  }
+  return out;
+}
+
+/** `NODE_NEW` descriptor, read fresh from the live node — never from a producer-side cache. */
+export function describeNodeNew(id: DomNodeKey, kind: DomNodeKind, node: Node): FrameOp {
+  if (kind === NodeKind.Element) {
+    const el = node as Element;
+    return { op: OpCode.NodeNew, id, kind, name: el.tagName.toLowerCase(), attrs: readAttrs(el) };
+  }
+  if (kind === NodeKind.Doctype) {
+    return { op: OpCode.NodeNew, id, kind, name: (node as DocumentType).name || 'html' };
+  }
+  return { op: OpCode.NodeNew, id, kind, value: node.textContent ?? '' };
+}

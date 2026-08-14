@@ -35,6 +35,28 @@ import { parseDataUrl } from './browser/patchright/mirror/page/parseDataUrl';
 import type { BrowserCookieState } from './browser/BrowserSession';
 import { collectTelemetry } from './telemetry/collectTelemetry';
 import { applyHostResources } from './host/hostResources';
+import {
+  addMod64,
+  computeRowHash,
+  h64Bytes,
+  h64Str,
+  h64U32,
+  hashAttr,
+  hashName,
+  hashValue,
+  subMod64,
+  TableHashTracker,
+} from './browser/mirror/projection/models/rowHash';
+import { ReplicatedTable } from './browser/mirror/projection/models/replicatedTable';
+import {
+  applyFrameToTable,
+  applyFrameToTableChecked,
+  applyOpToTable,
+  applyOpsToTable,
+} from './browser/mirror/projection/models/replicatedTableApply';
+import { NodeKind, OpCode } from './browser/mirror/projection/models/opcodes';
+import { CHECK_SCOPE_RANGE, CHECK_SCOPE_TABLE, type FrameOp } from './browser/mirror/projection/models/frame';
+import { MAX_ROWS } from './browser/mirror/projection/models/limits';
 
 /** Test stand-in for Sessions.ViewportPolicy — production gets this on Launch. */
 const POLICY = {
@@ -1669,6 +1691,513 @@ function testIoctlKoffiPrototype(): void {
   console.log('[unit] ioctl koffi prototype ok');
 }
 
+/** frame-protocol.md §1.5 Stage 1 gate — H64 primitives: deterministic, input-sensitive, mod-2^64-correct. */
+function testRowHashPrimitives(): void {
+  assert.strictEqual(h64Str('div'), h64Str('div'), 'h64Str must be deterministic');
+  assert.notStrictEqual(h64Str('div'), h64Str('span'), 'different strings must (almost certainly) hash differently');
+  assert.notStrictEqual(h64Str(''), 0n, 'empty string must not hash to the identity element');
+  assert.strictEqual(h64Bytes(new Uint8Array([1, 2, 3])), h64Bytes(new Uint8Array([1, 2, 3])));
+  assert.notStrictEqual(h64Bytes(new Uint8Array([1, 2, 3])), h64Bytes(new Uint8Array([3, 2, 1])), 'byte order must matter');
+
+  assert.strictEqual(h64U32(0), h64U32(0));
+  assert.notStrictEqual(h64U32(1), h64U32(2));
+  assert.notStrictEqual(h64U32(0x100), h64U32(1), 'byte-shifted values must not collide');
+  assert.notStrictEqual(h64U32(0xffffffff), h64U32(0), 'top bit must be mixed in');
+
+  // Tag-prefixed content hashes must not collide across field kinds for the same underlying text.
+  assert.notStrictEqual(hashName('x'), hashValue('x'), 'hashName/hashValue must not collide for equal text');
+  assert.notStrictEqual(hashName('x'), hashAttr('x', ''), 'hashName/hashAttr must not collide for equal text');
+  assert.notStrictEqual(hashAttr('a', 'b'), hashAttr('ab', ''), 'attr name/value separator must prevent splicing collisions');
+  assert.notStrictEqual(hashAttr('a', 'b'), hashAttr('a', 'bx'), 'attr value must be part of the hash');
+
+  // mod 2^64 wraparound — subMod64 must invert addMod64 for any operand pair, including near the mask boundary.
+  const MASK64 = 0xffffffffffffffffn;
+  assert.strictEqual(addMod64(MASK64, 1n), 0n, 'addMod64 must wrap at 2^64');
+  assert.strictEqual(subMod64(0n, 1n), MASK64, 'subMod64 must wrap negative results to unsigned mod 2^64');
+  const a = h64Str('alpha');
+  const b = h64Str('beta');
+  assert.strictEqual(subMod64(addMod64(a, b), b), a, 'subMod64 must invert addMod64');
+
+  // computeRowHash must be sensitive to every one of its five fields independently.
+  const base = computeRowHash(10, NodeKind.Element, 1, 0, 0n);
+  assert.notStrictEqual(computeRowHash(11, NodeKind.Element, 1, 0, 0n), base, 'id must affect rowHash');
+  assert.notStrictEqual(computeRowHash(10, NodeKind.Text, 1, 0, 0n), base, 'kind must affect rowHash');
+  assert.notStrictEqual(computeRowHash(10, NodeKind.Element, 2, 0, 0n), base, 'parent must affect rowHash');
+  assert.notStrictEqual(computeRowHash(10, NodeKind.Element, 1, 5, 0n), base, 'prevSibling must affect rowHash');
+  assert.notStrictEqual(computeRowHash(10, NodeKind.Element, 1, 0, 1n), base, 'contentHash must affect rowHash');
+  console.log('[unit] rowHash primitives (deterministic, sensitive, mod-2^64-correct) ok');
+}
+
+/** §1.5 — TableHashTracker's running sum must be order-independent and correctly reversible. */
+function testTableHashTrackerOrderIndependence(): void {
+  const rows = new Map<number, bigint>([
+    [1, h64Str('a')],
+    [2, h64Str('b')],
+    [3, h64Str('c')],
+  ]);
+
+  const forward = new TableHashTracker();
+  for (const [id, h] of rows) forward.upsert(id, h);
+
+  const reversed = new TableHashTracker();
+  for (const [id, h] of [...rows].reverse()) reversed.upsert(id, h);
+
+  assert.strictEqual(forward.value, reversed.value, 'tableHash (a running sum mod 2^64) must not depend on upsert order');
+  assert.strictEqual(forward.size, 3);
+
+  // Replacing an existing row's hash must retract the old contribution, not add to it.
+  const before = forward.value;
+  forward.upsert(2, h64Str('b-updated'));
+  assert.notStrictEqual(forward.value, before, 'replacing a row hash must change the total');
+  forward.upsert(2, rows.get(2)!);
+  assert.strictEqual(forward.value, before, 'restoring the original row hash must restore the original total');
+
+  // remove() must exactly undo upsert() — final total after removing everything is the identity (0).
+  forward.remove(1);
+  forward.remove(2);
+  forward.remove(3);
+  assert.strictEqual(forward.value, 0n, 'removing every row must return the tracker to the zero identity');
+  assert.strictEqual(forward.size, 0);
+  console.log('[unit] TableHashTracker order-independent sum + exact remove ok');
+}
+
+/** §1.3/§1.5 — ReplicatedTable row construction: contentHash/rowHash formulas match the spec, ATTR_DEL absent-key is a no-op. */
+function testReplicatedTableRowContentHash(): void {
+  const table = new ReplicatedTable();
+  table.createElementRow(10, 'div', [{ name: 'class', value: 'a' }]);
+  const afterCreate = table.getRow(10);
+  assert.ok(afterCreate);
+  const expectedCreateContent = addMod64(hashName('div'), hashAttr('class', 'a'));
+  assert.strictEqual(afterCreate!.contentHash, expectedCreateContent, '§1.3 element contentHash = Σ(tag name hash, attr hashes)');
+  assert.strictEqual(afterCreate!.rowHash, computeRowHash(10, NodeKind.Element, 0, 0, expectedCreateContent));
+
+  table.setAttrs(10, [{ name: 'id', value: 'root' }]);
+  const expectedAfterSet = addMod64(expectedCreateContent, hashAttr('id', 'root'));
+  assert.strictEqual(table.getRow(10)!.contentHash, expectedAfterSet, 'ATTR_SET must add the new attribute contribution');
+
+  // §4.4 — deleting an attribute that was never set is a documented no-op, not an error.
+  table.delAttrs(10, ['does-not-exist']);
+  assert.strictEqual(table.getRow(10)!.contentHash, expectedAfterSet, 'absent-attribute ATTR_DEL must be a no-op');
+
+  table.delAttrs(10, ['class']);
+  const expectedAfterDel = subMod64(expectedAfterSet, hashAttr('class', 'a'));
+  assert.strictEqual(table.getRow(10)!.contentHash, expectedAfterDel, 'ATTR_DEL must retract exactly that attribute\'s contribution');
+
+  table.createLeafRow(20, NodeKind.Text, 'hello');
+  assert.strictEqual(table.getRow(20)!.contentHash, hashValue('hello'), '§1.3 text/comment contentHash = hashValue(text)');
+  table.setValue(20, 'world');
+  assert.strictEqual(table.getRow(20)!.contentHash, hashValue('world'), 'TEXT_SET must replace, not accumulate, contentHash');
+
+  table.createLeafRow(30, NodeKind.Doctype, 'html');
+  assert.strictEqual(table.getRow(30)!.contentHash, hashValue('html'), 'doctype contentHash uses its name field as the single content string');
+  console.log('[unit] ReplicatedTable row contentHash/rowHash formulas ok');
+}
+
+/** §4.3 — INSERT/REMOVE topology: exact prevSibling repair on link/unlink/move, without a table-wide scan. */
+function testReplicatedTableTopologyRepair(): void {
+  const table = new ReplicatedTable();
+  const NONE = 0;
+  for (const id of [10, 11, 12, 13]) table.createElementRow(id, 'div', []);
+
+  table.insertBatch(1, NONE, [10]);
+  table.insertBatch(10, NONE, [11, 12]);
+  assert.strictEqual(table.getRow(11)!.prevSibling, NONE);
+  assert.strictEqual(table.getRow(12)!.prevSibling, 11);
+
+  // Insert 13 before 11 — must repair 11's prevSibling without touching 12.
+  const beforeHash12 = table.getRow(12)!.rowHash;
+  table.insertBatch(10, 11, [13]);
+  assert.strictEqual(table.getRow(13)!.prevSibling, NONE, '13 lands first (before 11, which had no prevSibling)');
+  assert.strictEqual(table.getRow(11)!.prevSibling, 13, '11 must be relinked after 13');
+  assert.strictEqual(table.getRow(12)!.rowHash, beforeHash12, '12 must be untouched by an insert that does not neighbor it');
+
+  // Remove 11 (the middle node) — 12 must be relinked directly after 13, skipping 11.
+  table.removeBatch(10, [11]);
+  assert.strictEqual(table.getRow(11)!.parent, NONE, 'removed row is detached');
+  assert.strictEqual(table.getRow(11)!.prevSibling, NONE);
+  assert.strictEqual(table.getRow(12)!.prevSibling, 13, '12 must skip over the removed 11 and relink to 13');
+
+  // Re-insert 11 at the end (append) — must land after the current last child (12).
+  table.insertBatch(10, NONE, [11]);
+  assert.strictEqual(table.getRow(11)!.parent, 10);
+  assert.strictEqual(table.getRow(11)!.prevSibling, 12, 're-inserted-at-end must link after the current last child');
+
+  // Moving a node already attached elsewhere must unlink it from its old position first (§4.3 "a move").
+  table.insertBatch(1, NONE, [12]); // move 12 out from under 10, to the end of parent 1 (after 10)
+  assert.strictEqual(table.getRow(12)!.parent, 1);
+  assert.strictEqual(table.getRow(11)!.prevSibling, 13, '11 must be relinked to 13 once 12 (its former follower) moves away');
+
+  // dropRow (§4.2 NODE_DROP, Stage 3) must remove the row's contribution from tableHash entirely.
+  const totalBeforeDrop = table.tableHash;
+  const droppedRowHash = table.getRow(13)!.rowHash;
+  table.dropRow(13);
+  assert.strictEqual(table.has(13), false);
+  assert.strictEqual(table.tableHash, subMod64(totalBeforeDrop, droppedRowHash));
+  console.log('[unit] ReplicatedTable INSERT/REMOVE topology repair (prevSibling, move, drop) ok');
+}
+
+/**
+ * frame-protocol.md §1.5 Stage 1 GATE — "unit tests proving producer and client compute identical
+ * rowHash/tableHash for the same sequence of mutations." Two independent `ReplicatedTable`
+ * instances (standing in for the producer's table and the client's table) fed the exact same
+ * `FrameOp` sequence through the one shared `applyOpsToTable` interpreter must end up byte-for-byte
+ * identical — same `tableHash`, same per-row snapshot for every id — and a real divergence must be
+ * detectable (tableHash actually changes), so this is not a vacuously-true comparison.
+ */
+function testReplicatedTableApplyOpsParity(): void {
+  const ops: FrameOp[] = [
+    { op: OpCode.NodeNew, id: 10, kind: NodeKind.Element, name: 'div', attrs: [{ name: 'class', value: 'a' }] },
+    { op: OpCode.NodeNew, id: 11, kind: NodeKind.Element, name: 'span', attrs: [] },
+    { op: OpCode.NodeNew, id: 12, kind: NodeKind.Text, value: 'hello' },
+    { op: OpCode.Insert, parent: 1, before: 0, ids: [10] },
+    { op: OpCode.Insert, parent: 10, before: 0, ids: [11, 12] },
+    { op: OpCode.AttrSet, node: 10, attrs: [{ name: 'id', value: 'root' }] },
+    { op: OpCode.NodeNew, id: 13, kind: NodeKind.Comment, value: 'c' },
+    { op: OpCode.Insert, parent: 10, before: 11, ids: [13] },
+    { op: OpCode.TextSet, node: 12, value: 'world' },
+    { op: OpCode.AttrDel, node: 10, names: ['class'] },
+    { op: OpCode.Remove, parent: 10, ids: [11] },
+    { op: OpCode.Insert, parent: 10, before: 0, ids: [11] },
+    { op: OpCode.NodeNew, id: 14, kind: NodeKind.Doctype, name: 'html' },
+  ];
+
+  const producerTable = new ReplicatedTable();
+  const clientTable = new ReplicatedTable();
+  applyOpsToTable(producerTable, ops);
+  applyOpsToTable(clientTable, ops);
+
+  assert.strictEqual(producerTable.size, clientTable.size);
+  assert.strictEqual(producerTable.tableHash, clientTable.tableHash, 'independently-built producer/client tables must agree on tableHash for identical ops');
+  for (const id of [10, 11, 12, 13, 14]) {
+    assert.deepStrictEqual(clientTable.getRow(id), producerTable.getRow(id), `row ${id} must be identical across producer/client tables`);
+  }
+
+  // Correctness against the spec's own INSERT semantics, not just "the two sides agree with each other":
+  // final expected order under 10 is [13, 12, 11] after the move/reorder/remove/reinsert sequence above.
+  assert.strictEqual(producerTable.getRow(13)!.prevSibling, 0);
+  assert.strictEqual(producerTable.getRow(12)!.prevSibling, 13);
+  assert.strictEqual(producerTable.getRow(11)!.prevSibling, 12);
+  assert.strictEqual(producerTable.getRow(12)!.contentHash, hashValue('world'), 'TEXT_SET must have taken effect');
+
+  // A real divergence (client applies one extra, different mutation) must be a detectable tableHash change —
+  // proves the equality above is a meaningful signal, not a test that would pass no matter what.
+  clientTable.setValue(12, 'DIVERGED');
+  assert.notStrictEqual(clientTable.tableHash, producerTable.tableHash, 'a genuine state divergence must change tableHash');
+  console.log('[unit] ReplicatedTable producer/client hash parity across full op sequence (Stage 1 gate) ok');
+}
+
+/** §5.8 — a resync-flagged frame must wipe the table wholesale, not extend it. */
+function testReplicatedTableResyncWholesaleReplace(): void {
+  const table = new ReplicatedTable();
+  applyOpsToTable(table, [
+    { op: OpCode.NodeNew, id: 10, kind: NodeKind.Element, name: 'div', attrs: [] },
+    { op: OpCode.Insert, parent: 1, before: 0, ids: [10] },
+  ]);
+  assert.strictEqual(table.has(10), true);
+
+  const resyncOps: FrameOp[] = [
+    { op: OpCode.NodeNew, id: 99, kind: NodeKind.Element, name: 'section', attrs: [] },
+    { op: OpCode.Insert, parent: 1, before: 0, ids: [99] },
+  ];
+  applyFrameToTable(table, true, resyncOps);
+  assert.strictEqual(table.has(10), false, 'resync must clear rows not re-described by the resync frame');
+  assert.strictEqual(table.has(99), true);
+  assert.strictEqual(table.size, 1);
+
+  const expectedResyncTable = new ReplicatedTable();
+  applyOpsToTable(expectedResyncTable, resyncOps);
+  assert.strictEqual(table.tableHash, expectedResyncTable.tableHash, 'post-resync tableHash must equal a table built fresh from just the resync ops');
+  console.log('[unit] ReplicatedTable resync wholesale replace ok');
+}
+
+const STAGE2_OPS: FrameOp[] = [
+  { op: OpCode.NodeNew, id: 10, kind: NodeKind.Element, name: 'div', attrs: [{ name: 'class', value: 'a' }] },
+  { op: OpCode.NodeNew, id: 11, kind: NodeKind.Text, value: 'hi' },
+  { op: OpCode.Insert, parent: 1, before: 0, ids: [10] },
+  { op: OpCode.Insert, parent: 10, before: 0, ids: [11] },
+];
+
+/**
+ * frame-protocol.md §6/§4.1 Stage 2 GATE — a well-formed frame (real `preTableHash` +
+ * whole-table `CHECK` computed from a table built the same way, e.g. by `resync.ts`)
+ * must apply cleanly through `applyFrameToTableChecked`: `ok: true`, and the table ends up
+ * in exactly the state a plain, unchecked `applyOpsToTable` would produce for the same ops.
+ */
+function testApplyFrameToTableCheckedAcceptsValidFrame(): void {
+  const reference = new ReplicatedTable();
+  applyOpsToTable(reference, STAGE2_OPS);
+
+  const table = new ReplicatedTable();
+  const ops: FrameOp[] = [
+    ...STAGE2_OPS,
+    { op: OpCode.Check, scope: CHECK_SCOPE_TABLE, lo: 0, hi: 0, hash: reference.tableHash },
+  ];
+  const result = applyFrameToTableChecked(table, false, ops);
+  assert.strictEqual(result.ok, true, 'a CHECK matching the actual post-apply tableHash must pass');
+  assert.strictEqual(table.tableHash, reference.tableHash);
+  console.log('[unit] applyFrameToTableChecked accepts a valid preTableHash+CHECK frame ok');
+}
+
+/**
+ * frame-protocol.md §6/§P3 Stage 2 GATE — "a deliberately-corrupted frame (wrong preTableHash,
+ * or a mid-frame CHECK mismatch) touches zero DOM nodes and produces a precondition failure."
+ * This proves the table-level half of that contract: `applyFrameToTableChecked` must report
+ * `ok: false` with the exact expected/actual hashes on a CHECK mismatch, and the caller
+ * (`client/applyDom.ts`) must be able to tell from the return value alone, without inspecting
+ * the table, that phase 2 (the DOM) must never run for this frame.
+ */
+function testApplyFrameToTableCheckedRejectsCorruptedCheck(): void {
+  const table = new ReplicatedTable();
+  const wrongHash = 0xdeadbeefn;
+  const ops: FrameOp[] = [
+    ...STAGE2_OPS,
+    { op: OpCode.Check, scope: CHECK_SCOPE_TABLE, lo: 0, hi: 0, hash: wrongHash },
+  ];
+  const result = applyFrameToTableChecked(table, false, ops);
+  assert.strictEqual(result.ok, false, 'a CHECK whose hash disagrees with the table must fail, not silently pass');
+  if (!result.ok && result.opName === 'check') {
+    assert.strictEqual(result.expected, wrongHash, 'failure must report the CHECK op\'s claimed hash as "expected"');
+    assert.notStrictEqual(result.actual, wrongHash, 'failure must report the table\'s real hash as "actual", distinct from the bogus claim');
+    assert.strictEqual(result.failedOpIndex, ops.length - 1, 'the CHECK is the last op in this fixture');
+    assert.strictEqual(result.scope, CHECK_SCOPE_TABLE);
+  } else if (!result.ok) {
+    assert.fail(`expected a CHECK failure, got opName=${result.opName}`);
+  }
+  console.log('[unit] applyFrameToTableChecked rejects a corrupted CHECK with expected/actual hashes ok');
+}
+
+/**
+ * §4.1 `CHECK.scope = 1` (`CHECK_SCOPE_RANGE`) — a range CHECK must evaluate against exactly the
+ * `[lo, hi]` rows (`ReplicatedTable.hashRange`), independent of rows outside that range: a
+ * corruption outside `[lo, hi]` must not trip a range CHECK that covers a different, unaffected
+ * span, and a corruption inside it must.
+ */
+function testApplyFrameToTableCheckedRangeScope(): void {
+  const table = new ReplicatedTable();
+  applyOpsToTable(table, STAGE2_OPS);
+  const rangeHash = table.hashRange(10, 10);
+
+  const okResult = applyFrameToTableChecked(table, false, [
+    { op: OpCode.Check, scope: CHECK_SCOPE_RANGE, lo: 10, hi: 10, hash: rangeHash },
+  ]);
+  assert.strictEqual(okResult.ok, true, 'a range CHECK matching hashRange(lo, hi) must pass');
+
+  // Mutate a row outside [10, 10] — must not affect a CHECK scoped only to id 10.
+  table.setValue(11, 'changed-outside-range');
+  const stillOk = applyFrameToTableChecked(table, false, [
+    { op: OpCode.Check, scope: CHECK_SCOPE_RANGE, lo: 10, hi: 10, hash: rangeHash },
+  ]);
+  assert.strictEqual(stillOk.ok, true, 'a mutation outside [lo, hi] must not trip a range CHECK scoped elsewhere');
+
+  // Mutate the row actually inside the range — must now trip the same CHECK hash.
+  table.setAttrs(10, [{ name: 'id', value: 'changed-inside-range' }]);
+  const nowFails = applyFrameToTableChecked(table, false, [
+    { op: OpCode.Check, scope: CHECK_SCOPE_RANGE, lo: 10, hi: 10, hash: rangeHash },
+  ]);
+  assert.strictEqual(nowFails.ok, false, 'a mutation inside [lo, hi] must trip a range CHECK covering it');
+  console.log('[unit] applyFrameToTableChecked CHECK_SCOPE_RANGE evaluates only [lo, hi] ok');
+}
+
+/**
+ * frame-protocol.md §2 Stage 2 GATE — the client's own precondition check (`preTableHash`
+ * against its table's current `tableHash`, `client/applyDom.ts` phase 1) is the first gate
+ * *before* `applyFrameToTableChecked` ever runs; this proves the table-level primitive
+ * `applyFrameToTableChecked` gates on, in isolation from the DOM-bound caller: ops before a
+ * failing CHECK still mutate the table (§P3 — "phase 1 is pure memory, not DOM, and is not
+ * rolled back"), which is exactly why the caller must treat any `ok: false` as "abort, and the
+ * next frame's preTableHash — or a future resync — is what heals this", never "retry phase 1".
+ */
+function testApplyFrameToTableCheckedDoesNotRollBackPriorOps(): void {
+  const table = new ReplicatedTable();
+  const ops: FrameOp[] = [
+    ...STAGE2_OPS,
+    { op: OpCode.Check, scope: CHECK_SCOPE_TABLE, lo: 0, hi: 0, hash: 0n }, // deliberately wrong
+  ];
+  const result = applyFrameToTableChecked(table, false, ops);
+  assert.strictEqual(result.ok, false);
+  // The NODE_NEW/INSERT ops before the failing CHECK are NOT undone — table still reflects them.
+  assert.strictEqual(table.has(10), true, 'ops before the failing CHECK must still have applied to the table (no rollback)');
+  assert.strictEqual(table.getRow(10)!.parent, 1);
+  console.log('[unit] applyFrameToTableChecked does not roll back ops preceding a failed CHECK (§P3) ok');
+}
+
+/**
+ * frame-protocol.md §4.1 `EPOCH_RESET` Stage 3 GATE — its `Table` effect ("clear the table,
+ * restart id allocation") must actually clear every row and derived index, not just report
+ * `size === 0` — `tableHash` must also return to the fresh-table value (`0n`), proving the
+ * `TableHashTracker` itself was cleared, not merely emptied of live rows one at a time.
+ */
+function testEpochResetClearsReplicatedTable(): void {
+  const table = new ReplicatedTable();
+  applyOpsToTable(table, STAGE2_OPS);
+  assert.ok(table.size > 0, 'sanity: STAGE2_OPS must populate rows before EPOCH_RESET');
+  assert.notStrictEqual(table.tableHash, 0n, 'sanity: a populated table must have a non-zero tableHash');
+
+  applyOpToTable(table, { op: OpCode.EpochReset, generation: 2 });
+  assert.strictEqual(table.size, 0, 'EPOCH_RESET must clear every row (frame-protocol.md §4.1)');
+  assert.strictEqual(table.tableHash, 0n, 'EPOCH_RESET must reset tableHash to the fresh-table value');
+  assert.strictEqual(table.has(10), false);
+
+  // The table must still be fully usable afterwards — EPOCH_RESET is "restart id allocation",
+  // not "table is now unusable".
+  applyOpsToTable(table, STAGE2_OPS);
+  assert.strictEqual(table.size, 2, 'table must accept new rows after EPOCH_RESET');
+  console.log('[unit] EPOCH_RESET clears ReplicatedTable (rows + tableHash) ok');
+}
+
+/**
+ * frame-protocol.md §4.2 `NODE_DROP` Stage 3 GATE (OPEN-1/OPEN-2) — dropping a detached
+ * subtree's root must also drop every descendant (§4.2: "drops each row and all its
+ * descendants — a detached row may still have children"), and `tableHash` must end up exactly
+ * where a table that never had those rows would be — proving the O(1) subtract-per-row in
+ * `dropSubtree`/`dropRow` is exact, not approximate.
+ */
+function testNodeDropRemovesSubtreeAndDescendants(): void {
+  const table = new ReplicatedTable();
+  // root(10) -> mid(11) -> leaf(12); root(10) also has a second child leaf(13).
+  applyOpsToTable(table, [
+    { op: OpCode.NodeNew, id: 10, kind: NodeKind.Element, name: 'div', attrs: [] },
+    { op: OpCode.NodeNew, id: 11, kind: NodeKind.Element, name: 'span', attrs: [] },
+    { op: OpCode.NodeNew, id: 12, kind: NodeKind.Text, value: 'leaf' },
+    { op: OpCode.NodeNew, id: 13, kind: NodeKind.Text, value: 'leaf2' },
+    { op: OpCode.Insert, parent: 10, before: 0, ids: [11] },
+    { op: OpCode.Insert, parent: 11, before: 0, ids: [12] },
+    { op: OpCode.Insert, parent: 10, before: 0, ids: [13] },
+    // Detach the whole subtree at its root — NODE_DROP's own precondition (§4.2) requires
+    // `parent = 0` before a row is droppable.
+    { op: OpCode.Remove, parent: 1, ids: [10] },
+  ]);
+  assert.strictEqual(table.size, 4, 'sanity: all four rows present, root now detached');
+
+  const ids = table.dropSubtree(10);
+  assert.deepStrictEqual(new Set(ids), new Set([10, 11, 12, 13]), 'dropSubtree must return root + every descendant');
+  assert.strictEqual(table.size, 0, 'all four rows must be gone after dropping the subtree root');
+  assert.strictEqual(table.tableHash, 0n, 'tableHash must return to the fresh-table value once every row is dropped');
+  for (const id of [10, 11, 12, 13]) assert.strictEqual(table.has(id), false, `row ${id} must no longer exist`);
+  console.log('[unit] NODE_DROP dropSubtree removes root + all descendants, tableHash exact ok');
+}
+
+/**
+ * frame-protocol.md §1.6/OPEN-2 Stage 3 GATE — `collectDroppableIds` must select only detached
+ * (`parent === 0`) subtree roots whose `lms` is at least `maxAge` sequences stale, must never
+ * select a non-root descendant of a detached subtree (those are collected transitively once
+ * their root is chosen, §4.2), and must respect the `limit` bound (same family as
+ * `MAX_DIRTY_NODES`, §8) rather than returning every eligible row in one sweep.
+ */
+function testCollectDroppableIdsAgeAndLimitBound(): void {
+  const table = new ReplicatedTable();
+
+  table.setSequence(1);
+  applyOpsToTable(table, [
+    { op: OpCode.NodeNew, id: 20, kind: NodeKind.Text, value: 'old-detached-root' },
+    { op: OpCode.NodeNew, id: 21, kind: NodeKind.Element, name: 'div', attrs: [] },
+  ]);
+  table.insertBatch(21, 0, [20]); // 20 is now attached under 21 — not droppable
+  table.removeBatch(21, [20]); // detach 20 again — its lms is still stamped at sequence=1
+
+  table.setSequence(2);
+  applyOpsToTable(table, [{ op: OpCode.NodeNew, id: 22, kind: NodeKind.Text, value: 'young-detached-root' }]);
+
+  // At sequence 100 with maxAge=50: id 20 (lms=1, age=99) is eligible; id 22 (lms=2, age=98) is
+  // also eligible by age but is attached to nothing and simply detached on its own — both are
+  // legitimate detached roots, so both are eligible; id 21 is attached (Document is its parent
+  // only via insertBatch's own bookkeeping — it was never actually inserted under 1, so recheck
+  // via an explicit still-attached row for the "attached must never be selected" half below.
+  applyOpsToTable(table, [{ op: OpCode.Insert, parent: 1, before: 0, ids: [21] }]); // 21 now genuinely attached
+  table.setSequence(200);
+
+  const unbounded = table.collectDroppableIds(200, 50, 1000);
+  assert.ok(unbounded.includes(20), 'a detached root older than maxAge must be selected');
+  assert.ok(unbounded.includes(22), 'every detached root past the age threshold is eligible, regardless of arrival order');
+  assert.ok(!unbounded.includes(21), 'an attached row must never be selected, no matter its age');
+
+  const tooYoung = table.collectDroppableIds(2, 50, 1000);
+  assert.deepStrictEqual(tooYoung, [], 'nothing must be selected before any row has crossed the age threshold');
+
+  const bounded = table.collectDroppableIds(200, 50, 1);
+  assert.strictEqual(bounded.length, 1, 'the limit bound must cap the sweep result, same as MAX_DIRTY_NODES (§8)');
+  console.log('[unit] collectDroppableIds respects age threshold + detached-only + limit bound (§1.6/OPEN-2) ok');
+}
+
+/**
+ * frame-protocol.md OPEN-1 Stage 3 GATE — "NODE_DROP of an absent id is malformed", now actually
+ * enforced by `applyFrameToTableChecked` rather than left as a spec-only decision.
+ */
+function testApplyFrameToTableCheckedRejectsNodeDropAbsentId(): void {
+  const table = new ReplicatedTable();
+  const result = applyFrameToTableChecked(table, false, [{ op: OpCode.NodeDrop, ids: [999] }]);
+  assert.strictEqual(result.ok, false, 'NODE_DROP of an id the table has never seen must fail');
+  if (!result.ok && result.opName !== 'check') {
+    assert.strictEqual(result.reason, 'malformed', 'an absent-id NODE_DROP is malformed, per OPEN-1');
+    assert.strictEqual(result.opName, 'nodeDrop');
+    assert.strictEqual(result.id, 999);
+  } else {
+    assert.fail(`expected a nodeDrop op failure, got ${JSON.stringify(result)}`);
+  }
+  console.log('[unit] applyFrameToTableChecked rejects NODE_DROP of an absent id as malformed (OPEN-1) ok');
+}
+
+/**
+ * frame-protocol.md §4.2 Stage 3 GATE — "NODE_DROP of an attached row" is the instruction's own
+ * documented precondition violation, distinct from OPEN-1's absent-id case: the row exists, but
+ * dropping it while still attached would silently orphan whatever the wire still thinks is its
+ * parent — a `precondition` failure, not `malformed`.
+ */
+function testApplyFrameToTableCheckedRejectsNodeDropAttachedId(): void {
+  const table = new ReplicatedTable();
+  applyOpsToTable(table, [
+    { op: OpCode.NodeNew, id: 30, kind: NodeKind.Text, value: 'attached' },
+    { op: OpCode.Insert, parent: 1, before: 0, ids: [30] },
+  ]);
+  assert.strictEqual(table.getRow(30)!.parent, 1, 'sanity: row 30 is attached to the Document');
+
+  const result = applyFrameToTableChecked(table, false, [{ op: OpCode.NodeDrop, ids: [30] }]);
+  assert.strictEqual(result.ok, false, 'NODE_DROP of a still-attached row must fail');
+  if (!result.ok && result.opName !== 'check') {
+    assert.strictEqual(result.reason, 'precondition', 'an attached-id NODE_DROP is a precondition violation (§4.2)');
+    assert.strictEqual(result.opName, 'nodeDrop');
+    assert.strictEqual(result.id, 30);
+  } else {
+    assert.fail(`expected a nodeDrop op failure, got ${JSON.stringify(result)}`);
+  }
+  assert.strictEqual(table.has(30), true, 'a rejected NODE_DROP must never actually drop the row');
+  console.log('[unit] applyFrameToTableChecked rejects NODE_DROP of an attached row as precondition (§4.2) ok');
+}
+
+/**
+ * frame-protocol.md §8 Stage 3 GATE — `MAX_ROWS` bounds table growth per session on the client's
+ * defensive side; a `NODE_NEW` that would push a table already at the cap over it must fail
+ * *before* the row is created (§8: "checked before any allocation"), not after.
+ */
+function testApplyFrameToTableCheckedEnforcesMaxRows(): void {
+  const table = new ReplicatedTable();
+  for (let id = 2; id < 2 + MAX_ROWS; id++) table.createLeafRow(id, NodeKind.Text, 'x');
+  assert.strictEqual(table.size, MAX_ROWS, 'sanity: table pre-populated to exactly MAX_ROWS');
+
+  const overflowId = 2 + MAX_ROWS;
+  const result = applyFrameToTableChecked(table, false, [
+    { op: OpCode.NodeNew, id: overflowId, kind: NodeKind.Text, value: 'overflow' },
+  ]);
+  assert.strictEqual(result.ok, false, 'a NODE_NEW that would exceed MAX_ROWS must fail');
+  if (!result.ok && result.opName !== 'check') {
+    assert.strictEqual(result.reason, 'precondition', 'MAX_ROWS overflow is a precondition violation (§8)');
+    assert.strictEqual(result.opName, 'nodeNew');
+    assert.strictEqual(result.id, overflowId);
+  } else {
+    assert.fail(`expected a nodeNew op failure, got ${JSON.stringify(result)}`);
+  }
+  assert.strictEqual(table.has(overflowId), false, 'the rejected row must never actually be created');
+
+  // A NODE_NEW that merely re-describes an id the table already has (e.g. a resync-adjacent
+  // re-announce) must never be blocked by MAX_ROWS — the check only guards net-new growth.
+  const existingId = 2;
+  const reannounce = applyFrameToTableChecked(table, false, [
+    { op: OpCode.NodeNew, id: existingId, kind: NodeKind.Text, value: 'still-x' },
+  ]);
+  assert.strictEqual(reannounce.ok, true, 'MAX_ROWS must not block re-describing an id the table already holds');
+  console.log('[unit] applyFrameToTableChecked enforces MAX_ROWS on net-new rows only (§8) ok');
+}
+
 async function main(): Promise<void> {
   // Debug instrumentation posts to the ingest server; don't hang unit runs on it.
   (globalThis as { fetch: typeof fetch }).fetch = (async () =>
@@ -1727,6 +2256,22 @@ async function main(): Promise<void> {
   await testBrowserPoolRegistryPolicy();
   testSrcsetParseCloudinary();
   testParseDataUrlHardening();
+  testRowHashPrimitives();
+  testTableHashTrackerOrderIndependence();
+  testReplicatedTableRowContentHash();
+  testReplicatedTableTopologyRepair();
+  testReplicatedTableApplyOpsParity();
+  testReplicatedTableResyncWholesaleReplace();
+  testApplyFrameToTableCheckedAcceptsValidFrame();
+  testApplyFrameToTableCheckedRejectsCorruptedCheck();
+  testApplyFrameToTableCheckedRangeScope();
+  testApplyFrameToTableCheckedDoesNotRollBackPriorOps();
+  testEpochResetClearsReplicatedTable();
+  testNodeDropRemovesSubtreeAndDescendants();
+  testCollectDroppableIdsAgeAndLimitBound();
+  testApplyFrameToTableCheckedRejectsNodeDropAbsentId();
+  testApplyFrameToTableCheckedRejectsNodeDropAttachedId();
+  testApplyFrameToTableCheckedEnforcesMaxRows();
   await runPageProjectionUnitTests();
   console.log('[unit] all passed');
 }

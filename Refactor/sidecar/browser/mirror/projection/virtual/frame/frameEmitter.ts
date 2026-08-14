@@ -1,5 +1,5 @@
 /**
- * Orchestrator: clock → accumulator → builder → encoder → transport.
+ * Orchestrator: clock → mutation buffer → builder → encoder → transport.
  */
 
 import type { FrameBuilder } from './frameBuilder';
@@ -7,13 +7,13 @@ import type { FrameEncoder } from './frameEncoder';
 import type { FrameClock } from '../clock/frameClock';
 import type { FrameTransport } from '../transport/frameTransport';
 import type { Frame } from '../../models/frame';
-import type { DomMutationAccumulator } from '../dom/domMutationAccumulator';
+import type { MutationBuffer } from '../dom/mutationBuffer';
 import type { DomNodeTable } from '../dom/domNodeTable';
 import type { ProjectionTelemetry } from '../telemetry/projectionTelemetry';
 
 export type FrameEmitterOptions = {
   clock: FrameClock;
-  accumulator: DomMutationAccumulator;
+  buffer: MutationBuffer;
   builder: FrameBuilder;
   encoder: FrameEncoder;
   transport: FrameTransport;
@@ -21,9 +21,19 @@ export type FrameEmitterOptions = {
   telemetry?: ProjectionTelemetry | null;
 };
 
+/**
+ * Ticks between mutation-independent GC-sweep opportunities (`tableFrameBuilder.ts`'s
+ * `emitNodeDropSweep`) when the mutation buffer is otherwise empty — a detached row becomes
+ * GC-eligible purely by `sequence` age (§1.6), not by new activity, so an idle session must
+ * still occasionally give the sweep a chance to run. Throttled (not every idle tick) because
+ * `collectDroppableIds` is an O(table size) scan; the sweep's own age threshold is ~120
+ * sequences (§models/limits.ts), so checking far more often than that buys nothing.
+ */
+const IDLE_SWEEP_INTERVAL_TICKS = 30;
+
 export class FrameEmitter {
   private readonly clock: FrameClock;
-  private readonly accumulator: DomMutationAccumulator;
+  private readonly buffer: MutationBuffer;
   private readonly builder: FrameBuilder;
   private readonly encoder: FrameEncoder;
   private readonly transport: FrameTransport;
@@ -31,13 +41,15 @@ export class FrameEmitter {
   private readonly telemetry: ProjectionTelemetry | null;
 
   private sequence = 0;
+  private idleTicks = 0;
   private pendingFrame: Frame | null = null;
   private pendingParts: Uint8Array[] | null = null;
   private pendingPartIndex = 0;
+  private pendingRecords: MutationRecord[] | null = null;
 
   constructor(opts: FrameEmitterOptions) {
     this.clock = opts.clock;
-    this.accumulator = opts.accumulator;
+    this.buffer = opts.buffer;
     this.builder = opts.builder;
     this.encoder = opts.encoder;
     this.transport = opts.transport;
@@ -57,9 +69,43 @@ export class FrameEmitter {
     return this.sequence;
   }
 
-  /** After establish frame (typically sequence 0), live continues from here. */
-  setCurrentSequence(sequence: number): void {
-    this.sequence = sequence;
+  /**
+   * Sends a frame built outside the ordinary clock-driven path — bootstrap's `resyncVirtual`
+   * (frame-protocol.md §5.1/§5.8), before `start()` has ever run. Retries a deferred transport
+   * with a short async spin rather than `onBoundary`'s defer-until-next-tick, because there is no
+   * clock ticking yet to drive that retry. Sets `this.sequence` on success so the first
+   * clock-driven frame continues numbering from here, not from 0.
+   */
+  async sendInitial(frame: Frame): Promise<void> {
+    const parts = this.encoder.encode(frame);
+    if (parts.length === 0) return;
+
+    for (let i = 0; i < parts.length; i++) {
+      const bytes = parts[i]!;
+      let result = this.transport.send(bytes);
+      let spins = 0;
+      while (result === 'deferred' && spins < 50) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        result = this.transport.send(bytes);
+        spins += 1;
+      }
+    }
+
+    let totalBytes = 0;
+    for (let i = 0; i < parts.length; i++) totalBytes += parts[i]!.length;
+
+    this.telemetry?.recordFrameEmitted({
+      generation: frame.generation,
+      sequence: frame.sequence,
+      opCount: frame.ops.length,
+      partCount: parts.length,
+      bytes: totalBytes,
+      tableSize: this.domNodes.size,
+      buildMs: 0,
+      encodeMs: 0,
+    });
+
+    this.sequence = frame.sequence;
   }
 
   private onBoundary(): void {
@@ -68,34 +114,32 @@ export class FrameEmitter {
       return;
     }
 
-    if (!this.accumulator.hasActiveWork()) return;
+    const hasWork = this.buffer.hasWork();
+    if (!hasWork) {
+      this.idleTicks += 1;
+      if (this.idleTicks < IDLE_SWEEP_INTERVAL_TICKS) return;
+    }
+    this.idleTicks = 0;
 
-    const frozen = this.accumulator.swap();
+    const records = hasWork ? this.buffer.drain() : [];
     const nextSequence = this.sequence + 1;
-    const frame = this.builder.build(frozen, {
+    const frame = this.builder.build(records, {
       generation: this.domNodes.generation,
       sequence: nextSequence,
     });
 
-    if (frame === null) {
-      this.accumulator.reclaimFrozen();
-      return;
-    }
+    const unconsumed = this.builder.takeUnconsumedRecords?.();
+    if (unconsumed && unconsumed.length > 0) this.buffer.reclaim(unconsumed);
 
-    if (frame.ops.length === 0) {
-      this.accumulator.clearFrozen();
-      return;
-    }
+    if (frame === null) return; // nothing publishable this tick — sequence not consumed
 
     const parts = this.encoder.encode(frame);
-    if (parts.length === 0) {
-      this.accumulator.reclaimFrozen();
-      return;
-    }
+    if (parts.length === 0) return;
 
     this.pendingFrame = frame;
     this.pendingParts = parts;
     this.pendingPartIndex = 0;
+    this.pendingRecords = null;
     this.trySendPending();
   }
 
@@ -121,55 +165,22 @@ export class FrameEmitter {
     let totalBytes = 0;
     for (let i = 0; i < parts.length; i++) totalBytes += parts[i]!.length;
 
+    const stats = this.builder.takeBuildStats?.() ?? null;
     this.telemetry?.recordFrameEmitted({
       generation: frame.generation,
       sequence: frame.sequence,
       opCount: frame.ops.length,
       partCount: parts.length,
       bytes: totalBytes,
-    });
-
-    const buildStats = this.builder.takeBuildStats?.() ?? null;
-    if (buildStats !== null) {
-      this.telemetry?.recordBuilderStats({
-        generation: frame.generation,
-        sequence: frame.sequence,
-        ephemeralPruned: buildStats.ephemeralPruned,
-        absorbed: buildStats.absorbed,
-        orphaned: buildStats.orphaned,
-        opCounts: buildStats.opCounts,
-      });
-      this.telemetry?.recordFrameDecision({
-        generation: frame.generation,
-        sequence: frame.sequence,
-        publishedCount: buildStats.publishedCount,
-        lastChildListsParents: buildStats.lastChildListsParents,
-        lastChildListsEmpty: buildStats.lastChildListsEmpty,
-        dirtyIn: buildStats.dirtyIn,
-        dirtyOut: buildStats.dirtyOut,
-        ephemeralPruned: buildStats.ephemeralPruned,
-        absorbed: buildStats.absorbed,
-        orphaned: buildStats.orphaned,
-        childLists: buildStats.childLists,
-        childListsOmitted: buildStats.childListsOmitted,
-        patches: buildStats.patches,
-        scrolls: buildStats.scrolls,
-        appendFromEmptyCount: buildStats.appendFromEmptyCount,
-      });
-    }
-
-    this.telemetry?.recordEncoder({
-      generation: frame.generation,
-      sequence: frame.sequence,
-      partCount: parts.length,
-      bytes: totalBytes,
-      maxFrameBytes: this.encoder.maxFrameBytes ?? 1 << 20,
+      tableSize: this.domNodes.size,
+      buildMs: stats?.buildMs ?? 0,
+      encodeMs: 0,
     });
 
     this.sequence = frame.sequence;
     this.pendingFrame = null;
     this.pendingParts = null;
     this.pendingPartIndex = 0;
-    this.accumulator.clearFrozen();
+    this.pendingRecords = null;
   }
 }

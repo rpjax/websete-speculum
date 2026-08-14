@@ -12,6 +12,12 @@
 # Sidecar build output (built in Docker only)
 sidecar/dist/
 
+# PageProjection lab benchmark run exports (report.json + .cpuprofile per run)
+Refactor/sidecar/lab-runs/
+
+# PageProjection ad-hoc CLI profiling scripts' raw .cpuprofile dumps (scripts/profile-*.js)
+Refactor/sidecar/scripts/*.cpuprofile
+
 # TLS material
 **/Certificates/**/*.pem
 

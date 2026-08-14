@@ -30,6 +30,19 @@ export class DomNodeTable {
     return this.currentGeneration;
   }
 
+  /**
+   * Bootstrap-only initialization (Stage 3, frame-protocol-production-completeness): a hard
+   * navigation re-injects this whole script into a fresh JS realm, so the *identity map* is
+   * already empty by construction — there is nothing to clear here, unlike `bumpGeneration()`.
+   * This exists purely so a fresh instance reports the `generation` the orchestrator
+   * (`lab/virtualBrowser.ts`) already knows this navigation is (via `ProjectionConfig.generation`),
+   * so `resyncVirtual`'s frame — and every ordinary tick after it — carries the right number for
+   * `bootstrap.ts` to decide whether to prepend `EPOCH_RESET`.
+   */
+  setGeneration(generation: number): void {
+    this.currentGeneration = generation;
+  }
+
   get size(): number {
     return this.byKey.size;
   }
@@ -44,6 +57,19 @@ export class DomNodeTable {
     this.byKey.set(key, new WeakRef(node));
     this.finalizers.register(node, key, node);
     return key;
+  }
+
+  /**
+   * Forces a specific id (frame-protocol.md §1.2 — id `1` is reserved for `Document`, not
+   * allocated like an ordinary node). Idempotent. Advances `nextKey` past `key` so ordinary
+   * `allocate()` calls never collide with it.
+   */
+  bind(node: Node, key: DomNodeKey): void {
+    if (this.byNode.has(node)) return;
+    this.byNode.set(node, key);
+    this.byKey.set(key, new WeakRef(node));
+    this.finalizers.register(node, key, node);
+    if (key >= this.nextKey) this.nextKey = key + 1;
   }
 
   keyOf(node: Node): DomNodeKey {
@@ -79,5 +105,25 @@ export class DomNodeTable {
     this.byKey.clear();
     this.currentGeneration += 1;
     return this.currentGeneration;
+  }
+
+  /**
+   * frame-protocol.md §5.8 `resyncVirtual` — clears the identity map so it can be rebuilt from a
+   * live walk. Unlike `bumpGeneration()`, this does NOT advance `generation`: `resync` is a
+   * same-generation "the client's copy is being replaced wholesale" signal, not an
+   * `EPOCH_RESET`. `nextKey` is left untouched, so freshly (re)allocated ids never collide with
+   * ids issued before the reset.
+   */
+  resetIdentity(): void {
+    this.byNode = new WeakMap<Node, DomNodeKey>();
+    this.byKey.clear();
+  }
+
+  /** Live `[id, node]` pairs, skipping any key whose `WeakRef` has already been collected. */
+  *liveEntries(): IterableIterator<[DomNodeKey, Node]> {
+    for (const [key, ref] of this.byKey) {
+      const node = ref.deref();
+      if (node !== undefined) yield [key, node];
+    }
   }
 }

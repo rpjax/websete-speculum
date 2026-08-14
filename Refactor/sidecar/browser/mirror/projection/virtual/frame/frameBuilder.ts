@@ -1,40 +1,31 @@
 /**
- * Frozen dirty → logical Frame port (§5.3.3).
- * Impls in this folder: {@link NetEffectFrameBuilder}, …
+ * MutationRecord batch → logical Frame port (frame-protocol.md §5).
+ * Impls in this folder: {@link TableFrameBuilder}, …
  */
 
 import type { Frame } from '../../models/frame';
-import type { DirtySets } from '../models/dirtySets';
-import type {
-  ChildListDecisionFact,
-  DirtyCard,
-} from '../../models/telemetry';
 
 export type FrameBuilderContext = {
   generation: number;
   sequence: number;
 };
 
-export type FrameBuildDecision = {
-  ephemeralPruned: number;
-  absorbed: number;
-  orphaned: number;
+export type FrameBuildStats = {
+  /** Instructions emitted per opcode name — cheap volume signal for the perf pass. */
   opCounts: Record<string, number>;
-  publishedCount: number;
-  lastChildListsParents: number;
-  lastChildListsEmpty: boolean;
-  dirtyIn: DirtyCard;
-  dirtyOut: DirtyCard;
-  childLists: ChildListDecisionFact[];
-  childListsOmitted: number;
-  patches: number;
-  scrolls: number;
-  appendFromEmptyCount: number;
+  /** Wall-clock cost of `build()` for the frame these stats belong to. */
+  buildMs: number;
 };
 
 export type FrameBuilder = {
-  build(frozen: DirtySets, ctx: FrameBuilderContext): Frame | null;
-  /** Optional §5.3.3 proof stats from the last successful build. */
-  takeBuildStats?(): FrameBuildDecision | null;
-  publishState?(): { publishedCount: number; lastChildListsParents: number };
+  /** `null` when the drained batch produced no publishable instructions (no frame, no sequence consumed). */
+  build(records: MutationRecord[], ctx: FrameBuilderContext): Frame | null;
+  takeBuildStats?(): FrameBuildStats | null;
+  /**
+   * Records this `build()` call left unprocessed (§8 `MAX_DIRTY_NODES` — the per-tick
+   * visited/dirty set hit its cap mid-drain) — `null`/absent when nothing was left over. The
+   * caller (`frameEmitter.ts`) is responsible for pushing these back onto the `MutationBuffer`
+   * (`reclaim`) so the next tick retries them instead of losing them.
+   */
+  takeUnconsumedRecords?(): MutationRecord[] | null;
 };

@@ -1,52 +1,51 @@
 "use strict";
 /**
- * §5.4 — one opcode space for Dom + Cssom (no `plane` header).
- * Values are wire-stable: never renumber, only append.
+ * docs/page-projection/spec/frame-protocol.md §3–§4 — one opcode space, table + structure + node state.
+ * Values are wire-stable: never renumber, only append. Ranges match §3 exactly.
+ *
+ * v0 scope (this lab increment): DOM only. `Check`/`NodeDrop`/`NodeMeta` are defined for wire
+ * completeness but the v0 producer never emits them and the v0 client never requires them —
+ * see frame-protocol.md OPEN-2 (deferred GC) and the resync section (§5.8, not implemented yet).
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.OpCode = void 0;
+exports.NodeKind = exports.OpCode = void 0;
 exports.opCodeName = opCodeName;
-exports.opCodePlane = opCodePlane;
 var OpCode;
 (function (OpCode) {
-    OpCode[OpCode["EstablishBegin"] = 1] = "EstablishBegin";
-    OpCode[OpCode["EstablishChunk"] = 2] = "EstablishChunk";
-    OpCode[OpCode["EstablishEnd"] = 3] = "EstablishEnd";
-    OpCode[OpCode["ChildList"] = 4] = "ChildList";
-    OpCode[OpCode["Patch"] = 5] = "Patch";
-    OpCode[OpCode["ScrollViewport"] = 6] = "ScrollViewport";
-    OpCode[OpCode["ScrollElement"] = 7] = "ScrollElement";
-    OpCode[OpCode["CssomInstall"] = 8] = "CssomInstall";
-    OpCode[OpCode["CssomSheetList"] = 9] = "CssomSheetList";
-    OpCode[OpCode["CssomRuleList"] = 10] = "CssomRuleList";
-    OpCode[OpCode["CssomPatch"] = 11] = "CssomPatch";
-    /** title/lang/dir/meta viewport — appended; never renumber. */
-    OpCode[OpCode["DocumentState"] = 12] = "DocumentState";
+    OpCode[OpCode["Check"] = 1] = "Check";
+    OpCode[OpCode["EpochReset"] = 2] = "EpochReset";
+    OpCode[OpCode["StrDef"] = 3] = "StrDef";
+    OpCode[OpCode["NodeNew"] = 32] = "NodeNew";
+    OpCode[OpCode["NodeDrop"] = 33] = "NodeDrop";
+    OpCode[OpCode["Insert"] = 64] = "Insert";
+    OpCode[OpCode["Remove"] = 65] = "Remove";
+    OpCode[OpCode["AttrSet"] = 96] = "AttrSet";
+    OpCode[OpCode["AttrDel"] = 97] = "AttrDel";
+    OpCode[OpCode["TextSet"] = 98] = "TextSet";
 })(OpCode || (exports.OpCode = OpCode = {}));
 const NAMES = {
-    [OpCode.EstablishBegin]: 'establishBegin',
-    [OpCode.EstablishChunk]: 'establishChunk',
-    [OpCode.EstablishEnd]: 'establishEnd',
-    [OpCode.ChildList]: 'childList',
-    [OpCode.Patch]: 'patch',
-    [OpCode.ScrollViewport]: 'scrollViewport',
-    [OpCode.ScrollElement]: 'scrollElement',
-    [OpCode.CssomInstall]: 'cssomInstall',
-    [OpCode.CssomSheetList]: 'cssomSheetList',
-    [OpCode.CssomRuleList]: 'cssomRuleList',
-    [OpCode.CssomPatch]: 'cssomPatch',
-    [OpCode.DocumentState]: 'documentState',
+    [OpCode.Check]: 'check',
+    [OpCode.EpochReset]: 'epochReset',
+    [OpCode.StrDef]: 'strDef',
+    [OpCode.NodeNew]: 'nodeNew',
+    [OpCode.NodeDrop]: 'nodeDrop',
+    [OpCode.Insert]: 'insert',
+    [OpCode.Remove]: 'remove',
+    [OpCode.AttrSet]: 'attrSet',
+    [OpCode.AttrDel]: 'attrDel',
+    [OpCode.TextSet]: 'textSet',
 };
 function opCodeName(code) {
     return NAMES[code] ?? `unknown(${code})`;
 }
-const CSSOM_CODES = new Set([
-    OpCode.CssomInstall,
-    OpCode.CssomSheetList,
-    OpCode.CssomRuleList,
-    OpCode.CssomPatch,
-]);
-function opCodePlane(code) {
-    return CSSOM_CODES.has(code) ? 'cssom' : 'dom';
-}
+/** §1.3 node row `kind`. `Sheet`/`Rule` reserved — not projected by the v0 (DOM-only) producer. */
+var NodeKind;
+(function (NodeKind) {
+    NodeKind[NodeKind["Element"] = 1] = "Element";
+    NodeKind[NodeKind["Text"] = 2] = "Text";
+    NodeKind[NodeKind["Comment"] = 3] = "Comment";
+    NodeKind[NodeKind["Sheet"] = 4] = "Sheet";
+    NodeKind[NodeKind["Rule"] = 5] = "Rule";
+    NodeKind[NodeKind["Doctype"] = 6] = "Doctype";
+})(NodeKind || (exports.NodeKind = NodeKind = {}));
 //# sourceMappingURL=opcodes.js.map

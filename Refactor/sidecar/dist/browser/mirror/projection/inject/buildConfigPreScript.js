@@ -30,6 +30,12 @@ function buildConfigPreScript(opts) {
         payload.maxFrameBytes = opts.maxFrameBytes;
     if (opts.telemetry !== undefined)
         payload.telemetry = opts.telemetry;
-    return `globalThis.${projectionConfig_1.PROJECTION_CONFIG_GLOBAL}=${JSON.stringify(payload)};`;
+    if (opts.generation !== undefined)
+        payload.generation = opts.generation;
+    // This runs as its own separate injected `<script>` tag (Patchright leaves it attached to
+    // the document — see bootstrap.ts's matching `currentScript.remove()` for why that matters);
+    // clean up after itself the same way, or `virtual.js`'s own removal of *its* tag still leaves
+    // this smaller one behind for the observer to mirror as page content.
+    return `globalThis.${projectionConfig_1.PROJECTION_CONFIG_GLOBAL}=${JSON.stringify(payload)};document.currentScript?.remove();`;
 }
 //# sourceMappingURL=buildConfigPreScript.js.map

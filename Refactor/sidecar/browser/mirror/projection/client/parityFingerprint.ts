@@ -2,7 +2,6 @@
  * Cheap structural fingerprint of the projected document (no HTML dump).
  */
 
-import { isRepeatedConcat } from '../models/telemetry';
 import type { PageProjectionRegistry } from './registry';
 
 export type ParityFingerprintFields = {
@@ -10,12 +9,9 @@ export type ParityFingerprintFields = {
   title: string;
   h1: string;
   bodyChildTags: string;
-  anchorCount: number;
   scriptCount: number;
   pCount: number;
   htmlLen: number;
-  duplicateTitle: boolean;
-  duplicateH1: boolean;
 };
 
 export function captureParityFingerprint(
@@ -32,11 +28,8 @@ export function captureParityFingerprint(
     title,
     h1,
     bodyChildTags: tags.join(','),
-    anchorCount: doc.querySelectorAll('[speculum-anchor]').length,
     scriptCount: doc.querySelectorAll('script').length,
     pCount: doc.querySelectorAll('p').length,
     htmlLen: doc.documentElement?.outerHTML.length ?? 0,
-    duplicateTitle: isRepeatedConcat(title),
-    duplicateH1: isRepeatedConcat(h1),
   };
 }

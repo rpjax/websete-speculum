@@ -1,15 +1,13 @@
 /**
  * Virtual-side projection telemetry — push-active on DataPlane Telemetry channel.
+ * Producer-only message kinds (frameEmitted / transportDeferred / aggregate / clock);
+ * `applyResult` / `desynced` / `applyOverrun` are client-emitted and relayed by the lab
+ * session, not created here (models/telemetry.ts).
  */
 
 import { PlaneChannel } from '../../plane';
 import type { DataPlane } from '../../plane';
-import type {
-  ChildListDecisionFact,
-  DirtyCard,
-  ProjectionTelemetryConfig,
-  ProjectionTelemetryMessage,
-} from '../../models/telemetry';
+import type { ProjectionTelemetryConfig, ProjectionTelemetryMessage } from '../../models/telemetry';
 
 export type ProjectionTelemetryOptions = {
   config: Readonly<ProjectionTelemetryConfig>;
@@ -24,10 +22,13 @@ export class ProjectionTelemetry {
   private readonly textEncoder = new TextEncoder();
 
   private framesEmitted = 0;
+  private opsEmitted = 0;
   private partsAccepted = 0;
   private bytesAccepted = 0;
   private deferredCount = 0;
   private lastSequence = 0;
+  private buildMsSum = 0;
+  private encodeMsSum = 0;
   private aggregateTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(opts: ProjectionTelemetryOptions) {
@@ -49,147 +50,51 @@ export class ProjectionTelemetry {
     }
   }
 
-  recordEstablishStarted(generation: number): void {
-    if (!this.config.enabled || !this.config.establish) return;
-    this.push({
-      v: 1,
-      kind: 'establishStarted',
-      t: this.now(),
-      generation,
-    });
-  }
-
-  recordEstablishCompleted(info: {
-    generation: number;
-    nodeCount: number;
-    checksum: number;
-    bytes: number;
-    tableSize?: number;
-  }): void {
-    if (!this.config.enabled || !this.config.establish) return;
-    this.push({
-      v: 1,
-      kind: 'establishCompleted',
-      t: this.now(),
-      generation: info.generation,
-      nodeCount: info.nodeCount,
-      checksum: info.checksum,
-      bytes: info.bytes,
-      tableSize: info.tableSize,
-    });
-  }
-
-  recordEstablishFailed(generation: number, message: string): void {
-    if (!this.config.enabled || !this.config.establish) return;
-    this.push({
-      v: 1,
-      kind: 'establishFailed',
-      t: this.now(),
-      generation,
-      message,
-    });
-  }
-
-  recordHandoff(info: {
-    generation: number;
-    publishedCount: number;
-    tableSize: number;
-    lastChildListsSeeded: boolean;
-    lastChildListsParents: number;
-  }): void {
-    if (!this.config.enabled || !this.config.handoff) return;
-    this.push({
-      v: 1,
-      kind: 'handoff',
-      t: this.now(),
-      generation: info.generation,
-      publishedCount: info.publishedCount,
-      tableSize: info.tableSize,
-      lastChildListsSeeded: info.lastChildListsSeeded,
-      lastChildListsParents: info.lastChildListsParents,
-    });
-  }
-
-  recordBuilderStats(info: {
+  recordFrameEmitted(info: {
     generation: number;
     sequence: number;
-    ephemeralPruned: number;
-    absorbed: number;
-    orphaned: number;
-    opCounts: Record<string, number>;
-  }): void {
-    if (!this.config.enabled || !this.config.builderStats) return;
-    this.push({
-      v: 1,
-      kind: 'builderStats',
-      t: this.now(),
-      generation: info.generation,
-      sequence: info.sequence,
-      ephemeralPruned: info.ephemeralPruned,
-      absorbed: info.absorbed,
-      orphaned: info.orphaned,
-      opCounts: info.opCounts,
-    });
-  }
-
-  recordFrameDecision(info: {
-    generation: number;
-    sequence: number;
-    publishedCount: number;
-    lastChildListsParents: number;
-    lastChildListsEmpty: boolean;
-    dirtyIn: DirtyCard;
-    dirtyOut: DirtyCard;
-    ephemeralPruned: number;
-    absorbed: number;
-    orphaned: number;
-    childLists: ChildListDecisionFact[];
-    childListsOmitted: number;
-    patches: number;
-    scrolls: number;
-    appendFromEmptyCount: number;
-  }): void {
-    if (!this.config.enabled || !this.config.frameDecision) return;
-    this.push({
-      v: 1,
-      kind: 'frameDecision',
-      t: this.now(),
-      generation: info.generation,
-      sequence: info.sequence,
-      publishedCount: info.publishedCount,
-      lastChildListsParents: info.lastChildListsParents,
-      lastChildListsEmpty: info.lastChildListsEmpty,
-      dirtyIn: info.dirtyIn,
-      dirtyOut: info.dirtyOut,
-      ephemeralPruned: info.ephemeralPruned,
-      absorbed: info.absorbed,
-      orphaned: info.orphaned,
-      childLists: info.childLists,
-      childListsOmitted: info.childListsOmitted,
-      patches: info.patches,
-      scrolls: info.scrolls,
-      appendFromEmptyCount: info.appendFromEmptyCount,
-    });
-  }
-
-  recordEncoder(info: {
-    generation: number;
-    sequence: number;
+    opCount: number;
     partCount: number;
     bytes: number;
-    maxFrameBytes: number;
+    tableSize: number;
+    buildMs: number;
+    encodeMs: number;
   }): void {
-    if (!this.config.enabled || !this.config.encoder) return;
+    if (!this.config.enabled) return;
+    this.framesEmitted += 1;
+    this.opsEmitted += info.opCount;
+    this.partsAccepted += info.partCount;
+    this.bytesAccepted += info.bytes;
+    this.lastSequence = info.sequence;
+    this.buildMsSum += info.buildMs;
+    this.encodeMsSum += info.encodeMs;
+    if (!this.config.frameEmitted) return;
     this.push({
       v: 1,
-      kind: 'encoder',
+      kind: 'frameEmitted',
       t: this.now(),
       generation: info.generation,
       sequence: info.sequence,
+      opCount: info.opCount,
       partCount: info.partCount,
       bytes: info.bytes,
-      maxFrameBytes: info.maxFrameBytes,
-      split: info.partCount > 1,
+      tableSize: info.tableSize,
+      buildMs: info.buildMs,
+      encodeMs: info.encodeMs,
+    });
+  }
+
+  recordTransportDeferred(info: { generation: number; sequence: number; pendingParts: number }): void {
+    if (!this.config.enabled) return;
+    this.deferredCount += 1;
+    if (!this.config.transportDeferred) return;
+    this.push({
+      v: 1,
+      kind: 'transportDeferred',
+      t: this.now(),
+      generation: info.generation,
+      sequence: info.sequence,
+      pendingParts: info.pendingParts,
     });
   }
 
@@ -204,11 +109,7 @@ export class ProjectionTelemetry {
     });
   }
 
-  recordRateChanged(info: {
-    fromHz: number;
-    toHz: number;
-    reason: 'hidden' | 'degrade' | 'recover' | 'config';
-  }): void {
+  recordRateChanged(info: { fromHz: number; toHz: number; reason: 'hidden' | 'degrade' | 'recover' | 'config' }): void {
     if (!this.config.enabled || !this.config.clock) return;
     this.push({
       v: 1,
@@ -220,51 +121,6 @@ export class ProjectionTelemetry {
     });
   }
 
-  recordFrameEmitted(info: {
-    generation: number;
-    sequence: number;
-    opCount: number;
-    partCount: number;
-    bytes: number;
-    establish?: boolean;
-  }): void {
-    if (!this.config.enabled) return;
-    this.framesEmitted += 1;
-    this.partsAccepted += info.partCount;
-    this.bytesAccepted += info.bytes;
-    this.lastSequence = info.sequence;
-    if (!this.config.frameEmitted) return;
-    this.push({
-      v: 1,
-      kind: 'frameEmitted',
-      t: this.now(),
-      generation: info.generation,
-      sequence: info.sequence,
-      opCount: info.opCount,
-      partCount: info.partCount,
-      bytes: info.bytes,
-      establish: info.establish,
-    });
-  }
-
-  recordTransportDeferred(info: {
-    generation: number;
-    sequence: number;
-    pendingParts: number;
-  }): void {
-    if (!this.config.enabled) return;
-    this.deferredCount += 1;
-    if (!this.config.transportDeferred) return;
-    this.push({
-      v: 1,
-      kind: 'transportDeferred',
-      t: this.now(),
-      generation: info.generation,
-      sequence: info.sequence,
-      pendingParts: info.pendingParts,
-    });
-  }
-
   private pushAggregate(): void {
     if (!this.config.enabled || !this.config.aggregate) return;
     this.push({
@@ -272,10 +128,13 @@ export class ProjectionTelemetry {
       kind: 'aggregate',
       t: this.now(),
       framesEmitted: this.framesEmitted,
+      opsEmitted: this.opsEmitted,
       partsAccepted: this.partsAccepted,
       bytesAccepted: this.bytesAccepted,
       deferredCount: this.deferredCount,
       lastSequence: this.lastSequence,
+      avgBuildMs: this.framesEmitted > 0 ? this.buildMsSum / this.framesEmitted : 0,
+      avgEncodeMs: this.framesEmitted > 0 ? this.encodeMsSum / this.framesEmitted : 0,
     });
   }
 

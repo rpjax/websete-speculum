@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Stress churn fixture</title>
+    <style>
+      body { margin: 1rem; font-family: system-ui, sans-serif; background: #111827; color: #e5e7eb; }
+      #grid { display: grid; grid-template-columns: repeat(20, 1fr); gap: 2px; }
+      #grid div { background: #374151; padding: 2px; font-size: 10px; text-align: center; }
+    </style>
+  </head>
+  <body>
+    <h1>Stress churn</h1>
+    <div id="grid"></div>
+    <script>
+      // Per-rAF: create+append a batch of rows, patch a batch of attrs/text on existing rows,
+      // and remove the oldest batch once the pool is full — heavier and more varied than
+      // mutation-churn.html (childList + attributes + characterData every frame, at 60Hz,
+      // against a frame clock capped well below that, so ticks coalesce multiple rAFs' worth
+      // of MutationRecords — the shape §5.3's visited-set / MAX_DIRTY_NODES budget exists for).
+      const grid = document.getElementById('grid');
+      const rows = [];
+      const BATCH = 25;
+      const MAX_ROWS = 400;
+      let n = 0;
+
+      function tick() {
+        for (let i = 0; i < BATCH; i++) {
+          n += 1;
+          const cell = document.createElement('div');
+          cell.textContent = String(n);
+          cell.dataset.n = String(n);
+          grid.appendChild(cell);
+          rows.push(cell);
+        }
+        for (let i = Math.max(0, rows.length - BATCH * 3); i < rows.length; i++) {
+          const cell = rows[i];
+          if (!cell) continue;
+          cell.textContent = String(n - i);
+          cell.style.background = n % 2 === 0 ? '#4b5563' : '#374151';
+        }
+        while (rows.length > MAX_ROWS) {
+          const cell = rows.shift();
+          cell?.remove();
+        }
+        requestAnimationFrame(tick);
+      }
+      requestAnimationFrame(tick);
+    </script>
+  </body>
+</html>

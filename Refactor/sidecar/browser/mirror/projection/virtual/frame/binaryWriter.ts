@@ -74,6 +74,12 @@ export class BinaryWriter {
     this.offset += 8;
   }
 
+  u64(v: bigint): void {
+    this.ensure(8);
+    this.view.setBigUint64(this.offset, v, true);
+    this.offset += 8;
+  }
+
   /** Intern string; returns index. */
   str(value: string): number {
     const existing = this.stringIndex.get(value);
@@ -86,6 +92,11 @@ export class BinaryWriter {
 
   bytesSoFar(): Uint8Array {
     return this.buf.subarray(0, this.offset);
+  }
+
+  /** Diagnostic only — frame-protocol.md decision-log entry, 2026-08-13 "48KB first-frame". */
+  debugStrings(): readonly string[] {
+    return this.strings;
   }
 
   takeStringTableBytes(): Uint8Array {
@@ -113,7 +124,11 @@ export class BinaryWriter {
   }
 }
 
-/** One wire part: header + string table + ops body (ops body starts with opCount). */
+/**
+ * One wire part — frame-protocol.md §2 header + per-part string table + ops body
+ * (ops body starts with opCount). `preTableHash` is unchecked in v0 (always `0n` on the
+ * wire) — see tableFrameBuilder.ts header comment.
+ */
 export function assemblePart(args: {
   version: number;
   flags: number;
@@ -121,10 +136,11 @@ export function assemblePart(args: {
   sequence: number;
   partIndex: number;
   partCount: number;
+  preTableHash: bigint;
   stringTable: Uint8Array;
   opsBody: Uint8Array;
 }): Uint8Array {
-  const headerSize = 2 + 1 + 1 + 4 + 4 + 2 + 2;
+  const headerSize = 2 + 1 + 1 + 4 + 4 + 2 + 2 + 8;
   const out = new Uint8Array(headerSize + args.stringTable.length + args.opsBody.length);
   const view = new DataView(out.buffer);
   let o = 0;
@@ -140,6 +156,8 @@ export function assemblePart(args: {
   o += 2;
   view.setUint16(o, args.partCount, true);
   o += 2;
+  view.setBigUint64(o, args.preTableHash, true);
+  o += 8;
   out.set(args.stringTable, o);
   o += args.stringTable.length;
   out.set(args.opsBody, o);

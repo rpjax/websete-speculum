@@ -15,6 +15,8 @@ export type ProjectionConfigPreScriptOptions = {
   maxFrameBytes?: number;
   /** Partial telemetry overrides (merged with Virtual defaults). */
   telemetry?: Partial<ProjectionTelemetryConfig>;
+  /** §1.2 `EPOCH_RESET` trigger (Stage 3) — which generation this injection is. Defaults to `1`. */
+  generation?: number;
 };
 
 /**
@@ -38,6 +40,11 @@ export function buildConfigPreScript(opts: ProjectionConfigPreScriptOptions): st
   }
   if (opts.maxFrameBytes !== undefined) payload.maxFrameBytes = opts.maxFrameBytes;
   if (opts.telemetry !== undefined) payload.telemetry = opts.telemetry;
+  if (opts.generation !== undefined) payload.generation = opts.generation;
 
-  return `globalThis.${PROJECTION_CONFIG_GLOBAL}=${JSON.stringify(payload)};`;
+  // This runs as its own separate injected `<script>` tag (Patchright leaves it attached to
+  // the document — see bootstrap.ts's matching `currentScript.remove()` for why that matters);
+  // clean up after itself the same way, or `virtual.js`'s own removal of *its* tag still leaves
+  // this smaller one behind for the observer to mirror as page content.
+  return `globalThis.${PROJECTION_CONFIG_GLOBAL}=${JSON.stringify(payload)};document.currentScript?.remove();`;
 }

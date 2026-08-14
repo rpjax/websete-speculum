@@ -1,46 +1,23 @@
 "use strict";
 (() => {
-  // browser/mirror/projection/client/opcodes.ts
-  var PageProjectionOp = {
-    establishBegin: 1,
-    establishChunk: 2,
-    establishEnd: 3,
-    childList: 4,
-    patch: 5,
-    scrollViewport: 6,
-    scrollElement: 7,
-    cssomInstall: 8,
-    cssomSheetList: 9,
-    cssomRuleList: 10,
-    cssomPatch: 11,
-    /** §5.2.6 — title/lang/dir/meta[viewport]. Rides in the `dom` plane despite sorting after the Cssom codes. */
-    documentState: 12
-  };
-  var PAGE_PROJECTION_MAGIC = 20560;
-  var PAGE_PROJECTION_VERSION = 1;
-  var PageProjectionFrameFlag = {
-    Establish: 1,
-    Resync: 2
-  };
-  var PageProjectionNodeKind = {
-    Element: 1,
-    Text: 2,
-    Comment: 3
-  };
-  var PageProjectionChildListMode = {
-    Full: 0,
-    Append: 1
-  };
-  var PageProjectionChildRefKind = {
-    Existing: 0,
-    Fresh: 1
-  };
-  var PageProjectionCssomScope = {
-    Main: 0,
-    PierceHost: 1
-  };
+  // browser/mirror/projection/models/frame.ts
+  var DOCUMENT_ID = 1;
+  var INSERT_AT_END = 0;
+  var CHECK_SCOPE_TABLE = 0;
+  var CHECK_SCOPE_RANGE = 1;
 
-  // browser/mirror/projection/client/decode.ts
+  // browser/mirror/projection/models/limits.ts
+  var MAX_STR_BYTES = 1 << 20;
+  var MAX_ATTRS = 1024;
+  var MAX_CHILDREN_PER_OP = 8192;
+  var MAX_OPS_PER_FRAME = 65536;
+  var MAX_ROWS = 2e5;
+
+  // browser/mirror/projection/models/decode.ts
+  var WIRE_VERSION = 1;
+  var WIRE_MAGIC = 20560;
+  var LOCAL_STR_BIT = 2147483648;
+  var RESYNC_FLAG_BIT = 2;
   var textDecoder = new TextDecoder("utf-8");
   var ByteReader = class {
     view;
@@ -68,9 +45,9 @@
       this.offset += 4;
       return v;
     }
-    i32() {
-      const v = this.view.getInt32(this.offset, true);
-      this.offset += 4;
+    u64() {
+      const v = this.view.getBigUint64(this.offset, true);
+      this.offset += 8;
       return v;
     }
     bytes_(len) {
@@ -79,17 +56,32 @@
       return v;
     }
     utf8(len) {
+      if (len > MAX_STR_BYTES) {
+        throw new Error(`string byteLen ${len} exceeds MAX_STR_BYTES (${MAX_STR_BYTES})`);
+      }
       return textDecoder.decode(this.bytes_(len));
     }
   };
-  function decodeFramePart(input) {
+  var PersistentStringTable = class {
+    byId = /* @__PURE__ */ new Map();
+    define(strId, value) {
+      this.byId.set(strId, value);
+    }
+    resolve(ref) {
+      return this.byId.get(ref);
+    }
+    clear() {
+      this.byId.clear();
+    }
+  };
+  function decodeFramePart(input, persistent) {
     const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
     try {
       const r = new ByteReader(bytes);
-      if (r.remaining < 20) return malformed("frame shorter than the fixed header");
-      if (r.u16() !== PAGE_PROJECTION_MAGIC) return malformed("bad magic");
+      if (r.remaining < 24) return malformed("frame shorter than the fixed header");
+      if (r.u16() !== WIRE_MAGIC) return malformed("bad magic");
       const version = r.u8();
-      if (version !== PAGE_PROJECTION_VERSION) {
+      if (version !== WIRE_VERSION) {
         return { ok: false, reason: "unknown_version", message: `unsupported wire version ${version}` };
       }
       const flags = r.u8();
@@ -97,14 +89,21 @@
       const sequence = r.u32();
       const partIndex = r.u16();
       const partCount = r.u16();
+      const preTableHash = r.u64();
       const strCount = r.u32();
-      const strings = new Array(strCount);
-      for (let i = 0; i < strCount; i++) strings[i] = r.utf8(r.u32());
+      if (strCount > MAX_OPS_PER_FRAME) return malformed(`strCount ${strCount} exceeds MAX_OPS_PER_FRAME`);
+      const localStrings = new Array(strCount);
+      for (let i = 0; i < strCount; i++) localStrings[i] = r.utf8(r.u32());
+      const resolveStr = (ref) => {
+        if ((ref & LOCAL_STR_BIT) !== 0) return localStrings[ref & 2147483647] ?? "";
+        return persistent.resolve(ref) ?? "";
+      };
       const opCount = r.u32();
+      if (opCount > MAX_OPS_PER_FRAME) return malformed(`opCount ${opCount} exceeds MAX_OPS_PER_FRAME`);
       const ops = new Array(opCount);
       for (let i = 0; i < opCount; i++) {
         const opCode = r.u8();
-        const op = decodeOp(opCode, r, strings);
+        const op = decodeOp(opCode, r, resolveStr, persistent);
         if (!op) return malformed(`unknown opcode ${opCode}`);
         ops[i] = op;
       }
@@ -112,12 +111,12 @@
         ok: true,
         part: {
           version,
-          establish: (flags & PageProjectionFrameFlag.Establish) !== 0,
-          resync: (flags & PageProjectionFrameFlag.Resync) !== 0,
+          resync: (flags & RESYNC_FLAG_BIT) !== 0,
           generation,
           sequence,
           partIndex,
           partCount,
+          preTableHash,
           ops
         }
       };
@@ -128,121 +127,96 @@
   function malformed(message) {
     return { ok: false, reason: "malformed", message };
   }
-  function decodeOp(opCode, r, strings) {
+  function decodeAttrs(r, resolveStr) {
+    const count = r.u16();
+    if (count > MAX_ATTRS) throw new Error(`attribute count ${count} exceeds MAX_ATTRS (${MAX_ATTRS})`);
+    const attrs = new Array(count);
+    for (let i = 0; i < count; i++) attrs[i] = { name: resolveStr(r.u32()), value: resolveStr(r.u32()) };
+    return attrs;
+  }
+  function checkChildCount(count) {
+    if (count > MAX_CHILDREN_PER_OP) {
+      throw new Error(`child count ${count} exceeds MAX_CHILDREN_PER_OP (${MAX_CHILDREN_PER_OP})`);
+    }
+  }
+  function decodeOp(opCode, r, resolveStr, persistent) {
     switch (opCode) {
-      case PageProjectionOp.establishBegin: {
-        const generation = r.u32();
-        const viewportWidth = r.u32();
-        const viewportHeight = r.u32();
-        const scrollX = r.i32();
-        const scrollY = r.i32();
-        const count = r.u32();
-        const scrollElements = new Array(count);
-        for (let i = 0; i < count; i++) scrollElements[i] = { id: r.u32(), scrollTop: r.i32(), scrollLeft: r.i32() };
-        return { op: "establishBegin", generation, viewportWidth, viewportHeight, scrollX, scrollY, scrollElements };
+      case 1 /* Check */: {
+        const scope = r.u8();
+        const lo = r.u32();
+        const hi = r.u32();
+        const hash = r.u64();
+        if (scope !== CHECK_SCOPE_TABLE && scope !== CHECK_SCOPE_RANGE) return null;
+        return { op: 1 /* Check */, scope, lo, hi, hash };
       }
-      case PageProjectionOp.establishChunk:
-        return { op: "establishChunk", html: r.utf8(r.u32()) };
-      case PageProjectionOp.establishEnd:
-        return { op: "establishEnd", nodeCount: r.u32(), checksum: r.u32() };
-      case PageProjectionOp.childList: {
-        const parent = r.u32();
-        const mode = r.u8() === PageProjectionChildListMode.Append ? "append" : "full";
-        const count = r.u32();
-        const children = new Array(count);
-        for (let i = 0; i < count; i++) {
-          children[i] = r.u8() === PageProjectionChildRefKind.Fresh ? { kind: "fresh", node: decodeNode(r, strings) } : { kind: "existing", id: r.u32() };
+      case 2 /* EpochReset */:
+        return { op: 2 /* EpochReset */, generation: r.u32() };
+      case 33 /* NodeDrop */: {
+        const count = r.u16();
+        checkChildCount(count);
+        const ids = new Array(count);
+        for (let i = 0; i < count; i++) ids[i] = r.u32();
+        return { op: 33 /* NodeDrop */, ids };
+      }
+      case 3 /* StrDef */: {
+        const strId = r.u32();
+        const value = r.utf8(r.u32());
+        persistent.define(strId, value);
+        return { op: 3 /* StrDef */, strId, value };
+      }
+      case 32 /* NodeNew */: {
+        const id = r.u32();
+        const kind = r.u8();
+        if (kind === 1 /* Element */) {
+          const name = resolveStr(r.u32());
+          const attrs = decodeAttrs(r, resolveStr);
+          return { op: 32 /* NodeNew */, id, kind: 1 /* Element */, name, attrs };
         }
-        return { op: "childList", parent, mode, children };
+        if (kind === 6 /* Doctype */) {
+          return { op: 32 /* NodeNew */, id, kind: 6 /* Doctype */, name: resolveStr(r.u32()) };
+        }
+        if (kind === 2 /* Text */ || kind === 3 /* Comment */) {
+          return { op: 32 /* NodeNew */, id, kind, value: resolveStr(r.u32()) };
+        }
+        return null;
       }
-      case PageProjectionOp.patch:
-        return { op: "patch", node: r.u32(), snapshot: decodePatchSnapshot(r, strings) };
-      case PageProjectionOp.scrollViewport:
-        return { op: "scrollViewport", scrollX: r.i32(), scrollY: r.i32() };
-      case PageProjectionOp.scrollElement:
-        return { op: "scrollElement", node: r.u32(), scrollTop: r.i32(), scrollLeft: r.i32() };
-      case PageProjectionOp.cssomInstall:
-        return { op: "cssomInstall", sheets: decodeList(r, strings, decodeSheet) };
-      case PageProjectionOp.cssomSheetList:
-        return { op: "cssomSheetList", removed: decodeIds(r), added: decodeIndexed(r, strings, decodeSheet, "sheet") };
-      case PageProjectionOp.cssomRuleList: {
-        const sheet = r.u32();
-        return { op: "cssomRuleList", sheet, removed: decodeIds(r), added: decodeIndexed(r, strings, decodeRule, "rule") };
+      case 64 /* Insert */: {
+        const parent = r.u32();
+        const before = r.u32();
+        const count = r.u16();
+        checkChildCount(count);
+        const ids = new Array(count);
+        for (let i = 0; i < count; i++) ids[i] = r.u32();
+        return { op: 64 /* Insert */, parent, before: before === 0 ? INSERT_AT_END : before, ids };
       }
-      case PageProjectionOp.cssomPatch:
-        return { op: "cssomPatch", rule: r.u32(), cssText: strings[r.u32()] ?? "" };
-      case PageProjectionOp.documentState: {
-        const title = strings[r.u32()] ?? "";
-        const lang = decodeNullableString(r, strings);
-        const dir = decodeNullableString(r, strings);
-        const viewportContent = decodeNullableString(r, strings);
-        return { op: "documentState", title, lang, dir, viewportContent };
+      case 65 /* Remove */: {
+        const parent = r.u32();
+        const count = r.u16();
+        checkChildCount(count);
+        const ids = new Array(count);
+        for (let i = 0; i < count; i++) ids[i] = r.u32();
+        return { op: 65 /* Remove */, parent, ids };
+      }
+      case 96 /* AttrSet */: {
+        const node = r.u32();
+        const attrs = decodeAttrs(r, resolveStr);
+        return { op: 96 /* AttrSet */, node, attrs };
+      }
+      case 97 /* AttrDel */: {
+        const node = r.u32();
+        const count = r.u16();
+        if (count > MAX_ATTRS) throw new Error(`attribute count ${count} exceeds MAX_ATTRS (${MAX_ATTRS})`);
+        const names = new Array(count);
+        for (let i = 0; i < count; i++) names[i] = resolveStr(r.u32());
+        return { op: 97 /* AttrDel */, node, names };
+      }
+      case 98 /* TextSet */: {
+        const node = r.u32();
+        return { op: 98 /* TextSet */, node, value: resolveStr(r.u32()) };
       }
       default:
         return null;
     }
-  }
-  function decodeNullableString(r, strings) {
-    return r.u8() === 0 ? null : strings[r.u32()] ?? "";
-  }
-  function decodeNode(r, strings) {
-    const kind = r.u8();
-    const id = r.u32();
-    if (kind === PageProjectionNodeKind.Text) return { id, kind: "text", value: strings[r.u32()] ?? "" };
-    if (kind === PageProjectionNodeKind.Comment) return { id, kind: "comment", value: strings[r.u32()] ?? "" };
-    const tag = strings[r.u32()] ?? "";
-    const attrs = decodeAttrs(r, strings);
-    const childCount = r.u32();
-    const children = new Array(childCount);
-    for (let i = 0; i < childCount; i++) children[i] = decodeNode(r, strings);
-    return { id, kind: "element", tag, attrs, children };
-  }
-  function decodePatchSnapshot(r, strings) {
-    const kind = r.u8();
-    if (kind === PageProjectionNodeKind.Text) return { kind: "text", value: strings[r.u32()] ?? "" };
-    if (kind === PageProjectionNodeKind.Comment) return { kind: "comment", value: strings[r.u32()] ?? "" };
-    return { kind: "element", tag: strings[r.u32()] ?? "", attrs: decodeAttrs(r, strings) };
-  }
-  function decodeAttrs(r, strings) {
-    const count = r.u16();
-    const attrs = {};
-    for (let i = 0; i < count; i++) attrs[strings[r.u32()] ?? ""] = strings[r.u32()] ?? "";
-    return attrs;
-  }
-  function decodeSheet(r, strings) {
-    const id = r.u32();
-    const scopeByte = r.u8();
-    const hostAnchorRaw = r.u32();
-    return {
-      id,
-      scope: scopeByte === PageProjectionCssomScope.PierceHost ? "pierceHost" : "main",
-      hostAnchor: hostAnchorRaw === 0 ? null : hostAnchorRaw,
-      rules: decodeList(r, strings, decodeRule)
-    };
-  }
-  function decodeRule(r, strings) {
-    return { id: r.u32(), cssText: strings[r.u32()] ?? "" };
-  }
-  function decodeIds(r) {
-    const count = r.u32();
-    const ids = new Array(count);
-    for (let i = 0; i < count; i++) ids[i] = r.u32();
-    return ids;
-  }
-  function decodeList(r, strings, one) {
-    const count = r.u32();
-    const out = new Array(count);
-    for (let i = 0; i < count; i++) out[i] = one(r, strings);
-    return out;
-  }
-  function decodeIndexed(r, strings, one, key) {
-    const count = r.u32();
-    const out = new Array(count);
-    for (let i = 0; i < count; i++) {
-      const index = r.u32();
-      out[i] = { index, [key]: one(r, strings) };
-    }
-    return out;
   }
   var FramePartAssembler = class {
     pending = /* @__PURE__ */ new Map();
@@ -269,21 +243,444 @@
   function assemble(last, parts) {
     const ops = [];
     for (const part of parts) ops.push(...part.ops);
-    return { version: last.version, establish: last.establish, resync: last.resync, generation: last.generation, sequence: last.sequence, ops };
+    return {
+      version: last.version,
+      resync: last.resync,
+      generation: last.generation,
+      sequence: last.sequence,
+      preTableHash: last.preTableHash,
+      ops
+    };
+  }
+
+  // browser/mirror/projection/models/rowHash.ts
+  var FNV_OFFSET_BASIS = 14695981039346656037n;
+  var FNV_PRIME = 1099511628211n;
+  var MASK64 = 0xffffffffffffffffn;
+  var sharedEncoder = new TextEncoder();
+  function h64Bytes(bytes, seed = FNV_OFFSET_BASIS) {
+    let h = seed;
+    for (let i = 0; i < bytes.length; i++) {
+      h ^= BigInt(bytes[i]);
+      h = h * FNV_PRIME & MASK64;
+    }
+    return h;
+  }
+  function h64Str(value, seed = FNV_OFFSET_BASIS) {
+    return h64Bytes(sharedEncoder.encode(value), seed);
+  }
+  function h64U32(value, seed = FNV_OFFSET_BASIS) {
+    let h = seed;
+    h ^= BigInt(value & 255);
+    h = h * FNV_PRIME & MASK64;
+    h ^= BigInt(value >>> 8 & 255);
+    h = h * FNV_PRIME & MASK64;
+    h ^= BigInt(value >>> 16 & 255);
+    h = h * FNV_PRIME & MASK64;
+    h ^= BigInt(value >>> 24 & 255);
+    h = h * FNV_PRIME & MASK64;
+    return h;
+  }
+  function addMod64(a, b) {
+    return a + b & MASK64;
+  }
+  function subMod64(a, b) {
+    return a - b & MASK64;
+  }
+  function hashName(name) {
+    return h64Str(`\0N${name}`);
+  }
+  function hashValue(value) {
+    return h64Str(`\0V${value}`);
+  }
+  function hashAttr(name, value) {
+    return h64Str(`\0A${name}${value}`);
+  }
+  function computeRowHash(id, kind, parent, prevSibling, contentHash) {
+    let h = h64U32(id);
+    h = h64U32(kind, h);
+    h = h64U32(parent, h);
+    h = h64U32(prevSibling, h);
+    h ^= contentHash;
+    h = h * FNV_PRIME & MASK64;
+    return h;
+  }
+  var TableHashTracker = class {
+    total = 0n;
+    rowHashes = /* @__PURE__ */ new Map();
+    get value() {
+      return this.total;
+    }
+    get size() {
+      return this.rowHashes.size;
+    }
+    has(id) {
+      return this.rowHashes.has(id);
+    }
+    upsert(id, newRowHash) {
+      const old = this.rowHashes.get(id);
+      if (old !== void 0) this.total = subMod64(this.total, old);
+      this.rowHashes.set(id, newRowHash);
+      this.total = addMod64(this.total, newRowHash);
+    }
+    remove(id) {
+      const old = this.rowHashes.get(id);
+      if (old === void 0) return;
+      this.total = subMod64(this.total, old);
+      this.rowHashes.delete(id);
+    }
+    clear() {
+      this.total = 0n;
+      this.rowHashes.clear();
+    }
+  };
+
+  // browser/mirror/projection/models/replicatedTable.ts
+  var NONE = 0;
+  var ReplicatedTable = class {
+    rows = /* @__PURE__ */ new Map();
+    /** ELEMENT rows only — id -> attrName -> that attribute's own contentHash contribution. */
+    attrHashes = /* @__PURE__ */ new Map();
+    /** Derived, non-hashed: id -> the id currently linked immediately after it under the same parent. */
+    nextSiblingOf = /* @__PURE__ */ new Map();
+    /** Derived, non-hashed: parentId -> the id currently linked last under that parent (0 = none). */
+    lastChildOf = /* @__PURE__ */ new Map();
+    tracker = new TableHashTracker();
+    /** Stamped onto every row `setRow` touches until changed again — one frame, one `lms` (§4 preamble). */
+    currentSequence = 0;
+    get tableHash() {
+      return this.tracker.value;
+    }
+    /**
+     * Call once per frame before applying its ops (producer: `tableFrameBuilder.ts`/`resync.ts`;
+     * client: `replicatedTableApply.ts`) — every row touched by a subsequent op this pass stamps
+     * `lms` with this value (§1.3/§4: "every instruction that touches a row sets that row's
+     * `lms = sequence`"). Not part of `rowHash`/`tableHash` (§1.5) — diagnostics/GC only (§1.6).
+     */
+    setSequence(sequence) {
+      this.currentSequence = sequence;
+    }
+    /** Row count — excludes the implicit, never-stored Document row (id 1). */
+    get size() {
+      return this.rows.size;
+    }
+    has(id) {
+      return this.rows.has(id);
+    }
+    getRow(id) {
+      return this.rows.get(id);
+    }
+    /**
+     * §4.1 `CHECK.scope = 1` — Σ `rowHash` (mod 2^64) over ids in `[lo, hi]` inclusive. O(size),
+     * not O(1): OPEN-3 resolves the *model* (id ranges over per-bucket partial sums) but its O(1)
+     * bucket-maintenance mechanism is not built, and the v0 producer never emits `scope: 1` (only
+     * resync's whole-table close, §5.8 step 4) — this exists so a client still decodes and
+     * evaluates one correctly (P7: strict, not silently ignored) rather than leaving it unusable.
+     */
+    hashRange(lo, hi) {
+      let sum = 0n;
+      for (const [id, row] of this.rows) {
+        if (id >= lo && id <= hi) sum = addMod64(sum, row.rowHash);
+      }
+      return sum;
+    }
+    /** Drops every row and derived index — `EPOCH_RESET` (§4.1) and resync's wholesale replace (§5.8). */
+    reset() {
+      this.rows.clear();
+      this.attrHashes.clear();
+      this.nextSiblingOf.clear();
+      this.lastChildOf.clear();
+      this.tracker.clear();
+    }
+    // ---- NODE_NEW (§4.2) — always creates a detached row (parent=0, prevSibling=0). ----
+    createElementRow(id, tagName, attrs) {
+      const attrMap = /* @__PURE__ */ new Map();
+      let sum = hashName(tagName);
+      for (let i = 0; i < attrs.length; i++) {
+        const { name, value } = attrs[i];
+        const h = hashAttr(name, value);
+        attrMap.set(name, h);
+        sum = addMod64(sum, h);
+      }
+      this.attrHashes.set(id, attrMap);
+      this.setRow(id, 1 /* Element */, NONE, NONE, sum);
+    }
+    /** TEXT/COMMENT (`value`) or DOCTYPE (`name`) — both a single content-carrying string field. */
+    createLeafRow(id, kind, contentField) {
+      this.setRow(id, kind, NONE, NONE, hashValue(contentField));
+    }
+    // ---- ATTR_SET / ATTR_DEL / TEXT_SET (§4.4) — content-only, topology untouched. ----
+    setAttrs(id, attrs) {
+      const row = this.rows.get(id);
+      if (row === void 0) return;
+      const attrMap = this.attrHashes.get(id) ?? /* @__PURE__ */ new Map();
+      let sum = row.contentHash;
+      for (let i = 0; i < attrs.length; i++) {
+        const { name, value } = attrs[i];
+        const old = attrMap.get(name);
+        if (old !== void 0) sum = subMod64(sum, old);
+        const h = hashAttr(name, value);
+        attrMap.set(name, h);
+        sum = addMod64(sum, h);
+      }
+      this.attrHashes.set(id, attrMap);
+      this.setRow(id, row.kind, row.parent, row.prevSibling, sum);
+    }
+    delAttrs(id, names) {
+      const row = this.rows.get(id);
+      if (row === void 0) return;
+      const attrMap = this.attrHashes.get(id);
+      if (attrMap === void 0) return;
+      let sum = row.contentHash;
+      for (let i = 0; i < names.length; i++) {
+        const old = attrMap.get(names[i]);
+        if (old === void 0) continue;
+        sum = subMod64(sum, old);
+        attrMap.delete(names[i]);
+      }
+      this.setRow(id, row.kind, row.parent, row.prevSibling, sum);
+    }
+    setValue(id, value) {
+      const row = this.rows.get(id);
+      if (row === void 0) return;
+      this.setRow(id, row.kind, row.parent, row.prevSibling, hashValue(value));
+    }
+    // ---- INSERT / REMOVE (§4.3) — topology only, content untouched. ----
+    /**
+     * §4.3 `INSERT` table effect: unlinks each id from wherever it currently is (a move), then
+     * links the whole batch, in wire order, immediately before `before` (or at the end of
+     * `parent`'s children when `before === 0`). Exactly two rows change per link (the linked id,
+     * and whichever row now follows it) — never O(children in parent).
+     */
+    insertBatch(parent, before, ids) {
+      let prev = before === NONE ? this.lastChildOf.get(parent) ?? NONE : this.rows.get(before)?.prevSibling ?? NONE;
+      for (let i = 0; i < ids.length; i++) {
+        const id = ids[i];
+        const existing = this.rows.get(id);
+        if (existing !== void 0 && existing.parent !== NONE) this.unlink(id, existing);
+        this.linkAfter(id, parent, prev);
+        prev = id;
+      }
+      if (before !== NONE) this.relinkPrevSibling(before, prev);
+      else this.lastChildOf.set(parent, prev);
+    }
+    /**
+     * §4.3 `REMOVE` table effect: detaches each id and repairs the sibling that followed it.
+     * `parent` is redundant with the table (§4.3: "kept as a cheap assert") — accepted here for
+     * call-site symmetry with `RemoveOp`; precondition validation (Stage 2) is what actually checks
+     * it against `getRow(id).parent`, not this method.
+     */
+    removeBatch(_parent, ids) {
+      for (let i = 0; i < ids.length; i++) {
+        const id = ids[i];
+        const row = this.rows.get(id);
+        if (row === void 0) continue;
+        this.unlink(id, row);
+        this.setRow(id, row.kind, NONE, NONE, row.contentHash);
+      }
+    }
+    /** `NODE_DROP` (§4.2, OPEN-1/OPEN-2, Stage 3) — permanently removes one row's contract state. */
+    dropRow(id) {
+      this.rows.delete(id);
+      this.attrHashes.delete(id);
+      this.nextSiblingOf.delete(id);
+      this.lastChildOf.delete(id);
+      this.tracker.remove(id);
+    }
+    /**
+     * `NODE_DROP`'s actual `Table` effect (§4.2: "drops each row **and all its descendants** — a
+     * detached row may still have children"). `id` is a subtree root (validated by the caller —
+     * `replicatedTableApply.ts` — to have `parent = 0` before this runs); its descendants are
+     * discovered by walking the same derived links `INSERT`/`REMOVE` already maintain
+     * (`lastChildOf` + each child's own `prevSibling`), never touched by `unlink()` when only the
+     * *root* of a detached subtree was itself detached from its old parent. Returns every id
+     * actually dropped (root + descendants) so the caller (producer: `tableFrameBuilder.ts`) can
+     * release the matching `DomNodeTable` identity entries too.
+     */
+    dropSubtree(id) {
+      const ids = [];
+      this.collectSubtreeIds(id, ids);
+      for (let i = 0; i < ids.length; i++) this.dropRow(ids[i]);
+      return ids;
+    }
+    /**
+     * Detached (`parent === 0`) subtree roots whose `lms` is at least `maxAge` frame-`sequence`s
+     * behind `currentSequence` — OPEN-2's deferred-age GC sweep candidates (§1.6). Non-root
+     * detached descendants (`parent !== 0`, pointing at another detached row) are excluded: they
+     * are collected transitively by `dropSubtree` once their root is chosen, never listed on the
+     * wire themselves (§4.2). Bounded by `limit` — same "forced flush over unbounded per-tick
+     * work" reasoning as `MAX_DIRTY_NODES` (§8).
+     */
+    collectDroppableIds(currentSequence, maxAge, limit) {
+      const out = [];
+      for (const [id, row] of this.rows) {
+        if (out.length >= limit) break;
+        if (row.parent !== NONE) continue;
+        if (currentSequence - row.lms >= maxAge) out.push(id);
+      }
+      return out;
+    }
+    collectSubtreeIds(id, out) {
+      out.push(id);
+      let child = this.lastChildOf.get(id) ?? NONE;
+      while (child !== NONE) {
+        this.collectSubtreeIds(child, out);
+        const row = this.rows.get(child);
+        child = row?.prevSibling ?? NONE;
+      }
+    }
+    // ---- internals ----
+    setRow(id, kind, parent, prevSibling, contentHash) {
+      const rowHash = computeRowHash(id, kind, parent, prevSibling, contentHash);
+      this.rows.set(id, { kind, parent, prevSibling, contentHash, rowHash, lms: this.currentSequence });
+      this.tracker.upsert(id, rowHash);
+    }
+    relinkPrevSibling(id, prevSibling) {
+      const row = this.rows.get(id);
+      if (row === void 0) return;
+      this.setRow(id, row.kind, row.parent, prevSibling, row.contentHash);
+    }
+    linkAfter(id, parent, prevId) {
+      const row = this.rows.get(id);
+      const kind = row?.kind ?? 1 /* Element */;
+      const contentHash = row?.contentHash ?? 0n;
+      this.setRow(id, kind, parent, prevId, contentHash);
+      if (prevId !== NONE) this.nextSiblingOf.set(prevId, id);
+    }
+    /** Removes `id` from its current position, repairing its neighbor's `prevSibling`/`lastChildOf`. */
+    unlink(id, row) {
+      if (row.parent === NONE) return;
+      const nextId = this.nextSiblingOf.get(id) ?? NONE;
+      this.nextSiblingOf.delete(id);
+      if (nextId !== NONE) {
+        this.relinkPrevSibling(nextId, row.prevSibling);
+        if (row.prevSibling !== NONE) this.nextSiblingOf.set(row.prevSibling, nextId);
+      } else if (this.lastChildOf.get(row.parent) === id) {
+        this.lastChildOf.set(row.parent, row.prevSibling);
+      }
+    }
+  };
+
+  // browser/mirror/projection/models/replicatedTableApply.ts
+  function applyOpToTable(table, op) {
+    switch (op.op) {
+      case 1 /* Check */:
+        return;
+      case 2 /* EpochReset */:
+        table.reset();
+        return;
+      case 3 /* StrDef */:
+        return;
+      case 32 /* NodeNew */:
+        if (op.kind === 1 /* Element */) table.createElementRow(op.id, op.name, op.attrs);
+        else if (op.kind === 6 /* Doctype */) table.createLeafRow(op.id, op.kind, op.name);
+        else table.createLeafRow(op.id, op.kind, op.value);
+        return;
+      case 33 /* NodeDrop */:
+        for (let i = 0; i < op.ids.length; i++) table.dropSubtree(op.ids[i]);
+        return;
+      case 64 /* Insert */:
+        table.insertBatch(op.parent, op.before, op.ids);
+        return;
+      case 65 /* Remove */:
+        table.removeBatch(op.parent, op.ids);
+        return;
+      case 96 /* AttrSet */:
+        table.setAttrs(op.node, op.attrs);
+        return;
+      case 97 /* AttrDel */:
+        table.delAttrs(op.node, op.names);
+        return;
+      case 98 /* TextSet */:
+        table.setValue(op.node, op.value);
+        return;
+      default:
+        return;
+    }
+  }
+  function evaluateCheck(table, op) {
+    return op.scope === CHECK_SCOPE_RANGE ? table.hashRange(op.lo, op.hi) : table.tableHash;
+  }
+  function applyFrameToTableChecked(table, resync, ops, sequence = 0) {
+    if (resync) table.reset();
+    table.setSequence(sequence);
+    for (let i = 0; i < ops.length; i++) {
+      const op = ops[i];
+      if (op.op === 1 /* Check */) {
+        const actual = evaluateCheck(table, op);
+        if (actual !== op.hash) {
+          return {
+            ok: false,
+            reason: "precondition",
+            failedOpIndex: i,
+            opName: "check",
+            scope: op.scope,
+            lo: op.lo,
+            hi: op.hi,
+            expected: op.hash,
+            actual
+          };
+        }
+        continue;
+      }
+      if (op.op === 33 /* NodeDrop */) {
+        for (let j = 0; j < op.ids.length; j++) {
+          const id = op.ids[j];
+          if (!table.has(id)) {
+            return {
+              ok: false,
+              reason: "malformed",
+              failedOpIndex: i,
+              opName: "nodeDrop",
+              id,
+              message: "NODE_DROP of an absent id (frame-protocol.md OPEN-1)"
+            };
+          }
+          if (table.getRow(id).parent !== 0) {
+            return {
+              ok: false,
+              reason: "precondition",
+              failedOpIndex: i,
+              opName: "nodeDrop",
+              id,
+              message: "NODE_DROP of an attached row (frame-protocol.md \xA74.2)"
+            };
+          }
+        }
+        for (let j = 0; j < op.ids.length; j++) table.dropSubtree(op.ids[j]);
+        continue;
+      }
+      if (op.op === 32 /* NodeNew */ && !table.has(op.id) && table.size >= MAX_ROWS) {
+        return {
+          ok: false,
+          reason: "precondition",
+          failedOpIndex: i,
+          opName: "nodeNew",
+          id: op.id,
+          message: `MAX_ROWS (${MAX_ROWS}) exceeded (frame-protocol.md \xA78)`
+        };
+      }
+      applyOpToTable(table, op);
+    }
+    return { ok: true };
   }
 
   // browser/mirror/projection/client/applyDom.ts
-  var DOM_OP_NAMES = /* @__PURE__ */ new Set(["childList", "patch", "scrollViewport", "scrollElement"]);
   var DomFrameApplier = class {
     queued = [];
     raf = null;
     doc;
     registry;
     options;
+    table = new ReplicatedTable();
     constructor(doc, registry, options = {}) {
       this.doc = doc;
       this.registry = registry;
       this.options = options;
+    }
+    /** Client's own row/hash table (§1.3-§1.5) — read-only outside this class. */
+    get replicatedTable() {
+      return this.table;
     }
     enqueue(frame) {
       this.queued.push(frame);
@@ -317,206 +714,163 @@
         this.raf = null;
       }
       this.queued = [];
+      this.table.reset();
     }
     applyFrame(frame) {
-      const notes = {
-        appendOntoNonEmptyCount: 0,
-        childLists: [],
-        patches: 0,
-        scrolls: 0
-      };
-      const domOps = frame.ops.filter((op) => DOM_OP_NAMES.has(op.op));
-      if (domOps.length > 0) {
-        const resolved = resolveDomOps(domOps, this.registry);
-        if (!resolved.ok) {
-          this.options.onDesync?.({ reason: "address_miss", op: resolved.op, id: resolved.id });
-          return;
-        }
-        applyResolvedOps(this.doc, this.registry, resolved.ops, notes);
+      const start = performance.now();
+      if (!frame.resync && frame.preTableHash !== this.table.tableHash) {
+        this.fail("precondition", "preTableHash", frame.preTableHash, this.table.tableHash);
+        return;
       }
-      const documentStateOp = frame.ops.find((op) => op.op === "documentState");
-      if (documentStateOp) applyDocumentState(this.doc, documentStateOp);
-      this.options.onApplied?.(frame, notes);
+      const result = applyFrameToTableChecked(this.table, frame.resync, frame.ops, frame.sequence);
+      if (!result.ok) {
+        if (result.opName === "check") {
+          this.fail("precondition", "check", result.expected, result.actual);
+        } else {
+          this.failOp(result.reason, result.opName, result.id, result.message);
+        }
+        return;
+      }
+      for (let i = 0; i < frame.ops.length; i++) {
+        if (!this.applyOp(frame.ops[i])) return;
+      }
+      this.options.onApplied?.(frame, performance.now() - start);
+    }
+    fail(reason, opName, a, b) {
+      if (typeof a === "bigint") {
+        this.options.onDesync?.({ reason, op: opName, id: 0, expected: a, actual: b });
+      } else {
+        this.options.onDesync?.({ reason, op: opName, id: a });
+      }
+      return false;
+    }
+    /** `NODE_DROP`/`MAX_ROWS` phase-1 failures (Stage 3) — `message` for diagnostics, explicit `phase`. */
+    failOp(reason, opName, id, message) {
+      this.options.onDesync?.({ reason, op: opName, id, message, phase: "apply" });
+      return false;
+    }
+    applyOp(op) {
+      switch (op.op) {
+        case 1 /* Check */:
+          return true;
+        // §4.1 — no DOM effect; already evaluated in phase 1
+        case 2 /* EpochReset */:
+          return this.applyEpochReset();
+        case 3 /* StrDef */:
+          return true;
+        // already resolved at decode time (decode.ts PersistentStringTable)
+        case 32 /* NodeNew */:
+          return this.applyNodeNew(op);
+        case 33 /* NodeDrop */:
+          return this.applyNodeDrop(op);
+        case 64 /* Insert */:
+          return this.applyInsert(op);
+        case 65 /* Remove */:
+          return this.applyRemove(op);
+        case 96 /* AttrSet */:
+          return this.applyAttrSet(op);
+        case 97 /* AttrDel */:
+          return this.applyAttrDel(op);
+        case 98 /* TextSet */:
+          return this.applyTextSet(op);
+        default:
+          return true;
+      }
+    }
+    /**
+     * §4.1 `EPOCH_RESET` `DOM` effect: "the surface is discarded (a new document buffer is
+     * prepared — §6)." No double-buffer surface exists yet (Stage 4) — discards in place, which is
+     * safe here specifically because phase 1 already validated the *whole* frame (§P3: "if phase
+     * 1 fails, the DOM was never touched") and `EPOCH_RESET` is ordering-guaranteed first (§7 rule
+     * 1), so every `NODE_NEW`/`INSERT` immediately following in this same frame rebuilds the
+     * surface before Phase 2 returns — there is no observable empty-document frame.
+     */
+    applyEpochReset() {
+      this.doc.replaceChildren();
+      this.registry.clear();
+      this.registry.register(DOCUMENT_ID, this.doc);
+      return true;
+    }
+    /** §4.2 `NODE_DROP` `DOM` effect: "none — the subtree is already detached." Registry-only. */
+    applyNodeDrop(op) {
+      for (let i = 0; i < op.ids.length; i++) {
+        const node = this.registry.get(op.ids[i]);
+        if (node !== void 0) this.registry.unregisterSubtree(node);
+      }
+      return true;
+    }
+    applyNodeNew(op) {
+      let node;
+      if (op.kind === 1 /* Element */) {
+        node = this.doc.createElement(op.name);
+        applyAttrs(node, op.attrs);
+      } else if (op.kind === 2 /* Text */) {
+        node = this.doc.createTextNode(op.value);
+      } else if (op.kind === 3 /* Comment */) {
+        node = this.doc.createComment(op.value);
+      } else if (op.kind === 6 /* Doctype */) {
+        node = this.doc.implementation.createDocumentType(op.name || "html", "", "");
+      } else {
+        return this.fail("bad_target", "nodeNew", op.id);
+      }
+      this.registry.register(op.id, node);
+      return true;
+    }
+    applyInsert(op) {
+      const parent = this.registry.get(op.parent);
+      if (!parent) return this.fail("address_miss", "insert", op.parent);
+      let before = null;
+      if (op.before !== INSERT_AT_END) {
+        before = this.registry.get(op.before) ?? null;
+        if (before === null) return this.fail("address_miss", "insert", op.before);
+      }
+      for (let i = 0; i < op.ids.length; i++) {
+        const id = op.ids[i];
+        const node = this.registry.get(id);
+        if (!node) return this.fail("address_miss", "insert", id);
+        parent.insertBefore(node, before);
+      }
+      return true;
+    }
+    applyRemove(op) {
+      const parent = this.registry.get(op.parent);
+      if (!parent) return this.fail("address_miss", "remove", op.parent);
+      for (let i = 0; i < op.ids.length; i++) {
+        const id = op.ids[i];
+        const node = this.registry.get(id);
+        if (!node) return this.fail("address_miss", "remove", id);
+        if (node.parentNode === parent) parent.removeChild(node);
+      }
+      return true;
+    }
+    applyAttrSet(op) {
+      const node = this.registry.get(op.node);
+      if (!node || node.nodeType !== Node.ELEMENT_NODE) return this.fail("address_miss", "attrSet", op.node);
+      applyAttrs(node, op.attrs);
+      return true;
+    }
+    applyAttrDel(op) {
+      const node = this.registry.get(op.node);
+      if (!node || node.nodeType !== Node.ELEMENT_NODE) return this.fail("address_miss", "attrDel", op.node);
+      const el = node;
+      for (let i = 0; i < op.names.length; i++) el.removeAttribute(op.names[i]);
+      return true;
+    }
+    applyTextSet(op) {
+      const node = this.registry.get(op.node);
+      if (!node) return this.fail("address_miss", "textSet", op.node);
+      node.textContent = op.value;
+      return true;
     }
   };
-  function resolveDomOps(ops, registry) {
-    const resolved = [];
-    for (const op of ops) {
-      if (op.op === "childList") {
-        const parent = registry.get(op.parent);
-        if (!(parent instanceof Element) && parent?.nodeType !== 1) {
-          return { ok: false, op: op.op, id: op.parent };
-        }
-        if (!parent || parent.nodeType !== 1) return { ok: false, op: op.op, id: op.parent };
-        const children = [];
-        for (const ref of op.children) {
-          if (ref.kind === "fresh") {
-            children.push({ kind: "fresh", node: ref.node });
-            continue;
-          }
-          const node = registry.get(ref.id);
-          if (!node) return { ok: false, op: op.op, id: ref.id };
-          children.push({ kind: "existing", node });
-        }
-        resolved.push({
-          op: "childList",
-          parent,
-          mode: op.mode,
-          children
-        });
-      } else if (op.op === "patch") {
-        const target = registry.get(op.node);
-        if (!target) return { ok: false, op: op.op, id: op.node };
-        resolved.push({ op: "patch", target, snapshot: op.snapshot });
-      } else if (op.op === "scrollViewport") {
-        resolved.push({ op: "scrollViewport", scrollX: op.scrollX, scrollY: op.scrollY });
-      } else if (op.op === "scrollElement") {
-        const target = registry.get(op.node);
-        if (!target || target.nodeType !== 1) return { ok: false, op: op.op, id: op.node };
-        resolved.push({
-          op: "scrollElement",
-          target,
-          scrollTop: op.scrollTop,
-          scrollLeft: op.scrollLeft
-        });
-      }
-    }
-    return { ok: true, ops: resolved };
-  }
-  function applyResolvedOps(doc, registry, ops, notes) {
-    for (const op of ops) {
-      if (op.op === "childList") applyChildList(doc, registry, op, notes);
-      else if (op.op === "patch") {
-        notes.patches += 1;
-        applyPatch(op.target, op.snapshot);
-      } else if (op.op === "scrollViewport") {
-        notes.scrolls += 1;
-        doc.defaultView?.scrollTo(op.scrollX, op.scrollY);
-      } else {
-        notes.scrolls += 1;
-        const el = op.target;
-        el.scrollTop = op.scrollTop;
-        el.scrollLeft = op.scrollLeft;
-      }
-    }
-  }
-  function applyChildList(doc, registry, op, notes) {
-    const parentChildCountBefore = op.parent.childNodes.length;
-    let nExisting = 0;
-    let nFresh = 0;
-    for (const c of op.children) {
-      if (c.kind === "existing") nExisting += 1;
-      else nFresh += 1;
-    }
-    const appendOntoNonEmpty = op.mode === "append" && parentChildCountBefore > 0 && op.children.length > 0;
-    if (appendOntoNonEmpty) notes.appendOntoNonEmptyCount += 1;
-    if (notes.childLists.length < 32) {
-      notes.childLists.push({
-        parent: registry.idOf(op.parent) ?? 0,
-        mode: op.mode,
-        nExisting,
-        nFresh,
-        parentChildCountBefore,
-        appendOntoNonEmpty
-      });
-    }
-    const wanted = op.children.map(
-      (c) => c.kind === "existing" ? c.node : materialize(doc, registry, c.node)
-    );
-    if (op.mode === "append") {
-      for (const node of wanted) op.parent.appendChild(node);
-      return;
-    }
-    const wantedSet = new Set(wanted);
-    for (const child of Array.from(op.parent.childNodes)) {
-      if (wantedSet.has(child)) continue;
-      registry.unregisterSubtree(child);
-      child.parentNode?.removeChild(child);
-    }
-    let cursor = op.parent.firstChild;
-    for (const node of wanted) {
-      if (cursor === node) {
-        cursor = node.nextSibling;
-        continue;
-      }
-      op.parent.insertBefore(node, cursor);
-    }
-  }
-  function applyPatch(target, snapshot) {
-    if (snapshot.kind === "text" || snapshot.kind === "comment") {
-      target.textContent = snapshot.value ?? "";
-      return;
-    }
-    if (target.nodeType !== 1) return;
-    applyElementSnapshot(target, snapshot.attrs ?? {});
-  }
-  function materialize(doc, registry, node) {
-    if (node.kind === "text") {
-      const n = doc.createTextNode(node.value ?? "");
-      registry.register(node.id, n);
-      return n;
-    }
-    if (node.kind === "comment") {
-      const n = doc.createComment(node.value ?? "");
-      registry.register(node.id, n);
-      return n;
-    }
-    const tag = node.tag ?? "div";
-    const el = tag === "svg" || tag.startsWith("svg:") ? doc.createElementNS("http://www.w3.org/2000/svg", tag) : doc.createElement(tag);
-    registry.register(node.id, el);
-    applyElementSnapshot(el, node.attrs ?? {});
-    for (const child of node.children ?? []) el.appendChild(materialize(doc, registry, child));
-    return el;
-  }
-  function applyElementSnapshot(el, attrs) {
-    for (const name of Array.from(el.getAttributeNames())) {
-      if (!(name in attrs)) el.removeAttribute(name);
-    }
-    for (const [name, value] of Object.entries(attrs)) {
+  function applyAttrs(el, attrs) {
+    for (let i = 0; i < attrs.length; i++) {
+      const { name, value } = attrs[i];
       try {
         el.setAttribute(name, value);
       } catch {
       }
     }
-    applyNodeState(el, attrs);
-  }
-  function applyNodeState(el, attrs) {
-    const value = attrs["speculum-input-value"];
-    if (value != null && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) {
-      if (el.value !== value) el.value = value;
-    } else if (value != null && el instanceof HTMLSelectElement) {
-      el.value = value;
-    }
-    const checked = attrs["speculum-input-checked"];
-    if (checked != null && el instanceof HTMLInputElement) el.checked = checked === "true";
-    const selected = attrs["speculum-option-selected"];
-    if (selected != null && el instanceof HTMLOptionElement) el.selected = selected === "true";
-    if (el instanceof HTMLDialogElement) {
-      const modal = attrs["speculum-dialog-modal"];
-      if (modal === "true" && !el.open) el.showModal();
-      else if (modal !== "true" && el.open) el.close();
-    }
-  }
-  function applyDocumentState(doc, op) {
-    doc.title = op.title;
-    const html = doc.documentElement;
-    if (html) {
-      if (op.lang !== null) html.setAttribute("lang", op.lang);
-      else html.removeAttribute("lang");
-      if (op.dir !== null) html.setAttribute("dir", op.dir);
-      else html.removeAttribute("dir");
-    }
-    const existing = doc.querySelector('meta[name="viewport"]');
-    if (op.viewportContent === null) {
-      existing?.remove();
-      return;
-    }
-    const meta = existing ?? doc.createElement("meta");
-    if (!existing) {
-      meta.setAttribute("name", "viewport");
-      (doc.head ?? doc.documentElement)?.appendChild(meta);
-    }
-    meta.setAttribute("content", op.viewportContent);
   }
 
   // browser/mirror/projection/client/registry.ts
@@ -531,15 +885,15 @@
       this.nodesById.set(id, node);
       this.idsByNode.set(node, id);
     }
-    /** Resolves an id to its live node, or `undefined` on a miss (§5.7.1 desync trigger). */
+    /** Resolves an id to its live node, or `undefined` on a miss (a desync trigger upstream). */
     get(id) {
       return this.nodesById.get(id);
     }
-    /** Reverse lookup — input intents address by id via this map (§5.11.1). */
+    /** Reverse lookup — input intents address by id via this map. */
     idOf(node) {
       return this.idsByNode.get(node);
     }
-    /** Nearest registered id walking up from `node` (element ancestors only). */
+    /** Nearest registered id walking up from `node`. */
     idOfNearest(node) {
       let cur = node;
       while (cur) {
@@ -556,11 +910,7 @@
       this.nodesById.delete(id);
       this.idsByNode.delete(node);
     }
-    /**
-     * Unregisters `root` and every descendant carrying a registered id (§5.9.1:
-     * "unregister on removal including all descendants"). Cost is proportional to
-     * the removed subtree, never the whole registry.
-     */
+    /** Unregisters `root` and every descendant carrying a registered id. */
     unregisterSubtree(root) {
       const stack = [root];
       while (stack.length > 0) {
@@ -573,209 +923,39 @@
         for (const child of Array.from(node.childNodes)) stack.push(child);
       }
     }
-    /** Total registered ids — soak-test bound check (`PP-ID-4`). */
+    /** Total registered ids — perf/soak signal. */
     get size() {
       return this.nodesById.size;
     }
-    /** Drops every entry (double-buffer epoch boundary, §5.8.5). */
+    /**
+     * Drops every `id → node` entry — `EPOCH_RESET`'s `DOM` effect (§4.1, Stage 3 of
+     * frame-protocol-production-completeness): `applyDom.ts`'s `applyEpochReset` calls this, then
+     * immediately re-registers `DOCUMENT_ID`, before any `NODE_NEW`/`INSERT` in the same frame
+     * repopulates the rest. Leaves the reverse `idsByNode` `WeakMap` alone — its entries key off
+     * now-discarded nodes and fall out of scope for GC on their own; nothing reads a stale id back
+     * out of it without first missing on `nodesById.get`, which this already empties.
+     */
     clear() {
       this.nodesById.clear();
     }
-    /**
-     * Walks a parsed establish document exactly once:
-     * - registers every element carrying `speculum-anchor` (§5.1.7)
-     * - returns `nodeCount`/`checksum` matching sidecar `computeEstablishChecksum`
-     *   (FNV-1a over the preorder **element** tag stream for anchored nodes only)
-     *   so `establishEnd` verification can succeed (§5.6.4, §5.7.1).
-     */
-    buildFromDocument(root) {
-      let hash = FNV_OFFSET_BASIS;
-      let count = 0;
-      const addTag = (tag) => {
-        count += 1;
-        for (let i = 0; i < tag.length; i++) {
-          hash ^= tag.charCodeAt(i);
-          hash = Math.imul(hash, FNV_PRIME);
-        }
-        hash ^= count & 255;
-        hash = Math.imul(hash, FNV_PRIME);
-      };
-      const walk = (node) => {
-        if (node.nodeType === Node.ELEMENT_NODE) {
-          const el = node;
-          if (el.hasAttribute("data-pp-cssom-id")) {
-            return;
-          }
-          const id = readAnchorId(el);
-          if (id != null) {
-            addTag(el.tagName.toLowerCase());
-            this.register(id, el);
-          }
-          for (const child of Array.from(el.childNodes)) walk(child);
-        }
-      };
-      if (root && root.nodeType === Node.ELEMENT_NODE) walk(root);
-      else if (root && root.nodeType === Node.DOCUMENT_NODE) {
-        const de = root.documentElement;
-        if (de) walk(de);
-      }
-      return { nodeCount: count, checksum: hash >>> 0 };
-    }
   };
-  function readAnchorId(el) {
-    const raw = el.getAttribute("speculum-anchor");
-    if (!raw) return null;
-    const id = Number(raw);
-    return Number.isInteger(id) && id > 0 ? id : null;
-  }
-  var FNV_OFFSET_BASIS = 2166136261;
-  var FNV_PRIME = 16777619;
 
   // browser/mirror/projection/client/surface.ts
-  function createSurfaceHost(container, opts = {
-    width: 1280,
-    height: 720
-  }) {
-    const swapTimeoutMs = opts.swapTimeoutMs ?? 1500;
+  function createSurfaceHost(container, opts = { width: 1280, height: 720 }) {
     container.style.position = "relative";
     container.style.width = `${opts.width}px`;
     container.style.height = `${opts.height}px`;
     container.style.overflow = "hidden";
     container.replaceChildren();
-    const makeFrame = (title) => {
-      const iframe = document.createElement("iframe");
-      iframe.title = title;
-      iframe.sandbox.add("allow-same-origin");
-      iframe.style.cssText = "position:absolute;inset:0;width:100%;height:100%;border:0;visibility:hidden";
-      container.appendChild(iframe);
-      return iframe;
-    };
-    const frameA = makeFrame("Projected surface (A)");
-    const frameB = makeFrame("Projected surface (B)");
-    let active = null;
-    const frameOf = (slot) => slot === "a" ? frameA : frameB;
-    return {
-      getActiveDocument: () => {
-        if (!active) return null;
-        return frameOf(active).contentDocument;
-      },
-      isArmed: () => active !== null,
-      beginBuild: () => {
-        const standby = active === "a" ? "b" : "a";
-        const frame = frameOf(standby);
-        return buildInto(frame, swapTimeoutMs, () => {
-          frameOf(standby).style.visibility = "visible";
-          if (active) frameOf(active).style.visibility = "hidden";
-          active = standby;
-        });
-      }
-    };
-  }
-  function buildInto(frame, swapTimeoutMs, doSwap) {
-    const initial = frame.contentDocument;
-    if (!initial) throw new Error("surface: no contentDocument");
-    initial.open();
-    const currentDoc = () => {
-      const doc = frame.contentDocument;
-      if (!doc) throw new Error("surface: lost contentDocument");
-      return doc;
-    };
-    let cancelled = false;
-    let swapped = false;
-    let establishEnded = false;
-    let cssomReady = false;
-    let timeoutId = null;
-    let resolveSwap = () => {
-    };
-    const swapPromise = new Promise((resolve) => {
-      resolveSwap = resolve;
-    });
-    function clearForceTimer() {
-      if (timeoutId != null) {
-        window.clearTimeout(timeoutId);
-        timeoutId = null;
-      }
-    }
-    function armForceTimer() {
-      if (timeoutId != null || swapped || cancelled) return;
-      if (!(establishEnded && cssomReady)) return;
-      timeoutId = window.setTimeout(() => attemptSwap(true), swapTimeoutMs);
-    }
-    function attemptSwap(force) {
-      if (swapped || cancelled) return;
-      const doc = currentDoc();
-      if (!(establishEnded && cssomReady)) return;
-      if (!force) {
-        const body = doc.body;
-        if (!body) return;
-        const rect = body.getBoundingClientRect();
-        if (!(rect.width > 0 && rect.height > 0)) return;
-      }
-      swapped = true;
-      clearForceTimer();
-      doSwap();
-      resolveSwap(doc);
-    }
-    cssomReady = true;
-    return {
-      get document() {
-        return currentDoc();
-      },
-      writeChunk(html) {
-        if (cancelled || establishEnded) return;
-        currentDoc().write(html);
-        attemptSwap(false);
-      },
-      markEstablishEnd() {
-        if (cancelled) return;
-        if (!establishEnded) {
-          establishEnded = true;
-          try {
-            currentDoc().close();
-          } catch {
-          }
-        }
-        armForceTimer();
-        attemptSwap(false);
-      },
-      markCssomReady() {
-        if (cancelled) return;
-        cssomReady = true;
-        armForceTimer();
-        attemptSwap(false);
-      },
-      swap: () => swapPromise,
-      cancel() {
-        cancelled = true;
-        clearForceTimer();
-      }
-    };
-  }
-
-  // browser/mirror/projection/models/telemetry.ts
-  function desyncPhase(errorCode) {
-    switch (errorCode) {
-      case "malformed":
-      case "unknown_version":
-        return "decode";
-      case "missing_part":
-        return "assemble";
-      case "establish_checksum":
-        return "establish";
-      case "sequence_gap":
-        return "sequence";
-      case "generation_mismatch":
-        return "generation";
-      default:
-        return "apply";
-    }
-  }
-  function isRepeatedConcat(value) {
-    const t = value.trim();
-    if (t.length < 4) return false;
-    if (t.length % 2 !== 0) return false;
-    const mid = t.length / 2;
-    return t.slice(0, mid) === t.slice(mid);
+    const iframe = document.createElement("iframe");
+    iframe.title = "Projected surface";
+    iframe.sandbox.add("allow-same-origin");
+    iframe.style.cssText = "position:absolute;inset:0;width:100%;height:100%;border:0";
+    container.appendChild(iframe);
+    const doc = iframe.contentDocument;
+    if (!doc) throw new Error("surface: no contentDocument");
+    while (doc.firstChild) doc.removeChild(doc.firstChild);
+    return { document: doc };
   }
 
   // browser/mirror/projection/client/parityFingerprint.ts
@@ -788,45 +968,102 @@
       title,
       h1,
       bodyChildTags: tags.join(","),
-      anchorCount: doc.querySelectorAll("[speculum-anchor]").length,
       scriptCount: doc.querySelectorAll("script").length,
       pCount: doc.querySelectorAll("p").length,
-      htmlLen: doc.documentElement?.outerHTML.length ?? 0,
-      duplicateTitle: isRepeatedConcat(title),
-      duplicateH1: isRepeatedConcat(h1)
+      htmlLen: doc.documentElement?.outerHTML.length ?? 0
     };
+  }
+
+  // browser/mirror/projection/models/telemetry.ts
+  function desyncPhase(errorCode) {
+    switch (errorCode) {
+      case "malformed":
+      case "unknown_version":
+        return "decode";
+      case "missing_part":
+        return "assemble";
+      case "sequence_gap":
+        return "sequence";
+      case "generation_mismatch":
+        return "generation";
+      default:
+        return "apply";
+    }
   }
 
   // browser/mirror/projection/client/labProjectionClient.ts
   var LabProjectionClient = class {
-    surface;
+    registry = new PageProjectionRegistry();
+    persistentStrings = new PersistentStringTable();
     assembler = new FramePartAssembler();
+    doc;
+    applier;
     onTelemetry;
-    onArmed;
+    onArmedCb;
     onDesyncCb;
-    lastSequence = -1;
-    generation = 0;
+    lastSequence = 0;
+    generation = 1;
     armed = false;
-    build = null;
-    buildRegistry = null;
-    liveRegistry = null;
-    liveApplier = null;
-    pendingBegin = null;
-    pendingDocumentState = null;
     constructor(opts) {
-      this.surface = createSurfaceHost(opts.surfaceHost, {
+      const surface = createSurfaceHost(opts.surfaceHost, {
         width: opts.width ?? 1280,
         height: opts.height ?? 720
       });
+      this.doc = surface.document;
+      this.registry.register(DOCUMENT_ID, this.doc);
       this.onTelemetry = opts.onTelemetry;
-      this.onArmed = opts.onArmed;
+      this.onArmedCb = opts.onArmed;
       this.onDesyncCb = opts.onDesync;
+      this.applier = new DomFrameApplier(this.doc, this.registry, {
+        onDesync: (info) => {
+          this.reportApplyResult({ ok: false, sequence: this.lastSequence, opCount: 0, applyMs: 0, reason: info.reason });
+          this.desync(info.reason, {
+            op: info.op,
+            id: info.id,
+            expected: info.expected,
+            actual: info.actual,
+            message: info.message,
+            phase: info.phase
+          });
+        },
+        onApplied: (frame, applyMs) => {
+          this.reportApplyResult({ ok: true, sequence: frame.sequence, opCount: frame.ops.length, applyMs });
+          this.emitFingerprint(frame.sequence);
+          if (!this.armed) {
+            this.armed = true;
+            this.onArmedCb?.();
+          }
+        },
+        onOverrun: (durationMs, lastSequence) => {
+          this.onTelemetry?.({
+            v: 1,
+            kind: "applyOverrun",
+            t: performance.now(),
+            generation: this.generation,
+            sequence: lastSequence,
+            durationMs,
+            budgetMs: 4
+          });
+        }
+      });
     }
     get isArmed() {
       return this.armed;
     }
+    /**
+     * Last sequence accepted into the apply queue (may still be one `requestAnimationFrame` away
+     * from actually hitting the DOM) — lab test introspection only (Stage 2 gate: a test needs
+     * this to construct a corrupted frame's `sequence` field as exactly `lastAcceptedSequence + 1`).
+     */
+    get lastAcceptedSequence() {
+      return this.lastSequence;
+    }
+    /** Surface iframe's `contentDocument` — used for structural snapshots (lab/structuralDiff.ts). */
+    get document() {
+      return this.doc;
+    }
     ingest(bytes) {
-      const decoded = decodeFramePart(bytes);
+      const decoded = decodeFramePart(bytes, this.persistentStrings);
       if (!decoded.ok) {
         this.desync(decoded.reason, { message: decoded.message });
         return;
@@ -840,159 +1077,35 @@
       this.applyAssembled(assembled);
     }
     applyAssembled(frame) {
-      if (frame.establish) {
-        this.applyEstablish(frame);
-        return;
-      }
-      if (!this.armed || !this.liveApplier || !this.liveRegistry) {
-        this.desync("not_armed");
-        return;
-      }
       if (frame.generation !== this.generation) {
-        this.desync("generation_mismatch", { message: `got ${frame.generation} have ${this.generation}` });
-        return;
+        const firstOp = frame.ops[0];
+        const isEpochReset = firstOp !== void 0 && firstOp.op === 2 /* EpochReset */;
+        if (!isEpochReset || firstOp.generation !== frame.generation) {
+          this.desync("generation_mismatch", { message: `got ${frame.generation} have ${this.generation}` });
+          return;
+        }
+        this.generation = frame.generation;
+        this.lastSequence = frame.sequence - 1;
       }
       if (frame.sequence !== this.lastSequence + 1) {
         this.desync("sequence_gap", { expectedSequence: this.lastSequence + 1, gotSequence: frame.sequence });
         return;
       }
       this.lastSequence = frame.sequence;
-      this.liveApplier.enqueue(frame);
+      this.applier.enqueue(frame);
     }
-    applyEstablish(frame) {
-      if (!this.build) {
-        this.build = this.surface.beginBuild();
-        this.buildRegistry = new PageProjectionRegistry();
-        this.pendingBegin = null;
-        this.pendingDocumentState = null;
-      }
-      for (const op of frame.ops) {
-        if (op.op === "establishBegin") {
-          this.generation = op.generation;
-          this.pendingBegin = op;
-        } else if (op.op === "establishChunk") {
-          this.build?.writeChunk(op.html);
-        } else if (op.op === "documentState") {
-          this.pendingDocumentState = op;
-          if (this.build?.document.documentElement) {
-            applyDocumentState(this.build.document, op);
-          }
-        } else if (op.op === "establishEnd") {
-          this.finishEstablish(op);
-        }
-      }
-    }
-    finishEstablish(op) {
-      const build = this.build;
-      const registry = this.buildRegistry;
-      if (!build || !registry) return;
-      build.markEstablishEnd();
-      build.markCssomReady();
-      if (this.pendingDocumentState && build.document.documentElement) {
-        applyDocumentState(build.document, this.pendingDocumentState);
-      }
-      const verified = registry.buildFromDocument(build.document);
-      if (verified.nodeCount !== op.nodeCount || verified.checksum !== op.checksum) {
-        this.reportApply({
-          ok: false,
-          establish: true,
-          sequence: 0,
-          reason: "checksum_mismatch",
-          nodeCount: verified.nodeCount,
-          checksum: op.checksum,
-          registrySize: registry.size
-        });
-        this.emitFingerprint(build.document, registry, 0, true);
-        this.desync("establish_checksum", {
-          message: `got nodeCount=${verified.nodeCount} checksum=${verified.checksum} want ${op.nodeCount}/${op.checksum}`
-        });
-        build.cancel();
-        this.build = null;
-        this.buildRegistry = null;
-        return;
-      }
-      void build.swap().then((doc) => {
-        this.liveRegistry = registry;
-        this.liveApplier = new DomFrameApplier(doc, registry, {
-          onDesync: (info) => {
-            this.reportApply({
-              ok: false,
-              establish: false,
-              sequence: this.lastSequence,
-              reason: info.reason,
-              registrySize: registry.size
-            });
-            this.desync(info.reason, { op: info.op, id: info.id });
-          },
-          onApplied: (f, notes) => {
-            this.reportApply({
-              ok: true,
-              establish: false,
-              sequence: f.sequence,
-              registrySize: registry.size,
-              appendOntoNonEmptyCount: notes.appendOntoNonEmptyCount
-            });
-            this.emitFingerprint(doc, registry, f.sequence, false);
-            this.emitApplyNotes(f.sequence, notes);
-          },
-          onOverrun: (durationMs, lastSequence) => {
-            this.onTelemetry?.({
-              v: 1,
-              kind: "applyOverrun",
-              t: performance.now(),
-              generation: this.generation,
-              sequence: lastSequence,
-              durationMs,
-              budgetMs: 4
-            });
-          }
-        });
-        if (this.pendingBegin) {
-          doc.defaultView?.scrollTo(this.pendingBegin.scrollX, this.pendingBegin.scrollY);
-        }
-        this.lastSequence = 0;
-        this.armed = true;
-        this.build = null;
-        this.buildRegistry = null;
-        this.reportApply({
-          ok: true,
-          establish: true,
-          sequence: 0,
-          nodeCount: verified.nodeCount,
-          checksum: verified.checksum,
-          registrySize: registry.size
-        });
-        this.emitFingerprint(doc, registry, 0, true);
-        this.onArmed?.();
-      });
-    }
-    emitApplyNotes(sequence, notes) {
-      if (notes.appendOntoNonEmptyCount === 0 && notes.childLists.length === 0) return;
-      this.onTelemetry?.({
-        v: 1,
-        kind: "applyDecision",
-        t: performance.now(),
-        generation: this.generation,
-        sequence,
-        appendOntoNonEmptyCount: notes.appendOntoNonEmptyCount,
-        childLists: notes.childLists,
-        patches: notes.patches,
-        scrolls: notes.scrolls
-      });
-    }
-    emitFingerprint(doc, registry, sequence, establish) {
-      const fp = captureParityFingerprint(doc, registry);
+    emitFingerprint(sequence) {
+      const fp = captureParityFingerprint(this.doc, this.registry);
       this.onTelemetry?.({
         v: 1,
         kind: "parityFingerprint",
         t: performance.now(),
         generation: this.generation,
         sequence,
-        establish,
         ...fp
       });
     }
-    reportApply(info) {
+    reportApplyResult(info) {
       this.onTelemetry?.({
         v: 1,
         kind: "applyResult",
@@ -1000,12 +1113,10 @@
         generation: this.generation,
         sequence: info.sequence,
         ok: info.ok,
-        establish: info.establish,
-        reason: info.reason,
-        nodeCount: info.nodeCount,
-        checksum: info.checksum,
-        registrySize: info.registrySize,
-        appendOntoNonEmptyCount: info.appendOntoNonEmptyCount
+        opCount: info.opCount,
+        applyMs: info.applyMs,
+        tableSize: this.registry.size,
+        reason: info.reason
       });
     }
     desync(reason, extra) {
@@ -1016,18 +1127,63 @@
         generation: this.generation,
         sequence: extra?.gotSequence ?? this.lastSequence,
         errorCode: reason,
-        phase: desyncPhase(reason),
+        phase: extra?.phase ?? desyncPhase(reason),
         expectedSequence: extra?.expectedSequence,
         op: extra?.op,
         id: extra?.id,
-        message: extra?.message
+        message: extra?.message,
+        // §4.1 CHECK / §2 preTableHash mismatch (`reason: 'precondition'`) — u64 rides as a decimal
+        // string, `bigint` is not JSON-serializable.
+        expected: extra?.expected?.toString(),
+        actual: extra?.actual?.toString()
       });
       this.armed = false;
       this.assembler.reset();
-      this.liveApplier?.reset();
+      this.applier.reset();
       this.onDesyncCb?.(reason);
     }
   };
+
+  // browser/mirror/projection/client/domTreeSnapshot.ts
+  function snapshotTree(root) {
+    return walkNode(root ?? document);
+  }
+  function walkNode(node) {
+    switch (node.nodeType) {
+      case 9:
+        return { tag: "#document", children: mapChildren(node) };
+      case 10: {
+        const dt = node;
+        return { tag: "#doctype", text: dt.name };
+      }
+      case 1: {
+        const el = node;
+        const attrs = [];
+        for (let i = 0; i < el.attributes.length; i++) {
+          const a = el.attributes[i];
+          attrs.push([a.name, a.value]);
+        }
+        attrs.sort((x, y) => x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : 0);
+        const result = { tag: el.tagName.toLowerCase() };
+        if (attrs.length > 0) result.attrs = attrs;
+        const children = mapChildren(node);
+        if (children.length > 0) result.children = children;
+        return result;
+      }
+      case 3:
+        return { tag: "#text", text: node.textContent ?? "" };
+      case 8:
+        return { tag: "#comment", text: node.textContent ?? "" };
+      default:
+        return { tag: `#unknown(${node.nodeType})` };
+    }
+  }
+  function mapChildren(node) {
+    const out = [];
+    const children = node.childNodes;
+    for (let i = 0; i < children.length; i++) out.push(walkNode(children[i]));
+    return out;
+  }
 
   // browser/mirror/projection/lab/client/main.ts
   function $(id) {
@@ -1055,24 +1211,55 @@
       frameEmitted: $("telFrameEmitted").checked,
       transportDeferred: $("telDeferred").checked,
       aggregate: $("telAggregate").checked,
-      establish: $("telEstablish").checked,
-      builderStats: $("telBuilder").checked,
       applyResult: $("telApply").checked,
       desync: $("telDesync").checked,
       applyOverrun: $("telOverrun").checked,
       clock: $("telClock").checked,
-      handoff: $("telHandoff").checked,
-      frameDecision: $("telDecision").checked,
-      parityFingerprint: $("telParity").checked,
-      encoder: $("telEncoder").checked,
       aggregateIntervalMs: Number($("telAggMs").value) || 2e3
     };
   }
+  function fmtStat(label, s, unit = "") {
+    return `  ${label.padEnd(9)} min=${s.min.toFixed(2)}${unit} avg=${s.avg.toFixed(2)}${unit} p50=${s.p50.toFixed(2)}${unit} p95=${s.p95.toFixed(2)}${unit} max=${s.max.toFixed(2)}${unit}  (n=${s.count})`;
+  }
+  function renderBenchmarkReport(report) {
+    const m = report.metrics;
+    const lines = [];
+    lines.push(`${report.meta.url}`);
+    lines.push(`wallMs=${m.wallMs.toFixed(0)}  steadyFrames=${m.steadyFrameCount} (~${m.steadyFps.toFixed(1)}fps)  lastTableSize=${m.lastTableSize}  wireBytes=${m.wireBytesTotal}`);
+    if (m.bootstrap) {
+      lines.push(`bootstrap: seq=${m.bootstrap.sequence} opCount=${m.bootstrap.opCount} bytes=${m.bootstrap.bytes} tableSize=${m.bootstrap.tableSize} buildMs=${m.bootstrap.buildMs.toFixed(2)}`);
+    }
+    lines.push("steady-state:");
+    lines.push(fmtStat("buildMs", m.buildMs, "ms"));
+    lines.push(fmtStat("opCount", m.opCount));
+    lines.push(fmtStat("bytes", m.bytes));
+    lines.push(fmtStat("applyMs", m.applyMs, "ms"));
+    lines.push(`applyOk=${m.applyOk} applyFail=${m.applyFail} desync=${m.desyncCount} overrun=${m.applyOverrunCount} deferred=${m.transportDeferredCount}`);
+    if (report.cpuProfile) {
+      const oc = report.cpuProfile.summary.ourCode;
+      lines.push(`cpu (Virtual, CDP): our-code=${oc.totalPct.toFixed(2)}% (${oc.totalMs.toFixed(2)}ms of ${report.cpuProfile.summary.wallMs.toFixed(0)}ms, ${report.cpuProfile.summary.totalSamples} samples)`);
+    }
+    if (report.invariants) {
+      const failed = report.invariants.filter((i) => i.failCount > 0);
+      lines.push(`invariants: ${report.invariants.length} checks, ${failed.length} with failures`);
+      for (const i of failed) lines.push(`  FAIL ${i.id}: ${i.failCount} failures / ${i.passCount} passes`);
+    }
+    if (report.structuralDiff) {
+      if (report.structuralDiff.status === "ok") {
+        const r = report.structuralDiff.result;
+        lines.push(`structuralDiff: ${r.identical ? "identical" : `${r.divergenceCount} divergence(s)`}`);
+      } else {
+        lines.push(`structuralDiff: unavailable (${report.structuralDiff.reason})`);
+      }
+    }
+    return lines.join("\n");
+  }
+  var speculumLabTestHooks = {};
+  globalThis.__speculumLabTestHooks = speculumLabTestHooks;
   function clientKindEnabled(kind) {
     if (kind === "desynced") return $("telDesync").checked;
     if (kind === "applyOverrun") return $("telOverrun").checked;
-    if (kind === "parityFingerprint") return $("telParity").checked;
-    if (kind === "applyDecision") return $("telDecision").checked;
+    if (kind === "parityFingerprint") return true;
     if (kind === "applyResult") return $("telApply").checked;
     return true;
   }
@@ -1083,69 +1270,60 @@
     let frames = 0;
     let applyOk = 0;
     let desyncCount = 0;
-    let lastSeq = -1;
-    let armed = false;
-    const metrics = {
-      frames: 0,
-      establish: "\u2014",
-      gen: "\u2014",
-      seq: "\u2014",
-      applyOk: 0
-    };
+    let opsTotal = 0;
+    let lastBuildMs = 0;
     const projection = new LabProjectionClient({
       surfaceHost: $("surfaceHost"),
       onArmed: () => {
-        armed = true;
-        metrics.establish = "armed";
-        $("streamEstablish").textContent = "armed";
         setStatus("armed \u2014 live apply");
-        logActivity("surface armed", "applyResult");
+        logActivity("first frame applied", "applyResult");
       },
       onDesync: (reason) => {
-        armed = false;
         desyncCount += 1;
         $("streamDesync").textContent = String(desyncCount);
         setStatus(`desync: ${reason}`);
         logActivity(`desync ${reason}`, "desynced");
+        speculumLabTestHooks.onDesync?.(reason);
       },
       onTelemetry: (msg) => {
         const kind = String(msg.kind ?? "applyResult");
         const send = clientKindEnabled(kind);
-        if (kind === "desynced" || msg.ok === false) {
+        if (kind === "desynced" || msg.ok === false || send) {
           if (ws && ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({ type: "clientTelemetry", message: msg }));
           }
-        } else if (send && ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: "clientTelemetry", message: msg }));
         }
         if (msg.ok === true) applyOk += 1;
-        metrics.applyOk = applyOk;
         $("streamApply").textContent = String(applyOk);
-        if (kind === "parityFingerprint") {
-          $("streamDupH1").textContent = msg.duplicateH1 === true ? "YES" : "no";
+        if (typeof msg.opCount === "number") {
+          opsTotal += msg.opCount;
+          $("streamOps").textContent = String(opsTotal);
         }
-        if (kind === "applyDecision" && typeof msg.appendOntoNonEmptyCount === "number") {
-          $("streamAppendEmpty").textContent = String(msg.appendOntoNonEmptyCount);
-        }
-        if (kind === "frameDecision" && typeof msg.appendFromEmptyCount === "number") {
-          $("streamAppendEmpty").textContent = String(msg.appendFromEmptyCount);
+        if (typeof msg.applyMs === "number") {
+          $("streamApplyMs").textContent = msg.applyMs.toFixed(2);
         }
         logActivity(
-          `${kind} ok=${String(msg.ok ?? "-")} seq=${String(msg.sequence ?? "-")} ${msg.reason ? msg.reason : ""}${msg.duplicateH1 === true ? " DUP_H1" : ""}${typeof msg.appendFromEmptyCount === "number" ? ` append\u2205=${msg.appendFromEmptyCount}` : ""}${typeof msg.appendOntoNonEmptyCount === "number" ? ` onto=${msg.appendOntoNonEmptyCount}` : ""}`,
+          `${kind} ok=${String(msg.ok ?? "-")} seq=${String(msg.sequence ?? "-")} ops=${String(msg.opCount ?? "-")} ${msg.reason ? msg.reason : ""}`,
           kind
         );
       }
     });
+    speculumLabTestHooks.projection = projection;
+    speculumLabTestHooks.sendControl = (message) => {
+      if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(message));
+    };
     const connectBtn = $("connect");
     const startBtn = $("start");
     const stopBtn = $("stop");
+    const runBenchmarkBtn = $("runBenchmark");
     function setConnected(on) {
       connectBtn.disabled = on;
       startBtn.disabled = !on;
       stopBtn.disabled = !on;
+      runBenchmarkBtn.disabled = !on;
     }
     function showTab(name) {
-      for (const id of ["panelStream", "panelActivity", "panelConfig"]) {
+      for (const id of ["panelStream", "panelActivity", "panelConfig", "panelBenchmark"]) {
         $(id).hidden = id !== `panel${name}`;
       }
       for (const btn of document.querySelectorAll("[data-tab]")) {
@@ -1176,7 +1354,6 @@
       ws.addEventListener("message", (ev) => {
         if (typeof ev.data !== "string") {
           frames += 1;
-          metrics.frames = frames;
           $("streamFrames").textContent = String(frames);
           projection.ingest(new Uint8Array(ev.data));
           return;
@@ -1199,41 +1376,50 @@
         }
         if (msg.type === "stats") {
           $("hostStats").textContent = `host frames=${msg.frames ?? 0} bytes=${msg.bytes ?? 0} gen=${msg.generation ?? "-"} seq=${msg.sequence ?? "-"} tel=${msg.telemetryMessages ?? 0}`;
-          if (msg.sequence != null) {
-            lastSeq = msg.sequence;
-            metrics.seq = String(msg.sequence);
-            $("streamSeq").textContent = String(msg.sequence);
-          }
-          if (msg.generation != null) {
-            metrics.gen = String(msg.generation);
-            $("streamGen").textContent = String(msg.generation);
-          }
+          if (msg.sequence != null) $("streamSeq").textContent = String(msg.sequence);
+          if (msg.generation != null) $("streamGen").textContent = String(msg.generation);
           return;
         }
         if (msg.type === "telemetry") {
           const tel = msg.message;
           const kind = tel?.kind ?? "?";
           logActivity(`telemetry ${kind} ${JSON.stringify(tel).slice(0, 120)}`, kind);
-          if (kind === "establishCompleted") {
-            if (!armed) {
-              metrics.establish = "completed";
-              $("streamEstablish").textContent = "completed";
+          if (kind === "frameEmitted") {
+            if (tel?.sequence != null) $("streamSeq").textContent = String(tel.sequence);
+            if (typeof tel?.buildMs === "number") {
+              lastBuildMs = tel.buildMs;
+              $("streamBuildMs").textContent = lastBuildMs.toFixed(2);
             }
-          }
-          if (kind === "frameEmitted" && tel?.sequence != null) {
-            $("streamSeq").textContent = String(tel.sequence);
-          }
-          if (kind === "frameDecision" && tel?.appendFromEmptyCount != null) {
-            $("streamAppendEmpty").textContent = String(tel.appendFromEmptyCount);
-          }
-          if (kind === "parityFingerprint") {
-            $("streamDupH1").textContent = tel?.duplicateH1 === true ? "YES" : "no";
           }
           return;
         }
         if (msg.type === "error") {
           setStatus(`error: ${typeof msg.message === "string" ? msg.message : "?"}`);
           logActivity(`error ${typeof msg.message === "string" ? msg.message : "?"}`);
+          if (runBenchmarkBtn.disabled) {
+            runBenchmarkBtn.disabled = false;
+            $("benchStatus").textContent = `error: ${typeof msg.message === "string" ? msg.message : "?"}`;
+          }
+          return;
+        }
+        if (msg.type === "requestSnapshot") {
+          const tree = snapshotTree(projection.document);
+          ws?.send(JSON.stringify({ type: "snapshotResult", tree }));
+          logActivity("snapshot captured \u2014 sent to session");
+          return;
+        }
+        if (msg.type === "benchmarkStarted") {
+          runBenchmarkBtn.disabled = true;
+          $("benchStatus").textContent = `running \u2014 ${msg.url ?? ""} for ${msg.durationMs ?? "?"}ms\u2026`;
+          $("benchResults").textContent = "";
+          logActivity(`benchmark started ${msg.url ?? ""} durationMs=${msg.durationMs ?? "?"}`);
+          return;
+        }
+        if (msg.type === "benchmarkComplete") {
+          runBenchmarkBtn.disabled = false;
+          $("benchStatus").textContent = `done \u2014 report: ${msg.reportDir ?? "?"}`;
+          $("benchResults").textContent = msg.report ? renderBenchmarkReport(msg.report) : "(no report)";
+          logActivity(`benchmark complete reportDir=${msg.reportDir ?? "?"}`);
           return;
         }
         logActivity(`control ${msg.type}`);
@@ -1244,10 +1430,9 @@
       frames = 0;
       applyOk = 0;
       desyncCount = 0;
-      armed = false;
+      opsTotal = 0;
       $("streamDesync").textContent = "0";
-      $("streamAppendEmpty").textContent = "0";
-      $("streamDupH1").textContent = "\u2014";
+      $("streamOps").textContent = "0";
       ws.send(
         JSON.stringify({
           type: "start",
@@ -1262,10 +1447,27 @@
       if (ws === null || ws.readyState !== WebSocket.OPEN) return;
       ws.send(JSON.stringify({ type: "stop" }));
     });
+    runBenchmarkBtn.addEventListener("click", () => {
+      if (ws === null || ws.readyState !== WebSocket.OPEN) return;
+      runBenchmarkBtn.disabled = true;
+      $("benchStatus").textContent = "starting\u2026";
+      ws.send(
+        JSON.stringify({
+          type: "runBenchmark",
+          url: urlInput.value.trim(),
+          durationMs: Number($("benchDurationMs").value) || 15e3,
+          telemetry: readConfigFromUi(),
+          frameRateHz: Number($("cfgFrameRate").value) || 60,
+          options: {
+            cpuProfile: $("benchCpuProfile").checked,
+            invariants: $("benchInvariants").checked,
+            structuralDiff: $("benchStructuralDiff").checked
+          }
+        })
+      );
+    });
     setConnected(false);
     setStatus("idle");
-    void armed;
-    void lastSeq;
   }
   bootLabClient();
 })();

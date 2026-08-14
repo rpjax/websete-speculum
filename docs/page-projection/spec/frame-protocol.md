@@ -490,10 +490,17 @@ every later one; only the very first, one-time population of the table changed.
 
 ### 5.2 Buffer and tick
 
-`MutationRecord`s accumulate into a plain buffer as the browser delivers them — no processing in the
-callback itself, per **E3**. On each tick of the frame clock (`engine-redesign.md` clock, not `rAF`),
-the buffer is frozen and drained; a fresh buffer starts collecting for the next tick immediately, so
-delivery is never blocked on drain.
+`MutationRecord`s accumulate into a plain buffer — no processing in the callback itself, per **E3**.
+**Before every drain** (clock tick and `flushNow`), the producer MUST call `observer.takeRecords()` and
+push the result into that buffer. MutationObserver delivery is a **microtask**: records for mutations
+that already happened on the live DOM may still sit in the observer's internal queue until the
+callback runs *or* `takeRecords()` pulls them. Draining only the callback-fed buffer leaves the table
+one (or more) mutations behind the live DOM — O2 then reports `child_order_mismatch` that is snapshot
+lag, not (necessarily) a table bug.
+
+On each tick of the frame clock (`engine-redesign.md` clock, not `rAF`), the buffer is frozen and
+drained; a fresh buffer starts collecting for the next tick immediately, so delivery is never blocked
+on drain.
 
 ### 5.3 Visited set (per tick)
 
@@ -872,3 +879,4 @@ Every catalogued failure carries `errorCode` + `phase` + `sequence`
 | 2026-08-14 | **O2 local oracle (table × live DOM)** | Lab-only, on-demand, not per-tick. Pure `compareTableToLiveOrder` plus Virtual walk `compareTableToLiveDom` on `__speculumProjection`. Control `requestTableLiveOracle` (same WS as `requestStructuralDiff`). `FrameInvariantMonitor` not extended — it only sees wire bytes. Smoke: `insert-before-remove.html` (mutations after load so they hit incremental `insertBatch`, not cold `resyncVirtual`). |
 | 2026-08-14 | **Coherent snapshot + telemetry vs assert** | Not a wire opcode change. Halt/flush/O2/tree MUST be one JS turn (`flushAndSnapshot`) — same atomicity rule as §5.8 resync walk. Event `tableSize` is `ReplicatedTable.size` (diagnostic). State asserts are probes (`ReplicatedTableDigest` at sequence S), never telemetry equality. Lab is a `BrowserSession` caller. Full rules: [observability.md](observability.md). |
 | 2026-08-14 | **OPEN-8 CLOSED** — last-child `unlink` must clear `nextSiblingOf[prev]` | O2 on `prepend-stress.html` (seq 695, `#19` walk `[118]` vs hundreds live) after OPEN-7. Table-only falsifier: prepend batches + tail REMOVE; `lastChildOf` left on a detached id (`parent=0, prev=0`). Wire hash green — derived links not in `tableHash`. Not a reopen of OPEN-7 (`insertBatch` before-existing). |
+| 2026-08-14 | **`takeRecords` before every drain** | MutationObserver delivery is a microtask. Draining only callback-fed records left the table behind live DOM under churn; O2 could not tell lag from P0. `DomMutationObserver.takePendingIntoBuffer` at the top of `onBoundary`/`flushNow` and before bootstrap discard. One JS turn is not enough; one turn **with** `takeRecords` is. |

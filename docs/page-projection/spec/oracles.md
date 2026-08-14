@@ -5,7 +5,7 @@
 
 The old engine degenerated because the only automated verdict measured the **pipe**. V4 lab has structural diff + frame invariant monitor + CPU profile; O1/O4/O5 on baseline sites are still M3.
 
-**How O2 is taken:** [observability.md](observability.md) §5 — one in-page JS turn (`flushAndSnapshot`) binds table digest + local table×DOM + optional tree to **sequence S**, then the client snapshots after applying S. Split `page.evaluate`s (halt / flush / oracle / tree) are torn reads and MUST NOT be used as O2.
+**How O2 is taken:** [observability.md](observability.md) §5 — `takeRecords` then drain/emit S then table×DOM in one in-page turn. Split evaluates are torn reads. A turn **without** `takeRecords` is snapshot lag (live DOM ahead of undelivered MO records) and MUST NOT be dismissed as “torn read.” CLI `--iso` without a client apply surface is Virtual-only; table×table / tree×tree stay `skipped`. O1/O4/O5 are unimplemented.
 
 | # | Oracle | Definition | V4 lab today |
 |---|--------|------------|--------------|

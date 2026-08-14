@@ -40,6 +40,7 @@
 | 2026-08-14 | Lab is a BrowserSession **caller**; three telemetry kinds; CPU is a probe; `report.json` is lab-composed | [observability.md](observability.md) |
 | 2026-08-14 | Events never assert state; coherent snapshot at sequence S (one JS turn); `tableSize` = `ReplicatedTable.size` | [observability.md](observability.md) |
 | 2026-08-14 | OPEN-8 last-child unlink `nextSiblingOf[prev]` — prepend-stress O2 | frame-protocol.md §10 + [open.md](open.md) |
+| 2026-08-14 | `MutationObserver.takeRecords` before every drain / snapshot | frame-protocol.md §5.2 + [observability.md](observability.md) §5 |
 
 **Stage 4 confirmed (Rodrigo):** mid-session recovery = **`emitResyncFrame` alone** (ids preserved; does not self-heal a corrupt map shape). Client = **real double buffer**, swap only after resync frame CHECK. Lab transport = existing control WS + `PlaneChannel.Control`. Production hub/gRPC is gate 5.
 

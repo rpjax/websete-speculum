@@ -147,6 +147,7 @@ void (async () => {
     domNodes,
     table,
     telemetry,
+    pullPendingMutations: () => domMutationObserver.takePendingIntoBuffer(),
   });
 
   // Stage 4 (frame-protocol-production-completeness), §5.8: the resync *request* travels on the
@@ -195,6 +196,8 @@ void (async () => {
   if (config.generation > 1) {
     resyncFrame.ops.unshift({ op: OpCode.EpochReset, generation: config.generation });
   }
+  // Discard observer backlog (including records not yet delivered to the callback).
+  domMutationObserver.takePendingIntoBuffer();
   mutationBuffer.drain();
   await frameEmitter.sendInitial(resyncFrame);
 
@@ -224,10 +227,8 @@ void (async () => {
       return { generation: domNodes.generation, sequence: frameEmitter.currentSequence };
     },
     flushAndSnapshot: () => {
-      // Same turn as this call: rAF / timers / MO callbacks cannot run. Drain whatever
-      // the observer already queued, emit that frame, then oracle the table against live
-      // DOM — both still frozen. Then stop the clock so the client can apply this sequence
-      // before a later tick publishes S+1.
+      // Same turn: takeRecords (undelivered MO queue) → drain → emit S → O2 vs live DOM.
+      // A turn without takeRecords builds S from stale delivered records while live DOM is ahead.
       frameEmitter.flushNow();
       const o2 = compareTableToLiveDom(table, domNodes, document);
       frameEmitter.stop();

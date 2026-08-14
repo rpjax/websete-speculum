@@ -40,6 +40,17 @@ export class DomMutationObserver {
     this.observer = null;
   }
 
+  /**
+   * Pull records the browser has queued but not yet delivered to the callback (MO delivery is a
+   * microtask). Must run immediately before every buffer drain / snapshot — otherwise the table
+   * is built from stale delivered records while live DOM already includes those mutations.
+   */
+  takePendingIntoBuffer(): void {
+    if (this.observer === null) return;
+    const pending = this.observer.takeRecords();
+    if (pending.length > 0) this.buffer.push(pending);
+  }
+
   /** Test hook: feed records without a live MutationObserver. */
   ingestForTest(records: MutationRecord[]): void {
     this.buffer.push(records);

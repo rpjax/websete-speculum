@@ -21,7 +21,7 @@
 
 ## Bugs
 
-None named as of 2026-08-14. **OPEN-7** and **OPEN-8** (derived `nextSiblingOf` / `lastChildOf`) are closed — see Closed recently.
+**OPEN-8** is closed at the table (unit green). Mid-churn O2 was also confounded by missing `MutationObserver.takeRecords()` before drain ([observability.md](observability.md) §5 / frame-protocol §5.2) — that hole is closed. Re-run `prepend-stress.html` before treating remaining O2 red as engine bug. CLI `--iso` is Virtual-only until a client apply surface is plugged in.
 
 ---
 

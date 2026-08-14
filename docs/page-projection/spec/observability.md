@@ -69,23 +69,31 @@ Probe compact identity of the **same** table: `ReplicatedTableDigest` `{ rowCoun
 
 ---
 
-## 5. Coherent snapshot (one JS turn)
+## 5. Coherent snapshot (one JS turn **and** `takeRecords`)
 
-JavaScript is **run-to-completion**. `MutationObserver` callbacks, `rAF`, and timers **cannot** interleave *inside* one `page.evaluate` / in-page function. They **can** interleave between two separate evaluates.
+JavaScript is **run-to-completion**. `MutationObserver` **callbacks**, `rAF`, and timers **cannot**
+interleave *inside* one `page.evaluate` / in-page function. They **can** interleave between two
+separate evaluates. That forbids halt/flush/O2/tree split across evaluates (torn read).
 
-**Forbidden:** halt in evaluate A, flush in B, O2 in C, tree walk in D. The document mutates between turns; O2 / tree / table disagree with the frame you think you captured. Mid-churn O2 `child_order_mismatch` with this pattern is a **torn read**, not proof the table is wrong.
+That guarantee is **necessary and not sufficient.** MutationObserver **delivery** is a microtask.
+Records for mutations already visible on the live DOM may still sit in the observer's internal queue
+until the callback runs **or** `observer.takeRecords()` pulls them. `flushNow` that only drains the
+callback-fed `mutationBuffer` builds frame S from **stale delivered** records while O2 reads **current**
+DOM → `child_order_mismatch` under churn that is **snapshot lag**, not proof of a table bug. Do **not**
+discard mid-churn O2 red as “torn read, ignore.”
 
 **Required** (`flushAndSnapshot` / `BrowserSession.flushProjectionSnapshot`):
 
-1. Drain the mutation buffer and emit **frame S** (`flushNow`).
-2. In the **same turn**, capture state bound to S: table digest, table×live-DOM oracle (O2 local), optional structural tree.
-3. Then stop the producer clock so S+1 cannot publish before the client applies S.
-4. Client applies S, then snapshots **its** table digest + tree.
-5. Compare. Then `resumeProjectionWorld`.
+1. `observer.takeRecords()` into the mutation buffer (undelivered queue).
+2. Drain the buffer and emit **frame S** (`flushNow` — same pull happens at the top of every tick).
+3. In the **same turn**, capture state bound to S: table digest, table×live-DOM oracle (O2 local), optional structural tree.
+4. Stop the producer clock so S+1 cannot publish before the client applies S.
+5. Client applies S, then snapshots **its** table digest + tree. (CLI without apply surface: these legs are `skipped`, not pass.)
+6. Compare. Then `resumeProjectionWorld`.
 
-A snapshot is a **state snapshot**, not “a DOM dump.” Any indexer that must be true at S (replicated table today; CSSOM rows later) belongs on that object. Comparing “frame N on Virtual” to “whatever the client last applied” without binding both to S is not an isomorphism test.
+A snapshot is a **state snapshot**, not “a DOM dump.” Any indexer that must be true at S belongs on that object.
 
-CLI `--iso` without a lab client apply surface: Virtual O2 + digest still run; client table/tree verdicts are **`skipped`**, not silent pass.
+**What a lab CLI `--iso` run actually proves today:** Virtual O2 + digest at S, plus wire invariants. It does **not** prove two-sided isomorphism (table×table, tree×tree) until a lab client apply surface is plugged in. O1 / O4 / O5 are not implemented.
 
 ---
 
@@ -93,7 +101,7 @@ CLI `--iso` without a lab client apply surface: Virtual O2 + digest still run; c
 
 | Oracle | How it is taken (lab) |
 |--------|------------------------|
-| O2 local (table × Virtual live DOM) | Inside `flushAndSnapshot`, same turn as frame S |
+| O2 local (table × Virtual live DOM) | `takeRecords` + drain + emit S + oracle, one turn ([observability.md](observability.md) §5) |
 | O2 structural (Virtual tree × client tree) | Same probe pair at S — not a mid-run torn `requestSnapshot` while the clock ticks |
 | O2 table×table | `ReplicatedTableDigest` Virtual vs client at S |
 | O1 / O4 / O5 | Unchanged — not implemented; do not fake with event greens |
@@ -107,7 +115,7 @@ Full comparison remains lab/CI only (O(n) — [oracles.md](oracles.md), E1).
 
 | Date | What we thought | What was true | What we do now |
 |------|-----------------|---------------|----------------|
-| 2026-08-14 | O2 mid-churn fail = table bug | Halt/flush/O2 split across evaluates; DOM moved before the oracle ran | One-turn `flushAndSnapshot` |
+| 2026-08-14 | O2 mid-churn fail = table bug | Halt/flush/O2 split across evaluates **and** undelivered MO queue (no `takeRecords`) | One-turn snapshot **plus** `takeRecords` before drain. Do not discard remaining mid-churn red. |
 | 2026-08-14 | `table_size_matches_telemetry` fail = producer/client diverge | Monitor compared wire shadow and/or identity map to a field that later meant protocol table size | Stop asserting that; digest probe at S; polish event field names |
 | 2026-08-14 | Lab may `page.evaluate` for convenience | That is a second Chromium path | Session probes only |
 | 2026-08-14 | Many CLI scripts = the test pyramid | Throwaway profilers duplicated math | One run suite → `report.json`; scripts wrap CLI |

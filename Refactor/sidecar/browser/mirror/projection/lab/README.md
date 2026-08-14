@@ -70,6 +70,4 @@ session/
 ```
 
 **Probes vs telemetry.** Spec: [docs/page-projection/spec/observability.md](../../../../../../docs/page-projection/spec/observability.md).
-Deterministic asserts (table×table, table×DOM, tree×tree) use `flushProjectionSnapshot` at sequence S,
-then the same snapshot on the client. Event telemetry is for time-series only.
-`FrameInvariantMonitor` is wire-bytes only.
+CLI `--iso` proves Virtual O2 + digest at S (after `takeRecords` + drain), not two-sided isomorphism — client table/tree are `skipped` without an apply surface. O1/O4/O5 are not implemented. Event telemetry is time-series only. `FrameInvariantMonitor` is wire-bytes only.

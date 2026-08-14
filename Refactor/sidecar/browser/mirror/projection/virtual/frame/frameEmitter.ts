@@ -21,6 +21,8 @@ export type FrameEmitterOptions = {
   domNodes: DomNodeTable;
   table: ReplicatedTable;
   telemetry?: ProjectionTelemetry | null;
+  /** Pull undelivered MutationObserver records into `buffer` before drain (see `takePendingIntoBuffer`). */
+  pullPendingMutations?: () => void;
 };
 
 /**
@@ -42,6 +44,7 @@ export class FrameEmitter {
   private readonly domNodes: DomNodeTable;
   private readonly table: ReplicatedTable;
   private readonly telemetry: ProjectionTelemetry | null;
+  private readonly pullPendingMutations: (() => void) | null;
 
   private sequence = 0;
   private idleTicks = 0;
@@ -60,6 +63,7 @@ export class FrameEmitter {
     this.domNodes = opts.domNodes;
     this.table = opts.table;
     this.telemetry = opts.telemetry ?? null;
+    this.pullPendingMutations = opts.pullPendingMutations ?? null;
   }
 
   start(): void {
@@ -146,6 +150,8 @@ export class FrameEmitter {
   }
 
   private onBoundary(): void {
+    this.pullPendingMutations?.();
+
     if (this.pendingParts !== null && this.pendingFrame !== null) {
       this.trySendPending();
       return;

@@ -594,9 +594,8 @@ export interface BrowserSession {
     reason?: string;
   }>;
   /**
-   * Coherent Virtual snapshot: one in-page JS turn drains the mutation buffer, emits a
-   * frame, then captures replicated-table digest, table×DOM (O2), and optional tree.
-   * Sequence is that frame. Stops the producer clock until {@link resumeProjectionWorld}.
+   * Coherent Virtual snapshot: `takeRecords` then drain/emit S then O2 + digest + optional tree
+   * in one in-page turn. Stops the producer clock until {@link resumeProjectionWorld}.
    */
   flushProjectionSnapshot?(opts?: { includeTree?: boolean }): Promise<{
     ok: boolean;

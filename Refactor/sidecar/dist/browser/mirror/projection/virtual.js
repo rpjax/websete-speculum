@@ -287,6 +287,16 @@
       this.observer?.disconnect();
       this.observer = null;
     }
+    /**
+     * Pull records the browser has queued but not yet delivered to the callback (MO delivery is a
+     * microtask). Must run immediately before every buffer drain / snapshot — otherwise the table
+     * is built from stale delivered records while live DOM already includes those mutations.
+     */
+    takePendingIntoBuffer() {
+      if (this.observer === null) return;
+      const pending = this.observer.takeRecords();
+      if (pending.length > 0) this.buffer.push(pending);
+    }
     /** Test hook: feed records without a live MutationObserver. */
     ingestForTest(records) {
       this.buffer.push(records);
@@ -1107,6 +1117,7 @@
     domNodes;
     table;
     telemetry;
+    pullPendingMutations;
     sequence = 0;
     idleTicks = 0;
     pendingFrame = null;
@@ -1123,6 +1134,7 @@
       this.domNodes = opts.domNodes;
       this.table = opts.table;
       this.telemetry = opts.telemetry ?? null;
+      this.pullPendingMutations = opts.pullPendingMutations ?? null;
     }
     start() {
       this.clock.start(() => this.onBoundary());
@@ -1198,6 +1210,7 @@
       this.pendingResyncBuild = build;
     }
     onBoundary() {
+      this.pullPendingMutations?.();
       if (this.pendingParts !== null && this.pendingFrame !== null) {
         this.trySendPending();
         return;
@@ -2148,7 +2161,8 @@
       transport: frameTransport,
       domNodes,
       table,
-      telemetry
+      telemetry,
+      pullPendingMutations: () => domMutationObserver.takePendingIntoBuffer()
     });
     if (loopback) {
       loopback.dataPlane.setHandler((channel, payload) => {
@@ -2175,6 +2189,7 @@
     if (config.generation > 1) {
       resyncFrame.ops.unshift({ op: 2 /* EpochReset */, generation: config.generation });
     }
+    domMutationObserver.takePendingIntoBuffer();
     mutationBuffer.drain();
     await frameEmitter.sendInitial(resyncFrame);
     frameEmitter.start();

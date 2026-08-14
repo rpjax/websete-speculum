@@ -139,7 +139,8 @@ async function executeLabRun(hooks, req, collectors) {
             verdicts.push({
                 id: 'table',
                 status: 'fail',
-                reason: `virtual rows=${iso.table.virtual?.rowCount} client rows=${iso.table.client?.rowCount} hash mismatch`,
+                reason: iso.tableFailReason ??
+                    `virtual rows=${iso.table.virtual?.rowCount} client rows=${iso.table.client?.rowCount} hash mismatch`,
             });
         }
         for (const s of iso.skipped) {
@@ -173,7 +174,7 @@ async function executeLabRun(hooks, req, collectors) {
         verdicts.push({
             id: 'applyMs',
             status: 'skipped',
-            reason: 'applyMs skipped: no lab client apply surface',
+            reason: 'applyMs skipped: no DOM apply surface',
         });
     }
     const report = {

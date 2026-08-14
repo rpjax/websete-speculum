@@ -10,6 +10,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { labAssetRoots } from './assetRoots';
 import { createRunCollectors, executeLabRun } from './runTools';
+import { NodeTableApplier } from './nodeTableApply';
 import { reportExitCode } from './runReport';
 import { LAB_TELEMETRY_DEFAULTS, DEFAULT_TELEMETRY_CONFIG, type ProjectionTelemetryMessage } from '../models/telemetry';
 import { createV4ProjectionBrowserSessionFactory } from '../session/V4ProjectionBrowserSession';
@@ -205,8 +206,13 @@ async function main(): Promise<void> {
 
   const target = resolveUrl(args.url, origin.replace(/\/$/, ''));
   const collectors = createRunCollectors();
+  const nodeTable = new NodeTableApplier();
+  const onFrame = (buf: Uint8Array): void => {
+    collectors.observeFrameBytes(buf);
+    nodeTable.observeFrameBytes(buf);
+  };
   const factory = createV4ProjectionBrowserSessionFactory({ headless: !args.headed });
-  const session = factory.create('lab-run', stubEvents(collectors.observeFrameBytes, collectors.observeTelemetry));
+  const session = factory.create('lab-run', stubEvents(onFrame, collectors.observeTelemetry));
 
   try {
     await session.launch(
@@ -220,8 +226,9 @@ async function main(): Promise<void> {
     const result = await executeLabRun(
       {
         session,
-        observeFrameBytes: collectors.observeFrameBytes,
+        observeFrameBytes: onFrame,
         observeTelemetry: collectors.observeTelemetry,
+        requestClientSnapshot: () => nodeTable.snapshot(),
       },
       {
         url: target,

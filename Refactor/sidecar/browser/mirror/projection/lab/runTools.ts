@@ -23,7 +23,7 @@ export type LabRunHooks = {
   session: BrowserSession;
   observeFrameBytes: (buf: Uint8Array) => void;
   observeTelemetry: (msg: ProjectionTelemetryMessage) => void;
-  requestClientSnapshot?: () => Promise<ClientStateSnapshot | null>;
+  requestClientSnapshot?: () => Promise<ClientStateSnapshot | null> | ClientStateSnapshot | null;
 };
 
 export type LabRunRequest = LabRunConfig;
@@ -168,7 +168,9 @@ export async function executeLabRun(
       verdicts.push({
         id: 'table',
         status: 'fail',
-        reason: `virtual rows=${iso.table.virtual?.rowCount} client rows=${iso.table.client?.rowCount} hash mismatch`,
+        reason:
+          iso.tableFailReason ??
+          `virtual rows=${iso.table.virtual?.rowCount} client rows=${iso.table.client?.rowCount} hash mismatch`,
       });
     }
     for (const s of iso.skipped) {
@@ -204,7 +206,7 @@ export async function executeLabRun(
     verdicts.push({
       id: 'applyMs',
       status: 'skipped',
-      reason: 'applyMs skipped: no lab client apply surface',
+      reason: 'applyMs skipped: no DOM apply surface',
     });
   }
 

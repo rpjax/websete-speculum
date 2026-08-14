@@ -3,13 +3,47 @@
  * Lab isomorphism — compose BrowserSession probes. Not a session primitive.
  *
  * Virtual side is one in-page turn ({@link BrowserSession.flushProjectionSnapshot}):
- * drain MO buffer, emit frame S, O2 + table digest + tree while JS holds the document.
- * Client applies S then snapshots its table + tree; those must match Virtual at S.
+ * takeRecords, drain MO buffer, emit frame S, O2 + table digest + tree while JS holds the document.
+ * Caller table apply (Node `applyFrameToTableChecked` or DOM client) then snapshots at S.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.runIsomorphism = runIsomorphism;
 const tableDigest_1 = require("../models/tableDigest");
 const structuralDiff_1 = require("./structuralDiff");
+const CLIENT_CATCH_UP_MS = 2_000;
+const CLIENT_POLL_MS = 10;
+function sleep(ms) {
+    return new Promise((r) => setTimeout(r, ms));
+}
+async function waitClientAtSequence(getClientSnapshot, targetSequence) {
+    const deadline = Date.now() + CLIENT_CATCH_UP_MS;
+    let snap = await getClientSnapshot();
+    if (snap == null) {
+        while (Date.now() < deadline) {
+            await sleep(CLIENT_POLL_MS);
+            snap = await getClientSnapshot();
+            if (snap != null)
+                break;
+        }
+        return snap;
+    }
+    if (snap.sequence == null)
+        return snap;
+    while (Date.now() < deadline) {
+        if (snap.applyError)
+            return snap;
+        if ((snap.sequence ?? 0) >= targetSequence && snap.table != null)
+            return snap;
+        await sleep(CLIENT_POLL_MS);
+        const next = await getClientSnapshot();
+        if (next == null)
+            continue;
+        snap = next;
+        if (snap.sequence == null)
+            return snap;
+    }
+    return snap;
+}
 async function runIsomorphism(opts) {
     const skipped = [];
     const emptyTable = { virtual: null, client: null, identical: null };
@@ -21,6 +55,7 @@ async function runIsomorphism(opts) {
             generation: null,
             o2: null,
             table: emptyTable,
+            tableFailReason: null,
             structuralDiff: null,
             skipped: [{ id: 'isomorphism', reason: 'session does not expose flushProjectionSnapshot' }],
         };
@@ -33,15 +68,20 @@ async function runIsomorphism(opts) {
                 generation: null,
                 o2: null,
                 table: emptyTable,
+                tableFailReason: null,
                 structuralDiff: null,
                 skipped: [{ id: 'isomorphism', reason: virtual.reason ?? 'flushProjectionSnapshot failed' }],
             };
         }
         const virtualTable = virtual.table ?? null;
+        const targetSeq = virtual.sequence ?? 0;
         let clientSnap = null;
         if (opts.getClientSnapshot) {
-            await new Promise((r) => setTimeout(r, 200));
-            clientSnap = await opts.getClientSnapshot();
+            const getter = opts.getClientSnapshot;
+            clientSnap = await waitClientAtSequence(async () => {
+                const v = getter();
+                return v instanceof Promise ? await v : v;
+            }, targetSeq);
         }
         let structuralDiff = null;
         if (!opts.getClientSnapshot) {
@@ -64,33 +104,54 @@ async function runIsomorphism(opts) {
                 reason: 'client did not reply to requestSnapshot after flush',
             });
         }
+        else if (clientSnap.tree == null) {
+            skipped.push({
+                id: 'structuralDiff',
+                reason: 'no DOM apply surface (Node table apply only)',
+            });
+        }
+        else if (virtual.tree == null) {
+            skipped.push({
+                id: 'structuralDiff',
+                reason: 'virtual tree missing',
+            });
+        }
         else {
-            if (virtual.tree == null || clientSnap.tree == null) {
-                skipped.push({
-                    id: 'structuralDiff',
-                    reason: 'virtual or client tree missing',
-                });
-            }
-            else {
-                structuralDiff = (0, structuralDiff_1.diffTrees)(virtual.tree, clientSnap.tree);
-            }
+            structuralDiff = (0, structuralDiff_1.diffTrees)(virtual.tree, clientSnap.tree);
         }
         const clientTable = clientSnap?.table ?? null;
         let tableIdentical = null;
-        if (virtualTable && clientTable) {
-            tableIdentical = (0, tableDigest_1.tableDigestsEqual)(virtualTable, clientTable);
-        }
-        else if (opts.getClientSnapshot && clientSnap != null && (virtualTable == null || clientTable == null)) {
-            skipped.push({
-                id: 'table',
-                reason: virtualTable == null ? 'virtual table digest missing' : 'client table digest missing',
-            });
+        let tableFailReason = null;
+        if (opts.getClientSnapshot && clientSnap != null) {
+            if (clientSnap.applyError) {
+                tableIdentical = false;
+                tableFailReason = clientSnap.applyError;
+            }
+            else if (clientSnap.sequence != null && clientSnap.sequence < targetSeq) {
+                skipped.push({
+                    id: 'table',
+                    reason: `Node table apply at sequence ${clientSnap.sequence}, Virtual at ${targetSeq}`,
+                });
+            }
+            else if (virtualTable && clientTable) {
+                tableIdentical = (0, tableDigest_1.tableDigestsEqual)(virtualTable, clientTable);
+                if (!tableIdentical) {
+                    tableFailReason = `virtual rows=${virtualTable.rowCount} client rows=${clientTable.rowCount} hash mismatch`;
+                }
+            }
+            else if (virtualTable == null || clientTable == null) {
+                skipped.push({
+                    id: 'table',
+                    reason: virtualTable == null ? 'virtual table digest missing' : 'client table digest missing',
+                });
+            }
         }
         return {
             sequence: virtual.sequence ?? null,
             generation: virtual.generation ?? null,
             o2: virtual.o2 ?? null,
             table: { virtual: virtualTable, client: clientTable, identical: tableIdentical },
+            tableFailReason,
             structuralDiff,
             skipped: [
                 ...skipped,

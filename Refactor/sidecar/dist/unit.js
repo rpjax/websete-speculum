@@ -64,6 +64,9 @@ const tableLiveOracle_1 = require("./browser/mirror/projection/models/tableLiveO
 const replicatedTableApply_1 = require("./browser/mirror/projection/models/replicatedTableApply");
 const opcodes_1 = require("./browser/mirror/projection/models/opcodes");
 const frame_1 = require("./browser/mirror/projection/models/frame");
+const tableDigest_1 = require("./browser/mirror/projection/models/tableDigest");
+const binaryFrameEncoder_1 = require("./browser/mirror/projection/virtual/frame/binaryFrameEncoder");
+const nodeTableApply_1 = require("./browser/mirror/projection/lab/nodeTableApply");
 const limits_1 = require("./browser/mirror/projection/models/limits");
 /** Test stand-in for Sessions.ViewportPolicy — production gets this on Launch. */
 const POLICY = {
@@ -2042,6 +2045,35 @@ function testApplyFrameToTableCheckedEnforcesMaxRows() {
     assert_1.default.strictEqual(reannounce.ok, true, 'MAX_ROWS must not block re-describing an id the table already holds');
     console.log('[unit] applyFrameToTableChecked enforces MAX_ROWS on net-new rows only (§8) ok');
 }
+function testNodeTableApplierDigestMatchesDirectApply() {
+    const ops = [
+        { op: opcodes_1.OpCode.NodeNew, id: 2, kind: opcodes_1.NodeKind.Element, name: 'div', attrs: [] },
+        { op: opcodes_1.OpCode.NodeNew, id: 3, kind: opcodes_1.NodeKind.Text, value: 'hi' },
+        { op: opcodes_1.OpCode.Insert, parent: 1, before: frame_1.INSERT_AT_END, ids: [2] },
+        { op: opcodes_1.OpCode.Insert, parent: 2, before: frame_1.INSERT_AT_END, ids: [3] },
+    ];
+    const frame = (0, frame_1.createFrame)({ generation: 1, sequence: 1, ops, preTableHash: 0n });
+    const parts = new binaryFrameEncoder_1.BinaryFrameEncoder().encode(frame);
+    assert_1.default.ok(parts.length >= 1, 'encoder must emit at least one part');
+    const expected = new replicatedTable_1.ReplicatedTable();
+    const direct = (0, replicatedTableApply_1.applyFrameToTableChecked)(expected, false, ops, 1);
+    assert_1.default.strictEqual(direct.ok, true);
+    const applier = new nodeTableApply_1.NodeTableApplier();
+    for (const part of parts)
+        applier.observeFrameBytes(part);
+    assert_1.default.strictEqual(applier.lastApplyError, null);
+    assert_1.default.strictEqual(applier.sequence, 1);
+    assert_1.default.deepStrictEqual(applier.digest(), (0, tableDigest_1.digestReplicatedTable)(expected));
+    applier.observeFrameBytes(new binaryFrameEncoder_1.BinaryFrameEncoder().encode((0, frame_1.createFrame)({
+        generation: 1,
+        sequence: 2,
+        ops: [{ op: opcodes_1.OpCode.NodeDrop, ids: [999] }],
+        preTableHash: expected.tableHash,
+    }))[0]);
+    assert_1.default.ok(applier.lastApplyError, 'absent NODE_DROP must fail apply');
+    assert_1.default.strictEqual(applier.sequence, 1, 'failed apply must not advance sequence');
+    console.log('[unit] NodeTableApplier digest matches direct applyFrameToTableChecked ok');
+}
 async function main() {
     // Debug instrumentation posts to the ingest server; don't hang unit runs on it.
     globalThis.fetch = (async () => new Response('{}', { status: 204 }));
@@ -2118,6 +2150,7 @@ async function main() {
     testApplyFrameToTableCheckedRejectsNodeDropAbsentId();
     testApplyFrameToTableCheckedRejectsNodeDropAttachedId();
     testApplyFrameToTableCheckedEnforcesMaxRows();
+    testNodeTableApplierDigestMatchesDirectApply();
     await (0, page_unit_1.runPageProjectionUnitTests)();
     await (0, v4ProjectionSession_unit_1.runV4ProjectionSessionUnitTests)();
     console.log('[unit] all passed');

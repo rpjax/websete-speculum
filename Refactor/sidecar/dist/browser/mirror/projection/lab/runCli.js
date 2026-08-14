@@ -14,6 +14,7 @@ const node_http_1 = __importDefault(require("node:http"));
 const node_path_1 = __importDefault(require("node:path"));
 const assetRoots_1 = require("./assetRoots");
 const runTools_1 = require("./runTools");
+const nodeTableApply_1 = require("./nodeTableApply");
 const runReport_1 = require("./runReport");
 const telemetry_1 = require("../models/telemetry");
 const V4ProjectionBrowserSession_1 = require("../session/V4ProjectionBrowserSession");
@@ -192,8 +193,13 @@ async function main() {
     }
     const target = resolveUrl(args.url, origin.replace(/\/$/, ''));
     const collectors = (0, runTools_1.createRunCollectors)();
+    const nodeTable = new nodeTableApply_1.NodeTableApplier();
+    const onFrame = (buf) => {
+        collectors.observeFrameBytes(buf);
+        nodeTable.observeFrameBytes(buf);
+    };
     const factory = (0, V4ProjectionBrowserSession_1.createV4ProjectionBrowserSessionFactory)({ headless: !args.headed });
-    const session = factory.create('lab-run', stubEvents(collectors.observeFrameBytes, collectors.observeTelemetry));
+    const session = factory.create('lab-run', stubEvents(onFrame, collectors.observeTelemetry));
     try {
         await session.launch((0, v4LabLaunch_1.v4LabLaunchOptions)({
             frameRateHz: 60,
@@ -203,8 +209,9 @@ async function main() {
         await session.navigate(target);
         const result = await (0, runTools_1.executeLabRun)({
             session,
-            observeFrameBytes: collectors.observeFrameBytes,
+            observeFrameBytes: onFrame,
             observeTelemetry: collectors.observeTelemetry,
+            requestClientSnapshot: () => nodeTable.snapshot(),
         }, {
             url: target,
             durationMs: args.durationMs,

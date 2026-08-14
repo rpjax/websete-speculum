@@ -88,12 +88,12 @@ discard mid-churn O2 red as “torn read, ignore.”
 2. Drain the buffer and emit **frame S** (`flushNow` — same pull happens at the top of every tick).
 3. In the **same turn**, capture state bound to S: table digest, table×live-DOM oracle (O2 local), optional structural tree.
 4. Stop the producer clock so S+1 cannot publish before the client applies S.
-5. Client applies S, then snapshots **its** table digest + tree. (CLI without apply surface: these legs are `skipped`, not pass.)
+5. Apply S, then snapshot that apply’s table digest (+ tree if a DOM surface exists). CLI: Node `applyFrameToTableChecked` in the **caller** (not `IBrowserSession`, not a second tab). UI lab: browser apply at 4077. Tree is `skipped` without DOM apply. Node table×table is **not** Projected.
 6. Compare. Then `resumeProjectionWorld`.
 
 A snapshot is a **state snapshot**, not “a DOM dump.” Any indexer that must be true at S belongs on that object.
 
-**What a lab CLI `--iso` run actually proves today:** Virtual O2 + digest at S, plus wire invariants. It does **not** prove two-sided isomorphism (table×table, tree×tree) until a lab client apply surface is plugged in. O1 / O4 / O5 are not implemented.
+**What a lab CLI `--iso` run actually proves today:** Virtual O2 + digest at S, wire invariants, and table×table vs Node phase-1 apply. It does **not** prove tree×tree or 1:1 Projected. O1 / O4 / O5 are not implemented.
 
 ---
 
@@ -103,7 +103,7 @@ A snapshot is a **state snapshot**, not “a DOM dump.” Any indexer that must 
 |--------|------------------------|
 | O2 local (table × Virtual live DOM) | `takeRecords` + drain + emit S + oracle, one turn ([observability.md](observability.md) §5) |
 | O2 structural (Virtual tree × client tree) | Same probe pair at S — not a mid-run torn `requestSnapshot` while the clock ticks |
-| O2 table×table | `ReplicatedTableDigest` Virtual vs client at S |
+| O2 table×table | `ReplicatedTableDigest` Virtual vs apply at S — CLI: Node caller table; UI: DOM client table |
 | O1 / O4 / O5 | Unchanged — not implemented; do not fake with event greens |
 | O3 inputs | Event percentiles in `report.json`; not yet a CI fail gate |
 

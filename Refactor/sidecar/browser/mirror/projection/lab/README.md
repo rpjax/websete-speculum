@@ -42,7 +42,7 @@ Prefer the positional form on Windows — npm may swallow dashed flags (`--url`,
 | `--url` or 1st positional | `http(s)://…` or `fixtures/<file>` |
 | `--duration` or 2nd positional | `15000` / `15s` / `1m` |
 | `--cpu` or `cpu` | CDP CPU probe |
-| `--iso` or `iso` | coherent snapshot probe: O2 + table digest + tree at sequence S (client side skipped without UI apply surface) |
+| `--iso` or `iso` | coherent snapshot at S: Virtual O2 + **Node table×table** (`applyFrameToTableChecked` in the CLI process). Tree×tree needs the UI DOM apply (4077); skipped on CLI. Not Projected / not a second Chromium. |
 | `--no-invariants` | skip wire monitor |
 | `--telemetry off` | inject default-off caps |
 | `--headed` | visible Chrome |
@@ -62,6 +62,7 @@ lab/
   runCli.ts                agent port
   runTools.ts              run suite → report.json
   isomorphism.ts           halt/flush/snapshot/O2 composition
+  nodeTableApply.ts        CLI caller: decode + phase-1 table apply (no DOM)
   assetRoots.ts            static/fixture paths
   cpuProfile.ts            CDP Profiler (used only inside the session)
 session/
@@ -70,4 +71,4 @@ session/
 ```
 
 **Probes vs telemetry.** Spec: [docs/page-projection/spec/observability.md](../../../../../../docs/page-projection/spec/observability.md).
-CLI `--iso` proves Virtual O2 + digest at S (after `takeRecords` + drain), not two-sided isomorphism — client table/tree are `skipped` without an apply surface. O1/O4/O5 are not implemented. Event telemetry is time-series only. `FrameInvariantMonitor` is wire-bytes only.
+CLI `--iso` proves Virtual O2 + digest at S **and** table×table against a Node `ReplicatedTable` in the CLI process (same `applyFrameToTableChecked` as client phase 1). Tree×tree / DOM apply stay `skipped` (no second browser; UI at 4077 still has the live apply). That Node table is **not** Projected. O1/O4/O5 are not implemented. Event telemetry is time-series only. `FrameInvariantMonitor` is wire-bytes only.

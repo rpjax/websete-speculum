@@ -57,7 +57,10 @@ import {
   applyOpsToTable,
 } from './browser/mirror/projection/models/replicatedTableApply';
 import { NodeKind, OpCode } from './browser/mirror/projection/models/opcodes';
-import { CHECK_SCOPE_RANGE, CHECK_SCOPE_TABLE, type FrameOp } from './browser/mirror/projection/models/frame';
+import { CHECK_SCOPE_RANGE, CHECK_SCOPE_TABLE, type FrameOp, createFrame, INSERT_AT_END } from './browser/mirror/projection/models/frame';
+import { digestReplicatedTable } from './browser/mirror/projection/models/tableDigest';
+import { BinaryFrameEncoder } from './browser/mirror/projection/virtual/frame/binaryFrameEncoder';
+import { NodeTableApplier } from './browser/mirror/projection/lab/nodeTableApply';
 import { MAX_ROWS } from './browser/mirror/projection/models/limits';
 
 /** Test stand-in for Sessions.ViewportPolicy — production gets this on Launch. */
@@ -2408,6 +2411,42 @@ function testApplyFrameToTableCheckedEnforcesMaxRows(): void {
   console.log('[unit] applyFrameToTableChecked enforces MAX_ROWS on net-new rows only (§8) ok');
 }
 
+function testNodeTableApplierDigestMatchesDirectApply(): void {
+  const ops: FrameOp[] = [
+    { op: OpCode.NodeNew, id: 2, kind: NodeKind.Element, name: 'div', attrs: [] },
+    { op: OpCode.NodeNew, id: 3, kind: NodeKind.Text, value: 'hi' },
+    { op: OpCode.Insert, parent: 1, before: INSERT_AT_END, ids: [2] },
+    { op: OpCode.Insert, parent: 2, before: INSERT_AT_END, ids: [3] },
+  ];
+  const frame = createFrame({ generation: 1, sequence: 1, ops, preTableHash: 0n });
+  const parts = new BinaryFrameEncoder().encode(frame);
+  assert.ok(parts.length >= 1, 'encoder must emit at least one part');
+
+  const expected = new ReplicatedTable();
+  const direct = applyFrameToTableChecked(expected, false, ops, 1);
+  assert.strictEqual(direct.ok, true);
+
+  const applier = new NodeTableApplier();
+  for (const part of parts) applier.observeFrameBytes(part);
+  assert.strictEqual(applier.lastApplyError, null);
+  assert.strictEqual(applier.sequence, 1);
+  assert.deepStrictEqual(applier.digest(), digestReplicatedTable(expected));
+
+  applier.observeFrameBytes(
+    new BinaryFrameEncoder().encode(
+      createFrame({
+        generation: 1,
+        sequence: 2,
+        ops: [{ op: OpCode.NodeDrop, ids: [999] }],
+        preTableHash: expected.tableHash,
+      }),
+    )[0]!,
+  );
+  assert.ok(applier.lastApplyError, 'absent NODE_DROP must fail apply');
+  assert.strictEqual(applier.sequence, 1, 'failed apply must not advance sequence');
+  console.log('[unit] NodeTableApplier digest matches direct applyFrameToTableChecked ok');
+}
+
 async function main(): Promise<void> {
   // Debug instrumentation posts to the ingest server; don't hang unit runs on it.
   (globalThis as { fetch: typeof fetch }).fetch = (async () =>
@@ -2486,6 +2525,7 @@ async function main(): Promise<void> {
   testApplyFrameToTableCheckedRejectsNodeDropAbsentId();
   testApplyFrameToTableCheckedRejectsNodeDropAttachedId();
   testApplyFrameToTableCheckedEnforcesMaxRows();
+  testNodeTableApplierDigestMatchesDirectApply();
   await runPageProjectionUnitTests();
   await runV4ProjectionSessionUnitTests();
   console.log('[unit] all passed');

@@ -20,7 +20,7 @@ Read this **before** multi-file or sessions/diagnostics/CI changes. Deeper detai
 | 6 | Before changing a failing hardened assert: [assert-failure-policy.md](assert-failure-policy.md) |
 | 7 | Cursor injects a short always-on summary: [../.cursor/rules/speculum-engineering-standards.mdc](../.cursor/rules/speculum-engineering-standards.mdc) |
 | 8 | Before UI work under `web/`: [frontend-standards.md](frontend-standards.md) + [frontend-patterns.md](frontend-patterns.md); Cursor: [../.cursor/rules/speculum-frontend-standards.mdc](../.cursor/rules/speculum-frontend-standards.mdc) |
-| 9 | PageProjection Live work: [page-projection/spec/acceptance.md](page-projection/spec/acceptance.md) — **absolute 1:1 parity** with the original site |
+| 9 | PageProjection: start at [page-projection/spec/README.md](page-projection/spec/README.md); accept = [page-projection/spec/acceptance.md](page-projection/spec/acceptance.md). Do not implement from `page-projection/archive/`. |
 
 **Hard bans before you type:**
 

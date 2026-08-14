@@ -48,6 +48,7 @@ import {
   TableHashTracker,
 } from './browser/mirror/projection/models/rowHash';
 import { ReplicatedTable } from './browser/mirror/projection/models/replicatedTable';
+import { compareTableToLiveOrder } from './browser/mirror/projection/models/tableLiveOracle';
 import {
   applyFrameToTable,
   applyFrameToTableChecked,
@@ -1837,6 +1838,111 @@ function testReplicatedTableTopologyRepair(): void {
 }
 
 /**
+ * OPEN-7 — insert-before-existing must set nextSiblingOf[last] = before so REMOVE of last
+ * repairs hashed before.prevSibling. The topology test above removes a *middle* node whose
+ * reverse link was already set by a prior append, so it cannot catch this.
+ */
+function testReplicatedTableInsertBeforeNextSiblingRepair(): void {
+  const table = new ReplicatedTable();
+  const NONE = 0;
+  const P = 10;
+  const X = 11;
+  const A = 12;
+  const L = 13;
+  for (const id of [P, X, A, L]) table.createElementRow(id, 'div', []);
+
+  table.insertBatch(1, NONE, [P]);
+  table.insertBatch(P, NONE, [X]);
+  table.insertBatch(P, X, [A, L]);
+  assert.strictEqual(table.getRow(A)!.prevSibling, NONE);
+  assert.strictEqual(table.getRow(L)!.prevSibling, A);
+  assert.strictEqual(table.getRow(X)!.prevSibling, L);
+  const xHashAfterInsert = table.getRow(X)!.rowHash;
+
+  table.removeBatch(P, [L]);
+  assert.strictEqual(table.getRow(L)!.parent, NONE);
+  assert.strictEqual(table.getRow(A)!.prevSibling, NONE);
+  assert.strictEqual(table.getRow(X)!.prevSibling, A, 'OPEN-7: REMOVE of last-inserted-before must relink X.prevSibling to A');
+  assert.notStrictEqual(table.getRow(X)!.rowHash, xHashAfterInsert, 'hashed prevSibling on X must change when L is removed');
+
+  const first = new ReplicatedTable();
+  first.createElementRow(P, 'div', []);
+  first.createElementRow(X, 'div', []);
+  first.createElementRow(14, 'div', []);
+  first.insertBatch(1, NONE, [P]);
+  first.insertBatch(P, NONE, [X]);
+  first.insertBatch(P, X, [14]);
+  first.removeBatch(P, [14]);
+  assert.strictEqual(first.getRow(X)!.prevSibling, NONE, 'OPEN-7: REMOVE of a single prepended id must restore first-child prevSibling=0');
+  console.log('[unit] ReplicatedTable insert-before nextSiblingOf repair (OPEN-7) ok');
+}
+
+function open7Table(): ReplicatedTable {
+  const table = new ReplicatedTable();
+  const NONE = 0;
+  for (const id of [10, 11, 12, 13]) table.createElementRow(id, 'div', []);
+  table.insertBatch(1, NONE, [10]);
+  table.insertBatch(10, NONE, [11]);
+  table.insertBatch(10, 11, [12, 13]);
+  table.removeBatch(10, [13]);
+  return table;
+}
+
+/** O2 local — table child order vs a synthetic live map (no DOM). */
+function testTableLiveOracle(): void {
+  const P = 10;
+  const X = 11;
+  const A = 12;
+  const L = 13;
+  const table = open7Table();
+
+  const matching = new Map<number, readonly number[]>([
+    [1, [P]],
+    [P, [A, X]],
+  ]);
+  const ok = compareTableToLiveOrder(table, matching);
+  assert.strictEqual(ok.identical, true, `expected identical, got ${JSON.stringify(ok.divergences)}`);
+
+  const stale = new Map<number, readonly number[]>([
+    [1, [P]],
+    [P, [A, L, X]],
+  ]);
+  const staleResult = compareTableToLiveOrder(table, stale);
+  assert.strictEqual(staleResult.identical, false);
+  assert.ok(
+    staleResult.divergences.some((d) => d.kind === 'child_order_mismatch'),
+    `expected child_order_mismatch, got ${JSON.stringify(staleResult.divergences)}`,
+  );
+
+  const missingLive = new Map<number, readonly number[]>([[1, [P]]]);
+  const extra = compareTableToLiveOrder(table, missingLive);
+  assert.strictEqual(extra.identical, false);
+  assert.ok(
+    extra.divergences.some((d) => d.kind === 'extra_attached_in_table'),
+    `expected extra_attached_in_table, got ${JSON.stringify(extra.divergences)}`,
+  );
+
+  const withDetached = new Map<number, readonly number[]>([
+    [1, [P]],
+    [P, [A, X]],
+  ]);
+  // L remains detached (parent=0) and omitted from live — OPEN-2, not a failure.
+  const detachedOk = compareTableToLiveOrder(table, withDetached);
+  assert.strictEqual(detachedOk.identical, true);
+
+  // REMOVE leaves descendants attached to the detached row (§4.3) — not a live-tree failure.
+  table.createLeafRow(99, NodeKind.Text, 'ghost');
+  table.insertBatch(L, 0, [99]);
+  const subtreeDetached = compareTableToLiveOrder(table, withDetached);
+  assert.strictEqual(
+    subtreeDetached.identical,
+    true,
+    `detached subtree under L must not fail O2: ${JSON.stringify(subtreeDetached.divergences)}`,
+  );
+  console.log('[unit] tableLiveOracle O2 local (OPEN-7 shape + mismatch + detached) ok');
+}
+
+/**
  * frame-protocol.md §1.5 Stage 1 GATE — "unit tests proving producer and client compute identical
  * rowHash/tableHash for the same sequence of mutations." Two independent `ReplicatedTable`
  * instances (standing in for the producer's table and the client's table) fed the exact same
@@ -2306,6 +2412,8 @@ async function main(): Promise<void> {
   testTableHashTrackerOrderIndependence();
   testReplicatedTableRowContentHash();
   testReplicatedTableTopologyRepair();
+  testReplicatedTableInsertBeforeNextSiblingRepair();
+  testTableLiveOracle();
   testReplicatedTableApplyOpsParity();
   testReplicatedTableResyncWholesaleReplace();
   testApplyFrameToTableCheckedAcceptsValidFrame();

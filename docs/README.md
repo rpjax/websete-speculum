@@ -19,9 +19,9 @@ Technical documentation for the **Speculum** remote browser isolation platform (
 | [../.cursor/rules/speculum-frontend-standards.mdc](../.cursor/rules/speculum-frontend-standards.mdc) | Cursor | Frontend rule when editing `web/**` |
 | [../readme.md](../readme.md) | Everyone | Project overview, quick start, repository map |
 | [architecture.md](architecture.md) | Architects, operators | System design, data flows, security boundaries |
-| **[page-projection/spec/acceptance.md](page-projection/spec/acceptance.md)** | **Agents + Sessions (mandatory)** | **PageProjection accept = absolute 1:1 parity with the original site** |
-| **[page-projection/spec/engine-redesign.md](page-projection/spec/engine-redesign.md)** | **Agents + Sessions (mandatory)** | **Sole canon for the redesigned engine** |
-| **[page-projection/spec/README.md](page-projection/spec/README.md)** | Agents + Sessions | Spec pack index — contracts, implementation, sealed planes, matrices, work order |
+| **[page-projection/spec/README.md](page-projection/spec/README.md)** | **Agents + Sessions (mandatory)** | **V4 spec index — start here** |
+| **[page-projection/spec/acceptance.md](page-projection/spec/acceptance.md)** | **Agents + Sessions (mandatory)** | **Accept = absolute 1:1 parity** |
+| **[page-projection/spec/frame-protocol.md](page-projection/spec/frame-protocol.md)** | Agents + Sessions | V4 frame / table / resync protocol |
 | [naming.md](naming.md) | Developers / agents | Speculum / Sessions / W7S vocabulary |
 | [diagnostics.md](diagnostics.md) | Backend / QA | Assertable observability contracts + Assert Cookbook |
 | [stealth-suite.md](stealth-suite.md) | Agents / QA | In-session antibot fingerprint suite (CreepJS etc.) + report template |

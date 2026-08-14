@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Insert-before then remove</title>
+  </head>
+  <body>
+    <div id="host"></div>
+    <script>
+      // Mutations MUST run after the producer tick loop starts. A parser-time script would
+      // be absorbed by cold-start resyncVirtual and never exercise insertBatch-before + REMOVE.
+      window.addEventListener('load', () => {
+        const host = document.getElementById('host');
+        const x = document.createElement('div');
+        x.id = 'x';
+        x.textContent = 'X';
+        const a = document.createElement('div');
+        a.id = 'a';
+        a.textContent = 'A';
+        const l = document.createElement('div');
+        l.id = 'l';
+        l.textContent = 'L';
+        // Separate turns so INSERT-before and REMOVE hit distinct producer ticks
+        // (same-tick create+delete never reaches insertBatch reverse-link).
+        setTimeout(() => {
+          host.appendChild(x);
+          setTimeout(() => {
+            host.insertBefore(a, x);
+            host.insertBefore(l, x);
+            setTimeout(() => {
+              host.removeChild(l);
+            }, 80);
+          }, 80);
+        }, 400);
+      });
+    </script>
+  </body>
+</html>

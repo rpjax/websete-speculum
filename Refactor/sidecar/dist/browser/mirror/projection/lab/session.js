@@ -213,6 +213,36 @@ class LabSession {
             this.sendJson({ type: 'structuralDiffResult', status: 'ok', result: (0, structuralDiff_1.diffTrees)(virtualTree, clientTree) });
             return;
         }
+        if (type === 'requestTableLiveOracle') {
+            if (this.browser === null) {
+                this.sendJson({ type: 'tableLiveOracleResult', status: 'unavailable', reason: 'no virtual browser running' });
+                return;
+            }
+            try {
+                const result = await this.browser.page.evaluate(`(() => {
+            const p = globalThis.__speculumProjection;
+            if (!p || typeof p.compareTableToLiveDom !== 'function') return null;
+            return p.compareTableToLiveDom();
+          })()`);
+                if (result === null) {
+                    this.sendJson({
+                        type: 'tableLiveOracleResult',
+                        status: 'unavailable',
+                        reason: '__speculumProjection.compareTableToLiveDom missing',
+                    });
+                    return;
+                }
+                this.sendJson({ type: 'tableLiveOracleResult', status: 'ok', result });
+            }
+            catch (err) {
+                this.sendJson({
+                    type: 'tableLiveOracleResult',
+                    status: 'unavailable',
+                    reason: err instanceof Error ? err.message : String(err),
+                });
+            }
+            return;
+        }
         if (type === 'snapshotResult') {
             const tree = msg.tree;
             const pending = this.pendingSnapshot;

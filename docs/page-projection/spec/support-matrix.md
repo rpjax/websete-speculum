@@ -1,13 +1,11 @@
 # PageProjection — support matrix
 
-**Status:** product support matrix (WP16). Canon: [engine-redesign.md](engine-redesign.md)
-§11. Related: [acceptance.md](acceptance.md) (K4 — absolute 1:1 parity is
-the acceptance bar everywhere this matrix does not list an accepted gap).
+**Status:** published accepted gaps (K1/K5 consequences). Canon: [budgets.md](budgets.md) K1–K5,
+[acceptance.md](acceptance.md). Index: [README.md](README.md).
 
-**Closure note (2026-08-12):** matrix content below remains normative. **M1 implementation completeness**
-(F8 + §9 LOC) **done**. **M2 debug** (baseline hosts work) **done**. Remaining: **M3 optimization → accept**
-(O1/O2/O5, L2/E8 densify) per [work-order.md](work-order.md). Open product
-work that is **not** an accepted gap: live accept on baseline sites, then densify.
+**Position (2026-08-14):** V4 lab engine exists; **production cutover is not done** — do not treat
+legacy M1/M2 “done” notes as current. See [roadmap.md](roadmap.md). Iframes/pierce are **OPEN-6**,
+not an accepted gap.
 
 An accepted gap that is not published here is a bug. K1 (indistinguishable UX by design intent) and K5
 (no page JavaScript on the Projected surface, ever) make some browser features structurally
@@ -35,5 +33,4 @@ document. Text selection and copy work natively — an advantage over pixel-base
 Any behaviour not listed above is held to **absolute 1:1 parity** with opening the same site in a
 normal browser on Virtual (K4, [acceptance.md](acceptance.md)). A
 surface that is incomplete, slow, crushed, desynced or unusable is a defect, not an accepted gap —
-see the hard bans in [engine-redesign.md](engine-redesign.md) and the
-always-applied workspace rules.
+see the hard bans in [acceptance.md](acceptance.md) and the always-applied workspace rules.

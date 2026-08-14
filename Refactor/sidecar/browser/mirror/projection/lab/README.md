@@ -72,6 +72,13 @@ lab/
 | `/fixtures/scroll.html` | scroll sensors |
 | `/fixtures/stress-churn.html` | high-volume node churn, for CPU-profiling / scale probes |
 | `/fixtures/prepend-stress.html` | `prependChild` / `resolvedBefore` worst-case ordering |
+| `/fixtures/insert-before-remove.html` | OPEN-7 shape: insert-before then REMOVE last; O2 local oracle |
+
+Test-only control (lab client WS, same as `requestStructuralDiff`): `{ type: 'requestTableLiveOracle' }`
+→ Virtual `page.evaluate` of `__speculumProjection.compareTableToLiveDom()` →
+`{ type: 'tableLiveOracleResult', status, result }`. Compares producer `ReplicatedTable` child
+order to live `childNodes` (O2 local). Not per-tick. `FrameInvariantMonitor` is wire-only and
+does not implement this.
 
 ## Benchmark
 

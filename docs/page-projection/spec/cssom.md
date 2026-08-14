@@ -1,18 +1,17 @@
 # PageProjection — CSSOM plane redesign
 
-> **Amended by** [engine-redesign.md](engine-redesign.md) rev 4
-> (§5.10 / Q4 / Q19): encoding follows the binary frame (§5.5); Cssom ids are `uint32` in the same
-> numeric space as Dom ids (opcode disambiguates); chronology follows the **frame** model (shared
-> `sequence`); `cssomInstall` precedes `establishChunk` (D-FLASH); within-frame coalescing applies
-> (repeated rule writes → one `cssomPatch`; add+remove same frame → never sent). C1–C9 and C3.1
-> anti-flicker / owned CSSOM / scope C7 otherwise stand. Where encoding/chronology conflict,
-> **the redesign wins**.
+> **V4:** opcodes, chronology, and id space are defined by [frame-protocol.md](frame-protocol.md)
+> §1.1 / §4.6 (one table, one id space, sheets/rules as rows). This file remains the
+> **materialization / owned-CSSOM / anti-flicker (C1–C9)** contract. Where this file still mentions
+> `establishChunk`, `cssomInstall`-before-HTML, `diff-streams.md`, or a disjoint Cssom id range
+> (D-SPEC-8), **ignore those** — they are pre-V4. Cold start installs CSSOM via the same resync
+> frame as DOM (`NODE_NEW`/`INSERT` for sheets/rules + CHECK). Index: [README.md](README.md).
 
 **Status:** **SEALED** — CSSOM plane + PageProjection naming. Behaviour design
 complete (C0–C9, C3.1).  
 **Cutover only:** T11 rename `DomProjection`→`PageProjection` + implement ops
 (front/API/sidecar). No V1 shims.  
-**Dom plane (sealed):** [diff-streams.md](diff-streams.md)
+**Dom plane (sealed):** [frame-protocol.md](frame-protocol.md)
 
 **Purpose of this file**
 
@@ -20,9 +19,7 @@ complete (C0–C9, C3.1).
 2. Inherit the **behavioural model** already locked for the DOM plane.  
 3. Record sealed decisions; do not reopen DOM-plane behaviour here.
 
-**Related:** [diff-streams.md](diff-streams.md)
-(DOM plane) · [diff-pipeline.md](diff-pipeline.md)
-(legacy implemented) · [naming.md](../../naming.md)
+**Related:** [frame-protocol.md](frame-protocol.md) · [naming.md](../../naming.md)
 
 **How to use**
 

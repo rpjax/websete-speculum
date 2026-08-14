@@ -32,9 +32,18 @@ These are **insufficient** alone (they may be necessary diagnostics, never the b
 - Smoke PASS flags scoped to a single bug class while the surface remains unusable.
 - **Ad-hoc workarounds** that restore a banned cost (e.g. cold full DomMap “bootstrap” after a stream seed) to make hopdiag look alive while the designed stream path remains broken.
 
-## Hard ban — no ad-hoc
+## Hard ban — no ad-hoc (T3, V4 restatement)
 
-**Ad-hoc / workaround code is strictly forbidden.** If stream establish, mirror, ledger, or Diff apply fails, fix that mechanism. Never reintroduce full DomMap (or equivalent dump) on the cold happy path to paper over catch-up/MO/queue defects. Green via workaround is a **product defect**, not a ship.
+**Ad-hoc / workaround code is strictly forbidden.** If seed, catch-up, table apply, or resync fails, **fix that algorithm**. Never reintroduce full DomMap / HTML dump / “bootstrap after stream seed” on the cold happy path. Green via workaround is a **product defect**, not a ship.
+
+V4 happy path is **only** the frame protocol ([frame-protocol.md](frame-protocol.md)):
+
+- Cold start = `resyncVirtual` then ordinary ticks — not a second full-tree dump.
+- Mid-session desync = `emitResyncFrame` into the double-buffer; swap after closing `CHECK`.
+- **`generation` / `EPOCH_RESET` only when the top-level Document object is replaced.** Soft-nav, SPA wipe, pierced iframe navigation, and resync itself MUST NOT invent a generation bump.
+- Resync MUST NOT be used to paper over a producer table bug (OPEN-7): fix the table.
+
+(Historical T3 text lived in `diff-streams.md`; that file is archived. This section is the live rule.)
 
 ## Telemetry & harness duty
 

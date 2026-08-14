@@ -97,6 +97,28 @@ export class ReplicatedTable {
     return sum;
   }
 
+  /**
+   * Child ids of `parent` in sibling order (first → last). Walks the derived `lastChildOf` +
+   * hashed `prevSibling` chain then reverses — O(children), not hashed. Lab O2 local oracle
+   * (`tableLiveOracle.ts`) compares this to live `childNodes`; do not expose `nextSiblingOf`.
+   */
+  orderedChildIds(parent: number): number[] {
+    const backwards: number[] = [];
+    let child = this.lastChildOf.get(parent) ?? NONE;
+    while (child !== NONE) {
+      backwards.push(child);
+      const row = this.rows.get(child);
+      child = row?.prevSibling ?? NONE;
+    }
+    backwards.reverse();
+    return backwards;
+  }
+
+  /** Every stored row id (excludes implicit Document `1`). */
+  forEachRow(fn: (id: number, row: RowSnapshot) => void): void {
+    for (const [id, row] of this.rows) fn(id, row);
+  }
+
   /** Drops every row and derived index — `EPOCH_RESET` (§4.1) and resync's wholesale replace (§5.8). */
   reset(): void {
     this.rows.clear();
@@ -183,8 +205,12 @@ export class ReplicatedTable {
       this.linkAfter(id, parent, prev);
       prev = id;
     }
-    if (before !== NONE) this.relinkPrevSibling(before, prev);
-    else this.lastChildOf.set(parent, prev);
+    if (before !== NONE) {
+      this.relinkPrevSibling(before, prev);
+      if (prev !== NONE) this.nextSiblingOf.set(prev, before);
+    } else {
+      this.lastChildOf.set(parent, prev);
+    }
   }
 
   /**

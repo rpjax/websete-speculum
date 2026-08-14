@@ -1,18 +1,16 @@
-<!-- reconciled-2026-08-14 -->
-> **RECONCILIATION NEEDED (partial).** Rows `PP-EST-1..7` (establish) and `PP-REC-2`/`PP-REC-3`
-> (Node-mirror resync + watermark) describe the pre-redesign design and must be **re-authored
-> against the opcode / resync model** of [`frame-protocol.md`](frame-protocol.md) §4 and §5.8
-> before use (a listed §5.8 residual). `PP-REC-1` (desync triggers) survives unchanged. `PP-DEN-1`
-> (100 concurrent sessions) remains the **unrun density gate**. Budgets and oracles are unchanged.
-> See [`RECONCILIATION.md`](RECONCILIATION.md).
+<!-- V4 2026-08-14 -->
+> Coverage truth for the V4 engine. Index: [README.md](README.md). Effect asserts only.
+> Rows that still say childList/establish/Node-mirror were **re-authored below** to V4 opcodes.
+> `PP-F-4` (pierce iframes) is **OPEN-6** — fail as unsupported, do not fake a pass.
+> `PP-DEN-1` remains unrun. Budgets: [budgets.md](budgets.md). Oracles: [oracles.md](oracles.md).
 
 # PageProjection — test matrix
 
-**Status:** coverage truth for the redesigned engine (WP16). Canon: [engine-redesign.md](engine-redesign.md)
-§8 (asserts) + §10 (work package ownership), in the style of `Speculum.MotorAssert.Tests/MATRIX.md`.
+**Status:** coverage truth for V4. Canon: [frame-protocol.md](frame-protocol.md) + [budgets.md](budgets.md).
+Style: `Speculum.MotorAssert.Tests/MATRIX.md`. WP column is historical packaging, not a second spec.
 
 Every row below MUST be an effect assert. `200` / `ok: true` / a delivered frame count never proves a
-row — see [assert-failure-policy.md](assert-failure-policy.md) and the always-applied workspace rules.
+row — see [assert-failure-policy.md](../../assert-failure-policy.md) and the always-applied workspace rules.
 No row may be softened, skipped, or declared PASS from protocol-only signals.
 
 A package (`WP`) is complete when **all** its `PP-*` rows pass and **all** its referenced budgets
@@ -34,8 +32,8 @@ A package (`WP`) is complete when **all** its `PP-*` rows pass and **all** its r
 | `PP-D16-3` | Media pause / seek on Virtual is reflected on the client's media element | WP11 |
 | `PP-D16-4` | `setCustomValidity` makes `:invalid` match on Projected | WP11 |
 | `PP-FR-1` | A node created and destroyed within one frame is never sent | WP4 |
-| `PP-FR-2` | A 200-node subtree rendered in one task produces exactly one `childList` entry, not 200 operations | WP4 |
-| `PP-FR-3` | N attribute writes to one node within a frame produce exactly one `patch` | WP4 |
+| `PP-FR-2` | A 200-node subtree rendered in one task produces batched `INSERT`s (sibling runs), not 200 separate parent ops | WP4 |
+| `PP-FR-3` | N attribute writes to one node within a frame produce one `ATTR_SET` (or equivalent coalesced op), not N | WP4 |
 | `PP-FR-4` | A frame with no operations consumes no `sequence` | WP4 |
 | `PP-FR-5` | Records for non-published subtrees are discarded before any identity or payload work | WP4 |
 | `PP-FR-6` | Frames applied to the client tree yield a tree identical to Virtual (O2) over a 5-minute soak on a live-odds page | WP4 |
@@ -46,14 +44,14 @@ A package (`WP`) is complete when **all** its `PP-*` rows pass and **all** its r
 | `PP-MOVE-3` | Moving a scrolled container preserves its scroll offset | WP4 |
 | `PP-WIRE-1` | The API never parses a frame body; relay cost is O(1) in payload size | WP5 |
 | `PP-WIRE-2` | An unknown frame version desyncs, never a best-effort parse | WP5 |
-| `PP-WIRE-3` | No `JSON.stringify` / `JSON.parse` occurs on the frame or establish path | WP5 |
-| `PP-EST-1` | Establish streams; the surface paints before the stream completes | WP9 |
-| `PP-EST-2` | Establish holds **E2** at 20k nodes | WP9 |
-| `PP-EST-3` | **Handoff:** mutations during establish are neither lost nor double-applied (drive continuous mutation during establish, then assert O2) | WP9 |
-| `PP-EST-4` | Scroll position at establish time is restored before arming | WP9 |
+| `PP-WIRE-3` | No `JSON.stringify` / `JSON.parse` of the document tree on the frame path (binary frames only) | WP5 |
+| `PP-EST-1` | Cold start is a `resync`-flagged frame; the surface paints after that frame's closing `CHECK` (no HTML establish stream) | WP9 |
+| `PP-EST-2` | Cold `resyncVirtual` + apply holds **E2** at 20k nodes | WP9 |
+| `PP-EST-3` | Mutations during the bootstrap walk are neither lost nor double-applied (buffer discarded after walk; O2 after settle) | WP9 |
+| `PP-EST-4` | Scroll position at first paint is restored before arming (or documented as follow-up if not yet in V4 ops) | WP9 |
 | `PP-EST-5` | Pointer intents are not sent before arming; pre-arm clicks are queued or visibly refused, never silently mis-targeted | WP9 |
-| `PP-EST-6` | `cssomInstall` is applied before the first chunk reaches the parser; no flash of unstyled content | WP9 |
-| `PP-EST-7` | An `establishEnd` `nodeCount`/`checksum` mismatch desyncs | WP9 |
+| `PP-EST-6` | CSSOM rows in the resync frame apply with DOM; no flash of unstyled content from a missing sheet install | WP9 |
+| `PP-EST-7` | A resync frame whose closing `CHECK` mismatches is a defect (desync + retry), never a painted partial table | WP9 |
 | `PP-SURF-1` | A media query matching in Virtual matches in Projected at the same viewport | WP7 |
 | `PP-SURF-2` | `position: fixed` elements stay fixed to the surface viewport on scroll | WP7 |
 | `PP-SURF-3` | No script executes in the Projected surface even when a `<script>` is injected into the payload | WP7 |
@@ -66,9 +64,9 @@ A package (`WP`) is complete when **all** its `PP-*` rows pass and **all** its r
 | `PP-LOAD-2` | `QueueDropped` is zero under sustained overload; drops occur only on genuine faults | WP4 |
 | `PP-LOAD-3` | A session with a runaway mutation loop degrades itself and does not affect other sessions | WP4 |
 | `PP-LOAD-4` | A client reporting `hidden` drops to `hiddenRateHz` and resumes correctly with no desync | WP4 |
-| `PP-REC-1` | Each §5.7.1 trigger desyncs, and only those; overload never does | WP6 |
-| `PP-REC-2` | Resync is served from the Node mirror without involving the page, and the surface is correct afterwards (O1) | WP6 |
-| `PP-REC-3` | Resync does not advance the live `sequence`; buffered frames drain correctly against the watermark | WP6 |
+| `PP-REC-1` | Each frame-protocol.md §5.8 desync trigger desyncs, and only those; overload never does | WP6 |
+| `PP-REC-2` | Mid-session resync is `emitResyncFrame` (existing identity map); after swap, structural O2 vs Virtual is identical | WP6 |
+| `PP-REC-3` | Resync is an in-band frame with normally incremented `sequence`; client adopts it; no watermark side channel | WP6 |
 | `PP-IN-1` | Hover, active and focus-visible are visible within **P4** with the network stalled | WP10 |
 | `PP-IN-2` | Typing does not move the caret when an upstream value patch arrives (§5.9.3) | WP10 |
 | `PP-IN-3` | Scroll paints within **P4** with the network stalled | WP10 |
@@ -99,12 +97,12 @@ A package (`WP`) is complete when **all** its `PP-*` rows pass and **all** its r
 | **WP1** | Oracles O1, O2, O3, O5 against the current engine | All four run in CI and **fail** on today's engine with the §3 defects visible |
 | **WP2** | O4 density harness | Produces a knee curve for the current engine; `PP-DEN-2` records the baseline |
 | **WP3** | Identity + registries (§5.1) | `PP-ID-1..4`; O2 still passes |
-| **WP4** | Frame model, clock, rate policy, declarative `childList` (§5.3, §5.4.2) | `PP-FR-1..8`, `PP-MOVE-1..3`, `PP-LOAD-1..4`; E3, E4 |
+| **WP4** | Frame model, clock, rate policy, `INSERT`/`REMOVE` batches | `PP-FR-1..8`, `PP-MOVE-1..3`, `PP-LOAD-1..4`; E3, E4 |
 | **WP5** | Binary wire, part splitting, relay-only API, telemetry unit (§5.5, §5.15) | `PP-WIRE-1..3`, `PP-TEL-1..2`; E5, E8 |
-| **WP6** | Node mirror + recovery (§5.7) | `PP-REC-1..3` |
+| **WP6** | Resync recovery (frame-protocol §5.8) | `PP-REC-1..3` |
 | **WP7** | Surface as a real document, zoom/DPR (§5.8.1–4, §5.8.6) | `PP-SURF-1..5`; O1 improves measurably |
 | **WP8** | Double buffering (§5.8.5) | `PP-NAV-1..3`; P6 |
-| **WP9** | Streamed establish, handoff, arming, CSSOM ordering (§5.6, §5.10.3) | `PP-EST-1..7`; E2, P1, P2 |
+| **WP9** | Cold resyncVirtual, handoff, arming, CSSOM-in-resync | `PP-EST-1..7`; E2, P1, P2 |
 | **WP10** | Local-first interaction, caret, control channel, id-addressed intents (§5.9, §5.11) | `PP-IN-1..5`; P4, P5 |
 | **WP11** | Node-state extensions (§5.2.1) | `PP-D16-1..4` |
 | **WP12** | Asset plane and two-tier cache (§5.12) | `PP-ASSET-1..8`, `PP-ISO-1..3`; P1 |

@@ -10,14 +10,14 @@ Before multi-file, sessions, diagnostics, or CI work, read and obey:
 1. `AGENTS.md`
 2. `docs/engineering-standards.md`
 3. `docs/naming.md`
-4. PageProjection Live: `docs/page-projection/spec/acceptance.md` (**1:1 parity** with original site)
+4. PageProjection: `docs/page-projection/spec/README.md` then `acceptance.md` (**1:1 parity**). Never implement from `docs/page-projection/archive/`.
 
 Vocabulary: **Speculum** = platform; **Sessions** = live browsing; **W7S** = wire/client boundary only (`_w7s_nso`). `Motor` is restricted to existing legacy proper names.
 `LiveSession` (live) ≠ `BrowserSessionStore` (persisted). Domain types must not depend on ASP.NET/SignalR/`IServiceProvider`.
 
 ## Hard bans
 
-- **No ad-hoc / workaround code — carved in stone / strictly forbidden.** Never paper over a broken algorithm with a second path (e.g. cold full DomMap bootstrap after a “stream seed”) to get green hopdiag or a live surface. Fix the designed path (`AGENTS.md`, `docs/engineering-standards.md`, `docs/page-projection/spec/acceptance.md`, T3 in `docs/page-projection/spec/diff-streams.md`).
+- **No ad-hoc / workaround code — carved in stone / strictly forbidden.** Never paper over a broken algorithm with a second path (e.g. cold full DomMap bootstrap after a “stream seed”) to get green hopdiag or a live surface. Fix the designed path (`AGENTS.md`, `docs/engineering-standards.md`, `docs/page-projection/spec/README.md`, `docs/page-projection/spec/acceptance.md`).
 - Never skip/ignore/soften MotorAssert asserts to get green — fix the product (`docs/assert-failure-policy.md`).
 - Never use missing-property soft skips (`if (TryGetProperty) continue`) as pass conditions.
 - Never prove session truth with `200` / `ok: true` alone — Act→Assert via events, snapshots, probes.

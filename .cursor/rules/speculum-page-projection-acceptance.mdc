@@ -7,11 +7,11 @@ alwaysApply: true
 
 **Bar:** Projected Live (`MirrorMode.PageProjection`) must be **1:1** with opening the same site in a normal browser on Virtual. Design intent = indistinguishable UX. **Anything less is unacceptable.**
 
-Full text: `docs/page-projection/spec/acceptance.md`.
+Full text: `docs/page-projection/spec/acceptance.md`. Index: `docs/page-projection/spec/README.md`. Protocol: `docs/page-projection/spec/frame-protocol.md`. Open bugs: `docs/page-projection/spec/open.md`. **Do not implement from `docs/page-projection/archive/`.**
 
 ## Hard bans
 
-- **No ad-hoc workarounds — carved in stone / strictly forbidden** on the establish/sync path (no “bootstrap DomMap dump” to paper over a broken stream). Fix seed/catch-up/ledger/apply.
+- **No ad-hoc workarounds — carved in stone / strictly forbidden** on the establish/sync path (no “bootstrap DomMap dump” to paper over a broken stream). Fix seed / table apply / resync ([acceptance.md](docs/page-projection/spec/acceptance.md) T3 V4 restatement).
 - Never declare PASS / “fixed” / “recovered” from protocol-only signals (`200`, `ResyncServed`, WD>N, `ownedRules`, `htmlLen`) while the surface is incomplete, slow, crushed, desynced, or unusable.
 - Never treat a green smoke scoped to one recovery bug as site accept.
 - Journal / observation / screenshots that show unusability **must fail** harness diagnose — do not ignore backlog, `armed=false`, broken imgs, unanswered Resync, or visual defects.

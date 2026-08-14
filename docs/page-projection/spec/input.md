@@ -1,13 +1,11 @@
-# Dom Projection — input propagation & bindings
+# PageProjection — input propagation & bindings
 
-> **Amended by** [engine-redesign.md](engine-redesign.md) rev 4
-> (WP16 / Q8 / Q14 / Q18): §§6.3 (iframe surface coords), 6.7 (intents address by `uint32` id via
-> reverse map — not `speculum-anchor` on Virtual), 7.2 (caret **client-authoritative**), 11 (control
-> knobs; coalesce knobs deleted), 14.3 (hit-test / iframe boundary). Local-first interaction
-> classification (§5.9) supersedes round-trip-only feedback. Where this file conflicts with the
-> redesign on those sections, **the redesign wins**. Remainder of this contract still stands
-> (no wire `click`, CDP-only dispatch, inject chain, move collapsing, `setFiles`, disarm while
-> desynced, two scroll intent types).
+> **V4:** intents address by `uint32` via the reverse map — never `speculum-anchor` on Virtual.
+> Caret is client-authoritative. Local-first feedback (P4) vs authoritative (P5): [budgets.md](budgets.md).
+> Frame/identity/recovery: [frame-protocol.md](frame-protocol.md). Index: [README.md](README.md).
+> Where this file still says `DomProjection`, `diff-streams.md`, or engine-redesign §5.9, treat those
+> as pre-V4 names; behaviour in the amended bullets still stands (no wire `click`, CDP-only dispatch,
+> inject chain, move collapsing, `setFiles`, disarm while desynced, two scroll intent types).
 
 **Status:** design complete (V1 contract) — **aligned with PageProjection seal**
 (I1–I5). Cutover rename with T11.
@@ -16,19 +14,15 @@
 > (`MirrorMode.PageProjection`), not `DomProjection`. **E2E rename includes
 > this input contract** — `DomProjectionIntent` → `PageProjectionIntent`,
 > telemetry `…PageProjection.Input.*`, mode checks, client/sidecar APIs (T11).
-> Sealed Dom/Cssom planes:
-> [diff-streams.md](diff-streams.md),
-> [cssom.md](cssom.md).
-> This file remains the implemented V1 behaviour until cutover (names update
-> with T11; no V1 aliases).
+> Sealed planes: [frame-protocol.md](frame-protocol.md), [cssom.md](cssom.md).
 
 
 **Scope:** how user intent on the **Projected DOM** is captured, sent, and
 applied on the **Virtual DOM** — and how upstream control state from F binds
 back without fighting the user.
 
-**Not this document:** F (Virtual → DomDiff) —
-[diff-pipeline.md](diff-pipeline.md); virtual
+**Not this document:** the Virtual → client frame pipeline —
+[frame-protocol.md](frame-protocol.md) (pre-V4 `diff-pipeline.md` is archived); virtual
 asset serve; F coalesce knobs; **video-mirror / OS (uinput) input** — that
 stack stays on `MirrorMode.VideoStreaming` and is intentionally separate.
 
@@ -61,12 +55,17 @@ No site JS on Projected. Antibot-relevant pointer **paths** are remoted over
 |------|---------|
 | **Projected DOM** | Client tree from F; Speculum chrome attaches listeners. |
 | **Virtual DOM** | Chromium DOM; site JS runs here. |
-| **Anchor** | `speculum-anchor` — shared element identity (F). |
+| **Node id** | `uint32` element identity from the frame identity map (frame-protocol §5.7 / client registry). **No DOM attribute** — the pre-V4 `speculum-anchor` attribute does not exist (PP-ID-1). |
 | **Intent** | Wire message: `PageProjectionIntent` (today’s code: `DomProjectionIntent` until T11). |
 | **Surface** | Projection host content box that maps 1:1 to the Virtual viewport. |
 | **Dispatch** | CDP / Patchright apply on Virtual (never OS/uinput). |
 | **Binding** | Projected ↔ Virtual control sync via F attrs + debounce. |
 | **Inject chain** | Sidecar serialized queue preserving causal order. |
+
+> **On "anchor" / "anchored" below:** these words — and the `anchorMiss` diagnostic and
+> `anchorMissRetries` knob — mean **"resolved to a `uint32` node id"**. Identity is the id
+> only (frame identity map, frame-protocol §5.7); there is **no** `speculum-anchor` DOM
+> attribute in V4 (PP-ID-1).
 
 ---
 
@@ -81,7 +80,7 @@ No site JS on Projected. Antibot-relevant pointer **paths** are remoted over
 
 ### 3.2 CDP-pure
 
-1. Element intents: `speculum-anchor` → Element (pierce-aware).
+1. Element intents: `uint32` node id → Element (pierce-aware) via the identity map.
 2. Pointer motion: surface CSS coords → Virtual viewport CSS coords → CDP
    `Input.dispatchMouseEvent` / `dispatchTouchEvent`.
 3. Prefer trusted CDP/Patchright over in-page `dispatchEvent` / `el.click()`.
@@ -104,11 +103,11 @@ No site JS on Projected. Antibot-relevant pointer **paths** are remoted over
 ## 4. Hard invariants
 
 1. No site JS on Projected.
-2. Element intents → `speculum-anchor`; motion → surface coordinates (§6.3).
+2. Element intents → `uint32` node id; motion → surface coordinates (§6.3).
 3. CDP-only; no OS/uinput.
 4. Structure/paint truth returns via F DomDiff.
 5. Drop intents with stale `generation`.
-6. Pierce-aware resolve for anchors; client does not run iframe/shadow JS.
+6. Pierce-aware resolve for node ids; client does not run iframe/shadow JS.
 7. **No double-fire** of the same physical gesture (§6.5).
 8. **Inject chain** never reorders moves after their following down/up.
 9. **Desync is client-only:** while PageProjection is desynced, the client
@@ -137,7 +136,7 @@ Logical MessagePack / proto fields (camelCase on the wire):
 PageProjectionIntent {              // rename from DomProjectionIntent at T11
   generation: u64
   type: string                 // see §6.2
-  anchor: string | null        // required for element intents
+  nodeId: u32 | null           // target element's identity-map id; required for element intents
   timestampClient: f64 | null  // performance.now() or epoch ms — pick one in impl, keep stable
   payload: PageProjectionIntentPayload
 }
@@ -175,8 +174,8 @@ PageProjectionIntentPayload {
   files: PageProjectionFileRef[] | null
 
   // Scroll fields are **type-exclusive** (§9) — not a free nullable bag:
-  //   type=scrollViewport → scrollX, scrollY (anchor null)
-  //   type=scrollElement  → scrollTop, scrollLeft (anchor required)
+  //   type=scrollViewport → scrollX, scrollY (nodeId null)
+  //   type=scrollElement  → scrollTop, scrollLeft (nodeId required)
   // Other types must omit/null all four.
   scrollX: f64 | null
   scrollY: f64 | null
@@ -303,12 +302,12 @@ Follow the session **device profile** (same notion as video `touchPrimary`):
 
 Do not open OS multitouch devices for Dom Projection.
 
-### 6.7 Target resolution (LOCKED — anchor, not DomSelector)
+### 6.7 Target resolution (LOCKED — `uint32` node id, not DomSelector)
 
-**Intent addressing ≠ Dom-plane `DomSelector`.** Diffs use `DomSelector`
-(`element` | `childAt`) for projected apply. Intents always target an
-**element** (or the viewport) on Virtual via CDP — wire identity stays
-**`speculum-anchor`** (+ surface coords for pointer). No `childAt` / text-node
+**Addressing is the `uint32` node id.** The frame plane addresses rows by `uint32`
+id (frame-protocol §1.2); there is no `DomSelector`/`childAt` locus. Intents likewise target an
+**element** (or the viewport) on Virtual via CDP — wire identity is the target's
+**`uint32` node id** (+ surface coords for pointer). No `childAt` / text-node
 locus on the input wire.
 
 **Projected — element intents**
@@ -320,8 +319,8 @@ locus on the input wire.
    pointer activate toward Virtual. Intercept → client native picker →
    `setFiles` (§6.9). Motion path may still be remoted for antibot; the file
    chooser itself stays client-side.
-4. Require `speculum-anchor`.
-5. Include `x`,`y` from §6.3 on pointer downs/ups even when anchor is set.
+4. Require a resolvable `uint32` node id (walk up to the nearest ancestor that has one).
+5. Include `x`,`y` from §6.3 on pointer downs/ups even when a node id is set.
 
 **Projected — motion**
 
@@ -336,7 +335,7 @@ Surface coords only; anchor under point optional (diagnostics).
 
 **Virtual**
 
-Pierce-aware anchor resolve. On miss → §8 race policy.
+Pierce-aware node-id resolve (id → Node via the identity map). On miss → §8 race policy.
 
 ### 6.8 Right-click / context menu (closed)
 
@@ -370,10 +369,10 @@ For each File: if size ≤ inline cap → keep bytes for intent;
               else POST session dom-upload → uploadId
         │
         ▼
-Intent type "setFiles" { anchor, files: [{ uploadId|bytes, name, type, … }] }
+Intent type "setFiles" { nodeId, files: [{ uploadId|bytes, name, type, … }] }
         │
         ▼
-Sidecar: resolve anchor → setInputFiles(buffers) → input/change on page
+Sidecar: resolve nodeId → setInputFiles(buffers) → input/change on page
         │
         ▼
 Site JS runs; F projects DOM updates
@@ -427,6 +426,11 @@ Oversize → reject on client/API with clear error; no partial silent truncate.
 
 Aligned with F / Dom-plane D16 (`speculum-input-*` on patches):
 
+> **V4:** upstream control state arrives as frame-protocol §4.4 `PROP_SET`
+> (`VALUE` / `CHECKED` / `SELECTED`), applied as a **property** on the projected
+> control — not as a `speculum-input-*` DOM attribute. The binding *rules* below
+> (immediate downstream; debounce upstream only while dirty; Virtual wins) are unchanged.
+
 | Attr | Meaning |
 |------|---------|
 | `speculum-input-value` | Upstream text |
@@ -457,7 +461,7 @@ Same rules: intent send immediate; upstream debounce only while dirty.
 
 ## 8. DomDiff × intent race (closed)
 
-When resolve(anchor) misses:
+When resolve(nodeId) misses:
 
 1. Retry resolve up to **3** times with short delay (**16ms** budget each,
    ~50ms total) — covers in-flight DomDiff apply replacing the node.
@@ -478,7 +482,7 @@ Stale `generation` → drop immediately (no retry).
 Two intent types — **no** single `scroll` mega-payload with everything nullable
 (already locked in Dom-plane scroll debate; this doc must match):
 
-| Type | `anchor` | Payload (absolute) |
+| Type | `nodeId` | Payload (absolute) |
 |------|----------|-------------------|
 | `scrollViewport` | omitted | `{ scrollX, scrollY }` |
 | `scrollElement` | **required** (scroll container) | `{ scrollTop, scrollLeft }` |
@@ -505,8 +509,8 @@ Aligned with Dom-plane D12 + CSSOM C8:
    sent (pointer, scroll, key, input, setFiles, focus, …).  
 3. **Virtual does not learn** that the client is desynced and does not need a
    special “disarm” signal — input simply stops arriving.  
-4. Recovery: client OOB **`PageProjection.Resync`** (Dom `document` + CSSOM
-   `install` + watermark). After apply + live drain, client **re-arms** and
+4. Recovery: client requests resync; producer replies with a `resync`-flagged frame
+   (frame-protocol §5.8), swapped on its closing `CHECK`. Then the client **re-arms** and
    may emit intents again.  
 5. There is **no** input intent type `resync`. That name is reserved for the
    OOB fetch only.
@@ -596,8 +600,9 @@ Cannot fully eliminate (e.g. CSS still loading). V1 mitigations:
 1. Viewport lockstep + §6.3 coord mapping.
 2. Prefer **anchor from element under point** at event time for downs (not only
    coords) when an anchored node is hit.
-3. Do not send pointer intents until the client has applied at least one DomDiff
-   with `target=document` for the current `generation` (surface “armed”).
+3. Do not send pointer intents until the surface is **armed** — the cold-start
+   `resync` frame for the current `generation` has applied and its closing `CHECK`
+   verified (frame-protocol §5.8).
 4. Accept residual mismatch as non-support edge; metric if activate anchor ≠
    topmost painted target heuristics (optional later).
 
@@ -642,7 +647,7 @@ wrong — document in product support matrix as limitation until a later design.
 | **Desync/disarm** | Client-only; no intents while desynced; recovery = OOB `PageProjection.Resync`; **no** input `resync` type; Virtual unaware |
 | **Rename** | E2E with mode/pipe: Intent/FileRef/telemetry/APIs → `PageProjection*` (T11) |
 | **Scroll** | **`scrollViewport` + `scrollElement`** — absolute; per-scroller coalesce; mirrors Dom-plane diff ops; **no** single nullable `scroll` mega-payload |
-| **Intent address** | `speculum-anchor` (+ coords); **not** `DomSelector` (diff-only) |
+| **Intent address** | `uint32` node id (+ coords); no `DomSelector`/`childAt` locus |
 | Submit | No separate intent |
 | Binding debounce | **Upstream-only** while dirty (default 1s); **never** delays intent send |
 | **File upload** | Client picker → dom-uploads / inline → `setFiles` + `setInputFiles` (§6.9) |
@@ -668,7 +673,7 @@ wrong — document in product support matrix as limitation until a later design.
 
 | Spike | Target |
 |-------|--------|
-| Numeric ids | `speculum-anchor` + surface coords |
+| Numeric ids | `uint32` node id + surface coords (V4 uses the id map) |
 | Click without path / possible double paths | Coalesced moves + pressed/released; **no wire click** |
 | No backpressure policy | Move collapse under chain pressure |
 | Ad-hoc JSON | Structured DTO §6.1 |
@@ -686,7 +691,7 @@ Implementation follows this contract. Changes update §§3–8 and §17 first.
 | I2 | Desync disarm client-only; no input `resync`; OOB Resync | **LOCKED** (§9.1) |
 | I3 | E2E rename includes input (`PageProjectionIntent`, …) | **LOCKED** (banner + §17) |
 | I4 | D16 form: intent immediate; debounce only conflicting upstream patch | **LOCKED** (§7) |
-| I5 | Addressing = `speculum-anchor` (+ coords); not `DomSelector` | **LOCKED** (§6.7) |
+| I5 | Addressing = `uint32` node id (+ coords); no `DomSelector` | **LOCKED** (§6.7) |
 
 **Input pipeline aligned with PageProjection seal.** Remaining work = T11
 cutover (rename + implement), not further input-behaviour debate.

@@ -1,16 +1,12 @@
-# Dom Projection — virtual assets (serve plane)
+# PageProjection — virtual assets (serve plane)
 
+> **V4:** this file is the **byte serve plane** (`/w7s/virtual-*`). Frame rewrite of URL strings is
+> a hop on the production path (D-SPEC-7), not a second DOM algorithm. Do not implement from
+> `diff-pipeline.md` (archived). Index: [README.md](README.md).
 
-> **Naming / supersession:** product mode/pipe is **PageProjection**
-> (`MirrorMode.PageProjection`), not `DomProjection`. Sealed contracts:
-> [diff-streams.md](diff-streams.md) (Dom plane),
-> [cssom.md](cssom.md) (Cssom plane). This file
-> remains the implemented V1 contract until T11/T12 cutover.
+**Status:** design (production asset path; not the lab frame engine).
 
-**Status:** design (initial plan).
-
-**Scope:** how Speculum **serves** bytes for URLs that F rewrote. Not F itself —
-[diff-pipeline.md](diff-pipeline.md).
+**Scope:** how Speculum **serves** bytes for URLs the producer rewrote.
 
 **Related:** Sessions `MirrorMode.DomProjection` (→ `PageProjection` at cutover) · PathBase `/w7s`
 
@@ -121,9 +117,9 @@ Reserved future wiring (no V1 behavior):
 
 | Concern | Doc |
 |---------|-----|
-| Map + rewrite to Speculum URL prefixes; dedicated media/boundary attrs | [diff-pipeline.md](diff-pipeline.md) |
+| Map + rewrite to Speculum URL prefixes; dedicated media/boundary attrs | [frame-protocol.md](frame-protocol.md) §5 (Node rewrite hop); pre-V4 [diff-pipeline.md](../archive/pre-v4/diff-pipeline.md) |
 | Cache vs pass-through; Range; HLS/DASH body rewrite; bridges | **This doc** |
-| Coalesce admin knobs | [coalesce.md](coalesce.md) |
+| Coalesce admin knobs | frame tick (frame-protocol.md §5.2); pre-V4 [coalesce.md](../archive/pre-v4/coalesce.md) |
 
 ---
 

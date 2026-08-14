@@ -839,6 +839,86 @@ async function smokeResyncRecovery() {
   }
 }
 
+async function smokeTableLiveOracle() {
+  let oracle = null;
+  let maxSequence = 0;
+
+  await new Promise((resolve, reject) => {
+    const ws = new WebSocket(`ws://${HOST}:${PORT}/lab/session`);
+    const timer = setTimeout(() => {
+      clearInterval(settleTimer);
+      ws.close();
+      reject(new Error('timeout waiting for tableLiveOracleResult'));
+    }, 90_000);
+
+    let asked = false;
+    let lastAdvanceAt = 0;
+    const settleTimer = setInterval(() => {
+      if (asked || maxSequence < 2) return;
+      if (Date.now() - lastAdvanceAt < 800) return;
+      asked = true;
+      clearInterval(settleTimer);
+      ws.send(JSON.stringify({ type: 'requestTableLiveOracle' }));
+    }, 100);
+
+    ws.on('open', () => {
+      ws.send(
+        JSON.stringify({
+          type: 'start',
+          url: `http://${HOST}:${PORT}/fixtures/insert-before-remove.html`,
+          telemetry: {
+            enabled: true,
+            frameEmitted: true,
+            aggregate: false,
+            applyResult: false,
+            desync: true,
+            aggregateIntervalMs: 2000,
+          },
+          frameRateHz: 30,
+        }),
+      );
+    });
+    ws.on('message', (data, isBinary) => {
+      if (isBinary) return;
+      try {
+        const msg = JSON.parse(String(data));
+        if (msg.type === 'telemetry' && msg.message?.kind === 'frameEmitted') {
+          const seq = msg.message.sequence ?? 0;
+          if (seq > maxSequence) {
+            maxSequence = seq;
+            lastAdvanceAt = Date.now();
+          }
+        }
+        if (msg.type === 'tableLiveOracleResult') {
+          oracle = msg;
+          clearTimeout(timer);
+          clearInterval(settleTimer);
+          try {
+            ws.send(JSON.stringify({ type: 'stop' }));
+          } catch {
+            // ignore
+          }
+          ws.close();
+          resolve();
+        }
+      } catch {
+        // ignore
+      }
+    });
+    ws.on('error', reject);
+  });
+
+  if (!oracle || oracle.status !== 'ok') {
+    throw new Error(`table live oracle unavailable: ${JSON.stringify(oracle)}`);
+  }
+  if (!oracle.result?.identical) {
+    throw new Error(
+      `O2 local table×DOM diverged (${oracle.result?.divergenceCount}): ${JSON.stringify(oracle.result?.divergences?.slice(0, 8))}`,
+    );
+  }
+  return { sequence: maxSequence, result: oracle.result };
+}
+
 async function main() {
   const env = {
     ...process.env,
@@ -887,7 +967,10 @@ async function main() {
     const resync = await smokeResyncRecovery();
     console.log(`RESYNC RECOVERY GATE OK — desync=${resync.desyncReason} requested=${resync.requested} completed=${resync.completed}`);
 
-    console.log('SMOKE OK — cold-start-as-frame path + live apply + capability gate + two-phase abort gate + Stage 3 (EPOCH_RESET/NODE_DROP/limits) gates + Stage 4 (resync recovery) gate');
+    const tableLive = await smokeTableLiveOracle();
+    console.log(`TABLE-LIVE ORACLE OK — seq=${tableLive.sequence} identical=${tableLive.result.identical}`);
+
+    console.log('SMOKE OK — cold-start-as-frame path + live apply + capability gate + two-phase abort gate + Stage 3 (EPOCH_RESET/NODE_DROP/limits) gates + Stage 4 (resync recovery) gate + O2 local table×DOM');
   } catch (err) {
     console.error('SMOKE FAIL', err);
     console.error('stderr', stderr);

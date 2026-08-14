@@ -25,7 +25,8 @@ import type { FrameTransport } from './transport/frameTransport';
 import { ConsoleFrameTransport } from './transport/consoleFrameTransport';
 import { LoopbackFrameTransport } from './transport/loopbackFrameTransport';
 import { NullFrameTransport } from './transport/nullFrameTransport';
-import { PlaneChannel, type DataPlane } from '../plane';
+import { compareTableToLiveDom } from './dom/tableLiveOracle';
+import type { TableLiveOracleResult } from '../models/tableLiveOracle';
 
 declare global {
   var __speculumProjection:
@@ -40,6 +41,7 @@ declare global {
         readonly frameEmitter: FrameEmitter;
         readonly frameTransport: FrameTransport;
         readonly telemetry: ProjectionTelemetry;
+        readonly compareTableToLiveDom: () => TableLiveOracleResult;
       }
     | undefined;
 }
@@ -194,5 +196,6 @@ void (async () => {
     frameEmitter,
     frameTransport,
     telemetry,
+    compareTableToLiveDom: () => compareTableToLiveDom(table, domNodes, document),
   };
 })();

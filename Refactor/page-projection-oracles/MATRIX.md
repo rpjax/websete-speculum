@@ -1,7 +1,7 @@
 # PageProjection oracles — coverage truth (WP1/WP2)
 
 Style: [SessionsTest MATRIX](../Speculum.Api.SessionsTest.Tests/MATRIX.md).  
-Canon: [docs/page-projection/spec/engine-redesign.md](../../docs/page-projection/spec/engine-redesign.md) §7–§8.  
+Canon: [docs/page-projection/spec/oracles.md](../../docs/page-projection/spec/oracles.md) + [budgets.md](../../docs/page-projection/spec/budgets.md). Spec index: [spec/README.md](../../docs/page-projection/spec/README.md).  
 Policy: [docs/assert-failure-policy.md](../../docs/assert-failure-policy.md) — no soft-skip.
 
 | ID | Oracle | Assert | Fixture / live |

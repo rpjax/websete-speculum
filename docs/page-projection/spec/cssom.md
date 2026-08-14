@@ -7,10 +7,8 @@
 > (D-SPEC-8), **ignore those** — they are pre-V4. Cold start installs CSSOM via the same resync
 > frame as DOM (`NODE_NEW`/`INSERT` for sheets/rules + CHECK). Index: [README.md](README.md).
 
-**Status:** **SEALED** — CSSOM plane + PageProjection naming. Behaviour design
-complete (C0–C9, C3.1).  
-**Cutover only:** T11 rename `DomProjection`→`PageProjection` + implement ops
-(front/API/sidecar). No V1 shims.  
+**Status:** **SEALED design** — CSSOM plane + PageProjection naming (C0–C9, C3.1).  
+**Implementation is a production-cutover blocker** ([roadmap.md](roadmap.md) CUTOVER-FULL). Do not switch Live to V4 without CSSOM in the engine. T11 rename is part of that work, not a license to ship DOM-only.  
 **Dom plane (sealed):** [frame-protocol.md](frame-protocol.md)
 
 **Purpose of this file**
@@ -24,8 +22,7 @@ complete (C0–C9, C3.1).
 **How to use**
 
 - Sections marked **LOCKED** are the sealed CSSOM / naming contract.  
-- Behaviour is **design complete** — next step is T11 cutover (code rename +
-  ops), not further CSSOM topic debate.  
+- Behaviour is **design complete** — **implement** sheet/rule materialize in the V4 lab/engine **before** production cutover. T11 rename rides that work. Do not reopen C0–C9 here.  
 - If a change would alter sealed DOM-plane behaviour, reopen that doc
   explicitly.
 

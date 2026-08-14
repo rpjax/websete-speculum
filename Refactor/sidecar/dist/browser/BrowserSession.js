@@ -5,8 +5,13 @@
  * The WebSocket / connection handler calls this surface — it is NOT a TS mirror of
  * C# ISessionConnection. Transport, wire codecs, and session registry stay outside.
  *
- * Implementations (Patchright+Xvfb, headless mock, …) are injected at composition time
- * via {@link BrowserSessionFactory}.
+ * Implementations (injected at composition via {@link BrowserSessionFactory}):
+ * - `PatchrightBrowserSession` — production Live today (legacy PageProjection).
+ * - `V4ProjectionBrowserSession` — lab V4; **temporary name**. At production cutover
+ *   this (or its successor) **is** the live session. It MUST implement this whole contract
+ *   in V4 terms (CUTOVER-SESSION). Do not ship a projection-only subset. Do not keep
+ *   LivePageProjection to “fill gaps.”
+ * - `MockBrowserSession` — tests / SPECULUM_BROWSER=mock.
  *
  * V1 rules:
  * - Outbound media/observation only via {@link BrowserSessionEvents}.

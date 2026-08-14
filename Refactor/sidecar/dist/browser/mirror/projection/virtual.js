@@ -1583,7 +1583,7 @@
       let i = 0;
       while (i < n) {
         const node = siblings[i];
-        if (this.visited.has(node)) {
+        if (!node.isConnected || this.visited.has(node)) {
           i += 1;
           continue;
         }
@@ -1596,7 +1596,7 @@
         let j = i + 1;
         while (j < n) {
           const next = siblings[j];
-          if (this.visited.has(next) || prev.nextSibling !== next) break;
+          if (!next.isConnected || this.visited.has(next) || prev.nextSibling !== next) break;
           this.visited.add(next);
           const id = this.prepareChild(next, ops);
           if (id !== NONE_DOM_NODE_KEY) batchIds.push(id);
@@ -1615,6 +1615,7 @@
      * caller drops it from the batch rather than inserting a placeholder id.
      */
     prepareChild(node, ops) {
+      if (!node.isConnected) return NONE_DOM_NODE_KEY;
       const existingId = this.domNodes.keyOf(node);
       if (existingId !== NONE_DOM_NODE_KEY) return existingId;
       const kind = nodeKindOf(node);
@@ -1641,10 +1642,14 @@
       }
       return INSERT_AT_END;
     }
-    /** §5.6 — a node removed and not re-inserted anywhere this tick is a true detach. */
+    /**
+     * §5.6 / PP-FR-1 — true detach vs move vs ephemeral, decided at drain against live DOM:
+     * still `isConnected` → move (its `INSERT` already unlinked it); never had an id → ephemeral
+     * (never sent); had an id and ended detached → `REMOVE`. `visited` is not a move proof.
+     */
     emitDeferredRemoves(ops) {
       for (const [node, oldParent] of this.removedThisTick) {
-        if (this.visited.has(node)) continue;
+        if (node.isConnected) continue;
         const id = this.domNodes.keyOf(node);
         if (id === NONE_DOM_NODE_KEY) continue;
         const oldParentId = this.domNodes.keyOf(oldParent);

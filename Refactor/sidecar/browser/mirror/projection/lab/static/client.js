@@ -400,6 +400,17 @@
       backwards.reverse();
       return backwards;
     }
+    /** Rows with hashed `parent` — O(table). Lab O2 uses this to detect a broken `lastChildOf` walk. */
+    lastChildId(parent) {
+      return this.lastChildOf.get(parent) ?? NONE;
+    }
+    countAttachedChildren(parent) {
+      let n = 0;
+      for (const row of this.rows.values()) {
+        if (row.parent === parent) n += 1;
+      }
+      return n;
+    }
     /** Every stored row id (excludes implicit Document `1`). */
     forEachRow(fn) {
       for (const [id, row] of this.rows) fn(id, row);
@@ -595,6 +606,7 @@
         if (row.prevSibling !== NONE) this.nextSiblingOf.set(row.prevSibling, nextId);
       } else if (this.lastChildOf.get(row.parent) === id) {
         this.lastChildOf.set(row.parent, row.prevSibling);
+        if (row.prevSibling !== NONE) this.nextSiblingOf.delete(row.prevSibling);
       }
     }
   };
@@ -877,7 +889,17 @@
         const id = op.ids[i];
         const node = this.registry.get(id);
         if (!node) return this.fail("address_miss", "remove", id);
-        if (node.parentNode === parent) parent.removeChild(node);
+        if (node.parentNode !== parent) {
+          this.options.onDesync?.({
+            reason: "bad_target",
+            op: "remove",
+            id,
+            message: "REMOVE: node is not a child of the stated parent (phase 2 vs table)",
+            phase: "apply"
+          });
+          return false;
+        }
+        parent.removeChild(node);
       }
       return true;
     }
@@ -1029,6 +1051,14 @@
         if (standbyIframe === null) return;
         standbyIframe.remove();
         standbyIframe = null;
+      },
+      reset() {
+        if (standbyIframe !== null) {
+          standbyIframe.remove();
+          standbyIframe = null;
+        }
+        container.replaceChildren();
+        activeIframe = attachBareIframe(container);
       }
     };
   }
@@ -1121,6 +1151,22 @@
         sequence: this.lastSequence,
         table: digestReplicatedTable(this.live.applier.replicatedTable)
       };
+    }
+    /** Lab UI: empty the projected iframe and reset apply state. Does not touch Virtual. */
+    resetSurface() {
+      this.abandonResyncAttempt();
+      this.resyncAttempts = 0;
+      this.resyncExhausted = false;
+      this.persistentStrings = new PersistentStringTable();
+      this.assembler = new FramePartAssembler();
+      this.lastSequence = 0;
+      this.generation = 1;
+      this.armed = false;
+      this.everArmed = false;
+      this.surface.reset();
+      const registry = new PageProjectionRegistry();
+      registry.register(DOCUMENT_ID, this.surface.document);
+      this.live = { applier: this.createApplier(this.surface.document, registry, true), registry };
     }
     ingest(bytes) {
       const decoded = decodeFramePart(bytes, this.persistentStrings);
@@ -1472,12 +1518,18 @@
   }
   function renderBenchmarkReport(report) {
     const m = report.metrics;
+    if (report.verdicts && report.verdicts.length > 0) {
+      const box = $("benchVerdicts");
+      box.replaceChildren();
+      for (const v of report.verdicts) {
+        const row = document.createElement("div");
+        row.className = `verdict ${v.status}`;
+        row.textContent = `${v.status.toUpperCase()}  ${v.id} \u2014 ${v.reason}`;
+        box.appendChild(row);
+      }
+    }
     const lines = [];
     lines.push(`${report.meta.url}`);
-    if (report.verdicts && report.verdicts.length > 0) {
-      lines.push("verdicts:");
-      for (const v of report.verdicts) lines.push(`  ${v.status.toUpperCase()} ${v.id}: ${v.reason}`);
-    }
     lines.push(`wallMs=${m.wallMs.toFixed(0)}  steadyFrames=${m.steadyFrameCount} (~${m.steadyFps.toFixed(1)}fps)  lastTableSize=${m.lastTableSize}  wireBytes=${m.wireBytesTotal}`);
     if (m.bootstrap) {
       lines.push(`bootstrap: seq=${m.bootstrap.sequence} opCount=${m.bootstrap.opCount} bytes=${m.bootstrap.bytes} tableSize=${m.bootstrap.tableSize} buildMs=${m.bootstrap.buildMs.toFixed(2)}`);
@@ -1518,7 +1570,9 @@
   }
   function bootLabClient() {
     const urlInput = $("url");
+    const fixtureSelect = $("fixture");
     urlInput.value = defaultFixtureUrl();
+    fixtureSelect.value = "demo.html";
     let ws = null;
     let frames = 0;
     let applyOk = 0;
@@ -1526,11 +1580,14 @@
     let resyncCount = 0;
     let opsTotal = 0;
     let lastBuildMs = 0;
+    let virtualLive = false;
+    let runInFlight = false;
     const projection = new LabProjectionClient({
       surfaceHost: $("surfaceHost"),
       onArmed: () => {
         setStatus("armed \u2014 live apply");
         logActivity("first frame applied", "applyResult");
+        $("surfaceWrap").classList.remove("is-empty");
       },
       onDesync: (reason) => {
         desyncCount += 1;
@@ -1581,14 +1638,40 @@
       if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(message));
     };
     const connectBtn = $("connect");
+    const disconnectBtn = $("disconnect");
     const startBtn = $("start");
     const stopBtn = $("stop");
+    const clearBtn = $("clearSurface");
     const runBenchmarkBtn = $("runBenchmark");
-    function setConnected(on) {
-      connectBtn.disabled = on;
-      startBtn.disabled = !on;
-      stopBtn.disabled = !on;
-      runBenchmarkBtn.disabled = !on;
+    function resetStreamCounters() {
+      frames = 0;
+      applyOk = 0;
+      desyncCount = 0;
+      resyncCount = 0;
+      opsTotal = 0;
+      $("streamFrames").textContent = "0";
+      $("streamApply").textContent = "0";
+      $("streamDesync").textContent = "0";
+      $("streamResync").textContent = "0";
+      $("streamOps").textContent = "0";
+      $("streamGen").textContent = "\u2014";
+      $("streamSeq").textContent = "\u2014";
+      $("streamBuildMs").textContent = "\u2014";
+      $("streamApplyMs").textContent = "\u2014";
+      $("hostStats").textContent = "host \u2014";
+    }
+    function clearProjectedSurface() {
+      projection.resetSurface();
+      $("surfaceWrap").classList.add("is-empty");
+    }
+    function syncButtons() {
+      const open = ws !== null && ws.readyState === WebSocket.OPEN;
+      connectBtn.disabled = open;
+      disconnectBtn.disabled = !open;
+      startBtn.disabled = !open || runInFlight;
+      stopBtn.disabled = !open || !virtualLive;
+      clearBtn.disabled = false;
+      runBenchmarkBtn.disabled = !open || runInFlight;
     }
     function showTab(name) {
       for (const id of ["panelStream", "panelActivity", "panelConfig", "panelRun"]) {
@@ -1602,6 +1685,17 @@
       btn.addEventListener("click", () => showTab(btn.dataset.tab ?? "Stream"));
     }
     showTab("Stream");
+    fixtureSelect.addEventListener("change", () => {
+      urlInput.value = `${location.origin}/fixtures/${fixtureSelect.value}`;
+    });
+    $("clearActivity").addEventListener("click", () => {
+      $("activity").replaceChildren();
+    });
+    clearBtn.addEventListener("click", () => {
+      clearProjectedSurface();
+      setStatus("surface cleared");
+      logActivity("projected surface cleared");
+    });
     connectBtn.addEventListener("click", () => {
       if (ws !== null) return;
       const proto = location.protocol === "https:" ? "wss:" : "ws:";
@@ -1609,13 +1703,15 @@
       ws.binaryType = "arraybuffer";
       setStatus("connecting\u2026");
       ws.addEventListener("open", () => {
-        setConnected(true);
-        setStatus("connected \u2014 press Start");
+        syncButtons();
+        setStatus("connected \u2014 Start Virtual to browse, or Run for a probe");
         logActivity("session WS open");
       });
       ws.addEventListener("close", () => {
         ws = null;
-        setConnected(false);
+        virtualLive = false;
+        runInFlight = false;
+        syncButtons();
         setStatus("disconnected");
         logActivity("session WS closed");
       });
@@ -1639,8 +1735,20 @@
           return;
         }
         if (msg.type === "ready") {
+          virtualLive = true;
+          syncButtons();
           setStatus(`Virtual ready \u2014 ${msg.url ?? ""}`);
           logActivity(`ready dataPlane=${msg.dataPlaneUrl ?? ""}`);
+          return;
+        }
+        if (msg.type === "stopped") {
+          virtualLive = false;
+          runInFlight = false;
+          clearProjectedSurface();
+          resetStreamCounters();
+          syncButtons();
+          setStatus("Virtual stopped");
+          logActivity("Virtual stopped");
           return;
         }
         if (msg.type === "stats") {
@@ -1665,10 +1773,9 @@
         if (msg.type === "error") {
           setStatus(`error: ${typeof msg.message === "string" ? msg.message : "?"}`);
           logActivity(`error ${typeof msg.message === "string" ? msg.message : "?"}`);
-          if (runBenchmarkBtn.disabled) {
-            runBenchmarkBtn.disabled = false;
-            $("benchStatus").textContent = `error: ${typeof msg.message === "string" ? msg.message : "?"}`;
-          }
+          runInFlight = false;
+          syncButtons();
+          $("benchStatus").textContent = `error: ${typeof msg.message === "string" ? msg.message : "?"}`;
           return;
         }
         if (msg.type === "requestSnapshot") {
@@ -1679,15 +1786,16 @@
           return;
         }
         if (msg.type === "benchmarkStarted") {
-          runBenchmarkBtn.disabled = true;
+          runInFlight = true;
+          $("benchVerdicts").replaceChildren();
           $("benchStatus").textContent = `running \u2014 ${msg.url ?? ""} for ${msg.durationMs ?? "?"}ms\u2026`;
           $("benchResults").textContent = "";
+          syncButtons();
           logActivity(`benchmark started ${msg.url ?? ""} durationMs=${msg.durationMs ?? "?"}`);
           return;
         }
         if (msg.type === "benchmarkComplete") {
-          runBenchmarkBtn.disabled = false;
-          $("benchStatus").textContent = `done \u2014 report: ${msg.reportDir ?? "?"}`;
+          $("benchStatus").textContent = `done \u2014 Virtual stopped. Report: ${msg.reportDir ?? "?"}`;
           $("benchResults").textContent = msg.report ? renderBenchmarkReport(msg.report) : "(no report)";
           logActivity(`benchmark complete reportDir=${msg.reportDir ?? "?"}`);
           return;
@@ -1695,16 +1803,13 @@
         logActivity(`control ${msg.type}`);
       });
     });
+    disconnectBtn.addEventListener("click", () => {
+      ws?.close();
+    });
     startBtn.addEventListener("click", () => {
       if (ws === null || ws.readyState !== WebSocket.OPEN) return;
-      frames = 0;
-      applyOk = 0;
-      desyncCount = 0;
-      resyncCount = 0;
-      opsTotal = 0;
-      $("streamDesync").textContent = "0";
-      $("streamResync").textContent = "0";
-      $("streamOps").textContent = "0";
+      resetStreamCounters();
+      clearProjectedSurface();
       ws.send(
         JSON.stringify({
           type: "start",
@@ -1721,8 +1826,13 @@
     });
     runBenchmarkBtn.addEventListener("click", () => {
       if (ws === null || ws.readyState !== WebSocket.OPEN) return;
-      runBenchmarkBtn.disabled = true;
+      runInFlight = true;
+      resetStreamCounters();
+      clearProjectedSurface();
+      $("benchVerdicts").replaceChildren();
       $("benchStatus").textContent = "starting\u2026";
+      syncButtons();
+      showTab("Run");
       ws.send(
         JSON.stringify({
           type: "runBenchmark",
@@ -1739,8 +1849,8 @@
         })
       );
     });
-    setConnected(false);
-    setStatus("idle");
+    syncButtons();
+    setStatus("idle \u2014 Connect to begin");
   }
   bootLabClient();
 })();

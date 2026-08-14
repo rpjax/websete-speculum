@@ -104,12 +104,19 @@ function fmtStat(label: string, s: StatBlock, unit = ''): string {
 
 function renderBenchmarkReport(report: BenchmarkReport): string {
   const m = report.metrics;
+  if (report.verdicts && report.verdicts.length > 0) {
+    const box = $('benchVerdicts');
+    box.replaceChildren();
+    for (const v of report.verdicts) {
+      const row = document.createElement('div');
+      row.className = `verdict ${v.status}`;
+      row.textContent = `${v.status.toUpperCase()}  ${v.id} — ${v.reason}`;
+      box.appendChild(row);
+    }
+  }
+
   const lines: string[] = [];
   lines.push(`${report.meta.url}`);
-  if (report.verdicts && report.verdicts.length > 0) {
-    lines.push('verdicts:');
-    for (const v of report.verdicts) lines.push(`  ${v.status.toUpperCase()} ${v.id}: ${v.reason}`);
-  }
   lines.push(`wallMs=${m.wallMs.toFixed(0)}  steadyFrames=${m.steadyFrameCount} (~${m.steadyFps.toFixed(1)}fps)  lastTableSize=${m.lastTableSize}  wireBytes=${m.wireBytesTotal}`);
   if (m.bootstrap) {
     lines.push(`bootstrap: seq=${m.bootstrap.sequence} opCount=${m.bootstrap.opCount} bytes=${m.bootstrap.bytes} tableSize=${m.bootstrap.tableSize} buildMs=${m.bootstrap.buildMs.toFixed(2)}`);
@@ -178,7 +185,9 @@ function clientKindEnabled(kind: string): boolean {
 
 export function bootLabClient(): void {
   const urlInput = $('url') as HTMLInputElement;
+  const fixtureSelect = $('fixture') as HTMLSelectElement;
   urlInput.value = defaultFixtureUrl();
+  fixtureSelect.value = 'demo.html';
 
   let ws: WebSocket | null = null;
   let frames = 0;
@@ -187,12 +196,15 @@ export function bootLabClient(): void {
   let resyncCount = 0;
   let opsTotal = 0;
   let lastBuildMs = 0;
+  let virtualLive = false;
+  let runInFlight = false;
 
   const projection = new LabProjectionClient({
     surfaceHost: $('surfaceHost'),
     onArmed: () => {
       setStatus('armed — live apply');
       logActivity('first frame applied', 'applyResult');
+      $('surfaceWrap').classList.remove('is-empty');
     },
     onDesync: (reason) => {
       desyncCount += 1;
@@ -244,15 +256,43 @@ export function bootLabClient(): void {
   };
 
   const connectBtn = $('connect') as HTMLButtonElement;
+  const disconnectBtn = $('disconnect') as HTMLButtonElement;
   const startBtn = $('start') as HTMLButtonElement;
   const stopBtn = $('stop') as HTMLButtonElement;
+  const clearBtn = $('clearSurface') as HTMLButtonElement;
   const runBenchmarkBtn = $('runBenchmark') as HTMLButtonElement;
 
-  function setConnected(on: boolean): void {
-    connectBtn.disabled = on;
-    startBtn.disabled = !on;
-    stopBtn.disabled = !on;
-    runBenchmarkBtn.disabled = !on;
+  function resetStreamCounters(): void {
+    frames = 0;
+    applyOk = 0;
+    desyncCount = 0;
+    resyncCount = 0;
+    opsTotal = 0;
+    $('streamFrames').textContent = '0';
+    $('streamApply').textContent = '0';
+    $('streamDesync').textContent = '0';
+    $('streamResync').textContent = '0';
+    $('streamOps').textContent = '0';
+    $('streamGen').textContent = '—';
+    $('streamSeq').textContent = '—';
+    $('streamBuildMs').textContent = '—';
+    $('streamApplyMs').textContent = '—';
+    $('hostStats').textContent = 'host —';
+  }
+
+  function clearProjectedSurface(): void {
+    projection.resetSurface();
+    $('surfaceWrap').classList.add('is-empty');
+  }
+
+  function syncButtons(): void {
+    const open = ws !== null && ws.readyState === WebSocket.OPEN;
+    connectBtn.disabled = open;
+    disconnectBtn.disabled = !open;
+    startBtn.disabled = !open || runInFlight;
+    stopBtn.disabled = !open || !virtualLive;
+    clearBtn.disabled = false;
+    runBenchmarkBtn.disabled = !open || runInFlight;
   }
 
   function showTab(name: string): void {
@@ -269,6 +309,20 @@ export function bootLabClient(): void {
   }
   showTab('Stream');
 
+  fixtureSelect.addEventListener('change', () => {
+    urlInput.value = `${location.origin}/fixtures/${fixtureSelect.value}`;
+  });
+
+  $('clearActivity').addEventListener('click', () => {
+    $('activity').replaceChildren();
+  });
+
+  clearBtn.addEventListener('click', () => {
+    clearProjectedSurface();
+    setStatus('surface cleared');
+    logActivity('projected surface cleared');
+  });
+
   connectBtn.addEventListener('click', () => {
     if (ws !== null) return;
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -276,13 +330,15 @@ export function bootLabClient(): void {
     ws.binaryType = 'arraybuffer';
     setStatus('connecting…');
     ws.addEventListener('open', () => {
-      setConnected(true);
-      setStatus('connected — press Start');
+      syncButtons();
+      setStatus('connected — Start Virtual to browse, or Run for a probe');
       logActivity('session WS open');
     });
     ws.addEventListener('close', () => {
       ws = null;
-      setConnected(false);
+      virtualLive = false;
+      runInFlight = false;
+      syncButtons();
       setStatus('disconnected');
       logActivity('session WS closed');
     });
@@ -306,8 +362,20 @@ export function bootLabClient(): void {
         return;
       }
       if (msg.type === 'ready') {
+        virtualLive = true;
+        syncButtons();
         setStatus(`Virtual ready — ${msg.url ?? ''}`);
         logActivity(`ready dataPlane=${msg.dataPlaneUrl ?? ''}`);
+        return;
+      }
+      if (msg.type === 'stopped') {
+        virtualLive = false;
+        runInFlight = false;
+        clearProjectedSurface();
+        resetStreamCounters();
+        syncButtons();
+        setStatus('Virtual stopped');
+        logActivity('Virtual stopped');
         return;
       }
       if (msg.type === 'stats') {
@@ -333,10 +401,9 @@ export function bootLabClient(): void {
       if (msg.type === 'error') {
         setStatus(`error: ${typeof msg.message === 'string' ? msg.message : '?'}`);
         logActivity(`error ${typeof msg.message === 'string' ? msg.message : '?'}`);
-        if (runBenchmarkBtn.disabled) {
-          runBenchmarkBtn.disabled = false;
-          $('benchStatus').textContent = `error: ${typeof msg.message === 'string' ? msg.message : '?'}`;
-        }
+        runInFlight = false;
+        syncButtons();
+        $('benchStatus').textContent = `error: ${typeof msg.message === 'string' ? msg.message : '?'}`;
         return;
       }
       if (msg.type === 'requestSnapshot') {
@@ -347,15 +414,16 @@ export function bootLabClient(): void {
         return;
       }
       if (msg.type === 'benchmarkStarted') {
-        runBenchmarkBtn.disabled = true;
+        runInFlight = true;
+        $('benchVerdicts').replaceChildren();
         $('benchStatus').textContent = `running — ${msg.url ?? ''} for ${msg.durationMs ?? '?'}ms…`;
         $('benchResults').textContent = '';
+        syncButtons();
         logActivity(`benchmark started ${msg.url ?? ''} durationMs=${msg.durationMs ?? '?'}`);
         return;
       }
       if (msg.type === 'benchmarkComplete') {
-        runBenchmarkBtn.disabled = false;
-        $('benchStatus').textContent = `done — report: ${msg.reportDir ?? '?'}`;
+        $('benchStatus').textContent = `done — Virtual stopped. Report: ${msg.reportDir ?? '?'}`;
         $('benchResults').textContent = msg.report ? renderBenchmarkReport(msg.report) : '(no report)';
         logActivity(`benchmark complete reportDir=${msg.reportDir ?? '?'}`);
         return;
@@ -364,16 +432,14 @@ export function bootLabClient(): void {
     });
   });
 
+  disconnectBtn.addEventListener('click', () => {
+    ws?.close();
+  });
+
   startBtn.addEventListener('click', () => {
     if (ws === null || ws.readyState !== WebSocket.OPEN) return;
-    frames = 0;
-    applyOk = 0;
-    desyncCount = 0;
-    resyncCount = 0;
-    opsTotal = 0;
-    $('streamDesync').textContent = '0';
-    $('streamResync').textContent = '0';
-    $('streamOps').textContent = '0';
+    resetStreamCounters();
+    clearProjectedSurface();
     ws.send(
       JSON.stringify({
         type: 'start',
@@ -392,8 +458,13 @@ export function bootLabClient(): void {
 
   runBenchmarkBtn.addEventListener('click', () => {
     if (ws === null || ws.readyState !== WebSocket.OPEN) return;
-    runBenchmarkBtn.disabled = true;
+    runInFlight = true;
+    resetStreamCounters();
+    clearProjectedSurface();
+    $('benchVerdicts').replaceChildren();
     $('benchStatus').textContent = 'starting…';
+    syncButtons();
+    showTab('Run');
     ws.send(
       JSON.stringify({
         type: 'runBenchmark',
@@ -411,8 +482,8 @@ export function bootLabClient(): void {
     );
   });
 
-  setConnected(false);
-  setStatus('idle');
+  syncButtons();
+  setStatus('idle — Connect to begin');
 }
 
 bootLabClient();

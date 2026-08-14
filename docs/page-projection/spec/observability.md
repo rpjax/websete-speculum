@@ -11,7 +11,7 @@ If this file conflicts with a green smoke that compared telemetry fields to pass
 
 ## 1. One Chromium path
 
-There is **one** place that owns Patchright, inject of `virtual.js`, the data plane, frame relay, telemetry fan-out, and in-page probes: a **`BrowserSession`** implementation (`V4ProjectionBrowserSession` in the lab; production still `PatchrightBrowserSession` + legacy `LivePageProjection` until M1 cutover).
+There is **one** place that owns Patchright, inject of `virtual.js`, the data plane, frame relay, telemetry fan-out, and in-page probes: a **`BrowserSession`** implementation (`V4ProjectionBrowserSession` in the lab; production still `PatchrightBrowserSession` + legacy `LivePageProjection` until **product-complete** cutover — [roadmap.md](roadmap.md)).
 
 The **lab is a caller**, not a second browser:
 

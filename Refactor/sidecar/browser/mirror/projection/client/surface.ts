@@ -30,6 +30,8 @@ export type SurfaceHost = {
   commitSwap(): Document;
   /** Drops the in-flight standby iframe without swapping. No-op if there is no build in progress. */
   discardBuild(): void;
+  /** Tear down iframes and attach a fresh bare document (lab Clear / after Stop). */
+  reset(): void;
 };
 
 function attachBareIframe(container: HTMLElement): HTMLIFrameElement {
@@ -94,6 +96,14 @@ export function createSurfaceHost(
       if (standbyIframe === null) return;
       standbyIframe.remove();
       standbyIframe = null;
+    },
+    reset(): void {
+      if (standbyIframe !== null) {
+        standbyIframe.remove();
+        standbyIframe = null;
+      }
+      container.replaceChildren();
+      activeIframe = attachBareIframe(container);
     },
   };
 }

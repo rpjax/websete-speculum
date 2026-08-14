@@ -3,7 +3,7 @@
 **Status:** official spec for `MirrorMode.PageProjection`.  
 **Accept bar:** [acceptance.md](acceptance.md) — absolute 1:1 parity with the original site.  
 **Protocol:** [frame-protocol.md](frame-protocol.md) — the V4 engine (replicated table, binary frames, two-phase apply, resync).  
-**Where you are:** lab engine under `Refactor/sidecar/browser/mirror/projection/` implements V4 (Stages 1–4). Production (`PatchrightBrowserSession.ts`) still runs the **legacy** `LivePageProjection` path. Cutover is [roadmap.md](roadmap.md).
+**Where you are:** lab engine under `Refactor/sidecar/browser/mirror/projection/` implements V4 **DOM table, single document** (Stages 1–4). Production (`PatchrightBrowserSession.ts`) still runs the **legacy** `LivePageProjection` path. `V4ProjectionBrowserSession` is the **temporary** lab `BrowserSession`; at cutover it must be **complete** (full contract, V4 implementations — not leftover legado) — [roadmap.md](roadmap.md) CUTOVER-SESSION. **Production cutover waits for the full product** (CSSOM + nested/multidocs + redesigned input).
 
 If you are an agent with limited context: **read this file, then `acceptance.md`, then `open.md`, then `roadmap.md`, then only the protocol sections you are changing.** Do not open `../archive/`.
 

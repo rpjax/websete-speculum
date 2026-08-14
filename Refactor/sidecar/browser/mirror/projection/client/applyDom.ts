@@ -11,10 +11,11 @@
  * frame-protocol-production-completeness): Phase 1 verifies `preTableHash`, applies every op's
  * table effect, and evaluates any `CHECK` (`models/replicatedTableApply.ts`'s
  * `applyFrameToTableChecked`) — pure memory, no DOM. Only if phase 1 fully succeeds does Phase 2
- * run, reflecting the frame's ops into the live DOM (`applyOp` below) — Phase 2 "cannot fail"
- * (§6) because everything it touches was already validated. A phase-1 failure aborts the whole
- * frame via `onDesync({ reason: 'precondition', ... })` before any DOM node is touched — the same
- * desync path as an address-miss, carrying `expected`/`actual` hashes instead of an op/id.
+ * run, reflecting the frame's ops into the live DOM (`applyOp` below). Phase 2 is *specified* not
+ * to fail (§6) because every address was validated in phase 1; if the live node is not where the
+ * table just swore it was (e.g. `REMOVE` whose `parentNode` is not `op.parent`), that is a desync,
+ * not a skip. Swallowing it leaves producer-clean / client-dirty. A phase-1 failure aborts the
+ * whole frame via `onDesync({ reason: 'precondition', ... })` before any DOM node is touched.
  */
 
 import { NodeKind, OpCode } from '../models/opcodes';
@@ -243,7 +244,17 @@ export class DomFrameApplier {
       const id = op.ids[i]!;
       const node = this.registry.get(id);
       if (!node) return this.fail('address_miss', 'remove', id);
-      if (node.parentNode === parent) parent.removeChild(node);
+      if (node.parentNode !== parent) {
+        this.options.onDesync?.({
+          reason: 'bad_target',
+          op: 'remove',
+          id,
+          message: 'REMOVE: node is not a child of the stated parent (phase 2 vs table)',
+          phase: 'apply',
+        });
+        return false;
+      }
+      parent.removeChild(node);
     }
     return true;
   }

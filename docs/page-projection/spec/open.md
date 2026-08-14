@@ -21,7 +21,13 @@
 
 ## Bugs
 
-**OPEN-8** is closed at the table (unit green). Mid-churn O2 was also confounded by missing `MutationObserver.takeRecords()` before drain ([observability.md](observability.md) §5 / frame-protocol §5.2) — that hole is closed. Re-run `prepend-stress.html` before treating remaining O2 red as engine bug. CLI `--iso` is Virtual-only until a client apply surface is plugged in.
+**OPEN-8** is closed at the table. `takeRecords` before drain is closed. CLI `--iso` proves Virtual O2 + Node table×table; tree×tree needs lab UI DOM apply. **Production cutover is not licensed** by that — see [roadmap.md](roadmap.md) cutover law.
+
+| Id | Symptom | Status |
+|----|---------|--------|
+| **PP-FR-1 + REMOVE honesty** | Shipped 2026-08-14: producer skips `!isConnected` addedNodes (never on the wire); `REMOVE` iff ended detached with a prior id (`visited` is not a move). Client `REMOVE` whose node is not under `op.parent` is **desync**, not a silent skip. | Done — does **not** close the stress-churn visual (cause still open) |
+| **stress-churn visual stack** | Projected cells show two numbers concatenated mid-run; halt O2 + UI tree×tree were green. Cause **not** agreed (layout vs mid-churn apply vs something else). Next fact: `childNodes` count on a dirty cell mid-churn. | Open |
+| **prepend-stress O2** | `child_order` under block-prepend. **Separate** from text replace / PP-FR-1. Do not claim a grelha fix closes this. | Open |
 
 ---
 
@@ -34,7 +40,7 @@
 | **OPEN-3** | `CHECK.scope` granularity | **Resolved in favour of id ranges** in §4.1. Confirm before sealing. |
 | **OPEN-4** | Establish HTML vs table | **CLOSED — moot.** Establish deleted (§4.7). |
 | **OPEN-5** | Recovery / mid-session attach | **CLOSED — §5.8.** Residuals below. |
-| **OPEN-6** | Multi-document / nested documents (cross-origin iframes) | **PINNED.** Protocol must be per-document streams, not one flat id space. Revisit before pierce/iframe fixtures — not before. Not a first-cutover blocker for single-document sites. |
+| **OPEN-6** | Multi-document / nested documents (cross-origin iframes) | **PINNED in lab; production cutover blocker (2026-08-14).** Protocol must be per-document streams. Do not ship Live without this. |
 | **OPEN-7** | `insertBatch` reverse-link | **CLOSED** — `nextSiblingOf.set(prev, before)` on insert-before-existing; unit falsifier in `unit.ts`. |
 | **OPEN-8** | `unlink` last-child leaves `nextSiblingOf[prev]` | **CLOSED 2026-08-14** — tail REMOVE after prepend; see frame-protocol §10. |
 
@@ -44,7 +50,9 @@
 
 | Id | Topic | Why it blocks | Notes |
 |----|-------|---------------|-------|
-| **E-03 / E-08** | Loopback WebSocket data plane + CSP strip / PNA bypass | Stage 4 resync request uses `PlaneChannel.Control` on lab loopback. Real sites (Wikipedia) block `connect-src` to loopback. Production Integration cannot copy the lab channel blindly. | Accept-with-mitigation **or** reject in favour of the binding/hub channel. Archive: `engine-redesign-extension.md`. |
+| **CUTOVER-FULL** | Production cutover completeness | Live switch only when V4 has **CSSOM + OPEN-6 + redesigned input**, then Integration. DOM-only lab is not M1. | [roadmap.md](roadmap.md) |
+| **CUTOVER-SESSION** | `V4ProjectionBrowserSession` is temporary | At cutover it **is** the live `BrowserSession`. Must cover capabilities Live already has (input, cookies, eval, resize, permissions, …) **redesigned in V4**, not by keeping legado. Incomplete session fails cutover. | [roadmap.md](roadmap.md); `BrowserSession.ts` |
+| **E-03 / E-08** | Loopback WS + CSP strip / PNA | **DECIDED 2026-08-14 — reject header punch.** `connect-src *` / `script-src *` / strip CSP / disable PNA to make page-JS `WebSocket(127.0.0.1)` work **is not antibot-safe** (Akamai/CF see rewritten CSP, extra sockets, public→localhost). Do **not** enable the data plane by mutating the site’s CSP. Inject = CDP `addInitScript` (already). Bytes Virtual→sidecar = **not** a page `connect()` (CDP binding / hub — implement next). Lab loopback WS stays fixtures-only. | [roadmap.md](roadmap.md) gate 6 |
 | **Contracts pack fate** | Archive vs delete historical `contracts/` + `implementation/` | Already moved to `archive/`. Confirm deletion vs keep-for-provenance. | Default this pass: **keep in archive**, never implement from. |
 | **OPEN-2 sign-off** | Seal detached-row GC | Implementation already shipped in lab | Rodrigo |
 | **OPEN-3 sign-off** | Seal CHECK id-range scope | Implemented | Rodrigo |
@@ -60,7 +68,7 @@
 | 3 | Synchronous-walk latency budget at `MAX_ROWS` for `resyncVirtual` (not `emitResyncFrame`) | Before relying on walk-based rebuild in production at huge tables |
 | 4 | `contracts/07-recovery.md` full rewrite | **Dropped** — file archived; §5.8 is the spec |
 | 5 | Bounded resync retry on **production** session layer with catalogued `errorCode`+`phase` | Lab has 3-attempt backoff + `resyncFailed{exhausted}`. Production hub analog is part of Production Integration |
-| 6 | Dual live paths (`LivePageProjection` vs lab engine) | **YES** — cutover deletes the loser same day ([roadmap.md](roadmap.md) gate 5) |
+| 6 | Dual live paths (`LivePageProjection` vs lab engine) | **YES** — cutover (when product-complete) deletes the loser same day ([roadmap.md](roadmap.md)) |
 
 ---
 

@@ -10,8 +10,9 @@
  * straight from the records plus the live DOM read at drain time.
  *
  * v0 scope: DOM only (no CSSOM), no persistent string interning (§1.7 — every string is
- * frame-local; see binaryFrameEncoder.ts), no `NODE_DROP` GC (OPEN-2 — rows survive detached for
- * the life of the session; acceptable for a lab measurement run, not for production).
+ * frame-local; see binaryFrameEncoder.ts). PP-FR-1: addedNodes that are not `isConnected` at
+ * drain are never allocated (create+destroy in one tick never hits the wire). `REMOVE` is
+ * "ended the tick detached and already had an id", not "was not visited" (visited ≠ move).
  *
  * `preTableHash`/`tableHash` (§1.5): the builder maintains a `ReplicatedTable` alongside
  * `DomNodeTable` — the same shared table+hash model the client maintains during Phase 1 of apply
@@ -262,7 +263,9 @@ export class TableFrameBuilder implements FrameBuilder {
     let i = 0;
     while (i < n) {
       const node = siblings[i]!;
-      if (this.visited.has(node)) {
+      // PP-FR-1: snapshot `addedNodes` still lists nodes already destroyed later this tick.
+      // Do not allocate / INSERT them. Attr/text patches already skip `!isConnected`.
+      if (!node.isConnected || this.visited.has(node)) {
         i += 1;
         continue;
       }
@@ -276,7 +279,7 @@ export class TableFrameBuilder implements FrameBuilder {
       let j = i + 1;
       while (j < n) {
         const next = siblings[j]!;
-        if (this.visited.has(next) || prev.nextSibling !== next) break;
+        if (!next.isConnected || this.visited.has(next) || prev.nextSibling !== next) break;
         this.visited.add(next);
         const id = this.prepareChild(next, ops);
         if (id !== NONE_DOM_NODE_KEY) batchIds.push(id);
@@ -297,6 +300,7 @@ export class TableFrameBuilder implements FrameBuilder {
    * caller drops it from the batch rather than inserting a placeholder id.
    */
   private prepareChild(node: Node, ops: FrameOp[]): DomNodeKey {
+    if (!node.isConnected) return NONE_DOM_NODE_KEY;
     const existingId = this.domNodes.keyOf(node);
     if (existingId !== NONE_DOM_NODE_KEY) return existingId; // reused/moved — subtree already indexed too
 
@@ -327,12 +331,16 @@ export class TableFrameBuilder implements FrameBuilder {
     return INSERT_AT_END;
   }
 
-  /** §5.6 — a node removed and not re-inserted anywhere this tick is a true detach. */
+  /**
+   * §5.6 / PP-FR-1 — true detach vs move vs ephemeral, decided at drain against live DOM:
+   * still `isConnected` → move (its `INSERT` already unlinked it); never had an id → ephemeral
+   * (never sent); had an id and ended detached → `REMOVE`. `visited` is not a move proof.
+   */
   private emitDeferredRemoves(ops: FrameOp[]): void {
     for (const [node, oldParent] of this.removedThisTick) {
-      if (this.visited.has(node)) continue; // moved this tick — its INSERT already unlinked it (§4.3)
+      if (node.isConnected) continue;
       const id = this.domNodes.keyOf(node);
-      if (id === NONE_DOM_NODE_KEY) continue; // never had a row — nothing to remove
+      if (id === NONE_DOM_NODE_KEY) continue;
       const oldParentId = this.domNodes.keyOf(oldParent);
       if (oldParentId === NONE_DOM_NODE_KEY) continue;
       ops.push({ op: OpCode.Remove, parent: oldParentId, ids: [id] });

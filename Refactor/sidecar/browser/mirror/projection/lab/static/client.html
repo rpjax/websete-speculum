@@ -7,17 +7,21 @@
     <style>
       :root {
         color-scheme: light;
-        --bg: #f4f4f1;
-        --ink: #1a1a1a;
-        --muted: #5c5c5c;
-        --line: #d0d0c8;
+        --bg: #ecece8;
+        --ink: #161616;
+        --muted: #5a5a56;
+        --line: #d5d5ce;
         --accent: #0b5fff;
+        --accent-hover: #094ed6;
         --panel: #fff;
+        --danger: #b42318;
+        --ok: #0f7b3a;
+        --warn: #9a6700;
       }
       * { box-sizing: border-box; }
       body {
         margin: 0;
-        font: 14px/1.45 "Segoe UI", system-ui, sans-serif;
+        font: 13.5px/1.45 "Segoe UI", system-ui, sans-serif;
         background: var(--bg);
         color: var(--ink);
         min-height: 100vh;
@@ -25,43 +29,89 @@
         grid-template-rows: auto 1fr;
       }
       header {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.5rem 1rem;
-        align-items: center;
-        padding: 0.75rem 1rem;
+        display: grid;
+        gap: 0.55rem;
+        padding: 0.7rem 1rem 0.75rem;
         border-bottom: 1px solid var(--line);
         background: var(--panel);
       }
-      header h1 {
-        font-size: 1rem;
-        font-weight: 650;
-        margin: 0 1rem 0 0;
+      .hdr-top {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        flex-wrap: wrap;
       }
-      header input[type="url"] {
-        flex: 1 1 280px;
-        min-width: 200px;
-        padding: 0.4rem 0.55rem;
+      header h1 {
+        font-size: 0.95rem;
+        font-weight: 650;
+        margin: 0;
+        letter-spacing: -0.02em;
+      }
+      #status {
+        margin-left: auto;
+        font-size: 12px;
+        color: var(--muted);
+        padding: 0.2rem 0.55rem;
         border: 1px solid var(--line);
-        border-radius: 4px;
+        border-radius: 999px;
+        background: #f7f7f4;
+        max-width: min(520px, 100%);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .hdr-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.4rem;
+        align-items: center;
+      }
+      header select, header input[type="url"] {
+        padding: 0.38rem 0.5rem;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: #fff;
+        font: inherit;
+      }
+      header select { max-width: 11rem; }
+      header input[type="url"] {
+        flex: 1 1 220px;
+        min-width: 180px;
       }
       header button, aside button {
-        padding: 0.4rem 0.75rem;
+        padding: 0.38rem 0.7rem;
         border: 1px solid var(--line);
-        border-radius: 4px;
+        border-radius: 6px;
         background: #fff;
         cursor: pointer;
+        font: inherit;
       }
-      header button:disabled { opacity: 0.45; cursor: not-allowed; }
-      header button.primary {
+      header button:hover:not(:disabled), aside button:hover:not(:disabled) {
+        border-color: #bbb;
+      }
+      header button:disabled, aside button:disabled { opacity: 0.4; cursor: not-allowed; }
+      header button.primary, aside button.primary {
         background: var(--accent);
         border-color: var(--accent);
         color: #fff;
       }
-      #status { color: var(--muted); font-size: 12px; width: 100%; }
+      header button.primary:hover:not(:disabled) {
+        background: var(--accent-hover);
+        border-color: var(--accent-hover);
+      }
+      header button.ghost-danger:hover:not(:disabled) {
+        border-color: var(--danger);
+        color: var(--danger);
+      }
+      .hdr-sep {
+        width: 1px;
+        height: 1.35rem;
+        background: var(--line);
+        margin: 0 0.15rem;
+      }
       main {
         display: grid;
-        grid-template-columns: 1fr 360px;
+        grid-template-columns: 1fr min(400px, 38vw);
         min-height: 0;
       }
       @media (max-width: 960px) {
@@ -69,10 +119,25 @@
       }
       .surface-wrap {
         position: relative;
-        background: #111;
+        background: #1a1a1a;
         min-height: 480px;
         overflow: auto;
       }
+      .surface-empty {
+        position: absolute;
+        inset: 0;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        color: #9a9a96;
+        font-size: 13px;
+        pointer-events: none;
+        padding: 1.5rem;
+        z-index: 2;
+      }
+      .surface-wrap.is-empty .surface-empty { display: flex; }
+      .surface-empty strong { display: block; color: #c8c8c4; margin-bottom: 0.35rem; font-weight: 600; }
       #surfaceHost {
         min-height: 480px;
         width: 100%;
@@ -83,7 +148,7 @@
         display: flex;
         flex-direction: column;
         min-height: 0;
-        max-height: calc(100vh - 72px);
+        max-height: calc(100vh - 118px);
       }
       .tabs {
         display: flex;
@@ -96,7 +161,7 @@
         border-radius: 0;
         border-bottom: 2px solid transparent;
         background: transparent;
-        padding: 0.55rem 0.4rem;
+        padding: 0.55rem 0.35rem;
         color: var(--muted);
       }
       .tabs button.active {
@@ -107,30 +172,30 @@
       .panel {
         flex: 1;
         overflow: auto;
-        padding: 0.75rem 1rem 1rem;
+        padding: 0.85rem 1rem 1.1rem;
         min-height: 0;
       }
       .metric-grid {
         display: grid;
         grid-template-columns: 1fr 1fr;
-        gap: 0.5rem;
+        gap: 0.45rem;
       }
       .metric {
         border: 1px solid var(--line);
-        border-radius: 4px;
-        padding: 0.5rem 0.65rem;
+        border-radius: 6px;
+        padding: 0.5rem 0.6rem;
         background: #fafaf7;
       }
       .metric .label {
-        font-size: 11px;
+        font-size: 10.5px;
         color: var(--muted);
         text-transform: uppercase;
         letter-spacing: 0.04em;
       }
       .metric .value {
         font-family: ui-monospace, Consolas, monospace;
-        font-size: 1.05rem;
-        margin-top: 0.15rem;
+        font-size: 1.02rem;
+        margin-top: 0.12rem;
       }
       #hostStats {
         margin-top: 0.75rem;
@@ -143,7 +208,7 @@
         font-size: 11px;
       }
       #activity div {
-        padding: 0.2rem 0;
+        padding: 0.22rem 0;
         border-bottom: 1px solid #f0f0ea;
         word-break: break-word;
       }
@@ -151,35 +216,85 @@
         display: flex;
         align-items: center;
         gap: 0.5rem;
-        margin: 0.35rem 0;
+        margin: 0.32rem 0;
       }
       .cfg-row label { flex: 1; }
       .cfg-row input[type="number"] {
         width: 5.5rem;
         padding: 0.25rem 0.4rem;
         border: 1px solid var(--line);
-        border-radius: 4px;
+        border-radius: 6px;
       }
       h2.panel-title {
-        font-size: 12px;
+        font-size: 11px;
         text-transform: uppercase;
-        letter-spacing: 0.05em;
+        letter-spacing: 0.06em;
         color: var(--muted);
         margin: 0 0 0.65rem;
+      }
+      .hint {
+        font-size: 12px;
+        color: var(--muted);
+        margin: 0 0 0.85rem;
+        line-height: 1.4;
+      }
+      .verdict-list { display: flex; flex-direction: column; gap: 0.28rem; margin: 0.5rem 0 0.75rem; }
+      .verdict {
+        font-family: ui-monospace, Consolas, monospace;
+        font-size: 11.5px;
+        padding: 0.28rem 0.45rem;
+        border-radius: 4px;
+        border: 1px solid var(--line);
+      }
+      .verdict.pass { border-color: #b7e0c5; background: #f0faf3; color: var(--ok); }
+      .verdict.fail { border-color: #f0c4c0; background: #fdf4f3; color: var(--danger); }
+      .verdict.skipped { color: var(--muted); }
+      #benchResults {
+        margin-top: 0.5rem;
+        font-family: ui-monospace, Consolas, monospace;
+        font-size: 11.5px;
+        white-space: pre-wrap;
+        color: var(--muted);
       }
     </style>
   </head>
   <body>
     <header>
-      <h1>Projection lab</h1>
-      <input id="url" type="url" spellcheck="false" />
-      <button type="button" id="connect" class="primary">Connect</button>
-      <button type="button" id="start" disabled>Start Virtual</button>
-      <button type="button" id="stop" disabled>Stop</button>
-      <div id="status">idle</div>
+      <div class="hdr-top">
+        <h1>Projection lab</h1>
+        <div id="status">idle</div>
+      </div>
+      <div class="hdr-row">
+        <select id="fixture" aria-label="Fixture">
+          <option value="demo.html">demo</option>
+          <option value="prepend-stress.html">prepend-stress</option>
+          <option value="stress-churn.html">stress-churn</option>
+          <option value="mutation-churn.html">mutation-churn</option>
+          <option value="insert-before-remove.html">insert-before-remove</option>
+          <option value="static-dom.html">static-dom</option>
+          <option value="forms-state.html">forms-state</option>
+          <option value="scroll.html">scroll</option>
+        </select>
+        <input id="url" type="url" spellcheck="false" />
+      </div>
+      <div class="hdr-row">
+        <button type="button" id="connect" class="primary">Connect</button>
+        <button type="button" id="disconnect" disabled>Disconnect</button>
+        <span class="hdr-sep"></span>
+        <button type="button" id="start" disabled>Start Virtual</button>
+        <button type="button" id="stop" disabled>Stop Virtual</button>
+        <button type="button" id="clearSurface" class="ghost-danger" disabled>Clear surface</button>
+      </div>
     </header>
     <main>
-      <div class="surface-wrap">
+      <div class="surface-wrap is-empty" id="surfaceWrap">
+        <div class="surface-empty">
+          <div>
+            <strong>Projected surface empty</strong>
+            Connect, then Start Virtual to browse, or Run for a timed probe.<br />
+            Run always reboots Virtual and stops it when finished.
+          </div>
+        </div>
         <div id="surfaceHost"></div>
       </div>
       <aside>
@@ -233,10 +348,12 @@
         </div>
         <div id="panelActivity" class="panel" hidden>
           <h2 class="panel-title">Activity</h2>
+          <button type="button" id="clearActivity">Clear log</button>
           <div id="activity"></div>
         </div>
         <div id="panelConfig" class="panel" hidden>
           <h2 class="panel-title">Telemetry</h2>
+          <p class="hint">Applied on the next Start Virtual or Run (relaunch).</p>
           <div class="cfg-row">
             <label for="telEnabled">enabled</label>
             <input id="telEnabled" type="checkbox" checked />
@@ -278,35 +395,37 @@
             <label for="cfgFrameRate">frameRateHz</label>
             <input id="cfgFrameRate" type="number" min="1" max="120" value="60" />
           </div>
-          <p style="font-size:12px;color:var(--muted);margin:0.75rem 0 0">
-            Start Virtual relaunches Chrome with these inject knobs.
-          </p>
         </div>
         <div id="panelRun" class="panel" hidden>
           <h2 class="panel-title">Run</h2>
+          <p class="hint">
+            Timed probe, separate from free browse. Stops any live Virtual, starts a fresh session,
+            runs for durationMs, then <strong>stops Virtual</strong>. WS stays up — Start Virtual again to browse.
+          </p>
           <div class="cfg-row">
             <label for="benchDurationMs">durationMs</label>
             <input id="benchDurationMs" type="number" min="1000" step="1000" value="15000" />
           </div>
           <div class="cfg-row">
-            <label for="benchCpuProfile">CPU profile (session probe)</label>
-            <input id="benchCpuProfile" type="checkbox" checked />
+            <label for="benchCpuProfile">CPU profile</label>
+            <input id="benchCpuProfile" type="checkbox" />
           </div>
           <div class="cfg-row">
             <label for="benchInvariants">Frame-stream invariants</label>
             <input id="benchInvariants" type="checkbox" checked />
           </div>
           <div class="cfg-row">
-            <label for="benchStructuralDiff">Structural diff (Virtual vs Client)</label>
+            <label for="benchStructuralDiff">Structural diff (with iso)</label>
             <input id="benchStructuralDiff" type="checkbox" checked />
           </div>
           <div class="cfg-row">
-            <label for="benchIso">Isomorphism (halt / flush / O2)</label>
-            <input id="benchIso" type="checkbox" />
+            <label for="benchIso">Isomorphism (halt / flush / O2 / trees)</label>
+            <input id="benchIso" type="checkbox" checked />
           </div>
           <button type="button" id="runBenchmark" class="primary" style="margin-top:0.5rem">Run</button>
           <div id="benchStatus" style="margin-top:0.5rem;color:var(--muted);font-size:12px">idle</div>
-          <div id="benchResults" style="margin-top:0.75rem;font-family:ui-monospace,Consolas,monospace;font-size:11.5px;white-space:pre-wrap"></div>
+          <div id="benchVerdicts" class="verdict-list"></div>
+          <div id="benchResults"></div>
         </div>
       </aside>
     </main>

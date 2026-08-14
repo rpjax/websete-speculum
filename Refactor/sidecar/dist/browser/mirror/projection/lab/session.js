@@ -388,6 +388,8 @@ class LabSession {
         finally {
             this.runCollectors = null;
             this.benchmarkRunning = false;
+            await this.stopBrowser();
+            this.sendJson({ type: 'stopped', reason: 'runComplete' });
         }
     }
     async stopBrowser() {

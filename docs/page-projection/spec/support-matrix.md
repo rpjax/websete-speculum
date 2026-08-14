@@ -3,9 +3,7 @@
 **Status:** published accepted gaps (K1/K5 consequences). Canon: [budgets.md](budgets.md) K1–K5,
 [acceptance.md](acceptance.md). Index: [README.md](README.md).
 
-**Position (2026-08-14):** V4 lab engine exists; **production cutover is not done** — do not treat
-legacy M1/M2 “done” notes as current. See [roadmap.md](roadmap.md). Iframes/pierce are **OPEN-6**,
-not an accepted gap.
+**Position (2026-08-14):** V4 lab engine exists (DOM table, single document). **Production cutover is forbidden** until CSSOM + OPEN-6 + redesigned input exist — [roadmap.md](roadmap.md). Iframes/pierce are **OPEN-6** (cutover blocker), not an accepted gap.
 
 An accepted gap that is not published here is a bug. K1 (indistinguishable UX by design intent) and K5
 (no page JavaScript on the Projected surface, ever) make some browser features structurally

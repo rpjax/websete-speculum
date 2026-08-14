@@ -22,7 +22,11 @@
 |------|-------|------------------------|
 | 2026-08-13 | Table = replicated structure (P0); two-phase apply; preTableHash; 27 opcodes; no MOVE/REPLACE; prevSibling topology; tableHash; STR_DEF deferred; establish **deleted**; id 1 = Document; producer construction §5; P8 no lifecycle branches | frame-protocol.md decision log |
 | 2026-08-13 | OPEN-5 closed: `emitResyncFrame` / `resyncVirtual`; double-buffer swap on CHECK | frame-protocol.md §5.8 + log |
-| 2026-08-13 | OPEN-6 reframed multi-document / nested documents — pinned | frame-protocol.md §10 |
+| 2026-08-13 | OPEN-6 reframed multi-document / nested documents — pinned for lab | frame-protocol.md §10 |
+| 2026-08-14 | Production cutover requires full product (CSSOM + OPEN-6 + input redesign) | roadmap.md + open.md CUTOVER-FULL |
+| 2026-08-14 | V4ProjectionBrowserSession temporary; must be a complete BrowserSession at cutover (not legado, not a lab stub) | roadmap.md + open.md CUTOVER-SESSION |
+| 2026-08-14 | E-03/E-08: reject CSP strip / `connect-src *` as antibot-unsafe; no page WebSocket for production data plane | open.md E-03/E-08 |
+| 2026-08-14 | PP-FR-1 prune at drain (`!isConnected`); client REMOVE parent mismatch → desync (not skip). Stress-churn visual + prepend O2 still open | open.md |
 | 2026-08-13 | Micro-opts: Set reuse, `element.attributes`, conditional opCounts | frame-protocol.md log |
 | 2026-08-13 | 48 KB first-frame = injected script; `currentScript.remove()` | frame-protocol.md log |
 | 2026-08-13 | STR_DEF left open | frame-protocol.md log |
@@ -72,18 +76,18 @@ Original verbatim table: [`../archive/DECISIONS.md`](../archive/DECISIONS.md). R
 
 ## C. Extension E-01…E-11 (2026-08-12) — provenance
 
-Original: [`../archive/engine-redesign-extension.md`](../archive/engine-redesign-extension.md). **E-03 and E-08 need a production ruling** ([open.md](open.md)).
+Original: [`../archive/engine-redesign-extension.md`](../archive/engine-redesign-extension.md). **E-03/E-08 production: 2026-08-14 reject CSP punch** ([open.md](open.md)). Archive E-08 “strip CSP” is **not** live policy.
 
 | Date | ID | Topic | Decision | V4 / cutover |
 |------|----|-------|----------|--------------|
 | 2026-08-12 | E-01 | Frame clock | No rAF; `FrameClock` contract; TimerFrameClock | **IN FORCE** (lab `frameClock`) |
 | 2026-08-12 | E-02 | Producer threading | Main thread only; defer emit; no historical frame queue | **IN FORCE** |
-| 2026-08-12 | E-03 | Data plane loopback WS + channels | `PlaneChannel` Frame/Telemetry/Control | **Lab uses this. Production ruling required (CSP).** |
+| 2026-08-12 | E-03 | Data plane loopback WS + channels | `PlaneChannel` Frame/Telemetry/Control | **Lab fixtures only.** Production: no page `connect()`. **2026-08-14** |
 | 2026-08-12 | E-04 | Op vocabulary | Affirm then-parent §5.4 | **SUPERSEDED** by frame-protocol opcode space |
 | 2026-08-12 | E-05 | Identity reverse map | WeakMap + WeakRef + FinalizationRegistry; no DOM identity writes | **IN FORCE** (`DomNodeTable`) |
 | 2026-08-12 | E-06 | ISR + double-buffer pointers | MO marks only; swap on clock | Producer: mutation buffer + tick. Client double-buffer is Stage 4 surface, not Frozen pointer |
 | 2026-08-12 | E-07 | Isolated World | Producer in isolated world | **IN FORCE** if inject still does this |
-| 2026-08-12 | E-08 | CSP / PNA bypass for E-03 | Strip CSP, PNA flags | **Ruling required** — real-site `connect-src` already failed |
+| 2026-08-12 | E-08 | CSP / PNA bypass for E-03 | Strip CSP, PNA flags | **SUPERSEDED 2026-08-14** — punch rejected (antibot). Keep site CSP. |
 | 2026-08-12 | E-09 | Slice order | Dual track oracles + engine | Lab oracles partial; O1/O4/O5 still open |
 | 2026-08-12 | E-10 | No absolute E2E ms as contract | Measure E1/E3/E5 | **IN FORCE** |
 | 2026-08-12 | E-11 | `virtual/` module layout | esbuild `virtual.js` | **IN FORCE** (lab tree) |

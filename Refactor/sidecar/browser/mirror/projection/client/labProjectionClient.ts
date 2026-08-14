@@ -59,8 +59,8 @@ const RESYNC_BACKOFF_MS = 300;
 const RESYNC_RESPONSE_TIMEOUT_MS = 5_000;
 
 export class LabProjectionClient {
-  private readonly persistentStrings = new PersistentStringTable();
-  private readonly assembler = new FramePartAssembler();
+  private persistentStrings = new PersistentStringTable();
+  private assembler = new FramePartAssembler();
   private readonly surface: SurfaceHost;
   private readonly onTelemetry?: (msg: Record<string, unknown>) => void;
   private readonly onArmedCb?: () => void;
@@ -130,6 +130,23 @@ export class LabProjectionClient {
       sequence: this.lastSequence,
       table: digestReplicatedTable(this.live.applier.replicatedTable),
     };
+  }
+
+  /** Lab UI: empty the projected iframe and reset apply state. Does not touch Virtual. */
+  resetSurface(): void {
+    this.abandonResyncAttempt();
+    this.resyncAttempts = 0;
+    this.resyncExhausted = false;
+    this.persistentStrings = new PersistentStringTable();
+    this.assembler = new FramePartAssembler();
+    this.lastSequence = 0;
+    this.generation = 1;
+    this.armed = false;
+    this.everArmed = false;
+    this.surface.reset();
+    const registry = new PageProjectionRegistry();
+    registry.register(DOCUMENT_ID, this.surface.document);
+    this.live = { applier: this.createApplier(this.surface.document, registry, true), registry };
   }
 
   ingest(bytes: Uint8Array): void {

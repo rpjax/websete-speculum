@@ -1,6 +1,11 @@
 /**
  * PageProjection V4 BrowserSession — Patchright Chromium + in-page producer + owned data plane.
- * Production PatchrightBrowserSession / LivePageProjection stay untouched until M1 cutover.
+ *
+ * **Temporary** until production cutover (`docs/page-projection/spec/roadmap.md` CUTOVER-SESSION). Replaces
+ * `PatchrightBrowserSession` / `LivePageProjection` that day — delete the dual path.
+ * Must grow to the **full** `BrowserSession` contract (input, cookies, eval, resize,
+ * permissions, probes, …) as V4 work, not by preserving legado. Lab-incomplete is not
+ * a cutover license.
  */
 
 import { chromium, type Browser, type BrowserContext, type CDPSession, type Page } from 'patchright';

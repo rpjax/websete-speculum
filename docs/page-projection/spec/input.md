@@ -7,14 +7,12 @@
 > as pre-V4 names; behaviour in the amended bullets still stands (no wire `click`, CDP-only dispatch,
 > inject chain, move collapsing, `setFiles`, disarm while desynced, two scroll intent types).
 
-**Status:** design complete (V1 contract) — **aligned with PageProjection seal**
-(I1–I5). Cutover rename with T11.
+**Status:** V1 contract **sealed as history of intent** (I1–I5). **Not** production-ready as-is.  
+**Ruling 2026-08-14:** input needs a **redesign** before production cutover ([roadmap.md](roadmap.md)). Do not treat T11 rename (`DomProjectionIntent` → `PageProjectionIntent`) as that redesign.
 
 > **Naming / supersession:** product mode/pipe is **PageProjection**
-> (`MirrorMode.PageProjection`), not `DomProjection`. **E2E rename includes
-> this input contract** — `DomProjectionIntent` → `PageProjectionIntent`,
-> telemetry `…PageProjection.Input.*`, mode checks, client/sidecar APIs (T11).
-> Sealed planes: [frame-protocol.md](frame-protocol.md), [cssom.md](cssom.md).
+> (`MirrorMode.PageProjection`), not `DomProjection`. E2E rename still applies
+> when the redesigned contract lands. Sealed planes: [frame-protocol.md](frame-protocol.md), [cssom.md](cssom.md).
 
 
 **Scope:** how user intent on the **Projected DOM** is captured, sent, and
@@ -693,6 +691,5 @@ Implementation follows this contract. Changes update §§3–8 and §17 first.
 | I4 | D16 form: intent immediate; debounce only conflicting upstream patch | **LOCKED** (§7) |
 | I5 | Addressing = `uint32` node id (+ coords); no `DomSelector` | **LOCKED** (§6.7) |
 
-**Input pipeline aligned with PageProjection seal.** Remaining work = T11
-cutover (rename + implement), not further input-behaviour debate.
+**Input pipeline I1–I5 is the V1 seal, not the ship bar.** Remaining work = **redesign** then implement, then production cutover ([roadmap.md](roadmap.md)). T11 rename alone is not enough.
 

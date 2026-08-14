@@ -22,7 +22,7 @@ npm run lab:projection
 # SPECULUM_LAB_HEADED=1 for visible Chrome
 ```
 
-Open http://127.0.0.1:4077/ → Connect → Start Virtual. Panels: Stream, Activity, Config, **Run**.
+Open http://127.0.0.1:4077/ → **Connect**. **Start Virtual** = browse (stays up until Stop). **Run** = reboot Virtual, timed probe, then **stops Virtual** (WS stays connected). **Clear surface** empties the projected iframe.
 
 ## Agent CLI
 

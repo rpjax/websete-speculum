@@ -1,5 +1,6 @@
 /**
- * Composition root — Patchright BrowserSession by default; mock when SPECULUM_BROWSER=mock.
+ * Composition root — Patchright BrowserSession (legacy Live) by default; mock when SPECULUM_BROWSER=mock.
+ * V4ProjectionBrowserSession is lab-only until cutover (then it must be this factory's complete session).
  */
 
 import * as http from 'http';

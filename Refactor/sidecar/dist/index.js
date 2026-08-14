@@ -1,6 +1,7 @@
 "use strict";
 /**
- * Composition root — Patchright BrowserSession by default; mock when SPECULUM_BROWSER=mock.
+ * Composition root — Patchright BrowserSession (legacy Live) by default; mock when SPECULUM_BROWSER=mock.
+ * V4ProjectionBrowserSession is lab-only until cutover (then it must be this factory's complete session).
  */
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;

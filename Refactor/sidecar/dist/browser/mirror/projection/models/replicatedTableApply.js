@@ -2,7 +2,7 @@
 /**
  * The single, shared "what table effect does this op have" interpreter — frame-protocol.md §4,
  * `Table` column of each instruction. One function, imported by both the producer (right after
- * it builds a tick's `ops`, `virtual/frame/tableFrameBuilder.ts`/`resync.ts`) and the client
+ * it builds a tick's `ops`, `virtual/dom/tableFrameBuilder.ts` / `virtual/dom/domResync.ts`) and the client
  * (Phase 1 of frame apply, `client/applyDom.ts`) — never two independent copies, for the same
  * reason `models/rowHash.ts` is shared: divergence between two hand-written interpretations of
  * "what INSERT does to the table" would defeat `preTableHash`/`CHECK` before they even run.
@@ -62,6 +62,41 @@ function applyOpToTable(table, op) {
             return;
         case opcodes_1.OpCode.TextSet:
             table.setValue(op.node, op.value);
+            return;
+        case opcodes_1.OpCode.SheetNew: {
+            const parent = op.hostNode === 0 ? frame_1.DOCUMENT_ID : op.hostNode;
+            if (!table.has(op.id))
+                table.createLeafRow(op.id, opcodes_1.NodeKind.Sheet, '');
+            table.insertBatch(parent, op.before, [op.id]);
+            return;
+        }
+        case opcodes_1.OpCode.SheetDrop:
+            for (let i = 0; i < op.ids.length; i++)
+                table.dropSubtree(op.ids[i]);
+            return;
+        case opcodes_1.OpCode.SheetOrder:
+            if (op.ids.length === 0)
+                return;
+            {
+                const first = table.getRow(op.ids[0]);
+                const parent = first === undefined || first.parent === 0 ? frame_1.DOCUMENT_ID : first.parent;
+                table.removeBatch(parent, op.ids);
+                table.insertBatch(parent, 0, op.ids);
+            }
+            return;
+        case opcodes_1.OpCode.RuleNew:
+            if (!table.has(op.id))
+                table.createLeafRow(op.id, opcodes_1.NodeKind.Rule, op.text);
+            else
+                table.setValue(op.id, op.text);
+            table.insertBatch(op.sheet, op.before, [op.id]);
+            return;
+        case opcodes_1.OpCode.RuleDrop:
+            for (let i = 0; i < op.ids.length; i++)
+                table.dropSubtree(op.ids[i]);
+            return;
+        case opcodes_1.OpCode.RuleSet:
+            table.setValue(op.id, op.text);
             return;
         default:
             return;
@@ -164,7 +199,9 @@ function applyFrameToTableChecked(table, resync, ops, sequence = 0) {
                 table.dropSubtree(op.ids[j]);
             continue;
         }
-        if (op.op === opcodes_1.OpCode.NodeNew && !table.has(op.id) && table.size >= limits_1.MAX_ROWS) {
+        if ((op.op === opcodes_1.OpCode.NodeNew || op.op === opcodes_1.OpCode.SheetNew || op.op === opcodes_1.OpCode.RuleNew) &&
+            !table.has(op.id) &&
+            table.size >= limits_1.MAX_ROWS) {
             return {
                 ok: false,
                 reason: 'precondition',

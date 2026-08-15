@@ -4,6 +4,7 @@
  */
 
 import { DOCUMENT_ID } from './frame';
+import { NodeKind } from './opcodes';
 import type { ReplicatedTable } from './replicatedTable';
 
 export type TableLiveDivergenceKind =
@@ -27,6 +28,22 @@ export type TableLiveOracleResult = {
 
 const MAX_DIVERGENCES = 50;
 const NONE = 0;
+
+function isCssomKind(kind: number): boolean {
+  return kind === NodeKind.Sheet || kind === NodeKind.Rule;
+}
+
+function orderedDomChildIds(table: ReplicatedTable, parent: number): number[] {
+  const all = table.orderedChildIds(parent);
+  const out: number[] = [];
+  for (let i = 0; i < all.length; i++) {
+    const id = all[i]!;
+    const row = table.getRow(id);
+    if (row !== undefined && isCssomKind(row.kind)) continue;
+    out.push(id);
+  }
+  return out;
+}
 
 function idsEqual(a: readonly number[], b: readonly number[]): boolean {
   if (a.length !== b.length) return false;
@@ -60,7 +77,7 @@ export function compareTableToLiveOrder(
   for (const parent of liveChildren.keys()) parents.add(parent);
 
   for (const parent of parents) {
-    const tableOrder = table.orderedChildIds(parent);
+    const tableOrder = orderedDomChildIds(table, parent);
     const liveOrder = liveChildren.get(parent) ?? [];
     if (!idsEqual(tableOrder, liveOrder)) {
       const hashed = table.countAttachedChildren(parent);
@@ -87,6 +104,7 @@ export function compareTableToLiveOrder(
 
   table.forEachRow((id, row) => {
     if (row.parent === NONE) return;
+    if (isCssomKind(row.kind)) return;
     const parentIsLive = row.parent === DOCUMENT_ID || liveIds.has(row.parent) || liveChildren.has(row.parent);
     if (!parentIsLive) return;
     if (!liveIds.has(id)) {

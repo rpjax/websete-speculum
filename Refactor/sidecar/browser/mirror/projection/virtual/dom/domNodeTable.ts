@@ -36,7 +36,7 @@ export class DomNodeTable {
    * already empty by construction — there is nothing to clear here, unlike `bumpGeneration()`.
    * This exists purely so a fresh instance reports the `generation` the orchestrator
    * (`V4ProjectionBrowserSession`) already knows this navigation is (via `ProjectionConfig.generation`),
-   * so `resyncVirtual`'s frame — and every ordinary tick after it — carries the right number for
+   * so a `rebuildAndResync` frame — and every ordinary tick after it — carries the right number for
    * `bootstrap.ts` to decide whether to prepend `EPOCH_RESET`.
    */
   setGeneration(generation: number): void {
@@ -108,11 +108,10 @@ export class DomNodeTable {
   }
 
   /**
-   * frame-protocol.md §5.8 `resyncVirtual` — clears the identity map so it can be rebuilt from a
-   * live walk. Unlike `bumpGeneration()`, this does NOT advance `generation`: `resync` is a
-   * same-generation "the client's copy is being replaced wholesale" signal, not an
-   * `EPOCH_RESET`. `nextKey` is left untouched, so freshly (re)allocated ids never collide with
-   * ids issued before the reset.
+   * frame-protocol.md §5.8 rebuild identity (`rebuildAndResync`) — clears the map so it can be
+   * rebuilt from a live walk. Unlike `bumpGeneration()`, this does NOT advance `generation`:
+   * `resync` is a same-generation wholesale replace, not `EPOCH_RESET`. `nextKey` is left
+   * untouched, so freshly (re)allocated ids never collide with ids issued before the reset.
    */
   resetIdentity(): void {
     this.byNode = new WeakMap<Node, DomNodeKey>();

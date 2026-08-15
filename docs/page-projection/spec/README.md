@@ -1,7 +1,7 @@
 # PageProjection spec (V4) — agent start here
 
 **Status:** official spec for `MirrorMode.PageProjection`.  
-**Accept bar:** [acceptance.md](acceptance.md) — absolute 1:1 parity with the original site.  
+**Accept bar:** [acceptance.md](acceptance.md) — 1:1 with the original site. **DOM** numerical; **CSSOM live** perceived/eventual (not 60 Hz lockstep).  
 **Protocol:** [frame-protocol.md](frame-protocol.md) — the V4 engine (replicated table, binary frames, two-phase apply, resync).  
 **Where you are:** lab engine under `Refactor/sidecar/browser/mirror/projection/` implements V4 **DOM table, single document** (Stages 1–4). Production (`PatchrightBrowserSession.ts`) still runs the **legacy** `LivePageProjection` path. `V4ProjectionBrowserSession` is the **temporary** lab `BrowserSession`; at cutover it must be **complete** (full contract, V4 implementations — not leftover legado) — [roadmap.md](roadmap.md) CUTOVER-SESSION. **Production cutover waits for the full product** (CSSOM + nested/multidocs + redesigned input).
 
@@ -19,6 +19,8 @@ If you are an agent with limited context: **read this file, then `acceptance.md`
 | Oracles O1–O5 | **[oracles.md](oracles.md)** |
 | Lab / probes / event telemetry vs asserts | **[observability.md](observability.md)** |
 | CSSOM materialization detail | **[cssom.md](cssom.md)** — opcodes live in frame-protocol §4.6 |
+| Lab CSSOM **poll algorithm** (worst-case-first; I3 copy-then-hash; does not relock C5) | **[cssom-poll-algorithm.md](cssom-poll-algorithm.md)** |
+| CSSOM sensor **journey** (two truths, why not hooks/CDP, foundation vs amortizations) | **[cssom-sensor-journey.md](cssom-sensor-journey.md)** |
 | Input intents | **[input.md](input.md)** — address by `uint32` only |
 | Asset serve plane | **[virtual-assets.md](virtual-assets.md)** |
 | Published product gaps | **[support-matrix.md](support-matrix.md)** |
@@ -43,8 +45,8 @@ If two live docs disagree on the protocol layer, **frame-protocol.md wins**. Do 
 | 5 | [frame-protocol.md](frame-protocol.md) | The engine |
 | 6 | [budgets.md](budgets.md) + [oracles.md](oracles.md) | If touching cost, CI, or accept |
 | 7 | [observability.md](observability.md) | If touching lab, telemetry events, probes, `report.json`, isomorphism |
-| 8 | Adjacent layer file | cssom / input / virtual-assets / support-matrix / test-matrix |
-| 9 | [decision-log.md](decision-log.md) | Only when you need *why* |
+| 8 | Adjacent layer file | cssom / **cssom-poll-algorithm** / **cssom-sensor-journey** / input / virtual-assets / support-matrix / test-matrix |
+| 9 | [decision-log.md](decision-log.md) | Index; full CSSOM *why* is [cssom-sensor-journey.md](cssom-sensor-journey.md) |
 
 ---
 
@@ -61,6 +63,8 @@ docs/page-projection/
     oracles.md              O1–O5
     observability.md        probes vs events; coherent snapshot; lab as caller
     cssom.md                CSSOM plane (materialize)
+    cssom-poll-algorithm.md lab poll sensor (I1–I11)
+    cssom-sensor-journey.md why this detector; two truths; rulings
     input.md                Projected → Virtual intents
     virtual-assets.md       URL serve plane
     support-matrix.md       accepted product gaps

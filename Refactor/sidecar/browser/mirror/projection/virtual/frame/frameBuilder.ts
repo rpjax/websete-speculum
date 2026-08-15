@@ -1,6 +1,6 @@
 /**
  * MutationRecord batch → logical Frame port (frame-protocol.md §5).
- * Impls in this folder: {@link TableFrameBuilder}, …
+ * Impl: {@link TableFrameBuilder} in `virtual/dom/` (DOM drain). This folder is the pipe.
  */
 
 import type { Frame } from '../../models/frame';
@@ -15,6 +15,8 @@ export type FrameBuildStats = {
   opCounts: Record<string, number>;
   /** Wall-clock cost of `build()` for the frame these stats belong to. */
   buildMs: number;
+  tableSize: number;
+  identitySize: number;
 };
 
 export type FrameBuilder = {

@@ -37,7 +37,7 @@ Prints the path to `lab-runs/<timestamp>-<slug>/report.json` (start diagnosis th
 
 **JS animation fixtures:** `fixtures/anim-js.html?fps=60` and `?fps=30` — same choreography in real seconds (smoothness, not speed). Motion is `style.transform` every tick so the producer sees `ATTR_SET`; CSS `@keyframes` would not hit MutationObserver.
 
-**CSSOM poll cost (no wire ops yet):** `fixtures/cssom-scale.html?n=5000&mode=static|styleSet|insertRule`. Instagram-shaped: `n=14244&sheets=10&nested=2466`. Poll 5 Hz. `report.json` → `metrics.cssomPoll` (`pollMs`, `identityWalkMs`, `cssTextSerializeMs`, `lastTopLevelRulesSerialized`). Not Projected CSS parity.
+**CSSOM poll (ops on wire, no C6 apply):** idle `requestIdleCallback` I3 walk, attach on next frame tick (CSSOM-only frames allowed); resync blocking-scans a full CSSOM snapshot. Design: `docs/page-projection/spec/cssom-poll-algorithm.md`. Fixture `cssom-scale.html?n=5000` / Instagram-shaped `n=14244&sheets=10&nested=2466`. `report.json` → `metrics.cssomPoll`. Frames with `0xA0–0xA5` must decode (not `malformed`). Not Projected CSS parity. `flushAndSnapshot` CSSOM default `none`.
 Exit `0` if every requested check is `pass` or explicit `skipped`; `1` if any `fail`.
 Prefer the positional form on Windows — npm may swallow dashed flags (`--url`, `--iso`). Words without dashes still work: `iso`, `cpu`, `headed`.
 
@@ -46,7 +46,7 @@ Prefer the positional form on Windows — npm may swallow dashed flags (`--url`,
 | `--url` or 1st positional | `http(s)://…` or `fixtures/<file>` |
 | `--duration` or 2nd positional | `15000` / `15s` / `1m` |
 | `--cpu` or `cpu` | CDP CPU probe |
-| `--iso` or `iso` | coherent snapshot at S: Virtual O2 + **Node table×table** (`applyFrameToTableChecked` in the CLI process). Tree×tree needs the UI DOM apply (4077); skipped on CLI. Not Projected / not a second Chromium. |
+| `--iso` or `iso` | coherent snapshot at S: Virtual DOM O2 + **CSSOM O2** (`cssom: 'scan'`, verdict `isomorphism.cssom`) + **Node table×table**. Tree×tree needs the UI DOM apply (4077); skipped on CLI. Not Projected CSS / not C6 / not a second Chromium. |
 | `--no-invariants` | skip wire monitor |
 | `--telemetry off` | inject default-off caps |
 | `--headed` | visible Chrome |
@@ -75,6 +75,6 @@ session/
 ```
 
 **Probes vs telemetry.** Spec: [docs/page-projection/spec/observability.md](../../../../../../docs/page-projection/spec/observability.md).
-CLI `--iso` proves Virtual O2 + digest at S **and** table×table against a Node `ReplicatedTable` in the CLI process (same `applyFrameToTableChecked` as client phase 1). Tree×tree / DOM apply stay `skipped` (no second browser; UI at 4077 still has the live apply). That Node table is **not** Projected. O1/O4/O5 are not implemented. Event telemetry is time-series only. `FrameInvariantMonitor` is wire-bytes only.
+CLI `--iso` proves Virtual DOM O2 + digest at S, CSSOM table×live (`isomorphism.cssom`; not Projected, not C6), **and** table×table against a Node `ReplicatedTable` in the CLI process (same `applyFrameToTableChecked` as client phase 1). Tree×tree / DOM apply stay `skipped` (no second browser; UI at 4077 still has the live apply). That Node table is **not** Projected. O1/O4/O5 are not implemented. Event telemetry is time-series only. `FrameInvariantMonitor` is wire-bytes only.
 
 **Halt iso is blind to same-tick ephemerals on the wire** (stress-churn stacked digits, 2026-08-14 — Virtual clean, Projected glued mid-run, halt tree including text identical). Drain prune is PP-FR-1 in `tableFrameBuilder.ts`. Narrative: [observability.md](../../../../../../docs/page-projection/spec/observability.md) §8.

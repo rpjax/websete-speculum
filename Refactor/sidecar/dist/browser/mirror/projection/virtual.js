@@ -138,6 +138,29 @@
     }
   };
 
+  // browser/mirror/projection/models/opcodes.ts
+  var NAMES = {
+    [1 /* Check */]: "check",
+    [2 /* EpochReset */]: "epochReset",
+    [3 /* StrDef */]: "strDef",
+    [32 /* NodeNew */]: "nodeNew",
+    [33 /* NodeDrop */]: "nodeDrop",
+    [64 /* Insert */]: "insert",
+    [65 /* Remove */]: "remove",
+    [96 /* AttrSet */]: "attrSet",
+    [97 /* AttrDel */]: "attrDel",
+    [98 /* TextSet */]: "textSet",
+    [160 /* SheetNew */]: "sheetNew",
+    [161 /* SheetDrop */]: "sheetDrop",
+    [162 /* SheetOrder */]: "sheetOrder",
+    [163 /* RuleNew */]: "ruleNew",
+    [164 /* RuleDrop */]: "ruleDrop",
+    [165 /* RuleSet */]: "ruleSet"
+  };
+  function opCodeName(code) {
+    return NAMES[code] ?? `unknown(${code})`;
+  }
+
   // browser/mirror/projection/models/telemetry.ts
   var DEFAULT_TELEMETRY_CONFIG = {
     enabled: false,
@@ -162,6 +185,78 @@
     "clock",
     "cssomPoll"
   ];
+  function emptyCssomPollStats() {
+    return {
+      source: "idle",
+      sequence: 0,
+      pollMs: 0,
+      identityWalkMs: 0,
+      cssTextSerializeMs: 0,
+      readableSheetCount: 0,
+      unreadableSheetCount: 0,
+      topLevelRulesVisited: 0,
+      topLevelRulesSerialized: 0,
+      styleTagTextUnchangedSheets: 0,
+      rulesAppeared: 0,
+      rulesDisappeared: 0,
+      rulesTextChangedInPlace: 0,
+      sheetsWithRuleListChanged: 0,
+      sheetsAborted: 0,
+      slotsSkipped: 0,
+      idleSlices: 0,
+      opCount: 0,
+      opSheetNew: 0,
+      opSheetDrop: 0,
+      opSheetOrder: 0,
+      opRuleNew: 0,
+      opRuleDrop: 0,
+      opRuleSet: 0
+    };
+  }
+  function countCssomOps(ops) {
+    let opSheetNew = 0;
+    let opSheetDrop = 0;
+    let opSheetOrder = 0;
+    let opRuleNew = 0;
+    let opRuleDrop = 0;
+    let opRuleSet = 0;
+    for (let i = 0; i < ops.length; i++) {
+      switch (ops[i].op) {
+        case 160 /* SheetNew */:
+          opSheetNew += 1;
+          break;
+        case 161 /* SheetDrop */:
+          opSheetDrop += 1;
+          break;
+        case 162 /* SheetOrder */:
+          opSheetOrder += 1;
+          break;
+        case 163 /* RuleNew */:
+          opRuleNew += 1;
+          break;
+        case 164 /* RuleDrop */:
+          opRuleDrop += 1;
+          break;
+        case 165 /* RuleSet */:
+          opRuleSet += 1;
+          break;
+        default:
+          break;
+      }
+    }
+    return {
+      opCount: opSheetNew + opSheetDrop + opSheetOrder + opRuleNew + opRuleDrop + opRuleSet,
+      opSheetNew,
+      opSheetDrop,
+      opSheetOrder,
+      opRuleNew,
+      opRuleDrop,
+      opRuleSet
+    };
+  }
+  function stampCssomPoll(stats, patch) {
+    return { ...stats, ...patch };
+  }
 
   // browser/mirror/projection/virtual/config/projectionConfig.ts
   var PROJECTION_CONFIG_GLOBAL = "__SPECULUM_PROJECTION__";
@@ -342,7 +437,7 @@
      * already empty by construction — there is nothing to clear here, unlike `bumpGeneration()`.
      * This exists purely so a fresh instance reports the `generation` the orchestrator
      * (`V4ProjectionBrowserSession`) already knows this navigation is (via `ProjectionConfig.generation`),
-     * so `resyncVirtual`'s frame — and every ordinary tick after it — carries the right number for
+     * so a `rebuildAndResync` frame — and every ordinary tick after it — carries the right number for
      * `bootstrap.ts` to decide whether to prepend `EPOCH_RESET`.
      */
     setGeneration(generation) {
@@ -404,11 +499,10 @@
       return this.currentGeneration;
     }
     /**
-     * frame-protocol.md §5.8 `resyncVirtual` — clears the identity map so it can be rebuilt from a
-     * live walk. Unlike `bumpGeneration()`, this does NOT advance `generation`: `resync` is a
-     * same-generation "the client's copy is being replaced wholesale" signal, not an
-     * `EPOCH_RESET`. `nextKey` is left untouched, so freshly (re)allocated ids never collide with
-     * ids issued before the reset.
+     * frame-protocol.md §5.8 rebuild identity (`rebuildAndResync`) — clears the map so it can be
+     * rebuilt from a live walk. Unlike `bumpGeneration()`, this does NOT advance `generation`:
+     * `resync` is a same-generation wholesale replace, not `EPOCH_RESET`. `nextKey` is left
+     * untouched, so freshly (re)allocated ids never collide with ids issued before the reset.
      */
     resetIdentity() {
       this.byNode = /* @__PURE__ */ new WeakMap();
@@ -423,28 +517,12 @@
     }
   };
 
-  // browser/mirror/projection/models/opcodes.ts
-  var NAMES = {
-    [1 /* Check */]: "check",
-    [2 /* EpochReset */]: "epochReset",
-    [3 /* StrDef */]: "strDef",
-    [32 /* NodeNew */]: "nodeNew",
-    [33 /* NodeDrop */]: "nodeDrop",
-    [64 /* Insert */]: "insert",
-    [65 /* Remove */]: "remove",
-    [96 /* AttrSet */]: "attrSet",
-    [97 /* AttrDel */]: "attrDel",
-    [98 /* TextSet */]: "textSet"
-  };
-  function opCodeName(code) {
-    return NAMES[code] ?? `unknown(${code})`;
-  }
-
   // browser/mirror/projection/models/frame.ts
   var FRAME_WIRE_VERSION = 1;
   var DOCUMENT_ID = 1;
   var INSERT_AT_END = 0;
   var CHECK_SCOPE_TABLE = 0;
+  var CSSOM_SCOPE_MAIN = 0;
   function createFrame(args) {
     return {
       version: FRAME_WIRE_VERSION,
@@ -454,6 +532,14 @@
       preTableHash: args.preTableHash ?? 0n,
       ops: args.ops
     };
+  }
+  function spliceCssomBeforeCheck(ops, cssom) {
+    if (cssom.length === 0) return ops;
+    const last = ops[ops.length - 1];
+    if (last !== void 0 && last.op === 1 /* Check */) {
+      return [...ops.slice(0, -1), ...cssom, last];
+    }
+    return [...ops, ...cssom];
   }
 
   // browser/mirror/projection/models/rowHash.ts
@@ -555,7 +641,7 @@
       return this.tracker.value;
     }
     /**
-     * Call once per frame before applying its ops (producer: `tableFrameBuilder.ts`/`resync.ts`;
+     * Call once per frame before applying its ops (producer: `tableFrameBuilder.ts` / `domResync.ts`;
      * client: `replicatedTableApply.ts`) — every row touched by a subsequent op this pass stamps
      * `lms` with this value (§1.3/§4: "every instruction that touches a row sets that row's
      * `lms = sequence`"). Not part of `rowHash`/`tableHash` (§1.5) — diagnostics/GC only (§1.6).
@@ -1044,6 +1130,18 @@
           return this.writeAttrDel(w, op);
         case 98 /* TextSet */:
           return this.writeTextSet(w, op);
+        case 160 /* SheetNew */:
+          return this.writeSheetNew(w, op);
+        case 161 /* SheetDrop */:
+          return this.writeSheetDrop(w, op);
+        case 162 /* SheetOrder */:
+          return this.writeSheetOrder(w, op);
+        case 163 /* RuleNew */:
+          return this.writeRuleNew(w, op);
+        case 164 /* RuleDrop */:
+          return this.writeRuleDrop(w, op);
+        case 165 /* RuleSet */:
+          return this.writeRuleSet(w, op);
         default:
           throw new Error(`BinaryFrameEncoder: unsupported op ${String(op.op)}`);
       }
@@ -1116,191 +1214,42 @@
       w.u32(op.node);
       this.writeStrRef(w, op.value);
     }
-  };
-
-  // browser/mirror/projection/virtual/frame/frameEmitter.ts
-  var IDLE_SWEEP_INTERVAL_TICKS = 30;
-  var FrameEmitter = class {
-    clock;
-    buffer;
-    builder;
-    encoder;
-    transport;
-    domNodes;
-    table;
-    telemetry;
-    pullPendingMutations;
-    sequence = 0;
-    idleTicks = 0;
-    pendingFrame = null;
-    pendingParts = null;
-    pendingPartIndex = 0;
-    pendingRecords = null;
-    pendingResyncBuild = null;
-    constructor(opts) {
-      this.clock = opts.clock;
-      this.buffer = opts.buffer;
-      this.builder = opts.builder;
-      this.encoder = opts.encoder;
-      this.transport = opts.transport;
-      this.domNodes = opts.domNodes;
-      this.table = opts.table;
-      this.telemetry = opts.telemetry ?? null;
-      this.pullPendingMutations = opts.pullPendingMutations ?? null;
+    writeIdList(w, ids) {
+      w.u16(ids.length);
+      for (let i = 0; i < ids.length; i++) w.u32(ids[i]);
     }
-    start() {
-      this.clock.start(() => this.onBoundary());
+    /** §4.6 — `id u32, scope u8, hostNode u32, before u32`. */
+    writeSheetNew(w, op) {
+      w.u8(160 /* SheetNew */);
+      w.u32(op.id);
+      w.u8(op.scope);
+      w.u32(op.hostNode);
+      w.u32(op.before);
     }
-    stop() {
-      this.clock.stop();
+    writeSheetDrop(w, op) {
+      w.u8(161 /* SheetDrop */);
+      this.writeIdList(w, op.ids);
     }
-    /**
-     * Drain / build / send one frame without waiting for the clock (halt+flush / isomorphism).
-     * Safe while the clock is stopped.
-     */
-    flushNow() {
-      this.onBoundary();
+    writeSheetOrder(w, op) {
+      w.u8(162 /* SheetOrder */);
+      this.writeIdList(w, op.ids);
     }
-    get currentSequence() {
-      return this.sequence;
+    writeRuleNew(w, op) {
+      w.u8(163 /* RuleNew */);
+      w.u32(op.sheet);
+      w.u32(op.id);
+      w.u32(op.before);
+      this.writeStrRef(w, op.text);
     }
-    /**
-     * Sends a frame built outside the ordinary clock-driven path — bootstrap's `resyncVirtual`
-     * (frame-protocol.md §5.1/§5.8), before `start()` has ever run. Retries a deferred transport
-     * with a short async spin rather than `onBoundary`'s defer-until-next-tick, because there is no
-     * clock ticking yet to drive that retry. Sets `this.sequence` on success so the first
-     * clock-driven frame continues numbering from here, not from 0.
-     */
-    async sendInitial(frame) {
-      const parts = this.encoder.encode(frame);
-      if (parts.length === 0) return;
-      for (let i = 0; i < parts.length; i++) {
-        const bytes = parts[i];
-        let result = this.transport.send(bytes);
-        let spins = 0;
-        while (result === "deferred" && spins < 50) {
-          await new Promise((resolve) => setTimeout(resolve, 20));
-          result = this.transport.send(bytes);
-          spins += 1;
-        }
-      }
-      let totalBytes = 0;
-      for (let i = 0; i < parts.length; i++) totalBytes += parts[i].length;
-      this.telemetry?.recordFrameEmitted({
-        generation: frame.generation,
-        sequence: frame.sequence,
-        opCount: frame.ops.length,
-        partCount: parts.length,
-        bytes: totalBytes,
-        tableSize: this.table.size,
-        identitySize: this.domNodes.size,
-        buildMs: 0,
-        encodeMs: 0
-      });
-      this.sequence = frame.sequence;
+    writeRuleDrop(w, op) {
+      w.u8(164 /* RuleDrop */);
+      w.u32(op.sheet);
+      this.writeIdList(w, op.ids);
     }
-    /**
-     * Stage 4 (frame-protocol-production-completeness) — client-initiated resync, frame-protocol.md
-     * §5.8 step 1, "Halt": queues `build` to run at the next tick boundary *instead of* the ordinary
-     * mutation-buffer-driven build, and returns immediately — the caller (`bootstrap.ts`'s
-     * `PlaneChannel.Control` handler) never awaits this, matching §5.8's "no `await` between any
-     * step" atomicity requirement for whichever synchronous DOM/map read `build` itself performs.
-     *
-     * No separate pause/resume primitive on `clock`/`buffer` exists or is needed: `emitResyncFrame`
-     * is itself fully synchronous, and this method's caller only ever runs between ticks (JS
-     * run-to-completion), so there is no way for an ordinary `onBoundary()` build to interleave with
-     * it regardless. "Halt" reduces to *which* build `onBoundary()` runs at its next boundary — the
-     * mutation buffer is simply not drained that tick, so nothing buffered is lost or double-counted
-     * (§5.8 step 1: "the MutationObserver keeps recording ... nothing is lost, it simply waits").
-     *
-     * If a previously-built frame is still mid-send (`pendingParts` non-null, transport backpressure
-     * — §5.3), the resync build is stashed and only serviced once that frame's own parts finish
-     * draining (`trySendPending`'s own completion falls through to the next `onBoundary()`, which
-     * checks this field first) — this never interleaves one frame's parts with another's on the wire.
-     */
-    requestResync(build) {
-      this.pendingResyncBuild = build;
-    }
-    onBoundary() {
-      this.pullPendingMutations?.();
-      if (this.pendingParts !== null && this.pendingFrame !== null) {
-        this.trySendPending();
-        return;
-      }
-      if (this.pendingResyncBuild !== null) {
-        const build = this.pendingResyncBuild;
-        this.pendingResyncBuild = null;
-        this.idleTicks = 0;
-        this.builder.takeBuildStats?.();
-        const frame2 = build(this.sequence + 1);
-        const parts2 = this.encoder.encode(frame2);
-        if (parts2.length === 0) return;
-        this.pendingFrame = frame2;
-        this.pendingParts = parts2;
-        this.pendingPartIndex = 0;
-        this.pendingRecords = null;
-        this.trySendPending();
-        return;
-      }
-      const hasWork = this.buffer.hasWork();
-      if (!hasWork) {
-        this.idleTicks += 1;
-        if (this.idleTicks < IDLE_SWEEP_INTERVAL_TICKS) return;
-      }
-      this.idleTicks = 0;
-      const records = hasWork ? this.buffer.drain() : [];
-      const nextSequence = this.sequence + 1;
-      const frame = this.builder.build(records, {
-        generation: this.domNodes.generation,
-        sequence: nextSequence
-      });
-      const unconsumed = this.builder.takeUnconsumedRecords?.();
-      if (unconsumed && unconsumed.length > 0) this.buffer.reclaim(unconsumed);
-      if (frame === null) return;
-      const parts = this.encoder.encode(frame);
-      if (parts.length === 0) return;
-      this.pendingFrame = frame;
-      this.pendingParts = parts;
-      this.pendingPartIndex = 0;
-      this.pendingRecords = null;
-      this.trySendPending();
-    }
-    trySendPending() {
-      const parts = this.pendingParts;
-      const frame = this.pendingFrame;
-      if (parts === null || frame === null) return;
-      while (this.pendingPartIndex < parts.length) {
-        const bytes = parts[this.pendingPartIndex];
-        const result = this.transport.send(bytes);
-        if (result === "deferred") {
-          this.telemetry?.recordTransportDeferred({
-            generation: frame.generation,
-            sequence: frame.sequence,
-            pendingParts: parts.length - this.pendingPartIndex
-          });
-          return;
-        }
-        this.pendingPartIndex += 1;
-      }
-      let totalBytes = 0;
-      for (let i = 0; i < parts.length; i++) totalBytes += parts[i].length;
-      const stats = this.builder.takeBuildStats?.() ?? null;
-      this.telemetry?.recordFrameEmitted({
-        generation: frame.generation,
-        sequence: frame.sequence,
-        opCount: frame.ops.length,
-        partCount: parts.length,
-        bytes: totalBytes,
-        tableSize: this.table.size,
-        identitySize: this.domNodes.size,
-        buildMs: stats?.buildMs ?? 0,
-        encodeMs: 0
-      });
-      this.sequence = frame.sequence;
-      this.pendingFrame = null;
-      this.pendingParts = null;
-      this.pendingPartIndex = 0;
-      this.pendingRecords = null;
+    writeRuleSet(w, op) {
+      w.u8(165 /* RuleSet */);
+      w.u32(op.id);
+      this.writeStrRef(w, op.text);
     }
   };
 
@@ -1343,6 +1292,35 @@
       case 98 /* TextSet */:
         table.setValue(op.node, op.value);
         return;
+      case 160 /* SheetNew */: {
+        const parent = op.hostNode === 0 ? DOCUMENT_ID : op.hostNode;
+        if (!table.has(op.id)) table.createLeafRow(op.id, 4 /* Sheet */, "");
+        table.insertBatch(parent, op.before, [op.id]);
+        return;
+      }
+      case 161 /* SheetDrop */:
+        for (let i = 0; i < op.ids.length; i++) table.dropSubtree(op.ids[i]);
+        return;
+      case 162 /* SheetOrder */:
+        if (op.ids.length === 0) return;
+        {
+          const first = table.getRow(op.ids[0]);
+          const parent = first === void 0 || first.parent === 0 ? DOCUMENT_ID : first.parent;
+          table.removeBatch(parent, op.ids);
+          table.insertBatch(parent, 0, op.ids);
+        }
+        return;
+      case 163 /* RuleNew */:
+        if (!table.has(op.id)) table.createLeafRow(op.id, 5 /* Rule */, op.text);
+        else table.setValue(op.id, op.text);
+        table.insertBatch(op.sheet, op.before, [op.id]);
+        return;
+      case 164 /* RuleDrop */:
+        for (let i = 0; i < op.ids.length; i++) table.dropSubtree(op.ids[i]);
+        return;
+      case 165 /* RuleSet */:
+        table.setValue(op.id, op.text);
+        return;
       default:
         return;
     }
@@ -1351,7 +1329,194 @@
     for (let i = 0; i < ops.length; i++) applyOpToTable(table, ops[i]);
   }
 
-  // browser/mirror/projection/virtual/frame/domNodeDescribe.ts
+  // browser/mirror/projection/virtual/frame/frameEmitter.ts
+  var IDLE_SWEEP_INTERVAL_TICKS = 30;
+  var FrameEmitter = class {
+    clock;
+    buffer;
+    builder;
+    encoder;
+    transport;
+    census;
+    telemetry;
+    pullPendingMutations;
+    takePendingCssom;
+    table;
+    sequence = 0;
+    idleTicks = 0;
+    pendingFrame = null;
+    pendingParts = null;
+    pendingPartIndex = 0;
+    pendingRecords = null;
+    pendingResyncBuild = null;
+    constructor(opts) {
+      this.clock = opts.clock;
+      this.buffer = opts.buffer;
+      this.builder = opts.builder;
+      this.encoder = opts.encoder;
+      this.transport = opts.transport;
+      this.census = opts.census;
+      this.telemetry = opts.telemetry ?? null;
+      this.pullPendingMutations = opts.pullPendingMutations ?? null;
+      this.takePendingCssom = opts.takePendingCssom ?? null;
+      this.table = opts.table ?? null;
+    }
+    start() {
+      this.clock.start(() => this.onBoundary());
+    }
+    stop() {
+      this.clock.stop();
+    }
+    flushNow() {
+      this.onBoundary();
+    }
+    get currentSequence() {
+      return this.sequence;
+    }
+    async sendInitial(frame) {
+      const parts = this.encoder.encode(frame);
+      if (parts.length === 0) return;
+      for (let i = 0; i < parts.length; i++) {
+        const bytes = parts[i];
+        let result = this.transport.send(bytes);
+        let spins = 0;
+        while (result === "deferred" && spins < 50) {
+          await new Promise((resolve) => setTimeout(resolve, 20));
+          result = this.transport.send(bytes);
+          spins += 1;
+        }
+      }
+      let totalBytes = 0;
+      for (let i = 0; i < parts.length; i++) totalBytes += parts[i].length;
+      const snap = this.census();
+      this.telemetry?.recordFrameEmitted({
+        generation: frame.generation,
+        sequence: frame.sequence,
+        opCount: frame.ops.length,
+        partCount: parts.length,
+        bytes: totalBytes,
+        tableSize: snap.tableSize,
+        identitySize: snap.identitySize,
+        buildMs: 0,
+        encodeMs: 0
+      });
+      this.sequence = frame.sequence;
+    }
+    requestResync(build) {
+      this.pendingResyncBuild = build;
+    }
+    onBoundary() {
+      this.pullPendingMutations?.();
+      if (this.pendingParts !== null && this.pendingFrame !== null) {
+        this.trySendPending();
+        return;
+      }
+      if (this.pendingResyncBuild !== null) {
+        const build = this.pendingResyncBuild;
+        this.pendingResyncBuild = null;
+        this.idleTicks = 0;
+        this.builder.takeBuildStats?.();
+        const frame2 = build(this.sequence + 1);
+        const parts2 = this.encoder.encode(frame2);
+        if (parts2.length === 0) return;
+        this.pendingFrame = frame2;
+        this.pendingParts = parts2;
+        this.pendingPartIndex = 0;
+        this.pendingRecords = null;
+        this.trySendPending();
+        return;
+      }
+      const cssom = this.takePendingCssom?.() ?? null;
+      const cssomOps = cssom?.ops ?? [];
+      const hasDomWork = this.buffer.hasWork();
+      if (!hasDomWork && cssomOps.length === 0) {
+        this.idleTicks += 1;
+        if (this.idleTicks < IDLE_SWEEP_INTERVAL_TICKS) {
+          if (cssom !== null) {
+            this.telemetry?.recordCssomPoll(stampCssomPoll(cssom.stats, { sequence: 0 }));
+          }
+          return;
+        }
+      }
+      this.idleTicks = 0;
+      const records = hasDomWork ? this.buffer.drain() : [];
+      const nextSequence = this.sequence + 1;
+      if (cssom !== null) {
+        this.telemetry?.recordCssomPoll(stampCssomPoll(cssom.stats, { sequence: nextSequence }));
+      }
+      const snap = this.census();
+      const preTableHash = this.table?.tableHash ?? 0n;
+      const built = this.builder.build(records, {
+        generation: snap.generation,
+        sequence: nextSequence
+      });
+      const unconsumed = this.builder.takeUnconsumedRecords?.();
+      if (unconsumed && unconsumed.length > 0) this.buffer.reclaim(unconsumed);
+      let ops = built?.ops ?? [];
+      ops = spliceCssomBeforeCheck(ops, cssomOps);
+      if (cssomOps.length > 0 && this.table !== null) {
+        applyOpsToTable(this.table, cssomOps);
+      }
+      const last = ops[ops.length - 1];
+      if (last !== void 0 && last.op === 1 /* Check */ && this.table !== null) {
+        last.hash = this.table.tableHash;
+      }
+      if (ops.length === 0) return;
+      const frame = built === null ? createFrame({
+        generation: snap.generation,
+        sequence: nextSequence,
+        ops,
+        preTableHash
+      }) : { ...built, ops };
+      const parts = this.encoder.encode(frame);
+      if (parts.length === 0) return;
+      this.pendingFrame = frame;
+      this.pendingParts = parts;
+      this.pendingPartIndex = 0;
+      this.pendingRecords = null;
+      this.trySendPending();
+    }
+    trySendPending() {
+      const parts = this.pendingParts;
+      const frame = this.pendingFrame;
+      if (parts === null || frame === null) return;
+      while (this.pendingPartIndex < parts.length) {
+        const bytes = parts[this.pendingPartIndex];
+        const result = this.transport.send(bytes);
+        if (result === "deferred") {
+          this.telemetry?.recordTransportDeferred({
+            generation: frame.generation,
+            sequence: frame.sequence,
+            pendingParts: parts.length - this.pendingPartIndex
+          });
+          return;
+        }
+        this.pendingPartIndex += 1;
+      }
+      let totalBytes = 0;
+      for (let i = 0; i < parts.length; i++) totalBytes += parts[i].length;
+      const stats = this.builder.takeBuildStats?.() ?? null;
+      const snap = this.census();
+      this.telemetry?.recordFrameEmitted({
+        generation: frame.generation,
+        sequence: frame.sequence,
+        opCount: frame.ops.length,
+        partCount: parts.length,
+        bytes: totalBytes,
+        tableSize: stats?.tableSize ?? snap.tableSize,
+        identitySize: stats?.identitySize ?? snap.identitySize,
+        buildMs: stats?.buildMs ?? 0,
+        encodeMs: 0
+      });
+      this.sequence = frame.sequence;
+      this.pendingFrame = null;
+      this.pendingParts = null;
+      this.pendingPartIndex = 0;
+      this.pendingRecords = null;
+    }
+  };
+
+  // browser/mirror/projection/virtual/dom/domNodeDescribe.ts
   function nodeKindOf(node) {
     switch (node.nodeType) {
       case Node.ELEMENT_NODE:
@@ -1386,8 +1551,13 @@
     return { op: 32 /* NodeNew */, id, kind, value: node.textContent ?? "" };
   }
 
-  // browser/mirror/projection/virtual/frame/resync.ts
-  function emitResyncFrame(domNodes, table, generation, sequence) {
+  // browser/mirror/projection/virtual/dom/domResync.ts
+  function rebuildDomIdentity(domNodes, root = document) {
+    domNodes.resetIdentity();
+    domNodes.bind(root, DOCUMENT_ID);
+    allocateConnectedSubtree(root, domNodes);
+  }
+  function describeDomResync(domNodes) {
     const ops = [];
     for (const [id, node] of domNodes.liveEntries()) {
       if (id === DOCUMENT_ID) continue;
@@ -1410,18 +1580,7 @@
       }
       if (ids.length > 0) ops.push({ op: 64 /* Insert */, parent: id, before: INSERT_AT_END, ids });
     }
-    table.reset();
-    table.setSequence(sequence);
-    applyOpsToTable(table, ops);
-    ops.push({ op: 1 /* Check */, scope: CHECK_SCOPE_TABLE, lo: 0, hi: 0, hash: table.tableHash });
-    return createFrame({ generation, sequence, ops, resync: true, preTableHash: 0n });
-  }
-  function resyncVirtual(domNodes, table, sequence) {
-    const generation = domNodes.generation;
-    domNodes.resetIdentity();
-    domNodes.bind(document, DOCUMENT_ID);
-    allocateConnectedSubtree(document, domNodes);
-    return emitResyncFrame(domNodes, table, generation, sequence);
+    return ops;
   }
   function allocateConnectedSubtree(root, domNodes) {
     const children = root.childNodes;
@@ -1432,7 +1591,298 @@
     }
   }
 
-  // browser/mirror/projection/virtual/frame/tableFrameBuilder.ts
+  // browser/mirror/projection/virtual/resync.ts
+  function emitResyncFrame(planes, sequence) {
+    const { domNodes, table, cssom } = planes;
+    const generation = domNodes.generation;
+    const domOps = describeDomResync(domNodes);
+    const cssomScan = cssom.blockingScan();
+    const ops = [...domOps, ...cssomScan.ops];
+    table.reset();
+    table.setSequence(sequence);
+    applyOpsToTable(table, ops);
+    ops.push({ op: 1 /* Check */, scope: CHECK_SCOPE_TABLE, lo: 0, hi: 0, hash: table.tableHash });
+    return {
+      frame: createFrame({ generation, sequence, ops, resync: true, preTableHash: 0n }),
+      cssom: stampCssomPoll(cssomScan.stats, { source: "resync", sequence })
+    };
+  }
+  function rebuildAndResync(planes, sequence) {
+    rebuildDomIdentity(planes.domNodes);
+    return emitResyncFrame(planes, sequence);
+  }
+
+  // browser/mirror/projection/models/tableDigest.ts
+  function digestReplicatedTable(table) {
+    return { rowCount: table.size, tableHash: table.tableHash.toString() };
+  }
+
+  // browser/mirror/projection/models/tableLiveOracle.ts
+  var MAX_DIVERGENCES = 50;
+  var NONE2 = 0;
+  function isCssomKind(kind) {
+    return kind === 4 /* Sheet */ || kind === 5 /* Rule */;
+  }
+  function orderedDomChildIds(table, parent) {
+    const all = table.orderedChildIds(parent);
+    const out = [];
+    for (let i = 0; i < all.length; i++) {
+      const id = all[i];
+      const row = table.getRow(id);
+      if (row !== void 0 && isCssomKind(row.kind)) continue;
+      out.push(id);
+    }
+    return out;
+  }
+  function idsEqual(a, b) {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      if (a[i] !== b[i]) return false;
+    }
+    return true;
+  }
+  function compareTableToLiveOrder(table, liveChildren) {
+    const divergences = [];
+    let count = 0;
+    const record = (path, kind, details) => {
+      count += 1;
+      if (divergences.length < MAX_DIVERGENCES) divergences.push({ path, kind, details });
+    };
+    const liveIds = /* @__PURE__ */ new Set();
+    for (const kids of liveChildren.values()) {
+      for (let i = 0; i < kids.length; i++) liveIds.add(kids[i]);
+    }
+    const parents = /* @__PURE__ */ new Set([DOCUMENT_ID]);
+    for (const parent of liveChildren.keys()) parents.add(parent);
+    for (const parent of parents) {
+      const tableOrder = orderedDomChildIds(table, parent);
+      const liveOrder = liveChildren.get(parent) ?? [];
+      if (!idsEqual(tableOrder, liveOrder)) {
+        const hashed = table.countAttachedChildren(parent);
+        const lastWalk = tableOrder.length > 0 ? tableOrder[tableOrder.length - 1] : 0;
+        const lastRow = lastWalk !== 0 ? table.getRow(lastWalk) : void 0;
+        record(
+          `#${parent}`,
+          "child_order_mismatch",
+          `walkLen=${tableOrder.length} hashedAttached=${hashed} liveLen=${liveOrder.length} tableHead=[${tableOrder.slice(0, 8).join(",")}] liveHead=[${liveOrder.slice(0, 8).join(",")}] lastWalk=#${lastWalk} lastRow=${lastRow ? `parent=${lastRow.parent} prev=${lastRow.prevSibling}` : "missing"}`
+        );
+      }
+    }
+    for (const id of liveIds) {
+      const row = table.getRow(id);
+      if (row === void 0) {
+        record(`#${id}`, "missing_in_table", "connected mapped id has no table row");
+      } else if (row.parent === NONE2) {
+        record(`#${id}`, "detached_but_connected", "table parent=0 but id appears in live child order");
+      }
+    }
+    table.forEachRow((id, row) => {
+      if (row.parent === NONE2) return;
+      if (isCssomKind(row.kind)) return;
+      const parentIsLive = row.parent === DOCUMENT_ID || liveIds.has(row.parent) || liveChildren.has(row.parent);
+      if (!parentIsLive) return;
+      if (!liveIds.has(id)) {
+        record(`#${id}`, "extra_attached_in_table", `attached under ${row.parent} but absent from live walk`);
+      }
+    });
+    return { kind: "table_live", identical: count === 0, divergenceCount: count, divergences };
+  }
+
+  // browser/mirror/projection/virtual/dom/tableLiveOracle.ts
+  function compareTableToLiveDom(table, domNodes, root) {
+    const liveChildren = /* @__PURE__ */ new Map();
+    const visit = (node, id) => {
+      const kids = [];
+      const children = node.childNodes;
+      for (let i = 0; i < children.length; i++) {
+        const child = children[i];
+        if (nodeKindOf(child) === null) continue;
+        const childId = domNodes.keyOf(child);
+        if (childId === NONE_DOM_NODE_KEY) continue;
+        kids.push(childId);
+        visit(child, childId);
+      }
+      liveChildren.set(id, kids);
+    };
+    visit(root, DOCUMENT_ID);
+    const result = compareTableToLiveOrder(table, liveChildren);
+    if (result.identical) return result;
+    return {
+      ...result,
+      divergences: result.divergences.map((d) => {
+        if (d.kind !== "extra_attached_in_table" && d.kind !== "missing_in_table" && d.kind !== "detached_but_connected") {
+          return d;
+        }
+        const id = Number(d.path.slice(1));
+        const node = Number.isFinite(id) ? domNodes.get(id) : void 0;
+        if (node === void 0) return { ...d, details: `${d.details}; identity=missing` };
+        return {
+          ...d,
+          details: `${d.details}; nodeType=${node.nodeType} name=${node.nodeName} connected=${node.isConnected} parent=${node.parentNode?.nodeName ?? "null"}`
+        };
+      })
+    };
+  }
+
+  // browser/mirror/projection/models/cssomTableLiveOracle.ts
+  var MAX_DIVERGENCES2 = 50;
+  function idsEqual2(a, b) {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      if (a[i] !== b[i]) return false;
+    }
+    return true;
+  }
+  function orderedKindChildIds(table, parent, kind) {
+    const all = table.orderedChildIds(parent);
+    const out = [];
+    for (let i = 0; i < all.length; i++) {
+      const id = all[i];
+      const row = table.getRow(id);
+      if (row !== void 0 && row.kind === kind) out.push(id);
+    }
+    return out;
+  }
+  function emptyCssomTableLiveOracleResult() {
+    return { kind: "cssom_table_live", identical: true, divergenceCount: 0, divergences: [] };
+  }
+  function compareTableToLiveCssom(table, liveSheets) {
+    const divergences = [];
+    let count = 0;
+    const record = (path, kind, details) => {
+      count += 1;
+      if (divergences.length < MAX_DIVERGENCES2) divergences.push({ path, kind, details });
+    };
+    const tableSheets = orderedKindChildIds(table, DOCUMENT_ID, 4 /* Sheet */);
+    const liveSheetIds = liveSheets.map((s) => s.id);
+    if (!idsEqual2(tableSheets, liveSheetIds)) {
+      record(
+        "#sheets",
+        "sheet_order_mismatch",
+        `table=[${tableSheets.slice(0, 8).join(",")}] live=[${liveSheetIds.slice(0, 8).join(",")}]`
+      );
+    }
+    const liveSheetSet = new Set(liveSheetIds);
+    for (const id of tableSheets) {
+      if (!liveSheetSet.has(id)) record(`#${id}`, "extra_in_table", "Sheet row not in live readable list");
+    }
+    for (const live of liveSheets) {
+      if (table.getRow(live.id) === void 0) {
+        record(`#${live.id}`, "missing_in_table", "live readable sheet has no table row");
+        continue;
+      }
+      const tableRules = orderedKindChildIds(table, live.id, 5 /* Rule */);
+      if (!idsEqual2(tableRules, live.ruleIds)) {
+        record(
+          `#${live.id}`,
+          "rule_order_mismatch",
+          `table=[${tableRules.slice(0, 8).join(",")}] live=[${live.ruleIds.slice(0, 8).join(",")}]`
+        );
+      }
+      const n = Math.min(tableRules.length, live.ruleIds.length, live.ruleHashes.length);
+      for (let i = 0; i < n; i++) {
+        const rid = live.ruleIds[i];
+        if (tableRules[i] !== rid) continue;
+        const row = table.getRow(rid);
+        if (row === void 0) {
+          record(`#${rid}`, "missing_in_table", "live rule has no table row");
+          continue;
+        }
+        if (row.contentHash !== live.ruleHashes[i]) {
+          record(`#${rid}`, "rule_content_mismatch", `sheet=#${live.id} contentHash diverged`);
+        }
+      }
+      for (const rid of live.ruleIds) {
+        if (table.getRow(rid) === void 0) record(`#${rid}`, "missing_in_table", "live rule has no table row");
+      }
+      for (const rid of tableRules) {
+        if (!live.ruleIds.includes(rid)) record(`#${rid}`, "extra_in_table", `Rule row not in live cssRules of sheet #${live.id}`);
+      }
+    }
+    return { kind: "cssom_table_live", identical: count === 0, divergenceCount: count, divergences };
+  }
+
+  // browser/mirror/projection/virtual/cssom/cssomTableLiveOracle.ts
+  function compareTableToLiveCssomDom(table, ids, doc = document) {
+    if (ids === null) return emptyCssomTableLiveOracleResult();
+    const liveSheets = [];
+    for (const sheet of collectSheets(doc)) {
+      const list = tryCssRules(sheet);
+      if (list === null) continue;
+      const sheetId = ids.peekSheet(sheet);
+      if (sheetId === void 0) continue;
+      const ruleIds = [];
+      const ruleHashes = [];
+      for (let i = 0; i < list.length; i++) {
+        const rule = list.item(i);
+        if (rule === null) continue;
+        const rid = ids.peekRule(rule);
+        if (rid === void 0) continue;
+        let text = "";
+        try {
+          text = rule.cssText;
+        } catch {
+          continue;
+        }
+        ruleIds.push(rid);
+        ruleHashes.push(hashValue(text));
+      }
+      liveSheets.push({ id: sheetId, ruleIds, ruleHashes });
+    }
+    return compareTableToLiveCssom(table, liveSheets);
+  }
+  function collectSheets(doc) {
+    const out = [];
+    const linked = doc.styleSheets;
+    for (let i = 0; i < linked.length; i++) {
+      const s = linked.item(i);
+      if (s) out.push(s);
+    }
+    const adopted = doc.adoptedStyleSheets;
+    if (adopted) {
+      for (let i = 0; i < adopted.length; i++) {
+        const s = adopted[i];
+        if (s) out.push(s);
+      }
+    }
+    return out;
+  }
+  function tryCssRules(sheet) {
+    try {
+      return sheet.cssRules;
+    } catch {
+      return null;
+    }
+  }
+
+  // browser/mirror/projection/virtual/snapshot.ts
+  function takeSnapshot(planes, opts = {}) {
+    const mode = opts.cssom ?? "none";
+    let cssom = null;
+    if (mode === "none") {
+      planes.cssom.halt();
+      planes.flushDom();
+    } else if (mode === "committed") {
+      planes.flushDom();
+    } else {
+      const scan = planes.cssom.blockingScan(true);
+      cssom = stampCssomPoll(scan.stats, { source: "snapshotScan" });
+      planes.flushDom();
+      cssom = stampCssomPoll(cssom, { sequence: planes.currentSequence() });
+    }
+    const o2 = compareTableToLiveDom(planes.table, planes.domNodes, document);
+    const cssomO2 = mode === "none" ? null : compareTableToLiveCssomDom(planes.table, planes.cssomIds, document);
+    return {
+      generation: planes.domNodes.generation,
+      sequence: planes.currentSequence(),
+      o2,
+      table: digestReplicatedTable(planes.table),
+      cssom,
+      cssomO2
+    };
+  }
+
+  // browser/mirror/projection/virtual/dom/tableFrameBuilder.ts
   var EMPTY_OP_COUNTS = {};
   var TableFrameBuilder = class {
     domNodes;
@@ -1529,7 +1979,12 @@
           opCounts[name] = (opCounts[name] ?? 0) + 1;
         }
       }
-      this.lastStats = { opCounts, buildMs: performance.now() - start };
+      this.lastStats = {
+        opCounts,
+        buildMs: performance.now() - start,
+        tableSize: this.table.size,
+        identitySize: this.domNodes.size
+      };
       return createFrame({ generation: ctx.generation, sequence: ctx.sequence, ops, preTableHash });
     }
     /**
@@ -1737,88 +2192,425 @@
     return h >>> 0;
   }
 
+  // browser/mirror/projection/virtual/cssom/cssomIds.ts
+  var CSSOM_ID_MIN = 2147483649;
+  var CSSOM_ID_MAX = 4294967295;
+  var CssomIds = class {
+    next = CSSOM_ID_MIN;
+    sheets = /* @__PURE__ */ new WeakMap();
+    rules = /* @__PURE__ */ new WeakMap();
+    idOfSheet(sheet) {
+      const existing = this.sheets.get(sheet);
+      if (existing !== void 0) return existing;
+      const id = this.alloc();
+      this.sheets.set(sheet, id);
+      return id;
+    }
+    idOfRule(rule) {
+      const existing = this.rules.get(rule);
+      if (existing !== void 0) return existing;
+      const id = this.alloc();
+      this.rules.set(rule, id);
+      return id;
+    }
+    peekSheet(sheet) {
+      return this.sheets.get(sheet);
+    }
+    peekRule(rule) {
+      return this.rules.get(rule);
+    }
+    alloc() {
+      if (this.next > CSSOM_ID_MAX) throw new Error("CssomIds: id space exhausted");
+      const id = this.next;
+      this.next += 1;
+      return id;
+    }
+  };
+
+  // browser/mirror/projection/virtual/cssom/cssomOps.ts
+  function emitResyncCssomOps(ids, sheets) {
+    const ops = [];
+    const sheetIds = [];
+    for (let i = 0; i < sheets.length; i++) {
+      const rec = sheets[i];
+      const sheetId = ids.idOfSheet(rec.sheet);
+      sheetIds.push(sheetId);
+      ops.push({
+        op: 160 /* SheetNew */,
+        id: sheetId,
+        scope: CSSOM_SCOPE_MAIN,
+        hostNode: 0,
+        before: INSERT_AT_END
+      });
+      for (let r = 0; r < rec.snaps.length; r++) {
+        const snap = rec.snaps[r];
+        const text = rec.texts.get(snap.key) ?? "";
+        ops.push({
+          op: 163 /* RuleNew */,
+          sheet: sheetId,
+          id: ids.idOfRule(snap.key),
+          before: INSERT_AT_END,
+          text
+        });
+      }
+    }
+    if (sheetIds.length > 1) {
+      ops.push({ op: 162 /* SheetOrder */, ids: sheetIds });
+    }
+    return ops;
+  }
+  function emitLiveCssomOps(ids, prevSheets, nextSheets, prevSnaps) {
+    const ops = [];
+    const prevSet = new Set(prevSheets);
+    const nextSet = new Set(nextSheets.map((s) => s.sheet));
+    const dropped = [];
+    for (const sheet of prevSheets) {
+      if (nextSet.has(sheet)) continue;
+      const id = ids.peekSheet(sheet);
+      if (id !== void 0) dropped.push(id);
+    }
+    if (dropped.length > 0) ops.push({ op: 161 /* SheetDrop */, ids: dropped });
+    const nextIds = [];
+    for (let i = 0; i < nextSheets.length; i++) {
+      const rec = nextSheets[i];
+      const sheetId = ids.idOfSheet(rec.sheet);
+      nextIds.push(sheetId);
+      if (rec.skipOps) continue;
+      if (!prevSet.has(rec.sheet)) {
+        ops.push({
+          op: 160 /* SheetNew */,
+          id: sheetId,
+          scope: CSSOM_SCOPE_MAIN,
+          hostNode: 0,
+          before: INSERT_AT_END
+        });
+      }
+      ops.push(...emitRuleDelta(ids, sheetId, prevSnaps.get(rec.sheet) ?? [], rec));
+    }
+    const prevIds = prevSheets.map((s) => ids.peekSheet(s)).filter((x) => x !== void 0);
+    if (!sameIdOrder(prevIds, nextIds) && nextIds.length > 0) {
+      ops.push({ op: 162 /* SheetOrder */, ids: nextIds });
+    }
+    return ops;
+  }
+  function emitRuleDelta(ids, sheetId, prev, rec) {
+    const ops = [];
+    const prevKeys = new Set(prev.map((s) => s.key));
+    const nextKeys = new Set(rec.snaps.map((s) => s.key));
+    const dropIds = [];
+    for (const row of prev) {
+      if (nextKeys.has(row.key)) continue;
+      const id = ids.peekRule(row.key);
+      if (id !== void 0) dropIds.push(id);
+    }
+    if (dropIds.length > 0) ops.push({ op: 164 /* RuleDrop */, sheet: sheetId, ids: dropIds });
+    const prevHash = /* @__PURE__ */ new Map();
+    for (const row of prev) prevHash.set(row.key, row.contentHash);
+    for (let i = 0; i < rec.snaps.length; i++) {
+      const snap = rec.snaps[i];
+      const text = rec.texts.get(snap.key) ?? "";
+      const before = i + 1 < rec.snaps.length ? ids.idOfRule(rec.snaps[i + 1].key) : INSERT_AT_END;
+      if (!prevKeys.has(snap.key)) {
+        ops.push({
+          op: 163 /* RuleNew */,
+          sheet: sheetId,
+          id: ids.idOfRule(snap.key),
+          before,
+          text
+        });
+        continue;
+      }
+      const old = prevHash.get(snap.key);
+      if (old !== snap.contentHash) {
+        ops.push({ op: 165 /* RuleSet */, id: ids.idOfRule(snap.key), text });
+      }
+    }
+    return ops;
+  }
+  function sameIdOrder(a, b) {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      if (a[i] !== b[i]) return false;
+    }
+    return true;
+  }
+
+  // browser/mirror/projection/virtual/cssom/cssomWalk.ts
+  var MASS_ABORT_STALE_FRACTION = 0.9;
+  var MASS_ABORT_LENGTH_LO = 0.1;
+  var MASS_ABORT_LENGTH_HI = 2;
+  function copyRuleRefs(list) {
+    const refs = [];
+    const n = list.length;
+    for (let i = 0; i < n; i++) {
+      const rule = list.item(i);
+      if (rule !== null) refs.push(rule);
+    }
+    return refs;
+  }
+  function liveRuleList(list) {
+    return copyRuleRefs(list);
+  }
+  function isRuleSlotLive(rule, sheet, liveRefs) {
+    const parent = rule.parentStyleSheet;
+    if (parent != null && parent !== sheet) return false;
+    for (let i = 0; i < liveRefs.length; i++) {
+      if (liveRefs[i] === rule) return true;
+    }
+    return false;
+  }
+  function shouldAbortSheet(copyLen, staleCount, liveLen) {
+    if (copyLen <= 0) return liveLen > 0 && liveLen > MASS_ABORT_LENGTH_HI;
+    if (staleCount / copyLen >= MASS_ABORT_STALE_FRACTION) return true;
+    if (liveLen < copyLen * MASS_ABORT_LENGTH_LO) return true;
+    if (liveLen > copyLen * MASS_ABORT_LENGTH_HI) return true;
+    return false;
+  }
+
   // browser/mirror/projection/virtual/cssom/cssomPoller.ts
   var CssomPoller = class {
     lastRules = /* @__PURE__ */ new WeakMap();
     lastStyleTagTextHash = /* @__PURE__ */ new WeakMap();
-    poll(doc = document) {
-      const t0 = performance.now();
-      const sheets = collectSheets(doc);
-      let unreadableSheetCount = 0;
-      let topLevelRulesVisited = 0;
-      let topLevelRulesSerialized = 0;
-      let styleTagTextUnchangedSheets = 0;
-      let rulesAppeared = 0;
-      let rulesDisappeared = 0;
-      let rulesTextChangedInPlace = 0;
-      let sheetsWithRuleListChanged = 0;
+    ids = new CssomIds();
+    lastSheetOrder = [];
+    classifySheets(doc = document) {
       const readable = [];
-      const ruleLists = [];
-      for (const sheet of sheets) {
-        const list = tryCssRules(sheet);
-        if (list === null) {
-          unreadableSheetCount += 1;
+      let unreadableSheetCount = 0;
+      for (const sheet of collectSheets2(doc)) {
+        const list = tryCssRules2(sheet);
+        if (list === null) unreadableSheetCount += 1;
+        else readable.push({ sheet, rules: list });
+      }
+      return { readable, unreadableSheetCount };
+    }
+    /** Phase A — refs only. */
+    beginSheetWalk(sheet, list) {
+      const t0 = performance.now();
+      const copyRefs = copyRuleRefs(list);
+      return {
+        sheet,
+        copyRefs,
+        copyLength: list.length,
+        cursor: 0,
+        hashed: [],
+        texts: /* @__PURE__ */ new Map(),
+        staleSlots: 0,
+        identityWalkMs: performance.now() - t0,
+        cssTextSerializeMs: 0,
+        aborted: false
+      };
+    }
+    /**
+     * Phase B batch. Returns false when the sheet walk is finished (hashed or aborted).
+     */
+    hashSheetBatch(walk, timeRemaining, floorMs) {
+      const list = tryCssRules2(walk.sheet);
+      const live = list ? liveRuleList(list) : [];
+      const liveLen = list ? list.length : 0;
+      while (walk.cursor < walk.copyRefs.length && timeRemaining() > floorMs) {
+        const rule = walk.copyRefs[walk.cursor];
+        walk.cursor += 1;
+        if (!isRuleSlotLive(rule, walk.sheet, live)) {
+          walk.staleSlots += 1;
+          if (shouldAbortSheet(walk.copyLength, walk.staleSlots, liveLen)) {
+            walk.aborted = true;
+            walk.hashed = [];
+            walk.texts.clear();
+            return false;
+          }
           continue;
         }
-        readable.push(sheet);
-        ruleLists.push(list);
-      }
-      const tIdentity0 = performance.now();
-      const snaps = [];
-      for (let s = 0; s < readable.length; s++) {
-        const list = ruleLists[s];
-        const snap = [];
-        const n = list.length;
-        topLevelRulesVisited += n;
-        for (let i = 0; i < n; i++) {
-          const rule = list.item(i);
-          if (rule === null) continue;
-          snap.push({ key: rule, contentHash: 0 });
+        const t0 = performance.now();
+        let text = "";
+        try {
+          text = rule.cssText;
+        } catch {
+          walk.staleSlots += 1;
+          walk.cssTextSerializeMs += performance.now() - t0;
+          continue;
         }
-        snaps.push(snap);
+        walk.texts.set(rule, text);
+        walk.hashed.push({ key: rule, contentHash: fnv1a32(text) });
+        walk.cssTextSerializeMs += performance.now() - t0;
       }
-      const identityWalkMs = performance.now() - tIdentity0;
-      const tSerialize0 = performance.now();
-      for (let s = 0; s < readable.length; s++) {
-        const sheet = readable[s];
-        const snap = snaps[s];
-        const styleTagHash = styleElementTextHash(sheet);
-        if (styleTagHash !== null) {
-          const prev2 = this.lastStyleTagTextHash.get(sheet);
-          if (prev2 === styleTagHash) styleTagTextUnchangedSheets += 1;
-          this.lastStyleTagTextHash.set(sheet, styleTagHash);
-        }
-        for (const row of snap) {
-          const text = row.key.cssText;
-          topLevelRulesSerialized += 1;
-          row.contentHash = fnv1a32(text);
-        }
-        const prev = this.lastRules.get(sheet) ?? [];
-        const delta = diffRules(prev, snap);
-        rulesAppeared += delta.rulesAppeared;
-        rulesDisappeared += delta.rulesDisappeared;
-        rulesTextChangedInPlace += delta.rulesTextChangedInPlace;
-        if (delta.ruleListChanged) sheetsWithRuleListChanged += 1;
-        this.lastRules.set(sheet, snap);
+      if (walk.cursor < walk.copyRefs.length) return true;
+      if (shouldAbortSheet(walk.copyLength, walk.staleSlots, liveLen)) {
+        walk.aborted = true;
+        walk.hashed = [];
+        walk.texts.clear();
       }
-      const cssTextSerializeMs = performance.now() - tSerialize0;
+      return false;
+    }
+    finishSheetWalk(walk) {
+      if (walk.aborted) {
+        return {
+          snap: [],
+          identityWalkMs: walk.identityWalkMs,
+          cssTextSerializeMs: walk.cssTextSerializeMs,
+          topLevelRulesVisited: walk.copyLength,
+          topLevelRulesSerialized: 0,
+          styleTagTextUnchanged: false,
+          rulesAppeared: 0,
+          rulesDisappeared: 0,
+          rulesTextChangedInPlace: 0,
+          ruleListChanged: false,
+          aborted: true,
+          slotsSkipped: walk.staleSlots
+        };
+      }
+      const list = tryCssRules2(walk.sheet);
+      const live = list ? liveRuleList(list) : [];
+      const hashByKey = new Map(walk.hashed.map((s) => [s.key, s]));
+      const committed = [];
+      const texts = /* @__PURE__ */ new Map();
+      for (const rule of live) {
+        const row = hashByKey.get(rule);
+        if (row === void 0) continue;
+        committed.push(row);
+        const t = walk.texts.get(rule);
+        if (t !== void 0) texts.set(rule, t);
+      }
+      walk.hashed = committed;
+      walk.texts = texts;
+      const prev = this.lastRules.get(walk.sheet) ?? [];
+      const delta = diffRules(prev, committed);
+      const styleTagHash = styleElementTextHash(walk.sheet);
+      let styleTagTextUnchanged = false;
+      if (styleTagHash !== null) {
+        styleTagTextUnchanged = this.lastStyleTagTextHash.get(walk.sheet) === styleTagHash;
+      }
       return {
-        pollMs: performance.now() - t0,
-        identityWalkMs,
-        cssTextSerializeMs,
-        readableSheetCount: readable.length,
-        unreadableSheetCount,
-        topLevelRulesVisited,
-        topLevelRulesSerialized,
-        styleTagTextUnchangedSheets,
-        rulesAppeared,
-        rulesDisappeared,
-        rulesTextChangedInPlace,
-        sheetsWithRuleListChanged
+        snap: committed,
+        identityWalkMs: walk.identityWalkMs,
+        cssTextSerializeMs: walk.cssTextSerializeMs,
+        topLevelRulesVisited: walk.copyLength,
+        topLevelRulesSerialized: committed.length,
+        styleTagTextUnchanged,
+        rulesAppeared: delta.rulesAppeared,
+        rulesDisappeared: delta.rulesDisappeared,
+        rulesTextChangedInPlace: delta.rulesTextChangedInPlace,
+        ruleListChanged: delta.ruleListChanged,
+        aborted: false,
+        slotsSkipped: walk.staleSlots
+      };
+    }
+    commitSheet(sheet, snap) {
+      this.lastRules.set(sheet, snap);
+      const hash = styleElementTextHash(sheet);
+      if (hash !== null) this.lastStyleTagTextHash.set(sheet, hash);
+    }
+    /** Whole-pass commit: lastRules + live/resync ops. Skips aborted pieces. */
+    commitPass(readable, pieces, textsBySheet, mode) {
+      const nextOrder = [];
+      const hashed = [];
+      for (let i = 0; i < readable.length; i++) {
+        const sheet = readable[i].sheet;
+        const piece = pieces[i];
+        if (!piece || piece.aborted) {
+          nextOrder.push({
+            sheet,
+            snaps: this.lastRules.get(sheet) ?? [],
+            texts: /* @__PURE__ */ new Map(),
+            skipOps: true
+          });
+          continue;
+        }
+        const rec = {
+          sheet,
+          snaps: piece.snap,
+          texts: textsBySheet.get(sheet) ?? /* @__PURE__ */ new Map()
+        };
+        nextOrder.push(rec);
+        hashed.push(rec);
+      }
+      const ops = mode === "resync" ? emitResyncCssomOps(this.ids, hashed) : emitLiveCssomOps(this.ids, this.lastSheetOrder, nextOrder, this.lastRules);
+      for (const c of hashed) this.commitSheet(c.sheet, c.snaps);
+      this.lastSheetOrder = nextOrder.map((c) => c.sheet);
+      return ops;
+    }
+    /**
+     * Blocking A+B (resync / snapshot scan). Commits non-aborted sheets then snapshot ops.
+     */
+    poll(doc = document, mode = "resync") {
+      const t0 = performance.now();
+      const { readable, unreadableSheetCount } = this.classifySheets(doc);
+      const pieces = [];
+      const textsBySheet = /* @__PURE__ */ new WeakMap();
+      for (const { sheet, rules } of readable) {
+        const walk = this.beginSheetWalk(sheet, rules);
+        this.hashSheetBatch(walk, () => 1e9, 0);
+        const piece = this.finishSheetWalk(walk);
+        pieces.push(piece);
+        if (!piece.aborted) textsBySheet.set(sheet, walk.texts);
+      }
+      const ops = this.commitPass(
+        readable,
+        pieces,
+        textsBySheet,
+        mode
+      );
+      return {
+        stats: foldSheetPieces(unreadableSheetCount, pieces, performance.now() - t0, {
+          source: mode === "resync" ? "resync" : "idle",
+          idleSlices: 0,
+          ops
+        }),
+        ops
       };
     }
   };
-  function collectSheets(doc) {
+  function foldSheetPieces(unreadableSheetCount, pieces, pollMs, extra) {
+    let identityWalkMs = 0;
+    let cssTextSerializeMs = 0;
+    let topLevelRulesVisited = 0;
+    let topLevelRulesSerialized = 0;
+    let styleTagTextUnchangedSheets = 0;
+    let rulesAppeared = 0;
+    let rulesDisappeared = 0;
+    let rulesTextChangedInPlace = 0;
+    let sheetsWithRuleListChanged = 0;
+    let readable = 0;
+    let sheetsAborted = 0;
+    let slotsSkipped = 0;
+    for (const p of pieces) {
+      identityWalkMs += p.identityWalkMs;
+      cssTextSerializeMs += p.cssTextSerializeMs;
+      topLevelRulesVisited += p.topLevelRulesVisited;
+      topLevelRulesSerialized += p.topLevelRulesSerialized;
+      slotsSkipped += p.slotsSkipped;
+      if (p.aborted) {
+        sheetsAborted += 1;
+        continue;
+      }
+      readable += 1;
+      if (p.styleTagTextUnchanged) styleTagTextUnchangedSheets += 1;
+      rulesAppeared += p.rulesAppeared;
+      rulesDisappeared += p.rulesDisappeared;
+      rulesTextChangedInPlace += p.rulesTextChangedInPlace;
+      if (p.ruleListChanged) sheetsWithRuleListChanged += 1;
+    }
+    return stampCssomPoll(emptyCssomPollStats(), {
+      source: extra.source,
+      sequence: extra.sequence ?? 0,
+      pollMs,
+      identityWalkMs,
+      cssTextSerializeMs,
+      readableSheetCount: readable,
+      unreadableSheetCount,
+      topLevelRulesVisited,
+      topLevelRulesSerialized,
+      styleTagTextUnchangedSheets,
+      rulesAppeared,
+      rulesDisappeared,
+      rulesTextChangedInPlace,
+      sheetsWithRuleListChanged,
+      sheetsAborted,
+      slotsSkipped,
+      idleSlices: extra.idleSlices,
+      ...countCssomOps(extra.ops)
+    });
+  }
+  function collectSheets2(doc) {
     const out = [];
     const linked = doc.styleSheets;
     for (let i = 0; i < linked.length; i++) {
@@ -1834,7 +2626,7 @@
     }
     return out;
   }
-  function tryCssRules(sheet) {
+  function tryCssRules2(sheet) {
     try {
       return sheet.cssRules;
     } catch {
@@ -1847,6 +2639,168 @@
     const el = node;
     if (el.localName !== "style") return null;
     return fnv1a32(el.textContent ?? "");
+  }
+
+  // browser/mirror/projection/virtual/cssom/cssomIdleScheduler.ts
+  var SLICE_FLOOR_MS = 1;
+  var CssomIdleScheduler = class {
+    enabled = true;
+    poller;
+    minIntervalMs;
+    doc;
+    now;
+    running = false;
+    ricId = null;
+    timerId = null;
+    pending = null;
+    pass = null;
+    nextPassAfter = 0;
+    constructor(opts) {
+      this.poller = opts.poller;
+      this.minIntervalMs = opts.minIntervalMs;
+      this.doc = opts.document ?? document;
+      this.now = opts.now ?? (() => performance.now());
+    }
+    start() {
+      if (this.running) return;
+      this.running = true;
+      this.nextPassAfter = 0;
+      this.scheduleIdle();
+    }
+    halt() {
+      this.stop();
+    }
+    stop() {
+      this.running = false;
+      this.cancelScheduled();
+      this.pass = null;
+      this.pending = null;
+    }
+    blockingScan(stashForEmit = false) {
+      this.cancelScheduled();
+      this.pass = null;
+      this.pending = null;
+      const result = this.poller.poll(this.doc, "resync");
+      const stamped = {
+        ops: result.ops,
+        stats: stampCssomPoll(result.stats, { source: stashForEmit ? "snapshotScan" : "resync" })
+      };
+      if (stashForEmit) this.pending = stamped;
+      if (this.running) this.scheduleIdle();
+      return stamped;
+    }
+    /** Drain one completed pass for the frame pipe. Null if idle work is still in flight. */
+    takePending() {
+      const pending = this.pending;
+      this.pending = null;
+      if (pending !== null && this.running) this.scheduleIdle();
+      return pending;
+    }
+    scheduleIdle() {
+      if (!this.running) return;
+      if (this.pending !== null) return;
+      this.cancelScheduled();
+      const wait = Math.max(0, this.nextPassAfter - this.now());
+      const go = () => {
+        this.timerId = null;
+        this.armRic();
+      };
+      if (wait > 0) {
+        this.timerId = setTimeout(go, wait);
+        return;
+      }
+      this.armRic();
+    }
+    armRic() {
+      if (!this.running) return;
+      const ric = globalThis.requestIdleCallback;
+      if (typeof ric === "function") {
+        this.ricId = ric((deadline) => this.onIdle(deadline), { timeout: this.minIntervalMs });
+        return;
+      }
+      this.timerId = setTimeout(() => {
+        this.onIdle({ timeRemaining: () => 8 });
+      }, 0);
+    }
+    cancelScheduled() {
+      if (this.ricId !== null && typeof globalThis.cancelIdleCallback === "function") {
+        globalThis.cancelIdleCallback(this.ricId);
+      }
+      this.ricId = null;
+      if (this.timerId !== null) {
+        clearTimeout(this.timerId);
+        this.timerId = null;
+      }
+    }
+    onIdle(deadline) {
+      this.ricId = null;
+      if (!this.running || this.pending !== null) return;
+      if (this.pass === null) {
+        const classified = this.poller.classifySheets(this.doc);
+        this.pass = {
+          startedAt: this.now(),
+          unreadableSheetCount: classified.unreadableSheetCount,
+          readable: classified.readable,
+          index: 0,
+          walk: null,
+          pieces: [],
+          textsBySheet: /* @__PURE__ */ new WeakMap(),
+          idleSlices: 0
+        };
+      }
+      const pass = this.pass;
+      pass.idleSlices += 1;
+      while (deadline.timeRemaining() > SLICE_FLOOR_MS) {
+        if (pass.walk === null) {
+          if (pass.index >= pass.readable.length) break;
+          const { sheet, rules } = pass.readable[pass.index];
+          pass.walk = this.poller.beginSheetWalk(sheet, rules);
+        }
+        const more = this.poller.hashSheetBatch(pass.walk, () => deadline.timeRemaining(), SLICE_FLOOR_MS);
+        if (more) {
+          this.armRic();
+          return;
+        }
+        const piece = this.poller.finishSheetWalk(pass.walk);
+        pass.pieces.push(piece);
+        if (!piece.aborted) pass.textsBySheet.set(pass.walk.sheet, pass.walk.texts);
+        pass.walk = null;
+        pass.index += 1;
+      }
+      if (pass.index < pass.readable.length || pass.walk !== null) {
+        this.armRic();
+        return;
+      }
+      const ops = this.poller.commitPass(pass.readable, pass.pieces, pass.textsBySheet, "live");
+      this.pending = {
+        ops,
+        stats: foldSheetPieces(
+          pass.unreadableSheetCount,
+          pass.pieces,
+          this.now() - pass.startedAt,
+          { source: "idle", idleSlices: pass.idleSlices, ops }
+        )
+      };
+      this.pass = null;
+      this.nextPassAfter = this.now() + this.minIntervalMs;
+    }
+  };
+
+  // browser/mirror/projection/virtual/cssom/cssomPlane.ts
+  function disabledCssomPlane() {
+    return {
+      enabled: false,
+      start() {
+      },
+      halt() {
+      },
+      takePending() {
+        return null;
+      },
+      blockingScan(_stashForEmit) {
+        return { ops: [], stats: emptyCssomPollStats() };
+      }
+    };
   }
 
   // browser/mirror/projection/plane/envelope.ts
@@ -2185,103 +3139,6 @@
     }
   };
 
-  // browser/mirror/projection/models/tableDigest.ts
-  function digestReplicatedTable(table) {
-    return { rowCount: table.size, tableHash: table.tableHash.toString() };
-  }
-
-  // browser/mirror/projection/models/tableLiveOracle.ts
-  var MAX_DIVERGENCES = 50;
-  var NONE2 = 0;
-  function idsEqual(a, b) {
-    if (a.length !== b.length) return false;
-    for (let i = 0; i < a.length; i++) {
-      if (a[i] !== b[i]) return false;
-    }
-    return true;
-  }
-  function compareTableToLiveOrder(table, liveChildren) {
-    const divergences = [];
-    let count = 0;
-    const record = (path, kind, details) => {
-      count += 1;
-      if (divergences.length < MAX_DIVERGENCES) divergences.push({ path, kind, details });
-    };
-    const liveIds = /* @__PURE__ */ new Set();
-    for (const kids of liveChildren.values()) {
-      for (let i = 0; i < kids.length; i++) liveIds.add(kids[i]);
-    }
-    const parents = /* @__PURE__ */ new Set([DOCUMENT_ID]);
-    for (const parent of liveChildren.keys()) parents.add(parent);
-    for (const parent of parents) {
-      const tableOrder = table.orderedChildIds(parent);
-      const liveOrder = liveChildren.get(parent) ?? [];
-      if (!idsEqual(tableOrder, liveOrder)) {
-        const hashed = table.countAttachedChildren(parent);
-        const lastWalk = tableOrder.length > 0 ? tableOrder[tableOrder.length - 1] : 0;
-        const lastRow = lastWalk !== 0 ? table.getRow(lastWalk) : void 0;
-        record(
-          `#${parent}`,
-          "child_order_mismatch",
-          `walkLen=${tableOrder.length} hashedAttached=${hashed} liveLen=${liveOrder.length} tableHead=[${tableOrder.slice(0, 8).join(",")}] liveHead=[${liveOrder.slice(0, 8).join(",")}] lastWalk=#${lastWalk} lastRow=${lastRow ? `parent=${lastRow.parent} prev=${lastRow.prevSibling}` : "missing"}`
-        );
-      }
-    }
-    for (const id of liveIds) {
-      const row = table.getRow(id);
-      if (row === void 0) {
-        record(`#${id}`, "missing_in_table", "connected mapped id has no table row");
-      } else if (row.parent === NONE2) {
-        record(`#${id}`, "detached_but_connected", "table parent=0 but id appears in live child order");
-      }
-    }
-    table.forEachRow((id, row) => {
-      if (row.parent === NONE2) return;
-      const parentIsLive = row.parent === DOCUMENT_ID || liveIds.has(row.parent) || liveChildren.has(row.parent);
-      if (!parentIsLive) return;
-      if (!liveIds.has(id)) {
-        record(`#${id}`, "extra_attached_in_table", `attached under ${row.parent} but absent from live walk`);
-      }
-    });
-    return { kind: "table_live", identical: count === 0, divergenceCount: count, divergences };
-  }
-
-  // browser/mirror/projection/virtual/dom/tableLiveOracle.ts
-  function compareTableToLiveDom(table, domNodes, root) {
-    const liveChildren = /* @__PURE__ */ new Map();
-    const visit = (node, id) => {
-      const kids = [];
-      const children = node.childNodes;
-      for (let i = 0; i < children.length; i++) {
-        const child = children[i];
-        if (nodeKindOf(child) === null) continue;
-        const childId = domNodes.keyOf(child);
-        if (childId === NONE_DOM_NODE_KEY) continue;
-        kids.push(childId);
-        visit(child, childId);
-      }
-      liveChildren.set(id, kids);
-    };
-    visit(root, DOCUMENT_ID);
-    const result = compareTableToLiveOrder(table, liveChildren);
-    if (result.identical) return result;
-    return {
-      ...result,
-      divergences: result.divergences.map((d) => {
-        if (d.kind !== "extra_attached_in_table" && d.kind !== "missing_in_table" && d.kind !== "detached_but_connected") {
-          return d;
-        }
-        const id = Number(d.path.slice(1));
-        const node = Number.isFinite(id) ? domNodes.get(id) : void 0;
-        if (node === void 0) return { ...d, details: `${d.details}; identity=missing` };
-        return {
-          ...d,
-          details: `${d.details}; nodeType=${node.nodeType} name=${node.nodeName} connected=${node.isConnected} parent=${node.parentNode?.nodeName ?? "null"}`
-        };
-      })
-    };
-  }
-
   // browser/mirror/projection/virtual/bootstrap.ts
   document.currentScript?.remove();
   void (async () => {
@@ -2315,9 +3172,11 @@
       dataPlane
     });
     const cssomPoller = config.cssomPollHz > 0 ? new CssomPoller() : null;
-    const cssomClock = cssomPoller !== null ? new TimerFrameClock({
-      frameRateHz: config.cssomPollHz
-    }) : null;
+    const cssom = cssomPoller !== null ? new CssomIdleScheduler({
+      poller: cssomPoller,
+      minIntervalMs: 1e3 / config.cssomPollHz
+    }) : disabledCssomPlane();
+    const resyncPlanes = { domNodes, table, cssom };
     const frameClock = new TimerFrameClock({
       frameRateHz: config.frameRateHz,
       onStall: (info) => {
@@ -2342,10 +3201,15 @@
       builder: frameBuilder,
       encoder,
       transport: frameTransport,
-      domNodes,
-      table,
+      census: () => ({
+        generation: domNodes.generation,
+        tableSize: table.size,
+        identitySize: domNodes.size
+      }),
       telemetry,
-      pullPendingMutations: () => domMutationObserver.takePendingIntoBuffer()
+      pullPendingMutations: () => domMutationObserver.takePendingIntoBuffer(),
+      takePendingCssom: () => cssom.takePending(),
+      table
     });
     if (loopback) {
       loopback.dataPlane.setHandler((channel, payload) => {
@@ -2365,10 +3229,18 @@
           String(req.generation),
           String(req.sequence)
         );
-        frameEmitter.requestResync((seq) => emitResyncFrame(domNodes, table, domNodes.generation, seq));
+        frameEmitter.requestResync((seq) => {
+          const { frame, cssom: cssomStats } = emitResyncFrame(resyncPlanes, seq);
+          telemetry.recordCssomPoll(cssomStats);
+          return frame;
+        });
       });
     }
-    const resyncFrame = resyncVirtual(domNodes, table, frameEmitter.currentSequence + 1);
+    const { frame: resyncFrame, cssom: cssomResyncStats } = rebuildAndResync(
+      resyncPlanes,
+      frameEmitter.currentSequence + 1
+    );
+    telemetry.recordCssomPoll(cssomResyncStats);
     if (config.generation > 1) {
       resyncFrame.ops.unshift({ op: 2 /* EpochReset */, generation: config.generation });
     }
@@ -2377,10 +3249,7 @@
     await frameEmitter.sendInitial(resyncFrame);
     frameEmitter.start();
     telemetry.start();
-    cssomClock?.start(() => {
-      if (cssomPoller === null) return;
-      telemetry.recordCssomPoll(cssomPoller.poll(document));
-    });
+    cssom.start();
     globalThis.__speculumProjection = {
       version: 1,
       domNodes,
@@ -2396,30 +3265,32 @@
       compareTableToLiveDom: () => compareTableToLiveDom(table, domNodes, document),
       haltWorld: () => {
         frameEmitter.stop();
-        cssomClock?.stop();
+        cssom.halt();
       },
       resumeWorld: () => {
         frameEmitter.start();
-        cssomClock?.start(() => {
-          if (cssomPoller === null) return;
-          telemetry.recordCssomPoll(cssomPoller.poll(document));
-        });
+        cssom.start();
       },
       flushFrame: () => {
         frameEmitter.flushNow();
         return { generation: domNodes.generation, sequence: frameEmitter.currentSequence };
       },
-      flushAndSnapshot: () => {
-        frameEmitter.flushNow();
-        const o2 = compareTableToLiveDom(table, domNodes, document);
+      flushAndSnapshot: (opts) => {
+        const snapped = takeSnapshot(
+          {
+            domNodes,
+            table,
+            cssom,
+            cssomIds: cssomPoller?.ids ?? null,
+            currentSequence: () => frameEmitter.currentSequence,
+            flushDom: () => frameEmitter.flushNow(),
+            recordCssomPoll: (stats) => telemetry.recordCssomPoll(stats)
+          },
+          { cssom: opts?.cssom ?? "none" }
+        );
         frameEmitter.stop();
-        cssomClock?.stop();
-        return {
-          generation: domNodes.generation,
-          sequence: frameEmitter.currentSequence,
-          o2,
-          table: digestReplicatedTable(table)
-        };
+        cssom.halt();
+        return snapped;
       }
     };
   })();

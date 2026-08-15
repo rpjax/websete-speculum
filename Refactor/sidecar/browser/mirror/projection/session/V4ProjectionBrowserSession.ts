@@ -36,6 +36,7 @@ import {
   type ProjectionTelemetryMessage,
 } from '../models/telemetry';
 import type { TableLiveOracleResult } from '../models/tableLiveOracle';
+import type { CssomTableLiveOracleResult } from '../models/cssomTableLiveOracle';
 import { PlaneChannel } from '../plane';
 import { ProjectionDataPlaneHost } from './projectionDataPlaneHost';
 
@@ -304,19 +305,23 @@ export class V4ProjectionBrowserSession implements BrowserSession {
     return raw;
   }
 
-  async flushProjectionSnapshot(opts?: { includeTree?: boolean }): Promise<{
+  async flushProjectionSnapshot(opts?: {
+    includeTree?: boolean;
+    cssom?: 'none' | 'committed' | 'scan';
+  }): Promise<{
     ok: boolean;
     generation?: number;
     sequence?: number;
     tableSize?: number;
     o2?: TableLiveOracleResult;
     table?: { rowCount: number; tableHash: string };
+    cssomO2?: CssomTableLiveOracleResult | null;
     tree?: unknown;
     reason?: string;
   }> {
     try {
       return (await this.requirePage().evaluate(
-        coherentSnapshotExpression(opts?.includeTree !== false),
+        coherentSnapshotExpression(opts?.includeTree !== false, opts?.cssom ?? 'none'),
       )) as {
         ok: boolean;
         generation?: number;
@@ -324,6 +329,7 @@ export class V4ProjectionBrowserSession implements BrowserSession {
         tableSize?: number;
         o2?: TableLiveOracleResult;
         table?: { rowCount: number; tableHash: string };
+        cssomO2?: CssomTableLiveOracleResult | null;
         tree?: unknown;
         reason?: string;
       };

@@ -62,6 +62,7 @@ export type BenchmarkReport = {
     sequence: number | null;
     generation: number | null;
     o2: TableLiveOracleResult | null;
+    cssomO2?: import('../models/cssomTableLiveOracle').CssomTableLiveOracleResult | null;
     table?: {
       virtual: { rowCount: number; tableHash: string } | null;
       client: { rowCount: number; tableHash: string } | null;

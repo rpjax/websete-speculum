@@ -5,9 +5,7 @@ alwaysApply: true
 
 # PageProjection — absolute accept
 
-**Bar:** Projected Live (`MirrorMode.PageProjection`) must be **1:1** with opening the same site in a normal browser on Virtual. Design intent = indistinguishable UX. **Anything less is unacceptable.**
-
-Full text: `docs/page-projection/spec/acceptance.md`. Index: `docs/page-projection/spec/README.md`. Protocol: `docs/page-projection/spec/frame-protocol.md`. Observability/probes: `docs/page-projection/spec/observability.md`. Open bugs: `docs/page-projection/spec/open.md`. **Do not implement from `docs/page-projection/archive/`.**
+**Bar:** Projected Live (`MirrorMode.PageProjection`) must be **1:1** with opening the same site in a normal browser on Virtual. **DOM** = numerical/state 1:1. **CSSOM live** = perceived 1:1 (eventual; not 60 Hz lockstep of every rule mutation). Establish/resync CSSOM still complete. Full text: `docs/page-projection/spec/acceptance.md`. Index: `docs/page-projection/spec/README.md`. Protocol: `docs/page-projection/spec/frame-protocol.md`. Observability/probes: `docs/page-projection/spec/observability.md`. Open bugs: `docs/page-projection/spec/open.md`. **Do not implement from `docs/page-projection/archive/`.**
 
 ## Hard bans
 

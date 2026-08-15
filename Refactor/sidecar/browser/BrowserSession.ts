@@ -602,13 +602,17 @@ export interface BrowserSession {
    * Coherent Virtual snapshot: `takeRecords` then drain/emit S then O2 + digest + optional tree
    * in one in-page turn. Stops the producer clock until {@link resumeProjectionWorld}.
    */
-  flushProjectionSnapshot?(opts?: { includeTree?: boolean }): Promise<{
+  flushProjectionSnapshot?(opts?: {
+    includeTree?: boolean;
+    cssom?: 'none' | 'committed' | 'scan';
+  }): Promise<{
     ok: boolean;
     generation?: number;
     sequence?: number;
     tableSize?: number;
     o2?: import('./mirror/projection/models/tableLiveOracle').TableLiveOracleResult;
     table?: { rowCount: number; tableHash: string };
+    cssomO2?: import('./mirror/projection/models/cssomTableLiveOracle').CssomTableLiveOracleResult | null;
     tree?: unknown;
     reason?: string;
   }>;

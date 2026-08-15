@@ -60,7 +60,7 @@ export class ReplicatedTable {
   }
 
   /**
-   * Call once per frame before applying its ops (producer: `tableFrameBuilder.ts`/`resync.ts`;
+   * Call once per frame before applying its ops (producer: `tableFrameBuilder.ts` / `domResync.ts`;
    * client: `replicatedTableApply.ts`) — every row touched by a subsequent op this pass stamps
    * `lms` with this value (§1.3/§4: "every instruction that touches a row sets that row's
    * `lms = sequence`"). Not part of `rowHash`/`tableHash` (§1.5) — diagnostics/GC only (§1.6).

@@ -6,8 +6,24 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.compareTableToLiveOrder = compareTableToLiveOrder;
 const frame_1 = require("./frame");
+const opcodes_1 = require("./opcodes");
 const MAX_DIVERGENCES = 50;
 const NONE = 0;
+function isCssomKind(kind) {
+    return kind === opcodes_1.NodeKind.Sheet || kind === opcodes_1.NodeKind.Rule;
+}
+function orderedDomChildIds(table, parent) {
+    const all = table.orderedChildIds(parent);
+    const out = [];
+    for (let i = 0; i < all.length; i++) {
+        const id = all[i];
+        const row = table.getRow(id);
+        if (row !== undefined && isCssomKind(row.kind))
+            continue;
+        out.push(id);
+    }
+    return out;
+}
 function idsEqual(a, b) {
     if (a.length !== b.length)
         return false;
@@ -38,7 +54,7 @@ function compareTableToLiveOrder(table, liveChildren) {
     for (const parent of liveChildren.keys())
         parents.add(parent);
     for (const parent of parents) {
-        const tableOrder = table.orderedChildIds(parent);
+        const tableOrder = orderedDomChildIds(table, parent);
         const liveOrder = liveChildren.get(parent) ?? [];
         if (!idsEqual(tableOrder, liveOrder)) {
             const hashed = table.countAttachedChildren(parent);
@@ -60,6 +76,8 @@ function compareTableToLiveOrder(table, liveChildren) {
     }
     table.forEachRow((id, row) => {
         if (row.parent === NONE)
+            return;
+        if (isCssomKind(row.kind))
             return;
         const parentIsLive = row.parent === frame_1.DOCUMENT_ID || liveIds.has(row.parent) || liveChildren.has(row.parent);
         if (!parentIsLive)

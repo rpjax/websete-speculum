@@ -255,6 +255,51 @@ function decodeOp(opCode, r, resolveStr, persistent) {
             const node = r.u32();
             return { op: opcodes_1.OpCode.TextSet, node, value: resolveStr(r.u32()) };
         }
+        case opcodes_1.OpCode.SheetNew: {
+            const id = r.u32();
+            const scope = r.u8();
+            const hostNode = r.u32();
+            const before = r.u32();
+            if (scope !== frame_1.CSSOM_SCOPE_MAIN && scope !== frame_1.CSSOM_SCOPE_PIERCE_HOST)
+                return null;
+            return { op: opcodes_1.OpCode.SheetNew, id, scope, hostNode, before: before === 0 ? frame_1.INSERT_AT_END : before };
+        }
+        case opcodes_1.OpCode.SheetDrop: {
+            const count = r.u16();
+            checkChildCount(count);
+            const ids = new Array(count);
+            for (let i = 0; i < count; i++)
+                ids[i] = r.u32();
+            return { op: opcodes_1.OpCode.SheetDrop, ids };
+        }
+        case opcodes_1.OpCode.SheetOrder: {
+            const count = r.u16();
+            checkChildCount(count);
+            const ids = new Array(count);
+            for (let i = 0; i < count; i++)
+                ids[i] = r.u32();
+            return { op: opcodes_1.OpCode.SheetOrder, ids };
+        }
+        case opcodes_1.OpCode.RuleNew: {
+            const sheet = r.u32();
+            const id = r.u32();
+            const before = r.u32();
+            const text = resolveStr(r.u32());
+            return { op: opcodes_1.OpCode.RuleNew, sheet, id, before: before === 0 ? frame_1.INSERT_AT_END : before, text };
+        }
+        case opcodes_1.OpCode.RuleDrop: {
+            const sheet = r.u32();
+            const count = r.u16();
+            checkChildCount(count);
+            const ids = new Array(count);
+            for (let i = 0; i < count; i++)
+                ids[i] = r.u32();
+            return { op: opcodes_1.OpCode.RuleDrop, sheet, ids };
+        }
+        case opcodes_1.OpCode.RuleSet: {
+            const id = r.u32();
+            return { op: opcodes_1.OpCode.RuleSet, id, text: resolveStr(r.u32()) };
+        }
         default:
             return null;
     }

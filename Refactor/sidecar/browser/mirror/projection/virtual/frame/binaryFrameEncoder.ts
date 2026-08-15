@@ -26,6 +26,12 @@ import type {
   AttrSetOp,
   AttrDelOp,
   TextSetOp,
+  SheetNewOp,
+  SheetDropOp,
+  SheetOrderOp,
+  RuleNewOp,
+  RuleDropOp,
+  RuleSetOp,
 } from '../../models/frame';
 import type { FrameEncoder } from './frameEncoder';
 import { assemblePart, BinaryWriter } from './binaryWriter';
@@ -153,6 +159,18 @@ export class BinaryFrameEncoder implements FrameEncoder {
         return this.writeAttrDel(w, op);
       case OpCode.TextSet:
         return this.writeTextSet(w, op);
+      case OpCode.SheetNew:
+        return this.writeSheetNew(w, op);
+      case OpCode.SheetDrop:
+        return this.writeSheetDrop(w, op);
+      case OpCode.SheetOrder:
+        return this.writeSheetOrder(w, op);
+      case OpCode.RuleNew:
+        return this.writeRuleNew(w, op);
+      case OpCode.RuleDrop:
+        return this.writeRuleDrop(w, op);
+      case OpCode.RuleSet:
+        return this.writeRuleSet(w, op);
       default:
         throw new Error(`BinaryFrameEncoder: unsupported op ${String((op as FrameOp).op)}`);
     }
@@ -234,5 +252,49 @@ export class BinaryFrameEncoder implements FrameEncoder {
     w.u8(OpCode.TextSet);
     w.u32(op.node);
     this.writeStrRef(w, op.value);
+  }
+
+  private writeIdList(w: BinaryWriter, ids: readonly number[]): void {
+    w.u16(ids.length);
+    for (let i = 0; i < ids.length; i++) w.u32(ids[i]!);
+  }
+
+  /** §4.6 — `id u32, scope u8, hostNode u32, before u32`. */
+  private writeSheetNew(w: BinaryWriter, op: SheetNewOp): void {
+    w.u8(OpCode.SheetNew);
+    w.u32(op.id);
+    w.u8(op.scope);
+    w.u32(op.hostNode);
+    w.u32(op.before);
+  }
+
+  private writeSheetDrop(w: BinaryWriter, op: SheetDropOp): void {
+    w.u8(OpCode.SheetDrop);
+    this.writeIdList(w, op.ids);
+  }
+
+  private writeSheetOrder(w: BinaryWriter, op: SheetOrderOp): void {
+    w.u8(OpCode.SheetOrder);
+    this.writeIdList(w, op.ids);
+  }
+
+  private writeRuleNew(w: BinaryWriter, op: RuleNewOp): void {
+    w.u8(OpCode.RuleNew);
+    w.u32(op.sheet);
+    w.u32(op.id);
+    w.u32(op.before);
+    this.writeStrRef(w, op.text);
+  }
+
+  private writeRuleDrop(w: BinaryWriter, op: RuleDropOp): void {
+    w.u8(OpCode.RuleDrop);
+    w.u32(op.sheet);
+    this.writeIdList(w, op.ids);
+  }
+
+  private writeRuleSet(w: BinaryWriter, op: RuleSetOp): void {
+    w.u8(OpCode.RuleSet);
+    w.u32(op.id);
+    this.writeStrRef(w, op.text);
   }
 }

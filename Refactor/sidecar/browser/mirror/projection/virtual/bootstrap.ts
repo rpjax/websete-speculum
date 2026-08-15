@@ -1,10 +1,7 @@
 /**
  * Virtual-side PageProjection bootstrap — sole esbuild entry for Isolated World.
- * MutationObserver → buffer → emitter, per frame-protocol.md §5. No establish (§4.7) — but,
- * corrected 2026-08-13 (§5.1), the observer does **not** reliably attach before the parser
- * produces content, so cold start is not purely "ordinary frames against an empty table": one
- * synchronous `resyncVirtual` call (§5.8) runs immediately after `observe()` to walk whatever the
- * parser already produced and populate the table from it, before the ordinary tick loop starts.
+ * Composition root: constructs planes, pipe, and algorithm use cases (resync / snapshot).
+ * Cold start: {@link rebuildAndResync} after `observe()` (§5.1 / §5.8).
  */
 
 import type { FrameClock } from './clock/frameClock';
@@ -18,18 +15,22 @@ import { OpCode } from '../models/opcodes';
 import { ReplicatedTable } from '../models/replicatedTable';
 import { BinaryFrameEncoder } from './frame/binaryFrameEncoder';
 import { FrameEmitter } from './frame/frameEmitter';
-import { emitResyncFrame, resyncVirtual } from './frame/resync';
-import { TableFrameBuilder } from './frame/tableFrameBuilder';
+import { emitResyncFrame, rebuildAndResync, type ResyncPlanes } from './resync';
+import { takeSnapshot } from './snapshot';
+import { TableFrameBuilder } from './dom/tableFrameBuilder';
 import { CssomPoller } from './cssom/cssomPoller';
+import { CssomIdleScheduler } from './cssom/cssomIdleScheduler';
+import { disabledCssomPlane, type CssomPlane } from './cssom/cssomPlane';
 import { ProjectionTelemetry } from './telemetry/projectionTelemetry';
 import type { FrameTransport } from './transport/frameTransport';
 import { ConsoleFrameTransport } from './transport/consoleFrameTransport';
 import { LoopbackFrameTransport } from './transport/loopbackFrameTransport';
 import { NullFrameTransport } from './transport/nullFrameTransport';
-import { digestReplicatedTable } from '../models/tableDigest';
 import type { TableLiveOracleResult } from '../models/tableLiveOracle';
+import type { CssomTableLiveOracleResult } from '../models/cssomTableLiveOracle';
 import { compareTableToLiveDom } from './dom/tableLiveOracle';
 import { PlaneChannel, type DataPlane } from '../plane';
+import type { CssomPollStats } from './cssom/cssomPoller';
 
 declare global {
   var __speculumProjection:
@@ -47,32 +48,26 @@ declare global {
         readonly compareTableToLiveDom: () => TableLiveOracleResult;
         haltWorld: () => void;
         resumeWorld: () => void;
-        /** Lab CSSOM poller — cost telemetry only; does not emit CSSOM ops. */
-        cssomPoller: CssomPoller | null;
+        readonly cssomPoller: CssomPoller | null;
         flushFrame: () => { generation: number; sequence: number };
         /**
          * One JS turn: drain MO buffer → emit frame → O2. DOM cannot mutate mid-call
          * (run-to-completion). Stops the frame clock afterwards so no sequence S+1
          * races the client applying S. Caller must resumeWorld().
+         * Snapshot CSSOM default is `none` (halt idle). Pass `{ cssom: 'scan' | 'committed' }` to include.
          */
-        flushAndSnapshot: () => {
+        flushAndSnapshot: (opts?: { cssom?: 'none' | 'committed' | 'scan' }) => {
           generation: number;
           sequence: number;
           o2: TableLiveOracleResult;
           table: { rowCount: number; tableHash: string };
+          cssom: CssomPollStats | null;
+          cssomO2: CssomTableLiveOracleResult | null;
         };
       }
     | undefined;
 }
 
-// Patchright's `addInitScript` leaves its own `<script>` tag attached to the document (unlike
-// a raw invisible CDP `Page.addScriptToEvaluateOnNewDocument` context, which this is NOT — a
-// real, connected DOM node). Left in place, `resyncVirtual`'s walk (§5.8) — and every ordinary
-// tick's MutationObserver after it — treats it as real page content and mirrors it: found via
-// the 2026-08-13 "48KB first frame for 34 nodes" diagnosis, where the entire ~46KB bundle
-// source text of *this script* was the dominant string in its own first frame. `currentScript`
-// is only valid for the synchronous portion of this script's execution — must run before
-// anything else, including before any `await`.
 document.currentScript?.remove();
 
 void (async () => {
@@ -82,10 +77,6 @@ void (async () => {
 
   const domNodes = new DomNodeTable();
   domNodes.bind(document, DOCUMENT_ID);
-  // §1.2/§4.1 EPOCH_RESET (Stage 3): a fresh script injection is itself always a fresh identity
-  // map (a new JS realm — there is nothing stale to clear here, unlike mid-realm `bumpGeneration()`),
-  // but it must still *report* the generation the orchestrator says this navigation is, so the
-  // resync frame built below knows whether to announce a new epoch to the client.
   domNodes.setGeneration(config.generation);
   const table = new ReplicatedTable();
 
@@ -116,12 +107,15 @@ void (async () => {
   });
 
   const cssomPoller = config.cssomPollHz > 0 ? new CssomPoller() : null;
-  const cssomClock: FrameClock | null =
+  const cssom: CssomPlane =
     cssomPoller !== null
-      ? new TimerFrameClock({
-          frameRateHz: config.cssomPollHz,
+      ? new CssomIdleScheduler({
+          poller: cssomPoller,
+          minIntervalMs: 1000 / config.cssomPollHz,
         })
-      : null;
+      : disabledCssomPlane();
+
+  const resyncPlanes: ResyncPlanes = { domNodes, table, cssom };
 
   const frameClock: FrameClock = new TimerFrameClock({
     frameRateHz: config.frameRateHz,
@@ -134,12 +128,6 @@ void (async () => {
     onRateChanged: (info) => telemetry.recordRateChanged(info),
   });
 
-  // Must start observing before anything else touches the document — a mutation that
-  // happens before `start()` is a mutation this producer can never recover (no establish
-  // fallback exists to paper over it, per P8 / §4.7). It does NOT mean the table starts
-  // accurate (§5.1, corrected): whatever the parser already produced by the time `observe()`
-  // actually attaches is invisible to the observer and must be recovered by `resyncVirtual`
-  // below, not assumed away.
   domMutationObserver.start();
 
   if (loopback) {
@@ -156,23 +144,17 @@ void (async () => {
     builder: frameBuilder,
     encoder,
     transport: frameTransport,
-    domNodes,
-    table,
+    census: () => ({
+      generation: domNodes.generation,
+      tableSize: table.size,
+      identitySize: domNodes.size,
+    }),
     telemetry,
     pullPendingMutations: () => domMutationObserver.takePendingIntoBuffer(),
+    takePendingCssom: () => cssom.takePending(),
+    table,
   });
 
-  // Stage 4 (frame-protocol-production-completeness), §5.8: the resync *request* travels on the
-  // existing control channel, not the binary frame body — `PlaneChannel.Control`, reserved since
-  // E-03 and unused until now (`PlaneFrameTransport` only ever sends on `PlaneChannel.Frame`, never
-  // claims the inbound handler). Mid-session recovery uses `emitResyncFrame` alone, not
-  // `resyncVirtual` — the existing identity map's *shape* is trusted, so this re-describes current
-  // truth straight from it rather than paying for a full synchronous DOM walk on every recovery.
-  // The client-supplied `generation`/`sequence` are diagnostic-only: `emitResyncFrame` always
-  // re-describes the map's current truth regardless of what the client last had, and a request that
-  // raced a navigation the client hasn't heard about yet is resolved by the client's own
-  // generation-mismatch handling (`client/labProjectionClient.ts`) once the response arrives, not by
-  // anything read here.
   if (loopback) {
     loopback.dataPlane.setHandler((channel, payload) => {
       if (channel !== PlaneChannel.Control) return;
@@ -191,34 +173,29 @@ void (async () => {
         String(req.generation),
         String(req.sequence),
       );
-      frameEmitter.requestResync((seq) => emitResyncFrame(domNodes, table, domNodes.generation, seq));
+      frameEmitter.requestResync((seq) => {
+        const { frame, cssom: cssomStats } = emitResyncFrame(resyncPlanes, seq);
+        telemetry.recordCssomPoll(cssomStats);
+        return frame;
+      });
     });
   }
 
-  // §5.1/§5.8 bootstrap: one synchronous walk closes the gap between "observer attached" and
-  // "parser already ran ahead of it". Whatever the observer buffered up to this same point is
-  // redundant with what the walk just captured wholesale, so it is discarded, not built into a
-  // frame — the ordinary tick path only ever sees mutations that happen *after* this line.
-  const resyncFrame = resyncVirtual(domNodes, table, frameEmitter.currentSequence + 1);
-  // §7 ordering rule 1 ("EPOCH_RESET first, if present") — table state is already correct here
-  // (`resyncVirtual`/`emitResyncFrame` already reset+rebuilt `table` above; EPOCH_RESET's own
-  // `Table` effect, §4.1, is a clear-then-empty that a fresh rebuild already equals), this only
-  // adds the wire-level announcement so the client knows to discard its old generation's surface
-  // (§6, `client/applyDom.ts`) instead of treating this as an ordinary same-generation resync.
+  const { frame: resyncFrame, cssom: cssomResyncStats } = rebuildAndResync(
+    resyncPlanes,
+    frameEmitter.currentSequence + 1,
+  );
+  telemetry.recordCssomPoll(cssomResyncStats);
   if (config.generation > 1) {
     resyncFrame.ops.unshift({ op: OpCode.EpochReset, generation: config.generation });
   }
-  // Discard observer backlog (including records not yet delivered to the callback).
   domMutationObserver.takePendingIntoBuffer();
   mutationBuffer.drain();
   await frameEmitter.sendInitial(resyncFrame);
 
   frameEmitter.start();
   telemetry.start();
-  cssomClock?.start(() => {
-    if (cssomPoller === null) return;
-    telemetry.recordCssomPoll(cssomPoller.poll(document));
-  });
+  cssom.start();
 
   globalThis.__speculumProjection = {
     version: 1,
@@ -235,32 +212,32 @@ void (async () => {
     compareTableToLiveDom: () => compareTableToLiveDom(table, domNodes, document),
     haltWorld: () => {
       frameEmitter.stop();
-      cssomClock?.stop();
+      cssom.halt();
     },
     resumeWorld: () => {
       frameEmitter.start();
-      cssomClock?.start(() => {
-        if (cssomPoller === null) return;
-        telemetry.recordCssomPoll(cssomPoller.poll(document));
-      });
+      cssom.start();
     },
     flushFrame: () => {
       frameEmitter.flushNow();
       return { generation: domNodes.generation, sequence: frameEmitter.currentSequence };
     },
-    flushAndSnapshot: () => {
-      // Same turn: takeRecords (undelivered MO queue) → drain → emit S → O2 vs live DOM.
-      // A turn without takeRecords builds S from stale delivered records while live DOM is ahead.
-      frameEmitter.flushNow();
-      const o2 = compareTableToLiveDom(table, domNodes, document);
+    flushAndSnapshot: (opts) => {
+      const snapped = takeSnapshot(
+        {
+          domNodes,
+          table,
+          cssom,
+          cssomIds: cssomPoller?.ids ?? null,
+          currentSequence: () => frameEmitter.currentSequence,
+          flushDom: () => frameEmitter.flushNow(),
+          recordCssomPoll: (stats) => telemetry.recordCssomPoll(stats),
+        },
+        { cssom: opts?.cssom ?? 'none' },
+      );
       frameEmitter.stop();
-      cssomClock?.stop();
-      return {
-        generation: domNodes.generation,
-        sequence: frameEmitter.currentSequence,
-        o2,
-        table: digestReplicatedTable(table),
-      };
+      cssom.halt();
+      return snapped;
     },
   };
 })();

@@ -12,6 +12,20 @@
 
 The design goal of PageProjection is that the user experience of the projected page is **indistinguishable** from the original for browsing, layout, media, interaction, and completeness. **Anything less is unacceptable.**
 
+### How 1:1 is measured (DOM vs CSSOM) — ruling 2026-08-15
+
+This is **accepting the budget**, not softening the product into “good enough protocol.”
+
+| Plane | Bar | Why |
+|-------|-----|-----|
+| **DOM** (structure, text, attrs, topology) | **Numerical / state 1:1** — coherent ticks, high FPS under stress, not eventual. Lab proved this on the table path. | MutationObserver + drain fits the main-thread mutation rate we actually sustain. |
+| **CSSOM live** (rule tree after establish) | **Perceived 1:1** — what the user experiences after settle and during ordinary browsing. **Not** lockstep 60 Hz of every adversarial `cssText` mutation. | No CSSOM MutationObserver. Detection is reconcile + idle + eventual ([cssom-poll-algorithm.md](cssom-poll-algorithm.md)). Worst-case readable volume cannot be scanned at DOM tick rate without eating the page (K/E budgets). |
+| **CSSOM establish / resync** | Completeness: install/scan so first paint and recover are not unstyled. PP-EST-6 / resync always both planes. | Rare; may pay a blocking scan. |
+
+**Foundation vs practice.** The synthetic worst case exists to **stress the detection algorithm** (garbage-free commit, no false-empty sheet, idle degrades with the page). It does **not** set a 60 FPS CSSOM-delta SLO. On real sites, amortizations (idle batches, later generations/hot-cold, skip serialize, in-page hints) are how **perceived** parity stays 1:1. They must not become the detector, and they must not make a live sheet silently incomplete **at settle**. Narrative: [cssom-sensor-journey.md](cssom-sensor-journey.md).
+
+**Still a defect:** DOM present but unusable, missing stylesheet application after settle, FOUC on establish, chronic catch-up that a user notices on ordinary browsing. **Not a defect:** Projected CSSOM a poll-interval behind Virtual during a synthetic 14k-rule churn hammer.
+
 ## What counts as failure
 
 Any of the following is a **product defect**, even if protocol events look healthy:

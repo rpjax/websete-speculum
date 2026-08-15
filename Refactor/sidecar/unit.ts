@@ -50,6 +50,7 @@ import {
 } from './browser/mirror/projection/models/rowHash';
 import { ReplicatedTable } from './browser/mirror/projection/models/replicatedTable';
 import { compareTableToLiveOrder } from './browser/mirror/projection/models/tableLiveOracle';
+import { compareTableToLiveCssom } from './browser/mirror/projection/models/cssomTableLiveOracle';
 import {
   applyFrameToTable,
   applyFrameToTableChecked,
@@ -57,7 +58,17 @@ import {
   applyOpsToTable,
 } from './browser/mirror/projection/models/replicatedTableApply';
 import { NodeKind, OpCode } from './browser/mirror/projection/models/opcodes';
-import { CHECK_SCOPE_RANGE, CHECK_SCOPE_TABLE, type FrameOp, createFrame, INSERT_AT_END } from './browser/mirror/projection/models/frame';
+import { CHECK_SCOPE_RANGE, CHECK_SCOPE_TABLE, CSSOM_SCOPE_MAIN, type FrameOp, createFrame, INSERT_AT_END, spliceCssomBeforeCheck } from './browser/mirror/projection/models/frame';
+import { decodeFramePart, PersistentStringTable } from './browser/mirror/projection/models/decode';
+import { shouldAbortSheet, isRuleSlotLive, MASS_ABORT_STALE_FRACTION } from './browser/mirror/projection/virtual/cssom/cssomWalk';
+import { CssomIds, CSSOM_ID_MIN } from './browser/mirror/projection/virtual/cssom/cssomIds';
+import { emitLiveCssomOps, emitResyncCssomOps } from './browser/mirror/projection/virtual/cssom/cssomOps';
+import {
+  CSSOM_POLL_STAT_KEYS,
+  countCssomOps,
+  emptyCssomPollStats,
+  stampCssomPoll,
+} from './browser/mirror/projection/models/telemetry';
 import { digestReplicatedTable } from './browser/mirror/projection/models/tableDigest';
 import { BinaryFrameEncoder } from './browser/mirror/projection/virtual/frame/binaryFrameEncoder';
 import { NodeTableApplier } from './browser/mirror/projection/lab/nodeTableApply';
@@ -2005,6 +2016,57 @@ function testTableLiveOracle(): void {
   console.log('[unit] tableLiveOracle O2 local (OPEN-7 shape + mismatch + detached) ok');
 }
 
+function testDomO2IgnoresSheetRows(): void {
+  const table = new ReplicatedTable();
+  table.createElementRow(10, 'html', []);
+  table.insertBatch(1, 0, [10]);
+  applyOpsToTable(table, [
+    {
+      op: OpCode.SheetNew,
+      id: CSSOM_ID_MIN,
+      scope: CSSOM_SCOPE_MAIN,
+      hostNode: 0,
+      before: INSERT_AT_END,
+    },
+  ]);
+  const live = new Map<number, readonly number[]>([
+    [1, [10]],
+    [10, []],
+  ]);
+  const result = compareTableToLiveOrder(table, live);
+  assert.strictEqual(
+    result.identical,
+    true,
+    `Sheet under document must not fail DOM O2: ${JSON.stringify(result.divergences)}`,
+  );
+  console.log('[unit] DOM O2 ignores Sheet/Rule rows under document ok');
+}
+
+function testCssomTableLiveOracle(): void {
+  const sheetId = CSSOM_ID_MIN;
+  const ruleId = CSSOM_ID_MIN + 1;
+  const text = 'a { color: red }';
+  const table = new ReplicatedTable();
+  applyOpsToTable(table, [
+    { op: OpCode.SheetNew, id: sheetId, scope: CSSOM_SCOPE_MAIN, hostNode: 0, before: INSERT_AT_END },
+    { op: OpCode.RuleNew, sheet: sheetId, id: ruleId, before: INSERT_AT_END, text },
+  ]);
+  const ok = compareTableToLiveCssom(table, [
+    { id: sheetId, ruleIds: [ruleId], ruleHashes: [hashValue(text)] },
+  ]);
+  assert.strictEqual(ok.identical, true, JSON.stringify(ok.divergences));
+
+  const mismatch = compareTableToLiveCssom(table, [
+    { id: sheetId, ruleIds: [ruleId], ruleHashes: [hashValue('a { color: blue }')] },
+  ]);
+  assert.strictEqual(mismatch.identical, false);
+  assert.ok(
+    mismatch.divergences.some((d) => d.kind === 'rule_content_mismatch'),
+    `expected rule_content_mismatch, got ${JSON.stringify(mismatch.divergences)}`,
+  );
+  console.log('[unit] cssomTableLiveOracle contentHash mismatch ok');
+}
+
 /**
  * frame-protocol.md §1.5 Stage 1 GATE — "unit tests proving producer and client compute identical
  * rowHash/tableHash for the same sequence of mutations." Two independent `ReplicatedTable`
@@ -2477,6 +2539,121 @@ function testCssomFnvAndRuleDiff(): void {
   console.log('[unit] cssom fnv + rule diff ok');
 }
 
+function testCssomWalkSkipVsAbort(): void {
+  assert.strictEqual(shouldAbortSheet(10, 9, 10), true, '90% stale aborts');
+  assert.ok(MASS_ABORT_STALE_FRACTION === 0.9);
+  assert.strictEqual(shouldAbortSheet(10, 8, 10), false, 'below 90% is skip, not abort');
+  assert.strictEqual(shouldAbortSheet(10, 0, 0), true, 'live length << copy aborts');
+  assert.strictEqual(shouldAbortSheet(10, 0, 21), true, 'live length exploded aborts');
+  const sheet = {};
+  const live = [{ parentStyleSheet: sheet }];
+  assert.strictEqual(isRuleSlotLive(live[0]!, sheet, live), true);
+  assert.strictEqual(isRuleSlotLive({}, sheet, live), false, 'dead slot skipped');
+  console.log('[unit] cssom walk skip vs abort ok');
+}
+
+function testCssomOpsAndTableApply(): void {
+  const ids = new CssomIds();
+  const sheet = {};
+  const r1 = {};
+  const r2 = {};
+  const texts = new Map<object, string>([
+    [r1, 'a { color: red }'],
+    [r2, 'b { color: blue }'],
+  ]);
+  const snaps = [
+    { key: r1, contentHash: 1 },
+    { key: r2, contentHash: 2 },
+  ];
+  const resync = emitResyncCssomOps(ids, [{ sheet, snaps, texts }]);
+  assert.strictEqual(resync[0]?.op, OpCode.SheetNew);
+  assert.strictEqual(resync[1]?.op, OpCode.RuleNew);
+  assert.strictEqual(resync[2]?.op, OpCode.RuleNew);
+  assert.ok((resync[0] as { id: number }).id >= CSSOM_ID_MIN);
+
+  const table = new ReplicatedTable();
+  applyOpsToTable(table, resync);
+  const sheetId = ids.peekSheet(sheet)!;
+  const ruleId = ids.peekRule(r1)!;
+  assert.strictEqual(table.getRow(sheetId)?.kind, NodeKind.Sheet);
+  assert.strictEqual(table.getRow(ruleId)?.kind, NodeKind.Rule);
+  assert.deepStrictEqual(table.orderedChildIds(sheetId), [ids.peekRule(r1), ids.peekRule(r2)]);
+
+  const live = emitLiveCssomOps(
+    ids,
+    [sheet],
+    [{ sheet, snaps: [{ key: r1, contentHash: 3 }], texts: new Map([[r1, 'a { color: green }']]) }],
+    new WeakMap([[sheet, snaps]]),
+  );
+  assert.ok(live.some((op) => op.op === OpCode.RuleDrop));
+  assert.ok(live.some((op) => op.op === OpCode.RuleSet));
+  applyOpsToTable(table, live);
+  assert.strictEqual(table.orderedChildIds(sheetId).length, 1);
+
+  const aborted = emitLiveCssomOps(
+    ids,
+    [sheet],
+    [{ sheet, snaps, texts, skipOps: true }],
+    new WeakMap([[sheet, [{ key: r1, contentHash: 3 }]]]),
+  );
+  assert.ok(!aborted.some((op) => op.op === OpCode.SheetDrop), 'abort must not DROP the sheet');
+  assert.ok(!aborted.some((op) => op.op === OpCode.RuleDrop || op.op === OpCode.RuleNew));
+  console.log('[unit] cssom ops + table apply ok');
+}
+
+function testCssomEncodeDecode(): void {
+  const ops: FrameOp[] = [
+    { op: OpCode.SheetNew, id: CSSOM_ID_MIN, scope: CSSOM_SCOPE_MAIN, hostNode: 0, before: INSERT_AT_END },
+    { op: OpCode.RuleNew, sheet: CSSOM_ID_MIN, id: CSSOM_ID_MIN + 1, before: INSERT_AT_END, text: '.x { color: red }' },
+    { op: OpCode.RuleSet, id: CSSOM_ID_MIN + 1, text: '.x { color: blue }' },
+    { op: OpCode.SheetOrder, ids: [CSSOM_ID_MIN] },
+  ];
+  const frame = createFrame({ generation: 1, sequence: 1, ops, preTableHash: 0n });
+  const bytes = new BinaryFrameEncoder().encode(frame)[0]!;
+  const decoded = decodeFramePart(bytes, new PersistentStringTable());
+  assert.ok(decoded.ok, 'cssom frame must decode');
+  if (!decoded.ok) return;
+  assert.deepStrictEqual(decoded.part.ops, ops);
+
+  const spliced = spliceCssomBeforeCheck(
+    [{ op: OpCode.Check, scope: CHECK_SCOPE_TABLE, lo: 0, hi: 0, hash: 1n }],
+    ops,
+  );
+  assert.strictEqual(spliced[spliced.length - 1]?.op, OpCode.Check);
+  assert.strictEqual(spliced[0]?.op, OpCode.SheetNew);
+  console.log('[unit] cssom encode/decode + splice before CHECK ok');
+}
+
+function testCssomPollTelemetrySchema(): void {
+  const hist = countCssomOps([
+    { op: OpCode.SheetNew, id: CSSOM_ID_MIN, scope: CSSOM_SCOPE_MAIN, hostNode: 0, before: INSERT_AT_END },
+    { op: OpCode.RuleNew, sheet: CSSOM_ID_MIN, id: CSSOM_ID_MIN + 1, before: INSERT_AT_END, text: '.x{}' },
+    { op: OpCode.RuleSet, id: CSSOM_ID_MIN + 1, text: '.x{color:red}' },
+    { op: OpCode.Check, scope: CHECK_SCOPE_TABLE, lo: 0, hi: 0, hash: 0n },
+  ]);
+  assert.strictEqual(hist.opCount, 3);
+  assert.strictEqual(hist.opSheetNew, 1);
+  assert.strictEqual(hist.opRuleNew, 1);
+  assert.strictEqual(hist.opRuleSet, 1);
+  assert.strictEqual(hist.opSheetDrop, 0);
+
+  const stamped = stampCssomPoll(emptyCssomPollStats(), {
+    source: 'resync',
+    sequence: 1,
+    sheetsAborted: 2,
+    slotsSkipped: 4,
+    ...hist,
+  });
+  const json = JSON.parse(JSON.stringify(stamped)) as Record<string, unknown>;
+  for (const key of CSSOM_POLL_STAT_KEYS) {
+    assert.ok(Object.prototype.hasOwnProperty.call(json, key), `cssomPoll JSON missing ${key}`);
+    assert.notStrictEqual(json[key], undefined, `cssomPoll ${key} must not be skip-if-absent`);
+  }
+  assert.strictEqual(json.source, 'resync');
+  assert.strictEqual(json.sequence, 1);
+  console.log('[unit] cssom poll telemetry schema ok');
+}
+
 async function main(): Promise<void> {
   // Debug instrumentation posts to the ingest server; don't hang unit runs on it.
   (globalThis as { fetch: typeof fetch }).fetch = (async () =>
@@ -2542,6 +2719,8 @@ async function main(): Promise<void> {
   testReplicatedTableInsertBeforeNextSiblingRepair();
   testReplicatedTablePrependEvictDerivedLinks();
   testTableLiveOracle();
+  testDomO2IgnoresSheetRows();
+  testCssomTableLiveOracle();
   testReplicatedTableApplyOpsParity();
   testReplicatedTableResyncWholesaleReplace();
   testApplyFrameToTableCheckedAcceptsValidFrame();
@@ -2557,6 +2736,10 @@ async function main(): Promise<void> {
   testApplyFrameToTableCheckedEnforcesMaxRows();
   testNodeTableApplierDigestMatchesDirectApply();
   testCssomFnvAndRuleDiff();
+  testCssomWalkSkipVsAbort();
+  testCssomOpsAndTableApply();
+  testCssomEncodeDecode();
+  testCssomPollTelemetrySchema();
   await runPageProjectionUnitTests();
   await runV4ProjectionSessionUnitTests();
   console.log('[unit] all passed');

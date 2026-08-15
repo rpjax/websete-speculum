@@ -82,7 +82,7 @@ export class LabProjectionClient {
   private armed = false;
   /**
    * Stage 4 — distinguishes cold start from mid-session recovery. `resync: true` is not unique to
-   * `emitResyncFrame`: bootstrap's own cold-start frame (`resyncVirtual`) sets it too, for the
+   * `emitResyncFrame`: bootstrap's own cold-start frame (`rebuildAndResync`) sets it too, for the
    * same reason (§2 — "no prior state to check against a wholesale replace", the *first* frame
    * has no prior state either). The double buffer exists to protect an already-good live surface
    * while a replacement is built off to the side; at cold start there is no live surface yet to

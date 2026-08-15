@@ -8,7 +8,7 @@ import { NONE_DOM_NODE_KEY } from '../../models/domNodeKey';
 import { compareTableToLiveOrder, type TableLiveOracleResult } from '../../models/tableLiveOracle';
 import type { ReplicatedTable } from '../../models/replicatedTable';
 import type { DomNodeTable } from './domNodeTable';
-import { nodeKindOf } from '../frame/domNodeDescribe';
+import { nodeKindOf } from './domNodeDescribe';
 
 export function compareTableToLiveDom(
   table: ReplicatedTable,

@@ -39,16 +39,17 @@ function loadSnapshotScript() {
         tried.map((p) => `  - ${p}`).join('\n'));
 }
 /** Expression: flush+O2 (+ optional tree) in one document JS turn — DOM cannot mutate mid-call. */
-function coherentSnapshotExpression(includeTree) {
+function coherentSnapshotExpression(includeTree, cssom = 'none') {
     const treePart = includeTree
         ? `${loadSnapshotScript()}\n    tree = __speculumSnapshot.snapshotTree();\n`
         : '';
+    const cssomLit = JSON.stringify(cssom);
     return `(() => {
     const p = globalThis.__speculumProjection;
     if (!p || typeof p.flushAndSnapshot !== 'function') {
       return { ok: false, reason: 'flushAndSnapshot missing' };
     }
-    const flushed = p.flushAndSnapshot();
+    const flushed = p.flushAndSnapshot({ cssom: ${cssomLit} });
     let tree = null;
     ${treePart}
     return {
@@ -58,6 +59,8 @@ function coherentSnapshotExpression(includeTree) {
       tableSize: p.table.size,
       o2: flushed.o2,
       table: flushed.table,
+      cssom: flushed.cssom,
+      cssomO2: flushed.cssomO2,
       tree,
     };
   })()`;

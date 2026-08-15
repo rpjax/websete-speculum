@@ -25,7 +25,12 @@
 
 No open DOM-table bugs. Stress-churn stacked digits = PP-FR-1 ([observability.md](observability.md) §8). Prepend `child_order` = green at seq 799 (`2026-08-15T00-32-28`). Next product gate: CSSOM.
 
-**Lab (2026-08-15):** in-page CSSOM poll + `cssText` hash at 5 Hz (`virtual/cssom/`). Telemetry `cssomPoll` only — **no** SHEET/RULE opcodes on the wire, **no** CDP CSS domain. C5 (hooks vs poll) is **not** relocked; this is a cost experiment. Fixture `cssom-scale.html`.
+**Lab (2026-08-15):** CSSOM poll **algorithm** — [cssom-poll-algorithm.md](cssom-poll-algorithm.md).
+**Accept:** DOM numerical 1:1; CSSOM live perceived ([acceptance.md](acceptance.md)).
+Why: [cssom-sensor-journey.md](cssom-sensor-journey.md). `SHEET_*`/`RULE_*` are on the wire (phase 1
+table; C6 apply not shipped). Telemetry `cssomPoll` sealed for the foundation —
+[observability.md](observability.md) §9 (idle + resync + snapshot scan). **No** CDP CSS domain. C5 is
+**not** relocked. C6 apply telemetry is **not** this cut.
 
 ---
 

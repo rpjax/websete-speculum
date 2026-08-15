@@ -270,7 +270,8 @@ ops that tear down more CSSOM than necessary — that is what causes flicker.
 
 ## C5 — LOCKED: Observe → emit
 
-**LOCKED (2026-08-06)**
+**LOCKED (2026-08-06)** — lab poll sensor design is [cssom-poll-algorithm.md](cssom-poll-algorithm.md)
+and **does not** change this lock until Rodrigo relocks C5.
 
 1. **Primary sensor:** write-path hooks on Virtual CSSOM mutators
    (`insertRule`, `deleteRule`, `replace` / `replaceSync`, rule style /
@@ -465,6 +466,7 @@ T11 cutover (rename + new ops/planes together preferred).
 | 2026-08-06 | C3.1 | **LOCKED** anti-flicker granularity: smallest sufficient op; live=patch/ruleList/sheetList only; install/resync/host-kill only for full establish/teardown; replaceSync→ruleList only; patch apply in-place; no live full-text sheet rewrite. |
 | 2026-08-06 | Meta | **SEALED** CSSOM plane behaviour + PageProjection naming. No open CSSOM contract gaps; cutover = T11/T12 only. |
 | 2026-08-06 | Input | **LOCKED** E2E rename includes input (`PageProjectionIntent`); desync disarm is client-only — Virtual gets no desync signal; no input `resync` type. |
+| 2026-08-15 | C5 | **Unchanged.** Lab poll algorithm documented; not a C5 relock. |
 
 ---
 

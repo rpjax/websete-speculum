@@ -54,6 +54,7 @@ async function runIsomorphism(opts) {
             sequence: null,
             generation: null,
             o2: null,
+            cssomO2: null,
             table: emptyTable,
             tableFailReason: null,
             structuralDiff: null,
@@ -61,12 +62,13 @@ async function runIsomorphism(opts) {
         };
     }
     try {
-        const virtual = await flushSnap.call(opts.session, { includeTree: true });
+        const virtual = await flushSnap.call(opts.session, { includeTree: true, cssom: 'scan' });
         if (!virtual.ok) {
             return {
                 sequence: null,
                 generation: null,
                 o2: null,
+                cssomO2: null,
                 table: emptyTable,
                 tableFailReason: null,
                 structuralDiff: null,
@@ -150,12 +152,14 @@ async function runIsomorphism(opts) {
             sequence: virtual.sequence ?? null,
             generation: virtual.generation ?? null,
             o2: virtual.o2 ?? null,
+            cssomO2: virtual.cssomO2 ?? null,
             table: { virtual: virtualTable, client: clientTable, identical: tableIdentical },
             tableFailReason,
             structuralDiff,
             skipped: [
                 ...skipped,
                 ...(virtual.o2 ? [] : [{ id: 'o2', reason: 'O2 missing from flushProjectionSnapshot' }]),
+                ...(virtual.cssomO2 ? [] : [{ id: 'isomorphism.cssom', reason: 'cssomO2 missing from flushProjectionSnapshot' }]),
             ],
         };
     }

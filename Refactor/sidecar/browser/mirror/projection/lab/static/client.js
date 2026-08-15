@@ -5,6 +5,8 @@
   var INSERT_AT_END = 0;
   var CHECK_SCOPE_TABLE = 0;
   var CHECK_SCOPE_RANGE = 1;
+  var CSSOM_SCOPE_MAIN = 0;
+  var CSSOM_SCOPE_PIERCE_HOST = 1;
 
   // browser/mirror/projection/models/limits.ts
   var MAX_STR_BYTES = 1 << 20;
@@ -214,6 +216,47 @@
         const node = r.u32();
         return { op: 98 /* TextSet */, node, value: resolveStr(r.u32()) };
       }
+      case 160 /* SheetNew */: {
+        const id = r.u32();
+        const scope = r.u8();
+        const hostNode = r.u32();
+        const before = r.u32();
+        if (scope !== CSSOM_SCOPE_MAIN && scope !== CSSOM_SCOPE_PIERCE_HOST) return null;
+        return { op: 160 /* SheetNew */, id, scope, hostNode, before: before === 0 ? INSERT_AT_END : before };
+      }
+      case 161 /* SheetDrop */: {
+        const count = r.u16();
+        checkChildCount(count);
+        const ids = new Array(count);
+        for (let i = 0; i < count; i++) ids[i] = r.u32();
+        return { op: 161 /* SheetDrop */, ids };
+      }
+      case 162 /* SheetOrder */: {
+        const count = r.u16();
+        checkChildCount(count);
+        const ids = new Array(count);
+        for (let i = 0; i < count; i++) ids[i] = r.u32();
+        return { op: 162 /* SheetOrder */, ids };
+      }
+      case 163 /* RuleNew */: {
+        const sheet = r.u32();
+        const id = r.u32();
+        const before = r.u32();
+        const text = resolveStr(r.u32());
+        return { op: 163 /* RuleNew */, sheet, id, before: before === 0 ? INSERT_AT_END : before, text };
+      }
+      case 164 /* RuleDrop */: {
+        const sheet = r.u32();
+        const count = r.u16();
+        checkChildCount(count);
+        const ids = new Array(count);
+        for (let i = 0; i < count; i++) ids[i] = r.u32();
+        return { op: 164 /* RuleDrop */, sheet, ids };
+      }
+      case 165 /* RuleSet */: {
+        const id = r.u32();
+        return { op: 165 /* RuleSet */, id, text: resolveStr(r.u32()) };
+      }
       default:
         return null;
     }
@@ -352,7 +395,7 @@
       return this.tracker.value;
     }
     /**
-     * Call once per frame before applying its ops (producer: `tableFrameBuilder.ts`/`resync.ts`;
+     * Call once per frame before applying its ops (producer: `tableFrameBuilder.ts` / `domResync.ts`;
      * client: `replicatedTableApply.ts`) — every row touched by a subsequent op this pass stamps
      * `lms` with this value (§1.3/§4: "every instruction that touches a row sets that row's
      * `lms = sequence`"). Not part of `rowHash`/`tableHash` (§1.5) — diagnostics/GC only (§1.6).
@@ -644,6 +687,35 @@
       case 98 /* TextSet */:
         table.setValue(op.node, op.value);
         return;
+      case 160 /* SheetNew */: {
+        const parent = op.hostNode === 0 ? DOCUMENT_ID : op.hostNode;
+        if (!table.has(op.id)) table.createLeafRow(op.id, 4 /* Sheet */, "");
+        table.insertBatch(parent, op.before, [op.id]);
+        return;
+      }
+      case 161 /* SheetDrop */:
+        for (let i = 0; i < op.ids.length; i++) table.dropSubtree(op.ids[i]);
+        return;
+      case 162 /* SheetOrder */:
+        if (op.ids.length === 0) return;
+        {
+          const first = table.getRow(op.ids[0]);
+          const parent = first === void 0 || first.parent === 0 ? DOCUMENT_ID : first.parent;
+          table.removeBatch(parent, op.ids);
+          table.insertBatch(parent, 0, op.ids);
+        }
+        return;
+      case 163 /* RuleNew */:
+        if (!table.has(op.id)) table.createLeafRow(op.id, 5 /* Rule */, op.text);
+        else table.setValue(op.id, op.text);
+        table.insertBatch(op.sheet, op.before, [op.id]);
+        return;
+      case 164 /* RuleDrop */:
+        for (let i = 0; i < op.ids.length; i++) table.dropSubtree(op.ids[i]);
+        return;
+      case 165 /* RuleSet */:
+        table.setValue(op.id, op.text);
+        return;
       default:
         return;
     }
@@ -700,7 +772,7 @@
         for (let j = 0; j < op.ids.length; j++) table.dropSubtree(op.ids[j]);
         continue;
       }
-      if (op.op === 32 /* NodeNew */ && !table.has(op.id) && table.size >= MAX_ROWS) {
+      if ((op.op === 32 /* NodeNew */ || op.op === 160 /* SheetNew */ || op.op === 163 /* RuleNew */) && !table.has(op.id) && table.size >= MAX_ROWS) {
         return {
           ok: false,
           reason: "precondition",
@@ -823,6 +895,14 @@
           return this.applyAttrDel(op);
         case 98 /* TextSet */:
           return this.applyTextSet(op);
+        case 160 /* SheetNew */:
+        case 161 /* SheetDrop */:
+        case 162 /* SheetOrder */:
+        case 163 /* RuleNew */:
+        case 164 /* RuleDrop */:
+        case 165 /* RuleSet */:
+          return true;
+        // C6 owned CSSOM apply is not this cut — phase 2 explicit no-op
         default:
           return true;
       }
@@ -1109,7 +1189,7 @@
     armed = false;
     /**
      * Stage 4 — distinguishes cold start from mid-session recovery. `resync: true` is not unique to
-     * `emitResyncFrame`: bootstrap's own cold-start frame (`resyncVirtual`) sets it too, for the
+     * `emitResyncFrame`: bootstrap's own cold-start frame (`rebuildAndResync`) sets it too, for the
      * same reason (§2 — "no prior state to check against a wholesale replace", the *first* frame
      * has no prior state either). The double buffer exists to protect an already-good live surface
      * while a replacement is built off to the side; at cold start there is no live surface yet to

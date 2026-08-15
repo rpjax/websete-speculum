@@ -126,6 +126,18 @@ class BinaryFrameEncoder {
                 return this.writeAttrDel(w, op);
             case opcodes_1.OpCode.TextSet:
                 return this.writeTextSet(w, op);
+            case opcodes_1.OpCode.SheetNew:
+                return this.writeSheetNew(w, op);
+            case opcodes_1.OpCode.SheetDrop:
+                return this.writeSheetDrop(w, op);
+            case opcodes_1.OpCode.SheetOrder:
+                return this.writeSheetOrder(w, op);
+            case opcodes_1.OpCode.RuleNew:
+                return this.writeRuleNew(w, op);
+            case opcodes_1.OpCode.RuleDrop:
+                return this.writeRuleDrop(w, op);
+            case opcodes_1.OpCode.RuleSet:
+                return this.writeRuleSet(w, op);
             default:
                 throw new Error(`BinaryFrameEncoder: unsupported op ${String(op.op)}`);
         }
@@ -201,6 +213,44 @@ class BinaryFrameEncoder {
         w.u8(opcodes_1.OpCode.TextSet);
         w.u32(op.node);
         this.writeStrRef(w, op.value);
+    }
+    writeIdList(w, ids) {
+        w.u16(ids.length);
+        for (let i = 0; i < ids.length; i++)
+            w.u32(ids[i]);
+    }
+    /** §4.6 — `id u32, scope u8, hostNode u32, before u32`. */
+    writeSheetNew(w, op) {
+        w.u8(opcodes_1.OpCode.SheetNew);
+        w.u32(op.id);
+        w.u8(op.scope);
+        w.u32(op.hostNode);
+        w.u32(op.before);
+    }
+    writeSheetDrop(w, op) {
+        w.u8(opcodes_1.OpCode.SheetDrop);
+        this.writeIdList(w, op.ids);
+    }
+    writeSheetOrder(w, op) {
+        w.u8(opcodes_1.OpCode.SheetOrder);
+        this.writeIdList(w, op.ids);
+    }
+    writeRuleNew(w, op) {
+        w.u8(opcodes_1.OpCode.RuleNew);
+        w.u32(op.sheet);
+        w.u32(op.id);
+        w.u32(op.before);
+        this.writeStrRef(w, op.text);
+    }
+    writeRuleDrop(w, op) {
+        w.u8(opcodes_1.OpCode.RuleDrop);
+        w.u32(op.sheet);
+        this.writeIdList(w, op.ids);
+    }
+    writeRuleSet(w, op) {
+        w.u8(opcodes_1.OpCode.RuleSet);
+        w.u32(op.id);
+        this.writeStrRef(w, op.text);
     }
 }
 exports.BinaryFrameEncoder = BinaryFrameEncoder;

@@ -25,10 +25,10 @@ import { OpCode, opCodeName } from '../../models/opcodes';
 import { createFrame, INSERT_AT_END, type AttrPair, type Frame, type FrameOp } from '../../models/frame';
 import { MAX_DIRTY_NODES, MAX_NODE_DROPS_PER_SWEEP, NODE_DROP_AGE_SEQUENCES } from '../../models/limits';
 import { NONE_DOM_NODE_KEY, type DomNodeKey } from '../../models/domNodeKey';
-import type { DomNodeTable } from '../dom/domNodeTable';
+import type { DomNodeTable } from './domNodeTable';
 import type { ReplicatedTable } from '../../models/replicatedTable';
 import { applyOpsToTable } from '../../models/replicatedTableApply';
-import type { FrameBuilder, FrameBuilderContext, FrameBuildStats } from './frameBuilder';
+import type { FrameBuilder, FrameBuilderContext, FrameBuildStats } from '../frame/frameBuilder';
 import { describeNodeNew, nodeKindOf } from './domNodeDescribe';
 
 /** Shared sentinel returned when `collectOpCounts` is off — never mutated. */
@@ -184,7 +184,12 @@ export class TableFrameBuilder implements FrameBuilder {
         opCounts[name] = (opCounts[name] ?? 0) + 1;
       }
     }
-    this.lastStats = { opCounts, buildMs: performance.now() - start };
+    this.lastStats = {
+      opCounts,
+      buildMs: performance.now() - start,
+      tableSize: this.table.size,
+      identitySize: this.domNodes.size,
+    };
 
     return createFrame({ generation: ctx.generation, sequence: ctx.sequence, ops, preTableHash });
   }

@@ -11,8 +11,9 @@
  * `tableFrameBuilder.ts` for why persistent interning is deliberately deferred.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.CHECK_SCOPE_RANGE = exports.CHECK_SCOPE_TABLE = exports.INSERT_AT_END = exports.DOCUMENT_ID = exports.FRAME_WIRE_VERSION = exports.NodeKind = void 0;
+exports.CSSOM_SCOPE_PIERCE_HOST = exports.CSSOM_SCOPE_MAIN = exports.CHECK_SCOPE_RANGE = exports.CHECK_SCOPE_TABLE = exports.INSERT_AT_END = exports.DOCUMENT_ID = exports.FRAME_WIRE_VERSION = exports.NodeKind = void 0;
 exports.createFrame = createFrame;
+exports.spliceCssomBeforeCheck = spliceCssomBeforeCheck;
 const opcodes_1 = require("./opcodes");
 Object.defineProperty(exports, "NodeKind", { enumerable: true, get: function () { return opcodes_1.NodeKind; } });
 exports.FRAME_WIRE_VERSION = 1;
@@ -23,6 +24,9 @@ exports.INSERT_AT_END = 0;
 /** §4.1 `CHECK.scope` — `Table` = whole table (`lo`/`hi` ignored), `Range` = id range `[lo, hi]`. */
 exports.CHECK_SCOPE_TABLE = 0;
 exports.CHECK_SCOPE_RANGE = 1;
+/** §4.6 `scope`: MAIN=0, PIERCE_HOST=1. Lab emits MAIN only (OPEN-6). */
+exports.CSSOM_SCOPE_MAIN = 0;
+exports.CSSOM_SCOPE_PIERCE_HOST = 1;
 function createFrame(args) {
     return {
         version: exports.FRAME_WIRE_VERSION,
@@ -32,5 +36,15 @@ function createFrame(args) {
         preTableHash: args.preTableHash ?? 0n,
         ops: args.ops,
     };
+}
+/** Live/resync CSSOM ops sit before a trailing `CHECK` when one is present. */
+function spliceCssomBeforeCheck(ops, cssom) {
+    if (cssom.length === 0)
+        return ops;
+    const last = ops[ops.length - 1];
+    if (last !== undefined && last.op === opcodes_1.OpCode.Check) {
+        return [...ops.slice(0, -1), ...cssom, last];
+    }
+    return [...ops, ...cssom];
 }
 //# sourceMappingURL=frame.js.map

@@ -9,6 +9,9 @@
  * it described (establish no longer exists — frame-protocol.md §4.7).
  */
 
+import { OpCode } from './opcodes';
+import type { FrameOp } from './frame';
+
 export const TELEMETRY_WIRE_VERSION = 1 as const;
 
 export type ProjectionTelemetryCapabilities = {
@@ -120,14 +123,15 @@ export type TelemetryClockStalled = {
   rateHz: number;
 };
 
+export type CssomPollSource = 'idle' | 'resync' | 'snapshotScan';
+
 /**
- * Producer CSSOM poll pass — time-series only; never an isomorphism assert.
- * `pollMs` ≈ `identityWalkMs` + `cssTextSerializeMs` (plus collect/unread bookkeeping).
+ * Producer CSSOM poll pass — time-series only; never an isomorphism assert (I10).
+ * `pollMs` is wall time (includes waits between idle slices), not CSSOM CPU.
  */
-export type TelemetryCssomPoll = {
-  v: typeof TELEMETRY_WIRE_VERSION;
-  kind: 'cssomPoll';
-  t: number;
+export type CssomPollStats = {
+  source: CssomPollSource;
+  sequence: number;
   pollMs: number;
   identityWalkMs: number;
   cssTextSerializeMs: number;
@@ -140,7 +144,128 @@ export type TelemetryCssomPoll = {
   rulesDisappeared: number;
   rulesTextChangedInPlace: number;
   sheetsWithRuleListChanged: number;
+  sheetsAborted: number;
+  slotsSkipped: number;
+  idleSlices: number;
+  opCount: number;
+  opSheetNew: number;
+  opSheetDrop: number;
+  opSheetOrder: number;
+  opRuleNew: number;
+  opRuleDrop: number;
+  opRuleSet: number;
 };
+
+export type TelemetryCssomPoll = {
+  v: typeof TELEMETRY_WIRE_VERSION;
+  kind: 'cssomPoll';
+  t: number;
+} & CssomPollStats;
+
+export const CSSOM_POLL_STAT_KEYS: readonly (keyof CssomPollStats)[] = [
+  'source',
+  'sequence',
+  'pollMs',
+  'identityWalkMs',
+  'cssTextSerializeMs',
+  'readableSheetCount',
+  'unreadableSheetCount',
+  'topLevelRulesVisited',
+  'topLevelRulesSerialized',
+  'styleTagTextUnchangedSheets',
+  'rulesAppeared',
+  'rulesDisappeared',
+  'rulesTextChangedInPlace',
+  'sheetsWithRuleListChanged',
+  'sheetsAborted',
+  'slotsSkipped',
+  'idleSlices',
+  'opCount',
+  'opSheetNew',
+  'opSheetDrop',
+  'opSheetOrder',
+  'opRuleNew',
+  'opRuleDrop',
+  'opRuleSet',
+];
+
+export function emptyCssomPollStats(): CssomPollStats {
+  return {
+    source: 'idle',
+    sequence: 0,
+    pollMs: 0,
+    identityWalkMs: 0,
+    cssTextSerializeMs: 0,
+    readableSheetCount: 0,
+    unreadableSheetCount: 0,
+    topLevelRulesVisited: 0,
+    topLevelRulesSerialized: 0,
+    styleTagTextUnchangedSheets: 0,
+    rulesAppeared: 0,
+    rulesDisappeared: 0,
+    rulesTextChangedInPlace: 0,
+    sheetsWithRuleListChanged: 0,
+    sheetsAborted: 0,
+    slotsSkipped: 0,
+    idleSlices: 0,
+    opCount: 0,
+    opSheetNew: 0,
+    opSheetDrop: 0,
+    opSheetOrder: 0,
+    opRuleNew: 0,
+    opRuleDrop: 0,
+    opRuleSet: 0,
+  };
+}
+
+export function countCssomOps(ops: readonly FrameOp[]): Pick<
+  CssomPollStats,
+  'opCount' | 'opSheetNew' | 'opSheetDrop' | 'opSheetOrder' | 'opRuleNew' | 'opRuleDrop' | 'opRuleSet'
+> {
+  let opSheetNew = 0;
+  let opSheetDrop = 0;
+  let opSheetOrder = 0;
+  let opRuleNew = 0;
+  let opRuleDrop = 0;
+  let opRuleSet = 0;
+  for (let i = 0; i < ops.length; i++) {
+    switch (ops[i]!.op) {
+      case OpCode.SheetNew:
+        opSheetNew += 1;
+        break;
+      case OpCode.SheetDrop:
+        opSheetDrop += 1;
+        break;
+      case OpCode.SheetOrder:
+        opSheetOrder += 1;
+        break;
+      case OpCode.RuleNew:
+        opRuleNew += 1;
+        break;
+      case OpCode.RuleDrop:
+        opRuleDrop += 1;
+        break;
+      case OpCode.RuleSet:
+        opRuleSet += 1;
+        break;
+      default:
+        break;
+    }
+  }
+  return {
+    opCount: opSheetNew + opSheetDrop + opSheetOrder + opRuleNew + opRuleDrop + opRuleSet,
+    opSheetNew,
+    opSheetDrop,
+    opSheetOrder,
+    opRuleNew,
+    opRuleDrop,
+    opRuleSet,
+  };
+}
+
+export function stampCssomPoll(stats: CssomPollStats, patch: Partial<CssomPollStats>): CssomPollStats {
+  return { ...stats, ...patch };
+}
 
 export type TelemetryRateChanged = {
   v: typeof TELEMETRY_WIRE_VERSION;

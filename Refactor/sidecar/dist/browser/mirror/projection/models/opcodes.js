@@ -3,9 +3,8 @@
  * docs/page-projection/spec/frame-protocol.md §3–§4 — one opcode space, table + structure + node state.
  * Values are wire-stable: never renumber, only append. Ranges match §3 exactly.
  *
- * v0 scope (this lab increment): DOM only. `Check`/`NodeDrop`/`NodeMeta` are defined for wire
- * completeness but the v0 producer never emits them and the v0 client never requires them —
- * see frame-protocol.md OPEN-2 (deferred GC) and the resync section (§5.8, not implemented yet).
+ * CSSOM opcodes `0xA0–0xA5` (§4.6) are on the wire; client phase 2 does not materialize owned
+ * CSSOM yet (C6). `Check`/`NodeDrop` are used. OPEN-2 deferred GC still applies to DOM rows.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.NodeKind = exports.OpCode = void 0;
@@ -22,6 +21,12 @@ var OpCode;
     OpCode[OpCode["AttrSet"] = 96] = "AttrSet";
     OpCode[OpCode["AttrDel"] = 97] = "AttrDel";
     OpCode[OpCode["TextSet"] = 98] = "TextSet";
+    OpCode[OpCode["SheetNew"] = 160] = "SheetNew";
+    OpCode[OpCode["SheetDrop"] = 161] = "SheetDrop";
+    OpCode[OpCode["SheetOrder"] = 162] = "SheetOrder";
+    OpCode[OpCode["RuleNew"] = 163] = "RuleNew";
+    OpCode[OpCode["RuleDrop"] = 164] = "RuleDrop";
+    OpCode[OpCode["RuleSet"] = 165] = "RuleSet";
 })(OpCode || (exports.OpCode = OpCode = {}));
 const NAMES = {
     [OpCode.Check]: 'check',
@@ -34,11 +39,17 @@ const NAMES = {
     [OpCode.AttrSet]: 'attrSet',
     [OpCode.AttrDel]: 'attrDel',
     [OpCode.TextSet]: 'textSet',
+    [OpCode.SheetNew]: 'sheetNew',
+    [OpCode.SheetDrop]: 'sheetDrop',
+    [OpCode.SheetOrder]: 'sheetOrder',
+    [OpCode.RuleNew]: 'ruleNew',
+    [OpCode.RuleDrop]: 'ruleDrop',
+    [OpCode.RuleSet]: 'ruleSet',
 };
 function opCodeName(code) {
     return NAMES[code] ?? `unknown(${code})`;
 }
-/** §1.3 node row `kind`. `Sheet`/`Rule` reserved — not projected by the v0 (DOM-only) producer. */
+/** §1.3 node row `kind`. Sheet/Rule are table rows (phase 1); owned CSSOM apply is C6. */
 var NodeKind;
 (function (NodeKind) {
     NodeKind[NodeKind["Element"] = 1] = "Element";

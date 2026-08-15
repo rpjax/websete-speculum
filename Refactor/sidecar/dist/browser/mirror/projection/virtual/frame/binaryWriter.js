@@ -118,7 +118,7 @@ exports.BinaryWriter = BinaryWriter;
 /**
  * One wire part — frame-protocol.md §2 header + per-part string table + ops body
  * (ops body starts with opCount). `preTableHash` is unchecked in v0 (always `0n` on the
- * wire) — see tableFrameBuilder.ts header comment.
+ * wire) — see `virtual/dom/tableFrameBuilder.ts` header comment.
  */
 function assemblePart(args) {
     const headerSize = 2 + 1 + 1 + 4 + 4 + 2 + 2 + 8;

@@ -2,7 +2,7 @@
  * frame-protocol.md §8 — mandatory limits, checked **before any allocation** proportional to
  * an attacker/producer-controlled value. Shared by both sides: the client's decode path
  * (`models/decode.ts`), the client's phase-1 table apply (`models/replicatedTableApply.ts`),
- * and the producer's own tick/table growth (`virtual/frame/tableFrameBuilder.ts`).
+ * and the producer's own tick/table growth (`virtual/dom/tableFrameBuilder.ts`).
  *
  * Values are deliberately generous relative to any real page measured so far in this session's
  * real-site probes (frame-protocol.md decision log, 2026-08-13 entries) — these exist to bound a

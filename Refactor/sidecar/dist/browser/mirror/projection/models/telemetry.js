@@ -10,9 +10,13 @@
  * it described (establish no longer exists — frame-protocol.md §4.7).
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.TELEMETRY_BOOL_CAPS = exports.LAB_TELEMETRY_DEFAULTS = exports.DEFAULT_TELEMETRY_CONFIG = exports.TELEMETRY_WIRE_VERSION = void 0;
+exports.CSSOM_POLL_STAT_KEYS = exports.TELEMETRY_BOOL_CAPS = exports.LAB_TELEMETRY_DEFAULTS = exports.DEFAULT_TELEMETRY_CONFIG = exports.TELEMETRY_WIRE_VERSION = void 0;
+exports.emptyCssomPollStats = emptyCssomPollStats;
+exports.countCssomOps = countCssomOps;
+exports.stampCssomPoll = stampCssomPoll;
 exports.isProjectionTelemetryMessage = isProjectionTelemetryMessage;
 exports.desyncPhase = desyncPhase;
+const opcodes_1 = require("./opcodes");
 exports.TELEMETRY_WIRE_VERSION = 1;
 exports.DEFAULT_TELEMETRY_CONFIG = {
     enabled: false,
@@ -50,6 +54,104 @@ exports.TELEMETRY_BOOL_CAPS = [
     'clock',
     'cssomPoll',
 ];
+exports.CSSOM_POLL_STAT_KEYS = [
+    'source',
+    'sequence',
+    'pollMs',
+    'identityWalkMs',
+    'cssTextSerializeMs',
+    'readableSheetCount',
+    'unreadableSheetCount',
+    'topLevelRulesVisited',
+    'topLevelRulesSerialized',
+    'styleTagTextUnchangedSheets',
+    'rulesAppeared',
+    'rulesDisappeared',
+    'rulesTextChangedInPlace',
+    'sheetsWithRuleListChanged',
+    'sheetsAborted',
+    'slotsSkipped',
+    'idleSlices',
+    'opCount',
+    'opSheetNew',
+    'opSheetDrop',
+    'opSheetOrder',
+    'opRuleNew',
+    'opRuleDrop',
+    'opRuleSet',
+];
+function emptyCssomPollStats() {
+    return {
+        source: 'idle',
+        sequence: 0,
+        pollMs: 0,
+        identityWalkMs: 0,
+        cssTextSerializeMs: 0,
+        readableSheetCount: 0,
+        unreadableSheetCount: 0,
+        topLevelRulesVisited: 0,
+        topLevelRulesSerialized: 0,
+        styleTagTextUnchangedSheets: 0,
+        rulesAppeared: 0,
+        rulesDisappeared: 0,
+        rulesTextChangedInPlace: 0,
+        sheetsWithRuleListChanged: 0,
+        sheetsAborted: 0,
+        slotsSkipped: 0,
+        idleSlices: 0,
+        opCount: 0,
+        opSheetNew: 0,
+        opSheetDrop: 0,
+        opSheetOrder: 0,
+        opRuleNew: 0,
+        opRuleDrop: 0,
+        opRuleSet: 0,
+    };
+}
+function countCssomOps(ops) {
+    let opSheetNew = 0;
+    let opSheetDrop = 0;
+    let opSheetOrder = 0;
+    let opRuleNew = 0;
+    let opRuleDrop = 0;
+    let opRuleSet = 0;
+    for (let i = 0; i < ops.length; i++) {
+        switch (ops[i].op) {
+            case opcodes_1.OpCode.SheetNew:
+                opSheetNew += 1;
+                break;
+            case opcodes_1.OpCode.SheetDrop:
+                opSheetDrop += 1;
+                break;
+            case opcodes_1.OpCode.SheetOrder:
+                opSheetOrder += 1;
+                break;
+            case opcodes_1.OpCode.RuleNew:
+                opRuleNew += 1;
+                break;
+            case opcodes_1.OpCode.RuleDrop:
+                opRuleDrop += 1;
+                break;
+            case opcodes_1.OpCode.RuleSet:
+                opRuleSet += 1;
+                break;
+            default:
+                break;
+        }
+    }
+    return {
+        opCount: opSheetNew + opSheetDrop + opSheetOrder + opRuleNew + opRuleDrop + opRuleSet,
+        opSheetNew,
+        opSheetDrop,
+        opSheetOrder,
+        opRuleNew,
+        opRuleDrop,
+        opRuleSet,
+    };
+}
+function stampCssomPoll(stats, patch) {
+    return { ...stats, ...patch };
+}
 function isProjectionTelemetryMessage(value) {
     if (typeof value !== 'object' || value === null)
         return false;

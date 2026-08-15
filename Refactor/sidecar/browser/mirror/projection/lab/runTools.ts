@@ -148,6 +148,7 @@ export async function executeLabRun(
       sequence: iso.sequence,
       generation: iso.generation,
       o2: iso.o2,
+      cssomO2: iso.cssomO2,
       table: iso.table,
       structuralDiff: iso.structuralDiff,
     };
@@ -156,6 +157,15 @@ export async function executeLabRun(
         id: 'o2',
         status: iso.o2.identical ? 'pass' : 'fail',
         reason: iso.o2.identical ? `identical at sequence ${iso.sequence}` : `${iso.o2.divergenceCount} O2 divergences`,
+      });
+    }
+    if (iso.cssomO2) {
+      verdicts.push({
+        id: 'isomorphism.cssom',
+        status: iso.cssomO2.identical ? 'pass' : 'fail',
+        reason: iso.cssomO2.identical
+          ? `identical at sequence ${iso.sequence}`
+          : `${iso.cssomO2.divergenceCount} CSSOM table×live divergences`,
       });
     }
     if (iso.table.identical === true) {

@@ -45,7 +45,11 @@
 | 2026-08-14 | Events never assert state; coherent snapshot at sequence S (one JS turn); `tableSize` = `ReplicatedTable.size` | [observability.md](observability.md) |
 | 2026-08-14 | OPEN-8 last-child unlink `nextSiblingOf[prev]` — prepend-stress O2 | frame-protocol.md §10 + [open.md](open.md) |
 | 2026-08-14 | `MutationObserver.takeRecords` before every drain / snapshot | frame-protocol.md §5.2 + [observability.md](observability.md) §5 |
-| 2026-08-15 | Lab CSSOM poll cost (in-page 5 Hz, `cssText` hash); no CDP-dirty; C5 not relocked | [open.md](open.md) + [observability.md](observability.md) §9 |
+| 2026-08-15 | Lab CSSOM poll **algorithm** (worst-case-first, idle → next boundary); C5 not relocked | [cssom-poll-algorithm.md](cssom-poll-algorithm.md) |
+| 2026-08-15 | CSSOM poll I3: topological copy of rule refs; yield on copy; stale skip; `replaceSync` mass abort (no empty commit); `insertRule` after copy waits next pass | [cssom-poll-algorithm.md](cssom-poll-algorithm.md) |
+| 2026-08-15 | CSSOM live eventual; resync always full system + blocking scan; snapshot CSSOM tunable; `rebuildAndResync` = §5.8 `resyncVirtual`; idle starves with the page; no CDP sensor | [cssom-poll-algorithm.md](cssom-poll-algorithm.md) |
+| 2026-08-15 | Accept split: DOM numerical 1:1; CSSOM live = perceived 1:1 (not 60 Hz lockstep); amortizations serve practice, not the detector | [acceptance.md](acceptance.md) |
+| 2026-08-15 | CSSOM sensor journey: no MO; numbers don’t close; idle+eventual; no hooks/CDP as detector; stress foundation, don’t score it via opts | [cssom-sensor-journey.md](cssom-sensor-journey.md) |
 
 **Stage 4 confirmed (Rodrigo):** mid-session recovery = **`emitResyncFrame` alone** (ids preserved; does not self-heal a corrupt map shape). Client = **real double buffer**, swap only after resync frame CHECK. Lab transport = existing control WS + `PlaneChannel.Control`. Production hub/gRPC is gate 5.
 

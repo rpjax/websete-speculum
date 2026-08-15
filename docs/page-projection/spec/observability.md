@@ -86,14 +86,15 @@ discard mid-churn O2 red as “torn read, ignore.”
 
 1. `observer.takeRecords()` into the mutation buffer (undelivered queue).
 2. Drain the buffer and emit **frame S** (`flushNow` — same pull happens at the top of every tick).
-3. In the **same turn**, capture state bound to S: table digest, table×live-DOM oracle (O2 local), optional structural tree.
+3. In the **same turn**, capture state bound to S: table digest, table×live-DOM oracle (O2 local; **Sheet/Rule rows are not DOM children**), optional CSSOM table×live (`cssom: 'committed' | 'scan'`), optional structural tree.
 4. Stop the producer clock so S+1 cannot publish before the client applies S.
 5. Apply S, then snapshot that apply’s table digest (+ tree if a DOM surface exists). CLI: Node `applyFrameToTableChecked` in the **caller** (not `IBrowserSession`, not a second tab). UI lab: browser apply at 4077. Tree is `skipped` without DOM apply. Node table×table is **not** Projected.
 6. Compare. Then `resumeProjectionWorld`.
 
 A snapshot is a **state snapshot**, not “a DOM dump.” Any indexer that must be true at S belongs on that object.
+Default Virtual `flushAndSnapshot` CSSOM mode is **`none`** (halt idle; DOM O2 is not delayed for a CSSOM scan). Pass `{ cssom: 'committed' | 'scan' }` when the probe needs CSSOM — [cssom-poll-algorithm.md](cssom-poll-algorithm.md) use cases. Resync is not a snapshot: it always blocking-scans CSSOM.
 
-**What a lab CLI `--iso` run actually proves today:** Virtual O2 + digest at S, wire invariants, and table×table vs Node phase-1 apply. It does **not** prove tree×tree or 1:1 Projected. O1 / O4 / O5 are not implemented.
+**What a lab CLI `--iso` run actually proves today:** Virtual DOM O2 + digest at S, **CSSOM O2** (table Sheet/Rule × live Virtual `cssRules`, I2 top-level) via one `flushProjectionSnapshot({ cssom: 'scan' })` turn, wire invariants, and table×table vs Node phase-1 apply. It does **not** prove tree×tree, Projected CSS 1:1, or C6. `cssomPoll` is investigation only (I10). O1 / O4 / O5 are not implemented.
 
 ---
 
@@ -101,7 +102,8 @@ A snapshot is a **state snapshot**, not “a DOM dump.” Any indexer that must 
 
 | Oracle | How it is taken (lab) |
 |--------|------------------------|
-| O2 local (table × Virtual live DOM) | `takeRecords` + drain + emit S + oracle, one turn ([observability.md](observability.md) §5) |
+| O2 local (table × Virtual live DOM) | `takeRecords` + drain + emit S + oracle, one turn ([observability.md](observability.md) §5). Sheet/Rule kinds are excluded from child-order. |
+| O2 CSSOM (table × Virtual live CSSOM) | Same turn as `--iso` after `cssom: 'scan'` (stash pending → flush → compare). Readable `cssRules` only; unreadable sheets are not required. Verdict `isomorphism.cssom` — not DOM O2, not Projected, not C6. |
 | O2 structural (Virtual tree × client tree) | Same probe pair at S — not a mid-run torn `requestSnapshot` while the clock ticks |
 | O2 table×table | `ReplicatedTableDigest` Virtual vs apply at S — CLI: Node caller table; UI: DOM client table |
 | O1 / O4 / O5 | Unchanged — not implemented; do not fake with event greens |
@@ -198,12 +200,24 @@ Second line, after client apply of S: client DOM × **client table** (phase 2). 
 
 ---
 
-## 9. CSSOM poll cost (`cssomPoll`)
+## 9. CSSOM poll (`cssomPoll`)
 
-Lab-only producer event. **Investigation**, not an isomorphism assert. Independent clock (`cssomPollHz`, lab default 5). Halt/flush stops this clock with the DOM clock. Does not emit CSSOM opcodes.
+Lab-only producer event. **Investigation**, not an isomorphism assert (I10). One kind covers the
+foundation detector: idle pass, resync `blockingScan`, and snapshot `scan`. Capability toggle
+`cssomPoll` (lab on, prod inject default off).
+
+Design: `requestIdleCallback`; phase A copies rule **refs** atomically; phase B hashes `cssText` on
+that copy in idle **batches** (stale skip / mass abort — [cssom-poll-algorithm.md](cssom-poll-algorithm.md) I3).
+A finished idle pass is **not** applied on idle — `FrameEmitter` takes it on the **next frame-clock
+boundary** (eventual vs the DOM tick). Default snapshot (`cssom: 'none'`) **cancels** idle and does
+not wait for CSSOM. **Resync** always `blockingScan`. §4.6 ops ride the **frame**; this event counts
+them. `cssomPollHz` is the minimum interval between pass *starts* (lab default 5 → 200 ms), not a
+blocking timer. `pollMs` is wall time (includes waits between slices), not CPU.
 
 | Field | Meaning |
 |-------|---------|
+| `source` | `'idle'` \| `'resync'` \| `'snapshotScan'` |
+| `sequence` | Frame that attached the ops; `0` if the pass was not attached to a frame |
 | `pollMs` | Wall time of one poll pass |
 | `identityWalkMs` | Walk top-level `CSSRule` object identity (no `cssText`) |
 | `cssTextSerializeMs` | Read `rule.cssText` + hash — the expensive part |
@@ -214,4 +228,12 @@ Lab-only producer event. **Investigation**, not an isomorphism assert. Independe
 | `rulesTextChangedInPlace` | Same `CSSRule` object, different `cssText` |
 | `sheetsWithRuleListChanged` | Order or membership changed on that sheet |
 | `styleTagTextUnchangedSheets` | `<style>` `textContent` hash matched previous pass |
+| `sheetsAborted` | Mass-abort sheets this pass (I3 / I7) |
+| `slotsSkipped` | Dead copy slots skipped (not abort) |
+| `idleSlices` | `requestIdleCallback` entries this pass (blocking scan = 0) |
+| `opCount` / `opSheetNew` … `opRuleSet` | §4.6 ops emitted this pass (zeros explicit) |
+
+Do not pass/fail table, DOM, or Projected CSS from these fields. C6 apply telemetry is not this event.
+
+Algorithm (worst-case-first, I1–I11): [cssom-poll-algorithm.md](cssom-poll-algorithm.md).
 

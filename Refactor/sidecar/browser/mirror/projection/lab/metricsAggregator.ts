@@ -64,10 +64,21 @@ export type MetricsSummary = {
     lastTopLevelRulesVisited: number;
     lastTopLevelRulesSerialized: number;
     lastReadableSheetCount: number;
+    sheetsAbortedSum: number;
+    slotsSkippedSum: number;
+    lastOpCount: number;
+    lastOpSheetNew: number;
+    lastOpSheetDrop: number;
+    lastOpSheetOrder: number;
+    lastOpRuleNew: number;
+    lastOpRuleDrop: number;
+    lastOpRuleSet: number;
+    idle: { passes: number; pollMs: Stats; cssTextSerializeMs: Stats };
+    resync: { passes: number; pollMs: Stats; cssTextSerializeMs: Stats };
   };
 };
 
-/** Sequence `1` is always the cold-start `resyncVirtual` frame (frame-protocol.md §5.1) — a
+/** Sequence `1` is always the cold-start `rebuildAndResync` frame (frame-protocol.md §5.1) — a
  * structurally different cost than a tick-driven `TableFrameBuilder` frame, so it is reported
  * separately rather than pulled into the same percentiles (same split as the ad-hoc script). */
 export class MetricsAggregator {
@@ -116,6 +127,10 @@ export class MetricsAggregator {
     const applyFail = this.applyResults.length - applyOk;
     const lastTableSize = this.frameEmitted.length > 0 ? this.frameEmitted[this.frameEmitted.length - 1]!.tableSize : 0;
 
+    const lastPoll = this.cssomPolls.length > 0 ? this.cssomPolls[this.cssomPolls.length - 1]! : null;
+    const idlePolls = this.cssomPolls.filter((s) => s.source === 'idle');
+    const resyncPolls = this.cssomPolls.filter((s) => s.source === 'resync');
+
     return {
       wallMs,
       bootstrap: bootstrapFrame
@@ -146,18 +161,28 @@ export class MetricsAggregator {
         pollMs: computeStats(this.cssomPolls.map((s) => s.pollMs)),
         identityWalkMs: computeStats(this.cssomPolls.map((s) => s.identityWalkMs)),
         cssTextSerializeMs: computeStats(this.cssomPolls.map((s) => s.cssTextSerializeMs)),
-        lastTopLevelRulesVisited:
-          this.cssomPolls.length > 0
-            ? this.cssomPolls[this.cssomPolls.length - 1]!.topLevelRulesVisited
-            : 0,
-        lastTopLevelRulesSerialized:
-          this.cssomPolls.length > 0
-            ? this.cssomPolls[this.cssomPolls.length - 1]!.topLevelRulesSerialized
-            : 0,
-        lastReadableSheetCount:
-          this.cssomPolls.length > 0
-            ? this.cssomPolls[this.cssomPolls.length - 1]!.readableSheetCount
-            : 0,
+        lastTopLevelRulesVisited: lastPoll?.topLevelRulesVisited ?? 0,
+        lastTopLevelRulesSerialized: lastPoll?.topLevelRulesSerialized ?? 0,
+        lastReadableSheetCount: lastPoll?.readableSheetCount ?? 0,
+        sheetsAbortedSum: this.cssomPolls.reduce((n, s) => n + s.sheetsAborted, 0),
+        slotsSkippedSum: this.cssomPolls.reduce((n, s) => n + s.slotsSkipped, 0),
+        lastOpCount: lastPoll?.opCount ?? 0,
+        lastOpSheetNew: lastPoll?.opSheetNew ?? 0,
+        lastOpSheetDrop: lastPoll?.opSheetDrop ?? 0,
+        lastOpSheetOrder: lastPoll?.opSheetOrder ?? 0,
+        lastOpRuleNew: lastPoll?.opRuleNew ?? 0,
+        lastOpRuleDrop: lastPoll?.opRuleDrop ?? 0,
+        lastOpRuleSet: lastPoll?.opRuleSet ?? 0,
+        idle: {
+          passes: idlePolls.length,
+          pollMs: computeStats(idlePolls.map((s) => s.pollMs)),
+          cssTextSerializeMs: computeStats(idlePolls.map((s) => s.cssTextSerializeMs)),
+        },
+        resync: {
+          passes: resyncPolls.length,
+          pollMs: computeStats(resyncPolls.map((s) => s.pollMs)),
+          cssTextSerializeMs: computeStats(resyncPolls.map((s) => s.cssTextSerializeMs)),
+        },
       },
     };
   }

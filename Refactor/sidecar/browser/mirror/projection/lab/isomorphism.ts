@@ -2,12 +2,13 @@
  * Lab isomorphism — compose BrowserSession probes. Not a session primitive.
  *
  * Virtual side is one in-page turn ({@link BrowserSession.flushProjectionSnapshot}):
- * takeRecords, drain MO buffer, emit frame S, O2 + table digest + tree while JS holds the document.
+ * takeRecords, drain MO buffer, emit frame S (DOM + stashed CSSOM scan), DOM O2 + CSSOM O2 + digest + tree.
  * Caller table apply (Node `applyFrameToTableChecked` or DOM client) then snapshots at S.
  */
 
 import type { BrowserSession } from '../../../BrowserSession';
 import type { TableLiveOracleResult } from '../models/tableLiveOracle';
+import type { CssomTableLiveOracleResult } from '../models/cssomTableLiveOracle';
 import type { ReplicatedTableDigest } from '../models/tableDigest';
 import { tableDigestsEqual } from '../models/tableDigest';
 import type { TreeNode } from '../models/treeNode';
@@ -25,6 +26,7 @@ export type IsomorphismResult = {
   sequence: number | null;
   generation: number | null;
   o2: TableLiveOracleResult | null;
+  cssomO2: CssomTableLiveOracleResult | null;
   table: {
     virtual: ReplicatedTableDigest | null;
     client: ReplicatedTableDigest | null;
@@ -83,6 +85,7 @@ export async function runIsomorphism(opts: {
       sequence: null,
       generation: null,
       o2: null,
+      cssomO2: null,
       table: emptyTable,
       tableFailReason: null,
       structuralDiff: null,
@@ -91,12 +94,13 @@ export async function runIsomorphism(opts: {
   }
 
   try {
-    const virtual = await flushSnap.call(opts.session, { includeTree: true });
+    const virtual = await flushSnap.call(opts.session, { includeTree: true, cssom: 'scan' });
     if (!virtual.ok) {
       return {
         sequence: null,
         generation: null,
         o2: null,
+        cssomO2: null,
         table: emptyTable,
         tableFailReason: null,
         structuralDiff: null,
@@ -179,12 +183,14 @@ export async function runIsomorphism(opts: {
       sequence: virtual.sequence ?? null,
       generation: virtual.generation ?? null,
       o2: virtual.o2 ?? null,
+      cssomO2: virtual.cssomO2 ?? null,
       table: { virtual: virtualTable, client: clientTable, identical: tableIdentical },
       tableFailReason,
       structuralDiff,
       skipped: [
         ...skipped,
         ...(virtual.o2 ? [] : [{ id: 'o2', reason: 'O2 missing from flushProjectionSnapshot' }]),
+        ...(virtual.cssomO2 ? [] : [{ id: 'isomorphism.cssom', reason: 'cssomO2 missing from flushProjectionSnapshot' }]),
       ],
     };
   } finally {

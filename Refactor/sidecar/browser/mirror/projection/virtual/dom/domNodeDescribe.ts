@@ -1,6 +1,6 @@
 /**
  * Shared node → wire-descriptor helpers — frame-protocol.md §4.2. Used by both the incremental
- * builder (`tableFrameBuilder.ts`, §5.5) and the resync builder (`resync.ts`, §5.8): both need
+ * builder (`tableFrameBuilder.ts`, §5.5) and DOM resync describe (`domResync.ts`): both need
  * exactly the same "read a live node, produce its `NODE_NEW` descriptor" logic, just triggered
  * from a different traversal (mutation-driven DFS vs. identity-map iteration).
  */

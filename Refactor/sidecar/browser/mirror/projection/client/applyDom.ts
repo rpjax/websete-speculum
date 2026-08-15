@@ -173,6 +173,13 @@ export class DomFrameApplier {
         return this.applyAttrDel(op);
       case OpCode.TextSet:
         return this.applyTextSet(op);
+      case OpCode.SheetNew:
+      case OpCode.SheetDrop:
+      case OpCode.SheetOrder:
+      case OpCode.RuleNew:
+      case OpCode.RuleDrop:
+      case OpCode.RuleSet:
+        return true; // C6 owned CSSOM apply is not this cut — phase 2 explicit no-op
       default:
         return true;
     }

@@ -1,16 +1,28 @@
 /**
- * Orchestrator: clock → mutation buffer → builder → encoder → transport.
+ * Pipe: clock → DOM builder → encoder → transport.
+ * Not the resync/snapshot algorithm — those live in `virtual/resync.ts` / `virtual/snapshot.ts`.
+ * CSSOM CPU does not run here; {@link FrameEmitterOptions.takePendingCssom} attaches a finished
+ * idle pass at the next tick (eventual, I5). A pending resync build blocking-scans CSSOM itself.
  */
 
 import type { FrameBuilder } from './frameBuilder';
 import type { FrameEncoder } from './frameEncoder';
 import type { FrameClock } from '../clock/frameClock';
 import type { FrameTransport } from '../transport/frameTransport';
-import type { Frame } from '../../models/frame';
+import { OpCode } from '../../models/opcodes';
+import { createFrame, spliceCssomBeforeCheck, type Frame } from '../../models/frame';
+import { stampCssomPoll } from '../../models/telemetry';
 import type { MutationBuffer } from '../dom/mutationBuffer';
-import type { DomNodeTable } from '../dom/domNodeTable';
-import type { ReplicatedTable } from '../../models/replicatedTable';
 import type { ProjectionTelemetry } from '../telemetry/projectionTelemetry';
+import type { CssomScanResult } from '../cssom/cssomPlane';
+import type { ReplicatedTable } from '../../models/replicatedTable';
+import { applyOpsToTable } from '../../models/replicatedTableApply';
+
+export type FrameTableCensus = {
+  generation: number;
+  tableSize: number;
+  identitySize: number;
+};
 
 export type FrameEmitterOptions = {
   clock: FrameClock;
@@ -18,21 +30,19 @@ export type FrameEmitterOptions = {
   builder: FrameBuilder;
   encoder: FrameEncoder;
   transport: FrameTransport;
-  domNodes: DomNodeTable;
-  table: ReplicatedTable;
+  census: () => FrameTableCensus;
   telemetry?: ProjectionTelemetry | null;
-  /** Pull undelivered MutationObserver records into `buffer` before drain (see `takePendingIntoBuffer`). */
+  /** Pull undelivered MutationObserver records into `buffer` before drain. */
   pullPendingMutations?: () => void;
+  /**
+   * CSSOM idle pass that finished since the last boundary — attach ops + telemetry
+   * here so CSSOM never runs on the DOM drain tick.
+   */
+  takePendingCssom?: () => CssomScanResult | null;
+  /** Producer table — CSSOM ops apply here so the next preTableHash matches the client. */
+  table?: ReplicatedTable;
 };
 
-/**
- * Ticks between mutation-independent GC-sweep opportunities (`tableFrameBuilder.ts`'s
- * `emitNodeDropSweep`) when the mutation buffer is otherwise empty — a detached row becomes
- * GC-eligible purely by `sequence` age (§1.6), not by new activity, so an idle session must
- * still occasionally give the sweep a chance to run. Throttled (not every idle tick) because
- * `collectDroppableIds` is an O(table size) scan; the sweep's own age threshold is ~120
- * sequences (§models/limits.ts), so checking far more often than that buys nothing.
- */
 const IDLE_SWEEP_INTERVAL_TICKS = 30;
 
 export class FrameEmitter {
@@ -41,10 +51,11 @@ export class FrameEmitter {
   private readonly builder: FrameBuilder;
   private readonly encoder: FrameEncoder;
   private readonly transport: FrameTransport;
-  private readonly domNodes: DomNodeTable;
-  private readonly table: ReplicatedTable;
+  private readonly census: () => FrameTableCensus;
   private readonly telemetry: ProjectionTelemetry | null;
   private readonly pullPendingMutations: (() => void) | null;
+  private readonly takePendingCssom: (() => CssomScanResult | null) | null;
+  private readonly table: ReplicatedTable | null;
 
   private sequence = 0;
   private idleTicks = 0;
@@ -60,10 +71,11 @@ export class FrameEmitter {
     this.builder = opts.builder;
     this.encoder = opts.encoder;
     this.transport = opts.transport;
-    this.domNodes = opts.domNodes;
-    this.table = opts.table;
+    this.census = opts.census;
     this.telemetry = opts.telemetry ?? null;
     this.pullPendingMutations = opts.pullPendingMutations ?? null;
+    this.takePendingCssom = opts.takePendingCssom ?? null;
+    this.table = opts.table ?? null;
   }
 
   start(): void {
@@ -74,10 +86,6 @@ export class FrameEmitter {
     this.clock.stop();
   }
 
-  /**
-   * Drain / build / send one frame without waiting for the clock (halt+flush / isomorphism).
-   * Safe while the clock is stopped.
-   */
   flushNow(): void {
     this.onBoundary();
   }
@@ -86,13 +94,6 @@ export class FrameEmitter {
     return this.sequence;
   }
 
-  /**
-   * Sends a frame built outside the ordinary clock-driven path — bootstrap's `resyncVirtual`
-   * (frame-protocol.md §5.1/§5.8), before `start()` has ever run. Retries a deferred transport
-   * with a short async spin rather than `onBoundary`'s defer-until-next-tick, because there is no
-   * clock ticking yet to drive that retry. Sets `this.sequence` on success so the first
-   * clock-driven frame continues numbering from here, not from 0.
-   */
   async sendInitial(frame: Frame): Promise<void> {
     const parts = this.encoder.encode(frame);
     if (parts.length === 0) return;
@@ -111,14 +112,15 @@ export class FrameEmitter {
     let totalBytes = 0;
     for (let i = 0; i < parts.length; i++) totalBytes += parts[i]!.length;
 
+    const snap = this.census();
     this.telemetry?.recordFrameEmitted({
       generation: frame.generation,
       sequence: frame.sequence,
       opCount: frame.ops.length,
       partCount: parts.length,
       bytes: totalBytes,
-      tableSize: this.table.size,
-      identitySize: this.domNodes.size,
+      tableSize: snap.tableSize,
+      identitySize: snap.identitySize,
       buildMs: 0,
       encodeMs: 0,
     });
@@ -126,25 +128,6 @@ export class FrameEmitter {
     this.sequence = frame.sequence;
   }
 
-  /**
-   * Stage 4 (frame-protocol-production-completeness) — client-initiated resync, frame-protocol.md
-   * §5.8 step 1, "Halt": queues `build` to run at the next tick boundary *instead of* the ordinary
-   * mutation-buffer-driven build, and returns immediately — the caller (`bootstrap.ts`'s
-   * `PlaneChannel.Control` handler) never awaits this, matching §5.8's "no `await` between any
-   * step" atomicity requirement for whichever synchronous DOM/map read `build` itself performs.
-   *
-   * No separate pause/resume primitive on `clock`/`buffer` exists or is needed: `emitResyncFrame`
-   * is itself fully synchronous, and this method's caller only ever runs between ticks (JS
-   * run-to-completion), so there is no way for an ordinary `onBoundary()` build to interleave with
-   * it regardless. "Halt" reduces to *which* build `onBoundary()` runs at its next boundary — the
-   * mutation buffer is simply not drained that tick, so nothing buffered is lost or double-counted
-   * (§5.8 step 1: "the MutationObserver keeps recording ... nothing is lost, it simply waits").
-   *
-   * If a previously-built frame is still mid-send (`pendingParts` non-null, transport backpressure
-   * — §5.3), the resync build is stashed and only serviced once that frame's own parts finish
-   * draining (`trySendPending`'s own completion falls through to the next `onBoundary()`, which
-   * checks this field first) — this never interleaves one frame's parts with another's on the wire.
-   */
   requestResync(build: (nextSequence: number) => Frame): void {
     this.pendingResyncBuild = build;
   }
@@ -161,9 +144,6 @@ export class FrameEmitter {
       const build = this.pendingResyncBuild;
       this.pendingResyncBuild = null;
       this.idleTicks = 0;
-      // Discard any stale opCounts/buildMs left over from the ordinary builder — `build` here is
-      // `emitResyncFrame`, not `this.builder`, so `takeBuildStats()` would otherwise hand
-      // `trySendPending` a leftover value from a previous ordinary tick and misattribute it.
       this.builder.takeBuildStats?.();
       const frame = build(this.sequence + 1);
       const parts = this.encoder.encode(frame);
@@ -176,24 +156,57 @@ export class FrameEmitter {
       return;
     }
 
-    const hasWork = this.buffer.hasWork();
-    if (!hasWork) {
+    const cssom = this.takePendingCssom?.() ?? null;
+    const cssomOps = cssom?.ops ?? [];
+
+    const hasDomWork = this.buffer.hasWork();
+    if (!hasDomWork && cssomOps.length === 0) {
       this.idleTicks += 1;
-      if (this.idleTicks < IDLE_SWEEP_INTERVAL_TICKS) return;
+      if (this.idleTicks < IDLE_SWEEP_INTERVAL_TICKS) {
+        if (cssom !== null) {
+          this.telemetry?.recordCssomPoll(stampCssomPoll(cssom.stats, { sequence: 0 }));
+        }
+        return;
+      }
     }
     this.idleTicks = 0;
 
-    const records = hasWork ? this.buffer.drain() : [];
+    const records = hasDomWork ? this.buffer.drain() : [];
     const nextSequence = this.sequence + 1;
-    const frame = this.builder.build(records, {
-      generation: this.domNodes.generation,
+    if (cssom !== null) {
+      this.telemetry?.recordCssomPoll(stampCssomPoll(cssom.stats, { sequence: nextSequence }));
+    }
+    const snap = this.census();
+    const preTableHash = this.table?.tableHash ?? 0n;
+    const built = this.builder.build(records, {
+      generation: snap.generation,
       sequence: nextSequence,
     });
 
     const unconsumed = this.builder.takeUnconsumedRecords?.();
     if (unconsumed && unconsumed.length > 0) this.buffer.reclaim(unconsumed);
 
-    if (frame === null) return; // nothing publishable this tick — sequence not consumed
+    let ops = built?.ops ?? [];
+    ops = spliceCssomBeforeCheck(ops, cssomOps);
+    if (cssomOps.length > 0 && this.table !== null) {
+      applyOpsToTable(this.table, cssomOps);
+    }
+    const last = ops[ops.length - 1];
+    if (last !== undefined && last.op === OpCode.Check && this.table !== null) {
+      last.hash = this.table.tableHash;
+    }
+
+    if (ops.length === 0) return;
+
+    const frame =
+      built === null
+        ? createFrame({
+            generation: snap.generation,
+            sequence: nextSequence,
+            ops,
+            preTableHash,
+          })
+        : { ...built, ops };
 
     const parts = this.encoder.encode(frame);
     if (parts.length === 0) return;
@@ -228,14 +241,15 @@ export class FrameEmitter {
     for (let i = 0; i < parts.length; i++) totalBytes += parts[i]!.length;
 
     const stats = this.builder.takeBuildStats?.() ?? null;
+    const snap = this.census();
     this.telemetry?.recordFrameEmitted({
       generation: frame.generation,
       sequence: frame.sequence,
       opCount: frame.ops.length,
       partCount: parts.length,
       bytes: totalBytes,
-      tableSize: this.table.size,
-      identitySize: this.domNodes.size,
+      tableSize: stats?.tableSize ?? snap.tableSize,
+      identitySize: stats?.identitySize ?? snap.identitySize,
       buildMs: stats?.buildMs ?? 0,
       encodeMs: 0,
     });

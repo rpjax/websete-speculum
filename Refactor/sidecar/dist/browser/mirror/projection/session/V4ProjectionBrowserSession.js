@@ -238,7 +238,7 @@ class V4ProjectionBrowserSession {
     }
     async flushProjectionSnapshot(opts) {
         try {
-            return (await this.requirePage().evaluate((0, virtualSnapshot_1.coherentSnapshotExpression)(opts?.includeTree !== false)));
+            return (await this.requirePage().evaluate((0, virtualSnapshot_1.coherentSnapshotExpression)(opts?.includeTree !== false, opts?.cssom ?? 'none')));
         }
         catch (err) {
             return { ok: false, reason: err instanceof Error ? err.message : String(err) };

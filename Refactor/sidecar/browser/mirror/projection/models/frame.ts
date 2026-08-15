@@ -80,6 +80,32 @@ export type AttrSetOp = { op: OpCode.AttrSet; node: DomNodeKey; attrs: AttrPair[
 export type AttrDelOp = { op: OpCode.AttrDel; node: DomNodeKey; names: string[] };
 export type TextSetOp = { op: OpCode.TextSet; node: DomNodeKey; value: string };
 
+/** §4.6 `scope`: MAIN=0, PIERCE_HOST=1. Lab emits MAIN only (OPEN-6). */
+export const CSSOM_SCOPE_MAIN = 0;
+export const CSSOM_SCOPE_PIERCE_HOST = 1;
+
+export type SheetNewOp = {
+  op: OpCode.SheetNew;
+  id: DomNodeKey;
+  scope: typeof CSSOM_SCOPE_MAIN | typeof CSSOM_SCOPE_PIERCE_HOST;
+  hostNode: DomNodeKey;
+  before: DomNodeKey;
+};
+
+export type SheetDropOp = { op: OpCode.SheetDrop; ids: DomNodeKey[] };
+export type SheetOrderOp = { op: OpCode.SheetOrder; ids: DomNodeKey[] };
+
+export type RuleNewOp = {
+  op: OpCode.RuleNew;
+  sheet: DomNodeKey;
+  id: DomNodeKey;
+  before: DomNodeKey;
+  text: string;
+};
+
+export type RuleDropOp = { op: OpCode.RuleDrop; sheet: DomNodeKey; ids: DomNodeKey[] };
+export type RuleSetOp = { op: OpCode.RuleSet; id: DomNodeKey; text: string };
+
 export type FrameOp =
   | CheckOp
   | EpochResetOp
@@ -90,7 +116,13 @@ export type FrameOp =
   | RemoveOp
   | AttrSetOp
   | AttrDelOp
-  | TextSetOp;
+  | TextSetOp
+  | SheetNewOp
+  | SheetDropOp
+  | SheetOrderOp
+  | RuleNewOp
+  | RuleDropOp
+  | RuleSetOp;
 
 export type FrameFlags = {
   /** Reserved bit0 (§2) — unused until a real use appears. */
@@ -129,4 +161,14 @@ export function createFrame(args: {
     preTableHash: args.preTableHash ?? 0n,
     ops: args.ops,
   };
+}
+
+/** Live/resync CSSOM ops sit before a trailing `CHECK` when one is present. */
+export function spliceCssomBeforeCheck(ops: FrameOp[], cssom: readonly FrameOp[]): FrameOp[] {
+  if (cssom.length === 0) return ops;
+  const last = ops[ops.length - 1];
+  if (last !== undefined && last.op === OpCode.Check) {
+    return [...ops.slice(0, -1), ...cssom, last];
+  }
+  return [...ops, ...cssom];
 }

@@ -16,7 +16,7 @@
  */
 
 import { NodeKind, OpCode } from './opcodes';
-import { CHECK_SCOPE_RANGE, CHECK_SCOPE_TABLE, INSERT_AT_END, type AttrPair, type FrameOp } from './frame';
+import { CHECK_SCOPE_RANGE, CHECK_SCOPE_TABLE, CSSOM_SCOPE_MAIN, CSSOM_SCOPE_PIERCE_HOST, INSERT_AT_END, type AttrPair, type FrameOp } from './frame';
 import { MAX_ATTRS, MAX_CHILDREN_PER_OP, MAX_OPS_PER_FRAME, MAX_STR_BYTES } from './limits';
 
 export interface DecodedFramePart {
@@ -282,6 +282,47 @@ function decodeOp(
     case OpCode.TextSet: {
       const node = r.u32();
       return { op: OpCode.TextSet, node, value: resolveStr(r.u32()) };
+    }
+    case OpCode.SheetNew: {
+      const id = r.u32();
+      const scope = r.u8();
+      const hostNode = r.u32();
+      const before = r.u32();
+      if (scope !== CSSOM_SCOPE_MAIN && scope !== CSSOM_SCOPE_PIERCE_HOST) return null;
+      return { op: OpCode.SheetNew, id, scope, hostNode, before: before === 0 ? INSERT_AT_END : before };
+    }
+    case OpCode.SheetDrop: {
+      const count = r.u16();
+      checkChildCount(count);
+      const ids: number[] = new Array(count);
+      for (let i = 0; i < count; i++) ids[i] = r.u32();
+      return { op: OpCode.SheetDrop, ids };
+    }
+    case OpCode.SheetOrder: {
+      const count = r.u16();
+      checkChildCount(count);
+      const ids: number[] = new Array(count);
+      for (let i = 0; i < count; i++) ids[i] = r.u32();
+      return { op: OpCode.SheetOrder, ids };
+    }
+    case OpCode.RuleNew: {
+      const sheet = r.u32();
+      const id = r.u32();
+      const before = r.u32();
+      const text = resolveStr(r.u32());
+      return { op: OpCode.RuleNew, sheet, id, before: before === 0 ? INSERT_AT_END : before, text };
+    }
+    case OpCode.RuleDrop: {
+      const sheet = r.u32();
+      const count = r.u16();
+      checkChildCount(count);
+      const ids: number[] = new Array(count);
+      for (let i = 0; i < count; i++) ids[i] = r.u32();
+      return { op: OpCode.RuleDrop, sheet, ids };
+    }
+    case OpCode.RuleSet: {
+      const id = r.u32();
+      return { op: OpCode.RuleSet, id, text: resolveStr(r.u32()) };
     }
     default:
       return null;

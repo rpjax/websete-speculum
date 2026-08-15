@@ -32,8 +32,8 @@ const CHECK_DEFINITIONS: { id: string; description: string }[] = [
   { id: 'frame_decodable', description: 'Every frame/part received from Virtual decodes and assembles cleanly (no malformed bytes, no missing parts)' },
   { id: 'sequence_monotonic', description: 'Frame sequence is previous+1 for every frame' },
   { id: 'generation_stable', description: 'Frame generation only changes when that frame carries an EPOCH_RESET op' },
-  { id: 'no_dangling_reference', description: 'Every op referencing an id targets an id already allocated via NODE_NEW (or root id 1)' },
-  { id: 'no_duplicate_id', description: 'NODE_NEW never reallocates a currently-live id' },
+  { id: 'no_dangling_reference', description: 'Every op referencing an id targets an id already allocated via NODE_NEW / SHEET_NEW / RULE_NEW (or root id 1)' },
+  { id: 'no_duplicate_id', description: 'NODE_NEW / SHEET_NEW / RULE_NEW never reallocates a currently-live id' },
   { id: 'topology_consistency', description: 'INSERT never makes an id its own parent or creates a topology cycle' },
 ];
 
@@ -176,6 +176,46 @@ export class FrameInvariantMonitor {
         return;
       case OpCode.TextSet:
         this.checkLive(sequence, op.node, 'textSet.node');
+        return;
+      case OpCode.SheetNew: {
+        if (this.liveIds.has(op.id)) {
+          this.record('no_duplicate_id', 'fail', sequence, `SHEET_NEW reallocated live id ${op.id}`);
+        } else {
+          this.record('no_duplicate_id', 'pass', sequence);
+        }
+        if (op.hostNode !== 0) this.checkLive(sequence, op.hostNode, 'sheetNew.hostNode');
+        if (op.before !== INSERT_AT_END) this.checkLive(sequence, op.before, 'sheetNew.before');
+        this.liveIds.add(op.id);
+        this.parentOf.set(op.id, op.hostNode === 0 ? DOCUMENT_ID : op.hostNode);
+        return;
+      }
+      case OpCode.SheetDrop: {
+        for (const id of op.ids) this.dropShadowSubtree(id);
+        return;
+      }
+      case OpCode.SheetOrder: {
+        for (const id of op.ids) this.checkLive(sequence, id, 'sheetOrder.id');
+        return;
+      }
+      case OpCode.RuleNew: {
+        this.checkLive(sequence, op.sheet, 'ruleNew.sheet');
+        if (op.before !== INSERT_AT_END) this.checkLive(sequence, op.before, 'ruleNew.before');
+        if (this.liveIds.has(op.id)) {
+          this.record('no_duplicate_id', 'fail', sequence, `RULE_NEW reallocated live id ${op.id}`);
+        } else {
+          this.record('no_duplicate_id', 'pass', sequence);
+        }
+        this.liveIds.add(op.id);
+        this.parentOf.set(op.id, op.sheet);
+        return;
+      }
+      case OpCode.RuleDrop: {
+        this.checkLive(sequence, op.sheet, 'ruleDrop.sheet');
+        for (const id of op.ids) this.dropShadowSubtree(id);
+        return;
+      }
+      case OpCode.RuleSet:
+        this.checkLive(sequence, op.id, 'ruleSet.id');
         return;
       default:
         return;

@@ -1,19 +1,31 @@
 # Virtual-side checklist (TEMPORARY)
 
-Each domain folder holds **its port(s) + implementation(s)**.
+Each domain folder holds **its port(s) + implementation(s)**. `bootstrap.ts` is the composition root only.
 
-| Domain | Port(s) | Impl(s) |
-|--------|---------|---------|
-| `config/` | — | `projectionConfig.ts` (read-once from pre-script global) |
-| `clock/` | `frameClock.ts` | `timerFrameClock.ts` |
-| `frame/` | `frameBuilder.ts`, `frameEncoder.ts` | `netEffectFrameBuilder`, `binaryFrameEncoder`, `binaryWriter`, `fVisible`, `frameEmitter` |
-| `transport/` | `frameTransport.ts` | `loopbackFrameTransport`, `consoleFrameTransport`, `NullFrameTransport` |
-| `dom/` | (table/observer are concrete today) | `domNodeTable`, `domMutationObserver`, `domMutationAccumulator` |
-| `models/` | — | Virtual-only data (`dirtySets`) |
+## Layers (depend downward only)
 
-`bootstrap.ts` wires ports → chosen impls only.
+```text
+bootstrap.ts                 composition root
+resync.ts / snapshot.ts      algorithm use cases (system)
+frame/                       pipe (clock → encode → transport; attach pending CSSOM)
+dom/                         DOM plane (observer, identity, tick builder, O2, describe-resync)
+cssom/                       CSSOM plane (poll, idle, CssomPlane port)
+clock/ transport/ config/    support
+```
 
-Host inject: `loadVirtualInjectionScripts({ dataPlaneUrl })` → pre-script then main bundle.
+| Folder / file | Question |
+|---------------|----------|
+| `resync.ts` | Full-system resync frame (DOM + CSSOM scan + CHECK). Always all planes. |
+| `snapshot.ts` | Debug/lab snapshot; CSSOM inclusion tunable (`none` \| `committed` \| `scan`). |
+| `dom/` | MutationObserver, buffer, identity, `TableFrameBuilder`, `domResync`, O2 |
+| `cssom/` | Idle poll, `CssomPlane` (`blockingScan` / `takePending` / `halt`), table×live CSSOM O2 |
+| `frame/` | Pipe only. Concatenates pending CSSOM ops before `CHECK`; CSSOM-only frames when DOM is quiet (I5) |
+
+CSSOM live work is eventual: idle slices → `takePending` on the next `FrameEmitter` boundary. **Resync**
+cancels idle and **blocking-scans** CSSOM (full `SHEET_NEW`+`RULE_NEW` snapshot). Snapshot default `none`
+does not wait for CSSOM. Client phase 2 does not materialize owned CSSOM (C6).
+
+§5.8 `resyncVirtual` in the protocol = `rebuildAndResync` here. `emitResyncFrame` is the trusted-map strength of the same use case.
 
 ## Console paste (manual bring-up)
 
@@ -32,5 +44,3 @@ document.body.appendChild(document.createElement('div')).textContent = 'x';
 
 4. Expect `[FrameTransport] send #N len=…` lines starting with hex `50 50` (`PP` magic).
    Automated check: `node scripts/smoke-virtual-console.js` (asserts `sends` + magic bytes).
-
-Establish / Cssom / sensors are not in this bundle path yet — only post-inject live mutations.

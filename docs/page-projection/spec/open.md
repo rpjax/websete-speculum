@@ -23,11 +23,7 @@
 
 **OPEN-8** is closed at the table. `takeRecords` before drain is closed. CLI `--iso` proves Virtual O2 + Node table×table; tree×tree needs lab UI DOM apply. **Production cutover is not licensed** by that — see [roadmap.md](roadmap.md) cutover law.
 
-| Id | Symptom | Status |
-|----|---------|--------|
-| **PP-FR-1 + REMOVE honesty** | Shipped 2026-08-14: producer skips `!isConnected` addedNodes (never on the wire); `REMOVE` iff ended detached with a prior id (`visited` is not a move). Client `REMOVE` whose node is not under `op.parent` is **desync**, not a silent skip. | Done — does **not** close the stress-churn visual (cause still open) |
-| **stress-churn visual stack** | Projected cells show two numbers concatenated mid-run; halt O2 + UI tree×tree were green. Cause **not** agreed (layout vs mid-churn apply vs something else). Next fact: `childNodes` count on a dirty cell mid-churn. | Open |
-| **prepend-stress O2** | `child_order` under block-prepend. **Separate** from text replace / PP-FR-1. Do not claim a grelha fix closes this. | Open |
+No open DOM-table bugs. Stress-churn stacked digits = PP-FR-1 ([observability.md](observability.md) §8). Prepend `child_order` = green at seq 799 (`2026-08-15T00-32-28`). Next product gate: CSSOM.
 
 ---
 
@@ -69,6 +65,7 @@
 | 4 | `contracts/07-recovery.md` full rewrite | **Dropped** — file archived; §5.8 is the spec |
 | 5 | Bounded resync retry on **production** session layer with catalogued `errorCode`+`phase` | Lab has 3-attempt backoff + `resyncFailed{exhausted}`. Production hub analog is part of Production Integration |
 | 6 | Dual live paths (`LivePageProjection` vs lab engine) | **YES** — cutover (when product-complete) deletes the loser same day ([roadmap.md](roadmap.md)) |
+| 7 | Lab probe: `NODE_NEW` in frame S ⇒ `isConnected` (PP-FR-1 class; halt iso is blind). Not telemetry. [observability.md](observability.md) §8 | No — catch halt-blind stream leaks |
 
 ---
 
@@ -95,3 +92,5 @@ See [support-matrix.md](support-matrix.md). Canvas/WebGL pixels, MSE/DRM, IME, t
 | 2026-08-14 | Torn O2 (split `page.evaluate`) → `flushAndSnapshot` one JS turn |
 | 2026-08-14 | Telemetry-as-assert (`table_size_matches_telemetry`) removed; digest probe at sequence S |
 | 2026-08-14 | OPEN-8 `unlink` last-child `nextSiblingOf[prev]` — prepend-stress O2 / table walk `[118]` |
+| 2026-08-14 | PP-FR-1 V4 walk (`!isConnected` at drain); stress-churn stacked digits; phase-2 `REMOVE` desync |
+| 2026-08-14 | prepend-stress O2/tree at halt — green seq 799 (OPEN-8 / takeRecords era; not a live bug) |

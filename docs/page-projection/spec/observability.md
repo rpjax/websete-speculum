@@ -120,6 +120,79 @@ Full comparison remains lab/CI only (O(n) — [oracles.md](oracles.md), E1).
 | 2026-08-14 | Lab may `page.evaluate` for convenience | That is a second Chromium path | Session probes only |
 | 2026-08-14 | Many CLI scripts = the test pyramid | Throwaway profilers duplicated math | One run suite → `report.json`; scripts wrap CLI |
 | 2026-08-14 | prepend-stress O2 fail after OPEN-7 = oracle artifact or GC | `unlink` of last child left `nextSiblingOf[prev]`; next tail REMOVE skipped `lastChildOf` (OPEN-8) | Table falsifier + delete derived next when unlinking last child |
+| 2026-08-14 | Stress-churn “stacked digits” = layout / CSS / swallowed REMOVE / producer table dirt | Observer **history** (`addedNodes`) sent as live tree. Same-tick create+destroy (textContent replace faster than the frame clock) got `NODE_NEW`+`INSERT`. Halt O2/tree green (end of S). Virtual never stacked. After PP-FR-1 prune, glue gone; 0 desync so the REMOVE guard was not the visual cause | Drain `isConnected` (PP-FR-1); `REMOVE` iff ended detached with a prior id; client parent mismatch → desync anyway. Halt iso does **not** prove this class. §8 |
 
 Code: `Refactor/sidecar/browser/mirror/projection/` (`session/V4ProjectionBrowserSession.ts`, `lab/isomorphism.ts`, `lab/runTools.ts`, `virtual/bootstrap.ts` `flushAndSnapshot`).
+
+---
+
+## 8. Halt-blind stream divergence (PP-FR-1 incident, 2026-08-14)
+
+**Class:** the wire describes nodes that are **not** in the live Virtual DOM at end of tick. Projected
+**paints** them during churn. Coherent snapshot at halt (O2, table×table, tree×tree **including text**)
+is green because it samples **after** a complete frame S.
+
+This is **not** a telemetry-assert problem and **not** “O1 first.” It is producer construction (§5.4
+second trap, §5.6). A future lab check belongs on the **snapshot object** (`NODE_NEW` in this frame ⇒
+`isConnected`), not on `PlaneChannel.Telemetry`. Not implemented yet — residual in [open.md](open.md).
+
+### What we saw
+
+`stress-churn.html`: 20-column grid; each rAF appends cells and sets `cell.textContent` (replace = kill
+old `#text`, birth new). Page ~60 rAF; frames often slower → **several replaces per tick**. CSS is an
+inline `<style>` (DOM-projected, not a CSSOM-plane gap). Virtual headed Chrome: **never** stacked.
+Projected iframe: cells like `2297523025` (two numbers in one box) **during** the run.
+
+### What the oracles said (and why they lied about the screen)
+
+| Probe | Result | Why it did not catch it |
+|-------|--------|-------------------------|
+| O2 Virtual table × Virtual DOM | pass | Table matched **live** Virtual. Dead nodes were not in that DOM. |
+| table×table (UI client) | pass | Client table matched after applying S. |
+| tree×tree at halt (text included) | pass | Halt DOM had one `#text` per cell, same strings as Virtual. |
+| `applyOk` / desync | 0 desync | Events are not this invariant. |
+
+CLI `--iso` without a DOM apply surface never sees Projected paint. The catching run **was** lab UI
+4077 (client plugged in). Still green at halt.
+
+### False paths (do not revive)
+
+- Fixture overflow / `1fr` too narrow — would glue **Virtual** too. It did not.
+- Missing `<style>` / CSSOM v0 — `<style>` is an element; Projected applied it.
+- Producer table accumulating ephemerals — O2 would be red. It was not.
+- Prepend-stress `child_order` as proof of the same bug — different fixture; it **avoids** same-tick
+  create+destroy. Halt iso **green** 2026-08-15T00-32-28 (seq 799). Old red = OPEN-8 / torn snapshot.
+- `TEXT_SET` + rebind id as the fix — new identity rule, text-only ramal. Optional later.
+- Silent client `REMOVE` (`if (parentNode === parent) remove; return true`) as **the** visual cause —
+  same-parent `INSERT` then `REMOVE` does find the node. After fail-closed `REMOVE`, a 25s UI rerun
+  had **0 desync** and **no glue**. Guard remains mandatory honesty (§6); it did not clear the grid.
+
+### What was true
+
+`TableFrameBuilder.walkSiblingRun` allocated every `addedNodes` entry. `emitDeferredRemoves` skipped
+`REMOVE` when `visited.has(node)` (meant “move”). Same-tick corpses were visited. Attr/text already
+honoured `isConnected`; structure did not.
+
+Projected applied those `INSERT`s. Virtual never had the corpses in the live tree. Halt sampled
+survivors only.
+
+### Fix (shipped)
+
+1. **PP-FR-1:** at drain, `!isConnected` → no allocate, no `INSERT` (`tableFrameBuilder.ts`).
+2. **`REMOVE`:** ended the tick detached **and** already had an id. `visited` is not the criterion.
+3. **Client:** `REMOVE` whose node is not a child of `op.parent` → `bad_target` desync, not a skip
+   (`applyDom.ts`).
+
+### Evidence after the fix
+
+`lab-runs/2026-08-15T00-00-21-773Z-127.0.0.1-4077/` (UI, 25s, stress-churn): 1462 apply, 0 desync,
+iso identical at 1462. Human: **no stacked digits**. Ops p95 551→326; published fps ~24→~58 on
+**unequal** durations — no measured **degradation**; extra `isConnected` is a boolean on nodes already
+walked; the work that left the wire was garbage.
+
+### What a lab test for this **class** looks like (not built)
+
+After `build()`, every `NODE_NEW` in the frame must be `isConnected`. Put that on the coherent
+snapshot, halt **and** a mid-run S. Fixture: create+destroy in one tick (need not be the 20-col grid).
+Second line, after client apply of S: client DOM × **client table** (phase 2). Do not add event kinds.
 ---

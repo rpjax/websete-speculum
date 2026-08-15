@@ -34,6 +34,8 @@ npm run lab:run -- --url fixtures/demo.html --duration 15s --cpu --iso
 ```
 
 Prints the path to `lab-runs/<timestamp>-<slug>/report.json` (start diagnosis there).
+
+**JS animation fixtures:** `fixtures/anim-js.html?fps=60` and `?fps=30` — same choreography in real seconds (smoothness, not speed). Motion is `style.transform` every tick so the producer sees `ATTR_SET`; CSS `@keyframes` would not hit MutationObserver.
 Exit `0` if every requested check is `pass` or explicit `skipped`; `1` if any `fail`.
 Prefer the positional form on Windows — npm may swallow dashed flags (`--url`, `--iso`). Words without dashes still work: `iso`, `cpu`, `headed`.
 
@@ -72,3 +74,5 @@ session/
 
 **Probes vs telemetry.** Spec: [docs/page-projection/spec/observability.md](../../../../../../docs/page-projection/spec/observability.md).
 CLI `--iso` proves Virtual O2 + digest at S **and** table×table against a Node `ReplicatedTable` in the CLI process (same `applyFrameToTableChecked` as client phase 1). Tree×tree / DOM apply stay `skipped` (no second browser; UI at 4077 still has the live apply). That Node table is **not** Projected. O1/O4/O5 are not implemented. Event telemetry is time-series only. `FrameInvariantMonitor` is wire-bytes only.
+
+**Halt iso is blind to same-tick ephemerals on the wire** (stress-churn stacked digits, 2026-08-14 — Virtual clean, Projected glued mid-run, halt tree including text identical). Drain prune is PP-FR-1 in `tableFrameBuilder.ts`. Narrative: [observability.md](../../../../../../docs/page-projection/spec/observability.md) §8.

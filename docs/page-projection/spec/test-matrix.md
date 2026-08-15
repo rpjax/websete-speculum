@@ -31,7 +31,7 @@ A package (`WP`) is complete when **all** its `PP-*` rows pass and **all** its r
 | `PP-D16-2` | Popover shown on Virtual is shown on Projected | WP11 |
 | `PP-D16-3` | Media pause / seek on Virtual is reflected on the client's media element | WP11 |
 | `PP-D16-4` | `setCustomValidity` makes `:invalid` match on Projected | WP11 |
-| `PP-FR-1` | A node created and destroyed within one frame is never sent | WP4 |
+| `PP-FR-1` | A node created and destroyed within one frame is never sent. **V4 walk (2026-08-14):** drain `!isConnected` ⇒ no `NODE_NEW`/`INSERT`. Lab snapshot probe (`NODE_NEW` ⇒ connected) not built yet — halt iso is blind to this class ([observability.md](observability.md) §8) | WP4 |
 | `PP-FR-2` | A 200-node subtree rendered in one task produces batched `INSERT`s (sibling runs), not 200 separate parent ops | WP4 |
 | `PP-FR-3` | N attribute writes to one node within a frame produce one `ATTR_SET` (or equivalent coalesced op), not N | WP4 |
 | `PP-FR-4` | A frame with no operations consumes no `sequence` | WP4 |

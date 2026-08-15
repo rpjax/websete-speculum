@@ -517,12 +517,20 @@ inserted root appears in `addedNodes`. The producer MUST walk it recursively (`n
 interior is never indexed and never sent. There is no way to detect this from the record alone; it is a
 structural property of the API and the walk is mandatory, not an optimization.
 
+**Second trap (PP-FR-1, 2026-08-14).** `addedNodes` is a **snapshot at mutation time**. A later mutation
+in the **same tick** can destroy that node. At drain it is still in the list and `isConnected === false`.
+The producer MUST NOT `identity.allocate` / `NODE_NEW` / `INSERT` it. Attr/text patches already skipped
+`!isConnected`; the structural walk must do the same. Treating observer history as the live tree sends
+nodes the Virtual document no longer has — Projected draws them; halt O2/tree stay green because they
+sample the **end** of a complete frame. Incident: [observability.md](observability.md) §8.
+
 ### 5.5 Single-pass DFS: reuse-or-create, emit on the way down and on the way up
 
 For each node in `addedNodes`, walked depth-first:
 
 ```
 walk(node, parentId):
+  if !node.isConnected: return          // PP-FR-1 — snapshot listed it; live tree does not
   if visited.has(node): return
   visited.add(node)
 
@@ -580,18 +588,18 @@ one parent and inserted into another **within the same tick** is a move, not a d
 common case (keyed list reconciliation, drag-and-drop, portals/modals, responsive wrappers; see
 `HANDOFF.md` §7.4), and it must cost exactly the one `INSERT` from §5.5, nothing more.
 
-Rule, evaluated once the tick's buffer is fully drained:
+Rule, evaluated once the tick's buffer is fully drained, against the **live** tree (`isConnected`),
+not against `visited`:
 
-- A node that appears in some `removedNodes` **and** was walked (§5.5) into an `INSERT` this same tick
-  needs nothing further — that `INSERT`'s `Table` effect already unlinked it from its old parent (§4.3:
-  "unlinks it from its current parent if attached, then links it"). One instruction covers the whole
-  move; there is no `REMOVE` to emit.
-- A node that appears in `removedNodes` and was **not** re-inserted anywhere this tick is a true detach:
-  emit `REMOVE(oldParent, [id])`. The row survives, detached, in the table — it is not `NODE_DROP`.
-  Permanent collection is the deferred-GC rule already agreed for **OPEN-2**: a detached row whose `lms`
-  is older than the GC threshold is independently, deterministically dropped by both sides without a
-  wire instruction, because both replicate the same table under the same rule (P0). This closes
-  **OPEN-2** — see the decision log.
+- **Still `isConnected`** — a move. Its §5.5 `INSERT` already unlinked it (§4.3). No `REMOVE`.
+- **`!isConnected` and never had an id** — ephemeral (created and destroyed this tick). PP-FR-1: never
+  sent. No `NODE_NEW`, no `INSERT`, no `REMOVE`.
+- **`!isConnected` and already had an id** — true detach: emit `REMOVE(oldParent, [id])`. The row
+  survives detached until OPEN-2 `NODE_DROP` by `lms` age.
+
+**`visited` is not a move proof.** A same-tick create+destroy is also visited if the walk allocated it.
+Skipping `REMOVE` because `visited.has(node)` was the V4 walk defect that put dead nodes on the wire
+(`tableFrameBuilder.ts` `emitDeferredRemoves` uses `isConnected`).
 
 ### 5.7 Identity map
 
@@ -754,7 +762,7 @@ policy at the session layer, tied to a catalogued hard-failure `errorCode` on ex
 | Phase | Work | On failure |
 |-------|------|-----------|
 | **1 — table** | verify `preTableHash`; apply all row mutations; evaluate `CHECK` | abort before touching the surface |
-| **2 — materialize** | reflect changed rows into the DOM | cannot fail — already validated |
+| **2 — materialize** | reflect changed rows into the DOM | specified not to fail — phase 1 already validated addresses. If the live node is **not** where the table just swore (e.g. `REMOVE` whose `parentNode !== op.parent`), that is a **desync**, not a skip |
 
 The client MUST complete phase 1 for the **entire assembled frame** before beginning phase 2.
 
@@ -881,3 +889,4 @@ Every catalogued failure carries `errorCode` + `phase` + `sequence`
 | 2026-08-14 | **OPEN-8 CLOSED** — last-child `unlink` must clear `nextSiblingOf[prev]` | O2 on `prepend-stress.html` (seq 695, `#19` walk `[118]` vs hundreds live) after OPEN-7. Table-only falsifier: prepend batches + tail REMOVE; `lastChildOf` left on a detached id (`parent=0, prev=0`). Wire hash green — derived links not in `tableHash`. Not a reopen of OPEN-7 (`insertBatch` before-existing). |
 | 2026-08-14 | **`takeRecords` before every drain** | MutationObserver delivery is a microtask. Draining only callback-fed records left the table behind live DOM under churn; O2 could not tell lag from P0. `DomMutationObserver.takePendingIntoBuffer` at the top of `onBoundary`/`flushNow` and before bootstrap discard. One JS turn is not enough; one turn **with** `takeRecords` is. |
 | 2026-08-14 | **Production cutover = full product** | Live switch only after CSSOM implemented, OPEN-6 nested/multidocs, and **input redesigned** (not V1 `input.md` rename-only). Lab DOM-table / single-doc is not M1. [roadmap.md](roadmap.md). |
+| 2026-08-14 | **PP-FR-1 in the V4 walk + phase-2 REMOVE honesty** | Drain: `!isConnected` addedNodes must not be allocated (§5.4/§5.5). `REMOVE` iff ended detached with a prior id — `visited` ≠ move (§5.6). Client `REMOVE` parent mismatch → desync (§6). Incident: [observability.md](observability.md) §8. |

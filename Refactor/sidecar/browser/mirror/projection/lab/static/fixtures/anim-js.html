@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Honk ballet</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: ui-rounded, system-ui, sans-serif;
+        background: #1a1025;
+        color: #fde68a;
+        overflow: hidden;
+      }
+      #hud {
+        position: absolute;
+        z-index: 2;
+        top: 8px;
+        left: 12px;
+        font-size: 13px;
+        line-height: 1.45;
+        text-shadow: 0 1px 0 #000;
+      }
+      #hud b { color: #fbcfe8; }
+      #stage {
+        position: relative;
+        width: 100vw;
+        height: 100vh;
+        background:
+          radial-gradient(ellipse at 50% 110%, #4c1d95 0%, transparent 55%),
+          repeating-linear-gradient(90deg, #2e1064 0 28px, #1e0b3a 28px 56px);
+      }
+      .spot {
+        position: absolute;
+        left: 50%;
+        bottom: 8%;
+        width: 46vw;
+        height: 18vh;
+        transform: translateX(-50%);
+        background: radial-gradient(ellipse, rgba(253, 224, 71, 0.35), transparent 70%);
+        pointer-events: none;
+      }
+      .actor {
+        position: absolute;
+        left: 0;
+        top: 0;
+        will-change: transform;
+        user-select: none;
+        line-height: 1;
+      }
+      .note { font-size: 22px; opacity: 0.9; }
+      .goose { font-size: 42px; }
+      .lead { font-size: 56px; filter: drop-shadow(0 8px 0 rgba(0, 0, 0, 0.35)); }
+      .chicken { font-size: 48px; }
+      h1 {
+        position: absolute;
+        right: 14px;
+        top: 8px;
+        margin: 0;
+        font-size: 14px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        color: #e9d5ff;
+        text-align: right;
+      }
+    </style>
+  </head>
+  <body>
+    <!--
+      JS-driven motion (style.transform every tick) so MutationObserver / V4 sees AttrSet.
+      CSS @keyframes would paint in Virtual and stay invisible on the wire.
+      Choreography is clocked in real seconds — fps=30 vs 60 must change smoothness, not speed.
+      ?fps=30 | ?fps=60 (default 60)
+    -->
+    <div id="hud">boot…</div>
+    <h1>HONK BALLET<br /><span id="sub">the rubber-chicken critic</span></h1>
+    <div id="stage">
+      <div class="spot"></div>
+    </div>
+    <script>
+      const params = new URLSearchParams(location.search);
+      const TARGET_FPS = params.get('fps') === '30' ? 30 : 60;
+      const FRAME_MS = 1000 / TARGET_FPS;
+      const stage = document.getElementById('stage');
+      const hud = document.getElementById('hud');
+      document.getElementById('sub').textContent =
+        TARGET_FPS === 30 ? '30 fps · potato cam' : '60 fps · swan-grade';
+
+      const W = () => stage.clientWidth;
+      const H = () => stage.clientHeight;
+
+      function el(className, text) {
+        const n = document.createElement('div');
+        n.className = 'actor ' + className;
+        n.textContent = text;
+        stage.appendChild(n);
+        return n;
+      }
+
+      const lead = el('goose lead', '🦢');
+      const troupe = [];
+      const faces = ['🪿', '🪿', '🦆', '🪿', '🦆', '🪿'];
+      for (let i = 0; i < faces.length; i++) troupe.push({ node: el('goose', faces[i]), phase: (i / faces.length) * Math.PI * 2 });
+
+      const critic = {
+        node: el('chicken', '🐔'),
+        x: 120,
+        y: 120,
+        vx: 220,
+        vy: 160,
+      };
+
+      const notes = [];
+      const NOTE_GLYPHS = ['♪', '♫', '♩', '♬'];
+      let ticks = 0;
+      let lastHud = 0;
+      let lastEmit = 0;
+      let measuredFps = 0;
+      let dts = [];
+
+      function place(node, x, y, rotDeg, scale) {
+        const s = scale == null ? 1 : scale;
+        node.style.transform =
+          'translate(' + x.toFixed(1) + 'px,' + y.toFixed(1) + 'px) rotate(' + rotDeg.toFixed(1) + 'deg) scale(' + s.toFixed(3) + ')';
+      }
+
+      function spawnNote(x, y) {
+        const node = el('note', NOTE_GLYPHS[ticks % NOTE_GLYPHS.length]);
+        notes.push({ node, x, y, born: performance.now() });
+      }
+
+      function step(tSec, dt) {
+        const w = W();
+        const h = H();
+        const cx = w * 0.5 - 28;
+        const cy = h * 0.52 - 28;
+        const rx = Math.min(w, h) * 0.28;
+        const ry = Math.min(w, h) * 0.16;
+
+        const bob = Math.sin(tSec * 6) * 18;
+        const bow = Math.sin(tSec * 3) * 22;
+        place(lead, cx, cy + bob - 40, bow, 1.05 + Math.sin(tSec * 8) * 0.06);
+
+        for (let i = 0; i < troupe.length; i++) {
+          const g = troupe[i];
+          const a = tSec * 1.35 + g.phase;
+          const x = cx + Math.cos(a) * rx;
+          const y = cy + Math.sin(a) * ry + Math.sin(tSec * 7 + g.phase) * 10;
+          const rot = Math.sin(a) * 28 + (i % 2 === 0 ? 8 : -8);
+          place(g.node, x, y, rot, 0.92);
+        }
+
+        critic.x += critic.vx * dt;
+        critic.y += critic.vy * dt;
+        if (critic.x < 8 || critic.x > w - 56) critic.vx *= -1;
+        if (critic.y < 36 || critic.y > h - 56) critic.vy *= -1;
+        critic.x = Math.max(8, Math.min(w - 56, critic.x));
+        critic.y = Math.max(36, Math.min(h - 56, critic.y));
+        const spin = tSec * 420;
+        place(critic.node, critic.x, critic.y, spin, 1);
+
+        if (ticks % Math.max(1, Math.round(TARGET_FPS / 6)) === 0) {
+          spawnNote(cx + 40, cy - 20);
+        }
+        const now = performance.now();
+        for (let i = notes.length - 1; i >= 0; i--) {
+          const n = notes[i];
+          const age = (now - n.born) / 1000;
+          if (age > 1.1) {
+            n.node.remove();
+            notes.splice(i, 1);
+            continue;
+          }
+          n.y -= 70 * dt;
+          n.node.style.opacity = String(Math.max(0, 1 - age / 1.1));
+          place(n.node, n.x + Math.sin(age * 12) * 16, n.y, age * 40, 1);
+        }
+      }
+
+      let lastNow = performance.now();
+      const t0 = lastNow;
+
+      function frame(now) {
+        requestAnimationFrame(frame);
+        if (now - lastEmit < FRAME_MS - 0.5) return;
+        const dt = Math.min(0.05, (now - lastNow) / 1000);
+        lastNow = now;
+        lastEmit = now;
+        ticks += 1;
+        dts.push(now);
+        while (dts.length > 0 && now - dts[0] > 1000) dts.shift();
+        measuredFps = dts.length;
+        step((now - t0) / 1000, dt);
+        if (now - lastHud > 200) {
+          lastHud = now;
+          hud.textContent =
+            'honk ballet · target ' +
+            TARGET_FPS +
+            ' fps · measured ' +
+            measuredFps +
+            ' · ticks ' +
+            ticks +
+            ' · notes ' +
+            notes.length +
+            ' · critic ricochet';
+        }
+      }
+      requestAnimationFrame(frame);
+    </script>
+  </body>
+</html>

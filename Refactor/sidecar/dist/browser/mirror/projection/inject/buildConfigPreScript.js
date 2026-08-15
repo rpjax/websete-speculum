@@ -32,6 +32,8 @@ function buildConfigPreScript(opts) {
         payload.telemetry = opts.telemetry;
     if (opts.generation !== undefined)
         payload.generation = opts.generation;
+    if (opts.cssomPollHz !== undefined)
+        payload.cssomPollHz = opts.cssomPollHz;
     // This runs as its own separate injected `<script>` tag (Patchright leaves it attached to
     // the document — see bootstrap.ts's matching `currentScript.remove()` for why that matters);
     // clean up after itself the same way, or `virtual.js`'s own removal of *its* tag still leaves

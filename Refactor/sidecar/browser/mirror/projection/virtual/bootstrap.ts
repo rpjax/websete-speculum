@@ -20,6 +20,7 @@ import { BinaryFrameEncoder } from './frame/binaryFrameEncoder';
 import { FrameEmitter } from './frame/frameEmitter';
 import { emitResyncFrame, resyncVirtual } from './frame/resync';
 import { TableFrameBuilder } from './frame/tableFrameBuilder';
+import { CssomPoller } from './cssom/cssomPoller';
 import { ProjectionTelemetry } from './telemetry/projectionTelemetry';
 import type { FrameTransport } from './transport/frameTransport';
 import { ConsoleFrameTransport } from './transport/consoleFrameTransport';
@@ -28,6 +29,7 @@ import { NullFrameTransport } from './transport/nullFrameTransport';
 import { digestReplicatedTable } from '../models/tableDigest';
 import type { TableLiveOracleResult } from '../models/tableLiveOracle';
 import { compareTableToLiveDom } from './dom/tableLiveOracle';
+import { PlaneChannel, type DataPlane } from '../plane';
 
 declare global {
   var __speculumProjection:
@@ -45,6 +47,8 @@ declare global {
         readonly compareTableToLiveDom: () => TableLiveOracleResult;
         haltWorld: () => void;
         resumeWorld: () => void;
+        /** Lab CSSOM poller — cost telemetry only; does not emit CSSOM ops. */
+        cssomPoller: CssomPoller | null;
         flushFrame: () => { generation: number; sequence: number };
         /**
          * One JS turn: drain MO buffer → emit frame → O2. DOM cannot mutate mid-call
@@ -110,6 +114,14 @@ void (async () => {
     config: config.telemetry,
     dataPlane,
   });
+
+  const cssomPoller = config.cssomPollHz > 0 ? new CssomPoller() : null;
+  const cssomClock: FrameClock | null =
+    cssomPoller !== null
+      ? new TimerFrameClock({
+          frameRateHz: config.cssomPollHz,
+        })
+      : null;
 
   const frameClock: FrameClock = new TimerFrameClock({
     frameRateHz: config.frameRateHz,
@@ -203,6 +215,10 @@ void (async () => {
 
   frameEmitter.start();
   telemetry.start();
+  cssomClock?.start(() => {
+    if (cssomPoller === null) return;
+    telemetry.recordCssomPoll(cssomPoller.poll(document));
+  });
 
   globalThis.__speculumProjection = {
     version: 1,
@@ -215,12 +231,18 @@ void (async () => {
     frameEmitter,
     frameTransport,
     telemetry,
+    cssomPoller,
     compareTableToLiveDom: () => compareTableToLiveDom(table, domNodes, document),
     haltWorld: () => {
       frameEmitter.stop();
+      cssomClock?.stop();
     },
     resumeWorld: () => {
       frameEmitter.start();
+      cssomClock?.start(() => {
+        if (cssomPoller === null) return;
+        telemetry.recordCssomPoll(cssomPoller.poll(document));
+      });
     },
     flushFrame: () => {
       frameEmitter.flushNow();
@@ -232,6 +254,7 @@ void (async () => {
       frameEmitter.flushNow();
       const o2 = compareTableToLiveDom(table, domNodes, document);
       frameEmitter.stop();
+      cssomClock?.stop();
       return {
         generation: domNodes.generation,
         sequence: frameEmitter.currentSequence,

@@ -7,6 +7,7 @@
 import type {
   ProjectionTelemetryMessage,
   TelemetryApplyResult,
+  TelemetryCssomPoll,
   TelemetryFrameEmitted,
 } from '../models/telemetry';
 
@@ -54,6 +55,16 @@ export type MetricsSummary = {
   desyncCount: number;
   applyOverrunCount: number;
   transportDeferredCount: number;
+  cssomPoll: {
+    /** Number of poll passes in the window (5 Hz × duration, if the cap is on). */
+    passes: number;
+    pollMs: Stats;
+    identityWalkMs: Stats;
+    cssTextSerializeMs: Stats;
+    lastTopLevelRulesVisited: number;
+    lastTopLevelRulesSerialized: number;
+    lastReadableSheetCount: number;
+  };
 };
 
 /** Sequence `1` is always the cold-start `resyncVirtual` frame (frame-protocol.md §5.1) — a
@@ -62,6 +73,7 @@ export type MetricsSummary = {
 export class MetricsAggregator {
   private readonly frameEmitted: TelemetryFrameEmitted[] = [];
   private readonly applyResults: TelemetryApplyResult[] = [];
+  private readonly cssomPolls: TelemetryCssomPoll[] = [];
   private desyncCount = 0;
   private applyOverrunCount = 0;
   private transportDeferredCount = 0;
@@ -74,6 +86,9 @@ export class MetricsAggregator {
         return;
       case 'applyResult':
         this.applyResults.push(msg);
+        return;
+      case 'cssomPoll':
+        this.cssomPolls.push(msg);
         return;
       case 'desynced':
         this.desyncCount += 1;
@@ -126,6 +141,24 @@ export class MetricsAggregator {
       desyncCount: this.desyncCount,
       applyOverrunCount: this.applyOverrunCount,
       transportDeferredCount: this.transportDeferredCount,
+      cssomPoll: {
+        passes: this.cssomPolls.length,
+        pollMs: computeStats(this.cssomPolls.map((s) => s.pollMs)),
+        identityWalkMs: computeStats(this.cssomPolls.map((s) => s.identityWalkMs)),
+        cssTextSerializeMs: computeStats(this.cssomPolls.map((s) => s.cssTextSerializeMs)),
+        lastTopLevelRulesVisited:
+          this.cssomPolls.length > 0
+            ? this.cssomPolls[this.cssomPolls.length - 1]!.topLevelRulesVisited
+            : 0,
+        lastTopLevelRulesSerialized:
+          this.cssomPolls.length > 0
+            ? this.cssomPolls[this.cssomPolls.length - 1]!.topLevelRulesSerialized
+            : 0,
+        lastReadableSheetCount:
+          this.cssomPolls.length > 0
+            ? this.cssomPolls[this.cssomPolls.length - 1]!.readableSheetCount
+            : 0,
+      },
     };
   }
 }

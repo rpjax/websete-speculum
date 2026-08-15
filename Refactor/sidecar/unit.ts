@@ -62,6 +62,8 @@ import { digestReplicatedTable } from './browser/mirror/projection/models/tableD
 import { BinaryFrameEncoder } from './browser/mirror/projection/virtual/frame/binaryFrameEncoder';
 import { NodeTableApplier } from './browser/mirror/projection/lab/nodeTableApply';
 import { MAX_ROWS } from './browser/mirror/projection/models/limits';
+import { fnv1a32 } from './browser/mirror/projection/virtual/cssom/fnv32';
+import { diffRules } from './browser/mirror/projection/virtual/cssom/cssomReconcile';
 
 /** Test stand-in for Sessions.ViewportPolicy — production gets this on Launch. */
 const POLICY = {
@@ -2447,6 +2449,34 @@ function testNodeTableApplierDigestMatchesDirectApply(): void {
   console.log('[unit] NodeTableApplier digest matches direct applyFrameToTableChecked ok');
 }
 
+function testCssomFnvAndRuleDiff(): void {
+  const a = fnv1a32('color: red');
+  const b = fnv1a32('color: blue');
+  assert.notStrictEqual(a, b);
+  assert.strictEqual(fnv1a32('color: red'), a);
+
+  const k1 = {};
+  const k2 = {};
+  const inplace = diffRules(
+    [{ key: k1, contentHash: a }],
+    [{ key: k1, contentHash: b }],
+  );
+  assert.strictEqual(inplace.rulesTextChangedInPlace, 1);
+  assert.strictEqual(inplace.rulesAppeared, 0);
+  assert.strictEqual(inplace.rulesDisappeared, 0);
+  assert.strictEqual(inplace.ruleListChanged, false);
+
+  const replace = diffRules(
+    [{ key: k1, contentHash: a }],
+    [{ key: k2, contentHash: a }],
+  );
+  assert.strictEqual(replace.ruleListChanged, true);
+  assert.strictEqual(replace.rulesDisappeared, 1);
+  assert.strictEqual(replace.rulesAppeared, 1);
+  assert.strictEqual(replace.rulesTextChangedInPlace, 0);
+  console.log('[unit] cssom fnv + rule diff ok');
+}
+
 async function main(): Promise<void> {
   // Debug instrumentation posts to the ingest server; don't hang unit runs on it.
   (globalThis as { fetch: typeof fetch }).fetch = (async () =>
@@ -2526,6 +2556,7 @@ async function main(): Promise<void> {
   testApplyFrameToTableCheckedRejectsNodeDropAttachedId();
   testApplyFrameToTableCheckedEnforcesMaxRows();
   testNodeTableApplierDigestMatchesDirectApply();
+  testCssomFnvAndRuleDiff();
   await runPageProjectionUnitTests();
   await runV4ProjectionSessionUnitTests();
   console.log('[unit] all passed');

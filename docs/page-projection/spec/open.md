@@ -25,6 +25,8 @@
 
 No open DOM-table bugs. Stress-churn stacked digits = PP-FR-1 ([observability.md](observability.md) §8). Prepend `child_order` = green at seq 799 (`2026-08-15T00-32-28`). Next product gate: CSSOM.
 
+**Lab (2026-08-15):** in-page CSSOM poll + `cssText` hash at 5 Hz (`virtual/cssom/`). Telemetry `cssomPoll` only — **no** SHEET/RULE opcodes on the wire, **no** CDP CSS domain. C5 (hooks vs poll) is **not** relocked; this is a cost experiment. Fixture `cssom-scale.html`.
+
 ---
 
 ## Protocol OPEN-* ([frame-protocol.md](frame-protocol.md) §10)

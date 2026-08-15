@@ -288,6 +288,7 @@ class V4ProjectionBrowserSession {
             frameRateHz: options.frameRateHz ?? 60,
             telemetry,
             generation: this.generation,
+            cssomPollHz: telemetry.cssomPoll === false ? 0 : 5,
         });
         await p.addInitScript({ content: configPre });
         await p.addInitScript({ content: (0, loadInpageScript_1.loadInpageScript)() });

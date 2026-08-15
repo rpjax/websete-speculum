@@ -153,7 +153,8 @@ async function startFixtureHttp() {
     const server = node_http_1.default.createServer((req, res) => {
         const url = req.url ?? '/';
         if (url.startsWith('/fixtures/')) {
-            const file = node_path_1.default.join(fixturesDir, decodeURIComponent(url.slice('/fixtures/'.length)));
+            const pathname = url.split('?')[0] ?? url;
+            const file = node_path_1.default.join(fixturesDir, decodeURIComponent(pathname.slice('/fixtures/'.length)));
             if (!file.startsWith(node_path_1.default.normalize(fixturesDir)) || !node_fs_1.default.existsSync(file)) {
                 res.writeHead(404).end('not found');
                 return;

@@ -23,6 +23,8 @@ export type ProjectionConfigBag = {
   transport?: unknown;
   telemetry?: unknown;
   generation?: unknown;
+  /** CSSOM poll rate. `0` disables. Lab default 5. Independent of DOM `frameRateHz`. */
+  cssomPollHz?: unknown;
 };
 
 /** Resolved config available to Virtual modules after {@link readProjectionConfig}. */
@@ -41,6 +43,8 @@ export type ProjectionConfig = {
    * for a hard navigation within the same session, and `bootstrap.ts` must announce it.
    */
   generation: number;
+  /** `0` = CSSOM poller off. */
+  cssomPollHz: number;
 };
 
 const DEFAULTS = {
@@ -48,6 +52,7 @@ const DEFAULTS = {
   frameRateHz: 60,
   bufferedAmountWatermark: 256 * 1024,
   maxFrameBytes: 1 << 20,
+  cssomPollHz: 0,
 };
 
 declare global {
@@ -62,6 +67,15 @@ function asPositiveNumber(value: unknown, fallback: number, label: string): numb
   const n = typeof value === 'number' ? value : Number(value);
   if (!Number.isFinite(n) || n <= 0) {
     throw new Error(`ProjectionConfig.${label} must be a positive number (got ${String(value)})`);
+  }
+  return n;
+}
+
+function asNonNegativeNumber(value: unknown, fallback: number, label: string): number {
+  if (value === undefined || value === null) return fallback;
+  const n = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(n) || n < 0) {
+    throw new Error(`ProjectionConfig.${label} must be >= 0 (got ${String(value)})`);
   }
   return n;
 }
@@ -136,6 +150,7 @@ export function readProjectionConfig(): Readonly<ProjectionConfig> {
     maxFrameBytes: asPositiveNumber(bag.maxFrameBytes, DEFAULTS.maxFrameBytes, 'maxFrameBytes'),
     telemetry: Object.freeze(resolveTelemetry(bag.telemetry)),
     generation: asPositiveNumber(bag.generation, 1, 'generation'),
+    cssomPollHz: asNonNegativeNumber(bag.cssomPollHz, DEFAULTS.cssomPollHz, 'cssomPollHz'),
   };
 
   cached = Object.freeze(resolved);

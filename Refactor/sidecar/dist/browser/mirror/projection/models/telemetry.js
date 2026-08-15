@@ -23,6 +23,7 @@ exports.DEFAULT_TELEMETRY_CONFIG = {
     desync: true,
     applyOverrun: true,
     clock: true,
+    cssomPoll: false,
     aggregateIntervalMs: 10_000,
 };
 /** Lab inject / UI default — everything on. */
@@ -35,6 +36,7 @@ exports.LAB_TELEMETRY_DEFAULTS = {
     desync: true,
     applyOverrun: true,
     clock: true,
+    cssomPoll: true,
     aggregateIntervalMs: 2_000,
 };
 exports.TELEMETRY_BOOL_CAPS = [
@@ -46,6 +48,7 @@ exports.TELEMETRY_BOOL_CAPS = [
     'desync',
     'applyOverrun',
     'clock',
+    'cssomPoll',
 ];
 function isProjectionTelemetryMessage(value) {
     if (typeof value !== 'object' || value === null)

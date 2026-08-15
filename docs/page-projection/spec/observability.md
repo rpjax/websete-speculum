@@ -195,4 +195,23 @@ walked; the work that left the wire was garbage.
 After `build()`, every `NODE_NEW` in the frame must be `isConnected`. Put that on the coherent
 snapshot, halt **and** a mid-run S. Fixture: create+destroy in one tick (need not be the 20-col grid).
 Second line, after client apply of S: client DOM × **client table** (phase 2). Do not add event kinds.
+
 ---
+
+## 9. CSSOM poll cost (`cssomPoll`)
+
+Lab-only producer event. **Investigation**, not an isomorphism assert. Independent clock (`cssomPollHz`, lab default 5). Halt/flush stops this clock with the DOM clock. Does not emit CSSOM opcodes.
+
+| Field | Meaning |
+|-------|---------|
+| `pollMs` | Wall time of one poll pass |
+| `identityWalkMs` | Walk top-level `CSSRule` object identity (no `cssText`) |
+| `cssTextSerializeMs` | Read `rule.cssText` + hash — the expensive part |
+| `topLevelRulesVisited` | Top-level `cssRules` entries (does **not** recurse `@media` children) |
+| `topLevelRulesSerialized` | How many of those had `cssText` read this pass |
+| `readableSheetCount` / `unreadableSheetCount` | `cssRules` ok vs `SecurityError` |
+| `rulesAppeared` / `rulesDisappeared` | Object identity vs previous pass |
+| `rulesTextChangedInPlace` | Same `CSSRule` object, different `cssText` |
+| `sheetsWithRuleListChanged` | Order or membership changed on that sheet |
+| `styleTagTextUnchangedSheets` | `<style>` `textContent` hash matched previous pass |
+

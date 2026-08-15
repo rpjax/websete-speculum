@@ -380,6 +380,7 @@ export class V4ProjectionBrowserSession implements BrowserSession {
       frameRateHz: options.frameRateHz ?? 60,
       telemetry,
       generation: this.generation,
+      cssomPollHz: telemetry.cssomPoll === false ? 0 : 5,
     });
     await p.addInitScript({ content: configPre });
     await p.addInitScript({ content: loadInpageScript() });

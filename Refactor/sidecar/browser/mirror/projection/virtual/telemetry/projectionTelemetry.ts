@@ -7,7 +7,11 @@
 
 import { PlaneChannel } from '../../plane';
 import type { DataPlane } from '../../plane';
-import type { ProjectionTelemetryConfig, ProjectionTelemetryMessage } from '../../models/telemetry';
+import type {
+  ProjectionTelemetryConfig,
+  ProjectionTelemetryMessage,
+  TelemetryCssomPoll,
+} from '../../models/telemetry';
 
 export type ProjectionTelemetryOptions = {
   config: Readonly<ProjectionTelemetryConfig>;
@@ -120,6 +124,16 @@ export class ProjectionTelemetry {
       fromHz: info.fromHz,
       toHz: info.toHz,
       reason: info.reason,
+    });
+  }
+
+  recordCssomPoll(info: Omit<TelemetryCssomPoll, 'v' | 'kind' | 't'>): void {
+    if (!this.config.enabled || !this.config.cssomPoll) return;
+    this.push({
+      v: 1,
+      kind: 'cssomPoll',
+      t: this.now(),
+      ...info,
     });
   }
 

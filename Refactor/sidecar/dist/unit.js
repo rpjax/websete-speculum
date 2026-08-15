@@ -68,6 +68,8 @@ const tableDigest_1 = require("./browser/mirror/projection/models/tableDigest");
 const binaryFrameEncoder_1 = require("./browser/mirror/projection/virtual/frame/binaryFrameEncoder");
 const nodeTableApply_1 = require("./browser/mirror/projection/lab/nodeTableApply");
 const limits_1 = require("./browser/mirror/projection/models/limits");
+const fnv32_1 = require("./browser/mirror/projection/virtual/cssom/fnv32");
+const cssomReconcile_1 = require("./browser/mirror/projection/virtual/cssom/cssomReconcile");
 /** Test stand-in for Sessions.ViewportPolicy — production gets this on Launch. */
 const POLICY = {
     minWidth: 100,
@@ -2074,6 +2076,25 @@ function testNodeTableApplierDigestMatchesDirectApply() {
     assert_1.default.strictEqual(applier.sequence, 1, 'failed apply must not advance sequence');
     console.log('[unit] NodeTableApplier digest matches direct applyFrameToTableChecked ok');
 }
+function testCssomFnvAndRuleDiff() {
+    const a = (0, fnv32_1.fnv1a32)('color: red');
+    const b = (0, fnv32_1.fnv1a32)('color: blue');
+    assert_1.default.notStrictEqual(a, b);
+    assert_1.default.strictEqual((0, fnv32_1.fnv1a32)('color: red'), a);
+    const k1 = {};
+    const k2 = {};
+    const inplace = (0, cssomReconcile_1.diffRules)([{ key: k1, contentHash: a }], [{ key: k1, contentHash: b }]);
+    assert_1.default.strictEqual(inplace.rulesTextChangedInPlace, 1);
+    assert_1.default.strictEqual(inplace.rulesAppeared, 0);
+    assert_1.default.strictEqual(inplace.rulesDisappeared, 0);
+    assert_1.default.strictEqual(inplace.ruleListChanged, false);
+    const replace = (0, cssomReconcile_1.diffRules)([{ key: k1, contentHash: a }], [{ key: k2, contentHash: a }]);
+    assert_1.default.strictEqual(replace.ruleListChanged, true);
+    assert_1.default.strictEqual(replace.rulesDisappeared, 1);
+    assert_1.default.strictEqual(replace.rulesAppeared, 1);
+    assert_1.default.strictEqual(replace.rulesTextChangedInPlace, 0);
+    console.log('[unit] cssom fnv + rule diff ok');
+}
 async function main() {
     // Debug instrumentation posts to the ingest server; don't hang unit runs on it.
     globalThis.fetch = (async () => new Response('{}', { status: 204 }));
@@ -2151,6 +2172,7 @@ async function main() {
     testApplyFrameToTableCheckedRejectsNodeDropAttachedId();
     testApplyFrameToTableCheckedEnforcesMaxRows();
     testNodeTableApplierDigestMatchesDirectApply();
+    testCssomFnvAndRuleDiff();
     await (0, page_unit_1.runPageProjectionUnitTests)();
     await (0, v4ProjectionSession_unit_1.runV4ProjectionSessionUnitTests)();
     console.log('[unit] all passed');

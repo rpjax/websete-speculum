@@ -148,6 +148,7 @@
     desync: true,
     applyOverrun: true,
     clock: true,
+    cssomPoll: false,
     aggregateIntervalMs: 1e4
   };
   var TELEMETRY_BOOL_CAPS = [
@@ -158,7 +159,8 @@
     "applyResult",
     "desync",
     "applyOverrun",
-    "clock"
+    "clock",
+    "cssomPoll"
   ];
 
   // browser/mirror/projection/virtual/config/projectionConfig.ts
@@ -167,7 +169,8 @@
     transport: "loopback",
     frameRateHz: 60,
     bufferedAmountWatermark: 256 * 1024,
-    maxFrameBytes: 1 << 20
+    maxFrameBytes: 1 << 20,
+    cssomPollHz: 0
   };
   var cached;
   function asPositiveNumber(value, fallback, label) {
@@ -175,6 +178,14 @@
     const n = typeof value === "number" ? value : Number(value);
     if (!Number.isFinite(n) || n <= 0) {
       throw new Error(`ProjectionConfig.${label} must be a positive number (got ${String(value)})`);
+    }
+    return n;
+  }
+  function asNonNegativeNumber(value, fallback, label) {
+    if (value === void 0 || value === null) return fallback;
+    const n = typeof value === "number" ? value : Number(value);
+    if (!Number.isFinite(n) || n < 0) {
+      throw new Error(`ProjectionConfig.${label} must be >= 0 (got ${String(value)})`);
     }
     return n;
   }
@@ -234,7 +245,8 @@
       ),
       maxFrameBytes: asPositiveNumber(bag.maxFrameBytes, DEFAULTS2.maxFrameBytes, "maxFrameBytes"),
       telemetry: Object.freeze(resolveTelemetry(bag.telemetry)),
-      generation: asPositiveNumber(bag.generation, 1, "generation")
+      generation: asPositiveNumber(bag.generation, 1, "generation"),
+      cssomPollHz: asNonNegativeNumber(bag.cssomPollHz, DEFAULTS2.cssomPollHz, "cssomPollHz")
     };
     cached = Object.freeze(resolved);
     return cached;
@@ -1684,6 +1696,159 @@
     }
   };
 
+  // browser/mirror/projection/virtual/cssom/cssomReconcile.ts
+  function diffRules(prev, next) {
+    const prevHash = /* @__PURE__ */ new Map();
+    for (const r of prev) prevHash.set(r.key, r.contentHash);
+    const nextKeys = /* @__PURE__ */ new Set();
+    for (const r of next) nextKeys.add(r.key);
+    let rulesDisappeared = 0;
+    for (const r of prev) {
+      if (!nextKeys.has(r.key)) rulesDisappeared += 1;
+    }
+    let rulesAppeared = 0;
+    let rulesTextChangedInPlace = 0;
+    for (const r of next) {
+      const old = prevHash.get(r.key);
+      if (old === void 0) rulesAppeared += 1;
+      else if (old !== r.contentHash) rulesTextChangedInPlace += 1;
+    }
+    let ruleListChanged = prev.length !== next.length;
+    if (!ruleListChanged) {
+      for (let i = 0; i < prev.length; i++) {
+        if (prev[i].key !== next[i].key) {
+          ruleListChanged = true;
+          break;
+        }
+      }
+    }
+    return { ruleListChanged, rulesAppeared, rulesDisappeared, rulesTextChangedInPlace };
+  }
+
+  // browser/mirror/projection/virtual/cssom/fnv32.ts
+  var OFFSET = 2166136261;
+  var PRIME = 16777619;
+  function fnv1a32(text) {
+    let h = OFFSET;
+    for (let i = 0; i < text.length; i++) {
+      h ^= text.charCodeAt(i);
+      h = Math.imul(h, PRIME) >>> 0;
+    }
+    return h >>> 0;
+  }
+
+  // browser/mirror/projection/virtual/cssom/cssomPoller.ts
+  var CssomPoller = class {
+    lastRules = /* @__PURE__ */ new WeakMap();
+    lastStyleTagTextHash = /* @__PURE__ */ new WeakMap();
+    poll(doc = document) {
+      const t0 = performance.now();
+      const sheets = collectSheets(doc);
+      let unreadableSheetCount = 0;
+      let topLevelRulesVisited = 0;
+      let topLevelRulesSerialized = 0;
+      let styleTagTextUnchangedSheets = 0;
+      let rulesAppeared = 0;
+      let rulesDisappeared = 0;
+      let rulesTextChangedInPlace = 0;
+      let sheetsWithRuleListChanged = 0;
+      const readable = [];
+      const ruleLists = [];
+      for (const sheet of sheets) {
+        const list = tryCssRules(sheet);
+        if (list === null) {
+          unreadableSheetCount += 1;
+          continue;
+        }
+        readable.push(sheet);
+        ruleLists.push(list);
+      }
+      const tIdentity0 = performance.now();
+      const snaps = [];
+      for (let s = 0; s < readable.length; s++) {
+        const list = ruleLists[s];
+        const snap = [];
+        const n = list.length;
+        topLevelRulesVisited += n;
+        for (let i = 0; i < n; i++) {
+          const rule = list.item(i);
+          if (rule === null) continue;
+          snap.push({ key: rule, contentHash: 0 });
+        }
+        snaps.push(snap);
+      }
+      const identityWalkMs = performance.now() - tIdentity0;
+      const tSerialize0 = performance.now();
+      for (let s = 0; s < readable.length; s++) {
+        const sheet = readable[s];
+        const snap = snaps[s];
+        const styleTagHash = styleElementTextHash(sheet);
+        if (styleTagHash !== null) {
+          const prev2 = this.lastStyleTagTextHash.get(sheet);
+          if (prev2 === styleTagHash) styleTagTextUnchangedSheets += 1;
+          this.lastStyleTagTextHash.set(sheet, styleTagHash);
+        }
+        for (const row of snap) {
+          const text = row.key.cssText;
+          topLevelRulesSerialized += 1;
+          row.contentHash = fnv1a32(text);
+        }
+        const prev = this.lastRules.get(sheet) ?? [];
+        const delta = diffRules(prev, snap);
+        rulesAppeared += delta.rulesAppeared;
+        rulesDisappeared += delta.rulesDisappeared;
+        rulesTextChangedInPlace += delta.rulesTextChangedInPlace;
+        if (delta.ruleListChanged) sheetsWithRuleListChanged += 1;
+        this.lastRules.set(sheet, snap);
+      }
+      const cssTextSerializeMs = performance.now() - tSerialize0;
+      return {
+        pollMs: performance.now() - t0,
+        identityWalkMs,
+        cssTextSerializeMs,
+        readableSheetCount: readable.length,
+        unreadableSheetCount,
+        topLevelRulesVisited,
+        topLevelRulesSerialized,
+        styleTagTextUnchangedSheets,
+        rulesAppeared,
+        rulesDisappeared,
+        rulesTextChangedInPlace,
+        sheetsWithRuleListChanged
+      };
+    }
+  };
+  function collectSheets(doc) {
+    const out = [];
+    const linked = doc.styleSheets;
+    for (let i = 0; i < linked.length; i++) {
+      const s = linked.item(i);
+      if (s) out.push(s);
+    }
+    const adopted = doc.adoptedStyleSheets;
+    if (adopted) {
+      for (let i = 0; i < adopted.length; i++) {
+        const s = adopted[i];
+        if (s) out.push(s);
+      }
+    }
+    return out;
+  }
+  function tryCssRules(sheet) {
+    try {
+      return sheet.cssRules;
+    } catch {
+      return null;
+    }
+  }
+  function styleElementTextHash(sheet) {
+    const node = sheet.ownerNode;
+    if (node === null || node.nodeType !== Node.ELEMENT_NODE) return null;
+    const el = node;
+    if (el.localName !== "style") return null;
+    return fnv1a32(el.textContent ?? "");
+  }
+
   // browser/mirror/projection/plane/envelope.ts
   var PLANE_MAGIC = 20563;
   var PLANE_VERSION = 1;
@@ -1800,6 +1965,15 @@
         fromHz: info.fromHz,
         toHz: info.toHz,
         reason: info.reason
+      });
+    }
+    recordCssomPoll(info) {
+      if (!this.config.enabled || !this.config.cssomPoll) return;
+      this.push({
+        v: 1,
+        kind: "cssomPoll",
+        t: this.now(),
+        ...info
       });
     }
     pushAggregate() {
@@ -2140,6 +2314,10 @@
       config: config.telemetry,
       dataPlane
     });
+    const cssomPoller = config.cssomPollHz > 0 ? new CssomPoller() : null;
+    const cssomClock = cssomPoller !== null ? new TimerFrameClock({
+      frameRateHz: config.cssomPollHz
+    }) : null;
     const frameClock = new TimerFrameClock({
       frameRateHz: config.frameRateHz,
       onStall: (info) => {
@@ -2171,7 +2349,7 @@
     });
     if (loopback) {
       loopback.dataPlane.setHandler((channel, payload) => {
-        if (channel !== PlaneChannel.Control) return;
+        if (channel !== 2 /* Control */) return;
         let msg;
         try {
           msg = JSON.parse(new TextDecoder().decode(payload));
@@ -2199,6 +2377,10 @@
     await frameEmitter.sendInitial(resyncFrame);
     frameEmitter.start();
     telemetry.start();
+    cssomClock?.start(() => {
+      if (cssomPoller === null) return;
+      telemetry.recordCssomPoll(cssomPoller.poll(document));
+    });
     globalThis.__speculumProjection = {
       version: 1,
       domNodes,
@@ -2210,12 +2392,18 @@
       frameEmitter,
       frameTransport,
       telemetry,
+      cssomPoller,
       compareTableToLiveDom: () => compareTableToLiveDom(table, domNodes, document),
       haltWorld: () => {
         frameEmitter.stop();
+        cssomClock?.stop();
       },
       resumeWorld: () => {
         frameEmitter.start();
+        cssomClock?.start(() => {
+          if (cssomPoller === null) return;
+          telemetry.recordCssomPoll(cssomPoller.poll(document));
+        });
       },
       flushFrame: () => {
         frameEmitter.flushNow();
@@ -2225,6 +2413,7 @@
         frameEmitter.flushNow();
         const o2 = compareTableToLiveDom(table, domNodes, document);
         frameEmitter.stop();
+        cssomClock?.stop();
         return {
           generation: domNodes.generation,
           sequence: frameEmitter.currentSequence,

@@ -36,6 +36,8 @@ npm run lab:run -- --url fixtures/demo.html --duration 15s --cpu --iso
 Prints the path to `lab-runs/<timestamp>-<slug>/report.json` (start diagnosis there).
 
 **JS animation fixtures:** `fixtures/anim-js.html?fps=60` and `?fps=30` — same choreography in real seconds (smoothness, not speed). Motion is `style.transform` every tick so the producer sees `ATTR_SET`; CSS `@keyframes` would not hit MutationObserver.
+
+**CSSOM poll cost (no wire ops yet):** `fixtures/cssom-scale.html?n=5000&mode=static|styleSet|insertRule`. Instagram-shaped: `n=14244&sheets=10&nested=2466`. Poll 5 Hz. `report.json` → `metrics.cssomPoll` (`pollMs`, `identityWalkMs`, `cssTextSerializeMs`, `lastTopLevelRulesSerialized`). Not Projected CSS parity.
 Exit `0` if every requested check is `pass` or explicit `skipped`; `1` if any `fail`.
 Prefer the positional form on Windows — npm may swallow dashed flags (`--url`, `--iso`). Words without dashes still work: `iso`, `cpu`, `headed`.
 

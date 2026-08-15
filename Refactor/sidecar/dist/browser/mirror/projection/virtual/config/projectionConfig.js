@@ -17,6 +17,7 @@ const DEFAULTS = {
     frameRateHz: 60,
     bufferedAmountWatermark: 256 * 1024,
     maxFrameBytes: 1 << 20,
+    cssomPollHz: 0,
 };
 let cached;
 function asPositiveNumber(value, fallback, label) {
@@ -25,6 +26,15 @@ function asPositiveNumber(value, fallback, label) {
     const n = typeof value === 'number' ? value : Number(value);
     if (!Number.isFinite(n) || n <= 0) {
         throw new Error(`ProjectionConfig.${label} must be a positive number (got ${String(value)})`);
+    }
+    return n;
+}
+function asNonNegativeNumber(value, fallback, label) {
+    if (value === undefined || value === null)
+        return fallback;
+    const n = typeof value === 'number' ? value : Number(value);
+    if (!Number.isFinite(n) || n < 0) {
+        throw new Error(`ProjectionConfig.${label} must be >= 0 (got ${String(value)})`);
     }
     return n;
 }
@@ -83,6 +93,7 @@ function readProjectionConfig() {
         maxFrameBytes: asPositiveNumber(bag.maxFrameBytes, DEFAULTS.maxFrameBytes, 'maxFrameBytes'),
         telemetry: Object.freeze(resolveTelemetry(bag.telemetry)),
         generation: asPositiveNumber(bag.generation, 1, 'generation'),
+        cssomPollHz: asNonNegativeNumber(bag.cssomPollHz, DEFAULTS.cssomPollHz, 'cssomPollHz'),
     };
     cached = Object.freeze(resolved);
     return cached;

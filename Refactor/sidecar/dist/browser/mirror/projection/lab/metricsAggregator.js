@@ -35,6 +35,7 @@ function computeStats(values) {
 class MetricsAggregator {
     frameEmitted = [];
     applyResults = [];
+    cssomPolls = [];
     desyncCount = 0;
     applyOverrunCount = 0;
     transportDeferredCount = 0;
@@ -46,6 +47,9 @@ class MetricsAggregator {
                 return;
             case 'applyResult':
                 this.applyResults.push(msg);
+                return;
+            case 'cssomPoll':
+                this.cssomPolls.push(msg);
                 return;
             case 'desynced':
                 this.desyncCount += 1;
@@ -95,6 +99,21 @@ class MetricsAggregator {
             desyncCount: this.desyncCount,
             applyOverrunCount: this.applyOverrunCount,
             transportDeferredCount: this.transportDeferredCount,
+            cssomPoll: {
+                passes: this.cssomPolls.length,
+                pollMs: computeStats(this.cssomPolls.map((s) => s.pollMs)),
+                identityWalkMs: computeStats(this.cssomPolls.map((s) => s.identityWalkMs)),
+                cssTextSerializeMs: computeStats(this.cssomPolls.map((s) => s.cssTextSerializeMs)),
+                lastTopLevelRulesVisited: this.cssomPolls.length > 0
+                    ? this.cssomPolls[this.cssomPolls.length - 1].topLevelRulesVisited
+                    : 0,
+                lastTopLevelRulesSerialized: this.cssomPolls.length > 0
+                    ? this.cssomPolls[this.cssomPolls.length - 1].topLevelRulesSerialized
+                    : 0,
+                lastReadableSheetCount: this.cssomPolls.length > 0
+                    ? this.cssomPolls[this.cssomPolls.length - 1].readableSheetCount
+                    : 0,
+            },
         };
     }
 }

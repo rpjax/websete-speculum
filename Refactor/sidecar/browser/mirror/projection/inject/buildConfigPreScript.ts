@@ -17,6 +17,8 @@ export type ProjectionConfigPreScriptOptions = {
   telemetry?: Partial<ProjectionTelemetryConfig>;
   /** §1.2 `EPOCH_RESET` trigger (Stage 3) — which generation this injection is. Defaults to `1`. */
   generation?: number;
+  /** CSSOM poll Hz. `0` off. Lab injects `5`. */
+  cssomPollHz?: number;
 };
 
 /**
@@ -41,6 +43,7 @@ export function buildConfigPreScript(opts: ProjectionConfigPreScriptOptions): st
   if (opts.maxFrameBytes !== undefined) payload.maxFrameBytes = opts.maxFrameBytes;
   if (opts.telemetry !== undefined) payload.telemetry = opts.telemetry;
   if (opts.generation !== undefined) payload.generation = opts.generation;
+  if (opts.cssomPollHz !== undefined) payload.cssomPollHz = opts.cssomPollHz;
 
   // This runs as its own separate injected `<script>` tag (Patchright leaves it attached to
   // the document — see bootstrap.ts's matching `currentScript.remove()` for why that matters);

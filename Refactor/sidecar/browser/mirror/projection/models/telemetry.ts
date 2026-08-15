@@ -20,6 +20,8 @@ export type ProjectionTelemetryCapabilities = {
   desync: boolean;
   applyOverrun: boolean;
   clock: boolean;
+  /** In-page CSSOM poll cost (investigation). Off unless lab injects it. */
+  cssomPoll: boolean;
 };
 
 export type ProjectionTelemetryConfig = ProjectionTelemetryCapabilities & {
@@ -35,6 +37,7 @@ export const DEFAULT_TELEMETRY_CONFIG: ProjectionTelemetryConfig = {
   desync: true,
   applyOverrun: true,
   clock: true,
+  cssomPoll: false,
   aggregateIntervalMs: 10_000,
 };
 
@@ -48,6 +51,7 @@ export const LAB_TELEMETRY_DEFAULTS: ProjectionTelemetryConfig = {
   desync: true,
   applyOverrun: true,
   clock: true,
+  cssomPoll: true,
   aggregateIntervalMs: 2_000,
 };
 
@@ -60,6 +64,7 @@ export const TELEMETRY_BOOL_CAPS: readonly (keyof ProjectionTelemetryCapabilitie
   'desync',
   'applyOverrun',
   'clock',
+  'cssomPoll',
 ];
 
 export type TelemetryPhase = 'decode' | 'assemble' | 'apply' | 'sequence' | 'generation' | 'clock' | 'encode';
@@ -113,6 +118,28 @@ export type TelemetryClockStalled = {
   t: number;
   sinceLastTickMs: number;
   rateHz: number;
+};
+
+/**
+ * Producer CSSOM poll pass — time-series only; never an isomorphism assert.
+ * `pollMs` ≈ `identityWalkMs` + `cssTextSerializeMs` (plus collect/unread bookkeeping).
+ */
+export type TelemetryCssomPoll = {
+  v: typeof TELEMETRY_WIRE_VERSION;
+  kind: 'cssomPoll';
+  t: number;
+  pollMs: number;
+  identityWalkMs: number;
+  cssTextSerializeMs: number;
+  readableSheetCount: number;
+  unreadableSheetCount: number;
+  topLevelRulesVisited: number;
+  topLevelRulesSerialized: number;
+  styleTagTextUnchangedSheets: number;
+  rulesAppeared: number;
+  rulesDisappeared: number;
+  rulesTextChangedInPlace: number;
+  sheetsWithRuleListChanged: number;
 };
 
 export type TelemetryRateChanged = {
@@ -222,6 +249,7 @@ export type ProjectionTelemetryMessage =
   | TelemetryAggregate
   | TelemetryClockStalled
   | TelemetryRateChanged
+  | TelemetryCssomPoll
   | TelemetryApplyResult
   | TelemetryDesynced
   | TelemetryApplyOverrun

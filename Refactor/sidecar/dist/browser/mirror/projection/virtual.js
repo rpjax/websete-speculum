@@ -680,8 +680,11 @@
      */
     orderedChildIds(parent) {
       const backwards = [];
+      const seen = /* @__PURE__ */ new Set();
       let child = this.lastChildOf.get(parent) ?? NONE;
       while (child !== NONE) {
+        if (seen.has(child)) break;
+        seen.add(child);
         backwards.push(child);
         const row = this.rows.get(child);
         child = row?.prevSibling ?? NONE;
@@ -860,8 +863,11 @@
     }
     collectSubtreeIds(id, out) {
       out.push(id);
+      const seen = /* @__PURE__ */ new Set();
       let child = this.lastChildOf.get(id) ?? NONE;
       while (child !== NONE) {
+        if (seen.has(child)) break;
+        seen.add(child);
         this.collectSubtreeIds(child, out);
         const row = this.rows.get(child);
         child = row?.prevSibling ?? NONE;
@@ -1299,7 +1305,12 @@
         return;
       }
       case 161 /* SheetDrop */:
-        for (let i = 0; i < op.ids.length; i++) table.dropSubtree(op.ids[i]);
+        for (let i = 0; i < op.ids.length; i++) {
+          const id = op.ids[i];
+          const row = table.getRow(id);
+          if (row !== void 0 && row.parent !== 0) table.removeBatch(row.parent, [id]);
+          table.dropSubtree(id);
+        }
         return;
       case 162 /* SheetOrder */:
         if (op.ids.length === 0) return;
@@ -1316,7 +1327,12 @@
         table.insertBatch(op.sheet, op.before, [op.id]);
         return;
       case 164 /* RuleDrop */:
-        for (let i = 0; i < op.ids.length; i++) table.dropSubtree(op.ids[i]);
+        for (let i = 0; i < op.ids.length; i++) {
+          const id = op.ids[i];
+          const row = table.getRow(id);
+          if (row !== void 0 && row.parent !== 0) table.removeBatch(row.parent, [id]);
+          table.dropSubtree(id);
+        }
         return;
       case 165 /* RuleSet */:
         table.setValue(op.id, op.text);
@@ -2309,7 +2325,13 @@
     for (let i = 0; i < rec.snaps.length; i++) {
       const snap = rec.snaps[i];
       const text = rec.texts.get(snap.key) ?? "";
-      const before = i + 1 < rec.snaps.length ? ids.idOfRule(rec.snaps[i + 1].key) : INSERT_AT_END;
+      let before = INSERT_AT_END;
+      for (let j = i + 1; j < rec.snaps.length; j++) {
+        const nextId = ids.peekRule(rec.snaps[j].key);
+        if (nextId === void 0) continue;
+        before = nextId;
+        break;
+      }
       if (!prevKeys.has(snap.key)) {
         ops.push({
           op: 163 /* RuleNew */,
@@ -2680,7 +2702,7 @@
       this.cancelScheduled();
       this.pass = null;
       this.pending = null;
-      const result = this.poller.poll(this.doc, "resync");
+      const result = this.poller.poll(this.doc, stashForEmit ? "live" : "resync");
       const stamped = {
         ops: result.ops,
         stats: stampCssomPoll(result.stats, { source: stashForEmit ? "snapshotScan" : "resync" })

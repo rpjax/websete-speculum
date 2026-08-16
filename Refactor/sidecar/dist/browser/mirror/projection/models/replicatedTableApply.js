@@ -71,8 +71,13 @@ function applyOpToTable(table, op) {
             return;
         }
         case opcodes_1.OpCode.SheetDrop:
-            for (let i = 0; i < op.ids.length; i++)
-                table.dropSubtree(op.ids[i]);
+            for (let i = 0; i < op.ids.length; i++) {
+                const id = op.ids[i];
+                const row = table.getRow(id);
+                if (row !== undefined && row.parent !== 0)
+                    table.removeBatch(row.parent, [id]);
+                table.dropSubtree(id);
+            }
             return;
         case opcodes_1.OpCode.SheetOrder:
             if (op.ids.length === 0)
@@ -92,8 +97,13 @@ function applyOpToTable(table, op) {
             table.insertBatch(op.sheet, op.before, [op.id]);
             return;
         case opcodes_1.OpCode.RuleDrop:
-            for (let i = 0; i < op.ids.length; i++)
-                table.dropSubtree(op.ids[i]);
+            for (let i = 0; i < op.ids.length; i++) {
+                const id = op.ids[i];
+                const row = table.getRow(id);
+                if (row !== undefined && row.parent !== 0)
+                    table.removeBatch(row.parent, [id]);
+                table.dropSubtree(id);
+            }
             return;
         case opcodes_1.OpCode.RuleSet:
             table.setValue(op.id, op.text);

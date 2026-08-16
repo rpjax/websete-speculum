@@ -76,7 +76,7 @@ export class CssomIdleScheduler implements CssomPlane {
     this.cancelScheduled();
     this.pass = null;
     this.pending = null;
-    const result = this.poller.poll(this.doc, 'resync');
+    const result = this.poller.poll(this.doc, stashForEmit ? 'live' : 'resync');
     const stamped = {
       ops: result.ops,
       stats: stampCssomPoll(result.stats, { source: stashForEmit ? 'snapshotScan' : 'resync' }),

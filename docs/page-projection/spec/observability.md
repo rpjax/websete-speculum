@@ -103,7 +103,7 @@ Default Virtual `flushAndSnapshot` CSSOM mode is **`none`** (halt idle; DOM O2 i
 | Oracle | How it is taken (lab) |
 |--------|------------------------|
 | O2 local (table × Virtual live DOM) | `takeRecords` + drain + emit S + oracle, one turn ([observability.md](observability.md) §5). Sheet/Rule kinds are excluded from child-order. |
-| O2 CSSOM (table × Virtual live CSSOM) | Same turn as `--iso` after `cssom: 'scan'` (stash pending → flush → compare). Readable `cssRules` only; unreadable sheets are not required. Verdict `isomorphism.cssom` — not DOM O2, not Projected, not C6. |
+| O2 CSSOM (table × Virtual live CSSOM) | Same turn as `--iso` after `cssom: 'scan'` (stash pending → flush → compare). Readable `cssRules` only; unreadable sheets are not required. Verdict `isomorphism.cssom` — not DOM O2, not Projected, not C6. Lab gate: `npm run lab:cssom-foundation` — **observe then fold** ([lab README](../../../Refactor/sidecar/browser/mirror/projection/lab/README.md)); `cssomPoll` is not a mid-run gate. Heavy visual: `npm run lab:cssom-heavy` + human 4077 `cssom-heavy.html`. |
 | O2 structural (Virtual tree × client tree) | Same probe pair at S — not a mid-run torn `requestSnapshot` while the clock ticks |
 | O2 table×table | `ReplicatedTableDigest` Virtual vs apply at S — CLI: Node caller table; UI: DOM client table |
 | O1 / O4 / O5 | Unchanged — not implemented; do not fake with event greens |
@@ -234,6 +234,8 @@ blocking timer. `pollMs` is wall time (includes waits between slices), not CPU.
 | `opCount` / `opSheetNew` … `opRuleSet` | §4.6 ops emitted this pass (zeros explicit) |
 
 Do not pass/fail table, DOM, or Projected CSS from these fields. C6 apply telemetry is not this event.
+Lab `cssomFoundationRun` **observes** these events and folds at the end: zero idle polls over the
+whole run (cap on) may fail `idle-sensor`; it is not a mid-run gate. See [lab README](../../../Refactor/sidecar/browser/mirror/projection/lab/README.md).
 
 Algorithm (worst-case-first, I1–I11): [cssom-poll-algorithm.md](cssom-poll-algorithm.md).
 

@@ -37,7 +37,31 @@ Prints the path to `lab-runs/<timestamp>-<slug>/report.json` (start diagnosis th
 
 **JS animation fixtures:** `fixtures/anim-js.html?fps=60` and `?fps=30` — same choreography in real seconds (smoothness, not speed). Motion is `style.transform` every tick so the producer sees `ATTR_SET`; CSS `@keyframes` would not hit MutationObserver.
 
-**CSSOM poll (ops on wire, no C6 apply):** idle `requestIdleCallback` I3 walk, attach on next frame tick (CSSOM-only frames allowed); resync blocking-scans a full CSSOM snapshot. Design: `docs/page-projection/spec/cssom-poll-algorithm.md`. Fixture `cssom-scale.html?n=5000` / Instagram-shaped `n=14244&sheets=10&nested=2466`. `report.json` → `metrics.cssomPoll`. Frames with `0xA0–0xA5` must decode (not `malformed`). Not Projected CSS parity. `flushAndSnapshot` CSSOM default `none`.
+**CSSOM foundation gate** (Virtual table × live, not C6 / not Projected CSS):
+
+```bash
+npm run lab:cssom-foundation
+```
+
+Runs [`cssomFoundationRun.ts`](cssomFoundationRun.ts): **observe then fold**. During the run the
+caller only mutates (via `BrowserSession.evaluate` → fixture `window.__cssomLab.act`) and records
+snapshots, wire op windows, and `cssomPoll` events. **Verdicts run at the end** from that journal
+(`o2` / `cssomO2`, in-place `SHEET_DROP` on bytes). `cssomPoll` is I10 evidence in `report.json`;
+`idle-sensor` fails only if the **whole run** recorded zero idle polls (cap on) — not a mid-run
+gate. Then three `lab:run --iso` on small `cssom-scale` URLs. Not C6 / not Projected CSS.
+Dossier: `lab-runs/<ts>-cssom-foundation/report.json`.
+
+**CSSOM heavy (magazine, C6 paint + live CSS):** six constructed sheets, ~2.8k unused utilities, 18 cards that actually use the CSS. Auto theme / masthead / featured card so a human can compare Virtual vs Projected.
+
+```bash
+# You: lab UI — Connect, fixture cssom-heavy, Start Virtual. Watch cream↔ink, rust↔blue bar, hot card.
+# Agent: observe-then-fold Virtual table × live (not a substitute for your eye).
+npm run lab:cssom-heavy
+```
+
+Dossier: `lab-runs/<ts>-cssom-heavy/report.json`. UI **Run** with iso still writes the usual 4077 report (Projected table when the lab client is connected). `cssomPoll` is not the pass/fail.
+
+**CSSOM poll (ops on wire, no C6 apply):** idle `requestIdleCallback` I3 walk, attach on next frame tick (CSSOM-only frames allowed); resync blocking-scans a full CSSOM snapshot. Design: `docs/page-projection/spec/cssom-poll-algorithm.md`. Fixture `cssom-scale.html?n=5000` / Instagram-shaped `n=14244&sheets=10&nested=2466` (volume is **not** the foundation gate). `report.json` → `metrics.cssomPoll`. Frames with `0xA0–0xA5` must decode (not `malformed`). Not Projected CSS parity. `flushAndSnapshot` CSSOM default `none`.
 Exit `0` if every requested check is `pass` or explicit `skipped`; `1` if any `fail`.
 Prefer the positional form on Windows — npm may swallow dashed flags (`--url`, `--iso`). Words without dashes still work: `iso`, `cpu`, `headed`.
 
@@ -64,6 +88,8 @@ lab/
   server.ts                HTTP + client WS
   session.ts               lab caller (no Chromium)
   runCli.ts                agent port
+  cssomFoundationRun.ts    observe (acts/snapshots/wire/events) then fold verdicts
+  cssomHeavyRun.ts         magazine fixture: settle + live CSS acts, then fold
   runTools.ts              run suite → report.json
   isomorphism.ts           halt/flush/snapshot/O2 composition
   nodeTableApply.ts        CLI caller: decode + phase-1 table apply (no DOM)
@@ -78,3 +104,19 @@ session/
 CLI `--iso` proves Virtual DOM O2 + digest at S, CSSOM table×live (`isomorphism.cssom`; not Projected, not C6), **and** table×table against a Node `ReplicatedTable` in the CLI process (same `applyFrameToTableChecked` as client phase 1). Tree×tree / DOM apply stay `skipped` (no second browser; UI at 4077 still has the live apply). That Node table is **not** Projected. O1/O4/O5 are not implemented. Event telemetry is time-series only. `FrameInvariantMonitor` is wire-bytes only.
 
 **Halt iso is blind to same-tick ephemerals on the wire** (stress-churn stacked digits, 2026-08-14 — Virtual clean, Projected glued mid-run, halt tree including text identical). Drain prune is PP-FR-1 in `tableFrameBuilder.ts`. Narrative: [observability.md](../../../../../../docs/page-projection/spec/observability.md) §8.
+
+## Observe then fold
+
+Same law as `lab:run`: the **duration** (or the foundation scenario list) is observation. `report.json`
+verdicts are computed **after** the world has been sampled. Do not fail mid-run because a telemetry
+event did or did not arrive.
+
+- **Act** (foundation fixture): `BrowserSession.evaluate` runs `window.__cssomLab.act(name)` in the
+  Virtual page (Patchright `page.evaluate` inside [`V4ProjectionBrowserSession`](../session/V4ProjectionBrowserSession.ts)).
+  That is the session eval port — not `PlaneChannel.Control`, not the frame data plane. The lab
+  process still must not call Patchright/CDP itself ([observability.md](../../../../../../docs/page-projection/spec/observability.md) §1).
+- **Probes** at sequence S: `flushProjectionSnapshot({ cssom: 'none'|'committed'|'scan' })`. Stored
+  during the run; folded at the end.
+- **Events** (`cssomPoll`): time-series in `evidence`. Closing conclusion only: zero idle polls
+  across the whole run with the cap on → `idle-sensor`. Never pass/fail table or CSSOM isomorphism
+  from event fields (I10).

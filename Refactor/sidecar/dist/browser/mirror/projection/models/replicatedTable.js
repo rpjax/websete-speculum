@@ -78,8 +78,12 @@ class ReplicatedTable {
      */
     orderedChildIds(parent) {
         const backwards = [];
+        const seen = new Set();
         let child = this.lastChildOf.get(parent) ?? NONE;
         while (child !== NONE) {
+            if (seen.has(child))
+                break;
+            seen.add(child);
             backwards.push(child);
             const row = this.rows.get(child);
             child = row?.prevSibling ?? NONE;
@@ -274,8 +278,12 @@ class ReplicatedTable {
     }
     collectSubtreeIds(id, out) {
         out.push(id);
+        const seen = new Set();
         let child = this.lastChildOf.get(id) ?? NONE;
         while (child !== NONE) {
+            if (seen.has(child))
+                break;
+            seen.add(child);
             this.collectSubtreeIds(child, out);
             const row = this.rows.get(child);
             child = row?.prevSibling ?? NONE;

@@ -101,7 +101,14 @@ function emitRuleDelta(ids, sheetId, prev, rec) {
     for (let i = 0; i < rec.snaps.length; i++) {
         const snap = rec.snaps[i];
         const text = rec.texts.get(snap.key) ?? '';
-        const before = i + 1 < rec.snaps.length ? ids.idOfRule(rec.snaps[i + 1].key) : frame_1.INSERT_AT_END;
+        let before = frame_1.INSERT_AT_END;
+        for (let j = i + 1; j < rec.snaps.length; j++) {
+            const nextId = ids.peekRule(rec.snaps[j].key);
+            if (nextId === undefined)
+                continue;
+            before = nextId;
+            break;
+        }
         if (!prevKeys.has(snap.key)) {
             ops.push({
                 op: opcodes_1.OpCode.RuleNew,

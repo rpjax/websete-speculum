@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>CSSOM heavy — magazine</title>
+    <style>
+      /* Only a tiny boot style; owned CSSOM paints the site. */
+      html, body { margin: 0; min-height: 100%; }
+    </style>
+  </head>
+  <body class="app">
+    <header class="mast accent">
+      <strong class="wordmark">Lumen Review</strong>
+      <span id="hud" class="hud">building…</span>
+    </header>
+    <div class="shell">
+      <aside class="rail">
+        <p class="kicker">Live desk</p>
+        <p>Theme, accent and a featured card change on a timer — compare Virtual vs Projected by eye.</p>
+        <ol class="checklist">
+          <li>Masthead bar color tracks Virtual</li>
+          <li>Page cream ↔ ink on theme flip</li>
+          <li>One card gets a hot outline</li>
+          <li>No empty overlay once text appears</li>
+        </ol>
+      </aside>
+      <main class="grid" id="grid"></main>
+    </div>
+    <script>
+      const q = new URLSearchParams(location.search);
+      const auto = q.get('auto') !== '0';
+      const bulk = Math.max(200, Math.min(8000, Number(q.get('bulk') || 2800) || 2800));
+
+      const tokens = new CSSStyleSheet();
+      const layout = new CSSStyleSheet();
+      const cards = new CSSStyleSheet();
+      const unused = new CSSStyleSheet();
+      const media = new CSSStyleSheet();
+
+      const light = [
+        '.app{background:#f3ead8;color:#1c1712;font-family:Georgia,serif}',
+        '.mast{display:flex;justify-content:space-between;align-items:center;padding:16px 28px;color:#fff}',
+        '.wordmark{font-size:28px;letter-spacing:0.04em}',
+        '.hud{font:12px/1.4 ui-sans-serif,system-ui;opacity:0.9}',
+        '.shell{display:grid;grid-template-columns:220px 1fr;gap:24px;padding:24px 28px 48px}',
+        '.rail{font:15px/1.45 Georgia,serif}',
+        '.kicker{text-transform:uppercase;letter-spacing:0.16em;font-size:11px;color:#8a3b16}',
+        '.checklist{padding-left:1.1rem;font-size:13px}',
+      ];
+      const darkApp = '.app{background:#161310;color:#f3ead8;font-family:Georgia,serif}';
+      tokens.replaceSync(light.join('\n'));
+
+      layout.replaceSync(
+        [
+          '.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}',
+          '.card{border-radius:2px;padding:0;overflow:hidden;background:#fff8ee;color:#1c1712;box-shadow:0 1px 0 rgba(28,23,18,0.12)}',
+          '.swatch{height:88px}',
+          '.card h2{margin:12px 14px 4px;font-size:17px}',
+          '.card p{margin:0 14px 14px;font-size:13px;line-height:1.4;color:#5a4e43}',
+        ].join('\n'),
+      );
+
+      const cardRules = [];
+      const hues = [18, 28, 36, 48, 8, 200, 152, 330];
+      for (let i = 0; i < 8; i++) {
+        cardRules.push(`.swatch-h${i}{background:hsl(${hues[i]} 62% 42%)}`);
+      }
+      cardRules.push('.card.hot{outline:4px solid #c45c26;outline-offset:2px}');
+      cards.replaceSync(cardRules.join('\n'));
+
+      const unusedParts = [];
+      for (let i = 0; i < bulk; i++) unusedParts.push(`.u${i}{margin:0;padding:0;--x:${i}}`);
+      unused.replaceSync(unusedParts.join('\n'));
+
+      media.replaceSync('@media (min-width: 600px){.rail{position:sticky;top:12px}.kicker{color:#8a3b16}}');
+
+      const accentSheet = new CSSStyleSheet();
+      accentSheet.replaceSync('.accent{background:#c45c26}');
+
+      document.adoptedStyleSheets = [tokens, layout, cards, unused, media, accentSheet];
+
+      const titles = [
+        'Harbor grain', 'Night tram', 'Copper still', 'Atlas fold',
+        'Glass kiln', 'River type', 'Salt loft', 'Amber dock',
+        'Field note', 'Ink mill', 'Cedar room', 'Quiet levy',
+        'Brass hour', 'Paper kiln', 'North quay', 'Loom draft',
+        'Stone list', 'Warm index',
+      ];
+      const grid = document.getElementById('grid');
+      for (let i = 0; i < titles.length; i++) {
+        const el = document.createElement('article');
+        el.className = 'card';
+        el.dataset.i = String(i);
+        el.innerHTML =
+          '<div class="swatch swatch-h' +
+          (i % 8) +
+          '"></div><h2>' +
+          titles[i] +
+          '</h2><p>Constructed CSSOM · bulk utilities=' +
+          bulk +
+          '</p>';
+        grid.appendChild(el);
+      }
+
+      let dark = false;
+      let accentFlip = false;
+      let hot = -1;
+
+      function paintHud() {
+        document.getElementById('hud').textContent =
+          'sheets=' +
+          document.adoptedStyleSheets.length +
+          ' unused=' +
+          unused.cssRules.length +
+          ' theme=' +
+          (dark ? 'ink' : 'cream') +
+          ' hot=' +
+          hot;
+      }
+
+      const acts = {
+        theme() {
+          dark = !dark;
+          const rule = tokens.cssRules[0];
+          if (rule && rule.style) {
+            rule.style.background = dark ? '#161310' : '#f3ead8';
+            rule.style.color = dark ? '#f3ead8' : '#1c1712';
+          }
+          paintHud();
+        },
+        accent() {
+          accentFlip = !accentFlip;
+          const rule = accentSheet.cssRules[0];
+          if (rule && rule.style) rule.style.background = accentFlip ? '#1f4d6e' : '#c45c26';
+          paintHud();
+        },
+        featureCard() {
+          const cardsEls = document.querySelectorAll('.card');
+          if (hot >= 0 && cardsEls[hot]) cardsEls[hot].classList.remove('hot');
+          hot = (hot + 3) % cardsEls.length;
+          cardsEls[hot].classList.add('hot');
+          paintHud();
+        },
+        reorderAdopted() {
+          const cur = [...document.adoptedStyleSheets];
+          const last = cur.pop();
+          if (last) cur.unshift(last);
+          document.adoptedStyleSheets = cur;
+          paintHud();
+        },
+      };
+
+      window.__cssomLab = {
+        act(name) {
+          const fn = acts[name];
+          if (typeof fn !== 'function') return { ok: false, reason: 'unknown act ' + name };
+          fn();
+          return { ok: true, act: name, dark, hot, accentFlip };
+        },
+      };
+
+      paintHud();
+      if (auto) {
+        let beat = 0;
+        setInterval(() => {
+          beat += 1;
+          acts.accent();
+          if (beat % 2 === 0) acts.theme();
+          if (beat % 3 === 0) acts.featureCard();
+        }, 2200);
+      }
+    </script>
+  </body>
+</html>

@@ -63,7 +63,12 @@ export function applyOpToTable(table: ReplicatedTable, op: FrameOp): void {
       return;
     }
     case OpCode.SheetDrop:
-      for (let i = 0; i < op.ids.length; i++) table.dropSubtree(op.ids[i]!);
+      for (let i = 0; i < op.ids.length; i++) {
+        const id = op.ids[i]!;
+        const row = table.getRow(id);
+        if (row !== undefined && row.parent !== 0) table.removeBatch(row.parent, [id]);
+        table.dropSubtree(id);
+      }
       return;
     case OpCode.SheetOrder:
       if (op.ids.length === 0) return;
@@ -80,7 +85,12 @@ export function applyOpToTable(table: ReplicatedTable, op: FrameOp): void {
       table.insertBatch(op.sheet, op.before, [op.id]);
       return;
     case OpCode.RuleDrop:
-      for (let i = 0; i < op.ids.length; i++) table.dropSubtree(op.ids[i]!);
+      for (let i = 0; i < op.ids.length; i++) {
+        const id = op.ids[i]!;
+        const row = table.getRow(id);
+        if (row !== undefined && row.parent !== 0) table.removeBatch(row.parent, [id]);
+        table.dropSubtree(id);
+      }
       return;
     case OpCode.RuleSet:
       table.setValue(op.id, op.text);

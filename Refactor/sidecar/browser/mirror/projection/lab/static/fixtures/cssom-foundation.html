@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>CSSOM foundation acts</title>
+    <style id="inline-style">
+      .inline { font-size: 16px; }
+    </style>
+  </head>
+  <body>
+    <p id="hud">cssom-foundation</p>
+    <script>
+      const sheetA = new CSSStyleSheet();
+      const sheetB = new CSSStyleSheet();
+      const rulesA = [];
+      for (let i = 0; i < 18; i++) rulesA.push(`.a${i}{color:red;margin:0}`);
+      rulesA.push('@media all{.inner{display:block;color:black}}');
+      sheetA.replaceSync(rulesA.join('\n'));
+      sheetB.replaceSync('.b0{opacity:1}.b1{opacity:0.5}');
+      document.adoptedStyleSheets = [sheetA, sheetB];
+
+      function firstStyleRule(sheet) {
+        for (let i = 0; i < sheet.cssRules.length; i++) {
+          const r = sheet.cssRules[i];
+          if (r && r.style) return r;
+        }
+        return null;
+      }
+
+      const acts = {
+        styleSet() {
+          const r = firstStyleRule(sheetA);
+          if (r) r.style.color = r.style.color === 'blue' ? 'red' : 'blue';
+        },
+        insertRule() {
+          sheetA.insertRule('.ins' + Date.now() + '{outline:1px solid lime}', 0);
+        },
+        deleteRule() {
+          if (sheetA.cssRules.length > 4) sheetA.deleteRule(0);
+        },
+        replaceSync() {
+          const n = sheetA.cssRules.length;
+          const parts = [];
+          for (let i = 0; i < n; i++) parts.push('.r' + i + '{color:green}');
+          sheetA.replaceSync(parts.join('\n'));
+        },
+        reorderAdopted() {
+          const cur = [...document.adoptedStyleSheets];
+          cur.reverse();
+          document.adoptedStyleSheets = cur;
+        },
+        addSheet() {
+          const extra = new CSSStyleSheet();
+          extra.replaceSync('.extra' + document.adoptedStyleSheets.length + '{padding:1px}');
+          document.adoptedStyleSheets = [...document.adoptedStyleSheets, extra];
+        },
+        mediaInner() {
+          for (let i = 0; i < sheetA.cssRules.length; i++) {
+            const r = sheetA.cssRules[i];
+            if (!r || r.type !== CSSRule.MEDIA_RULE) continue;
+            const inner = r.cssRules[0];
+            if (inner && inner.style) inner.style.color = inner.style.color === 'navy' ? 'black' : 'navy';
+            return;
+          }
+        },
+        addStyleEl() {
+          const el = document.createElement('style');
+          el.textContent = '.dyn' + Date.now() + '{letter-spacing:1px}';
+          document.head.appendChild(el);
+        },
+        addCrossOriginLink() {
+          const link = document.createElement('link');
+          link.rel = 'stylesheet';
+          link.href = 'https://www.google.com/css/unknown.css';
+          document.head.appendChild(link);
+        },
+      };
+
+      window.__cssomLab = {
+        act(name) {
+          const fn = acts[name];
+          if (typeof fn !== 'function') return { ok: false, reason: 'unknown act ' + name };
+          fn();
+          return { ok: true, act: name };
+        },
+      };
+
+      document.getElementById('hud').textContent =
+        'sheets=' + document.adoptedStyleSheets.length + ' aRules=' + sheetA.cssRules.length;
+    </script>
+  </body>
+</html>

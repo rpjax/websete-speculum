@@ -87,6 +87,14 @@ A package (`WP`) is complete when **all** its `PP-*` rows pass and **all** its r
 | `PP-SESS-2` | A released browser instance is destroyed and never handed to another session | WP13 |
 | `PP-TEL-1` | Default telemetry holds **E8**; disabled facts allocate nothing | WP5 |
 | `PP-TEL-2` | Every catalogued failure carries `errorCode` + `phase` | WP5 |
+| `PP-CSSOM-F-1` | After settle, `cssom: 'scan'` table × live CSSOM (I2 top-level) is identical; DOM O2 still holds with Sheet rows under document | lab |
+| `PP-CSSOM-F-2` | `cssom: 'none'` returns no CSSOM oracle; DOM O2 still holds (I8) | lab |
+| `PP-CSSOM-F-3` | In-place `rule.style` settle: no `SHEET_DROP` on idle wire; committed table × live identical (I11) | lab |
+| `PP-CSSOM-F-4` | `insertRule` / `deleteRule` settle: committed table × live identical | lab |
+| `PP-CSSOM-F-5` | `replaceSync` settle: committed table × live identical (abort is evidence, not the assert) | lab |
+| `PP-CSSOM-F-6` | Unreadable `cssRules` sheet is not required in the table; readable sheets still match (I7) | lab |
+| `PP-CSSOM-F-7` | After `requestResync`, `cssom: 'scan'` table × live identical | lab |
+| `PP-CSSOM-H-1` | Heavy magazine fixture: after settle and after theme/accent/feature/reorder/resync, `cssom: 'scan'` table × live identical; no `SHEET_DROP` on in-place theme. Human: Projected 4077 perceived 1:1 with Virtual (masthead, cream/ink, hot card) | lab |
 | `PP-DEN-1` | 100 concurrent sessions hold the P1–P6 percentiles (**O4**) | WP14 |
 | `PP-DEN-2` | The degradation knee is measured and recorded as a regression metric | WP2, WP14 |
 

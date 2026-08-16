@@ -3,7 +3,7 @@
  * Lab isomorphism — compose BrowserSession probes. Not a session primitive.
  *
  * Virtual side is one in-page turn ({@link BrowserSession.flushProjectionSnapshot}):
- * takeRecords, drain MO buffer, emit frame S, O2 + table digest + tree while JS holds the document.
+ * takeRecords, drain MO buffer, emit frame S (DOM + stashed CSSOM scan), DOM O2 + CSSOM O2 + digest + tree.
  * Caller table apply (Node `applyFrameToTableChecked` or DOM client) then snapshots at S.
  */
 Object.defineProperty(exports, "__esModule", { value: true });

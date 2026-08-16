@@ -1,5 +1,6 @@
 /**
- * Frame → live DOM apply — frame-protocol.md §6 (client apply). v0 core scope: no CSSOM.
+ * Frame → live DOM + owned CSSOM apply — frame-protocol.md §6 (client apply).
+ * CSSOM phase 2: constructed sheets on `adoptedStyleSheets` (C6). Pierce is desync (not this cut).
  *
  * `Remove` detaches nodes from the DOM but does not unregister them from the registry — a
  * detached row survives, address-registered, until the producer's own age-threshold GC sweep
@@ -19,7 +20,14 @@
  */
 
 import { NodeKind, OpCode } from '../models/opcodes';
-import { DOCUMENT_ID, INSERT_AT_END, type AttrPair, type FrameOp } from '../models/frame';
+import {
+  CSSOM_SCOPE_PIERCE_HOST,
+  DOCUMENT_ID,
+  INSERT_AT_END,
+  type AttrPair,
+  type FrameOp,
+} from '../models/frame';
+import { insertIndexFromBefore, orderedSheetIds } from '../models/cssomApplyIndex';
 import type { AssembledFrame } from '../models/decode';
 import { ReplicatedTable } from '../models/replicatedTable';
 import { applyFrameToTableChecked } from '../models/replicatedTableApply';
@@ -57,6 +65,8 @@ export class DomFrameApplier {
   private readonly registry: PageProjectionRegistry;
   private readonly options: DomFrameApplierOptions;
   private readonly table = new ReplicatedTable();
+  private readonly sheets = new Map<number, CSSStyleSheet>();
+  private readonly rules = new Map<number, CSSRule>();
 
   constructor(doc: Document, registry: PageProjectionRegistry, options: DomFrameApplierOptions = {}) {
     this.doc = doc;
@@ -104,6 +114,7 @@ export class DomFrameApplier {
     }
     this.queued = [];
     this.table.reset();
+    this.clearCssom();
   }
 
   private applyFrame(frame: AssembledFrame): void {
@@ -128,9 +139,16 @@ export class DomFrameApplier {
 
     // Phase 2 (materialize) — §6. Only reached once phase 1 has fully succeeded for the whole
     // frame — "cannot fail" (§6) because every op it touches was already validated above.
+    // CSSOM still uses the iframe window's `CSSStyleSheet`; a cross-realm constructor throws.
     for (let i = 0; i < frame.ops.length; i++) {
-      if (!this.applyOp(frame.ops[i]!)) return; // onDesync already fired inside applyOp
+      try {
+        if (!this.applyOp(frame.ops[i]!)) return;
+      } catch {
+        this.fail('malformed', 'apply', 0);
+        return;
+      }
     }
+    if (!this.cssomHandlesMatchTable()) return;
     this.options.onApplied?.(frame, performance.now() - start);
   }
 
@@ -174,12 +192,17 @@ export class DomFrameApplier {
       case OpCode.TextSet:
         return this.applyTextSet(op);
       case OpCode.SheetNew:
+        return this.applySheetNew(op);
       case OpCode.SheetDrop:
+        return this.applySheetDrop(op);
       case OpCode.SheetOrder:
+        return this.applySheetOrder(op);
       case OpCode.RuleNew:
+        return this.applyRuleNew(op);
       case OpCode.RuleDrop:
+        return this.applyRuleDrop(op);
       case OpCode.RuleSet:
-        return true; // C6 owned CSSOM apply is not this cut — phase 2 explicit no-op
+        return this.applyRuleSet(op);
       default:
         return true;
     }
@@ -197,6 +220,165 @@ export class DomFrameApplier {
     this.doc.replaceChildren();
     this.registry.clear();
     this.registry.register(DOCUMENT_ID, this.doc);
+    this.clearCssom();
+    return true;
+  }
+
+  private clearCssom(): void {
+    this.sheets.clear();
+    this.rules.clear();
+    try {
+      this.doc.adoptedStyleSheets = [];
+    } catch {
+      /* adoptedStyleSheets may be missing on a test document */
+    }
+  }
+
+  /** After the frame, every table Sheet row must have a live handle (replay complete, not mid-op). */
+  private cssomHandlesMatchTable(): boolean {
+    const ids = orderedSheetIds(this.table);
+    for (let i = 0; i < ids.length; i++) {
+      if (!this.sheets.has(ids[i]!)) return this.fail('address_miss', 'sheetNew', ids[i]!);
+    }
+    return true;
+  }
+
+  private adoptedList(): CSSStyleSheet[] {
+    return Array.from(this.doc.adoptedStyleSheets);
+  }
+
+  private setAdopted(next: CSSStyleSheet[]): boolean {
+    try {
+      this.doc.adoptedStyleSheets = next;
+      return true;
+    } catch {
+      return this.fail('malformed', 'sheetOrder', 0);
+    }
+  }
+
+  private materializedSheetIds(): number[] {
+    const list = this.adoptedList();
+    const ids: number[] = [];
+    for (let i = 0; i < list.length; i++) {
+      const sheet = list[i]!;
+      for (const [id, bound] of this.sheets) {
+        if (bound === sheet) {
+          ids.push(id);
+          break;
+        }
+      }
+    }
+    return ids;
+  }
+
+  private applySheetNew(op: Extract<FrameOp, { op: OpCode.SheetNew }>): boolean {
+    if (op.scope === CSSOM_SCOPE_PIERCE_HOST || op.hostNode !== 0) {
+      return this.fail('bad_target', 'sheetNew', op.id);
+    }
+    if (this.sheets.has(op.id)) return this.fail('bad_target', 'sheetNew', op.id);
+    const view = this.doc.defaultView;
+    if (view === null) return this.fail('bad_target', 'sheetNew', op.id);
+    let sheet: CSSStyleSheet;
+    try {
+      sheet = new view.CSSStyleSheet();
+    } catch {
+      return this.fail('malformed', 'sheetNew', op.id);
+    }
+    const at = insertIndexFromBefore(this.materializedSheetIds(), op.before);
+    if (at < 0) return this.fail('address_miss', 'sheetNew', op.before);
+    const next = this.adoptedList();
+    next.splice(at, 0, sheet);
+    if (!this.setAdopted(next)) return false;
+    this.sheets.set(op.id, sheet);
+    return true;
+  }
+
+  private applySheetDrop(op: Extract<FrameOp, { op: OpCode.SheetDrop }>): boolean {
+    const drop = new Set<CSSStyleSheet>();
+    for (let i = 0; i < op.ids.length; i++) {
+      const id = op.ids[i]!;
+      const sheet = this.sheets.get(id);
+      if (sheet === undefined) return this.fail('address_miss', 'sheetDrop', id);
+      drop.add(sheet);
+      for (const [ruleId, rule] of this.rules) {
+        if (rule.parentStyleSheet === sheet) this.rules.delete(ruleId);
+      }
+      this.sheets.delete(id);
+    }
+    const next = this.adoptedList().filter((s) => !drop.has(s));
+    return this.setAdopted(next);
+  }
+
+  private applySheetOrder(op: Extract<FrameOp, { op: OpCode.SheetOrder }>): boolean {
+    const next: CSSStyleSheet[] = [];
+    for (let i = 0; i < op.ids.length; i++) {
+      const sheet = this.sheets.get(op.ids[i]!);
+      if (sheet === undefined) return this.fail('address_miss', 'sheetOrder', op.ids[i]!);
+      next.push(sheet);
+    }
+    return this.setAdopted(next);
+  }
+
+  private applyRuleNew(op: Extract<FrameOp, { op: OpCode.RuleNew }>): boolean {
+    const sheet = this.sheets.get(op.sheet);
+    if (sheet === undefined) return this.fail('address_miss', 'ruleNew', op.sheet);
+    if (this.rules.has(op.id)) return this.fail('bad_target', 'ruleNew', op.id);
+    let index: number;
+    if (op.before === INSERT_AT_END) {
+      index = sheet.cssRules.length;
+    } else {
+      const beforeRule = this.rules.get(op.before);
+      if (beforeRule === undefined) return this.fail('address_miss', 'ruleNew', op.before);
+      index = -1;
+      for (let k = 0; k < sheet.cssRules.length; k++) {
+        if (sheet.cssRules.item(k) === beforeRule) {
+          index = k;
+          break;
+        }
+      }
+      if (index < 0) return this.fail('address_miss', 'ruleNew', op.before);
+    }
+    let inserted: number;
+    try {
+      inserted = sheet.insertRule(op.text, index);
+    } catch {
+      return this.fail('malformed', 'ruleNew', op.id);
+    }
+    const rule = sheet.cssRules.item(inserted);
+    if (rule === null) return this.fail('address_miss', 'ruleNew', op.id);
+    this.rules.set(op.id, rule);
+    return true;
+  }
+
+  private applyRuleDrop(op: Extract<FrameOp, { op: OpCode.RuleDrop }>): boolean {
+    const sheet = this.sheets.get(op.sheet);
+    if (sheet === undefined) return this.fail('address_miss', 'ruleDrop', op.sheet);
+    for (let i = 0; i < op.ids.length; i++) {
+      const id = op.ids[i]!;
+      const rule = this.rules.get(id);
+      if (rule === undefined) return this.fail('address_miss', 'ruleDrop', id);
+      let at = -1;
+      for (let k = 0; k < sheet.cssRules.length; k++) {
+        if (sheet.cssRules.item(k) === rule) {
+          at = k;
+          break;
+        }
+      }
+      if (at < 0) return this.fail('address_miss', 'ruleDrop', id);
+      sheet.deleteRule(at);
+      this.rules.delete(id);
+    }
+    return true;
+  }
+
+  private applyRuleSet(op: Extract<FrameOp, { op: OpCode.RuleSet }>): boolean {
+    const rule = this.rules.get(op.id);
+    if (rule === undefined) return this.fail('address_miss', 'ruleSet', op.id);
+    try {
+      rule.cssText = op.text;
+    } catch {
+      return this.fail('malformed', 'ruleSet', op.id);
+    }
     return true;
   }
 

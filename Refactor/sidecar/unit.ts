@@ -70,6 +70,7 @@ import {
   stampCssomPoll,
 } from './browser/mirror/projection/models/telemetry';
 import { digestReplicatedTable } from './browser/mirror/projection/models/tableDigest';
+import { insertIndexFromBefore, orderedSheetIds } from './browser/mirror/projection/models/cssomApplyIndex';
 import { BinaryFrameEncoder } from './browser/mirror/projection/virtual/frame/binaryFrameEncoder';
 import { NodeTableApplier } from './browser/mirror/projection/lab/nodeTableApply';
 import { MAX_ROWS } from './browser/mirror/projection/models/limits';
@@ -2588,7 +2589,44 @@ function testCssomOpsAndTableApply(): void {
   assert.ok(live.some((op) => op.op === OpCode.RuleDrop));
   assert.ok(live.some((op) => op.op === OpCode.RuleSet));
   applyOpsToTable(table, live);
-  assert.strictEqual(table.orderedChildIds(sheetId).length, 1);
+  assert.deepStrictEqual(table.orderedChildIds(sheetId), [ids.peekRule(r1)]);
+
+  const r3 = {};
+  const r4 = {};
+  const grown = emitLiveCssomOps(
+    ids,
+    [sheet],
+    [
+      {
+        sheet,
+        snaps: [
+          { key: r1, contentHash: 3 },
+          { key: r3, contentHash: 4 },
+          { key: r4, contentHash: 5 },
+        ],
+        texts: new Map([
+          [r1, 'a { color: green }'],
+          [r3, 'c {}'],
+          [r4, 'd {}'],
+        ]),
+      },
+    ],
+    new WeakMap([[sheet, [{ key: r1, contentHash: 3 }]]]),
+  );
+  for (const op of grown) {
+    if (op.op !== OpCode.RuleNew) continue;
+    const before = (op as { before: number }).before;
+    assert.ok(
+      before === INSERT_AT_END || table.has(before),
+      `RULE_NEW must not use a ghost before=${before}`,
+    );
+  }
+  applyOpsToTable(table, grown);
+  assert.deepStrictEqual(table.orderedChildIds(sheetId), [
+    ids.peekRule(r1),
+    ids.peekRule(r3),
+    ids.peekRule(r4),
+  ]);
 
   const aborted = emitLiveCssomOps(
     ids,
@@ -2599,6 +2637,25 @@ function testCssomOpsAndTableApply(): void {
   assert.ok(!aborted.some((op) => op.op === OpCode.SheetDrop), 'abort must not DROP the sheet');
   assert.ok(!aborted.some((op) => op.op === OpCode.RuleDrop || op.op === OpCode.RuleNew));
   console.log('[unit] cssom ops + table apply ok');
+}
+
+function testCssomApplyIndex(): void {
+  const a = CSSOM_ID_MIN;
+  const b = CSSOM_ID_MIN + 1;
+  const c = CSSOM_ID_MIN + 2;
+  assert.strictEqual(insertIndexFromBefore([], INSERT_AT_END), 0);
+  assert.strictEqual(insertIndexFromBefore([a], INSERT_AT_END), 1);
+  assert.strictEqual(insertIndexFromBefore([a, c], b), -1);
+  assert.strictEqual(insertIndexFromBefore([a, c], c), 1);
+  assert.strictEqual(insertIndexFromBefore([a, c], a), 0);
+
+  const table = new ReplicatedTable();
+  applyOpsToTable(table, [
+    { op: OpCode.SheetNew, id: a, scope: CSSOM_SCOPE_MAIN, hostNode: 0, before: INSERT_AT_END },
+    { op: OpCode.SheetNew, id: b, scope: CSSOM_SCOPE_MAIN, hostNode: 0, before: INSERT_AT_END },
+  ]);
+  assert.deepStrictEqual(orderedSheetIds(table), [a, b]);
+  console.log('[unit] cssom apply index ok');
 }
 
 function testCssomEncodeDecode(): void {
@@ -2738,6 +2795,7 @@ async function main(): Promise<void> {
   testCssomFnvAndRuleDiff();
   testCssomWalkSkipVsAbort();
   testCssomOpsAndTableApply();
+  testCssomApplyIndex();
   testCssomEncodeDecode();
   testCssomPollTelemetrySchema();
   await runPageProjectionUnitTests();

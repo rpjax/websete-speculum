@@ -292,8 +292,9 @@ content walk** (I3); they do not license skip-serialize as completeness.
 - Relock C5 from write-path hooks to this poll as **primary sensor** — Rodrigo.
 - Nested-rule walk vs grouping `cssText` only (I2 today = top-level serialize; C3.1 if inner
   change re-sets the grouping rule).
-- Owned CSSOM apply (C6). Independent CSSOM-vivo × committed snapshot probe (O2-class)
-  before trusting list-diff — required when ops exist, not a substitute for I1–I11.
+- Owned CSSOM apply (C6).
+- Lab O2-class CSSOM (table × Virtual live) exists: `flushAndSnapshot({ cssom: 'scan'|'committed' })`
+  and `npm run lab:cssom-foundation`. Not a substitute for I1–I11; not Projected / not C6.
 - Exact mass-abort threshold (fraction stale vs `replaceSync` detection) — lab uses ≥90% copy stale
   or live `length` &lt; 0.1× / &gt; 2× copy.
 - Isolated CSSOM-CPU-per-pass at design load feeds **E6/E11**, not sealing the walk. Functional ≠
@@ -311,4 +312,4 @@ content walk** (I3); they do not license skip-serialize as completeness.
 | 2026-08-15 | I3 implemented in lab: copy refs, idle-batch hash, slot skip vs mass abort, whole-pass `lastRules`; §4.6 ops on the wire; C6 still no-op |
 | 2026-08-15 | Layers: resync always both planes + blocking CSSOM scan; snapshot CSSOM tunable; §5.8 `resyncVirtual` = `rebuildAndResync`; idle degrades with the page; no CDP in the walk |
 | 2026-08-15 | Accept: DOM numerical 1:1; CSSOM live perceived/eventual; worst-case synthetic stresses the detector, not a 60 Hz CSSOM SLO |
-| 2026-08-15 | Journey sealed: two truths; no MO/CDP/hooks as detector; amortizations ≠ foundation metric |
+| 2026-08-15 | Lab foundation gate: `cssomFoundationRun` + small `cssom-scale --iso`; O2 CSSOM table×live |

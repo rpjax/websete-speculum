@@ -23,7 +23,7 @@ clock/ transport/ config/    support
 
 CSSOM live work is eventual: idle slices → `takePending` on the next `FrameEmitter` boundary. **Resync**
 cancels idle and **blocking-scans** CSSOM (full `SHEET_NEW`+`RULE_NEW` snapshot). Snapshot default `none`
-does not wait for CSSOM. Client phase 2 does not materialize owned CSSOM (C6).
+does not wait for CSSOM. Client phase 2 materializes owned CSSOM on `adoptedStyleSheets` (C6; pierce desyncs).
 
 §5.8 `resyncVirtual` in the protocol = `rebuildAndResync` here. `emitResyncFrame` is the trusted-map strength of the same use case.
 

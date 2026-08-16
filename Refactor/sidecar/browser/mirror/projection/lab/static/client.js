@@ -296,6 +296,25 @@
     };
   }
 
+  // browser/mirror/projection/models/cssomApplyIndex.ts
+  function orderedSheetIds(table) {
+    const all = table.orderedChildIds(DOCUMENT_ID);
+    const out = [];
+    for (let i = 0; i < all.length; i++) {
+      const id = all[i];
+      const row = table.getRow(id);
+      if (row !== void 0 && row.kind === 4 /* Sheet */) out.push(id);
+    }
+    return out;
+  }
+  function insertIndexFromBefore(materializedIds, before) {
+    if (before === INSERT_AT_END) return materializedIds.length;
+    for (let i = 0; i < materializedIds.length; i++) {
+      if (materializedIds[i] === before) return i;
+    }
+    return -1;
+  }
+
   // browser/mirror/projection/models/rowHash.ts
   var FNV_OFFSET_BASIS = 14695981039346656037n;
   var FNV_PRIME = 1099511628211n;
@@ -434,8 +453,11 @@
      */
     orderedChildIds(parent) {
       const backwards = [];
+      const seen = /* @__PURE__ */ new Set();
       let child = this.lastChildOf.get(parent) ?? NONE;
       while (child !== NONE) {
+        if (seen.has(child)) break;
+        seen.add(child);
         backwards.push(child);
         const row = this.rows.get(child);
         child = row?.prevSibling ?? NONE;
@@ -614,8 +636,11 @@
     }
     collectSubtreeIds(id, out) {
       out.push(id);
+      const seen = /* @__PURE__ */ new Set();
       let child = this.lastChildOf.get(id) ?? NONE;
       while (child !== NONE) {
+        if (seen.has(child)) break;
+        seen.add(child);
         this.collectSubtreeIds(child, out);
         const row = this.rows.get(child);
         child = row?.prevSibling ?? NONE;
@@ -694,7 +719,12 @@
         return;
       }
       case 161 /* SheetDrop */:
-        for (let i = 0; i < op.ids.length; i++) table.dropSubtree(op.ids[i]);
+        for (let i = 0; i < op.ids.length; i++) {
+          const id = op.ids[i];
+          const row = table.getRow(id);
+          if (row !== void 0 && row.parent !== 0) table.removeBatch(row.parent, [id]);
+          table.dropSubtree(id);
+        }
         return;
       case 162 /* SheetOrder */:
         if (op.ids.length === 0) return;
@@ -711,7 +741,12 @@
         table.insertBatch(op.sheet, op.before, [op.id]);
         return;
       case 164 /* RuleDrop */:
-        for (let i = 0; i < op.ids.length; i++) table.dropSubtree(op.ids[i]);
+        for (let i = 0; i < op.ids.length; i++) {
+          const id = op.ids[i];
+          const row = table.getRow(id);
+          if (row !== void 0 && row.parent !== 0) table.removeBatch(row.parent, [id]);
+          table.dropSubtree(id);
+        }
         return;
       case 165 /* RuleSet */:
         table.setValue(op.id, op.text);
@@ -795,6 +830,8 @@
     registry;
     options;
     table = new ReplicatedTable();
+    sheets = /* @__PURE__ */ new Map();
+    rules = /* @__PURE__ */ new Map();
     constructor(doc, registry, options = {}) {
       this.doc = doc;
       this.registry = registry;
@@ -837,6 +874,7 @@
       }
       this.queued = [];
       this.table.reset();
+      this.clearCssom();
     }
     applyFrame(frame) {
       const start = performance.now();
@@ -854,8 +892,14 @@
         return;
       }
       for (let i = 0; i < frame.ops.length; i++) {
-        if (!this.applyOp(frame.ops[i])) return;
+        try {
+          if (!this.applyOp(frame.ops[i])) return;
+        } catch {
+          this.fail("malformed", "apply", 0);
+          return;
+        }
       }
+      if (!this.cssomHandlesMatchTable()) return;
       this.options.onApplied?.(frame, performance.now() - start);
     }
     fail(reason, opName, a, b) {
@@ -896,13 +940,17 @@
         case 98 /* TextSet */:
           return this.applyTextSet(op);
         case 160 /* SheetNew */:
+          return this.applySheetNew(op);
         case 161 /* SheetDrop */:
+          return this.applySheetDrop(op);
         case 162 /* SheetOrder */:
+          return this.applySheetOrder(op);
         case 163 /* RuleNew */:
+          return this.applyRuleNew(op);
         case 164 /* RuleDrop */:
+          return this.applyRuleDrop(op);
         case 165 /* RuleSet */:
-          return true;
-        // C6 owned CSSOM apply is not this cut — phase 2 explicit no-op
+          return this.applyRuleSet(op);
         default:
           return true;
       }
@@ -919,6 +967,153 @@
       this.doc.replaceChildren();
       this.registry.clear();
       this.registry.register(DOCUMENT_ID, this.doc);
+      this.clearCssom();
+      return true;
+    }
+    clearCssom() {
+      this.sheets.clear();
+      this.rules.clear();
+      try {
+        this.doc.adoptedStyleSheets = [];
+      } catch {
+      }
+    }
+    /** After the frame, every table Sheet row must have a live handle (replay complete, not mid-op). */
+    cssomHandlesMatchTable() {
+      const ids = orderedSheetIds(this.table);
+      for (let i = 0; i < ids.length; i++) {
+        if (!this.sheets.has(ids[i])) return this.fail("address_miss", "sheetNew", ids[i]);
+      }
+      return true;
+    }
+    adoptedList() {
+      return Array.from(this.doc.adoptedStyleSheets);
+    }
+    setAdopted(next) {
+      try {
+        this.doc.adoptedStyleSheets = next;
+        return true;
+      } catch {
+        return this.fail("malformed", "sheetOrder", 0);
+      }
+    }
+    materializedSheetIds() {
+      const list = this.adoptedList();
+      const ids = [];
+      for (let i = 0; i < list.length; i++) {
+        const sheet = list[i];
+        for (const [id, bound] of this.sheets) {
+          if (bound === sheet) {
+            ids.push(id);
+            break;
+          }
+        }
+      }
+      return ids;
+    }
+    applySheetNew(op) {
+      if (op.scope === CSSOM_SCOPE_PIERCE_HOST || op.hostNode !== 0) {
+        return this.fail("bad_target", "sheetNew", op.id);
+      }
+      if (this.sheets.has(op.id)) return this.fail("bad_target", "sheetNew", op.id);
+      const view = this.doc.defaultView;
+      if (view === null) return this.fail("bad_target", "sheetNew", op.id);
+      let sheet;
+      try {
+        sheet = new view.CSSStyleSheet();
+      } catch {
+        return this.fail("malformed", "sheetNew", op.id);
+      }
+      const at = insertIndexFromBefore(this.materializedSheetIds(), op.before);
+      if (at < 0) return this.fail("address_miss", "sheetNew", op.before);
+      const next = this.adoptedList();
+      next.splice(at, 0, sheet);
+      if (!this.setAdopted(next)) return false;
+      this.sheets.set(op.id, sheet);
+      return true;
+    }
+    applySheetDrop(op) {
+      const drop = /* @__PURE__ */ new Set();
+      for (let i = 0; i < op.ids.length; i++) {
+        const id = op.ids[i];
+        const sheet = this.sheets.get(id);
+        if (sheet === void 0) return this.fail("address_miss", "sheetDrop", id);
+        drop.add(sheet);
+        for (const [ruleId, rule] of this.rules) {
+          if (rule.parentStyleSheet === sheet) this.rules.delete(ruleId);
+        }
+        this.sheets.delete(id);
+      }
+      const next = this.adoptedList().filter((s) => !drop.has(s));
+      return this.setAdopted(next);
+    }
+    applySheetOrder(op) {
+      const next = [];
+      for (let i = 0; i < op.ids.length; i++) {
+        const sheet = this.sheets.get(op.ids[i]);
+        if (sheet === void 0) return this.fail("address_miss", "sheetOrder", op.ids[i]);
+        next.push(sheet);
+      }
+      return this.setAdopted(next);
+    }
+    applyRuleNew(op) {
+      const sheet = this.sheets.get(op.sheet);
+      if (sheet === void 0) return this.fail("address_miss", "ruleNew", op.sheet);
+      if (this.rules.has(op.id)) return this.fail("bad_target", "ruleNew", op.id);
+      let index;
+      if (op.before === INSERT_AT_END) {
+        index = sheet.cssRules.length;
+      } else {
+        const beforeRule = this.rules.get(op.before);
+        if (beforeRule === void 0) return this.fail("address_miss", "ruleNew", op.before);
+        index = -1;
+        for (let k = 0; k < sheet.cssRules.length; k++) {
+          if (sheet.cssRules.item(k) === beforeRule) {
+            index = k;
+            break;
+          }
+        }
+        if (index < 0) return this.fail("address_miss", "ruleNew", op.before);
+      }
+      let inserted;
+      try {
+        inserted = sheet.insertRule(op.text, index);
+      } catch {
+        return this.fail("malformed", "ruleNew", op.id);
+      }
+      const rule = sheet.cssRules.item(inserted);
+      if (rule === null) return this.fail("address_miss", "ruleNew", op.id);
+      this.rules.set(op.id, rule);
+      return true;
+    }
+    applyRuleDrop(op) {
+      const sheet = this.sheets.get(op.sheet);
+      if (sheet === void 0) return this.fail("address_miss", "ruleDrop", op.sheet);
+      for (let i = 0; i < op.ids.length; i++) {
+        const id = op.ids[i];
+        const rule = this.rules.get(id);
+        if (rule === void 0) return this.fail("address_miss", "ruleDrop", id);
+        let at = -1;
+        for (let k = 0; k < sheet.cssRules.length; k++) {
+          if (sheet.cssRules.item(k) === rule) {
+            at = k;
+            break;
+          }
+        }
+        if (at < 0) return this.fail("address_miss", "ruleDrop", id);
+        sheet.deleteRule(at);
+        this.rules.delete(id);
+      }
+      return true;
+    }
+    applyRuleSet(op) {
+      const rule = this.rules.get(op.id);
+      if (rule === void 0) return this.fail("address_miss", "ruleSet", op.id);
+      try {
+        rule.cssText = op.text;
+      } catch {
+        return this.fail("malformed", "ruleSet", op.id);
+      }
       return true;
     }
     /** §4.2 `NODE_DROP` `DOM` effect: "none — the subtree is already detached." Registry-only. */
@@ -1085,7 +1280,7 @@
     const iframe = document.createElement("iframe");
     iframe.title = "Projected surface";
     iframe.sandbox.add("allow-same-origin");
-    iframe.style.cssText = "position:absolute;inset:0;width:100%;height:100%;border:0";
+    iframe.style.cssText = "position:absolute;inset:0;width:100%;height:100%;border:0;background:#fff";
     container.appendChild(iframe);
     const doc = iframe.contentDocument;
     if (!doc) throw new Error("surface: no contentDocument");

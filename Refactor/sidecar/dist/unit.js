@@ -71,6 +71,7 @@ const cssomIds_1 = require("./browser/mirror/projection/virtual/cssom/cssomIds")
 const cssomOps_1 = require("./browser/mirror/projection/virtual/cssom/cssomOps");
 const telemetry_1 = require("./browser/mirror/projection/models/telemetry");
 const tableDigest_1 = require("./browser/mirror/projection/models/tableDigest");
+const cssomApplyIndex_1 = require("./browser/mirror/projection/models/cssomApplyIndex");
 const binaryFrameEncoder_1 = require("./browser/mirror/projection/virtual/frame/binaryFrameEncoder");
 const nodeTableApply_1 = require("./browser/mirror/projection/lab/nodeTableApply");
 const limits_1 = require("./browser/mirror/projection/models/limits");
@@ -2183,11 +2184,57 @@ function testCssomOpsAndTableApply() {
     assert_1.default.ok(live.some((op) => op.op === opcodes_1.OpCode.RuleDrop));
     assert_1.default.ok(live.some((op) => op.op === opcodes_1.OpCode.RuleSet));
     (0, replicatedTableApply_1.applyOpsToTable)(table, live);
-    assert_1.default.strictEqual(table.orderedChildIds(sheetId).length, 1);
+    assert_1.default.deepStrictEqual(table.orderedChildIds(sheetId), [ids.peekRule(r1)]);
+    const r3 = {};
+    const r4 = {};
+    const grown = (0, cssomOps_1.emitLiveCssomOps)(ids, [sheet], [
+        {
+            sheet,
+            snaps: [
+                { key: r1, contentHash: 3 },
+                { key: r3, contentHash: 4 },
+                { key: r4, contentHash: 5 },
+            ],
+            texts: new Map([
+                [r1, 'a { color: green }'],
+                [r3, 'c {}'],
+                [r4, 'd {}'],
+            ]),
+        },
+    ], new WeakMap([[sheet, [{ key: r1, contentHash: 3 }]]]));
+    for (const op of grown) {
+        if (op.op !== opcodes_1.OpCode.RuleNew)
+            continue;
+        const before = op.before;
+        assert_1.default.ok(before === frame_1.INSERT_AT_END || table.has(before), `RULE_NEW must not use a ghost before=${before}`);
+    }
+    (0, replicatedTableApply_1.applyOpsToTable)(table, grown);
+    assert_1.default.deepStrictEqual(table.orderedChildIds(sheetId), [
+        ids.peekRule(r1),
+        ids.peekRule(r3),
+        ids.peekRule(r4),
+    ]);
     const aborted = (0, cssomOps_1.emitLiveCssomOps)(ids, [sheet], [{ sheet, snaps, texts, skipOps: true }], new WeakMap([[sheet, [{ key: r1, contentHash: 3 }]]]));
     assert_1.default.ok(!aborted.some((op) => op.op === opcodes_1.OpCode.SheetDrop), 'abort must not DROP the sheet');
     assert_1.default.ok(!aborted.some((op) => op.op === opcodes_1.OpCode.RuleDrop || op.op === opcodes_1.OpCode.RuleNew));
     console.log('[unit] cssom ops + table apply ok');
+}
+function testCssomApplyIndex() {
+    const a = cssomIds_1.CSSOM_ID_MIN;
+    const b = cssomIds_1.CSSOM_ID_MIN + 1;
+    const c = cssomIds_1.CSSOM_ID_MIN + 2;
+    assert_1.default.strictEqual((0, cssomApplyIndex_1.insertIndexFromBefore)([], frame_1.INSERT_AT_END), 0);
+    assert_1.default.strictEqual((0, cssomApplyIndex_1.insertIndexFromBefore)([a], frame_1.INSERT_AT_END), 1);
+    assert_1.default.strictEqual((0, cssomApplyIndex_1.insertIndexFromBefore)([a, c], b), -1);
+    assert_1.default.strictEqual((0, cssomApplyIndex_1.insertIndexFromBefore)([a, c], c), 1);
+    assert_1.default.strictEqual((0, cssomApplyIndex_1.insertIndexFromBefore)([a, c], a), 0);
+    const table = new replicatedTable_1.ReplicatedTable();
+    (0, replicatedTableApply_1.applyOpsToTable)(table, [
+        { op: opcodes_1.OpCode.SheetNew, id: a, scope: frame_1.CSSOM_SCOPE_MAIN, hostNode: 0, before: frame_1.INSERT_AT_END },
+        { op: opcodes_1.OpCode.SheetNew, id: b, scope: frame_1.CSSOM_SCOPE_MAIN, hostNode: 0, before: frame_1.INSERT_AT_END },
+    ]);
+    assert_1.default.deepStrictEqual((0, cssomApplyIndex_1.orderedSheetIds)(table), [a, b]);
+    console.log('[unit] cssom apply index ok');
 }
 function testCssomEncodeDecode() {
     const ops = [
@@ -2318,6 +2365,7 @@ async function main() {
     testCssomFnvAndRuleDiff();
     testCssomWalkSkipVsAbort();
     testCssomOpsAndTableApply();
+    testCssomApplyIndex();
     testCssomEncodeDecode();
     testCssomPollTelemetrySchema();
     await (0, page_unit_1.runPageProjectionUnitTests)();

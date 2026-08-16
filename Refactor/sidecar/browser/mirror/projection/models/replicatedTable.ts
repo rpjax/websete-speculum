@@ -104,8 +104,11 @@ export class ReplicatedTable {
    */
   orderedChildIds(parent: number): number[] {
     const backwards: number[] = [];
+    const seen = new Set<number>();
     let child = this.lastChildOf.get(parent) ?? NONE;
     while (child !== NONE) {
+      if (seen.has(child)) break;
+      seen.add(child);
       backwards.push(child);
       const row = this.rows.get(child);
       child = row?.prevSibling ?? NONE;
@@ -303,8 +306,11 @@ export class ReplicatedTable {
 
   private collectSubtreeIds(id: number, out: number[]): void {
     out.push(id);
+    const seen = new Set<number>();
     let child = this.lastChildOf.get(id) ?? NONE;
     while (child !== NONE) {
+      if (seen.has(child)) break;
+      seen.add(child);
       this.collectSubtreeIds(child, out);
       const row = this.rows.get(child);
       child = row?.prevSibling ?? NONE;

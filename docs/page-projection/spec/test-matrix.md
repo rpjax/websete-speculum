@@ -91,12 +91,12 @@ A package (`WP`) is complete when **all** its `PP-*` rows pass and **all** its r
 | `PP-TEL-2` | Every catalogued failure carries `errorCode` + `phase` | WP5 |
 | `PP-CSSOM-F-1` | After settle, `cssom: 'scan'` table × live CSSOM (I2 top-level) is identical; DOM O2 still holds with Sheet rows under document | lab |
 | `PP-CSSOM-F-2` | `cssom: 'none'` returns no CSSOM oracle; DOM O2 still holds (I8) | lab |
-| `PP-CSSOM-F-3` | In-place `rule.style` settle: no `SHEET_DROP` on idle wire; committed table × live identical (I11) | lab |
-| `PP-CSSOM-F-4` | `insertRule` / `deleteRule` settle: committed table × live identical | lab |
-| `PP-CSSOM-F-5` | `replaceSync` settle: committed table × live identical (abort is evidence, not the assert) | lab |
+| `PP-CSSOM-F-3` | In-place `rule.style` settle: no `SHEET_DROP` on idle wire; committed table × live identical (I11) | lab `cssom-foundation` `snap.styleSet.*` + `ops.styleSet` (missing snap/window = fail) |
+| `PP-CSSOM-F-4` | `insertRule` / `deleteRule` settle: committed table × live identical | lab `cssom-foundation` `snap.insertRule.*` / `snap.deleteRule.*` (missing = fail) |
+| `PP-CSSOM-F-5` | `replaceSync` settle: committed table × live identical (abort is evidence, not the assert) | lab `cssom-foundation` `snap.replaceSync.*` (missing = fail) |
 | `PP-CSSOM-F-6` | Unreadable `cssRules` sheet is not required in the table; readable sheets still match (I7) | lab |
 | `PP-CSSOM-F-7` | After `requestResync`, `cssom: 'scan'` table × live identical | lab |
-| `PP-CSSOM-H-1` | Heavy magazine fixture: after settle and after theme/accent/feature/reorder/resync, `cssom: 'scan'` table × live identical; no `SHEET_DROP` on in-place theme. Human: Projected 4077 perceived 1:1 with Virtual (masthead, cream/ink, hot card) | lab |
+| `PP-CSSOM-H-1` | Heavy magazine fixture: after settle and after theme/accent/feature/reorder/resync, `cssom: 'scan'` table × live identical; no `SHEET_DROP` on in-place theme. Human: Projected 4077 perceived 1:1 with Virtual (masthead, cream/ink, hot card) | lab `cssom-heavy` required snaps + `ops.theme` (missing = fail). Human eye clause still optional. |
 | `PP-APPLY-1` | Mid-batch desync: `DomFrameApplier.flush` does **not** apply later frames in the same batch (**SEAL-DOM-P0-FLUSH**). Unit: `testDomFrameApplierFlushStopsOnDesync` → `models/applyBatch.ts` `applyFramesUntilDesync` (wired from `client/applyDom.ts` flush) | lab |
 | `PP-APPLY-2` | Failed `setAttribute` / invalid attr does not leave table attrs ahead of live DOM without desync (**SEAL-DOM-P0-ATTR**). Function: `testApplyAttrPairsReportsFailure`. Parity: lab `apply-attrs`. Desync: `apply-honesty-desync-attr` (DOM client; CLI skips). | lab |
 | `PP-APPLY-3` | Phase-1 precondition failure aborts the frame with **zero** phase-2 DOM/CSSOM side effects (**SEAL-DOM-P0-PHASE1**). Unit: `testApplyFrameToTableCheckedPhase1Pres` | lab |

@@ -1,14 +1,14 @@
-# PageProjection lab — architecture design (pre-implementation)
+# PageProjection lab — architecture
 
-**Status:** normative **design + implementation plan** for the lab cutover. **Code not started.**  
-**Audience:** humans and agents restructuring `Refactor/sidecar/browser/mirror/projection/lab/`.  
+**Status:** **shipped 2026-08-16.** This file is the architecture of the current lab (chassis, browse vs run, blueprints, dossier). The old lab was deleted the same day.  
+**Audience:** humans and agents working in `Refactor/sidecar/browser/mirror/projection/lab/`.  
 **Does not change:** `BrowserSession` / `V4ProjectionBrowserSession` / Virtual producer / frame protocol.  
-**Does not replace:** [observability.md](observability.md) (probes vs events, coherent snapshot, I10). This file owns **lab product shape**: chassis, session identity, use cases, action graph, blueprints, dossier, UI/CLI, WS protocol, cutover plan.
+**Does not replace:** [observability.md](observability.md) (probes vs events, coherent snapshot, I10). This file owns **lab product shape**.
 
-**Cutover (Rodrigo 2026-08-16):** one lab version only. Work on **`feat/mirror-mode` only** — no cutover feature-branch / PR process. Replace, verify, delete. No parallel runners, no dual-write reports, no legacy WS shims. Thin npm sugar → same entrypoint only.
+§12 below is **historical** (the cutover plan). Do not start a second lab.
 
 **Who decides architecture:** Rodrigo.  
-**Conflict:** probes/events/asserts → [observability.md](observability.md) wins. Lab shape/cutover → **this file** wins over current lab code.
+**Conflict:** probes/events/asserts → [observability.md](observability.md) wins. Lab shape → **this file** wins over current lab code.
 
 ---
 
@@ -140,7 +140,7 @@ Port full act/snap/opWindow/resync sequence from today’s `cssomFoundationRun.t
 
 ### `apply-honesty-desync-attr` / `-ruleset` / `-eof`
 
-Cold inject on the client relay (producer never emits these). Fold `apply.desync.*` requires snapshot `desynced`. CLI without iframe **skips**, does not fail Virtual O2.
+Cold inject on the client relay (producer never emits these). Fold `apply.desync.*` requires snapshot `desynced`. CLI without iframe **skips**, does not fail Virtual O2. **2026-08-17 UI PASS** — defect was lab harness (`hostNode` 0 for constructed, wait until desynced, not apply). See [observability.md](observability.md) §7.
 
 ### `cssom-heavy`
 
@@ -252,9 +252,9 @@ Coverage ≥ old gates; clearer dotted ids; map legacy→new in each fold file.
 
 ---
 
-## 12. Implementation plan (`feat/mirror-mode`)
+## 12. Implementation plan (`feat/mirror-mode`) — historical, done 2026-08-16
 
-**L12:** this branch only. Stacked commits. New lab = only lab.
+**L12:** completed on this branch. New lab = only lab. Checkboxes below are a fossil of the cutover; do not treat them as open work.
 
 ### Definition of done
 

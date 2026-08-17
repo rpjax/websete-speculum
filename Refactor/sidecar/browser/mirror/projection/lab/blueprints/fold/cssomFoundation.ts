@@ -63,7 +63,31 @@ export function foldCssomFoundation(chassis: LabChassis): LabVerdict[] {
   for (const a of chassis.journal.acts) {
     if (!a.ok) verdicts.push({ id: `action.act.${a.name}`, status: 'fail', reason: a.error ?? 'evaluate failed' });
   }
-  for (const s of chassis.journal.snaps) {
+  const snaps = chassis.journal.snaps;
+  const snapById = new Map(snaps.map((s) => [s.id, s]));
+  const requiredSnapIds = [
+    'settle',
+    'i8-none',
+    'styleSet.committed',
+    'styleSet.scan',
+    'insertRule.committed',
+    'insertRule.scan',
+    'deleteRule.committed',
+    'deleteRule.scan',
+    'replaceSync.committed',
+    'replaceSync.scan',
+  ];
+  const required = new Set(requiredSnapIds);
+  for (const id of requiredSnapIds) {
+    const s = snapById.get(id);
+    if (!s) {
+      verdicts.push({ id: `snap.${id}`, status: 'fail', reason: 'snapshot missing' });
+      continue;
+    }
+    verdicts.push(verdictFromSnap(s.id, s.mode, s.result as SnapResult));
+  }
+  for (const s of snaps) {
+    if (required.has(s.id)) continue;
     verdicts.push(verdictFromSnap(s.id, s.mode, s.result as SnapResult));
   }
   verdicts.push(

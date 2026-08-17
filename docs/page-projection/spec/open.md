@@ -42,8 +42,8 @@ kill list: [seal-gaps.md](seal-gaps.md). Telemetry `cssomPoll` sealed for the fo
 | # | Question | Status |
 |---|----------|--------|
 | **OPEN-1** | `NODE_DROP` of an absent id: `malformed` vs tolerated? | Open. Current code: `malformed`. If tolerated, MUST count in telemetry. |
-| **OPEN-2** | Detached-row lifetime | **Leaning closed** — end-of-tick move/detach, deferred sequence-age GC (`NODE_DROP_AGE_SEQUENCES` retuned 120→20), no per-row versioning. Needs explicit sign-off to seal. |
-| **OPEN-3** | `CHECK.scope` granularity | **Resolved in favour of id ranges** in §4.1. Confirm before sealing. |
+| **OPEN-2** | Detached-row lifetime | **CLOSED 2026-08-17** — end-of-tick move/detach, deferred `lms`-age GC (`NODE_DROP_AGE_SEQUENCES` = 20), no per-row versioning. |
+| **OPEN-3** | `CHECK.scope` granularity | **CLOSED 2026-08-17** — id ranges (§4.1). Units: `testApplyFrameToTableCheckedRangeScope`, `testCheckScopeRangeEncodeDecode`. |
 | **OPEN-4** | Establish HTML vs table | **CLOSED — moot.** Establish deleted (§4.7). |
 | **OPEN-5** | Recovery / mid-session attach | **CLOSED — §5.8.** Residuals below. |
 | **OPEN-6** | Multi-document / nested documents (cross-origin iframes) | **PINNED in lab; production cutover blocker (2026-08-14).** Protocol must be per-document streams. Do not ship Live without this. |
@@ -60,8 +60,6 @@ kill list: [seal-gaps.md](seal-gaps.md). Telemetry `cssomPoll` sealed for the fo
 | **CUTOVER-SESSION** | `V4ProjectionBrowserSession` is temporary | At cutover it **is** the live `BrowserSession`. Must cover capabilities Live already has (input, cookies, eval, resize, permissions, …) **redesigned in V4**, not by keeping legado. Incomplete session fails cutover. | [roadmap.md](roadmap.md); `BrowserSession.ts` |
 | **E-03 / E-08** | Loopback WS + CSP strip / PNA | **DECIDED 2026-08-14 — reject header punch.** `connect-src *` / `script-src *` / strip CSP / disable PNA to make page-JS `WebSocket(127.0.0.1)` work **is not antibot-safe** (Akamai/CF see rewritten CSP, extra sockets, public→localhost). Do **not** enable the data plane by mutating the site’s CSP. Inject = CDP `addInitScript` (already). Bytes Virtual→sidecar = **not** a page `connect()` (CDP binding / hub — implement next). Lab loopback WS stays fixtures-only. | [roadmap.md](roadmap.md) gate 6 |
 | **Contracts pack fate** | Archive vs delete historical `contracts/` + `implementation/` | Already moved to `archive/`. Confirm deletion vs keep-for-provenance. | Default this pass: **keep in archive**, never implement from. |
-| **OPEN-2 sign-off** | Seal detached-row GC | Implementation already shipped in lab | Rodrigo |
-| **OPEN-3 sign-off** | Seal CHECK id-range scope | Implemented | Rodrigo |
 
 ---
 
@@ -76,7 +74,7 @@ kill list: [seal-gaps.md](seal-gaps.md). Telemetry `cssomPoll` sealed for the fo
 | 5 | Bounded resync retry on **production** session layer with catalogued `errorCode`+`phase` | Lab has 3-attempt backoff + `resyncFailed{exhausted}`. Production hub analog is part of Production Integration |
 | 6 | Dual live paths (`LivePageProjection` vs lab engine) | **YES** — cutover (when product-complete) deletes the loser same day ([roadmap.md](roadmap.md)) |
 | 7 | Lab probe: `NODE_NEW` in frame S ⇒ `isConnected` — **closed** as **SEAL-DOM-P0-PROBE** (`probe.nodeNewConnected` + `iso.tree` fail-with-client). Halt iso alone still does not prove the class. | No |
-| 8 | Lab DOM/CSSOM tracker | See [seal-gaps.md](seal-gaps.md) — QA/tests first, then gaps, then features. Honesty P0 closed. |
+| 8 | Lab DOM/CSSOM tracker | [seal-gaps.md](seal-gaps.md) — QA closed 2026-08-17. Next: gaps §2. |
 
 ---
 
@@ -106,3 +104,5 @@ See [support-matrix.md](support-matrix.md). Canvas/WebGL pixels, MSE/DRM, IME, t
 | 2026-08-14 | PP-FR-1 V4 walk (`!isConnected` at drain); stress-churn stacked digits; phase-2 `REMOVE` desync |
 | 2026-08-14 | prepend-stress O2/tree at halt — green seq 799 (OPEN-8 / takeRecords era; not a live bug) |
 | 2026-08-16 | Lab seal kill lists: [seal-gaps.md](seal-gaps.md). Doc falsehood: C6 phase-2 “still no-op” corrected (constructed/`adopted` + `CSSStyleRule` shipped in lab) |
+| 2026-08-17 | Inject honesty ATTR/RULESET/EOF: harness, not apply. UI 4077 PASS. [observability.md](observability.md) §7 |
+| 2026-08-17 | QA closed (human looks + CHECK range + CSSStyleRule folds + detached-row GC / OPEN-2 / OPEN-3). Next: [seal-gaps.md](seal-gaps.md) §2 |

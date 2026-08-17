@@ -8,7 +8,8 @@
 > frame as DOM (`NODE_NEW`/`INSERT` for sheets/rules + CHECK). Index: [README.md](README.md).
 
 **Status:** **SEALED design** — CSSOM plane + PageProjection naming (C0–C9, C3.1).  
-**Implementation is a production-cutover blocker** ([roadmap.md](roadmap.md) CUTOVER-FULL). Do not switch Live to V4 without CSSOM in the engine. T11 rename is part of that work, not a license to ship DOM-only.  
+**Lab (2026-08-17):** constructed sheets on `adoptedStyleSheets` + top-level `CSSStyleRule` are on the wire and applied. Pierce / nested / Live cutover still open.  
+**Live cutover** still requires CSSOM on the production path ([roadmap.md](roadmap.md) CUTOVER-FULL). Do not switch Live to V4 without that. T11 rename is part of that work, not a license to ship DOM-only.  
 **Dom plane (sealed):** [frame-protocol.md](frame-protocol.md)
 
 **Purpose of this file**

@@ -21,12 +21,13 @@ V4 lab (DOM table, single document, no production)
 
 ---
 
-## Current position (2026-08-14)
+## Current position (2026-08-17)
 
 | Piece | Status |
 |-------|--------|
 | V4 protocol spec | **In force** — [frame-protocol.md](frame-protocol.md) |
-| Lab engine `Refactor/sidecar/browser/mirror/projection/` | **DONE** for **DOM table, single document**, Stages 1–4. Caller of `V4ProjectionBrowserSession` (**temporary** until cutover; must become a **complete** `BrowserSession`, not a lab subset). CLI `--iso`: O2 local + Node table×table. Phase 2 DOM apply / tree×tree = lab UI. **Not** CSSOM, **not** OPEN-6, **not** input. |
+| Lab engine `Refactor/sidecar/browser/mirror/projection/` | **DONE** for **DOM table, single document**, Stages 1–4, plus lab CSSOM for constructed `adoptedStyleSheets` + `CSSStyleRule`. Caller of `V4ProjectionBrowserSession` (**temporary** until cutover). CLI `--iso`: O2 local + Node table×table + CSSOM O2. Tree×tree = lab UI with a DOM client. **Not** OPEN-6. **Not** input. **Not** canvas. Next lab work: [seal-gaps.md](seal-gaps.md) gaps (SVG, id space, OPEN-1). |
+| Lab host/UI | **Shipped** 2026-08-16 — [lab-design.md](lab-design.md). UI **http://127.0.0.1:4077/**. |
 | Production path `PatchrightBrowserSession.ts` | **Legacy** `LivePageProjection` — **must stay** until the cutover law above is met |
 | M1 overall | **Blocked** on product-complete lab (CSSOM + OPEN-6 + input redesign + **canvas projection**) **then** Production Integration |
 | M2 / M3 | Blocked on M1 cutover |
@@ -40,8 +41,8 @@ Lab DOM-table core is **not** a cutover license. Close the **product** before sw
 | # | Gate | Kind | Blocker? | Detail |
 |---|------|------|----------|--------|
 | 1 | OPEN-7 `insertBatch` reverse link | BUG | **DONE** | `unit.ts` `testReplicatedTableInsertBeforeNextSiblingRepair`. |
-| 2 | O2 local: Virtual table × Virtual live DOM (+ `takeRecords`, OPEN-8) | O2 | **DONE** for DOM table | CLI `--iso` + Node table×table. Tree×tree = lab UI phase 2, still open. |
-| 3 | **CSSOM plane in the V4 engine** | Product | **YES** | [cssom.md](cssom.md) is sealed **design**. Cutover requires implemented sheet/rule rows, materialize, anti-flicker — not “DOM-only Live.” |
+| 2 | O2 local: Virtual table × Virtual live DOM (+ `takeRecords`, OPEN-8) | O2 | **DONE** for DOM table | CLI `--iso` + Node table×table. Tree×tree = lab UI with DOM client (human OK 2026-08-17 on `apply-attrs` / `soak`). |
+| 3 | **CSSOM plane in the V4 engine** | Product | **YES** for Live | Lab: constructed adopted + `CSSStyleRule` shipped. Cutover still needs the **full** plane on the live path ([cssom.md](cssom.md)) — not “DOM-only Live.” |
 | 4 | **OPEN-6 nested / multi-document** | Product | **YES** | Per-document streams. **Not** pinned past cutover. Lab may stay single-doc until this gate. |
 | 5 | **Input redesign** | Product | **YES** | [input.md](input.md) V1 contract is **not** sufficient to ship. Redesign, then implement. Rename-only (T11) is not the gate. |
 | 6 | **`<canvas>` projection** | Product | **YES** — **last feature before Integration** | Project canvas **bitmap/content** (not element-only / not placeholder-forever). Design + implement + effect asserts before gate 8. Until then: box + `CANVAS_PLACEHOLDER` only ([support-matrix.md](support-matrix.md)). **Not** a [seal-gaps.md](seal-gaps.md) row. |

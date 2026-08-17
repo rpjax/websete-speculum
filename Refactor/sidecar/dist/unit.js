@@ -1879,7 +1879,32 @@ function testApplyFrameToTableCheckedRangeScope() {
         { op: opcodes_1.OpCode.Check, scope: frame_1.CHECK_SCOPE_RANGE, lo: 10, hi: 10, hash: rangeHash },
     ]);
     assert_1.default.strictEqual(nowFails.ok, false, 'a mutation inside [lo, hi] must trip a range CHECK covering it');
+    if (!nowFails.ok && nowFails.opName === 'check') {
+        assert_1.default.strictEqual(nowFails.expected, rangeHash);
+        assert_1.default.notStrictEqual(nowFails.actual, rangeHash);
+    }
     console.log('[unit] applyFrameToTableChecked CHECK_SCOPE_RANGE evaluates only [lo, hi] ok');
+}
+/** §4.1 scope=1 must survive encode → decode — producer writes the same `scope u8` as table CHECK. */
+function testCheckScopeRangeEncodeDecode() {
+    const ops = [
+        { op: opcodes_1.OpCode.Check, scope: frame_1.CHECK_SCOPE_RANGE, lo: 10, hi: 40, hash: 0xabcdefn },
+    ];
+    const frame = (0, frame_1.createFrame)({ generation: 1, sequence: 3, ops, preTableHash: 99n });
+    const bytes = new binaryFrameEncoder_1.BinaryFrameEncoder().encode(frame)[0];
+    const decoded = (0, decode_1.decodeFramePart)(bytes, new decode_1.PersistentStringTable());
+    assert_1.default.ok(decoded.ok, 'range CHECK frame must decode');
+    if (!decoded.ok)
+        return;
+    const check = decoded.part.ops[0];
+    assert_1.default.strictEqual(check?.op, opcodes_1.OpCode.Check);
+    if (check?.op !== opcodes_1.OpCode.Check)
+        return;
+    assert_1.default.strictEqual(check.scope, frame_1.CHECK_SCOPE_RANGE);
+    assert_1.default.strictEqual(check.lo, 10);
+    assert_1.default.strictEqual(check.hi, 40);
+    assert_1.default.strictEqual(check.hash, 0xabcdefn);
+    console.log('[unit] CHECK_SCOPE_RANGE encode/decode round-trip ok');
 }
 /**
  * frame-protocol.md §2 Stage 2 GATE — the client's own precondition check (`preTableHash`
@@ -2756,6 +2781,7 @@ async function main() {
     testApplyFrameToTableCheckedAcceptsValidFrame();
     testApplyFrameToTableCheckedRejectsCorruptedCheck();
     testApplyFrameToTableCheckedRangeScope();
+    testCheckScopeRangeEncodeDecode();
     testApplyFrameToTableCheckedDoesNotRollBackPriorOps();
     testEpochResetClearsReplicatedTable();
     testNodeDropRemovesSubtreeAndDescendants();

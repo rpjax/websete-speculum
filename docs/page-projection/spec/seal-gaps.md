@@ -12,7 +12,7 @@ Work order: **QA and tests first**, then **gaps** in the path that already exist
 
 | Kind | Means | Does **not** mean |
 |------|--------|-------------------|
-| **QA / test** | The behaviour exists (or the ruling is already in prose). What is missing is a human look, a fail-closed gate, or sign-off. | A new opcode, a new walk, production cutover |
+| **QA / test** | The behaviour exists. Missing piece was a human look or a fail-closed gate. | A new opcode, a new walk, production cutover |
 | **Gap** | The **current** emit/apply path already claims this and does it wrong, incomplete, or unsealed. | Something never shipped (that is a feature) |
 | **Feature** | Not on the wire / not in the walk / not in the happy path yet. Build it; do not call it a gap in `NODE_NEW`/`RULE_SET`/CHECK. | A bug in an op that already runs |
 
@@ -28,36 +28,30 @@ Ids (`SEAL-*`) are stable cross-references. Kind (QA / gap / feature) is the wor
 
 ---
 
-## 1. QA and tests pending
+## 1. QA and tests
 
-Do these before treating remaining gaps as “the next algorithm bug.”
+**Done 2026-08-17.** Next work is §2.
 
-### Human look (4077)
-
-Dated **2026-08-17** (Rodrigo, UI). Reopen the matching row if a later look shows unusable Projected.
+### Human look (4077) — closed
 
 | What | Blueprint (id — description) | Fixture | Confirm |
 |------|------------------------------|---------|---------|
-| ~~Projected tree~~ | `apply-attrs` — ATTR success — act attrSet, DOM O2, iso tree when a DOM client is present | `fixtures/apply-attrs.html` (manifest id `apply-attrs`) | **2026-08-17 UI 4077:** visually OK — tree not SKIP; Virtual and Projected match by eye |
-| ~~Projected tree (soak)~~ | `soak` — Timed soak with optional CPU and coherent iso probes | `fixtures/demo.html` (manifest id `demo`) | **2026-08-17 UI 4077:** visually OK — tree visible, matches Virtual |
-| ~~No double paint~~ | `cssom-double` — PP-CSSOM-A-2 — author `<style>` + constructed adopted; one paint path | `fixtures/cssom-double.html` (manifest id `cssom-double`) | **2026-08-17 UI 4077:** visually OK — `#author-probe` red, `#adopted-probe` blue, once each |
-| ~~Inject desync (attr)~~ | `apply-honesty-desync-attr` — ATTR desync — inject NODE_NEW with invalid attr name (DOM client required) | `fixtures/static-dom.html` (manifest id `static-dom`) | **2026-08-17 UI 4077:** `apply.desync.attr` PASS (`malformed:nodeNew`). Idle static page is expected. |
-| ~~Inject desync (ruleset)~~ | `apply-honesty-desync-ruleset` — RULESET desync — inject RULE_SET on a grouping MediaRule (DOM client required) | `fixtures/static-dom.html` (manifest id `static-dom`) | **2026-08-17 UI 4077:** `apply.desync.ruleset` PASS (`bad_target:ruleSet`). |
-| ~~Inject desync (eof)~~ | `apply-honesty-desync-eof` — EOF desync — ghost live CSS rule then CHECK (DOM client required) | `fixtures/static-dom.html` (manifest id `static-dom`) | **2026-08-17 UI 4077:** `apply.desync.eof` PASS (setup stayed synced, ghost on adopted, CHECK `address_miss:ruleNew`). |
+| Projected tree | `apply-attrs` — ATTR success — act attrSet, DOM O2, iso tree when a DOM client is present | `fixtures/apply-attrs.html` | **2026-08-17 UI 4077:** visually OK |
+| Projected tree (soak) | `soak` — Timed soak with optional CPU and coherent iso probes | `fixtures/demo.html` | **2026-08-17 UI 4077:** visually OK |
+| No double paint | `cssom-double` — PP-CSSOM-A-2 — author `<style>` + constructed adopted; one paint path | `fixtures/cssom-double.html` | **2026-08-17 UI 4077:** visually OK |
+| Inject desync (attr) | `apply-honesty-desync-attr` — ATTR desync — inject NODE_NEW with invalid attr name (DOM client required) | `fixtures/static-dom.html` | **2026-08-17 UI 4077:** `apply.desync.attr` PASS. Idle static page is expected. |
+| Inject desync (ruleset) | `apply-honesty-desync-ruleset` — RULESET desync — inject RULE_SET on a grouping MediaRule (DOM client required) | `fixtures/static-dom.html` | **2026-08-17 UI 4077:** `apply.desync.ruleset` PASS. |
+| Inject desync (eof) | `apply-honesty-desync-eof` — EOF desync — ghost live CSS rule then CHECK (DOM client required) | `fixtures/static-dom.html` | **2026-08-17 UI 4077:** `apply.desync.eof` PASS. |
 
-### Automated tests / sign-off (open)
-
-| Id | Missing | Assert to close | Status |
-|----|---------|-----------------|--------|
-| **SEAL-DOM-P1-OPEN2** | Detached-row GC is implemented lean; lifetime policy not signed off ([open.md](open.md) OPEN-2). | Ruling recorded + soak **PP-ID-4** (map does not grow without bound); no silent resurrection. | open |
-| **SEAL-DOM-P1-OPEN3** | `CHECK` over id ranges is chosen in prose; not confirmed fail-closed ([open.md](open.md) OPEN-3). | Unit: CHECK over published id ranges fails closed on mismatch; sign-off in [decision-log.md](decision-log.md). | open |
-| **SEAL-CSSOM-P1-STYLE** | In-scope `CSSStyleRule` live updates already exist; gates are still observe-only. | **PP-CSSOM-F-3..F-5**, **PP-CSSOM-H-1** fail closed after settle on foundation+heavy (not “looked OK”). | open |
+Automated: CHECK by id range, live `CSSStyleRule` folds, detached-row GC — closed 2026-08-17 (archive).
 
 Until shadow/pierce ships (feature below), a closed-shadow fixture must **fail explicit unsupported**, never soft-skip.
 
 ---
 
 ## 2. Gaps (current path is wrong or unsealed)
+
+**This is the next work.** Order: SVG, then id space, then OPEN-1.
 
 The emit/apply path **already runs** these. Fix the algorithm; do not add a second path ([acceptance.md](acceptance.md) T3).
 
@@ -104,11 +98,11 @@ Not gaps in `NODE_NEW` / `RULE_SET` / CHECK. These ops or walks **are not on the
 
 | Kind | Open | Notes |
 |------|------|--------|
-| **QA / tests** | 3 ids | OPEN2, OPEN3, STYLE (human looks dated 2026-08-17) |
+| **QA / tests** | 0 | Human looks + CHECK range + CSSStyleRule live + detached-row GC closed 2026-08-17 |
 | **Gaps** | 2 ids + OPEN-1 | SVG namespace; Cssom id split; `NODE_DROP` absent id |
 | **Features** | 9 ids | PROP, shadow, remaining ISA, multi-doc, pierce CSS, nested rows, C5, scale, CSS iso |
 
-Closed honesty (P0): 8 ids (FLUSH, ATTR, PHASE1, PROBE, RULESET, DOUBLE, EOF, DOCS).
+Closed honesty + QA 2026-08-17: FLUSH, ATTR, PHASE1, PROBE, OPEN2, OPEN3, RULESET, DOUBLE, EOF, DOCS, STYLE.
 
 ---
 
@@ -141,6 +135,8 @@ Kept so ids and dates stay searchable. Do not reopen because CLI `--iso` skipped
 | **SEAL-DOM-P0-ATTR** | `applyAttrs` empty `catch` swallowed failed `setAttribute`. | **PP-APPLY-2**: unit + `apply-attrs` O2 + UI `apply.desync.attr` (2026-08-17). CLI without DOM client skips (3). | **closed 2026-08-16** (function + O2; UI desync 2026-08-17) |
 | **SEAL-DOM-P0-PHASE1** | Phase-1 pres weaker than §6 validate-then-materialize. | **PP-APPLY-3**: unit `testApplyFrameToTableCheckedPhase1Pres`. | **closed 2026-08-17** |
 | **SEAL-DOM-P0-PROBE** | `NODE_NEW` in frame S ⇒ `isConnected` probe missing. | **PP-FR-1**: `probe.nodeNewConnected`; `iso.tree` fail when client relay and skipped. UI tree OK 2026-08-17 (`apply-attrs` / `fixtures/apply-attrs.html`, `soak` / `fixtures/demo.html`). | **closed 2026-08-17** |
+| **SEAL-DOM-P1-OPEN2** | Detached-row GC (end-of-tick detach, `lms`-age `NODE_DROP`, no per-row versioning). | Units: `testCollectDroppableIdsAgeAndLimitBound`, `testCollectDroppableIdsExcludesSameTickReattach`, `testNodeDropRemovesSubtreeAndDescendants`. | **closed 2026-08-17** |
+| **SEAL-DOM-P1-OPEN3** | `CHECK` over id ranges. | Units: `testApplyFrameToTableCheckedRangeScope`, `testCheckScopeRangeEncodeDecode`. | **closed 2026-08-17** |
 
 ### CSSOM
 
@@ -152,3 +148,4 @@ Conditional scope at close: constructed sheets on `adoptedStyleSheets` + top-lev
 | **SEAL-CSSOM-P0-DOUBLE** | Author `<style>` vs constructed/`adopted` boundary. | **PP-CSSOM-A-2**: emit skips `ownerNode`; `cssom-double` cascade+O2; UI 4077 visually OK 2026-08-17 (`fixtures/cssom-double.html`). | **closed 2026-08-17** (emit + Virtual fold; Projected paint human 2026-08-17) |
 | **SEAL-CSSOM-P0-EOF** | EOF CSSOM check verified sheet handles only. | **PP-CSSOM-A-3**: unit + O2 + UI `apply.desync.eof` (2026-08-17). | **closed 2026-08-16** (function + O2; UI desync 2026-08-17) |
 | **SEAL-CSSOM-P0-DOCS** | Comments claimed C6 phase-2 still no-op. | Docs + `opcodes.ts` match `client/applyDom.ts`. | **closed 2026-08-16** |
+| **SEAL-CSSOM-P1-STYLE** | In-scope `CSSStyleRule` live updates existed; fold could pass if snaps/op-windows were missing. | **PP-CSSOM-F-3..F-5**, **PP-CSSOM-H-1** (automated): `cssom-foundation` / `cssom-heavy` require named snaps + `ops.styleSet` / `ops.theme`; `cssomO2` mismatch fails. | **closed 2026-08-17** |

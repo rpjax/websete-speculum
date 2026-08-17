@@ -41,4 +41,8 @@ When editing `web/**/*.{ts,tsx,css}`, Cursor also injects [`.cursor/rules/specul
 
 ## Human workflow
 
+Talk to Rodrigo in **Portuguese, papo reto** — [`.cursor/rules/speculum-comunicacao.mdc`](.cursor/rules/speculum-comunicacao.mdc). He is a senior engineer; do not jargon-stuff simple ideas. Save density for when you are actually debating the detail.
+
+PageProjection pickup: [docs/page-projection/spec/README.md](docs/page-projection/spec/README.md) **Now** box.
+
 [CONTRIBUTING.md](CONTRIBUTING.md) — local gates, PR expectations, secrets.

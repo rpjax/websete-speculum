@@ -24,25 +24,47 @@ function foldCssomHeavy(chassis) {
         if (!a.ok)
             verdicts.push({ id: `action.act.${a.name}`, status: 'fail', reason: a.error ?? 'evaluate failed' });
     }
-    for (const s of chassis.journal.snaps) {
+    const snaps = chassis.journal.snaps;
+    const snapById = new Map(snaps.map((s) => [s.id, s]));
+    const requiredSnapIds = [
+        'settle.scan',
+        'theme.scan',
+        'accent.scan',
+        'featureCard.scan',
+        'reorderAdopted.scan',
+        'resync.scan',
+    ];
+    const required = new Set(requiredSnapIds);
+    for (const id of requiredSnapIds) {
+        const s = snapById.get(id);
+        if (!s) {
+            verdicts.push({ id: `snap.${id}`, status: 'fail', reason: 'snapshot missing' });
+            continue;
+        }
+        verdicts.push(verdictFromSnap(s.id, s.result));
+    }
+    for (const s of snaps) {
+        if (required.has(s.id))
+            continue;
         verdicts.push(verdictFromSnap(s.id, s.result));
     }
     const theme = chassis.journal.opWindows['theme'];
-    if (theme) {
-        if (theme.sheetDrop > 0) {
-            verdicts.push({
-                id: 'ops.theme',
-                status: 'fail',
-                reason: `SHEET_DROP=${theme.sheetDrop} on in-place theme`,
-            });
-        }
-        else {
-            verdicts.push({
-                id: 'ops.theme',
-                status: 'pass',
-                reason: `sheetDrop=0 ruleSet=${theme.ruleSet} ruleNew=${theme.ruleNew}`,
-            });
-        }
+    if (!theme) {
+        verdicts.push({ id: 'ops.theme', status: 'fail', reason: 'op window missing' });
+    }
+    else if (theme.sheetDrop > 0) {
+        verdicts.push({
+            id: 'ops.theme',
+            status: 'fail',
+            reason: `SHEET_DROP=${theme.sheetDrop} on in-place theme`,
+        });
+    }
+    else {
+        verdicts.push({
+            id: 'ops.theme',
+            status: 'pass',
+            reason: `sheetDrop=0 ruleSet=${theme.ruleSet} ruleNew=${theme.ruleNew}`,
+        });
     }
     if (chassis.desyncs.length > 0) {
         verdicts.push({ id: 'wire.desync', status: 'fail', reason: `desynced events=${chassis.desyncs.length}` });

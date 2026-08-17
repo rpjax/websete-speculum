@@ -2247,7 +2247,31 @@ function testApplyFrameToTableCheckedRangeScope(): void {
     { op: OpCode.Check, scope: CHECK_SCOPE_RANGE, lo: 10, hi: 10, hash: rangeHash },
   ]);
   assert.strictEqual(nowFails.ok, false, 'a mutation inside [lo, hi] must trip a range CHECK covering it');
+  if (!nowFails.ok && nowFails.opName === 'check') {
+    assert.strictEqual(nowFails.expected, rangeHash);
+    assert.notStrictEqual(nowFails.actual, rangeHash);
+  }
   console.log('[unit] applyFrameToTableChecked CHECK_SCOPE_RANGE evaluates only [lo, hi] ok');
+}
+
+/** §4.1 scope=1 must survive encode → decode — producer writes the same `scope u8` as table CHECK. */
+function testCheckScopeRangeEncodeDecode(): void {
+  const ops: FrameOp[] = [
+    { op: OpCode.Check, scope: CHECK_SCOPE_RANGE, lo: 10, hi: 40, hash: 0xabcdefn },
+  ];
+  const frame = createFrame({ generation: 1, sequence: 3, ops, preTableHash: 99n });
+  const bytes = new BinaryFrameEncoder().encode(frame)[0]!;
+  const decoded = decodeFramePart(bytes, new PersistentStringTable());
+  assert.ok(decoded.ok, 'range CHECK frame must decode');
+  if (!decoded.ok) return;
+  const check = decoded.part.ops[0];
+  assert.strictEqual(check?.op, OpCode.Check);
+  if (check?.op !== OpCode.Check) return;
+  assert.strictEqual(check.scope, CHECK_SCOPE_RANGE);
+  assert.strictEqual(check.lo, 10);
+  assert.strictEqual(check.hi, 40);
+  assert.strictEqual(check.hash, 0xabcdefn);
+  console.log('[unit] CHECK_SCOPE_RANGE encode/decode round-trip ok');
 }
 
 /**
@@ -3224,6 +3248,7 @@ async function main(): Promise<void> {
   testApplyFrameToTableCheckedAcceptsValidFrame();
   testApplyFrameToTableCheckedRejectsCorruptedCheck();
   testApplyFrameToTableCheckedRangeScope();
+  testCheckScopeRangeEncodeDecode();
   testApplyFrameToTableCheckedDoesNotRollBackPriorOps();
   testEpochResetClearsReplicatedTable();
   testNodeDropRemovesSubtreeAndDescendants();

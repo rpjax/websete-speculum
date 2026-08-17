@@ -55,6 +55,10 @@
 | 2026-08-16 | Lab **cutover** (not parallel): single version; L0–L6 sealed; replace-and-delete plan §12 | [lab-design.md](lab-design.md) §12–§13 |
 | 2026-08-16 | Lab cutover plan locked: L7–L12 — full DAG, full WS redesign, professional verdicts, §10 layout, smoke rewrite, work only on `feat/mirror-mode` | [lab-design.md](lab-design.md) §8–§13 |
 | 2026-08-16 | Lab **cutover complete** on `feat/mirror-mode` — chassis/host, Browse\|Run WS v1, DAG runner, blueprints, sharded dossier; old mains deleted | [lab-design.md](lab-design.md) |
+| 2026-08-17 | OPEN-2 **CLOSED** — detached-row GC (end-of-tick detach, `lms`-age drop, no per-row versioning) | [open.md](open.md) + [frame-protocol.md](frame-protocol.md) §10 |
+| 2026-08-17 | OPEN-3 **CLOSED** — CHECK over id ranges | [open.md](open.md) + [frame-protocol.md](frame-protocol.md) §4.1 / §10 |
+| 2026-08-17 | Inject honesty ATTR/RULESET/EOF — harness, not apply; UI 4077 PASS | [observability.md](observability.md) §7 |
+| 2026-08-17 | Lab QA closed; next = seal-gaps §2 (SVG, id space, OPEN-1) | [seal-gaps.md](seal-gaps.md) |
 
 **Stage 4 confirmed (Rodrigo):** mid-session recovery = **`emitResyncFrame` alone** (ids preserved; does not self-heal a corrupt map shape). Client = **real double buffer**, swap only after resync frame CHECK. Lab transport = existing control WS + `PlaneChannel.Control`. Production hub/gRPC is gate 5.
 

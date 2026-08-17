@@ -138,6 +138,190 @@ function applyFrameToTable(table, resync, ops, sequence = 0) {
 function evaluateCheck(table, op) {
     return op.scope === frame_1.CHECK_SCOPE_RANGE ? table.hashRange(op.lo, op.hi) : table.tableHash;
 }
+function failOp(i, reason, opName, id, message) {
+    return { ok: false, reason, failedOpIndex: i, opName, id, message };
+}
+function addressExists(table, id) {
+    return id === frame_1.DOCUMENT_ID || table.has(id);
+}
+/** §4.3 INSERT parent: Document id 1, or an ELEMENT row. */
+function isInsertParent(table, parent) {
+    if (parent === frame_1.DOCUMENT_ID)
+        return true;
+    const row = table.getRow(parent);
+    return row !== undefined && row.kind === opcodes_1.NodeKind.Element;
+}
+/** True when `id` is `ofId` or an ancestor of `ofId` (cycle prevention for INSERT). */
+function isSelfOrAncestorOf(table, id, ofId) {
+    if (id === ofId)
+        return true;
+    let cur = ofId;
+    const seen = new Set();
+    while (cur !== 0 && cur !== frame_1.DOCUMENT_ID) {
+        if (seen.has(cur))
+            return false;
+        seen.add(cur);
+        const row = table.getRow(cur);
+        if (row === undefined)
+            return false;
+        if (row.parent === id)
+            return true;
+        cur = row.parent;
+    }
+    return false;
+}
+/**
+ * §4 Pre for structural / node-state / CSSOM ops — checked before `applyOpToTable` so a
+ * precondition/`malformed` frame never mutates the table for the failing op (§6 validate then
+ * materialize). `CHECK` / `NODE_DROP` / `MAX_ROWS` stay in the main loop.
+ */
+function validateOpPre(table, op, i) {
+    switch (op.op) {
+        case opcodes_1.OpCode.Insert: {
+            if (op.ids.length > limits_1.MAX_CHILDREN_PER_OP) {
+                return failOp(i, 'malformed', 'insert', op.parent, `INSERT count > MAX_CHILDREN_PER_OP (${limits_1.MAX_CHILDREN_PER_OP}) (frame-protocol.md §4.3)`);
+            }
+            if (!isInsertParent(table, op.parent)) {
+                return failOp(i, 'precondition', 'insert', op.parent, 'INSERT parent missing or not ELEMENT/Document (frame-protocol.md §4.3)');
+            }
+            if (op.before !== 0) {
+                const beforeRow = table.getRow(op.before);
+                if (beforeRow === undefined || beforeRow.parent !== op.parent) {
+                    return failOp(i, 'precondition', 'insert', op.before, 'INSERT before must be 0 or a child of parent (frame-protocol.md §4.3)');
+                }
+            }
+            const seen = new Set();
+            for (let j = 0; j < op.ids.length; j++) {
+                const id = op.ids[j];
+                if (seen.has(id)) {
+                    return failOp(i, 'malformed', 'insert', id, 'INSERT ids must be distinct (frame-protocol.md §4.3)');
+                }
+                seen.add(id);
+                if (!table.has(id)) {
+                    return failOp(i, 'precondition', 'insert', id, 'INSERT id missing (frame-protocol.md §4.3)');
+                }
+                if (isSelfOrAncestorOf(table, id, op.parent)) {
+                    return failOp(i, 'precondition', 'insert', id, 'INSERT would create a cycle (frame-protocol.md §4.3)');
+                }
+            }
+            return null;
+        }
+        case opcodes_1.OpCode.Remove: {
+            if (op.ids.length > limits_1.MAX_CHILDREN_PER_OP) {
+                return failOp(i, 'malformed', 'remove', op.parent, `REMOVE count > MAX_CHILDREN_PER_OP (${limits_1.MAX_CHILDREN_PER_OP}) (frame-protocol.md §4.3)`);
+            }
+            if (!addressExists(table, op.parent)) {
+                return failOp(i, 'precondition', 'remove', op.parent, 'REMOVE parent missing (frame-protocol.md §4.3)');
+            }
+            for (let j = 0; j < op.ids.length; j++) {
+                const id = op.ids[j];
+                const row = table.getRow(id);
+                if (row === undefined) {
+                    return failOp(i, 'precondition', 'remove', id, 'REMOVE id missing (frame-protocol.md §4.3)');
+                }
+                if (row.parent !== op.parent) {
+                    return failOp(i, 'precondition', 'remove', id, 'REMOVE id parent mismatch (frame-protocol.md §4.3)');
+                }
+            }
+            return null;
+        }
+        case opcodes_1.OpCode.AttrSet: {
+            const row = table.getRow(op.node);
+            if (row === undefined || row.kind !== opcodes_1.NodeKind.Element) {
+                return failOp(i, 'precondition', 'attrSet', op.node, 'ATTR_SET requires an ELEMENT row (frame-protocol.md §4.4)');
+            }
+            return null;
+        }
+        case opcodes_1.OpCode.AttrDel: {
+            const row = table.getRow(op.node);
+            if (row === undefined || row.kind !== opcodes_1.NodeKind.Element) {
+                return failOp(i, 'precondition', 'attrDel', op.node, 'ATTR_DEL requires an ELEMENT row (frame-protocol.md §4.4)');
+            }
+            return null;
+        }
+        case opcodes_1.OpCode.TextSet: {
+            const row = table.getRow(op.node);
+            if (row === undefined ||
+                (row.kind !== opcodes_1.NodeKind.Text && row.kind !== opcodes_1.NodeKind.Comment)) {
+                return failOp(i, 'precondition', 'textSet', op.node, 'TEXT_SET requires TEXT or COMMENT (frame-protocol.md §4.4)');
+            }
+            return null;
+        }
+        case opcodes_1.OpCode.SheetNew: {
+            if (table.has(op.id) && table.getRow(op.id).kind !== opcodes_1.NodeKind.Sheet) {
+                return failOp(i, 'malformed', 'sheetNew', op.id, 'SHEET_NEW id exists with a non-SHEET kind (frame-protocol.md §4.6)');
+            }
+            if (op.scope === frame_1.CSSOM_SCOPE_PIERCE_HOST && !addressExists(table, op.hostNode)) {
+                return failOp(i, 'precondition', 'sheetNew', op.hostNode, 'SHEET_NEW PIERCE_HOST hostNode missing (frame-protocol.md §4.6)');
+            }
+            const parent = op.hostNode === 0 ? frame_1.DOCUMENT_ID : op.hostNode;
+            if (op.before !== 0) {
+                const beforeRow = table.getRow(op.before);
+                if (beforeRow === undefined || beforeRow.parent !== parent) {
+                    return failOp(i, 'precondition', 'sheetNew', op.before, 'SHEET_NEW before must be 0 or a child of the sheet parent (frame-protocol.md §4.6)');
+                }
+            }
+            return null;
+        }
+        case opcodes_1.OpCode.SheetDrop: {
+            for (let j = 0; j < op.ids.length; j++) {
+                const id = op.ids[j];
+                const row = table.getRow(id);
+                if (row === undefined || row.kind !== opcodes_1.NodeKind.Sheet) {
+                    return failOp(i, 'precondition', 'sheetDrop', id, 'SHEET_DROP requires SHEET ids (frame-protocol.md §4.6)');
+                }
+            }
+            return null;
+        }
+        case opcodes_1.OpCode.SheetOrder: {
+            for (let j = 0; j < op.ids.length; j++) {
+                const id = op.ids[j];
+                const row = table.getRow(id);
+                if (row === undefined || row.kind !== opcodes_1.NodeKind.Sheet) {
+                    return failOp(i, 'precondition', 'sheetOrder', id, 'SHEET_ORDER requires SHEET ids (frame-protocol.md §4.6)');
+                }
+            }
+            return null;
+        }
+        case opcodes_1.OpCode.RuleNew: {
+            const sheet = table.getRow(op.sheet);
+            if (sheet === undefined || sheet.kind !== opcodes_1.NodeKind.Sheet) {
+                return failOp(i, 'precondition', 'ruleNew', op.sheet, 'RULE_NEW sheet missing or not SHEET (frame-protocol.md §4.6)');
+            }
+            if (table.has(op.id) && table.getRow(op.id).kind !== opcodes_1.NodeKind.Rule) {
+                return failOp(i, 'malformed', 'ruleNew', op.id, 'RULE_NEW id exists with a non-RULE kind (frame-protocol.md §4.6)');
+            }
+            if (op.before !== 0) {
+                const beforeRow = table.getRow(op.before);
+                if (beforeRow === undefined ||
+                    beforeRow.kind !== opcodes_1.NodeKind.Rule ||
+                    beforeRow.parent !== op.sheet) {
+                    return failOp(i, 'precondition', 'ruleNew', op.before, 'RULE_NEW before must be 0 or a rule of that sheet (frame-protocol.md §4.6)');
+                }
+            }
+            return null;
+        }
+        case opcodes_1.OpCode.RuleDrop: {
+            for (let j = 0; j < op.ids.length; j++) {
+                const id = op.ids[j];
+                const row = table.getRow(id);
+                if (row === undefined || row.kind !== opcodes_1.NodeKind.Rule || row.parent !== op.sheet) {
+                    return failOp(i, 'precondition', 'ruleDrop', id, 'RULE_DROP requires RULE ids parented to sheet (frame-protocol.md §4.6)');
+                }
+            }
+            return null;
+        }
+        case opcodes_1.OpCode.RuleSet: {
+            const row = table.getRow(op.id);
+            if (row === undefined || row.kind !== opcodes_1.NodeKind.Rule) {
+                return failOp(i, 'precondition', 'ruleSet', op.id, 'RULE_SET requires a RULE row (frame-protocol.md §4.6)');
+            }
+            return null;
+        }
+        default:
+            return null;
+    }
+}
 /**
  * §6 phase 1, real two-phase apply (Stage 2, frame-protocol-production-completeness): applies
  * each op's table effect in order, evaluating `CHECK` inline against the table's state *at the
@@ -146,11 +330,10 @@ function evaluateCheck(table, op) {
  * phase 2 (materialize into the DOM) when this returns `ok: false` (§P3: "if phase 1 fails, the
  * DOM was never touched").
  *
- * Beyond `CHECK`, this is also where the two Stage-3 preconditions the wire-effect switch
- * (`applyOpToTable`) does not itself validate are enforced: `NODE_DROP` of an absent id
- * (`malformed`, closes OPEN-1) or an attached id (`precondition`, §4.2's own text), and
- * `NODE_NEW` that would grow the table past `MAX_ROWS` (`precondition`, §8) — both checked
- * *before* the corresponding table mutation, matching §8's "checked before any allocation".
+ * Beyond `CHECK`, this enforces §4 Pre for structure / node-state / CSSOM ops, `NODE_DROP`
+ * absent/attached, and `NODE_NEW`/`SHEET_NEW`/`RULE_NEW` `MAX_ROWS` — all *before* the
+ * corresponding table mutation (§8 "checked before any allocation"; §6 "validate then
+ * materialize").
  *
  * Ops before the failing one have already mutated `table` — not rolled back. This is
  * intentional, not a shortcut: §P3 scopes phase 1 as "pure memory, no DOM", and a table left
@@ -185,24 +368,10 @@ function applyFrameToTableChecked(table, resync, ops, sequence = 0) {
             for (let j = 0; j < op.ids.length; j++) {
                 const id = op.ids[j];
                 if (!table.has(id)) {
-                    return {
-                        ok: false,
-                        reason: 'malformed',
-                        failedOpIndex: i,
-                        opName: 'nodeDrop',
-                        id,
-                        message: 'NODE_DROP of an absent id (frame-protocol.md OPEN-1)',
-                    };
+                    return failOp(i, 'malformed', 'nodeDrop', id, 'NODE_DROP of an absent id (frame-protocol.md OPEN-1)');
                 }
                 if (table.getRow(id).parent !== 0) {
-                    return {
-                        ok: false,
-                        reason: 'precondition',
-                        failedOpIndex: i,
-                        opName: 'nodeDrop',
-                        id,
-                        message: 'NODE_DROP of an attached row (frame-protocol.md §4.2)',
-                    };
+                    return failOp(i, 'precondition', 'nodeDrop', id, 'NODE_DROP of an attached row (frame-protocol.md §4.2)');
                 }
             }
             for (let j = 0; j < op.ids.length; j++)
@@ -212,15 +381,11 @@ function applyFrameToTableChecked(table, resync, ops, sequence = 0) {
         if ((op.op === opcodes_1.OpCode.NodeNew || op.op === opcodes_1.OpCode.SheetNew || op.op === opcodes_1.OpCode.RuleNew) &&
             !table.has(op.id) &&
             table.size >= limits_1.MAX_ROWS) {
-            return {
-                ok: false,
-                reason: 'precondition',
-                failedOpIndex: i,
-                opName: 'nodeNew',
-                id: op.id,
-                message: `MAX_ROWS (${limits_1.MAX_ROWS}) exceeded (frame-protocol.md §8)`,
-            };
+            return failOp(i, 'precondition', 'nodeNew', op.id, `MAX_ROWS (${limits_1.MAX_ROWS}) exceeded (frame-protocol.md §8)`);
         }
+        const pre = validateOpPre(table, op, i);
+        if (pre !== null)
+            return pre;
         applyOpToTable(table, op);
     }
     return { ok: true };

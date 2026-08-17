@@ -3,8 +3,9 @@
  * docs/page-projection/spec/frame-protocol.md §3–§4 — one opcode space, table + structure + node state.
  * Values are wire-stable: never renumber, only append. Ranges match §3 exactly.
  *
- * CSSOM opcodes `0xA0–0xA5` (§4.6) are on the wire; client phase 2 does not materialize owned
- * CSSOM yet (C6). `Check`/`NodeDrop` are used. OPEN-2 deferred GC still applies to DOM rows.
+ * CSSOM opcodes `0xA0–0xA5` (§4.6) are on the wire. Lab client phase 2 materializes owned
+ * constructed sheets on `adoptedStyleSheets` + `CSSStyleRule` (C6); pierce still desyncs.
+ * `Check`/`NodeDrop` are used. OPEN-2 deferred GC still applies to DOM rows.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.NodeKind = exports.OpCode = void 0;

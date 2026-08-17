@@ -3,6 +3,7 @@
 **Status:** normative for how we **observe** and **assert** the lab engine.  
 **Not** the accept bar ([acceptance.md](acceptance.md)).  
 **Not** the frame opcodes ([frame-protocol.md](frame-protocol.md)).  
+**Not** the lab host/UI/CLI/dossier **product shape** — that target design is [lab-design.md](lab-design.md) (chassis, session id, browse vs run, blueprints, sharded dossier). This file still **wins** on probes vs events, coherent snapshot, and I10.  
 **Who decides architecture:** Rodrigo. This file records sealed rules from 2026-08-14 lab work.
 
 If this file conflicts with a green smoke that compared telemetry fields to pass an invariant, **this file wins**.
@@ -16,7 +17,7 @@ There is **one** place that owns Patchright, inject of `virtual.js`, the data pl
 The **lab is a caller**, not a second browser:
 
 - `LabSession` must not launch Chromium, must not call `page.evaluate` / CDP itself, must not open a private data-plane WebSocket beside the session.
-- Humans use the lab UI (`npm run lab:projection`). Agents use the same suite via CLI (`npm run lab:run`). Both compose **the same** `runTools` / `report.json`.
+- Humans use the lab UI (`npm run lab:projection`). Agents use the same suite via CLI (`npm run lab:run -- --blueprint …`). Both compose **the same** runner / dossier.
 - gRPC / .NET in production will be another caller of the same session contract. Do not grow lab-only Chromium shortcuts that production cannot share.
 
 A second in-page producer, a lab-owned Chromium, or a “bootstrap dump” to make hopdiag green is **ad-hoc** ([acceptance.md](acceptance.md) T3).
@@ -35,7 +36,7 @@ All of this is *telemetry* in the product sense. They are **not interchangeable*
 
 **CPU profiling is a probe**, not an algorithm event. Samples come from CDP `Profiler` on the Chromium process. Capability `cpuProfiling` at launch; refuse if off.
 
-**`report.json` is not a BrowserSession method.** The session exposes streams and probes. The **lab** composes the dossier (`lab-runs/<timestamp>-<slug>/`, start diagnosis at `report.json`). Verdicts are `pass` | `fail` | `skipped` (skipped must say why — e.g. no client apply surface on CLI).
+**`dossier` is not a BrowserSession method.** The session exposes streams and probes. The **lab** composes the dossier (`lab-runs/<timestamp>-<slug>/`, start at `report.json` pointer → `manifest.json` / `verdicts.json`). Verdicts are `pass` | `fail` | `skipped` (skipped must say why — e.g. no client apply surface on CLI).
 
 ---
 
@@ -94,7 +95,7 @@ discard mid-churn O2 red as “torn read, ignore.”
 A snapshot is a **state snapshot**, not “a DOM dump.” Any indexer that must be true at S belongs on that object.
 Default Virtual `flushAndSnapshot` CSSOM mode is **`none`** (halt idle; DOM O2 is not delayed for a CSSOM scan). Pass `{ cssom: 'committed' | 'scan' }` when the probe needs CSSOM — [cssom-poll-algorithm.md](cssom-poll-algorithm.md) use cases. Resync is not a snapshot: it always blocking-scans CSSOM.
 
-**What a lab CLI `--iso` run actually proves today:** Virtual DOM O2 + digest at S, **CSSOM O2** (table Sheet/Rule × live Virtual `cssRules`, I2 top-level) via one `flushProjectionSnapshot({ cssom: 'scan' })` turn, wire invariants, and table×table vs Node phase-1 apply. It does **not** prove tree×tree, Projected CSS 1:1, or C6. `cssomPoll` is investigation only (I10). O1 / O4 / O5 are not implemented.
+**What a lab CLI `--iso` run actually proves today:** Virtual DOM O2 + digest at S, **CSSOM O2** (table Sheet/Rule × live Virtual `cssRules`, I2 top-level) via one `flushProjectionSnapshot({ cssom: 'scan' })` turn, wire invariants, and table×table vs Node phase-1 apply. It does **not** prove tree×tree, or automated Projected CSS 1:1 vs Virtual paint. Lab client **does** materialize constructed CSSOM (C6) on the 4077 surface; CLI `--iso` still does not assert that paint. `cssomPoll` is investigation only (I10). O1 / O4 / O5 are not implemented. Seal kill lists: [seal-gaps.md](seal-gaps.md).
 
 ---
 
@@ -103,7 +104,7 @@ Default Virtual `flushAndSnapshot` CSSOM mode is **`none`** (halt idle; DOM O2 i
 | Oracle | How it is taken (lab) |
 |--------|------------------------|
 | O2 local (table × Virtual live DOM) | `takeRecords` + drain + emit S + oracle, one turn ([observability.md](observability.md) §5). Sheet/Rule kinds are excluded from child-order. |
-| O2 CSSOM (table × Virtual live CSSOM) | Same turn as `--iso` after `cssom: 'scan'` (stash pending → flush → compare). Readable `cssRules` only; unreadable sheets are not required. Verdict `isomorphism.cssom` — not DOM O2, not Projected, not C6. Lab gate: `npm run lab:cssom-foundation` — **observe then fold** ([lab README](../../../Refactor/sidecar/browser/mirror/projection/lab/README.md)); `cssomPoll` is not a mid-run gate. Heavy visual: `npm run lab:cssom-heavy` + human 4077 `cssom-heavy.html`. |
+| O2 CSSOM (table × Virtual live CSSOM) | Same turn as `--iso` after `cssom: 'scan'` (stash pending → flush → compare). Readable `cssRules` only; unreadable sheets are not required. Verdict `iso.cssom` — not DOM O2, not automated Projected paint iso. Lab gate: `npm run lab:run -- --blueprint cssom-foundation` — **observe then fold** ([lab-design.md](lab-design.md)); `cssomPoll` is not a mid-run gate. Heavy visual: `npm run lab:run -- --blueprint cssom-heavy` + human 4077 `cssom-heavy.html` (C6 constructed paint on Projected). |
 | O2 structural (Virtual tree × client tree) | Same probe pair at S — not a mid-run torn `requestSnapshot` while the clock ticks |
 | O2 table×table | `ReplicatedTableDigest` Virtual vs apply at S — CLI: Node caller table; UI: DOM client table |
 | O1 / O4 / O5 | Unchanged — not implemented; do not fake with event greens |
@@ -234,8 +235,8 @@ blocking timer. `pollMs` is wall time (includes waits between slices), not CPU.
 | `opCount` / `opSheetNew` … `opRuleSet` | §4.6 ops emitted this pass (zeros explicit) |
 
 Do not pass/fail table, DOM, or Projected CSS from these fields. C6 apply telemetry is not this event.
-Lab `cssomFoundationRun` **observes** these events and folds at the end: zero idle polls over the
-whole run (cap on) may fail `idle-sensor`; it is not a mid-run gate. See [lab README](../../../Refactor/sidecar/browser/mirror/projection/lab/README.md).
+Lab `cssom-foundation` blueprint **observes** these events and folds at the end: zero idle polls over the
+whole run (cap on) may fail `sensor.idle`; it is not a mid-run gate. See [lab-design.md](lab-design.md).
 
 Algorithm (worst-case-first, I1–I11): [cssom-poll-algorithm.md](cssom-poll-algorithm.md).
 

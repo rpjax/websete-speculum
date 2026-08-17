@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>CSSOM double-emit probe</title>
+    <style id="author-style">
+      #author-probe { color: rgb(255, 0, 0); }
+    </style>
+  </head>
+  <body>
+    <p id="author-probe">author</p>
+    <p id="adopted-probe">adopted</p>
+    <script>
+      const constructed = new CSSStyleSheet();
+      constructed.replaceSync('#adopted-probe { color: rgb(0, 0, 255); }');
+      document.adoptedStyleSheets = [constructed];
+    </script>
+  </body>
+</html>

@@ -613,6 +613,19 @@ export interface BrowserSession {
     o2?: import('./mirror/projection/models/tableLiveOracle').TableLiveOracleResult;
     table?: { rowCount: number; tableHash: string };
     cssomO2?: import('./mirror/projection/models/cssomTableLiveOracle').CssomTableLiveOracleResult | null;
+    nodeNewConnected?: {
+      ok: boolean;
+      checked: number;
+      disconnectedIds: number[];
+    };
+    cascade?: {
+      authorColor: string;
+      adoptedColor: string;
+      adoptedCount: number;
+      styleSheetCount: number;
+      styleElCount: number;
+      doublePaint: boolean;
+    } | null;
     tree?: unknown;
     reason?: string;
   }>;

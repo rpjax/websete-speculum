@@ -30,6 +30,16 @@ Injection order: `buildConfigPreScript(opts)` → `loadInpageScript()` (`virtual
 Paste / console: set `{ transport: 'console', frameRateHz: 60 }` then paste `virtual.js`
 (see `virtual/COMPONENTS.md`).
 
+## Run the lab
+
+From `Refactor/sidecar` — install once (`npm ci`), then:
+
+```bash
+npm run lab:projection
+```
+
+Open http://127.0.0.1:4077/ → Connect. Full deploy (CLI, CSSOM gates, env): [sidecar README](../../../README.md#pageprojection-lab-local). Lab internals (today): [lab/README.md](lab/README.md). Target architecture: [lab-design.md](../../../../../docs/page-projection/spec/lab-design.md).
+
 ## Build
 
 ```bash

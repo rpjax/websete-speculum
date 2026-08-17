@@ -1,5 +1,7 @@
 <!-- V4 2026-08-14 -->
 > Coverage truth for the V4 engine. Index: [README.md](README.md). Effect asserts only.
+> Lab DOM/CSSOM seal kill lists: [seal-gaps.md](seal-gaps.md). Proposed `PP-APPLY-*` /
+> `PP-CSSOM-A-*` rows are **open** until asserts land — do not mark PASS.
 > Rows that still say childList/establish/Node-mirror were **re-authored below** to V4 opcodes.
 > `PP-F-4` (pierce iframes) is **OPEN-6** — fail as unsupported, do not fake a pass.
 > `PP-DEN-1` remains unrun. Budgets: [budgets.md](budgets.md). Oracles: [oracles.md](oracles.md).
@@ -31,7 +33,7 @@ A package (`WP`) is complete when **all** its `PP-*` rows pass and **all** its r
 | `PP-D16-2` | Popover shown on Virtual is shown on Projected | WP11 |
 | `PP-D16-3` | Media pause / seek on Virtual is reflected on the client's media element | WP11 |
 | `PP-D16-4` | `setCustomValidity` makes `:invalid` match on Projected | WP11 |
-| `PP-FR-1` | A node created and destroyed within one frame is never sent. **V4 walk (2026-08-14):** drain `!isConnected` ⇒ no `NODE_NEW`/`INSERT`. Lab snapshot probe (`NODE_NEW` ⇒ connected) not built yet — halt iso is blind to this class ([observability.md](observability.md) §8) | WP4 |
+| `PP-FR-1` | A node created and destroyed within one frame is never sent. **V4 walk (2026-08-14):** drain `!isConnected` ⇒ no `NODE_NEW`/`INSERT`. Lab snapshot probe: `flushAndSnapshot.nodeNewConnected` / fold `probe.nodeNewConnected` (soak/stress); halt iso alone does not prove this class ([observability.md](observability.md) §8) | WP4 |
 | `PP-FR-2` | A 200-node subtree rendered in one task produces batched `INSERT`s (sibling runs), not 200 separate parent ops | WP4 |
 | `PP-FR-3` | N attribute writes to one node within a frame produce one `ATTR_SET` (or equivalent coalesced op), not N | WP4 |
 | `PP-FR-4` | A frame with no operations consumes no `sequence` | WP4 |
@@ -95,6 +97,12 @@ A package (`WP`) is complete when **all** its `PP-*` rows pass and **all** its r
 | `PP-CSSOM-F-6` | Unreadable `cssRules` sheet is not required in the table; readable sheets still match (I7) | lab |
 | `PP-CSSOM-F-7` | After `requestResync`, `cssom: 'scan'` table × live identical | lab |
 | `PP-CSSOM-H-1` | Heavy magazine fixture: after settle and after theme/accent/feature/reorder/resync, `cssom: 'scan'` table × live identical; no `SHEET_DROP` on in-place theme. Human: Projected 4077 perceived 1:1 with Virtual (masthead, cream/ink, hot card) | lab |
+| `PP-APPLY-1` | Mid-batch desync: `DomFrameApplier.flush` does **not** apply later frames in the same batch (**SEAL-DOM-P0-FLUSH**). Unit: `testDomFrameApplierFlushStopsOnDesync` → `models/applyBatch.ts` `applyFramesUntilDesync` (wired from `client/applyDom.ts` flush) | lab |
+| `PP-APPLY-2` | Failed `setAttribute` / invalid attr does not leave table attrs ahead of live DOM without desync (**SEAL-DOM-P0-ATTR**). Function: `testApplyAttrPairsReportsFailure`. Parity: lab `apply-attrs`. Desync: `apply-honesty-desync-attr` (DOM client; CLI skips). | lab |
+| `PP-APPLY-3` | Phase-1 precondition failure aborts the frame with **zero** phase-2 DOM/CSSOM side effects (**SEAL-DOM-P0-PHASE1**). Unit: `testApplyFrameToTableCheckedPhase1Pres` | lab |
+| `PP-CSSOM-A-1` | Grouping-rule content change: producer emits `RULE_DROP`+`RULE_NEW` not `RULE_SET`; StyleRule still `RULE_SET`; client `RULE_SET` on non-style desyncs (**SEAL-CSSOM-P0-RULESET**). Emit+table: `testCssomGroupingContentChangeEmitsDropNew`. Lab: `cssom-foundation` `ops.mediaInner` + cssomO2. Desync: `apply-honesty-desync-ruleset` (DOM client; CLI skips). | lab |
+| `PP-CSSOM-A-2` | Author `<style>`/`link` vs constructed `adoptedStyleSheets`: one effective paint path after settle; no double cascade / missing sheet (**SEAL-CSSOM-P0-DOUBLE**). Emit: `collectCssomPlaneSheets` (no `ownerNode`). Lab: `cssom-double` Virtual cascade+cssomO2; Projected `doublePaint` requires lab client (CLI skips). | lab |
+| `PP-CSSOM-A-3` | End-of-frame CSSOM verify: every table Rule id has a live handle in claimed sheet/order; mismatch desyncs (**SEAL-CSSOM-P0-EOF**). Function: `testCssomEndOfFrameMatch`. Parity: foundation cssomO2 snaps. Desync: `apply-honesty-desync-eof` (DOM client; CLI skips). | lab |
 | `PP-DEN-1` | 100 concurrent sessions hold the P1–P6 percentiles (**O4**) | WP14 |
 | `PP-DEN-2` | The degradation knee is measured and recorded as a regression metric | WP2, WP14 |
 

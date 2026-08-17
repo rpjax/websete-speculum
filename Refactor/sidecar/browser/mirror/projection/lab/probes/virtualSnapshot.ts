@@ -10,7 +10,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Page } from 'patchright';
-import type { TreeNode } from '../models/treeNode';
+import type { TreeNode } from '../../models/treeNode';
 
 const BUNDLE_NAME = 'domTreeSnapshot.js';
 
@@ -67,6 +67,8 @@ export function coherentSnapshotExpression(
       table: flushed.table,
       cssom: flushed.cssom,
       cssomO2: flushed.cssomO2,
+      nodeNewConnected: flushed.nodeNewConnected,
+      cascade: flushed.cascade,
       tree,
     };
   })()`;

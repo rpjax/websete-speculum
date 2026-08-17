@@ -1,0 +1,18 @@
+[
+  { "id": "demo", "path": "demo.html", "tags": ["dom", "smoke"], "notes": "Default demo fixture" },
+  { "id": "anim-js-60", "path": "anim-js.html?fps=60", "tags": ["dom", "attr", "motion"], "notes": "Honk ballet 60fps via style.transform" },
+  { "id": "anim-js-30", "path": "anim-js.html?fps=30", "tags": ["dom", "attr", "motion"], "notes": "Honk ballet 30fps" },
+  { "id": "static-dom", "path": "static-dom.html", "tags": ["dom"] },
+  { "id": "forms-state", "path": "forms-state.html", "tags": ["dom", "forms"] },
+  { "id": "scroll", "path": "scroll.html", "tags": ["dom", "scroll"] },
+  { "id": "mutation-churn", "path": "mutation-churn.html", "tags": ["dom", "stress"] },
+  { "id": "stress-churn", "path": "stress-churn.html", "tags": ["dom", "stress", "pp-fr-1"] },
+  { "id": "prepend-stress", "path": "prepend-stress.html", "tags": ["dom", "stress"] },
+  { "id": "insert-before-remove", "path": "insert-before-remove.html", "tags": ["dom"] },
+  { "id": "apply-attrs", "path": "apply-attrs.html", "tags": ["dom", "attr"], "notes": "ATTR success via __cssomLab.act('attrSet')" },
+  { "id": "cssom-double", "path": "cssom-double.html", "tags": ["cssom", "c6", "pp-cssom-a-2"], "notes": "Author <style> + constructed adopted; no double-emit" },
+  { "id": "cssom-scale-5k", "path": "cssom-scale.html", "tags": ["cssom", "volume"] },
+  { "id": "cssom-scale-14k", "path": "cssom-scale.html?n=14000", "tags": ["cssom", "volume"] },
+  { "id": "cssom-heavy", "path": "cssom-heavy.html", "tags": ["cssom", "visual", "c6"], "notes": "Magazine; human visual bar" },
+  { "id": "cssom-heavy-static", "path": "cssom-heavy.html?auto=0", "tags": ["cssom", "gate"], "notes": "Heavy without auto theme; CLI acts" }
+]

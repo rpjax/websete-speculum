@@ -1,6 +1,93 @@
 # Speculum sidecar (Refactor) — Patchright BrowserSession over gRPC
 
-## Run
+Two ways to run this tree:
+
+| Path | What it is | Ports | Chrome |
+|------|------------|-------|--------|
+| **gRPC host** (`npm start`) | Production-shaped sidecar for Api | `50051` gRPC, `3001` health | mock or Patchright |
+| **PageProjection lab** (`npm run lab:projection`) | Dev-only V4 engine as a `BrowserSession` caller. No gRPC, no .NET. | `4077` HTTP + WS | Patchright (one Virtual per client session) |
+
+Production `PatchrightBrowserSession` / `LivePageProjection` is unchanged until M1 cutover. Lab detail (today): [browser/mirror/projection/lab/README.md](browser/mirror/projection/lab/README.md). Lab **target design**: [docs/page-projection/spec/lab-design.md](../../docs/page-projection/spec/lab-design.md). Spec index: [docs/page-projection/spec/README.md](../../docs/page-projection/spec/README.md).
+
+## PageProjection lab (local)
+
+Dev surface for Projected Live. The lab process **does not** launch Chromium or call CDP itself — `V4ProjectionBrowserSession` owns Patchright, inject, dataplane, and probes. HTTP serves the client shell + fixtures; frames are relayed on the lab WebSocket for apply.
+
+### Prerequisites
+
+- Node 20+ (Docker image uses 22). From this directory: `Refactor/sidecar`.
+- `npm ci` (or `npm install`) once.
+- Chrome/Chromium that Patchright can launch (same machine). Headless by default.
+
+```bash
+cd Refactor/sidecar
+npm ci
+```
+
+### Human UI (deploy the lab)
+
+```bash
+npm run lab:projection
+# Windows PowerShell, visible Chrome:
+# $env:SPECULUM_LAB_HEADED='1'; npm run lab:projection
+# Unix:
+# SPECULUM_LAB_HEADED=1 npm run lab:projection
+```
+
+That script builds `virtual.js`, the lab client, the snapshot bundle, runs `tsc`, then starts the server.
+
+Open **http://127.0.0.1:4077/** → **Connect**.
+
+| Control | Effect |
+|---------|--------|
+| **Browse → Start Virtual** | Free navigation; stays up until Stop |
+| **Browse → Stop** | Stops Virtual; exports dossier |
+| **Run → Start run** | Cold blueprint run; progress + verdicts; stops Virtual when done |
+| **Clear surface** | Empties the projected iframe |
+
+Bind: `SPECULUM_LAB_HOST` (default `127.0.0.1`), `SPECULUM_LAB_PORT` (default `4077`). Fixtures: `http://127.0.0.1:4077/fixtures/demo.html`.
+
+This is **not** the gRPC sidecar. Do not point `Sidecar:GrpcAddress` at 4077.
+
+### Agent CLI
+
+```bash
+npm run lab:run -- --blueprint soak fixtures/demo.html 15s --cpu --iso --out lab-runs
+```
+
+Prints the dossier directory (last line). Start at `report.json` (pointer) → `verdicts.json` / `manifest.json`. Exit `0` if no `fail`.
+
+On Windows, prefer positional / bare words (`iso`, `cpu`, `headed`) — npm may swallow dashed flags.
+
+| Flag | Meaning |
+|------|---------|
+| `--blueprint` / `-b` | Blueprint id (`soak`, `cssom-foundation`, `cssom-heavy`) |
+| `--url` or positional | `http(s)://…` or `fixtures/<file>` |
+| `--duration` or positional | `15000` / `15s` / `1m` |
+| `--cpu` / `cpu` | CDP CPU probe |
+| `--iso` / `iso` | Coherent snapshot iso |
+| `--no-invariants` | Skip wire invariants in fold |
+| `--headed` | Visible Chrome |
+| `--out` | Report root (default `lab-runs/`) |
+
+```bash
+npm run lab:cssom-foundation
+npm run lab:cssom-heavy
+```
+
+Sugar only — same runner. Foundation suite then runs small `cssom-scale` soak `--iso` children.
+
+### Lab env
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `SPECULUM_LAB_HOST` | `127.0.0.1` | HTTP/WS bind |
+| `SPECULUM_LAB_PORT` | `4077` | HTTP/WS port |
+| `SPECULUM_LAB_HEADED` | unset | `1` = visible Chrome |
+
+Smoke: `npm run smoke:projection-lab`. Units: `npm run unit` (includes V4 session tests).
+
+## Run (gRPC host)
 
 ```bash
 # interactive harness (no Chrome) — ~60 fps JPEG scene + full input feedback

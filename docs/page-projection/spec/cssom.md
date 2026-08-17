@@ -187,9 +187,10 @@ added:   [ { index, rule } … ]   // rule carries Speculum id + body
 - Snapshot of **that** rule only (enough to apply the new authored effect).  
 - Not a separate wire op per CSS property — one `patch` per mutated rule
   atom (same idea as Dom `patch`).  
-- **Apply in place** on the existing projected rule (C3.1) — field encoding
+- **Apply in place** on the existing projected **`CSSStyleRule`** (C3.1) — field encoding
   (`cssText` vs selectorText+declarations map) is impl, as long as it does
-  not delete+reinsert the rule.  
+  not delete+reinsert that style rule. Grouping-rule content change is `ruleList`
+  drop+new at emit time, not a hidden replace inside `RULE_SET`.  
 - Nested structural edits: `ruleList` on the owning sheet (or grouping
   rule’s child list if sensors require — still list-op, not parent `patch`).
 
@@ -213,7 +214,8 @@ ops that tear down more CSSOM than necessary — that is what causes flicker.
 
 | Virtual mutation | Emit |
 |------------------|------|
-| One declaration / `selectorText` on an existing rule | **`patch`** that rule only |
+| One declaration / `selectorText` on an existing **`CSSStyleRule`** | **`patch`** that rule only (`RULE_SET`) |
+| Content change on a grouping rule (in-place patch cannot work) | **`ruleList`**: `RULE_DROP` + `RULE_NEW` (new id). Not `RULE_SET`. Not whole-sheet `sheetList`. |
 | `insertRule` / `deleteRule` (one or a coherent batch on **one** sheet) | **`ruleList`** with only those removes/adds |
 | Sheet appears / disappears / adopted list membership | **`sheetList`** with only those sheets |
 | Epoch boot / `generation++` | **`install`** once |
@@ -467,6 +469,7 @@ T11 cutover (rename + new ops/planes together preferred).
 | 2026-08-06 | Meta | **SEALED** CSSOM plane behaviour + PageProjection naming. No open CSSOM contract gaps; cutover = T11/T12 only. |
 | 2026-08-06 | Input | **LOCKED** E2E rename includes input (`PageProjectionIntent`); desync disarm is client-only — Virtual gets no desync signal; no input `resync` type. |
 | 2026-08-15 | C5 | **Unchanged.** Lab poll algorithm documented; not a C5 relock. |
+| 2026-08-16 | C3.1 | Grouping-rule content change (in-place patch cannot work): producer emits `RULE_DROP`+`RULE_NEW`, not `RULE_SET`. `CSSStyleRule` still in-place `RULE_SET`. Client does not hide replace inside `RULE_SET`. Rodrigo. |
 
 ---
 

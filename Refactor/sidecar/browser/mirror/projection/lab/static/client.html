@@ -7,21 +7,22 @@
     <style>
       :root {
         color-scheme: light;
-        --bg: #ecece8;
-        --ink: #161616;
-        --muted: #5a5a56;
-        --line: #d5d5ce;
-        --accent: #0b5fff;
-        --accent-hover: #094ed6;
-        --panel: #fff;
+        --bg: #e8e7e2;
+        --ink: #141413;
+        --muted: #5c5b55;
+        --line: #d2d1c8;
+        --panel: #fbfbf8;
+        --accent: #1a5cff;
+        --accent-soft: #e8efff;
         --danger: #b42318;
         --ok: #0f7b3a;
-        --warn: #9a6700;
+        --warn: #8a5b00;
+        --surface: #141414;
       }
       * { box-sizing: border-box; }
       body {
         margin: 0;
-        font: 13.5px/1.45 "Segoe UI", system-ui, sans-serif;
+        font: 13.5px/1.45 "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
         background: var(--bg);
         color: var(--ink);
         min-height: 100vh;
@@ -30,56 +31,142 @@
       }
       header {
         display: grid;
-        gap: 0.55rem;
-        padding: 0.7rem 1rem 0.75rem;
+        gap: 0.65rem;
+        padding: 0.75rem 1rem 0.85rem;
         border-bottom: 1px solid var(--line);
         background: var(--panel);
       }
       .hdr-top {
         display: flex;
         align-items: center;
-        gap: 0.75rem;
+        gap: 0.85rem;
         flex-wrap: wrap;
       }
       header h1 {
-        font-size: 0.95rem;
+        font-size: 0.92rem;
         font-weight: 650;
         margin: 0;
         letter-spacing: -0.02em;
       }
-      #status {
-        margin-left: auto;
+      .mode-seg {
+        display: inline-flex;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        overflow: hidden;
+        background: #fff;
+      }
+      .mode-seg button {
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+        padding: 0.35rem 0.85rem;
+        cursor: pointer;
+        font: inherit;
+        font-weight: 550;
+        color: var(--muted);
+      }
+      .mode-seg button + button { border-left: 1px solid var(--line); }
+      .mode-seg button.active {
+        background: var(--accent);
+        color: #fff;
+      }
+      .mode-seg button:disabled { opacity: 0.45; cursor: not-allowed; }
+      .mode-blurb {
         font-size: 12px;
         color: var(--muted);
-        padding: 0.2rem 0.55rem;
+        max-width: 28rem;
+      }
+      #statusStrip {
+        margin-left: auto;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.35rem;
+        justify-content: flex-end;
+        max-width: min(640px, 100%);
+      }
+      .chip {
+        font-size: 11.5px;
+        font-family: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+        color: var(--muted);
+        padding: 0.2rem 0.5rem;
         border: 1px solid var(--line);
         border-radius: 999px;
-        background: #f7f7f4;
-        max-width: min(520px, 100%);
+        background: #f4f4ef;
+        max-width: 18rem;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
       }
-      .hdr-row {
+      .chip.warn { color: var(--warn); border-color: #e6d4a8; background: #fff8e8; }
+      .chip.danger { color: var(--danger); border-color: #f0c4c0; background: #fdf4f3; }
+      .chip.ok { color: var(--ok); border-color: #b7e0c5; background: #f0faf3; }
+      .chip.live { color: var(--accent); border-color: #b7c9ff; background: var(--accent-soft); }
+
+      .target-row, .action-row {
         display: flex;
         flex-wrap: wrap;
-        gap: 0.4rem;
+        gap: 0.45rem;
         align-items: center;
       }
-      header select, header input[type="url"] {
-        padding: 0.38rem 0.5rem;
+      .field {
+        display: flex;
+        flex-direction: column;
+        gap: 0.18rem;
+        min-width: 0;
+      }
+      .field > span {
+        font-size: 10.5px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--muted);
+        font-weight: 600;
+      }
+      .field.select { flex: 0 1 14rem; }
+      .field.url { flex: 1 1 240px; }
+      header select,
+      header input[type="url"],
+      header input[type="number"] {
+        padding: 0.4rem 0.55rem;
         border: 1px solid var(--line);
         border-radius: 6px;
         background: #fff;
         font: inherit;
+        width: 100%;
       }
-      header select { max-width: 11rem; }
-      header input[type="url"] {
-        flex: 1 1 220px;
-        min-width: 180px;
+      header input[type="url"][readonly] {
+        background: #f0f0ea;
+        color: var(--muted);
+        cursor: default;
+        border-style: dashed;
       }
+      .bp-desc {
+        font-size: 12px;
+        color: var(--muted);
+        flex: 1 1 12rem;
+        min-width: 10rem;
+      }
+      .soak-box {
+        display: inline-flex;
+        flex-wrap: wrap;
+        gap: 0.55rem;
+        align-items: end;
+        padding: 0.35rem 0.55rem;
+        border: 1px dashed var(--line);
+        border-radius: 8px;
+        background: #f7f7f2;
+      }
+      .soak-box .field { min-width: 5.5rem; }
+      .soak-box label.chk {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+        font-size: 12.5px;
+        padding-bottom: 0.35rem;
+        color: var(--ink);
+      }
+
       header button, aside button {
-        padding: 0.38rem 0.7rem;
+        padding: 0.4rem 0.75rem;
         border: 1px solid var(--line);
         border-radius: 6px;
         background: #fff;
@@ -87,17 +174,20 @@
         font: inherit;
       }
       header button:hover:not(:disabled), aside button:hover:not(:disabled) {
-        border-color: #bbb;
+        border-color: #aea99c;
       }
-      header button:disabled, aside button:disabled { opacity: 0.4; cursor: not-allowed; }
-      header button.primary, aside button.primary {
+      header button:disabled, aside button:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+      header button.primary {
         background: var(--accent);
         border-color: var(--accent);
         color: #fff;
+        font-weight: 600;
       }
       header button.primary:hover:not(:disabled) {
-        background: var(--accent-hover);
-        border-color: var(--accent-hover);
+        filter: brightness(0.95);
       }
       header button.ghost-danger:hover:not(:disabled) {
         border-color: var(--danger);
@@ -105,10 +195,11 @@
       }
       .hdr-sep {
         width: 1px;
-        height: 1.35rem;
+        height: 1.5rem;
         background: var(--line);
-        margin: 0 0.15rem;
+        margin: 0 0.1rem;
       }
+
       main {
         display: grid;
         grid-template-columns: 1fr min(400px, 38vw);
@@ -116,10 +207,11 @@
       }
       @media (max-width: 960px) {
         main { grid-template-columns: 1fr; }
+        aside { max-height: none; border-left: 0; border-top: 1px solid var(--line); }
       }
       .surface-wrap {
         position: relative;
-        background: #1a1a1a;
+        background: var(--surface);
         min-height: 480px;
         overflow: auto;
       }
@@ -129,7 +221,7 @@
         display: none;
         align-items: center;
         justify-content: center;
-        text-align: center;
+        text-align: left;
         color: #9a9a96;
         font-size: 13px;
         pointer-events: none;
@@ -137,23 +229,34 @@
         z-index: 2;
       }
       .surface-wrap.is-empty .surface-empty { display: flex; }
-      .surface-empty strong { display: block; color: #c8c8c4; margin-bottom: 0.35rem; font-weight: 600; }
-      #surfaceHost {
-        min-height: 480px;
-        width: 100%;
+      .surface-empty > div { max-width: 28rem; }
+      .surface-empty strong {
+        display: block;
+        color: #d2d2cc;
+        margin-bottom: 0.45rem;
+        font-weight: 600;
       }
+      .surface-empty ol {
+        margin: 0.55rem 0 0;
+        padding-left: 1.15rem;
+        line-height: 1.55;
+      }
+      #surfaceHost { min-height: 480px; width: 100%; }
+
       aside {
         border-left: 1px solid var(--line);
         background: var(--panel);
         display: flex;
         flex-direction: column;
         min-height: 0;
-        max-height: calc(100vh - 118px);
+        height: 100%;
+        max-height: calc(100vh - var(--hdr-h, 9rem));
       }
       .tabs {
         display: flex;
         gap: 0;
         border-bottom: 1px solid var(--line);
+        flex-shrink: 0;
       }
       .tabs button {
         flex: 1;
@@ -161,7 +264,7 @@
         border-radius: 0;
         border-bottom: 2px solid transparent;
         background: transparent;
-        padding: 0.55rem 0.35rem;
+        padding: 0.55rem 0.3rem;
         color: var(--muted);
       }
       .tabs button.active {
@@ -193,19 +296,14 @@
         letter-spacing: 0.04em;
       }
       .metric .value {
-        font-family: ui-monospace, Consolas, monospace;
+        font-family: "IBM Plex Mono", ui-monospace, Consolas, monospace;
         font-size: 1.02rem;
         margin-top: 0.12rem;
       }
-      #hostStats {
-        margin-top: 0.75rem;
-        font-family: ui-monospace, Consolas, monospace;
-        font-size: 11px;
-        color: var(--muted);
-      }
       #activity {
-        font-family: ui-monospace, Consolas, monospace;
+        font-family: "IBM Plex Mono", ui-monospace, Consolas, monospace;
         font-size: 11px;
+        margin-top: 0.5rem;
       }
       #activity div {
         padding: 0.22rem 0;
@@ -238,201 +336,176 @@
         margin: 0 0 0.85rem;
         line-height: 1.4;
       }
-      .verdict-list { display: flex; flex-direction: column; gap: 0.28rem; margin: 0.5rem 0 0.75rem; }
+      .verdict-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.35rem;
+        margin: 0 0 0.75rem;
+      }
       .verdict {
-        font-family: ui-monospace, Consolas, monospace;
+        font-family: "IBM Plex Mono", ui-monospace, Consolas, monospace;
         font-size: 11.5px;
-        padding: 0.28rem 0.45rem;
-        border-radius: 4px;
+        padding: 0.28rem 0.55rem;
+        border-radius: 999px;
         border: 1px solid var(--line);
       }
       .verdict.pass { border-color: #b7e0c5; background: #f0faf3; color: var(--ok); }
       .verdict.fail { border-color: #f0c4c0; background: #fdf4f3; color: var(--danger); }
-      .verdict.skipped { color: var(--muted); }
-      #benchResults {
-        margin-top: 0.5rem;
-        font-family: ui-monospace, Consolas, monospace;
+      .verdict.skipped { color: var(--muted); background: #f4f4ef; }
+      #runTimeline {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+        font-family: "IBM Plex Mono", ui-monospace, Consolas, monospace;
         font-size: 11.5px;
-        white-space: pre-wrap;
+      }
+      .tl-row {
+        display: grid;
+        grid-template-columns: 5.5rem 1fr auto;
+        gap: 0.4rem;
+        padding: 0.28rem 0.4rem;
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        background: #fafaf7;
+      }
+      .tl-row.succeeded { border-color: #b7e0c5; }
+      .tl-row.failed { border-color: #f0c4c0; background: #fdf4f3; }
+      .tl-row.running { border-color: #b7c9ff; background: var(--accent-soft); }
+      .tl-row.skipped { opacity: 0.65; }
+      .tl-status { font-weight: 600; text-transform: uppercase; font-size: 10px; letter-spacing: 0.04em; color: var(--muted); }
+      .tl-row.succeeded .tl-status { color: var(--ok); }
+      .tl-row.failed .tl-status { color: var(--danger); }
+      .tl-row.running .tl-status { color: var(--accent); }
+      .tl-id { word-break: break-word; }
+      .tl-queue { color: var(--muted); font-size: 10.5px; }
+      .tl-detail { grid-column: 1 / -1; color: var(--muted); font-size: 10.5px; }
+      #runDossier {
+        font-family: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+        font-size: 11px;
         color: var(--muted);
+        word-break: break-all;
+        margin-top: 0.5rem;
       }
     </style>
   </head>
   <body>
-    <header>
+    <header id="labHeader">
       <div class="hdr-top">
         <h1>Projection lab</h1>
-        <div id="status">idle</div>
+        <div class="mode-seg" role="tablist" aria-label="Lab mode">
+          <button type="button" data-mode="browse" class="active" role="tab" aria-selected="true">Browse</button>
+          <button type="button" data-mode="run" role="tab" aria-selected="false">Run</button>
+        </div>
+        <p class="mode-blurb" id="modeBlurb">Free navigation — pick a fixture or edit the URL, then Start Virtual.</p>
+        <div id="statusStrip" aria-live="polite">
+          <span class="chip" id="chipWs" title="WebSocket">ws idle</span>
+          <span class="chip" id="chipPhase" title="Phase">idle</span>
+          <span class="chip" id="chipSession" title="Session" hidden>—</span>
+        </div>
       </div>
-      <div class="hdr-row">
-        <select id="fixture" aria-label="Fixture">
-          <option value="anim-js.html?fps=60">anim-js 60fps (honk ballet)</option>
-          <option value="anim-js.html?fps=30">anim-js 30fps (honk ballet)</option>
-          <option value="demo.html">demo</option>
-          <option value="prepend-stress.html">prepend-stress</option>
-          <option value="stress-churn.html">stress-churn</option>
-          <option value="mutation-churn.html">mutation-churn</option>
-          <option value="insert-before-remove.html">insert-before-remove</option>
-          <option value="static-dom.html">static-dom</option>
-          <option value="forms-state.html">forms-state</option>
-          <option value="scroll.html">scroll</option>
-          <option value="cssom-foundation.html">cssom-foundation</option>
-          <option value="cssom-scale.html">cssom-scale (5k)</option>
-          <option value="cssom-scale.html?n=14000">cssom-scale (14k)</option>
-          <option value="cssom-heavy.html">cssom-heavy (magazine, live)</option>
-          <option value="cssom-heavy.html?auto=0">cssom-heavy (static, acts via CLI)</option>
-        </select>
-        <input id="url" type="url" spellcheck="false" />
+
+      <div class="target-row">
+        <label class="field select" id="fixtureField">
+          <span>Fixture</span>
+          <select id="fixture" aria-label="Fixture"></select>
+        </label>
+        <label class="field select" id="blueprintField" hidden>
+          <span>Blueprint</span>
+          <select id="blueprint" aria-label="Blueprint"></select>
+        </label>
+        <label class="field url">
+          <span id="urlLabel">URL</span>
+          <input id="url" type="url" spellcheck="false" aria-label="URL" />
+        </label>
+        <p class="bp-desc" id="blueprintDesc" hidden></p>
       </div>
-      <div class="hdr-row">
+
+      <div class="action-row">
         <button type="button" id="connect" class="primary">Connect</button>
         <button type="button" id="disconnect" disabled>Disconnect</button>
         <span class="hdr-sep"></span>
-        <button type="button" id="start" disabled>Start Virtual</button>
-        <button type="button" id="stop" disabled>Stop Virtual</button>
-        <button type="button" id="clearSurface" class="ghost-danger" disabled>Clear surface</button>
+        <span id="browseControls">
+          <button type="button" id="browseStart" disabled>Start Virtual</button>
+          <button type="button" id="browseNavigate" disabled title="Navigate live Virtual to the URL field">Navigate</button>
+          <button type="button" id="browseStop" disabled>Stop Virtual</button>
+        </span>
+        <span id="runControls" hidden>
+          <span class="soak-box" id="soakOverrides" hidden>
+            <label class="field">
+              <span>Duration ms</span>
+              <input id="runDurationMs" type="number" value="15000" min="100" step="100" />
+            </label>
+            <label class="chk"><input id="runCpu" type="checkbox" /> CPU profile</label>
+            <label class="chk"><input id="runIso" type="checkbox" checked /> ISO probe</label>
+          </span>
+          <button type="button" id="runStart" class="primary" disabled>Start run</button>
+        </span>
+        <button type="button" id="clearSurface" class="ghost-danger" disabled title="Clear projected surface only (Virtual keeps running)">Clear surface</button>
       </div>
     </header>
+
     <main>
       <div class="surface-wrap is-empty" id="surfaceWrap">
         <div class="surface-empty">
           <div>
             <strong>Projected surface empty</strong>
-            Connect, then Start Virtual to browse, or Run for a timed probe.<br />
-            Run always reboots Virtual and stops it when finished.
+            <ol>
+              <li><b>Connect</b> to open the lab control WebSocket.</li>
+              <li><b>Browse</b> — choose a fixture / URL → Start Virtual (stays up until Stop).</li>
+              <li><b>Run</b> — choose a blueprint → Start run (cold boot; Virtual stops when done).</li>
+            </ol>
           </div>
         </div>
         <div id="surfaceHost"></div>
       </div>
       <aside>
-        <div class="tabs">
-          <button type="button" data-tab="Stream" class="active">Stream</button>
-          <button type="button" data-tab="Activity">Activity</button>
-          <button type="button" data-tab="Config">Config</button>
-          <button type="button" data-tab="Run">Run</button>
+        <div class="tabs" role="tablist" aria-label="Investigation">
+          <button type="button" data-tab="Stream" class="active" role="tab" aria-selected="true">Stream</button>
+          <button type="button" data-tab="Activity" role="tab" aria-selected="false">Activity</button>
+          <button type="button" data-tab="Config" role="tab" aria-selected="false">Config</button>
+          <button type="button" data-tab="Progress" role="tab" aria-selected="false">Progress</button>
         </div>
-        <div id="panelStream" class="panel">
+        <div id="panelStream" class="panel" role="tabpanel">
           <h2 class="panel-title">Stream</h2>
           <div class="metric-grid">
-            <div class="metric">
-              <div class="label">Frames</div>
-              <div class="value" id="streamFrames">0</div>
-            </div>
-            <div class="metric">
-              <div class="label">Generation</div>
-              <div class="value" id="streamGen">—</div>
-            </div>
-            <div class="metric">
-              <div class="label">Sequence</div>
-              <div class="value" id="streamSeq">—</div>
-            </div>
-            <div class="metric">
-              <div class="label">Apply OK</div>
-              <div class="value" id="streamApply">0</div>
-            </div>
-            <div class="metric">
-              <div class="label">Desync</div>
-              <div class="value" id="streamDesync">0</div>
-            </div>
-            <div class="metric">
-              <div class="label">Resyncs</div>
-              <div class="value" id="streamResync">0</div>
-            </div>
-            <div class="metric">
-              <div class="label">Ops total</div>
-              <div class="value" id="streamOps">0</div>
-            </div>
-            <div class="metric">
-              <div class="label">Build ms</div>
-              <div class="value" id="streamBuildMs">—</div>
-            </div>
-            <div class="metric">
-              <div class="label">Apply ms</div>
-              <div class="value" id="streamApplyMs">—</div>
-            </div>
+            <div class="metric"><div class="label">Frames</div><div class="value" id="streamFrames">0</div></div>
+            <div class="metric"><div class="label">Generation</div><div class="value" id="streamGen">—</div></div>
+            <div class="metric"><div class="label">Sequence</div><div class="value" id="streamSeq">—</div></div>
+            <div class="metric"><div class="label">Apply OK</div><div class="value" id="streamApply">0</div></div>
+            <div class="metric"><div class="label">Desync</div><div class="value" id="streamDesync">0</div></div>
+            <div class="metric"><div class="label">Resyncs</div><div class="value" id="streamResync">0</div></div>
+            <div class="metric"><div class="label">Ops (last)</div><div class="value" id="streamOps">—</div></div>
+            <div class="metric"><div class="label">Apply ms</div><div class="value" id="streamApplyMs">—</div></div>
           </div>
-          <div id="hostStats">host —</div>
         </div>
-        <div id="panelActivity" class="panel" hidden>
+        <div id="panelActivity" class="panel" hidden role="tabpanel">
           <h2 class="panel-title">Activity</h2>
           <button type="button" id="clearActivity">Clear log</button>
           <div id="activity"></div>
         </div>
-        <div id="panelConfig" class="panel" hidden>
+        <div id="panelConfig" class="panel" hidden role="tabpanel">
           <h2 class="panel-title">Telemetry</h2>
-          <p class="hint">Applied on the next Start Virtual or Run (relaunch).</p>
-          <div class="cfg-row">
-            <label for="telEnabled">enabled</label>
-            <input id="telEnabled" type="checkbox" checked />
-          </div>
-          <div class="cfg-row">
-            <label for="telFrameEmitted">frameEmitted</label>
-            <input id="telFrameEmitted" type="checkbox" checked />
-          </div>
-          <div class="cfg-row">
-            <label for="telDeferred">transportDeferred</label>
-            <input id="telDeferred" type="checkbox" checked />
-          </div>
-          <div class="cfg-row">
-            <label for="telAggregate">aggregate</label>
-            <input id="telAggregate" type="checkbox" checked />
-          </div>
-          <div class="cfg-row">
-            <label for="telApply">applyResult (client)</label>
-            <input id="telApply" type="checkbox" checked />
-          </div>
-          <div class="cfg-row">
-            <label for="telDesync">desync</label>
-            <input id="telDesync" type="checkbox" checked />
-          </div>
-          <div class="cfg-row">
-            <label for="telOverrun">applyOverrun</label>
-            <input id="telOverrun" type="checkbox" checked />
-          </div>
-          <div class="cfg-row">
-            <label for="telClock">clock</label>
-            <input id="telClock" type="checkbox" checked />
-          </div>
-          <div class="cfg-row">
-            <label for="telAggMs">aggregateIntervalMs</label>
-            <input id="telAggMs" type="number" min="200" step="100" value="2000" />
-          </div>
-          <h2 class="panel-title" style="margin-top:1rem">Inject</h2>
-          <div class="cfg-row">
-            <label for="cfgFrameRate">frameRateHz</label>
-            <input id="cfgFrameRate" type="number" min="1" max="120" value="60" />
-          </div>
+          <p class="hint">Applied on the next Browse start or Run (relaunch).</p>
+          <div class="cfg-row"><label for="tel_enabled">enabled</label><input id="tel_enabled" type="checkbox" checked /></div>
+          <div class="cfg-row"><label for="tel_frameEmitted">frameEmitted</label><input id="tel_frameEmitted" type="checkbox" checked /></div>
+          <div class="cfg-row"><label for="tel_transportDeferred">transportDeferred</label><input id="tel_transportDeferred" type="checkbox" checked /></div>
+          <div class="cfg-row"><label for="tel_aggregate">aggregate</label><input id="tel_aggregate" type="checkbox" checked /></div>
+          <div class="cfg-row"><label for="tel_applyResult">applyResult</label><input id="tel_applyResult" type="checkbox" checked /></div>
+          <div class="cfg-row"><label for="tel_desync">desync</label><input id="tel_desync" type="checkbox" checked /></div>
+          <div class="cfg-row"><label for="tel_applyOverrun">applyOverrun</label><input id="tel_applyOverrun" type="checkbox" checked /></div>
+          <div class="cfg-row"><label for="tel_clock">clock</label><input id="tel_clock" type="checkbox" checked /></div>
+          <div class="cfg-row"><label for="tel_cssomPoll">cssomPoll</label><input id="tel_cssomPoll" type="checkbox" checked /></div>
+          <div class="cfg-row"><label for="tel_aggregateIntervalMs">aggregateIntervalMs</label><input id="tel_aggregateIntervalMs" type="number" min="200" step="100" value="2000" /></div>
+          <h2 class="panel-title" style="margin-top:1rem">Browse inject</h2>
+          <p class="hint">frameRateHz is sent with Browse Start Virtual only.</p>
+          <div class="cfg-row"><label for="frameRateHz">frameRateHz</label><input id="frameRateHz" type="number" min="1" max="120" value="60" /></div>
         </div>
-        <div id="panelRun" class="panel" hidden>
-          <h2 class="panel-title">Run</h2>
-          <p class="hint">
-            Timed probe, separate from free browse. Stops any live Virtual, starts a fresh session,
-            runs for durationMs, then <strong>stops Virtual</strong>. WS stays up — Start Virtual again to browse.
-          </p>
-          <div class="cfg-row">
-            <label for="benchDurationMs">durationMs</label>
-            <input id="benchDurationMs" type="number" min="1000" step="1000" value="15000" />
-          </div>
-          <div class="cfg-row">
-            <label for="benchCpuProfile">CPU profile</label>
-            <input id="benchCpuProfile" type="checkbox" />
-          </div>
-          <div class="cfg-row">
-            <label for="benchInvariants">Frame-stream invariants</label>
-            <input id="benchInvariants" type="checkbox" checked />
-          </div>
-          <div class="cfg-row">
-            <label for="benchStructuralDiff">Structural diff (with iso)</label>
-            <input id="benchStructuralDiff" type="checkbox" checked />
-          </div>
-          <div class="cfg-row">
-            <label for="benchIso">Isomorphism (halt / flush / O2 / trees)</label>
-            <input id="benchIso" type="checkbox" checked />
-          </div>
-          <button type="button" id="runBenchmark" class="primary" style="margin-top:0.5rem">Run</button>
-          <div id="benchStatus" style="margin-top:0.5rem;color:var(--muted);font-size:12px">idle</div>
-          <div id="benchVerdicts" class="verdict-list"></div>
-          <div id="benchResults"></div>
+        <div id="panelProgress" class="panel" hidden role="tabpanel">
+          <h2 class="panel-title">Run progress</h2>
+          <p class="hint" id="progressHint">Switch to Run mode, pick a blueprint, then Start run. Timeline and verdicts land here.</p>
+          <div class="verdict-list" id="runVerdicts"></div>
+          <div id="runTimeline"></div>
+          <div id="runDossier"></div>
         </div>
       </aside>
     </main>

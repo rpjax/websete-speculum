@@ -7,6 +7,7 @@ import { diffRules, type RuleSnap } from './cssomReconcile';
 import { fnv1a32 } from './fnv32';
 import { CssomIds } from './cssomIds';
 import { emitLiveCssomOps, emitResyncCssomOps, type CommittedSheet } from './cssomOps';
+import { collectCssomPlaneSheets } from './cssomSheetList';
 import {
   copyRuleRefs,
   isRuleSlotLive,
@@ -68,7 +69,7 @@ export class CssomPoller {
   classifySheets(doc: Document = document): ClassifiedSheets {
     const readable: { sheet: CSSStyleSheet; rules: CSSRuleList }[] = [];
     let unreadableSheetCount = 0;
-    for (const sheet of collectSheets(doc)) {
+    for (const sheet of collectCssomPlaneSheets(doc)) {
       const list = tryCssRules(sheet);
       if (list === null) unreadableSheetCount += 1;
       else readable.push({ sheet, rules: list });
@@ -325,23 +326,6 @@ export function foldSheetPieces(
     idleSlices: extra.idleSlices,
     ...countCssomOps(extra.ops),
   });
-}
-
-function collectSheets(doc: Document): CSSStyleSheet[] {
-  const out: CSSStyleSheet[] = [];
-  const linked = doc.styleSheets;
-  for (let i = 0; i < linked.length; i++) {
-    const s = linked.item(i);
-    if (s) out.push(s);
-  }
-  const adopted = doc.adoptedStyleSheets;
-  if (adopted) {
-    for (let i = 0; i < adopted.length; i++) {
-      const s = adopted[i];
-      if (s) out.push(s);
-    }
-  }
-  return out;
 }
 
 function tryCssRules(sheet: CSSStyleSheet): CSSRuleList | null {

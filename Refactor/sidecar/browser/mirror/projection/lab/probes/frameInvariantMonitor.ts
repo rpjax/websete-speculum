@@ -4,16 +4,16 @@
  * Table×table and table×DOM asserts belong on the coherent snapshot probe.
  */
 
-import { OpCode } from '../models/opcodes';
-import { DOCUMENT_ID, INSERT_AT_END, type FrameOp } from '../models/frame';
-import type { DomNodeKey } from '../models/domNodeKey';
+import { OpCode } from '../../models/opcodes';
+import { DOCUMENT_ID, INSERT_AT_END, type FrameOp } from '../../models/frame';
+import type { DomNodeKey } from '../../models/domNodeKey';
 import {
   decodeFramePart,
   FramePartAssembler,
   PersistentStringTable,
   type AssembledFrame,
-} from '../models/decode';
-import type { ProjectionTelemetryMessage } from '../models/telemetry';
+} from '../../models/decode';
+import type { ProjectionTelemetryMessage } from '../../models/telemetry';
 
 export type InvariantStatus = 'pass' | 'fail';
 export type InvariantFailure = { sequence: number; details: string };

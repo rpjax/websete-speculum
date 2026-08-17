@@ -63,6 +63,19 @@ declare global {
           table: { rowCount: number; tableHash: string };
           cssom: CssomPollStats | null;
           cssomO2: CssomTableLiveOracleResult | null;
+          nodeNewConnected: {
+            ok: boolean;
+            checked: number;
+            disconnectedIds: number[];
+          };
+          cascade: {
+            authorColor: string;
+            adoptedColor: string;
+            adoptedCount: number;
+            styleSheetCount: number;
+            styleElCount: number;
+            doublePaint: boolean;
+          } | null;
         };
       }
     | undefined;

@@ -1,65 +1,20 @@
 /**
- * Lab client — Stream / Activity / Config + DOM projection apply.
- * No establish / handoff / frameDecision panels (frame-protocol.md §4.7 — those concepts
- * don't exist anymore); Stream now surfaces the table-replicated algorithm's own signals:
- * frame/op volume and per-frame build/apply cost (frame-protocol.md §5).
+ * Lab client — Browse + Run (protocol v1).
  */
 
 import { LabProjectionClient } from '../../client/labProjectionClient';
 import { snapshotTree } from '../../client/domTreeSnapshot';
+import { LAB_TELEMETRY_DEFAULTS, TELEMETRY_BOOL_CAPS } from '../../models/telemetry';
 
-type TelMsg = { kind?: string; [k: string]: unknown };
-
-type ControlMessage = {
-  type: string;
-  sessionId?: string;
-  url?: string;
-  message?: string | TelMsg;
-  frames?: number;
-  bytes?: number;
-  generation?: number | null;
-  sequence?: number | null;
-  dataPlaneUrl?: string;
-  telemetryMessages?: number;
-  durationMs?: number;
-  options?: { cpuProfile: boolean; invariants: boolean; structuralDiff: boolean };
-  report?: BenchmarkReport;
-  reportDir?: string;
-  /** `structuralDiffResult` (Stage 4 test-only, `lab/session.ts`'s `requestStructuralDiff`). */
-  status?: 'ok' | 'unavailable';
-  reason?: string;
-  result?: { identical: boolean; divergenceCount: number; divergences: unknown[] };
+type FixtureEntry = { id: string; path: string; tags?: string[]; notes?: string };
+type BlueprintSummary = {
+  id: string;
+  description: string;
+  defaultUrl: string | null;
+  acceptsSoakOverrides: boolean;
 };
 
-type StatBlock = { min: number; avg: number; p50: number; p95: number; max: number; count: number };
-
-type BenchmarkReport = {
-  meta: { timestamp: string; url: string; requestedDurationMs: number; frameRateHz: number };
-  verdicts?: { id: string; status: string; reason: string }[];
-  metrics: {
-    wallMs: number;
-    bootstrap: { sequence: number; opCount: number; bytes: number; tableSize: number; buildMs: number } | null;
-    steadyFrameCount: number;
-    steadyFps: number;
-    buildMs: StatBlock;
-    opCount: StatBlock;
-    bytes: StatBlock;
-    applyMs: StatBlock;
-    lastTableSize: number;
-    wireBytesTotal: number;
-    applyOk: number;
-    applyFail: number;
-    desyncCount: number;
-    applyOverrunCount: number;
-    transportDeferredCount: number;
-  };
-  cpuProfile: { summary: { ourCode: { totalPct: number; totalMs: number }; totalSamples: number; wallMs: number } } | null;
-  invariants: { id: string; description: string; passCount: number; failCount: number }[] | null;
-  structuralDiff:
-    | { status: 'ok'; result: { identical: boolean; divergenceCount: number } }
-    | { status: 'unavailable'; reason: string }
-    | null;
-};
+type Phase = 'idle' | 'connected' | 'live' | 'running' | 'fault' | 'complete';
 
 function $(id: string): HTMLElement {
   const el = document.getElementById(id);
@@ -67,423 +22,625 @@ function $(id: string): HTMLElement {
   return el;
 }
 
-function logActivity(text: string, kind = 'info'): void {
-  const log = $('activity');
-  const line = document.createElement('div');
-  line.dataset.kind = kind;
-  line.textContent = `${new Date().toISOString().slice(11, 23)} ${text}`;
-  log.prepend(line);
-  while (log.childElementCount > 400) log.lastChild?.remove();
+function displayUrl(raw: string): string {
+  if (/^https?:\/\//i.test(raw)) return raw;
+  const path = raw.replace(/^\/+/, '');
+  return `${location.origin}/${path.startsWith('fixtures/') ? path : `fixtures/${path}`}`;
 }
 
-function setStatus(text: string): void {
-  $('status').textContent = text;
+function shortDesc(text: string, max = 72): string {
+  const t = text.trim();
+  return t.length <= max ? t : `${t.slice(0, max - 1)}…`;
 }
 
-function defaultFixtureUrl(): string {
-  return `${location.origin}/fixtures/demo.html`;
-}
-
-function readConfigFromUi(): Record<string, unknown> {
+/** PP-CSSOM-A-2 — same shape as Virtual `probeCssomPaintBoundary` (fixture probes). */
+function probeCssomPaintBoundary(doc: Document): {
+  authorColor: string;
+  adoptedColor: string;
+  adoptedCount: number;
+  styleSheetCount: number;
+  styleElCount: number;
+  doublePaint: boolean;
+} | null {
+  const authorEl = doc.getElementById('author-probe');
+  const adoptedEl = doc.getElementById('adopted-probe');
+  if (!authorEl || !adoptedEl) return null;
+  const view = doc.defaultView;
+  const authorColor = view ? view.getComputedStyle(authorEl).color : '';
+  const adoptedColor = view ? view.getComputedStyle(adoptedEl).color : '';
+  const adopted = doc.adoptedStyleSheets ? Array.from(doc.adoptedStyleSheets) : [];
+  const styleEls = Array.from(doc.querySelectorAll('style'));
+  const authorTexts = new Set<string>();
+  const sheetText = (sheet: CSSStyleSheet): string => {
+    try {
+      const parts: string[] = [];
+      for (let i = 0; i < sheet.cssRules.length; i++) {
+        const r = sheet.cssRules.item(i);
+        if (r) parts.push(r.cssText);
+      }
+      return parts.join('\n');
+    } catch {
+      return '';
+    }
+  };
+  for (let i = 0; i < styleEls.length; i++) {
+    const el = styleEls[i]!;
+    const sheet = (el as HTMLStyleElement).sheet;
+    if (sheet) authorTexts.add(sheetText(sheet));
+    else if (el.textContent) authorTexts.add(el.textContent);
+  }
+  let doublePaint = false;
+  for (let i = 0; i < adopted.length; i++) {
+    const s = adopted[i]!;
+    if (s.ownerNode) doublePaint = true;
+    const text = sheetText(s);
+    if (text.length > 0 && authorTexts.has(text)) doublePaint = true;
+  }
   return {
-    enabled: ($('telEnabled') as HTMLInputElement).checked,
-    frameEmitted: ($('telFrameEmitted') as HTMLInputElement).checked,
-    transportDeferred: ($('telDeferred') as HTMLInputElement).checked,
-    aggregate: ($('telAggregate') as HTMLInputElement).checked,
-    applyResult: ($('telApply') as HTMLInputElement).checked,
-    desync: ($('telDesync') as HTMLInputElement).checked,
-    applyOverrun: ($('telOverrun') as HTMLInputElement).checked,
-    clock: ($('telClock') as HTMLInputElement).checked,
-    aggregateIntervalMs: Number(($('telAggMs') as HTMLInputElement).value) || 2000,
+    authorColor,
+    adoptedColor,
+    adoptedCount: adopted.length,
+    styleSheetCount: doc.styleSheets.length,
+    styleElCount: styleEls.length,
+    doublePaint,
   };
 }
 
-function fmtStat(label: string, s: StatBlock, unit = ''): string {
-  return `  ${label.padEnd(9)} min=${s.min.toFixed(2)}${unit} avg=${s.avg.toFixed(2)}${unit} p50=${s.p50.toFixed(2)}${unit} p95=${s.p95.toFixed(2)}${unit} max=${s.max.toFixed(2)}${unit}  (n=${s.count})`;
+function logActivity(text: string): void {
+  const row = document.createElement('div');
+  row.textContent = `${new Date().toISOString().slice(11, 19)} ${text}`;
+  const box = $('activity');
+  box.prepend(row);
+  while (box.childElementCount > 200) box.lastChild?.remove();
 }
 
-function renderBenchmarkReport(report: BenchmarkReport): string {
-  const m = report.metrics;
-  if (report.verdicts && report.verdicts.length > 0) {
-    const box = $('benchVerdicts');
-    box.replaceChildren();
-    for (const v of report.verdicts) {
-      const row = document.createElement('div');
-      row.className = `verdict ${v.status}`;
-      row.textContent = `${v.status.toUpperCase()}  ${v.id} — ${v.reason}`;
-      box.appendChild(row);
-    }
+function readTelemetryFromUi(): Record<string, unknown> {
+  const cfg: Record<string, unknown> = { ...LAB_TELEMETRY_DEFAULTS };
+  for (const key of TELEMETRY_BOOL_CAPS) {
+    const el = document.getElementById(`tel_${key}`) as HTMLInputElement | null;
+    if (el) cfg[key] = el.checked;
   }
-
-  const lines: string[] = [];
-  lines.push(`${report.meta.url}`);
-  lines.push(`wallMs=${m.wallMs.toFixed(0)}  steadyFrames=${m.steadyFrameCount} (~${m.steadyFps.toFixed(1)}fps)  lastTableSize=${m.lastTableSize}  wireBytes=${m.wireBytesTotal}`);
-  if (m.bootstrap) {
-    lines.push(`bootstrap: seq=${m.bootstrap.sequence} opCount=${m.bootstrap.opCount} bytes=${m.bootstrap.bytes} tableSize=${m.bootstrap.tableSize} buildMs=${m.bootstrap.buildMs.toFixed(2)}`);
-  }
-  lines.push('steady-state:');
-  lines.push(fmtStat('buildMs', m.buildMs, 'ms'));
-  lines.push(fmtStat('opCount', m.opCount));
-  lines.push(fmtStat('bytes', m.bytes));
-  lines.push(fmtStat('applyMs', m.applyMs, 'ms'));
-  lines.push(`applyOk=${m.applyOk} applyFail=${m.applyFail} desync=${m.desyncCount} overrun=${m.applyOverrunCount} deferred=${m.transportDeferredCount}`);
-
-  if (report.cpuProfile) {
-    const oc = report.cpuProfile.summary.ourCode;
-    lines.push(`cpu (Virtual, CDP): our-code=${oc.totalPct.toFixed(2)}% (${oc.totalMs.toFixed(2)}ms of ${report.cpuProfile.summary.wallMs.toFixed(0)}ms, ${report.cpuProfile.summary.totalSamples} samples)`);
-  }
-
-  if (report.invariants) {
-    const failed = report.invariants.filter((i) => i.failCount > 0);
-    lines.push(`invariants: ${report.invariants.length} checks, ${failed.length} with failures`);
-    for (const i of failed) lines.push(`  FAIL ${i.id}: ${i.failCount} failures / ${i.passCount} passes`);
-  }
-
-  if (report.structuralDiff) {
-    if (report.structuralDiff.status === 'ok') {
-      const r = report.structuralDiff.result;
-      lines.push(`structuralDiff: ${r.identical ? 'identical' : `${r.divergenceCount} divergence(s)`}`);
-    } else {
-      lines.push(`structuralDiff: unavailable (${report.structuralDiff.reason})`);
-    }
-  }
-
-  return lines.join('\n');
+  const agg = document.getElementById('tel_aggregateIntervalMs') as HTMLInputElement | null;
+  if (agg) cfg.aggregateIntervalMs = Number(agg.value) || 2000;
+  return cfg;
 }
 
-/**
- * Lab-only test introspection (frame-protocol-production-completeness Stage 2 gate,
- * `scripts/smoke-projection-lab.js`) — every field is optional/no-op until a test wires it up.
- * Not part of the wire protocol or any production path; exists so an external Playwright-driven
- * test can (a) read the client's own sequence counter, (b) push a hand-crafted control message
- * over the same session WS the page already uses, and (c) observe the real client's `onDesync`
- * callback fire — without reaching into `bootLabClient`'s otherwise-private closure state.
- */
-type SpeculumLabTestHooks = {
-  onDesync?: (reason: string) => void;
-  sendControl?: (message: Record<string, unknown>) => void;
-  projection?: LabProjectionClient;
-  /**
-   * Fires for every parsed session-control message this page receives, in addition to (not
-   * instead of) whatever the ordinary handler below already does with it — lets a test observe a
-   * control message type this page has no dedicated UI reaction to (Stage 4's
-   * `structuralDiffResult`, for one) without adding bespoke UI plumbing for a test-only signal.
-   */
-  onControlMessage?: (message: ControlMessage) => void;
-};
-const speculumLabTestHooks: SpeculumLabTestHooks = {};
-(globalThis as unknown as { __speculumLabTestHooks: SpeculumLabTestHooks }).__speculumLabTestHooks =
-  speculumLabTestHooks;
-
-function clientKindEnabled(kind: string): boolean {
-  if (kind === 'desynced') return ($('telDesync') as HTMLInputElement).checked;
-  if (kind === 'applyOverrun') return ($('telOverrun') as HTMLInputElement).checked;
-  if (kind === 'parityFingerprint') return true;
-  if (kind === 'applyResult') return ($('telApply') as HTMLInputElement).checked;
-  return true;
+function setChip(id: string, text: string, kind?: 'ok' | 'warn' | 'danger' | 'live' | ''): void {
+  const el = $(id);
+  el.textContent = text;
+  el.className = kind ? `chip ${kind}` : 'chip';
+  el.title = text;
+  el.hidden = false;
 }
 
 export function bootLabClient(): void {
-  const urlInput = $('url') as HTMLInputElement;
-  const fixtureSelect = $('fixture') as HTMLSelectElement;
-  urlInput.value = defaultFixtureUrl();
-  fixtureSelect.value = 'demo.html';
-
   let ws: WebSocket | null = null;
+  let projection: LabProjectionClient | null = null;
+  let mode: 'browse' | 'run' = 'browse';
+  let runInFlight = false;
+  let sessionLive = false;
+  let sessionId: string | null = null;
+  let phase: Phase = 'idle';
   let frames = 0;
   let applyOk = 0;
-  let desyncCount = 0;
+  let desync = 0;
   let resyncCount = 0;
   let opsTotal = 0;
-  let lastBuildMs = 0;
-  let virtualLive = false;
-  let runInFlight = false;
 
-  const projection = new LabProjectionClient({
-    surfaceHost: $('surfaceHost'),
-    onArmed: () => {
-      setStatus('armed — live apply');
-      logActivity('first frame applied', 'applyResult');
-      $('surfaceWrap').classList.remove('is-empty');
-    },
-    onDesync: (reason) => {
-      desyncCount += 1;
-      $('streamDesync').textContent = String(desyncCount);
-      setStatus(`desync: ${reason}`);
-      logActivity(`desync ${reason}`, 'desynced');
-      speculumLabTestHooks.onDesync?.(reason);
-    },
-    // Stage 4 (frame-protocol-production-completeness) §5.8 — the client's own recovery
-    // mechanism has no transport of its own; relay its request over the same session control
-    // WS `injectRawFrame`/`clientTelemetry` already use, to `lab/session.ts`'s `requestResync`
-    // case, which forwards it onto `PlaneChannel.Control` for the Virtual page to answer.
-    onRequestResync: (info) => {
-      logActivity(`resync requested reason=${info.reason} gen=${info.generation} seq=${info.sequence}`, 'resyncRequested');
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'requestResync', ...info }));
-      }
-    },
-    onTelemetry: (msg) => {
-      const kind = String(msg.kind ?? 'applyResult');
-      const send = clientKindEnabled(kind);
-      if ((kind === 'desynced' || msg.ok === false) || send) {
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: 'clientTelemetry', message: msg }));
-        }
-      }
-      if (msg.ok === true) applyOk += 1;
-      $('streamApply').textContent = String(applyOk);
-      if (kind === 'resyncCompleted') {
-        resyncCount += 1;
-        $('streamResync').textContent = String(resyncCount);
-      }
-      if (typeof msg.opCount === 'number') {
-        opsTotal += msg.opCount;
-        $('streamOps').textContent = String(opsTotal);
-      }
-      if (typeof msg.applyMs === 'number') {
-        $('streamApplyMs').textContent = msg.applyMs.toFixed(2);
-      }
-      logActivity(
-        `${kind} ok=${String(msg.ok ?? '-')} seq=${String(msg.sequence ?? '-')} ops=${String(msg.opCount ?? '-')} ${msg.reason ? msg.reason : ''}`,
-        kind,
-      );
-    },
-  });
-  speculumLabTestHooks.projection = projection;
-  speculumLabTestHooks.sendControl = (message) => {
-    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(message));
-  };
+  const fixtureSelect = $('fixture') as HTMLSelectElement;
+  const urlInput = $('url') as HTMLInputElement;
+  const blueprintSelect = $('blueprint') as HTMLSelectElement;
+  const soakOverrides = $('soakOverrides');
+  const surfaceHost = $('surfaceHost');
+  const surfaceWrap = $('surfaceWrap');
+  const fixtureField = $('fixtureField');
+  const blueprintField = $('blueprintField');
+  const blueprintDesc = $('blueprintDesc');
+  const urlLabel = $('urlLabel');
+  const modeBlurb = $('modeBlurb');
+  let blueprints: BlueprintSummary[] = [];
 
-  const connectBtn = $('connect') as HTMLButtonElement;
-  const disconnectBtn = $('disconnect') as HTMLButtonElement;
-  const startBtn = $('start') as HTMLButtonElement;
-  const stopBtn = $('stop') as HTMLButtonElement;
-  const clearBtn = $('clearSurface') as HTMLButtonElement;
-  const runBenchmarkBtn = $('runBenchmark') as HTMLButtonElement;
-
-  function resetStreamCounters(): void {
-    frames = 0;
-    applyOk = 0;
-    desyncCount = 0;
-    resyncCount = 0;
-    opsTotal = 0;
-    $('streamFrames').textContent = '0';
-    $('streamApply').textContent = '0';
-    $('streamDesync').textContent = '0';
-    $('streamResync').textContent = '0';
-    $('streamOps').textContent = '0';
-    $('streamGen').textContent = '—';
-    $('streamSeq').textContent = '—';
-    $('streamBuildMs').textContent = '—';
-    $('streamApplyMs').textContent = '—';
-    $('hostStats').textContent = 'host —';
+  function setSurfaceEmpty(empty: boolean): void {
+    surfaceWrap.classList.toggle('is-empty', empty);
   }
 
-  function clearProjectedSurface(): void {
-    projection.resetSurface();
-    $('surfaceWrap').classList.add('is-empty');
+  function measureHeader(): void {
+    const h = $('labHeader').getBoundingClientRect().height;
+    document.documentElement.style.setProperty('--hdr-h', `${Math.ceil(h)}px`);
+  }
+
+  function refreshStatus(): void {
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      setChip('chipWs', 'ws idle');
+    } else {
+      setChip('chipWs', 'ws open', 'ok');
+    }
+
+    const phaseText =
+      phase === 'idle'
+        ? 'idle'
+        : phase === 'connected'
+          ? 'connected — start Virtual or run'
+          : phase === 'live'
+            ? `live ${mode}`
+            : phase === 'running'
+              ? 'run in flight'
+              : phase === 'complete'
+                ? 'run complete'
+                : phase;
+    const phaseKind =
+      phase === 'fault' ? 'danger' : phase === 'running' || phase === 'live' ? 'live' : phase === 'complete' ? 'ok' : '';
+    setChip('chipPhase', phaseText, phaseKind);
+
+    if (sessionId) {
+      setChip('chipSession', `session ${sessionId.slice(0, 8)}…`);
+      $('chipSession').title = sessionId;
+    } else {
+      $('chipSession').hidden = true;
+    }
   }
 
   function syncButtons(): void {
     const open = ws !== null && ws.readyState === WebSocket.OPEN;
+    const connectBtn = $('connect') as HTMLButtonElement;
     connectBtn.disabled = open;
-    disconnectBtn.disabled = !open;
-    startBtn.disabled = !open || runInFlight;
-    stopBtn.disabled = !open || !virtualLive;
-    clearBtn.disabled = false;
-    runBenchmarkBtn.disabled = !open || runInFlight;
+    connectBtn.classList.toggle('primary', !open);
+    ($('disconnect') as HTMLButtonElement).disabled = !open;
+
+    ($('browseStart') as HTMLButtonElement).disabled = !open || mode !== 'browse' || sessionLive || runInFlight;
+    ($('browseNavigate') as HTMLButtonElement).disabled = !open || mode !== 'browse' || !sessionLive || runInFlight;
+    ($('browseStop') as HTMLButtonElement).disabled = !open || !sessionLive || mode !== 'browse' || runInFlight;
+    ($('clearSurface') as HTMLButtonElement).disabled = !open || runInFlight;
+    ($('runStart') as HTMLButtonElement).disabled = !open || mode !== 'run' || runInFlight;
+
+    document.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach((btn) => {
+      btn.disabled = runInFlight;
+    });
+
+    ($('browseStart') as HTMLButtonElement).classList.toggle('primary', open && mode === 'browse' && !sessionLive);
+    ($('runStart') as HTMLButtonElement).classList.toggle('primary', open && mode === 'run' && !runInFlight);
+
+    ($('browseStart') as HTMLButtonElement).title = !open
+      ? 'Connect first'
+      : sessionLive
+        ? 'Virtual already live — Stop first'
+        : 'Cold-start Virtual at the URL';
+    ($('runStart') as HTMLButtonElement).title = !open
+      ? 'Connect first'
+      : runInFlight
+        ? 'Run in flight'
+        : 'Cold-boot blueprint DAG (URL comes from blueprint)';
+    ($('browseNavigate') as HTMLButtonElement).title = sessionLive
+      ? 'Navigate live Virtual to the URL field'
+      : 'Start Virtual first';
+
+    refreshStatus();
+    measureHeader();
+  }
+
+  function selectedBlueprint(): BlueprintSummary | undefined {
+    return blueprints.find((b) => b.id === blueprintSelect.value);
+  }
+
+  function syncRunTarget(): void {
+    const bp = selectedBlueprint();
+    urlInput.value = bp?.defaultUrl ? displayUrl(bp.defaultUrl) : '';
+    urlInput.readOnly = true;
+    urlLabel.textContent = 'Blueprint URL';
+    urlInput.title = 'Locked — comes from the selected blueprint';
+    soakOverrides.hidden = !(bp?.acceptsSoakOverrides ?? false);
+    blueprintDesc.hidden = !bp;
+    blueprintDesc.textContent = bp ? bp.description : '';
+  }
+
+  function showMode(next: 'browse' | 'run'): void {
+    if (runInFlight && next !== mode) return;
+    mode = next;
+    document.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach((btn) => {
+      const on = btn.dataset.mode === next;
+      btn.classList.toggle('active', on);
+      btn.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    $('browseControls').hidden = next !== 'browse';
+    $('runControls').hidden = next !== 'run';
+    fixtureField.hidden = next !== 'browse';
+    blueprintField.hidden = next !== 'run';
+    blueprintDesc.hidden = next !== 'run';
+    if (next === 'browse') {
+      modeBlurb.textContent = 'Free navigation — pick a fixture or edit the URL, then Start Virtual.';
+      urlInput.readOnly = false;
+      urlLabel.textContent = 'URL';
+      urlInput.title = 'Editable — free navigation target';
+      if (fixtureSelect.value) {
+        urlInput.value = `${location.origin}/fixtures/${fixtureSelect.value}`;
+      }
+    } else {
+      modeBlurb.textContent = 'Cold blueprint DAG — URL is locked to the blueprint; soak may override duration/probes.';
+      syncRunTarget();
+    }
+    syncButtons();
   }
 
   function showTab(name: string): void {
-    for (const id of ['panelStream', 'panelActivity', 'panelConfig', 'panelRun']) {
-      $(id).hidden = id !== `panel${name}`;
-    }
-    for (const btn of document.querySelectorAll<HTMLButtonElement>('[data-tab]')) {
-      btn.classList.toggle('active', btn.dataset.tab === name);
+    $('panelStream').hidden = name !== 'Stream';
+    $('panelActivity').hidden = name !== 'Activity';
+    $('panelConfig').hidden = name !== 'Config';
+    $('panelProgress').hidden = name !== 'Progress';
+    document.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach((btn) => {
+      const on = btn.dataset.tab === name;
+      btn.classList.toggle('active', on);
+      btn.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+  }
+
+  function updateStream(): void {
+    $('streamFrames').textContent = String(frames);
+    $('streamApply').textContent = String(applyOk);
+    $('streamDesync').textContent = String(desync);
+    $('streamResync').textContent = String(resyncCount);
+    $('streamOps').textContent = opsTotal > 0 ? String(opsTotal) : '—';
+    if (projection) {
+      $('streamSeq').textContent = String(projection.lastAcceptedSequence);
     }
   }
 
-  for (const btn of document.querySelectorAll<HTMLButtonElement>('[data-tab]')) {
-    btn.addEventListener('click', () => showTab(btn.dataset.tab ?? 'Stream'));
+  function resetStreamCounters(): void {
+    frames = 0;
+    applyOk = 0;
+    desync = 0;
+    resyncCount = 0;
+    opsTotal = 0;
+    $('streamGen').textContent = '—';
+    $('streamApplyMs').textContent = '—';
+    $('streamOps').textContent = '—';
+    updateStream();
   }
-  showTab('Stream');
 
-  fixtureSelect.addEventListener('change', () => {
-    urlInput.value = `${location.origin}/fixtures/${fixtureSelect.value}`;
-  });
+  function ensureProjection(): LabProjectionClient {
+    if (projection) return projection;
+    projection = new LabProjectionClient({
+      surfaceHost,
+      onTelemetry: (msg) => {
+        const m = msg as { kind?: string; generation?: number; opCount?: number; applyMs?: number };
+        if (m.kind === 'applyResult') {
+          applyOk += 1;
+          if (typeof m.generation === 'number') $('streamGen').textContent = String(m.generation);
+          if (typeof m.opCount === 'number') {
+            opsTotal += m.opCount;
+            $('streamOps').textContent = String(m.opCount);
+          }
+          if (typeof m.applyMs === 'number') $('streamApplyMs').textContent = m.applyMs.toFixed(1);
+        }
+        if (m.kind === 'desynced' || m.kind === 'desync') desync += 1;
+        if (ws?.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'client.telemetry', message: msg }));
+        }
+        updateStream();
+      },
+      onRequestResync: (info) => {
+        resyncCount += 1;
+        updateStream();
+        logActivity(`resync requested reason=${info.reason}`);
+        if (ws?.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'client.requestResync', ...info }));
+        }
+      },
+      onDesync: (reason) => {
+        desync += 1;
+        updateStream();
+        logActivity(`desync ${reason}`);
+      },
+    });
+    setSurfaceEmpty(false);
+    return projection;
+  }
 
-  $('clearActivity').addEventListener('click', () => {
-    $('activity').replaceChildren();
-  });
+  function appendProgress(msg: {
+    actionId: unknown;
+    queue: unknown;
+    status: unknown;
+    detail?: unknown;
+  }): void {
+    const status = String(msg.status);
+    const row = document.createElement('div');
+    row.className = `tl-row ${status}`;
+    const st = document.createElement('span');
+    st.className = 'tl-status';
+    st.textContent = status;
+    const id = document.createElement('span');
+    id.className = 'tl-id';
+    id.textContent = String(msg.actionId);
+    const q = document.createElement('span');
+    q.className = 'tl-queue';
+    q.textContent = String(msg.queue);
+    row.append(st, id, q);
+    if (msg.detail) {
+      const d = document.createElement('div');
+      d.className = 'tl-detail';
+      d.textContent = String(msg.detail);
+      row.append(d);
+    }
+    $('runTimeline').prepend(row);
+  }
 
-  clearBtn.addEventListener('click', () => {
-    clearProjectedSurface();
-    setStatus('surface cleared');
-    logActivity('projected surface cleared');
-  });
+  function renderVerdictSummary(s: { pass: number; fail: number; skipped: number }): void {
+    const box = $('runVerdicts');
+    box.innerHTML = '';
+    for (const [k, v] of [
+      ['pass', s.pass],
+      ['fail', s.fail],
+      ['skipped', s.skipped],
+    ] as const) {
+      const chip = document.createElement('span');
+      chip.className = `verdict ${k}`;
+      chip.textContent = `${k} ${v}`;
+      box.appendChild(chip);
+    }
+  }
 
-  connectBtn.addEventListener('click', () => {
-    if (ws !== null) return;
-    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    ws = new WebSocket(`${proto}//${location.host}/lab/session`);
+  async function loadFixtures(): Promise<void> {
+    try {
+      const res = await fetch('/lab/fixtures');
+      const list = (await res.json()) as FixtureEntry[];
+      fixtureSelect.innerHTML = '';
+      for (const f of list) {
+        const opt = document.createElement('option');
+        opt.value = f.path;
+        opt.textContent = f.id;
+        if (f.notes) opt.title = f.notes;
+        fixtureSelect.appendChild(opt);
+      }
+      const demo = list.find((f) => f.id === 'demo') ?? list[0];
+      if (demo && mode === 'browse') {
+        fixtureSelect.value = demo.path;
+        urlInput.value = `${location.origin}/fixtures/${demo.path}`;
+      }
+    } catch {
+      if (mode === 'browse') urlInput.value = `${location.origin}/fixtures/demo.html`;
+    }
+  }
+
+  async function loadBlueprints(): Promise<void> {
+    try {
+      const res = await fetch('/lab/blueprints');
+      const data = (await res.json()) as { blueprints: BlueprintSummary[] };
+      blueprints = data.blueprints;
+      blueprintSelect.innerHTML = '';
+      for (const bp of blueprints) {
+        const opt = document.createElement('option');
+        opt.value = bp.id;
+        opt.textContent = `${bp.id} — ${shortDesc(bp.description, 48)}`;
+        opt.title = bp.description;
+        blueprintSelect.appendChild(opt);
+      }
+      if (blueprints.some((b) => b.id === 'soak')) blueprintSelect.value = 'soak';
+    } catch {
+      blueprints = [
+        {
+          id: 'soak',
+          description: 'Timed soak',
+          defaultUrl: 'fixtures/demo.html',
+          acceptsSoakOverrides: true,
+        },
+      ];
+      blueprintSelect.innerHTML = '<option value="soak">soak</option>';
+    }
+    if (mode === 'run') syncRunTarget();
+  }
+
+  function connect(): void {
+    if (ws) return;
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    ws = new WebSocket(`${proto}://${location.host}/lab/session`);
     ws.binaryType = 'arraybuffer';
-    setStatus('connecting…');
     ws.addEventListener('open', () => {
+      phase = 'connected';
+      logActivity('ws open');
+      ws?.send(JSON.stringify({ type: 'hello', protocolVersion: 1 }));
       syncButtons();
-      setStatus('connected — Start Virtual to browse, or Run for a probe');
-      logActivity('session WS open');
     });
     ws.addEventListener('close', () => {
+      phase = 'idle';
+      sessionId = null;
+      logActivity('ws close');
       ws = null;
-      virtualLive = false;
+      sessionLive = false;
       runInFlight = false;
       syncButtons();
-      setStatus('disconnected');
-      logActivity('session WS closed');
     });
     ws.addEventListener('message', (ev) => {
       if (typeof ev.data !== 'string') {
+        const p = ensureProjection();
+        p.ingest(new Uint8Array(ev.data as ArrayBuffer));
         frames += 1;
-        $('streamFrames').textContent = String(frames);
-        projection.ingest(new Uint8Array(ev.data as ArrayBuffer));
+        updateStream();
         return;
       }
-      let msg: ControlMessage;
+      let msg: { type?: string; [k: string]: unknown };
       try {
-        msg = JSON.parse(ev.data) as ControlMessage;
+        msg = JSON.parse(ev.data);
       } catch {
-        logActivity(`bad control: ${ev.data.slice(0, 80)}`);
-        return;
-      }
-      speculumLabTestHooks.onControlMessage?.(msg);
-      if (msg.type === 'hello') {
-        logActivity(`hello session=${msg.sessionId ?? '?'}`);
-        return;
-      }
-      if (msg.type === 'ready') {
-        virtualLive = true;
-        syncButtons();
-        setStatus(`Virtual ready — ${msg.url ?? ''}`);
-        logActivity(`ready dataPlane=${msg.dataPlaneUrl ?? ''}`);
-        return;
-      }
-      if (msg.type === 'stopped') {
-        virtualLive = false;
-        runInFlight = false;
-        clearProjectedSurface();
-        resetStreamCounters();
-        syncButtons();
-        setStatus('Virtual stopped');
-        logActivity('Virtual stopped');
-        return;
-      }
-      if (msg.type === 'stats') {
-        $('hostStats').textContent =
-          `host frames=${msg.frames ?? 0} bytes=${msg.bytes ?? 0} gen=${msg.generation ?? '-'} seq=${msg.sequence ?? '-'} tel=${msg.telemetryMessages ?? 0}`;
-        if (msg.sequence != null) $('streamSeq').textContent = String(msg.sequence);
-        if (msg.generation != null) $('streamGen').textContent = String(msg.generation);
-        return;
-      }
-      if (msg.type === 'telemetry') {
-        const tel = msg.message as TelMsg | undefined;
-        const kind = tel?.kind ?? '?';
-        logActivity(`telemetry ${kind} ${JSON.stringify(tel).slice(0, 120)}`, kind);
-        if (kind === 'frameEmitted') {
-          if (tel?.sequence != null) $('streamSeq').textContent = String(tel.sequence);
-          if (typeof tel?.buildMs === 'number') {
-            lastBuildMs = tel.buildMs;
-            $('streamBuildMs').textContent = lastBuildMs.toFixed(2);
-          }
-        }
-        return;
-      }
-      if (msg.type === 'error') {
-        setStatus(`error: ${typeof msg.message === 'string' ? msg.message : '?'}`);
-        logActivity(`error ${typeof msg.message === 'string' ? msg.message : '?'}`);
-        runInFlight = false;
-        syncButtons();
-        $('benchStatus').textContent = `error: ${typeof msg.message === 'string' ? msg.message : '?'}`;
         return;
       }
       if (msg.type === 'requestSnapshot') {
-        const tree = snapshotTree(projection.document);
-        const tableSnap = projection.snapshotTable();
-        ws?.send(JSON.stringify({ type: 'snapshotResult', tree, table: tableSnap.table, sequence: tableSnap.sequence }));
-        logActivity('snapshot captured — sent to session');
+        const p = ensureProjection();
+        p.flushNow();
+        const tree = snapshotTree(p.document);
+        const tableSnap = p.snapshotTable();
+        ws?.send(
+          JSON.stringify({
+            type: 'client.snapshotResult',
+            tree,
+            table: tableSnap.table,
+            sequence: tableSnap.sequence,
+            generation: tableSnap.generation,
+            desynced: p.desynced,
+            applyError: p.applyError,
+            cascade: probeCssomPaintBoundary(p.document),
+          }),
+        );
         return;
       }
-      if (msg.type === 'benchmarkStarted') {
-        runInFlight = true;
-        $('benchVerdicts').replaceChildren();
-        $('benchStatus').textContent = `running — ${msg.url ?? ''} for ${msg.durationMs ?? '?'}ms…`;
-        $('benchResults').textContent = '';
+      if (msg.type === 'lab.tamper') {
+        const p = ensureProjection();
+        p.flushNow();
+        const r = p.tamperGhostCssRule();
+        logActivity(`lab.tamper ghostRule ok=${r.ok}${r.reason ? ` ${r.reason}` : ''}`);
+        return;
+      }
+      if (msg.type === 'session.hello') {
+        sessionId = String(msg.sessionId ?? '');
+        logActivity(`session.hello ${sessionId}`);
+        refreshStatus();
+        return;
+      }
+      if (msg.type === 'session.booted') {
+        sessionLive = true;
+        sessionId = String(msg.sessionId ?? sessionId ?? '');
+        phase = 'live';
+        logActivity(`booted mode=${msg.mode} dossier=${msg.dossierDir}`);
         syncButtons();
-        logActivity(`benchmark started ${msg.url ?? ''} durationMs=${msg.durationMs ?? '?'}`);
         return;
       }
-      if (msg.type === 'benchmarkComplete') {
-        $('benchStatus').textContent = `done — Virtual stopped. Report: ${msg.reportDir ?? '?'}`;
-        $('benchResults').textContent = msg.report ? renderBenchmarkReport(msg.report) : '(no report)';
-        logActivity(`benchmark complete reportDir=${msg.reportDir ?? '?'}`);
+      if (msg.type === 'session.stopped') {
+        sessionLive = false;
+        if (!runInFlight && phase !== 'complete' && phase !== 'fault') phase = 'connected';
+        logActivity(`stopped ${msg.reason}`);
+        syncButtons();
         return;
       }
-      logActivity(`control ${msg.type}`);
+      if (msg.type === 'session.fault') {
+        phase = 'fault';
+        setChip('chipPhase', `fault ${msg.message}`, 'danger');
+        logActivity(`fault ${msg.message}`);
+        sessionLive = false;
+        runInFlight = false;
+        syncButtons();
+        return;
+      }
+      if (msg.type === 'run.progress') {
+        appendProgress(msg);
+        return;
+      }
+      if (msg.type === 'run.complete') {
+        runInFlight = false;
+        sessionLive = false;
+        phase = 'complete';
+        const s = msg.verdictsSummary as { pass: number; fail: number; skipped: number };
+        renderVerdictSummary(s);
+        $('runDossier').textContent = String(msg.dossierDir ?? '');
+        $('progressHint').textContent =
+          s.fail > 0 ? `Run finished with ${s.fail} fail(s).` : 'Run finished — no fails in summary.';
+        logActivity(`run.complete fail=${s.fail} ${msg.dossierDir}`);
+        setChip(
+          'chipPhase',
+          s.fail > 0 ? `complete fail=${s.fail}` : `complete pass=${s.pass}`,
+          s.fail > 0 ? 'danger' : 'ok',
+        );
+        syncButtons();
+        return;
+      }
+      if (msg.type === 'error') {
+        logActivity(`error ${msg.message}`);
+        phase = 'fault';
+        setChip('chipPhase', String(msg.message), 'danger');
+        runInFlight = false;
+        syncButtons();
+      }
     });
-  });
+  }
 
-  disconnectBtn.addEventListener('click', () => {
+  $('connect').addEventListener('click', () => connect());
+  $('disconnect').addEventListener('click', () => {
     ws?.close();
+    ws = null;
+  });
+  fixtureSelect.addEventListener('change', () => {
+    if (mode !== 'browse') return;
+    urlInput.value = `${location.origin}/fixtures/${fixtureSelect.value}`;
+  });
+  blueprintSelect.addEventListener('change', () => {
+    if (mode === 'run') syncRunTarget();
+  });
+  document.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach((btn) => {
+    btn.addEventListener('click', () => showMode((btn.dataset.mode as 'browse' | 'run') ?? 'browse'));
+  });
+  document.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach((btn) => {
+    btn.addEventListener('click', () => showTab(btn.dataset.tab ?? 'Stream'));
+  });
+  $('clearActivity').addEventListener('click', () => {
+    $('activity').innerHTML = '';
   });
 
-  startBtn.addEventListener('click', () => {
-    if (ws === null || ws.readyState !== WebSocket.OPEN) return;
+  $('browseStart').addEventListener('click', () => {
+    ensureProjection();
     resetStreamCounters();
-    clearProjectedSurface();
-    ws.send(
+    ws?.send(
       JSON.stringify({
-        type: 'start',
-        url: urlInput.value.trim(),
-        telemetry: readConfigFromUi(),
-        frameRateHz: Number(($('cfgFrameRate') as HTMLInputElement).value) || 60,
+        type: 'browse.start',
+        url: urlInput.value,
+        frameRateHz: Number((document.getElementById('frameRateHz') as HTMLInputElement)?.value) || 60,
+        telemetry: readTelemetryFromUi(),
       }),
     );
-    setStatus('starting Virtual…');
   });
-
-  stopBtn.addEventListener('click', () => {
-    if (ws === null || ws.readyState !== WebSocket.OPEN) return;
-    ws.send(JSON.stringify({ type: 'stop' }));
+  $('browseNavigate').addEventListener('click', () => {
+    if (!sessionLive) return;
+    ws?.send(JSON.stringify({ type: 'browse.navigate', url: urlInput.value }));
+    logActivity(`navigate ${urlInput.value}`);
   });
-
-  runBenchmarkBtn.addEventListener('click', () => {
-    if (ws === null || ws.readyState !== WebSocket.OPEN) return;
+  $('browseStop').addEventListener('click', () => {
+    ws?.send(JSON.stringify({ type: 'browse.stop', exportDossier: true }));
+  });
+  $('clearSurface').addEventListener('click', () => {
+    if (projection) {
+      projection.resetSurface();
+    } else {
+      surfaceHost.innerHTML = '';
+    }
+    setSurfaceEmpty(true);
+    resetStreamCounters();
+    ws?.send(JSON.stringify({ type: 'surface.clear' }));
+  });
+  $('runStart').addEventListener('click', () => {
+    ensureProjection();
     runInFlight = true;
+    sessionLive = false;
+    phase = 'running';
+    $('runTimeline').innerHTML = '';
+    $('runVerdicts').innerHTML = '';
+    $('runDossier').textContent = '';
+    $('progressHint').textContent = 'Run in flight…';
+    showTab('Progress');
     resetStreamCounters();
-    clearProjectedSurface();
-    $('benchVerdicts').replaceChildren();
-    $('benchStatus').textContent = 'starting…';
     syncButtons();
-    showTab('Run');
-    ws.send(
+    const bp = selectedBlueprint();
+    const overrides: Record<string, unknown> = {
+      telemetry: readTelemetryFromUi(),
+    };
+    if (bp?.acceptsSoakOverrides) {
+      overrides.durationMs = Number((document.getElementById('runDurationMs') as HTMLInputElement)?.value) || 15000;
+      overrides.cpu = (document.getElementById('runCpu') as HTMLInputElement)?.checked === true;
+      overrides.iso = (document.getElementById('runIso') as HTMLInputElement)?.checked === true;
+    }
+    ws?.send(
       JSON.stringify({
-        type: 'runBenchmark',
-        url: urlInput.value.trim(),
-        durationMs: Number(($('benchDurationMs') as HTMLInputElement).value) || 15_000,
-        telemetry: readConfigFromUi(),
-        frameRateHz: Number(($('cfgFrameRate') as HTMLInputElement).value) || 60,
-        options: {
-          cpuProfile: ($('benchCpuProfile') as HTMLInputElement).checked,
-          invariants: ($('benchInvariants') as HTMLInputElement).checked,
-          structuralDiff: ($('benchStructuralDiff') as HTMLInputElement).checked,
-          isomorphism: ($('benchIso') as HTMLInputElement).checked,
-        },
+        type: 'run.start',
+        blueprintId: blueprintSelect.value || 'soak',
+        overrides,
       }),
     );
   });
 
+  window.addEventListener('resize', measureHeader);
+
+  void Promise.all([loadFixtures(), loadBlueprints()]).then(() => {
+    showMode('browse');
+    measureHeader();
+  });
+  showTab('Stream');
+  refreshStatus();
   syncButtons();
-  setStatus('idle — Connect to begin');
 }
 
 bootLabClient();

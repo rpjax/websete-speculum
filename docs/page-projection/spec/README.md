@@ -3,9 +3,9 @@
 **Status:** official spec for `MirrorMode.PageProjection`.  
 **Accept bar:** [acceptance.md](acceptance.md) — 1:1 with the original site. **DOM** numerical; **CSSOM live** perceived/eventual (not 60 Hz lockstep).  
 **Protocol:** [frame-protocol.md](frame-protocol.md) — the V4 engine (replicated table, binary frames, two-phase apply, resync).  
-**Where you are:** lab engine under `Refactor/sidecar/browser/mirror/projection/` implements V4 **DOM table, single document** (Stages 1–4). Production (`PatchrightBrowserSession.ts`) still runs the **legacy** `LivePageProjection` path. `V4ProjectionBrowserSession` is the **temporary** lab `BrowserSession`; at cutover it must be **complete** (full contract, V4 implementations — not leftover legado) — [roadmap.md](roadmap.md) CUTOVER-SESSION. **Production cutover waits for the full product** (CSSOM + nested/multidocs + redesigned input).
+**Where you are:** lab engine under `Refactor/sidecar/browser/mirror/projection/` implements V4 **DOM table, single document** (Stages 1–4). Production (`PatchrightBrowserSession.ts`) still runs the **legacy** `LivePageProjection` path. `V4ProjectionBrowserSession` is the **temporary** lab `BrowserSession`; at cutover it must be **complete** (full contract, V4 implementations — not leftover legado) — [roadmap.md](roadmap.md) CUTOVER-SESSION. **Production cutover waits for the full product** (CSSOM + nested/multidocs + redesigned input + **canvas projection** as last product feature).
 
-If you are an agent with limited context: **read this file, then `acceptance.md`, then `open.md`, then `roadmap.md`, then only the protocol sections you are changing.** Do not open `../archive/`.
+If you are an agent with limited context: **read this file, then `acceptance.md`, then `open.md`, then `seal-gaps.md`, then `roadmap.md`, then only the protocol sections you are changing.** Do not open `../archive/`.
 
 ---
 
@@ -18,12 +18,14 @@ If you are an agent with limited context: **read this file, then `acceptance.md`
 | K1–K5, P1–P7, E1–E11 | **[budgets.md](budgets.md)** |
 | Oracles O1–O5 | **[oracles.md](oracles.md)** |
 | Lab / probes / event telemetry vs asserts | **[observability.md](observability.md)** |
+| Lab **architecture / cutover** (chassis, browse vs run, blueprints, dossier; single version) | **[lab-design.md](lab-design.md)** — design + cutover plan; not yet implemented |
 | CSSOM materialization detail | **[cssom.md](cssom.md)** — opcodes live in frame-protocol §4.6 |
 | Lab CSSOM **poll algorithm** (worst-case-first; I3 copy-then-hash; does not relock C5) | **[cssom-poll-algorithm.md](cssom-poll-algorithm.md)** |
 | CSSOM sensor **journey** (two truths, why not hooks/CDP, foundation vs amortizations) | **[cssom-sensor-journey.md](cssom-sensor-journey.md)** |
 | Input intents | **[input.md](input.md)** — address by `uint32` only |
 | Asset serve plane | **[virtual-assets.md](virtual-assets.md)** |
 | Published product gaps | **[support-matrix.md](support-matrix.md)** |
+| Lab **DOM / CSSOM seal** kill lists (independent tracks) | **[seal-gaps.md](seal-gaps.md)** |
 | What to build next | **[roadmap.md](roadmap.md)** |
 | Open bugs / OPEN-* / pending rulings | **[open.md](open.md)** |
 | Why a decision exists | **[decision-log.md](decision-log.md)** (append-only; never rewrite history) |
@@ -41,12 +43,14 @@ If two live docs disagree on the protocol layer, **frame-protocol.md wins**. Do 
 | 1 | This file | Map + anti-sources |
 | 2 | [acceptance.md](acceptance.md) | 1:1 bar; T3 / no-ad-hoc restated in V4 terms |
 | 3 | [open.md](open.md) | Named bugs, OPEN-*, rulings — do not ship around them |
-| 4 | [roadmap.md](roadmap.md) | Ordered gates to production |
-| 5 | [frame-protocol.md](frame-protocol.md) | The engine |
-| 6 | [budgets.md](budgets.md) + [oracles.md](oracles.md) | If touching cost, CI, or accept |
-| 7 | [observability.md](observability.md) | If touching lab, telemetry events, probes, `report.json`, isomorphism |
-| 8 | Adjacent layer file | cssom / **cssom-poll-algorithm** / **cssom-sensor-journey** / input / virtual-assets / support-matrix / test-matrix |
-| 9 | [decision-log.md](decision-log.md) | Index; full CSSOM *why* is [cssom-sensor-journey.md](cssom-sensor-journey.md) |
+| 4 | [seal-gaps.md](seal-gaps.md) | Kill list to seal DOM and CSSOM algorithms **independently** (lab honesty/parity; Live cutover is the destination in [roadmap.md](roadmap.md), not a seal gap) |
+| 5 | [roadmap.md](roadmap.md) | Ordered gates to production |
+| 6 | [frame-protocol.md](frame-protocol.md) | The engine |
+| 7 | [budgets.md](budgets.md) + [oracles.md](oracles.md) | If touching cost, CI, or accept |
+| 8 | [observability.md](observability.md) | If touching lab, telemetry events, probes, `report.json`, isomorphism |
+| 8b | [lab-design.md](lab-design.md) | If restructuring lab host/UI/CLI/dossier/blueprints (do not touch BrowserSession) |
+| 9 | Adjacent layer file | cssom / **cssom-poll-algorithm** / **cssom-sensor-journey** / input / virtual-assets / support-matrix / test-matrix |
+| 10 | [decision-log.md](decision-log.md) | Index; full CSSOM *why* is [cssom-sensor-journey.md](cssom-sensor-journey.md) |
 
 ---
 
@@ -62,6 +66,7 @@ docs/page-projection/
     budgets.md              K1–K5, P*, E*
     oracles.md              O1–O5
     observability.md        probes vs events; coherent snapshot; lab as caller
+    lab-design.md           lab chassis / browse vs run / blueprints / dossier (design)
     cssom.md                CSSOM plane (materialize)
     cssom-poll-algorithm.md lab poll sensor (I1–I11)
     cssom-sensor-journey.md why this detector; two truths; rulings
@@ -72,14 +77,16 @@ docs/page-projection/
     decision-log.md         append-only log (all eras, labeled)
     roadmap.md              M1/M2/M3 + cutover gates
     open.md                 bugs, OPEN-*, rulings, residuals
+    seal-gaps.md            lab DOM / CSSOM seal kill lists (independent)
   archive/                  DO NOT IMPLEMENT FROM
 ```
 
 Code that implements V4: `Refactor/sidecar/browser/mirror/projection/`.  
 Lab is a **caller** of `V4ProjectionBrowserSession` — [observability.md](observability.md).  
-Lab UI: `npm run lab:projection`. Agent: `npm run lab:run` → `lab-runs/<ts>-<slug>/report.json`.  
+Lab architecture (cutover): [lab-design.md](lab-design.md).  
+Lab UI: `npm run lab:projection`. Agent: `npm run lab:run -- --blueprint soak …` → dossier dir / `verdicts.json`.  
 Lab smoke: `Refactor/sidecar/scripts/smoke-projection-lab.js`.  
-Lab units: `Refactor/sidecar/unit.ts` (includes `v4ProjectionSession.unit.ts`).
+Lab units: `Refactor/sidecar/unit.ts` (includes V4 session + lab scheduler tests).
 
 ---
 

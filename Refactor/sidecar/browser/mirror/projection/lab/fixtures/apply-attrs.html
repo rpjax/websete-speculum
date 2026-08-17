@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>ATTR apply fixture</title>
+    <style>
+      body { margin: 1.5rem; font-family: Georgia, serif; background: #f4f7fb; }
+      #probe { padding: 1rem; border: 2px solid #234; background: #fff; max-width: 28rem; }
+      #probe.b { outline: 3px solid #2a7; }
+    </style>
+  </head>
+  <body>
+    <h1>ATTR apply</h1>
+    <p id="probe" class="a" data-k="1">probe</p>
+    <script>
+      const acts = {
+        attrSet() {
+          const el = document.getElementById('probe');
+          if (!el) throw new Error('#probe missing');
+          el.dataset.k = el.dataset.k === '1' ? '2' : '1';
+          el.classList.toggle('b');
+        },
+      };
+      window.__cssomLab = {
+        act(name) {
+          const fn = acts[name];
+          if (typeof fn !== 'function') return { ok: false, reason: 'unknown act ' + name };
+          fn();
+          return { ok: true, act: name };
+        },
+      };
+    </script>
+  </body>
+</html>

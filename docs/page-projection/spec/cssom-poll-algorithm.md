@@ -1,9 +1,10 @@
 # PageProjection — CSSOM poll algorithm (lab design)
 
 **Status:** I3 walk + §4.6 ops on the wire (2026-08-15). **Does not relock [cssom.md](cssom.md) C5**
-until Rodrigo seals a sensor change. Owned-CSSOM apply (C6) is still out — client phase 2 CSSOM is a
-no-op; phase 1 table applies `SHEET_*`/`RULE_*` so `CHECK`/`preTableHash` stay honest.
-**Code:** `Refactor/sidecar/browser/mirror/projection/virtual/cssom/` + attach at
+until Rodrigo seals a sensor change. Phase 1 table applies `SHEET_*`/`RULE_*` so `CHECK` /
+`preTableHash` stay honest. **Lab C6 apply is shipped** for constructed / `adoptedStyleSheets` +
+`CSSStyleRule` (`client/applyDom.ts`); pierce still desyncs — seal gaps: [seal-gaps.md](seal-gaps.md).
+**Code (poll):** `Refactor/sidecar/browser/mirror/projection/virtual/cssom/` + attach at
 `virtual/frame/frameEmitter.ts`. **No CSSOM in `virtual/dom/` builders.** Idle hashes the **copy** in
 batches (`timeRemaining`); it does not iterate the live `cssRules` list across a yield.  
 **Observability of the pass:** [observability.md](observability.md) §9 (`cssomPoll`).  
@@ -140,7 +141,8 @@ for **idle**, **resync**, and **snapshot scan**. Table × owned CSSOM isomorphis
 **probe at sequence S** — [observability.md](observability.md). `pollMs` is **wall** time (includes
 waits between idle slices); it is not CSSOM CPU.
 
-**I11 — Emit granularity (when opcodes land).** Smallest sufficient op: in-place → `RULE_SET`;
+**I11 — Emit granularity (when opcodes land).** Smallest sufficient op: `CSSStyleRule` in-place →
+`RULE_SET`; grouping-rule content change (in-place patch cannot work) → `RULE_DROP` + `RULE_NEW`;
 structural → `RULE_NEW`/`RULE_DROP`/`SHEET_*` as in §4.6. No live full-text sheet rewrite.
 
 ---
@@ -292,15 +294,17 @@ content walk** (I3); they do not license skip-serialize as completeness.
 - Relock C5 from write-path hooks to this poll as **primary sensor** — Rodrigo.
 - Nested-rule walk vs grouping `cssText` only (I2 today = top-level serialize; C3.1 if inner
   change re-sets the grouping rule).
-- Owned CSSOM apply (C6).
 - Lab O2-class CSSOM (table × Virtual live) exists: `flushAndSnapshot({ cssom: 'scan'|'committed' })`
-  and `npm run lab:cssom-foundation`. Not a substitute for I1–I11; not Projected / not C6.
+  and `npm run lab:cssom-foundation`. Not a substitute for I1–I11; not automated Projected CSS iso
+  ([seal-gaps.md](seal-gaps.md) **SEAL-CSSOM-P2-ISO**).
 - Exact mass-abort threshold (fraction stale vs `replaceSync` detection) — lab uses ≥90% copy stale
   or live `length` &lt; 0.1× / &gt; 2× copy.
 - Isolated CSSOM-CPU-per-pass at design load feeds **E6/E11**, not sealing the walk. Functional ≠
   perf.
 - Which amortizations ship first (generations / skip serialize / in-page hints) — after I3 exists
   and there are numbers. None of them may hide a sheet that is still wrong **at settle**.
+- Remaining CSSOM **lab seal** honesty (RULE_SET verify, author vs adopted boundary, end-of-frame
+  rule check): [seal-gaps.md](seal-gaps.md) CSSOM P0.
 
 ---
 
@@ -309,7 +313,8 @@ content walk** (I3); they do not license skip-serialize as completeness.
 | Date | Topic |
 |------|--------|
 | 2026-08-15 | Worst-case-first poll algorithm; idle + next-boundary attach; I1–I11; C5 not relocked |
-| 2026-08-15 | I3 implemented in lab: copy refs, idle-batch hash, slot skip vs mass abort, whole-pass `lastRules`; §4.6 ops on the wire; C6 still no-op |
+| 2026-08-15 | I3 implemented in lab: copy refs, idle-batch hash, slot skip vs mass abort, whole-pass `lastRules`; §4.6 ops on the wire |
+| 2026-08-16 | Doc correction: lab C6 apply (constructed/`adoptedStyleSheets` + `CSSStyleRule`) is shipped in `client/applyDom.ts`; pierce still desyncs. Prior “C6 still no-op” banners were false — see [seal-gaps.md](seal-gaps.md) **SEAL-CSSOM-P0-DOCS** |
 | 2026-08-15 | Layers: resync always both planes + blocking CSSOM scan; snapshot CSSOM tunable; §5.8 `resyncVirtual` = `rebuildAndResync`; idle degrades with the page; no CDP in the walk |
 | 2026-08-15 | Accept: DOM numerical 1:1; CSSOM live perceived/eventual; worst-case synthetic stresses the detector, not a 60 Hz CSSOM SLO |
-| 2026-08-15 | Lab foundation gate: `cssomFoundationRun` + small `cssom-scale --iso`; O2 CSSOM table×live |
+| 2026-08-16 | I11 | Grouping-rule content change → `RULE_DROP`+`RULE_NEW`; `CSSStyleRule` still `RULE_SET` |

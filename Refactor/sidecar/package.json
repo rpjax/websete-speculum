@@ -15,7 +15,7 @@
     "dev:inpage": "npm run dev:virtual",
     "start": "node dist/index.js",
     "dev": "ts-node index.ts",
-    "lab:projection": "npm run build:virtual && npm run build:lab-client && npm run build:snapshot && tsc && node dist/browser/mirror/projection/lab/index.js",
+    "lab:projection": "npm run build:virtual && npm run build:lab-client && npm run build:snapshot && tsc && node dist/browser/mirror/projection/lab/host/index.js",
     "lab:run": "node scripts/lab-run.js",
     "lab:cssom-foundation": "node scripts/cssom-foundation.js",
     "lab:cssom-heavy": "node scripts/cssom-heavy.js",

@@ -20,6 +20,7 @@
  */
 
 import { NodeKind, OpCode } from '../models/opcodes';
+import { applyFramesUntilDesync } from '../models/applyBatch';
 import {
   CSSOM_SCOPE_PIERCE_HOST,
   DOCUMENT_ID,
@@ -27,7 +28,9 @@ import {
   type AttrPair,
   type FrameOp,
 } from '../models/frame';
-import { insertIndexFromBefore, orderedSheetIds } from '../models/cssomApplyIndex';
+import { applyAttrPairs } from '../models/attrApply';
+import { insertIndexFromBefore, orderedSheetIds, orderedRuleIds, matchCssomEndOfFrame, declarationBlockFromRuleText } from '../models/cssomApplyIndex';
+import { planRuleSetApply } from '../models/cssomRuleSet';
 import type { AssembledFrame } from '../models/decode';
 import { ReplicatedTable } from '../models/replicatedTable';
 import { applyFrameToTableChecked } from '../models/replicatedTableApply';
@@ -98,10 +101,12 @@ export class DomFrameApplier {
     if (batch.length === 0) return;
     const start = performance.now();
     let lastSequence = 0;
-    for (const frame of batch) {
+    // SEAL-DOM-P0-FLUSH / PP-APPLY-1: stop the batch on first desync — do not apply later
+    // frames over a dirty or already-reset table (lab client resets in onDesync).
+    applyFramesUntilDesync(batch, (frame) => {
       lastSequence = frame.sequence;
-      this.applyFrame(frame);
-    }
+      return this.applyFrame(frame);
+    });
     const duration = performance.now() - start;
     const budget = this.options.applyBudgetMs ?? 4;
     if (duration > budget) this.options.onOverrun?.(duration, lastSequence);
@@ -117,24 +122,22 @@ export class DomFrameApplier {
     this.clearCssom();
   }
 
-  private applyFrame(frame: AssembledFrame): void {
+  /** @returns `false` when a desync was reported — `flush` must not apply later frames in the batch. */
+  private applyFrame(frame: AssembledFrame): boolean {
     const start = performance.now();
 
     // Phase 1 (table) — §6, §P3: pure memory, no DOM. `preTableHash` is unchecked for resync
     // frames (§2 — "no prior state to check against a wholesale replace"); an ordinary frame's
     // `preTableHash` must match this client's own table *before* any op in it applies.
     if (!frame.resync && frame.preTableHash !== this.table.tableHash) {
-      this.fail('precondition', 'preTableHash', frame.preTableHash, this.table.tableHash);
-      return;
+      return this.fail('precondition', 'preTableHash', frame.preTableHash, this.table.tableHash);
     }
     const result = applyFrameToTableChecked(this.table, frame.resync, frame.ops, frame.sequence);
     if (!result.ok) {
       if (result.opName === 'check') {
-        this.fail('precondition', 'check', result.expected, result.actual);
-      } else {
-        this.failOp(result.reason, result.opName, result.id, result.message);
+        return this.fail('precondition', 'check', result.expected, result.actual);
       }
-      return;
+      return this.failOp(result.reason, result.opName, result.id, result.message);
     }
 
     // Phase 2 (materialize) — §6. Only reached once phase 1 has fully succeeded for the whole
@@ -142,14 +145,14 @@ export class DomFrameApplier {
     // CSSOM still uses the iframe window's `CSSStyleSheet`; a cross-realm constructor throws.
     for (let i = 0; i < frame.ops.length; i++) {
       try {
-        if (!this.applyOp(frame.ops[i]!)) return;
+        if (!this.applyOp(frame.ops[i]!)) return false;
       } catch {
-        this.fail('malformed', 'apply', 0);
-        return;
+        return this.fail('malformed', 'apply', 0);
       }
     }
-    if (!this.cssomHandlesMatchTable()) return;
+    if (!this.cssomHandlesMatchTable()) return false;
     this.options.onApplied?.(frame, performance.now() - start);
+    return true;
   }
 
   private fail(reason: DomDesyncReason, opName: string, expected: bigint, actual: bigint): false;
@@ -163,7 +166,7 @@ export class DomFrameApplier {
     return false;
   }
 
-  /** `NODE_DROP`/`MAX_ROWS` phase-1 failures (Stage 3) — `message` for diagnostics, explicit `phase`. */
+  /** Phase-1 Pre / `MAX_ROWS` failures — `message` for diagnostics, explicit `phase`. */
   private failOp(reason: 'malformed' | 'precondition', opName: string, id: number, message: string): false {
     this.options.onDesync?.({ reason, op: opName, id, message, phase: 'apply' });
     return false;
@@ -234,12 +237,51 @@ export class DomFrameApplier {
     }
   }
 
-  /** After the frame, every table Sheet row must have a live handle (replay complete, not mid-op). */
+  /**
+   * After the frame: every table Sheet/Rule row must have a live handle in claimed sheet/order
+   * (SEAL-CSSOM-P0-EOF / PP-CSSOM-A-3) — not sheet handles alone.
+   */
   private cssomHandlesMatchTable(): boolean {
-    const ids = orderedSheetIds(this.table);
-    for (let i = 0; i < ids.length; i++) {
-      if (!this.sheets.has(ids[i]!)) return this.fail('address_miss', 'sheetNew', ids[i]!);
+    const tableSheetIds = orderedSheetIds(this.table);
+    const liveSheetIdsPresent = new Set<number>();
+    const tableRuleIdsBySheet = new Map<number, readonly number[]>();
+    const liveRuleIdsBySheet = new Map<number, readonly number[]>();
+
+    for (let i = 0; i < tableSheetIds.length; i++) {
+      const sheetId = tableSheetIds[i]!;
+      tableRuleIdsBySheet.set(sheetId, orderedRuleIds(this.table, sheetId));
+      const sheet = this.sheets.get(sheetId);
+      if (sheet === undefined) continue;
+      liveSheetIdsPresent.add(sheetId);
+
+      const liveRuleIds: number[] = [];
+      for (let k = 0; k < sheet.cssRules.length; k++) {
+        const live = sheet.cssRules.item(k);
+        if (live === null) {
+          return this.fail('address_miss', 'ruleNew', sheetId);
+        }
+        let mapped: number | undefined;
+        for (const [id, bound] of this.rules) {
+          if (bound === live) {
+            mapped = id;
+            break;
+          }
+        }
+        if (mapped === undefined) {
+          return this.fail('address_miss', 'ruleNew', sheetId);
+        }
+        liveRuleIds.push(mapped);
+      }
+      liveRuleIdsBySheet.set(sheetId, liveRuleIds);
     }
+
+    const result = matchCssomEndOfFrame(
+      tableSheetIds,
+      tableRuleIdsBySheet,
+      liveSheetIdsPresent,
+      liveRuleIdsBySheet,
+    );
+    if (!result.ok) return this.fail('address_miss', result.op, result.id);
     return true;
   }
 
@@ -374,12 +416,19 @@ export class DomFrameApplier {
   private applyRuleSet(op: Extract<FrameOp, { op: OpCode.RuleSet }>): boolean {
     const rule = this.rules.get(op.id);
     if (rule === undefined) return this.fail('address_miss', 'ruleSet', op.id);
+    const view = this.doc.defaultView;
+    const StyleRule = view !== null ? view.CSSStyleRule : undefined;
+    const isStyle = StyleRule !== undefined && rule instanceof StyleRule;
+    // SEAL-CSSOM-P0-RULESET: non-CSSStyleRule must desync — never silent cssText no-op.
+    if (planRuleSetApply(isStyle).mode === 'desync') {
+      return this.fail('bad_target', 'ruleSet', op.id);
+    }
     try {
-      rule.cssText = op.text;
+      (rule as CSSStyleRule).style.cssText = declarationBlockFromRuleText(op.text);
+      return true;
     } catch {
       return this.fail('malformed', 'ruleSet', op.id);
     }
-    return true;
   }
 
   /** §4.2 `NODE_DROP` `DOM` effect: "none — the subtree is already detached." Registry-only. */
@@ -395,7 +444,10 @@ export class DomFrameApplier {
     let node: Node;
     if (op.kind === NodeKind.Element) {
       node = this.doc.createElement(op.name);
-      applyAttrs(node as Element, op.attrs);
+      // SEAL-DOM-P0-ATTR: register only after attrs land — failed setAttribute → desync.
+      if (!applyAttrs(node as Element, op.attrs)) {
+        return this.fail('malformed', 'nodeNew', op.id);
+      }
     } else if (op.kind === NodeKind.Text) {
       node = this.doc.createTextNode(op.value);
     } else if (op.kind === NodeKind.Comment) {
@@ -451,7 +503,9 @@ export class DomFrameApplier {
   private applyAttrSet(op: Extract<FrameOp, { op: OpCode.AttrSet }>): boolean {
     const node = this.registry.get(op.node);
     if (!node || node.nodeType !== Node.ELEMENT_NODE) return this.fail('address_miss', 'attrSet', op.node);
-    applyAttrs(node as Element, op.attrs);
+    if (!applyAttrs(node as Element, op.attrs)) {
+      return this.fail('malformed', 'attrSet', op.node);
+    }
     return true;
   }
 
@@ -471,13 +525,7 @@ export class DomFrameApplier {
   }
 }
 
-function applyAttrs(el: Element, attrs: AttrPair[]): void {
-  for (let i = 0; i < attrs.length; i++) {
-    const { name, value } = attrs[i]!;
-    try {
-      el.setAttribute(name, value);
-    } catch {
-      /* invalid attribute name from a hostile/unusual page — ignore, not a desync */
-    }
-  }
+/** SEAL-DOM-P0-ATTR / PP-APPLY-2: failed setAttribute → false (callers desync). */
+function applyAttrs(el: Element, attrs: AttrPair[]): boolean {
+  return applyAttrPairs((name, value) => el.setAttribute(name, value), attrs);
 }

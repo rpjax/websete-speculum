@@ -1,6 +1,7 @@
 /**
- * Live delta / resync snapshot → §4.6 FrameOp. C3.1: in-place RULE_SET; never SHEET_DROP a live
- * sheet just to refresh rules. Inserts without text are omitted (next pass).
+ * Live delta / resync snapshot → §4.6 FrameOp. C3.1: in-place RULE_SET on CSSStyleRule;
+ * never SHEET_DROP a live sheet just to refresh rules. Grouping-rule content change
+ * (patch cannot work) → RULE_DROP + RULE_NEW, not RULE_SET. Inserts without text omitted (next pass).
  */
 
 import {
@@ -9,6 +10,7 @@ import {
   type FrameOp,
 } from '../../models/frame';
 import { OpCode } from '../../models/opcodes';
+import { ruleAcceptsInPlaceSet } from '../../models/cssomRuleSet';
 import type { CssomIds } from './cssomIds';
 import type { RuleSnap } from './cssomReconcile';
 
@@ -112,16 +114,26 @@ function emitRuleDelta(
   const prevKeys = new Set(prev.map((s) => s.key));
   const nextKeys = new Set(rec.snaps.map((s) => s.key));
 
-  const dropIds: number[] = [];
-  for (const row of prev) {
-    if (nextKeys.has(row.key)) continue;
-    const id = ids.peekRule(row.key);
-    if (id !== undefined) dropIds.push(id);
-  }
-  if (dropIds.length > 0) ops.push({ op: OpCode.RuleDrop, sheet: sheetId, ids: dropIds });
-
   const prevHash = new Map<object, number>();
   for (const row of prev) prevHash.set(row.key, row.contentHash);
+
+  const replaceKeys = new Set<object>();
+  for (let i = 0; i < rec.snaps.length; i++) {
+    const snap = rec.snaps[i]!;
+    if (!prevKeys.has(snap.key)) continue;
+    if (prevHash.get(snap.key) === snap.contentHash) continue;
+    if (ruleAcceptsInPlaceSet(snap.key)) continue;
+    replaceKeys.add(snap.key);
+  }
+
+  const dropIds: number[] = [];
+  for (const row of prev) {
+    if (nextKeys.has(row.key) && !replaceKeys.has(row.key)) continue;
+    const id = ids.peekRule(row.key);
+    if (id !== undefined) dropIds.push(id);
+    ids.forgetRule(row.key);
+  }
+  if (dropIds.length > 0) ops.push({ op: OpCode.RuleDrop, sheet: sheetId, ids: dropIds });
 
   for (let i = 0; i < rec.snaps.length; i++) {
     const snap = rec.snaps[i]!;
@@ -133,7 +145,7 @@ function emitRuleDelta(
       before = nextId;
       break;
     }
-    if (!prevKeys.has(snap.key)) {
+    if (!prevKeys.has(snap.key) || replaceKeys.has(snap.key)) {
       ops.push({
         op: OpCode.RuleNew,
         sheet: sheetId,

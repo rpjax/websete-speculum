@@ -1,6 +1,5 @@
 /**
- * CSSOM heavy magazine: observe-then-fold runner (Virtual table × live).
- * Human visual is the 4077 Projected surface — this script does not prove paint.
+ * Sugar: cssom-heavy blueprint via lab:run entrypoint.
  */
 const { spawnSync } = require('node:child_process');
 const path = require('node:path');
@@ -26,5 +25,9 @@ const tsc = runNode([require.resolve('typescript/bin/tsc')]);
 if (tsc) process.exit(tsc);
 
 process.exit(
-  runNode([path.join(root, 'dist', 'browser', 'mirror', 'projection', 'lab', 'cssomHeavyRun.js')]),
+  runNode([
+    path.join(root, 'dist', 'browser', 'mirror', 'projection', 'lab', 'runner', 'cli.js'),
+    '--blueprint',
+    'cssom-heavy',
+  ]),
 );

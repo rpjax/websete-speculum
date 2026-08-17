@@ -1,0 +1,39 @@
+{
+  "id": "stress",
+  "description": "Soak on stress-churn — PP-FR-1 nodeNewConnected under churn",
+  "sessionPolicy": "cold",
+  "fold": "soak",
+  "queues": [
+    {
+      "name": "main",
+      "actions": [
+        { "id": "boot", "type": "boot", "params": { "url": "fixtures/stress-churn.html" } },
+        {
+          "id": "collect",
+          "type": "collect.enable",
+          "dependsOn": ["boot"],
+          "params": { "invariants": true, "metrics": true, "nodeTableApply": true }
+        },
+        {
+          "id": "sleep",
+          "type": "sleep",
+          "dependsOn": ["collect"],
+          "params": { "ms": 8000, "useOverrideDuration": true }
+        },
+        {
+          "id": "iso",
+          "type": "iso",
+          "dependsOn": ["sleep"],
+          "params": { "cssom": "scan" }
+        },
+        {
+          "id": "fold",
+          "type": "fold",
+          "awaits": ["iso"],
+          "params": { "ruleset": "soak" }
+        },
+        { "id": "writeDossier", "type": "writeDossier", "dependsOn": ["fold"] }
+      ]
+    }
+  ]
+}

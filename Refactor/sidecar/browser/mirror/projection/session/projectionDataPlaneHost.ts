@@ -5,7 +5,7 @@
 
 import http from 'node:http';
 import { WebSocketServer, type WebSocket } from 'ws';
-import { NodeDataPlane } from '../lab/nodeDataPlane';
+import { NodeDataPlane } from '../lab/probes/nodeDataPlane';
 import { PlaneChannel } from '../plane';
 
 export class ProjectionDataPlaneHost {

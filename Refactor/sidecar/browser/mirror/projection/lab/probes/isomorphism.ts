@@ -6,12 +6,12 @@
  * Caller table apply (Node `applyFrameToTableChecked` or DOM client) then snapshots at S.
  */
 
-import type { BrowserSession } from '../../../BrowserSession';
-import type { TableLiveOracleResult } from '../models/tableLiveOracle';
-import type { CssomTableLiveOracleResult } from '../models/cssomTableLiveOracle';
-import type { ReplicatedTableDigest } from '../models/tableDigest';
-import { tableDigestsEqual } from '../models/tableDigest';
-import type { TreeNode } from '../models/treeNode';
+import type { BrowserSession } from '../../../../BrowserSession';
+import type { TableLiveOracleResult } from '../../models/tableLiveOracle';
+import type { CssomTableLiveOracleResult } from '../../models/cssomTableLiveOracle';
+import type { ReplicatedTableDigest } from '../../models/tableDigest';
+import { tableDigestsEqual } from '../../models/tableDigest';
+import type { TreeNode } from '../../models/treeNode';
 import { diffTrees, type StructuralDiffResult } from './structuralDiff';
 
 export type ClientStateSnapshot = {
@@ -19,7 +19,19 @@ export type ClientStateSnapshot = {
   table: ReplicatedTableDigest | null;
   /** Last successfully applied frame sequence (Node table apply). Omit for DOM lab client. */
   sequence?: number | null;
+  generation?: number | null;
   applyError?: string | null;
+  /** Sticky: a desync was reported since the last surface reset (inject proofs). */
+  desynced?: boolean;
+  /** PP-CSSOM-A-2 paint boundary (fixture probes). */
+  cascade?: {
+    authorColor: string;
+    adoptedColor: string;
+    adoptedCount: number;
+    styleSheetCount: number;
+    styleElCount: number;
+    doublePaint: boolean;
+  } | null;
 };
 
 export type IsomorphismResult = {
@@ -35,6 +47,15 @@ export type IsomorphismResult = {
   tableFailReason: string | null;
   structuralDiff: StructuralDiffResult | null;
   skipped: { id: string; reason: string }[];
+  nodeNewConnected: {
+    ok: boolean;
+    checked: number;
+    disconnectedIds: number[];
+  } | null;
+  cascade: {
+    virtual: ClientStateSnapshot['cascade'];
+    client: ClientStateSnapshot['cascade'];
+  } | null;
 };
 
 const CLIENT_CATCH_UP_MS = 2_000;
@@ -60,7 +81,7 @@ async function waitClientAtSequence(
   }
   if (snap.sequence == null) return snap;
   while (Date.now() < deadline) {
-    if (snap.applyError) return snap;
+    if (snap.applyError || snap.desynced) return snap;
     if ((snap.sequence ?? 0) >= targetSequence && snap.table != null) return snap;
     await sleep(CLIENT_POLL_MS);
     const next = await getClientSnapshot();
@@ -90,6 +111,8 @@ export async function runIsomorphism(opts: {
       tableFailReason: null,
       structuralDiff: null,
       skipped: [{ id: 'isomorphism', reason: 'session does not expose flushProjectionSnapshot' }],
+      nodeNewConnected: null,
+      cascade: null,
     };
   }
 
@@ -105,6 +128,8 @@ export async function runIsomorphism(opts: {
         tableFailReason: null,
         structuralDiff: null,
         skipped: [{ id: 'isomorphism', reason: virtual.reason ?? 'flushProjectionSnapshot failed' }],
+        nodeNewConnected: null,
+        cascade: null,
       };
     }
 
@@ -158,9 +183,9 @@ export async function runIsomorphism(opts: {
     let tableFailReason: string | null = null;
 
     if (opts.getClientSnapshot && clientSnap != null) {
-      if (clientSnap.applyError) {
+      if (clientSnap.applyError || clientSnap.desynced) {
         tableIdentical = false;
-        tableFailReason = clientSnap.applyError;
+        tableFailReason = clientSnap.applyError ?? 'client desynced';
       } else if (clientSnap.sequence != null && clientSnap.sequence < targetSeq) {
         skipped.push({
           id: 'table',
@@ -187,6 +212,14 @@ export async function runIsomorphism(opts: {
       table: { virtual: virtualTable, client: clientTable, identical: tableIdentical },
       tableFailReason,
       structuralDiff,
+      nodeNewConnected:
+        virtual.nodeNewConnected && typeof virtual.nodeNewConnected.ok === 'boolean'
+          ? virtual.nodeNewConnected
+          : null,
+      cascade: {
+        virtual: virtual.cascade ?? null,
+        client: clientSnap?.cascade ?? null,
+      },
       skipped: [
         ...skipped,
         ...(virtual.o2 ? [] : [{ id: 'o2', reason: 'O2 missing from flushProjectionSnapshot' }]),

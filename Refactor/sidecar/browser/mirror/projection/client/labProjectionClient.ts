@@ -39,7 +39,7 @@ export type LabProjectionClientOptions = {
    * client's own last-known-good `generation`/`sequence` (diagnostic only — see `resync.ts`'s
    * own doc comment on why the producer never needs to trust these) and the reason of whichever
    * desync triggered it. The caller is expected to relay this over the session control WS
-   * (`lab/session.ts`'s `requestResync` case) — this class has no transport of its own.
+   * (`client.requestResync` on the lab control WS) — this class has no transport of its own.
    */
   onRequestResync?: (info: { generation: number; sequence: number; reason: string }) => void;
 };
@@ -90,6 +90,8 @@ export class LabProjectionClient {
    * `true` at least once — i.e. once the ordinary live target has actually shown something.
    */
   private everArmed = false;
+  /** Sticky until resetSurface — inject proofs must not lose the desync to a later resync. */
+  private lastDesyncReason: string | null = null;
 
   constructor(opts: LabProjectionClientOptions) {
     this.surface = createSurfaceHost(opts.surfaceHost, {
@@ -125,11 +127,46 @@ export class LabProjectionClient {
   }
 
   /** Probe: replicated table at the last applied sequence (same turn as the caller). */
-  snapshotTable(): { sequence: number; table: ReturnType<typeof digestReplicatedTable> } {
+  snapshotTable(): {
+    sequence: number;
+    generation: number;
+    table: ReturnType<typeof digestReplicatedTable>;
+  } {
     return {
       sequence: this.lastSequence,
+      generation: this.generation,
       table: digestReplicatedTable(this.live.applier.replicatedTable),
     };
+  }
+
+  /** Drain queued frames before a lab snapshot / inject. */
+  flushNow(): void {
+    this.live.applier.flush();
+    this.resync?.applier.flush();
+  }
+
+  get desynced(): boolean {
+    return this.lastDesyncReason !== null;
+  }
+
+  get applyError(): string | null {
+    return this.lastDesyncReason;
+  }
+
+  /**
+   * Lab inject (SEAL-CSSOM-P0-EOF): extra live rule with no table row.
+   * Honest producer never emits this; CHECK after this must desync at end-of-frame verify.
+   */
+  tamperGhostCssRule(): { ok: boolean; reason?: string } {
+    const adopted = this.document.adoptedStyleSheets;
+    const sheet = adopted.length > 0 ? adopted[adopted.length - 1]! : this.document.styleSheets.item(0);
+    if (!sheet) return { ok: false, reason: 'no stylesheet to tamper' };
+    try {
+      sheet.insertRule('.lab-ghost-eof{color:red}', 0);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, reason: err instanceof Error ? err.message : String(err) };
+    }
   }
 
   /** Lab UI: empty the projected iframe and reset apply state. Does not touch Virtual. */
@@ -143,6 +180,7 @@ export class LabProjectionClient {
     this.generation = 1;
     this.armed = false;
     this.everArmed = false;
+    this.lastDesyncReason = null;
     this.surface.reset();
     const registry = new PageProjectionRegistry();
     registry.register(DOCUMENT_ID, this.surface.document);
@@ -463,6 +501,9 @@ export class LabProjectionClient {
     this.assembler.reset();
     this.live.applier.reset();
     this.onDesyncCb?.(reason);
+    if (this.lastDesyncReason === null) {
+      this.lastDesyncReason = extra?.op ? `${reason}:${extra.op}` : reason;
+    }
     // Stage 4 — every desync condition requests a resync (frame-protocol.md §5.8: "id
     // unresolved, sequence gap, generation mismatch, missing part, decode error, CHECK mismatch"
     // all share the one mechanism), bounded/backed-off, never silent indefinite retrying.

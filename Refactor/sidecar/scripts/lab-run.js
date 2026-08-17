@@ -1,6 +1,6 @@
 /**
  * npm extra-args must not ride on `npm run build:*` (Windows npm eats `--url` / `--iso`).
- * Builds, then forwards argv intact to runCli.
+ * Builds, then forwards argv intact to runner/cli.
  */
 const { spawnSync } = require('node:child_process');
 const path = require('node:path');
@@ -22,4 +22,4 @@ function runNpm(script) {
 runNpm('build:virtual');
 runNpm('build:snapshot');
 runNode([require.resolve('typescript/bin/tsc')]);
-runNode([path.join(root, 'dist', 'browser', 'mirror', 'projection', 'lab', 'runCli.js'), ...extra]);
+runNode([path.join(root, 'dist', 'browser', 'mirror', 'projection', 'lab', 'runner', 'cli.js'), ...extra]);

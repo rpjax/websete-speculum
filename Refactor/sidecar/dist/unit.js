@@ -66,6 +66,9 @@ const replicatedTableApply_1 = require("./browser/mirror/projection/models/repli
 const opcodes_1 = require("./browser/mirror/projection/models/opcodes");
 const frame_1 = require("./browser/mirror/projection/models/frame");
 const decode_1 = require("./browser/mirror/projection/models/decode");
+const applyBatch_1 = require("./browser/mirror/projection/models/applyBatch");
+const attrApply_1 = require("./browser/mirror/projection/models/attrApply");
+const cssomRuleSet_1 = require("./browser/mirror/projection/models/cssomRuleSet");
 const cssomWalk_1 = require("./browser/mirror/projection/virtual/cssom/cssomWalk");
 const cssomIds_1 = require("./browser/mirror/projection/virtual/cssom/cssomIds");
 const cssomOps_1 = require("./browser/mirror/projection/virtual/cssom/cssomOps");
@@ -73,7 +76,9 @@ const telemetry_1 = require("./browser/mirror/projection/models/telemetry");
 const tableDigest_1 = require("./browser/mirror/projection/models/tableDigest");
 const cssomApplyIndex_1 = require("./browser/mirror/projection/models/cssomApplyIndex");
 const binaryFrameEncoder_1 = require("./browser/mirror/projection/virtual/frame/binaryFrameEncoder");
-const nodeTableApply_1 = require("./browser/mirror/projection/lab/nodeTableApply");
+const nodeTableApply_1 = require("./browser/mirror/projection/lab/probes/nodeTableApply");
+const validate_1 = require("./browser/mirror/projection/lab/runner/validate");
+const schedule_1 = require("./browser/mirror/projection/lab/runner/schedule");
 const limits_1 = require("./browser/mirror/projection/models/limits");
 const fnv32_1 = require("./browser/mirror/projection/virtual/cssom/fnv32");
 const cssomReconcile_1 = require("./browser/mirror/projection/virtual/cssom/cssomReconcile");
@@ -2095,6 +2100,161 @@ function testApplyFrameToTableCheckedEnforcesMaxRows() {
     assert_1.default.strictEqual(reannounce.ok, true, 'MAX_ROWS must not block re-describing an id the table already holds');
     console.log('[unit] applyFrameToTableChecked enforces MAX_ROWS on net-new rows only (§8) ok');
 }
+/**
+ * PP-APPLY-3 / SEAL-DOM-P0-PHASE1 — §4 Pre falsifiers: failing op must not apply; prior ops in the
+ * same frame stay (no rollback). One case per structural / node-state / CSSOM class.
+ */
+function testApplyFrameToTableCheckedPhase1Pres() {
+    {
+        const table = new replicatedTable_1.ReplicatedTable();
+        (0, replicatedTableApply_1.applyOpsToTable)(table, [
+            { op: opcodes_1.OpCode.NodeNew, id: 2, kind: opcodes_1.NodeKind.Element, name: 'div', attrs: [] },
+        ]);
+        const result = (0, replicatedTableApply_1.applyFrameToTableChecked)(table, false, [
+            { op: opcodes_1.OpCode.Insert, parent: 99, before: 0, ids: [2] },
+        ]);
+        assert_1.default.strictEqual(result.ok, false);
+        if (!result.ok && result.opName !== 'check') {
+            assert_1.default.strictEqual(result.opName, 'insert');
+            assert_1.default.strictEqual(result.reason, 'precondition');
+        }
+        else
+            assert_1.default.fail(JSON.stringify(result));
+        assert_1.default.strictEqual(table.getRow(2).parent, 0, 'failed INSERT must not attach');
+    }
+    {
+        const table = new replicatedTable_1.ReplicatedTable();
+        (0, replicatedTableApply_1.applyOpsToTable)(table, [
+            { op: opcodes_1.OpCode.NodeNew, id: 2, kind: opcodes_1.NodeKind.Element, name: 'div', attrs: [] },
+            { op: opcodes_1.OpCode.NodeNew, id: 3, kind: opcodes_1.NodeKind.Text, value: 't' },
+            { op: opcodes_1.OpCode.Insert, parent: 1, before: 0, ids: [2] },
+            { op: opcodes_1.OpCode.Insert, parent: 2, before: 0, ids: [3] },
+        ]);
+        const result = (0, replicatedTableApply_1.applyFrameToTableChecked)(table, false, [
+            { op: opcodes_1.OpCode.Remove, parent: 1, ids: [3] },
+        ]);
+        assert_1.default.strictEqual(result.ok, false);
+        if (!result.ok && result.opName !== 'check') {
+            assert_1.default.strictEqual(result.opName, 'remove');
+            assert_1.default.strictEqual(result.reason, 'precondition');
+        }
+        else
+            assert_1.default.fail(JSON.stringify(result));
+        assert_1.default.strictEqual(table.getRow(3).parent, 2, 'failed REMOVE must not detach');
+    }
+    {
+        const table = new replicatedTable_1.ReplicatedTable();
+        (0, replicatedTableApply_1.applyOpsToTable)(table, [
+            { op: opcodes_1.OpCode.NodeNew, id: 2, kind: opcodes_1.NodeKind.Text, value: 't' },
+        ]);
+        const result = (0, replicatedTableApply_1.applyFrameToTableChecked)(table, false, [
+            { op: opcodes_1.OpCode.AttrSet, node: 2, attrs: [{ name: 'id', value: 'x' }] },
+        ]);
+        assert_1.default.strictEqual(result.ok, false);
+        if (!result.ok && result.opName !== 'check') {
+            assert_1.default.strictEqual(result.opName, 'attrSet');
+            assert_1.default.strictEqual(result.reason, 'precondition');
+        }
+        else
+            assert_1.default.fail(JSON.stringify(result));
+    }
+    {
+        const table = new replicatedTable_1.ReplicatedTable();
+        (0, replicatedTableApply_1.applyOpsToTable)(table, [
+            { op: opcodes_1.OpCode.NodeNew, id: 2, kind: opcodes_1.NodeKind.Element, name: 'div', attrs: [] },
+        ]);
+        const result = (0, replicatedTableApply_1.applyFrameToTableChecked)(table, false, [
+            { op: opcodes_1.OpCode.TextSet, node: 2, value: 'nope' },
+        ]);
+        assert_1.default.strictEqual(result.ok, false);
+        if (!result.ok && result.opName !== 'check') {
+            assert_1.default.strictEqual(result.opName, 'textSet');
+            assert_1.default.strictEqual(result.reason, 'precondition');
+        }
+        else
+            assert_1.default.fail(JSON.stringify(result));
+    }
+    {
+        const table = new replicatedTable_1.ReplicatedTable();
+        (0, replicatedTableApply_1.applyOpsToTable)(table, [
+            { op: opcodes_1.OpCode.NodeNew, id: 2, kind: opcodes_1.NodeKind.Element, name: 'div', attrs: [] },
+        ]);
+        const result = (0, replicatedTableApply_1.applyFrameToTableChecked)(table, false, [
+            { op: opcodes_1.OpCode.RuleSet, id: 2, text: 'a{}' },
+        ]);
+        assert_1.default.strictEqual(result.ok, false);
+        if (!result.ok && result.opName !== 'check') {
+            assert_1.default.strictEqual(result.opName, 'ruleSet');
+            assert_1.default.strictEqual(result.reason, 'precondition');
+        }
+        else
+            assert_1.default.fail(JSON.stringify(result));
+    }
+    {
+        const table = new replicatedTable_1.ReplicatedTable();
+        const result = (0, replicatedTableApply_1.applyFrameToTableChecked)(table, false, [
+            {
+                op: opcodes_1.OpCode.SheetNew,
+                id: 50,
+                scope: frame_1.CSSOM_SCOPE_PIERCE_HOST,
+                hostNode: 999,
+                before: frame_1.INSERT_AT_END,
+            },
+        ]);
+        assert_1.default.strictEqual(result.ok, false);
+        if (!result.ok && result.opName !== 'check') {
+            assert_1.default.strictEqual(result.opName, 'sheetNew');
+            assert_1.default.strictEqual(result.reason, 'precondition');
+        }
+        else
+            assert_1.default.fail(JSON.stringify(result));
+        assert_1.default.strictEqual(table.has(50), false, 'failed SHEET_NEW must not create a row');
+    }
+    {
+        const table = new replicatedTable_1.ReplicatedTable();
+        (0, replicatedTableApply_1.applyOpsToTable)(table, [
+            { op: opcodes_1.OpCode.SheetNew, id: 50, scope: frame_1.CSSOM_SCOPE_MAIN, hostNode: 0, before: frame_1.INSERT_AT_END },
+        ]);
+        const result = (0, replicatedTableApply_1.applyFrameToTableChecked)(table, false, [
+            { op: opcodes_1.OpCode.RuleNew, sheet: 50, id: 51, before: 999, text: 'a{}' },
+        ]);
+        assert_1.default.strictEqual(result.ok, false);
+        if (!result.ok && result.opName !== 'check') {
+            assert_1.default.strictEqual(result.opName, 'ruleNew');
+            assert_1.default.strictEqual(result.reason, 'precondition');
+        }
+        else
+            assert_1.default.fail(JSON.stringify(result));
+        assert_1.default.strictEqual(table.has(51), false);
+    }
+    {
+        const table = new replicatedTable_1.ReplicatedTable();
+        (0, replicatedTableApply_1.applyOpsToTable)(table, [
+            { op: opcodes_1.OpCode.NodeNew, id: 2, kind: opcodes_1.NodeKind.Element, name: 'div', attrs: [] },
+        ]);
+        const ids = new Array(limits_1.MAX_CHILDREN_PER_OP + 1).fill(2);
+        const result = (0, replicatedTableApply_1.applyFrameToTableChecked)(table, false, [
+            { op: opcodes_1.OpCode.Insert, parent: 1, before: 0, ids },
+        ]);
+        assert_1.default.strictEqual(result.ok, false);
+        if (!result.ok && result.opName !== 'check') {
+            assert_1.default.strictEqual(result.opName, 'insert');
+            assert_1.default.strictEqual(result.reason, 'malformed');
+        }
+        else
+            assert_1.default.fail(JSON.stringify(result));
+    }
+    {
+        const table = new replicatedTable_1.ReplicatedTable();
+        const ok = (0, replicatedTableApply_1.applyFrameToTableChecked)(table, false, [
+            { op: opcodes_1.OpCode.NodeNew, id: 2, kind: opcodes_1.NodeKind.Element, name: 'div', attrs: [] },
+            { op: opcodes_1.OpCode.Insert, parent: 1, before: frame_1.INSERT_AT_END, ids: [2] },
+        ]);
+        assert_1.default.strictEqual(ok.ok, true, 'INSERT under Document id 1 remains valid');
+        assert_1.default.strictEqual(table.getRow(2).parent, 1);
+    }
+    console.log('[unit] applyFrameToTableChecked §4 Pre falsifiers (PP-APPLY-3) ok');
+}
 function testNodeTableApplierDigestMatchesDirectApply() {
     const ops = [
         { op: opcodes_1.OpCode.NodeNew, id: 2, kind: opcodes_1.NodeKind.Element, name: 'div', attrs: [] },
@@ -2123,6 +2283,133 @@ function testNodeTableApplierDigestMatchesDirectApply() {
     assert_1.default.ok(applier.lastApplyError, 'absent NODE_DROP must fail apply');
     assert_1.default.strictEqual(applier.sequence, 1, 'failed apply must not advance sequence');
     console.log('[unit] NodeTableApplier digest matches direct applyFrameToTableChecked ok');
+}
+/** PP-APPLY-1 / SEAL-DOM-P0-FLUSH: mid-batch desync must not apply later frames. */
+function testDomFrameApplierFlushStopsOnDesync() {
+    const applied = [];
+    const batch = [{ sequence: 1 }, { sequence: 2 }, { sequence: 3 }];
+    // Mirror DomFrameApplier.flush: onDesync resets; later frames must not run.
+    const result = (0, applyBatch_1.applyFramesUntilDesync)(batch, (frame) => {
+        if (frame.sequence === 1) {
+            // desync on first frame (same as bad preTableHash) — production resets here
+            return false;
+        }
+        applied.push(frame.sequence);
+        return true;
+    });
+    assert_1.default.strictEqual(result.stoppedEarly, true);
+    assert_1.default.strictEqual(result.lastIndex, 0);
+    assert_1.default.strictEqual(applied.length, 0, 'PP-APPLY-1: no apply of later batch frames after mid-batch desync');
+    const appliedOk = [];
+    const allOk = (0, applyBatch_1.applyFramesUntilDesync)([{ sequence: 10 }, { sequence: 11 }], (frame) => {
+        appliedOk.push(frame.sequence);
+        return true;
+    });
+    assert_1.default.strictEqual(allOk.stoppedEarly, false);
+    assert_1.default.deepStrictEqual(appliedOk, [10, 11]);
+    console.log('[unit] DomFrameApplier flush stops on mid-batch desync (PP-APPLY-1) ok');
+}
+/** PP-APPLY-2 / SEAL-DOM-P0-ATTR: failed setAttribute must not be swallowed. */
+function testApplyAttrPairsReportsFailure() {
+    const calls = [];
+    assert_1.default.strictEqual((0, attrApply_1.applyAttrPairs)((name, value) => {
+        calls.push({ name, value });
+    }, [
+        { name: 'id', value: 'a' },
+        { name: 'class', value: 'x' },
+    ]), true);
+    assert_1.default.strictEqual(calls.length, 2);
+    assert_1.default.strictEqual(calls[0].name, 'id');
+    assert_1.default.strictEqual(calls[1].name, 'class');
+    const partial = [];
+    assert_1.default.strictEqual((0, attrApply_1.applyAttrPairs)((name, value) => {
+        if (name === 'bad')
+            throw new Error('InvalidCharacterError');
+        partial.push(`${name}=${value}`);
+    }, [
+        { name: 'ok', value: '1' },
+        { name: 'bad', value: '2' },
+        { name: 'never', value: '3' },
+    ]), false, 'PP-APPLY-2: throw from setAttribute → false (callers desync)');
+    assert_1.default.strictEqual(partial.length, 1);
+    assert_1.default.strictEqual(partial[0], 'ok=1');
+    console.log('[unit] applyAttrPairs reports setAttribute failure (PP-APPLY-2) ok');
+}
+/** PP-CSSOM-A-1 / SEAL-CSSOM-P0-RULESET: non-CSSStyleRule RULE_SET → desync plan. */
+function testPlanRuleSetApplySealScope() {
+    assert_1.default.strictEqual((0, cssomRuleSet_1.planRuleSetApply)(true).mode, 'styleDeclarations');
+    assert_1.default.strictEqual((0, cssomRuleSet_1.planRuleSetApply)(false).mode, 'desync');
+    console.log('[unit] planRuleSetApply CSSStyleRule-only seal (PP-CSSOM-A-1) ok');
+}
+function testLabBlueprintValidateCycleAndParallelSnap() {
+    const cyclic = {
+        id: 'cyclic',
+        description: 'x',
+        sessionPolicy: 'cold',
+        queues: [
+            {
+                name: 'main',
+                actions: [
+                    { id: 'a', type: 'sleep', params: { ms: 1 }, dependsOn: ['b'] },
+                    { id: 'b', type: 'sleep', params: { ms: 1 }, dependsOn: ['a'] },
+                ],
+            },
+        ],
+    };
+    const c = (0, validate_1.validateBlueprint)(cyclic);
+    assert_1.default.strictEqual(c.ok, false);
+    const parallelSnap = {
+        id: 'par',
+        description: 'x',
+        sessionPolicy: 'cold',
+        queues: [
+            {
+                name: 'a',
+                actions: [{ id: 's1', type: 'snap', params: { id: '1', cssom: 'scan' } }],
+            },
+            {
+                name: 'b',
+                actions: [{ id: 's2', type: 'snap', params: { id: '2', cssom: 'scan' } }],
+            },
+        ],
+    };
+    const p = (0, validate_1.validateBlueprint)(parallelSnap);
+    assert_1.default.strictEqual(p.ok, false);
+    console.log('[unit] lab blueprint validate cycle + parallel snap ok');
+}
+async function testLabBlueprintScheduleDependsAndAwaits() {
+    const order = [];
+    const bp = {
+        id: 'sched',
+        description: 'x',
+        sessionPolicy: 'cold',
+        queues: [
+            {
+                name: 'main',
+                actions: [
+                    { id: 'boot', type: 'sleep', params: { ms: 0 } },
+                    { id: 'work', type: 'sleep', params: { ms: 0 }, dependsOn: ['boot'] },
+                    { id: 'fold', type: 'fold', awaits: ['work', 'side'], params: { ruleset: 'soak' } },
+                ],
+            },
+            {
+                name: 'side',
+                actions: [{ id: 'side', type: 'sleep', params: { ms: 0 }, dependsOn: ['boot'] }],
+            },
+        ],
+    };
+    const r = await (0, schedule_1.runBlueprintSchedule)(bp, {
+        runAction: async (action) => {
+            order.push(action.id);
+            return { ok: true };
+        },
+    });
+    assert_1.default.strictEqual(r.ok, true);
+    assert_1.default.ok(order.indexOf('boot') < order.indexOf('work'));
+    assert_1.default.ok(order.indexOf('boot') < order.indexOf('side'));
+    assert_1.default.ok(order.indexOf('fold') > order.indexOf('work'));
+    assert_1.default.ok(order.indexOf('fold') > order.indexOf('side'));
+    console.log('[unit] lab blueprint schedule depends/awaits ok');
 }
 function testCssomFnvAndRuleDiff() {
     const a = (0, fnv32_1.fnv1a32)('color: red');
@@ -2156,10 +2443,12 @@ function testCssomWalkSkipVsAbort() {
     console.log('[unit] cssom walk skip vs abort ok');
 }
 function testCssomOpsAndTableApply() {
+    class CSSStyleRule {
+    }
     const ids = new cssomIds_1.CssomIds();
     const sheet = {};
-    const r1 = {};
-    const r2 = {};
+    const r1 = new CSSStyleRule();
+    const r2 = new CSSStyleRule();
     const texts = new Map([
         [r1, 'a { color: red }'],
         [r2, 'b { color: blue }'],
@@ -2219,6 +2508,40 @@ function testCssomOpsAndTableApply() {
     assert_1.default.ok(!aborted.some((op) => op.op === opcodes_1.OpCode.RuleDrop || op.op === opcodes_1.OpCode.RuleNew));
     console.log('[unit] cssom ops + table apply ok');
 }
+/** Producer: grouping-rule content change → DROP+NEW (not RULE_SET). Table: old id gone, new text on new id. */
+function testCssomGroupingContentChangeEmitsDropNew() {
+    class CSSMediaRule {
+    }
+    class CSSStyleRule {
+    }
+    assert_1.default.strictEqual((0, cssomRuleSet_1.ruleAcceptsInPlaceSet)(new CSSStyleRule()), true);
+    assert_1.default.strictEqual((0, cssomRuleSet_1.ruleAcceptsInPlaceSet)(new CSSMediaRule()), false);
+    const ids = new cssomIds_1.CssomIds();
+    const sheet = {};
+    const media = new CSSMediaRule();
+    const texts = new Map([[media, '@media (max-width: 1px){.a{color:red}}']]);
+    const snaps = [{ key: media, contentHash: 1 }];
+    const resync = (0, cssomOps_1.emitResyncCssomOps)(ids, [{ sheet, snaps, texts }]);
+    const table = new replicatedTable_1.ReplicatedTable();
+    (0, replicatedTableApply_1.applyOpsToTable)(table, resync);
+    const sheetId = ids.peekSheet(sheet);
+    const oldId = ids.peekRule(media);
+    assert_1.default.strictEqual(table.getRow(oldId)?.kind, opcodes_1.NodeKind.Rule);
+    assert_1.default.strictEqual(table.getRow(oldId)?.contentHash, (0, rowHash_1.hashValue)('@media (max-width: 1px){.a{color:red}}'));
+    const nextText = '@media (max-width: 2px){.a{color:blue}}';
+    const live = (0, cssomOps_1.emitLiveCssomOps)(ids, [sheet], [{ sheet, snaps: [{ key: media, contentHash: 2 }], texts: new Map([[media, nextText]]) }], new WeakMap([[sheet, snaps]]));
+    assert_1.default.ok(!live.some((op) => op.op === opcodes_1.OpCode.RuleSet), 'grouping content change must not RULE_SET');
+    assert_1.default.ok(live.some((op) => op.op === opcodes_1.OpCode.RuleDrop));
+    assert_1.default.ok(live.some((op) => op.op === opcodes_1.OpCode.RuleNew));
+    const newId = ids.peekRule(media);
+    assert_1.default.notStrictEqual(newId, oldId, 'replace allocates a new id');
+    (0, replicatedTableApply_1.applyOpsToTable)(table, live);
+    assert_1.default.strictEqual(table.getRow(oldId), undefined, 'old rule id gone after DROP');
+    assert_1.default.strictEqual(table.getRow(newId)?.kind, opcodes_1.NodeKind.Rule);
+    assert_1.default.strictEqual(table.getRow(newId)?.contentHash, (0, rowHash_1.hashValue)(nextText));
+    assert_1.default.deepStrictEqual(table.orderedChildIds(sheetId), [newId]);
+    console.log('[unit] cssom grouping content change DROP+NEW + table parity (PP-CSSOM-A-1) ok');
+}
 function testCssomApplyIndex() {
     const a = cssomIds_1.CSSOM_ID_MIN;
     const b = cssomIds_1.CSSOM_ID_MIN + 1;
@@ -2234,7 +2557,45 @@ function testCssomApplyIndex() {
         { op: opcodes_1.OpCode.SheetNew, id: b, scope: frame_1.CSSOM_SCOPE_MAIN, hostNode: 0, before: frame_1.INSERT_AT_END },
     ]);
     assert_1.default.deepStrictEqual((0, cssomApplyIndex_1.orderedSheetIds)(table), [a, b]);
+    assert_1.default.strictEqual((0, cssomApplyIndex_1.declarationBlockFromRuleText)('.app{background:#161310;color:#f3ead8}'), 'background:#161310;color:#f3ead8');
+    assert_1.default.strictEqual((0, cssomApplyIndex_1.declarationBlockFromRuleText)('color:red'), 'color:red');
     console.log('[unit] cssom apply index ok');
+}
+/** PP-CSSOM-A-3 / SEAL-CSSOM-P0-EOF: end-of-frame sheet+rule membership/order. */
+function testCssomEndOfFrameMatch() {
+    const sheet = 100;
+    const r1 = 101;
+    const r2 = 102;
+    const table = new replicatedTable_1.ReplicatedTable();
+    (0, replicatedTableApply_1.applyOpsToTable)(table, [
+        { op: opcodes_1.OpCode.SheetNew, id: sheet, scope: frame_1.CSSOM_SCOPE_MAIN, hostNode: 0, before: frame_1.INSERT_AT_END },
+        { op: opcodes_1.OpCode.RuleNew, sheet, id: r1, before: frame_1.INSERT_AT_END, text: '.a{}' },
+        { op: opcodes_1.OpCode.RuleNew, sheet, id: r2, before: frame_1.INSERT_AT_END, text: '.b{}' },
+    ]);
+    assert_1.default.deepStrictEqual((0, cssomApplyIndex_1.orderedRuleIds)(table, sheet), [r1, r2]);
+    const tableSheets = (0, cssomApplyIndex_1.orderedSheetIds)(table);
+    const tableRules = new Map([[sheet, (0, cssomApplyIndex_1.orderedRuleIds)(table, sheet)]]);
+    const ok = (0, cssomApplyIndex_1.matchCssomEndOfFrame)(tableSheets, tableRules, new Set([sheet]), new Map([[sheet, [r1, r2]]]));
+    assert_1.default.strictEqual(ok.ok, true);
+    const missSheet = (0, cssomApplyIndex_1.matchCssomEndOfFrame)(tableSheets, tableRules, new Set(), new Map());
+    assert_1.default.strictEqual(missSheet.ok, false);
+    if (!missSheet.ok) {
+        assert_1.default.strictEqual(missSheet.op, 'sheetNew');
+        assert_1.default.strictEqual(missSheet.id, sheet);
+    }
+    const missRule = (0, cssomApplyIndex_1.matchCssomEndOfFrame)(tableSheets, tableRules, new Set([sheet]), new Map([[sheet, [r1]]]));
+    assert_1.default.strictEqual(missRule.ok, false);
+    if (!missRule.ok) {
+        assert_1.default.strictEqual(missRule.op, 'ruleNew');
+        assert_1.default.strictEqual(missRule.id, r2);
+    }
+    const badOrder = (0, cssomApplyIndex_1.matchCssomEndOfFrame)(tableSheets, tableRules, new Set([sheet]), new Map([[sheet, [r2, r1]]]));
+    assert_1.default.strictEqual(badOrder.ok, false);
+    if (!badOrder.ok) {
+        assert_1.default.strictEqual(badOrder.op, 'ruleOrder');
+        assert_1.default.strictEqual(badOrder.id, r1);
+    }
+    console.log('[unit] cssom end-of-frame match (PP-CSSOM-A-3) ok');
 }
 function testCssomEncodeDecode() {
     const ops = [
@@ -2361,11 +2722,19 @@ async function main() {
     testApplyFrameToTableCheckedRejectsNodeDropAbsentId();
     testApplyFrameToTableCheckedRejectsNodeDropAttachedId();
     testApplyFrameToTableCheckedEnforcesMaxRows();
+    testApplyFrameToTableCheckedPhase1Pres();
     testNodeTableApplierDigestMatchesDirectApply();
+    testDomFrameApplierFlushStopsOnDesync();
+    testApplyAttrPairsReportsFailure();
+    testPlanRuleSetApplySealScope();
+    testLabBlueprintValidateCycleAndParallelSnap();
+    await testLabBlueprintScheduleDependsAndAwaits();
     testCssomFnvAndRuleDiff();
     testCssomWalkSkipVsAbort();
     testCssomOpsAndTableApply();
+    testCssomGroupingContentChangeEmitsDropNew();
     testCssomApplyIndex();
+    testCssomEndOfFrameMatch();
     testCssomEncodeDecode();
     testCssomPollTelemetrySchema();
     await (0, page_unit_1.runPageProjectionUnitTests)();

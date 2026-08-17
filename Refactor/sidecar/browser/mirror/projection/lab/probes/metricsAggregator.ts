@@ -9,7 +9,7 @@ import type {
   TelemetryApplyResult,
   TelemetryCssomPoll,
   TelemetryFrameEmitted,
-} from '../models/telemetry';
+} from '../../models/telemetry';
 
 export type Stats = { min: number; avg: number; p50: number; p95: number; max: number; count: number };
 

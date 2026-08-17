@@ -1,13 +1,15 @@
 "use strict";
 /**
- * Live delta / resync snapshot → §4.6 FrameOp. C3.1: in-place RULE_SET; never SHEET_DROP a live
- * sheet just to refresh rules. Inserts without text are omitted (next pass).
+ * Live delta / resync snapshot → §4.6 FrameOp. C3.1: in-place RULE_SET on CSSStyleRule;
+ * never SHEET_DROP a live sheet just to refresh rules. Grouping-rule content change
+ * (patch cannot work) → RULE_DROP + RULE_NEW, not RULE_SET. Inserts without text omitted (next pass).
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.emitResyncCssomOps = emitResyncCssomOps;
 exports.emitLiveCssomOps = emitLiveCssomOps;
 const frame_1 = require("../../models/frame");
 const opcodes_1 = require("../../models/opcodes");
+const cssomRuleSet_1 = require("../../models/cssomRuleSet");
 function emitResyncCssomOps(ids, sheets) {
     const ops = [];
     const sheetIds = [];
@@ -85,19 +87,31 @@ function emitRuleDelta(ids, sheetId, prev, rec) {
     const ops = [];
     const prevKeys = new Set(prev.map((s) => s.key));
     const nextKeys = new Set(rec.snaps.map((s) => s.key));
+    const prevHash = new Map();
+    for (const row of prev)
+        prevHash.set(row.key, row.contentHash);
+    const replaceKeys = new Set();
+    for (let i = 0; i < rec.snaps.length; i++) {
+        const snap = rec.snaps[i];
+        if (!prevKeys.has(snap.key))
+            continue;
+        if (prevHash.get(snap.key) === snap.contentHash)
+            continue;
+        if ((0, cssomRuleSet_1.ruleAcceptsInPlaceSet)(snap.key))
+            continue;
+        replaceKeys.add(snap.key);
+    }
     const dropIds = [];
     for (const row of prev) {
-        if (nextKeys.has(row.key))
+        if (nextKeys.has(row.key) && !replaceKeys.has(row.key))
             continue;
         const id = ids.peekRule(row.key);
         if (id !== undefined)
             dropIds.push(id);
+        ids.forgetRule(row.key);
     }
     if (dropIds.length > 0)
         ops.push({ op: opcodes_1.OpCode.RuleDrop, sheet: sheetId, ids: dropIds });
-    const prevHash = new Map();
-    for (const row of prev)
-        prevHash.set(row.key, row.contentHash);
     for (let i = 0; i < rec.snaps.length; i++) {
         const snap = rec.snaps[i];
         const text = rec.texts.get(snap.key) ?? '';
@@ -109,7 +123,7 @@ function emitRuleDelta(ids, sheetId, prev, rec) {
             before = nextId;
             break;
         }
-        if (!prevKeys.has(snap.key)) {
+        if (!prevKeys.has(snap.key) || replaceKeys.has(snap.key)) {
             ops.push({
                 op: opcodes_1.OpCode.RuleNew,
                 sheet: sheetId,

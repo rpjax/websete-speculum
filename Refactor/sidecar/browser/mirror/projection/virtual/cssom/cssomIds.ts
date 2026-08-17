@@ -36,6 +36,11 @@ export class CssomIds {
     return this.rules.get(rule);
   }
 
+  /** Drop+new of a still-live object (grouping rule content change) — next `idOfRule` allocates. */
+  forgetRule(rule: object): void {
+    this.rules.delete(rule);
+  }
+
   private alloc(): number {
     if (this.next > CSSOM_ID_MAX) throw new Error('CssomIds: id space exhausted');
     const id = this.next;

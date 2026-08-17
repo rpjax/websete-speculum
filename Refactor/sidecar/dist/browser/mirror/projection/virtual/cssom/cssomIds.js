@@ -34,6 +34,10 @@ class CssomIds {
     peekRule(rule) {
         return this.rules.get(rule);
     }
+    /** Drop+new of a still-live object (grouping rule content change) — next `idOfRule` allocates. */
+    forgetRule(rule) {
+        this.rules.delete(rule);
+    }
     alloc() {
         if (this.next > exports.CSSOM_ID_MAX)
             throw new Error('CssomIds: id space exhausted');

@@ -1,5 +1,6 @@
 /**
- * Virtual-side CSSOM O2 walk — live styleSheets/adopted + cssRules × CssomIds, then models compare.
+ * Virtual-side CSSOM O2 walk — live constructed/adopted × CssomIds, then models compare.
+ * Author `ownerNode` sheets are excluded (C6 no double-emit — paint via projected DOM).
  */
 
 import { hashValue } from '../../models/rowHash';
@@ -11,6 +12,7 @@ import {
   type CssomTableLiveOracleResult,
 } from '../../models/cssomTableLiveOracle';
 import type { CssomIds } from './cssomIds';
+import { collectCssomPlaneSheets } from './cssomSheetList';
 
 export function compareTableToLiveCssomDom(
   table: ReplicatedTable,
@@ -19,7 +21,7 @@ export function compareTableToLiveCssomDom(
 ): CssomTableLiveOracleResult {
   if (ids === null) return emptyCssomTableLiveOracleResult();
   const liveSheets: CssomLiveSheetSnap[] = [];
-  for (const sheet of collectSheets(doc)) {
+  for (const sheet of collectCssomPlaneSheets(doc)) {
     const list = tryCssRules(sheet);
     if (list === null) continue;
     const sheetId = ids.peekSheet(sheet);
@@ -43,23 +45,6 @@ export function compareTableToLiveCssomDom(
     liveSheets.push({ id: sheetId, ruleIds, ruleHashes });
   }
   return compareTableToLiveCssom(table, liveSheets);
-}
-
-function collectSheets(doc: Document): CSSStyleSheet[] {
-  const out: CSSStyleSheet[] = [];
-  const linked = doc.styleSheets;
-  for (let i = 0; i < linked.length; i++) {
-    const s = linked.item(i);
-    if (s) out.push(s);
-  }
-  const adopted = doc.adoptedStyleSheets;
-  if (adopted) {
-    for (let i = 0; i < adopted.length; i++) {
-      const s = adopted[i];
-      if (s) out.push(s);
-    }
-  }
-  return out;
 }
 
 function tryCssRules(sheet: CSSStyleSheet): CSSRuleList | null {

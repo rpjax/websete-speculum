@@ -64,6 +64,8 @@ export class FrameEmitter {
   private pendingPartIndex = 0;
   private pendingRecords: MutationRecord[] | null = null;
   private pendingResyncBuild: ((nextSequence: number) => Frame) | null = null;
+  /** Ops of the last frame that fully left the transport (PP-FR-1 probe). */
+  private lastEmittedOps: Frame['ops'] = [];
 
   constructor(opts: FrameEmitterOptions) {
     this.clock = opts.clock;
@@ -86,8 +88,15 @@ export class FrameEmitter {
     this.clock.stop();
   }
 
-  flushNow(): void {
+  /**
+   * Drain one boundary. Returns the ops of the frame emitted this call, or `[]` when idle
+   * (no sequence advance) — so PP-FR-1 probes never inspect a prior tick's NODE_NEWs.
+   */
+  flushNow(): Frame['ops'] {
+    const seq0 = this.sequence;
     this.onBoundary();
+    if (this.sequence === seq0) return [];
+    return this.lastEmittedOps;
   }
 
   get currentSequence(): number {
@@ -125,6 +134,7 @@ export class FrameEmitter {
       encodeMs: 0,
     });
 
+    this.lastEmittedOps = frame.ops;
     this.sequence = frame.sequence;
   }
 
@@ -254,6 +264,7 @@ export class FrameEmitter {
       encodeMs: 0,
     });
 
+    this.lastEmittedOps = frame.ops;
     this.sequence = frame.sequence;
     this.pendingFrame = null;
     this.pendingParts = null;

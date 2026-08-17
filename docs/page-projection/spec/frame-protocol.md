@@ -425,8 +425,11 @@ opcodes exist because their **materialization** differs — owned CSSOM objects 
 
 **`0xA5 RULE_SET`** — `id: u32, text: StrRef` · phase 1+2 · idempotent
 `Pre`: `id` exists, `kind = RULE`.
-`Table`: sets `value`. `DOM`: updates the rule **in place** — C3.1 forbids delete-and-reinsert for the
-same locus, which would widen the repaint.
+`Table`: sets `value`. `DOM`: updates the rule **in place** — C3.1 forbids delete-and-reinsert for a
+**`CSSStyleRule`** (would widen the repaint). Content change on a grouping rule (patch cannot work)
+is **not** `RULE_SET`: the producer emits `RULE_DROP` + `RULE_NEW` (new id). The client must not
+implement hidden replace inside `RULE_SET`; a `RULE_SET` targeting a non-style rule is a producer
+bug and desyncs.
 
 ### 4.7 Establish — does not exist
 
@@ -890,3 +893,4 @@ Every catalogued failure carries `errorCode` + `phase` + `sequence`
 | 2026-08-14 | **`takeRecords` before every drain** | MutationObserver delivery is a microtask. Draining only callback-fed records left the table behind live DOM under churn; O2 could not tell lag from P0. `DomMutationObserver.takePendingIntoBuffer` at the top of `onBoundary`/`flushNow` and before bootstrap discard. One JS turn is not enough; one turn **with** `takeRecords` is. |
 | 2026-08-14 | **Production cutover = full product** | Live switch only after CSSOM implemented, OPEN-6 nested/multidocs, and **input redesigned** (not V1 `input.md` rename-only). Lab DOM-table / single-doc is not M1. [roadmap.md](roadmap.md). |
 | 2026-08-14 | **PP-FR-1 in the V4 walk + phase-2 REMOVE honesty** | Drain: `!isConnected` addedNodes must not be allocated (§5.4/§5.5). `REMOVE` iff ended detached with a prior id — `visited` ≠ move (§5.6). Client `REMOVE` parent mismatch → desync (§6). Incident: [observability.md](observability.md) §8. |
+| 2026-08-16 | **C3.1 grouping-rule carve-out** | `RULE_SET` remains in-place patch for `CSSStyleRule` only. Content change on a grouping rule (patch cannot work) is producer `RULE_DROP`+`RULE_NEW` (new id). Client must not implement hidden replace inside `RULE_SET`. |

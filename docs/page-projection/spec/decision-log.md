@@ -24,6 +24,7 @@
 | 2026-08-13 | OPEN-5 closed: `emitResyncFrame` / `resyncVirtual`; double-buffer swap on CHECK | frame-protocol.md §5.8 + log |
 | 2026-08-13 | OPEN-6 reframed multi-document / nested documents — pinned for lab | frame-protocol.md §10 |
 | 2026-08-14 | Production cutover requires full product (CSSOM + OPEN-6 + input redesign) | roadmap.md + open.md CUTOVER-FULL |
+| 2026-08-16 | Canvas **content** projection = **last product feature** before Integration / cutover (interim placeholder until then; not a seal-gap) | roadmap.md gate 6 + support-matrix.md + seal-gaps.md Related |
 | 2026-08-14 | V4ProjectionBrowserSession temporary; must be a complete BrowserSession at cutover (not legado, not a lab stub) | roadmap.md + open.md CUTOVER-SESSION |
 | 2026-08-14 | E-03/E-08: reject CSP strip / `connect-src *` as antibot-unsafe; no page WebSocket for production data plane | open.md E-03/E-08 |
 | 2026-08-14 | PP-FR-1 prune at drain (`!isConnected`); client REMOVE parent mismatch → desync. Stress-churn stacked digits closed; prepend O2 still open. Narrative: observability.md §8 | observability.md §8 + frame-protocol.md §5.4/§5.6/§6 |
@@ -50,6 +51,10 @@
 | 2026-08-15 | CSSOM live eventual; resync always full system + blocking scan; snapshot CSSOM tunable; `rebuildAndResync` = §5.8 `resyncVirtual`; idle starves with the page; no CDP sensor | [cssom-poll-algorithm.md](cssom-poll-algorithm.md) |
 | 2026-08-15 | Accept split: DOM numerical 1:1; CSSOM live = perceived 1:1 (not 60 Hz lockstep); amortizations serve practice, not the detector | [acceptance.md](acceptance.md) |
 | 2026-08-15 | CSSOM sensor journey: no MO; numbers don’t close; idle+eventual; no hooks/CDP as detector; stress foundation, don’t score it via opts | [cssom-sensor-journey.md](cssom-sensor-journey.md) |
+| 2026-08-16 | Lab redesign (design-only): chassis + session identity; browse vs run; run = action graph; tests = blueprints; sharded dossier; no BrowserSession edits | [lab-design.md](lab-design.md) |
+| 2026-08-16 | Lab **cutover** (not parallel): single version; L0–L6 sealed; replace-and-delete plan §12 | [lab-design.md](lab-design.md) §12–§13 |
+| 2026-08-16 | Lab cutover plan locked: L7–L12 — full DAG, full WS redesign, professional verdicts, §10 layout, smoke rewrite, work only on `feat/mirror-mode` | [lab-design.md](lab-design.md) §8–§13 |
+| 2026-08-16 | Lab **cutover complete** on `feat/mirror-mode` — chassis/host, Browse\|Run WS v1, DAG runner, blueprints, sharded dossier; old mains deleted | [lab-design.md](lab-design.md) |
 
 **Stage 4 confirmed (Rodrigo):** mid-session recovery = **`emitResyncFrame` alone** (ids preserved; does not self-heal a corrupt map shape). Client = **real double buffer**, swap only after resync frame CHECK. Lab transport = existing control WS + `PlaneChannel.Control`. Production hub/gRPC is gate 5.
 
@@ -171,4 +176,14 @@ Full text: [observability.md](observability.md). Sealed with Rodrigo:
 - Snapshot is **state** (replicated table digest + whatever indexers matter), not DOM-only.
 - `frameEmitted.tableSize` = protocol table size; `identitySize` = WeakRef map (diagnostic only).
 - `FrameInvariantMonitor` = wire bytes only. `report.json` = lab dossier, not a session RPC.
+
+## H. CSSOM RULE_SET vs grouping replace (2026-08-16)
+
+Rodrigo: `RULE_SET` is in-place patch for **`CSSStyleRule` only**. Where patch cannot work
+(grouping / `@media` etc.), the **producer** emits `RULE_DROP` + `RULE_NEW` (new id). The
+client does **not** hide replace inside `RULE_SET`. A `RULE_SET` on a non-style rule is a
+producer bug and desyncs.
+
+Seal-gap close requires the matching proof class: function unit ≠ table/live parity ≠
+desync-when-needed. Helper-only units do not close ATTR / EOF / RULESET.
 

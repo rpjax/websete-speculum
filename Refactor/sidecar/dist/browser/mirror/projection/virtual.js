@@ -1365,6 +1365,8 @@
     pendingPartIndex = 0;
     pendingRecords = null;
     pendingResyncBuild = null;
+    /** Ops of the last frame that fully left the transport (PP-FR-1 probe). */
+    lastEmittedOps = [];
     constructor(opts) {
       this.clock = opts.clock;
       this.buffer = opts.buffer;
@@ -1383,8 +1385,15 @@
     stop() {
       this.clock.stop();
     }
+    /**
+     * Drain one boundary. Returns the ops of the frame emitted this call, or `[]` when idle
+     * (no sequence advance) — so PP-FR-1 probes never inspect a prior tick's NODE_NEWs.
+     */
     flushNow() {
+      const seq0 = this.sequence;
       this.onBoundary();
+      if (this.sequence === seq0) return [];
+      return this.lastEmittedOps;
     }
     get currentSequence() {
       return this.sequence;
@@ -1416,6 +1425,7 @@
         buildMs: 0,
         encodeMs: 0
       });
+      this.lastEmittedOps = frame.ops;
       this.sequence = frame.sequence;
     }
     requestResync(build) {
@@ -1524,6 +1534,7 @@
         buildMs: stats?.buildMs ?? 0,
         encodeMs: 0
       });
+      this.lastEmittedOps = frame.ops;
       this.sequence = frame.sequence;
       this.pendingFrame = null;
       this.pendingParts = null;
@@ -1818,11 +1829,24 @@
     return { kind: "cssom_table_live", identical: count === 0, divergenceCount: count, divergences };
   }
 
+  // browser/mirror/projection/virtual/cssom/cssomSheetList.ts
+  function collectCssomPlaneSheets(doc) {
+    const out = [];
+    const adopted = doc.adoptedStyleSheets;
+    if (!adopted) return out;
+    for (let i = 0; i < adopted.length; i++) {
+      const s = adopted[i];
+      if (!s || s.ownerNode) continue;
+      out.push(s);
+    }
+    return out;
+  }
+
   // browser/mirror/projection/virtual/cssom/cssomTableLiveOracle.ts
   function compareTableToLiveCssomDom(table, ids, doc = document) {
     if (ids === null) return emptyCssomTableLiveOracleResult();
     const liveSheets = [];
-    for (const sheet of collectSheets(doc)) {
+    for (const sheet of collectCssomPlaneSheets(doc)) {
       const list = tryCssRules(sheet);
       if (list === null) continue;
       const sheetId = ids.peekSheet(sheet);
@@ -1847,22 +1871,6 @@
     }
     return compareTableToLiveCssom(table, liveSheets);
   }
-  function collectSheets(doc) {
-    const out = [];
-    const linked = doc.styleSheets;
-    for (let i = 0; i < linked.length; i++) {
-      const s = linked.item(i);
-      if (s) out.push(s);
-    }
-    const adopted = doc.adoptedStyleSheets;
-    if (adopted) {
-      for (let i = 0; i < adopted.length; i++) {
-        const s = adopted[i];
-        if (s) out.push(s);
-      }
-    }
-    return out;
-  }
   function tryCssRules(sheet) {
     try {
       return sheet.cssRules;
@@ -1872,18 +1880,75 @@
   }
 
   // browser/mirror/projection/virtual/snapshot.ts
+  function probeNodeNewConnected(ops, domNodes) {
+    const disconnectedIds = [];
+    let checked = 0;
+    for (let i = 0; i < ops.length; i++) {
+      const op = ops[i];
+      if (op.op !== 32 /* NodeNew */) continue;
+      checked += 1;
+      const node = domNodes.get(op.id);
+      if (node === void 0 || !node.isConnected) disconnectedIds.push(op.id);
+    }
+    return { ok: disconnectedIds.length === 0, checked, disconnectedIds };
+  }
+  function sheetCssText(sheet) {
+    try {
+      const parts = [];
+      for (let i = 0; i < sheet.cssRules.length; i++) {
+        const r = sheet.cssRules.item(i);
+        if (r) parts.push(r.cssText);
+      }
+      return parts.join("\n");
+    } catch {
+      return "";
+    }
+  }
+  function probeCssomPaintBoundary(doc) {
+    const authorEl = doc.getElementById("author-probe");
+    const adoptedEl = doc.getElementById("adopted-probe");
+    if (!authorEl || !adoptedEl) return null;
+    const view = doc.defaultView;
+    const authorColor = view ? view.getComputedStyle(authorEl).color : "";
+    const adoptedColor = view ? view.getComputedStyle(adoptedEl).color : "";
+    const adopted = doc.adoptedStyleSheets ? Array.from(doc.adoptedStyleSheets) : [];
+    const styleEls = Array.from(doc.querySelectorAll("style"));
+    const authorTexts = /* @__PURE__ */ new Set();
+    for (let i = 0; i < styleEls.length; i++) {
+      const el = styleEls[i];
+      const sheet = el.sheet;
+      if (sheet) authorTexts.add(sheetCssText(sheet));
+      else if (el.textContent) authorTexts.add(el.textContent);
+    }
+    let doublePaint = false;
+    for (let i = 0; i < adopted.length; i++) {
+      const s = adopted[i];
+      if (s.ownerNode) doublePaint = true;
+      const text = sheetCssText(s);
+      if (text.length > 0 && authorTexts.has(text)) doublePaint = true;
+    }
+    return {
+      authorColor,
+      adoptedColor,
+      adoptedCount: adopted.length,
+      styleSheetCount: doc.styleSheets.length,
+      styleElCount: styleEls.length,
+      doublePaint
+    };
+  }
   function takeSnapshot(planes, opts = {}) {
     const mode = opts.cssom ?? "none";
     let cssom = null;
+    let lastOps = [];
     if (mode === "none") {
       planes.cssom.halt();
-      planes.flushDom();
+      lastOps = planes.flushDom();
     } else if (mode === "committed") {
-      planes.flushDom();
+      lastOps = planes.flushDom();
     } else {
       const scan = planes.cssom.blockingScan(true);
       cssom = stampCssomPoll(scan.stats, { source: "snapshotScan" });
-      planes.flushDom();
+      lastOps = planes.flushDom();
       cssom = stampCssomPoll(cssom, { sequence: planes.currentSequence() });
     }
     const o2 = compareTableToLiveDom(planes.table, planes.domNodes, document);
@@ -1894,7 +1959,9 @@
       o2,
       table: digestReplicatedTable(planes.table),
       cssom,
-      cssomO2
+      cssomO2,
+      nodeNewConnected: probeNodeNewConnected(lastOps, planes.domNodes),
+      cascade: probeCssomPaintBoundary(document)
     };
   }
 
@@ -2235,6 +2302,10 @@
     peekRule(rule) {
       return this.rules.get(rule);
     }
+    /** Drop+new of a still-live object (grouping rule content change) — next `idOfRule` allocates. */
+    forgetRule(rule) {
+      this.rules.delete(rule);
+    }
     alloc() {
       if (this.next > CSSOM_ID_MAX) throw new Error("CssomIds: id space exhausted");
       const id = this.next;
@@ -2242,6 +2313,11 @@
       return id;
     }
   };
+
+  // browser/mirror/projection/models/cssomRuleSet.ts
+  function ruleAcceptsInPlaceSet(rule) {
+    return rule.constructor.name === "CSSStyleRule";
+  }
 
   // browser/mirror/projection/virtual/cssom/cssomOps.ts
   function emitResyncCssomOps(ids, sheets) {
@@ -2313,15 +2389,24 @@
     const ops = [];
     const prevKeys = new Set(prev.map((s) => s.key));
     const nextKeys = new Set(rec.snaps.map((s) => s.key));
-    const dropIds = [];
-    for (const row of prev) {
-      if (nextKeys.has(row.key)) continue;
-      const id = ids.peekRule(row.key);
-      if (id !== void 0) dropIds.push(id);
-    }
-    if (dropIds.length > 0) ops.push({ op: 164 /* RuleDrop */, sheet: sheetId, ids: dropIds });
     const prevHash = /* @__PURE__ */ new Map();
     for (const row of prev) prevHash.set(row.key, row.contentHash);
+    const replaceKeys = /* @__PURE__ */ new Set();
+    for (let i = 0; i < rec.snaps.length; i++) {
+      const snap = rec.snaps[i];
+      if (!prevKeys.has(snap.key)) continue;
+      if (prevHash.get(snap.key) === snap.contentHash) continue;
+      if (ruleAcceptsInPlaceSet(snap.key)) continue;
+      replaceKeys.add(snap.key);
+    }
+    const dropIds = [];
+    for (const row of prev) {
+      if (nextKeys.has(row.key) && !replaceKeys.has(row.key)) continue;
+      const id = ids.peekRule(row.key);
+      if (id !== void 0) dropIds.push(id);
+      ids.forgetRule(row.key);
+    }
+    if (dropIds.length > 0) ops.push({ op: 164 /* RuleDrop */, sheet: sheetId, ids: dropIds });
     for (let i = 0; i < rec.snaps.length; i++) {
       const snap = rec.snaps[i];
       const text = rec.texts.get(snap.key) ?? "";
@@ -2332,7 +2417,7 @@
         before = nextId;
         break;
       }
-      if (!prevKeys.has(snap.key)) {
+      if (!prevKeys.has(snap.key) || replaceKeys.has(snap.key)) {
         ops.push({
           op: 163 /* RuleNew */,
           sheet: sheetId,
@@ -2398,7 +2483,7 @@
     classifySheets(doc = document) {
       const readable = [];
       let unreadableSheetCount = 0;
-      for (const sheet of collectSheets2(doc)) {
+      for (const sheet of collectCssomPlaneSheets(doc)) {
         const list = tryCssRules2(sheet);
         if (list === null) unreadableSheetCount += 1;
         else readable.push({ sheet, rules: list });
@@ -2631,22 +2716,6 @@
       idleSlices: extra.idleSlices,
       ...countCssomOps(extra.ops)
     });
-  }
-  function collectSheets2(doc) {
-    const out = [];
-    const linked = doc.styleSheets;
-    for (let i = 0; i < linked.length; i++) {
-      const s = linked.item(i);
-      if (s) out.push(s);
-    }
-    const adopted = doc.adoptedStyleSheets;
-    if (adopted) {
-      for (let i = 0; i < adopted.length; i++) {
-        const s = adopted[i];
-        if (s) out.push(s);
-      }
-    }
-    return out;
   }
   function tryCssRules2(sheet) {
     try {

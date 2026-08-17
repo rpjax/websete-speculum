@@ -42,6 +42,7 @@
           const n = sheetA.cssRules.length;
           const parts = [];
           for (let i = 0; i < n; i++) parts.push('.r' + i + '{color:green}');
+          parts.push('@media all{.inner{display:block;color:black}}');
           sheetA.replaceSync(parts.join('\n'));
         },
         reorderAdopted() {

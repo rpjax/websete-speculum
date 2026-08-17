@@ -10,7 +10,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.ProjectionDataPlaneHost = void 0;
 const node_http_1 = __importDefault(require("node:http"));
 const ws_1 = require("ws");
-const nodeDataPlane_1 = require("../lab/nodeDataPlane");
+const nodeDataPlane_1 = require("../lab/probes/nodeDataPlane");
 const plane_1 = require("../plane");
 class ProjectionDataPlaneHost {
     dataPlane = new nodeDataPlane_1.NodeDataPlane();

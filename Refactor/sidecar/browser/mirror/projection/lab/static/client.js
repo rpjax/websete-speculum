@@ -296,6 +296,29 @@
     };
   }
 
+  // browser/mirror/projection/models/applyBatch.ts
+  function applyFramesUntilDesync(batch, applyOne) {
+    for (let i = 0; i < batch.length; i++) {
+      if (!applyOne(batch[i])) {
+        return { lastIndex: i, stoppedEarly: true };
+      }
+    }
+    return { lastIndex: batch.length - 1, stoppedEarly: false };
+  }
+
+  // browser/mirror/projection/models/attrApply.ts
+  function applyAttrPairs(setAttribute, attrs) {
+    for (let i = 0; i < attrs.length; i++) {
+      const { name, value } = attrs[i];
+      try {
+        setAttribute(name, value);
+      } catch {
+        return false;
+      }
+    }
+    return true;
+  }
+
   // browser/mirror/projection/models/cssomApplyIndex.ts
   function orderedSheetIds(table) {
     const all = table.orderedChildIds(DOCUMENT_ID);
@@ -307,12 +330,60 @@
     }
     return out;
   }
+  function orderedRuleIds(table, sheetId) {
+    const all = table.orderedChildIds(sheetId);
+    const out = [];
+    for (let i = 0; i < all.length; i++) {
+      const id = all[i];
+      const row = table.getRow(id);
+      if (row !== void 0 && row.kind === 5 /* Rule */) out.push(id);
+    }
+    return out;
+  }
+  function matchCssomEndOfFrame(tableSheetIds, tableRuleIdsBySheet, liveSheetIdsPresent, liveRuleIdsBySheet) {
+    for (let s = 0; s < tableSheetIds.length; s++) {
+      const sheetId = tableSheetIds[s];
+      if (!liveSheetIdsPresent.has(sheetId)) {
+        return { ok: false, op: "sheetNew", id: sheetId };
+      }
+      const tableRules = tableRuleIdsBySheet.get(sheetId) ?? [];
+      const liveRules = liveRuleIdsBySheet.get(sheetId) ?? [];
+      const liveSet = new Set(liveRules);
+      for (let r = 0; r < tableRules.length; r++) {
+        const ruleId = tableRules[r];
+        if (!liveSet.has(ruleId)) {
+          return { ok: false, op: "ruleNew", id: ruleId };
+        }
+      }
+      if (tableRules.length !== liveRules.length) {
+        return { ok: false, op: "ruleOrder", id: sheetId };
+      }
+      for (let r = 0; r < tableRules.length; r++) {
+        if (tableRules[r] !== liveRules[r]) {
+          return { ok: false, op: "ruleOrder", id: tableRules[r] };
+        }
+      }
+    }
+    return { ok: true };
+  }
   function insertIndexFromBefore(materializedIds, before) {
     if (before === INSERT_AT_END) return materializedIds.length;
     for (let i = 0; i < materializedIds.length; i++) {
       if (materializedIds[i] === before) return i;
     }
     return -1;
+  }
+  function declarationBlockFromRuleText(cssText) {
+    const open = cssText.indexOf("{");
+    const close = cssText.lastIndexOf("}");
+    if (open < 0 || close <= open) return cssText.trim();
+    return cssText.slice(open + 1, close).trim();
+  }
+
+  // browser/mirror/projection/models/cssomRuleSet.ts
+  function planRuleSetApply(isCssStyleRule) {
+    if (isCssStyleRule) return { mode: "styleDeclarations" };
+    return { mode: "desync" };
   }
 
   // browser/mirror/projection/models/rowHash.ts
@@ -758,6 +829,289 @@
   function evaluateCheck(table, op) {
     return op.scope === CHECK_SCOPE_RANGE ? table.hashRange(op.lo, op.hi) : table.tableHash;
   }
+  function failOp(i, reason, opName, id, message) {
+    return { ok: false, reason, failedOpIndex: i, opName, id, message };
+  }
+  function addressExists(table, id) {
+    return id === DOCUMENT_ID || table.has(id);
+  }
+  function isInsertParent(table, parent) {
+    if (parent === DOCUMENT_ID) return true;
+    const row = table.getRow(parent);
+    return row !== void 0 && row.kind === 1 /* Element */;
+  }
+  function isSelfOrAncestorOf(table, id, ofId) {
+    if (id === ofId) return true;
+    let cur = ofId;
+    const seen = /* @__PURE__ */ new Set();
+    while (cur !== 0 && cur !== DOCUMENT_ID) {
+      if (seen.has(cur)) return false;
+      seen.add(cur);
+      const row = table.getRow(cur);
+      if (row === void 0) return false;
+      if (row.parent === id) return true;
+      cur = row.parent;
+    }
+    return false;
+  }
+  function validateOpPre(table, op, i) {
+    switch (op.op) {
+      case 64 /* Insert */: {
+        if (op.ids.length > MAX_CHILDREN_PER_OP) {
+          return failOp(
+            i,
+            "malformed",
+            "insert",
+            op.parent,
+            `INSERT count > MAX_CHILDREN_PER_OP (${MAX_CHILDREN_PER_OP}) (frame-protocol.md \xA74.3)`
+          );
+        }
+        if (!isInsertParent(table, op.parent)) {
+          return failOp(
+            i,
+            "precondition",
+            "insert",
+            op.parent,
+            "INSERT parent missing or not ELEMENT/Document (frame-protocol.md \xA74.3)"
+          );
+        }
+        if (op.before !== 0) {
+          const beforeRow = table.getRow(op.before);
+          if (beforeRow === void 0 || beforeRow.parent !== op.parent) {
+            return failOp(
+              i,
+              "precondition",
+              "insert",
+              op.before,
+              "INSERT before must be 0 or a child of parent (frame-protocol.md \xA74.3)"
+            );
+          }
+        }
+        const seen = /* @__PURE__ */ new Set();
+        for (let j = 0; j < op.ids.length; j++) {
+          const id = op.ids[j];
+          if (seen.has(id)) {
+            return failOp(i, "malformed", "insert", id, "INSERT ids must be distinct (frame-protocol.md \xA74.3)");
+          }
+          seen.add(id);
+          if (!table.has(id)) {
+            return failOp(i, "precondition", "insert", id, "INSERT id missing (frame-protocol.md \xA74.3)");
+          }
+          if (isSelfOrAncestorOf(table, id, op.parent)) {
+            return failOp(
+              i,
+              "precondition",
+              "insert",
+              id,
+              "INSERT would create a cycle (frame-protocol.md \xA74.3)"
+            );
+          }
+        }
+        return null;
+      }
+      case 65 /* Remove */: {
+        if (op.ids.length > MAX_CHILDREN_PER_OP) {
+          return failOp(
+            i,
+            "malformed",
+            "remove",
+            op.parent,
+            `REMOVE count > MAX_CHILDREN_PER_OP (${MAX_CHILDREN_PER_OP}) (frame-protocol.md \xA74.3)`
+          );
+        }
+        if (!addressExists(table, op.parent)) {
+          return failOp(i, "precondition", "remove", op.parent, "REMOVE parent missing (frame-protocol.md \xA74.3)");
+        }
+        for (let j = 0; j < op.ids.length; j++) {
+          const id = op.ids[j];
+          const row = table.getRow(id);
+          if (row === void 0) {
+            return failOp(i, "precondition", "remove", id, "REMOVE id missing (frame-protocol.md \xA74.3)");
+          }
+          if (row.parent !== op.parent) {
+            return failOp(
+              i,
+              "precondition",
+              "remove",
+              id,
+              "REMOVE id parent mismatch (frame-protocol.md \xA74.3)"
+            );
+          }
+        }
+        return null;
+      }
+      case 96 /* AttrSet */: {
+        const row = table.getRow(op.node);
+        if (row === void 0 || row.kind !== 1 /* Element */) {
+          return failOp(
+            i,
+            "precondition",
+            "attrSet",
+            op.node,
+            "ATTR_SET requires an ELEMENT row (frame-protocol.md \xA74.4)"
+          );
+        }
+        return null;
+      }
+      case 97 /* AttrDel */: {
+        const row = table.getRow(op.node);
+        if (row === void 0 || row.kind !== 1 /* Element */) {
+          return failOp(
+            i,
+            "precondition",
+            "attrDel",
+            op.node,
+            "ATTR_DEL requires an ELEMENT row (frame-protocol.md \xA74.4)"
+          );
+        }
+        return null;
+      }
+      case 98 /* TextSet */: {
+        const row = table.getRow(op.node);
+        if (row === void 0 || row.kind !== 2 /* Text */ && row.kind !== 3 /* Comment */) {
+          return failOp(
+            i,
+            "precondition",
+            "textSet",
+            op.node,
+            "TEXT_SET requires TEXT or COMMENT (frame-protocol.md \xA74.4)"
+          );
+        }
+        return null;
+      }
+      case 160 /* SheetNew */: {
+        if (table.has(op.id) && table.getRow(op.id).kind !== 4 /* Sheet */) {
+          return failOp(
+            i,
+            "malformed",
+            "sheetNew",
+            op.id,
+            "SHEET_NEW id exists with a non-SHEET kind (frame-protocol.md \xA74.6)"
+          );
+        }
+        if (op.scope === CSSOM_SCOPE_PIERCE_HOST && !addressExists(table, op.hostNode)) {
+          return failOp(
+            i,
+            "precondition",
+            "sheetNew",
+            op.hostNode,
+            "SHEET_NEW PIERCE_HOST hostNode missing (frame-protocol.md \xA74.6)"
+          );
+        }
+        const parent = op.hostNode === 0 ? DOCUMENT_ID : op.hostNode;
+        if (op.before !== 0) {
+          const beforeRow = table.getRow(op.before);
+          if (beforeRow === void 0 || beforeRow.parent !== parent) {
+            return failOp(
+              i,
+              "precondition",
+              "sheetNew",
+              op.before,
+              "SHEET_NEW before must be 0 or a child of the sheet parent (frame-protocol.md \xA74.6)"
+            );
+          }
+        }
+        return null;
+      }
+      case 161 /* SheetDrop */: {
+        for (let j = 0; j < op.ids.length; j++) {
+          const id = op.ids[j];
+          const row = table.getRow(id);
+          if (row === void 0 || row.kind !== 4 /* Sheet */) {
+            return failOp(
+              i,
+              "precondition",
+              "sheetDrop",
+              id,
+              "SHEET_DROP requires SHEET ids (frame-protocol.md \xA74.6)"
+            );
+          }
+        }
+        return null;
+      }
+      case 162 /* SheetOrder */: {
+        for (let j = 0; j < op.ids.length; j++) {
+          const id = op.ids[j];
+          const row = table.getRow(id);
+          if (row === void 0 || row.kind !== 4 /* Sheet */) {
+            return failOp(
+              i,
+              "precondition",
+              "sheetOrder",
+              id,
+              "SHEET_ORDER requires SHEET ids (frame-protocol.md \xA74.6)"
+            );
+          }
+        }
+        return null;
+      }
+      case 163 /* RuleNew */: {
+        const sheet = table.getRow(op.sheet);
+        if (sheet === void 0 || sheet.kind !== 4 /* Sheet */) {
+          return failOp(
+            i,
+            "precondition",
+            "ruleNew",
+            op.sheet,
+            "RULE_NEW sheet missing or not SHEET (frame-protocol.md \xA74.6)"
+          );
+        }
+        if (table.has(op.id) && table.getRow(op.id).kind !== 5 /* Rule */) {
+          return failOp(
+            i,
+            "malformed",
+            "ruleNew",
+            op.id,
+            "RULE_NEW id exists with a non-RULE kind (frame-protocol.md \xA74.6)"
+          );
+        }
+        if (op.before !== 0) {
+          const beforeRow = table.getRow(op.before);
+          if (beforeRow === void 0 || beforeRow.kind !== 5 /* Rule */ || beforeRow.parent !== op.sheet) {
+            return failOp(
+              i,
+              "precondition",
+              "ruleNew",
+              op.before,
+              "RULE_NEW before must be 0 or a rule of that sheet (frame-protocol.md \xA74.6)"
+            );
+          }
+        }
+        return null;
+      }
+      case 164 /* RuleDrop */: {
+        for (let j = 0; j < op.ids.length; j++) {
+          const id = op.ids[j];
+          const row = table.getRow(id);
+          if (row === void 0 || row.kind !== 5 /* Rule */ || row.parent !== op.sheet) {
+            return failOp(
+              i,
+              "precondition",
+              "ruleDrop",
+              id,
+              "RULE_DROP requires RULE ids parented to sheet (frame-protocol.md \xA74.6)"
+            );
+          }
+        }
+        return null;
+      }
+      case 165 /* RuleSet */: {
+        const row = table.getRow(op.id);
+        if (row === void 0 || row.kind !== 5 /* Rule */) {
+          return failOp(
+            i,
+            "precondition",
+            "ruleSet",
+            op.id,
+            "RULE_SET requires a RULE row (frame-protocol.md \xA74.6)"
+          );
+        }
+        return null;
+      }
+      default:
+        return null;
+    }
+  }
   function applyFrameToTableChecked(table, resync, ops, sequence = 0) {
     if (resync) table.reset();
     table.setSequence(sequence);
@@ -784,39 +1138,38 @@
         for (let j = 0; j < op.ids.length; j++) {
           const id = op.ids[j];
           if (!table.has(id)) {
-            return {
-              ok: false,
-              reason: "malformed",
-              failedOpIndex: i,
-              opName: "nodeDrop",
+            return failOp(
+              i,
+              "malformed",
+              "nodeDrop",
               id,
-              message: "NODE_DROP of an absent id (frame-protocol.md OPEN-1)"
-            };
+              "NODE_DROP of an absent id (frame-protocol.md OPEN-1)"
+            );
           }
           if (table.getRow(id).parent !== 0) {
-            return {
-              ok: false,
-              reason: "precondition",
-              failedOpIndex: i,
-              opName: "nodeDrop",
+            return failOp(
+              i,
+              "precondition",
+              "nodeDrop",
               id,
-              message: "NODE_DROP of an attached row (frame-protocol.md \xA74.2)"
-            };
+              "NODE_DROP of an attached row (frame-protocol.md \xA74.2)"
+            );
           }
         }
         for (let j = 0; j < op.ids.length; j++) table.dropSubtree(op.ids[j]);
         continue;
       }
       if ((op.op === 32 /* NodeNew */ || op.op === 160 /* SheetNew */ || op.op === 163 /* RuleNew */) && !table.has(op.id) && table.size >= MAX_ROWS) {
-        return {
-          ok: false,
-          reason: "precondition",
-          failedOpIndex: i,
-          opName: "nodeNew",
-          id: op.id,
-          message: `MAX_ROWS (${MAX_ROWS}) exceeded (frame-protocol.md \xA78)`
-        };
+        return failOp(
+          i,
+          "precondition",
+          "nodeNew",
+          op.id,
+          `MAX_ROWS (${MAX_ROWS}) exceeded (frame-protocol.md \xA78)`
+        );
       }
+      const pre = validateOpPre(table, op, i);
+      if (pre !== null) return pre;
       applyOpToTable(table, op);
     }
     return { ok: true };
@@ -859,10 +1212,10 @@
       if (batch.length === 0) return;
       const start = performance.now();
       let lastSequence = 0;
-      for (const frame of batch) {
+      applyFramesUntilDesync(batch, (frame) => {
         lastSequence = frame.sequence;
-        this.applyFrame(frame);
-      }
+        return this.applyFrame(frame);
+      });
       const duration = performance.now() - start;
       const budget = this.options.applyBudgetMs ?? 4;
       if (duration > budget) this.options.onOverrun?.(duration, lastSequence);
@@ -876,31 +1229,29 @@
       this.table.reset();
       this.clearCssom();
     }
+    /** @returns `false` when a desync was reported — `flush` must not apply later frames in the batch. */
     applyFrame(frame) {
       const start = performance.now();
       if (!frame.resync && frame.preTableHash !== this.table.tableHash) {
-        this.fail("precondition", "preTableHash", frame.preTableHash, this.table.tableHash);
-        return;
+        return this.fail("precondition", "preTableHash", frame.preTableHash, this.table.tableHash);
       }
       const result = applyFrameToTableChecked(this.table, frame.resync, frame.ops, frame.sequence);
       if (!result.ok) {
         if (result.opName === "check") {
-          this.fail("precondition", "check", result.expected, result.actual);
-        } else {
-          this.failOp(result.reason, result.opName, result.id, result.message);
+          return this.fail("precondition", "check", result.expected, result.actual);
         }
-        return;
+        return this.failOp(result.reason, result.opName, result.id, result.message);
       }
       for (let i = 0; i < frame.ops.length; i++) {
         try {
-          if (!this.applyOp(frame.ops[i])) return;
+          if (!this.applyOp(frame.ops[i])) return false;
         } catch {
-          this.fail("malformed", "apply", 0);
-          return;
+          return this.fail("malformed", "apply", 0);
         }
       }
-      if (!this.cssomHandlesMatchTable()) return;
+      if (!this.cssomHandlesMatchTable()) return false;
       this.options.onApplied?.(frame, performance.now() - start);
+      return true;
     }
     fail(reason, opName, a, b) {
       if (typeof a === "bigint") {
@@ -910,7 +1261,7 @@
       }
       return false;
     }
-    /** `NODE_DROP`/`MAX_ROWS` phase-1 failures (Stage 3) — `message` for diagnostics, explicit `phase`. */
+    /** Phase-1 Pre / `MAX_ROWS` failures — `message` for diagnostics, explicit `phase`. */
     failOp(reason, opName, id, message) {
       this.options.onDesync?.({ reason, op: opName, id, message, phase: "apply" });
       return false;
@@ -978,12 +1329,48 @@
       } catch {
       }
     }
-    /** After the frame, every table Sheet row must have a live handle (replay complete, not mid-op). */
+    /**
+     * After the frame: every table Sheet/Rule row must have a live handle in claimed sheet/order
+     * (SEAL-CSSOM-P0-EOF / PP-CSSOM-A-3) — not sheet handles alone.
+     */
     cssomHandlesMatchTable() {
-      const ids = orderedSheetIds(this.table);
-      for (let i = 0; i < ids.length; i++) {
-        if (!this.sheets.has(ids[i])) return this.fail("address_miss", "sheetNew", ids[i]);
+      const tableSheetIds = orderedSheetIds(this.table);
+      const liveSheetIdsPresent = /* @__PURE__ */ new Set();
+      const tableRuleIdsBySheet = /* @__PURE__ */ new Map();
+      const liveRuleIdsBySheet = /* @__PURE__ */ new Map();
+      for (let i = 0; i < tableSheetIds.length; i++) {
+        const sheetId = tableSheetIds[i];
+        tableRuleIdsBySheet.set(sheetId, orderedRuleIds(this.table, sheetId));
+        const sheet = this.sheets.get(sheetId);
+        if (sheet === void 0) continue;
+        liveSheetIdsPresent.add(sheetId);
+        const liveRuleIds = [];
+        for (let k = 0; k < sheet.cssRules.length; k++) {
+          const live = sheet.cssRules.item(k);
+          if (live === null) {
+            return this.fail("address_miss", "ruleNew", sheetId);
+          }
+          let mapped;
+          for (const [id, bound] of this.rules) {
+            if (bound === live) {
+              mapped = id;
+              break;
+            }
+          }
+          if (mapped === void 0) {
+            return this.fail("address_miss", "ruleNew", sheetId);
+          }
+          liveRuleIds.push(mapped);
+        }
+        liveRuleIdsBySheet.set(sheetId, liveRuleIds);
       }
+      const result = matchCssomEndOfFrame(
+        tableSheetIds,
+        tableRuleIdsBySheet,
+        liveSheetIdsPresent,
+        liveRuleIdsBySheet
+      );
+      if (!result.ok) return this.fail("address_miss", result.op, result.id);
       return true;
     }
     adoptedList() {
@@ -1109,12 +1496,18 @@
     applyRuleSet(op) {
       const rule = this.rules.get(op.id);
       if (rule === void 0) return this.fail("address_miss", "ruleSet", op.id);
+      const view = this.doc.defaultView;
+      const StyleRule = view !== null ? view.CSSStyleRule : void 0;
+      const isStyle = StyleRule !== void 0 && rule instanceof StyleRule;
+      if (planRuleSetApply(isStyle).mode === "desync") {
+        return this.fail("bad_target", "ruleSet", op.id);
+      }
       try {
-        rule.cssText = op.text;
+        rule.style.cssText = declarationBlockFromRuleText(op.text);
+        return true;
       } catch {
         return this.fail("malformed", "ruleSet", op.id);
       }
-      return true;
     }
     /** §4.2 `NODE_DROP` `DOM` effect: "none — the subtree is already detached." Registry-only. */
     applyNodeDrop(op) {
@@ -1128,7 +1521,9 @@
       let node;
       if (op.kind === 1 /* Element */) {
         node = this.doc.createElement(op.name);
-        applyAttrs(node, op.attrs);
+        if (!applyAttrs(node, op.attrs)) {
+          return this.fail("malformed", "nodeNew", op.id);
+        }
       } else if (op.kind === 2 /* Text */) {
         node = this.doc.createTextNode(op.value);
       } else if (op.kind === 3 /* Comment */) {
@@ -1181,7 +1576,9 @@
     applyAttrSet(op) {
       const node = this.registry.get(op.node);
       if (!node || node.nodeType !== Node.ELEMENT_NODE) return this.fail("address_miss", "attrSet", op.node);
-      applyAttrs(node, op.attrs);
+      if (!applyAttrs(node, op.attrs)) {
+        return this.fail("malformed", "attrSet", op.node);
+      }
       return true;
     }
     applyAttrDel(op) {
@@ -1199,13 +1596,7 @@
     }
   };
   function applyAttrs(el, attrs) {
-    for (let i = 0; i < attrs.length; i++) {
-      const { name, value } = attrs[i];
-      try {
-        el.setAttribute(name, value);
-      } catch {
-      }
-    }
+    return applyAttrPairs((name, value) => el.setAttribute(name, value), attrs);
   }
 
   // browser/mirror/projection/client/registry.ts
@@ -1392,6 +1783,8 @@
      * `true` at least once — i.e. once the ordinary live target has actually shown something.
      */
     everArmed = false;
+    /** Sticky until resetSurface — inject proofs must not lose the desync to a later resync. */
+    lastDesyncReason = null;
     constructor(opts) {
       this.surface = createSurfaceHost(opts.surfaceHost, {
         width: opts.width ?? 1280,
@@ -1424,8 +1817,35 @@
     snapshotTable() {
       return {
         sequence: this.lastSequence,
+        generation: this.generation,
         table: digestReplicatedTable(this.live.applier.replicatedTable)
       };
+    }
+    /** Drain queued frames before a lab snapshot / inject. */
+    flushNow() {
+      this.live.applier.flush();
+      this.resync?.applier.flush();
+    }
+    get desynced() {
+      return this.lastDesyncReason !== null;
+    }
+    get applyError() {
+      return this.lastDesyncReason;
+    }
+    /**
+     * Lab inject (SEAL-CSSOM-P0-EOF): extra live rule with no table row.
+     * Honest producer never emits this; CHECK after this must desync at end-of-frame verify.
+     */
+    tamperGhostCssRule() {
+      const adopted = this.document.adoptedStyleSheets;
+      const sheet = adopted.length > 0 ? adopted[adopted.length - 1] : this.document.styleSheets.item(0);
+      if (!sheet) return { ok: false, reason: "no stylesheet to tamper" };
+      try {
+        sheet.insertRule(".lab-ghost-eof{color:red}", 0);
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, reason: err instanceof Error ? err.message : String(err) };
+      }
     }
     /** Lab UI: empty the projected iframe and reset apply state. Does not touch Virtual. */
     resetSurface() {
@@ -1438,6 +1858,7 @@
       this.generation = 1;
       this.armed = false;
       this.everArmed = false;
+      this.lastDesyncReason = null;
       this.surface.reset();
       const registry = new PageProjectionRegistry();
       registry.register(DOCUMENT_ID, this.surface.document);
@@ -1710,6 +2131,9 @@
       this.assembler.reset();
       this.live.applier.reset();
       this.onDesyncCb?.(reason);
+      if (this.lastDesyncReason === null) {
+        this.lastDesyncReason = extra?.op ? `${reason}:${extra.op}` : reason;
+      }
       this.scheduleResyncAttempt(reason);
     }
   };
@@ -1755,377 +2179,586 @@
     return out;
   }
 
+  // browser/mirror/projection/models/telemetry.ts
+  var LAB_TELEMETRY_DEFAULTS = {
+    enabled: true,
+    frameEmitted: true,
+    transportDeferred: true,
+    aggregate: true,
+    applyResult: true,
+    desync: true,
+    applyOverrun: true,
+    clock: true,
+    cssomPoll: true,
+    aggregateIntervalMs: 2e3
+  };
+  var TELEMETRY_BOOL_CAPS = [
+    "enabled",
+    "frameEmitted",
+    "transportDeferred",
+    "aggregate",
+    "applyResult",
+    "desync",
+    "applyOverrun",
+    "clock",
+    "cssomPoll"
+  ];
+
   // browser/mirror/projection/lab/client/main.ts
   function $(id) {
     const el = document.getElementById(id);
     if (!el) throw new Error(`#${id} missing`);
     return el;
   }
-  function logActivity(text, kind = "info") {
-    const log = $("activity");
-    const line = document.createElement("div");
-    line.dataset.kind = kind;
-    line.textContent = `${(/* @__PURE__ */ new Date()).toISOString().slice(11, 23)} ${text}`;
-    log.prepend(line);
-    while (log.childElementCount > 400) log.lastChild?.remove();
+  function displayUrl(raw) {
+    if (/^https?:\/\//i.test(raw)) return raw;
+    const path = raw.replace(/^\/+/, "");
+    return `${location.origin}/${path.startsWith("fixtures/") ? path : `fixtures/${path}`}`;
   }
-  function setStatus(text) {
-    $("status").textContent = text;
+  function shortDesc(text, max = 72) {
+    const t = text.trim();
+    return t.length <= max ? t : `${t.slice(0, max - 1)}\u2026`;
   }
-  function defaultFixtureUrl() {
-    return `${location.origin}/fixtures/demo.html`;
-  }
-  function readConfigFromUi() {
+  function probeCssomPaintBoundary(doc) {
+    const authorEl = doc.getElementById("author-probe");
+    const adoptedEl = doc.getElementById("adopted-probe");
+    if (!authorEl || !adoptedEl) return null;
+    const view = doc.defaultView;
+    const authorColor = view ? view.getComputedStyle(authorEl).color : "";
+    const adoptedColor = view ? view.getComputedStyle(adoptedEl).color : "";
+    const adopted = doc.adoptedStyleSheets ? Array.from(doc.adoptedStyleSheets) : [];
+    const styleEls = Array.from(doc.querySelectorAll("style"));
+    const authorTexts = /* @__PURE__ */ new Set();
+    const sheetText = (sheet) => {
+      try {
+        const parts = [];
+        for (let i = 0; i < sheet.cssRules.length; i++) {
+          const r = sheet.cssRules.item(i);
+          if (r) parts.push(r.cssText);
+        }
+        return parts.join("\n");
+      } catch {
+        return "";
+      }
+    };
+    for (let i = 0; i < styleEls.length; i++) {
+      const el = styleEls[i];
+      const sheet = el.sheet;
+      if (sheet) authorTexts.add(sheetText(sheet));
+      else if (el.textContent) authorTexts.add(el.textContent);
+    }
+    let doublePaint = false;
+    for (let i = 0; i < adopted.length; i++) {
+      const s = adopted[i];
+      if (s.ownerNode) doublePaint = true;
+      const text = sheetText(s);
+      if (text.length > 0 && authorTexts.has(text)) doublePaint = true;
+    }
     return {
-      enabled: $("telEnabled").checked,
-      frameEmitted: $("telFrameEmitted").checked,
-      transportDeferred: $("telDeferred").checked,
-      aggregate: $("telAggregate").checked,
-      applyResult: $("telApply").checked,
-      desync: $("telDesync").checked,
-      applyOverrun: $("telOverrun").checked,
-      clock: $("telClock").checked,
-      aggregateIntervalMs: Number($("telAggMs").value) || 2e3
+      authorColor,
+      adoptedColor,
+      adoptedCount: adopted.length,
+      styleSheetCount: doc.styleSheets.length,
+      styleElCount: styleEls.length,
+      doublePaint
     };
   }
-  function fmtStat(label, s, unit = "") {
-    return `  ${label.padEnd(9)} min=${s.min.toFixed(2)}${unit} avg=${s.avg.toFixed(2)}${unit} p50=${s.p50.toFixed(2)}${unit} p95=${s.p95.toFixed(2)}${unit} max=${s.max.toFixed(2)}${unit}  (n=${s.count})`;
+  function logActivity(text) {
+    const row = document.createElement("div");
+    row.textContent = `${(/* @__PURE__ */ new Date()).toISOString().slice(11, 19)} ${text}`;
+    const box = $("activity");
+    box.prepend(row);
+    while (box.childElementCount > 200) box.lastChild?.remove();
   }
-  function renderBenchmarkReport(report) {
-    const m = report.metrics;
-    if (report.verdicts && report.verdicts.length > 0) {
-      const box = $("benchVerdicts");
-      box.replaceChildren();
-      for (const v of report.verdicts) {
-        const row = document.createElement("div");
-        row.className = `verdict ${v.status}`;
-        row.textContent = `${v.status.toUpperCase()}  ${v.id} \u2014 ${v.reason}`;
-        box.appendChild(row);
-      }
+  function readTelemetryFromUi() {
+    const cfg = { ...LAB_TELEMETRY_DEFAULTS };
+    for (const key of TELEMETRY_BOOL_CAPS) {
+      const el = document.getElementById(`tel_${key}`);
+      if (el) cfg[key] = el.checked;
     }
-    const lines = [];
-    lines.push(`${report.meta.url}`);
-    lines.push(`wallMs=${m.wallMs.toFixed(0)}  steadyFrames=${m.steadyFrameCount} (~${m.steadyFps.toFixed(1)}fps)  lastTableSize=${m.lastTableSize}  wireBytes=${m.wireBytesTotal}`);
-    if (m.bootstrap) {
-      lines.push(`bootstrap: seq=${m.bootstrap.sequence} opCount=${m.bootstrap.opCount} bytes=${m.bootstrap.bytes} tableSize=${m.bootstrap.tableSize} buildMs=${m.bootstrap.buildMs.toFixed(2)}`);
-    }
-    lines.push("steady-state:");
-    lines.push(fmtStat("buildMs", m.buildMs, "ms"));
-    lines.push(fmtStat("opCount", m.opCount));
-    lines.push(fmtStat("bytes", m.bytes));
-    lines.push(fmtStat("applyMs", m.applyMs, "ms"));
-    lines.push(`applyOk=${m.applyOk} applyFail=${m.applyFail} desync=${m.desyncCount} overrun=${m.applyOverrunCount} deferred=${m.transportDeferredCount}`);
-    if (report.cpuProfile) {
-      const oc = report.cpuProfile.summary.ourCode;
-      lines.push(`cpu (Virtual, CDP): our-code=${oc.totalPct.toFixed(2)}% (${oc.totalMs.toFixed(2)}ms of ${report.cpuProfile.summary.wallMs.toFixed(0)}ms, ${report.cpuProfile.summary.totalSamples} samples)`);
-    }
-    if (report.invariants) {
-      const failed = report.invariants.filter((i) => i.failCount > 0);
-      lines.push(`invariants: ${report.invariants.length} checks, ${failed.length} with failures`);
-      for (const i of failed) lines.push(`  FAIL ${i.id}: ${i.failCount} failures / ${i.passCount} passes`);
-    }
-    if (report.structuralDiff) {
-      if (report.structuralDiff.status === "ok") {
-        const r = report.structuralDiff.result;
-        lines.push(`structuralDiff: ${r.identical ? "identical" : `${r.divergenceCount} divergence(s)`}`);
-      } else {
-        lines.push(`structuralDiff: unavailable (${report.structuralDiff.reason})`);
-      }
-    }
-    return lines.join("\n");
+    const agg = document.getElementById("tel_aggregateIntervalMs");
+    if (agg) cfg.aggregateIntervalMs = Number(agg.value) || 2e3;
+    return cfg;
   }
-  var speculumLabTestHooks = {};
-  globalThis.__speculumLabTestHooks = speculumLabTestHooks;
-  function clientKindEnabled(kind) {
-    if (kind === "desynced") return $("telDesync").checked;
-    if (kind === "applyOverrun") return $("telOverrun").checked;
-    if (kind === "parityFingerprint") return true;
-    if (kind === "applyResult") return $("telApply").checked;
-    return true;
+  function setChip(id, text, kind) {
+    const el = $(id);
+    el.textContent = text;
+    el.className = kind ? `chip ${kind}` : "chip";
+    el.title = text;
+    el.hidden = false;
   }
   function bootLabClient() {
-    const urlInput = $("url");
-    const fixtureSelect = $("fixture");
-    urlInput.value = defaultFixtureUrl();
-    fixtureSelect.value = "demo.html";
     let ws = null;
+    let projection = null;
+    let mode = "browse";
+    let runInFlight = false;
+    let sessionLive = false;
+    let sessionId = null;
+    let phase = "idle";
     let frames = 0;
     let applyOk = 0;
-    let desyncCount = 0;
+    let desync = 0;
     let resyncCount = 0;
     let opsTotal = 0;
-    let lastBuildMs = 0;
-    let virtualLive = false;
-    let runInFlight = false;
-    const projection = new LabProjectionClient({
-      surfaceHost: $("surfaceHost"),
-      onArmed: () => {
-        setStatus("armed \u2014 live apply");
-        logActivity("first frame applied", "applyResult");
-        $("surfaceWrap").classList.remove("is-empty");
-      },
-      onDesync: (reason) => {
-        desyncCount += 1;
-        $("streamDesync").textContent = String(desyncCount);
-        setStatus(`desync: ${reason}`);
-        logActivity(`desync ${reason}`, "desynced");
-        speculumLabTestHooks.onDesync?.(reason);
-      },
-      // Stage 4 (frame-protocol-production-completeness) §5.8 — the client's own recovery
-      // mechanism has no transport of its own; relay its request over the same session control
-      // WS `injectRawFrame`/`clientTelemetry` already use, to `lab/session.ts`'s `requestResync`
-      // case, which forwards it onto `PlaneChannel.Control` for the Virtual page to answer.
-      onRequestResync: (info) => {
-        logActivity(`resync requested reason=${info.reason} gen=${info.generation} seq=${info.sequence}`, "resyncRequested");
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: "requestResync", ...info }));
-        }
-      },
-      onTelemetry: (msg) => {
-        const kind = String(msg.kind ?? "applyResult");
-        const send = clientKindEnabled(kind);
-        if (kind === "desynced" || msg.ok === false || send) {
-          if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: "clientTelemetry", message: msg }));
-          }
-        }
-        if (msg.ok === true) applyOk += 1;
-        $("streamApply").textContent = String(applyOk);
-        if (kind === "resyncCompleted") {
-          resyncCount += 1;
-          $("streamResync").textContent = String(resyncCount);
-        }
-        if (typeof msg.opCount === "number") {
-          opsTotal += msg.opCount;
-          $("streamOps").textContent = String(opsTotal);
-        }
-        if (typeof msg.applyMs === "number") {
-          $("streamApplyMs").textContent = msg.applyMs.toFixed(2);
-        }
-        logActivity(
-          `${kind} ok=${String(msg.ok ?? "-")} seq=${String(msg.sequence ?? "-")} ops=${String(msg.opCount ?? "-")} ${msg.reason ? msg.reason : ""}`,
-          kind
-        );
-      }
-    });
-    speculumLabTestHooks.projection = projection;
-    speculumLabTestHooks.sendControl = (message) => {
-      if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(message));
-    };
-    const connectBtn = $("connect");
-    const disconnectBtn = $("disconnect");
-    const startBtn = $("start");
-    const stopBtn = $("stop");
-    const clearBtn = $("clearSurface");
-    const runBenchmarkBtn = $("runBenchmark");
-    function resetStreamCounters() {
-      frames = 0;
-      applyOk = 0;
-      desyncCount = 0;
-      resyncCount = 0;
-      opsTotal = 0;
-      $("streamFrames").textContent = "0";
-      $("streamApply").textContent = "0";
-      $("streamDesync").textContent = "0";
-      $("streamResync").textContent = "0";
-      $("streamOps").textContent = "0";
-      $("streamGen").textContent = "\u2014";
-      $("streamSeq").textContent = "\u2014";
-      $("streamBuildMs").textContent = "\u2014";
-      $("streamApplyMs").textContent = "\u2014";
-      $("hostStats").textContent = "host \u2014";
+    const fixtureSelect = $("fixture");
+    const urlInput = $("url");
+    const blueprintSelect = $("blueprint");
+    const soakOverrides = $("soakOverrides");
+    const surfaceHost = $("surfaceHost");
+    const surfaceWrap = $("surfaceWrap");
+    const fixtureField = $("fixtureField");
+    const blueprintField = $("blueprintField");
+    const blueprintDesc = $("blueprintDesc");
+    const urlLabel = $("urlLabel");
+    const modeBlurb = $("modeBlurb");
+    let blueprints = [];
+    function setSurfaceEmpty(empty) {
+      surfaceWrap.classList.toggle("is-empty", empty);
     }
-    function clearProjectedSurface() {
-      projection.resetSurface();
-      $("surfaceWrap").classList.add("is-empty");
+    function measureHeader() {
+      const h = $("labHeader").getBoundingClientRect().height;
+      document.documentElement.style.setProperty("--hdr-h", `${Math.ceil(h)}px`);
+    }
+    function refreshStatus() {
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        setChip("chipWs", "ws idle");
+      } else {
+        setChip("chipWs", "ws open", "ok");
+      }
+      const phaseText = phase === "idle" ? "idle" : phase === "connected" ? "connected \u2014 start Virtual or run" : phase === "live" ? `live ${mode}` : phase === "running" ? "run in flight" : phase === "complete" ? "run complete" : phase;
+      const phaseKind = phase === "fault" ? "danger" : phase === "running" || phase === "live" ? "live" : phase === "complete" ? "ok" : "";
+      setChip("chipPhase", phaseText, phaseKind);
+      if (sessionId) {
+        setChip("chipSession", `session ${sessionId.slice(0, 8)}\u2026`);
+        $("chipSession").title = sessionId;
+      } else {
+        $("chipSession").hidden = true;
+      }
     }
     function syncButtons() {
       const open = ws !== null && ws.readyState === WebSocket.OPEN;
+      const connectBtn = $("connect");
       connectBtn.disabled = open;
-      disconnectBtn.disabled = !open;
-      startBtn.disabled = !open || runInFlight;
-      stopBtn.disabled = !open || !virtualLive;
-      clearBtn.disabled = false;
-      runBenchmarkBtn.disabled = !open || runInFlight;
+      connectBtn.classList.toggle("primary", !open);
+      $("disconnect").disabled = !open;
+      $("browseStart").disabled = !open || mode !== "browse" || sessionLive || runInFlight;
+      $("browseNavigate").disabled = !open || mode !== "browse" || !sessionLive || runInFlight;
+      $("browseStop").disabled = !open || !sessionLive || mode !== "browse" || runInFlight;
+      $("clearSurface").disabled = !open || runInFlight;
+      $("runStart").disabled = !open || mode !== "run" || runInFlight;
+      document.querySelectorAll("[data-mode]").forEach((btn) => {
+        btn.disabled = runInFlight;
+      });
+      $("browseStart").classList.toggle("primary", open && mode === "browse" && !sessionLive);
+      $("runStart").classList.toggle("primary", open && mode === "run" && !runInFlight);
+      $("browseStart").title = !open ? "Connect first" : sessionLive ? "Virtual already live \u2014 Stop first" : "Cold-start Virtual at the URL";
+      $("runStart").title = !open ? "Connect first" : runInFlight ? "Run in flight" : "Cold-boot blueprint DAG (URL comes from blueprint)";
+      $("browseNavigate").title = sessionLive ? "Navigate live Virtual to the URL field" : "Start Virtual first";
+      refreshStatus();
+      measureHeader();
+    }
+    function selectedBlueprint() {
+      return blueprints.find((b) => b.id === blueprintSelect.value);
+    }
+    function syncRunTarget() {
+      const bp = selectedBlueprint();
+      urlInput.value = bp?.defaultUrl ? displayUrl(bp.defaultUrl) : "";
+      urlInput.readOnly = true;
+      urlLabel.textContent = "Blueprint URL";
+      urlInput.title = "Locked \u2014 comes from the selected blueprint";
+      soakOverrides.hidden = !(bp?.acceptsSoakOverrides ?? false);
+      blueprintDesc.hidden = !bp;
+      blueprintDesc.textContent = bp ? bp.description : "";
+    }
+    function showMode(next) {
+      if (runInFlight && next !== mode) return;
+      mode = next;
+      document.querySelectorAll("[data-mode]").forEach((btn) => {
+        const on = btn.dataset.mode === next;
+        btn.classList.toggle("active", on);
+        btn.setAttribute("aria-selected", on ? "true" : "false");
+      });
+      $("browseControls").hidden = next !== "browse";
+      $("runControls").hidden = next !== "run";
+      fixtureField.hidden = next !== "browse";
+      blueprintField.hidden = next !== "run";
+      blueprintDesc.hidden = next !== "run";
+      if (next === "browse") {
+        modeBlurb.textContent = "Free navigation \u2014 pick a fixture or edit the URL, then Start Virtual.";
+        urlInput.readOnly = false;
+        urlLabel.textContent = "URL";
+        urlInput.title = "Editable \u2014 free navigation target";
+        if (fixtureSelect.value) {
+          urlInput.value = `${location.origin}/fixtures/${fixtureSelect.value}`;
+        }
+      } else {
+        modeBlurb.textContent = "Cold blueprint DAG \u2014 URL is locked to the blueprint; soak may override duration/probes.";
+        syncRunTarget();
+      }
+      syncButtons();
     }
     function showTab(name) {
-      for (const id of ["panelStream", "panelActivity", "panelConfig", "panelRun"]) {
-        $(id).hidden = id !== `panel${name}`;
-      }
-      for (const btn of document.querySelectorAll("[data-tab]")) {
-        btn.classList.toggle("active", btn.dataset.tab === name);
+      $("panelStream").hidden = name !== "Stream";
+      $("panelActivity").hidden = name !== "Activity";
+      $("panelConfig").hidden = name !== "Config";
+      $("panelProgress").hidden = name !== "Progress";
+      document.querySelectorAll("[data-tab]").forEach((btn) => {
+        const on = btn.dataset.tab === name;
+        btn.classList.toggle("active", on);
+        btn.setAttribute("aria-selected", on ? "true" : "false");
+      });
+    }
+    function updateStream() {
+      $("streamFrames").textContent = String(frames);
+      $("streamApply").textContent = String(applyOk);
+      $("streamDesync").textContent = String(desync);
+      $("streamResync").textContent = String(resyncCount);
+      $("streamOps").textContent = opsTotal > 0 ? String(opsTotal) : "\u2014";
+      if (projection) {
+        $("streamSeq").textContent = String(projection.lastAcceptedSequence);
       }
     }
-    for (const btn of document.querySelectorAll("[data-tab]")) {
-      btn.addEventListener("click", () => showTab(btn.dataset.tab ?? "Stream"));
+    function resetStreamCounters() {
+      frames = 0;
+      applyOk = 0;
+      desync = 0;
+      resyncCount = 0;
+      opsTotal = 0;
+      $("streamGen").textContent = "\u2014";
+      $("streamApplyMs").textContent = "\u2014";
+      $("streamOps").textContent = "\u2014";
+      updateStream();
     }
-    showTab("Stream");
-    fixtureSelect.addEventListener("change", () => {
-      urlInput.value = `${location.origin}/fixtures/${fixtureSelect.value}`;
-    });
-    $("clearActivity").addEventListener("click", () => {
-      $("activity").replaceChildren();
-    });
-    clearBtn.addEventListener("click", () => {
-      clearProjectedSurface();
-      setStatus("surface cleared");
-      logActivity("projected surface cleared");
-    });
-    connectBtn.addEventListener("click", () => {
-      if (ws !== null) return;
-      const proto = location.protocol === "https:" ? "wss:" : "ws:";
-      ws = new WebSocket(`${proto}//${location.host}/lab/session`);
+    function ensureProjection() {
+      if (projection) return projection;
+      projection = new LabProjectionClient({
+        surfaceHost,
+        onTelemetry: (msg) => {
+          const m = msg;
+          if (m.kind === "applyResult") {
+            applyOk += 1;
+            if (typeof m.generation === "number") $("streamGen").textContent = String(m.generation);
+            if (typeof m.opCount === "number") {
+              opsTotal += m.opCount;
+              $("streamOps").textContent = String(m.opCount);
+            }
+            if (typeof m.applyMs === "number") $("streamApplyMs").textContent = m.applyMs.toFixed(1);
+          }
+          if (m.kind === "desynced" || m.kind === "desync") desync += 1;
+          if (ws?.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: "client.telemetry", message: msg }));
+          }
+          updateStream();
+        },
+        onRequestResync: (info) => {
+          resyncCount += 1;
+          updateStream();
+          logActivity(`resync requested reason=${info.reason}`);
+          if (ws?.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: "client.requestResync", ...info }));
+          }
+        },
+        onDesync: (reason) => {
+          desync += 1;
+          updateStream();
+          logActivity(`desync ${reason}`);
+        }
+      });
+      setSurfaceEmpty(false);
+      return projection;
+    }
+    function appendProgress(msg) {
+      const status = String(msg.status);
+      const row = document.createElement("div");
+      row.className = `tl-row ${status}`;
+      const st = document.createElement("span");
+      st.className = "tl-status";
+      st.textContent = status;
+      const id = document.createElement("span");
+      id.className = "tl-id";
+      id.textContent = String(msg.actionId);
+      const q = document.createElement("span");
+      q.className = "tl-queue";
+      q.textContent = String(msg.queue);
+      row.append(st, id, q);
+      if (msg.detail) {
+        const d = document.createElement("div");
+        d.className = "tl-detail";
+        d.textContent = String(msg.detail);
+        row.append(d);
+      }
+      $("runTimeline").prepend(row);
+    }
+    function renderVerdictSummary(s) {
+      const box = $("runVerdicts");
+      box.innerHTML = "";
+      for (const [k, v] of [
+        ["pass", s.pass],
+        ["fail", s.fail],
+        ["skipped", s.skipped]
+      ]) {
+        const chip = document.createElement("span");
+        chip.className = `verdict ${k}`;
+        chip.textContent = `${k} ${v}`;
+        box.appendChild(chip);
+      }
+    }
+    async function loadFixtures() {
+      try {
+        const res = await fetch("/lab/fixtures");
+        const list = await res.json();
+        fixtureSelect.innerHTML = "";
+        for (const f of list) {
+          const opt = document.createElement("option");
+          opt.value = f.path;
+          opt.textContent = f.id;
+          if (f.notes) opt.title = f.notes;
+          fixtureSelect.appendChild(opt);
+        }
+        const demo = list.find((f) => f.id === "demo") ?? list[0];
+        if (demo && mode === "browse") {
+          fixtureSelect.value = demo.path;
+          urlInput.value = `${location.origin}/fixtures/${demo.path}`;
+        }
+      } catch {
+        if (mode === "browse") urlInput.value = `${location.origin}/fixtures/demo.html`;
+      }
+    }
+    async function loadBlueprints() {
+      try {
+        const res = await fetch("/lab/blueprints");
+        const data = await res.json();
+        blueprints = data.blueprints;
+        blueprintSelect.innerHTML = "";
+        for (const bp of blueprints) {
+          const opt = document.createElement("option");
+          opt.value = bp.id;
+          opt.textContent = `${bp.id} \u2014 ${shortDesc(bp.description, 48)}`;
+          opt.title = bp.description;
+          blueprintSelect.appendChild(opt);
+        }
+        if (blueprints.some((b) => b.id === "soak")) blueprintSelect.value = "soak";
+      } catch {
+        blueprints = [
+          {
+            id: "soak",
+            description: "Timed soak",
+            defaultUrl: "fixtures/demo.html",
+            acceptsSoakOverrides: true
+          }
+        ];
+        blueprintSelect.innerHTML = '<option value="soak">soak</option>';
+      }
+      if (mode === "run") syncRunTarget();
+    }
+    function connect() {
+      if (ws) return;
+      const proto = location.protocol === "https:" ? "wss" : "ws";
+      ws = new WebSocket(`${proto}://${location.host}/lab/session`);
       ws.binaryType = "arraybuffer";
-      setStatus("connecting\u2026");
       ws.addEventListener("open", () => {
+        phase = "connected";
+        logActivity("ws open");
+        ws?.send(JSON.stringify({ type: "hello", protocolVersion: 1 }));
         syncButtons();
-        setStatus("connected \u2014 Start Virtual to browse, or Run for a probe");
-        logActivity("session WS open");
       });
       ws.addEventListener("close", () => {
+        phase = "idle";
+        sessionId = null;
+        logActivity("ws close");
         ws = null;
-        virtualLive = false;
+        sessionLive = false;
         runInFlight = false;
         syncButtons();
-        setStatus("disconnected");
-        logActivity("session WS closed");
       });
       ws.addEventListener("message", (ev) => {
         if (typeof ev.data !== "string") {
+          const p = ensureProjection();
+          p.ingest(new Uint8Array(ev.data));
           frames += 1;
-          $("streamFrames").textContent = String(frames);
-          projection.ingest(new Uint8Array(ev.data));
+          updateStream();
           return;
         }
         let msg;
         try {
           msg = JSON.parse(ev.data);
         } catch {
-          logActivity(`bad control: ${ev.data.slice(0, 80)}`);
-          return;
-        }
-        speculumLabTestHooks.onControlMessage?.(msg);
-        if (msg.type === "hello") {
-          logActivity(`hello session=${msg.sessionId ?? "?"}`);
-          return;
-        }
-        if (msg.type === "ready") {
-          virtualLive = true;
-          syncButtons();
-          setStatus(`Virtual ready \u2014 ${msg.url ?? ""}`);
-          logActivity(`ready dataPlane=${msg.dataPlaneUrl ?? ""}`);
-          return;
-        }
-        if (msg.type === "stopped") {
-          virtualLive = false;
-          runInFlight = false;
-          clearProjectedSurface();
-          resetStreamCounters();
-          syncButtons();
-          setStatus("Virtual stopped");
-          logActivity("Virtual stopped");
-          return;
-        }
-        if (msg.type === "stats") {
-          $("hostStats").textContent = `host frames=${msg.frames ?? 0} bytes=${msg.bytes ?? 0} gen=${msg.generation ?? "-"} seq=${msg.sequence ?? "-"} tel=${msg.telemetryMessages ?? 0}`;
-          if (msg.sequence != null) $("streamSeq").textContent = String(msg.sequence);
-          if (msg.generation != null) $("streamGen").textContent = String(msg.generation);
-          return;
-        }
-        if (msg.type === "telemetry") {
-          const tel = msg.message;
-          const kind = tel?.kind ?? "?";
-          logActivity(`telemetry ${kind} ${JSON.stringify(tel).slice(0, 120)}`, kind);
-          if (kind === "frameEmitted") {
-            if (tel?.sequence != null) $("streamSeq").textContent = String(tel.sequence);
-            if (typeof tel?.buildMs === "number") {
-              lastBuildMs = tel.buildMs;
-              $("streamBuildMs").textContent = lastBuildMs.toFixed(2);
-            }
-          }
-          return;
-        }
-        if (msg.type === "error") {
-          setStatus(`error: ${typeof msg.message === "string" ? msg.message : "?"}`);
-          logActivity(`error ${typeof msg.message === "string" ? msg.message : "?"}`);
-          runInFlight = false;
-          syncButtons();
-          $("benchStatus").textContent = `error: ${typeof msg.message === "string" ? msg.message : "?"}`;
           return;
         }
         if (msg.type === "requestSnapshot") {
-          const tree = snapshotTree(projection.document);
-          const tableSnap = projection.snapshotTable();
-          ws?.send(JSON.stringify({ type: "snapshotResult", tree, table: tableSnap.table, sequence: tableSnap.sequence }));
-          logActivity("snapshot captured \u2014 sent to session");
+          const p = ensureProjection();
+          p.flushNow();
+          const tree = snapshotTree(p.document);
+          const tableSnap = p.snapshotTable();
+          ws?.send(
+            JSON.stringify({
+              type: "client.snapshotResult",
+              tree,
+              table: tableSnap.table,
+              sequence: tableSnap.sequence,
+              generation: tableSnap.generation,
+              desynced: p.desynced,
+              applyError: p.applyError,
+              cascade: probeCssomPaintBoundary(p.document)
+            })
+          );
           return;
         }
-        if (msg.type === "benchmarkStarted") {
-          runInFlight = true;
-          $("benchVerdicts").replaceChildren();
-          $("benchStatus").textContent = `running \u2014 ${msg.url ?? ""} for ${msg.durationMs ?? "?"}ms\u2026`;
-          $("benchResults").textContent = "";
+        if (msg.type === "lab.tamper") {
+          const p = ensureProjection();
+          p.flushNow();
+          const r = p.tamperGhostCssRule();
+          logActivity(`lab.tamper ghostRule ok=${r.ok}${r.reason ? ` ${r.reason}` : ""}`);
+          return;
+        }
+        if (msg.type === "session.hello") {
+          sessionId = String(msg.sessionId ?? "");
+          logActivity(`session.hello ${sessionId}`);
+          refreshStatus();
+          return;
+        }
+        if (msg.type === "session.booted") {
+          sessionLive = true;
+          sessionId = String(msg.sessionId ?? sessionId ?? "");
+          phase = "live";
+          logActivity(`booted mode=${msg.mode} dossier=${msg.dossierDir}`);
           syncButtons();
-          logActivity(`benchmark started ${msg.url ?? ""} durationMs=${msg.durationMs ?? "?"}`);
           return;
         }
-        if (msg.type === "benchmarkComplete") {
-          $("benchStatus").textContent = `done \u2014 Virtual stopped. Report: ${msg.reportDir ?? "?"}`;
-          $("benchResults").textContent = msg.report ? renderBenchmarkReport(msg.report) : "(no report)";
-          logActivity(`benchmark complete reportDir=${msg.reportDir ?? "?"}`);
+        if (msg.type === "session.stopped") {
+          sessionLive = false;
+          if (!runInFlight && phase !== "complete" && phase !== "fault") phase = "connected";
+          logActivity(`stopped ${msg.reason}`);
+          syncButtons();
           return;
         }
-        logActivity(`control ${msg.type}`);
+        if (msg.type === "session.fault") {
+          phase = "fault";
+          setChip("chipPhase", `fault ${msg.message}`, "danger");
+          logActivity(`fault ${msg.message}`);
+          sessionLive = false;
+          runInFlight = false;
+          syncButtons();
+          return;
+        }
+        if (msg.type === "run.progress") {
+          appendProgress(msg);
+          return;
+        }
+        if (msg.type === "run.complete") {
+          runInFlight = false;
+          sessionLive = false;
+          phase = "complete";
+          const s = msg.verdictsSummary;
+          renderVerdictSummary(s);
+          $("runDossier").textContent = String(msg.dossierDir ?? "");
+          $("progressHint").textContent = s.fail > 0 ? `Run finished with ${s.fail} fail(s).` : "Run finished \u2014 no fails in summary.";
+          logActivity(`run.complete fail=${s.fail} ${msg.dossierDir}`);
+          setChip(
+            "chipPhase",
+            s.fail > 0 ? `complete fail=${s.fail}` : `complete pass=${s.pass}`,
+            s.fail > 0 ? "danger" : "ok"
+          );
+          syncButtons();
+          return;
+        }
+        if (msg.type === "error") {
+          logActivity(`error ${msg.message}`);
+          phase = "fault";
+          setChip("chipPhase", String(msg.message), "danger");
+          runInFlight = false;
+          syncButtons();
+        }
       });
-    });
-    disconnectBtn.addEventListener("click", () => {
+    }
+    $("connect").addEventListener("click", () => connect());
+    $("disconnect").addEventListener("click", () => {
       ws?.close();
+      ws = null;
     });
-    startBtn.addEventListener("click", () => {
-      if (ws === null || ws.readyState !== WebSocket.OPEN) return;
+    fixtureSelect.addEventListener("change", () => {
+      if (mode !== "browse") return;
+      urlInput.value = `${location.origin}/fixtures/${fixtureSelect.value}`;
+    });
+    blueprintSelect.addEventListener("change", () => {
+      if (mode === "run") syncRunTarget();
+    });
+    document.querySelectorAll("[data-mode]").forEach((btn) => {
+      btn.addEventListener("click", () => showMode(btn.dataset.mode ?? "browse"));
+    });
+    document.querySelectorAll("[data-tab]").forEach((btn) => {
+      btn.addEventListener("click", () => showTab(btn.dataset.tab ?? "Stream"));
+    });
+    $("clearActivity").addEventListener("click", () => {
+      $("activity").innerHTML = "";
+    });
+    $("browseStart").addEventListener("click", () => {
+      ensureProjection();
       resetStreamCounters();
-      clearProjectedSurface();
-      ws.send(
+      ws?.send(
         JSON.stringify({
-          type: "start",
-          url: urlInput.value.trim(),
-          telemetry: readConfigFromUi(),
-          frameRateHz: Number($("cfgFrameRate").value) || 60
+          type: "browse.start",
+          url: urlInput.value,
+          frameRateHz: Number(document.getElementById("frameRateHz")?.value) || 60,
+          telemetry: readTelemetryFromUi()
         })
       );
-      setStatus("starting Virtual\u2026");
     });
-    stopBtn.addEventListener("click", () => {
-      if (ws === null || ws.readyState !== WebSocket.OPEN) return;
-      ws.send(JSON.stringify({ type: "stop" }));
+    $("browseNavigate").addEventListener("click", () => {
+      if (!sessionLive) return;
+      ws?.send(JSON.stringify({ type: "browse.navigate", url: urlInput.value }));
+      logActivity(`navigate ${urlInput.value}`);
     });
-    runBenchmarkBtn.addEventListener("click", () => {
-      if (ws === null || ws.readyState !== WebSocket.OPEN) return;
+    $("browseStop").addEventListener("click", () => {
+      ws?.send(JSON.stringify({ type: "browse.stop", exportDossier: true }));
+    });
+    $("clearSurface").addEventListener("click", () => {
+      if (projection) {
+        projection.resetSurface();
+      } else {
+        surfaceHost.innerHTML = "";
+      }
+      setSurfaceEmpty(true);
+      resetStreamCounters();
+      ws?.send(JSON.stringify({ type: "surface.clear" }));
+    });
+    $("runStart").addEventListener("click", () => {
+      ensureProjection();
       runInFlight = true;
+      sessionLive = false;
+      phase = "running";
+      $("runTimeline").innerHTML = "";
+      $("runVerdicts").innerHTML = "";
+      $("runDossier").textContent = "";
+      $("progressHint").textContent = "Run in flight\u2026";
+      showTab("Progress");
       resetStreamCounters();
-      clearProjectedSurface();
-      $("benchVerdicts").replaceChildren();
-      $("benchStatus").textContent = "starting\u2026";
       syncButtons();
-      showTab("Run");
-      ws.send(
+      const bp = selectedBlueprint();
+      const overrides = {
+        telemetry: readTelemetryFromUi()
+      };
+      if (bp?.acceptsSoakOverrides) {
+        overrides.durationMs = Number(document.getElementById("runDurationMs")?.value) || 15e3;
+        overrides.cpu = document.getElementById("runCpu")?.checked === true;
+        overrides.iso = document.getElementById("runIso")?.checked === true;
+      }
+      ws?.send(
         JSON.stringify({
-          type: "runBenchmark",
-          url: urlInput.value.trim(),
-          durationMs: Number($("benchDurationMs").value) || 15e3,
-          telemetry: readConfigFromUi(),
-          frameRateHz: Number($("cfgFrameRate").value) || 60,
-          options: {
-            cpuProfile: $("benchCpuProfile").checked,
-            invariants: $("benchInvariants").checked,
-            structuralDiff: $("benchStructuralDiff").checked,
-            isomorphism: $("benchIso").checked
-          }
+          type: "run.start",
+          blueprintId: blueprintSelect.value || "soak",
+          overrides
         })
       );
     });
+    window.addEventListener("resize", measureHeader);
+    void Promise.all([loadFixtures(), loadBlueprints()]).then(() => {
+      showMode("browse");
+      measureHeader();
+    });
+    showTab("Stream");
+    refreshStatus();
     syncButtons();
-    setStatus("idle \u2014 Connect to begin");
   }
   bootLabClient();
 })();

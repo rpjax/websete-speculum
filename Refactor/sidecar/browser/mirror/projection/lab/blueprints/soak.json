@@ -1,0 +1,57 @@
+{
+  "id": "soak",
+  "description": "Timed soak with optional CPU and coherent iso probes",
+  "sessionPolicy": "cold",
+  "fold": "soak",
+  "queues": [
+    {
+      "name": "main",
+      "actions": [
+        { "id": "boot", "type": "boot", "params": { "url": "fixtures/demo.html" } },
+        {
+          "id": "collect",
+          "type": "collect.enable",
+          "dependsOn": ["boot"],
+          "params": { "invariants": true, "metrics": true, "nodeTableApply": true }
+        },
+        {
+          "id": "sleep",
+          "type": "sleep",
+          "dependsOn": ["collect"],
+          "params": { "ms": 15000, "useOverrideDuration": true }
+        },
+        {
+          "id": "iso",
+          "type": "iso",
+          "dependsOn": ["sleep"],
+          "params": { "cssom": "scan" }
+        },
+        {
+          "id": "fold",
+          "type": "fold",
+          "awaits": ["iso", "cpu.stop"],
+          "params": { "ruleset": "soak" }
+        },
+        { "id": "writeDossier", "type": "writeDossier", "dependsOn": ["fold"] }
+      ]
+    },
+    {
+      "name": "cpu",
+      "actions": [
+        {
+          "id": "cpu.start",
+          "type": "cpu.start",
+          "dependsOn": ["collect"],
+          "params": { "optional": true }
+        },
+        {
+          "id": "cpu.stop",
+          "type": "cpu.stop",
+          "awaits": ["sleep"],
+          "dependsOn": ["cpu.start"],
+          "params": { "optional": true }
+        }
+      ]
+    }
+  ]
+}

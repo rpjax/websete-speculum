@@ -1,0 +1,177 @@
+"use strict";
+/**
+ * Shared iso fold — tree skip is explicit when the run has no DOM client.
+ * When the run has a DOM client relay, skipped tree is a fail (PP-FR-1 / SEAL-DOM-P0-PROBE).
+ */
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.foldNodeNewConnected = foldNodeNewConnected;
+exports.foldCssomPaintBoundary = foldCssomPaintBoundary;
+exports.foldIsoJournal = foldIsoJournal;
+function foldNodeNewConnected(probe) {
+    if (!probe) {
+        return { id: 'probe.nodeNewConnected', status: 'fail', reason: 'probe missing' };
+    }
+    if (!probe.ok) {
+        return {
+            id: 'probe.nodeNewConnected',
+            status: 'fail',
+            reason: `disconnected ids=[${probe.disconnectedIds.join(',')}] checked=${probe.checked}`,
+        };
+    }
+    return {
+        id: 'probe.nodeNewConnected',
+        status: 'pass',
+        reason: `checked=${probe.checked}`,
+    };
+}
+function colorLooksRed(c) {
+    return /rgb\(\s*255\s*,\s*0\s*,\s*0/.test(c) || c === 'red';
+}
+function colorLooksBlue(c) {
+    return /rgb\(\s*0\s*,\s*0\s*,\s*255/.test(c) || c === 'blue';
+}
+/** PP-CSSOM-A-2 — Virtual cascade always; Projected double-paint only with DOM client. */
+function foldCssomPaintBoundary(cascade, opts) {
+    const verdicts = [];
+    const v = cascade?.virtual;
+    if (!v) {
+        verdicts.push({ id: 'cssom.double.virtual', status: 'fail', reason: 'cascade probe missing on Virtual' });
+        return verdicts;
+    }
+    if (v.doublePaint) {
+        verdicts.push({ id: 'cssom.double.virtual', status: 'fail', reason: 'Virtual doublePaint=true' });
+    }
+    else if (!colorLooksRed(v.authorColor) || !colorLooksBlue(v.adoptedColor)) {
+        verdicts.push({
+            id: 'cssom.double.virtual',
+            status: 'fail',
+            reason: `author=${v.authorColor} adopted=${v.adoptedColor} adoptedCount=${v.adoptedCount}`,
+        });
+    }
+    else {
+        verdicts.push({
+            id: 'cssom.double.virtual',
+            status: 'pass',
+            reason: `author red, adopted blue, adoptedCount=${v.adoptedCount}`,
+        });
+    }
+    const c = cascade?.client;
+    if (!c) {
+        verdicts.push({
+            id: 'cssom.double.projected',
+            status: opts?.requireProjected ? 'fail' : 'skipped',
+            reason: opts?.requireProjected ? 'Projected cascade missing with DOM client' : 'no DOM client',
+        });
+        return verdicts;
+    }
+    if (c.doublePaint) {
+        verdicts.push({
+            id: 'cssom.double.projected',
+            status: 'fail',
+            reason: 'Projected adopted clone of author <style> (doublePaint)',
+        });
+    }
+    else if (!colorLooksRed(c.authorColor) || !colorLooksBlue(c.adoptedColor)) {
+        verdicts.push({
+            id: 'cssom.double.projected',
+            status: 'fail',
+            reason: `author=${c.authorColor} adopted=${c.adoptedColor} adoptedCount=${c.adoptedCount}`,
+        });
+    }
+    else {
+        verdicts.push({
+            id: 'cssom.double.projected',
+            status: 'pass',
+            reason: `author red, adopted blue, adoptedCount=${c.adoptedCount}`,
+        });
+    }
+    return verdicts;
+}
+function foldIsoJournal(iso, opts) {
+    const verdicts = [];
+    if (!iso) {
+        verdicts.push({ id: 'iso', status: 'skipped', reason: 'iso journal missing' });
+        return verdicts;
+    }
+    if (iso.o2) {
+        verdicts.push({
+            id: 'iso.dom',
+            status: iso.o2.identical ? 'pass' : 'fail',
+            reason: iso.o2.identical
+                ? `identical at sequence ${iso.sequence}`
+                : `${iso.o2.divergenceCount} O2 divergences`,
+        });
+    }
+    if (iso.cssomO2) {
+        verdicts.push({
+            id: 'iso.cssom',
+            status: iso.cssomO2.identical ? 'pass' : 'fail',
+            reason: iso.cssomO2.identical
+                ? `identical at sequence ${iso.sequence}`
+                : `${iso.cssomO2.divergenceCount} CSSOM divergences`,
+        });
+    }
+    if (iso.table?.identical === true) {
+        verdicts.push({
+            id: 'iso.table',
+            status: 'pass',
+            reason: `rowCount=${iso.table.virtual?.rowCount} hash match`,
+        });
+    }
+    else if (iso.table?.identical === false) {
+        verdicts.push({
+            id: 'iso.table',
+            status: 'fail',
+            reason: iso.tableFailReason ?? 'table hash mismatch',
+        });
+    }
+    if (iso.structuralDiff) {
+        verdicts.push({
+            id: 'iso.tree',
+            status: iso.structuralDiff.identical ? 'pass' : 'fail',
+            reason: iso.structuralDiff.identical
+                ? 'identical'
+                : `${iso.structuralDiff.divergenceCount} divergences`,
+        });
+    }
+    const requireDomTree = opts?.requireDomTree === true;
+    for (const s of iso.skipped ?? []) {
+        const isTreeSkip = s.id === 'structuralDiff' || s.id === 'iso.tree' || s.id === 'tree';
+        const id = isTreeSkip ? 'iso.tree' : s.id.startsWith('iso.') ? s.id : `iso.${s.id}`;
+        const reason = isTreeSkip
+            ? s.reason.includes('no lab client') || s.reason.includes('no DOM')
+                ? 'iso.tree skipped: no DOM client'
+                : s.reason
+            : s.reason;
+        if (isTreeSkip && requireDomTree) {
+            verdicts.push({
+                id: 'iso.tree',
+                status: 'fail',
+                reason: `iso.tree skipped with DOM client: ${reason}`,
+            });
+        }
+        else {
+            verdicts.push({ id, status: 'skipped', reason });
+        }
+    }
+    const skippedTree = (iso.skipped ?? []).some((s) => s.id === 'structuralDiff' || s.id === 'iso.tree' || s.id === 'tree');
+    if (!iso.structuralDiff && !skippedTree) {
+        if (requireDomTree) {
+            verdicts.push({
+                id: 'iso.tree',
+                status: 'fail',
+                reason: 'iso.tree missing with DOM client',
+            });
+        }
+        else {
+            verdicts.push({
+                id: 'iso.tree',
+                status: 'skipped',
+                reason: 'iso.tree skipped: no DOM client',
+            });
+        }
+    }
+    verdicts.push(foldNodeNewConnected(iso.nodeNewConnected));
+    return verdicts;
+}
+//# sourceMappingURL=iso.js.map

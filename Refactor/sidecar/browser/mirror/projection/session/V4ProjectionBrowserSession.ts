@@ -27,8 +27,8 @@ import {
 } from '../../../BrowserSession';
 import { buildConfigPreScript } from '../inject/buildConfigPreScript';
 import { loadInpageScript } from '../inject/loadInpageScript';
-import { captureVirtualSnapshot, coherentSnapshotExpression } from '../lab/virtualSnapshot';
-import { startCpuProfile, stopCpuProfile } from '../lab/cpuProfile';
+import { captureVirtualSnapshot, coherentSnapshotExpression } from '../lab/probes/virtualSnapshot';
+import { startCpuProfile, stopCpuProfile } from '../lab/probes/cpuProfile';
 import {
   isProjectionTelemetryMessage,
   LAB_TELEMETRY_DEFAULTS,
@@ -316,6 +316,19 @@ export class V4ProjectionBrowserSession implements BrowserSession {
     o2?: TableLiveOracleResult;
     table?: { rowCount: number; tableHash: string };
     cssomO2?: CssomTableLiveOracleResult | null;
+    nodeNewConnected?: {
+      ok: boolean;
+      checked: number;
+      disconnectedIds: number[];
+    };
+    cascade?: {
+      authorColor: string;
+      adoptedColor: string;
+      adoptedCount: number;
+      styleSheetCount: number;
+      styleElCount: number;
+      doublePaint: boolean;
+    } | null;
     tree?: unknown;
     reason?: string;
   }> {
@@ -330,6 +343,19 @@ export class V4ProjectionBrowserSession implements BrowserSession {
         o2?: TableLiveOracleResult;
         table?: { rowCount: number; tableHash: string };
         cssomO2?: CssomTableLiveOracleResult | null;
+        nodeNewConnected?: {
+          ok: boolean;
+          checked: number;
+          disconnectedIds: number[];
+        };
+        cascade?: {
+          authorColor: string;
+          adoptedColor: string;
+          adoptedCount: number;
+          styleSheetCount: number;
+          styleElCount: number;
+          doublePaint: boolean;
+        } | null;
         tree?: unknown;
         reason?: string;
       };

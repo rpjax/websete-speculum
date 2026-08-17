@@ -1,0 +1,22 @@
+{
+  "id": "apply-attrs",
+  "description": "ATTR success — act attrSet, DOM O2, iso tree when a DOM client is present",
+  "sessionPolicy": "cold",
+  "fold": "apply-attrs",
+  "queues": [
+    {
+      "name": "main",
+      "actions": [
+        { "id": "boot", "type": "boot", "params": { "url": "fixtures/apply-attrs.html" } },
+        { "id": "wait-settle", "type": "sleep", "dependsOn": ["boot"], "params": { "ms": 1500 } },
+        { "id": "snap-settle", "type": "snap", "dependsOn": ["wait-settle"], "params": { "id": "settle", "cssom": "none" } },
+        { "id": "act-attrSet", "type": "act", "dependsOn": ["snap-settle"], "params": { "name": "attrSet" } },
+        { "id": "wait-attr", "type": "sleep", "dependsOn": ["act-attrSet"], "params": { "ms": 1000 } },
+        { "id": "snap-attr", "type": "snap", "dependsOn": ["wait-attr"], "params": { "id": "attrSet", "cssom": "none" } },
+        { "id": "iso-attr", "type": "iso", "dependsOn": ["snap-attr"] },
+        { "id": "fold", "type": "fold", "awaits": ["iso-attr", "snap-attr"], "params": { "ruleset": "apply-attrs" } },
+        { "id": "writeDossier", "type": "writeDossier", "dependsOn": ["fold"] }
+      ]
+    }
+  ]
+}

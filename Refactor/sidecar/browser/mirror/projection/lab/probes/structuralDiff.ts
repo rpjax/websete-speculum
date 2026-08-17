@@ -6,7 +6,7 @@
  * touching it.
  */
 
-import type { TreeNode } from '../models/treeNode';
+import type { TreeNode } from '../../models/treeNode';
 
 export type DivergenceKind =
   | 'tag_mismatch'

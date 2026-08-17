@@ -31,6 +31,8 @@ export type LabClientMessage =
       generation?: number | null;
       desynced?: boolean;
       applyError?: string | null;
+      armed?: boolean;
+      resyncInFlight?: boolean;
       cascade?: {
         authorColor: string;
         adoptedColor: string;
@@ -40,7 +42,16 @@ export type LabClientMessage =
         doublePaint: boolean;
       } | null;
     }
-  | { type: 'client.requestResync'; reason?: string };
+  | { type: 'client.requestResync'; reason?: string }
+  | { type: 'client.tamperResult'; ok: boolean; reason?: string | null }
+  | {
+      type: 'client.injectResult';
+      sequence?: number | null;
+      generation?: number | null;
+      desynced?: boolean;
+      applyError?: string | null;
+      tableHash?: string | null;
+    };
 
 export type LabHostMessage =
   | { type: 'session.hello'; sessionId: string; protocolVersion: typeof LAB_PROTOCOL_VERSION }
@@ -76,7 +87,8 @@ export type LabHostMessage =
   | { type: 'telemetry'; message: unknown }
   | { type: 'error'; message: string; code?: string }
   | { type: 'requestSnapshot' }
-  | { type: 'lab.tamper'; kind: 'ghostRule' };
+  | { type: 'lab.tamper'; kind: 'ghostRule' }
+  | { type: 'lab.injectFrame'; bytes: string };
 
 export function parseClientMessage(raw: unknown): LabClientMessage | { error: string; code: string } {
   if (!raw || typeof raw !== 'object') return { error: 'invalid JSON control message', code: 'invalid_json' };
@@ -94,6 +106,8 @@ export function parseClientMessage(raw: unknown): LabClientMessage | { error: st
     case 'client.telemetry':
     case 'client.snapshotResult':
     case 'client.requestResync':
+    case 'client.tamperResult':
+    case 'client.injectResult':
       return msg as LabClientMessage;
     default:
       return { error: `unknown control type: ${type}`, code: 'unknown_type' };

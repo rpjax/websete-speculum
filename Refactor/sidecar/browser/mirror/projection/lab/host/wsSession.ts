@@ -29,6 +29,14 @@ export class WsLabConnection {
     resolve: (snap: ClientStateSnapshot | null) => void;
     timer: ReturnType<typeof setTimeout>;
   } | null = null;
+  private pendingTamper: {
+    resolve: (result: { ok: boolean; reason?: string } | null) => void;
+    timer: ReturnType<typeof setTimeout>;
+  } | null = null;
+  private pendingInject: {
+    resolve: (result: import('../runner/execute').InjectAck | null) => void;
+    timer: ReturnType<typeof setTimeout>;
+  } | null = null;
 
   constructor(client: WebSocket, opts: WsLabOptions) {
     this.opts = opts;
@@ -68,6 +76,32 @@ export class WsLabConnection {
       }, timeoutMs);
       this.pendingSnapshot = { resolve, timer };
       this.send({ type: 'requestSnapshot' });
+    });
+  }
+
+  async requestTamper(timeoutMs = 2000): Promise<{ ok: boolean; reason?: string } | null> {
+    if (this.client === null || this.client.readyState !== this.client.OPEN) return null;
+    if (this.pendingTamper !== null) return null;
+    return new Promise<{ ok: boolean; reason?: string } | null>((resolve) => {
+      const timer = setTimeout(() => {
+        this.pendingTamper = null;
+        resolve(null);
+      }, timeoutMs);
+      this.pendingTamper = { resolve, timer };
+      this.send({ type: 'lab.tamper', kind: 'ghostRule' });
+    });
+  }
+
+  async injectClientFrame(bytes: Uint8Array, timeoutMs = 2000): Promise<import('../runner/execute').InjectAck | null> {
+    if (this.client === null || this.client.readyState !== this.client.OPEN) return null;
+    if (this.pendingInject !== null) return null;
+    return new Promise<import('../runner/execute').InjectAck | null>((resolve) => {
+      const timer = setTimeout(() => {
+        this.pendingInject = null;
+        resolve(null);
+      }, timeoutMs);
+      this.pendingInject = { resolve, timer };
+      this.send({ type: 'lab.injectFrame', bytes: Buffer.from(bytes).toString('base64') });
     });
   }
 
@@ -188,7 +222,8 @@ export class WsLabConnection {
             chassis: this.chassis,
             resolveUrl: (u) => this.resolveUrl(u),
             requestClientSnapshot: () => this.requestClientSnapshot(),
-            sendControl: (m) => this.send(m),
+            requestTamper: () => this.requestTamper(),
+            injectClientFrame: (bytes) => this.injectClientFrame(bytes),
             overrides,
             onProgress: (p) => {
               this.send({
@@ -265,10 +300,39 @@ export class WsLabConnection {
             generation: typeof msg.generation === 'number' ? msg.generation : null,
             desynced: msg.desynced === true,
             applyError: typeof msg.applyError === 'string' ? msg.applyError : null,
+            armed: msg.armed === true,
+            resyncInFlight: msg.resyncInFlight === true,
             cascade:
               typeof msg.cascade === 'object' && msg.cascade !== null
                 ? (msg.cascade as ClientStateSnapshot['cascade'])
                 : null,
+          });
+        }
+        return;
+      }
+      case 'client.tamperResult': {
+        const pending = this.pendingTamper;
+        if (pending !== null) {
+          this.pendingTamper = null;
+          clearTimeout(pending.timer);
+          pending.resolve({
+            ok: msg.ok === true,
+            reason: typeof msg.reason === 'string' ? msg.reason : undefined,
+          });
+        }
+        return;
+      }
+      case 'client.injectResult': {
+        const pending = this.pendingInject;
+        if (pending !== null) {
+          this.pendingInject = null;
+          clearTimeout(pending.timer);
+          pending.resolve({
+            sequence: typeof msg.sequence === 'number' ? msg.sequence : null,
+            generation: typeof msg.generation === 'number' ? msg.generation : null,
+            desynced: msg.desynced === true,
+            applyError: typeof msg.applyError === 'string' ? msg.applyError : null,
+            tableHash: typeof msg.tableHash === 'string' ? msg.tableHash : null,
           });
         }
         return;
@@ -285,6 +349,16 @@ export class WsLabConnection {
       clearTimeout(this.pendingSnapshot.timer);
       this.pendingSnapshot.resolve(null);
       this.pendingSnapshot = null;
+    }
+    if (this.pendingTamper) {
+      clearTimeout(this.pendingTamper.timer);
+      this.pendingTamper.resolve(null);
+      this.pendingTamper = null;
+    }
+    if (this.pendingInject) {
+      clearTimeout(this.pendingInject.timer);
+      this.pendingInject.resolve(null);
+      this.pendingInject = null;
     }
     await this.chassis.dispose();
     this.client = null;

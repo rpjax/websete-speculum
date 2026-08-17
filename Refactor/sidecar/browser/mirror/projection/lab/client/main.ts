@@ -476,7 +476,35 @@ export function bootLabClient(): void {
             generation: tableSnap.generation,
             desynced: p.desynced,
             applyError: p.applyError,
+            armed: p.isArmed,
+            resyncInFlight: p.resyncInFlight,
             cascade: probeCssomPaintBoundary(p.document),
+          }),
+        );
+        return;
+      }
+      if (msg.type === 'lab.injectFrame') {
+        const p = ensureProjection();
+        const b64 = typeof msg.bytes === 'string' ? msg.bytes : '';
+        try {
+          const bin = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+          p.ingest(bin);
+          p.flushNow();
+        } catch (err) {
+          logActivity(`lab.injectFrame failed ${err instanceof Error ? err.message : String(err)}`);
+        }
+        const tableSnap = p.snapshotTable();
+        logActivity(
+          `lab.injectFrame seq=${tableSnap.sequence} desynced=${p.desynced} err=${p.applyError ?? 'null'}`,
+        );
+        ws?.send(
+          JSON.stringify({
+            type: 'client.injectResult',
+            sequence: tableSnap.sequence,
+            generation: tableSnap.generation,
+            desynced: p.desynced,
+            applyError: p.applyError,
+            tableHash: tableSnap.table.tableHash,
           }),
         );
         return;
@@ -486,6 +514,13 @@ export function bootLabClient(): void {
         p.flushNow();
         const r = p.tamperGhostCssRule();
         logActivity(`lab.tamper ghostRule ok=${r.ok}${r.reason ? ` ${r.reason}` : ''}`);
+        ws?.send(
+          JSON.stringify({
+            type: 'client.tamperResult',
+            ok: r.ok,
+            reason: r.reason ?? null,
+          }),
+        );
         return;
       }
       if (msg.type === 'session.hello') {
@@ -573,7 +608,8 @@ export function bootLabClient(): void {
   });
 
   $('browseStart').addEventListener('click', () => {
-    ensureProjection();
+    const p = ensureProjection();
+    p.resetSurface();
     resetStreamCounters();
     ws?.send(
       JSON.stringify({
@@ -603,7 +639,8 @@ export function bootLabClient(): void {
     ws?.send(JSON.stringify({ type: 'surface.clear' }));
   });
   $('runStart').addEventListener('click', () => {
-    ensureProjection();
+    const p = ensureProjection();
+    p.resetSurface();
     runInFlight = true;
     sessionLive = false;
     phase = 'running';

@@ -24,6 +24,8 @@ function parseClientMessage(raw) {
         case 'client.telemetry':
         case 'client.snapshotResult':
         case 'client.requestResync':
+        case 'client.tamperResult':
+        case 'client.injectResult':
             return msg;
         default:
             return { error: `unknown control type: ${type}`, code: 'unknown_type' };

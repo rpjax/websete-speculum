@@ -1750,6 +1750,46 @@
     return { rowCount: table.size, tableHash: table.tableHash.toString() };
   }
 
+  // browser/mirror/projection/models/telemetry.ts
+  var LAB_TELEMETRY_DEFAULTS = {
+    enabled: true,
+    frameEmitted: true,
+    transportDeferred: true,
+    aggregate: true,
+    applyResult: true,
+    desync: true,
+    applyOverrun: true,
+    clock: true,
+    cssomPoll: true,
+    aggregateIntervalMs: 2e3
+  };
+  var TELEMETRY_BOOL_CAPS = [
+    "enabled",
+    "frameEmitted",
+    "transportDeferred",
+    "aggregate",
+    "applyResult",
+    "desync",
+    "applyOverrun",
+    "clock",
+    "cssomPoll"
+  ];
+  function desyncPhase(errorCode) {
+    switch (errorCode) {
+      case "malformed":
+      case "unknown_version":
+        return "decode";
+      case "missing_part":
+        return "assemble";
+      case "sequence_gap":
+        return "sequence";
+      case "generation_mismatch":
+        return "generation";
+      default:
+        return "apply";
+    }
+  }
+
   // browser/mirror/projection/client/labProjectionClient.ts
   var MAX_RESYNC_ATTEMPTS = 3;
   var RESYNC_BACKOFF_MS = 300;
@@ -1832,14 +1872,19 @@
     get applyError() {
       return this.lastDesyncReason;
     }
+    /** Standby resync build in flight — lab inject must wait so the hostile frame hits live. */
+    get resyncInFlight() {
+      return this.resync !== null;
+    }
     /**
      * Lab inject (SEAL-CSSOM-P0-EOF): extra live rule with no table row.
      * Honest producer never emits this; CHECK after this must desync at end-of-frame verify.
+     * Only constructed/`adoptedStyleSheets` — author `document.styleSheets` is invisible to EOF verify.
      */
     tamperGhostCssRule() {
       const adopted = this.document.adoptedStyleSheets;
-      const sheet = adopted.length > 0 ? adopted[adopted.length - 1] : this.document.styleSheets.item(0);
-      if (!sheet) return { ok: false, reason: "no stylesheet to tamper" };
+      const sheet = adopted.length > 0 ? adopted[adopted.length - 1] : void 0;
+      if (!sheet) return { ok: false, reason: "tamper missed constructed sheet" };
       try {
         sheet.insertRule(".lab-ghost-eof{color:red}", 0);
         return { ok: true };
@@ -2110,6 +2155,12 @@
       });
     }
     desync(reason, extra) {
+      if (this.lastDesyncReason === null) {
+        this.lastDesyncReason = extra?.op ? `${reason}:${extra.op}` : reason;
+      }
+      this.armed = false;
+      this.assembler.reset();
+      this.live.applier.reset();
       this.onTelemetry?.({
         v: 1,
         kind: "desynced",
@@ -2127,13 +2178,7 @@
         expected: extra?.expected?.toString(),
         actual: extra?.actual?.toString()
       });
-      this.armed = false;
-      this.assembler.reset();
-      this.live.applier.reset();
       this.onDesyncCb?.(reason);
-      if (this.lastDesyncReason === null) {
-        this.lastDesyncReason = extra?.op ? `${reason}:${extra.op}` : reason;
-      }
       this.scheduleResyncAttempt(reason);
     }
   };
@@ -2178,31 +2223,6 @@
     for (let i = 0; i < children.length; i++) out.push(walkNode(children[i]));
     return out;
   }
-
-  // browser/mirror/projection/models/telemetry.ts
-  var LAB_TELEMETRY_DEFAULTS = {
-    enabled: true,
-    frameEmitted: true,
-    transportDeferred: true,
-    aggregate: true,
-    applyResult: true,
-    desync: true,
-    applyOverrun: true,
-    clock: true,
-    cssomPoll: true,
-    aggregateIntervalMs: 2e3
-  };
-  var TELEMETRY_BOOL_CAPS = [
-    "enabled",
-    "frameEmitted",
-    "transportDeferred",
-    "aggregate",
-    "applyResult",
-    "desync",
-    "applyOverrun",
-    "clock",
-    "cssomPoll"
-  ];
 
   // browser/mirror/projection/lab/client/main.ts
   function $(id) {
@@ -2599,7 +2619,35 @@
               generation: tableSnap.generation,
               desynced: p.desynced,
               applyError: p.applyError,
+              armed: p.isArmed,
+              resyncInFlight: p.resyncInFlight,
               cascade: probeCssomPaintBoundary(p.document)
+            })
+          );
+          return;
+        }
+        if (msg.type === "lab.injectFrame") {
+          const p = ensureProjection();
+          const b64 = typeof msg.bytes === "string" ? msg.bytes : "";
+          try {
+            const bin = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+            p.ingest(bin);
+            p.flushNow();
+          } catch (err) {
+            logActivity(`lab.injectFrame failed ${err instanceof Error ? err.message : String(err)}`);
+          }
+          const tableSnap = p.snapshotTable();
+          logActivity(
+            `lab.injectFrame seq=${tableSnap.sequence} desynced=${p.desynced} err=${p.applyError ?? "null"}`
+          );
+          ws?.send(
+            JSON.stringify({
+              type: "client.injectResult",
+              sequence: tableSnap.sequence,
+              generation: tableSnap.generation,
+              desynced: p.desynced,
+              applyError: p.applyError,
+              tableHash: tableSnap.table.tableHash
             })
           );
           return;
@@ -2609,6 +2657,13 @@
           p.flushNow();
           const r = p.tamperGhostCssRule();
           logActivity(`lab.tamper ghostRule ok=${r.ok}${r.reason ? ` ${r.reason}` : ""}`);
+          ws?.send(
+            JSON.stringify({
+              type: "client.tamperResult",
+              ok: r.ok,
+              reason: r.reason ?? null
+            })
+          );
           return;
         }
         if (msg.type === "session.hello") {
@@ -2693,7 +2748,8 @@
       $("activity").innerHTML = "";
     });
     $("browseStart").addEventListener("click", () => {
-      ensureProjection();
+      const p = ensureProjection();
+      p.resetSurface();
       resetStreamCounters();
       ws?.send(
         JSON.stringify({
@@ -2723,7 +2779,8 @@
       ws?.send(JSON.stringify({ type: "surface.clear" }));
     });
     $("runStart").addEventListener("click", () => {
-      ensureProjection();
+      const p = ensureProjection();
+      p.resetSurface();
       runInFlight = true;
       sessionLive = false;
       phase = "running";

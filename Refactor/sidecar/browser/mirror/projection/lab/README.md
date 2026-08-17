@@ -53,7 +53,7 @@ Exit `0` if no `fail` in `verdicts.json`.
 
 ## Control WS (v1)
 
-Client: `browse.start|stop|navigate`, `run.start|abort`, `surface.clear`, `client.telemetry`, `client.snapshotResult` (`desynced`/`applyError`), `client.requestResync`.  
-Host: `session.hello|booted|stopped|fault`, `run.progress|complete`, `stats`, `telemetry`, `error`, `requestSnapshot`, `lab.tamper`.
+Client: `browse.start|stop|navigate`, `run.start|abort`, `surface.clear`, `client.telemetry`, `client.snapshotResult` (`desynced`/`applyError`/`armed`/`resyncInFlight`), `client.requestResync`, `client.tamperResult`, `client.injectResult`.  
+Host: `session.hello|booted|stopped|fault`, `run.progress|complete`, `stats`, `telemetry`, `error`, `requestSnapshot`, `lab.tamper`, `lab.injectFrame`.
 
 No legacy `start` / `runBenchmark` names.

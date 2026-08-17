@@ -86,6 +86,11 @@ import { insertIndexFromBefore, orderedSheetIds, orderedRuleIds, matchCssomEndOf
 import { BinaryFrameEncoder } from './browser/mirror/projection/virtual/frame/binaryFrameEncoder';
 import { NodeTableApplier } from './browser/mirror/projection/lab/probes/nodeTableApply';
 import { validateBlueprint } from './browser/mirror/projection/lab/runner/validate';
+import {
+  encodeAttrDesyncFrame,
+  encodeEofSetupFrame,
+  encodeRulesetDesyncFrame,
+} from './browser/mirror/projection/lab/runner/hostileFrames';
 import { runBlueprintSchedule } from './browser/mirror/projection/lab/runner/schedule';
 import type { LabBlueprint } from './browser/mirror/projection/lab/runner/types';
 import { MAX_CHILDREN_PER_OP, MAX_ROWS } from './browser/mirror/projection/models/limits';
@@ -3081,6 +3086,42 @@ function testCssomEncodeDecode(): void {
   console.log('[unit] cssom encode/decode + splice before CHECK ok');
 }
 
+function testHostileHonestyFramesEncodeDecode(): void {
+  const attr = decodeFramePart(encodeAttrDesyncFrame(1, 2, 99n), new PersistentStringTable());
+  assert.ok(attr.ok, 'ATTR hostile frame must decode');
+  if (!attr.ok) return;
+  const nodeNew = attr.part.ops[0];
+  assert.strictEqual(nodeNew?.op, OpCode.NodeNew);
+  if (nodeNew?.op !== OpCode.NodeNew) return;
+  assert.strictEqual(nodeNew.kind, NodeKind.Element);
+  assert.strictEqual(nodeNew.attrs[0]?.name, 'foo bar');
+
+  const ruleset = decodeFramePart(encodeRulesetDesyncFrame(1, 2, 99n), new PersistentStringTable());
+  assert.ok(ruleset.ok, 'RULESET hostile frame must decode');
+  if (!ruleset.ok) return;
+  const sheet = ruleset.part.ops[0];
+  const last = ruleset.part.ops[ruleset.part.ops.length - 1];
+  assert.strictEqual(sheet?.op, OpCode.SheetNew);
+  if (sheet?.op !== OpCode.SheetNew) return;
+  assert.strictEqual(sheet.hostNode, 0, 'constructed SHEET_NEW hostNode must be 0');
+  assert.strictEqual(last?.op, OpCode.RuleSet);
+  if (last?.op !== OpCode.RuleSet) return;
+  assert.ok(last.text.includes('@media'), 'RULE_SET must target the grouping rule text');
+
+  const eof = decodeFramePart(encodeEofSetupFrame(1, 2, 99n), new PersistentStringTable());
+  assert.ok(eof.ok, 'EOF setup frame must decode');
+  if (!eof.ok) return;
+  const eofSheet = eof.part.ops[0];
+  const eofRule = eof.part.ops[1];
+  assert.strictEqual(eofSheet?.op, OpCode.SheetNew);
+  if (eofSheet?.op !== OpCode.SheetNew) return;
+  assert.strictEqual(eofSheet.hostNode, 0, 'EOF constructed SHEET_NEW hostNode must be 0');
+  assert.strictEqual(eofRule?.op, OpCode.RuleNew);
+  if (eofRule?.op !== OpCode.RuleNew) return;
+  assert.ok(eofRule.text.includes('.lab-eof'), 'EOF setup must insert a style rule');
+  console.log('[unit] hostile honesty frames encode/decode (hostNode=0, foo bar, RULE_SET @media) ok');
+}
+
 function testCssomPollTelemetrySchema(): void {
   const hist = countCssomOps([
     { op: OpCode.SheetNew, id: CSSOM_ID_MIN, scope: CSSOM_SCOPE_MAIN, hostNode: 0, before: INSERT_AT_END },
@@ -3205,6 +3246,7 @@ async function main(): Promise<void> {
   testCssomApplyIndex();
   testCssomEndOfFrameMatch();
   testCssomEncodeDecode();
+  testHostileHonestyFramesEncodeDecode();
   testCssomPollTelemetrySchema();
   await runPageProjectionUnitTests();
   await runV4ProjectionSessionUnitTests();

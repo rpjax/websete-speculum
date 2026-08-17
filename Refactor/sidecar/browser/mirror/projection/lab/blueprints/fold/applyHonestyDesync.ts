@@ -25,17 +25,23 @@ export function foldApplyHonestyDesync(chassis: LabChassis, kind: HostileKind): 
     return [{ id, status: 'skipped', reason: row.skipReason ?? 'no DOM client' }];
   }
   if (!row.desynced) {
-    return [{ id, status: 'fail', reason: 'client snapshot not desynced after inject' }];
-  }
-  const err = (row.applyError ?? '').toLowerCase();
-  const wantReason = EXPECTED_REASON[kind];
-  const wantOp = EXPECTED_OP[kind];
-  if (!err.includes(wantReason) && !err.includes(wantOp)) {
     return [
       {
         id,
         status: 'fail',
-        reason: `desynced but applyError=${row.applyError ?? 'null'} want ${wantReason}/${wantOp}`,
+        reason: row.applyError ?? 'client snapshot not desynced after inject',
+      },
+    ];
+  }
+  const err = (row.applyError ?? '').toLowerCase();
+  const wantReason = EXPECTED_REASON[kind];
+  const wantOp = EXPECTED_OP[kind];
+  if (!err.includes(wantReason.toLowerCase()) || !err.includes(wantOp.toLowerCase())) {
+    return [
+      {
+        id,
+        status: 'fail',
+        reason: `desynced but applyError=${row.applyError ?? 'null'} want ${wantReason} and ${wantOp}`,
       },
     ];
   }

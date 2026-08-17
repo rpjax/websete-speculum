@@ -25,6 +25,7 @@ import { captureParityFingerprint } from './parityFingerprint';
 import { digestReplicatedTable } from '../models/tableDigest';
 import { DOCUMENT_ID } from '../models/frame';
 import { OpCode } from '../models/opcodes';
+import { desyncPhase, type TelemetryPhase } from '../models/telemetry';
 
 export type LabProjectionClientOptions = {
   surfaceHost: HTMLElement;
@@ -153,14 +154,20 @@ export class LabProjectionClient {
     return this.lastDesyncReason;
   }
 
+  /** Standby resync build in flight — lab inject must wait so the hostile frame hits live. */
+  get resyncInFlight(): boolean {
+    return this.resync !== null;
+  }
+
   /**
    * Lab inject (SEAL-CSSOM-P0-EOF): extra live rule with no table row.
    * Honest producer never emits this; CHECK after this must desync at end-of-frame verify.
+   * Only constructed/`adoptedStyleSheets` — author `document.styleSheets` is invisible to EOF verify.
    */
   tamperGhostCssRule(): { ok: boolean; reason?: string } {
     const adopted = this.document.adoptedStyleSheets;
-    const sheet = adopted.length > 0 ? adopted[adopted.length - 1]! : this.document.styleSheets.item(0);
-    if (!sheet) return { ok: false, reason: 'no stylesheet to tamper' };
+    const sheet = adopted.length > 0 ? adopted[adopted.length - 1] : undefined;
+    if (!sheet) return { ok: false, reason: 'tamper missed constructed sheet' };
     try {
       sheet.insertRule('.lab-ghost-eof{color:red}', 0);
       return { ok: true };
@@ -480,6 +487,12 @@ export class LabProjectionClient {
       phase?: TelemetryPhase;
     },
   ): void {
+    if (this.lastDesyncReason === null) {
+      this.lastDesyncReason = extra?.op ? `${reason}:${extra.op}` : reason;
+    }
+    this.armed = false;
+    this.assembler.reset();
+    this.live.applier.reset();
     this.onTelemetry?.({
       v: 1,
       kind: 'desynced',
@@ -497,13 +510,7 @@ export class LabProjectionClient {
       expected: extra?.expected?.toString(),
       actual: extra?.actual?.toString(),
     });
-    this.armed = false;
-    this.assembler.reset();
-    this.live.applier.reset();
     this.onDesyncCb?.(reason);
-    if (this.lastDesyncReason === null) {
-      this.lastDesyncReason = extra?.op ? `${reason}:${extra.op}` : reason;
-    }
     // Stage 4 — every desync condition requests a resync (frame-protocol.md §5.8: "id
     // unresolved, sequence gap, generation mismatch, missing part, decode error, CHECK mismatch"
     // all share the one mechanism), bounded/backed-off, never silent indefinite retrying.

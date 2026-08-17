@@ -24,11 +24,20 @@ import {
 } from './hostileFrames';
 import type { ClientStateSnapshot } from '../probes/isomorphism';
 
+export type InjectAck = {
+  sequence: number | null;
+  generation: number | null;
+  desynced: boolean;
+  applyError: string | null;
+  tableHash: string | null;
+};
+
 export type ExecuteHooks = {
   chassis: LabChassis;
   resolveUrl: (url: string) => string;
   requestClientSnapshot?: () => Promise<import('../probes/isomorphism').ClientStateSnapshot | null>;
-  sendControl?: (msg: { type: 'lab.tamper'; kind: 'ghostRule' }) => void;
+  requestTamper?: () => Promise<{ ok: boolean; reason?: string } | null>;
+  injectClientFrame?: (bytes: Uint8Array) => Promise<InjectAck | null>;
   onProgress?: (p: {
     actionId: string;
     queue: string;
@@ -52,16 +61,102 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-const INJECT_APPLY_WAIT_MS = 250;
+const INJECT_POLL_MS = 10;
+const INJECT_READY_MS = 2_000;
+const INJECT_APPLY_MS = 2_000;
 
 function tableHashFromSnap(snap: ClientStateSnapshot | null): bigint | null {
   const raw = snap?.table?.tableHash;
-  if (typeof raw !== 'string' || raw.length === 0) return null;
-  try {
-    return BigInt(raw);
-  } catch {
-    return null;
+  if (typeof raw === 'string' && raw.length > 0) {
+    try {
+      return BigInt(raw);
+    } catch {
+      return null;
+    }
   }
+  return null;
+}
+
+async function pollClientSnapshot(
+  get: () => Promise<ClientStateSnapshot | null>,
+  pred: (snap: ClientStateSnapshot) => boolean,
+  timeoutMs: number,
+): Promise<ClientStateSnapshot | null> {
+  const deadline = Date.now() + timeoutMs;
+  let last: ClientStateSnapshot | null = null;
+  while (Date.now() < deadline) {
+    const snap = await get();
+    if (snap !== null) {
+      last = snap;
+      if (pred(snap)) return snap;
+    }
+    await sleep(INJECT_POLL_MS);
+  }
+  return last;
+}
+
+function injectDetail(args: {
+  beforeSeq: number;
+  after: { sequence?: number | null; desynced?: boolean; applyError?: string | null } | null;
+  stillSynced: string;
+}): { desynced: boolean; afterSeq: number; applyError: string | null; detail: string } {
+  const afterSeq = args.after?.sequence ?? args.beforeSeq;
+  const desynced = args.after?.desynced === true;
+  if (desynced) {
+    return {
+      desynced: true,
+      afterSeq,
+      applyError: args.after?.applyError ?? null,
+      detail: `desynced ${args.after?.applyError ?? ''}`,
+    };
+  }
+  if (afterSeq <= args.beforeSeq) {
+    return {
+      desynced: false,
+      afterSeq,
+      applyError: 'inject not ingested',
+      detail: 'inject not ingested',
+    };
+  }
+  return {
+    desynced: false,
+    afterSeq,
+    applyError: args.after?.applyError ?? null,
+    detail: args.stillSynced,
+  };
+}
+
+function ackToSnap(ack: InjectAck | null): ClientStateSnapshot | null {
+  if (ack === null) return null;
+  return {
+    tree: null,
+    table: ack.tableHash ? { rowCount: 0, tableHash: ack.tableHash } : null,
+    sequence: ack.sequence,
+    generation: ack.generation,
+    desynced: ack.desynced,
+    applyError: ack.applyError,
+  };
+}
+
+async function deliverHostileFrame(
+  chassis: LabChassis,
+  hooks: ExecuteHooks,
+  bytes: Uint8Array,
+): Promise<InjectAck | null> {
+  if (hooks.injectClientFrame) {
+    chassis.noteClientOnlyFrame(bytes);
+    return hooks.injectClientFrame(bytes);
+  }
+  chassis.relayClientOnlyFrame(bytes);
+  return null;
+}
+
+/** lastSequence advances before apply — seq bump alone is not a desync observation. */
+async function waitDesyncOrTimeout(
+  getClientSnapshot: () => Promise<ClientStateSnapshot | null>,
+  timeoutMs: number,
+): Promise<ClientStateSnapshot | null> {
+  return pollClientSnapshot(getClientSnapshot, (s) => s.desynced === true, timeoutMs);
 }
 
 function parseHostileKind(raw: unknown, fallback: string): HostileKind | null {
@@ -291,18 +386,35 @@ export async function executeBlueprint(
             'skipped: no DOM client',
           );
         }
+        const getClientSnapshot = hooks.requestClientSnapshot;
         chassis.suppressVirtualRelay = true;
         try {
-          await sleep(50);
-          const before = await hooks.requestClientSnapshot();
-          if (before == null || before.sequence == null) {
+          const live = await pollClientSnapshot(
+            getClientSnapshot,
+            (s) => s.armed === true && s.resyncInFlight !== true && s.sequence != null,
+            INJECT_READY_MS,
+          );
+          if (live == null || live.sequence == null) {
             return record(
               { kind, skipped: true, skipReason: 'client snapshot missing' },
               'skipped: client snapshot missing',
             );
           }
-          const generation = before.generation ?? chassis.stats.lastGeneration ?? 1;
-          const hash0 = tableHashFromSnap(before);
+          if (live.armed !== true) {
+            return record(
+              { kind, skipped: true, skipReason: 'client not armed' },
+              'skipped: client not armed',
+            );
+          }
+          if (live.resyncInFlight === true) {
+            return record(
+              { kind, skipped: true, skipReason: 'resync in flight' },
+              'skipped: resync in flight',
+            );
+          }
+          const beforeSeq = live.sequence;
+          const generation = live.generation ?? chassis.stats.lastGeneration ?? 1;
+          const hash0 = tableHashFromSnap(live);
           if (hash0 === null) {
             return record(
               { kind, skipped: true, skipReason: 'client tableHash missing' },
@@ -310,56 +422,122 @@ export async function executeBlueprint(
             );
           }
 
+          const observeDesync = async (ack: InjectAck | null) => {
+            if (ack?.desynced === true) return ackToSnap(ack);
+            const polled = await waitDesyncOrTimeout(getClientSnapshot, INJECT_APPLY_MS);
+            if (polled?.desynced === true) return polled;
+            return ackToSnap(ack) ?? polled;
+          };
+
           if (kind === 'attr' || kind === 'ruleset') {
-            const seq = before.sequence + 1;
+            const seq = beforeSeq + 1;
             const bytes =
               kind === 'attr'
                 ? encodeAttrDesyncFrame(generation, seq, hash0)
                 : encodeRulesetDesyncFrame(generation, seq, hash0);
-            chassis.relayClientOnlyFrame(bytes);
-            await sleep(INJECT_APPLY_WAIT_MS);
-            const after = await hooks.requestClientSnapshot();
+            const ack = await deliverHostileFrame(chassis, hooks, bytes);
+            const after = (await observeDesync(ack)) ?? ackToSnap(ack);
+            const got = injectDetail({
+              beforeSeq,
+              after,
+              stillSynced: 'client still synced after inject',
+            });
             return record(
               {
                 kind,
-                sequence: after?.sequence ?? seq,
-                desynced: after?.desynced === true,
-                applyError: after?.applyError ?? null,
+                sequence: got.afterSeq,
+                beforeSeq,
+                afterSeq: got.afterSeq,
+                desynced: got.desynced,
+                applyError: got.applyError,
               },
-              after?.desynced ? `desynced ${after.applyError ?? ''}` : 'client still synced after inject',
+              got.detail,
             );
           }
 
-          const setupSeq = before.sequence + 1;
-          chassis.relayClientOnlyFrame(encodeEofSetupFrame(generation, setupSeq, hash0));
-          await sleep(INJECT_APPLY_WAIT_MS);
-          const afterSetup = await hooks.requestClientSnapshot();
+          const setupSeq = beforeSeq + 1;
+          const setupAck = await deliverHostileFrame(
+            chassis,
+            hooks,
+            encodeEofSetupFrame(generation, setupSeq, hash0),
+          );
+          const afterSetup =
+            setupAck !== null
+              ? ackToSnap(setupAck)
+              : await pollClientSnapshot(
+                  getClientSnapshot,
+                  (s) =>
+                    s.desynced === true ||
+                    (s.sequence != null &&
+                      s.sequence >= setupSeq &&
+                      tableHashFromSnap(s) !== null &&
+                      tableHashFromSnap(s) !== hash0),
+                  INJECT_APPLY_MS,
+                );
           if (afterSetup?.desynced) {
             return record(
               {
                 kind,
                 sequence: afterSetup.sequence ?? setupSeq,
+                beforeSeq,
+                afterSeq: afterSetup.sequence ?? setupSeq,
                 desynced: true,
                 applyError: afterSetup.applyError ?? 'eof setup desynced',
               },
               'eof setup frame desynced (want success then ghost)',
             );
           }
+          if ((afterSetup?.sequence ?? beforeSeq) <= beforeSeq) {
+            return record(
+              {
+                kind,
+                sequence: afterSetup?.sequence ?? beforeSeq,
+                beforeSeq,
+                afterSeq: afterSetup?.sequence ?? beforeSeq,
+                desynced: false,
+                applyError: 'inject not ingested',
+              },
+              'inject not ingested',
+            );
+          }
           const hash1 = tableHashFromSnap(afterSetup) ?? hash0;
           const setupOkSeq = afterSetup?.sequence ?? setupSeq;
-          hooks.sendControl?.({ type: 'lab.tamper', kind: 'ghostRule' });
-          await sleep(50);
-          chassis.relayClientOnlyFrame(encodeEofCheckFrame(generation, setupOkSeq + 1, hash1));
-          await sleep(INJECT_APPLY_WAIT_MS);
-          const after = await hooks.requestClientSnapshot();
+          const tamper = hooks.requestTamper ? await hooks.requestTamper() : null;
+          if (tamper == null || tamper.ok !== true) {
+            const reason = tamper?.reason ?? 'tamper missed constructed sheet';
+            return record(
+              {
+                kind,
+                sequence: setupOkSeq,
+                beforeSeq,
+                afterSeq: setupOkSeq,
+                desynced: false,
+                applyError: reason,
+              },
+              reason,
+            );
+          }
+          const checkAck = await deliverHostileFrame(
+            chassis,
+            hooks,
+            encodeEofCheckFrame(generation, setupOkSeq + 1, hash1),
+          );
+          const after = (await observeDesync(checkAck)) ?? ackToSnap(checkAck);
+          const got = injectDetail({
+            beforeSeq: setupOkSeq,
+            after,
+            stillSynced: 'client still synced after eof CHECK',
+          });
           return record(
             {
               kind,
-              sequence: after?.sequence ?? setupOkSeq + 1,
-              desynced: after?.desynced === true,
-              applyError: after?.applyError ?? null,
+              sequence: got.afterSeq,
+              beforeSeq,
+              afterSeq: got.afterSeq,
+              desynced: got.desynced,
+              applyError: got.applyError,
             },
-            after?.desynced ? `desynced ${after.applyError ?? ''}` : 'client still synced after eof CHECK',
+            got.detail,
           );
         } finally {
           chassis.suppressVirtualRelay = false;

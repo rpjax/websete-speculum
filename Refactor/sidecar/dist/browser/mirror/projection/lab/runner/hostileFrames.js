@@ -57,7 +57,7 @@ function encodeRulesetDesyncFrame(generation, sequence, preTableHash) {
                 op: opcodes_1.OpCode.SheetNew,
                 id: SHEET_ID,
                 scope: frame_1.CSSOM_SCOPE_MAIN,
-                hostNode: frame_1.DOCUMENT_ID,
+                hostNode: 0,
                 before: frame_1.INSERT_AT_END,
             },
             {
@@ -86,7 +86,7 @@ function encodeEofSetupFrame(generation, sequence, preTableHash) {
                 op: opcodes_1.OpCode.SheetNew,
                 id: SHEET_ID,
                 scope: frame_1.CSSOM_SCOPE_MAIN,
-                hostNode: frame_1.DOCUMENT_ID,
+                hostNode: 0,
                 before: frame_1.INSERT_AT_END,
             },
             {

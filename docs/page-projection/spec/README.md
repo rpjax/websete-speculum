@@ -25,7 +25,7 @@ If you are an agent with limited context: **read this file, then `acceptance.md`
 | Input intents | **[input.md](input.md)** — address by `uint32` only |
 | Asset serve plane | **[virtual-assets.md](virtual-assets.md)** |
 | Published product gaps | **[support-matrix.md](support-matrix.md)** |
-| Lab **DOM / CSSOM seal** kill lists (independent tracks) | **[seal-gaps.md](seal-gaps.md)** |
+| Lab tracker (QA / gaps / features; DOM and CSSOM independent) | **[seal-gaps.md](seal-gaps.md)** |
 | What to build next | **[roadmap.md](roadmap.md)** |
 | Open bugs / OPEN-* / pending rulings | **[open.md](open.md)** |
 | Why a decision exists | **[decision-log.md](decision-log.md)** (append-only; never rewrite history) |
@@ -43,7 +43,7 @@ If two live docs disagree on the protocol layer, **frame-protocol.md wins**. Do 
 | 1 | This file | Map + anti-sources |
 | 2 | [acceptance.md](acceptance.md) | 1:1 bar; T3 / no-ad-hoc restated in V4 terms |
 | 3 | [open.md](open.md) | Named bugs, OPEN-*, rulings — do not ship around them |
-| 4 | [seal-gaps.md](seal-gaps.md) | Kill list to seal DOM and CSSOM algorithms **independently** (lab honesty/parity; Live cutover is the destination in [roadmap.md](roadmap.md), not a seal gap) |
+| 4 | [seal-gaps.md](seal-gaps.md) | QA and tests, then algorithm gaps, then unimplemented features. Live cutover is [roadmap.md](roadmap.md), not a gap row. |
 | 5 | [roadmap.md](roadmap.md) | Ordered gates to production |
 | 6 | [frame-protocol.md](frame-protocol.md) | The engine |
 | 7 | [budgets.md](budgets.md) + [oracles.md](oracles.md) | If touching cost, CI, or accept |
@@ -77,7 +77,7 @@ docs/page-projection/
     decision-log.md         append-only log (all eras, labeled)
     roadmap.md              M1/M2/M3 + cutover gates
     open.md                 bugs, OPEN-*, rulings, residuals
-    seal-gaps.md            lab DOM / CSSOM seal kill lists (independent)
+    seal-gaps.md            lab tracker: QA / gaps / features (independent DOM vs CSSOM)
   archive/                  DO NOT IMPLEMENT FROM
 ```
 

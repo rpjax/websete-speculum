@@ -21,6 +21,8 @@ class WsLabConnection {
     closed = false;
     runInFlight = false;
     pendingSnapshot = null;
+    pendingTamper = null;
+    pendingInject = null;
     constructor(client, opts) {
         this.opts = opts;
         this.chassis = new chassis_1.LabChassis({ headless: opts.headless });
@@ -61,6 +63,34 @@ class WsLabConnection {
             }, timeoutMs);
             this.pendingSnapshot = { resolve, timer };
             this.send({ type: 'requestSnapshot' });
+        });
+    }
+    async requestTamper(timeoutMs = 2000) {
+        if (this.client === null || this.client.readyState !== this.client.OPEN)
+            return null;
+        if (this.pendingTamper !== null)
+            return null;
+        return new Promise((resolve) => {
+            const timer = setTimeout(() => {
+                this.pendingTamper = null;
+                resolve(null);
+            }, timeoutMs);
+            this.pendingTamper = { resolve, timer };
+            this.send({ type: 'lab.tamper', kind: 'ghostRule' });
+        });
+    }
+    async injectClientFrame(bytes, timeoutMs = 2000) {
+        if (this.client === null || this.client.readyState !== this.client.OPEN)
+            return null;
+        if (this.pendingInject !== null)
+            return null;
+        return new Promise((resolve) => {
+            const timer = setTimeout(() => {
+                this.pendingInject = null;
+                resolve(null);
+            }, timeoutMs);
+            this.pendingInject = { resolve, timer };
+            this.send({ type: 'lab.injectFrame', bytes: Buffer.from(bytes).toString('base64') });
         });
     }
     async handleClientMessage(raw, isBinary) {
@@ -174,7 +204,8 @@ class WsLabConnection {
                         chassis: this.chassis,
                         resolveUrl: (u) => this.resolveUrl(u),
                         requestClientSnapshot: () => this.requestClientSnapshot(),
-                        sendControl: (m) => this.send(m),
+                        requestTamper: () => this.requestTamper(),
+                        injectClientFrame: (bytes) => this.injectClientFrame(bytes),
                         overrides,
                         onProgress: (p) => {
                             this.send({
@@ -253,9 +284,38 @@ class WsLabConnection {
                         generation: typeof msg.generation === 'number' ? msg.generation : null,
                         desynced: msg.desynced === true,
                         applyError: typeof msg.applyError === 'string' ? msg.applyError : null,
+                        armed: msg.armed === true,
+                        resyncInFlight: msg.resyncInFlight === true,
                         cascade: typeof msg.cascade === 'object' && msg.cascade !== null
                             ? msg.cascade
                             : null,
+                    });
+                }
+                return;
+            }
+            case 'client.tamperResult': {
+                const pending = this.pendingTamper;
+                if (pending !== null) {
+                    this.pendingTamper = null;
+                    clearTimeout(pending.timer);
+                    pending.resolve({
+                        ok: msg.ok === true,
+                        reason: typeof msg.reason === 'string' ? msg.reason : undefined,
+                    });
+                }
+                return;
+            }
+            case 'client.injectResult': {
+                const pending = this.pendingInject;
+                if (pending !== null) {
+                    this.pendingInject = null;
+                    clearTimeout(pending.timer);
+                    pending.resolve({
+                        sequence: typeof msg.sequence === 'number' ? msg.sequence : null,
+                        generation: typeof msg.generation === 'number' ? msg.generation : null,
+                        desynced: msg.desynced === true,
+                        applyError: typeof msg.applyError === 'string' ? msg.applyError : null,
+                        tableHash: typeof msg.tableHash === 'string' ? msg.tableHash : null,
                     });
                 }
                 return;
@@ -272,6 +332,16 @@ class WsLabConnection {
             clearTimeout(this.pendingSnapshot.timer);
             this.pendingSnapshot.resolve(null);
             this.pendingSnapshot = null;
+        }
+        if (this.pendingTamper) {
+            clearTimeout(this.pendingTamper.timer);
+            this.pendingTamper.resolve(null);
+            this.pendingTamper = null;
+        }
+        if (this.pendingInject) {
+            clearTimeout(this.pendingInject.timer);
+            this.pendingInject.resolve(null);
+            this.pendingInject = null;
         }
         await this.chassis.dispose();
         this.client = null;

@@ -7,7 +7,6 @@ import { BinaryFrameEncoder } from '../../virtual/frame/binaryFrameEncoder';
 import {
   CHECK_SCOPE_TABLE,
   CSSOM_SCOPE_MAIN,
-  DOCUMENT_ID,
   INSERT_AT_END,
   createFrame,
   type FrameOp,
@@ -70,7 +69,7 @@ export function encodeRulesetDesyncFrame(generation: number, sequence: number, p
         op: OpCode.SheetNew,
         id: SHEET_ID,
         scope: CSSOM_SCOPE_MAIN,
-        hostNode: DOCUMENT_ID,
+        hostNode: 0,
         before: INSERT_AT_END,
       },
       {
@@ -100,7 +99,7 @@ export function encodeEofSetupFrame(generation: number, sequence: number, preTab
         op: OpCode.SheetNew,
         id: SHEET_ID,
         scope: CSSOM_SCOPE_MAIN,
-        hostNode: DOCUMENT_ID,
+        hostNode: 0,
         before: INSERT_AT_END,
       },
       {

@@ -23,6 +23,9 @@ export type ClientStateSnapshot = {
   applyError?: string | null;
   /** Sticky: a desync was reported since the last surface reset (inject proofs). */
   desynced?: boolean;
+  /** Lab inject: wait until the live target is armed and not a standby resync build. */
+  armed?: boolean;
+  resyncInFlight?: boolean;
   /** PP-CSSOM-A-2 paint boundary (fixture probes). */
   cascade?: {
     authorColor: string;

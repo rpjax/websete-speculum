@@ -1,6 +1,6 @@
 <!-- V4 2026-08-14 -->
 > Coverage truth for the V4 engine. Index: [README.md](README.md). Effect asserts only.
-> Lab DOM/CSSOM seal kill lists: [seal-gaps.md](seal-gaps.md). Proposed `PP-APPLY-*` /
+> Lab tracker (QA / gaps / features): [seal-gaps.md](seal-gaps.md). Proposed `PP-APPLY-*` /
 > `PP-CSSOM-A-*` rows are **open** until asserts land — do not mark PASS.
 > Rows that still say childList/establish/Node-mirror were **re-authored below** to V4 opcodes.
 > `PP-F-4` (pierce iframes) is **OPEN-6** — fail as unsupported, do not fake a pass.

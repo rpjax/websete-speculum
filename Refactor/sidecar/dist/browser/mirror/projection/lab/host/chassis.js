@@ -130,16 +130,23 @@ class LabChassis {
         return this.onFrameRelay !== null;
     }
     /**
-     * Send bytes on the client relay only — not Virtual, not nodeTable / invariants / op windows.
-     * Updates lastSequence so a follow-up inject can stay contiguous with what the client saw.
+     * Record generation/sequence of a client-only inject without touching Virtual collectors.
      */
-    relayClientOnlyFrame(buf) {
+    noteClientOnlyFrame(buf) {
         const b = Buffer.isBuffer(buf) ? buf : Buffer.from(buf);
         const hdr = peekFrameHeader(b);
         if (hdr) {
             this.stats.lastGeneration = hdr.generation;
             this.stats.lastSequence = hdr.sequence;
         }
+    }
+    /**
+     * Send bytes on the client relay only — not Virtual, not nodeTable / invariants / op windows.
+     * Updates lastSequence so a follow-up inject can stay contiguous with what the client saw.
+     */
+    relayClientOnlyFrame(buf) {
+        const b = Buffer.isBuffer(buf) ? buf : Buffer.from(buf);
+        this.noteClientOnlyFrame(b);
         this.onFrameRelay?.(b);
     }
     setTelemetryRelay(fn) {

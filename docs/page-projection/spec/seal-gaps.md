@@ -1,133 +1,154 @@
-# PageProjection — lab seal gaps (DOM × CSSOM)
+# PageProjection — lab tracker (QA / gaps / features)
 
-**Status:** kill list for **lab algorithm seal**. Living tracker; append new gaps, do not paper over.  
-**Index:** [README.md](README.md). Bugs/OPEN-* narrative: [open.md](open.md). Coverage rows: [test-matrix.md](test-matrix.md).  
+**Status:** living tracker for the lab engine. Append; do not paper over.  
+**Index:** [README.md](README.md). Protocol OPEN-* / rulings: [open.md](open.md). Coverage: [test-matrix.md](test-matrix.md).  
 **Accept bar:** [acceptance.md](acceptance.md). Protocol: [frame-protocol.md](frame-protocol.md).
 
+Work order: **QA and tests first**, then **gaps** in the path that already exists, then **features not built yet**. Do not file an unimplemented opcode or walk as a gap.
+
 ---
 
-## Purpose / what “seal” means
+## How to classify a row
 
-| Term | Means | Does **not** mean |
+| Kind | Means | Does **not** mean |
 |------|--------|-------------------|
-| **Lab DOM seal** | DOM table + phase-2 materialize algorithm is **honest** and meets **numerical 1:1** for the **stated single-document lab scope**, with assert-backed proofs (probes / units / lab gates). | Production Live cutover; dual-path deletion; full ISA; OPEN-6 pierce |
-| **Lab CSSOM seal** | Owned CSSOM path for **constructed / `adoptedStyleSheets` + `CSSStyleRule`** is **honest** and meets **perceived/eventual** live bar for that scope ([acceptance.md](acceptance.md)), with assert-backed proofs. | Projected CSS automated iso vs a second browser; pierce; nested-as-rows; C5 sensor relock; `web/` production cutover |
+| **QA / test** | The behaviour exists (or the ruling is already in prose). What is missing is a human look, a fail-closed gate, or sign-off. | A new opcode, a new walk, production cutover |
+| **Gap** | The **current** emit/apply path already claims this and does it wrong, incomplete, or unsealed. | Something never shipped (that is a feature) |
+| **Feature** | Not on the wire / not in the walk / not in the happy path yet. Build it; do not call it a gap in `NODE_NEW`/`RULE_SET`/CHECK. | A bug in an op that already runs |
 
-**Two independent tracks.** Kill DOM items without waiting on CSSOM, and vice versa. A green CSSOM foundation gate does not seal DOM; tree×tree green does not seal CSSOM apply honesty.
+**DOM vs CSSOM** stay independent tracks. A green CSSOM foundation run does not prove DOM; tree×tree green does not prove CSSOM apply.
 
-**Seal gaps vs destination:** rows below are **lab algorithm honesty / parity** at the current stated scope. **Live cutover** (delete dual path, ship V4 as Live) is the **product goal after seals** — [roadmap.md](roadmap.md). It is **not** a seal gap and does **not** appear in this kill list.
+**Live cutover** (delete the legacy path, ship V4 as Live) is the product destination — [roadmap.md](roadmap.md). It is **not** a row in this file.
 
-**Law:** every gap below closes only with an **effect assert** that matches the claim (function unit ≠ state parity ≠ desync-when-needed). Protocol greens (`200`, `ResyncServed`, `ownedRules`, hop counts) alone never close a row — [acceptance.md](acceptance.md), [observability.md](observability.md).
+A row closes only with an **effect assert** that matches the claim. Protocol greens (`200`, `ResyncServed`, `ownedRules`, hop counts) never close a row — [acceptance.md](acceptance.md), [observability.md](observability.md).
 
-**Priority ladder (both tracks):**
+Status: **open** | **closed** (date + assert id). Do not mark PASS in [test-matrix.md](test-matrix.md) until the assert exists and fails when the bug returns.
 
-| Priority | Meaning | Kill order |
-|----------|---------|------------|
-| **P0** | Implementation honesty / false-green / protocol divergence at the **current lab V4 point** | First |
-| **P1** | Parity holes inside the **current stated seal scope** | After P0 |
-| **P2** | Incremental features, deferred ISA, scale opts (still lab seal scope — not Live cutover) | Last |
-
-Status values: **open** | **closed** (date + assert id). Do not mark PASS in [test-matrix.md](test-matrix.md) until the assert exists and fails when the bug is reintroduced.
+Ids (`SEAL-*`) are stable cross-references. Kind (QA / gap / feature) is the working taxonomy; old P0/P1/P2 labels are only in the closed-honesty archive below.
 
 ---
 
-## DOM seal gaps
+## 1. QA and tests pending
 
-### P0 — honesty / false-green / divergence
+Do these before treating remaining gaps as “the next algorithm bug.”
 
-| Id | Problem (one line) | Assert to prove closed | Status |
-|----|--------------------|------------------------|--------|
-| **SEAL-DOM-P0-FLUSH** | `DomFrameApplier.flush` keeps applying later frames in the same batch after a desync return — dirty client continues as if armed. | **PP-APPLY-1**: `applyFramesUntilDesync` + `applyFrame` boolean; unit `testDomFrameApplierFlushStopsOnDesync` in `Refactor/sidecar/unit.ts` (flush uses the helper). | **closed 2026-08-16** (unit PP-APPLY-1) |
-| **SEAL-DOM-P0-ATTR** | `applyAttrs` empty `catch` swallows failed `setAttribute` → table attrs can diverge from live DOM without desync. | **PP-APPLY-2**: (1) function: `testApplyAttrPairsReportsFailure`. (2) parity: lab `apply-attrs` snap O2 after `attrSet` (`fold/applyAttrs`). (3) desync: `apply-honesty-desync-attr` inject `NODE_NEW` invalid name → client snapshot `desynced` (`apply.desync.attr`). CLI without DOM client **skips** (3), does not close from skip. | **closed 2026-08-16** (function + O2 fold; desync fold requires lab client) |
-| **SEAL-DOM-P0-PHASE1** | Phase-1 structural preconditions are weak vs §6 “validate then materialize” — address/topology can pass table then fail (or skip) in phase 2 inconsistently. | **PP-APPLY-3**: frames that violate published preconditions abort phase 1 with `precondition`/`malformed` and **zero** phase-2 side effects; unit falsifiers per op class under test. | **closed 2026-08-17** (unit `testApplyFrameToTableCheckedPhase1Pres` — INSERT/REMOVE/ATTR/TEXT/RULE/SHEET Pre; failing op not applied) |
-| **SEAL-DOM-P0-PROBE** | Tree×tree CI incomplete; `NODE_NEW` in frame S ⇒ `isConnected` probe not built — halt iso is blind to PP-FR-1-class stream leaks ([observability.md](observability.md) §8, residual #7 in [open.md](open.md)). | **PP-FR-1** probe + CLI/UI tree×tree path: after settle, every `NODE_NEW` in S is connected; tree×tree not `skipped` on the lab gate that claims DOM seal. | **closed 2026-08-17** (`probe.nodeNewConnected` on flush/iso; `iso.tree` **fail** when `hasClientRelay` and skipped; CLI without iframe still explicit skip) |
+### Human look (4077)
 
-### P1 — parity holes (current single-doc lab scope)
+Dated **2026-08-17** (Rodrigo, UI). Reopen the matching row if a later look shows unusable Projected.
 
-| Id | Problem (one line) | Assert to prove closed | Status |
-|----|--------------------|------------------------|--------|
-| **SEAL-DOM-P1-SVG** | `NODE_NEW` uses `createElement` only — SVG / namespaced elements wrong or inert vs Virtual. | Lab fixture with SVG subtree: table×DOM + tree×tree / paint probe at S; element namespaceURI matches Virtual. Proposed **PP-F-SVG-1**. | open |
-| **SEAL-DOM-P1-SHADOW** | Shadow trees are invisible to the single-doc publish walk (not flattened / not pierced) → Projected misses shadow UI. | Explicit scope assert: either documented **unsupported until OPEN-6 / pierce policy** with failing probe on closed shadow, or publish path matches chosen policy (**PP-F-3** / **PP-F-4** honesty — fail open, never soft-skip). | open |
-| **SEAL-DOM-P1-PROP** | `PROP_SET` (§4.4) not on the lab wire — form/`value`/checked/etc. numerical 1:1 breaks on real controls (feature-shaped but **parity** for browseable pages). | **PP-IN-2** / form fixture: Virtual control state ↔ Projected property after settle; missing op fails, not skip. | open |
-| **SEAL-DOM-P1-OPEN2** | OPEN-2 detached-row lifetime: implemented lean; needs explicit sign-off to seal ([open.md](open.md)). | Ruling recorded + soak assert **PP-ID-4** (map does not grow without bound); no silent resurrection. | open |
-| **SEAL-DOM-P1-OPEN3** | OPEN-3 `CHECK.scope` id-range: resolved in prose; needs confirm-before-seal ([open.md](open.md)). | Unit: CHECK over published id ranges fails closed on mismatch; sign-off row in decision-log. | open |
+| What | Blueprint (id — description) | Fixture | Confirm |
+|------|------------------------------|---------|---------|
+| ~~Projected tree~~ | `apply-attrs` — ATTR success — act attrSet, DOM O2, iso tree when a DOM client is present | `fixtures/apply-attrs.html` (manifest id `apply-attrs`) | **2026-08-17 UI 4077:** visually OK — tree not SKIP; Virtual and Projected match by eye |
+| ~~Projected tree (soak)~~ | `soak` — Timed soak with optional CPU and coherent iso probes | `fixtures/demo.html` (manifest id `demo`) | **2026-08-17 UI 4077:** visually OK — tree visible, matches Virtual |
+| ~~No double paint~~ | `cssom-double` — PP-CSSOM-A-2 — author `<style>` + constructed adopted; one paint path | `fixtures/cssom-double.html` (manifest id `cssom-double`) | **2026-08-17 UI 4077:** visually OK — `#author-probe` red, `#adopted-probe` blue, once each |
+| ~~Inject desync (attr)~~ | `apply-honesty-desync-attr` — ATTR desync — inject NODE_NEW with invalid attr name (DOM client required) | `fixtures/static-dom.html` (manifest id `static-dom`) | **2026-08-17 UI 4077:** `apply.desync.attr` PASS (`malformed:nodeNew`). Idle static page is expected. |
+| ~~Inject desync (ruleset)~~ | `apply-honesty-desync-ruleset` — RULESET desync — inject RULE_SET on a grouping MediaRule (DOM client required) | `fixtures/static-dom.html` (manifest id `static-dom`) | **2026-08-17 UI 4077:** `apply.desync.ruleset` PASS (`bad_target:ruleSet`). |
+| ~~Inject desync (eof)~~ | `apply-honesty-desync-eof` — EOF desync — ghost live CSS rule then CHECK (DOM client required) | `fixtures/static-dom.html` (manifest id `static-dom`) | **2026-08-17 UI 4077:** `apply.desync.eof` PASS (setup stayed synced, ghost on adopted, CHECK `address_miss:ruleNew`). |
 
-### P2 — incremental (after current single-doc seal)
+### Automated tests / sign-off (open)
 
-| Id | Problem (one line) | Assert to prove closed | Status |
-|----|--------------------|------------------------|--------|
-| **SEAL-DOM-P2-ISA** | ISA incomplete in lab: `NODE_META`, `DOC_STATE`, `SCROLL_*`, `NODE_SNAPSHOT` (and related) not sealed on the happy path. | Per-opcode matrix rows (**PP-F-5**, **PP-EST-4**, **PP-MOVE-3**, **PP-D16-***) with effect probes — not “opcode exists”. | open |
-| **SEAL-DOM-P2-OPEN6** | OPEN-6 multi-document / pierce — pinned in lab; outside single-doc seal scope. | Per-document streams + pierce asserts (**PP-F-4**); fail unsupported until protocol ships. | open |
+| Id | Missing | Assert to close | Status |
+|----|---------|-----------------|--------|
+| **SEAL-DOM-P1-OPEN2** | Detached-row GC is implemented lean; lifetime policy not signed off ([open.md](open.md) OPEN-2). | Ruling recorded + soak **PP-ID-4** (map does not grow without bound); no silent resurrection. | open |
+| **SEAL-DOM-P1-OPEN3** | `CHECK` over id ranges is chosen in prose; not confirmed fail-closed ([open.md](open.md) OPEN-3). | Unit: CHECK over published id ranges fails closed on mismatch; sign-off in [decision-log.md](decision-log.md). | open |
+| **SEAL-CSSOM-P1-STYLE** | In-scope `CSSStyleRule` live updates already exist; gates are still observe-only. | **PP-CSSOM-F-3..F-5**, **PP-CSSOM-H-1** fail closed after settle on foundation+heavy (not “looked OK”). | open |
 
----
-
-## CSSOM seal gaps
-
-**Seal scope (conditional):** constructed sheets on `adoptedStyleSheets` + top-level **`CSSStyleRule`** in-place updates. Outside that scope → P2 / support-matrix honesty, not silent green.
-
-### P0 — honesty / false-green / divergence
-
-| Id | Problem (one line) | Assert to prove closed | Status |
-|----|--------------------|------------------------|--------|
-| **SEAL-CSSOM-P0-RULESET** | `RULE_SET` on non-`CSSStyleRule` (e.g. `CSSMediaRule`) can no-op (`cssText` assign) without verify/desync → table text ≠ live rule. | **PP-CSSOM-A-1**: (1) emit+table: `testCssomGroupingContentChangeEmitsDropNew`. (2) parity: `cssom-foundation` `ops.mediaInner` (`ruleSet=0`, `ruleDrop>=1`, `ruleNew>=1`) + `mediaInner.*` cssomO2. (3) desync: `apply-honesty-desync-ruleset` inject `RULE_SET` on grouping → `apply.desync.ruleset`. CLI without DOM client skips (3). | **closed 2026-08-16** (emit + opWindow/O2 fold; desync fold requires lab client) |
-| **SEAL-CSSOM-P0-DOUBLE** | `<style>` / `document.styleSheets` vs constructed/`adoptedStyleSheets` boundary unclear — risk of double-apply or missing author sheet on Projected. | **PP-CSSOM-A-2**: fixture with both author `<style>`/`link` and constructed adopted; after settle, Projected has **one** effective paint path matching Virtual policy (no double cascade / no missing sheet). Probe at S, not event counts. | **closed 2026-08-17** (emit: `collectCssomPlaneSheets` skips `ownerNode`; lab `cssom-double` Virtual cascade+cssomO2; Projected `doublePaint` fold requires lab client — CLI skips (3)) |
-| **SEAL-CSSOM-P0-EOF** | End-of-frame CSSOM check (`cssomHandlesMatchTable`) verifies **sheet handles only**, not rule membership/order vs table. | **PP-CSSOM-A-3**: (1) function: `testCssomEndOfFrameMatch`. (2) parity: foundation snaps after successful frames (`cssomO2.identical`). (3) desync: `apply-honesty-desync-eof` ghost live rule + CHECK → `apply.desync.eof`. CLI without DOM client skips (3). | **closed 2026-08-16** (function + O2 fold; desync fold requires lab client) |
-| **SEAL-CSSOM-P0-DOCS** | Spec/code comments claimed C6 phase-2 still no-op while lab client materializes constructed sheets — process false-green. | Docs + `opcodes.ts` header match `client/applyDom.ts` (C6 constructed/adopted shipped in lab; pierce still desync). Checklist item — **closed in this pass** when prose matches code. | **closed 2026-08-16** (doc/comment alignment) |
-
-### P1 — parity / id-space honesty (current seal scope)
-
-| Id | Problem (one line) | Assert to prove closed | Status |
-|----|--------------------|------------------------|--------|
-| **SEAL-CSSOM-P1-IDSPACE** | Residual D-SPEC-8 disjoint Dom/Cssom id ranges vs V4 **one monotonic id space** ([decision-log.md](decision-log.md)) — any leftover split assumes must die for seal honesty. | Wire + table assert: Sheet/Rule ids share the session monotonic allocator with DOM; no high-bit Cssom range. Lab unit / decode invariant. | open |
-| **SEAL-CSSOM-P1-STYLE** | In-scope `CSSStyleRule` live updates (`RULE_SET` / insert/delete) perceived parity after settle on foundation+heavy fixtures. | Existing **PP-CSSOM-F-3..F-5**, **PP-CSSOM-H-1** + human 4077; keep open until gates are mandatory fail-closed (not observe-only). | open |
-
-### P2 — deferred incremental
-
-| Id | Problem (one line) | Assert to prove closed | Status |
-|----|--------------------|------------------------|--------|
-| **SEAL-CSSOM-P2-PIERCE** | Pierce CSSOM (iframe/shadow sheets) — C7; desync today in lab client. | OPEN-6 + **PP-F-4** / cssom C7 asserts. | open |
-| **SEAL-CSSOM-P2-NESTED** | Nested rules as table rows vs grouping `cssText` only (I2). | Nested walk oracle + matrix row when protocol chooses rows. | open |
-| **SEAL-CSSOM-P2-C5** | C5 write-path hooks vs poll as primary sensor — not relocked ([cssom-poll-algorithm.md](cssom-poll-algorithm.md)). | Ruling + sensor journey update; foundation still must hold. | open |
-| **SEAL-CSSOM-P2-SCALE** | Scale amortizations (generations, skip-serialize, hints) — after honesty; must not hide wrong settle. | Perf/capacity in `perf.yml`; functional settle asserts still fail on incomplete sheet. | open |
-| **SEAL-CSSOM-P2-ISO** | Automated Projected CSS isomorphism (second surface × Virtual), beyond table×live O2. | New probe class; CLI `--iso` today does **not** claim this ([observability.md](observability.md)). | open |
+Until shadow/pierce ships (feature below), a closed-shadow fixture must **fail explicit unsupported**, never soft-skip.
 
 ---
 
-## Pendência humana (P0 closed — falta olhar na tela)
+## 2. Gaps (current path is wrong or unsealed)
 
-Os P0 acima ficam **closed**. O CLI / unit já passou. O que falta é **tu** no lab UI (4077), olho no Virtual × Projected. Não reabre o gap se estiver feio: anota o que viu e decide.
+The emit/apply path **already runs** these. Fix the algorithm; do not add a second path ([acceptance.md](acceptance.md) T3).
 
-| O quê | Onde (Run) | O que tu confirma |
-|-------|------------|-------------------|
-| Árvore Projected (PROBE) | `apply-attrs` e/ou `soak` | A árvore não vem SKIP; Virtual e Projected batem no olho |
-| Sem tinta dupla (DOUBLE) | `cssom-double` | `#author-probe` vermelho, `#adopted-probe` azul, **uma** vez cada — Projected não “engorda” o author no adopted |
-| Inject honesty (ATTR / RULESET / EOF) | `apply-honesty-desync-attr` / `-ruleset` / `-eof` | Client desynca de verdade (já era pendência da UI; CLI skip sem iframe) |
+| Id | Problem | Assert to close | Status |
+|----|---------|-----------------|--------|
+| **SEAL-DOM-P1-SVG** | `NODE_NEW` always `createElement` (HTML). SVG / namespaced elements are the wrong namespace or inert vs Virtual. | Fixture with SVG subtree: table×DOM + tree×tree / paint at S; `namespaceURI` matches Virtual. Proposed **PP-F-SVG-1**. | open |
+| **SEAL-CSSOM-P1-IDSPACE** | Leftover split Dom vs Cssom id ranges vs one monotonic session allocator ([decision-log.md](decision-log.md)). | Wire + table: Sheet/Rule ids share the DOM allocator; no high-bit Cssom range. Unit / decode invariant. | open |
+| **OPEN-1** ([open.md](open.md)) | `NODE_DROP` of an absent id: `malformed` vs tolerate. Current code: `malformed`. Not a new opcode. | Ruling + test that matches the ruling (if tolerated, MUST count in telemetry). | open |
 
-Quando passar: risca a linha aqui ou escreve a data. Se falhar no olho, o gap volta a open — não se inventa workaround.
+Honesty P0 for apply (flush-after-desync, failed `setAttribute`, phase-1 pres, `NODE_NEW` connected probe, `RULE_SET` on grouping, EOF rule membership, author vs adopted paint, doc/code alignment) is **closed** — archive at the bottom. UI desync proofs for attr / ruleset / eof: 2026-08-17.
+
+---
+
+## 3. Features not implemented
+
+Not gaps in `NODE_NEW` / `RULE_SET` / CHECK. These ops or walks **are not on the lab happy path yet**.
+
+### DOM / protocol
+
+| Id | What to build | Assert | Status |
+|----|---------------|--------|--------|
+| **SEAL-DOM-P1-PROP** | `PROP_SET` (§4.4) on the wire — `value` / `checked` / form controls. | **PP-IN-2** / form fixture: Virtual control state ↔ Projected after settle; missing op **fails**, not skip. | open |
+| **SEAL-DOM-P1-SHADOW** | Shadow trees on the publish walk (or pierce policy). Today the single-doc walk does not enter shadow. | Policy + probe: closed shadow either unsupported-fail or matches chosen pierce (**PP-F-3** / **PP-F-4**). | open |
+| **SEAL-DOM-P2-ISA** | Remaining opcodes on the happy path: `NODE_META`, `DOC_STATE`, `SCROLL_*`, `NODE_SNAPSHOT`, related. | Per-opcode matrix (**PP-F-5**, **PP-EST-4**, **PP-MOVE-3**, **PP-D16-***) with **effect** probes — not “opcode exists”. | open |
+| **SEAL-DOM-P2-OPEN6** | Multi-document / nested documents (cross-origin iframes). Pinned in lab; production cutover blocker. | Per-document streams + pierce asserts (**PP-F-4**); fail unsupported until the protocol ships. | open |
+
+### CSSOM
+
+| Id | What to build | Assert | Status |
+|----|---------------|--------|--------|
+| **SEAL-CSSOM-P2-PIERCE** | Iframe / shadow sheets (C7). Lab client desyncs pierce today. | OPEN-6 + **PP-F-4** / C7 asserts. | open |
+| **SEAL-CSSOM-P2-NESTED** | Nested rules as table rows vs grouping `cssText` only (I2). | Nested walk oracle + matrix row when the protocol chooses rows. | open |
+| **SEAL-CSSOM-P2-C5** | Write-path CSSOM hooks vs poll as the primary sensor — not relocked ([cssom-poll-algorithm.md](cssom-poll-algorithm.md)). | Ruling + sensor journey update; foundation settle asserts still hold. | open |
+| **SEAL-CSSOM-P2-SCALE** | Scale amortizations (generations, skip-serialize, hints) after the path is correct. | Capacity in `perf.yml`; functional settle still fails on an incomplete sheet. | open |
+| **SEAL-CSSOM-P2-ISO** | Automated Projected CSS vs Virtual (beyond table×live). | New probe class; CLI `--iso` does **not** claim this today ([observability.md](observability.md)). | open |
+
+### Product (not this file’s kill list)
+
+- Dual live paths, full V4 session contract, redesigned input, `<canvas>` **content**: [roadmap.md](roadmap.md). Canvas is the last product feature before Integration — [support-matrix.md](support-matrix.md).
 
 ---
 
 ## Counts (open only)
 
-| Track | P0 | P1 | P2 | Total open |
-|-------|----|----|----|------------|
-| **DOM** | 0 (+4 closed FLUSH, ATTR, PHASE1, PROBE) | 5 | 2 | **7** |
-| **CSSOM** | 0 (+4 closed RULESET, EOF, DOCS, DOUBLE) | 2 | 5 | **7** open |
+| Kind | Open | Notes |
+|------|------|--------|
+| **QA / tests** | 3 ids | OPEN2, OPEN3, STYLE (human looks dated 2026-08-17) |
+| **Gaps** | 2 ids + OPEN-1 | SVG namespace; Cssom id split; `NODE_DROP` absent id |
+| **Features** | 9 ids | PROP, shadow, remaining ISA, multi-doc, pierce CSS, nested rows, C5, scale, CSS iso |
+
+Closed honesty (P0): 8 ids (FLUSH, ATTR, PHASE1, PROBE, RULESET, DOUBLE, EOF, DOCS).
 
 ---
 
-## How to kill an item
+## How to close a row
 
-1. Implement the **designed** algorithm fix (no ad-hoc second path — [acceptance.md](acceptance.md) T3).
-2. Land the named assert (unit and/or lab gate and/or matrix row) that **fails** if the bug returns.
-3. Flip Status to `closed YYYY-MM-DD` here; update [test-matrix.md](test-matrix.md) only when the assert is real — never mark PASS from protocol-only signals.
-4. If the gap was an OPEN-*/ruling, append [decision-log.md](decision-log.md) and update [open.md](open.md).
+1. **Gap:** fix the designed algorithm (no ad-hoc second path — [acceptance.md](acceptance.md) T3). **Feature:** implement the opcode/walk. **QA:** land the fail-closed assert or the human date.
+2. Named assert (unit and/or lab gate and/or matrix row) that **fails** if the claim is false.
+3. Flip Status to `closed YYYY-MM-DD` here; update [test-matrix.md](test-matrix.md) only when the assert is real.
+4. If it was an OPEN-*/ruling, append [decision-log.md](decision-log.md) and update [open.md](open.md).
 
 ---
 
-## Related (not this list)
+## Related
 
-- **Destination — Live cutover** (product goal after lab seals; dual-path deletion, full session contract): [roadmap.md](roadmap.md) — **not** a seal-gap row.
-- **Pre-cutover product feature (last before Integration):** `<canvas>` **content** projection — [roadmap.md](roadmap.md) gate 6. Interim placeholder: [support-matrix.md](support-matrix.md). **Not** a seal-gap row.
-- Other product accept gaps (MSE, …): [support-matrix.md](support-matrix.md).
+- **Live cutover:** [roadmap.md](roadmap.md) — not a row here.
+- Other product boundaries (MSE, …): [support-matrix.md](support-matrix.md).
 - Named bugs / OPEN-* copy: [open.md](open.md).
+
+---
+
+## Archive — closed honesty (former P0)
+
+Kept so ids and dates stay searchable. Do not reopen because CLI `--iso` skipped an iframe; the UI desync proofs are dated above.
+
+### DOM
+
+| Id | Problem (one line) | Assert | Status |
+|----|--------------------|--------|--------|
+| **SEAL-DOM-P0-FLUSH** | `DomFrameApplier.flush` kept applying later frames in the same batch after a desync return. | **PP-APPLY-1**: `applyFramesUntilDesync`; unit `testDomFrameApplierFlushStopsOnDesync`. | **closed 2026-08-16** |
+| **SEAL-DOM-P0-ATTR** | `applyAttrs` empty `catch` swallowed failed `setAttribute`. | **PP-APPLY-2**: unit + `apply-attrs` O2 + UI `apply.desync.attr` (2026-08-17). CLI without DOM client skips (3). | **closed 2026-08-16** (function + O2; UI desync 2026-08-17) |
+| **SEAL-DOM-P0-PHASE1** | Phase-1 pres weaker than §6 validate-then-materialize. | **PP-APPLY-3**: unit `testApplyFrameToTableCheckedPhase1Pres`. | **closed 2026-08-17** |
+| **SEAL-DOM-P0-PROBE** | `NODE_NEW` in frame S ⇒ `isConnected` probe missing. | **PP-FR-1**: `probe.nodeNewConnected`; `iso.tree` fail when client relay and skipped. UI tree OK 2026-08-17 (`apply-attrs` / `fixtures/apply-attrs.html`, `soak` / `fixtures/demo.html`). | **closed 2026-08-17** |
+
+### CSSOM
+
+Conditional scope at close: constructed sheets on `adoptedStyleSheets` + top-level `CSSStyleRule`. Pierce still desyncs (feature).
+
+| Id | Problem (one line) | Assert | Status |
+|----|--------------------|--------|--------|
+| **SEAL-CSSOM-P0-RULESET** | `RULE_SET` on non-`CSSStyleRule` could no-op. | **PP-CSSOM-A-1**: emit+table + foundation O2 + UI `apply.desync.ruleset` (2026-08-17). | **closed 2026-08-16** (emit + O2; UI desync 2026-08-17) |
+| **SEAL-CSSOM-P0-DOUBLE** | Author `<style>` vs constructed/`adopted` boundary. | **PP-CSSOM-A-2**: emit skips `ownerNode`; `cssom-double` cascade+O2; UI 4077 visually OK 2026-08-17 (`fixtures/cssom-double.html`). | **closed 2026-08-17** (emit + Virtual fold; Projected paint human 2026-08-17) |
+| **SEAL-CSSOM-P0-EOF** | EOF CSSOM check verified sheet handles only. | **PP-CSSOM-A-3**: unit + O2 + UI `apply.desync.eof` (2026-08-17). | **closed 2026-08-16** (function + O2; UI desync 2026-08-17) |
+| **SEAL-CSSOM-P0-DOCS** | Comments claimed C6 phase-2 still no-op. | Docs + `opcodes.ts` match `client/applyDom.ts`. | **closed 2026-08-16** |

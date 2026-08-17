@@ -11,11 +11,13 @@
  */
 
 import type { DomNodeKey } from './domNodeKey';
+import type { ElementNs } from './elementNs';
 import { NodeKind, OpCode } from './opcodes';
 
 export { NodeKind };
 
-export const FRAME_WIRE_VERSION = 1 as const;
+/** Current wire version. Operand change on `NODE_NEW` Element (`ns`) bumped 1 → 2; no shim (§9). */
+export const FRAME_WIRE_VERSION = 2 as const;
 
 /** id `1` is reserved for the Document row (frame-protocol.md §1.2). */
 export const DOCUMENT_ID: DomNodeKey = 1;
@@ -47,9 +49,20 @@ export type EpochResetOp = { op: OpCode.EpochReset; generation: number };
 
 export type StrDefOp = { op: OpCode.StrDef; strId: number; value: string };
 
-/** `descriptor` shape by `kind` — §4.2. v0 only ever produces Element/Text/Comment/Doctype. */
+/**
+ * `descriptor` shape by `kind` — §4.2. v0 only ever produces Element/Text/Comment/Doctype.
+ * Element `uri` is present only when `ns === custom`; omitted on the wire otherwise.
+ */
 export type NodeNewOp =
-  | { op: OpCode.NodeNew; id: DomNodeKey; kind: NodeKind.Element; name: string; attrs: AttrPair[] }
+  | {
+      op: OpCode.NodeNew;
+      id: DomNodeKey;
+      kind: NodeKind.Element;
+      ns: ElementNs;
+      name: string;
+      attrs: AttrPair[];
+      uri?: string;
+    }
   | { op: OpCode.NodeNew; id: DomNodeKey; kind: NodeKind.Text | NodeKind.Comment; value: string }
   | { op: OpCode.NodeNew; id: DomNodeKey; kind: NodeKind.Doctype; name: string };
 

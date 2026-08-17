@@ -20,6 +20,7 @@
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ReplicatedTable = void 0;
+const elementNs_1 = require("./elementNs");
 const opcodes_1 = require("./opcodes");
 const rowHash_1 = require("./rowHash");
 const NONE = 0;
@@ -117,9 +118,13 @@ class ReplicatedTable {
         this.tracker.clear();
     }
     // ---- NODE_NEW (§4.2) — always creates a detached row (parent=0, prevSibling=0). ----
-    createElementRow(id, tagName, attrs) {
+    /**
+     * `ns` defaults to html for existing unit callers (API convenience). Decode never
+     * invents a default — the wire `u8` is required.
+     */
+    createElementRow(id, tagName, attrs, ns = elementNs_1.ElementNs.Html, uri) {
         const attrMap = new Map();
-        let sum = (0, rowHash_1.hashName)(tagName);
+        let sum = (0, rowHash_1.addMod64)((0, rowHash_1.hashName)(tagName), (0, rowHash_1.hashNs)(ns, uri));
         for (let i = 0; i < attrs.length; i++) {
             const { name, value } = attrs[i];
             const h = (0, rowHash_1.hashAttr)(name, value);

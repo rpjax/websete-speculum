@@ -30,7 +30,7 @@ Ids (`SEAL-*`) are stable cross-references. Kind (QA / gap / feature) is the wor
 
 ## 1. QA and tests
 
-**Done 2026-08-17.** Next work is §2.
+**Done 2026-08-17.** Next work is §3 (features).
 
 ### Human look (4077) — closed
 
@@ -51,15 +51,7 @@ Until shadow/pierce ships (feature below), a closed-shadow fixture must **fail e
 
 ## 2. Gaps (current path is wrong or unsealed)
 
-**This is the next work.** Order: SVG, then id space, then OPEN-1.
-
-The emit/apply path **already runs** these. Fix the algorithm; do not add a second path ([acceptance.md](acceptance.md) T3).
-
-| Id | Problem | Assert to close | Status |
-|----|---------|-----------------|--------|
-| **SEAL-DOM-P1-SVG** | `NODE_NEW` always `createElement` (HTML). SVG / namespaced elements are the wrong namespace or inert vs Virtual. | Fixture with SVG subtree: table×DOM + tree×tree / paint at S; `namespaceURI` matches Virtual. Proposed **PP-F-SVG-1**. | open |
-| **SEAL-CSSOM-P1-IDSPACE** | Leftover split Dom vs Cssom id ranges vs one monotonic session allocator ([decision-log.md](decision-log.md)). | Wire + table: Sheet/Rule ids share the DOM allocator; no high-bit Cssom range. Unit / decode invariant. | open |
-| **OPEN-1** ([open.md](open.md)) | `NODE_DROP` of an absent id: `malformed` vs tolerate. Current code: `malformed`. Not a new opcode. | Ruling + test that matches the ruling (if tolerated, MUST count in telemetry). | open |
+**Empty.** SVG namespace closed 2026-08-17. Next work is §3 (features).
 
 Honesty P0 for apply (flush-after-desync, failed `setAttribute`, phase-1 pres, `NODE_NEW` connected probe, `RULE_SET` on grouping, EOF rule membership, author vs adopted paint, doc/code alignment) is **closed** — archive at the bottom. UI desync proofs for attr / ruleset / eof: 2026-08-17.
 
@@ -99,10 +91,10 @@ Not gaps in `NODE_NEW` / `RULE_SET` / CHECK. These ops or walks **are not on the
 | Kind | Open | Notes |
 |------|------|--------|
 | **QA / tests** | 0 | Human looks + CHECK range + CSSStyleRule live + detached-row GC closed 2026-08-17 |
-| **Gaps** | 2 ids + OPEN-1 | SVG namespace; Cssom id split; `NODE_DROP` absent id |
+| **Gaps** | 0 | SVG namespace closed 2026-08-17 |
 | **Features** | 9 ids | PROP, shadow, remaining ISA, multi-doc, pierce CSS, nested rows, C5, scale, CSS iso |
 
-Closed honesty + QA 2026-08-17: FLUSH, ATTR, PHASE1, PROBE, OPEN2, OPEN3, RULESET, DOUBLE, EOF, DOCS, STYLE.
+Closed honesty + QA 2026-08-17: FLUSH, ATTR, PHASE1, PROBE, OPEN2, OPEN3, RULESET, DOUBLE, EOF, DOCS, STYLE, IDSPACE, OPEN-1, SVG.
 
 ---
 
@@ -137,6 +129,8 @@ Kept so ids and dates stay searchable. Do not reopen because CLI `--iso` skipped
 | **SEAL-DOM-P0-PROBE** | `NODE_NEW` in frame S ⇒ `isConnected` probe missing. | **PP-FR-1**: `probe.nodeNewConnected`; `iso.tree` fail when client relay and skipped. UI tree OK 2026-08-17 (`apply-attrs` / `fixtures/apply-attrs.html`, `soak` / `fixtures/demo.html`). | **closed 2026-08-17** |
 | **SEAL-DOM-P1-OPEN2** | Detached-row GC (end-of-tick detach, `lms`-age `NODE_DROP`, no per-row versioning). | Units: `testCollectDroppableIdsAgeAndLimitBound`, `testCollectDroppableIdsExcludesSameTickReattach`, `testNodeDropRemovesSubtreeAndDescendants`. | **closed 2026-08-17** |
 | **SEAL-DOM-P1-OPEN3** | `CHECK` over id ranges. | Units: `testApplyFrameToTableCheckedRangeScope`, `testCheckScopeRangeEncodeDecode`. | **closed 2026-08-17** |
+| **OPEN-1** | `NODE_DROP` of an absent id. | **malformed** (Rodrigo). Unit `testApplyFrameToTableCheckedRejectsNodeDropAbsentId`. | **closed 2026-08-17** |
+| **SEAL-DOM-P1-SVG** | `NODE_NEW` always HTML `createElement`. | **PP-F-SVG-1**: units `testNodeNewElementNsWire`, `testStructuralDiffNsMismatch`; lab `svg-ns` (CLI tree skip without DOM client; `ns_mismatch` fails with client). | **closed 2026-08-17** |
 
 ### CSSOM
 
@@ -149,3 +143,4 @@ Conditional scope at close: constructed sheets on `adoptedStyleSheets` + top-lev
 | **SEAL-CSSOM-P0-EOF** | EOF CSSOM check verified sheet handles only. | **PP-CSSOM-A-3**: unit + O2 + UI `apply.desync.eof` (2026-08-17). | **closed 2026-08-16** (function + O2; UI desync 2026-08-17) |
 | **SEAL-CSSOM-P0-DOCS** | Comments claimed C6 phase-2 still no-op. | Docs + `opcodes.ts` match `client/applyDom.ts`. | **closed 2026-08-16** |
 | **SEAL-CSSOM-P1-STYLE** | In-scope `CSSStyleRule` live updates existed; fold could pass if snaps/op-windows were missing. | **PP-CSSOM-F-3..F-5**, **PP-CSSOM-H-1** (automated): `cssom-foundation` / `cssom-heavy` require named snaps + `ops.styleSet` / `ops.theme`; `cssomO2` mismatch fails. | **closed 2026-08-17** |
+| **SEAL-CSSOM-P1-IDSPACE** | Leftover Dom vs Cssom id ranges. | Units: `testSessionIdsSharedDomAndCssom`, `testCssomEncodeDecode` (sheet id 2). Bootstrap: `CssomIds(() => domNodes.mint())`. | **closed 2026-08-17** |

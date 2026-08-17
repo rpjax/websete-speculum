@@ -104,6 +104,7 @@ quirks-mode row.
 |--------|------|---------|
 | `id` | `u32` | key |
 | `kind` | `u8` | `ELEMENT`=1, `TEXT`=2, `COMMENT`=3, `SHEET`=4, `RULE`=5, `DOCTYPE`=6 |
+| `ns` | `u8` | `ELEMENT` only — `0` html, `1` svg, `2` mathml, `3` none (`namespaceURI === null`), `4` custom. Known values hash the `u8`. Custom URI is **not** a stored column; it rides `NODE_NEW` as `StrRef` when `ns=4` and is hashed into `contentHash`. |
 | `parent` | `u32` | `0` when detached; for `RULE` the owning `SHEET`; for `SHEET` the pierce host or `0` |
 | `prevSibling` | `u32` | `0` when first child |
 | `name` | `StrRef` | `ELEMENT`: tag. `DOCTYPE`: root element name (`"html"`). `SHEET`/`RULE`: unused (`0`) |
@@ -139,9 +140,10 @@ rowHash  = H64( id, kind, parent, prevSibling, contentHash )
 tableHash = Σ rowHash   (mod 2^64, over all rows)
 ```
 
-`contentHash` is a commutative combine over the row's content: `name`, `value`, each `(attrName,
-attrValue)` pair, each `(propId, propValue)` pair, and `flags`. Attribute order is not hashed —
-attribute order is not semantic for rendering, and commutativity makes `ATTR_SET` order-independent.
+`contentHash` is a commutative combine over the row's content: `ns` (ELEMENT: known `u8`, or hash of
+the custom URI), `name`, `value`, each `(attrName, attrValue)` pair, each `(propId, propValue)` pair,
+and `flags`. Attribute order is not hashed — attribute order is not semantic for rendering, and
+commutativity makes `ATTR_SET` order-independent. HTML `<a>` and SVG `<a>` MUST NOT collide.
 
 **Update is O(1):** `tableHash += newRowHash − oldRowHash` (mod 2^64). A table hash recomputed in
 O(n) per frame does not meet **E5** and is a contract violation, not an optimization choice.
@@ -202,7 +204,7 @@ string table for a typical page is a few thousand entries.
 
 ```
 magic         u16   'PP'
-version       u8    unknown ⇒ desync, never best-effort parse
+version       u8    current **2** (2026-08-17). unknown ⇒ desync, never best-effort parse
 flags         u8    bit0 unused (0) · bit1 resync — same generation; replaces the table wholesale
                      rather than extending it (§5.8)
 generation    u32
@@ -280,24 +282,25 @@ is recreated empty. `DOM`: the surface is discarded (a new document buffer is pr
 
 **`0x20 NODE_NEW`** — `id: u32, kind: u8, descriptor` · phase 1 · idempotent¹
 `descriptor` by `kind`:
-- `ELEMENT`: `name: StrRef`, `attrCount: u16`, `[(nameRef: StrRef, valRef: StrRef)] * attrCount`
+- `ELEMENT`: `ns: u8`, if `ns === 4` then `uri: StrRef`, then `name: StrRef`, `attrCount: u16`, `[(nameRef: StrRef, valRef: StrRef)] * attrCount`
 - `TEXT` | `COMMENT`: `value: StrRef`
 - `SHEET`: `flags: u16`
 - `RULE`: `value: StrRef`
 - `DOCTYPE`: `name: StrRef` (root element name)
 
+`ns`: `0` html, `1` svg, `2` mathml, `3` none, `4` custom. A `u8` outside `0..4` is **`malformed`**.
+`ns === 4` with an empty URI is **`malformed`**. When `ns !== 4` the URI field is **not written**.
 `Pre`: `id ≥ 2`; `kind` is a defined value; every `StrRef` resolves; `attrCount ≤ MAX_ATTRS`.
-¹ `id` already existing with an **identical** descriptor is a no-op; with a different descriptor it is
+¹ `id` already existing with an **identical** descriptor (including `ns` / custom URI) is a no-op; with a different descriptor it is
 `malformed`.
 `Table`: inserts a row with `parent = 0`, `prevSibling = 0` — **detached**.
-`DOM`: none. Materialization happens on `INSERT`.
+`DOM`: `createElementNS` from `ns` (canonical xhtml / svg / MathML URIs, `null` for none, custom URI for `4`). Never HTML `createElement` for Element. Materialization of the tree happens on `INSERT`.
 
 **`0x21 NODE_DROP`** — `count: u16, ids: u32[]` · phase 1 · **not idempotent**
-`Pre`: every id exists; every id has `parent = 0` (detached). Dropping an attached row is
+`Pre`: every id exists; every id has `parent = 0` (detached). An absent id is **`malformed`** (OPEN-1 **CLOSED 2026-08-17** — producer DROP is table GC after this tick’s ops; there is no valid happy-path race). Dropping an attached row is
 `precondition` — the producer must `REMOVE` first, which keeps detachment explicit and auditable.
 `Table`: drops each row **and all its descendants** (a detached row may still have children).
 `DOM`: none — the subtree is already detached.
-See **OPEN-1** for the absent-id case.
 
 **`0x22 NODE_META`** — `id: u32, flags: u16` · phase 1 · idempotent
 `Pre`: `id` exists.
@@ -832,13 +835,16 @@ Every catalogued failure carries `errorCode` + `phase` + `sequence`
 - Changing an existing opcode's operands = version bump ⇒ old clients desync, which is correct.
 - No aliases, no compatibility shims (V1 rule).
 
+**Current `version`:** `2` (2026-08-17). `NODE_NEW` Element gained `ns: u8` (+ `uri: StrRef` only when
+`custom`). Version 1 peers desync. No shim.
+
 ---
 
 ## 10. Open decisions
 
 | # | Question | Notes |
 |---|----------|-------|
-| **OPEN-1** | `NODE_DROP` of an absent id: `malformed` or tolerated? | Currently `malformed`. Total rigour, but obliges the encoder to be exact under races (node removed by the site between the record and the flush). If tolerated it MUST be counted in telemetry — never silent. |
+| **OPEN-1** | ~~`NODE_DROP` of an absent id: `malformed` or tolerated?~~ | **CLOSED 2026-08-17 — `malformed`.** DROP is producer table GC after this tick’s ops are folded; site delete is `REMOVE`. No valid happy-path absent id. Unit: `testApplyFrameToTableCheckedRejectsNodeDropAbsentId`. |
 | **OPEN-2** | Detached-row lifetime | **CLOSED 2026-08-17** — end-of-tick move/detach (§5.6), deferred `lms`-age GC, no per-row versioning. |
 | **OPEN-3** | `CHECK.scope` granularity | **CLOSED 2026-08-17** — id ranges (§4.1). Subtree hashes rejected (change would propagate to the root). |
 | **OPEN-4** | ~~Establish: `EST_CHUNK_HTML` or `EST_TABLE`?~~ | **CLOSED — moot.** Establish does not exist (§4.7). There is nothing left to choose between. |
@@ -894,3 +900,5 @@ Every catalogued failure carries `errorCode` + `phase` + `sequence`
 | 2026-08-14 | **Production cutover = full product** | Live switch only after CSSOM implemented, OPEN-6 nested/multidocs, and **input redesigned** (not V1 `input.md` rename-only). Lab DOM-table / single-doc is not M1. [roadmap.md](roadmap.md). |
 | 2026-08-14 | **PP-FR-1 in the V4 walk + phase-2 REMOVE honesty** | Drain: `!isConnected` addedNodes must not be allocated (§5.4/§5.5). `REMOVE` iff ended detached with a prior id — `visited` ≠ move (§5.6). Client `REMOVE` parent mismatch → desync (§6). Incident: [observability.md](observability.md) §8. |
 | 2026-08-16 | **C3.1 grouping-rule carve-out** | `RULE_SET` remains in-place patch for `CSSStyleRule` only. Content change on a grouping rule (patch cannot work) is producer `RULE_DROP`+`RULE_NEW` (new id). Client must not implement hidden replace inside `RULE_SET`. |
+| 2026-08-17 | **OPEN-1 CLOSED** — `NODE_DROP` of an absent id is `malformed` | Rodrigo. DROP is GC of a row the producer table already holds (after this tick’s INSERT/REMOVE). Site removal is `REMOVE`. Absent id means the encoder claimed a row the in-sync client does not have — not a race to tolerate. Unit already fail-closed. |
+| 2026-08-17 | **SEAL-DOM-P1-SVG** — `NODE_NEW` Element `ns` enum; URI StrRef only for `custom`; wire version 1→2; client `createElementNS`. Namespaced attributes (`xlink:href`) out of scope. Units: `testNodeNewElementNsWire`, `testStructuralDiffNsMismatch`. Lab `svg-ns`. |

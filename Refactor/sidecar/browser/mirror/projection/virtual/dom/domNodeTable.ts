@@ -14,7 +14,8 @@ export class DomNodeTable {
   private byNode = new WeakMap<Node, DomNodeKey>();
   private readonly byKey = new Map<DomNodeKey, WeakRef<Node>>();
   private readonly finalizers: FinalizationRegistry<DomNodeKey>;
-  private nextKey: DomNodeKey = 1;
+  /** §1.2: 0 = none, 1 = Document (via {@link bind}), 2… minted monotonically. */
+  private nextKey: DomNodeKey = 2;
   private currentGeneration = 1;
 
   constructor() {
@@ -51,8 +52,7 @@ export class DomNodeTable {
     const existing = this.byNode.get(node);
     if (existing !== undefined) return existing;
 
-    const key = this.nextKey;
-    this.nextKey += 1;
+    const key = this.mint();
     this.byNode.set(node, key);
     this.byKey.set(key, new WeakRef(node));
     this.finalizers.register(node, key, node);
@@ -70,6 +70,17 @@ export class DomNodeTable {
     this.byKey.set(key, new WeakRef(node));
     this.finalizers.register(node, key, node);
     if (key >= this.nextKey) this.nextKey = key + 1;
+  }
+
+  /**
+   * Next session id (DOM or CSSOM). Never returns 0 or 1.
+   * CSSOM WeakMaps call this so Sheet/Rule ids share the DOM counter (§1.1).
+   */
+  mint(): DomNodeKey {
+    if (this.nextKey > 0xffffffff) throw new Error('DomNodeTable: id space exhausted');
+    const key = this.nextKey;
+    this.nextKey += 1;
+    return key;
   }
 
   keyOf(node: Node): DomNodeKey {

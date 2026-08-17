@@ -11,6 +11,7 @@ import {
   createFrame,
   type FrameOp,
 } from '../../models/frame';
+import { ElementNs } from '../../models/elementNs';
 import { NodeKind, OpCode } from '../../models/opcodes';
 
 export type HostileKind = 'attr' | 'ruleset' | 'eof';
@@ -51,6 +52,7 @@ export function encodeAttrDesyncFrame(generation: number, sequence: number, preT
         op: OpCode.NodeNew,
         id: ATTR_NODE_ID,
         kind: NodeKind.Element,
+        ns: ElementNs.Html,
         name: 'div',
         attrs: [{ name: 'foo bar', value: 'x' }],
       },

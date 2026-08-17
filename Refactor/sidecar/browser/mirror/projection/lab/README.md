@@ -15,7 +15,7 @@ lab/
   client/       Browse / Run UI
   runner/       DAG scheduler + CLI
   probes/       iso, cpu, invariants, …
-  blueprints/   soak | stress | cssom-foundation | cssom-heavy | cssom-double | apply-attrs | apply-honesty-desync-* + fold/
+  blueprints/   soak | stress | cssom-foundation | cssom-heavy | cssom-double | apply-attrs | svg-ns | apply-honesty-desync-* + fold/
   fixtures/     HTML + manifest.json
   dossier/      sharded report writers
   static/       client.html + built client.js
@@ -41,6 +41,7 @@ npm run lab:run -- --blueprint stress
 npm run lab:run -- --blueprint cssom-foundation
 npm run lab:run -- --blueprint cssom-double
 npm run lab:run -- --blueprint apply-attrs
+npm run lab:run -- --blueprint svg-ns
 npm run lab:run -- --blueprint apply-honesty-desync-attr   # skips without DOM client
 npm run lab:run -- --blueprint cssom-heavy
 npm run lab:cssom-foundation   # sugar: foundation + scale soaks

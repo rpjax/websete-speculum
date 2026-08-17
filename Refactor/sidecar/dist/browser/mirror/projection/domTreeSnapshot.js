@@ -23,6 +23,35 @@ var __speculumSnapshot = (() => {
   __export(domTreeSnapshot_exports, {
     snapshotTree: () => snapshotTree
   });
+
+  // browser/mirror/projection/models/elementNs.ts
+  var ELEMENT_NS_HTML = "http://www.w3.org/1999/xhtml";
+  var ELEMENT_NS_SVG = "http://www.w3.org/2000/svg";
+  var ELEMENT_NS_MATHML = "http://www.w3.org/1998/Math/MathML";
+  function classifyElementNs(namespaceURI) {
+    if (namespaceURI === null) return { ns: 3 /* None */ };
+    if (namespaceURI === ELEMENT_NS_HTML) return { ns: 0 /* Html */ };
+    if (namespaceURI === ELEMENT_NS_SVG) return { ns: 1 /* Svg */ };
+    if (namespaceURI === ELEMENT_NS_MATHML) return { ns: 2 /* Mathml */ };
+    return { ns: 4 /* Custom */, uri: namespaceURI };
+  }
+  function elementNsSnapshotLabel(namespaceURI) {
+    const { ns, uri } = classifyElementNs(namespaceURI);
+    switch (ns) {
+      case 0 /* Html */:
+        return void 0;
+      case 1 /* Svg */:
+        return "svg";
+      case 2 /* Mathml */:
+        return "mathml";
+      case 3 /* None */:
+        return "none";
+      case 4 /* Custom */:
+        return uri;
+    }
+  }
+
+  // browser/mirror/projection/client/domTreeSnapshot.ts
   function snapshotTree(root) {
     return walkNode(root ?? document);
   }
@@ -43,6 +72,8 @@ var __speculumSnapshot = (() => {
         }
         attrs.sort((x, y) => x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : 0);
         const result = { tag: el.tagName.toLowerCase() };
+        const ns = elementNsSnapshotLabel(el.namespaceURI);
+        if (ns !== void 0) result.ns = ns;
         if (attrs.length > 0) result.attrs = attrs;
         const children = mapChildren(node);
         if (children.length > 0) result.children = children;

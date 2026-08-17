@@ -38,7 +38,7 @@ function applyOpToTable(table, op) {
             return;
         case opcodes_1.OpCode.NodeNew:
             if (op.kind === opcodes_1.NodeKind.Element)
-                table.createElementRow(op.id, op.name, op.attrs);
+                table.createElementRow(op.id, op.name, op.attrs, op.ns, op.uri);
             else if (op.kind === opcodes_1.NodeKind.Doctype)
                 table.createLeafRow(op.id, op.kind, op.name);
             else
@@ -368,7 +368,7 @@ function applyFrameToTableChecked(table, resync, ops, sequence = 0) {
             for (let j = 0; j < op.ids.length; j++) {
                 const id = op.ids[j];
                 if (!table.has(id)) {
-                    return failOp(i, 'malformed', 'nodeDrop', id, 'NODE_DROP of an absent id (frame-protocol.md OPEN-1)');
+                    return failOp(i, 'malformed', 'nodeDrop', id, 'NODE_DROP of an absent id (frame-protocol.md §4.2 / OPEN-1 CLOSED)');
                 }
                 if (table.getRow(id).parent !== 0) {
                     return failOp(i, 'precondition', 'nodeDrop', id, 'NODE_DROP of an attached row (frame-protocol.md §4.2)');

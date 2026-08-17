@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>SVG namespace fixture</title>
+    <style>
+      body { margin: 1.5rem; font-family: Georgia, serif; background: #f4f7fb; }
+      svg { display: block; margin: 1rem 0; }
+    </style>
+  </head>
+  <body>
+    <h1>SVG / MathML ns</h1>
+    <a id="html-a" href="#html">html-a</a>
+    <svg xmlns="http://www.w3.org/2000/svg" width="120" height="80" id="svg-root">
+      <circle id="svg-circle" cx="40" cy="40" r="28" fill="crimson" />
+      <a id="svg-a" href="#svg">
+        <text x="72" y="44">svg-a</text>
+      </a>
+      <foreignObject x="0" y="0" width="40" height="20">
+        <div xmlns="http://www.w3.org/1999/xhtml" id="fo-div">fo</div>
+      </foreignObject>
+    </svg>
+    <math xmlns="http://www.w3.org/1998/Math/MathML" id="math-root">
+      <mi>x</mi>
+    </math>
+  </body>
+</html>

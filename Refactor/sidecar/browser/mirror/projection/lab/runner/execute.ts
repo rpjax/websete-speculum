@@ -14,6 +14,7 @@ import { foldCssomFoundation } from '../blueprints/fold/cssomFoundation';
 import { foldCssomHeavy } from '../blueprints/fold/cssomHeavy';
 import { foldCssomDouble } from '../blueprints/fold/cssomDouble';
 import { foldApplyAttrs } from '../blueprints/fold/applyAttrs';
+import { foldSvgNs } from '../blueprints/fold/svgNs';
 import { foldApplyHonestyDesync } from '../blueprints/fold/applyHonestyDesync';
 import type { HostileKind } from './hostileFrames';
 import {
@@ -552,6 +553,7 @@ export async function executeBlueprint(
         else if (ruleset === 'cssom-double' || ruleset === 'fold/cssomDouble')
           verdicts = foldCssomDouble(chassis);
         else if (ruleset === 'apply-attrs' || ruleset === 'fold/applyAttrs') verdicts = foldApplyAttrs(chassis);
+        else if (ruleset === 'svg-ns' || ruleset === 'fold/svgNs') verdicts = foldSvgNs(chassis);
         else if (ruleset === 'apply-honesty-desync' || ruleset === 'fold/applyHonestyDesync') {
           const kind = parseHostileKind(params.kind, bp.id);
           if (!kind) return finish(false, `unknown honesty kind ${String(params.kind ?? bp.id)}`);

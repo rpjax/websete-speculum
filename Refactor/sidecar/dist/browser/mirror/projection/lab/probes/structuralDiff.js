@@ -35,6 +35,12 @@ function walk(a, b, path, record) {
         record(path, 'tag_mismatch', `virtual=${a.tag} client=${b.tag}`);
         return; // divergent enough that walking children further is just noise on top of this
     }
+    const aNs = a.ns ?? 'html';
+    const bNs = b.ns ?? 'html';
+    if (aNs !== bNs) {
+        record(path, 'ns_mismatch', `virtual=${aNs} client=${bNs}`);
+        return;
+    }
     if ((a.text ?? '') !== (b.text ?? '')) {
         record(path, 'text_mismatch', `virtual=${JSON.stringify(a.text)} client=${JSON.stringify(b.text)}`);
     }

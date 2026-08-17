@@ -15,8 +15,18 @@
  * live under either.
  */
 
+import { ElementNs } from './elementNs';
 import { NodeKind, OpCode } from './opcodes';
-import { CHECK_SCOPE_RANGE, CHECK_SCOPE_TABLE, CSSOM_SCOPE_MAIN, CSSOM_SCOPE_PIERCE_HOST, INSERT_AT_END, type AttrPair, type FrameOp } from './frame';
+import {
+  CHECK_SCOPE_RANGE,
+  CHECK_SCOPE_TABLE,
+  CSSOM_SCOPE_MAIN,
+  CSSOM_SCOPE_PIERCE_HOST,
+  FRAME_WIRE_VERSION,
+  INSERT_AT_END,
+  type AttrPair,
+  type FrameOp,
+} from './frame';
 import { MAX_ATTRS, MAX_CHILDREN_PER_OP, MAX_OPS_PER_FRAME, MAX_STR_BYTES } from './limits';
 
 export interface DecodedFramePart {
@@ -43,7 +53,7 @@ export interface AssembledFrame {
 export type DecodeError = 'unknown_version' | 'malformed';
 export type DecodeResult = { ok: true; part: DecodedFramePart } | { ok: false; reason: DecodeError; message: string };
 
-const WIRE_VERSION = 1;
+const WIRE_VERSION = FRAME_WIRE_VERSION;
 const WIRE_MAGIC = 0x5050;
 const LOCAL_STR_BIT = 0x80000000;
 const RESYNC_FLAG_BIT = 0b10;
@@ -237,9 +247,28 @@ function decodeOp(
       const id = r.u32();
       const kind = r.u8();
       if (kind === NodeKind.Element) {
+        const ns = r.u8();
+        if (ns > ElementNs.Custom) {
+          throw new Error(`NODE_NEW ns ${ns} out of range (frame-protocol.md §4.2)`);
+        }
+        let uri: string | undefined;
+        if (ns === ElementNs.Custom) {
+          uri = resolveStr(r.u32());
+          if (uri.length === 0) {
+            throw new Error('NODE_NEW custom ns empty uri (frame-protocol.md §4.2)');
+          }
+        }
         const name = resolveStr(r.u32());
         const attrs = decodeAttrs(r, resolveStr);
-        return { op: OpCode.NodeNew, id, kind: NodeKind.Element, name, attrs };
+        return {
+          op: OpCode.NodeNew,
+          id,
+          kind: NodeKind.Element,
+          ns: ns as ElementNs,
+          name,
+          attrs,
+          ...(uri !== undefined ? { uri } : {}),
+        };
       }
       if (kind === NodeKind.Doctype) {
         return { op: OpCode.NodeNew, id, kind: NodeKind.Doctype, name: resolveStr(r.u32()) };

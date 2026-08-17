@@ -10,6 +10,7 @@
   { "id": "prepend-stress", "path": "prepend-stress.html", "tags": ["dom", "stress"] },
   { "id": "insert-before-remove", "path": "insert-before-remove.html", "tags": ["dom"] },
   { "id": "apply-attrs", "path": "apply-attrs.html", "tags": ["dom", "attr"], "notes": "ATTR success via __cssomLab.act('attrSet')" },
+  { "id": "svg-ns", "path": "svg-ns.html", "tags": ["dom", "svg"], "notes": "SVG/MathML namespace vs HTML <a>; foreignObject + div" },
   { "id": "cssom-double", "path": "cssom-double.html", "tags": ["cssom", "c6", "pp-cssom-a-2"], "notes": "Author <style> + constructed adopted; no double-emit" },
   { "id": "cssom-scale-5k", "path": "cssom-scale.html", "tags": ["cssom", "volume"] },
   { "id": "cssom-scale-14k", "path": "cssom-scale.html?n=14000", "tags": ["cssom", "volume"] },

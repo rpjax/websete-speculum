@@ -18,9 +18,10 @@
  * `lastChildOf`/as a `parent` operand, which requires no entry in `rows`.
  */
 
+import { ElementNs } from './elementNs';
 import { NodeKind } from './opcodes';
 import type { AttrPair } from './frame';
-import { addMod64, computeRowHash, hashAttr, hashName, hashValue, subMod64, TableHashTracker } from './rowHash';
+import { addMod64, computeRowHash, hashAttr, hashName, hashNs, hashValue, subMod64, TableHashTracker } from './rowHash';
 
 export type RowSnapshot = {
   readonly kind: number;
@@ -146,9 +147,19 @@ export class ReplicatedTable {
 
   // ---- NODE_NEW (§4.2) — always creates a detached row (parent=0, prevSibling=0). ----
 
-  createElementRow(id: number, tagName: string, attrs: readonly AttrPair[]): void {
+  /**
+   * `ns` defaults to html for existing unit callers (API convenience). Decode never
+   * invents a default — the wire `u8` is required.
+   */
+  createElementRow(
+    id: number,
+    tagName: string,
+    attrs: readonly AttrPair[],
+    ns: ElementNs = ElementNs.Html,
+    uri?: string,
+  ): void {
     const attrMap = new Map<string, bigint>();
-    let sum = hashName(tagName);
+    let sum = addMod64(hashName(tagName), hashNs(ns, uri));
     for (let i = 0; i < attrs.length; i++) {
       const { name, value } = attrs[i]!;
       const h = hashAttr(name, value);

@@ -2,6 +2,15 @@
 export { NONE_DOM_NODE_KEY, type DomNodeKey } from './domNodeKey';
 export { OpCode, opCodeName, NodeKind } from './opcodes';
 export {
+  ElementNs,
+  ELEMENT_NS_HTML,
+  ELEMENT_NS_SVG,
+  ELEMENT_NS_MATHML,
+  classifyElementNs,
+  elementNsUri,
+  elementNsSnapshotLabel,
+} from './elementNs';
+export {
   FRAME_WIRE_VERSION,
   DOCUMENT_ID,
   INSERT_AT_END,

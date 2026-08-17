@@ -13,6 +13,7 @@
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.BinaryFrameEncoder = void 0;
+const elementNs_1 = require("../../models/elementNs");
 const opcodes_1 = require("../../models/opcodes");
 const binaryWriter_1 = require("./binaryWriter");
 const LOCAL_STR_BIT = 0x80000000;
@@ -165,6 +166,14 @@ class BinaryFrameEncoder {
         w.u32(op.id);
         w.u8(op.kind);
         if (op.kind === opcodes_1.NodeKind.Element) {
+            w.u8(op.ns);
+            if (op.ns === elementNs_1.ElementNs.Custom) {
+                const uri = op.uri ?? '';
+                if (uri.length === 0) {
+                    throw new Error('NODE_NEW custom ns requires a non-empty uri (frame-protocol.md §4.2)');
+                }
+                this.writeStrRef(w, uri);
+            }
             this.writeStrRef(w, op.name);
             this.writeAttrs(w, op.attrs);
             return;

@@ -15,7 +15,11 @@ export type IsoJournal = {
   o2?: { identical: boolean; divergenceCount: number } | null;
   cssomO2?: { identical: boolean; divergenceCount: number } | null;
   table?: { identical: boolean | null; virtual?: { rowCount: number } | null };
-  structuralDiff?: { identical: boolean; divergenceCount: number } | null;
+  structuralDiff?: {
+    identical: boolean;
+    divergenceCount: number;
+    divergences?: { kind: string }[];
+  } | null;
   sequence?: number | null;
   skipped?: { id: string; reason: string }[];
   tableFailReason?: string | null;

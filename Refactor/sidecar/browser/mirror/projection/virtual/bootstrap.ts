@@ -18,6 +18,7 @@ import { FrameEmitter } from './frame/frameEmitter';
 import { emitResyncFrame, rebuildAndResync, type ResyncPlanes } from './resync';
 import { takeSnapshot } from './snapshot';
 import { TableFrameBuilder } from './dom/tableFrameBuilder';
+import { CssomIds } from './cssom/cssomIds';
 import { CssomPoller } from './cssom/cssomPoller';
 import { CssomIdleScheduler } from './cssom/cssomIdleScheduler';
 import { disabledCssomPlane, type CssomPlane } from './cssom/cssomPlane';
@@ -119,7 +120,8 @@ void (async () => {
     dataPlane,
   });
 
-  const cssomPoller = config.cssomPollHz > 0 ? new CssomPoller() : null;
+  const cssomPoller =
+    config.cssomPollHz > 0 ? new CssomPoller(new CssomIds(() => domNodes.mint())) : null;
   const cssom: CssomPlane =
     cssomPoller !== null
       ? new CssomIdleScheduler({

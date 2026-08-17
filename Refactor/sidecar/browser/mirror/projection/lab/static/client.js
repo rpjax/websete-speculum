@@ -1,6 +1,48 @@
 "use strict";
 (() => {
+  // browser/mirror/projection/models/elementNs.ts
+  var ELEMENT_NS_HTML = "http://www.w3.org/1999/xhtml";
+  var ELEMENT_NS_SVG = "http://www.w3.org/2000/svg";
+  var ELEMENT_NS_MATHML = "http://www.w3.org/1998/Math/MathML";
+  function classifyElementNs(namespaceURI) {
+    if (namespaceURI === null) return { ns: 3 /* None */ };
+    if (namespaceURI === ELEMENT_NS_HTML) return { ns: 0 /* Html */ };
+    if (namespaceURI === ELEMENT_NS_SVG) return { ns: 1 /* Svg */ };
+    if (namespaceURI === ELEMENT_NS_MATHML) return { ns: 2 /* Mathml */ };
+    return { ns: 4 /* Custom */, uri: namespaceURI };
+  }
+  function elementNsUri(ns, customUri) {
+    switch (ns) {
+      case 0 /* Html */:
+        return ELEMENT_NS_HTML;
+      case 1 /* Svg */:
+        return ELEMENT_NS_SVG;
+      case 2 /* Mathml */:
+        return ELEMENT_NS_MATHML;
+      case 3 /* None */:
+        return null;
+      case 4 /* Custom */:
+        return customUri ?? "";
+    }
+  }
+  function elementNsSnapshotLabel(namespaceURI) {
+    const { ns, uri } = classifyElementNs(namespaceURI);
+    switch (ns) {
+      case 0 /* Html */:
+        return void 0;
+      case 1 /* Svg */:
+        return "svg";
+      case 2 /* Mathml */:
+        return "mathml";
+      case 3 /* None */:
+        return "none";
+      case 4 /* Custom */:
+        return uri;
+    }
+  }
+
   // browser/mirror/projection/models/frame.ts
+  var FRAME_WIRE_VERSION = 2;
   var DOCUMENT_ID = 1;
   var INSERT_AT_END = 0;
   var CHECK_SCOPE_TABLE = 0;
@@ -16,7 +58,7 @@
   var MAX_ROWS = 2e5;
 
   // browser/mirror/projection/models/decode.ts
-  var WIRE_VERSION = 1;
+  var WIRE_VERSION = FRAME_WIRE_VERSION;
   var WIRE_MAGIC = 20560;
   var LOCAL_STR_BIT = 2147483648;
   var RESYNC_FLAG_BIT = 2;
@@ -170,9 +212,28 @@
         const id = r.u32();
         const kind = r.u8();
         if (kind === 1 /* Element */) {
+          const ns = r.u8();
+          if (ns > 4 /* Custom */) {
+            throw new Error(`NODE_NEW ns ${ns} out of range (frame-protocol.md \xA74.2)`);
+          }
+          let uri;
+          if (ns === 4 /* Custom */) {
+            uri = resolveStr(r.u32());
+            if (uri.length === 0) {
+              throw new Error("NODE_NEW custom ns empty uri (frame-protocol.md \xA74.2)");
+            }
+          }
           const name = resolveStr(r.u32());
           const attrs = decodeAttrs(r, resolveStr);
-          return { op: 32 /* NodeNew */, id, kind: 1 /* Element */, name, attrs };
+          return {
+            op: 32 /* NodeNew */,
+            id,
+            kind: 1 /* Element */,
+            ns,
+            name,
+            attrs,
+            ...uri !== void 0 ? { uri } : {}
+          };
         }
         if (kind === 6 /* Doctype */) {
           return { op: 32 /* NodeNew */, id, kind: 6 /* Doctype */, name: resolveStr(r.u32()) };
@@ -429,6 +490,10 @@
   function hashAttr(name, value) {
     return h64Str(`\0A${name}${value}`);
   }
+  function hashNs(ns, uri) {
+    if (ns === 4 /* Custom */) return h64Str(`\0U${uri ?? ""}`);
+    return h64Bytes(Uint8Array.of(0, 83, ns & 255));
+  }
   function computeRowHash(id, kind, parent, prevSibling, contentHash) {
     let h = h64U32(id);
     h = h64U32(kind, h);
@@ -560,9 +625,13 @@
       this.tracker.clear();
     }
     // ---- NODE_NEW (§4.2) — always creates a detached row (parent=0, prevSibling=0). ----
-    createElementRow(id, tagName, attrs) {
+    /**
+     * `ns` defaults to html for existing unit callers (API convenience). Decode never
+     * invents a default — the wire `u8` is required.
+     */
+    createElementRow(id, tagName, attrs, ns = 0 /* Html */, uri) {
       const attrMap = /* @__PURE__ */ new Map();
-      let sum = hashName(tagName);
+      let sum = addMod64(hashName(tagName), hashNs(ns, uri));
       for (let i = 0; i < attrs.length; i++) {
         const { name, value } = attrs[i];
         const h = hashAttr(name, value);
@@ -761,7 +830,7 @@
       case 3 /* StrDef */:
         return;
       case 32 /* NodeNew */:
-        if (op.kind === 1 /* Element */) table.createElementRow(op.id, op.name, op.attrs);
+        if (op.kind === 1 /* Element */) table.createElementRow(op.id, op.name, op.attrs, op.ns, op.uri);
         else if (op.kind === 6 /* Doctype */) table.createLeafRow(op.id, op.kind, op.name);
         else table.createLeafRow(op.id, op.kind, op.value);
         return;
@@ -1143,7 +1212,7 @@
               "malformed",
               "nodeDrop",
               id,
-              "NODE_DROP of an absent id (frame-protocol.md OPEN-1)"
+              "NODE_DROP of an absent id (frame-protocol.md \xA74.2 / OPEN-1 CLOSED)"
             );
           }
           if (table.getRow(id).parent !== 0) {
@@ -1520,7 +1589,11 @@
     applyNodeNew(op) {
       let node;
       if (op.kind === 1 /* Element */) {
-        node = this.doc.createElement(op.name);
+        if (op.ns === 4 /* Custom */ && !(op.uri && op.uri.length > 0)) {
+          return this.fail("malformed", "nodeNew", op.id);
+        }
+        const uri = elementNsUri(op.ns, op.uri);
+        node = this.doc.createElementNS(uri, op.name);
         if (!applyAttrs(node, op.attrs)) {
           return this.fail("malformed", "nodeNew", op.id);
         }
@@ -2204,6 +2277,8 @@
         }
         attrs.sort((x, y) => x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : 0);
         const result = { tag: el.tagName.toLowerCase() };
+        const ns = elementNsSnapshotLabel(el.namespaceURI);
+        if (ns !== void 0) result.ns = ns;
         if (attrs.length > 0) result.attrs = attrs;
         const children = mapChildren(node);
         if (children.length > 0) result.children = children;

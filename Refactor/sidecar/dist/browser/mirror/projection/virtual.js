@@ -418,7 +418,8 @@
     byNode = /* @__PURE__ */ new WeakMap();
     byKey = /* @__PURE__ */ new Map();
     finalizers;
-    nextKey = 1;
+    /** §1.2: 0 = none, 1 = Document (via {@link bind}), 2… minted monotonically. */
+    nextKey = 2;
     currentGeneration = 1;
     constructor() {
       this.finalizers = new FinalizationRegistry((key) => {
@@ -449,8 +450,7 @@
     allocate(node) {
       const existing = this.byNode.get(node);
       if (existing !== void 0) return existing;
-      const key = this.nextKey;
-      this.nextKey += 1;
+      const key = this.mint();
       this.byNode.set(node, key);
       this.byKey.set(key, new WeakRef(node));
       this.finalizers.register(node, key, node);
@@ -467,6 +467,16 @@
       this.byKey.set(key, new WeakRef(node));
       this.finalizers.register(node, key, node);
       if (key >= this.nextKey) this.nextKey = key + 1;
+    }
+    /**
+     * Next session id (DOM or CSSOM). Never returns 0 or 1.
+     * CSSOM WeakMaps call this so Sheet/Rule ids share the DOM counter (§1.1).
+     */
+    mint() {
+      if (this.nextKey > 4294967295) throw new Error("DomNodeTable: id space exhausted");
+      const key = this.nextKey;
+      this.nextKey += 1;
+      return key;
     }
     keyOf(node) {
       return this.byNode.get(node) ?? NONE_DOM_NODE_KEY;
@@ -518,7 +528,7 @@
   };
 
   // browser/mirror/projection/models/frame.ts
-  var FRAME_WIRE_VERSION = 1;
+  var FRAME_WIRE_VERSION = 2;
   var DOCUMENT_ID = 1;
   var INSERT_AT_END = 0;
   var CHECK_SCOPE_TABLE = 0;
@@ -540,6 +550,18 @@
       return [...ops.slice(0, -1), ...cssom, last];
     }
     return [...ops, ...cssom];
+  }
+
+  // browser/mirror/projection/models/elementNs.ts
+  var ELEMENT_NS_HTML = "http://www.w3.org/1999/xhtml";
+  var ELEMENT_NS_SVG = "http://www.w3.org/2000/svg";
+  var ELEMENT_NS_MATHML = "http://www.w3.org/1998/Math/MathML";
+  function classifyElementNs(namespaceURI) {
+    if (namespaceURI === null) return { ns: 3 /* None */ };
+    if (namespaceURI === ELEMENT_NS_HTML) return { ns: 0 /* Html */ };
+    if (namespaceURI === ELEMENT_NS_SVG) return { ns: 1 /* Svg */ };
+    if (namespaceURI === ELEMENT_NS_MATHML) return { ns: 2 /* Mathml */ };
+    return { ns: 4 /* Custom */, uri: namespaceURI };
   }
 
   // browser/mirror/projection/models/rowHash.ts
@@ -584,6 +606,10 @@
   }
   function hashAttr(name, value) {
     return h64Str(`\0A${name}${value}`);
+  }
+  function hashNs(ns, uri) {
+    if (ns === 4 /* Custom */) return h64Str(`\0U${uri ?? ""}`);
+    return h64Bytes(Uint8Array.of(0, 83, ns & 255));
   }
   function computeRowHash(id, kind, parent, prevSibling, contentHash) {
     let h = h64U32(id);
@@ -716,9 +742,13 @@
       this.tracker.clear();
     }
     // ---- NODE_NEW (§4.2) — always creates a detached row (parent=0, prevSibling=0). ----
-    createElementRow(id, tagName, attrs) {
+    /**
+     * `ns` defaults to html for existing unit callers (API convenience). Decode never
+     * invents a default — the wire `u8` is required.
+     */
+    createElementRow(id, tagName, attrs, ns = 0 /* Html */, uri) {
       const attrMap = /* @__PURE__ */ new Map();
-      let sum = hashName(tagName);
+      let sum = addMod64(hashName(tagName), hashNs(ns, uri));
       for (let i = 0; i < attrs.length; i++) {
         const { name, value } = attrs[i];
         const h = hashAttr(name, value);
@@ -1175,6 +1205,14 @@
       w.u32(op.id);
       w.u8(op.kind);
       if (op.kind === 1 /* Element */) {
+        w.u8(op.ns);
+        if (op.ns === 4 /* Custom */) {
+          const uri = op.uri ?? "";
+          if (uri.length === 0) {
+            throw new Error("NODE_NEW custom ns requires a non-empty uri (frame-protocol.md \xA74.2)");
+          }
+          this.writeStrRef(w, uri);
+        }
         this.writeStrRef(w, op.name);
         this.writeAttrs(w, op.attrs);
         return;
@@ -1276,7 +1314,7 @@
       case 3 /* StrDef */:
         return;
       case 32 /* NodeNew */:
-        if (op.kind === 1 /* Element */) table.createElementRow(op.id, op.name, op.attrs);
+        if (op.kind === 1 /* Element */) table.createElementRow(op.id, op.name, op.attrs, op.ns, op.uri);
         else if (op.kind === 6 /* Doctype */) table.createLeafRow(op.id, op.kind, op.name);
         else table.createLeafRow(op.id, op.kind, op.value);
         return;
@@ -1570,7 +1608,16 @@
   function describeNodeNew(id, kind, node) {
     if (kind === 1 /* Element */) {
       const el = node;
-      return { op: 32 /* NodeNew */, id, kind, name: el.tagName.toLowerCase(), attrs: readAttrs(el) };
+      const classified = classifyElementNs(el.namespaceURI);
+      return {
+        op: 32 /* NodeNew */,
+        id,
+        kind,
+        ns: classified.ns,
+        name: el.tagName.toLowerCase(),
+        attrs: readAttrs(el),
+        ...classified.ns === 4 /* Custom */ ? { uri: classified.uri } : {}
+      };
     }
     if (kind === 6 /* Doctype */) {
       return { op: 32 /* NodeNew */, id, kind, name: node.name || "html" };
@@ -2234,6 +2281,54 @@
     }
   };
 
+  // browser/mirror/projection/virtual/cssom/cssomIds.ts
+  var ID_SPACE_MAX = 4294967295;
+  function standaloneMintState() {
+    return { next: 2 };
+  }
+  var CssomIds = class {
+    mint;
+    sheets = /* @__PURE__ */ new WeakMap();
+    rules = /* @__PURE__ */ new WeakMap();
+    constructor(mint) {
+      if (mint !== void 0) {
+        this.mint = mint;
+        return;
+      }
+      const state = standaloneMintState();
+      this.mint = () => {
+        if (state.next > ID_SPACE_MAX) throw new Error("CssomIds: id space exhausted");
+        const id = state.next;
+        state.next += 1;
+        return id;
+      };
+    }
+    idOfSheet(sheet) {
+      const existing = this.sheets.get(sheet);
+      if (existing !== void 0) return existing;
+      const id = this.mint();
+      this.sheets.set(sheet, id);
+      return id;
+    }
+    idOfRule(rule) {
+      const existing = this.rules.get(rule);
+      if (existing !== void 0) return existing;
+      const id = this.mint();
+      this.rules.set(rule, id);
+      return id;
+    }
+    peekSheet(sheet) {
+      return this.sheets.get(sheet);
+    }
+    peekRule(rule) {
+      return this.rules.get(rule);
+    }
+    /** Drop+new of a still-live object (grouping rule content change) — next `idOfRule` allocates. */
+    forgetRule(rule) {
+      this.rules.delete(rule);
+    }
+  };
+
   // browser/mirror/projection/virtual/cssom/cssomReconcile.ts
   function diffRules(prev, next) {
     const prevHash = /* @__PURE__ */ new Map();
@@ -2274,45 +2369,6 @@
     }
     return h >>> 0;
   }
-
-  // browser/mirror/projection/virtual/cssom/cssomIds.ts
-  var CSSOM_ID_MIN = 2147483649;
-  var CSSOM_ID_MAX = 4294967295;
-  var CssomIds = class {
-    next = CSSOM_ID_MIN;
-    sheets = /* @__PURE__ */ new WeakMap();
-    rules = /* @__PURE__ */ new WeakMap();
-    idOfSheet(sheet) {
-      const existing = this.sheets.get(sheet);
-      if (existing !== void 0) return existing;
-      const id = this.alloc();
-      this.sheets.set(sheet, id);
-      return id;
-    }
-    idOfRule(rule) {
-      const existing = this.rules.get(rule);
-      if (existing !== void 0) return existing;
-      const id = this.alloc();
-      this.rules.set(rule, id);
-      return id;
-    }
-    peekSheet(sheet) {
-      return this.sheets.get(sheet);
-    }
-    peekRule(rule) {
-      return this.rules.get(rule);
-    }
-    /** Drop+new of a still-live object (grouping rule content change) — next `idOfRule` allocates. */
-    forgetRule(rule) {
-      this.rules.delete(rule);
-    }
-    alloc() {
-      if (this.next > CSSOM_ID_MAX) throw new Error("CssomIds: id space exhausted");
-      const id = this.next;
-      this.next += 1;
-      return id;
-    }
-  };
 
   // browser/mirror/projection/models/cssomRuleSet.ts
   function ruleAcceptsInPlaceSet(rule) {
@@ -2478,8 +2534,11 @@
   var CssomPoller = class {
     lastRules = /* @__PURE__ */ new WeakMap();
     lastStyleTagTextHash = /* @__PURE__ */ new WeakMap();
-    ids = new CssomIds();
+    ids;
     lastSheetOrder = [];
+    constructor(ids) {
+      this.ids = ids ?? new CssomIds();
+    }
     classifySheets(doc = document) {
       const readable = [];
       let unreadableSheetCount = 0;
@@ -3262,7 +3321,7 @@
       config: config.telemetry,
       dataPlane
     });
-    const cssomPoller = config.cssomPollHz > 0 ? new CssomPoller() : null;
+    const cssomPoller = config.cssomPollHz > 0 ? new CssomPoller(new CssomIds(() => domNodes.mint())) : null;
     const cssom = cssomPoller !== null ? new CssomIdleScheduler({
       poller: cssomPoller,
       minIntervalMs: 1e3 / config.cssomPollHz

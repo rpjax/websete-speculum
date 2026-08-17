@@ -64,7 +64,9 @@ const tableLiveOracle_1 = require("./browser/mirror/projection/models/tableLiveO
 const cssomTableLiveOracle_1 = require("./browser/mirror/projection/models/cssomTableLiveOracle");
 const replicatedTableApply_1 = require("./browser/mirror/projection/models/replicatedTableApply");
 const opcodes_1 = require("./browser/mirror/projection/models/opcodes");
+const elementNs_1 = require("./browser/mirror/projection/models/elementNs");
 const frame_1 = require("./browser/mirror/projection/models/frame");
+const structuralDiff_1 = require("./browser/mirror/projection/lab/probes/structuralDiff");
 const decode_1 = require("./browser/mirror/projection/models/decode");
 const applyBatch_1 = require("./browser/mirror/projection/models/applyBatch");
 const attrApply_1 = require("./browser/mirror/projection/models/attrApply");
@@ -1496,8 +1498,8 @@ function testReplicatedTableRowContentHash() {
     table.createElementRow(10, 'div', [{ name: 'class', value: 'a' }]);
     const afterCreate = table.getRow(10);
     assert_1.default.ok(afterCreate);
-    const expectedCreateContent = (0, rowHash_1.addMod64)((0, rowHash_1.hashName)('div'), (0, rowHash_1.hashAttr)('class', 'a'));
-    assert_1.default.strictEqual(afterCreate.contentHash, expectedCreateContent, '§1.3 element contentHash = Σ(tag name hash, attr hashes)');
+    const expectedCreateContent = (0, rowHash_1.addMod64)((0, rowHash_1.addMod64)((0, rowHash_1.hashName)('div'), (0, rowHash_1.hashNs)(elementNs_1.ElementNs.Html)), (0, rowHash_1.hashAttr)('class', 'a'));
+    assert_1.default.strictEqual(afterCreate.contentHash, expectedCreateContent, '§1.3 element contentHash = Σ(ns hash, tag name hash, attr hashes)');
     assert_1.default.strictEqual(afterCreate.rowHash, (0, rowHash_1.computeRowHash)(10, opcodes_1.NodeKind.Element, 0, 0, expectedCreateContent));
     table.setAttrs(10, [{ name: 'id', value: 'root' }]);
     const expectedAfterSet = (0, rowHash_1.addMod64)(expectedCreateContent, (0, rowHash_1.hashAttr)('id', 'root'));
@@ -1700,7 +1702,7 @@ function testDomO2IgnoresSheetRows() {
     (0, replicatedTableApply_1.applyOpsToTable)(table, [
         {
             op: opcodes_1.OpCode.SheetNew,
-            id: cssomIds_1.CSSOM_ID_MIN,
+            id: 80,
             scope: frame_1.CSSOM_SCOPE_MAIN,
             hostNode: 0,
             before: frame_1.INSERT_AT_END,
@@ -1715,8 +1717,8 @@ function testDomO2IgnoresSheetRows() {
     console.log('[unit] DOM O2 ignores Sheet/Rule rows under document ok');
 }
 function testCssomTableLiveOracle() {
-    const sheetId = cssomIds_1.CSSOM_ID_MIN;
-    const ruleId = cssomIds_1.CSSOM_ID_MIN + 1;
+    const sheetId = 80;
+    const ruleId = 81;
     const text = 'a { color: red }';
     const table = new replicatedTable_1.ReplicatedTable();
     (0, replicatedTableApply_1.applyOpsToTable)(table, [
@@ -1744,8 +1746,8 @@ function testCssomTableLiveOracle() {
  */
 function testReplicatedTableApplyOpsParity() {
     const ops = [
-        { op: opcodes_1.OpCode.NodeNew, id: 10, kind: opcodes_1.NodeKind.Element, name: 'div', attrs: [{ name: 'class', value: 'a' }] },
-        { op: opcodes_1.OpCode.NodeNew, id: 11, kind: opcodes_1.NodeKind.Element, name: 'span', attrs: [] },
+        { op: opcodes_1.OpCode.NodeNew, id: 10, kind: opcodes_1.NodeKind.Element, ns: elementNs_1.ElementNs.Html, name: 'div', attrs: [{ name: 'class', value: 'a' }] },
+        { op: opcodes_1.OpCode.NodeNew, id: 11, kind: opcodes_1.NodeKind.Element, ns: elementNs_1.ElementNs.Html, name: 'span', attrs: [] },
         { op: opcodes_1.OpCode.NodeNew, id: 12, kind: opcodes_1.NodeKind.Text, value: 'hello' },
         { op: opcodes_1.OpCode.Insert, parent: 1, before: 0, ids: [10] },
         { op: opcodes_1.OpCode.Insert, parent: 10, before: 0, ids: [11, 12] },
@@ -1783,12 +1785,12 @@ function testReplicatedTableApplyOpsParity() {
 function testReplicatedTableResyncWholesaleReplace() {
     const table = new replicatedTable_1.ReplicatedTable();
     (0, replicatedTableApply_1.applyOpsToTable)(table, [
-        { op: opcodes_1.OpCode.NodeNew, id: 10, kind: opcodes_1.NodeKind.Element, name: 'div', attrs: [] },
+        { op: opcodes_1.OpCode.NodeNew, id: 10, kind: opcodes_1.NodeKind.Element, ns: elementNs_1.ElementNs.Html, name: 'div', attrs: [] },
         { op: opcodes_1.OpCode.Insert, parent: 1, before: 0, ids: [10] },
     ]);
     assert_1.default.strictEqual(table.has(10), true);
     const resyncOps = [
-        { op: opcodes_1.OpCode.NodeNew, id: 99, kind: opcodes_1.NodeKind.Element, name: 'section', attrs: [] },
+        { op: opcodes_1.OpCode.NodeNew, id: 99, kind: opcodes_1.NodeKind.Element, ns: elementNs_1.ElementNs.Html, name: 'section', attrs: [] },
         { op: opcodes_1.OpCode.Insert, parent: 1, before: 0, ids: [99] },
     ];
     (0, replicatedTableApply_1.applyFrameToTable)(table, true, resyncOps);
@@ -1801,7 +1803,7 @@ function testReplicatedTableResyncWholesaleReplace() {
     console.log('[unit] ReplicatedTable resync wholesale replace ok');
 }
 const STAGE2_OPS = [
-    { op: opcodes_1.OpCode.NodeNew, id: 10, kind: opcodes_1.NodeKind.Element, name: 'div', attrs: [{ name: 'class', value: 'a' }] },
+    { op: opcodes_1.OpCode.NodeNew, id: 10, kind: opcodes_1.NodeKind.Element, ns: elementNs_1.ElementNs.Html, name: 'div', attrs: [{ name: 'class', value: 'a' }] },
     { op: opcodes_1.OpCode.NodeNew, id: 11, kind: opcodes_1.NodeKind.Text, value: 'hi' },
     { op: opcodes_1.OpCode.Insert, parent: 1, before: 0, ids: [10] },
     { op: opcodes_1.OpCode.Insert, parent: 10, before: 0, ids: [11] },
@@ -1906,6 +1908,143 @@ function testCheckScopeRangeEncodeDecode() {
     assert_1.default.strictEqual(check.hash, 0xabcdefn);
     console.log('[unit] CHECK_SCOPE_RANGE encode/decode round-trip ok');
 }
+function frameLocalStrCount(bytes) {
+    return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(24, true);
+}
+function patchNodeNewNsByte(bytes, ns) {
+    const out = bytes.slice();
+    const view = new DataView(out.buffer, out.byteOffset, out.byteLength);
+    let o = 24;
+    const strCount = view.getUint32(o, true);
+    o += 4;
+    for (let i = 0; i < strCount; i++) {
+        const len = view.getUint32(o, true);
+        o += 4 + len;
+    }
+    const opCount = view.getUint32(o, true);
+    o += 4;
+    assert_1.default.strictEqual(opCount, 1);
+    assert_1.default.strictEqual(out[o], opcodes_1.OpCode.NodeNew);
+    o += 1 + 4; // opcode + id
+    assert_1.default.strictEqual(out[o], opcodes_1.NodeKind.Element);
+    o += 1; // kind
+    out[o] = ns;
+    return out;
+}
+function withEmptyFirstFrameString(bytes) {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const header = 24;
+    const strCount = view.getUint32(header, true);
+    let o = header + 4;
+    const firstLen = view.getUint32(o, true);
+    const rest = bytes.subarray(o + 4 + firstLen);
+    const out = new Uint8Array(header + 4 + 4 + rest.length);
+    out.set(bytes.subarray(0, header));
+    const ov = new DataView(out.buffer);
+    ov.setUint32(header, strCount, true);
+    ov.setUint32(header + 4, 0, true);
+    out.set(rest, header + 8);
+    return out;
+}
+/** SEAL-DOM-P1-SVG / PP-F-SVG-1 — NODE_NEW Element ns enum, version 2, hash split. */
+function testNodeNewElementNsWire() {
+    assert_1.default.strictEqual(frame_1.FRAME_WIRE_VERSION, 2);
+    const htmlOp = {
+        op: opcodes_1.OpCode.NodeNew,
+        id: 10,
+        kind: opcodes_1.NodeKind.Element,
+        ns: elementNs_1.ElementNs.Html,
+        name: 'a',
+        attrs: [],
+    };
+    const htmlBytes = new binaryFrameEncoder_1.BinaryFrameEncoder().encode((0, frame_1.createFrame)({ generation: 1, sequence: 1, ops: [htmlOp] }))[0];
+    const htmlDecoded = (0, decode_1.decodeFramePart)(htmlBytes, new decode_1.PersistentStringTable());
+    assert_1.default.ok(htmlDecoded.ok, 'html NODE_NEW must decode');
+    if (!htmlDecoded.ok)
+        return;
+    assert_1.default.strictEqual(htmlDecoded.part.version, 2);
+    const htmlGot = htmlDecoded.part.ops[0];
+    assert_1.default.strictEqual(htmlGot?.op, opcodes_1.OpCode.NodeNew);
+    if (htmlGot?.op !== opcodes_1.OpCode.NodeNew || htmlGot.kind !== opcodes_1.NodeKind.Element)
+        return;
+    assert_1.default.strictEqual(htmlGot.ns, elementNs_1.ElementNs.Html);
+    assert_1.default.strictEqual(htmlGot.uri, undefined);
+    assert_1.default.strictEqual(frameLocalStrCount(htmlBytes), 1, 'html ns must not emit a namespace StrRef');
+    const svgOp = {
+        op: opcodes_1.OpCode.NodeNew,
+        id: 11,
+        kind: opcodes_1.NodeKind.Element,
+        ns: elementNs_1.ElementNs.Svg,
+        name: 'a',
+        attrs: [],
+    };
+    const svgBytes = new binaryFrameEncoder_1.BinaryFrameEncoder().encode((0, frame_1.createFrame)({ generation: 1, sequence: 1, ops: [svgOp] }))[0];
+    const svgDecoded = (0, decode_1.decodeFramePart)(svgBytes, new decode_1.PersistentStringTable());
+    assert_1.default.ok(svgDecoded.ok, 'svg NODE_NEW must decode');
+    if (!svgDecoded.ok)
+        return;
+    const svgGot = svgDecoded.part.ops[0];
+    assert_1.default.strictEqual(svgGot?.op, opcodes_1.OpCode.NodeNew);
+    if (svgGot?.op !== opcodes_1.OpCode.NodeNew || svgGot.kind !== opcodes_1.NodeKind.Element)
+        return;
+    assert_1.default.strictEqual(svgGot.ns, elementNs_1.ElementNs.Svg);
+    assert_1.default.strictEqual(svgGot.uri, undefined);
+    assert_1.default.strictEqual(frameLocalStrCount(svgBytes), 1, 'svg ns must not emit a namespace StrRef');
+    const customOp = {
+        op: opcodes_1.OpCode.NodeNew,
+        id: 12,
+        kind: opcodes_1.NodeKind.Element,
+        ns: elementNs_1.ElementNs.Custom,
+        uri: 'http://example.com/ns',
+        name: 'a',
+        attrs: [],
+    };
+    const customBytes = new binaryFrameEncoder_1.BinaryFrameEncoder().encode((0, frame_1.createFrame)({ generation: 1, sequence: 1, ops: [customOp] }))[0];
+    const customDecoded = (0, decode_1.decodeFramePart)(customBytes, new decode_1.PersistentStringTable());
+    assert_1.default.ok(customDecoded.ok, 'custom NODE_NEW must decode');
+    if (!customDecoded.ok)
+        return;
+    const customGot = customDecoded.part.ops[0];
+    assert_1.default.strictEqual(customGot?.op, opcodes_1.OpCode.NodeNew);
+    if (customGot?.op !== opcodes_1.OpCode.NodeNew || customGot.kind !== opcodes_1.NodeKind.Element)
+        return;
+    assert_1.default.strictEqual(customGot.ns, elementNs_1.ElementNs.Custom);
+    assert_1.default.strictEqual(customGot.uri, 'http://example.com/ns');
+    assert_1.default.strictEqual(frameLocalStrCount(customBytes), 2, 'custom ns must carry a uri StrRef');
+    const badNs = (0, decode_1.decodeFramePart)(patchNodeNewNsByte(htmlBytes, 5), new decode_1.PersistentStringTable());
+    assert_1.default.strictEqual(badNs.ok, false);
+    if (!badNs.ok)
+        assert_1.default.strictEqual(badNs.reason, 'malformed');
+    assert_1.default.throws(() => new binaryFrameEncoder_1.BinaryFrameEncoder().encode((0, frame_1.createFrame)({
+        generation: 1,
+        sequence: 1,
+        ops: [{ op: opcodes_1.OpCode.NodeNew, id: 13, kind: opcodes_1.NodeKind.Element, ns: elementNs_1.ElementNs.Custom, uri: '', name: 'a', attrs: [] }],
+    })));
+    const emptyCustom = (0, decode_1.decodeFramePart)(withEmptyFirstFrameString(customBytes), new decode_1.PersistentStringTable());
+    assert_1.default.strictEqual(emptyCustom.ok, false);
+    if (!emptyCustom.ok)
+        assert_1.default.strictEqual(emptyCustom.reason, 'malformed');
+    const v1 = htmlBytes.slice();
+    v1[2] = 1;
+    const oldVer = (0, decode_1.decodeFramePart)(v1, new decode_1.PersistentStringTable());
+    assert_1.default.strictEqual(oldVer.ok, false);
+    if (!oldVer.ok)
+        assert_1.default.strictEqual(oldVer.reason, 'unknown_version');
+    const htmlTable = new replicatedTable_1.ReplicatedTable();
+    const svgTable = new replicatedTable_1.ReplicatedTable();
+    htmlTable.createElementRow(10, 'a', [], elementNs_1.ElementNs.Html);
+    svgTable.createElementRow(10, 'a', [], elementNs_1.ElementNs.Svg);
+    assert_1.default.notStrictEqual(htmlTable.getRow(10).contentHash, svgTable.getRow(10).contentHash, 'HTML <a> and SVG <a> must not share contentHash');
+    console.log('[unit] NODE_NEW Element ns wire + hash split ok');
+}
+function testStructuralDiffNsMismatch() {
+    const sameTagWrongNs = (0, structuralDiff_1.diffTrees)({ tag: 'a', ns: 'svg' }, { tag: 'a' });
+    assert_1.default.strictEqual(sameTagWrongNs.identical, false);
+    assert_1.default.ok(sameTagWrongNs.divergences.some((d) => d.kind === 'ns_mismatch'), `expected ns_mismatch, got ${JSON.stringify(sameTagWrongNs.divergences)}`);
+    const bothSvg = (0, structuralDiff_1.diffTrees)({ tag: 'circle', ns: 'svg' }, { tag: 'circle', ns: 'svg' });
+    assert_1.default.strictEqual(bothSvg.identical, true);
+    console.log('[unit] structuralDiff ns_mismatch ok');
+}
 /**
  * frame-protocol.md §2 Stage 2 GATE — the client's own precondition check (`preTableHash`
  * against its table's current `tableHash`, `client/applyDom.ts` phase 1) is the first gate
@@ -1960,8 +2099,8 @@ function testNodeDropRemovesSubtreeAndDescendants() {
     const table = new replicatedTable_1.ReplicatedTable();
     // root(10) -> mid(11) -> leaf(12); root(10) also has a second child leaf(13).
     (0, replicatedTableApply_1.applyOpsToTable)(table, [
-        { op: opcodes_1.OpCode.NodeNew, id: 10, kind: opcodes_1.NodeKind.Element, name: 'div', attrs: [] },
-        { op: opcodes_1.OpCode.NodeNew, id: 11, kind: opcodes_1.NodeKind.Element, name: 'span', attrs: [] },
+        { op: opcodes_1.OpCode.NodeNew, id: 10, kind: opcodes_1.NodeKind.Element, ns: elementNs_1.ElementNs.Html, name: 'div', attrs: [] },
+        { op: opcodes_1.OpCode.NodeNew, id: 11, kind: opcodes_1.NodeKind.Element, ns: elementNs_1.ElementNs.Html, name: 'span', attrs: [] },
         { op: opcodes_1.OpCode.NodeNew, id: 12, kind: opcodes_1.NodeKind.Text, value: 'leaf' },
         { op: opcodes_1.OpCode.NodeNew, id: 13, kind: opcodes_1.NodeKind.Text, value: 'leaf2' },
         { op: opcodes_1.OpCode.Insert, parent: 10, before: 0, ids: [11] },
@@ -1992,7 +2131,7 @@ function testCollectDroppableIdsAgeAndLimitBound() {
     table.setSequence(1);
     (0, replicatedTableApply_1.applyOpsToTable)(table, [
         { op: opcodes_1.OpCode.NodeNew, id: 20, kind: opcodes_1.NodeKind.Text, value: 'old-detached-root' },
-        { op: opcodes_1.OpCode.NodeNew, id: 21, kind: opcodes_1.NodeKind.Element, name: 'div', attrs: [] },
+        { op: opcodes_1.OpCode.NodeNew, id: 21, kind: opcodes_1.NodeKind.Element, ns: elementNs_1.ElementNs.Html, name: 'div', attrs: [] },
     ]);
     table.insertBatch(21, 0, [20]); // 20 is now attached under 21 — not droppable
     table.removeBatch(21, [20]); // detach 20 again — its lms is still stamped at sequence=1
@@ -2029,8 +2168,8 @@ function testCollectDroppableIdsExcludesSameTickReattach() {
     const table = new replicatedTable_1.ReplicatedTable();
     table.setSequence(1);
     (0, replicatedTableApply_1.applyOpsToTable)(table, [
-        { op: opcodes_1.OpCode.NodeNew, id: 1, kind: opcodes_1.NodeKind.Element, name: 'div', attrs: [] }, // root
-        { op: opcodes_1.OpCode.NodeNew, id: 20, kind: opcodes_1.NodeKind.Element, name: 'span', attrs: [] },
+        { op: opcodes_1.OpCode.NodeNew, id: 1, kind: opcodes_1.NodeKind.Element, ns: elementNs_1.ElementNs.Html, name: 'div', attrs: [] }, // root
+        { op: opcodes_1.OpCode.NodeNew, id: 20, kind: opcodes_1.NodeKind.Element, ns: elementNs_1.ElementNs.Html, name: 'span', attrs: [] },
     ]);
     table.insertBatch(1, 0, [20]);
     table.removeBatch(1, [20]); // 20 is now a detached root, lms stamped at sequence=1
@@ -2050,15 +2189,14 @@ function testCollectDroppableIdsExcludesSameTickReattach() {
     console.log('[unit] collectDroppableIds excludes a row reattached earlier in the same tick (same-tick GC race) ok');
 }
 /**
- * frame-protocol.md OPEN-1 Stage 3 GATE — "NODE_DROP of an absent id is malformed", now actually
- * enforced by `applyFrameToTableChecked` rather than left as a spec-only decision.
+ * frame-protocol.md §4.2 / OPEN-1 CLOSED — NODE_DROP of an absent id is malformed.
  */
 function testApplyFrameToTableCheckedRejectsNodeDropAbsentId() {
     const table = new replicatedTable_1.ReplicatedTable();
     const result = (0, replicatedTableApply_1.applyFrameToTableChecked)(table, false, [{ op: opcodes_1.OpCode.NodeDrop, ids: [999] }]);
     assert_1.default.strictEqual(result.ok, false, 'NODE_DROP of an id the table has never seen must fail');
     if (!result.ok && result.opName !== 'check') {
-        assert_1.default.strictEqual(result.reason, 'malformed', 'an absent-id NODE_DROP is malformed, per OPEN-1');
+        assert_1.default.strictEqual(result.reason, 'malformed', 'an absent-id NODE_DROP is malformed (§4.2 / OPEN-1)');
         assert_1.default.strictEqual(result.opName, 'nodeDrop');
         assert_1.default.strictEqual(result.id, 999);
     }
@@ -2134,7 +2272,7 @@ function testApplyFrameToTableCheckedPhase1Pres() {
     {
         const table = new replicatedTable_1.ReplicatedTable();
         (0, replicatedTableApply_1.applyOpsToTable)(table, [
-            { op: opcodes_1.OpCode.NodeNew, id: 2, kind: opcodes_1.NodeKind.Element, name: 'div', attrs: [] },
+            { op: opcodes_1.OpCode.NodeNew, id: 2, kind: opcodes_1.NodeKind.Element, ns: elementNs_1.ElementNs.Html, name: 'div', attrs: [] },
         ]);
         const result = (0, replicatedTableApply_1.applyFrameToTableChecked)(table, false, [
             { op: opcodes_1.OpCode.Insert, parent: 99, before: 0, ids: [2] },
@@ -2151,7 +2289,7 @@ function testApplyFrameToTableCheckedPhase1Pres() {
     {
         const table = new replicatedTable_1.ReplicatedTable();
         (0, replicatedTableApply_1.applyOpsToTable)(table, [
-            { op: opcodes_1.OpCode.NodeNew, id: 2, kind: opcodes_1.NodeKind.Element, name: 'div', attrs: [] },
+            { op: opcodes_1.OpCode.NodeNew, id: 2, kind: opcodes_1.NodeKind.Element, ns: elementNs_1.ElementNs.Html, name: 'div', attrs: [] },
             { op: opcodes_1.OpCode.NodeNew, id: 3, kind: opcodes_1.NodeKind.Text, value: 't' },
             { op: opcodes_1.OpCode.Insert, parent: 1, before: 0, ids: [2] },
             { op: opcodes_1.OpCode.Insert, parent: 2, before: 0, ids: [3] },
@@ -2187,7 +2325,7 @@ function testApplyFrameToTableCheckedPhase1Pres() {
     {
         const table = new replicatedTable_1.ReplicatedTable();
         (0, replicatedTableApply_1.applyOpsToTable)(table, [
-            { op: opcodes_1.OpCode.NodeNew, id: 2, kind: opcodes_1.NodeKind.Element, name: 'div', attrs: [] },
+            { op: opcodes_1.OpCode.NodeNew, id: 2, kind: opcodes_1.NodeKind.Element, ns: elementNs_1.ElementNs.Html, name: 'div', attrs: [] },
         ]);
         const result = (0, replicatedTableApply_1.applyFrameToTableChecked)(table, false, [
             { op: opcodes_1.OpCode.TextSet, node: 2, value: 'nope' },
@@ -2203,7 +2341,7 @@ function testApplyFrameToTableCheckedPhase1Pres() {
     {
         const table = new replicatedTable_1.ReplicatedTable();
         (0, replicatedTableApply_1.applyOpsToTable)(table, [
-            { op: opcodes_1.OpCode.NodeNew, id: 2, kind: opcodes_1.NodeKind.Element, name: 'div', attrs: [] },
+            { op: opcodes_1.OpCode.NodeNew, id: 2, kind: opcodes_1.NodeKind.Element, ns: elementNs_1.ElementNs.Html, name: 'div', attrs: [] },
         ]);
         const result = (0, replicatedTableApply_1.applyFrameToTableChecked)(table, false, [
             { op: opcodes_1.OpCode.RuleSet, id: 2, text: 'a{}' },
@@ -2256,7 +2394,7 @@ function testApplyFrameToTableCheckedPhase1Pres() {
     {
         const table = new replicatedTable_1.ReplicatedTable();
         (0, replicatedTableApply_1.applyOpsToTable)(table, [
-            { op: opcodes_1.OpCode.NodeNew, id: 2, kind: opcodes_1.NodeKind.Element, name: 'div', attrs: [] },
+            { op: opcodes_1.OpCode.NodeNew, id: 2, kind: opcodes_1.NodeKind.Element, ns: elementNs_1.ElementNs.Html, name: 'div', attrs: [] },
         ]);
         const ids = new Array(limits_1.MAX_CHILDREN_PER_OP + 1).fill(2);
         const result = (0, replicatedTableApply_1.applyFrameToTableChecked)(table, false, [
@@ -2273,7 +2411,7 @@ function testApplyFrameToTableCheckedPhase1Pres() {
     {
         const table = new replicatedTable_1.ReplicatedTable();
         const ok = (0, replicatedTableApply_1.applyFrameToTableChecked)(table, false, [
-            { op: opcodes_1.OpCode.NodeNew, id: 2, kind: opcodes_1.NodeKind.Element, name: 'div', attrs: [] },
+            { op: opcodes_1.OpCode.NodeNew, id: 2, kind: opcodes_1.NodeKind.Element, ns: elementNs_1.ElementNs.Html, name: 'div', attrs: [] },
             { op: opcodes_1.OpCode.Insert, parent: 1, before: frame_1.INSERT_AT_END, ids: [2] },
         ]);
         assert_1.default.strictEqual(ok.ok, true, 'INSERT under Document id 1 remains valid');
@@ -2283,7 +2421,7 @@ function testApplyFrameToTableCheckedPhase1Pres() {
 }
 function testNodeTableApplierDigestMatchesDirectApply() {
     const ops = [
-        { op: opcodes_1.OpCode.NodeNew, id: 2, kind: opcodes_1.NodeKind.Element, name: 'div', attrs: [] },
+        { op: opcodes_1.OpCode.NodeNew, id: 2, kind: opcodes_1.NodeKind.Element, ns: elementNs_1.ElementNs.Html, name: 'div', attrs: [] },
         { op: opcodes_1.OpCode.NodeNew, id: 3, kind: opcodes_1.NodeKind.Text, value: 'hi' },
         { op: opcodes_1.OpCode.Insert, parent: 1, before: frame_1.INSERT_AT_END, ids: [2] },
         { op: opcodes_1.OpCode.Insert, parent: 2, before: frame_1.INSERT_AT_END, ids: [3] },
@@ -2468,6 +2606,28 @@ function testCssomWalkSkipVsAbort() {
     assert_1.default.strictEqual((0, cssomWalk_1.isRuleSlotLive)({}, sheet, live), false, 'dead slot skipped');
     console.log('[unit] cssom walk skip vs abort ok');
 }
+/** SEAL-CSSOM-P1-IDSPACE — Sheet/Rule ids share the session mint; no high-bit Cssom range. */
+function testSessionIdsSharedDomAndCssom() {
+    let next = 2;
+    const mint = () => {
+        const id = next;
+        next += 1;
+        return id;
+    };
+    const ids = new cssomIds_1.CssomIds(mint);
+    const firstDom = mint();
+    const sheet = {};
+    const rule = {};
+    const sheetId = ids.idOfSheet(sheet);
+    const ruleId = ids.idOfRule(rule);
+    assert_1.default.strictEqual(firstDom, 2, 'allocator starts at 2 (Document is 1)');
+    assert_1.default.strictEqual(sheetId, 3);
+    assert_1.default.strictEqual(ruleId, 4);
+    assert_1.default.strictEqual(ids.idOfSheet(sheet), 3, 'same sheet object keeps id');
+    assert_1.default.ok(sheetId < 0x80000000, 'Cssom must not reserve the pre-V4 high-bit range');
+    assert_1.default.ok(ruleId < 0x80000000);
+    console.log('[unit] session ids shared DOM+CSSOM (SEAL-CSSOM-P1-IDSPACE) ok');
+}
 function testCssomOpsAndTableApply() {
     class CSSStyleRule {
     }
@@ -2487,7 +2647,7 @@ function testCssomOpsAndTableApply() {
     assert_1.default.strictEqual(resync[0]?.op, opcodes_1.OpCode.SheetNew);
     assert_1.default.strictEqual(resync[1]?.op, opcodes_1.OpCode.RuleNew);
     assert_1.default.strictEqual(resync[2]?.op, opcodes_1.OpCode.RuleNew);
-    assert_1.default.ok(resync[0].id >= cssomIds_1.CSSOM_ID_MIN);
+    assert_1.default.strictEqual(resync[0].id, 2);
     const table = new replicatedTable_1.ReplicatedTable();
     (0, replicatedTableApply_1.applyOpsToTable)(table, resync);
     const sheetId = ids.peekSheet(sheet);
@@ -2569,9 +2729,9 @@ function testCssomGroupingContentChangeEmitsDropNew() {
     console.log('[unit] cssom grouping content change DROP+NEW + table parity (PP-CSSOM-A-1) ok');
 }
 function testCssomApplyIndex() {
-    const a = cssomIds_1.CSSOM_ID_MIN;
-    const b = cssomIds_1.CSSOM_ID_MIN + 1;
-    const c = cssomIds_1.CSSOM_ID_MIN + 2;
+    const a = 80;
+    const b = 81;
+    const c = 82;
     assert_1.default.strictEqual((0, cssomApplyIndex_1.insertIndexFromBefore)([], frame_1.INSERT_AT_END), 0);
     assert_1.default.strictEqual((0, cssomApplyIndex_1.insertIndexFromBefore)([a], frame_1.INSERT_AT_END), 1);
     assert_1.default.strictEqual((0, cssomApplyIndex_1.insertIndexFromBefore)([a, c], b), -1);
@@ -2625,10 +2785,10 @@ function testCssomEndOfFrameMatch() {
 }
 function testCssomEncodeDecode() {
     const ops = [
-        { op: opcodes_1.OpCode.SheetNew, id: cssomIds_1.CSSOM_ID_MIN, scope: frame_1.CSSOM_SCOPE_MAIN, hostNode: 0, before: frame_1.INSERT_AT_END },
-        { op: opcodes_1.OpCode.RuleNew, sheet: cssomIds_1.CSSOM_ID_MIN, id: cssomIds_1.CSSOM_ID_MIN + 1, before: frame_1.INSERT_AT_END, text: '.x { color: red }' },
-        { op: opcodes_1.OpCode.RuleSet, id: cssomIds_1.CSSOM_ID_MIN + 1, text: '.x { color: blue }' },
-        { op: opcodes_1.OpCode.SheetOrder, ids: [cssomIds_1.CSSOM_ID_MIN] },
+        { op: opcodes_1.OpCode.SheetNew, id: 2, scope: frame_1.CSSOM_SCOPE_MAIN, hostNode: 0, before: frame_1.INSERT_AT_END },
+        { op: opcodes_1.OpCode.RuleNew, sheet: 2, id: 3, before: frame_1.INSERT_AT_END, text: '.x { color: red }' },
+        { op: opcodes_1.OpCode.RuleSet, id: 3, text: '.x { color: blue }' },
+        { op: opcodes_1.OpCode.SheetOrder, ids: [2] },
     ];
     const frame = (0, frame_1.createFrame)({ generation: 1, sequence: 1, ops, preTableHash: 0n });
     const bytes = new binaryFrameEncoder_1.BinaryFrameEncoder().encode(frame)[0];
@@ -2685,9 +2845,9 @@ function testHostileHonestyFramesEncodeDecode() {
 }
 function testCssomPollTelemetrySchema() {
     const hist = (0, telemetry_1.countCssomOps)([
-        { op: opcodes_1.OpCode.SheetNew, id: cssomIds_1.CSSOM_ID_MIN, scope: frame_1.CSSOM_SCOPE_MAIN, hostNode: 0, before: frame_1.INSERT_AT_END },
-        { op: opcodes_1.OpCode.RuleNew, sheet: cssomIds_1.CSSOM_ID_MIN, id: cssomIds_1.CSSOM_ID_MIN + 1, before: frame_1.INSERT_AT_END, text: '.x{}' },
-        { op: opcodes_1.OpCode.RuleSet, id: cssomIds_1.CSSOM_ID_MIN + 1, text: '.x{color:red}' },
+        { op: opcodes_1.OpCode.SheetNew, id: 2, scope: frame_1.CSSOM_SCOPE_MAIN, hostNode: 0, before: frame_1.INSERT_AT_END },
+        { op: opcodes_1.OpCode.RuleNew, sheet: 2, id: 3, before: frame_1.INSERT_AT_END, text: '.x{}' },
+        { op: opcodes_1.OpCode.RuleSet, id: 3, text: '.x{color:red}' },
         { op: opcodes_1.OpCode.Check, scope: frame_1.CHECK_SCOPE_TABLE, lo: 0, hi: 0, hash: 0n },
     ]);
     assert_1.default.strictEqual(hist.opCount, 3);
@@ -2782,6 +2942,8 @@ async function main() {
     testApplyFrameToTableCheckedRejectsCorruptedCheck();
     testApplyFrameToTableCheckedRangeScope();
     testCheckScopeRangeEncodeDecode();
+    testNodeNewElementNsWire();
+    testStructuralDiffNsMismatch();
     testApplyFrameToTableCheckedDoesNotRollBackPriorOps();
     testEpochResetClearsReplicatedTable();
     testNodeDropRemovesSubtreeAndDescendants();
@@ -2799,6 +2961,7 @@ async function main() {
     await testLabBlueprintScheduleDependsAndAwaits();
     testCssomFnvAndRuleDiff();
     testCssomWalkSkipVsAbort();
+    testSessionIdsSharedDomAndCssom();
     testCssomOpsAndTableApply();
     testCssomGroupingContentChangeEmitsDropNew();
     testCssomApplyIndex();

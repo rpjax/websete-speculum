@@ -14,6 +14,8 @@
  * implementation. Not assumed a problem preemptively.
  */
 
+import { ElementNs } from './elementNs';
+
 const FNV_OFFSET_BASIS = 14695981039346656037n;
 const FNV_PRIME = 1099511628211n;
 export const MASK64 = 0xffffffffffffffffn;
@@ -74,6 +76,16 @@ export function hashValue(value: string): bigint {
 
 export function hashAttr(name: string, value: string): bigint {
   return h64Str(`\u0000A${name}\u0001${value}`);
+}
+
+/**
+ * ELEMENT namespace contribution to `contentHash` (§1.5). Known `ns` hashes the `u8`;
+ * `custom` hashes the URI so HTML `<a>` and SVG `<a>` cannot collide, and two custom
+ * URIs cannot either.
+ */
+export function hashNs(ns: number, uri?: string): bigint {
+  if (ns === ElementNs.Custom) return h64Str(`\u0000U${uri ?? ''}`);
+  return h64Bytes(Uint8Array.of(0x00, 0x53, ns & 0xff));
 }
 
 /** `rowHash = H64(id, kind, parent, prevSibling, contentHash)` — §1.5. Order-sensitive fold. */

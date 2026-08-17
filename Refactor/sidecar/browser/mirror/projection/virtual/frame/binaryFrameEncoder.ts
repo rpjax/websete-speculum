@@ -11,6 +11,7 @@
  * are the binding constraint.
  */
 
+import { ElementNs } from '../../models/elementNs';
 import { NodeKind, OpCode } from '../../models/opcodes';
 import type {
   AttrPair,
@@ -202,6 +203,14 @@ export class BinaryFrameEncoder implements FrameEncoder {
     w.u32(op.id);
     w.u8(op.kind);
     if (op.kind === NodeKind.Element) {
+      w.u8(op.ns);
+      if (op.ns === ElementNs.Custom) {
+        const uri = op.uri ?? '';
+        if (uri.length === 0) {
+          throw new Error('NODE_NEW custom ns requires a non-empty uri (frame-protocol.md §4.2)');
+        }
+        this.writeStrRef(w, uri);
+      }
       this.writeStrRef(w, op.name);
       this.writeAttrs(w, op.attrs);
       return;

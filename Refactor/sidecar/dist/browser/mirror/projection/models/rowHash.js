@@ -24,7 +24,9 @@ exports.subMod64 = subMod64;
 exports.hashName = hashName;
 exports.hashValue = hashValue;
 exports.hashAttr = hashAttr;
+exports.hashNs = hashNs;
 exports.computeRowHash = computeRowHash;
+const elementNs_1 = require("./elementNs");
 const FNV_OFFSET_BASIS = 14695981039346656037n;
 const FNV_PRIME = 1099511628211n;
 exports.MASK64 = 0xffffffffffffffffn;
@@ -76,6 +78,16 @@ function hashValue(value) {
 }
 function hashAttr(name, value) {
     return h64Str(`\u0000A${name}\u0001${value}`);
+}
+/**
+ * ELEMENT namespace contribution to `contentHash` (§1.5). Known `ns` hashes the `u8`;
+ * `custom` hashes the URI so HTML `<a>` and SVG `<a>` cannot collide, and two custom
+ * URIs cannot either.
+ */
+function hashNs(ns, uri) {
+    if (ns === elementNs_1.ElementNs.Custom)
+        return h64Str(`\u0000U${uri ?? ''}`);
+    return h64Bytes(Uint8Array.of(0x00, 0x53, ns & 0xff));
 }
 /** `rowHash = H64(id, kind, parent, prevSibling, contentHash)` — §1.5. Order-sensitive fold. */
 function computeRowHash(id, kind, parent, prevSibling, contentHash) {

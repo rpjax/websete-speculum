@@ -16,7 +16,8 @@ exports.createFrame = createFrame;
 exports.spliceCssomBeforeCheck = spliceCssomBeforeCheck;
 const opcodes_1 = require("./opcodes");
 Object.defineProperty(exports, "NodeKind", { enumerable: true, get: function () { return opcodes_1.NodeKind; } });
-exports.FRAME_WIRE_VERSION = 1;
+/** Current wire version. Operand change on `NODE_NEW` Element (`ns`) bumped 1 → 2; no shim (§9). */
+exports.FRAME_WIRE_VERSION = 2;
 /** id `1` is reserved for the Document row (frame-protocol.md §1.2). */
 exports.DOCUMENT_ID = 1;
 /** `before = 0` in `INSERT` means "insert at end" (§4.3). */

@@ -29,6 +29,7 @@ A package (`WP`) is complete when **all** its `PP-*` rows pass and **all** its r
 | `PP-F-3` | Slotted shadow content publishes the flattened rendered result | WP3 |
 | `PP-F-4` | Closed shadow roots and cross-origin iframes are pierced and published | WP3 |
 | `PP-F-5` | `<title>`, `lang`, `dir` and `meta viewport` are projected; an RTL page renders RTL | WP3 |
+| `PP-F-SVG-1` | SVG / MathML `namespaceURI` matches Virtual (**SEAL-DOM-P1-SVG**). Units: `testNodeNewElementNsWire`, `testStructuralDiffNsMismatch`. Lab `svg-ns` (CLI without DOM client: `iso.tree` skip explicit; with client, `ns_mismatch` fails). | lab |
 | `PP-D16-1` | `showModal()` on Virtual produces a modal dialog on Projected: top layer, backdrop, inertness | WP11 |
 | `PP-D16-2` | Popover shown on Virtual is shown on Projected | WP11 |
 | `PP-D16-3` | Media pause / seek on Virtual is reflected on the client's media element | WP11 |

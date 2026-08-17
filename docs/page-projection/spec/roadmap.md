@@ -26,7 +26,7 @@ V4 lab (DOM table, single document, no production)
 | Piece | Status |
 |-------|--------|
 | V4 protocol spec | **In force** — [frame-protocol.md](frame-protocol.md) |
-| Lab engine `Refactor/sidecar/browser/mirror/projection/` | **DONE** for **DOM table, single document**, Stages 1–4, plus lab CSSOM for constructed `adoptedStyleSheets` + `CSSStyleRule`. Caller of `V4ProjectionBrowserSession` (**temporary** until cutover). CLI `--iso`: O2 local + Node table×table + CSSOM O2. Tree×tree = lab UI with a DOM client. **Not** OPEN-6. **Not** input. **Not** canvas. Next lab work: [seal-gaps.md](seal-gaps.md) gaps (SVG, id space, OPEN-1). |
+| Lab engine `Refactor/sidecar/browser/mirror/projection/` | **DONE** for **DOM table, single document**, Stages 1–4, plus lab CSSOM for constructed `adoptedStyleSheets` + `CSSStyleRule`. Caller of `V4ProjectionBrowserSession` (**temporary** until cutover). CLI `--iso`: O2 local + Node table×table + CSSOM O2. Tree×tree = lab UI with a DOM client. **Not** OPEN-6. **Not** input. **Not** canvas. SVG namespace closed 2026-08-17. Next lab work: [seal-gaps.md](seal-gaps.md) §3 features. |
 | Lab host/UI | **Shipped** 2026-08-16 — [lab-design.md](lab-design.md). UI **http://127.0.0.1:4077/**. |
 | Production path `PatchrightBrowserSession.ts` | **Legacy** `LivePageProjection` — **must stay** until the cutover law above is met |
 | M1 overall | **Blocked** on product-complete lab (CSSOM + OPEN-6 + input redesign + **canvas projection**) **then** Production Integration |

@@ -20,6 +20,7 @@
  */
 
 import { NodeKind, OpCode } from '../models/opcodes';
+import { ElementNs, elementNsUri } from '../models/elementNs';
 import { applyFramesUntilDesync } from '../models/applyBatch';
 import {
   CSSOM_SCOPE_PIERCE_HOST,
@@ -48,7 +49,7 @@ export interface DomDesyncInfo {
   message?: string;
   /**
    * Overrides `models/telemetry.ts`'s `errorCode → phase` default for this desync — needed for
-   * `reason: 'malformed'` raised here (OPEN-1's absent-id `NODE_DROP`), which is caught during
+ * `reason: 'malformed'` raised here (OPEN-1 CLOSED: absent-id `NODE_DROP`), which is caught during
    * phase-1 *apply*, not decode, unlike every other `'malformed'` source (`models/decode.ts`).
    */
   phase?: 'apply';
@@ -443,7 +444,11 @@ export class DomFrameApplier {
   private applyNodeNew(op: Extract<FrameOp, { op: OpCode.NodeNew }>): boolean {
     let node: Node;
     if (op.kind === NodeKind.Element) {
-      node = this.doc.createElement(op.name);
+      if (op.ns === ElementNs.Custom && !(op.uri && op.uri.length > 0)) {
+        return this.fail('malformed', 'nodeNew', op.id);
+      }
+      const uri = elementNsUri(op.ns, op.uri);
+      node = this.doc.createElementNS(uri, op.name);
       // SEAL-DOM-P0-ATTR: register only after attrs land — failed setAttribute → desync.
       if (!applyAttrs(node as Element, op.attrs)) {
         return this.fail('malformed', 'nodeNew', op.id);

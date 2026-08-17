@@ -1,21 +1,42 @@
 /**
- * CSSOM id allocator — D-SPEC-8 range `[0x80000001 .. 0xFFFFFFFF]`. WeakMaps on live
- * CSSStyleSheet / CSSRule objects. Ids survive replaceSync of *content* only if the sheet
+ * CSSOM identity maps — WeakMaps on live CSSStyleSheet / CSSRule objects.
+ * Numbers come from the session allocator (frame-protocol.md §1.1 / §1.2): one monotonic
+ * space with DOM, starting at 2. Ids survive replaceSync of *content* only if the sheet
  * object is the same; new rule objects get new ids (list-diff, not SHEET_DROP).
  */
 
-export const CSSOM_ID_MIN = 0x80000001;
-export const CSSOM_ID_MAX = 0xffffffff;
+/** Mint the next session id. Shared with {@link DomNodeTable.mint}. */
+export type SessionIdMint = () => number;
+
+const ID_SPACE_MAX = 0xffffffff;
+
+function standaloneMintState(): { next: number } {
+  return { next: 2 };
+}
 
 export class CssomIds {
-  private next = CSSOM_ID_MIN;
+  private readonly mint: SessionIdMint;
   private readonly sheets = new WeakMap<object, number>();
   private readonly rules = new WeakMap<object, number>();
+
+  constructor(mint?: SessionIdMint) {
+    if (mint !== undefined) {
+      this.mint = mint;
+      return;
+    }
+    const state = standaloneMintState();
+    this.mint = () => {
+      if (state.next > ID_SPACE_MAX) throw new Error('CssomIds: id space exhausted');
+      const id = state.next;
+      state.next += 1;
+      return id;
+    };
+  }
 
   idOfSheet(sheet: object): number {
     const existing = this.sheets.get(sheet);
     if (existing !== undefined) return existing;
-    const id = this.alloc();
+    const id = this.mint();
     this.sheets.set(sheet, id);
     return id;
   }
@@ -23,7 +44,7 @@ export class CssomIds {
   idOfRule(rule: object): number {
     const existing = this.rules.get(rule);
     if (existing !== undefined) return existing;
-    const id = this.alloc();
+    const id = this.mint();
     this.rules.set(rule, id);
     return id;
   }
@@ -39,12 +60,5 @@ export class CssomIds {
   /** Drop+new of a still-live object (grouping rule content change) — next `idOfRule` allocates. */
   forgetRule(rule: object): void {
     this.rules.delete(rule);
-  }
-
-  private alloc(): number {
-    if (this.next > CSSOM_ID_MAX) throw new Error('CssomIds: id space exhausted');
-    const id = this.next;
-    this.next += 1;
-    return id;
   }
 }

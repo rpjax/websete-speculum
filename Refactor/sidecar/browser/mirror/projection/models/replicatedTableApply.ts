@@ -40,7 +40,7 @@ export function applyOpToTable(table: ReplicatedTable, op: FrameOp): void {
     case OpCode.StrDef:
       return;
     case OpCode.NodeNew:
-      if (op.kind === NodeKind.Element) table.createElementRow(op.id, op.name, op.attrs);
+      if (op.kind === NodeKind.Element) table.createElementRow(op.id, op.name, op.attrs, op.ns, op.uri);
       else if (op.kind === NodeKind.Doctype) table.createLeafRow(op.id, op.kind, op.name);
       else table.createLeafRow(op.id, op.kind, op.value);
       return;
@@ -548,7 +548,7 @@ export function applyFrameToTableChecked(
             'malformed',
             'nodeDrop',
             id,
-            'NODE_DROP of an absent id (frame-protocol.md OPEN-1)',
+            'NODE_DROP of an absent id (frame-protocol.md §4.2 / OPEN-1 CLOSED)',
           );
         }
         if (table.getRow(id)!.parent !== 0) {

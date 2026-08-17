@@ -18,10 +18,11 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.FramePartAssembler = exports.PersistentStringTable = void 0;
 exports.decodeFramePart = decodeFramePart;
+const elementNs_1 = require("./elementNs");
 const opcodes_1 = require("./opcodes");
 const frame_1 = require("./frame");
 const limits_1 = require("./limits");
-const WIRE_VERSION = 1;
+const WIRE_VERSION = frame_1.FRAME_WIRE_VERSION;
 const WIRE_MAGIC = 0x5050;
 const LOCAL_STR_BIT = 0x80000000;
 const RESYNC_FLAG_BIT = 0b10;
@@ -205,9 +206,28 @@ function decodeOp(opCode, r, resolveStr, persistent) {
             const id = r.u32();
             const kind = r.u8();
             if (kind === opcodes_1.NodeKind.Element) {
+                const ns = r.u8();
+                if (ns > elementNs_1.ElementNs.Custom) {
+                    throw new Error(`NODE_NEW ns ${ns} out of range (frame-protocol.md §4.2)`);
+                }
+                let uri;
+                if (ns === elementNs_1.ElementNs.Custom) {
+                    uri = resolveStr(r.u32());
+                    if (uri.length === 0) {
+                        throw new Error('NODE_NEW custom ns empty uri (frame-protocol.md §4.2)');
+                    }
+                }
                 const name = resolveStr(r.u32());
                 const attrs = decodeAttrs(r, resolveStr);
-                return { op: opcodes_1.OpCode.NodeNew, id, kind: opcodes_1.NodeKind.Element, name, attrs };
+                return {
+                    op: opcodes_1.OpCode.NodeNew,
+                    id,
+                    kind: opcodes_1.NodeKind.Element,
+                    ns: ns,
+                    name,
+                    attrs,
+                    ...(uri !== undefined ? { uri } : {}),
+                };
             }
             if (kind === opcodes_1.NodeKind.Doctype) {
                 return { op: opcodes_1.OpCode.NodeNew, id, kind: opcodes_1.NodeKind.Doctype, name: resolveStr(r.u32()) };

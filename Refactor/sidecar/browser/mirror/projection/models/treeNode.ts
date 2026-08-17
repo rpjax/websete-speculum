@@ -9,6 +9,8 @@
 
 export type TreeNode = {
   tag: string;
+  /** Omitted when HTML. `svg` / `mathml` / `none` / custom URI otherwise. */
+  ns?: string;
   attrs?: [string, string][];
   text?: string;
   children?: TreeNode[];

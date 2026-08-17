@@ -58,7 +58,10 @@
 | 2026-08-17 | OPEN-2 **CLOSED** — detached-row GC (end-of-tick detach, `lms`-age drop, no per-row versioning) | [open.md](open.md) + [frame-protocol.md](frame-protocol.md) §10 |
 | 2026-08-17 | OPEN-3 **CLOSED** — CHECK over id ranges | [open.md](open.md) + [frame-protocol.md](frame-protocol.md) §4.1 / §10 |
 | 2026-08-17 | Inject honesty ATTR/RULESET/EOF — harness, not apply; UI 4077 PASS | [observability.md](observability.md) §7 |
-| 2026-08-17 | Lab QA closed; next = seal-gaps §2 (SVG, id space, OPEN-1) | [seal-gaps.md](seal-gaps.md) |
+| 2026-08-17 | Lab QA closed; next = SVG ([seal-gaps.md](seal-gaps.md) §2). Id space + OPEN-1 closed same day. | [seal-gaps.md](seal-gaps.md) |
+| 2026-08-17 | **SEAL-CSSOM-P1-IDSPACE** — Sheet/Rule ids share `DomNodeTable.mint`; leftover high-bit Cssom range gone | [seal-gaps.md](seal-gaps.md) |
+| 2026-08-17 | OPEN-1 **CLOSED** — `NODE_DROP` of an absent id is `malformed` | [frame-protocol.md](frame-protocol.md) §4.2 / §10 |
+| 2026-08-17 | **SEAL-DOM-P1-SVG** — `NODE_NEW` Element namespace enum; version 2; `createElementNS` | [frame-protocol.md](frame-protocol.md) §1.3 / §4.2 / §9 + [seal-gaps.md](seal-gaps.md) |
 
 **Stage 4 confirmed (Rodrigo):** mid-session recovery = **`emitResyncFrame` alone** (ids preserved; does not self-heal a corrupt map shape). Client = **real double buffer**, swap only after resync frame CHECK. Lab transport = existing control WS + `PlaneChannel.Control`. Production hub/gRPC is gate 5.
 

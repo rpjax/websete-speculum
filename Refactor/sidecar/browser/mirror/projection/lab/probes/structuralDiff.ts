@@ -10,6 +10,7 @@ import type { TreeNode } from '../../models/treeNode';
 
 export type DivergenceKind =
   | 'tag_mismatch'
+  | 'ns_mismatch'
   | 'attr_mismatch'
   | 'text_mismatch'
   | 'child_count_mismatch'
@@ -61,6 +62,12 @@ function walk(
   if (a.tag !== b.tag) {
     record(path, 'tag_mismatch', `virtual=${a.tag} client=${b.tag}`);
     return; // divergent enough that walking children further is just noise on top of this
+  }
+  const aNs = a.ns ?? 'html';
+  const bNs = b.ns ?? 'html';
+  if (aNs !== bNs) {
+    record(path, 'ns_mismatch', `virtual=${aNs} client=${bNs}`);
+    return;
   }
   if ((a.text ?? '') !== (b.text ?? '')) {
     record(path, 'text_mismatch', `virtual=${JSON.stringify(a.text)} client=${JSON.stringify(b.text)}`);

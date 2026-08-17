@@ -10,6 +10,7 @@ exports.encodeEofSetupFrame = encodeEofSetupFrame;
 exports.encodeEofCheckFrame = encodeEofCheckFrame;
 const binaryFrameEncoder_1 = require("../../virtual/frame/binaryFrameEncoder");
 const frame_1 = require("../../models/frame");
+const elementNs_1 = require("../../models/elementNs");
 const opcodes_1 = require("../../models/opcodes");
 /** High ids — well above a typical lab document allocator. */
 const ATTR_NODE_ID = 199_991;
@@ -40,6 +41,7 @@ function encodeAttrDesyncFrame(generation, sequence, preTableHash) {
                 op: opcodes_1.OpCode.NodeNew,
                 id: ATTR_NODE_ID,
                 kind: opcodes_1.NodeKind.Element,
+                ns: elementNs_1.ElementNs.Html,
                 name: 'div',
                 attrs: [{ name: 'foo bar', value: 'x' }],
             },

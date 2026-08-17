@@ -44,6 +44,7 @@ import {
   h64U32,
   hashAttr,
   hashName,
+  hashNs,
   hashValue,
   subMod64,
   TableHashTracker,
@@ -58,22 +59,25 @@ import {
   applyOpsToTable,
 } from './browser/mirror/projection/models/replicatedTableApply';
 import { NodeKind, OpCode } from './browser/mirror/projection/models/opcodes';
+import { ElementNs } from './browser/mirror/projection/models/elementNs';
 import {
   CHECK_SCOPE_RANGE,
   CHECK_SCOPE_TABLE,
   CSSOM_SCOPE_MAIN,
   CSSOM_SCOPE_PIERCE_HOST,
+  FRAME_WIRE_VERSION,
   type FrameOp,
   createFrame,
   INSERT_AT_END,
   spliceCssomBeforeCheck,
 } from './browser/mirror/projection/models/frame';
+import { diffTrees } from './browser/mirror/projection/lab/probes/structuralDiff';
 import { decodeFramePart, PersistentStringTable } from './browser/mirror/projection/models/decode';
 import { applyFramesUntilDesync } from './browser/mirror/projection/models/applyBatch';
 import { applyAttrPairs } from './browser/mirror/projection/models/attrApply';
 import { planRuleSetApply, ruleAcceptsInPlaceSet } from './browser/mirror/projection/models/cssomRuleSet';
 import { shouldAbortSheet, isRuleSlotLive, MASS_ABORT_STALE_FRACTION } from './browser/mirror/projection/virtual/cssom/cssomWalk';
-import { CssomIds, CSSOM_ID_MIN } from './browser/mirror/projection/virtual/cssom/cssomIds';
+import { CssomIds } from './browser/mirror/projection/virtual/cssom/cssomIds';
 import { emitLiveCssomOps, emitResyncCssomOps } from './browser/mirror/projection/virtual/cssom/cssomOps';
 import {
   CSSOM_POLL_STAT_KEYS,
@@ -1806,8 +1810,8 @@ function testReplicatedTableRowContentHash(): void {
   table.createElementRow(10, 'div', [{ name: 'class', value: 'a' }]);
   const afterCreate = table.getRow(10);
   assert.ok(afterCreate);
-  const expectedCreateContent = addMod64(hashName('div'), hashAttr('class', 'a'));
-  assert.strictEqual(afterCreate!.contentHash, expectedCreateContent, '§1.3 element contentHash = Σ(tag name hash, attr hashes)');
+  const expectedCreateContent = addMod64(addMod64(hashName('div'), hashNs(ElementNs.Html)), hashAttr('class', 'a'));
+  assert.strictEqual(afterCreate!.contentHash, expectedCreateContent, '§1.3 element contentHash = Σ(ns hash, tag name hash, attr hashes)');
   assert.strictEqual(afterCreate!.rowHash, computeRowHash(10, NodeKind.Element, 0, 0, expectedCreateContent));
 
   table.setAttrs(10, [{ name: 'id', value: 'root' }]);
@@ -2044,7 +2048,7 @@ function testDomO2IgnoresSheetRows(): void {
   applyOpsToTable(table, [
     {
       op: OpCode.SheetNew,
-      id: CSSOM_ID_MIN,
+      id: 80,
       scope: CSSOM_SCOPE_MAIN,
       hostNode: 0,
       before: INSERT_AT_END,
@@ -2064,8 +2068,8 @@ function testDomO2IgnoresSheetRows(): void {
 }
 
 function testCssomTableLiveOracle(): void {
-  const sheetId = CSSOM_ID_MIN;
-  const ruleId = CSSOM_ID_MIN + 1;
+  const sheetId = 80;
+  const ruleId = 81;
   const text = 'a { color: red }';
   const table = new ReplicatedTable();
   applyOpsToTable(table, [
@@ -2098,8 +2102,8 @@ function testCssomTableLiveOracle(): void {
  */
 function testReplicatedTableApplyOpsParity(): void {
   const ops: FrameOp[] = [
-    { op: OpCode.NodeNew, id: 10, kind: NodeKind.Element, name: 'div', attrs: [{ name: 'class', value: 'a' }] },
-    { op: OpCode.NodeNew, id: 11, kind: NodeKind.Element, name: 'span', attrs: [] },
+    { op: OpCode.NodeNew, id: 10, kind: NodeKind.Element, ns: ElementNs.Html, name: 'div', attrs: [{ name: 'class', value: 'a' }] },
+    { op: OpCode.NodeNew, id: 11, kind: NodeKind.Element, ns: ElementNs.Html, name: 'span', attrs: [] },
     { op: OpCode.NodeNew, id: 12, kind: NodeKind.Text, value: 'hello' },
     { op: OpCode.Insert, parent: 1, before: 0, ids: [10] },
     { op: OpCode.Insert, parent: 10, before: 0, ids: [11, 12] },
@@ -2142,13 +2146,13 @@ function testReplicatedTableApplyOpsParity(): void {
 function testReplicatedTableResyncWholesaleReplace(): void {
   const table = new ReplicatedTable();
   applyOpsToTable(table, [
-    { op: OpCode.NodeNew, id: 10, kind: NodeKind.Element, name: 'div', attrs: [] },
+    { op: OpCode.NodeNew, id: 10, kind: NodeKind.Element, ns: ElementNs.Html, name: 'div', attrs: [] },
     { op: OpCode.Insert, parent: 1, before: 0, ids: [10] },
   ]);
   assert.strictEqual(table.has(10), true);
 
   const resyncOps: FrameOp[] = [
-    { op: OpCode.NodeNew, id: 99, kind: NodeKind.Element, name: 'section', attrs: [] },
+    { op: OpCode.NodeNew, id: 99, kind: NodeKind.Element, ns: ElementNs.Html, name: 'section', attrs: [] },
     { op: OpCode.Insert, parent: 1, before: 0, ids: [99] },
   ];
   applyFrameToTable(table, true, resyncOps);
@@ -2163,7 +2167,7 @@ function testReplicatedTableResyncWholesaleReplace(): void {
 }
 
 const STAGE2_OPS: FrameOp[] = [
-  { op: OpCode.NodeNew, id: 10, kind: NodeKind.Element, name: 'div', attrs: [{ name: 'class', value: 'a' }] },
+  { op: OpCode.NodeNew, id: 10, kind: NodeKind.Element, ns: ElementNs.Html, name: 'div', attrs: [{ name: 'class', value: 'a' }] },
   { op: OpCode.NodeNew, id: 11, kind: NodeKind.Text, value: 'hi' },
   { op: OpCode.Insert, parent: 1, before: 0, ids: [10] },
   { op: OpCode.Insert, parent: 10, before: 0, ids: [11] },
@@ -2274,6 +2278,155 @@ function testCheckScopeRangeEncodeDecode(): void {
   console.log('[unit] CHECK_SCOPE_RANGE encode/decode round-trip ok');
 }
 
+function frameLocalStrCount(bytes: Uint8Array): number {
+  return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(24, true);
+}
+
+function patchNodeNewNsByte(bytes: Uint8Array, ns: number): Uint8Array {
+  const out = bytes.slice();
+  const view = new DataView(out.buffer, out.byteOffset, out.byteLength);
+  let o = 24;
+  const strCount = view.getUint32(o, true);
+  o += 4;
+  for (let i = 0; i < strCount; i++) {
+    const len = view.getUint32(o, true);
+    o += 4 + len;
+  }
+  const opCount = view.getUint32(o, true);
+  o += 4;
+  assert.strictEqual(opCount, 1);
+  assert.strictEqual(out[o], OpCode.NodeNew);
+  o += 1 + 4; // opcode + id
+  assert.strictEqual(out[o], NodeKind.Element);
+  o += 1; // kind
+  out[o] = ns;
+  return out;
+}
+
+function withEmptyFirstFrameString(bytes: Uint8Array): Uint8Array {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const header = 24;
+  const strCount = view.getUint32(header, true);
+  let o = header + 4;
+  const firstLen = view.getUint32(o, true);
+  const rest = bytes.subarray(o + 4 + firstLen);
+  const out = new Uint8Array(header + 4 + 4 + rest.length);
+  out.set(bytes.subarray(0, header));
+  const ov = new DataView(out.buffer);
+  ov.setUint32(header, strCount, true);
+  ov.setUint32(header + 4, 0, true);
+  out.set(rest, header + 8);
+  return out;
+}
+
+/** SEAL-DOM-P1-SVG / PP-F-SVG-1 — NODE_NEW Element ns enum, version 2, hash split. */
+function testNodeNewElementNsWire(): void {
+  assert.strictEqual(FRAME_WIRE_VERSION, 2);
+
+  const htmlOp: FrameOp = {
+    op: OpCode.NodeNew,
+    id: 10,
+    kind: NodeKind.Element,
+    ns: ElementNs.Html,
+    name: 'a',
+    attrs: [],
+  };
+  const htmlBytes = new BinaryFrameEncoder().encode(createFrame({ generation: 1, sequence: 1, ops: [htmlOp] }))[0]!;
+  const htmlDecoded = decodeFramePart(htmlBytes, new PersistentStringTable());
+  assert.ok(htmlDecoded.ok, 'html NODE_NEW must decode');
+  if (!htmlDecoded.ok) return;
+  assert.strictEqual(htmlDecoded.part.version, 2);
+  const htmlGot = htmlDecoded.part.ops[0];
+  assert.strictEqual(htmlGot?.op, OpCode.NodeNew);
+  if (htmlGot?.op !== OpCode.NodeNew || htmlGot.kind !== NodeKind.Element) return;
+  assert.strictEqual(htmlGot.ns, ElementNs.Html);
+  assert.strictEqual(htmlGot.uri, undefined);
+  assert.strictEqual(frameLocalStrCount(htmlBytes), 1, 'html ns must not emit a namespace StrRef');
+
+  const svgOp: FrameOp = {
+    op: OpCode.NodeNew,
+    id: 11,
+    kind: NodeKind.Element,
+    ns: ElementNs.Svg,
+    name: 'a',
+    attrs: [],
+  };
+  const svgBytes = new BinaryFrameEncoder().encode(createFrame({ generation: 1, sequence: 1, ops: [svgOp] }))[0]!;
+  const svgDecoded = decodeFramePart(svgBytes, new PersistentStringTable());
+  assert.ok(svgDecoded.ok, 'svg NODE_NEW must decode');
+  if (!svgDecoded.ok) return;
+  const svgGot = svgDecoded.part.ops[0];
+  assert.strictEqual(svgGot?.op, OpCode.NodeNew);
+  if (svgGot?.op !== OpCode.NodeNew || svgGot.kind !== NodeKind.Element) return;
+  assert.strictEqual(svgGot.ns, ElementNs.Svg);
+  assert.strictEqual(svgGot.uri, undefined);
+  assert.strictEqual(frameLocalStrCount(svgBytes), 1, 'svg ns must not emit a namespace StrRef');
+
+  const customOp: FrameOp = {
+    op: OpCode.NodeNew,
+    id: 12,
+    kind: NodeKind.Element,
+    ns: ElementNs.Custom,
+    uri: 'http://example.com/ns',
+    name: 'a',
+    attrs: [],
+  };
+  const customBytes = new BinaryFrameEncoder().encode(createFrame({ generation: 1, sequence: 1, ops: [customOp] }))[0]!;
+  const customDecoded = decodeFramePart(customBytes, new PersistentStringTable());
+  assert.ok(customDecoded.ok, 'custom NODE_NEW must decode');
+  if (!customDecoded.ok) return;
+  const customGot = customDecoded.part.ops[0];
+  assert.strictEqual(customGot?.op, OpCode.NodeNew);
+  if (customGot?.op !== OpCode.NodeNew || customGot.kind !== NodeKind.Element) return;
+  assert.strictEqual(customGot.ns, ElementNs.Custom);
+  assert.strictEqual(customGot.uri, 'http://example.com/ns');
+  assert.strictEqual(frameLocalStrCount(customBytes), 2, 'custom ns must carry a uri StrRef');
+
+  const badNs = decodeFramePart(patchNodeNewNsByte(htmlBytes, 5), new PersistentStringTable());
+  assert.strictEqual(badNs.ok, false);
+  if (!badNs.ok) assert.strictEqual(badNs.reason, 'malformed');
+
+  assert.throws(
+    () =>
+      new BinaryFrameEncoder().encode(
+        createFrame({
+          generation: 1,
+          sequence: 1,
+          ops: [{ op: OpCode.NodeNew, id: 13, kind: NodeKind.Element, ns: ElementNs.Custom, uri: '', name: 'a', attrs: [] }],
+        }),
+      ),
+  );
+  const emptyCustom = decodeFramePart(withEmptyFirstFrameString(customBytes), new PersistentStringTable());
+  assert.strictEqual(emptyCustom.ok, false);
+  if (!emptyCustom.ok) assert.strictEqual(emptyCustom.reason, 'malformed');
+
+  const v1 = htmlBytes.slice();
+  v1[2] = 1;
+  const oldVer = decodeFramePart(v1, new PersistentStringTable());
+  assert.strictEqual(oldVer.ok, false);
+  if (!oldVer.ok) assert.strictEqual(oldVer.reason, 'unknown_version');
+
+  const htmlTable = new ReplicatedTable();
+  const svgTable = new ReplicatedTable();
+  htmlTable.createElementRow(10, 'a', [], ElementNs.Html);
+  svgTable.createElementRow(10, 'a', [], ElementNs.Svg);
+  assert.notStrictEqual(htmlTable.getRow(10)!.contentHash, svgTable.getRow(10)!.contentHash, 'HTML <a> and SVG <a> must not share contentHash');
+
+  console.log('[unit] NODE_NEW Element ns wire + hash split ok');
+}
+
+function testStructuralDiffNsMismatch(): void {
+  const sameTagWrongNs = diffTrees({ tag: 'a', ns: 'svg' }, { tag: 'a' });
+  assert.strictEqual(sameTagWrongNs.identical, false);
+  assert.ok(
+    sameTagWrongNs.divergences.some((d) => d.kind === 'ns_mismatch'),
+    `expected ns_mismatch, got ${JSON.stringify(sameTagWrongNs.divergences)}`,
+  );
+  const bothSvg = diffTrees({ tag: 'circle', ns: 'svg' }, { tag: 'circle', ns: 'svg' });
+  assert.strictEqual(bothSvg.identical, true);
+  console.log('[unit] structuralDiff ns_mismatch ok');
+}
+
 /**
  * frame-protocol.md §2 Stage 2 GATE — the client's own precondition check (`preTableHash`
  * against its table's current `tableHash`, `client/applyDom.ts` phase 1) is the first gate
@@ -2332,8 +2485,8 @@ function testNodeDropRemovesSubtreeAndDescendants(): void {
   const table = new ReplicatedTable();
   // root(10) -> mid(11) -> leaf(12); root(10) also has a second child leaf(13).
   applyOpsToTable(table, [
-    { op: OpCode.NodeNew, id: 10, kind: NodeKind.Element, name: 'div', attrs: [] },
-    { op: OpCode.NodeNew, id: 11, kind: NodeKind.Element, name: 'span', attrs: [] },
+    { op: OpCode.NodeNew, id: 10, kind: NodeKind.Element, ns: ElementNs.Html, name: 'div', attrs: [] },
+    { op: OpCode.NodeNew, id: 11, kind: NodeKind.Element, ns: ElementNs.Html, name: 'span', attrs: [] },
     { op: OpCode.NodeNew, id: 12, kind: NodeKind.Text, value: 'leaf' },
     { op: OpCode.NodeNew, id: 13, kind: NodeKind.Text, value: 'leaf2' },
     { op: OpCode.Insert, parent: 10, before: 0, ids: [11] },
@@ -2366,7 +2519,7 @@ function testCollectDroppableIdsAgeAndLimitBound(): void {
   table.setSequence(1);
   applyOpsToTable(table, [
     { op: OpCode.NodeNew, id: 20, kind: NodeKind.Text, value: 'old-detached-root' },
-    { op: OpCode.NodeNew, id: 21, kind: NodeKind.Element, name: 'div', attrs: [] },
+    { op: OpCode.NodeNew, id: 21, kind: NodeKind.Element, ns: ElementNs.Html, name: 'div', attrs: [] },
   ]);
   table.insertBatch(21, 0, [20]); // 20 is now attached under 21 — not droppable
   table.removeBatch(21, [20]); // detach 20 again — its lms is still stamped at sequence=1
@@ -2410,8 +2563,8 @@ function testCollectDroppableIdsExcludesSameTickReattach(): void {
 
   table.setSequence(1);
   applyOpsToTable(table, [
-    { op: OpCode.NodeNew, id: 1, kind: NodeKind.Element, name: 'div', attrs: [] }, // root
-    { op: OpCode.NodeNew, id: 20, kind: NodeKind.Element, name: 'span', attrs: [] },
+    { op: OpCode.NodeNew, id: 1, kind: NodeKind.Element, ns: ElementNs.Html, name: 'div', attrs: [] }, // root
+    { op: OpCode.NodeNew, id: 20, kind: NodeKind.Element, ns: ElementNs.Html, name: 'span', attrs: [] },
   ]);
   table.insertBatch(1, 0, [20]);
   table.removeBatch(1, [20]); // 20 is now a detached root, lms stamped at sequence=1
@@ -2442,15 +2595,14 @@ function testCollectDroppableIdsExcludesSameTickReattach(): void {
 }
 
 /**
- * frame-protocol.md OPEN-1 Stage 3 GATE — "NODE_DROP of an absent id is malformed", now actually
- * enforced by `applyFrameToTableChecked` rather than left as a spec-only decision.
+ * frame-protocol.md §4.2 / OPEN-1 CLOSED — NODE_DROP of an absent id is malformed.
  */
 function testApplyFrameToTableCheckedRejectsNodeDropAbsentId(): void {
   const table = new ReplicatedTable();
   const result = applyFrameToTableChecked(table, false, [{ op: OpCode.NodeDrop, ids: [999] }]);
   assert.strictEqual(result.ok, false, 'NODE_DROP of an id the table has never seen must fail');
   if (!result.ok && result.opName !== 'check') {
-    assert.strictEqual(result.reason, 'malformed', 'an absent-id NODE_DROP is malformed, per OPEN-1');
+    assert.strictEqual(result.reason, 'malformed', 'an absent-id NODE_DROP is malformed (§4.2 / OPEN-1)');
     assert.strictEqual(result.opName, 'nodeDrop');
     assert.strictEqual(result.id, 999);
   } else {
@@ -2528,7 +2680,7 @@ function testApplyFrameToTableCheckedPhase1Pres(): void {
   {
     const table = new ReplicatedTable();
     applyOpsToTable(table, [
-      { op: OpCode.NodeNew, id: 2, kind: NodeKind.Element, name: 'div', attrs: [] },
+      { op: OpCode.NodeNew, id: 2, kind: NodeKind.Element, ns: ElementNs.Html, name: 'div', attrs: [] },
     ]);
     const result = applyFrameToTableChecked(table, false, [
       { op: OpCode.Insert, parent: 99, before: 0, ids: [2] },
@@ -2543,7 +2695,7 @@ function testApplyFrameToTableCheckedPhase1Pres(): void {
   {
     const table = new ReplicatedTable();
     applyOpsToTable(table, [
-      { op: OpCode.NodeNew, id: 2, kind: NodeKind.Element, name: 'div', attrs: [] },
+      { op: OpCode.NodeNew, id: 2, kind: NodeKind.Element, ns: ElementNs.Html, name: 'div', attrs: [] },
       { op: OpCode.NodeNew, id: 3, kind: NodeKind.Text, value: 't' },
       { op: OpCode.Insert, parent: 1, before: 0, ids: [2] },
       { op: OpCode.Insert, parent: 2, before: 0, ids: [3] },
@@ -2575,7 +2727,7 @@ function testApplyFrameToTableCheckedPhase1Pres(): void {
   {
     const table = new ReplicatedTable();
     applyOpsToTable(table, [
-      { op: OpCode.NodeNew, id: 2, kind: NodeKind.Element, name: 'div', attrs: [] },
+      { op: OpCode.NodeNew, id: 2, kind: NodeKind.Element, ns: ElementNs.Html, name: 'div', attrs: [] },
     ]);
     const result = applyFrameToTableChecked(table, false, [
       { op: OpCode.TextSet, node: 2, value: 'nope' },
@@ -2589,7 +2741,7 @@ function testApplyFrameToTableCheckedPhase1Pres(): void {
   {
     const table = new ReplicatedTable();
     applyOpsToTable(table, [
-      { op: OpCode.NodeNew, id: 2, kind: NodeKind.Element, name: 'div', attrs: [] },
+      { op: OpCode.NodeNew, id: 2, kind: NodeKind.Element, ns: ElementNs.Html, name: 'div', attrs: [] },
     ]);
     const result = applyFrameToTableChecked(table, false, [
       { op: OpCode.RuleSet, id: 2, text: 'a{}' },
@@ -2636,7 +2788,7 @@ function testApplyFrameToTableCheckedPhase1Pres(): void {
   {
     const table = new ReplicatedTable();
     applyOpsToTable(table, [
-      { op: OpCode.NodeNew, id: 2, kind: NodeKind.Element, name: 'div', attrs: [] },
+      { op: OpCode.NodeNew, id: 2, kind: NodeKind.Element, ns: ElementNs.Html, name: 'div', attrs: [] },
     ]);
     const ids = new Array<number>(MAX_CHILDREN_PER_OP + 1).fill(2);
     const result = applyFrameToTableChecked(table, false, [
@@ -2651,7 +2803,7 @@ function testApplyFrameToTableCheckedPhase1Pres(): void {
   {
     const table = new ReplicatedTable();
     const ok = applyFrameToTableChecked(table, false, [
-      { op: OpCode.NodeNew, id: 2, kind: NodeKind.Element, name: 'div', attrs: [] },
+      { op: OpCode.NodeNew, id: 2, kind: NodeKind.Element, ns: ElementNs.Html, name: 'div', attrs: [] },
       { op: OpCode.Insert, parent: 1, before: INSERT_AT_END, ids: [2] },
     ]);
     assert.strictEqual(ok.ok, true, 'INSERT under Document id 1 remains valid');
@@ -2662,7 +2814,7 @@ function testApplyFrameToTableCheckedPhase1Pres(): void {
 
 function testNodeTableApplierDigestMatchesDirectApply(): void {
   const ops: FrameOp[] = [
-    { op: OpCode.NodeNew, id: 2, kind: NodeKind.Element, name: 'div', attrs: [] },
+    { op: OpCode.NodeNew, id: 2, kind: NodeKind.Element, ns: ElementNs.Html, name: 'div', attrs: [] },
     { op: OpCode.NodeNew, id: 3, kind: NodeKind.Text, value: 'hi' },
     { op: OpCode.Insert, parent: 1, before: INSERT_AT_END, ids: [2] },
     { op: OpCode.Insert, parent: 2, before: INSERT_AT_END, ids: [3] },
@@ -2882,6 +3034,29 @@ function testCssomWalkSkipVsAbort(): void {
   console.log('[unit] cssom walk skip vs abort ok');
 }
 
+/** SEAL-CSSOM-P1-IDSPACE — Sheet/Rule ids share the session mint; no high-bit Cssom range. */
+function testSessionIdsSharedDomAndCssom(): void {
+  let next = 2;
+  const mint = (): number => {
+    const id = next;
+    next += 1;
+    return id;
+  };
+  const ids = new CssomIds(mint);
+  const firstDom = mint();
+  const sheet = {};
+  const rule = {};
+  const sheetId = ids.idOfSheet(sheet);
+  const ruleId = ids.idOfRule(rule);
+  assert.strictEqual(firstDom, 2, 'allocator starts at 2 (Document is 1)');
+  assert.strictEqual(sheetId, 3);
+  assert.strictEqual(ruleId, 4);
+  assert.strictEqual(ids.idOfSheet(sheet), 3, 'same sheet object keeps id');
+  assert.ok(sheetId < 0x80000000, 'Cssom must not reserve the pre-V4 high-bit range');
+  assert.ok(ruleId < 0x80000000);
+  console.log('[unit] session ids shared DOM+CSSOM (SEAL-CSSOM-P1-IDSPACE) ok');
+}
+
 function testCssomOpsAndTableApply(): void {
   class CSSStyleRule {}
   const ids = new CssomIds();
@@ -2900,7 +3075,7 @@ function testCssomOpsAndTableApply(): void {
   assert.strictEqual(resync[0]?.op, OpCode.SheetNew);
   assert.strictEqual(resync[1]?.op, OpCode.RuleNew);
   assert.strictEqual(resync[2]?.op, OpCode.RuleNew);
-  assert.ok((resync[0] as { id: number }).id >= CSSOM_ID_MIN);
+  assert.strictEqual((resync[0] as { id: number }).id, 2);
 
   const table = new ReplicatedTable();
   applyOpsToTable(table, resync);
@@ -3011,9 +3186,9 @@ function testCssomGroupingContentChangeEmitsDropNew(): void {
 }
 
 function testCssomApplyIndex(): void {
-  const a = CSSOM_ID_MIN;
-  const b = CSSOM_ID_MIN + 1;
-  const c = CSSOM_ID_MIN + 2;
+  const a = 80;
+  const b = 81;
+  const c = 82;
   assert.strictEqual(insertIndexFromBefore([], INSERT_AT_END), 0);
   assert.strictEqual(insertIndexFromBefore([a], INSERT_AT_END), 1);
   assert.strictEqual(insertIndexFromBefore([a, c], b), -1);
@@ -3089,10 +3264,10 @@ function testCssomEndOfFrameMatch(): void {
 
 function testCssomEncodeDecode(): void {
   const ops: FrameOp[] = [
-    { op: OpCode.SheetNew, id: CSSOM_ID_MIN, scope: CSSOM_SCOPE_MAIN, hostNode: 0, before: INSERT_AT_END },
-    { op: OpCode.RuleNew, sheet: CSSOM_ID_MIN, id: CSSOM_ID_MIN + 1, before: INSERT_AT_END, text: '.x { color: red }' },
-    { op: OpCode.RuleSet, id: CSSOM_ID_MIN + 1, text: '.x { color: blue }' },
-    { op: OpCode.SheetOrder, ids: [CSSOM_ID_MIN] },
+    { op: OpCode.SheetNew, id: 2, scope: CSSOM_SCOPE_MAIN, hostNode: 0, before: INSERT_AT_END },
+    { op: OpCode.RuleNew, sheet: 2, id: 3, before: INSERT_AT_END, text: '.x { color: red }' },
+    { op: OpCode.RuleSet, id: 3, text: '.x { color: blue }' },
+    { op: OpCode.SheetOrder, ids: [2] },
   ];
   const frame = createFrame({ generation: 1, sequence: 1, ops, preTableHash: 0n });
   const bytes = new BinaryFrameEncoder().encode(frame)[0]!;
@@ -3148,9 +3323,9 @@ function testHostileHonestyFramesEncodeDecode(): void {
 
 function testCssomPollTelemetrySchema(): void {
   const hist = countCssomOps([
-    { op: OpCode.SheetNew, id: CSSOM_ID_MIN, scope: CSSOM_SCOPE_MAIN, hostNode: 0, before: INSERT_AT_END },
-    { op: OpCode.RuleNew, sheet: CSSOM_ID_MIN, id: CSSOM_ID_MIN + 1, before: INSERT_AT_END, text: '.x{}' },
-    { op: OpCode.RuleSet, id: CSSOM_ID_MIN + 1, text: '.x{color:red}' },
+    { op: OpCode.SheetNew, id: 2, scope: CSSOM_SCOPE_MAIN, hostNode: 0, before: INSERT_AT_END },
+    { op: OpCode.RuleNew, sheet: 2, id: 3, before: INSERT_AT_END, text: '.x{}' },
+    { op: OpCode.RuleSet, id: 3, text: '.x{color:red}' },
     { op: OpCode.Check, scope: CHECK_SCOPE_TABLE, lo: 0, hi: 0, hash: 0n },
   ]);
   assert.strictEqual(hist.opCount, 3);
@@ -3249,6 +3424,8 @@ async function main(): Promise<void> {
   testApplyFrameToTableCheckedRejectsCorruptedCheck();
   testApplyFrameToTableCheckedRangeScope();
   testCheckScopeRangeEncodeDecode();
+  testNodeNewElementNsWire();
+  testStructuralDiffNsMismatch();
   testApplyFrameToTableCheckedDoesNotRollBackPriorOps();
   testEpochResetClearsReplicatedTable();
   testNodeDropRemovesSubtreeAndDescendants();
@@ -3266,6 +3443,7 @@ async function main(): Promise<void> {
   await testLabBlueprintScheduleDependsAndAwaits();
   testCssomFnvAndRuleDiff();
   testCssomWalkSkipVsAbort();
+  testSessionIdsSharedDomAndCssom();
   testCssomOpsAndTableApply();
   testCssomGroupingContentChangeEmitsDropNew();
   testCssomApplyIndex();

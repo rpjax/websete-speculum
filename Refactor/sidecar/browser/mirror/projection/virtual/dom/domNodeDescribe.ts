@@ -5,6 +5,7 @@
  * from a different traversal (mutation-driven DFS vs. identity-map iteration).
  */
 
+import { classifyElementNs, ElementNs } from '../../models/elementNs';
 import { NodeKind, OpCode } from '../../models/opcodes';
 import type { AttrPair, FrameOp } from '../../models/frame';
 import type { DomNodeKey } from '../../models/domNodeKey';
@@ -48,7 +49,16 @@ export function readAttrs(el: Element): AttrPair[] {
 export function describeNodeNew(id: DomNodeKey, kind: DomNodeKind, node: Node): FrameOp {
   if (kind === NodeKind.Element) {
     const el = node as Element;
-    return { op: OpCode.NodeNew, id, kind, name: el.tagName.toLowerCase(), attrs: readAttrs(el) };
+    const classified = classifyElementNs(el.namespaceURI);
+    return {
+      op: OpCode.NodeNew,
+      id,
+      kind,
+      ns: classified.ns,
+      name: el.tagName.toLowerCase(),
+      attrs: readAttrs(el),
+      ...(classified.ns === ElementNs.Custom ? { uri: classified.uri } : {}),
+    };
   }
   if (kind === NodeKind.Doctype) {
     return { op: OpCode.NodeNew, id, kind, name: (node as DocumentType).name || 'html' };

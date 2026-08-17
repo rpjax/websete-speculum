@@ -63,8 +63,12 @@ export type SheetWalkState = {
 export class CssomPoller {
   private readonly lastRules = new WeakMap<CSSStyleSheet, RuleSnap[]>();
   private readonly lastStyleTagTextHash = new WeakMap<CSSStyleSheet, number>();
-  readonly ids = new CssomIds();
+  readonly ids: CssomIds;
   private lastSheetOrder: object[] = [];
+
+  constructor(ids?: CssomIds) {
+    this.ids = ids ?? new CssomIds();
+  }
 
   classifySheets(doc: Document = document): ClassifiedSheets {
     const readable: { sheet: CSSStyleSheet; rules: CSSRuleList }[] = [];

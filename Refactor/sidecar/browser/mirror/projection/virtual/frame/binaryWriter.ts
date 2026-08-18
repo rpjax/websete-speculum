@@ -68,6 +68,12 @@ export class BinaryWriter {
     this.offset += b.length;
   }
 
+  f32(v: number): void {
+    this.ensure(4);
+    this.view.setFloat32(this.offset, v, true);
+    this.offset += 4;
+  }
+
   f64(v: number): void {
     this.ensure(8);
     this.view.setFloat64(this.offset, v, true);

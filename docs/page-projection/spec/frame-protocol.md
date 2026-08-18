@@ -22,7 +22,9 @@ Virtual: the site mutates the real DOM → the MutationObserver records it → *
 we emit the frame describing the table delta. Client: the frame arrives → **it updates its table** →
 the DOM is materialized as a consequence. Both sides apply the same frame to the same starting state,
 so the tables are identical by construction. The producer never holds a *belief* about client state —
-it holds a *copy*.
+it holds a *copy*. Form control live properties (`value` / `checked` / `selected`) have no
+MutationObserver: the producer samples a membership index every tick and emits `PROP_SET` (§5.9). That
+still writes **this table**. It is not a second replicated structure.
 
 **P1 — Instructions are self-contained, not declarative.** Every operand is explicit; no cursor, no
 register, no implicit machine state. This keeps an instruction dump readable without a disassembler —
@@ -368,13 +370,22 @@ Separate from `ATTR_SET` because **the empty string is a legitimate attribute va
 | `0x09` | `MEDIA_VOLUME` | `f32` |
 | `0x0A` | `CUSTOM_VALIDITY` | `StrRef` |
 
-`Table`: sets `props[propId]`. `DOM`: applies as a **property**, not an attribute — `DIALOG_MODAL`
-calls `showModal()`/`close()`, `POPOVER_OPEN` calls `showPopover()`/`hidePopover()`,
-`CUSTOM_VALIDITY` calls `setCustomValidity()`.
+`Table`: sets `props[propId]` (phase 1 — always). `DOM` (phase 2): applies as a **property**, not an
+attribute — `VALUE` sets `.value`, `CHECKED` sets `.checked`, `SELECTED` sets `.selected` on
+`<option>` — **only if the control is not locally dirty** ([input.md](input.md) §7.2). Dirty: stash
+the latest sample; do not rewind the live field. `CHECK` / `preTableHash` never read the live
+`.value`. `DIALOG_MODAL` calls `showModal()`/`close()`, `POPOVER_OPEN` calls
+`showPopover()`/`hidePopover()`, `CUSTOM_VALIDITY` calls `setCustomValidity()`. Bool operands are
+`u8` `0` or `1`; any other value is `malformed`. `propId` outside this table is `malformed`.
 
-Separate from `ATTR_SET` because this state is *published* as a `speculum-*` attribute but *applied*
-as a property; collapsing them would force the client to infer which is which. Tag/property
-compatibility is the producer's responsibility and is not verified.
+Separate from `ATTR_SET` because the live property is the truth (JS `el.value = …` does not update the
+HTML attribute). Do **not** publish this state as `speculum-*` attributes — apply the property
+([input.md](input.md) §7). Tag/property compatibility is the producer's responsibility and is not
+verified.
+
+**Lab happy path (2026-08-18):** producer emits and client materializes `VALUE` / `CHECKED` /
+`SELECTED` only (§5.9). `0x04`–`0x0A` stay on the ISA ([seal-gaps.md](seal-gaps.md) `PP-D16-*`); this
+cut does not emit them. Decoder still accepts every defined `propId`.
 
 **`0x64 NODE_SNAPSHOT`** — `node: u32, descriptor` · 1+2 · idempotent
 `Pre`: `node` exists; `descriptor` matches the row's `kind`.
@@ -461,9 +472,10 @@ existing identity map yet for the latter to iterate.
 
 ## 5. Frame construction — producer (Virtual side) — DECIDED
 
-How the sidecar turns `MutationRecord`s into the instructions of §4. This absorbs the still-valid
-content of `contracts/03-frame.md` and `implementation/sidecar/frame.md` (accumulation sets, flush
-order); those two files are superseded by this section and are to be deleted, not left as half-truths.
+How the sidecar turns `MutationRecord`s into the instructions of §4, plus the form-property sample
+that MutationObserver cannot see (§5.9). This absorbs the still-valid content of `contracts/03-frame.md`
+and `implementation/sidecar/frame.md` (accumulation sets, flush order); those two files are superseded
+by this section and are to be deleted, not left as half-truths.
 
 ### 5.1 Installation and entry point — **corrected 2026-08-13, empirically false as originally written**
 
@@ -761,6 +773,49 @@ this section instead of Node mirror/HTML; (2) update `contracts/08-surface.md`'s
 need re-authoring against opcodes instead of HTML/checksum-of-bytes; (5) bounded resync-retry/backoff
 policy at the session layer, tied to a catalogued hard-failure `errorCode` on exhaustion.
 
+### 5.9 Form control properties (`PROP_SET`) — DECIDED 2026-08-18
+
+MutationObserver does **not** see `input.value` / `checked` / `option.selected`. Event listeners miss
+JS assignment that does not dispatch `input`/`change`. This is DOM **state 1:1**, not CSSOM eventual
+([acceptance.md](acceptance.md)).
+
+**Index (producer-local, not a second replicated table).** Membership only: which live nodes to
+sample. Updated at the same chokepoints that already see the tree — `resyncVirtual` walk and the
+ordinary MO drain (`NODE_NEW` / `REMOVE` / `NODE_DROP`). Not hashed. The contract remains row `props`
+on the one node table (§1.3).
+
+Index these (not `type=file`):
+
+| Node | Sample |
+|------|--------|
+| `<input>` except checkbox/radio/file/button/submit/reset/image | `VALUE` ← `.value` |
+| `<textarea>` | `VALUE` ← `.value` |
+| `<input type="checkbox\|radio">` | `CHECKED` ← `.checked` |
+| `<option>` | `SELECTED` ← `.selected` |
+
+Hidden inputs are indexed (`VALUE`). `type` change (attribute) reclassifies membership. There is no
+`PROP_DEL`: leftover `props` keys stay (rare). Detached / dropped nodes leave the index. Button-like
+types (`button` / `submit` / `reset` / `image`) are not indexed — `.value` there is the button label,
+not field state.
+
+**Every frame.** After structural/attr/text ops for the tick, read the index. Emit `PROP_SET` only when
+the live value differs from `props[propId]` already in the table (delta, not a flood of identical
+ops). Same tick as `ATTR_SET`, not idle, not a reduced CSSOM-style rate. Measured 2026-08-18: Amazon
+home ~274 indexed reads ≈ 0.02 ms/pass; Wikipedia 17k elements / 18 controls ≈ 0.002 ms. Cost tracks
+indexed nodes, not table size.
+
+**Create / resync.** `NODE_NEW` still carries attributes only (§4.2). After create (and on resync
+describe), emit live `PROP_SET` for indexed nodes so property ≠ attribute is not lost. Order: patches
+on a node being moved this tick still precede that node's `INSERT` (§5.5).
+
+**Client.** Phase 1 always writes `props` (otherwise the next `preTableHash` fails). Phase 2 sets the
+live property **only if the control is not dirty** ([input.md](input.md) §7.2): a user typing "oi" on
+Projected can be ahead of a frame that still carries `"o"` — that is not a desync. Lab never marks
+dirty, so phase 2 overwrites (Virtual wins). Caret when applying (`PP-IN-2`) is input redesign, not
+this cut.
+
+**Not this cut:** dialog, popover, media, `setCustomValidity`; wrapping prototypes; CDP as sensor.
+
 ---
 
 ## 6. Execution model — DECIDED
@@ -836,7 +891,8 @@ Every catalogued failure carries `errorCode` + `phase` + `sequence`
 - No aliases, no compatibility shims (V1 rule).
 
 **Current `version`:** `2` (2026-08-17). `NODE_NEW` Element gained `ns: u8` (+ `uri: StrRef` only when
-`custom`). Version 1 peers desync. No shim.
+`custom`). Version 1 peers desync. No shim. Adding `0x63 PROP_SET` (reserved range, new opcode) does
+**not** bump the version.
 
 ---
 
@@ -902,3 +958,6 @@ Every catalogued failure carries `errorCode` + `phase` + `sequence`
 | 2026-08-16 | **C3.1 grouping-rule carve-out** | `RULE_SET` remains in-place patch for `CSSStyleRule` only. Content change on a grouping rule (patch cannot work) is producer `RULE_DROP`+`RULE_NEW` (new id). Client must not implement hidden replace inside `RULE_SET`. |
 | 2026-08-17 | **OPEN-1 CLOSED** — `NODE_DROP` of an absent id is `malformed` | Rodrigo. DROP is GC of a row the producer table already holds (after this tick’s INSERT/REMOVE). Site removal is `REMOVE`. Absent id means the encoder claimed a row the in-sync client does not have — not a race to tolerate. Unit already fail-closed. |
 | 2026-08-17 | **SEAL-DOM-P1-SVG** — `NODE_NEW` Element `ns` enum; URI StrRef only for `custom`; wire version 1→2; client `createElementNS`. Namespaced attributes (`xlink:href`) out of scope. Units: `testNodeNewElementNsWire`, `testStructuralDiffNsMismatch`. Lab `svg-ns`. |
+| 2026-08-18 | **PROP_SET form slice** — index at resync/MO; sample every frame; emit on change; `VALUE`/`CHECKED`/`SELECTED` only. Not CSSOM idle. DOM 1:1. |
+| 2026-08-18 | **PROP_SET dirty is phase 2 only** — table/`CHECK`/`preTableHash` always take the op. Live `.value` may lag while the user types. Not a desync. Caret (`PP-IN-2`) stays WP10. |
+| 2026-08-18 | **SEAL-DOM-P1-PROP closed** — units `testPropSetWire`, `testPropSetTableAndCheck`, `testFormPropDirtyDoesNotBlockTable`; lab `forms-state` (`iso.formProps`). |

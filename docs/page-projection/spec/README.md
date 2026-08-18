@@ -3,19 +3,17 @@
 **Status:** official spec for `MirrorMode.PageProjection`.  
 **Accept bar:** [acceptance.md](acceptance.md) — 1:1 with the original site. **DOM** numerical; **CSSOM live** perceived/eventual (not 60 Hz lockstep).  
 **Protocol:** [frame-protocol.md](frame-protocol.md) — the V4 engine (replicated table, binary frames, two-phase apply, resync).  
-**Where you are:** lab engine under `Refactor/sidecar/browser/mirror/projection/` implements V4 **DOM table, single document** (Stages 1–4) plus lab CSSOM for constructed adopted sheets and `CSSStyleRule`. Production (`PatchrightBrowserSession.ts`) still runs the **legacy** `LivePageProjection` path. `V4ProjectionBrowserSession` is the **temporary** lab `BrowserSession`; at cutover it must be **complete** (full contract, V4 implementations — not leftover legado) — [roadmap.md](roadmap.md) CUTOVER-SESSION. **Production cutover waits for the full product** (CSSOM + nested/multidocs + redesigned input + **canvas projection** as last product feature). Next lab work: [seal-gaps.md](seal-gaps.md) §3 (features).
+**Where you are:** lab engine under `Refactor/sidecar/browser/mirror/projection/` implements V4 **DOM table, single document** (Stages 1–4) plus lab CSSOM for constructed adopted sheets and `CSSStyleRule`, plus form `PROP_SET` (`VALUE` / `CHECKED` / `SELECTED`). Production (`PatchrightBrowserSession.ts`) still runs the **legacy** `LivePageProjection` path. `V4ProjectionBrowserSession` is the **temporary** lab `BrowserSession`; at cutover it must be **complete** (full contract, V4 implementations — not leftover legado) — [roadmap.md](roadmap.md) CUTOVER-SESSION. **Production cutover waits for the full product** (CSSOM + nested/multidocs + redesigned input + **canvas projection** as last product feature). Next lab work: [seal-gaps.md](seal-gaps.md) §3 — **shadow / pierce** first.
 
 If you are an agent with limited context: **read this file (including Now), then `acceptance.md`, then `open.md`, then `seal-gaps.md`, then `roadmap.md`, then only the protocol sections you are changing.** Do not open `../archive/`.
 
 ---
 
-## Now (2026-08-17) — start a new chat here
+## Now (2026-08-18) — start a new chat here
 
-Lab QA on the current path is **done**. SVG / namespaced `NODE_NEW` **closed 2026-08-17**. Next: features (`PROP_SET`, shadow, remaining ISA, OPEN-6, CSS pierce/nested) — [seal-gaps.md](seal-gaps.md) §3.
+Next lab feature: **shadow / pierce** ([seal-gaps.md](seal-gaps.md) **SEAL-DOM-P1-SHADOW**). Form `PROP_SET` (`VALUE` / `CHECKED` / `SELECTED`) **closed 2026-08-18**.
 
-Id space and OPEN-1 (`NODE_DROP` absent id = `malformed`) **closed 2026-08-17**.
-
-Do **not** reopen apply honesty. The 2026-08-17 ATTR / RULESET / EOF desync tests failed because of the **lab harness**, not the apply algorithm. Story: [observability.md](observability.md) §7.
+SVG / namespaced `NODE_NEW` **closed 2026-08-17**. Do **not** reopen apply honesty ([observability.md](observability.md) §7).
 
 Lab UI: `npm run lab:projection` in `Refactor/sidecar` → **http://127.0.0.1:4077/**. Headed: `SPECULUM_LAB_HEADED=1`. Always name the full blueprint id + description + fixture when asking a human to run something.
 

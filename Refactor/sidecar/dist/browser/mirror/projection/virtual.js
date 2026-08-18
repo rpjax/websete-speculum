@@ -150,6 +150,7 @@
     [96 /* AttrSet */]: "attrSet",
     [97 /* AttrDel */]: "attrDel",
     [98 /* TextSet */]: "textSet",
+    [99 /* PropSet */]: "propSet",
     [160 /* SheetNew */]: "sheetNew",
     [161 /* SheetDrop */]: "sheetDrop",
     [162 /* SheetOrder */]: "sheetOrder",
@@ -607,6 +608,11 @@
   function hashAttr(name, value) {
     return h64Str(`\0A${name}${value}`);
   }
+  function hashProp(propId, value) {
+    if (typeof value === "boolean") return h64Str(`\0P${propId}B${value ? "1" : "0"}`);
+    if (typeof value === "number") return h64Str(`\0P${propId}F${value}`);
+    return h64Str(`\0P${propId}S${value}`);
+  }
   function hashNs(ns, uri) {
     if (ns === 4 /* Custom */) return h64Str(`\0U${uri ?? ""}`);
     return h64Bytes(Uint8Array.of(0, 83, ns & 255));
@@ -656,6 +662,10 @@
     rows = /* @__PURE__ */ new Map();
     /** ELEMENT rows only — id -> attrName -> that attribute's own contentHash contribution. */
     attrHashes = /* @__PURE__ */ new Map();
+    /** ELEMENT rows only — id -> propId -> that prop's contentHash contribution. */
+    propHashes = /* @__PURE__ */ new Map();
+    /** ELEMENT rows only — last PROP_SET scalar (delta compare on the producer). */
+    propValues = /* @__PURE__ */ new Map();
     /** Derived, non-hashed: id -> the id currently linked immediately after it under the same parent. */
     nextSiblingOf = /* @__PURE__ */ new Map();
     /** Derived, non-hashed: parentId -> the id currently linked last under that parent (0 = none). */
@@ -737,6 +747,8 @@
     reset() {
       this.rows.clear();
       this.attrHashes.clear();
+      this.propHashes.clear();
+      this.propValues.clear();
       this.nextSiblingOf.clear();
       this.lastChildOf.clear();
       this.tracker.clear();
@@ -756,6 +768,8 @@
         sum = addMod64(sum, h);
       }
       this.attrHashes.set(id, attrMap);
+      this.propHashes.set(id, /* @__PURE__ */ new Map());
+      this.propValues.set(id, /* @__PURE__ */ new Map());
       this.setRow(id, 1 /* Element */, NONE, NONE, sum);
     }
     /** TEXT/COMMENT (`value`) or DOCTYPE (`name`) — both a single content-carrying string field. */
@@ -797,6 +811,24 @@
       const row = this.rows.get(id);
       if (row === void 0) return;
       this.setRow(id, row.kind, row.parent, row.prevSibling, hashValue(value));
+    }
+    setProp(id, propId, value) {
+      const row = this.rows.get(id);
+      if (row === void 0) return;
+      const hashMap = this.propHashes.get(id) ?? /* @__PURE__ */ new Map();
+      const valueMap = this.propValues.get(id) ?? /* @__PURE__ */ new Map();
+      let sum = row.contentHash;
+      const old = hashMap.get(propId);
+      if (old !== void 0) sum = subMod64(sum, old);
+      const h = hashProp(propId, value);
+      hashMap.set(propId, h);
+      valueMap.set(propId, value);
+      this.propHashes.set(id, hashMap);
+      this.propValues.set(id, valueMap);
+      this.setRow(id, row.kind, row.parent, row.prevSibling, addMod64(sum, h));
+    }
+    getProp(id, propId) {
+      return this.propValues.get(id)?.get(propId);
     }
     // ---- INSERT / REMOVE (§4.3) — topology only, content untouched. ----
     /**
@@ -840,6 +872,8 @@
     dropRow(id) {
       this.rows.delete(id);
       this.attrHashes.delete(id);
+      this.propHashes.delete(id);
+      this.propValues.delete(id);
       this.nextSiblingOf.delete(id);
       this.lastChildOf.delete(id);
       this.tracker.remove(id);
@@ -936,6 +970,40 @@
     }
   };
 
+  // browser/mirror/projection/models/propSet.ts
+  var PROP_ID_VALUE = 1;
+  var PROP_ID_CHECKED = 2;
+  var PROP_ID_SELECTED = 3;
+  var PROP_ID_DIALOG_MODAL = 4;
+  var PROP_ID_POPOVER_OPEN = 5;
+  var PROP_ID_MEDIA_PAUSED = 6;
+  var PROP_ID_MEDIA_TIME = 7;
+  var PROP_ID_MEDIA_MUTED = 8;
+  var PROP_ID_MEDIA_VOLUME = 9;
+  var PROP_ID_CUSTOM_VALIDITY = 10;
+  function propValueKind(propId) {
+    switch (propId) {
+      case PROP_ID_VALUE:
+      case PROP_ID_CUSTOM_VALIDITY:
+        return "str";
+      case PROP_ID_CHECKED:
+      case PROP_ID_SELECTED:
+      case PROP_ID_DIALOG_MODAL:
+      case PROP_ID_POPOVER_OPEN:
+      case PROP_ID_MEDIA_PAUSED:
+      case PROP_ID_MEDIA_MUTED:
+        return "bool";
+      case PROP_ID_MEDIA_TIME:
+      case PROP_ID_MEDIA_VOLUME:
+        return "f32";
+      default:
+        return null;
+    }
+  }
+  function propScalarsEqual(a, b) {
+    return a === b;
+  }
+
   // browser/mirror/projection/virtual/frame/binaryWriter.ts
   var BinaryWriter = class {
     buf;
@@ -992,6 +1060,11 @@
       this.ensure(b.length);
       this.buf.set(b, this.offset);
       this.offset += b.length;
+    }
+    f32(v) {
+      this.ensure(4);
+      this.view.setFloat32(this.offset, v, true);
+      this.offset += 4;
     }
     f64(v) {
       this.ensure(8);
@@ -1166,6 +1239,8 @@
           return this.writeAttrDel(w, op);
         case 98 /* TextSet */:
           return this.writeTextSet(w, op);
+        case 99 /* PropSet */:
+          return this.writePropSet(w, op);
         case 160 /* SheetNew */:
           return this.writeSheetNew(w, op);
         case 161 /* SheetDrop */:
@@ -1258,6 +1333,25 @@
       w.u32(op.node);
       this.writeStrRef(w, op.value);
     }
+    writePropSet(w, op) {
+      w.u8(99 /* PropSet */);
+      w.u32(op.node);
+      w.u8(op.propId);
+      const kind = propValueKind(op.propId);
+      if (kind === "str") {
+        this.writeStrRef(w, String(op.value));
+        return;
+      }
+      if (kind === "bool") {
+        w.u8(op.value ? 1 : 0);
+        return;
+      }
+      if (kind === "f32") {
+        w.f32(typeof op.value === "number" ? op.value : 0);
+        return;
+      }
+      throw new Error(`PROP_SET propId ${op.propId} is not defined (frame-protocol.md \xA74.4)`);
+    }
     writeIdList(w, ids) {
       w.u16(ids.length);
       for (let i = 0; i < ids.length; i++) w.u32(ids[i]);
@@ -1335,6 +1429,9 @@
         return;
       case 98 /* TextSet */:
         table.setValue(op.node, op.value);
+        return;
+      case 99 /* PropSet */:
+        table.setProp(op.node, op.propId, op.value);
         return;
       case 160 /* SheetNew */: {
         const parent = op.hostNode === 0 ? DOCUMENT_ID : op.hostNode;
@@ -1631,8 +1728,9 @@
     domNodes.bind(root, DOCUMENT_ID);
     allocateConnectedSubtree(root, domNodes);
   }
-  function describeDomResync(domNodes) {
+  function describeDomResync(domNodes, formIndex) {
     const ops = [];
+    formIndex.rebuild(domNodes);
     for (const [id, node] of domNodes.liveEntries()) {
       if (id === DOCUMENT_ID) continue;
       if (!node.isConnected) {
@@ -1667,14 +1765,16 @@
 
   // browser/mirror/projection/virtual/resync.ts
   function emitResyncFrame(planes, sequence) {
-    const { domNodes, table, cssom } = planes;
+    const { domNodes, table, cssom, formIndex } = planes;
     const generation = domNodes.generation;
-    const domOps = describeDomResync(domNodes);
+    const domOps = describeDomResync(domNodes, formIndex);
     const cssomScan = cssom.blockingScan();
-    const ops = [...domOps, ...cssomScan.ops];
     table.reset();
     table.setSequence(sequence);
-    applyOpsToTable(table, ops);
+    applyOpsToTable(table, domOps);
+    const propOps = formIndex.sample(domNodes, table);
+    if (propOps.length > 0) applyOpsToTable(table, propOps);
+    const ops = [...domOps, ...propOps, ...cssomScan.ops];
     ops.push({ op: 1 /* Check */, scope: CHECK_SCOPE_TABLE, lo: 0, hi: 0, hash: table.tableHash });
     return {
       frame: createFrame({ generation, sequence, ops, resync: true, preTableHash: 0n }),
@@ -1926,6 +2026,96 @@
     }
   }
 
+  // browser/mirror/projection/virtual/dom/formPropIndex.ts
+  var SKIP_INPUT_TYPES = /* @__PURE__ */ new Set(["file", "button", "submit", "reset", "image"]);
+  function classifyFormControl(node) {
+    if (!(node instanceof Element)) return null;
+    const tag = node.tagName;
+    if (tag === "TEXTAREA") {
+      return { propId: PROP_ID_VALUE, value: node.value };
+    }
+    if (tag === "OPTION") {
+      return { propId: PROP_ID_SELECTED, value: node.selected };
+    }
+    if (tag !== "INPUT") return null;
+    const type = (node.type || "text").toLowerCase();
+    if (SKIP_INPUT_TYPES.has(type)) return null;
+    if (type === "checkbox" || type === "radio") {
+      return { propId: PROP_ID_CHECKED, value: node.checked };
+    }
+    return { propId: PROP_ID_VALUE, value: node.value };
+  }
+  function isFormIndexCandidate(node) {
+    return classifyFormControl(node) !== null;
+  }
+  var FormPropIndex = class {
+    nodes = /* @__PURE__ */ new Set();
+    addIfIndexed(node) {
+      if (isFormIndexCandidate(node)) this.nodes.add(node);
+    }
+    remove(node) {
+      this.nodes.delete(node);
+    }
+    clear() {
+      this.nodes.clear();
+    }
+    rebuild(domNodes) {
+      this.nodes.clear();
+      for (const [, node] of domNodes.liveEntries()) this.addIfIndexed(node);
+    }
+    /** Emit PROP_SET when live ≠ table.props. Drops disconnected nodes from the index. */
+    sample(domNodes, table) {
+      const ops = [];
+      for (const node of [...this.nodes]) {
+        if (!node.isConnected) {
+          this.nodes.delete(node);
+          continue;
+        }
+        const classified = classifyFormControl(node);
+        if (classified === null) continue;
+        const id = domNodes.keyOf(node);
+        if (id === NONE_DOM_NODE_KEY) continue;
+        if (propScalarsEqual(table.getProp(id, classified.propId), classified.value)) continue;
+        ops.push({
+          op: 99 /* PropSet */,
+          node: id,
+          propId: classified.propId,
+          value: classified.value
+        });
+      }
+      return ops;
+    }
+  };
+  function snapshotFormControls(doc) {
+    const out = [];
+    const nodes = doc.querySelectorAll("input, textarea, option");
+    for (let i = 0; i < nodes.length; i++) {
+      const el = nodes[i];
+      const classified = classifyFormControl(el);
+      if (classified === null) continue;
+      const key = formControlKey(el);
+      if (key === null) continue;
+      const snap = { key };
+      if (classified.propId === PROP_ID_VALUE) snap.value = String(classified.value);
+      else if (classified.propId === PROP_ID_CHECKED) snap.checked = Boolean(classified.value);
+      else snap.selected = Boolean(classified.value);
+      out.push(snap);
+    }
+    out.sort((a, b) => a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
+    return out;
+  }
+  function formControlKey(el) {
+    if (el.id) return el.id;
+    if (el.tagName === "OPTION") {
+      const select = el.closest("select");
+      const selectId = select?.id || "";
+      const value = el.value;
+      if (!selectId && !value) return null;
+      return `option:${selectId}:${value}`;
+    }
+    return null;
+  }
+
   // browser/mirror/projection/virtual/snapshot.ts
   function probeNodeNewConnected(ops, domNodes) {
     const disconnectedIds = [];
@@ -2008,7 +2198,8 @@
       cssom,
       cssomO2,
       nodeNewConnected: probeNodeNewConnected(lastOps, planes.domNodes),
-      cascade: probeCssomPaintBoundary(document)
+      cascade: probeCssomPaintBoundary(document),
+      formProps: snapshotFormControls(document)
     };
   }
 
@@ -2017,6 +2208,7 @@
   var TableFrameBuilder = class {
     domNodes;
     table;
+    formIndex;
     collectOpCounts;
     nodeDropAgeSequences;
     maxNodeDropsPerSweep;
@@ -2034,6 +2226,7 @@
     constructor(opts) {
       this.domNodes = opts.domNodes;
       this.table = opts.table;
+      this.formIndex = opts.formIndex;
       this.collectOpCounts = opts.collectOpCounts ?? false;
       this.nodeDropAgeSequences = opts.nodeDropAgeSequences ?? NODE_DROP_AGE_SEQUENCES;
       this.maxNodeDropsPerSweep = opts.maxNodeDropsPerSweep ?? MAX_NODE_DROPS_PER_SWEEP;
@@ -2100,6 +2293,11 @@
       const dropOpIndex = ops.length;
       this.emitNodeDropSweep(ops, ctx.sequence);
       if (ops.length > dropOpIndex) applyOpsToTable(this.table, ops.slice(dropOpIndex));
+      const propOps = this.formIndex.sample(this.domNodes, this.table);
+      if (propOps.length > 0) {
+        ops.push(...propOps);
+        applyOpsToTable(this.table, propOps);
+      }
       if (ops.length === 0) return null;
       let opCounts = EMPTY_OP_COUNTS;
       if (this.collectOpCounts) {
@@ -2142,7 +2340,10 @@
         const subtreeIds = this.table.subtreeIds(rootIds[i]);
         for (let j = 0; j < subtreeIds.length; j++) {
           const node = this.domNodes.get(subtreeIds[j]);
-          if (node !== void 0) this.domNodes.release(node);
+          if (node !== void 0) {
+            this.formIndex.remove(node);
+            this.domNodes.release(node);
+          }
         }
       }
       ops.push({ op: 33 /* NodeDrop */, ids: rootIds });
@@ -2219,6 +2420,7 @@
       if (kind === null) return NONE_DOM_NODE_KEY;
       const id = this.domNodes.allocate(node);
       this.createdThisTick.add(node);
+      this.formIndex.addIfIndexed(node);
       ops.push(describeNodeNew(id, kind, node));
       this.walkSiblingRun(node.childNodes, id, ops);
       return id;
@@ -2249,6 +2451,7 @@
         if (node.isConnected) continue;
         const id = this.domNodes.keyOf(node);
         if (id === NONE_DOM_NODE_KEY) continue;
+        this.formIndex.remove(node);
         const oldParentId = this.domNodes.keyOf(oldParent);
         if (oldParentId === NONE_DOM_NODE_KEY) continue;
         ops.push({ op: 65 /* Remove */, parent: oldParentId, ids: [id] });
@@ -3298,9 +3501,10 @@
     domNodes.bind(document, DOCUMENT_ID);
     domNodes.setGeneration(config.generation);
     const table = new ReplicatedTable();
+    const formIndex = new FormPropIndex();
     const mutationBuffer = new MutationBuffer();
     const domMutationObserver = new DomMutationObserver({ buffer: mutationBuffer });
-    const frameBuilder = new TableFrameBuilder({ domNodes, table });
+    const frameBuilder = new TableFrameBuilder({ domNodes, table, formIndex });
     const encoder = new BinaryFrameEncoder({ maxFrameBytes: config.maxFrameBytes });
     let frameTransport;
     let dataPlane = null;
@@ -3326,7 +3530,7 @@
       poller: cssomPoller,
       minIntervalMs: 1e3 / config.cssomPollHz
     }) : disabledCssomPlane();
-    const resyncPlanes = { domNodes, table, cssom };
+    const resyncPlanes = { domNodes, table, cssom, formIndex };
     const frameClock = new TimerFrameClock({
       frameRateHz: config.frameRateHz,
       onStall: (info) => {

@@ -13,6 +13,7 @@
 
 import { ElementNs } from '../../models/elementNs';
 import { NodeKind, OpCode } from '../../models/opcodes';
+import { propValueKind } from '../../models/propSet';
 import type {
   AttrPair,
   CheckOp,
@@ -27,6 +28,7 @@ import type {
   AttrSetOp,
   AttrDelOp,
   TextSetOp,
+  PropSetOp,
   SheetNewOp,
   SheetDropOp,
   SheetOrderOp,
@@ -160,6 +162,8 @@ export class BinaryFrameEncoder implements FrameEncoder {
         return this.writeAttrDel(w, op);
       case OpCode.TextSet:
         return this.writeTextSet(w, op);
+      case OpCode.PropSet:
+        return this.writePropSet(w, op);
       case OpCode.SheetNew:
         return this.writeSheetNew(w, op);
       case OpCode.SheetDrop:
@@ -261,6 +265,26 @@ export class BinaryFrameEncoder implements FrameEncoder {
     w.u8(OpCode.TextSet);
     w.u32(op.node);
     this.writeStrRef(w, op.value);
+  }
+
+  private writePropSet(w: BinaryWriter, op: PropSetOp): void {
+    w.u8(OpCode.PropSet);
+    w.u32(op.node);
+    w.u8(op.propId);
+    const kind = propValueKind(op.propId);
+    if (kind === 'str') {
+      this.writeStrRef(w, String(op.value));
+      return;
+    }
+    if (kind === 'bool') {
+      w.u8(op.value ? 1 : 0);
+      return;
+    }
+    if (kind === 'f32') {
+      w.f32(typeof op.value === 'number' ? op.value : 0);
+      return;
+    }
+    throw new Error(`PROP_SET propId ${op.propId} is not defined (frame-protocol.md §4.4)`);
   }
 
   private writeIdList(w: BinaryWriter, ids: readonly number[]): void {

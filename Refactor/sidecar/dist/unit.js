@@ -79,6 +79,9 @@ const tableDigest_1 = require("./browser/mirror/projection/models/tableDigest");
 const cssomApplyIndex_1 = require("./browser/mirror/projection/models/cssomApplyIndex");
 const binaryFrameEncoder_1 = require("./browser/mirror/projection/virtual/frame/binaryFrameEncoder");
 const nodeTableApply_1 = require("./browser/mirror/projection/lab/probes/nodeTableApply");
+const propSet_1 = require("./browser/mirror/projection/models/propSet");
+const formPropDirty_1 = require("./browser/mirror/projection/models/formPropDirty");
+const formControlSnap_1 = require("./browser/mirror/projection/models/formControlSnap");
 const validate_1 = require("./browser/mirror/projection/lab/runner/validate");
 const hostileFrames_1 = require("./browser/mirror/projection/lab/runner/hostileFrames");
 const schedule_1 = require("./browser/mirror/projection/lab/runner/schedule");
@@ -1447,6 +1450,9 @@ function testRowHashPrimitives() {
     assert_1.default.notStrictEqual((0, rowHash_1.hashName)('x'), (0, rowHash_1.hashAttr)('x', ''), 'hashName/hashAttr must not collide for equal text');
     assert_1.default.notStrictEqual((0, rowHash_1.hashAttr)('a', 'b'), (0, rowHash_1.hashAttr)('ab', ''), 'attr name/value separator must prevent splicing collisions');
     assert_1.default.notStrictEqual((0, rowHash_1.hashAttr)('a', 'b'), (0, rowHash_1.hashAttr)('a', 'bx'), 'attr value must be part of the hash');
+    assert_1.default.notStrictEqual((0, rowHash_1.hashProp)(1, 'x'), (0, rowHash_1.hashAttr)('value', 'x'), 'hashProp must not collide with hashAttr for the same text');
+    assert_1.default.notStrictEqual((0, rowHash_1.hashProp)(1, 'x'), (0, rowHash_1.hashProp)(2, 'x'), 'propId must affect hashProp');
+    assert_1.default.notStrictEqual((0, rowHash_1.hashProp)(1, true), (0, rowHash_1.hashProp)(1, false), 'bool prop values must not collide');
     // mod 2^64 wraparound — subMod64 must invert addMod64 for any operand pair, including near the mask boundary.
     const MASK64 = 0xffffffffffffffffn;
     assert_1.default.strictEqual((0, rowHash_1.addMod64)(MASK64, 1n), 0n, 'addMod64 must wrap at 2^64');
@@ -2045,6 +2051,140 @@ function testStructuralDiffNsMismatch() {
     assert_1.default.strictEqual(bothSvg.identical, true);
     console.log('[unit] structuralDiff ns_mismatch ok');
 }
+/** SEAL-DOM-P1-PROP / PP-PROP-1 — PROP_SET 0x63, wire version stays 2. */
+function testPropSetWire() {
+    assert_1.default.strictEqual(frame_1.FRAME_WIRE_VERSION, 2);
+    const valueOp = { op: opcodes_1.OpCode.PropSet, node: 10, propId: propSet_1.PROP_ID_VALUE, value: 'Ada' };
+    const checkedOp = { op: opcodes_1.OpCode.PropSet, node: 11, propId: propSet_1.PROP_ID_CHECKED, value: true };
+    const selectedOp = { op: opcodes_1.OpCode.PropSet, node: 12, propId: propSet_1.PROP_ID_SELECTED, value: false };
+    const valueBytes = new binaryFrameEncoder_1.BinaryFrameEncoder().encode((0, frame_1.createFrame)({ generation: 1, sequence: 1, ops: [valueOp] }))[0];
+    const valueDecoded = (0, decode_1.decodeFramePart)(valueBytes, new decode_1.PersistentStringTable());
+    assert_1.default.ok(valueDecoded.ok, 'VALUE PROP_SET must decode');
+    if (!valueDecoded.ok)
+        return;
+    assert_1.default.strictEqual(valueDecoded.part.version, 2);
+    const valueGot = valueDecoded.part.ops[0];
+    assert_1.default.strictEqual(valueGot?.op, opcodes_1.OpCode.PropSet);
+    if (valueGot?.op !== opcodes_1.OpCode.PropSet)
+        return;
+    assert_1.default.strictEqual(valueGot.node, 10);
+    assert_1.default.strictEqual(valueGot.propId, propSet_1.PROP_ID_VALUE);
+    assert_1.default.strictEqual(valueGot.value, 'Ada');
+    const checkedBytes = new binaryFrameEncoder_1.BinaryFrameEncoder().encode((0, frame_1.createFrame)({ generation: 1, sequence: 1, ops: [checkedOp] }))[0];
+    const checkedDecoded = (0, decode_1.decodeFramePart)(checkedBytes, new decode_1.PersistentStringTable());
+    assert_1.default.ok(checkedDecoded.ok, 'CHECKED PROP_SET must decode');
+    if (!checkedDecoded.ok)
+        return;
+    const checkedGot = checkedDecoded.part.ops[0];
+    assert_1.default.strictEqual(checkedGot?.op, opcodes_1.OpCode.PropSet);
+    if (checkedGot?.op !== opcodes_1.OpCode.PropSet)
+        return;
+    assert_1.default.strictEqual(checkedGot.propId, propSet_1.PROP_ID_CHECKED);
+    assert_1.default.strictEqual(checkedGot.value, true);
+    const selectedBytes = new binaryFrameEncoder_1.BinaryFrameEncoder().encode((0, frame_1.createFrame)({ generation: 1, sequence: 1, ops: [selectedOp] }))[0];
+    const selectedDecoded = (0, decode_1.decodeFramePart)(selectedBytes, new decode_1.PersistentStringTable());
+    assert_1.default.ok(selectedDecoded.ok, 'SELECTED PROP_SET must decode');
+    if (!selectedDecoded.ok)
+        return;
+    const selectedGot = selectedDecoded.part.ops[0];
+    assert_1.default.strictEqual(selectedGot?.op, opcodes_1.OpCode.PropSet);
+    if (selectedGot?.op !== opcodes_1.OpCode.PropSet)
+        return;
+    assert_1.default.strictEqual(selectedGot.propId, propSet_1.PROP_ID_SELECTED);
+    assert_1.default.strictEqual(selectedGot.value, false);
+    const badId = (0, decode_1.decodeFramePart)(patchPropSetPropId(valueBytes, 0x0b), new decode_1.PersistentStringTable());
+    assert_1.default.strictEqual(badId.ok, false);
+    if (!badId.ok)
+        assert_1.default.strictEqual(badId.reason, 'malformed');
+    const badBool = (0, decode_1.decodeFramePart)(patchPropSetBool(checkedBytes, 2), new decode_1.PersistentStringTable());
+    assert_1.default.strictEqual(badBool.ok, false);
+    if (!badBool.ok)
+        assert_1.default.strictEqual(badBool.reason, 'malformed');
+    assert_1.default.throws(() => new binaryFrameEncoder_1.BinaryFrameEncoder().encode((0, frame_1.createFrame)({
+        generation: 1,
+        sequence: 1,
+        ops: [{ op: opcodes_1.OpCode.PropSet, node: 10, propId: 0x0b, value: 'x' }],
+    })));
+    console.log('[unit] PROP_SET VALUE/CHECKED/SELECTED wire ok');
+}
+function firstOpOffset(bytes) {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    let o = 24;
+    const strCount = view.getUint32(o, true);
+    o += 4;
+    for (let i = 0; i < strCount; i++) {
+        const len = view.getUint32(o, true);
+        o += 4 + len;
+    }
+    o += 4; // opCount
+    return o;
+}
+function patchPropSetPropId(bytes, propId) {
+    const out = bytes.slice();
+    const o = firstOpOffset(out);
+    assert_1.default.strictEqual(out[o], opcodes_1.OpCode.PropSet);
+    out[o + 1 + 4] = propId;
+    return out;
+}
+function patchPropSetBool(bytes, flag) {
+    const out = bytes.slice();
+    const o = firstOpOffset(out);
+    assert_1.default.strictEqual(out[o], opcodes_1.OpCode.PropSet);
+    out[o + 1 + 4 + 1] = flag;
+    return out;
+}
+/** HTML attr `value=""` and live `.value` after PROP_SET are distinct table content. CHECK is table. */
+function testPropSetTableAndCheck() {
+    const table = new replicatedTable_1.ReplicatedTable();
+    table.createElementRow(10, 'input', [{ name: 'value', value: '' }]);
+    const afterAttr = table.getRow(10).contentHash;
+    assert_1.default.strictEqual(table.getProp(10, propSet_1.PROP_ID_VALUE), undefined);
+    (0, replicatedTableApply_1.applyOpToTable)(table, { op: opcodes_1.OpCode.PropSet, node: 10, propId: propSet_1.PROP_ID_VALUE, value: 'Ada' });
+    assert_1.default.strictEqual(table.getProp(10, propSet_1.PROP_ID_VALUE), 'Ada');
+    assert_1.default.notStrictEqual(table.getRow(10).contentHash, afterAttr, 'PROP_SET must change contentHash independently of the value attribute');
+    const reference = new replicatedTable_1.ReplicatedTable();
+    reference.createElementRow(10, 'input', [{ name: 'value', value: '' }]);
+    (0, replicatedTableApply_1.applyOpToTable)(reference, { op: opcodes_1.OpCode.PropSet, node: 10, propId: propSet_1.PROP_ID_VALUE, value: 'Ada' });
+    const client = new replicatedTable_1.ReplicatedTable();
+    client.createElementRow(10, 'input', [{ name: 'value', value: '' }]);
+    const result = (0, replicatedTableApply_1.applyFrameToTableChecked)(client, false, [
+        { op: opcodes_1.OpCode.PropSet, node: 10, propId: propSet_1.PROP_ID_VALUE, value: 'Ada' },
+        { op: opcodes_1.OpCode.Check, scope: frame_1.CHECK_SCOPE_TABLE, lo: 0, hi: 0, hash: reference.tableHash },
+    ]);
+    assert_1.default.strictEqual(result.ok, true, 'CHECK after PROP_SET must pass from table hash, not live DOM');
+    assert_1.default.strictEqual(client.getProp(10, propSet_1.PROP_ID_VALUE), 'Ada');
+    console.log('[unit] PROP_SET contentHash + CHECK ok');
+}
+/** Dirty is phase 2 only: table still applies; CHECK still green; applyDom would skip the live field. */
+function testFormPropDirtyDoesNotBlockTable() {
+    const dirty = new formPropDirty_1.FormPropDirty();
+    dirty.mark(10);
+    assert_1.default.strictEqual(dirty.isDirty(10), true);
+    const table = new replicatedTable_1.ReplicatedTable();
+    table.createElementRow(10, 'input', []);
+    const ops = [
+        { op: opcodes_1.OpCode.PropSet, node: 10, propId: propSet_1.PROP_ID_VALUE, value: 'o' },
+    ];
+    (0, replicatedTableApply_1.applyOpsToTable)(table, ops);
+    assert_1.default.strictEqual(table.getProp(10, propSet_1.PROP_ID_VALUE), 'o');
+    const withCheck = [
+        ...ops,
+        { op: opcodes_1.OpCode.Check, scope: frame_1.CHECK_SCOPE_TABLE, lo: 0, hi: 0, hash: table.tableHash },
+    ];
+    const other = new replicatedTable_1.ReplicatedTable();
+    other.createElementRow(10, 'input', []);
+    const result = (0, replicatedTableApply_1.applyFrameToTableChecked)(other, false, withCheck);
+    assert_1.default.strictEqual(result.ok, true, 'CHECK must not look at a dirty live field');
+    assert_1.default.strictEqual(dirty.isDirty(10), true, 'phase 1 must not clear dirty');
+    dirty.hold({ op: opcodes_1.OpCode.PropSet, node: 10, propId: propSet_1.PROP_ID_VALUE, value: 'oi' });
+    const held = dirty.take(10);
+    assert_1.default.strictEqual(held?.value, 'oi');
+    const mismatch = (0, formControlSnap_1.formControlSnapsEqual)([{ key: 'name', value: 'Ada-1' }], [{ key: 'name', value: 'Ada' }]);
+    assert_1.default.strictEqual(mismatch.identical, false);
+    const match = (0, formControlSnap_1.formControlSnapsEqual)([{ key: 'name', value: 'Ada-1' }], [{ key: 'name', value: 'Ada-1' }]);
+    assert_1.default.strictEqual(match.identical, true);
+    console.log('[unit] FormPropDirty phase-1 independent + PP-PROP-1 snap compare ok');
+}
 /**
  * frame-protocol.md §2 Stage 2 GATE — the client's own precondition check (`preTableHash`
  * against its table's current `tableHash`, `client/applyDom.ts` phase 1) is the first gate
@@ -2317,6 +2457,22 @@ function testApplyFrameToTableCheckedPhase1Pres() {
         assert_1.default.strictEqual(result.ok, false);
         if (!result.ok && result.opName !== 'check') {
             assert_1.default.strictEqual(result.opName, 'attrSet');
+            assert_1.default.strictEqual(result.reason, 'precondition');
+        }
+        else
+            assert_1.default.fail(JSON.stringify(result));
+    }
+    {
+        const table = new replicatedTable_1.ReplicatedTable();
+        (0, replicatedTableApply_1.applyOpsToTable)(table, [
+            { op: opcodes_1.OpCode.NodeNew, id: 2, kind: opcodes_1.NodeKind.Text, value: 't' },
+        ]);
+        const result = (0, replicatedTableApply_1.applyFrameToTableChecked)(table, false, [
+            { op: opcodes_1.OpCode.PropSet, node: 2, propId: propSet_1.PROP_ID_VALUE, value: 'nope' },
+        ]);
+        assert_1.default.strictEqual(result.ok, false);
+        if (!result.ok && result.opName !== 'check') {
+            assert_1.default.strictEqual(result.opName, 'propSet');
             assert_1.default.strictEqual(result.reason, 'precondition');
         }
         else
@@ -2944,6 +3100,9 @@ async function main() {
     testCheckScopeRangeEncodeDecode();
     testNodeNewElementNsWire();
     testStructuralDiffNsMismatch();
+    testPropSetWire();
+    testPropSetTableAndCheck();
+    testFormPropDirtyDoesNotBlockTable();
     testApplyFrameToTableCheckedDoesNotRollBackPriorOps();
     testEpochResetClearsReplicatedTable();
     testNodeDropRemovesSubtreeAndDescendants();

@@ -6,8 +6,7 @@
  * (frame-protocol.md §6), before either side touches a real DOM node.
  *
  * Contract fields per row (`kind`, `parent`, `prevSibling`, `contentHash`, `rowHash`) are exactly
- * §1.3's node row, restricted to the DOM-only v0 surface (no `props`/`flags`/CSSOM kinds yet —
- * those are out of scope, see frame-protocol-production-completeness plan). `nextSiblingOf` and
+ * §1.3's node row. ELEMENT rows also hold `props` (PROP_SET, §4.4). `nextSiblingOf` and
  * `lastChildOf` are **derived, non-hashed navigation indices** (§1.4: "Implementations MAY keep
  * derived links … for O(1) navigation. Derived links are not hashed and are not part of the
  * contract.") — they exist purely so `INSERT`/`REMOVE` can repair "the node that followed it" in
@@ -21,7 +20,7 @@
 import { ElementNs } from './elementNs';
 import { NodeKind } from './opcodes';
 import type { AttrPair } from './frame';
-import { addMod64, computeRowHash, hashAttr, hashName, hashNs, hashValue, subMod64, TableHashTracker } from './rowHash';
+import { addMod64, computeRowHash, hashAttr, hashName, hashNs, hashProp, hashValue, subMod64, TableHashTracker } from './rowHash';
 
 export type RowSnapshot = {
   readonly kind: number;
@@ -48,6 +47,10 @@ export class ReplicatedTable {
   private readonly rows = new Map<number, MutableRow>();
   /** ELEMENT rows only — id -> attrName -> that attribute's own contentHash contribution. */
   private readonly attrHashes = new Map<number, Map<string, bigint>>();
+  /** ELEMENT rows only — id -> propId -> that prop's contentHash contribution. */
+  private readonly propHashes = new Map<number, Map<number, bigint>>();
+  /** ELEMENT rows only — last PROP_SET scalar (delta compare on the producer). */
+  private readonly propValues = new Map<number, Map<number, string | boolean | number>>();
   /** Derived, non-hashed: id -> the id currently linked immediately after it under the same parent. */
   private readonly nextSiblingOf = new Map<number, number>();
   /** Derived, non-hashed: parentId -> the id currently linked last under that parent (0 = none). */
@@ -140,6 +143,8 @@ export class ReplicatedTable {
   reset(): void {
     this.rows.clear();
     this.attrHashes.clear();
+    this.propHashes.clear();
+    this.propValues.clear();
     this.nextSiblingOf.clear();
     this.lastChildOf.clear();
     this.tracker.clear();
@@ -167,6 +172,8 @@ export class ReplicatedTable {
       sum = addMod64(sum, h);
     }
     this.attrHashes.set(id, attrMap);
+    this.propHashes.set(id, new Map());
+    this.propValues.set(id, new Map());
     this.setRow(id, NodeKind.Element, NONE, NONE, sum);
   }
 
@@ -215,6 +222,26 @@ export class ReplicatedTable {
     this.setRow(id, row.kind, row.parent, row.prevSibling, hashValue(value));
   }
 
+  setProp(id: number, propId: number, value: string | boolean | number): void {
+    const row = this.rows.get(id);
+    if (row === undefined) return;
+    const hashMap = this.propHashes.get(id) ?? new Map<number, bigint>();
+    const valueMap = this.propValues.get(id) ?? new Map<number, string | boolean | number>();
+    let sum = row.contentHash;
+    const old = hashMap.get(propId);
+    if (old !== undefined) sum = subMod64(sum, old);
+    const h = hashProp(propId, value);
+    hashMap.set(propId, h);
+    valueMap.set(propId, value);
+    this.propHashes.set(id, hashMap);
+    this.propValues.set(id, valueMap);
+    this.setRow(id, row.kind, row.parent, row.prevSibling, addMod64(sum, h));
+  }
+
+  getProp(id: number, propId: number): string | boolean | number | undefined {
+    return this.propValues.get(id)?.get(propId);
+  }
+
   // ---- INSERT / REMOVE (§4.3) — topology only, content untouched. ----
 
   /**
@@ -260,6 +287,8 @@ export class ReplicatedTable {
   dropRow(id: number): void {
     this.rows.delete(id);
     this.attrHashes.delete(id);
+    this.propHashes.delete(id);
+    this.propValues.delete(id);
     this.nextSiblingOf.delete(id);
     this.lastChildOf.delete(id);
     this.tracker.remove(id);

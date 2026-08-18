@@ -1,0 +1,19 @@
+{
+  "id": "forms-state",
+  "description": "Form live properties — PROP_SET VALUE/CHECKED/SELECTED, iso formProps when a DOM client is present",
+  "sessionPolicy": "cold",
+  "fold": "forms-state",
+  "queues": [
+    {
+      "name": "main",
+      "actions": [
+        { "id": "boot", "type": "boot", "params": { "url": "fixtures/forms-state.html" } },
+        { "id": "wait-settle", "type": "sleep", "dependsOn": ["boot"], "params": { "ms": 2000 } },
+        { "id": "snap-props", "type": "snap", "dependsOn": ["wait-settle"], "params": { "id": "formsState", "cssom": "none" } },
+        { "id": "iso-props", "type": "iso", "dependsOn": ["snap-props"] },
+        { "id": "fold", "type": "fold", "awaits": ["iso-props", "snap-props"], "params": { "ruleset": "forms-state" } },
+        { "id": "writeDossier", "type": "writeDossier", "dependsOn": ["fold"] }
+      ]
+    }
+  ]
+}

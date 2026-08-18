@@ -51,7 +51,7 @@ Until shadow/pierce ships (feature below), a closed-shadow fixture must **fail e
 
 ## 2. Gaps (current path is wrong or unsealed)
 
-**Empty.** SVG namespace closed 2026-08-17. Next work is §3 (features).
+**Empty.** SVG namespace closed 2026-08-17. Form `PROP_SET` closed 2026-08-18. Next work is §3 (features) — shadow/pierce.
 
 Honesty P0 for apply (flush-after-desync, failed `setAttribute`, phase-1 pres, `NODE_NEW` connected probe, `RULE_SET` on grouping, EOF rule membership, author vs adopted paint, doc/code alignment) is **closed** — archive at the bottom. UI desync proofs for attr / ruleset / eof: 2026-08-17.
 
@@ -65,7 +65,6 @@ Not gaps in `NODE_NEW` / `RULE_SET` / CHECK. These ops or walks **are not on the
 
 | Id | What to build | Assert | Status |
 |----|---------------|--------|--------|
-| **SEAL-DOM-P1-PROP** | `PROP_SET` (§4.4) on the wire — `value` / `checked` / form controls. | **PP-IN-2** / form fixture: Virtual control state ↔ Projected after settle; missing op **fails**, not skip. | open |
 | **SEAL-DOM-P1-SHADOW** | Shadow trees on the publish walk (or pierce policy). Today the single-doc walk does not enter shadow. | Policy + probe: closed shadow either unsupported-fail or matches chosen pierce (**PP-F-3** / **PP-F-4**). | open |
 | **SEAL-DOM-P2-ISA** | Remaining opcodes on the happy path: `NODE_META`, `DOC_STATE`, `SCROLL_*`, `NODE_SNAPSHOT`, related. | Per-opcode matrix (**PP-F-5**, **PP-EST-4**, **PP-MOVE-3**, **PP-D16-***) with **effect** probes — not “opcode exists”. | open |
 | **SEAL-DOM-P2-OPEN6** | Multi-document / nested documents (cross-origin iframes). Pinned in lab; production cutover blocker. | Per-document streams + pierce asserts (**PP-F-4**); fail unsupported until the protocol ships. | open |
@@ -92,7 +91,7 @@ Not gaps in `NODE_NEW` / `RULE_SET` / CHECK. These ops or walks **are not on the
 |------|------|--------|
 | **QA / tests** | 0 | Human looks + CHECK range + CSSStyleRule live + detached-row GC closed 2026-08-17 |
 | **Gaps** | 0 | SVG namespace closed 2026-08-17 |
-| **Features** | 9 ids | PROP, shadow, remaining ISA, multi-doc, pierce CSS, nested rows, C5, scale, CSS iso |
+| **Features** | 8 ids | shadow, remaining ISA, multi-doc, pierce CSS, nested rows, C5, scale, CSS iso |
 
 Closed honesty + QA 2026-08-17: FLUSH, ATTR, PHASE1, PROBE, OPEN2, OPEN3, RULESET, DOUBLE, EOF, DOCS, STYLE, IDSPACE, OPEN-1, SVG.
 
@@ -131,6 +130,7 @@ Kept so ids and dates stay searchable. Do not reopen because CLI `--iso` skipped
 | **SEAL-DOM-P1-OPEN3** | `CHECK` over id ranges. | Units: `testApplyFrameToTableCheckedRangeScope`, `testCheckScopeRangeEncodeDecode`. | **closed 2026-08-17** |
 | **OPEN-1** | `NODE_DROP` of an absent id. | **malformed** (Rodrigo). Unit `testApplyFrameToTableCheckedRejectsNodeDropAbsentId`. | **closed 2026-08-17** |
 | **SEAL-DOM-P1-SVG** | `NODE_NEW` always HTML `createElement`. | **PP-F-SVG-1**: units `testNodeNewElementNsWire`, `testStructuralDiffNsMismatch`; lab `svg-ns` (CLI tree skip without DOM client; `ns_mismatch` fails with client). | **closed 2026-08-17** |
+| **SEAL-DOM-P1-PROP** | Live form properties not on the wire / not applied as properties. | **PP-PROP-1**: units `testPropSetWire`, `testPropSetTableAndCheck`, `testFormPropDirtyDoesNotBlockTable`; lab `forms-state` (CLI `iso.formProps` skip explicit without DOM client; with client, Virtual vs Projected properties fail on mismatch). | **closed 2026-08-18** |
 
 ### CSSOM
 

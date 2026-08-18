@@ -41,6 +41,12 @@ export type LabClientMessage =
         styleElCount: number;
         doublePaint: boolean;
       } | null;
+      formProps?: Array<{
+        key: string;
+        value?: string;
+        checked?: boolean;
+        selected?: boolean;
+      }> | null;
     }
   | { type: 'client.requestResync'; reason?: string }
   | { type: 'client.tamperResult'; ok: boolean; reason?: string | null }

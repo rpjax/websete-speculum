@@ -15,6 +15,8 @@ import type { CssomPlane } from './cssom/cssomPlane';
 import type { CssomIds } from './cssom/cssomIds';
 import { compareTableToLiveCssomDom } from './cssom/cssomTableLiveOracle';
 import { stampCssomPoll, type CssomPollStats } from '../models/telemetry';
+import { snapshotFormControls } from './dom/formPropIndex';
+import type { FormControlSnap } from '../models/formControlSnap';
 
 /** What CSSOM truth this snapshot needs. */
 export type SnapshotCssom = 'none' | 'committed' | 'scan';
@@ -49,6 +51,7 @@ export type SnapshotResult = {
   cssomO2: CssomTableLiveOracleResult | null;
   nodeNewConnected: NodeNewConnectedProbe;
   cascade: CssomPaintBoundaryProbe | null;
+  formProps: FormControlSnap[];
 };
 
 export type SnapshotPlanes = {
@@ -155,5 +158,6 @@ export function takeSnapshot(planes: SnapshotPlanes, opts: SnapshotOptions = {})
     cssomO2,
     nodeNewConnected: probeNodeNewConnected(lastOps, planes.domNodes),
     cascade: probeCssomPaintBoundary(document),
+    formProps: snapshotFormControls(document),
   };
 }

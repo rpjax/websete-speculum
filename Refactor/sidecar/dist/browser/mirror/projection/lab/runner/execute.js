@@ -47,6 +47,7 @@ const cssomHeavy_1 = require("../blueprints/fold/cssomHeavy");
 const cssomDouble_1 = require("../blueprints/fold/cssomDouble");
 const applyAttrs_1 = require("../blueprints/fold/applyAttrs");
 const svgNs_1 = require("../blueprints/fold/svgNs");
+const formsState_1 = require("../blueprints/fold/formsState");
 const applyHonestyDesync_1 = require("../blueprints/fold/applyHonestyDesync");
 const hostileFrames_1 = require("./hostileFrames");
 function sleep(ms) {
@@ -338,6 +339,7 @@ async function executeBlueprint(bp, hooks) {
                         skipped: iso.skipped,
                         nodeNewConnected: iso.nodeNewConnected,
                         cascade: iso.cascade,
+                        formProps: iso.formProps,
                     }, 'probes.iso');
                 }
                 return finish(true);
@@ -480,6 +482,8 @@ async function executeBlueprint(bp, hooks) {
                     verdicts = (0, applyAttrs_1.foldApplyAttrs)(chassis);
                 else if (ruleset === 'svg-ns' || ruleset === 'fold/svgNs')
                     verdicts = (0, svgNs_1.foldSvgNs)(chassis);
+                else if (ruleset === 'forms-state' || ruleset === 'fold/formsState')
+                    verdicts = (0, formsState_1.foldFormsState)(chassis);
                 else if (ruleset === 'apply-honesty-desync' || ruleset === 'fold/applyHonestyDesync') {
                     const kind = parseHostileKind(params.kind, bp.id);
                     if (!kind)

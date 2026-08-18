@@ -15,6 +15,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.BinaryFrameEncoder = void 0;
 const elementNs_1 = require("../../models/elementNs");
 const opcodes_1 = require("../../models/opcodes");
+const propSet_1 = require("../../models/propSet");
 const binaryWriter_1 = require("./binaryWriter");
 const LOCAL_STR_BIT = 0x80000000;
 /**
@@ -127,6 +128,8 @@ class BinaryFrameEncoder {
                 return this.writeAttrDel(w, op);
             case opcodes_1.OpCode.TextSet:
                 return this.writeTextSet(w, op);
+            case opcodes_1.OpCode.PropSet:
+                return this.writePropSet(w, op);
             case opcodes_1.OpCode.SheetNew:
                 return this.writeSheetNew(w, op);
             case opcodes_1.OpCode.SheetDrop:
@@ -222,6 +225,25 @@ class BinaryFrameEncoder {
         w.u8(opcodes_1.OpCode.TextSet);
         w.u32(op.node);
         this.writeStrRef(w, op.value);
+    }
+    writePropSet(w, op) {
+        w.u8(opcodes_1.OpCode.PropSet);
+        w.u32(op.node);
+        w.u8(op.propId);
+        const kind = (0, propSet_1.propValueKind)(op.propId);
+        if (kind === 'str') {
+            this.writeStrRef(w, String(op.value));
+            return;
+        }
+        if (kind === 'bool') {
+            w.u8(op.value ? 1 : 0);
+            return;
+        }
+        if (kind === 'f32') {
+            w.f32(typeof op.value === 'number' ? op.value : 0);
+            return;
+        }
+        throw new Error(`PROP_SET propId ${op.propId} is not defined (frame-protocol.md §4.4)`);
     }
     writeIdList(w, ids) {
         w.u16(ids.length);

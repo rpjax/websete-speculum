@@ -12,6 +12,8 @@ import type { CssomTableLiveOracleResult } from '../../models/cssomTableLiveOrac
 import type { ReplicatedTableDigest } from '../../models/tableDigest';
 import { tableDigestsEqual } from '../../models/tableDigest';
 import type { TreeNode } from '../../models/treeNode';
+import type { FormControlSnap } from '../../models/formControlSnap';
+import { formControlSnapsEqual } from '../../models/formControlSnap';
 import { diffTrees, type StructuralDiffResult } from './structuralDiff';
 
 export type ClientStateSnapshot = {
@@ -35,6 +37,7 @@ export type ClientStateSnapshot = {
     styleElCount: number;
     doublePaint: boolean;
   } | null;
+  formProps?: FormControlSnap[] | null;
 };
 
 export type IsomorphismResult = {
@@ -59,6 +62,12 @@ export type IsomorphismResult = {
     virtual: ClientStateSnapshot['cascade'];
     client: ClientStateSnapshot['cascade'];
   } | null;
+  formProps: {
+    virtual: FormControlSnap[] | null;
+    client: FormControlSnap[] | null;
+    identical: boolean | null;
+    reason: string | null;
+  };
 };
 
 const CLIENT_CATCH_UP_MS = 2_000;
@@ -116,6 +125,7 @@ export async function runIsomorphism(opts: {
       skipped: [{ id: 'isomorphism', reason: 'session does not expose flushProjectionSnapshot' }],
       nodeNewConnected: null,
       cascade: null,
+      formProps: { virtual: null, client: null, identical: null, reason: null },
     };
   }
 
@@ -133,6 +143,7 @@ export async function runIsomorphism(opts: {
         skipped: [{ id: 'isomorphism', reason: virtual.reason ?? 'flushProjectionSnapshot failed' }],
         nodeNewConnected: null,
         cascade: null,
+        formProps: { virtual: null, client: null, identical: null, reason: null },
       };
     }
 
@@ -158,6 +169,10 @@ export async function runIsomorphism(opts: {
         id: 'table',
         reason: 'client table digest unavailable: no lab client apply surface',
       });
+      skipped.push({
+        id: 'formProps',
+        reason: 'client formProps unavailable: no lab client apply surface',
+      });
     } else if (clientSnap == null) {
       skipped.push({
         id: 'structuralDiff',
@@ -165,6 +180,10 @@ export async function runIsomorphism(opts: {
       });
       skipped.push({
         id: 'table',
+        reason: 'client did not reply to requestSnapshot after flush',
+      });
+      skipped.push({
+        id: 'formProps',
         reason: 'client did not reply to requestSnapshot after flush',
       });
     } else if (clientSnap.tree == null) {
@@ -179,6 +198,18 @@ export async function runIsomorphism(opts: {
       });
     } else {
       structuralDiff = diffTrees(virtual.tree as TreeNode, clientSnap.tree);
+    }
+
+    const virtualFormProps = virtual.formProps ?? null;
+    const clientFormProps = clientSnap?.formProps ?? null;
+    let formIdentical: boolean | null = null;
+    let formReason: string | null = null;
+    if (opts.getClientSnapshot && clientSnap != null) {
+      const cmp = formControlSnapsEqual(virtualFormProps, clientFormProps);
+      formIdentical = cmp.identical;
+      formReason = cmp.reason;
+    } else {
+      formReason = skipped.find((s) => s.id === 'formProps')?.reason ?? 'no DOM client';
     }
 
     const clientTable = clientSnap?.table ?? null;
@@ -222,6 +253,12 @@ export async function runIsomorphism(opts: {
       cascade: {
         virtual: virtual.cascade ?? null,
         client: clientSnap?.cascade ?? null,
+      },
+      formProps: {
+        virtual: virtualFormProps,
+        client: clientFormProps,
+        identical: formIdentical,
+        reason: formReason,
       },
       skipped: [
         ...skipped,

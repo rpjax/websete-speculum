@@ -30,6 +30,7 @@ A package (`WP`) is complete when **all** its `PP-*` rows pass and **all** its r
 | `PP-F-4` | Closed shadow roots and cross-origin iframes are pierced and published | WP3 |
 | `PP-F-5` | `<title>`, `lang`, `dir` and `meta viewport` are projected; an RTL page renders RTL | WP3 |
 | `PP-F-SVG-1` | SVG / MathML `namespaceURI` matches Virtual (**SEAL-DOM-P1-SVG**). Units: `testNodeNewElementNsWire`, `testStructuralDiffNsMismatch`. Lab `svg-ns` (CLI without DOM client: `iso.tree` skip explicit; with client, `ns_mismatch` fails). | lab |
+| `PP-PROP-1` | Virtual `.value` / `.checked` / `option.selected` match Projected at sequence S **at settle** (**SEAL-DOM-P1-PROP**, closed 2026-08-18). Units: `testPropSetWire`, `testPropSetTableAndCheck`, `testFormPropDirtyDoesNotBlockTable`. Lab `forms-state` (CLI without DOM client: `iso.formProps` skip explicit; with client, mismatch fails). Not tree iso. Not `PP-IN-2` (caret). Green CHECK while dirty is not this assert. | lab |
 | `PP-D16-1` | `showModal()` on Virtual produces a modal dialog on Projected: top layer, backdrop, inertness | WP11 |
 | `PP-D16-2` | Popover shown on Virtual is shown on Projected | WP11 |
 | `PP-D16-3` | Media pause / seek on Virtual is reflected on the client's media element | WP11 |
@@ -71,7 +72,7 @@ A package (`WP`) is complete when **all** its `PP-*` rows pass and **all** its r
 | `PP-REC-2` | Mid-session resync is `emitResyncFrame` (existing identity map); after swap, structural O2 vs Virtual is identical | WP6 |
 | `PP-REC-3` | Resync is an in-band frame with normally incremented `sequence`; client adopts it; no watermark side channel | WP6 |
 | `PP-IN-1` | Hover, active and focus-visible are visible within **P4** with the network stalled | WP10 |
-| `PP-IN-2` | Typing does not move the caret when an upstream value patch arrives (§5.9.3) | WP10 |
+| `PP-IN-2` | Typing does not move the caret when an upstream value patch arrives ([input.md](input.md) §7.2). Not **PP-PROP-1**. | WP10 |
 | `PP-IN-3` | Scroll paints within **P4** with the network stalled | WP10 |
 | `PP-IN-4` | Click to authoritative effect holds **P5** | WP10 |
 | `PP-IN-5` | Intents address by `uint32` id and resolve through the reverse map; a miss follows the retry-then-drop policy | WP10 |
@@ -120,7 +121,7 @@ A package (`WP`) is complete when **all** its `PP-*` rows pass and **all** its r
 | **WP7** | Surface as a real document, zoom/DPR (§5.8.1–4, §5.8.6) | `PP-SURF-1..5`; O1 improves measurably |
 | **WP8** | Double buffering (§5.8.5) | `PP-NAV-1..3`; P6 |
 | **WP9** | Cold resyncVirtual, handoff, arming, CSSOM-in-resync | `PP-EST-1..7`; E2, P1, P2 |
-| **WP10** | Local-first interaction, caret, control channel, id-addressed intents (§5.9, §5.11) | `PP-IN-1..5`; P4, P5 |
+| **WP10** | Local-first interaction, caret, control channel, id-addressed intents ([input.md](input.md)) | `PP-IN-1..5`; P4, P5 |
 | **WP11** | Node-state extensions (§5.2.1) | `PP-D16-1..4` |
 | **WP12** | Asset plane and two-tier cache (§5.12) | `PP-ASSET-1..8`, `PP-ISO-1..3`; P1 |
 | **WP13** | Browser pool + admission (§5.13, §5.14) | `PP-SESS-1..2`; E10 |

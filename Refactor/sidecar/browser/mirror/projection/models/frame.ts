@@ -92,6 +92,13 @@ export type NodeDropOp = {
 export type AttrSetOp = { op: OpCode.AttrSet; node: DomNodeKey; attrs: AttrPair[] };
 export type AttrDelOp = { op: OpCode.AttrDel; node: DomNodeKey; names: string[] };
 export type TextSetOp = { op: OpCode.TextSet; node: DomNodeKey; value: string };
+/** §4.4 — `value` is string (VALUE/CUSTOM_VALIDITY), boolean (u8 flags), or number (f32). */
+export type PropSetOp = {
+  op: OpCode.PropSet;
+  node: DomNodeKey;
+  propId: number;
+  value: string | boolean | number;
+};
 
 /** §4.6 `scope`: MAIN=0, PIERCE_HOST=1. Lab emits MAIN only (OPEN-6). */
 export const CSSOM_SCOPE_MAIN = 0;
@@ -130,6 +137,7 @@ export type FrameOp =
   | AttrSetOp
   | AttrDelOp
   | TextSetOp
+  | PropSetOp
   | SheetNewOp
   | SheetDropOp
   | SheetOrderOp

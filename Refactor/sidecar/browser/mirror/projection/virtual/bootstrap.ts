@@ -18,6 +18,7 @@ import { FrameEmitter } from './frame/frameEmitter';
 import { emitResyncFrame, rebuildAndResync, type ResyncPlanes } from './resync';
 import { takeSnapshot } from './snapshot';
 import { TableFrameBuilder } from './dom/tableFrameBuilder';
+import { FormPropIndex } from './dom/formPropIndex';
 import { CssomIds } from './cssom/cssomIds';
 import { CssomPoller } from './cssom/cssomPoller';
 import { CssomIdleScheduler } from './cssom/cssomIdleScheduler';
@@ -93,10 +94,11 @@ void (async () => {
   domNodes.bind(document, DOCUMENT_ID);
   domNodes.setGeneration(config.generation);
   const table = new ReplicatedTable();
+  const formIndex = new FormPropIndex();
 
   const mutationBuffer = new MutationBuffer();
   const domMutationObserver = new DomMutationObserver({ buffer: mutationBuffer });
-  const frameBuilder = new TableFrameBuilder({ domNodes, table });
+  const frameBuilder = new TableFrameBuilder({ domNodes, table, formIndex });
   const encoder = new BinaryFrameEncoder({ maxFrameBytes: config.maxFrameBytes });
 
   let frameTransport: FrameTransport;
@@ -130,7 +132,7 @@ void (async () => {
         })
       : disabledCssomPlane();
 
-  const resyncPlanes: ResyncPlanes = { domNodes, table, cssom };
+  const resyncPlanes: ResyncPlanes = { domNodes, table, cssom, formIndex };
 
   const frameClock: FrameClock = new TimerFrameClock({
     frameRateHz: config.frameRateHz,

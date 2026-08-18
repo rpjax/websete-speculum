@@ -22,6 +22,7 @@ var OpCode;
     OpCode[OpCode["AttrSet"] = 96] = "AttrSet";
     OpCode[OpCode["AttrDel"] = 97] = "AttrDel";
     OpCode[OpCode["TextSet"] = 98] = "TextSet";
+    OpCode[OpCode["PropSet"] = 99] = "PropSet";
     OpCode[OpCode["SheetNew"] = 160] = "SheetNew";
     OpCode[OpCode["SheetDrop"] = 161] = "SheetDrop";
     OpCode[OpCode["SheetOrder"] = 162] = "SheetOrder";
@@ -40,6 +41,7 @@ const NAMES = {
     [OpCode.AttrSet]: 'attrSet',
     [OpCode.AttrDel]: 'attrDel',
     [OpCode.TextSet]: 'textSet',
+    [OpCode.PropSet]: 'propSet',
     [OpCode.SheetNew]: 'sheetNew',
     [OpCode.SheetDrop]: 'sheetDrop',
     [OpCode.SheetOrder]: 'sheetOrder',

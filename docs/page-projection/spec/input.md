@@ -42,8 +42,8 @@ User → Projected DOM (capture) → wire intent → Virtual DOM (CDP dispatch)
 ```
 
 No site JS on Projected. Antibot-relevant pointer **paths** are remoted over
-**CDP only** (never OS/uinput). Control bindings honor F’s
-`speculum-input-*` attrs with debounce.
+**CDP only** (never OS/uinput). Upstream control state is `PROP_SET` (property),
+not `speculum-input-*` attributes (§7).
 
 ---
 
@@ -57,7 +57,7 @@ No site JS on Projected. Antibot-relevant pointer **paths** are remoted over
 | **Intent** | Wire message: `PageProjectionIntent` (today’s code: `DomProjectionIntent` until T11). |
 | **Surface** | Projection host content box that maps 1:1 to the Virtual viewport. |
 | **Dispatch** | CDP / Patchright apply on Virtual (never OS/uinput). |
-| **Binding** | Projected ↔ Virtual control sync via F attrs + debounce. |
+| **Binding** | Projected ↔ Virtual control sync via `PROP_SET` + debounce while dirty. |
 | **Inject chain** | Sidecar serialized queue preserving causal order. |
 
 > **On "anchor" / "anchored" below:** these words — and the `anchorMiss` diagnostic and
@@ -429,11 +429,18 @@ Aligned with F / Dom-plane D16 (`speculum-input-*` on patches):
 > control — not as a `speculum-input-*` DOM attribute. The binding *rules* below
 > (immediate downstream; debounce upstream only while dirty; Virtual wins) are unchanged.
 
-| Attr | Meaning |
-|------|---------|
-| `speculum-input-value` | Upstream text |
-| `speculum-input-checked` | Upstream checked |
-| `speculum-option-selected` | Upstream selected |
+**Lab (2026-08-18):** producer is index + sample every frame ([frame-protocol.md](frame-protocol.md)
+§5.9). Apply: phase 1 always; phase 2 honors §7.2 (skip live property while dirty). The lab iframe
+never marks dirty, so the happy path overwrites. Caret (`PP-IN-2`) is still WP10 — not
+**SEAL-DOM-P1-PROP** (closed 2026-08-18).
+
+Historical names (do **not** implement as DOM attributes):
+
+| Pre-V4 attr name | Meaning |
+|------------------|---------|
+| `speculum-input-value` | Upstream text → `VALUE` |
+| `speculum-input-checked` | Upstream checked → `CHECKED` |
+| `speculum-option-selected` | Upstream selected → `SELECTED` |
 
 ### 7.1 Downstream (user → Virtual) — **immediate**
 
@@ -443,13 +450,14 @@ so upstream patches know there is an in-flight edit conflict class.
 
 ### 7.2 Upstream (Virtual → Projected) — debounce **only** when dirty
 
-- Control **not** dirty → apply F/`patch` attrs **immediately**.  
-- Control **dirty** (user editing this control) → debounce
-  (**default 1000ms**, `inputBindingDebounceMs` §11): keep latest upstream
-  sample; on fire, if local ≠ upstream → overwrite (**Virtual wins**).  
+- Control **not** dirty → apply the `PROP_SET` property **immediately**.
+- Control **dirty** (user editing this control) → do **not** set the live property; keep the
+  latest upstream sample (debounce **default 1000ms**, `inputBindingDebounceMs` §11); on fire,
+  if local ≠ upstream → overwrite (**Virtual wins**). Phase 1 still applied — `CHECK` stays green.
 - This debounce is **only** the “user is editing this control” conflict class
-  (Dom-plane D16). It is **not** a global delay on every Dom `patch`.  
-- Caret/selection: **not** synced in V1 (accept jump on force overwrite).
+  (Dom-plane D16). It is **not** a global delay on every frame op.
+- Caret/selection: **not** synced in V1 (accept jump on force overwrite). That is `PP-IN-2`, not
+  the dirty skip itself.
 
 ### 7.3 Checked / select
 

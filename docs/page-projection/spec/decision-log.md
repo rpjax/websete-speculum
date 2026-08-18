@@ -62,6 +62,9 @@
 | 2026-08-17 | **SEAL-CSSOM-P1-IDSPACE** — Sheet/Rule ids share `DomNodeTable.mint`; leftover high-bit Cssom range gone | [seal-gaps.md](seal-gaps.md) |
 | 2026-08-17 | OPEN-1 **CLOSED** — `NODE_DROP` of an absent id is `malformed` | [frame-protocol.md](frame-protocol.md) §4.2 / §10 |
 | 2026-08-17 | **SEAL-DOM-P1-SVG** — `NODE_NEW` Element namespace enum; version 2; `createElementNS` | [frame-protocol.md](frame-protocol.md) §1.3 / §4.2 / §9 + [seal-gaps.md](seal-gaps.md) |
+| 2026-08-18 | **PROP_SET form** — producer index + sample every frame; emit VALUE/CHECKED/SELECTED on change; not CSSOM eventual | [frame-protocol.md](frame-protocol.md) §4.4 / §5.9 |
+| 2026-08-18 | **PROP_SET dirty = phase 2 only** — table/CHECK always; live field may lag while typing; not a desync | [frame-protocol.md](frame-protocol.md) §5.9 + [input.md](input.md) §7.2 |
+| 2026-08-18 | **SEAL-DOM-P1-PROP closed** — `PROP_SET` VALUE/CHECKED/SELECTED on the wire; `iso.formProps` | [seal-gaps.md](seal-gaps.md) + [frame-protocol.md](frame-protocol.md) §5.9 |
 
 **Stage 4 confirmed (Rodrigo):** mid-session recovery = **`emitResyncFrame` alone** (ids preserved; does not self-heal a corrupt map shape). Client = **real double buffer**, swap only after resync frame CHECK. Lab transport = existing control WS + `PlaneChannel.Control`. Production hub/gRPC is gate 5.
 

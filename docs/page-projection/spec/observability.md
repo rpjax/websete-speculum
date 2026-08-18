@@ -50,6 +50,7 @@ Right:
 
 - **Wire hygiene** (decode, sequence+1, generation vs `EPOCH_RESET`, dangling/duplicate ids, insert cycles) — `FrameInvariantMonitor` on **frame bytes only**. Telemetry handlers on that monitor are no-ops for pass/fail.
 - **State at sequence S** (replicated table, indexer tables, live DOM, client table, client tree) — **coherent snapshot probe** (below). Compare Virtual snapshot at S to client snapshot after it has applied S.
+- **Form control properties (`PP-PROP-1`)** — Virtual vs Projected `.value` / `.checked` / `.selected` at S **at settle** (nobody typing). Lab `forms-state` / `iso.formProps`. Tree iso does **not** include live properties (tags/attrs can match with a stale `.value`). A green `CHECK` while the Projected field is dirty is **not** a fail. CLI without a DOM client skips the Projected side explicitly — do not pass from a Virtual-only read.
 
 `applyResult.ok`, desync counts, and `lastTableSize` in metrics remain **diagnostic**. A green event stream with a broken surface still fails [acceptance.md](acceptance.md).
 
@@ -95,7 +96,7 @@ discard mid-churn O2 red as “torn read, ignore.”
 A snapshot is a **state snapshot**, not “a DOM dump.” Any indexer that must be true at S belongs on that object.
 Default Virtual `flushAndSnapshot` CSSOM mode is **`none`** (halt idle; DOM O2 is not delayed for a CSSOM scan). Pass `{ cssom: 'committed' | 'scan' }` when the probe needs CSSOM — [cssom-poll-algorithm.md](cssom-poll-algorithm.md) use cases. Resync is not a snapshot: it always blocking-scans CSSOM.
 
-**What a lab CLI `--iso` run actually proves today:** Virtual DOM O2 + digest at S, **CSSOM O2** (table Sheet/Rule × live Virtual `cssRules`, I2 top-level) via one `flushProjectionSnapshot({ cssom: 'scan' })` turn, wire invariants, and table×table vs Node phase-1 apply. It does **not** prove tree×tree, or automated Projected CSS 1:1 vs Virtual paint. Lab client **does** materialize constructed CSSOM (C6) on the 4077 surface; CLI `--iso` still does not assert that paint. `cssomPoll` is investigation only (I10). O1 / O4 / O5 are not implemented. Seal kill lists: [seal-gaps.md](seal-gaps.md).
+**What a lab CLI `--iso` run actually proves today:** Virtual DOM O2 + digest at S, **CSSOM O2** (table Sheet/Rule × live Virtual `cssRules`, I2 top-level) via one `flushProjectionSnapshot({ cssom: 'scan' })` turn, wire invariants, and table×table vs Node phase-1 apply. It does **not** prove tree×tree, or automated Projected CSS 1:1 vs Virtual paint. Form-control **property** 1:1 (`PP-PROP-1`) is lab `forms-state` (`iso.formProps`); CLI without a DOM client skips Projected explicitly. Lab client **does** materialize constructed CSSOM (C6) on the 4077 surface; CLI `--iso` still does not assert that paint. `cssomPoll` is investigation only (I10). O1 / O4 / O5 are not implemented. Seal kill lists: [seal-gaps.md](seal-gaps.md).
 
 ---
 
@@ -105,7 +106,8 @@ Default Virtual `flushAndSnapshot` CSSOM mode is **`none`** (halt idle; DOM O2 i
 |--------|------------------------|
 | O2 local (table × Virtual live DOM) | `takeRecords` + drain + emit S + oracle, one turn ([observability.md](observability.md) §5). Sheet/Rule kinds are excluded from child-order. |
 | O2 CSSOM (table × Virtual live CSSOM) | Same turn as `--iso` after `cssom: 'scan'` (stash pending → flush → compare). Readable `cssRules` only; unreadable sheets are not required. Verdict `iso.cssom` — not DOM O2, not automated Projected paint iso. Lab gate: `npm run lab:run -- --blueprint cssom-foundation` — fold **fails** if required snaps or op-windows are missing or `cssomO2` diverges ([lab-design.md](lab-design.md)); `cssomPoll` is not a mid-run gate. Heavy: `npm run lab:run -- --blueprint cssom-heavy` (same fail-closed snaps + `ops.theme`). |
-| O2 structural (Virtual tree × client tree) | Same probe pair at S — not a mid-run torn `requestSnapshot` while the clock ticks |
+| O2 structural (Virtual tree × client tree) | Same probe pair at S — not a mid-run torn `requestSnapshot` while the clock ticks. Tags/attrs/text/ns — **not** live `.value` / `.checked` / `.selected`. |
+| Form properties (`PP-PROP-1`) | Same coherent S **at settle**: read control properties on Virtual and on Projected. Missing Projected surface = explicit skip, not pass. Do not assert mid-keystroke (dirty). |
 | O2 table×table | `ReplicatedTableDigest` Virtual vs apply at S — CLI: Node caller table; UI: DOM client table |
 | O1 / O4 / O5 | Unchanged — not implemented; do not fake with event greens |
 | O3 inputs | Event percentiles in `report.json`; not yet a CI fail gate |

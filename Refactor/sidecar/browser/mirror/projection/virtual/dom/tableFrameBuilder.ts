@@ -30,6 +30,7 @@ import type { ReplicatedTable } from '../../models/replicatedTable';
 import { applyOpsToTable } from '../../models/replicatedTableApply';
 import type { FrameBuilder, FrameBuilderContext, FrameBuildStats } from '../frame/frameBuilder';
 import { describeNodeNew, nodeKindOf } from './domNodeDescribe';
+import type { FormPropIndex } from './formPropIndex';
 
 /** Shared sentinel returned when `collectOpCounts` is off — never mutated. */
 const EMPTY_OP_COUNTS: Record<string, number> = {};
@@ -38,6 +39,8 @@ export type TableFrameBuilderOptions = {
   domNodes: DomNodeTable;
   /** Shared row/hash table (§1.3-§1.5) — same instance kind the client maintains during Phase 1. */
   table: ReplicatedTable;
+  /** Producer-local form-control membership (§5.9). */
+  formIndex: FormPropIndex;
   /**
    * Compute the per-opcode `opCounts` breakdown in `FrameBuildStats` — a "cheap volume signal
    * for the perf pass" (frameBuilder.ts), not consumed by `frameEmitter.ts`/telemetry today.
@@ -55,6 +58,7 @@ export type TableFrameBuilderOptions = {
 export class TableFrameBuilder implements FrameBuilder {
   private readonly domNodes: DomNodeTable;
   private readonly table: ReplicatedTable;
+  private readonly formIndex: FormPropIndex;
   private readonly collectOpCounts: boolean;
   private readonly nodeDropAgeSequences: number;
   private readonly maxNodeDropsPerSweep: number;
@@ -74,6 +78,7 @@ export class TableFrameBuilder implements FrameBuilder {
   constructor(opts: TableFrameBuilderOptions) {
     this.domNodes = opts.domNodes;
     this.table = opts.table;
+    this.formIndex = opts.formIndex;
     this.collectOpCounts = opts.collectOpCounts ?? false;
     this.nodeDropAgeSequences = opts.nodeDropAgeSequences ?? NODE_DROP_AGE_SEQUENCES;
     this.maxNodeDropsPerSweep = opts.maxNodeDropsPerSweep ?? MAX_NODE_DROPS_PER_SWEEP;
@@ -174,6 +179,12 @@ export class TableFrameBuilder implements FrameBuilder {
     this.emitNodeDropSweep(ops, ctx.sequence);
     if (ops.length > dropOpIndex) applyOpsToTable(this.table, ops.slice(dropOpIndex));
 
+    const propOps = this.formIndex.sample(this.domNodes, this.table);
+    if (propOps.length > 0) {
+      ops.push(...propOps);
+      applyOpsToTable(this.table, propOps);
+    }
+
     if (ops.length === 0) return null;
 
     let opCounts: Record<string, number> = EMPTY_OP_COUNTS;
@@ -219,7 +230,10 @@ export class TableFrameBuilder implements FrameBuilder {
       const subtreeIds = this.table.subtreeIds(rootIds[i]!);
       for (let j = 0; j < subtreeIds.length; j++) {
         const node = this.domNodes.get(subtreeIds[j]!);
-        if (node !== undefined) this.domNodes.release(node);
+        if (node !== undefined) {
+          this.formIndex.remove(node);
+          this.domNodes.release(node);
+        }
       }
     }
     ops.push({ op: OpCode.NodeDrop, ids: rootIds });
@@ -314,6 +328,7 @@ export class TableFrameBuilder implements FrameBuilder {
 
     const id = this.domNodes.allocate(node);
     this.createdThisTick.add(node);
+    this.formIndex.addIfIndexed(node);
     ops.push(describeNodeNew(id, kind, node));
     this.walkSiblingRun(node.childNodes, id, ops);
     return id;
@@ -346,6 +361,7 @@ export class TableFrameBuilder implements FrameBuilder {
       if (node.isConnected) continue;
       const id = this.domNodes.keyOf(node);
       if (id === NONE_DOM_NODE_KEY) continue;
+      this.formIndex.remove(node);
       const oldParentId = this.domNodes.keyOf(oldParent);
       if (oldParentId === NONE_DOM_NODE_KEY) continue;
       ops.push({ op: OpCode.Remove, parent: oldParentId, ids: [id] });

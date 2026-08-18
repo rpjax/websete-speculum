@@ -20,6 +20,7 @@ exports.FramePartAssembler = exports.PersistentStringTable = void 0;
 exports.decodeFramePart = decodeFramePart;
 const elementNs_1 = require("./elementNs");
 const opcodes_1 = require("./opcodes");
+const propSet_1 = require("./propSet");
 const frame_1 = require("./frame");
 const limits_1 = require("./limits");
 const WIRE_VERSION = frame_1.FRAME_WIRE_VERSION;
@@ -56,6 +57,11 @@ class ByteReader {
     u64() {
         const v = this.view.getBigUint64(this.offset, true);
         this.offset += 8;
+        return v;
+    }
+    f32() {
+        const v = this.view.getFloat32(this.offset, true);
+        this.offset += 4;
         return v;
     }
     bytes_(len) {
@@ -274,6 +280,25 @@ function decodeOp(opCode, r, resolveStr, persistent) {
         case opcodes_1.OpCode.TextSet: {
             const node = r.u32();
             return { op: opcodes_1.OpCode.TextSet, node, value: resolveStr(r.u32()) };
+        }
+        case opcodes_1.OpCode.PropSet: {
+            const node = r.u32();
+            const propId = r.u8();
+            const kind = (0, propSet_1.propValueKind)(propId);
+            if (kind === null) {
+                throw new Error(`PROP_SET propId ${propId} is not defined (frame-protocol.md §4.4)`);
+            }
+            if (kind === 'str') {
+                return { op: opcodes_1.OpCode.PropSet, node, propId, value: resolveStr(r.u32()) };
+            }
+            if (kind === 'bool') {
+                const flag = r.u8();
+                if (flag !== 0 && flag !== 1) {
+                    throw new Error(`PROP_SET bool operand ${flag} is not 0 or 1 (frame-protocol.md §4.4)`);
+                }
+                return { op: opcodes_1.OpCode.PropSet, node, propId, value: flag === 1 };
+            }
+            return { op: opcodes_1.OpCode.PropSet, node, propId, value: r.f32() };
         }
         case opcodes_1.OpCode.SheetNew: {
             const id = r.u32();

@@ -8,6 +8,7 @@ import { DOCUMENT_ID, INSERT_AT_END, type FrameOp } from '../../models/frame';
 import { NONE_DOM_NODE_KEY, type DomNodeKey } from '../../models/domNodeKey';
 import type { DomNodeTable } from './domNodeTable';
 import { describeNodeNew, nodeKindOf } from './domNodeDescribe';
+import type { FormPropIndex } from './formPropIndex';
 
 /** Clear identity (no generation bump) and allocate every connected describable node. */
 export function rebuildDomIdentity(domNodes: DomNodeTable, root: Node = document): void {
@@ -20,8 +21,9 @@ export function rebuildDomIdentity(domNodes: DomNodeTable, root: Node = document
  * Pass 1 `NODE_NEW` + pass 2 `INSERT` from live `childNodes`. Releases disconnected map rows.
  * Caller resets/applies the replicated table and appends CHECK.
  */
-export function describeDomResync(domNodes: DomNodeTable): FrameOp[] {
+export function describeDomResync(domNodes: DomNodeTable, formIndex: FormPropIndex): FrameOp[] {
   const ops: FrameOp[] = [];
+  formIndex.rebuild(domNodes);
 
   for (const [id, node] of domNodes.liveEntries()) {
     if (id === DOCUMENT_ID) continue;

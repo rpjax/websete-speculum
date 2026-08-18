@@ -42,6 +42,12 @@ export type IsoJournal = {
       doublePaint: boolean;
     } | null;
   } | null;
+  formProps?: {
+    virtual: { key: string; value?: string; checked?: boolean; selected?: boolean }[] | null;
+    client: { key: string; value?: string; checked?: boolean; selected?: boolean }[] | null;
+    identical: boolean | null;
+    reason: string | null;
+  };
 };
 
 export function foldNodeNewConnected(probe: NodeNewConnectedProbe | null | undefined): LabVerdict {
@@ -178,20 +184,42 @@ export function foldIsoJournal(
         : `${iso.structuralDiff.divergenceCount} divergences`,
     });
   }
+  if (iso.formProps?.identical === true) {
+    verdicts.push({
+      id: 'iso.formProps',
+      status: 'pass',
+      reason: iso.formProps.reason ?? 'form properties match',
+    });
+  } else if (iso.formProps?.identical === false) {
+    verdicts.push({
+      id: 'iso.formProps',
+      status: 'fail',
+      reason: iso.formProps.reason ?? 'form properties mismatch',
+    });
+  }
   const requireDomTree = opts?.requireDomTree === true;
   for (const s of iso.skipped ?? []) {
     const isTreeSkip = s.id === 'structuralDiff' || s.id === 'iso.tree' || s.id === 'tree';
+    const isFormSkip = s.id === 'formProps' || s.id === 'iso.formProps';
     const id = isTreeSkip ? 'iso.tree' : s.id.startsWith('iso.') ? s.id : `iso.${s.id}`;
     const reason = isTreeSkip
       ? s.reason.includes('no lab client') || s.reason.includes('no DOM')
         ? 'iso.tree skipped: no DOM client'
         : s.reason
-      : s.reason;
+      : isFormSkip && (s.reason.includes('no lab client') || s.reason.includes('no DOM'))
+        ? 'iso.formProps skipped: no DOM client'
+        : s.reason;
     if (isTreeSkip && requireDomTree) {
       verdicts.push({
         id: 'iso.tree',
         status: 'fail',
         reason: `iso.tree skipped with DOM client: ${reason}`,
+      });
+    } else if (isFormSkip && requireDomTree) {
+      verdicts.push({
+        id: 'iso.formProps',
+        status: 'fail',
+        reason: `iso.formProps skipped with DOM client: ${reason}`,
       });
     } else {
       verdicts.push({ id, status: 'skipped', reason });
@@ -212,6 +240,22 @@ export function foldIsoJournal(
         id: 'iso.tree',
         status: 'skipped',
         reason: 'iso.tree skipped: no DOM client',
+      });
+    }
+  }
+  const skippedForm = (iso.skipped ?? []).some((s) => s.id === 'formProps' || s.id === 'iso.formProps');
+  if (iso.formProps?.identical == null && !skippedForm) {
+    if (requireDomTree) {
+      verdicts.push({
+        id: 'iso.formProps',
+        status: 'fail',
+        reason: 'iso.formProps missing with DOM client',
+      });
+    } else {
+      verdicts.push({
+        id: 'iso.formProps',
+        status: 'skipped',
+        reason: 'iso.formProps skipped: no DOM client',
       });
     }
   }

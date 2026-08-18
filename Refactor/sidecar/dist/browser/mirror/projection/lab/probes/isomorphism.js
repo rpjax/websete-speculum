@@ -9,6 +9,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.runIsomorphism = runIsomorphism;
 const tableDigest_1 = require("../../models/tableDigest");
+const formControlSnap_1 = require("../../models/formControlSnap");
 const structuralDiff_1 = require("./structuralDiff");
 const CLIENT_CATCH_UP_MS = 2_000;
 const CLIENT_POLL_MS = 10;
@@ -61,6 +62,7 @@ async function runIsomorphism(opts) {
             skipped: [{ id: 'isomorphism', reason: 'session does not expose flushProjectionSnapshot' }],
             nodeNewConnected: null,
             cascade: null,
+            formProps: { virtual: null, client: null, identical: null, reason: null },
         };
     }
     try {
@@ -77,6 +79,7 @@ async function runIsomorphism(opts) {
                 skipped: [{ id: 'isomorphism', reason: virtual.reason ?? 'flushProjectionSnapshot failed' }],
                 nodeNewConnected: null,
                 cascade: null,
+                formProps: { virtual: null, client: null, identical: null, reason: null },
             };
         }
         const virtualTable = virtual.table ?? null;
@@ -99,6 +102,10 @@ async function runIsomorphism(opts) {
                 id: 'table',
                 reason: 'client table digest unavailable: no lab client apply surface',
             });
+            skipped.push({
+                id: 'formProps',
+                reason: 'client formProps unavailable: no lab client apply surface',
+            });
         }
         else if (clientSnap == null) {
             skipped.push({
@@ -107,6 +114,10 @@ async function runIsomorphism(opts) {
             });
             skipped.push({
                 id: 'table',
+                reason: 'client did not reply to requestSnapshot after flush',
+            });
+            skipped.push({
+                id: 'formProps',
                 reason: 'client did not reply to requestSnapshot after flush',
             });
         }
@@ -124,6 +135,18 @@ async function runIsomorphism(opts) {
         }
         else {
             structuralDiff = (0, structuralDiff_1.diffTrees)(virtual.tree, clientSnap.tree);
+        }
+        const virtualFormProps = virtual.formProps ?? null;
+        const clientFormProps = clientSnap?.formProps ?? null;
+        let formIdentical = null;
+        let formReason = null;
+        if (opts.getClientSnapshot && clientSnap != null) {
+            const cmp = (0, formControlSnap_1.formControlSnapsEqual)(virtualFormProps, clientFormProps);
+            formIdentical = cmp.identical;
+            formReason = cmp.reason;
+        }
+        else {
+            formReason = skipped.find((s) => s.id === 'formProps')?.reason ?? 'no DOM client';
         }
         const clientTable = clientSnap?.table ?? null;
         let tableIdentical = null;
@@ -166,6 +189,12 @@ async function runIsomorphism(opts) {
             cascade: {
                 virtual: virtual.cascade ?? null,
                 client: clientSnap?.cascade ?? null,
+            },
+            formProps: {
+                virtual: virtualFormProps,
+                client: clientFormProps,
+                identical: formIdentical,
+                reason: formReason,
             },
             skipped: [
                 ...skipped,

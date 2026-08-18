@@ -289,6 +289,9 @@ class WsLabConnection {
                         cascade: typeof msg.cascade === 'object' && msg.cascade !== null
                             ? msg.cascade
                             : null,
+                        formProps: Array.isArray(msg.formProps)
+                            ? msg.formProps
+                            : null,
                     });
                 }
                 return;

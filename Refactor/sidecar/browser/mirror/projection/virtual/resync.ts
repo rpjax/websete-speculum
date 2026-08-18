@@ -15,6 +15,7 @@ import type { ReplicatedTable } from '../models/replicatedTable';
 import { applyOpsToTable } from '../models/replicatedTableApply';
 import type { DomNodeTable } from './dom/domNodeTable';
 import { describeDomResync, rebuildDomIdentity } from './dom/domResync';
+import type { FormPropIndex } from './dom/formPropIndex';
 import type { CssomPlane } from './cssom/cssomPlane';
 import { stampCssomPoll, type CssomPollStats } from '../models/telemetry';
 
@@ -22,6 +23,7 @@ export type ResyncPlanes = {
   domNodes: DomNodeTable;
   table: ReplicatedTable;
   cssom: CssomPlane;
+  formIndex: FormPropIndex;
 };
 
 export type ResyncFrameResult = {
@@ -31,15 +33,17 @@ export type ResyncFrameResult = {
 
 /** Maps trusted: describe live identity, blocking CSSOM scan, wholesale replace. */
 export function emitResyncFrame(planes: ResyncPlanes, sequence: number): ResyncFrameResult {
-  const { domNodes, table, cssom } = planes;
+  const { domNodes, table, cssom, formIndex } = planes;
   const generation = domNodes.generation;
-  const domOps = describeDomResync(domNodes);
+  const domOps = describeDomResync(domNodes, formIndex);
   const cssomScan = cssom.blockingScan();
-  const ops = [...domOps, ...cssomScan.ops];
 
   table.reset();
   table.setSequence(sequence);
-  applyOpsToTable(table, ops);
+  applyOpsToTable(table, domOps);
+  const propOps = formIndex.sample(domNodes, table);
+  if (propOps.length > 0) applyOpsToTable(table, propOps);
+  const ops = [...domOps, ...propOps, ...cssomScan.ops];
 
   ops.push({ op: OpCode.Check, scope: CHECK_SCOPE_TABLE, lo: 0, hi: 0, hash: table.tableHash });
 

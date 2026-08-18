@@ -18,7 +18,7 @@ This is **accepting the budget**, not softening the product into “good enough 
 
 | Plane | Bar | Why |
 |-------|-----|-----|
-| **DOM** (structure, text, attrs, topology) | **Numerical / state 1:1** — coherent ticks, high FPS under stress, not eventual. Lab proved this on the table path. | MutationObserver + drain fits the main-thread mutation rate we actually sustain. |
+| **DOM** (structure, text, attrs, topology, **form control properties**) | **Numerical / state 1:1** — coherent ticks, high FPS under stress, not eventual. Lab proved structure on the table path. `value` / `checked` / `selected` are this bar, not CSSOM idle. | MutationObserver + drain for structure. Form properties have no observer: producer **index + sample every frame** ([frame-protocol.md](frame-protocol.md) §5.9). Measured cheap on real pages; do not copy CSSOM eventual. |
 | **CSSOM live** (rule tree after establish) | **Perceived 1:1** — what the user experiences after settle and during ordinary browsing. **Not** lockstep 60 Hz of every adversarial `cssText` mutation. | No CSSOM MutationObserver. Detection is reconcile + idle + eventual ([cssom-poll-algorithm.md](cssom-poll-algorithm.md)). Worst-case readable volume cannot be scanned at DOM tick rate without eating the page (K/E budgets). |
 | **CSSOM establish / resync** | Completeness: install/scan so first paint and recover are not unstyled. PP-EST-6 / resync always both planes. | Rare; may pay a blocking scan. |
 

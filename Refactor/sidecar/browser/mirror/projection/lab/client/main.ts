@@ -4,6 +4,7 @@
 
 import { LabProjectionClient } from '../../client/labProjectionClient';
 import { snapshotTree } from '../../client/domTreeSnapshot';
+import { snapshotFormControls } from '../../client/formControlSnapshot';
 import { LAB_TELEMETRY_DEFAULTS, TELEMETRY_BOOL_CAPS } from '../../models/telemetry';
 
 type FixtureEntry = { id: string; path: string; tags?: string[]; notes?: string };
@@ -479,6 +480,7 @@ export function bootLabClient(): void {
             armed: p.isArmed,
             resyncInFlight: p.resyncInFlight,
             cascade: probeCssomPaintBoundary(p.document),
+            formProps: snapshotFormControls(p.document),
           }),
         );
         return;

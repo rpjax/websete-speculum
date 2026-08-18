@@ -24,6 +24,7 @@ exports.subMod64 = subMod64;
 exports.hashName = hashName;
 exports.hashValue = hashValue;
 exports.hashAttr = hashAttr;
+exports.hashProp = hashProp;
 exports.hashNs = hashNs;
 exports.computeRowHash = computeRowHash;
 const elementNs_1 = require("./elementNs");
@@ -78,6 +79,14 @@ function hashValue(value) {
 }
 function hashAttr(name, value) {
     return h64Str(`\u0000A${name}\u0001${value}`);
+}
+/** ELEMENT `props[propId]` contribution to `contentHash` (§1.5). Commutative with attrs. */
+function hashProp(propId, value) {
+    if (typeof value === 'boolean')
+        return h64Str(`\u0000P${propId}\u0001B${value ? '1' : '0'}`);
+    if (typeof value === 'number')
+        return h64Str(`\u0000P${propId}\u0001F${value}`);
+    return h64Str(`\u0000P${propId}\u0001S${value}`);
 }
 /**
  * ELEMENT namespace contribution to `contentHash` (§1.5). Known `ns` hashes the `u8`;

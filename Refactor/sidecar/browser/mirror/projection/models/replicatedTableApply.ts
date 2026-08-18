@@ -62,6 +62,9 @@ export function applyOpToTable(table: ReplicatedTable, op: FrameOp): void {
     case OpCode.TextSet:
       table.setValue(op.node, op.value);
       return;
+    case OpCode.PropSet:
+      table.setProp(op.node, op.propId, op.value);
+      return;
     case OpCode.SheetNew: {
       const parent = op.hostNode === 0 ? DOCUMENT_ID : op.hostNode;
       if (!table.has(op.id)) table.createLeafRow(op.id, NodeKind.Sheet, '');
@@ -146,6 +149,7 @@ export type CheckedApplyOpName =
   | 'attrSet'
   | 'attrDel'
   | 'textSet'
+  | 'propSet'
   | 'sheetNew'
   | 'sheetDrop'
   | 'sheetOrder'
@@ -351,6 +355,19 @@ function validateOpPre(
           'textSet',
           op.node,
           'TEXT_SET requires TEXT or COMMENT (frame-protocol.md §4.4)',
+        );
+      }
+      return null;
+    }
+    case OpCode.PropSet: {
+      const row = table.getRow(op.node);
+      if (row === undefined || row.kind !== NodeKind.Element) {
+        return failOp(
+          i,
+          'precondition',
+          'propSet',
+          op.node,
+          'PROP_SET requires an ELEMENT row (frame-protocol.md §4.4)',
         );
       }
       return null;

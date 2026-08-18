@@ -306,6 +306,9 @@ export class WsLabConnection {
               typeof msg.cascade === 'object' && msg.cascade !== null
                 ? (msg.cascade as ClientStateSnapshot['cascade'])
                 : null,
+            formProps: Array.isArray(msg.formProps)
+              ? (msg.formProps as ClientStateSnapshot['formProps'])
+              : null,
           });
         }
         return;

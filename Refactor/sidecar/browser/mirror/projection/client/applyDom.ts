@@ -28,7 +28,10 @@ import {
   INSERT_AT_END,
   type AttrPair,
   type FrameOp,
+  type PropSetOp,
 } from '../models/frame';
+import { FormPropDirty } from '../models/formPropDirty';
+import { PROP_ID_CHECKED, PROP_ID_SELECTED, PROP_ID_VALUE } from '../models/propSet';
 import { applyAttrPairs } from '../models/attrApply';
 import { insertIndexFromBefore, orderedSheetIds, orderedRuleIds, matchCssomEndOfFrame, declarationBlockFromRuleText } from '../models/cssomApplyIndex';
 import { planRuleSetApply } from '../models/cssomRuleSet';
@@ -69,6 +72,7 @@ export class DomFrameApplier {
   private readonly registry: PageProjectionRegistry;
   private readonly options: DomFrameApplierOptions;
   private readonly table = new ReplicatedTable();
+  private readonly propDirty = new FormPropDirty();
   private readonly sheets = new Map<number, CSSStyleSheet>();
   private readonly rules = new Map<number, CSSRule>();
 
@@ -120,7 +124,13 @@ export class DomFrameApplier {
     }
     this.queued = [];
     this.table.reset();
+    this.propDirty.reset();
     this.clearCssom();
+  }
+
+  /** Input plane marks this when the user is editing the control (§7.2). Unused in lab. */
+  markPropDirty(id: number): void {
+    this.propDirty.mark(id);
   }
 
   /** @returns `false` when a desync was reported — `flush` must not apply later frames in the batch. */
@@ -195,6 +205,8 @@ export class DomFrameApplier {
         return this.applyAttrDel(op);
       case OpCode.TextSet:
         return this.applyTextSet(op);
+      case OpCode.PropSet:
+        return this.applyPropSet(op);
       case OpCode.SheetNew:
         return this.applySheetNew(op);
       case OpCode.SheetDrop:
@@ -224,6 +236,7 @@ export class DomFrameApplier {
     this.doc.replaceChildren();
     this.registry.clear();
     this.registry.register(DOCUMENT_ID, this.doc);
+    this.propDirty.reset();
     this.clearCssom();
     return true;
   }
@@ -526,6 +539,29 @@ export class DomFrameApplier {
     const node = this.registry.get(op.node);
     if (!node) return this.fail('address_miss', 'textSet', op.node);
     node.textContent = op.value;
+    return true;
+  }
+
+  private applyPropSet(op: PropSetOp): boolean {
+    if (this.propDirty.isDirty(op.node)) {
+      this.propDirty.hold(op);
+      return true;
+    }
+    const node = this.registry.get(op.node);
+    if (!node || node.nodeType !== Node.ELEMENT_NODE) return this.fail('address_miss', 'propSet', op.node);
+    const el = node as HTMLElement;
+    if (op.propId === PROP_ID_VALUE && 'value' in el) {
+      (el as HTMLInputElement).value = String(op.value);
+      return true;
+    }
+    if (op.propId === PROP_ID_CHECKED && 'checked' in el) {
+      (el as HTMLInputElement).checked = Boolean(op.value);
+      return true;
+    }
+    if (op.propId === PROP_ID_SELECTED && el instanceof HTMLOptionElement) {
+      el.selected = Boolean(op.value);
+      return true;
+    }
     return true;
   }
 }

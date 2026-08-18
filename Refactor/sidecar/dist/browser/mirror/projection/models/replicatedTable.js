@@ -7,8 +7,7 @@
  * (frame-protocol.md §6), before either side touches a real DOM node.
  *
  * Contract fields per row (`kind`, `parent`, `prevSibling`, `contentHash`, `rowHash`) are exactly
- * §1.3's node row, restricted to the DOM-only v0 surface (no `props`/`flags`/CSSOM kinds yet —
- * those are out of scope, see frame-protocol-production-completeness plan). `nextSiblingOf` and
+ * §1.3's node row. ELEMENT rows also hold `props` (PROP_SET, §4.4). `nextSiblingOf` and
  * `lastChildOf` are **derived, non-hashed navigation indices** (§1.4: "Implementations MAY keep
  * derived links … for O(1) navigation. Derived links are not hashed and are not part of the
  * contract.") — they exist purely so `INSERT`/`REMOVE` can repair "the node that followed it" in
@@ -28,6 +27,10 @@ class ReplicatedTable {
     rows = new Map();
     /** ELEMENT rows only — id -> attrName -> that attribute's own contentHash contribution. */
     attrHashes = new Map();
+    /** ELEMENT rows only — id -> propId -> that prop's contentHash contribution. */
+    propHashes = new Map();
+    /** ELEMENT rows only — last PROP_SET scalar (delta compare on the producer). */
+    propValues = new Map();
     /** Derived, non-hashed: id -> the id currently linked immediately after it under the same parent. */
     nextSiblingOf = new Map();
     /** Derived, non-hashed: parentId -> the id currently linked last under that parent (0 = none). */
@@ -113,6 +116,8 @@ class ReplicatedTable {
     reset() {
         this.rows.clear();
         this.attrHashes.clear();
+        this.propHashes.clear();
+        this.propValues.clear();
         this.nextSiblingOf.clear();
         this.lastChildOf.clear();
         this.tracker.clear();
@@ -132,6 +137,8 @@ class ReplicatedTable {
             sum = (0, rowHash_1.addMod64)(sum, h);
         }
         this.attrHashes.set(id, attrMap);
+        this.propHashes.set(id, new Map());
+        this.propValues.set(id, new Map());
         this.setRow(id, opcodes_1.NodeKind.Element, NONE, NONE, sum);
     }
     /** TEXT/COMMENT (`value`) or DOCTYPE (`name`) — both a single content-carrying string field. */
@@ -180,6 +187,26 @@ class ReplicatedTable {
             return;
         this.setRow(id, row.kind, row.parent, row.prevSibling, (0, rowHash_1.hashValue)(value));
     }
+    setProp(id, propId, value) {
+        const row = this.rows.get(id);
+        if (row === undefined)
+            return;
+        const hashMap = this.propHashes.get(id) ?? new Map();
+        const valueMap = this.propValues.get(id) ?? new Map();
+        let sum = row.contentHash;
+        const old = hashMap.get(propId);
+        if (old !== undefined)
+            sum = (0, rowHash_1.subMod64)(sum, old);
+        const h = (0, rowHash_1.hashProp)(propId, value);
+        hashMap.set(propId, h);
+        valueMap.set(propId, value);
+        this.propHashes.set(id, hashMap);
+        this.propValues.set(id, valueMap);
+        this.setRow(id, row.kind, row.parent, row.prevSibling, (0, rowHash_1.addMod64)(sum, h));
+    }
+    getProp(id, propId) {
+        return this.propValues.get(id)?.get(propId);
+    }
     // ---- INSERT / REMOVE (§4.3) — topology only, content untouched. ----
     /**
      * §4.3 `INSERT` table effect: unlinks each id from wherever it currently is (a move), then
@@ -226,6 +253,8 @@ class ReplicatedTable {
     dropRow(id) {
         this.rows.delete(id);
         this.attrHashes.delete(id);
+        this.propHashes.delete(id);
+        this.propValues.delete(id);
         this.nextSiblingOf.delete(id);
         this.lastChildOf.delete(id);
         this.tracker.remove(id);

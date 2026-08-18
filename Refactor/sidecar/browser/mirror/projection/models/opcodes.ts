@@ -21,6 +21,7 @@ export enum OpCode {
   AttrSet = 0x60,
   AttrDel = 0x61,
   TextSet = 0x62,
+  PropSet = 0x63,
 
   SheetNew = 0xa0,
   SheetDrop = 0xa1,
@@ -41,6 +42,7 @@ const NAMES: Readonly<Partial<Record<OpCode, string>>> = {
   [OpCode.AttrSet]: 'attrSet',
   [OpCode.AttrDel]: 'attrDel',
   [OpCode.TextSet]: 'textSet',
+  [OpCode.PropSet]: 'propSet',
   [OpCode.SheetNew]: 'sheetNew',
   [OpCode.SheetDrop]: 'sheetDrop',
   [OpCode.SheetOrder]: 'sheetOrder',

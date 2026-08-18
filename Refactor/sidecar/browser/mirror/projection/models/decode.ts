@@ -17,6 +17,7 @@
 
 import { ElementNs } from './elementNs';
 import { NodeKind, OpCode } from './opcodes';
+import { propValueKind } from './propSet';
 import {
   CHECK_SCOPE_RANGE,
   CHECK_SCOPE_TABLE,
@@ -89,6 +90,11 @@ class ByteReader {
   u64(): bigint {
     const v = this.view.getBigUint64(this.offset, true);
     this.offset += 8;
+    return v;
+  }
+  f32(): number {
+    const v = this.view.getFloat32(this.offset, true);
+    this.offset += 4;
     return v;
   }
   bytes_(len: number): Uint8Array {
@@ -311,6 +317,25 @@ function decodeOp(
     case OpCode.TextSet: {
       const node = r.u32();
       return { op: OpCode.TextSet, node, value: resolveStr(r.u32()) };
+    }
+    case OpCode.PropSet: {
+      const node = r.u32();
+      const propId = r.u8();
+      const kind = propValueKind(propId);
+      if (kind === null) {
+        throw new Error(`PROP_SET propId ${propId} is not defined (frame-protocol.md §4.4)`);
+      }
+      if (kind === 'str') {
+        return { op: OpCode.PropSet, node, propId, value: resolveStr(r.u32()) };
+      }
+      if (kind === 'bool') {
+        const flag = r.u8();
+        if (flag !== 0 && flag !== 1) {
+          throw new Error(`PROP_SET bool operand ${flag} is not 0 or 1 (frame-protocol.md §4.4)`);
+        }
+        return { op: OpCode.PropSet, node, propId, value: flag === 1 };
+      }
+      return { op: OpCode.PropSet, node, propId, value: r.f32() };
     }
     case OpCode.SheetNew: {
       const id = r.u32();

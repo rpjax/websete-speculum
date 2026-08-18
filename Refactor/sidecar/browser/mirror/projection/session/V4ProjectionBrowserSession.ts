@@ -37,6 +37,7 @@ import {
 } from '../models/telemetry';
 import type { TableLiveOracleResult } from '../models/tableLiveOracle';
 import type { CssomTableLiveOracleResult } from '../models/cssomTableLiveOracle';
+import type { FormControlSnap } from '../models/formControlSnap';
 import { PlaneChannel } from '../plane';
 import { ProjectionDataPlaneHost } from './projectionDataPlaneHost';
 
@@ -330,6 +331,7 @@ export class V4ProjectionBrowserSession implements BrowserSession {
       doublePaint: boolean;
     } | null;
     tree?: unknown;
+    formProps?: FormControlSnap[];
     reason?: string;
   }> {
     try {
@@ -357,6 +359,7 @@ export class V4ProjectionBrowserSession implements BrowserSession {
           doublePaint: boolean;
         } | null;
         tree?: unknown;
+        formProps?: FormControlSnap[];
         reason?: string;
       };
     } catch (err) {

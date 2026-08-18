@@ -63,6 +63,9 @@ function applyOpToTable(table, op) {
         case opcodes_1.OpCode.TextSet:
             table.setValue(op.node, op.value);
             return;
+        case opcodes_1.OpCode.PropSet:
+            table.setProp(op.node, op.propId, op.value);
+            return;
         case opcodes_1.OpCode.SheetNew: {
             const parent = op.hostNode === 0 ? frame_1.DOCUMENT_ID : op.hostNode;
             if (!table.has(op.id))
@@ -244,6 +247,13 @@ function validateOpPre(table, op, i) {
             if (row === undefined ||
                 (row.kind !== opcodes_1.NodeKind.Text && row.kind !== opcodes_1.NodeKind.Comment)) {
                 return failOp(i, 'precondition', 'textSet', op.node, 'TEXT_SET requires TEXT or COMMENT (frame-protocol.md §4.4)');
+            }
+            return null;
+        }
+        case opcodes_1.OpCode.PropSet: {
+            const row = table.getRow(op.node);
+            if (row === undefined || row.kind !== opcodes_1.NodeKind.Element) {
+                return failOp(i, 'precondition', 'propSet', op.node, 'PROP_SET requires an ELEMENT row (frame-protocol.md §4.4)');
             }
             return null;
         }

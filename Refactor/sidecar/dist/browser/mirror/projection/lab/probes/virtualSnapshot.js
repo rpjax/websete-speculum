@@ -63,6 +63,7 @@ function coherentSnapshotExpression(includeTree, cssom = 'none') {
       cssomO2: flushed.cssomO2,
       nodeNewConnected: flushed.nodeNewConnected,
       cascade: flushed.cascade,
+      formProps: flushed.formProps,
       tree,
     };
   })()`;

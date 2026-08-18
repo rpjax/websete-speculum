@@ -78,6 +78,13 @@ export function hashAttr(name: string, value: string): bigint {
   return h64Str(`\u0000A${name}\u0001${value}`);
 }
 
+/** ELEMENT `props[propId]` contribution to `contentHash` (§1.5). Commutative with attrs. */
+export function hashProp(propId: number, value: string | boolean | number): bigint {
+  if (typeof value === 'boolean') return h64Str(`\u0000P${propId}\u0001B${value ? '1' : '0'}`);
+  if (typeof value === 'number') return h64Str(`\u0000P${propId}\u0001F${value}`);
+  return h64Str(`\u0000P${propId}\u0001S${value}`);
+}
+
 /**
  * ELEMENT namespace contribution to `contentHash` (§1.5). Known `ns` hashes the `u8`;
  * `custom` hashes the URI so HTML `<a>` and SVG `<a>` cannot collide, and two custom

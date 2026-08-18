@@ -41,6 +41,37 @@
     }
   }
 
+  // browser/mirror/projection/models/propSet.ts
+  var PROP_ID_VALUE = 1;
+  var PROP_ID_CHECKED = 2;
+  var PROP_ID_SELECTED = 3;
+  var PROP_ID_DIALOG_MODAL = 4;
+  var PROP_ID_POPOVER_OPEN = 5;
+  var PROP_ID_MEDIA_PAUSED = 6;
+  var PROP_ID_MEDIA_TIME = 7;
+  var PROP_ID_MEDIA_MUTED = 8;
+  var PROP_ID_MEDIA_VOLUME = 9;
+  var PROP_ID_CUSTOM_VALIDITY = 10;
+  function propValueKind(propId) {
+    switch (propId) {
+      case PROP_ID_VALUE:
+      case PROP_ID_CUSTOM_VALIDITY:
+        return "str";
+      case PROP_ID_CHECKED:
+      case PROP_ID_SELECTED:
+      case PROP_ID_DIALOG_MODAL:
+      case PROP_ID_POPOVER_OPEN:
+      case PROP_ID_MEDIA_PAUSED:
+      case PROP_ID_MEDIA_MUTED:
+        return "bool";
+      case PROP_ID_MEDIA_TIME:
+      case PROP_ID_MEDIA_VOLUME:
+        return "f32";
+      default:
+        return null;
+    }
+  }
+
   // browser/mirror/projection/models/frame.ts
   var FRAME_WIRE_VERSION = 2;
   var DOCUMENT_ID = 1;
@@ -92,6 +123,11 @@
     u64() {
       const v = this.view.getBigUint64(this.offset, true);
       this.offset += 8;
+      return v;
+    }
+    f32() {
+      const v = this.view.getFloat32(this.offset, true);
+      this.offset += 4;
       return v;
     }
     bytes_(len) {
@@ -277,6 +313,25 @@
         const node = r.u32();
         return { op: 98 /* TextSet */, node, value: resolveStr(r.u32()) };
       }
+      case 99 /* PropSet */: {
+        const node = r.u32();
+        const propId = r.u8();
+        const kind = propValueKind(propId);
+        if (kind === null) {
+          throw new Error(`PROP_SET propId ${propId} is not defined (frame-protocol.md \xA74.4)`);
+        }
+        if (kind === "str") {
+          return { op: 99 /* PropSet */, node, propId, value: resolveStr(r.u32()) };
+        }
+        if (kind === "bool") {
+          const flag = r.u8();
+          if (flag !== 0 && flag !== 1) {
+            throw new Error(`PROP_SET bool operand ${flag} is not 0 or 1 (frame-protocol.md \xA74.4)`);
+          }
+          return { op: 99 /* PropSet */, node, propId, value: flag === 1 };
+        }
+        return { op: 99 /* PropSet */, node, propId, value: r.f32() };
+      }
       case 160 /* SheetNew */: {
         const id = r.u32();
         const scope = r.u8();
@@ -366,6 +421,33 @@
     }
     return { lastIndex: batch.length - 1, stoppedEarly: false };
   }
+
+  // browser/mirror/projection/models/formPropDirty.ts
+  var FormPropDirty = class {
+    dirty = /* @__PURE__ */ new Set();
+    stash = /* @__PURE__ */ new Map();
+    mark(id) {
+      this.dirty.add(id);
+    }
+    clear(id) {
+      this.dirty.delete(id);
+    }
+    isDirty(id) {
+      return this.dirty.has(id);
+    }
+    hold(op) {
+      this.stash.set(op.node, op);
+    }
+    take(id) {
+      const op = this.stash.get(id);
+      this.stash.delete(id);
+      return op;
+    }
+    reset() {
+      this.dirty.clear();
+      this.stash.clear();
+    }
+  };
 
   // browser/mirror/projection/models/attrApply.ts
   function applyAttrPairs(setAttribute, attrs) {
@@ -490,6 +572,11 @@
   function hashAttr(name, value) {
     return h64Str(`\0A${name}${value}`);
   }
+  function hashProp(propId, value) {
+    if (typeof value === "boolean") return h64Str(`\0P${propId}B${value ? "1" : "0"}`);
+    if (typeof value === "number") return h64Str(`\0P${propId}F${value}`);
+    return h64Str(`\0P${propId}S${value}`);
+  }
   function hashNs(ns, uri) {
     if (ns === 4 /* Custom */) return h64Str(`\0U${uri ?? ""}`);
     return h64Bytes(Uint8Array.of(0, 83, ns & 255));
@@ -539,6 +626,10 @@
     rows = /* @__PURE__ */ new Map();
     /** ELEMENT rows only — id -> attrName -> that attribute's own contentHash contribution. */
     attrHashes = /* @__PURE__ */ new Map();
+    /** ELEMENT rows only — id -> propId -> that prop's contentHash contribution. */
+    propHashes = /* @__PURE__ */ new Map();
+    /** ELEMENT rows only — last PROP_SET scalar (delta compare on the producer). */
+    propValues = /* @__PURE__ */ new Map();
     /** Derived, non-hashed: id -> the id currently linked immediately after it under the same parent. */
     nextSiblingOf = /* @__PURE__ */ new Map();
     /** Derived, non-hashed: parentId -> the id currently linked last under that parent (0 = none). */
@@ -620,6 +711,8 @@
     reset() {
       this.rows.clear();
       this.attrHashes.clear();
+      this.propHashes.clear();
+      this.propValues.clear();
       this.nextSiblingOf.clear();
       this.lastChildOf.clear();
       this.tracker.clear();
@@ -639,6 +732,8 @@
         sum = addMod64(sum, h);
       }
       this.attrHashes.set(id, attrMap);
+      this.propHashes.set(id, /* @__PURE__ */ new Map());
+      this.propValues.set(id, /* @__PURE__ */ new Map());
       this.setRow(id, 1 /* Element */, NONE, NONE, sum);
     }
     /** TEXT/COMMENT (`value`) or DOCTYPE (`name`) — both a single content-carrying string field. */
@@ -680,6 +775,24 @@
       const row = this.rows.get(id);
       if (row === void 0) return;
       this.setRow(id, row.kind, row.parent, row.prevSibling, hashValue(value));
+    }
+    setProp(id, propId, value) {
+      const row = this.rows.get(id);
+      if (row === void 0) return;
+      const hashMap = this.propHashes.get(id) ?? /* @__PURE__ */ new Map();
+      const valueMap = this.propValues.get(id) ?? /* @__PURE__ */ new Map();
+      let sum = row.contentHash;
+      const old = hashMap.get(propId);
+      if (old !== void 0) sum = subMod64(sum, old);
+      const h = hashProp(propId, value);
+      hashMap.set(propId, h);
+      valueMap.set(propId, value);
+      this.propHashes.set(id, hashMap);
+      this.propValues.set(id, valueMap);
+      this.setRow(id, row.kind, row.parent, row.prevSibling, addMod64(sum, h));
+    }
+    getProp(id, propId) {
+      return this.propValues.get(id)?.get(propId);
     }
     // ---- INSERT / REMOVE (§4.3) — topology only, content untouched. ----
     /**
@@ -723,6 +836,8 @@
     dropRow(id) {
       this.rows.delete(id);
       this.attrHashes.delete(id);
+      this.propHashes.delete(id);
+      this.propValues.delete(id);
       this.nextSiblingOf.delete(id);
       this.lastChildOf.delete(id);
       this.tracker.remove(id);
@@ -851,6 +966,9 @@
         return;
       case 98 /* TextSet */:
         table.setValue(op.node, op.value);
+        return;
+      case 99 /* PropSet */:
+        table.setProp(op.node, op.propId, op.value);
         return;
       case 160 /* SheetNew */: {
         const parent = op.hostNode === 0 ? DOCUMENT_ID : op.hostNode;
@@ -1044,6 +1162,19 @@
             "textSet",
             op.node,
             "TEXT_SET requires TEXT or COMMENT (frame-protocol.md \xA74.4)"
+          );
+        }
+        return null;
+      }
+      case 99 /* PropSet */: {
+        const row = table.getRow(op.node);
+        if (row === void 0 || row.kind !== 1 /* Element */) {
+          return failOp(
+            i,
+            "precondition",
+            "propSet",
+            op.node,
+            "PROP_SET requires an ELEMENT row (frame-protocol.md \xA74.4)"
           );
         }
         return null;
@@ -1252,6 +1383,7 @@
     registry;
     options;
     table = new ReplicatedTable();
+    propDirty = new FormPropDirty();
     sheets = /* @__PURE__ */ new Map();
     rules = /* @__PURE__ */ new Map();
     constructor(doc, registry, options = {}) {
@@ -1296,7 +1428,12 @@
       }
       this.queued = [];
       this.table.reset();
+      this.propDirty.reset();
       this.clearCssom();
+    }
+    /** Input plane marks this when the user is editing the control (§7.2). Unused in lab. */
+    markPropDirty(id) {
+      this.propDirty.mark(id);
     }
     /** @returns `false` when a desync was reported — `flush` must not apply later frames in the batch. */
     applyFrame(frame) {
@@ -1359,6 +1496,8 @@
           return this.applyAttrDel(op);
         case 98 /* TextSet */:
           return this.applyTextSet(op);
+        case 99 /* PropSet */:
+          return this.applyPropSet(op);
         case 160 /* SheetNew */:
           return this.applySheetNew(op);
         case 161 /* SheetDrop */:
@@ -1387,6 +1526,7 @@
       this.doc.replaceChildren();
       this.registry.clear();
       this.registry.register(DOCUMENT_ID, this.doc);
+      this.propDirty.reset();
       this.clearCssom();
       return true;
     }
@@ -1665,6 +1805,28 @@
       const node = this.registry.get(op.node);
       if (!node) return this.fail("address_miss", "textSet", op.node);
       node.textContent = op.value;
+      return true;
+    }
+    applyPropSet(op) {
+      if (this.propDirty.isDirty(op.node)) {
+        this.propDirty.hold(op);
+        return true;
+      }
+      const node = this.registry.get(op.node);
+      if (!node || node.nodeType !== Node.ELEMENT_NODE) return this.fail("address_miss", "propSet", op.node);
+      const el = node;
+      if (op.propId === PROP_ID_VALUE && "value" in el) {
+        el.value = String(op.value);
+        return true;
+      }
+      if (op.propId === PROP_ID_CHECKED && "checked" in el) {
+        el.checked = Boolean(op.value);
+        return true;
+      }
+      if (op.propId === PROP_ID_SELECTED && el instanceof HTMLOptionElement) {
+        el.selected = Boolean(op.value);
+        return true;
+      }
       return true;
     }
   };
@@ -2299,6 +2461,43 @@
     return out;
   }
 
+  // browser/mirror/projection/client/formControlSnapshot.ts
+  var SKIP_INPUT_TYPES = /* @__PURE__ */ new Set(["file", "button", "submit", "reset", "image"]);
+  function snapshotFormControls(doc) {
+    const out = [];
+    const nodes = doc.querySelectorAll("input, textarea, option");
+    for (let i = 0; i < nodes.length; i++) {
+      const el = nodes[i];
+      const snap = snapshotOne(el);
+      if (snap) out.push(snap);
+    }
+    out.sort((a, b) => a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
+    return out;
+  }
+  function snapshotOne(el) {
+    const tag = el.tagName;
+    if (tag === "TEXTAREA") {
+      const key2 = el.id || null;
+      if (!key2) return null;
+      return { key: key2, value: el.value };
+    }
+    if (tag === "OPTION") {
+      const select = el.closest("select");
+      const selectId = select?.id || "";
+      const value = el.value;
+      if (!selectId && !value) return null;
+      return { key: `option:${selectId}:${value}`, selected: el.selected };
+    }
+    if (tag !== "INPUT") return null;
+    const input = el;
+    const type = (input.type || "text").toLowerCase();
+    if (SKIP_INPUT_TYPES.has(type)) return null;
+    const key = el.id || null;
+    if (!key) return null;
+    if (type === "checkbox" || type === "radio") return { key, checked: input.checked };
+    return { key, value: input.value };
+  }
+
   // browser/mirror/projection/lab/client/main.ts
   function $(id) {
     const el = document.getElementById(id);
@@ -2696,7 +2895,8 @@
               applyError: p.applyError,
               armed: p.isArmed,
               resyncInFlight: p.resyncInFlight,
-              cascade: probeCssomPaintBoundary(p.document)
+              cascade: probeCssomPaintBoundary(p.document),
+              formProps: snapshotFormControls(p.document)
             })
           );
           return;

@@ -627,6 +627,7 @@ export interface BrowserSession {
       doublePaint: boolean;
     } | null;
     tree?: unknown;
+    formProps?: import('./mirror/projection/models/formControlSnap').FormControlSnap[];
     reason?: string;
   }>;
   startCpuProfile?(): Promise<{ ok: boolean; reason?: string }>;

@@ -98,7 +98,13 @@ void (async () => {
 
   const mutationBuffer = new MutationBuffer();
   const domMutationObserver = new DomMutationObserver({ buffer: mutationBuffer });
-  const frameBuilder = new TableFrameBuilder({ domNodes, table, formIndex });
+  const frameBuilder = new TableFrameBuilder({
+    domNodes,
+    table,
+    formIndex,
+    observeShadowRoot: (root) => domMutationObserver.observeRoot(root),
+    unobserveShadowRoot: (root) => domMutationObserver.unobserveRoot(root),
+  });
   const encoder = new BinaryFrameEncoder({ maxFrameBytes: config.maxFrameBytes });
 
   let frameTransport: FrameTransport;
@@ -123,7 +129,12 @@ void (async () => {
   });
 
   const cssomPoller =
-    config.cssomPollHz > 0 ? new CssomPoller(new CssomIds(() => domNodes.mint())) : null;
+    config.cssomPollHz > 0
+      ? new CssomPoller(new CssomIds(() => domNodes.mint()), (host) => {
+          const id = domNodes.keyOf(host);
+          return id;
+        })
+      : null;
   const cssom: CssomPlane =
     cssomPoller !== null
       ? new CssomIdleScheduler({
@@ -209,6 +220,7 @@ void (async () => {
   domMutationObserver.takePendingIntoBuffer();
   mutationBuffer.drain();
   await frameEmitter.sendInitial(resyncFrame);
+  domMutationObserver.syncObservedShadowRoots(domNodes);
 
   frameEmitter.start();
   telemetry.start();
@@ -230,10 +242,12 @@ void (async () => {
     haltWorld: () => {
       frameEmitter.stop();
       cssom.halt();
+      domMutationObserver.unobserveAllRoots();
     },
     resumeWorld: () => {
       frameEmitter.start();
       cssom.start();
+      domMutationObserver.syncObservedShadowRoots(domNodes);
     },
     flushFrame: () => {
       frameEmitter.flushNow();

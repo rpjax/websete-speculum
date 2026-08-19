@@ -6,15 +6,16 @@
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.orderedSheetIds = orderedSheetIds;
+exports.allSheetIds = allSheetIds;
 exports.orderedRuleIds = orderedRuleIds;
 exports.matchCssomEndOfFrame = matchCssomEndOfFrame;
 exports.insertIndexFromBefore = insertIndexFromBefore;
 exports.declarationBlockFromRuleText = declarationBlockFromRuleText;
 const frame_1 = require("./frame");
 const opcodes_1 = require("./opcodes");
-/** Sheets currently parented at document (post-frame table). Used only as an end-of-frame check. */
-function orderedSheetIds(table) {
-    const all = table.orderedChildIds(frame_1.DOCUMENT_ID);
+/** Sheets currently parented at `parent` (post-frame table). Document default. */
+function orderedSheetIds(table, parent = frame_1.DOCUMENT_ID) {
+    const all = table.orderedChildIds(parent);
     const out = [];
     for (let i = 0; i < all.length; i++) {
         const id = all[i];
@@ -22,6 +23,24 @@ function orderedSheetIds(table) {
         if (row !== undefined && row.kind === opcodes_1.NodeKind.Sheet)
             out.push(id);
     }
+    return out;
+}
+/** Every Sheet row: document list first, then other parents in first-seen order. */
+function allSheetIds(table) {
+    const parents = [frame_1.DOCUMENT_ID];
+    const seen = new Set([frame_1.DOCUMENT_ID]);
+    table.forEachRow((_id, row) => {
+        if (row.kind !== opcodes_1.NodeKind.Sheet)
+            return;
+        const parent = row.parent === 0 ? frame_1.DOCUMENT_ID : row.parent;
+        if (!seen.has(parent)) {
+            seen.add(parent);
+            parents.push(parent);
+        }
+    });
+    const out = [];
+    for (let i = 0; i < parents.length; i++)
+        out.push(...orderedSheetIds(table, parents[i]));
     return out;
 }
 /** Rule rows parented under a sheet (post-frame table order). */

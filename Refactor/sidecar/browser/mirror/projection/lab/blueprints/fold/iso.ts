@@ -48,6 +48,7 @@ export type IsoJournal = {
     identical: boolean | null;
     reason: string | null;
   };
+  shadow?: { virtualHosts: number; clientHosts: number } | null;
 };
 
 export function foldNodeNewConnected(probe: NodeNewConnectedProbe | null | undefined): LabVerdict {

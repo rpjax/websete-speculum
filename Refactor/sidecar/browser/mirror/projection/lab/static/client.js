@@ -76,6 +76,11 @@
   var FRAME_WIRE_VERSION = 2;
   var DOCUMENT_ID = 1;
   var INSERT_AT_END = 0;
+  var SHADOW_MODE_OPEN = 0;
+  var SHADOW_INIT_DELEGATES_FOCUS = 1;
+  var SHADOW_INIT_CLONABLE = 2;
+  var SHADOW_INIT_SERIALIZABLE = 4;
+  var SHADOW_INIT_FLAGS_MASK = 7;
   var CHECK_SCOPE_TABLE = 0;
   var CHECK_SCOPE_RANGE = 1;
   var CSSOM_SCOPE_MAIN = 0;
@@ -277,7 +282,19 @@
         if (kind === 2 /* Text */ || kind === 3 /* Comment */) {
           return { op: 32 /* NodeNew */, id, kind, value: resolveStr(r.u32()) };
         }
-        return null;
+        if (kind === 7 /* ShadowRoot */) {
+          const host = r.u32();
+          const mode = r.u8();
+          const initFlags = r.u8();
+          if (mode !== SHADOW_MODE_OPEN) {
+            throw new Error(`NODE_NEW SHADOW_ROOT mode ${mode} is not open (frame-protocol.md \xA74.2)`);
+          }
+          if ((initFlags & ~SHADOW_INIT_FLAGS_MASK) !== 0) {
+            throw new Error(`NODE_NEW SHADOW_ROOT initFlags ${initFlags} has reserved bits (frame-protocol.md \xA74.2)`);
+          }
+          return { op: 32 /* NodeNew */, id, kind: 7 /* ShadowRoot */, host, mode, initFlags };
+        }
+        throw new Error(`NODE_NEW kind ${kind} is not defined (frame-protocol.md \xA74.2)`);
       }
       case 64 /* Insert */: {
         const parent = r.u32();
@@ -463,14 +480,29 @@
   }
 
   // browser/mirror/projection/models/cssomApplyIndex.ts
-  function orderedSheetIds(table) {
-    const all = table.orderedChildIds(DOCUMENT_ID);
+  function orderedSheetIds(table, parent = DOCUMENT_ID) {
+    const all = table.orderedChildIds(parent);
     const out = [];
     for (let i = 0; i < all.length; i++) {
       const id = all[i];
       const row = table.getRow(id);
       if (row !== void 0 && row.kind === 4 /* Sheet */) out.push(id);
     }
+    return out;
+  }
+  function allSheetIds(table) {
+    const parents = [DOCUMENT_ID];
+    const seen = /* @__PURE__ */ new Set([DOCUMENT_ID]);
+    table.forEachRow((_id, row) => {
+      if (row.kind !== 4 /* Sheet */) return;
+      const parent = row.parent === 0 ? DOCUMENT_ID : row.parent;
+      if (!seen.has(parent)) {
+        seen.add(parent);
+        parents.push(parent);
+      }
+    });
+    const out = [];
+    for (let i = 0; i < parents.length; i++) out.push(...orderedSheetIds(table, parents[i]));
     return out;
   }
   function orderedRuleIds(table, sheetId) {
@@ -581,6 +613,9 @@
     if (ns === 4 /* Custom */) return h64Str(`\0U${uri ?? ""}`);
     return h64Bytes(Uint8Array.of(0, 83, ns & 255));
   }
+  function hashShadowInit(mode, initFlags) {
+    return h64Bytes(Uint8Array.of(0, 72, mode & 255, initFlags & 255));
+  }
   function computeRowHash(id, kind, parent, prevSibling, contentHash) {
     let h = h64U32(id);
     h = h64U32(kind, h);
@@ -634,6 +669,10 @@
     nextSiblingOf = /* @__PURE__ */ new Map();
     /** Derived, non-hashed: parentId -> the id currently linked last under that parent (0 = none). */
     lastChildOf = /* @__PURE__ */ new Map();
+    /** Host ELEMENT id → owned `SHADOW_ROOT` id. Not hashed; not a light-chain link. */
+    shadowRootByHost = /* @__PURE__ */ new Map();
+    /** Reverse of `shadowRootByHost` so `dropRow` of the root clears the host index. */
+    hostOfShadowRoot = /* @__PURE__ */ new Map();
     tracker = new TableHashTracker();
     /** Stamped onto every row `setRow` touches until changed again — one frame, one `lms` (§4 preamble). */
     currentSequence = 0;
@@ -699,9 +738,13 @@
     countAttachedChildren(parent) {
       let n = 0;
       for (const row of this.rows.values()) {
-        if (row.parent === parent) n += 1;
+        if (row.parent === parent && row.kind !== 7 /* ShadowRoot */) n += 1;
       }
       return n;
+    }
+    /** Owned `SHADOW_ROOT` id of `host`, or 0. */
+    shadowRootOf(host) {
+      return this.shadowRootByHost.get(host) ?? NONE;
     }
     /** Every stored row id (excludes implicit Document `1`). */
     forEachRow(fn) {
@@ -715,6 +758,8 @@
       this.propValues.clear();
       this.nextSiblingOf.clear();
       this.lastChildOf.clear();
+      this.shadowRootByHost.clear();
+      this.hostOfShadowRoot.clear();
       this.tracker.clear();
     }
     // ---- NODE_NEW (§4.2) — always creates a detached row (parent=0, prevSibling=0). ----
@@ -739,6 +784,15 @@
     /** TEXT/COMMENT (`value`) or DOCTYPE (`name`) — both a single content-carrying string field. */
     createLeafRow(id, kind, contentField) {
       this.setRow(id, kind, NONE, NONE, hashValue(contentField));
+    }
+    /**
+     * `SHADOW_ROOT` — `parent = host` immediately, not linked into the host's light chain.
+     * `prevSibling` stays 0.
+     */
+    createShadowRootRow(id, host, mode, initFlags) {
+      this.setRow(id, 7 /* ShadowRoot */, host, NONE, hashShadowInit(mode, initFlags));
+      this.shadowRootByHost.set(host, id);
+      this.hostOfShadowRoot.set(id, host);
     }
     // ---- ATTR_SET / ATTR_DEL / TEXT_SET (§4.4) — content-only, topology untouched. ----
     setAttrs(id, attrs) {
@@ -834,6 +888,12 @@
     }
     /** `NODE_DROP` (§4.2, OPEN-1/OPEN-2, Stage 3) — permanently removes one row's contract state. */
     dropRow(id) {
+      const owned = this.shadowRootByHost.get(id);
+      if (owned !== void 0) this.hostOfShadowRoot.delete(owned);
+      this.shadowRootByHost.delete(id);
+      const host = this.hostOfShadowRoot.get(id);
+      if (host !== void 0) this.shadowRootByHost.delete(host);
+      this.hostOfShadowRoot.delete(id);
       this.rows.delete(id);
       this.attrHashes.delete(id);
       this.propHashes.delete(id);
@@ -900,6 +960,8 @@
         const row = this.rows.get(child);
         child = row?.prevSibling ?? NONE;
       }
+      const shadow = this.shadowRootByHost.get(id);
+      if (shadow !== void 0 && shadow !== id) this.collectSubtreeIds(shadow, out);
     }
     // ---- internals ----
     setRow(id, kind, parent, prevSibling, contentHash) {
@@ -947,6 +1009,7 @@
       case 32 /* NodeNew */:
         if (op.kind === 1 /* Element */) table.createElementRow(op.id, op.name, op.attrs, op.ns, op.uri);
         else if (op.kind === 6 /* Doctype */) table.createLeafRow(op.id, op.kind, op.name);
+        else if (op.kind === 7 /* ShadowRoot */) table.createShadowRootRow(op.id, op.host, op.mode, op.initFlags);
         else table.createLeafRow(op.id, op.kind, op.value);
         return;
       case 33 /* NodeDrop */:
@@ -1025,7 +1088,10 @@
   function isInsertParent(table, parent) {
     if (parent === DOCUMENT_ID) return true;
     const row = table.getRow(parent);
-    return row !== void 0 && row.kind === 1 /* Element */;
+    return row !== void 0 && (row.kind === 1 /* Element */ || row.kind === 7 /* ShadowRoot */);
+  }
+  function isShadowRootId(table, id) {
+    return table.getRow(id)?.kind === 7 /* ShadowRoot */;
   }
   function isSelfOrAncestorOf(table, id, ofId) {
     if (id === ofId) return true;
@@ -1043,6 +1109,47 @@
   }
   function validateOpPre(table, op, i) {
     switch (op.op) {
+      case 32 /* NodeNew */: {
+        if (op.kind !== 7 /* ShadowRoot */) return null;
+        if (op.mode !== SHADOW_MODE_OPEN) {
+          return failOp(
+            i,
+            "malformed",
+            "nodeNew",
+            op.id,
+            "NODE_NEW SHADOW_ROOT mode must be 0 (open) (frame-protocol.md \xA74.2)"
+          );
+        }
+        if ((op.initFlags & ~SHADOW_INIT_FLAGS_MASK) !== 0) {
+          return failOp(
+            i,
+            "malformed",
+            "nodeNew",
+            op.id,
+            "NODE_NEW SHADOW_ROOT reserved initFlags (frame-protocol.md \xA74.2)"
+          );
+        }
+        const host = table.getRow(op.host);
+        if (host === void 0 || host.kind !== 1 /* Element */) {
+          return failOp(
+            i,
+            "precondition",
+            "nodeNew",
+            op.host,
+            "NODE_NEW SHADOW_ROOT host missing or not ELEMENT (frame-protocol.md \xA74.2)"
+          );
+        }
+        if (table.shadowRootOf(op.host) !== 0) {
+          return failOp(
+            i,
+            "malformed",
+            "nodeNew",
+            op.id,
+            "NODE_NEW SHADOW_ROOT host already owns a root (frame-protocol.md \xA74.2)"
+          );
+        }
+        return null;
+      }
       case 64 /* Insert */: {
         if (op.ids.length > MAX_CHILDREN_PER_OP) {
           return failOp(
@@ -1059,7 +1166,7 @@
             "precondition",
             "insert",
             op.parent,
-            "INSERT parent missing or not ELEMENT/Document (frame-protocol.md \xA74.3)"
+            "INSERT parent missing or not ELEMENT/SHADOW_ROOT/Document (frame-protocol.md \xA74.3)"
           );
         }
         if (op.before !== 0) {
@@ -1083,6 +1190,15 @@
           seen.add(id);
           if (!table.has(id)) {
             return failOp(i, "precondition", "insert", id, "INSERT id missing (frame-protocol.md \xA74.3)");
+          }
+          if (isShadowRootId(table, id)) {
+            return failOp(
+              i,
+              "precondition",
+              "insert",
+              id,
+              "INSERT of a SHADOW_ROOT id (frame-protocol.md \xA74.3)"
+            );
           }
           if (isSelfOrAncestorOf(table, id, op.parent)) {
             return failOp(
@@ -1122,6 +1238,15 @@
               "remove",
               id,
               "REMOVE id parent mismatch (frame-protocol.md \xA74.3)"
+            );
+          }
+          if (row.kind === 7 /* ShadowRoot */) {
+            return failOp(
+              i,
+              "precondition",
+              "remove",
+              id,
+              "REMOVE of a SHADOW_ROOT id (frame-protocol.md \xA74.3)"
             );
           }
         }
@@ -1386,6 +1511,8 @@
     propDirty = new FormPropDirty();
     sheets = /* @__PURE__ */ new Map();
     rules = /* @__PURE__ */ new Map();
+    /** Sheet id → `hostNode` (0 = document adopted list). Survives phase-1 drop of the row. */
+    sheetHost = /* @__PURE__ */ new Map();
     constructor(doc, registry, options = {}) {
       this.doc = doc;
       this.registry = registry;
@@ -1533,6 +1660,7 @@
     clearCssom() {
       this.sheets.clear();
       this.rules.clear();
+      this.sheetHost.clear();
       try {
         this.doc.adoptedStyleSheets = [];
       } catch {
@@ -1543,7 +1671,7 @@
      * (SEAL-CSSOM-P0-EOF / PP-CSSOM-A-3) — not sheet handles alone.
      */
     cssomHandlesMatchTable() {
-      const tableSheetIds = orderedSheetIds(this.table);
+      const tableSheetIds = allSheetIds(this.table);
       const liveSheetIdsPresent = /* @__PURE__ */ new Set();
       const tableRuleIdsBySheet = /* @__PURE__ */ new Map();
       const liveRuleIdsBySheet = /* @__PURE__ */ new Map();
@@ -1582,19 +1710,68 @@
       if (!result.ok) return this.fail("address_miss", result.op, result.id);
       return true;
     }
-    adoptedList() {
-      return Array.from(this.doc.adoptedStyleSheets);
+    /** Iframe nodes fail `instanceof Element` from the parent realm — use this document's constructors. */
+    isElement(node) {
+      const view = this.doc.defaultView;
+      return view !== null ? node instanceof view.Element : node.nodeType === Node.ELEMENT_NODE;
     }
-    setAdopted(next) {
+    shadowRootOfHost(hostNode) {
+      const node = this.registry.get(hostNode);
+      if (!node) return null;
+      if (this.isElement(node)) return node.shadowRoot;
+      const view = this.doc.defaultView;
+      if (view !== null && node instanceof view.ShadowRoot) return node;
+      if (node.nodeType === Node.DOCUMENT_FRAGMENT_NODE && node.host != null) {
+        return node;
+      }
+      const owned = this.table.shadowRootOf(hostNode);
+      if (owned === 0) return null;
+      const sr = this.registry.get(owned);
+      if (!sr) return null;
+      if (view !== null && sr instanceof view.ShadowRoot) return sr;
+      if (sr.nodeType === Node.DOCUMENT_FRAGMENT_NODE) return sr;
+      return null;
+    }
+    adoptedListOf(hostNode) {
+      if (hostNode === 0) {
+        try {
+          return Array.from(this.doc.adoptedStyleSheets);
+        } catch {
+          return [];
+        }
+      }
+      const root = this.shadowRootOfHost(hostNode);
+      if (root == null) return [];
       try {
-        this.doc.adoptedStyleSheets = next;
-        return true;
+        return Array.from(root.adoptedStyleSheets);
       } catch {
-        return this.fail("malformed", "sheetOrder", 0);
+        return [];
       }
     }
-    materializedSheetIds() {
-      const list = this.adoptedList();
+    setAdoptedOf(hostNode, next) {
+      try {
+        if (hostNode === 0) {
+          this.doc.adoptedStyleSheets = next;
+          return true;
+        }
+        const root = this.shadowRootOfHost(hostNode);
+        if (root == null) {
+          return this.fail("address_miss", "sheetNew", hostNode);
+        }
+        root.adoptedStyleSheets = next;
+        return true;
+      } catch {
+        return this.fail("malformed", "sheetOrder", hostNode);
+      }
+    }
+    adoptedList() {
+      return this.adoptedListOf(0);
+    }
+    setAdopted(next) {
+      return this.setAdoptedOf(0, next);
+    }
+    materializedSheetIdsOf(hostNode) {
+      const list = this.adoptedListOf(hostNode);
       const ids = [];
       for (let i = 0; i < list.length; i++) {
         const sheet = list[i];
@@ -1607,11 +1784,16 @@
       }
       return ids;
     }
+    materializedSheetIds() {
+      return this.materializedSheetIdsOf(0);
+    }
     applySheetNew(op) {
-      if (op.scope === CSSOM_SCOPE_PIERCE_HOST || op.hostNode !== 0) {
-        return this.fail("bad_target", "sheetNew", op.id);
+      const pierce = op.scope === CSSOM_SCOPE_PIERCE_HOST || op.hostNode !== 0;
+      const hostNode = pierce ? op.hostNode : 0;
+      if (pierce && this.shadowRootOfHost(hostNode) == null) {
+        return this.fail("address_miss", "sheetNew", hostNode);
       }
-      if (this.sheets.has(op.id)) return this.fail("bad_target", "sheetNew", op.id);
+      if (this.sheets.has(op.id)) return true;
       const view = this.doc.defaultView;
       if (view === null) return this.fail("bad_target", "sheetNew", op.id);
       let sheet;
@@ -1620,37 +1802,50 @@
       } catch {
         return this.fail("malformed", "sheetNew", op.id);
       }
-      const at = insertIndexFromBefore(this.materializedSheetIds(), op.before);
+      const at = insertIndexFromBefore(this.materializedSheetIdsOf(hostNode), op.before);
       if (at < 0) return this.fail("address_miss", "sheetNew", op.before);
-      const next = this.adoptedList();
+      const next = this.adoptedListOf(hostNode);
       next.splice(at, 0, sheet);
-      if (!this.setAdopted(next)) return false;
+      if (!this.setAdoptedOf(hostNode, next)) return false;
       this.sheets.set(op.id, sheet);
+      this.sheetHost.set(op.id, hostNode);
       return true;
     }
     applySheetDrop(op) {
-      const drop = /* @__PURE__ */ new Set();
+      const dropByHost = /* @__PURE__ */ new Map();
       for (let i = 0; i < op.ids.length; i++) {
         const id = op.ids[i];
         const sheet = this.sheets.get(id);
         if (sheet === void 0) return this.fail("address_miss", "sheetDrop", id);
-        drop.add(sheet);
+        const hostNode = this.sheetHost.get(id) ?? 0;
+        let set = dropByHost.get(hostNode);
+        if (set === void 0) {
+          set = /* @__PURE__ */ new Set();
+          dropByHost.set(hostNode, set);
+        }
+        set.add(sheet);
         for (const [ruleId, rule] of this.rules) {
           if (rule.parentStyleSheet === sheet) this.rules.delete(ruleId);
         }
         this.sheets.delete(id);
+        this.sheetHost.delete(id);
       }
-      const next = this.adoptedList().filter((s) => !drop.has(s));
-      return this.setAdopted(next);
+      for (const [hostNode, drop] of dropByHost) {
+        const next = this.adoptedListOf(hostNode).filter((s) => !drop.has(s));
+        if (!this.setAdoptedOf(hostNode, next)) return false;
+      }
+      return true;
     }
     applySheetOrder(op) {
+      if (op.ids.length === 0) return true;
+      const hostNode = this.sheetHost.get(op.ids[0]) ?? 0;
       const next = [];
       for (let i = 0; i < op.ids.length; i++) {
         const sheet = this.sheets.get(op.ids[i]);
         if (sheet === void 0) return this.fail("address_miss", "sheetOrder", op.ids[i]);
         next.push(sheet);
       }
-      return this.setAdopted(next);
+      return this.setAdoptedOf(hostNode, next);
     }
     applyRuleNew(op) {
       const sheet = this.sheets.get(op.sheet);
@@ -1724,6 +1919,16 @@
         const node = this.registry.get(op.ids[i]);
         if (node !== void 0) this.registry.unregisterSubtree(node);
       }
+      for (const id of [...this.sheets.keys()]) {
+        if (this.table.has(id)) continue;
+        const sheet = this.sheets.get(id);
+        this.sheets.delete(id);
+        this.sheetHost.delete(id);
+        if (sheet === void 0) continue;
+        for (const [ruleId, rule] of this.rules) {
+          if (rule.parentStyleSheet === sheet) this.rules.delete(ruleId);
+        }
+      }
       return true;
     }
     applyNodeNew(op) {
@@ -1743,6 +1948,21 @@
         node = this.doc.createComment(op.value);
       } else if (op.kind === 6 /* Doctype */) {
         node = this.doc.implementation.createDocumentType(op.name || "html", "", "");
+      } else if (op.kind === 7 /* ShadowRoot */) {
+        const host = this.registry.get(op.host);
+        if (!host || host.nodeType !== Node.ELEMENT_NODE) return this.fail("address_miss", "nodeNew", op.host);
+        const el = host;
+        if (el.shadowRoot) return this.fail("bad_target", "nodeNew", op.id);
+        const init = { mode: "open" };
+        if ((op.initFlags & SHADOW_INIT_DELEGATES_FOCUS) !== 0) init.delegatesFocus = true;
+        const extra = init;
+        if ((op.initFlags & SHADOW_INIT_CLONABLE) !== 0) extra.clonable = true;
+        if ((op.initFlags & SHADOW_INIT_SERIALIZABLE) !== 0) extra.serializable = true;
+        try {
+          node = el.attachShadow(init);
+        } catch {
+          return this.fail("malformed", "nodeNew", op.id);
+        }
       } else {
         return this.fail("bad_target", "nodeNew", op.id);
       }
@@ -1860,7 +2080,7 @@
       while (cur) {
         const id = this.idsByNode.get(cur);
         if (id != null) return id;
-        cur = cur.parentNode;
+        cur = cur.parentNode ?? (cur.nodeType === Node.DOCUMENT_FRAGMENT_NODE && cur.host != null ? cur.host : null);
       }
       return void 0;
     }
@@ -1882,6 +2102,10 @@
           this.idsByNode.delete(node);
         }
         for (const child of Array.from(node.childNodes)) stack.push(child);
+        if (node.nodeType === Node.ELEMENT_NODE) {
+          const sr = node.shadowRoot;
+          if (sr) stack.push(sr);
+        }
       }
     }
     /** Total registered ids — perf/soak signal. */
@@ -2444,6 +2668,11 @@
         if (attrs.length > 0) result.attrs = attrs;
         const children = mapChildren(node);
         if (children.length > 0) result.children = children;
+        const sr = el.shadowRoot;
+        if (sr !== null && sr.mode === "open" && sr.slotAssignment !== "manual") {
+          const shadowKids = mapChildren(sr);
+          result.shadow = { tag: "#shadow-root", ...shadowKids.length > 0 ? { children: shadowKids } : {} };
+        }
         return result;
       }
       case 3:

@@ -26,6 +26,7 @@ exports.hashValue = hashValue;
 exports.hashAttr = hashAttr;
 exports.hashProp = hashProp;
 exports.hashNs = hashNs;
+exports.hashShadowInit = hashShadowInit;
 exports.computeRowHash = computeRowHash;
 const elementNs_1 = require("./elementNs");
 const FNV_OFFSET_BASIS = 14695981039346656037n;
@@ -97,6 +98,10 @@ function hashNs(ns, uri) {
     if (ns === elementNs_1.ElementNs.Custom)
         return h64Str(`\u0000U${uri ?? ''}`);
     return h64Bytes(Uint8Array.of(0x00, 0x53, ns & 0xff));
+}
+/** `SHADOW_ROOT` `mode` + `initFlags` contribution to `contentHash`. */
+function hashShadowInit(mode, initFlags) {
+    return h64Bytes(Uint8Array.of(0x00, 0x48, mode & 0xff, initFlags & 0xff));
 }
 /** `rowHash = H64(id, kind, parent, prevSibling, contentHash)` — §1.5. Order-sensitive fold. */
 function computeRowHash(id, kind, parent, prevSibling, contentHash) {

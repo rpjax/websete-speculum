@@ -15,22 +15,27 @@ const node_fs_1 = __importDefault(require("node:fs"));
 const node_path_1 = __importDefault(require("node:path"));
 const BUNDLE_NAME = 'virtual.js';
 let cached;
+let cachedPath;
+let cachedMtimeMs = 0;
 function candidatePaths() {
     return [
         node_path_1.default.join(__dirname, '..', BUNDLE_NAME),
         node_path_1.default.join(process.cwd(), 'dist', 'browser', 'mirror', 'projection', BUNDLE_NAME),
     ];
 }
-/** Autocontained Virtual projection JS source (cached after first read). */
+/** Autocontained Virtual projection JS source (re-read when the bundle file changes). */
 function loadInpageScript() {
-    if (cached !== undefined)
-        return cached;
     const tried = [];
     for (const candidate of candidatePaths()) {
         tried.push(candidate);
         if (!node_fs_1.default.existsSync(candidate))
             continue;
+        const mtimeMs = node_fs_1.default.statSync(candidate).mtimeMs;
+        if (cached !== undefined && cachedPath === candidate && cachedMtimeMs === mtimeMs)
+            return cached;
         cached = node_fs_1.default.readFileSync(candidate, 'utf8');
+        cachedPath = candidate;
+        cachedMtimeMs = mtimeMs;
         return cached;
     }
     throw new Error(`PageProjection virtual bundle missing (${BUNDLE_NAME}). ` +
@@ -39,5 +44,7 @@ function loadInpageScript() {
 }
 function clearInpageScriptCache() {
     cached = undefined;
+    cachedPath = undefined;
+    cachedMtimeMs = 0;
 }
 //# sourceMappingURL=loadInpageScript.js.map

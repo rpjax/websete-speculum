@@ -31,6 +31,8 @@ import { applyOpsToTable } from '../../models/replicatedTableApply';
 import type { FrameBuilder, FrameBuilderContext, FrameBuildStats } from '../frame/frameBuilder';
 import { describeNodeNew, nodeKindOf } from './domNodeDescribe';
 import type { FormPropIndex } from './formPropIndex';
+import { admissibleShadowRoot } from './shadowAdmit';
+import { NodeKind } from '../../models/opcodes';
 
 /** Shared sentinel returned when `collectOpCounts` is off — never mutated. */
 const EMPTY_OP_COUNTS: Record<string, number> = {};
@@ -53,6 +55,9 @@ export type TableFrameBuilderOptions = {
   nodeDropAgeSequences?: number;
   /** Override for tests/lab tuning — §8 per-tick GC-sweep cap. */
   maxNodeDropsPerSweep?: number;
+  /** One MutationObserver per admitted ShadowRoot — same buffer as the document observer. */
+  observeShadowRoot?: (root: ShadowRoot) => void;
+  unobserveShadowRoot?: (root: ShadowRoot) => void;
 };
 
 export class TableFrameBuilder implements FrameBuilder {
@@ -62,6 +67,8 @@ export class TableFrameBuilder implements FrameBuilder {
   private readonly collectOpCounts: boolean;
   private readonly nodeDropAgeSequences: number;
   private readonly maxNodeDropsPerSweep: number;
+  private readonly observeShadowRoot: ((root: ShadowRoot) => void) | undefined;
+  private readonly unobserveShadowRoot: ((root: ShadowRoot) => void) | undefined;
   private lastStats: FrameBuildStats | null = null;
   private pendingUnconsumed: MutationRecord[] | null = null;
 
@@ -82,6 +89,8 @@ export class TableFrameBuilder implements FrameBuilder {
     this.collectOpCounts = opts.collectOpCounts ?? false;
     this.nodeDropAgeSequences = opts.nodeDropAgeSequences ?? NODE_DROP_AGE_SEQUENCES;
     this.maxNodeDropsPerSweep = opts.maxNodeDropsPerSweep ?? MAX_NODE_DROPS_PER_SWEEP;
+    this.observeShadowRoot = opts.observeShadowRoot;
+    this.unobserveShadowRoot = opts.unobserveShadowRoot;
   }
 
   takeBuildStats(): FrameBuildStats | null {
@@ -113,13 +122,13 @@ export class TableFrameBuilder implements FrameBuilder {
 
     const ops: FrameOp[] = [];
     this.pendingUnconsumed = null;
+    this.visited.clear();
+    this.createdThisTick.clear();
+    this.removedThisTick.clear();
+    this.attrDirty.clear();
+    this.textDirty.clear();
 
     if (records.length > 0) {
-      this.visited.clear();
-      this.createdThisTick.clear();
-      this.removedThisTick.clear();
-      this.attrDirty.clear();
-      this.textDirty.clear();
 
       let consumedThrough = records.length;
       for (let i = 0; i < records.length; i++) {
@@ -155,6 +164,8 @@ export class TableFrameBuilder implements FrameBuilder {
       this.emitAttrPatches(ops);
       this.emitTextPatches(ops);
     }
+
+    this.discoverShadowRoots(ops);
 
     // Virtual side applies phase 1 (table) only, per §6 — the real DOM already mutated, which is
     // what the MutationObserver just reported; there is no phase 2 to run against a live DOM here.
@@ -231,6 +242,7 @@ export class TableFrameBuilder implements FrameBuilder {
       for (let j = 0; j < subtreeIds.length; j++) {
         const node = this.domNodes.get(subtreeIds[j]!);
         if (node !== undefined) {
+          if (node instanceof ShadowRoot) this.unobserveShadowRoot?.(node);
           this.formIndex.remove(node);
           this.domNodes.release(node);
         }
@@ -331,7 +343,35 @@ export class TableFrameBuilder implements FrameBuilder {
     this.formIndex.addIfIndexed(node);
     ops.push(describeNodeNew(id, kind, node));
     this.walkSiblingRun(node.childNodes, id, ops);
+    if (kind === NodeKind.Element) this.admitShadowIfAny(node as Element, id, ops);
     return id;
+  }
+
+  /**
+   * `attachShadow` is not a mutation record. Each tick, connected ELEMENTs that do not yet own
+   * a `SHADOW_ROOT` row are read via `.shadowRoot` ([shadow.md](shadow.md)).
+   */
+  private discoverShadowRoots(ops: FrameOp[]): void {
+    for (const [id, node] of this.domNodes.liveEntries()) {
+      if (!(node instanceof Element) || !node.isConnected) continue;
+      this.admitShadowIfAny(node, id, ops);
+    }
+  }
+
+  private admitShadowIfAny(el: Element, hostId: DomNodeKey, ops: FrameOp[]): void {
+    if (this.table.shadowRootOf(hostId) !== 0) return;
+    const sr = admissibleShadowRoot(el);
+    if (sr === null) return;
+    const existing = this.domNodes.keyOf(sr);
+    if (existing !== NONE_DOM_NODE_KEY) {
+      this.observeShadowRoot?.(sr);
+      return;
+    }
+    const rootId = this.domNodes.allocate(sr);
+    this.createdThisTick.add(sr);
+    ops.push(describeNodeNew(rootId, NodeKind.ShadowRoot, sr, hostId));
+    this.observeShadowRoot?.(sr);
+    this.walkSiblingRun(sr.childNodes, rootId, ops);
   }
 
   /**

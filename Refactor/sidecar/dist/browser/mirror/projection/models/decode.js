@@ -241,7 +241,19 @@ function decodeOp(opCode, r, resolveStr, persistent) {
             if (kind === opcodes_1.NodeKind.Text || kind === opcodes_1.NodeKind.Comment) {
                 return { op: opcodes_1.OpCode.NodeNew, id, kind, value: resolveStr(r.u32()) };
             }
-            return null;
+            if (kind === opcodes_1.NodeKind.ShadowRoot) {
+                const host = r.u32();
+                const mode = r.u8();
+                const initFlags = r.u8();
+                if (mode !== frame_1.SHADOW_MODE_OPEN) {
+                    throw new Error(`NODE_NEW SHADOW_ROOT mode ${mode} is not open (frame-protocol.md §4.2)`);
+                }
+                if ((initFlags & ~frame_1.SHADOW_INIT_FLAGS_MASK) !== 0) {
+                    throw new Error(`NODE_NEW SHADOW_ROOT initFlags ${initFlags} has reserved bits (frame-protocol.md §4.2)`);
+                }
+                return { op: opcodes_1.OpCode.NodeNew, id, kind: opcodes_1.NodeKind.ShadowRoot, host, mode, initFlags };
+            }
+            throw new Error(`NODE_NEW kind ${kind} is not defined (frame-protocol.md §4.2)`);
         }
         case opcodes_1.OpCode.Insert: {
             const parent = r.u32();

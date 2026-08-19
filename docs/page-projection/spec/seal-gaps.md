@@ -45,13 +45,13 @@ Ids (`SEAL-*`) are stable cross-references. Kind (QA / gap / feature) is the wor
 
 Automated: CHECK by id range, live `CSSStyleRule` folds, detached-row GC — closed 2026-08-17 (archive).
 
-Until shadow ships (feature below), a closed-shadow fixture must **fail explicit unsupported**, never soft-skip.
+Until a closed-shadow fixture is in scope for a later cut, it must **fail explicit unsupported**, never soft-skip. Open named shadow is shipped (lab `shadow-open`).
 
 ---
 
 ## 2. Gaps (current path is wrong or unsealed)
 
-**Empty.** SVG namespace closed 2026-08-17. Form `PROP_SET` closed 2026-08-18. Next work is §3 — **shadow** ([shadow.md](shadow.md); premise [subtrees.md](subtrees.md)).
+**Empty.** SVG namespace closed 2026-08-17. Form `PROP_SET` closed 2026-08-18. Open named shadow closed 2026-08-18. Next work is §3 — **nested browsing contexts** ([multi-document.md](multi-document.md); premise [subtrees.md](subtrees.md)).
 
 Honesty P0 for apply (flush-after-desync, failed `setAttribute`, phase-1 pres, `NODE_NEW` connected probe, `RULE_SET` on grouping, EOF rule membership, author vs adopted paint, doc/code alignment) is **closed** — archive at the bottom. UI desync proofs for attr / ruleset / eof: 2026-08-17.
 
@@ -65,7 +65,6 @@ Not gaps in `NODE_NEW` / `RULE_SET` / CHECK. These ops or walks **are not on the
 
 | Id | What to build | Assert | Status |
 |----|---------------|--------|--------|
-| **SEAL-DOM-P1-SHADOW** | Shadow: same instance; real `ShadowRoot`; kind `7`; observe admitted roots; discover `.shadowRoot` per tick. [shadow.md](shadow.md). | Open-shadow tree×tree **PP-F-3**. Closed: explicit unsupported (**PP-F-4** split). | open |
 | **SEAL-DOM-P2-ISA** | Remaining opcodes on the happy path: `NODE_META`, `DOC_STATE`, `SCROLL_*`, `NODE_SNAPSHOT`, related. | Per-opcode matrix (**PP-F-5**, **PP-EST-4**, **PP-MOVE-3**, **PP-D16-***) with **effect** probes — not “opcode exists”. | open |
 | **SEAL-DOM-P2-OPEN6** | Nested browsing contexts (feature 2, after shadow). N contexts; `contextId` on PP header; parent `hosts` map. Designed; not on the wire. | [multi-document.md](multi-document.md); **PP-F-4**; fail unsupported until shipped. | open |
 
@@ -93,7 +92,7 @@ Algorithm (poll + top-level serialize) is **closed**. Child-document CSSOM is OP
 |------|------|--------|
 | **QA / tests** | 0 | Human looks + CHECK range + CSSStyleRule live + detached-row GC closed 2026-08-17 |
 | **Gaps** | 0 | SVG namespace closed 2026-08-17 |
-| **Features** | 6 ids | shadow, remaining ISA, multi-doc, child-doc CSSOM, scale, CSS iso |
+| **Features** | 5 ids | remaining ISA, multi-doc, child-doc CSSOM, scale, CSS iso |
 
 Closed honesty + QA 2026-08-17: FLUSH, ATTR, PHASE1, PROBE, OPEN2, OPEN3, RULESET, DOUBLE, EOF, DOCS, STYLE, IDSPACE, OPEN-1, SVG.
 
@@ -133,6 +132,7 @@ Kept so ids and dates stay searchable. Do not reopen because CLI `--iso` skipped
 | **OPEN-1** | `NODE_DROP` of an absent id. | **malformed** (Rodrigo). Unit `testApplyFrameToTableCheckedRejectsNodeDropAbsentId`. | **closed 2026-08-17** |
 | **SEAL-DOM-P1-SVG** | `NODE_NEW` always HTML `createElement`. | **PP-F-SVG-1**: units `testNodeNewElementNsWire`, `testStructuralDiffNsMismatch`; lab `svg-ns` (CLI tree skip without DOM client; `ns_mismatch` fails with client). | **closed 2026-08-17** |
 | **SEAL-DOM-P1-PROP** | Live form properties not on the wire / not applied as properties. | **PP-PROP-1**: units `testPropSetWire`, `testPropSetTableAndCheck`, `testFormPropDirtyDoesNotBlockTable`; lab `forms-state` (CLI `iso.formProps` skip explicit without DOM client; with client, Virtual vs Projected properties fail on mismatch). | **closed 2026-08-18** |
+| **SEAL-DOM-P1-SHADOW** | Shadow not on the walk / wire. | **PP-F-3**: units `testShadowRootWire`, `testShadowRootModeClosedMalformed`, `testShadowRootInitFlagsReservedBitMalformed`, `testCreateShadowRootNotInLightChildOrder`, `testDropSubtreeIncludesShadowRoot`, `testInsertRemoveUnderShadowRoot`, `testRejectInsertOrRemoveShadowRootId`, `testSecondShadowRootSameHostMalformed`, `testMoveLightIntoShadow`, `testStructuralDiffShadowSeparate`; lab `shadow-open` (CLI tree skip without DOM client; with client, light-only / missing Projected `.shadowRoot` fails). **PP-F-4**: lab `shadow-closed` → `unsupported.shadow.closed`; `shadow-manual` → `unsupported.shadow.manual`. | **closed 2026-08-18** |
 
 ### CSSOM
 

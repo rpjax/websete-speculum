@@ -11,7 +11,7 @@
  * `tableFrameBuilder.ts` for why persistent interning is deliberately deferred.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.CSSOM_SCOPE_PIERCE_HOST = exports.CSSOM_SCOPE_MAIN = exports.CHECK_SCOPE_RANGE = exports.CHECK_SCOPE_TABLE = exports.INSERT_AT_END = exports.DOCUMENT_ID = exports.FRAME_WIRE_VERSION = exports.NodeKind = void 0;
+exports.CSSOM_SCOPE_PIERCE_HOST = exports.CSSOM_SCOPE_MAIN = exports.CHECK_SCOPE_RANGE = exports.CHECK_SCOPE_TABLE = exports.SHADOW_INIT_FLAGS_MASK = exports.SHADOW_INIT_SERIALIZABLE = exports.SHADOW_INIT_CLONABLE = exports.SHADOW_INIT_DELEGATES_FOCUS = exports.SHADOW_MODE_OPEN = exports.INSERT_AT_END = exports.DOCUMENT_ID = exports.FRAME_WIRE_VERSION = exports.NodeKind = void 0;
 exports.createFrame = createFrame;
 exports.spliceCssomBeforeCheck = spliceCssomBeforeCheck;
 const opcodes_1 = require("./opcodes");
@@ -22,6 +22,16 @@ exports.FRAME_WIRE_VERSION = 2;
 exports.DOCUMENT_ID = 1;
 /** `before = 0` in `INSERT` means "insert at end" (§4.3). */
 exports.INSERT_AT_END = 0;
+/** `NODE_NEW SHADOW_ROOT.mode` — open only this version (`1` closed is NIT malformed). */
+exports.SHADOW_MODE_OPEN = 0;
+/** `initFlags` bit0 — `delegatesFocus`. */
+exports.SHADOW_INIT_DELEGATES_FOCUS = 0x01;
+/** `initFlags` bit1 — `clonable`. */
+exports.SHADOW_INIT_CLONABLE = 0x02;
+/** `initFlags` bit2 — `serializable`. */
+exports.SHADOW_INIT_SERIALIZABLE = 0x04;
+/** Any `initFlags` bit outside this mask is malformed. */
+exports.SHADOW_INIT_FLAGS_MASK = 0x07;
 /** §4.1 `CHECK.scope` — `Table` = whole table (`lo`/`hi` ignored), `Range` = id range `[lo, hi]`. */
 exports.CHECK_SCOPE_TABLE = 0;
 exports.CHECK_SCOPE_RANGE = 1;

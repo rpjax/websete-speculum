@@ -127,7 +127,7 @@ quirks-mode row.
 
 Order is represented by **`parent` + `prevSibling`** only for a **single child list**. Those two columns uniquely determine that list: within a parent, `prevSibling = 0` is the first child of **that** list and the chain from there is determined.
 
-**Shadow ([shadow.md](shadow.md), designed, not shipped).** An `ELEMENT` has a second collection: at most one `SHADOW_ROOT` row with `parent = host`. That row is **not** in the light `prevSibling` chain. `SHADOW_ROOT.prevSibling` is always `0` and unused. Light `prevSibling = 0` still means the first **light** child (`kind ≠ SHADOW_ROOT`). `dropSubtree` of a host MUST walk the light chain **and** the owned `SHADOW_ROOT`. Walking only `prevSibling` leaks the shadow. Children of the root use `parent = shadowRootId` and their own light-style chain (live `shadowRoot.childNodes`).
+**Shadow ([shadow.md](shadow.md), shipped open/named).** An `ELEMENT` has a second collection: at most one `SHADOW_ROOT` row with `parent = host`. That row is **not** in the light `prevSibling` chain. `SHADOW_ROOT.prevSibling` is always `0` and unused. Light `prevSibling = 0` still means the first **light** child (`kind ≠ SHADOW_ROOT`). `dropSubtree` of a host MUST walk the light chain **and** the owned `SHADOW_ROOT`. Walking only `prevSibling` leaks the shadow. Children of the root use `parent = shadowRootId` and their own light-style chain (live `shadowRoot.childNodes`).
 
 **Why not a positional index.** If sibling position were an integer column, inserting into the middle
 of a list would renumber every following sibling and rehash each of them — O(n) per insert on a long
@@ -299,7 +299,7 @@ is recreated empty. `DOM`: the surface is discarded (a new document buffer is pr
 - `SHEET`: `flags: u16`
 - `RULE`: `value: StrRef`
 - `DOCTYPE`: `name: StrRef` (root element name)
-- `SHADOW_ROOT`: `host: u32`, `mode: u8` (`0` open, `1` closed), `initFlags: u8` — designed, not shipped; [shadow.md](shadow.md)
+- `SHADOW_ROOT`: `host: u32`, `mode: u8` (`0` open, `1` closed), `initFlags: u8` — shipped open/named; [shadow.md](shadow.md)
 
 `ns`: `0` html, `1` svg, `2` mathml, `3` none, `4` custom. A `u8` outside `0..4` is **`malformed`**.
 `ns === 4` with an empty URI is **`malformed`**. When `ns !== 4` the URI field is **not written**.
@@ -915,7 +915,7 @@ Every catalogued failure carries `errorCode` + `phase` + `sequence`
 
 **Current `version`:** `2` (2026-08-17). `NODE_NEW` Element gained `ns: u8` (+ `uri: StrRef` only when
 `custom`). Version 1 peers desync. No shim. Adding `0x63 PROP_SET` (reserved range, new opcode) does
-**not** bump the version. Adding `SHADOW_ROOT` kind `7` (designed, not shipped) does **not** bump the
+**not** bump the version. Adding `SHADOW_ROOT` kind `7` **does not** bump the
 version — header layout unchanged. Unknown kind remains `malformed`. Header `contextId` is version **3** (OPEN-6, not shipped).
 
 ---
@@ -990,6 +990,7 @@ version — header layout unchanged. Unknown kind remains `malformed`. Header `c
 | 2026-08-18 | **OPEN-6 correction** — DataPlane does **not** track documents. `documentId` is PP header v3. Both sides keep a document table → host/root node. Envelope unchanged. |
 | 2026-08-18 | **OPEN-6 machine** — no session document table. Root `documentId=1`. Parent mints nested `D` onto host `hostedDocumentId`. Child queries. Nav remints. `DOC_ATTACH` stays unimplemented. |
 | 2026-08-18 | **OPEN-6 context** — id names the projection context (one tree), not a Document. Parent `hosts: Map<nodeId, contextId>` (not the page, not a row column). Nav / blank `load` = reinstall, same id. Header field `contextId`. |
-| 2026-08-18 | **Shadow `SHADOW_ROOT` kind 7** — designed, not shipped. Real `attachShadow`; not light child; INSERT parent may be the root; `NODE_META` shadow flags superseded. Version stays 2. [shadow.md](shadow.md). |
+| 2026-08-18 | **Shadow `SHADOW_ROOT` kind 7** — designed, then shipped same day. Real `attachShadow`; not light child; INSERT parent may be the root; `NODE_META` shadow flags superseded. Version stays 2. [shadow.md](shadow.md). |
 | 2026-08-18 | **Shadow initFlags** — `delegatesFocus` / `clonable` / `serializable` on `NODE_NEW SHADOW_ROOT`. Manual slot NIT. |
 | 2026-08-18 | **Shadow design complete for impl plan** — no INSERT/REMOVE of the root row; per-root MO same buffer; O2 enters shadow; CSSOM poll extends to admitted roots. |
+| 2026-08-18 | **SEAL-DOM-P1-SHADOW closed** — kind 7 on version 2; open named; real `attachShadow`; lab `shadow-open`. Closed/manual NIT. [shadow.md](shadow.md). |

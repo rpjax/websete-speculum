@@ -12,16 +12,22 @@ const opcodes_1 = require("../../models/opcodes");
 const cssomRuleSet_1 = require("../../models/cssomRuleSet");
 function emitResyncCssomOps(ids, sheets) {
     const ops = [];
-    const sheetIds = [];
+    const idsByHost = new Map();
     for (let i = 0; i < sheets.length; i++) {
         const rec = sheets[i];
+        const hostNode = rec.hostNode ?? 0;
         const sheetId = ids.idOfSheet(rec.sheet);
-        sheetIds.push(sheetId);
+        let group = idsByHost.get(hostNode);
+        if (group === undefined) {
+            group = [];
+            idsByHost.set(hostNode, group);
+        }
+        group.push(sheetId);
         ops.push({
             op: opcodes_1.OpCode.SheetNew,
             id: sheetId,
-            scope: frame_1.CSSOM_SCOPE_MAIN,
-            hostNode: 0,
+            scope: hostNode === 0 ? frame_1.CSSOM_SCOPE_MAIN : frame_1.CSSOM_SCOPE_PIERCE_HOST,
+            hostNode,
             before: frame_1.INSERT_AT_END,
         });
         for (let r = 0; r < rec.snaps.length; r++) {
@@ -36,50 +42,69 @@ function emitResyncCssomOps(ids, sheets) {
             });
         }
     }
-    if (sheetIds.length > 1) {
-        ops.push({ op: opcodes_1.OpCode.SheetOrder, ids: sheetIds });
+    for (const group of idsByHost.values()) {
+        if (group.length > 1)
+            ops.push({ op: opcodes_1.OpCode.SheetOrder, ids: group });
     }
     return ops;
 }
-/**
- * Delta vs last committed snaps. `hashed` is this pass's obtained hashes+text (copy survivors).
- * Live order is current topology. Unhashed live keys (insert after copy) are omitted.
- */
 function emitLiveCssomOps(ids, prevSheets, nextSheets, prevSnaps) {
     const ops = [];
-    const prevSet = new Set(prevSheets);
+    const prevSet = new Set(prevSheets.map((s) => s.sheet));
     const nextSet = new Set(nextSheets.map((s) => s.sheet));
     const dropped = [];
-    for (const sheet of prevSheets) {
-        if (nextSet.has(sheet))
+    for (const rec of prevSheets) {
+        if (nextSet.has(rec.sheet))
             continue;
-        const id = ids.peekSheet(sheet);
+        const id = ids.peekSheet(rec.sheet);
         if (id !== undefined)
             dropped.push(id);
     }
     if (dropped.length > 0)
         ops.push({ op: opcodes_1.OpCode.SheetDrop, ids: dropped });
-    const nextIds = [];
+    const nextByHost = new Map();
     for (let i = 0; i < nextSheets.length; i++) {
         const rec = nextSheets[i];
+        const hostNode = rec.hostNode ?? 0;
         const sheetId = ids.idOfSheet(rec.sheet);
-        nextIds.push(sheetId);
+        let group = nextByHost.get(hostNode);
+        if (group === undefined) {
+            group = [];
+            nextByHost.set(hostNode, group);
+        }
+        group.push(sheetId);
         if (rec.skipOps)
             continue;
         if (!prevSet.has(rec.sheet)) {
             ops.push({
                 op: opcodes_1.OpCode.SheetNew,
                 id: sheetId,
-                scope: frame_1.CSSOM_SCOPE_MAIN,
-                hostNode: 0,
+                scope: hostNode === 0 ? frame_1.CSSOM_SCOPE_MAIN : frame_1.CSSOM_SCOPE_PIERCE_HOST,
+                hostNode,
                 before: frame_1.INSERT_AT_END,
             });
         }
         ops.push(...emitRuleDelta(ids, sheetId, prevSnaps.get(rec.sheet) ?? [], rec));
     }
-    const prevIds = prevSheets.map((s) => ids.peekSheet(s)).filter((x) => x !== undefined);
-    if (!sameIdOrder(prevIds, nextIds) && nextIds.length > 0) {
-        ops.push({ op: opcodes_1.OpCode.SheetOrder, ids: nextIds });
+    const prevByHost = new Map();
+    for (const rec of prevSheets) {
+        const id = ids.peekSheet(rec.sheet);
+        if (id === undefined)
+            continue;
+        let group = prevByHost.get(rec.hostNode);
+        if (group === undefined) {
+            group = [];
+            prevByHost.set(rec.hostNode, group);
+        }
+        group.push(id);
+    }
+    const hosts = new Set([...nextByHost.keys(), ...prevByHost.keys()]);
+    for (const host of hosts) {
+        const nextIds = nextByHost.get(host) ?? [];
+        const prevIds = prevByHost.get(host) ?? [];
+        if (nextIds.length > 0 && !sameIdOrder(prevIds, nextIds)) {
+            ops.push({ op: opcodes_1.OpCode.SheetOrder, ids: nextIds });
+        }
     }
     return ops;
 }

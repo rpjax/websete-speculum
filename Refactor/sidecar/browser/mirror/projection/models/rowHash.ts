@@ -95,6 +95,11 @@ export function hashNs(ns: number, uri?: string): bigint {
   return h64Bytes(Uint8Array.of(0x00, 0x53, ns & 0xff));
 }
 
+/** `SHADOW_ROOT` `mode` + `initFlags` contribution to `contentHash`. */
+export function hashShadowInit(mode: number, initFlags: number): bigint {
+  return h64Bytes(Uint8Array.of(0x00, 0x48, mode & 0xff, initFlags & 0xff));
+}
+
 /** `rowHash = H64(id, kind, parent, prevSibling, contentHash)` — §1.5. Order-sensitive fold. */
 export function computeRowHash(
   id: number,

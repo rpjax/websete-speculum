@@ -148,7 +148,11 @@ export function takeSnapshot(planes: SnapshotPlanes, opts: SnapshotOptions = {})
   }
   const o2 = compareTableToLiveDom(planes.table, planes.domNodes, document);
   const cssomO2 =
-    mode === 'none' ? null : compareTableToLiveCssomDom(planes.table, planes.cssomIds, document);
+    mode === 'none'
+      ? null
+      : compareTableToLiveCssomDom(planes.table, planes.cssomIds, document, (host) =>
+          planes.domNodes.keyOf(host),
+        );
   return {
     generation: planes.domNodes.generation,
     sequence: planes.currentSequence(),

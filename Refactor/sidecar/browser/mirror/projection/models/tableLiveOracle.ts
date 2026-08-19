@@ -29,8 +29,8 @@ export type TableLiveOracleResult = {
 const MAX_DIVERGENCES = 50;
 const NONE = 0;
 
-function isCssomKind(kind: number): boolean {
-  return kind === NodeKind.Sheet || kind === NodeKind.Rule;
+function isSkippedKind(kind: number): boolean {
+  return kind === NodeKind.Sheet || kind === NodeKind.Rule || kind === NodeKind.ShadowRoot;
 }
 
 function orderedDomChildIds(table: ReplicatedTable, parent: number): number[] {
@@ -39,7 +39,7 @@ function orderedDomChildIds(table: ReplicatedTable, parent: number): number[] {
   for (let i = 0; i < all.length; i++) {
     const id = all[i]!;
     const row = table.getRow(id);
-    if (row !== undefined && isCssomKind(row.kind)) continue;
+    if (row !== undefined && isSkippedKind(row.kind)) continue;
     out.push(id);
   }
   return out;
@@ -104,7 +104,7 @@ export function compareTableToLiveOrder(
 
   table.forEachRow((id, row) => {
     if (row.parent === NONE) return;
-    if (isCssomKind(row.kind)) return;
+    if (isSkippedKind(row.kind)) return;
     const parentIsLive = row.parent === DOCUMENT_ID || liveIds.has(row.parent) || liveChildren.has(row.parent);
     if (!parentIsLive) return;
     if (!liveIds.has(id)) {

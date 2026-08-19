@@ -41,6 +41,11 @@ function walkNode(node: Node): TreeNode {
       if (attrs.length > 0) result.attrs = attrs;
       const children = mapChildren(node);
       if (children.length > 0) result.children = children;
+      const sr = el.shadowRoot;
+      if (sr !== null && sr.mode === 'open' && sr.slotAssignment !== 'manual') {
+        const shadowKids = mapChildren(sr);
+        result.shadow = { tag: '#shadow-root', ...(shadowKids.length > 0 ? { children: shadowKids } : {}) };
+      }
       return result;
     }
     case 3: // Text

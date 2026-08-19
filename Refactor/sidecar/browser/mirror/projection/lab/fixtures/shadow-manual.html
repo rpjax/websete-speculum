@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Manual slot shadow (NIT)</title>
+  </head>
+  <body>
+    <h1>Manual slot</h1>
+    <div id="manual-host">light</div>
+    <script>
+      const host = document.getElementById('manual-host');
+      const root = host.attachShadow({ mode: 'open', slotAssignment: 'manual' });
+      root.innerHTML = '<slot></slot><p id="manual-leaf">manual</p>';
+      window.__speculumManualRoot = root;
+    </script>
+  </body>
+</html>

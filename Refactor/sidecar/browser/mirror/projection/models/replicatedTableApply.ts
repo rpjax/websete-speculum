@@ -15,6 +15,8 @@ import {
   CHECK_SCOPE_RANGE,
   CSSOM_SCOPE_PIERCE_HOST,
   DOCUMENT_ID,
+  SHADOW_INIT_FLAGS_MASK,
+  SHADOW_MODE_OPEN,
   type CheckOp,
   type FrameOp,
 } from './frame';
@@ -42,6 +44,7 @@ export function applyOpToTable(table: ReplicatedTable, op: FrameOp): void {
     case OpCode.NodeNew:
       if (op.kind === NodeKind.Element) table.createElementRow(op.id, op.name, op.attrs, op.ns, op.uri);
       else if (op.kind === NodeKind.Doctype) table.createLeafRow(op.id, op.kind, op.name);
+      else if (op.kind === NodeKind.ShadowRoot) table.createShadowRootRow(op.id, op.host, op.mode, op.initFlags);
       else table.createLeafRow(op.id, op.kind, op.value);
       return;
     case OpCode.NodeDrop:
@@ -199,11 +202,15 @@ function addressExists(table: ReplicatedTable, id: number): boolean {
   return id === DOCUMENT_ID || table.has(id);
 }
 
-/** §4.3 INSERT parent: Document id 1, or an ELEMENT row. */
+/** §4.3 INSERT parent: Document id 1, ELEMENT, or SHADOW_ROOT. */
 function isInsertParent(table: ReplicatedTable, parent: number): boolean {
   if (parent === DOCUMENT_ID) return true;
   const row = table.getRow(parent);
-  return row !== undefined && row.kind === NodeKind.Element;
+  return row !== undefined && (row.kind === NodeKind.Element || row.kind === NodeKind.ShadowRoot);
+}
+
+function isShadowRootId(table: ReplicatedTable, id: number): boolean {
+  return table.getRow(id)?.kind === NodeKind.ShadowRoot;
 }
 
 /** True when `id` is `ofId` or an ancestor of `ofId` (cycle prevention for INSERT). */
@@ -233,6 +240,47 @@ function validateOpPre(
   i: number,
 ): CheckedApplyOpFailure | null {
   switch (op.op) {
+    case OpCode.NodeNew: {
+      if (op.kind !== NodeKind.ShadowRoot) return null;
+      if (op.mode !== SHADOW_MODE_OPEN) {
+        return failOp(
+          i,
+          'malformed',
+          'nodeNew',
+          op.id,
+          'NODE_NEW SHADOW_ROOT mode must be 0 (open) (frame-protocol.md §4.2)',
+        );
+      }
+      if ((op.initFlags & ~SHADOW_INIT_FLAGS_MASK) !== 0) {
+        return failOp(
+          i,
+          'malformed',
+          'nodeNew',
+          op.id,
+          'NODE_NEW SHADOW_ROOT reserved initFlags (frame-protocol.md §4.2)',
+        );
+      }
+      const host = table.getRow(op.host);
+      if (host === undefined || host.kind !== NodeKind.Element) {
+        return failOp(
+          i,
+          'precondition',
+          'nodeNew',
+          op.host,
+          'NODE_NEW SHADOW_ROOT host missing or not ELEMENT (frame-protocol.md §4.2)',
+        );
+      }
+      if (table.shadowRootOf(op.host) !== 0) {
+        return failOp(
+          i,
+          'malformed',
+          'nodeNew',
+          op.id,
+          'NODE_NEW SHADOW_ROOT host already owns a root (frame-protocol.md §4.2)',
+        );
+      }
+      return null;
+    }
     case OpCode.Insert: {
       if (op.ids.length > MAX_CHILDREN_PER_OP) {
         return failOp(
@@ -249,7 +297,7 @@ function validateOpPre(
           'precondition',
           'insert',
           op.parent,
-          'INSERT parent missing or not ELEMENT/Document (frame-protocol.md §4.3)',
+          'INSERT parent missing or not ELEMENT/SHADOW_ROOT/Document (frame-protocol.md §4.3)',
         );
       }
       if (op.before !== 0) {
@@ -273,6 +321,15 @@ function validateOpPre(
         seen.add(id);
         if (!table.has(id)) {
           return failOp(i, 'precondition', 'insert', id, 'INSERT id missing (frame-protocol.md §4.3)');
+        }
+        if (isShadowRootId(table, id)) {
+          return failOp(
+            i,
+            'precondition',
+            'insert',
+            id,
+            'INSERT of a SHADOW_ROOT id (frame-protocol.md §4.3)',
+          );
         }
         if (isSelfOrAncestorOf(table, id, op.parent)) {
           return failOp(
@@ -312,6 +369,15 @@ function validateOpPre(
             'remove',
             id,
             'REMOVE id parent mismatch (frame-protocol.md §4.3)',
+          );
+        }
+        if (row.kind === NodeKind.ShadowRoot) {
+          return failOp(
+            i,
+            'precondition',
+            'remove',
+            id,
+            'REMOVE of a SHADOW_ROOT id (frame-protocol.md §4.3)',
           );
         }
       }

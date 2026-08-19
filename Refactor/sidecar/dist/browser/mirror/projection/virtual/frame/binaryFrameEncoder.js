@@ -185,6 +185,12 @@ class BinaryFrameEncoder {
             this.writeStrRef(w, op.name);
             return;
         }
+        if (op.kind === opcodes_1.NodeKind.ShadowRoot) {
+            w.u32(op.host);
+            w.u8(op.mode);
+            w.u8(op.initFlags);
+            return;
+        }
         this.writeStrRef(w, op.value);
     }
     /** §4.2 — `count: u16, ids: u32[]`; roots only, descendants derived independently on both sides. */

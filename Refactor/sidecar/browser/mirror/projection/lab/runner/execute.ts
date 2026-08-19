@@ -16,6 +16,7 @@ import { foldCssomDouble } from '../blueprints/fold/cssomDouble';
 import { foldApplyAttrs } from '../blueprints/fold/applyAttrs';
 import { foldSvgNs } from '../blueprints/fold/svgNs';
 import { foldFormsState } from '../blueprints/fold/formsState';
+import { foldShadowOpen, foldShadowClosed, foldShadowManual } from '../blueprints/fold/shadowOpen';
 import { foldApplyHonestyDesync } from '../blueprints/fold/applyHonestyDesync';
 import type { HostileKind } from './hostileFrames';
 import {
@@ -557,6 +558,9 @@ export async function executeBlueprint(
         else if (ruleset === 'apply-attrs' || ruleset === 'fold/applyAttrs') verdicts = foldApplyAttrs(chassis);
         else if (ruleset === 'svg-ns' || ruleset === 'fold/svgNs') verdicts = foldSvgNs(chassis);
         else if (ruleset === 'forms-state' || ruleset === 'fold/formsState') verdicts = foldFormsState(chassis);
+        else if (ruleset === 'shadow-open' || ruleset === 'fold/shadowOpen') verdicts = foldShadowOpen(chassis);
+        else if (ruleset === 'shadow-closed' || ruleset === 'fold/shadowClosed') verdicts = foldShadowClosed(chassis);
+        else if (ruleset === 'shadow-manual' || ruleset === 'fold/shadowManual') verdicts = foldShadowManual(chassis);
         else if (ruleset === 'apply-honesty-desync' || ruleset === 'fold/applyHonestyDesync') {
           const kind = parseHostileKind(params.kind, bp.id);
           if (!kind) return finish(false, `unknown honesty kind ${String(params.kind ?? bp.id)}`);

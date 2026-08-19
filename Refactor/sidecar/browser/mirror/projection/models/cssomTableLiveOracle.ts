@@ -30,6 +30,8 @@ export type CssomTableLiveOracleResult = {
 
 export type CssomLiveSheetSnap = {
   id: number;
+  /** 0 / omitted = document adopted list. */
+  hostNode?: number;
   ruleIds: number[];
   ruleHashes: bigint[];
 };
@@ -70,51 +72,73 @@ export function compareTableToLiveCssom(
     if (divergences.length < MAX_DIVERGENCES) divergences.push({ path, kind, details });
   };
 
-  const tableSheets = orderedKindChildIds(table, DOCUMENT_ID, NodeKind.Sheet);
-  const liveSheetIds = liveSheets.map((s) => s.id);
-  if (!idsEqual(tableSheets, liveSheetIds)) {
-    record(
-      '#sheets',
-      'sheet_order_mismatch',
-      `table=[${tableSheets.slice(0, 8).join(',')}] live=[${liveSheetIds.slice(0, 8).join(',')}]`,
-    );
+  const byParent = new Map<number, CssomLiveSheetSnap[]>();
+  for (const live of liveSheets) {
+    const parent = live.hostNode ?? DOCUMENT_ID;
+    const key = parent === 0 ? DOCUMENT_ID : parent;
+    let group = byParent.get(key);
+    if (group === undefined) {
+      group = [];
+      byParent.set(key, group);
+    }
+    group.push(live);
   }
 
-  const liveSheetSet = new Set(liveSheetIds);
-  for (const id of tableSheets) {
-    if (!liveSheetSet.has(id)) record(`#${id}`, 'extra_in_table', 'Sheet row not in live readable list');
-  }
-  for (const live of liveSheets) {
-    if (table.getRow(live.id) === undefined) {
-      record(`#${live.id}`, 'missing_in_table', 'live readable sheet has no table row');
-      continue;
+  const tableParents = new Set<number>([DOCUMENT_ID, ...byParent.keys()]);
+  table.forEachRow((_id, row) => {
+    if (row.kind === NodeKind.Sheet) {
+      tableParents.add(row.parent === 0 ? DOCUMENT_ID : row.parent);
     }
-    const tableRules = orderedKindChildIds(table, live.id, NodeKind.Rule);
-    if (!idsEqual(tableRules, live.ruleIds)) {
+  });
+
+  for (const parent of tableParents) {
+    const tableSheets = orderedKindChildIds(table, parent, NodeKind.Sheet);
+    const liveGroup = byParent.get(parent) ?? [];
+    const liveSheetIds = liveGroup.map((s) => s.id);
+    if (!idsEqual(tableSheets, liveSheetIds)) {
       record(
-        `#${live.id}`,
-        'rule_order_mismatch',
-        `table=[${tableRules.slice(0, 8).join(',')}] live=[${live.ruleIds.slice(0, 8).join(',')}]`,
+        parent === DOCUMENT_ID ? '#sheets' : `#${parent}/sheets`,
+        'sheet_order_mismatch',
+        `table=[${tableSheets.slice(0, 8).join(',')}] live=[${liveSheetIds.slice(0, 8).join(',')}]`,
       );
     }
-    const n = Math.min(tableRules.length, live.ruleIds.length, live.ruleHashes.length);
-    for (let i = 0; i < n; i++) {
-      const rid = live.ruleIds[i]!;
-      if (tableRules[i] !== rid) continue;
-      const row = table.getRow(rid);
-      if (row === undefined) {
-        record(`#${rid}`, 'missing_in_table', 'live rule has no table row');
+
+    const liveSheetSet = new Set(liveSheetIds);
+    for (const id of tableSheets) {
+      if (!liveSheetSet.has(id)) record(`#${id}`, 'extra_in_table', 'Sheet row not in live readable list');
+    }
+    for (const live of liveGroup) {
+      if (table.getRow(live.id) === undefined) {
+        record(`#${live.id}`, 'missing_in_table', 'live readable sheet has no table row');
         continue;
       }
-      if (row.contentHash !== live.ruleHashes[i]) {
-        record(`#${rid}`, 'rule_content_mismatch', `sheet=#${live.id} contentHash diverged`);
+      const tableRules = orderedKindChildIds(table, live.id, NodeKind.Rule);
+      if (!idsEqual(tableRules, live.ruleIds)) {
+        record(
+          `#${live.id}`,
+          'rule_order_mismatch',
+          `table=[${tableRules.slice(0, 8).join(',')}] live=[${live.ruleIds.slice(0, 8).join(',')}]`,
+        );
       }
-    }
-    for (const rid of live.ruleIds) {
-      if (table.getRow(rid) === undefined) record(`#${rid}`, 'missing_in_table', 'live rule has no table row');
-    }
-    for (const rid of tableRules) {
-      if (!live.ruleIds.includes(rid)) record(`#${rid}`, 'extra_in_table', `Rule row not in live cssRules of sheet #${live.id}`);
+      const n = Math.min(tableRules.length, live.ruleIds.length, live.ruleHashes.length);
+      for (let i = 0; i < n; i++) {
+        const rid = live.ruleIds[i]!;
+        if (tableRules[i] !== rid) continue;
+        const row = table.getRow(rid);
+        if (row === undefined) {
+          record(`#${rid}`, 'missing_in_table', 'live rule has no table row');
+          continue;
+        }
+        if (row.contentHash !== live.ruleHashes[i]) {
+          record(`#${rid}`, 'rule_content_mismatch', `sheet=#${live.id} contentHash diverged`);
+        }
+      }
+      for (const rid of live.ruleIds) {
+        if (table.getRow(rid) === undefined) record(`#${rid}`, 'missing_in_table', 'live rule has no table row');
+      }
+      for (const rid of tableRules) {
+        if (!live.ruleIds.includes(rid)) record(`#${rid}`, 'extra_in_table', `Rule row not in live cssRules of sheet #${live.id}`);
+      }
     }
   }
 

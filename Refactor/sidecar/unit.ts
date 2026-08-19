@@ -46,6 +46,7 @@ import {
   hashName,
   hashNs,
   hashProp,
+  hashShadowInit,
   hashValue,
   subMod64,
   TableHashTracker,
@@ -71,6 +72,11 @@ import {
   createFrame,
   INSERT_AT_END,
   spliceCssomBeforeCheck,
+  SHADOW_INIT_CLONABLE,
+  SHADOW_INIT_DELEGATES_FOCUS,
+  SHADOW_INIT_FLAGS_MASK,
+  SHADOW_INIT_SERIALIZABLE,
+  SHADOW_MODE_OPEN,
 } from './browser/mirror/projection/models/frame';
 import { diffTrees } from './browser/mirror/projection/lab/probes/structuralDiff';
 import { decodeFramePart, PersistentStringTable } from './browser/mirror/projection/models/decode';
@@ -2422,6 +2428,254 @@ function testNodeNewElementNsWire(): void {
   console.log('[unit] NODE_NEW Element ns wire + hash split ok');
 }
 
+function skipToNodeNewKind(bytes: Uint8Array): number {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let o = 24;
+  const strCount = view.getUint32(o, true);
+  o += 4;
+  for (let i = 0; i < strCount; i++) {
+    const len = view.getUint32(o, true);
+    o += 4 + len;
+  }
+  const opCount = view.getUint32(o, true);
+  o += 4;
+  assert.strictEqual(opCount, 1);
+  assert.strictEqual(bytes[o], OpCode.NodeNew);
+  o += 1 + 4; // opcode + id
+  return o;
+}
+
+function testShadowRootWire(): void {
+  assert.strictEqual(FRAME_WIRE_VERSION, 2);
+  const flags = SHADOW_INIT_DELEGATES_FOCUS | SHADOW_INIT_CLONABLE | SHADOW_INIT_SERIALIZABLE;
+  const op: FrameOp = {
+    op: OpCode.NodeNew,
+    id: 20,
+    kind: NodeKind.ShadowRoot,
+    host: 10,
+    mode: SHADOW_MODE_OPEN,
+    initFlags: flags,
+  };
+  const bytes = new BinaryFrameEncoder().encode(createFrame({ generation: 1, sequence: 1, ops: [op] }))[0]!;
+  const decoded = decodeFramePart(bytes, new PersistentStringTable());
+  assert.ok(decoded.ok, 'SHADOW_ROOT NODE_NEW must decode');
+  if (!decoded.ok) return;
+  assert.strictEqual(decoded.part.version, 2);
+  const got = decoded.part.ops[0];
+  assert.strictEqual(got?.op, OpCode.NodeNew);
+  if (got?.op !== OpCode.NodeNew || got.kind !== NodeKind.ShadowRoot) return;
+  assert.strictEqual(got.host, 10);
+  assert.strictEqual(got.mode, SHADOW_MODE_OPEN);
+  assert.strictEqual(got.initFlags, flags);
+  assert.strictEqual(frameLocalStrCount(bytes), 0, 'SHADOW_ROOT must not intern strings');
+  console.log('[unit] SHADOW_ROOT wire encode/decode version 2 ok');
+}
+
+function testShadowRootModeClosedMalformed(): void {
+  const op: FrameOp = {
+    op: OpCode.NodeNew,
+    id: 20,
+    kind: NodeKind.ShadowRoot,
+    host: 10,
+    mode: SHADOW_MODE_OPEN,
+    initFlags: 0,
+  };
+  const bytes = new BinaryFrameEncoder().encode(createFrame({ generation: 1, sequence: 1, ops: [op] }))[0]!;
+  const kindAt = skipToNodeNewKind(bytes);
+  assert.strictEqual(bytes[kindAt], NodeKind.ShadowRoot);
+  const modeAt = kindAt + 1 + 4; // kind + host u32
+  const patched = bytes.slice();
+  patched[modeAt] = 1;
+  const decoded = decodeFramePart(patched, new PersistentStringTable());
+  assert.strictEqual(decoded.ok, false);
+  if (!decoded.ok) assert.strictEqual(decoded.reason, 'malformed');
+
+  const table = new ReplicatedTable();
+  table.createElementRow(10, 'div', []);
+  const apply = applyFrameToTableChecked(table, false, [
+    { op: OpCode.NodeNew, id: 20, kind: NodeKind.ShadowRoot, host: 10, mode: 1, initFlags: 0 },
+  ]);
+  assert.strictEqual(apply.ok, false);
+  if (!apply.ok && apply.opName !== 'check') {
+    assert.strictEqual(apply.reason, 'malformed');
+    assert.strictEqual(apply.opName, 'nodeNew');
+  } else assert.fail(JSON.stringify(apply));
+  assert.strictEqual(table.has(20), false);
+  console.log('[unit] SHADOW_ROOT mode closed malformed ok');
+}
+
+function testShadowRootInitFlagsReservedBitMalformed(): void {
+  const op: FrameOp = {
+    op: OpCode.NodeNew,
+    id: 20,
+    kind: NodeKind.ShadowRoot,
+    host: 10,
+    mode: SHADOW_MODE_OPEN,
+    initFlags: 0,
+  };
+  const bytes = new BinaryFrameEncoder().encode(createFrame({ generation: 1, sequence: 1, ops: [op] }))[0]!;
+  const kindAt = skipToNodeNewKind(bytes);
+  const flagsAt = kindAt + 1 + 4 + 1; // kind + host + mode
+  const patched = bytes.slice();
+  patched[flagsAt] = SHADOW_INIT_FLAGS_MASK + 1;
+  const decoded = decodeFramePart(patched, new PersistentStringTable());
+  assert.strictEqual(decoded.ok, false);
+  if (!decoded.ok) assert.strictEqual(decoded.reason, 'malformed');
+
+  const table = new ReplicatedTable();
+  table.createElementRow(10, 'div', []);
+  const apply = applyFrameToTableChecked(table, false, [
+    { op: OpCode.NodeNew, id: 20, kind: NodeKind.ShadowRoot, host: 10, mode: 0, initFlags: 0x08 },
+  ]);
+  assert.strictEqual(apply.ok, false);
+  if (!apply.ok && apply.opName !== 'check') {
+    assert.strictEqual(apply.reason, 'malformed');
+    assert.strictEqual(apply.opName, 'nodeNew');
+  } else assert.fail(JSON.stringify(apply));
+  console.log('[unit] SHADOW_ROOT reserved initFlags malformed ok');
+}
+
+function testCreateShadowRootNotInLightChildOrder(): void {
+  const table = new ReplicatedTable();
+  table.createElementRow(10, 'div', []);
+  table.createLeafRow(11, NodeKind.Text, 'hi');
+  table.insertBatch(1, 0, [10]);
+  table.insertBatch(10, 0, [11]);
+  table.createShadowRootRow(20, 10, SHADOW_MODE_OPEN, 0);
+  assert.deepStrictEqual(table.orderedChildIds(10), [11], 'light child order must not contain the root');
+  assert.strictEqual(table.shadowRootOf(10), 20);
+  assert.strictEqual(table.getRow(20)!.parent, 10);
+  assert.strictEqual(table.getRow(20)!.prevSibling, 0);
+  assert.strictEqual(table.getRow(11)!.prevSibling, 0, 'first light prevSibling stays 0');
+  const live = new Map<number, readonly number[]>([
+    [1, [10]],
+    [10, [11]],
+    [20, []],
+  ]);
+  const o2 = compareTableToLiveOrder(table, live);
+  assert.strictEqual(o2.identical, true, JSON.stringify(o2.divergences));
+  console.log('[unit] SHADOW_ROOT not in light child order ok');
+}
+
+function testDropSubtreeIncludesShadowRoot(): void {
+  const table = new ReplicatedTable();
+  table.createElementRow(10, 'div', []);
+  table.createLeafRow(11, NodeKind.Text, 'light');
+  table.createShadowRootRow(20, 10, SHADOW_MODE_OPEN, 0);
+  table.createLeafRow(21, NodeKind.Text, 'shadow');
+  table.insertBatch(1, 0, [10]);
+  table.insertBatch(10, 0, [11]);
+  table.insertBatch(20, 0, [21]);
+  const dropped = table.dropSubtree(10);
+  assert.ok(dropped.includes(10));
+  assert.ok(dropped.includes(11));
+  assert.ok(dropped.includes(20));
+  assert.ok(dropped.includes(21));
+  assert.strictEqual(table.has(20), false);
+  assert.strictEqual(table.has(21), false);
+  assert.strictEqual(table.shadowRootOf(10), 0);
+  console.log('[unit] dropSubtree includes SHADOW_ROOT ok');
+}
+
+function testInsertRemoveUnderShadowRoot(): void {
+  const table = new ReplicatedTable();
+  table.createElementRow(10, 'div', []);
+  table.createShadowRootRow(20, 10, SHADOW_MODE_OPEN, SHADOW_INIT_DELEGATES_FOCUS);
+  table.createLeafRow(21, NodeKind.Text, 'a');
+  table.createLeafRow(22, NodeKind.Text, 'b');
+  const hashBefore = table.getRow(20)!.contentHash;
+  assert.strictEqual(hashBefore, hashShadowInit(SHADOW_MODE_OPEN, SHADOW_INIT_DELEGATES_FOCUS));
+  const result = applyFrameToTableChecked(table, false, [
+    { op: OpCode.Insert, parent: 20, before: 0, ids: [21, 22] },
+  ]);
+  assert.strictEqual(result.ok, true, JSON.stringify(result));
+  assert.deepStrictEqual(table.orderedChildIds(20), [21, 22]);
+  assert.strictEqual(table.getRow(21)!.parent, 20);
+  const removed = applyFrameToTableChecked(table, false, [{ op: OpCode.Remove, parent: 20, ids: [21] }]);
+  assert.strictEqual(removed.ok, true, JSON.stringify(removed));
+  assert.deepStrictEqual(table.orderedChildIds(20), [22]);
+  assert.strictEqual(table.getRow(21)!.parent, 0);
+  console.log('[unit] INSERT/REMOVE under SHADOW_ROOT ok');
+}
+
+function testRejectInsertOrRemoveShadowRootId(): void {
+  const table = new ReplicatedTable();
+  table.createElementRow(10, 'div', []);
+  table.createShadowRootRow(20, 10, SHADOW_MODE_OPEN, 0);
+  const ins = applyFrameToTableChecked(table, false, [{ op: OpCode.Insert, parent: 1, before: 0, ids: [20] }]);
+  assert.strictEqual(ins.ok, false);
+  if (!ins.ok && ins.opName !== 'check') {
+    assert.strictEqual(ins.opName, 'insert');
+    assert.strictEqual(ins.reason, 'precondition');
+  } else assert.fail(JSON.stringify(ins));
+  assert.deepStrictEqual(table.orderedChildIds(1), []);
+  const rem = applyFrameToTableChecked(table, false, [{ op: OpCode.Remove, parent: 10, ids: [20] }]);
+  assert.strictEqual(rem.ok, false);
+  if (!rem.ok && rem.opName !== 'check') {
+    assert.strictEqual(rem.opName, 'remove');
+    assert.strictEqual(rem.reason, 'precondition');
+  } else assert.fail(JSON.stringify(rem));
+  assert.strictEqual(table.getRow(20)!.parent, 10);
+  console.log('[unit] INSERT/REMOVE of SHADOW_ROOT id rejected ok');
+}
+
+function testSecondShadowRootSameHostMalformed(): void {
+  const table = new ReplicatedTable();
+  table.createElementRow(10, 'div', []);
+  table.createShadowRootRow(20, 10, SHADOW_MODE_OPEN, 0);
+  const result = applyFrameToTableChecked(table, false, [
+    { op: OpCode.NodeNew, id: 21, kind: NodeKind.ShadowRoot, host: 10, mode: 0, initFlags: 0 },
+  ]);
+  assert.strictEqual(result.ok, false);
+  if (!result.ok && result.opName !== 'check') {
+    assert.strictEqual(result.reason, 'malformed');
+    assert.strictEqual(result.opName, 'nodeNew');
+  } else assert.fail(JSON.stringify(result));
+  assert.strictEqual(table.has(21), false);
+  assert.strictEqual(table.shadowRootOf(10), 20);
+  console.log('[unit] second SHADOW_ROOT on same host malformed ok');
+}
+
+function testMoveLightIntoShadow(): void {
+  const table = new ReplicatedTable();
+  table.createElementRow(10, 'div', []);
+  table.createLeafRow(11, NodeKind.Text, 'moved');
+  table.createLeafRow(12, NodeKind.Text, 'stay');
+  table.createShadowRootRow(20, 10, SHADOW_MODE_OPEN, 0);
+  table.insertBatch(1, 0, [10]);
+  table.insertBatch(10, 0, [11, 12]);
+  const result = applyFrameToTableChecked(table, false, [{ op: OpCode.Insert, parent: 20, before: 0, ids: [11] }]);
+  assert.strictEqual(result.ok, true, JSON.stringify(result));
+  assert.deepStrictEqual(table.orderedChildIds(10), [12]);
+  assert.deepStrictEqual(table.orderedChildIds(20), [11]);
+  assert.strictEqual(table.getRow(11)!.parent, 20);
+  assert.strictEqual(table.getRow(12)!.prevSibling, 0);
+  console.log('[unit] move light id into SHADOW_ROOT ok');
+}
+
+function testStructuralDiffShadowSeparate(): void {
+  const lightOnly = diffTrees(
+    { tag: 'host', children: [{ tag: '#text', text: 'a' }] },
+    { tag: 'host', children: [{ tag: '#text', text: 'a' }] },
+  );
+  assert.strictEqual(lightOnly.identical, true);
+  const missingShadow = diffTrees(
+    { tag: 'host', children: [{ tag: '#text', text: 'a' }], shadow: { tag: '#shadow-root', children: [{ tag: 'span' }] } },
+    { tag: 'host', children: [{ tag: '#text', text: 'a' }] },
+  );
+  assert.strictEqual(missingShadow.identical, false);
+  assert.ok(
+    missingShadow.divergences.some((d) => d.path.includes('::shadow') && d.kind !== 'child_count_mismatch'),
+    `shadow mismatch must not be light child_count, got ${JSON.stringify(missingShadow.divergences)}`,
+  );
+  const both = diffTrees(
+    { tag: 'host', shadow: { tag: '#shadow-root', children: [{ tag: 'span' }] } },
+    { tag: 'host', shadow: { tag: '#shadow-root', children: [{ tag: 'span' }] } },
+  );
+  assert.strictEqual(both.identical, true);
+  console.log('[unit] structuralDiff shadow separate from light child_count ok');
+}
+
 function testStructuralDiffNsMismatch(): void {
   const sameTagWrongNs = diffTrees({ tag: 'a', ns: 'svg' }, { tag: 'a' });
   assert.strictEqual(sameTagWrongNs.identical, false);
@@ -3243,7 +3497,7 @@ function testCssomOpsAndTableApply(): void {
     { key: r1, contentHash: 1 },
     { key: r2, contentHash: 2 },
   ];
-  const resync = emitResyncCssomOps(ids, [{ sheet, snaps, texts }]);
+  const resync = emitResyncCssomOps(ids, [{ sheet, hostNode: 0, snaps, texts }]);
   assert.strictEqual(resync[0]?.op, OpCode.SheetNew);
   assert.strictEqual(resync[1]?.op, OpCode.RuleNew);
   assert.strictEqual(resync[2]?.op, OpCode.RuleNew);
@@ -3259,7 +3513,7 @@ function testCssomOpsAndTableApply(): void {
 
   const live = emitLiveCssomOps(
     ids,
-    [sheet],
+    [{ sheet, hostNode: 0 }],
     [{ sheet, snaps: [{ key: r1, contentHash: 3 }], texts: new Map([[r1, 'a { color: green }']]) }],
     new WeakMap([[sheet, snaps]]),
   );
@@ -3272,7 +3526,7 @@ function testCssomOpsAndTableApply(): void {
   const r4 = {};
   const grown = emitLiveCssomOps(
     ids,
-    [sheet],
+    [{ sheet, hostNode: 0 }],
     [
       {
         sheet,
@@ -3307,7 +3561,7 @@ function testCssomOpsAndTableApply(): void {
 
   const aborted = emitLiveCssomOps(
     ids,
-    [sheet],
+    [{ sheet, hostNode: 0 }],
     [{ sheet, snaps, texts, skipOps: true }],
     new WeakMap([[sheet, [{ key: r1, contentHash: 3 }]]]),
   );
@@ -3328,7 +3582,7 @@ function testCssomGroupingContentChangeEmitsDropNew(): void {
   const media = new CSSMediaRule();
   const texts = new Map<object, string>([[media, '@media (max-width: 1px){.a{color:red}}']]);
   const snaps = [{ key: media, contentHash: 1 }];
-  const resync = emitResyncCssomOps(ids, [{ sheet, snaps, texts }]);
+  const resync = emitResyncCssomOps(ids, [{ sheet, hostNode: 0, snaps, texts }]);
   const table = new ReplicatedTable();
   applyOpsToTable(table, resync);
   const sheetId = ids.peekSheet(sheet)!;
@@ -3339,7 +3593,7 @@ function testCssomGroupingContentChangeEmitsDropNew(): void {
   const nextText = '@media (max-width: 2px){.a{color:blue}}';
   const live = emitLiveCssomOps(
     ids,
-    [sheet],
+    [{ sheet, hostNode: 0 }],
     [{ sheet, snaps: [{ key: media, contentHash: 2 }], texts: new Map([[media, nextText]]) }],
     new WeakMap([[sheet, snaps]]),
   );
@@ -3455,6 +3709,59 @@ function testCssomEncodeDecode(): void {
   assert.strictEqual(spliced[spliced.length - 1]?.op, OpCode.Check);
   assert.strictEqual(spliced[0]?.op, OpCode.SheetNew);
   console.log('[unit] cssom encode/decode + splice before CHECK ok');
+}
+
+/**
+ * Resync establish (shadow-open): pierce SHEET_NEW rides the same frame as DOM. CHECK must
+ * be the table hash *after* those CSSOM ops — a DOM-only hash is a phase-1 reject (blank surface).
+ */
+function testResyncCheckHashIncludesCssom(): void {
+  const host = 10;
+  const root = 20;
+  const text = 21;
+  const sheet = 30;
+  const rule = 31;
+  const domOps: FrameOp[] = [
+    { op: OpCode.NodeNew, id: host, kind: NodeKind.Element, ns: ElementNs.Html, name: 'div', attrs: [] },
+    { op: OpCode.Insert, parent: 1, before: INSERT_AT_END, ids: [host] },
+    { op: OpCode.NodeNew, id: root, kind: NodeKind.ShadowRoot, host, mode: SHADOW_MODE_OPEN, initFlags: 0 },
+    { op: OpCode.NodeNew, id: text, kind: NodeKind.Text, value: 'scripted' },
+    { op: OpCode.Insert, parent: root, before: INSERT_AT_END, ids: [text] },
+  ];
+  const cssomOps: FrameOp[] = [
+    {
+      op: OpCode.SheetNew,
+      id: sheet,
+      scope: CSSOM_SCOPE_PIERCE_HOST,
+      hostNode: host,
+      before: INSERT_AT_END,
+    },
+    { op: OpCode.RuleNew, sheet, id: rule, before: INSERT_AT_END, text: '#from-adopted { color: navy; }' },
+  ];
+
+  const producer = new ReplicatedTable();
+  applyOpsToTable(producer, domOps);
+  const hashDomOnly = producer.tableHash;
+  applyOpsToTable(producer, cssomOps);
+  const hashFull = producer.tableHash;
+  assert.notStrictEqual(hashDomOnly, hashFull);
+
+  const good = spliceCssomBeforeCheck(
+    [...domOps, { op: OpCode.Check, scope: CHECK_SCOPE_TABLE, lo: 0, hi: 0, hash: hashFull }],
+    cssomOps,
+  );
+  const clientOk = applyFrameToTableChecked(new ReplicatedTable(), true, good, 1);
+  assert.strictEqual(clientOk.ok, true);
+
+  const stale = spliceCssomBeforeCheck(
+    [...domOps, { op: OpCode.Check, scope: CHECK_SCOPE_TABLE, lo: 0, hi: 0, hash: hashDomOnly }],
+    cssomOps,
+  );
+  const clientBad = applyFrameToTableChecked(new ReplicatedTable(), true, stale, 1);
+  assert.strictEqual(clientBad.ok, false);
+  if (clientBad.ok) throw new Error('expected CHECK reject');
+  assert.strictEqual(clientBad.opName, 'check');
+  console.log('[unit] resync CHECK hash includes pierce CSSOM (else client stays blank) ok');
 }
 
 function testHostileHonestyFramesEncodeDecode(): void {
@@ -3597,6 +3904,16 @@ async function main(): Promise<void> {
   testApplyFrameToTableCheckedRangeScope();
   testCheckScopeRangeEncodeDecode();
   testNodeNewElementNsWire();
+  testShadowRootWire();
+  testShadowRootModeClosedMalformed();
+  testShadowRootInitFlagsReservedBitMalformed();
+  testCreateShadowRootNotInLightChildOrder();
+  testDropSubtreeIncludesShadowRoot();
+  testInsertRemoveUnderShadowRoot();
+  testRejectInsertOrRemoveShadowRootId();
+  testSecondShadowRootSameHostMalformed();
+  testMoveLightIntoShadow();
+  testStructuralDiffShadowSeparate();
   testStructuralDiffNsMismatch();
   testPropSetWire();
   testPropSetTableAndCheck();
@@ -3620,6 +3937,7 @@ async function main(): Promise<void> {
   testCssomWalkSkipVsAbort();
   testSessionIdsSharedDomAndCssom();
   testCssomOpsAndTableApply();
+  testResyncCheckHashIncludesCssom();
   testCssomGroupingContentChangeEmitsDropNew();
   testCssomApplyIndex();
   testCssomEndOfFrameMatch();

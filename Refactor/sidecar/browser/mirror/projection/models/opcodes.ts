@@ -63,4 +63,5 @@ export enum NodeKind {
   Sheet = 4,
   Rule = 5,
   Doctype = 6,
+  ShadowRoot = 7,
 }

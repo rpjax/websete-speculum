@@ -9,6 +9,7 @@ import { compareTableToLiveOrder, type TableLiveOracleResult } from '../../model
 import type { ReplicatedTable } from '../../models/replicatedTable';
 import type { DomNodeTable } from './domNodeTable';
 import { nodeKindOf } from './domNodeDescribe';
+import { admissibleShadowRoot } from './shadowAdmit';
 
 export function compareTableToLiveDom(
   table: ReplicatedTable,
@@ -27,6 +28,13 @@ export function compareTableToLiveDom(
       if (childId === NONE_DOM_NODE_KEY) continue;
       kids.push(childId);
       visit(child, childId);
+    }
+    if (node instanceof Element) {
+      const sr = admissibleShadowRoot(node);
+      if (sr !== null) {
+        const rootId = domNodes.keyOf(sr);
+        if (rootId !== NONE_DOM_NODE_KEY) visit(sr, rootId);
+      }
     }
     liveChildren.set(id, kids);
   };

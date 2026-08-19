@@ -28,7 +28,7 @@ export type { CssomPollStats, CssomPollSource };
 /** One poll pass — names match TelemetryCssomPoll (investigation, not an assert). */
 
 export type ClassifiedSheets = {
-  readable: { sheet: CSSStyleSheet; rules: CSSRuleList }[];
+  readable: { sheet: CSSStyleSheet; rules: CSSRuleList; hostNode: number }[];
   unreadableSheetCount: number;
 };
 
@@ -64,19 +64,21 @@ export class CssomPoller {
   private readonly lastRules = new WeakMap<CSSStyleSheet, RuleSnap[]>();
   private readonly lastStyleTagTextHash = new WeakMap<CSSStyleSheet, number>();
   readonly ids: CssomIds;
-  private lastSheetOrder: object[] = [];
+  private lastSheetOrder: { sheet: object; hostNode: number }[] = [];
+  private readonly hostIdOf: ((host: Element) => number) | undefined;
 
-  constructor(ids?: CssomIds) {
+  constructor(ids?: CssomIds, hostIdOf?: (host: Element) => number) {
     this.ids = ids ?? new CssomIds();
+    this.hostIdOf = hostIdOf;
   }
 
   classifySheets(doc: Document = document): ClassifiedSheets {
-    const readable: { sheet: CSSStyleSheet; rules: CSSRuleList }[] = [];
+    const readable: { sheet: CSSStyleSheet; rules: CSSRuleList; hostNode: number }[] = [];
     let unreadableSheetCount = 0;
-    for (const sheet of collectCssomPlaneSheets(doc)) {
-      const list = tryCssRules(sheet);
+    for (const listed of collectCssomPlaneSheets(doc, this.hostIdOf)) {
+      const list = tryCssRules(listed.sheet);
       if (list === null) unreadableSheetCount += 1;
-      else readable.push({ sheet, rules: list });
+      else readable.push({ sheet: listed.sheet, rules: list, hostNode: listed.hostNode });
     }
     return { readable, unreadableSheetCount };
   }
@@ -207,7 +209,7 @@ export class CssomPoller {
 
   /** Whole-pass commit: lastRules + live/resync ops. Skips aborted pieces. */
   commitPass(
-    readable: readonly { sheet: CSSStyleSheet }[],
+    readable: readonly { sheet: CSSStyleSheet; hostNode: number }[],
     pieces: readonly SheetPollPiece[],
     textsBySheet: WeakMap<CSSStyleSheet, Map<object, string>>,
     mode: 'live' | 'resync',
@@ -215,31 +217,33 @@ export class CssomPoller {
     const nextOrder: CommittedSheet[] = [];
     const hashed: CommittedSheet[] = [];
     for (let i = 0; i < readable.length; i++) {
-      const sheet = readable[i]!.sheet;
+      const rec = readable[i]!;
       const piece = pieces[i]!;
       if (!piece || piece.aborted) {
         nextOrder.push({
-          sheet,
-          snaps: this.lastRules.get(sheet) ?? [],
+          sheet: rec.sheet,
+          hostNode: rec.hostNode,
+          snaps: this.lastRules.get(rec.sheet) ?? [],
           texts: new Map(),
           skipOps: true,
         });
         continue;
       }
-      const rec: CommittedSheet = {
-        sheet,
+      const committed: CommittedSheet = {
+        sheet: rec.sheet,
+        hostNode: rec.hostNode,
         snaps: piece.snap,
-        texts: textsBySheet.get(sheet) ?? new Map(),
+        texts: textsBySheet.get(rec.sheet) ?? new Map(),
       };
-      nextOrder.push(rec);
-      hashed.push(rec);
+      nextOrder.push(committed);
+      hashed.push(committed);
     }
     const ops =
       mode === 'resync'
         ? emitResyncCssomOps(this.ids, hashed)
         : emitLiveCssomOps(this.ids, this.lastSheetOrder, nextOrder, this.lastRules);
-    for (const c of hashed) this.commitSheet(c.sheet, c.snaps);
-    this.lastSheetOrder = nextOrder.map((c) => c.sheet);
+    for (const c of hashed) this.commitSheet(c.sheet as CSSStyleSheet, c.snaps);
+    this.lastSheetOrder = nextOrder.map((c) => ({ sheet: c.sheet, hostNode: c.hostNode }));
     return ops;
   }
 

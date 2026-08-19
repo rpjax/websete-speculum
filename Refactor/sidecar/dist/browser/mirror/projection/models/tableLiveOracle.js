@@ -9,8 +9,8 @@ const frame_1 = require("./frame");
 const opcodes_1 = require("./opcodes");
 const MAX_DIVERGENCES = 50;
 const NONE = 0;
-function isCssomKind(kind) {
-    return kind === opcodes_1.NodeKind.Sheet || kind === opcodes_1.NodeKind.Rule;
+function isSkippedKind(kind) {
+    return kind === opcodes_1.NodeKind.Sheet || kind === opcodes_1.NodeKind.Rule || kind === opcodes_1.NodeKind.ShadowRoot;
 }
 function orderedDomChildIds(table, parent) {
     const all = table.orderedChildIds(parent);
@@ -18,7 +18,7 @@ function orderedDomChildIds(table, parent) {
     for (let i = 0; i < all.length; i++) {
         const id = all[i];
         const row = table.getRow(id);
-        if (row !== undefined && isCssomKind(row.kind))
+        if (row !== undefined && isSkippedKind(row.kind))
             continue;
         out.push(id);
     }
@@ -77,7 +77,7 @@ function compareTableToLiveOrder(table, liveChildren) {
     table.forEachRow((id, row) => {
         if (row.parent === NONE)
             return;
-        if (isCssomKind(row.kind))
+        if (isSkippedKind(row.kind))
             return;
         const parentIsLive = row.parent === frame_1.DOCUMENT_ID || liveIds.has(row.parent) || liveChildren.has(row.parent);
         if (!parentIsLive)

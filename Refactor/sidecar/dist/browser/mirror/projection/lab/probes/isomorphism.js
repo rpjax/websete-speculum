@@ -63,6 +63,7 @@ async function runIsomorphism(opts) {
             nodeNewConnected: null,
             cascade: null,
             formProps: { virtual: null, client: null, identical: null, reason: null },
+            shadow: null,
         };
     }
     try {
@@ -80,6 +81,7 @@ async function runIsomorphism(opts) {
                 nodeNewConnected: null,
                 cascade: null,
                 formProps: { virtual: null, client: null, identical: null, reason: null },
+                shadow: null,
             };
         }
         const virtualTable = virtual.table ?? null;
@@ -196,6 +198,12 @@ async function runIsomorphism(opts) {
                 identical: formIdentical,
                 reason: formReason,
             },
+            shadow: virtual.tree != null
+                ? {
+                    virtualHosts: (0, structuralDiff_1.countShadowTrees)(virtual.tree),
+                    clientHosts: clientSnap?.tree != null ? (0, structuralDiff_1.countShadowTrees)(clientSnap.tree) : 0,
+                }
+                : null,
             skipped: [
                 ...skipped,
                 ...(virtual.o2 ? [] : [{ id: 'o2', reason: 'O2 missing from flushProjectionSnapshot' }]),

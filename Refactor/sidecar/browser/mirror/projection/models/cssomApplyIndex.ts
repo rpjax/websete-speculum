@@ -8,15 +8,32 @@ import { DOCUMENT_ID, INSERT_AT_END } from './frame';
 import { NodeKind } from './opcodes';
 import type { ReplicatedTable } from './replicatedTable';
 
-/** Sheets currently parented at document (post-frame table). Used only as an end-of-frame check. */
-export function orderedSheetIds(table: ReplicatedTable): number[] {
-  const all = table.orderedChildIds(DOCUMENT_ID);
+/** Sheets currently parented at `parent` (post-frame table). Document default. */
+export function orderedSheetIds(table: ReplicatedTable, parent: number = DOCUMENT_ID): number[] {
+  const all = table.orderedChildIds(parent);
   const out: number[] = [];
   for (let i = 0; i < all.length; i++) {
     const id = all[i]!;
     const row = table.getRow(id);
     if (row !== undefined && row.kind === NodeKind.Sheet) out.push(id);
   }
+  return out;
+}
+
+/** Every Sheet row: document list first, then other parents in first-seen order. */
+export function allSheetIds(table: ReplicatedTable): number[] {
+  const parents: number[] = [DOCUMENT_ID];
+  const seen = new Set<number>([DOCUMENT_ID]);
+  table.forEachRow((_id, row) => {
+    if (row.kind !== NodeKind.Sheet) return;
+    const parent = row.parent === 0 ? DOCUMENT_ID : row.parent;
+    if (!seen.has(parent)) {
+      seen.add(parent);
+      parents.push(parent);
+    }
+  });
+  const out: number[] = [];
+  for (let i = 0; i < parents.length; i++) out.push(...orderedSheetIds(table, parents[i]!));
   return out;
 }
 

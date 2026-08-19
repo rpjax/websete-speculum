@@ -35,6 +35,10 @@ class ReplicatedTable {
     nextSiblingOf = new Map();
     /** Derived, non-hashed: parentId -> the id currently linked last under that parent (0 = none). */
     lastChildOf = new Map();
+    /** Host ELEMENT id → owned `SHADOW_ROOT` id. Not hashed; not a light-chain link. */
+    shadowRootByHost = new Map();
+    /** Reverse of `shadowRootByHost` so `dropRow` of the root clears the host index. */
+    hostOfShadowRoot = new Map();
     tracker = new rowHash_1.TableHashTracker();
     /** Stamped onto every row `setRow` touches until changed again — one frame, one `lms` (§4 preamble). */
     currentSequence = 0;
@@ -102,10 +106,14 @@ class ReplicatedTable {
     countAttachedChildren(parent) {
         let n = 0;
         for (const row of this.rows.values()) {
-            if (row.parent === parent)
+            if (row.parent === parent && row.kind !== opcodes_1.NodeKind.ShadowRoot)
                 n += 1;
         }
         return n;
+    }
+    /** Owned `SHADOW_ROOT` id of `host`, or 0. */
+    shadowRootOf(host) {
+        return this.shadowRootByHost.get(host) ?? NONE;
     }
     /** Every stored row id (excludes implicit Document `1`). */
     forEachRow(fn) {
@@ -120,6 +128,8 @@ class ReplicatedTable {
         this.propValues.clear();
         this.nextSiblingOf.clear();
         this.lastChildOf.clear();
+        this.shadowRootByHost.clear();
+        this.hostOfShadowRoot.clear();
         this.tracker.clear();
     }
     // ---- NODE_NEW (§4.2) — always creates a detached row (parent=0, prevSibling=0). ----
@@ -144,6 +154,15 @@ class ReplicatedTable {
     /** TEXT/COMMENT (`value`) or DOCTYPE (`name`) — both a single content-carrying string field. */
     createLeafRow(id, kind, contentField) {
         this.setRow(id, kind, NONE, NONE, (0, rowHash_1.hashValue)(contentField));
+    }
+    /**
+     * `SHADOW_ROOT` — `parent = host` immediately, not linked into the host's light chain.
+     * `prevSibling` stays 0.
+     */
+    createShadowRootRow(id, host, mode, initFlags) {
+        this.setRow(id, opcodes_1.NodeKind.ShadowRoot, host, NONE, (0, rowHash_1.hashShadowInit)(mode, initFlags));
+        this.shadowRootByHost.set(host, id);
+        this.hostOfShadowRoot.set(id, host);
     }
     // ---- ATTR_SET / ATTR_DEL / TEXT_SET (§4.4) — content-only, topology untouched. ----
     setAttrs(id, attrs) {
@@ -251,6 +270,14 @@ class ReplicatedTable {
     }
     /** `NODE_DROP` (§4.2, OPEN-1/OPEN-2, Stage 3) — permanently removes one row's contract state. */
     dropRow(id) {
+        const owned = this.shadowRootByHost.get(id);
+        if (owned !== undefined)
+            this.hostOfShadowRoot.delete(owned);
+        this.shadowRootByHost.delete(id);
+        const host = this.hostOfShadowRoot.get(id);
+        if (host !== undefined)
+            this.shadowRootByHost.delete(host);
+        this.hostOfShadowRoot.delete(id);
         this.rows.delete(id);
         this.attrHashes.delete(id);
         this.propHashes.delete(id);
@@ -322,6 +349,9 @@ class ReplicatedTable {
             const row = this.rows.get(child);
             child = row?.prevSibling ?? NONE;
         }
+        const shadow = this.shadowRootByHost.get(id);
+        if (shadow !== undefined && shadow !== id)
+            this.collectSubtreeIds(shadow, out);
     }
     // ---- internals ----
     setRow(id, kind, parent, prevSibling, contentHash) {

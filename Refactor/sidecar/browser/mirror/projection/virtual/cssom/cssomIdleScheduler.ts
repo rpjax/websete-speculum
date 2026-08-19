@@ -38,7 +38,7 @@ export class CssomIdleScheduler implements CssomPlane {
   private pass: {
     startedAt: number;
     unreadableSheetCount: number;
-    readable: { sheet: CSSStyleSheet; rules: CSSRuleList }[];
+    readable: { sheet: CSSStyleSheet; rules: CSSRuleList; hostNode: number }[];
     index: number;
     walk: SheetWalkState | null;
     pieces: SheetPollPiece[];

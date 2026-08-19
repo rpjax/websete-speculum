@@ -7,8 +7,19 @@
  * touching it.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.countShadowTrees = countShadowTrees;
 exports.diffTrees = diffTrees;
 const MAX_DIVERGENCES = 50;
+/** Number of open-shadow trees in the snapshot (hosts, including nested). Light-only = 0. */
+function countShadowTrees(node) {
+    let n = 0;
+    if (node.shadow !== undefined)
+        n += 1 + countShadowTrees(node.shadow);
+    const children = node.children ?? [];
+    for (let i = 0; i < children.length; i++)
+        n += countShadowTrees(children[i]);
+    return n;
+}
 function diffTrees(virtual, client) {
     const divergences = [];
     let count = 0;
@@ -55,6 +66,9 @@ function walk(a, b, path, record) {
     const max = Math.max(aChildren.length, bChildren.length);
     for (let i = 0; i < max; i++) {
         walk(aChildren[i], bChildren[i], `${path}>${a.tag}[${i}]`, record);
+    }
+    if (a.shadow !== undefined || b.shadow !== undefined) {
+        walk(a.shadow, b.shadow, `${path}>${a.tag}::shadow`, record);
     }
 }
 function diffAttrs(a, b) {

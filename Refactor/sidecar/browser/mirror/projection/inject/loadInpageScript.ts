@@ -11,6 +11,8 @@ import path from 'node:path';
 const BUNDLE_NAME = 'virtual.js';
 
 let cached: string | undefined;
+let cachedPath: string | undefined;
+let cachedMtimeMs = 0;
 
 function candidatePaths(): string[] {
   return [
@@ -19,15 +21,17 @@ function candidatePaths(): string[] {
   ];
 }
 
-/** Autocontained Virtual projection JS source (cached after first read). */
+/** Autocontained Virtual projection JS source (re-read when the bundle file changes). */
 export function loadInpageScript(): string {
-  if (cached !== undefined) return cached;
-
   const tried: string[] = [];
   for (const candidate of candidatePaths()) {
     tried.push(candidate);
     if (!fs.existsSync(candidate)) continue;
+    const mtimeMs = fs.statSync(candidate).mtimeMs;
+    if (cached !== undefined && cachedPath === candidate && cachedMtimeMs === mtimeMs) return cached;
     cached = fs.readFileSync(candidate, 'utf8');
+    cachedPath = candidate;
+    cachedMtimeMs = mtimeMs;
     return cached;
   }
 
@@ -40,4 +44,6 @@ export function loadInpageScript(): string {
 
 export function clearInpageScriptCache(): void {
   cached = undefined;
+  cachedPath = undefined;
+  cachedMtimeMs = 0;
 }

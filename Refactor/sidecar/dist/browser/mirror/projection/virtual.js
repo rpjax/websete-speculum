@@ -382,6 +382,7 @@
     buffer;
     root;
     observer = null;
+    extra = /* @__PURE__ */ new Map();
     constructor(opts) {
       this.buffer = opts.buffer;
       this.root = opts.root ?? document;
@@ -394,6 +395,36 @@
     stop() {
       this.observer?.disconnect();
       this.observer = null;
+      this.unobserveAllRoots();
+    }
+    observeRoot(root) {
+      if (root === this.root || this.extra.has(root)) return;
+      const observer = new MutationObserver((records) => this.buffer.push(records));
+      observer.observe(root, OBSERVE_OPTIONS);
+      this.extra.set(root, observer);
+    }
+    unobserveRoot(root) {
+      const observer = this.extra.get(root);
+      if (observer === void 0) return;
+      observer.disconnect();
+      this.extra.delete(root);
+    }
+    unobserveAllRoots() {
+      for (const observer of this.extra.values()) observer.disconnect();
+      this.extra.clear();
+    }
+    /** Observe every `ShadowRoot` currently in the identity map; drop observers whose root is gone. */
+    syncObservedShadowRoots(domNodes) {
+      const live = /* @__PURE__ */ new Set();
+      for (const [, node] of domNodes.liveEntries()) {
+        if (node instanceof ShadowRoot) {
+          live.add(node);
+          this.observeRoot(node);
+        }
+      }
+      for (const root of this.extra.keys()) {
+        if (!live.has(root)) this.unobserveRoot(root);
+      }
     }
     /**
      * Pull records the browser has queued but not yet delivered to the callback (MO delivery is a
@@ -401,13 +432,17 @@
      * is built from stale delivered records while live DOM already includes those mutations.
      */
     takePendingIntoBuffer() {
-      if (this.observer === null) return;
-      const pending = this.observer.takeRecords();
-      if (pending.length > 0) this.buffer.push(pending);
+      this.takeOne(this.observer);
+      for (const observer of this.extra.values()) this.takeOne(observer);
     }
     /** Test hook: feed records without a live MutationObserver. */
     ingestForTest(records) {
       this.buffer.push(records);
+    }
+    takeOne(observer) {
+      if (observer === null) return;
+      const pending = observer.takeRecords();
+      if (pending.length > 0) this.buffer.push(pending);
     }
   };
 
@@ -532,8 +567,13 @@
   var FRAME_WIRE_VERSION = 2;
   var DOCUMENT_ID = 1;
   var INSERT_AT_END = 0;
+  var SHADOW_MODE_OPEN = 0;
+  var SHADOW_INIT_DELEGATES_FOCUS = 1;
+  var SHADOW_INIT_CLONABLE = 2;
+  var SHADOW_INIT_SERIALIZABLE = 4;
   var CHECK_SCOPE_TABLE = 0;
   var CSSOM_SCOPE_MAIN = 0;
+  var CSSOM_SCOPE_PIERCE_HOST = 1;
   function createFrame(args) {
     return {
       version: FRAME_WIRE_VERSION,
@@ -617,6 +657,9 @@
     if (ns === 4 /* Custom */) return h64Str(`\0U${uri ?? ""}`);
     return h64Bytes(Uint8Array.of(0, 83, ns & 255));
   }
+  function hashShadowInit(mode, initFlags) {
+    return h64Bytes(Uint8Array.of(0, 72, mode & 255, initFlags & 255));
+  }
   function computeRowHash(id, kind, parent, prevSibling, contentHash) {
     let h = h64U32(id);
     h = h64U32(kind, h);
@@ -670,6 +713,10 @@
     nextSiblingOf = /* @__PURE__ */ new Map();
     /** Derived, non-hashed: parentId -> the id currently linked last under that parent (0 = none). */
     lastChildOf = /* @__PURE__ */ new Map();
+    /** Host ELEMENT id → owned `SHADOW_ROOT` id. Not hashed; not a light-chain link. */
+    shadowRootByHost = /* @__PURE__ */ new Map();
+    /** Reverse of `shadowRootByHost` so `dropRow` of the root clears the host index. */
+    hostOfShadowRoot = /* @__PURE__ */ new Map();
     tracker = new TableHashTracker();
     /** Stamped onto every row `setRow` touches until changed again — one frame, one `lms` (§4 preamble). */
     currentSequence = 0;
@@ -735,9 +782,13 @@
     countAttachedChildren(parent) {
       let n = 0;
       for (const row of this.rows.values()) {
-        if (row.parent === parent) n += 1;
+        if (row.parent === parent && row.kind !== 7 /* ShadowRoot */) n += 1;
       }
       return n;
+    }
+    /** Owned `SHADOW_ROOT` id of `host`, or 0. */
+    shadowRootOf(host) {
+      return this.shadowRootByHost.get(host) ?? NONE;
     }
     /** Every stored row id (excludes implicit Document `1`). */
     forEachRow(fn) {
@@ -751,6 +802,8 @@
       this.propValues.clear();
       this.nextSiblingOf.clear();
       this.lastChildOf.clear();
+      this.shadowRootByHost.clear();
+      this.hostOfShadowRoot.clear();
       this.tracker.clear();
     }
     // ---- NODE_NEW (§4.2) — always creates a detached row (parent=0, prevSibling=0). ----
@@ -775,6 +828,15 @@
     /** TEXT/COMMENT (`value`) or DOCTYPE (`name`) — both a single content-carrying string field. */
     createLeafRow(id, kind, contentField) {
       this.setRow(id, kind, NONE, NONE, hashValue(contentField));
+    }
+    /**
+     * `SHADOW_ROOT` — `parent = host` immediately, not linked into the host's light chain.
+     * `prevSibling` stays 0.
+     */
+    createShadowRootRow(id, host, mode, initFlags) {
+      this.setRow(id, 7 /* ShadowRoot */, host, NONE, hashShadowInit(mode, initFlags));
+      this.shadowRootByHost.set(host, id);
+      this.hostOfShadowRoot.set(id, host);
     }
     // ---- ATTR_SET / ATTR_DEL / TEXT_SET (§4.4) — content-only, topology untouched. ----
     setAttrs(id, attrs) {
@@ -870,6 +932,12 @@
     }
     /** `NODE_DROP` (§4.2, OPEN-1/OPEN-2, Stage 3) — permanently removes one row's contract state. */
     dropRow(id) {
+      const owned = this.shadowRootByHost.get(id);
+      if (owned !== void 0) this.hostOfShadowRoot.delete(owned);
+      this.shadowRootByHost.delete(id);
+      const host = this.hostOfShadowRoot.get(id);
+      if (host !== void 0) this.shadowRootByHost.delete(host);
+      this.hostOfShadowRoot.delete(id);
       this.rows.delete(id);
       this.attrHashes.delete(id);
       this.propHashes.delete(id);
@@ -936,6 +1004,8 @@
         const row = this.rows.get(child);
         child = row?.prevSibling ?? NONE;
       }
+      const shadow = this.shadowRootByHost.get(id);
+      if (shadow !== void 0 && shadow !== id) this.collectSubtreeIds(shadow, out);
     }
     // ---- internals ----
     setRow(id, kind, parent, prevSibling, contentHash) {
@@ -1296,6 +1366,12 @@
         this.writeStrRef(w, op.name);
         return;
       }
+      if (op.kind === 7 /* ShadowRoot */) {
+        w.u32(op.host);
+        w.u8(op.mode);
+        w.u8(op.initFlags);
+        return;
+      }
       this.writeStrRef(w, op.value);
     }
     /** §4.2 — `count: u16, ids: u32[]`; roots only, descendants derived independently on both sides. */
@@ -1410,6 +1486,7 @@
       case 32 /* NodeNew */:
         if (op.kind === 1 /* Element */) table.createElementRow(op.id, op.name, op.attrs, op.ns, op.uri);
         else if (op.kind === 6 /* Doctype */) table.createLeafRow(op.id, op.kind, op.name);
+        else if (op.kind === 7 /* ShadowRoot */) table.createShadowRootRow(op.id, op.host, op.mode, op.initFlags);
         else table.createLeafRow(op.id, op.kind, op.value);
         return;
       case 33 /* NodeDrop */:
@@ -1678,8 +1755,42 @@
     }
   };
 
+  // browser/mirror/projection/virtual/dom/shadowAdmit.ts
+  function admissibleShadowRoot(el) {
+    const sr = el.shadowRoot;
+    if (sr == null) return null;
+    if (sr.mode !== "open") return null;
+    if (sr.slotAssignment === "manual") return null;
+    return sr;
+  }
+  function shadowInitFlags(sr) {
+    let flags = 0;
+    if (sr.delegatesFocus) flags |= SHADOW_INIT_DELEGATES_FOCUS;
+    const extra = sr;
+    if (extra.clonable === true) flags |= SHADOW_INIT_CLONABLE;
+    if (extra.serializable === true) flags |= SHADOW_INIT_SERIALIZABLE;
+    return flags;
+  }
+  function collectAdmittedShadowRoots(root) {
+    const out = [];
+    const visit = (node) => {
+      if (node instanceof Element) {
+        const sr = admissibleShadowRoot(node);
+        if (sr !== null) {
+          out.push(sr);
+          visit(sr);
+        }
+      }
+      const children = node.childNodes;
+      for (let i = 0; i < children.length; i++) visit(children[i]);
+    };
+    visit(root);
+    return out;
+  }
+
   // browser/mirror/projection/virtual/dom/domNodeDescribe.ts
   function nodeKindOf(node) {
+    if (node instanceof ShadowRoot) return 7 /* ShadowRoot */;
     switch (node.nodeType) {
       case Node.ELEMENT_NODE:
         return 1 /* Element */;
@@ -1702,7 +1813,18 @@
     }
     return out;
   }
-  function describeNodeNew(id, kind, node) {
+  function describeNodeNew(id, kind, node, hostId) {
+    if (kind === 7 /* ShadowRoot */) {
+      const sr = node;
+      return {
+        op: 32 /* NodeNew */,
+        id,
+        kind: 7 /* ShadowRoot */,
+        host: hostId ?? 0,
+        mode: SHADOW_MODE_OPEN,
+        initFlags: shadowInitFlags(sr)
+      };
+    }
     if (kind === 1 /* Element */) {
       const el = node;
       const classified = classifyElementNs(el.namespaceURI);
@@ -1739,20 +1861,33 @@
       }
       const kind = nodeKindOf(node);
       if (kind === null) continue;
+      if (kind === 7 /* ShadowRoot */) {
+        const hostId = domNodes.keyOf(node.host);
+        if (hostId === NONE_DOM_NODE_KEY) continue;
+        ops.push(describeNodeNew(id, kind, node, hostId));
+        continue;
+      }
       ops.push(describeNodeNew(id, kind, node));
     }
     for (const [id, node] of domNodes.liveEntries()) {
+      if (node instanceof ShadowRoot) {
+        pushChildInsert(ops, id, node.childNodes, domNodes);
+        continue;
+      }
       const children = node.childNodes;
       if (children.length === 0) continue;
-      const ids = [];
-      for (const child of children) {
-        const childId = domNodes.keyOf(child);
-        if (childId === NONE_DOM_NODE_KEY) continue;
-        ids.push(childId);
-      }
-      if (ids.length > 0) ops.push({ op: 64 /* Insert */, parent: id, before: INSERT_AT_END, ids });
+      pushChildInsert(ops, id, children, domNodes);
     }
     return ops;
+  }
+  function pushChildInsert(ops, parent, children, domNodes) {
+    const ids = [];
+    for (const child of children) {
+      const childId = domNodes.keyOf(child);
+      if (childId === NONE_DOM_NODE_KEY) continue;
+      ids.push(childId);
+    }
+    if (ids.length > 0) ops.push({ op: 64 /* Insert */, parent, before: INSERT_AT_END, ids });
   }
   function allocateConnectedSubtree(root, domNodes) {
     const children = root.childNodes;
@@ -1760,6 +1895,13 @@
       const child = children[i];
       if (nodeKindOf(child) !== null) domNodes.allocate(child);
       allocateConnectedSubtree(child, domNodes);
+    }
+    if (root instanceof Element) {
+      const sr = admissibleShadowRoot(root);
+      if (sr !== null) {
+        domNodes.allocate(sr);
+        allocateConnectedSubtree(sr, domNodes);
+      }
     }
   }
 
@@ -1774,8 +1916,15 @@
     applyOpsToTable(table, domOps);
     const propOps = formIndex.sample(domNodes, table);
     if (propOps.length > 0) applyOpsToTable(table, propOps);
-    const ops = [...domOps, ...propOps, ...cssomScan.ops];
-    ops.push({ op: 1 /* Check */, scope: CHECK_SCOPE_TABLE, lo: 0, hi: 0, hash: table.tableHash });
+    if (cssomScan.ops.length > 0) applyOpsToTable(table, cssomScan.ops);
+    const ops = spliceCssomBeforeCheck(
+      [
+        ...domOps,
+        ...propOps,
+        { op: 1 /* Check */, scope: CHECK_SCOPE_TABLE, lo: 0, hi: 0, hash: table.tableHash }
+      ],
+      cssomScan.ops
+    );
     return {
       frame: createFrame({ generation, sequence, ops, resync: true, preTableHash: 0n }),
       cssom: stampCssomPoll(cssomScan.stats, { source: "resync", sequence })
@@ -1794,8 +1943,8 @@
   // browser/mirror/projection/models/tableLiveOracle.ts
   var MAX_DIVERGENCES = 50;
   var NONE2 = 0;
-  function isCssomKind(kind) {
-    return kind === 4 /* Sheet */ || kind === 5 /* Rule */;
+  function isSkippedKind(kind) {
+    return kind === 4 /* Sheet */ || kind === 5 /* Rule */ || kind === 7 /* ShadowRoot */;
   }
   function orderedDomChildIds(table, parent) {
     const all = table.orderedChildIds(parent);
@@ -1803,7 +1952,7 @@
     for (let i = 0; i < all.length; i++) {
       const id = all[i];
       const row = table.getRow(id);
-      if (row !== void 0 && isCssomKind(row.kind)) continue;
+      if (row !== void 0 && isSkippedKind(row.kind)) continue;
       out.push(id);
     }
     return out;
@@ -1852,7 +2001,7 @@
     }
     table.forEachRow((id, row) => {
       if (row.parent === NONE2) return;
-      if (isCssomKind(row.kind)) return;
+      if (isSkippedKind(row.kind)) return;
       const parentIsLive = row.parent === DOCUMENT_ID || liveIds.has(row.parent) || liveChildren.has(row.parent);
       if (!parentIsLive) return;
       if (!liveIds.has(id)) {
@@ -1875,6 +2024,13 @@
         if (childId === NONE_DOM_NODE_KEY) continue;
         kids.push(childId);
         visit(child, childId);
+      }
+      if (node instanceof Element) {
+        const sr = admissibleShadowRoot(node);
+        if (sr !== null) {
+          const rootId = domNodes.keyOf(sr);
+          if (rootId !== NONE_DOM_NODE_KEY) visit(sr, rootId);
+        }
       }
       liveChildren.set(id, kids);
     };
@@ -1927,76 +2083,106 @@
       count += 1;
       if (divergences.length < MAX_DIVERGENCES2) divergences.push({ path, kind, details });
     };
-    const tableSheets = orderedKindChildIds(table, DOCUMENT_ID, 4 /* Sheet */);
-    const liveSheetIds = liveSheets.map((s) => s.id);
-    if (!idsEqual2(tableSheets, liveSheetIds)) {
-      record(
-        "#sheets",
-        "sheet_order_mismatch",
-        `table=[${tableSheets.slice(0, 8).join(",")}] live=[${liveSheetIds.slice(0, 8).join(",")}]`
-      );
-    }
-    const liveSheetSet = new Set(liveSheetIds);
-    for (const id of tableSheets) {
-      if (!liveSheetSet.has(id)) record(`#${id}`, "extra_in_table", "Sheet row not in live readable list");
-    }
+    const byParent = /* @__PURE__ */ new Map();
     for (const live of liveSheets) {
-      if (table.getRow(live.id) === void 0) {
-        record(`#${live.id}`, "missing_in_table", "live readable sheet has no table row");
-        continue;
+      const parent = live.hostNode ?? DOCUMENT_ID;
+      const key = parent === 0 ? DOCUMENT_ID : parent;
+      let group = byParent.get(key);
+      if (group === void 0) {
+        group = [];
+        byParent.set(key, group);
       }
-      const tableRules = orderedKindChildIds(table, live.id, 5 /* Rule */);
-      if (!idsEqual2(tableRules, live.ruleIds)) {
+      group.push(live);
+    }
+    const tableParents = /* @__PURE__ */ new Set([DOCUMENT_ID, ...byParent.keys()]);
+    table.forEachRow((_id, row) => {
+      if (row.kind === 4 /* Sheet */) {
+        tableParents.add(row.parent === 0 ? DOCUMENT_ID : row.parent);
+      }
+    });
+    for (const parent of tableParents) {
+      const tableSheets = orderedKindChildIds(table, parent, 4 /* Sheet */);
+      const liveGroup = byParent.get(parent) ?? [];
+      const liveSheetIds = liveGroup.map((s) => s.id);
+      if (!idsEqual2(tableSheets, liveSheetIds)) {
         record(
-          `#${live.id}`,
-          "rule_order_mismatch",
-          `table=[${tableRules.slice(0, 8).join(",")}] live=[${live.ruleIds.slice(0, 8).join(",")}]`
+          parent === DOCUMENT_ID ? "#sheets" : `#${parent}/sheets`,
+          "sheet_order_mismatch",
+          `table=[${tableSheets.slice(0, 8).join(",")}] live=[${liveSheetIds.slice(0, 8).join(",")}]`
         );
       }
-      const n = Math.min(tableRules.length, live.ruleIds.length, live.ruleHashes.length);
-      for (let i = 0; i < n; i++) {
-        const rid = live.ruleIds[i];
-        if (tableRules[i] !== rid) continue;
-        const row = table.getRow(rid);
-        if (row === void 0) {
-          record(`#${rid}`, "missing_in_table", "live rule has no table row");
+      const liveSheetSet = new Set(liveSheetIds);
+      for (const id of tableSheets) {
+        if (!liveSheetSet.has(id)) record(`#${id}`, "extra_in_table", "Sheet row not in live readable list");
+      }
+      for (const live of liveGroup) {
+        if (table.getRow(live.id) === void 0) {
+          record(`#${live.id}`, "missing_in_table", "live readable sheet has no table row");
           continue;
         }
-        if (row.contentHash !== live.ruleHashes[i]) {
-          record(`#${rid}`, "rule_content_mismatch", `sheet=#${live.id} contentHash diverged`);
+        const tableRules = orderedKindChildIds(table, live.id, 5 /* Rule */);
+        if (!idsEqual2(tableRules, live.ruleIds)) {
+          record(
+            `#${live.id}`,
+            "rule_order_mismatch",
+            `table=[${tableRules.slice(0, 8).join(",")}] live=[${live.ruleIds.slice(0, 8).join(",")}]`
+          );
         }
-      }
-      for (const rid of live.ruleIds) {
-        if (table.getRow(rid) === void 0) record(`#${rid}`, "missing_in_table", "live rule has no table row");
-      }
-      for (const rid of tableRules) {
-        if (!live.ruleIds.includes(rid)) record(`#${rid}`, "extra_in_table", `Rule row not in live cssRules of sheet #${live.id}`);
+        const n = Math.min(tableRules.length, live.ruleIds.length, live.ruleHashes.length);
+        for (let i = 0; i < n; i++) {
+          const rid = live.ruleIds[i];
+          if (tableRules[i] !== rid) continue;
+          const row = table.getRow(rid);
+          if (row === void 0) {
+            record(`#${rid}`, "missing_in_table", "live rule has no table row");
+            continue;
+          }
+          if (row.contentHash !== live.ruleHashes[i]) {
+            record(`#${rid}`, "rule_content_mismatch", `sheet=#${live.id} contentHash diverged`);
+          }
+        }
+        for (const rid of live.ruleIds) {
+          if (table.getRow(rid) === void 0) record(`#${rid}`, "missing_in_table", "live rule has no table row");
+        }
+        for (const rid of tableRules) {
+          if (!live.ruleIds.includes(rid)) record(`#${rid}`, "extra_in_table", `Rule row not in live cssRules of sheet #${live.id}`);
+        }
       }
     }
     return { kind: "cssom_table_live", identical: count === 0, divergenceCount: count, divergences };
   }
 
   // browser/mirror/projection/virtual/cssom/cssomSheetList.ts
-  function collectCssomPlaneSheets(doc) {
-    const out = [];
-    const adopted = doc.adoptedStyleSheets;
-    if (!adopted) return out;
+  function pushAdopted(out, adopted, hostNode) {
+    if (!adopted) return;
     for (let i = 0; i < adopted.length; i++) {
       const s = adopted[i];
       if (!s || s.ownerNode) continue;
-      out.push(s);
+      out.push({ sheet: s, hostNode });
+    }
+  }
+  function collectCssomPlaneSheets(doc, hostIdOf) {
+    const out = [];
+    pushAdopted(out, doc.adoptedStyleSheets, 0);
+    if (hostIdOf === void 0) return out;
+    const roots = collectAdmittedShadowRoots(doc);
+    for (let i = 0; i < roots.length; i++) {
+      const sr = roots[i];
+      const hostId = hostIdOf(sr.host);
+      if (!hostId) continue;
+      pushAdopted(out, sr.adoptedStyleSheets, hostId);
     }
     return out;
   }
 
   // browser/mirror/projection/virtual/cssom/cssomTableLiveOracle.ts
-  function compareTableToLiveCssomDom(table, ids, doc = document) {
+  function compareTableToLiveCssomDom(table, ids, doc = document, hostIdOf) {
     if (ids === null) return emptyCssomTableLiveOracleResult();
     const liveSheets = [];
-    for (const sheet of collectCssomPlaneSheets(doc)) {
-      const list = tryCssRules(sheet);
+    for (const listed of collectCssomPlaneSheets(doc, hostIdOf)) {
+      const list = tryCssRules(listed.sheet);
       if (list === null) continue;
-      const sheetId = ids.peekSheet(sheet);
+      const sheetId = ids.peekSheet(listed.sheet);
       if (sheetId === void 0) continue;
       const ruleIds = [];
       const ruleHashes = [];
@@ -2014,7 +2200,7 @@
         ruleIds.push(rid);
         ruleHashes.push(hashValue(text));
       }
-      liveSheets.push({ id: sheetId, ruleIds, ruleHashes });
+      liveSheets.push({ id: sheetId, hostNode: listed.hostNode, ruleIds, ruleHashes });
     }
     return compareTableToLiveCssom(table, liveSheets);
   }
@@ -2189,7 +2375,12 @@
       cssom = stampCssomPoll(cssom, { sequence: planes.currentSequence() });
     }
     const o2 = compareTableToLiveDom(planes.table, planes.domNodes, document);
-    const cssomO2 = mode === "none" ? null : compareTableToLiveCssomDom(planes.table, planes.cssomIds, document);
+    const cssomO2 = mode === "none" ? null : compareTableToLiveCssomDom(
+      planes.table,
+      planes.cssomIds,
+      document,
+      (host) => planes.domNodes.keyOf(host)
+    );
     return {
       generation: planes.domNodes.generation,
       sequence: planes.currentSequence(),
@@ -2212,6 +2403,8 @@
     collectOpCounts;
     nodeDropAgeSequences;
     maxNodeDropsPerSweep;
+    observeShadowRoot;
+    unobserveShadowRoot;
     lastStats = null;
     pendingUnconsumed = null;
     // Reused across ticks (`.clear()`ed at the top of `build()`) instead of allocated fresh every
@@ -2230,6 +2423,8 @@
       this.collectOpCounts = opts.collectOpCounts ?? false;
       this.nodeDropAgeSequences = opts.nodeDropAgeSequences ?? NODE_DROP_AGE_SEQUENCES;
       this.maxNodeDropsPerSweep = opts.maxNodeDropsPerSweep ?? MAX_NODE_DROPS_PER_SWEEP;
+      this.observeShadowRoot = opts.observeShadowRoot;
+      this.unobserveShadowRoot = opts.unobserveShadowRoot;
     }
     takeBuildStats() {
       const s = this.lastStats;
@@ -2253,12 +2448,12 @@
       const preTableHash = this.table.tableHash;
       const ops = [];
       this.pendingUnconsumed = null;
+      this.visited.clear();
+      this.createdThisTick.clear();
+      this.removedThisTick.clear();
+      this.attrDirty.clear();
+      this.textDirty.clear();
       if (records.length > 0) {
-        this.visited.clear();
-        this.createdThisTick.clear();
-        this.removedThisTick.clear();
-        this.attrDirty.clear();
-        this.textDirty.clear();
         let consumedThrough = records.length;
         for (let i = 0; i < records.length; i++) {
           const record = records[i];
@@ -2288,6 +2483,7 @@
         this.emitAttrPatches(ops);
         this.emitTextPatches(ops);
       }
+      this.discoverShadowRoots(ops);
       this.table.setSequence(ctx.sequence);
       applyOpsToTable(this.table, ops);
       const dropOpIndex = ops.length;
@@ -2341,6 +2537,7 @@
         for (let j = 0; j < subtreeIds.length; j++) {
           const node = this.domNodes.get(subtreeIds[j]);
           if (node !== void 0) {
+            if (node instanceof ShadowRoot) this.unobserveShadowRoot?.(node);
             this.formIndex.remove(node);
             this.domNodes.release(node);
           }
@@ -2423,7 +2620,33 @@
       this.formIndex.addIfIndexed(node);
       ops.push(describeNodeNew(id, kind, node));
       this.walkSiblingRun(node.childNodes, id, ops);
+      if (kind === 1 /* Element */) this.admitShadowIfAny(node, id, ops);
       return id;
+    }
+    /**
+     * `attachShadow` is not a mutation record. Each tick, connected ELEMENTs that do not yet own
+     * a `SHADOW_ROOT` row are read via `.shadowRoot` ([shadow.md](shadow.md)).
+     */
+    discoverShadowRoots(ops) {
+      for (const [id, node] of this.domNodes.liveEntries()) {
+        if (!(node instanceof Element) || !node.isConnected) continue;
+        this.admitShadowIfAny(node, id, ops);
+      }
+    }
+    admitShadowIfAny(el, hostId, ops) {
+      if (this.table.shadowRootOf(hostId) !== 0) return;
+      const sr = admissibleShadowRoot(el);
+      if (sr === null) return;
+      const existing = this.domNodes.keyOf(sr);
+      if (existing !== NONE_DOM_NODE_KEY) {
+        this.observeShadowRoot?.(sr);
+        return;
+      }
+      const rootId = this.domNodes.allocate(sr);
+      this.createdThisTick.add(sr);
+      ops.push(describeNodeNew(rootId, 7 /* ShadowRoot */, sr, hostId));
+      this.observeShadowRoot?.(sr);
+      this.walkSiblingRun(sr.childNodes, rootId, ops);
     }
     /**
      * Nearest live next-sibling that already has a row (existing before this tick, or already
@@ -2581,16 +2804,22 @@
   // browser/mirror/projection/virtual/cssom/cssomOps.ts
   function emitResyncCssomOps(ids, sheets) {
     const ops = [];
-    const sheetIds = [];
+    const idsByHost = /* @__PURE__ */ new Map();
     for (let i = 0; i < sheets.length; i++) {
       const rec = sheets[i];
+      const hostNode = rec.hostNode ?? 0;
       const sheetId = ids.idOfSheet(rec.sheet);
-      sheetIds.push(sheetId);
+      let group = idsByHost.get(hostNode);
+      if (group === void 0) {
+        group = [];
+        idsByHost.set(hostNode, group);
+      }
+      group.push(sheetId);
       ops.push({
         op: 160 /* SheetNew */,
         id: sheetId,
-        scope: CSSOM_SCOPE_MAIN,
-        hostNode: 0,
+        scope: hostNode === 0 ? CSSOM_SCOPE_MAIN : CSSOM_SCOPE_PIERCE_HOST,
+        hostNode,
         before: INSERT_AT_END
       });
       for (let r = 0; r < rec.snaps.length; r++) {
@@ -2605,42 +2834,63 @@
         });
       }
     }
-    if (sheetIds.length > 1) {
-      ops.push({ op: 162 /* SheetOrder */, ids: sheetIds });
+    for (const group of idsByHost.values()) {
+      if (group.length > 1) ops.push({ op: 162 /* SheetOrder */, ids: group });
     }
     return ops;
   }
   function emitLiveCssomOps(ids, prevSheets, nextSheets, prevSnaps) {
     const ops = [];
-    const prevSet = new Set(prevSheets);
+    const prevSet = new Set(prevSheets.map((s) => s.sheet));
     const nextSet = new Set(nextSheets.map((s) => s.sheet));
     const dropped = [];
-    for (const sheet of prevSheets) {
-      if (nextSet.has(sheet)) continue;
-      const id = ids.peekSheet(sheet);
+    for (const rec of prevSheets) {
+      if (nextSet.has(rec.sheet)) continue;
+      const id = ids.peekSheet(rec.sheet);
       if (id !== void 0) dropped.push(id);
     }
     if (dropped.length > 0) ops.push({ op: 161 /* SheetDrop */, ids: dropped });
-    const nextIds = [];
+    const nextByHost = /* @__PURE__ */ new Map();
     for (let i = 0; i < nextSheets.length; i++) {
       const rec = nextSheets[i];
+      const hostNode = rec.hostNode ?? 0;
       const sheetId = ids.idOfSheet(rec.sheet);
-      nextIds.push(sheetId);
+      let group = nextByHost.get(hostNode);
+      if (group === void 0) {
+        group = [];
+        nextByHost.set(hostNode, group);
+      }
+      group.push(sheetId);
       if (rec.skipOps) continue;
       if (!prevSet.has(rec.sheet)) {
         ops.push({
           op: 160 /* SheetNew */,
           id: sheetId,
-          scope: CSSOM_SCOPE_MAIN,
-          hostNode: 0,
+          scope: hostNode === 0 ? CSSOM_SCOPE_MAIN : CSSOM_SCOPE_PIERCE_HOST,
+          hostNode,
           before: INSERT_AT_END
         });
       }
       ops.push(...emitRuleDelta(ids, sheetId, prevSnaps.get(rec.sheet) ?? [], rec));
     }
-    const prevIds = prevSheets.map((s) => ids.peekSheet(s)).filter((x) => x !== void 0);
-    if (!sameIdOrder(prevIds, nextIds) && nextIds.length > 0) {
-      ops.push({ op: 162 /* SheetOrder */, ids: nextIds });
+    const prevByHost = /* @__PURE__ */ new Map();
+    for (const rec of prevSheets) {
+      const id = ids.peekSheet(rec.sheet);
+      if (id === void 0) continue;
+      let group = prevByHost.get(rec.hostNode);
+      if (group === void 0) {
+        group = [];
+        prevByHost.set(rec.hostNode, group);
+      }
+      group.push(id);
+    }
+    const hosts = /* @__PURE__ */ new Set([...nextByHost.keys(), ...prevByHost.keys()]);
+    for (const host of hosts) {
+      const nextIds = nextByHost.get(host) ?? [];
+      const prevIds = prevByHost.get(host) ?? [];
+      if (nextIds.length > 0 && !sameIdOrder(prevIds, nextIds)) {
+        ops.push({ op: 162 /* SheetOrder */, ids: nextIds });
+      }
     }
     return ops;
   }
@@ -2739,16 +2989,18 @@
     lastStyleTagTextHash = /* @__PURE__ */ new WeakMap();
     ids;
     lastSheetOrder = [];
-    constructor(ids) {
+    hostIdOf;
+    constructor(ids, hostIdOf) {
       this.ids = ids ?? new CssomIds();
+      this.hostIdOf = hostIdOf;
     }
     classifySheets(doc = document) {
       const readable = [];
       let unreadableSheetCount = 0;
-      for (const sheet of collectCssomPlaneSheets(doc)) {
-        const list = tryCssRules2(sheet);
+      for (const listed of collectCssomPlaneSheets(doc, this.hostIdOf)) {
+        const list = tryCssRules2(listed.sheet);
         if (list === null) unreadableSheetCount += 1;
-        else readable.push({ sheet, rules: list });
+        else readable.push({ sheet: listed.sheet, rules: list, hostNode: listed.hostNode });
       }
       return { readable, unreadableSheetCount };
     }
@@ -2873,28 +3125,30 @@
       const nextOrder = [];
       const hashed = [];
       for (let i = 0; i < readable.length; i++) {
-        const sheet = readable[i].sheet;
+        const rec = readable[i];
         const piece = pieces[i];
         if (!piece || piece.aborted) {
           nextOrder.push({
-            sheet,
-            snaps: this.lastRules.get(sheet) ?? [],
+            sheet: rec.sheet,
+            hostNode: rec.hostNode,
+            snaps: this.lastRules.get(rec.sheet) ?? [],
             texts: /* @__PURE__ */ new Map(),
             skipOps: true
           });
           continue;
         }
-        const rec = {
-          sheet,
+        const committed = {
+          sheet: rec.sheet,
+          hostNode: rec.hostNode,
           snaps: piece.snap,
-          texts: textsBySheet.get(sheet) ?? /* @__PURE__ */ new Map()
+          texts: textsBySheet.get(rec.sheet) ?? /* @__PURE__ */ new Map()
         };
-        nextOrder.push(rec);
-        hashed.push(rec);
+        nextOrder.push(committed);
+        hashed.push(committed);
       }
       const ops = mode === "resync" ? emitResyncCssomOps(this.ids, hashed) : emitLiveCssomOps(this.ids, this.lastSheetOrder, nextOrder, this.lastRules);
       for (const c of hashed) this.commitSheet(c.sheet, c.snaps);
-      this.lastSheetOrder = nextOrder.map((c) => c.sheet);
+      this.lastSheetOrder = nextOrder.map((c) => ({ sheet: c.sheet, hostNode: c.hostNode }));
       return ops;
     }
     /**
@@ -3504,7 +3758,13 @@
     const formIndex = new FormPropIndex();
     const mutationBuffer = new MutationBuffer();
     const domMutationObserver = new DomMutationObserver({ buffer: mutationBuffer });
-    const frameBuilder = new TableFrameBuilder({ domNodes, table, formIndex });
+    const frameBuilder = new TableFrameBuilder({
+      domNodes,
+      table,
+      formIndex,
+      observeShadowRoot: (root) => domMutationObserver.observeRoot(root),
+      unobserveShadowRoot: (root) => domMutationObserver.unobserveRoot(root)
+    });
     const encoder = new BinaryFrameEncoder({ maxFrameBytes: config.maxFrameBytes });
     let frameTransport;
     let dataPlane = null;
@@ -3525,7 +3785,10 @@
       config: config.telemetry,
       dataPlane
     });
-    const cssomPoller = config.cssomPollHz > 0 ? new CssomPoller(new CssomIds(() => domNodes.mint())) : null;
+    const cssomPoller = config.cssomPollHz > 0 ? new CssomPoller(new CssomIds(() => domNodes.mint()), (host) => {
+      const id = domNodes.keyOf(host);
+      return id;
+    }) : null;
     const cssom = cssomPoller !== null ? new CssomIdleScheduler({
       poller: cssomPoller,
       minIntervalMs: 1e3 / config.cssomPollHz
@@ -3601,6 +3864,7 @@
     domMutationObserver.takePendingIntoBuffer();
     mutationBuffer.drain();
     await frameEmitter.sendInitial(resyncFrame);
+    domMutationObserver.syncObservedShadowRoots(domNodes);
     frameEmitter.start();
     telemetry.start();
     cssom.start();
@@ -3620,10 +3884,12 @@
       haltWorld: () => {
         frameEmitter.stop();
         cssom.halt();
+        domMutationObserver.unobserveAllRoots();
       },
       resumeWorld: () => {
         frameEmitter.start();
         cssom.start();
+        domMutationObserver.syncObservedShadowRoots(domNodes);
       },
       flushFrame: () => {
         frameEmitter.flushNow();

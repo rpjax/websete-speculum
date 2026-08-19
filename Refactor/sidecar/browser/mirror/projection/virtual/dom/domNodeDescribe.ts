@@ -7,13 +7,20 @@
 
 import { classifyElementNs, ElementNs } from '../../models/elementNs';
 import { NodeKind, OpCode } from '../../models/opcodes';
-import type { AttrPair, FrameOp } from '../../models/frame';
+import { SHADOW_MODE_OPEN, type AttrPair, type FrameOp } from '../../models/frame';
 import type { DomNodeKey } from '../../models/domNodeKey';
+import { shadowInitFlags } from './shadowAdmit';
 
-/** The only kinds a live DOM node can ever produce (Sheet/Rule are CSSOM-only, out of v0 scope). */
-export type DomNodeKind = NodeKind.Element | NodeKind.Text | NodeKind.Comment | NodeKind.Doctype;
+/** The kinds a live DOM node can produce (Sheet/Rule are CSSOM-only). */
+export type DomNodeKind =
+  | NodeKind.Element
+  | NodeKind.Text
+  | NodeKind.Comment
+  | NodeKind.Doctype
+  | NodeKind.ShadowRoot;
 
 export function nodeKindOf(node: Node): DomNodeKind | null {
+  if (node instanceof ShadowRoot) return NodeKind.ShadowRoot;
   switch (node.nodeType) {
     case Node.ELEMENT_NODE:
       return NodeKind.Element;
@@ -25,7 +32,7 @@ export function nodeKindOf(node: Node): DomNodeKind | null {
       return NodeKind.Doctype;
     default:
       // Fragments never appear in addedNodes (browsers unwrap them); anything else
-      // (CDATA, PI) is not part of the DOM-only v0 surface.
+      // (CDATA, PI) is not part of the DOM-only v0 surface. ShadowRoot is handled above.
       return null;
   }
 }
@@ -46,7 +53,18 @@ export function readAttrs(el: Element): AttrPair[] {
 }
 
 /** `NODE_NEW` descriptor, read fresh from the live node — never from a producer-side cache. */
-export function describeNodeNew(id: DomNodeKey, kind: DomNodeKind, node: Node): FrameOp {
+export function describeNodeNew(id: DomNodeKey, kind: DomNodeKind, node: Node, hostId?: DomNodeKey): FrameOp {
+  if (kind === NodeKind.ShadowRoot) {
+    const sr = node as ShadowRoot;
+    return {
+      op: OpCode.NodeNew,
+      id,
+      kind: NodeKind.ShadowRoot,
+      host: hostId ?? 0,
+      mode: SHADOW_MODE_OPEN,
+      initFlags: shadowInitFlags(sr),
+    };
+  }
   if (kind === NodeKind.Element) {
     const el = node as Element;
     const classified = classifyElementNs(el.namespaceURI);

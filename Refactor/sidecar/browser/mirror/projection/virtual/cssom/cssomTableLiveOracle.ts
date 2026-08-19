@@ -18,13 +18,14 @@ export function compareTableToLiveCssomDom(
   table: ReplicatedTable,
   ids: CssomIds | null,
   doc: Document = document,
+  hostIdOf?: (host: Element) => number,
 ): CssomTableLiveOracleResult {
   if (ids === null) return emptyCssomTableLiveOracleResult();
   const liveSheets: CssomLiveSheetSnap[] = [];
-  for (const sheet of collectCssomPlaneSheets(doc)) {
-    const list = tryCssRules(sheet);
+  for (const listed of collectCssomPlaneSheets(doc, hostIdOf)) {
+    const list = tryCssRules(listed.sheet);
     if (list === null) continue;
-    const sheetId = ids.peekSheet(sheet);
+    const sheetId = ids.peekSheet(listed.sheet);
     if (sheetId === undefined) continue;
     const ruleIds: number[] = [];
     const ruleHashes: bigint[] = [];
@@ -42,7 +43,7 @@ export function compareTableToLiveCssomDom(
       ruleIds.push(rid);
       ruleHashes.push(hashValue(text));
     }
-    liveSheets.push({ id: sheetId, ruleIds, ruleHashes });
+    liveSheets.push({ id: sheetId, hostNode: listed.hostNode, ruleIds, ruleHashes });
   }
   return compareTableToLiveCssom(table, liveSheets);
 }

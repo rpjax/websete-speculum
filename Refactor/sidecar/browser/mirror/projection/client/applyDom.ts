@@ -26,6 +26,9 @@ import {
   CSSOM_SCOPE_PIERCE_HOST,
   DOCUMENT_ID,
   INSERT_AT_END,
+  SHADOW_INIT_CLONABLE,
+  SHADOW_INIT_DELEGATES_FOCUS,
+  SHADOW_INIT_SERIALIZABLE,
   type AttrPair,
   type FrameOp,
   type PropSetOp,
@@ -33,7 +36,7 @@ import {
 import { FormPropDirty } from '../models/formPropDirty';
 import { PROP_ID_CHECKED, PROP_ID_SELECTED, PROP_ID_VALUE } from '../models/propSet';
 import { applyAttrPairs } from '../models/attrApply';
-import { insertIndexFromBefore, orderedSheetIds, orderedRuleIds, matchCssomEndOfFrame, declarationBlockFromRuleText } from '../models/cssomApplyIndex';
+import { insertIndexFromBefore, allSheetIds, orderedRuleIds, matchCssomEndOfFrame, declarationBlockFromRuleText } from '../models/cssomApplyIndex';
 import { planRuleSetApply } from '../models/cssomRuleSet';
 import type { AssembledFrame } from '../models/decode';
 import { ReplicatedTable } from '../models/replicatedTable';
@@ -75,6 +78,8 @@ export class DomFrameApplier {
   private readonly propDirty = new FormPropDirty();
   private readonly sheets = new Map<number, CSSStyleSheet>();
   private readonly rules = new Map<number, CSSRule>();
+  /** Sheet id → `hostNode` (0 = document adopted list). Survives phase-1 drop of the row. */
+  private readonly sheetHost = new Map<number, number>();
 
   constructor(doc: Document, registry: PageProjectionRegistry, options: DomFrameApplierOptions = {}) {
     this.doc = doc;
@@ -244,6 +249,7 @@ export class DomFrameApplier {
   private clearCssom(): void {
     this.sheets.clear();
     this.rules.clear();
+    this.sheetHost.clear();
     try {
       this.doc.adoptedStyleSheets = [];
     } catch {
@@ -256,7 +262,7 @@ export class DomFrameApplier {
    * (SEAL-CSSOM-P0-EOF / PP-CSSOM-A-3) — not sheet handles alone.
    */
   private cssomHandlesMatchTable(): boolean {
-    const tableSheetIds = orderedSheetIds(this.table);
+    const tableSheetIds = allSheetIds(this.table);
     const liveSheetIdsPresent = new Set<number>();
     const tableRuleIdsBySheet = new Map<number, readonly number[]>();
     const liveRuleIdsBySheet = new Map<number, readonly number[]>();
@@ -299,21 +305,74 @@ export class DomFrameApplier {
     return true;
   }
 
-  private adoptedList(): CSSStyleSheet[] {
-    return Array.from(this.doc.adoptedStyleSheets);
+  /** Iframe nodes fail `instanceof Element` from the parent realm — use this document's constructors. */
+  private isElement(node: Node): node is Element {
+    const view = this.doc.defaultView;
+    return view !== null ? node instanceof view.Element : node.nodeType === Node.ELEMENT_NODE;
   }
 
-  private setAdopted(next: CSSStyleSheet[]): boolean {
+  private shadowRootOfHost(hostNode: number): ShadowRoot | null {
+    const node = this.registry.get(hostNode);
+    if (!node) return null;
+    if (this.isElement(node)) return node.shadowRoot;
+    const view = this.doc.defaultView;
+    if (view !== null && node instanceof view.ShadowRoot) return node;
+    if (node.nodeType === Node.DOCUMENT_FRAGMENT_NODE && (node as ShadowRoot).host != null) {
+      return node as ShadowRoot;
+    }
+    const owned = this.table.shadowRootOf(hostNode);
+    if (owned === 0) return null;
+    const sr = this.registry.get(owned);
+    if (!sr) return null;
+    if (view !== null && sr instanceof view.ShadowRoot) return sr;
+    if (sr.nodeType === Node.DOCUMENT_FRAGMENT_NODE) return sr as ShadowRoot;
+    return null;
+  }
+
+  private adoptedListOf(hostNode: number): CSSStyleSheet[] {
+    if (hostNode === 0) {
+      try {
+        return Array.from(this.doc.adoptedStyleSheets);
+      } catch {
+        return [];
+      }
+    }
+    const root = this.shadowRootOfHost(hostNode);
+    if (root == null) return [];
     try {
-      this.doc.adoptedStyleSheets = next;
-      return true;
+      return Array.from(root.adoptedStyleSheets);
     } catch {
-      return this.fail('malformed', 'sheetOrder', 0);
+      return [];
     }
   }
 
-  private materializedSheetIds(): number[] {
-    const list = this.adoptedList();
+  private setAdoptedOf(hostNode: number, next: CSSStyleSheet[]): boolean {
+    try {
+      if (hostNode === 0) {
+        this.doc.adoptedStyleSheets = next;
+        return true;
+      }
+      const root = this.shadowRootOfHost(hostNode);
+      if (root == null) {
+        return this.fail('address_miss', 'sheetNew', hostNode);
+      }
+      root.adoptedStyleSheets = next;
+      return true;
+    } catch {
+      return this.fail('malformed', 'sheetOrder', hostNode);
+    }
+  }
+
+  private adoptedList(): CSSStyleSheet[] {
+    return this.adoptedListOf(0);
+  }
+
+  private setAdopted(next: CSSStyleSheet[]): boolean {
+    return this.setAdoptedOf(0, next);
+  }
+
+  private materializedSheetIdsOf(hostNode: number): number[] {
+    const list = this.adoptedListOf(hostNode);
     const ids: number[] = [];
     for (let i = 0; i < list.length; i++) {
       const sheet = list[i]!;
@@ -327,11 +386,17 @@ export class DomFrameApplier {
     return ids;
   }
 
+  private materializedSheetIds(): number[] {
+    return this.materializedSheetIdsOf(0);
+  }
+
   private applySheetNew(op: Extract<FrameOp, { op: OpCode.SheetNew }>): boolean {
-    if (op.scope === CSSOM_SCOPE_PIERCE_HOST || op.hostNode !== 0) {
-      return this.fail('bad_target', 'sheetNew', op.id);
+    const pierce = op.scope === CSSOM_SCOPE_PIERCE_HOST || op.hostNode !== 0;
+    const hostNode = pierce ? op.hostNode : 0;
+    if (pierce && this.shadowRootOfHost(hostNode) == null) {
+      return this.fail('address_miss', 'sheetNew', hostNode);
     }
-    if (this.sheets.has(op.id)) return this.fail('bad_target', 'sheetNew', op.id);
+    if (this.sheets.has(op.id)) return true;
     const view = this.doc.defaultView;
     if (view === null) return this.fail('bad_target', 'sheetNew', op.id);
     let sheet: CSSStyleSheet;
@@ -340,39 +405,52 @@ export class DomFrameApplier {
     } catch {
       return this.fail('malformed', 'sheetNew', op.id);
     }
-    const at = insertIndexFromBefore(this.materializedSheetIds(), op.before);
+    const at = insertIndexFromBefore(this.materializedSheetIdsOf(hostNode), op.before);
     if (at < 0) return this.fail('address_miss', 'sheetNew', op.before);
-    const next = this.adoptedList();
+    const next = this.adoptedListOf(hostNode);
     next.splice(at, 0, sheet);
-    if (!this.setAdopted(next)) return false;
+    if (!this.setAdoptedOf(hostNode, next)) return false;
     this.sheets.set(op.id, sheet);
+    this.sheetHost.set(op.id, hostNode);
     return true;
   }
 
   private applySheetDrop(op: Extract<FrameOp, { op: OpCode.SheetDrop }>): boolean {
-    const drop = new Set<CSSStyleSheet>();
+    const dropByHost = new Map<number, Set<CSSStyleSheet>>();
     for (let i = 0; i < op.ids.length; i++) {
       const id = op.ids[i]!;
       const sheet = this.sheets.get(id);
       if (sheet === undefined) return this.fail('address_miss', 'sheetDrop', id);
-      drop.add(sheet);
+      const hostNode = this.sheetHost.get(id) ?? 0;
+      let set = dropByHost.get(hostNode);
+      if (set === undefined) {
+        set = new Set();
+        dropByHost.set(hostNode, set);
+      }
+      set.add(sheet);
       for (const [ruleId, rule] of this.rules) {
         if (rule.parentStyleSheet === sheet) this.rules.delete(ruleId);
       }
       this.sheets.delete(id);
+      this.sheetHost.delete(id);
     }
-    const next = this.adoptedList().filter((s) => !drop.has(s));
-    return this.setAdopted(next);
+    for (const [hostNode, drop] of dropByHost) {
+      const next = this.adoptedListOf(hostNode).filter((s) => !drop.has(s));
+      if (!this.setAdoptedOf(hostNode, next)) return false;
+    }
+    return true;
   }
 
   private applySheetOrder(op: Extract<FrameOp, { op: OpCode.SheetOrder }>): boolean {
+    if (op.ids.length === 0) return true;
+    const hostNode = this.sheetHost.get(op.ids[0]!) ?? 0;
     const next: CSSStyleSheet[] = [];
     for (let i = 0; i < op.ids.length; i++) {
       const sheet = this.sheets.get(op.ids[i]!);
       if (sheet === undefined) return this.fail('address_miss', 'sheetOrder', op.ids[i]!);
       next.push(sheet);
     }
-    return this.setAdopted(next);
+    return this.setAdoptedOf(hostNode, next);
   }
 
   private applyRuleNew(op: Extract<FrameOp, { op: OpCode.RuleNew }>): boolean {
@@ -451,6 +529,16 @@ export class DomFrameApplier {
       const node = this.registry.get(op.ids[i]!);
       if (node !== undefined) this.registry.unregisterSubtree(node);
     }
+    for (const id of [...this.sheets.keys()]) {
+      if (this.table.has(id)) continue;
+      const sheet = this.sheets.get(id);
+      this.sheets.delete(id);
+      this.sheetHost.delete(id);
+      if (sheet === undefined) continue;
+      for (const [ruleId, rule] of this.rules) {
+        if (rule.parentStyleSheet === sheet) this.rules.delete(ruleId);
+      }
+    }
     return true;
   }
 
@@ -472,6 +560,21 @@ export class DomFrameApplier {
       node = this.doc.createComment(op.value);
     } else if (op.kind === NodeKind.Doctype) {
       node = this.doc.implementation.createDocumentType(op.name || 'html', '', '');
+    } else if (op.kind === NodeKind.ShadowRoot) {
+      const host = this.registry.get(op.host);
+      if (!host || host.nodeType !== Node.ELEMENT_NODE) return this.fail('address_miss', 'nodeNew', op.host);
+      const el = host as Element;
+      if (el.shadowRoot) return this.fail('bad_target', 'nodeNew', op.id);
+      const init: ShadowRootInit = { mode: 'open' };
+      if ((op.initFlags & SHADOW_INIT_DELEGATES_FOCUS) !== 0) init.delegatesFocus = true;
+      const extra = init as ShadowRootInit & { clonable?: boolean; serializable?: boolean };
+      if ((op.initFlags & SHADOW_INIT_CLONABLE) !== 0) extra.clonable = true;
+      if ((op.initFlags & SHADOW_INIT_SERIALIZABLE) !== 0) extra.serializable = true;
+      try {
+        node = el.attachShadow(init);
+      } catch {
+        return this.fail('malformed', 'nodeNew', op.id);
+      }
     } else {
       return this.fail('bad_target', 'nodeNew', op.id);
     }

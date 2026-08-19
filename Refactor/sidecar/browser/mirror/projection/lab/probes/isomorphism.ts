@@ -14,7 +14,7 @@ import { tableDigestsEqual } from '../../models/tableDigest';
 import type { TreeNode } from '../../models/treeNode';
 import type { FormControlSnap } from '../../models/formControlSnap';
 import { formControlSnapsEqual } from '../../models/formControlSnap';
-import { diffTrees, type StructuralDiffResult } from './structuralDiff';
+import { diffTrees, countShadowTrees, type StructuralDiffResult } from './structuralDiff';
 
 export type ClientStateSnapshot = {
   tree: TreeNode | null;
@@ -68,6 +68,10 @@ export type IsomorphismResult = {
     identical: boolean | null;
     reason: string | null;
   };
+  shadow: {
+    virtualHosts: number;
+    clientHosts: number;
+  } | null;
 };
 
 const CLIENT_CATCH_UP_MS = 2_000;
@@ -126,6 +130,7 @@ export async function runIsomorphism(opts: {
       nodeNewConnected: null,
       cascade: null,
       formProps: { virtual: null, client: null, identical: null, reason: null },
+      shadow: null,
     };
   }
 
@@ -144,6 +149,7 @@ export async function runIsomorphism(opts: {
         nodeNewConnected: null,
         cascade: null,
         formProps: { virtual: null, client: null, identical: null, reason: null },
+        shadow: null,
       };
     }
 
@@ -260,6 +266,13 @@ export async function runIsomorphism(opts: {
         identical: formIdentical,
         reason: formReason,
       },
+      shadow:
+        virtual.tree != null
+          ? {
+              virtualHosts: countShadowTrees(virtual.tree as TreeNode),
+              clientHosts: clientSnap?.tree != null ? countShadowTrees(clientSnap.tree) : 0,
+            }
+          : null,
       skipped: [
         ...skipped,
         ...(virtual.o2 ? [] : [{ id: 'o2', reason: 'O2 missing from flushProjectionSnapshot' }]),

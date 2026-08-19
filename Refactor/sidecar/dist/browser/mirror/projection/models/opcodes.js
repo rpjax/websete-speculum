@@ -61,5 +61,6 @@ var NodeKind;
     NodeKind[NodeKind["Sheet"] = 4] = "Sheet";
     NodeKind[NodeKind["Rule"] = 5] = "Rule";
     NodeKind[NodeKind["Doctype"] = 6] = "Doctype";
+    NodeKind[NodeKind["ShadowRoot"] = 7] = "ShadowRoot";
 })(NodeKind || (exports.NodeKind = NodeKind = {}));
 //# sourceMappingURL=opcodes.js.map

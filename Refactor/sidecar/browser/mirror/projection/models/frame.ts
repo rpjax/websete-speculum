@@ -24,6 +24,17 @@ export const DOCUMENT_ID: DomNodeKey = 1;
 /** `before = 0` in `INSERT` means "insert at end" (§4.3). */
 export const INSERT_AT_END: DomNodeKey = 0;
 
+/** `NODE_NEW SHADOW_ROOT.mode` — open only this version (`1` closed is NIT malformed). */
+export const SHADOW_MODE_OPEN = 0;
+/** `initFlags` bit0 — `delegatesFocus`. */
+export const SHADOW_INIT_DELEGATES_FOCUS = 0x01;
+/** `initFlags` bit1 — `clonable`. */
+export const SHADOW_INIT_CLONABLE = 0x02;
+/** `initFlags` bit2 — `serializable`. */
+export const SHADOW_INIT_SERIALIZABLE = 0x04;
+/** Any `initFlags` bit outside this mask is malformed. */
+export const SHADOW_INIT_FLAGS_MASK = 0x07;
+
 export type AttrPair = { name: string; value: string };
 
 /** §4.1 `CHECK.scope` — `Table` = whole table (`lo`/`hi` ignored), `Range` = id range `[lo, hi]`. */
@@ -50,8 +61,8 @@ export type EpochResetOp = { op: OpCode.EpochReset; generation: number };
 export type StrDefOp = { op: OpCode.StrDef; strId: number; value: string };
 
 /**
- * `descriptor` shape by `kind` — §4.2. v0 only ever produces Element/Text/Comment/Doctype.
- * Element `uri` is present only when `ns === custom`; omitted on the wire otherwise.
+ * `descriptor` shape by `kind` — §4.2. Element `uri` is present only when `ns === custom`;
+ * omitted on the wire otherwise. `SHADOW_ROOT` carries `host`/`mode`/`initFlags` ([shadow.md](shadow.md)).
  */
 export type NodeNewOp =
   | {
@@ -64,7 +75,15 @@ export type NodeNewOp =
       uri?: string;
     }
   | { op: OpCode.NodeNew; id: DomNodeKey; kind: NodeKind.Text | NodeKind.Comment; value: string }
-  | { op: OpCode.NodeNew; id: DomNodeKey; kind: NodeKind.Doctype; name: string };
+  | { op: OpCode.NodeNew; id: DomNodeKey; kind: NodeKind.Doctype; name: string }
+  | {
+      op: OpCode.NodeNew;
+      id: DomNodeKey;
+      kind: NodeKind.ShadowRoot;
+      host: DomNodeKey;
+      mode: number;
+      initFlags: number;
+    };
 
 export type InsertOp = {
   op: OpCode.Insert;

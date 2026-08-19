@@ -36,7 +36,11 @@ export class PageProjectionRegistry {
     while (cur) {
       const id = this.idsByNode.get(cur);
       if (id != null) return id;
-      cur = cur.parentNode;
+      cur =
+        cur.parentNode ??
+        (cur.nodeType === Node.DOCUMENT_FRAGMENT_NODE && (cur as ShadowRoot).host != null
+          ? (cur as ShadowRoot).host
+          : null);
     }
     return undefined;
   }
@@ -60,6 +64,10 @@ export class PageProjectionRegistry {
         this.idsByNode.delete(node);
       }
       for (const child of Array.from(node.childNodes)) stack.push(child);
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        const sr = (node as Element).shadowRoot;
+        if (sr) stack.push(sr);
+      }
     }
   }
 

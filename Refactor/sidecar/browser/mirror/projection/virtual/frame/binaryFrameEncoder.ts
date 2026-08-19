@@ -223,6 +223,12 @@ export class BinaryFrameEncoder implements FrameEncoder {
       this.writeStrRef(w, op.name);
       return;
     }
+    if (op.kind === NodeKind.ShadowRoot) {
+      w.u32(op.host);
+      w.u8(op.mode);
+      w.u8(op.initFlags);
+      return;
+    }
     this.writeStrRef(w, op.value);
   }
 

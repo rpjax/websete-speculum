@@ -14,4 +14,6 @@ export type TreeNode = {
   attrs?: [string, string][];
   text?: string;
   children?: TreeNode[];
+  /** Open named shadow tree — not flattened into `children`. */
+  shadow?: TreeNode;
 };

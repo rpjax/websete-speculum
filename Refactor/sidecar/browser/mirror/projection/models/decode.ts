@@ -25,6 +25,8 @@ import {
   CSSOM_SCOPE_PIERCE_HOST,
   FRAME_WIRE_VERSION,
   INSERT_AT_END,
+  SHADOW_INIT_FLAGS_MASK,
+  SHADOW_MODE_OPEN,
   type AttrPair,
   type FrameOp,
 } from './frame';
@@ -282,7 +284,19 @@ function decodeOp(
       if (kind === NodeKind.Text || kind === NodeKind.Comment) {
         return { op: OpCode.NodeNew, id, kind, value: resolveStr(r.u32()) };
       }
-      return null;
+      if (kind === NodeKind.ShadowRoot) {
+        const host = r.u32();
+        const mode = r.u8();
+        const initFlags = r.u8();
+        if (mode !== SHADOW_MODE_OPEN) {
+          throw new Error(`NODE_NEW SHADOW_ROOT mode ${mode} is not open (frame-protocol.md §4.2)`);
+        }
+        if ((initFlags & ~SHADOW_INIT_FLAGS_MASK) !== 0) {
+          throw new Error(`NODE_NEW SHADOW_ROOT initFlags ${initFlags} has reserved bits (frame-protocol.md §4.2)`);
+        }
+        return { op: OpCode.NodeNew, id, kind: NodeKind.ShadowRoot, host, mode, initFlags };
+      }
+      throw new Error(`NODE_NEW kind ${kind} is not defined (frame-protocol.md §4.2)`);
     }
     case OpCode.Insert: {
       const parent = r.u32();

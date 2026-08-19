@@ -9,6 +9,7 @@ import { OpCode } from '../models/opcodes';
 import {
   CHECK_SCOPE_TABLE,
   createFrame,
+  spliceCssomBeforeCheck,
   type Frame,
 } from '../models/frame';
 import type { ReplicatedTable } from '../models/replicatedTable';
@@ -43,9 +44,15 @@ export function emitResyncFrame(planes: ResyncPlanes, sequence: number): ResyncF
   applyOpsToTable(table, domOps);
   const propOps = formIndex.sample(domNodes, table);
   if (propOps.length > 0) applyOpsToTable(table, propOps);
-  const ops = [...domOps, ...propOps, ...cssomScan.ops];
-
-  ops.push({ op: OpCode.Check, scope: CHECK_SCOPE_TABLE, lo: 0, hi: 0, hash: table.tableHash });
+  if (cssomScan.ops.length > 0) applyOpsToTable(table, cssomScan.ops);
+  const ops = spliceCssomBeforeCheck(
+    [
+      ...domOps,
+      ...propOps,
+      { op: OpCode.Check, scope: CHECK_SCOPE_TABLE, lo: 0, hi: 0, hash: table.tableHash },
+    ],
+    cssomScan.ops,
+  );
 
   return {
     frame: createFrame({ generation, sequence, ops, resync: true, preTableHash: 0n }),

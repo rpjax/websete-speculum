@@ -1,8 +1,8 @@
 # PageProjection — shadow
 
-**Status:** designed, not on the walk / not on the wire. Ready for an implementation plan.  
+**Status:** shipped (open / named). Closed / UA / manual slot remain NIT.  
 **Feature 1 of [subtrees.md](subtrees.md).** Protocol: [frame-protocol.md](frame-protocol.md).  
-**Tracker:** [seal-gaps.md](seal-gaps.md) `SEAL-DOM-P1-SHADOW`.  
+**Tracker:** [seal-gaps.md](seal-gaps.md) `SEAL-DOM-P1-SHADOW` (closed).  
 **Not this file:** nested browsing contexts — [multi-document.md](multi-document.md).
 
 Same Document. Same JS loop. Same instance. Same node-id space. Same frame. Creation mechanism does not matter.

@@ -65,6 +65,7 @@
 | 2026-08-18 | **PROP_SET form** — producer index + sample every frame; emit VALUE/CHECKED/SELECTED on change; not CSSOM eventual | [frame-protocol.md](frame-protocol.md) §4.4 / §5.9 |
 | 2026-08-18 | **PROP_SET dirty = phase 2 only** — table/CHECK always; live field may lag while typing; not a desync | [frame-protocol.md](frame-protocol.md) §5.9 + [input.md](input.md) §7.2 |
 | 2026-08-18 | **SEAL-DOM-P1-PROP closed** — `PROP_SET` VALUE/CHECKED/SELECTED on the wire; `iso.formProps` | [seal-gaps.md](seal-gaps.md) + [frame-protocol.md](frame-protocol.md) §5.9 |
+| 2026-08-18 | **SEAL-DOM-P1-SHADOW closed** — `SHADOW_ROOT` kind 7; open named; real `attachShadow`; CSSOM poll on admitted roots. Lab `shadow-open`. Closed/manual NIT fail. | [shadow.md](shadow.md) + [seal-gaps.md](seal-gaps.md) |
 | 2026-08-18 | **C5 relocked to poll** — write-path hooks rejected as detector (antibot). Paper had lagged the lab. | [cssom.md](cssom.md) C5 + [cssom-poll-algorithm.md](cssom-poll-algorithm.md) |
 | 2026-08-18 | **Nested CSS = grouping `cssText`** — top-level rows only. Own-row nested walk = future opt, not a seal hole. | [cssom.md](cssom.md) C3.2 |
 | 2026-08-18 | **OPEN-6 designed** — N algorithm instances, one `DataPlane`, `documentId` on envelope, O(1) client slot, `DOC_ATTACH`/`DETACH`. Not pierce. Lab ≠ algorithm. | [multi-document.md](multi-document.md) |
@@ -215,4 +216,10 @@ producer bug and desyncs.
 
 Seal-gap close requires the matching proof class: function unit ≠ table/live parity ≠
 desync-when-needed. Helper-only units do not close ATTR / EOF / RULESET.
+
+## I. Open named shadow shipped (2026-08-18)
+
+Kind `7` on version 2. Root row is not a light child. Per-root MutationObserver, same buffer.
+Projected `attachShadow({ mode: 'open' })`. CSSOM poll includes each admitted root (`pierceHost`).
+Closed and `slotAssignment: 'manual'` stay explicit unsupported fails. Not iframe.
 

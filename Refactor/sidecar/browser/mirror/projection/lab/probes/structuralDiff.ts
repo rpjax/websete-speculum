@@ -33,6 +33,15 @@ export type StructuralDiffResult = {
 
 const MAX_DIVERGENCES = 50;
 
+/** Number of open-shadow trees in the snapshot (hosts, including nested). Light-only = 0. */
+export function countShadowTrees(node: TreeNode): number {
+  let n = 0;
+  if (node.shadow !== undefined) n += 1 + countShadowTrees(node.shadow);
+  const children = node.children ?? [];
+  for (let i = 0; i < children.length; i++) n += countShadowTrees(children[i]!);
+  return n;
+}
+
 export function diffTrees(virtual: TreeNode, client: TreeNode): StructuralDiffResult {
   const divergences: Divergence[] = [];
   let count = 0;
@@ -83,6 +92,10 @@ function walk(
   const max = Math.max(aChildren.length, bChildren.length);
   for (let i = 0; i < max; i++) {
     walk(aChildren[i], bChildren[i], `${path}>${a.tag}[${i}]`, record);
+  }
+
+  if (a.shadow !== undefined || b.shadow !== undefined) {
+    walk(a.shadow, b.shadow, `${path}>${a.tag}::shadow`, record);
   }
 }
 

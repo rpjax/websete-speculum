@@ -1,8 +1,16 @@
 # Data plane (Chromium ↔ Sidecar)
 
-Generic **muxed loopback WebSocket** between Virtual Chromium and the sidecar.
-E-03: **frame bodies** travel here (not CDP). Envelope allows other channels on
-the same socket later.
+Generic **mux** between a PageProjection **algorithm instance** and the sidecar ingest.
+E-03: **frame bodies** travel here (not CDP). One connection per session; the impl routes
+every `send` onto it. Child instances get a `DataPlane` that forwards — they do not open
+a second socket.
+
+The **algorithm** only sees `DataPlane.send(channel, payload)`. `FrameTransport` is a facade
+over `PlaneChannel.Frame` on that same plane. Telemetry and control use the same contract.
+Do not add a second outbound path.
+
+`PlaneChannel` is the **kind** of message. The plane does **not** track documents.
+`contextId` lives on the PP frame header ([multi-document.md](../../../../../../docs/page-projection/spec/multi-document.md)).
 
 ## Envelope
 
@@ -14,8 +22,8 @@ flags   u8      0 reserved
 payload …
 ```
 
-One WS message = one envelope. `PlaneChannel.Frame` payload = raw PP part bytes
-(unchanged §5.5). The plane MUST NOT parse PP.
+One WS message = one envelope. `PlaneChannel.Frame` payload = raw PP part bytes.
+The plane MUST NOT parse PP. Envelope does **not** grow a `contextId` field.
 
 ## Channels (wire-stable)
 

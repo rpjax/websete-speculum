@@ -65,6 +65,25 @@
 | 2026-08-18 | **PROP_SET form** — producer index + sample every frame; emit VALUE/CHECKED/SELECTED on change; not CSSOM eventual | [frame-protocol.md](frame-protocol.md) §4.4 / §5.9 |
 | 2026-08-18 | **PROP_SET dirty = phase 2 only** — table/CHECK always; live field may lag while typing; not a desync | [frame-protocol.md](frame-protocol.md) §5.9 + [input.md](input.md) §7.2 |
 | 2026-08-18 | **SEAL-DOM-P1-PROP closed** — `PROP_SET` VALUE/CHECKED/SELECTED on the wire; `iso.formProps` | [seal-gaps.md](seal-gaps.md) + [frame-protocol.md](frame-protocol.md) §5.9 |
+| 2026-08-18 | **C5 relocked to poll** — write-path hooks rejected as detector (antibot). Paper had lagged the lab. | [cssom.md](cssom.md) C5 + [cssom-poll-algorithm.md](cssom-poll-algorithm.md) |
+| 2026-08-18 | **Nested CSS = grouping `cssText`** — top-level rows only. Own-row nested walk = future opt, not a seal hole. | [cssom.md](cssom.md) C3.2 |
+| 2026-08-18 | **OPEN-6 designed** — N algorithm instances, one `DataPlane`, `documentId` on envelope, O(1) client slot, `DOC_ATTACH`/`DETACH`. Not pierce. Lab ≠ algorithm. | [multi-document.md](multi-document.md) |
+| 2026-08-18 | **OPEN-6 correction** — DataPlane does not track documents. `documentId` on PP header (v3). Document table both sides → host/root node. | [multi-document.md](multi-document.md) |
+| 2026-08-18 | **OPEN-6 design structure** — M0–M3/M9 locked (schema, header v3, instance). **M4 binding OPEN** (mint + parent learns child id; no shared heap). | [multi-document.md](multi-document.md) |
+| 2026-08-18 | **OPEN-6 restated** — algorithm + ports; self `documentId`; bus `onFrame` mine-or-noop; install inside nested realm; no host index / `DOC_ATTACH`. postMessage is a bus *impl* (M8). | [multi-document.md](multi-document.md) |
+| 2026-08-18 | **OPEN-6 instance loop** — produce never apply; pairing D via Id port; desync per instance; halt with realm | [multi-document.md](multi-document.md) |
+| 2026-08-18 | **Retract produce-must-not-apply** — Virtual has no apply path; not a bus-echo hazard | [multi-document.md](multi-document.md) |
+| 2026-08-18 | **Client identity** — Projected learns D via Id/Install/Bus (scoped channel or injected D). Not a host index in the algorithm. | [multi-document.md](multi-document.md) |
+| 2026-08-18 | **Nested documentId = parent mint** — child Id queries; `hostedDocumentId` on host `NODE_NEW`; Projected install already has `mine`. | [multi-document.md](multi-document.md) |
+| 2026-08-18 | **Machine** — root id `1`; nested query both sides; session-global mint; nav remints hostedDocumentId; same boot path Virtual/Projected | [multi-document.md](multi-document.md) |
+| 2026-08-18 | **Context, not Document** — parent `hosts: Map<nodeId, contextId>` (algorithm memory). No write on the page. Nav / blank `load` = reinstall, same id. Header `contextId`. | [multi-document.md](multi-document.md) |
+| 2026-08-18 | **Subtree split** — nested browsing context ≠ shadow ≠ inert template. Declarative shadow is shadow. | [multi-document.md](multi-document.md) |
+| 2026-08-18 | **Two kinds of off-`childNodes` subtree** — shadow (same instance) vs nested browsing context (this file). `template.content` is not a third kind. | [multi-document.md](multi-document.md) |
+| 2026-08-18 | **Subtree premise LOCKED** — [subtrees.md](subtrees.md). Two features: shadow first ([shadow.md](shadow.md)), nested browsing context second. | [subtrees.md](subtrees.md) |
+| 2026-08-18 | **Shadow protocol** — `SHADOW_ROOT` kind 7; real attachShadow; INSERT under root; NODE_META shadow flags dead; open only. | [shadow.md](shadow.md) · [frame-protocol.md](frame-protocol.md) |
+| 2026-08-18 | **Shadow closed = NIT** — this version open only; closed/UA unsupported-fail, not CDP. | [shadow.md](shadow.md) |
+| 2026-08-18 | **Shadow initFlags** — delegatesFocus / clonable / serializable on `NODE_NEW SHADOW_ROOT`. `slotAssignment: 'manual'` NIT. | [shadow.md](shadow.md) |
+| 2026-08-18 | **Shadow in the same frame** — one drain/one table. ShadowRoot is a row, not a light child. Same MO buffer; observe each admitted root. `attachShadow` is not a record: discover `.shadowRoot` when the host is already in the tick. | [shadow.md](shadow.md) |
 
 **Stage 4 confirmed (Rodrigo):** mid-session recovery = **`emitResyncFrame` alone** (ids preserved; does not self-heal a corrupt map shape). Client = **real double buffer**, swap only after resync frame CHECK. Lab transport = existing control WS + `PlaneChannel.Control`. Production hub/gRPC is gate 5.
 

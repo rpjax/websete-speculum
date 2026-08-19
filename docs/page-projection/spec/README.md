@@ -3,7 +3,7 @@
 **Status:** official spec for `MirrorMode.PageProjection`.  
 **Accept bar:** [acceptance.md](acceptance.md) — 1:1 with the original site. **DOM** numerical; **CSSOM live** perceived/eventual (not 60 Hz lockstep).  
 **Protocol:** [frame-protocol.md](frame-protocol.md) — the V4 engine (replicated table, binary frames, two-phase apply, resync).  
-**Where you are:** lab engine under `Refactor/sidecar/browser/mirror/projection/` implements V4 **DOM table, single document** (Stages 1–4) plus lab CSSOM for constructed adopted sheets and `CSSStyleRule`, plus form `PROP_SET` (`VALUE` / `CHECKED` / `SELECTED`). Production (`PatchrightBrowserSession.ts`) still runs the **legacy** `LivePageProjection` path. `V4ProjectionBrowserSession` is the **temporary** lab `BrowserSession`; at cutover it must be **complete** (full contract, V4 implementations — not leftover legado) — [roadmap.md](roadmap.md) CUTOVER-SESSION. **Production cutover waits for the full product** (CSSOM + nested/multidocs + redesigned input + **canvas projection** as last product feature). Next lab work: [seal-gaps.md](seal-gaps.md) §3 — **shadow / pierce** first.
+**Where you are:** the V4 **algorithm** under `Refactor/sidecar/browser/mirror/projection/` implements DOM table (single document), CSSOM for constructed adopted sheets + `CSSStyleRule`, and form `PROP_SET`. The **lab** is a harness that drives that algorithm — not the algorithm itself. Production (`PatchrightBrowserSession.ts`) still runs the **legacy** `LivePageProjection` path. `V4ProjectionBrowserSession` is the **temporary** session wrapper; at cutover it must be **complete** — [roadmap.md](roadmap.md) CUTOVER-SESSION. **Production cutover waits for the full product** (CSSOM + shadow + multi-document + redesigned input + **canvas projection** as last product feature). Next work: [shadow.md](shadow.md) (off-tree kind 1).
 
 If you are an agent with limited context: **read this file (including Now), then `acceptance.md`, then `open.md`, then `seal-gaps.md`, then `roadmap.md`, then only the protocol sections you are changing.** Do not open `../archive/`.
 
@@ -11,7 +11,7 @@ If you are an agent with limited context: **read this file (including Now), then
 
 ## Now (2026-08-18) — start a new chat here
 
-Next lab feature: **shadow / pierce** ([seal-gaps.md](seal-gaps.md) **SEAL-DOM-P1-SHADOW**). Form `PROP_SET` (`VALUE` / `CHECKED` / `SELECTED`) **closed 2026-08-18**.
+Next: **shadow design** ([shadow.md](shadow.md)) — same frame; ShadowRoot row; discover `.shadowRoot` on the host. Nested browsing contexts wait. Form `PROP_SET` **closed 2026-08-18**.
 
 SVG / namespaced `NODE_NEW` **closed 2026-08-17**. Do **not** reopen apply honesty ([observability.md](observability.md) §7).
 
@@ -32,8 +32,11 @@ Talk to Rodrigo in Portuguese, papo reto: simple idea → simple sentence. Techn
 | Lab / probes / event telemetry vs asserts | **[observability.md](observability.md)** |
 | Lab **architecture** (chassis, browse vs run, blueprints, dossier) | **[lab-design.md](lab-design.md)** — shipped 2026-08-16 |
 | CSSOM materialization detail | **[cssom.md](cssom.md)** — opcodes live in frame-protocol §4.6 |
-| Lab CSSOM **poll algorithm** (worst-case-first; I3 copy-then-hash; does not relock C5) | **[cssom-poll-algorithm.md](cssom-poll-algorithm.md)** |
+| CSSOM poll **algorithm** (worst-case-first; I3 copy-then-hash; this poll **is** C5) | **[cssom-poll-algorithm.md](cssom-poll-algorithm.md)** |
 | CSSOM sensor **journey** (two truths, why not hooks/CDP, foundation vs amortizations) | **[cssom-sensor-journey.md](cssom-sensor-journey.md)** |
+| Off-`childNodes` subtrees (LOCKED) | **[subtrees.md](subtrees.md)** — two kinds only: shadow vs nested browsing context |
+| Shadow (kind 1) | **[shadow.md](shadow.md)** — same instance; walker follows `.shadowRoot` |
+| Multi-document (OPEN-6, kind 2) | **[multi-document.md](multi-document.md)** — N contexts; `contextId` on PP header; parent `hosts` map; DataPlane is a dumb mux |
 | Input intents | **[input.md](input.md)** — address by `uint32` only |
 | Asset serve plane | **[virtual-assets.md](virtual-assets.md)** |
 | Published product gaps | **[support-matrix.md](support-matrix.md)** |
@@ -42,7 +45,7 @@ Talk to Rodrigo in Portuguese, papo reto: simple idea → simple sentence. Techn
 | Open bugs / OPEN-* / pending rulings | **[open.md](open.md)** |
 | Why a decision exists | **[decision-log.md](decision-log.md)** (append-only; never rewrite history) |
 
-If two live docs disagree on the protocol layer, **frame-protocol.md wins**. Do not “choose in code.” Append a decision-log row if you change behaviour.
+If two live docs disagree on the **PP frame** (table, opcodes, apply), **frame-protocol.md wins**. Off-tree kinds: **[subtrees.md](subtrees.md)**. Multi-document: **[multi-document.md](multi-document.md)**. DataPlane envelope does not carry `contextId`. Do not “choose in code.” Append a decision-log row if you change behaviour.
 
 **V4 prevails.** Pre-V4 designs (establish HTML chunks, Node mirror, `childList FULL/APPEND`, `speculum-anchor`, DomMap bootstrap, resync watermark, `document` opcode as tree dump) are **dead**. They live only under [`../archive/`](../archive/README.md) for provenance.
 
@@ -61,7 +64,7 @@ If two live docs disagree on the protocol layer, **frame-protocol.md wins**. Do 
 | 7 | [budgets.md](budgets.md) + [oracles.md](oracles.md) | If touching cost, CI, or accept |
 | 8 | [observability.md](observability.md) | If touching lab, telemetry events, probes, `report.json`, isomorphism |
 | 8b | [lab-design.md](lab-design.md) | If restructuring lab host/UI/CLI/dossier/blueprints (do not touch BrowserSession) |
-| 9 | Adjacent layer file | cssom / **cssom-poll-algorithm** / **cssom-sensor-journey** / input / virtual-assets / support-matrix / test-matrix |
+| 9 | Adjacent layer file | cssom / **cssom-poll-algorithm** / **cssom-sensor-journey** / **subtrees** / **shadow** / **multi-document** / input / virtual-assets / support-matrix / test-matrix |
 | 10 | [decision-log.md](decision-log.md) | Index; full CSSOM *why* is [cssom-sensor-journey.md](cssom-sensor-journey.md) |
 
 ---
@@ -80,8 +83,11 @@ docs/page-projection/
     observability.md        probes vs events; coherent snapshot; lab as caller
     lab-design.md           lab chassis / browse vs run / blueprints / dossier (shipped)
     cssom.md                CSSOM plane (materialize)
-    cssom-poll-algorithm.md lab poll sensor (I1–I11)
+    cssom-poll-algorithm.md poll sensor (I1–I11)
     cssom-sensor-journey.md why this detector; two truths; rulings
+    subtrees.md             LOCKED: two off-childNodes kinds (shadow, nested browsing context)
+    shadow.md               kind 1 — same instance; next feature
+    multi-document.md       OPEN-6: N contexts, contextId on PP header, parent hosts map
     input.md                Projected → Virtual intents
     virtual-assets.md       URL serve plane
     support-matrix.md       accepted product gaps

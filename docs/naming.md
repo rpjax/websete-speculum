@@ -29,6 +29,16 @@ The public HTTP mount **`/w7s`** (PathBase + SPA surfaces) and the query param *
 introduce new `DomProjection` mode, stream, or catalog names. `Dom*` stays
 valid for **DOM-plane** types (`DomSelector`, `DomNode`, DOM-plane input).
 
+**PageProjection (algorithm vs lab).** The **algorithm** is the Virtual producer + client apply
+(`Refactor/sidecar/browser/mirror/projection/`, minus `lab/`). The **lab** is a harness that
+calls that algorithm. Do not name the algorithm “lab”.
+
+**PageProjection off-`childNodes` subtrees.** Two kinds only: **shadow** (same Document, same instance) and **nested browsing context** (new Document). Premise: [page-projection/spec/subtrees.md](page-projection/spec/subtrees.md). Feature 1: [shadow.md](page-projection/spec/shadow.md). Feature 2: [multi-document.md](page-projection/spec/multi-document.md).
+
+**PageProjection transport.** One contract: `DataPlane.send(channel, payload)`. `PlaneChannel` is
+message kind (`Frame` / `Control` / `Telemetry`). The DataPlane does **not** track documents.
+`contextId` is on the PP frame. Nested identity is the parent context’s `hosts` map (`nodeId → contextId`) — not a session document table, not a field on the live element.
+
 **Motor is legacy vocabulary.** It remains only where an existing artifact
 still has that proper name (for example `MotorHub`,
 `Speculum.MotorAssert.Tests`, or `web/src/features/motor/`). Do not introduce

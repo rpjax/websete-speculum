@@ -1,6 +1,6 @@
 # PageProjection — frame protocol (V4)
 
-**Status:** **V4 CANON.** Lab-implemented (Stages 1–4). OPEN items in §10 and [open.md](open.md) MUST
+**Status:** **V4 CANON.** Implemented in the V4 engine (single document today). OPEN items in §10 and [open.md](open.md) MUST
 NOT be guessed in code. Production cutover is [roadmap.md](roadmap.md).
 **Scope:** the replicated state (§1), the frame that carries changes to it (§2–§4), how the producer
 constructs one (§5), and how it is applied (§6–§9).
@@ -9,7 +9,7 @@ constructs one (§5), and how it is applied (§6–§9).
 [decision-log.md](decision-log.md).
 
 **Related:** [acceptance.md](acceptance.md) · [cssom.md](cssom.md) · [input.md](input.md) ·
-[naming.md](../../naming.md)
+[shadow.md](shadow.md) · [naming.md](../../naming.md)
 
 ---
 
@@ -71,18 +71,24 @@ logic — but the "nothing to catch up from" framing was wrong and is retracted.
 
 Two replicated structures, both maintained identically on Virtual and client.
 
+OPEN-6 does **not** add a session document table and does **not** put nested identity on the
+element row. Parent context keeps `hosts: Map<nodeId, contextId>`; the PP header carries
+`contextId` — [multi-document.md](multi-document.md). Not on the wire yet.
+
 ### 1.1 Structures
 
 | Structure | Contents | Mutability |
 |-----------|----------|------------|
-| **Node table** | every projected node, stylesheet and CSS rule | mutable |
+| **Node table** | every projected node, stylesheet and CSS rule **of one document** | mutable |
 | **String table** | interned strings referenced by instructions | **append-only** |
 
-There is **one node table** and **one id space**. Stylesheets and rules are rows in it, distinguished
-by `kind`. An id therefore never means two different things, and one hash covers the whole state.
+There is **one node table and one node-id space per document**. Stylesheets and rules are rows in
+that document’s table, distinguished by `kind`. An id therefore never means two different things
+**inside that table**, and one hash covers that document’s node state. Session `contextId` (OPEN-6)
+is a different space: which projection context emitted the frame, not a row in this table.
 
 Internal storage may be split per kind or otherwise optimized — that is implementation. The contract
-is: one id space, one logical table, one hash.
+is: one node-id space per document, one logical node table per document, one hash per document.
 
 ### 1.2 Id space
 
@@ -105,7 +111,7 @@ quirks-mode row.
 | Column | Type | Meaning |
 |--------|------|---------|
 | `id` | `u32` | key |
-| `kind` | `u8` | `ELEMENT`=1, `TEXT`=2, `COMMENT`=3, `SHEET`=4, `RULE`=5, `DOCTYPE`=6 |
+| `kind` | `u8` | `ELEMENT`=1, `TEXT`=2, `COMMENT`=3, `SHEET`=4, `RULE`=5, `DOCTYPE`=6, `SHADOW_ROOT`=7 |
 | `ns` | `u8` | `ELEMENT` only — `0` html, `1` svg, `2` mathml, `3` none (`namespaceURI === null`), `4` custom. Known values hash the `u8`. Custom URI is **not** a stored column; it rides `NODE_NEW` as `StrRef` when `ns=4` and is hashed into `contentHash`. |
 | `parent` | `u32` | `0` when detached; for `RULE` the owning `SHEET`; for `SHEET` the pierce host or `0` |
 | `prevSibling` | `u32` | `0` when first child |
@@ -119,8 +125,9 @@ quirks-mode row.
 
 ### 1.4 Topology
 
-Order is represented by **`parent` + `prevSibling`** only. Those two columns uniquely determine the
-tree: within a parent, `prevSibling = 0` is the first child and the chain from there is determined.
+Order is represented by **`parent` + `prevSibling`** only for a **single child list**. Those two columns uniquely determine that list: within a parent, `prevSibling = 0` is the first child of **that** list and the chain from there is determined.
+
+**Shadow ([shadow.md](shadow.md), designed, not shipped).** An `ELEMENT` has a second collection: at most one `SHADOW_ROOT` row with `parent = host`. That row is **not** in the light `prevSibling` chain. `SHADOW_ROOT.prevSibling` is always `0` and unused. Light `prevSibling = 0` still means the first **light** child (`kind ≠ SHADOW_ROOT`). `dropSubtree` of a host MUST walk the light chain **and** the owned `SHADOW_ROOT`. Walking only `prevSibling` leaks the shadow. Children of the root use `parent = shadowRootId` and their own light-style chain (live `shadowRoot.childNodes`).
 
 **Why not a positional index.** If sibling position were an integer column, inserting into the middle
 of a list would renumber every following sibling and rehash each of them — O(n) per insert on a long
@@ -144,8 +151,9 @@ tableHash = Σ rowHash   (mod 2^64, over all rows)
 
 `contentHash` is a commutative combine over the row's content: `ns` (ELEMENT: known `u8`, or hash of
 the custom URI), `name`, `value`, each `(attrName, attrValue)` pair, each `(propId, propValue)` pair,
-and `flags`. Attribute order is not hashed — attribute order is not semantic for rendering, and
-commutativity makes `ATTR_SET` order-independent. HTML `<a>` and SVG `<a>` MUST NOT collide.
+and `flags`. `SHADOW_ROOT`: `mode` and `initFlags` are content (`parent` already names the host). Attribute order is not hashed — attribute order is not semantic for rendering, and
+commutativity makes `ATTR_SET` order-independent. HTML `<a>` and SVG `<a>` MUST NOT collide. Nested
+`contextId` is parent-map state, not element content ([multi-document.md](multi-document.md)).
 
 **Update is O(1):** `tableHash += newRowHash − oldRowHash` (mod 2^64). A table hash recomputed in
 O(n) per frame does not meet **E5** and is a contract violation, not an optimization choice.
@@ -223,6 +231,8 @@ ops           [ opcode u8, operands ] * opCount
 
 Little-endian throughout.
 
+**OPEN-6 (designed, not shipped):** version **3** inserts `contextId: u32` after `flags`. The producing context writes it. The DataPlane does not. Full: [multi-document.md](multi-document.md).
+
 **Precondition placement.** `preTableHash` is a header field, not an instruction, so there is no
 "what if the precondition instruction is missing" failure mode.
 
@@ -289,25 +299,28 @@ is recreated empty. `DOM`: the surface is discarded (a new document buffer is pr
 - `SHEET`: `flags: u16`
 - `RULE`: `value: StrRef`
 - `DOCTYPE`: `name: StrRef` (root element name)
+- `SHADOW_ROOT`: `host: u32`, `mode: u8` (`0` open, `1` closed), `initFlags: u8` — designed, not shipped; [shadow.md](shadow.md)
 
 `ns`: `0` html, `1` svg, `2` mathml, `3` none, `4` custom. A `u8` outside `0..4` is **`malformed`**.
 `ns === 4` with an empty URI is **`malformed`**. When `ns !== 4` the URI field is **not written**.
 `Pre`: `id ≥ 2`; `kind` is a defined value; every `StrRef` resolves; `attrCount ≤ MAX_ATTRS`.
+`SHADOW_ROOT` additional `Pre`: `host` exists and `kind = ELEMENT`; `host` does not already own a `SHADOW_ROOT`; `mode = 0` (`1` closed is **NIT** — `malformed`); `initFlags` bits: `0x01` delegatesFocus, `0x02` clonable, `0x04` serializable; any other bit **`malformed`**. Slot assignment is always named this version (`slotAssignment: 'manual'` is **NIT** — producer must not emit a root for that host; same as closed: explicit unsupported).
 ¹ `id` already existing with an **identical** descriptor (including `ns` / custom URI) is a no-op; with a different descriptor it is
 `malformed`.
-`Table`: inserts a row with `parent = 0`, `prevSibling = 0` — **detached**.
-`DOM`: `createElementNS` from `ns` (canonical xhtml / svg / MathML URIs, `null` for none, custom URI for `4`). Never HTML `createElement` for Element. Materialization of the tree happens on `INSERT`.
+`Table`: inserts a row with `parent = 0`, `prevSibling = 0` — **detached**. **`SHADOW_ROOT` exception:** `parent = host` immediately; not linked into the host’s light chain.
+`DOM`: `createElementNS` from `ns` (canonical xhtml / svg / MathML URIs, `null` for none, custom URI for `4`). Never HTML `createElement` for Element. Materialization of the tree happens on `INSERT`. **`SHADOW_ROOT`:** phase 2 `host.attachShadow({ mode: 'open', delegatesFocus, clonable, serializable })` from `initFlags` — not `insertBefore`. Omit `slotAssignment` (named default). The root is never `INSERT`ed under the host.
 
 **`0x21 NODE_DROP`** — `count: u16, ids: u32[]` · phase 1 · **not idempotent**
 `Pre`: every id exists; every id has `parent = 0` (detached). An absent id is **`malformed`** (OPEN-1 **CLOSED 2026-08-17** — producer DROP is table GC after this tick’s ops; there is no valid happy-path race). Dropping an attached row is
 `precondition` — the producer must `REMOVE` first, which keeps detachment explicit and auditable.
-`Table`: drops each row **and all its descendants** (a detached row may still have children).
+`Table`: drops each row **and all its descendants** (a detached row may still have children). For an `ELEMENT`, descendants include the light `prevSibling` chain **and** the owned `SHADOW_ROOT` (if any).
 `DOM`: none — the subtree is already detached.
 
 **`0x22 NODE_META`** — `id: u32, flags: u16` · phase 1 · idempotent
 `Pre`: `id` exists.
 `flags`: `PLACEHOLDER`=0x01, `SHADOW_HOST`=0x02, `SHADOW_CLOSED`=0x04, `IFRAME_HOST`=0x08,
 `PIERCE_ROOT`=0x10, `CANVAS_PLACEHOLDER`=0x20.
+**Shadow:** `SHADOW_HOST` / `SHADOW_CLOSED` / `PIERCE_ROOT` are **superseded** ([shadow.md](shadow.md)). Do not emit them to mean a shadow; the root is a `SHADOW_ROOT` row. `IFRAME_HOST` waits OPEN-6.
 `Table`: replaces `flags` wholesale (not a bitwise merge — replacement is idempotent).
 `DOM`: reflects the corresponding `speculum-*` marker attributes.
 
@@ -315,20 +328,22 @@ is recreated empty. `DOM`: the surface is discarded (a new document buffer is pr
 
 **`0x40 INSERT`** — `parent: u32, before: u32, count: u16, ids: u32[]` · phase 1+2 · **not idempotent**
 `Pre`:
-- `parent` exists and `kind` is `ELEMENT` (or row `1`);
+- `parent` exists and `kind` is `ELEMENT`, **`SHADOW_ROOT`**, or row `1`;
 - `before` is `0` (insert at end) **or** an existing row whose `parent` equals `parent`;
 - every id exists and is distinct within the instruction;
 - **no id is `parent` or an ancestor of `parent`** — cycle prevention;
-- `count ≤ MAX_CHILDREN_PER_OP`.
+- `count ≤ MAX_CHILDREN_PER_OP`;
+- **no id has `kind = SHADOW_ROOT`** — the root is never `INSERT`ed; it rides `NODE_NEW` only.
 
 `Table`: for each id in order, unlinks it from its current parent if attached, then links it before
 `before` (or at the end). Updates `prevSibling` of the moved node and of the node that followed it —
 two row hashes per link, not O(children).
-`DOM`: `parent.insertBefore(node, beforeNode)`. An already-attached node is **moved**, preserving
+`DOM`: `parent.insertBefore(node, beforeNode)`. When `parent` is `SHADOW_ROOT`, insert into that `ShadowRoot` (not the host). An already-attached node is **moved**, preserving
 media playback, focus and scroll inside its subtree.
 
 **`0x41 REMOVE`** — `parent: u32, count: u16, ids: u32[]` · phase 1+2 · **not idempotent**
-`Pre`: `parent` exists; every id exists and its `parent` equals `parent`.
+`Pre`: `parent` exists; every id exists and its `parent` equals `parent`; **no id has `kind = SHADOW_ROOT`** (the root is not `REMOVE`d; it dies with the host).
+`parent` may be `SHADOW_ROOT` (interior of the shadow).
 The `parent` operand is redundant with the table and is kept as a cheap assert — disagreement is
 `precondition`, which catches divergence one frame earlier than it would otherwise surface.
 `Table`: unlinks each row (`parent = 0`, `prevSibling = 0`) and repairs the `prevSibling` of the
@@ -408,6 +423,10 @@ not desync the session.
 
 Scroll is phase 2 only: it is viewport state, not replicated table state, and is therefore excluded
 from `tableHash`.
+
+**`0x83 DOC_ATTACH`** — `hostId: u32, childDocumentId: u32` · **do not implement for OPEN-6.** Earlier join/router draft. Nested id is the parent `hosts` map, filled from host `NODE_NEW`. [multi-document.md](multi-document.md).
+
+**`0x84 DOC_DETACH`** — `hostId: u32` · **same — do not implement for OPEN-6.** Teardown is host `REMOVE` / inner realm gone.
 
 ### 4.6 CSSOM
 
@@ -682,7 +701,10 @@ response to anything, it is the one unconditional call every session makes befor
    same way, using "still adopted" in place of `isConnected`.
 3. **Pass 2 — topology.** Iterate the identity map again. For each surviving id, read the node's
    **native** `childNodes` (or, for CSSOM, the sheet's native rule list / the adoption order) and emit
-   `INSERT(parent: thisId, before: 0, ids: [childId, ...])` in that native order. **Do not** maintain a
+   `INSERT(parent: thisId, before: 0, ids: [childId, ...])` in that native order. **Shadow (designed):**
+   for each `ELEMENT` with `.shadowRoot`, pass 1 has `NODE_NEW` the `SHADOW_ROOT`; pass 2 `INSERT`s
+   `shadowRoot.childNodes` under that root id — never `INSERT`s the root under the host.
+   **Do not** maintain a
    parallel child-list structure on the producer for this — the Virtual DOM's own topology is already
    correct and free to read; duplicating it in JS would cost every ordinary frame (`splice`/`indexOf` on
    every structural mutation) to save time on an event that is rare by construction. This is a
@@ -708,7 +730,8 @@ the identity map — `byNode`/`byKey` reset to empty, **`generation` is not touc
 anchor); (c) one synchronous recursive walk of `document`'s live tree (`node.childNodes`, depth-first —
 this is the one place in the whole design that *is* a DOM walk, precisely because there is not yet a map
 to iterate instead), calling `identity.allocate(node)` for every connected `ELEMENT`/`TEXT`/`COMMENT`/
-`DOCTYPE` node so each gets a fresh id; (d) call `emitResyncFrame` — steps 2–5 above, unchanged — against
+`DOCTYPE` node so each gets a fresh id, and for each host with `.shadowRoot` allocate the `SHADOW_ROOT`
+then walk that root the same way ([shadow.md](shadow.md)); (d) call `emitResyncFrame` — steps 2–5 above, unchanged — against
 the now-populated map. Step (c)'s walk order does not need to match final sibling order; `emitResyncFrame`
 pass 2 reads live `childNodes` directly and is order-independent over how pass (c) happened to discover
 ids. **Bootstrap-specific step (not part of `resyncVirtual` itself):** the mutation buffer accumulated
@@ -892,7 +915,8 @@ Every catalogued failure carries `errorCode` + `phase` + `sequence`
 
 **Current `version`:** `2` (2026-08-17). `NODE_NEW` Element gained `ns: u8` (+ `uri: StrRef` only when
 `custom`). Version 1 peers desync. No shim. Adding `0x63 PROP_SET` (reserved range, new opcode) does
-**not** bump the version.
+**not** bump the version. Adding `SHADOW_ROOT` kind `7` (designed, not shipped) does **not** bump the
+version — header layout unchanged. Unknown kind remains `malformed`. Header `contextId` is version **3** (OPEN-6, not shipped).
 
 ---
 
@@ -905,7 +929,7 @@ Every catalogued failure carries `errorCode` + `phase` + `sequence`
 | **OPEN-3** | `CHECK.scope` granularity | **CLOSED 2026-08-17** — id ranges (§4.1). Subtree hashes rejected (change would propagate to the root). |
 | **OPEN-4** | ~~Establish: `EST_CHUNK_HTML` or `EST_TABLE`?~~ | **CLOSED — moot.** Establish does not exist (§4.7). There is nothing left to choose between. |
 | **OPEN-5** | ~~Recovery flow: mid-session attach + desync resync~~ | **CLOSED — see §5.8.** One mechanism (identity-map two-pass reconstruction, existing opcodes, existing double-buffer surface) covers both triggers. Residual non-blocking follow-ups listed at the end of §5.8 (old contract rewrites, a synchronous-walk budget number, test-matrix rows). |
-| **OPEN-6** | **Reframed 2026-08-13 — Multi-document / nested-documents** (was: pierce `isConnected` is per-document) | **Pinned for lab; production cutover blocker (ruling 2026-08-14).** The 2026-08-13 “not blocking a first implementation” applied to **lab DOM-table core only**. Live must not switch without per-document streams. Originally scoped narrowly to `isConnected` needing to walk the pierce-host chain (still true — see below). Widened after the atomicity discussion in §5.8: a pierced cross-origin iframe is a *separate document on a separate thread/process*; there is no way to read its DOM and the top document's DOM as one atomic synchronous snapshot (§5.8 "Atomicity"), because the single-threaded-JS guarantee that makes a synchronous walk torn-read-free stops at the process boundary. Trying to fold a pierced document into the *same* flat id space / *same* single Frame is the "condense reality into one box" move this repo's no-ad-hoc rule forbids — it would either be false (claiming atomicity that cannot exist) or require inventing a cross-process lock, which is its own new, unbounded problem. **The only non-ad-hoc resolution is to make the protocol reflect the multi-document reality it is mirroring, not hide it:** model each pierced document as its own independently-sequenced stream (own `generation`/`sequence` counters, own identity-id space, own `resyncVirtual`/`emitResyncFrame`), with an explicit host-element ↔ child-document attachment/detachment relationship carried in the *parent* document's stream, and no attempt at a single composite atomic frame spanning documents. This is not a compromise against K4/1:1-parity: a real browser has exactly the same lack of cross-frame atomicity between a page and a cross-origin iframe's internal repaints, so per-document independent consistency *is* the faithful model, not an approximation of one. Concretely deferred in **lab** until the core algorithm (§5, DOM-only, single document) is implemented and measured: (1) a `documentId`/realm-scoping dimension in the wire header, distinct from node ids; (2) per-document `generation`/`sequence`; (3) attach/detach opcodes or fields linking a host element id (in one document's space) to a child document's stream; (4) a client registry scoped per document instead of one flat `Map<u32, Node>`; (5) the original narrower point — `isConnected` walking the pierce-host chain rather than being called in isolation once documents are actually nested. Revisit for **product completeness before production cutover** ([roadmap.md](roadmap.md)), not as an M2 add-on. |
+| **OPEN-6** | Multi-document | **Design in progress — [multi-document.md](multi-document.md).** Context + parent `hosts` map; header `contextId`; nav/reinstall same id. ISA / ports / bus impl OPEN. |
 | **OPEN-7** | ~~`ReplicatedTable.insertBatch` reverse `nextSiblingOf` on insert-before-existing~~ | **CLOSED 2026-08-14.** `insertBatch` now sets `nextSiblingOf.set(prev, before)` when `before !== NONE` (same reverse write `linkAfter` already did). Falsifier: `INSERT(P, before=X, [A,L]); REMOVE(P,[L])` ⇒ `getRow(X).prevSibling === id(A)` — `testReplicatedTableInsertBeforeNextSiblingRepair` in `Refactor/sidecar/unit.ts`. Historical defect write-up remains in the 2026-08-14 “not fixed this pass” decision-log row below. **Does not cover prepend+tail-evict** — that is OPEN-8. |
 | **OPEN-8** | ~~`unlink` of the last child leaves `nextSiblingOf[prev]` → id~~ | **CLOSED 2026-08-14.** Derived `nextSiblingOf[prevLast]` still pointed at the removed last child. The next tail `REMOVE` took the “has next” branch (the next row still exists, now detached) and skipped `lastChildOf`. `orderedChildIds` then started at a detached id with `prevSibling=0` → walk length 1 vs hundreds hashed/live. O2 on `prepend-stress.html` (2026-08-14T19-30, seq 695, `#19 child_order_mismatch`). Wire `preTableHash` green (derived links not hashed — P0). Falsifier: `testReplicatedTablePrependEvictDerivedLinks` in `unit.ts`. Fix: `nextSiblingOf.delete(prev)` when unlinking the last child. Sibling of OPEN-7, not a reopen. |
 
@@ -961,3 +985,11 @@ Every catalogued failure carries `errorCode` + `phase` + `sequence`
 | 2026-08-18 | **PROP_SET form slice** — index at resync/MO; sample every frame; emit on change; `VALUE`/`CHECKED`/`SELECTED` only. Not CSSOM idle. DOM 1:1. |
 | 2026-08-18 | **PROP_SET dirty is phase 2 only** — table/`CHECK`/`preTableHash` always take the op. Live `.value` may lag while the user types. Not a desync. Caret (`PP-IN-2`) stays WP10. |
 | 2026-08-18 | **SEAL-DOM-P1-PROP closed** — units `testPropSetWire`, `testPropSetTableAndCheck`, `testFormPropDirtyDoesNotBlockTable`; lab `forms-state` (`iso.formProps`). |
+| 2026-08-18 | **C5 = in-page poll** — write-path hooks rejected as detector (antibot). Relocks cssom.md C5. Nested inners stay in grouping `cssText`; own-row walk is a future opt, not a protocol hole. |
+| 2026-08-18 | **OPEN-6 designed** — N algorithm instances; one `DataPlane`; `documentId` on plane envelope v2; client slot map O(1); `DOC_ATTACH`/`DOC_DETACH`. Not pierce. [multi-document.md](multi-document.md). |
+| 2026-08-18 | **OPEN-6 correction** — DataPlane does **not** track documents. `documentId` is PP header v3. Both sides keep a document table → host/root node. Envelope unchanged. |
+| 2026-08-18 | **OPEN-6 machine** — no session document table. Root `documentId=1`. Parent mints nested `D` onto host `hostedDocumentId`. Child queries. Nav remints. `DOC_ATTACH` stays unimplemented. |
+| 2026-08-18 | **OPEN-6 context** — id names the projection context (one tree), not a Document. Parent `hosts: Map<nodeId, contextId>` (not the page, not a row column). Nav / blank `load` = reinstall, same id. Header field `contextId`. |
+| 2026-08-18 | **Shadow `SHADOW_ROOT` kind 7** — designed, not shipped. Real `attachShadow`; not light child; INSERT parent may be the root; `NODE_META` shadow flags superseded. Version stays 2. [shadow.md](shadow.md). |
+| 2026-08-18 | **Shadow initFlags** — `delegatesFocus` / `clonable` / `serializable` on `NODE_NEW SHADOW_ROOT`. Manual slot NIT. |
+| 2026-08-18 | **Shadow design complete for impl plan** — no INSERT/REMOVE of the root row; per-root MO same buffer; O2 enters shadow; CSSOM poll extends to admitted roots. |

@@ -6,14 +6,14 @@
 
 ```text
 V4 lab (DOM table, single document, no production)
-  → product-complete in lab (CSSOM + nested/multidocs + redesigned input)
+  → product-complete in lab (CSSOM + shadow + nested/multidocs + redesigned input)
     → canvas projection (last product feature)
       → M1 production cutover (only then)
         → M2 Debug on real sites
           → M3 Optimize / honest 1:1 accept
 ```
 
-**Production cutover law (2026-08-14, Rodrigo; canvas 2026-08-16):** Live is **not** switched until the **full product** exists in the V4 engine — including **CSSOM**, **nested / multi-document** (OPEN-6), **input redesigned** (current [input.md](input.md) is the V1 contract; it needs a redesign pass, not T11 rename-only), and **`<canvas>` content projection** (last product feature before Integration — not a seal-gap row; see gate below). A DOM-only, single-document, no-input lab is **not** M1. Do not cut over a subset and “finish CSSOM/iframes/input/canvas in M2.”
+**Production cutover law (2026-08-14, Rodrigo; canvas 2026-08-16; subtrees 2026-08-18):** Live is **not** switched until the **full product** exists in the V4 engine — including **CSSOM**, **shadow**, **nested / multi-document** (OPEN-6), **input redesigned** (current [input.md](input.md) is the V1 contract; it needs a redesign pass, not T11 rename-only), and **`<canvas>` content projection** (last product feature before Integration — not a seal-gap row; see gate below). A DOM-only, single-document, no-input lab is **not** M1. Do not cut over a subset and “finish CSSOM/iframes/input/canvas in M2.”
 
 **`V4ProjectionBrowserSession` (2026-08-14):** lab-only **stand-in** for the live `BrowserSession`. At cutover it **replaces** `PatchrightBrowserSession` (that name may go away; one Chromium path). The class is **temporary**; the **contract is not**. It MUST implement every capability `BrowserSession` already exposes for Live (input, cookies, eval, resize, permissions, probes, …) **in V4 terms** — not by keeping `LivePageProjection` / DomMap. Incomplete stubs fail cutover. Not “preserve legado”; **não chegar incompleto**.
 
@@ -26,10 +26,10 @@ V4 lab (DOM table, single document, no production)
 | Piece | Status |
 |-------|--------|
 | V4 protocol spec | **In force** — [frame-protocol.md](frame-protocol.md) |
-| Lab engine `Refactor/sidecar/browser/mirror/projection/` | **DONE** for **DOM table, single document**, Stages 1–4, plus lab CSSOM for constructed `adoptedStyleSheets` + `CSSStyleRule`, plus form `PROP_SET` (`VALUE` / `CHECKED` / `SELECTED`). Caller of `V4ProjectionBrowserSession` (**temporary** until cutover). CLI `--iso`: O2 local + Node table×table + CSSOM O2. Tree×tree = lab UI with a DOM client. **Not** OPEN-6. **Not** input. **Not** canvas. SVG namespace closed 2026-08-17. Form `PROP_SET` closed 2026-08-18. Next lab work: **shadow / pierce** ([seal-gaps.md](seal-gaps.md) **SEAL-DOM-P1-SHADOW**). |
+| V4 algorithm `Refactor/sidecar/browser/mirror/projection/` (not `lab/`) | **DONE** for **DOM table, single document**, plus CSSOM for constructed `adoptedStyleSheets` + `CSSStyleRule`, plus form `PROP_SET`. Lab is a **caller**. CLI `--iso`: O2 local + Node table×table + CSSOM O2. Tree×tree = lab UI with a DOM client. Off-tree kinds **LOCKED** ([subtrees.md](subtrees.md)). Next: **shadow** ([shadow.md](shadow.md)). OPEN-6 after that ([multi-document.md](multi-document.md)). **Not** input. **Not** canvas. |
 | Lab host/UI | **Shipped** 2026-08-16 — [lab-design.md](lab-design.md). UI **http://127.0.0.1:4077/**. |
 | Production path `PatchrightBrowserSession.ts` | **Legacy** `LivePageProjection` — **must stay** until the cutover law above is met |
-| M1 overall | **Blocked** on product-complete lab (CSSOM + OPEN-6 + input redesign + **canvas projection**) **then** Production Integration |
+| M1 overall | **Blocked** on product-complete lab (CSSOM + shadow + OPEN-6 + input redesign + **canvas projection**) **then** Production Integration |
 | M2 / M3 | Blocked on M1 cutover |
 
 ---
@@ -43,30 +43,32 @@ Lab DOM-table core is **not** a cutover license. Close the **product** before sw
 | 1 | OPEN-7 `insertBatch` reverse link | BUG | **DONE** | `unit.ts` `testReplicatedTableInsertBeforeNextSiblingRepair`. |
 | 2 | O2 local: Virtual table × Virtual live DOM (+ `takeRecords`, OPEN-8) | O2 | **DONE** for DOM table | CLI `--iso` + Node table×table. Tree×tree = lab UI with DOM client (human OK 2026-08-17 on `apply-attrs` / `soak`). |
 | 3 | **CSSOM plane in the V4 engine** | Product | **YES** for Live | Lab: constructed adopted + `CSSStyleRule` shipped. Cutover still needs the **full** plane on the live path ([cssom.md](cssom.md)) — not “DOM-only Live.” |
-| 4 | **OPEN-6 nested / multi-document** | Product | **YES** | Per-document streams. **Not** pinned past cutover. Lab may stay single-doc until this gate. |
-| 5 | **Input redesign** | Product | **YES** | [input.md](input.md) V1 contract is **not** sufficient to ship. Redesign, then implement. Rename-only (T11) is not the gate. |
-| 6 | **`<canvas>` projection** | Product | **YES** — **last feature before Integration** | Project canvas **bitmap/content** (not element-only / not placeholder-forever). Design + implement + effect asserts before gate 8. Until then: box + `CANVAS_PLACEHOLDER` only ([support-matrix.md](support-matrix.md)). **Not** a [seal-gaps.md](seal-gaps.md) row. |
-| 7 | Rule E-03 / E-08 | RULING | **DECIDED** | **Reject CSP/PNA punch.** Do not rewrite `connect-src`/`script-src` to `*` to unblock loopback WS — that *is* an antibot signal. Page must not `connect()` for frames. Next: CDP/hub data plane (page CSP unchanged). Lab WS = synthetic fixtures only. |
-| 8 | Archive pack fate | Hygiene | No | Already under `archive/`. |
-| 9 | **Production Integration** | M1 exit | **YES** — **last** | Only after 3–7 **and** a complete `BrowserSession` (see V4 session law). Wire V4 as the **only** live path; **delete** `LivePageProjection` / dual factory the same day. `web/` two-phase apply (DOM+CSSOM); MotorAssert on that path. |
-| 10 | Test-matrix / MotorAssert vs opcodes | Tests | With 9 | [test-matrix.md](test-matrix.md) |
-| 11 | `resyncVirtual` walk budget at `MAX_ROWS` | Budget | Before huge-table walk rebuild | Mid-session recovery today is `emitResyncFrame` only. |
+| 4 | **Shadow DOM** | Product | **YES** | Feature 1 of [subtrees.md](subtrees.md). Same instance; walker follows `.shadowRoot`. Spec: [shadow.md](shadow.md). **Before** OPEN-6. |
+| 5 | **OPEN-6 nested browsing contexts** | Product | **YES** | Feature 2 of [subtrees.md](subtrees.md). Design in [multi-document.md](multi-document.md). N contexts; `contextId` on PP header; parent `hosts` map. DataPlane is a dumb mux. ISA not shipped. |
+| 6 | **Input redesign** | Product | **YES** | [input.md](input.md) V1 contract is **not** sufficient to ship. Redesign, then implement. Rename-only (T11) is not the gate. |
+| 7 | **`<canvas>` projection** | Product | **YES** — **last feature before Integration** | Project canvas **bitmap/content** (not element-only / not placeholder-forever). Design + implement + effect asserts before gate 10. Until then: box + `CANVAS_PLACEHOLDER` only ([support-matrix.md](support-matrix.md)). **Not** a [seal-gaps.md](seal-gaps.md) row. |
+| 8 | Rule E-03 / E-08 | RULING | **DECIDED** | **Reject CSP/PNA punch.** Do not rewrite `connect-src`/`script-src` to `*` to unblock loopback WS — that *is* an antibot signal. Page must not `connect()` for frames. Next: CDP/hub data plane (page CSP unchanged). Lab WS = synthetic fixtures only. |
+| 9 | Archive pack fate | Hygiene | No | Already under `archive/`. |
+| 10 | **Production Integration** | M1 exit | **YES** — **last** | Only after 3–8 **and** a complete `BrowserSession` (see V4 session law). Wire V4 as the **only** live path; **delete** `LivePageProjection` / dual factory the same day. `web/` two-phase apply (DOM+CSSOM); MotorAssert on that path. |
+| 11 | Test-matrix / MotorAssert vs opcodes | Tests | With 10 | [test-matrix.md](test-matrix.md) |
+| 12 | `resyncVirtual` walk budget at `MAX_ROWS` | Budget | Before huge-table walk rebuild | Mid-session recovery today is `emitResyncFrame` only. |
 
-1–2 lab DOM table; 3–6 **product completeness** (cutover law; canvas = last feature); 7–8 rulings/hygiene; 9–11 switch Live.
+1–2 lab DOM table; 3–7 **product completeness** (cutover law; canvas = last feature); 8–9 rulings/hygiene; 10–12 switch Live.
 
 ---
 
 ## M1 — Implementation completeness
 
-**Means:** the **full** V4 product is the **only** live path (DOM + CSSOM + nested docs + redesigned input + **canvas content projection**); dual paths gone; units/builds green; specs match behaviour.  
+**Means:** the **full** V4 product is the **only** live path (DOM + CSSOM + shadow + nested docs + redesigned input + **canvas content projection**); dual paths gone; units/builds green; specs match behaviour.  
 **Does not mean:** sites already look 1:1 (that is M3). **Does not mean:** lab DOM-table Stages 1–4.
 
 Exit:
 
 - Live path: in-page encode → opaque relay → client two-phase apply for **DOM and CSSOM**
+- Shadow walk (same instance) on that path
 - Nested/multi-document protocol (OPEN-6) on that path
 - Redesigned input implemented (not the unrevised V1 `input.md` as-is)
-- Canvas bitmap/content projection implemented (gate 6) — not placeholder-only forever
+- Canvas bitmap/content projection implemented (gate 7) — not placeholder-only forever
 - No JSON tree ferry on the frame path
 - Sidecar composition: one factory — the V4 `BrowserSession` covering the **full** [BrowserSession](../../../Refactor/sidecar/browser/BrowserSession.ts) surface (not a projection-only subset)
 - Spec MDs updated in lockstep

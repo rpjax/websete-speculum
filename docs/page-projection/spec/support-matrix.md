@@ -3,7 +3,7 @@
 **Status:** published accepted gaps (K1/K5 consequences). Canon: [budgets.md](budgets.md) K1–K5,
 [acceptance.md](acceptance.md). Index: [README.md](README.md).
 
-**Position (2026-08-14; canvas 2026-08-16):** V4 lab engine exists (DOM table, single document). **Production cutover is forbidden** until CSSOM + OPEN-6 + redesigned input + **canvas projection** exist — [roadmap.md](roadmap.md) (canvas = **last product feature** before Integration). Iframes/pierce are **OPEN-6** (cutover blocker), not an accepted gap.
+**Position (2026-08-14; canvas 2026-08-16; subtrees 2026-08-18):** V4 lab engine exists (DOM table, single document). **Production cutover is forbidden** until CSSOM + shadow + OPEN-6 + redesigned input + **canvas projection** exist — [roadmap.md](roadmap.md) (canvas = **last product feature** before Integration). Nested browsing contexts are **OPEN-6** (cutover blocker), not an accepted gap. Shadow is feature 1 of [subtrees.md](subtrees.md).
 
 An accepted gap that is not published here is a bug. K1 (indistinguishable UX by design intent) and K5
 (no page JavaScript on the Projected surface, ever) make some browser features structurally

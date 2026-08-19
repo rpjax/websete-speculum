@@ -1,8 +1,8 @@
 # PageProjection — CSSOM sensor journey (rulings)
 
-**Status:** sealed narrative (2026-08-15). Why the CSSOM detector exists in this shape.  
+**Status:** sealed narrative (2026-08-15); C5 relocked to poll 2026-08-18. Why the CSSOM detector exists in this shape.  
 **Law of the walk:** [cssom-poll-algorithm.md](cssom-poll-algorithm.md) (I1–I11).  
-**Accept split:** [acceptance.md](acceptance.md). **Plane contract:** [cssom.md](cssom.md) (C5 not relocked).  
+**Accept split:** [acceptance.md](acceptance.md). **Plane contract:** [cssom.md](cssom.md) (C5 = this poll).  
 This file does not license ad-hoc, skip-serialize-as-truth, or declaring site accept from `cssomPoll`.
 
 The rest of PageProjection (table, pipe, resync strengths, two-phase apply) was already answered
@@ -75,7 +75,7 @@ engine premises**.
 
 | Mechanism | Why it is not the detector |
 |-----------|----------------------------|
-| Prototype / write-path **hooks** as lab truth | Fragile; **antibot-detectable**. C5 remains LOCKED on paper for product hooks; the **lab sensor** is the in-page poll until Rodrigo relocks C5. Hooks are not how we *prove* completeness. |
+| Prototype / write-path **hooks** as detector | Fragile; **antibot-detectable**. **Rejected 2026-08-18.** Not the product sensor. Not a second completeness path. |
 | **CDP CSS domain** dirty bit | Not a self-contained page script; couples the walk to the host session; already rejected (“CDP-dirty we will not use”). Inject stays CDP **init script**; data plane is not page WebSocket (E-03/E-08). |
 | Length-only / `<style>.textContent` as content | Misses `insertRule` / in-place `rule.style`. May be an amortization **hint**, never the complete signal. |
 | Full-sheet rewrite / `SHEET_DROP` of a live sheet | Forbidden by C3.1 when we emit. |
@@ -113,17 +113,17 @@ became accept.” Settle still requires applied CSS. Establish/resync still comp
 | Resync | Always whole system; blocking CSSOM scan; no per-rule resync frame |
 | Snapshot | Tunable CSSOM (`none` / `committed` / `scan`); lab iso default `none` |
 | Layers | `resync.ts` / `snapshot.ts` use cases; `CssomPlane`; `frame/` is pipe; `dom/` / `cssom/` planes |
-| C5 / CDP | Not relocked; no CDP CSS in the walk |
+| C5 / CDP | Poll is the sensor (2026-08-18); no CDP CSS in the walk |
 | I3 | Topological copy atomic; hash the copy in idle batches; slot skip vs mass abort; live in lab |
 | Amortizations | Annotated for later (e.g. GC-like generations). Not the detector. After I3 + numbers |
-| Wire | §4.6 `0xA0–0xA5` on the wire; phase 1 table; C6 owned apply not this cut; C5 unchanged |
+| Wire | §4.6 `0xA0–0xA5` on the wire; phase 1 table; C6 owned apply not this cut |
 
 ---
 
 ## Chronology (lab, 2026-08-15)
 
 1. DOM table (single document) treated as done for lab; next gate CSSOM.  
-2. Poll specified worst-case-first; C5 not relocked; no CDP dirty.  
+2. Poll specified worst-case-first; no CDP dirty. Paper still said hooks until 2026-08-18.  
 3. Idle + next-boundary attach; folder split (CSSOM out of DOM builders).  
 4. Yield-per-rule on the **live** list rejected (torn epoch) → copy refs, hash the copy, stale skip,
    mass abort.  
@@ -131,6 +131,7 @@ became accept.” Settle still requires applied CSS. Establish/resync still comp
 6. Idle starvation: degrade us, not the page.  
 7. Accept split: perceived CSSOM live 1:1; synthetic churn is not a 60 Hz CSSOM defect.  
 8. Amortizations (including hot/cold generations) recorded as **practice intelligence**, not a second
-   sensor.
+   sensor.  
+9. **2026-08-18:** C5 relocked to this poll. Nested inners stay in grouping `cssText` (own rows = later opt).
 
 Index: [decision-log.md](decision-log.md). Algorithm: [cssom-poll-algorithm.md](cssom-poll-algorithm.md).

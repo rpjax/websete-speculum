@@ -8,8 +8,8 @@
 > frame as DOM (`NODE_NEW`/`INSERT` for sheets/rules + CHECK). Index: [README.md](README.md).
 
 **Status:** **SEALED design** — CSSOM plane + PageProjection naming (C0–C9, C3.1).  
-**Lab (2026-08-17):** constructed sheets on `adoptedStyleSheets` + top-level `CSSStyleRule` are on the wire and applied. Pierce / nested / Live cutover still open.  
-**Live cutover** still requires CSSOM on the production path ([roadmap.md](roadmap.md) CUTOVER-FULL). Do not switch Live to V4 without that. T11 rename is part of that work, not a license to ship DOM-only.  
+**Engine (2026-08-18):** constructed sheets on `adoptedStyleSheets` + top-level `CSSStyleRule` on the wire and applied. Sensor = in-page **poll** (C5). Nested inners ride grouping `cssText` (C3.2). Child-document CSSOM is OPEN-6 (that instance), not a hole in this poll.  
+**Live cutover** still requires this plane on the production path ([roadmap.md](roadmap.md) CUTOVER-FULL). Do not switch Live to V4 without that. T11 rename is part of that work, not a license to ship DOM-only.  
 **Dom plane (sealed):** [frame-protocol.md](frame-protocol.md)
 
 **Purpose of this file**
@@ -23,7 +23,7 @@
 **How to use**
 
 - Sections marked **LOCKED** are the sealed CSSOM / naming contract.  
-- Behaviour is **design complete** — **implement** sheet/rule materialize in the V4 lab/engine **before** production cutover. T11 rename rides that work. Do not reopen C0–C9 here.  
+- Lab already materializes constructed / `adoptedStyleSheets` + top-level `CSSStyleRule`. Live cutover still waits T11. Do not reopen C0–C9 here.  
 - If a change would alter sealed DOM-plane behaviour, reopen that doc
   explicitly.
 
@@ -62,8 +62,9 @@ effects.
 | C2 | Address model (sheet / rule / declaration) | **LOCKED** — WeakMap ids; `CssomSelector` by id |
 | C3 | Operation vocabulary + exclusive payloads | **LOCKED** — install \| sheetList \| ruleList \| patch |
 | C3.1 | Granularity / anti-flicker | **LOCKED** — smallest op; full reload only install/resync/host-kill |
+| C3.2 | Nested rules | **LOCKED** — top-level rows; grouping `cssText` includes inners; own-row walk = future opt |
 | C4 | Install / establish snapshot (all sheets vs per sheet) | **LOCKED** — rare install + sheetList mid-epoch |
-| C5 | Observe → emit (what sensors; atom size) | **LOCKED** — write-path hooks; list-op atoms; DOM/CSSOM boundary |
+| C5 | Observe → emit (what sensors; atom size) | **LOCKED** — in-page poll (canonical 2026-08-18); list-op atoms; DOM/CSSOM boundary |
 | C6 | Projected apply | **LOCKED** — Speculum-owned CSSOM + id Map; no live URL reload |
 | C7 | Pierce (CSSOM inside iframe / shadow) | **LOCKED** — scoped sheets; host kill ⇒ CSSOM kill; auto init |
 | C8 | Resync / desync interaction with DOM resync | **LOCKED** — one desync; joint OOB install |
@@ -192,8 +193,9 @@ added:   [ { index, rule } … ]   // rule carries Speculum id + body
   (`cssText` vs selectorText+declarations map) is impl, as long as it does
   not delete+reinsert that style rule. Grouping-rule content change is `ruleList`
   drop+new at emit time, not a hidden replace inside `RULE_SET`.  
-- Nested structural edits: `ruleList` on the owning sheet (or grouping
-  rule’s child list if sensors require — still list-op, not parent `patch`).
+- Nested inners are not table rows (C3.2). Inner change = grouping content change
+  → C3.1 `RULE_DROP`+`RULE_NEW` of that grouping row. Own child-list on a grouping
+  rule = future opt, not parent `patch`.
 
 ### Rejected
 
@@ -253,6 +255,16 @@ ops that tear down more CSSOM than necessary — that is what causes flicker.
 
 ---
 
+## C3.2 Nested rules — top-level rows (canonical); own-row walk is future opt
+
+**Canonical (2026-08-18, matches lab emit):** only **top-level** `sheet.cssRules` are table rows. A grouping rule (`@media`, `@supports`, …) stores nested inners in its `cssText`. Completeness does **not** require a nested walk.
+
+Inner change → grouping content change → C3.1 / I11: `RULE_DROP` + `RULE_NEW` of that grouping row (not `RULE_SET` on a child that has no row).
+
+**Future optimization (experimental, not a seal hole):** give nested rules their own table ids so an inner declaration can `RULE_SET` without replacing the grouping row. Finer paint, not a new detector. Do not treat the absence of nested rows as unfinished CSSOM.
+
+---
+
 ## C4 — LOCKED: Install is rare; mid-epoch uses `sheetList`
 
 **LOCKED (2026-08-06)**
@@ -273,16 +285,15 @@ ops that tear down more CSSOM than necessary — that is what causes flicker.
 
 ## C5 — LOCKED: Observe → emit
 
-**LOCKED (2026-08-06)** — lab poll sensor design is [cssom-poll-algorithm.md](cssom-poll-algorithm.md)
-and **does not** change this lock until Rodrigo relocks C5.
+**LOCKED (2026-08-06 atoms / boundary; sensor relocked 2026-08-18).**  
+Walk: [cssom-poll-algorithm.md](cssom-poll-algorithm.md). Why poll, not hooks: [cssom-sensor-journey.md](cssom-sensor-journey.md).
 
-1. **Primary sensor:** write-path hooks on Virtual CSSOM mutators
-   (`insertRule`, `deleteRule`, `replace` / `replaceSync`, rule style /
-   `selectorText` writes, `adoptedStyleSheets` changes, and equivalents).
-   Not length-only polling / full-sheet hash as the correctness path.  
-2. **Atom:** one hooked coherent mutation → **one** envelope
+1. **Primary sensor (canonical):** in-page **poll** — classify readable sheets, identity, `cssText` on a topological copy, reconcile to last commit, attach ops on the next frame boundary. No CSSOM MutationObserver. Idle degrades with the page.  
+   **Write-path hooks** (`insertRule` wrappers, prototype patching) are **not** the detector — fragile and antibot-detectable. They are not a second completeness path.  
+   **CDP CSS domain** dirty bit is not the walk.  
+2. **Atom:** one coherent CSSOM change set from a committed poll → **one** envelope
    (`sheetList` | `ruleList` | `patch`). Multi-step structural change in one
-   turn is absorbed into list ops (DOM `childList` precedent) — not N solo
+   committed pass is absorbed into list ops (DOM `childList` precedent) — not N solo
    envelopes.  
 3. **Stamp before emit:** WeakMap ids for any new sheet/rule **before**
    payload build / `sequence++`.  
@@ -321,19 +332,20 @@ same op model as emit:
 
 ---
 
-## C7 — LOCKED: Pierce + style scope + host lifecycle
+## C7 — Style scope (historical pierce lock)
 
-**LOCKED (2026-08-06)**
+**LOCKED (2026-08-06) as anti-leak intent. Instance model superseded 2026-08-18:** iframe/child
+documents are **separate algorithm instances** ([multi-document.md](multi-document.md)). The parent
+does not walk `contentDocument`. Child CSSOM is that child’s poll + table (`scope = main` **in that
+document**). One WeakMap covering “main + all pierced” is **dead**.
 
-Flattened projected DOM would otherwise let iframe/shadow CSS leak into the
-parent. Sheets are **scoped**; host DOM lifecycle **owns** CSSOM teardown /
-bootstrap so new iframes work without a special snowflake path.
+Shadow CSSOM stays **this** instance (same document) when shadow ships — not OPEN-6.
 
-### Identity & chronology
+### Identity & chronology (within one instance)
 
-1. One WeakMap / client Map id space per `generation` (main + all pierced).  
-2. Shared `sequence` / `generation` with DOM (C1).  
-3. Cross-origin pierce: same Chromium-control doctrine as DOM F.
+1. One WeakMap / client Map id space per `generation` **in this document**.  
+2. Shared `sequence` / `generation` with DOM of **this** document (C1).  
+3. A child browsing context is another instance (OPEN-6), not a pierce into this map.
 
 ### Style scope (no leak)
 
@@ -469,8 +481,11 @@ T11 cutover (rename + new ops/planes together preferred).
 | 2026-08-06 | C3.1 | **LOCKED** anti-flicker granularity: smallest sufficient op; live=patch/ruleList/sheetList only; install/resync/host-kill only for full establish/teardown; replaceSync→ruleList only; patch apply in-place; no live full-text sheet rewrite. |
 | 2026-08-06 | Meta | **SEALED** CSSOM plane behaviour + PageProjection naming. No open CSSOM contract gaps; cutover = T11/T12 only. |
 | 2026-08-06 | Input | **LOCKED** E2E rename includes input (`PageProjectionIntent`); desync disarm is client-only — Virtual gets no desync signal; no input `resync` type. |
-| 2026-08-15 | C5 | **Unchanged.** Lab poll algorithm documented; not a C5 relock. |
+| 2026-08-15 | C5 | Lab poll algorithm documented; paper still said hooks (stale until 2026-08-18). |
 | 2026-08-16 | C3.1 | Grouping-rule content change (in-place patch cannot work): producer emits `RULE_DROP`+`RULE_NEW`, not `RULE_SET`. `CSSStyleRule` still in-place `RULE_SET`. Client does not hide replace inside `RULE_SET`. Rodrigo. |
+| 2026-08-18 | C5 | **Relocked.** Primary sensor = in-page poll. Write-path hooks rejected as detector (antibot). CDP CSS domain still out. Atoms / stamp / `replaceSync`→list / DOM×CSSOM boundary unchanged. |
+| 2026-08-18 | C3.2 | **Canonical:** top-level `cssRules` rows; nested inners in grouping `cssText`. Own-row nested walk = future optimization, not a seal hole. |
+| 2026-08-18 | C7 | Pierce-one-table superseded. Child browsing context = other algorithm instance. Sheet `scope` anti-leak stays inside one document. |
 
 ---
 
@@ -478,5 +493,6 @@ T11 cutover (rename + new ops/planes together preferred).
 
 - Interaction with virtual-assets rewrite volume.  
 - `@keyframes` / font-face / import rules as first-class vs opaque text.  
+- Nested rules as own table rows (C3.2 future opt).  
 - Computed style is **out** of PageProjection Dom-plane F (DOM D16) — stays out unless
   this track explicitly reopens with evidence of ghost desync.

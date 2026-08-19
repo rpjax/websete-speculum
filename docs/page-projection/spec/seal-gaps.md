@@ -45,13 +45,13 @@ Ids (`SEAL-*`) are stable cross-references. Kind (QA / gap / feature) is the wor
 
 Automated: CHECK by id range, live `CSSStyleRule` folds, detached-row GC — closed 2026-08-17 (archive).
 
-Until shadow/pierce ships (feature below), a closed-shadow fixture must **fail explicit unsupported**, never soft-skip.
+Until shadow ships (feature below), a closed-shadow fixture must **fail explicit unsupported**, never soft-skip.
 
 ---
 
 ## 2. Gaps (current path is wrong or unsealed)
 
-**Empty.** SVG namespace closed 2026-08-17. Form `PROP_SET` closed 2026-08-18. Next work is §3 (features) — shadow/pierce.
+**Empty.** SVG namespace closed 2026-08-17. Form `PROP_SET` closed 2026-08-18. Next work is §3 — **shadow** ([shadow.md](shadow.md); premise [subtrees.md](subtrees.md)).
 
 Honesty P0 for apply (flush-after-desync, failed `setAttribute`, phase-1 pres, `NODE_NEW` connected probe, `RULE_SET` on grouping, EOF rule membership, author vs adopted paint, doc/code alignment) is **closed** — archive at the bottom. UI desync proofs for attr / ruleset / eof: 2026-08-17.
 
@@ -65,19 +65,21 @@ Not gaps in `NODE_NEW` / `RULE_SET` / CHECK. These ops or walks **are not on the
 
 | Id | What to build | Assert | Status |
 |----|---------------|--------|--------|
-| **SEAL-DOM-P1-SHADOW** | Shadow trees on the publish walk (or pierce policy). Today the single-doc walk does not enter shadow. | Policy + probe: closed shadow either unsupported-fail or matches chosen pierce (**PP-F-3** / **PP-F-4**). | open |
+| **SEAL-DOM-P1-SHADOW** | Shadow: same instance; real `ShadowRoot`; kind `7`; observe admitted roots; discover `.shadowRoot` per tick. [shadow.md](shadow.md). | Open-shadow tree×tree **PP-F-3**. Closed: explicit unsupported (**PP-F-4** split). | open |
 | **SEAL-DOM-P2-ISA** | Remaining opcodes on the happy path: `NODE_META`, `DOC_STATE`, `SCROLL_*`, `NODE_SNAPSHOT`, related. | Per-opcode matrix (**PP-F-5**, **PP-EST-4**, **PP-MOVE-3**, **PP-D16-***) with **effect** probes — not “opcode exists”. | open |
-| **SEAL-DOM-P2-OPEN6** | Multi-document / nested documents (cross-origin iframes). Pinned in lab; production cutover blocker. | Per-document streams + pierce asserts (**PP-F-4**); fail unsupported until the protocol ships. | open |
+| **SEAL-DOM-P2-OPEN6** | Nested browsing contexts (feature 2, after shadow). N contexts; `contextId` on PP header; parent `hosts` map. Designed; not on the wire. | [multi-document.md](multi-document.md); **PP-F-4**; fail unsupported until shipped. | open |
 
 ### CSSOM
 
+Algorithm (poll + top-level serialize) is **closed**. Child-document CSSOM is OPEN-6 (that child’s instance), not a second CSSOM algorithm. Remaining CSSOM feature rows: child docs, scale, paint iso.
+
 | Id | What to build | Assert | Status |
 |----|---------------|--------|--------|
-| **SEAL-CSSOM-P2-PIERCE** | Iframe / shadow sheets (C7). Lab client desyncs pierce today. | OPEN-6 + **PP-F-4** / C7 asserts. | open |
-| **SEAL-CSSOM-P2-NESTED** | Nested rules as table rows vs grouping `cssText` only (I2). | Nested walk oracle + matrix row when the protocol chooses rows. | open |
-| **SEAL-CSSOM-P2-C5** | Write-path CSSOM hooks vs poll as the primary sensor — not relocked ([cssom-poll-algorithm.md](cssom-poll-algorithm.md)). | Ruling + sensor journey update; foundation settle asserts still hold. | open |
+| **SEAL-CSSOM-P2-PIERCE** | CSSOM of a **child document** — that instance’s poll + table. Parent does not walk `contentDocument`. | OPEN-6 + **PP-F-4**. | open |
 | **SEAL-CSSOM-P2-SCALE** | Scale amortizations (generations, skip-serialize, hints) after the path is correct. | Capacity in `perf.yml`; functional settle still fails on an incomplete sheet. | open |
 | **SEAL-CSSOM-P2-ISO** | Automated Projected CSS vs Virtual (beyond table×live). | New probe class; CLI `--iso` does **not** claim this today ([observability.md](observability.md)). | open |
+
+**Not a row:** nested rules as own table ids — future opt ([cssom.md](cssom.md) C3.2). Poll is the sensor ([cssom.md](cssom.md) C5).
 
 ### Product (not this file’s kill list)
 
@@ -91,7 +93,7 @@ Not gaps in `NODE_NEW` / `RULE_SET` / CHECK. These ops or walks **are not on the
 |------|------|--------|
 | **QA / tests** | 0 | Human looks + CHECK range + CSSStyleRule live + detached-row GC closed 2026-08-17 |
 | **Gaps** | 0 | SVG namespace closed 2026-08-17 |
-| **Features** | 8 ids | shadow, remaining ISA, multi-doc, pierce CSS, nested rows, C5, scale, CSS iso |
+| **Features** | 6 ids | shadow, remaining ISA, multi-doc, child-doc CSSOM, scale, CSS iso |
 
 Closed honesty + QA 2026-08-17: FLUSH, ATTR, PHASE1, PROBE, OPEN2, OPEN3, RULESET, DOUBLE, EOF, DOCS, STYLE, IDSPACE, OPEN-1, SVG.
 
@@ -144,3 +146,5 @@ Conditional scope at close: constructed sheets on `adoptedStyleSheets` + top-lev
 | **SEAL-CSSOM-P0-DOCS** | Comments claimed C6 phase-2 still no-op. | Docs + `opcodes.ts` match `client/applyDom.ts`. | **closed 2026-08-16** |
 | **SEAL-CSSOM-P1-STYLE** | In-scope `CSSStyleRule` live updates existed; fold could pass if snaps/op-windows were missing. | **PP-CSSOM-F-3..F-5**, **PP-CSSOM-H-1** (automated): `cssom-foundation` / `cssom-heavy` require named snaps + `ops.styleSet` / `ops.theme`; `cssomO2` mismatch fails. | **closed 2026-08-17** |
 | **SEAL-CSSOM-P1-IDSPACE** | Leftover Dom vs Cssom id ranges. | Units: `testSessionIdsSharedDomAndCssom`, `testCssomEncodeDecode` (sheet id 2). Bootstrap: `CssomIds(() => domNodes.mint())`. | **closed 2026-08-17** |
+| **SEAL-CSSOM-P2-C5** | Paper still said write-path hooks while the lab poll was the sensor. | Relock C5 to poll ([cssom.md](cssom.md), [cssom-poll-algorithm.md](cssom-poll-algorithm.md)). Hooks rejected (antibot). | **closed 2026-08-18** |
+| **SEAL-CSSOM-P2-NESTED** | Nested rules as own table rows treated as unfinished CSSOM. | Canonical: grouping `cssText` includes inners ([cssom.md](cssom.md) C3.2). Own rows = future opt. | **closed 2026-08-18** |

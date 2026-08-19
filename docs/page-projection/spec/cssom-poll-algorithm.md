@@ -1,9 +1,9 @@
 # PageProjection — CSSOM poll algorithm (lab design)
 
-**Status:** I3 walk + §4.6 ops on the wire (2026-08-15). **Does not relock [cssom.md](cssom.md) C5**
-until Rodrigo seals a sensor change. Phase 1 table applies `SHEET_*`/`RULE_*` so `CHECK` /
+**Status:** I3 walk + §4.6 ops on the wire. **This poll is [cssom.md](cssom.md) C5** (canonical
+2026-08-18). Phase 1 table applies `SHEET_*`/`RULE_*` so `CHECK` /
 `preTableHash` stay honest. **Lab C6 apply is shipped** for constructed / `adoptedStyleSheets` +
-`CSSStyleRule` (`client/applyDom.ts`); pierce still desyncs — seal gaps: [seal-gaps.md](seal-gaps.md).
+`CSSStyleRule` (`client/applyDom.ts`); pierce CSSOM waits OPEN-6 — [seal-gaps.md](seal-gaps.md).
 **Code (poll):** `Refactor/sidecar/browser/mirror/projection/virtual/cssom/` + attach at
 `virtual/frame/frameEmitter.ts`. **No CSSOM in `virtual/dom/` builders.** Idle hashes the **copy** in
 batches (`timeRemaining`); it does not iterate the live `cssRules` list across a yield.  
@@ -259,9 +259,10 @@ one committed pass may never project (CSSOM analogue of PP-FR-1, **poll-interval
 **Sensor** stays one in-page JS bundle. No CDP CSS-domain dirty bit in the walk (premise 6).
 Hints, if any, stay in that bundle — not host CDP inside the algorithm.
 
-Grouping `cssText` (I2 top-level only): an inner change re-hashes the grouping rule; when ops
-exist that is a coarser `RULE_SET` and **interacts with C3.1** (wider paint). Still open vs a
-nested walk.
+**Nested (C3.2, canonical):** serialize **top-level** `cssRules` only. Grouping `cssText` already
+includes inners. Inner change re-hashes the grouping row → I11 `RULE_DROP`+`RULE_NEW` of that
+grouping rule. Own-row nested walk is a **future optimization**, not a completeness hole.
+I2 (this file) still means a full readable scan of the **copy**, not “nested as rows.”
 
 ---
 
@@ -291,9 +292,8 @@ content walk** (I3); they do not license skip-serialize as completeness.
 
 ## Open (not decided here)
 
-- Relock C5 from write-path hooks to this poll as **primary sensor** — Rodrigo.
-- Nested-rule walk vs grouping `cssText` only (I2 today = top-level serialize; C3.1 if inner
-  change re-sets the grouping rule).
+Sensor (C5) and nested-as-rows (C3.2) are **closed** — see this file’s log 2026-08-18.
+
 - Lab O2-class CSSOM (table × Virtual live) exists: `flushAndSnapshot({ cssom: 'scan'|'committed' })`
   and `npm run lab:cssom-foundation`. Not a substitute for I1–I11; not automated Projected CSS iso
   ([seal-gaps.md](seal-gaps.md) **SEAL-CSSOM-P2-ISO**).
@@ -301,10 +301,8 @@ content walk** (I3); they do not license skip-serialize as completeness.
   or live `length` &lt; 0.1× / &gt; 2× copy.
 - Isolated CSSOM-CPU-per-pass at design load feeds **E6/E11**, not sealing the walk. Functional ≠
   perf.
-- Which amortizations ship first (generations / skip serialize / in-page hints) — after I3 exists
-  and there are numbers. None of them may hide a sheet that is still wrong **at settle**.
-- Remaining CSSOM **lab seal** honesty (RULE_SET verify, author vs adopted boundary, end-of-frame
-  rule check): [seal-gaps.md](seal-gaps.md) CSSOM P0.
+- Which amortizations ship first (generations / skip serialize / in-page hints) — [seal-gaps.md](seal-gaps.md)
+  **SEAL-CSSOM-P2-SCALE**. None of them may hide a sheet that is still wrong **at settle**.
 
 ---
 
@@ -318,3 +316,5 @@ content walk** (I3); they do not license skip-serialize as completeness.
 | 2026-08-15 | Layers: resync always both planes + blocking CSSOM scan; snapshot CSSOM tunable; §5.8 `resyncVirtual` = `rebuildAndResync`; idle degrades with the page; no CDP in the walk |
 | 2026-08-15 | Accept: DOM numerical 1:1; CSSOM live perceived/eventual; worst-case synthetic stresses the detector, not a 60 Hz CSSOM SLO |
 | 2026-08-16 | I11 | Grouping-rule content change → `RULE_DROP`+`RULE_NEW`; `CSSStyleRule` still `RULE_SET` |
+| 2026-08-18 | C5 | **This poll is the primary sensor.** Write-path hooks rejected (antibot). Relocks [cssom.md](cssom.md) C5. |
+| 2026-08-18 | C3.2 | Top-level serialize; grouping `cssText` includes inners. Nested-as-own-rows = future opt, not open. |

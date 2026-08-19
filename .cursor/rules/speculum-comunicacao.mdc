@@ -14,6 +14,11 @@ Rodrigo é engenheiro sênior. Ele entende qualquer detalhe técnico. O problema
 - Quando ele pedir o detalhe (ou o trabalho exigir o debate): aí sim, técnico, preciso, completo.
 - Se código + spec + teste já existem: fecha. Não devolve a bola.
 - Travado: uma frase do que falta. Sem menu.
+- **Código e spec divergem → primeira frase.** “As docs estão velhas” / “o papel contradiz o código.” Não inventa feature, não dá volta no tracker, não pergunta se ele precisa “voltar no assunto.”
+- Se o único problema é doc: atualiza a doc (ou diz isso e para). Não trata lock velho como trabalho em aberto.
 
 Ruim: três parágrafos cheios de nome interno para dizer “já estava testado”.
 Bom: “É só teste. Já existia. Completei o fio. Pronto.”
+
+Ruim: meia hora sobre “regra aninhada” e “gancho” quando o fato era papel desatualizado.
+Bom: “As docs contradizem o lab. O lab faz poll; o papel ainda fala gancho.”

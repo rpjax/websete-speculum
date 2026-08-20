@@ -22,6 +22,8 @@ The **lab is a caller**, not a second browser:
 
 A second in-page producer, a lab-owned Chromium, or a “bootstrap dump” to make hopdiag green is **ad-hoc** ([acceptance.md](acceptance.md) T3).
 
+The lab Projected **surface** iframe (4077 apply sandbox) is **not** a nested browsing context of the target. OPEN-6 `contextId` is for the site’s `iframe` / `frame` / `object` / `embed` — [multi-document.md](multi-document.md).
+
 ---
 
 ## 2. Three kinds of telemetry (do not collapse)
@@ -84,14 +86,18 @@ callback-fed `mutationBuffer` builds frame S from **stale delivered** records wh
 DOM → `child_order_mismatch` under churn that is **snapshot lag**, not proof of a table bug. Do **not**
 discard mid-churn O2 red as “torn read, ignore.”
 
-**Required** (`flushAndSnapshot` / `BrowserSession.flushProjectionSnapshot`):
+**Required** (coherent snapshot probe — per **context instance**, OPEN-6):
+
+**Sequence S is per `contextId`, not global.** Nested contexts have independent `generation` / `sequence` counters. A lab iso pass collects N snapshots at the same wall-clock moment; it does **not** align S across contexts.
+
+Per instance (Virtual: bus RPC `snapshot` where `contextId === mine`; see §10):
 
 1. `observer.takeRecords()` into the mutation buffer (undelivered queue).
-2. Drain the buffer and emit **frame S** (`flushNow` — same pull happens at the top of every tick).
-3. In the **same turn**, capture state bound to S: table digest, table×live-DOM oracle (O2 local; **Sheet/Rule rows are not DOM children**), optional CSSOM table×live (`cssom: 'committed' | 'scan'`), optional structural tree.
-4. Stop the producer clock so S+1 cannot publish before the client applies S.
-5. Apply S, then snapshot that apply’s table digest (+ tree if a DOM surface exists). CLI: Node `applyFrameToTableChecked` in the **caller** (not `IBrowserSession`, not a second tab). UI lab: browser apply at 4077. Tree is `skipped` without DOM apply. Node table×table is **not** Projected.
-6. Compare. Then `resumeProjectionWorld`.
+2. Drain the buffer and emit **frame S** for **that instance** (`flushNow`).
+3. In the **same turn**, capture state bound to that instance’s S: table digest, table×live-DOM oracle (O2 local; **Sheet/Rule rows are not DOM children**), optional CSSOM table×live (`cssom: 'committed' | 'scan'`), optional structural tree, `formProps`, `nodeNewConnected`.
+4. Stop **that instance’s** producer clock so S+1 cannot publish before the client applies S for that `contextId`.
+5. Client applies frames for that `contextId`, then lab `requestSnapshot(contextId)` returns that applier’s table digest (+ tree). CLI table apply for nested contexts is **skipped** unless explicitly extended — UI lab (4077) is the source of truth for Projected nested iso.
+6. Compare Virtual vs Projected **per contextId**. Then resume that instance’s clock (`resumeProjectionWorld` or per-instance resume inside the RPC).
 
 A snapshot is a **state snapshot**, not “a DOM dump.” Any indexer that must be true at S belongs on that object.
 Default Virtual `flushAndSnapshot` CSSOM mode is **`none`** (halt idle; DOM O2 is not delayed for a CSSOM scan). Pass `{ cssom: 'committed' | 'scan' }` when the probe needs CSSOM — [cssom-poll-algorithm.md](cssom-poll-algorithm.md) use cases. Resync is not a snapshot: it always blocking-scans CSSOM.
@@ -241,4 +247,20 @@ Lab `cssom-foundation` blueprint **observes** these events and folds at the end:
 whole run (cap on) may fail `sensor.idle`; it is not a mid-run gate. See [lab-design.md](lab-design.md).
 
 Algorithm (worst-case-first, I1–I11): [cssom-poll-algorithm.md](cssom-poll-algorithm.md).
+
+---
+
+## 10. Multi-context observability (OPEN-6)
+
+| Topic | Rule |
+|-------|------|
+| **Telemetry** | Every producer **and** client event (`frameEmitted`, `applyResult`, `desynced`, `cssomPoll`, resync lifecycle, …) carries **`contextId: u32`** (root = `1`). Lab validators treat missing `contextId` as malformed. Events remain **investigation only** — never iso pass/fail. Wire: **`TELEMETRY_WIRE_VERSION` 2**. |
+| **Nested producer** | Nested algorithm instances do **not** open the DataPlane. They emit loose **`telemetry`** on the postMessage bus; the **root runtime** fans out to `PlaneChannel.Telemetry`. |
+| **Snapshot probe** | Not “root-only `page.evaluate` on one table.” **Control RPC `snapshot`** on the bus: each instance runs coherent snapshot iff `contextId === mine`. Lab calls `snapshotAllKnown(contextIds)` — same wall-clock batch, **no** cross-context sequence sync. |
+| **Iso** | N pairwise comparisons (Virtual RPC payload ↔ lab client snapshot) per active `contextId`: digest, O2, CSSOM O2, `formProps`, optional tree. Root recursive tree remains an optional sanity check only. |
+| **Lab context index** | Lab-only registry of `contextId`s seen on the wire (`1` + every nested `≥ 2`). Not algorithm code, not client apply code. Persisted in dossier `journal/contexts.json`. |
+| **Wire invariants** | `FrameInvariantMonitor` **one per `contextId`** in lab chassis — never one monitor mixing streams from different contexts. |
+| **CPU Profiler** | CDP `Profiler` stays **one probe per tab** (renderer process). Do **not** claim per-`contextId` Profiler breakdown. Per-scope operational CPU comes from `buildMs` / `encodeMs` / `applyMs` on tagged telemetry events. Optional dossier field: `activeContextCount` at profile stop. |
+
+Code: `virtual/bus/projectionBus.ts` (telemetry loose + snapshot RPC), `lab/host/contextIndex.ts`, `lab/probes/isomorphism.ts` (N-way).
 

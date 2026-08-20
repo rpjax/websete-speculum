@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Same-origin iframe</title>
+    <style>
+      body { margin: 1.5rem; font-family: Georgia, serif; background: #f7f4ee; }
+      #state { margin: 0 0 8px; font: 14px/1.4 sans-serif; color: #432; }
+      iframe { width: 100%; height: 120px; border: 2px solid #432; background: #fff; }
+    </style>
+  </head>
+  <body>
+    <h1>Same-origin iframe</h1>
+    <p id="state">state: boot</p>
+    <iframe id="child" src="iframe-open-inner.html" title="nested-child"></iframe>
+    <p>
+      <button type="button" id="mutate">mutate</button>
+      <button type="button" id="drop-host">drop host</button>
+    </p>
+    <script>
+      const setState = (text) => {
+        const el = document.getElementById('state');
+        if (el) el.textContent = text;
+      };
+      const acts = {
+        mutate() {
+          const frame = document.getElementById('child');
+          const doc = frame && frame.contentDocument;
+          const label = doc && doc.getElementById('inner-label');
+          if (!label) return;
+          label.textContent = 'INNER-MUTATED';
+          label.style.cssText = 'background:#c6f5c6;padding:4px 8px;';
+          setState('state: mutated');
+        },
+        dropHost() {
+          document.getElementById('child')?.remove();
+          setState('state: host dropped');
+        },
+      };
+      document.getElementById('mutate').onclick = () => acts.mutate();
+      document.getElementById('drop-host').onclick = () => acts.dropHost();
+      window.__cssomLab = {
+        act(name) {
+          const fn = acts[name];
+          if (typeof fn !== 'function') return { ok: false, reason: 'unknown act ' + name };
+          fn();
+          return { ok: true, act: name };
+        },
+      };
+    </script>
+  </body>
+</html>

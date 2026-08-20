@@ -27,7 +27,12 @@ import {
 } from '../../../BrowserSession';
 import { buildConfigPreScript } from '../inject/buildConfigPreScript';
 import { loadInpageScript } from '../inject/loadInpageScript';
-import { captureVirtualSnapshot, coherentSnapshotExpression } from '../lab/probes/virtualSnapshot';
+import {
+  captureVirtualSnapshot,
+  loadSnapshotScriptForEvaluate,
+  snapshotAllContextsEvaluateExpression,
+  snapshotContextEvaluateExpression,
+} from '../lab/probes/virtualSnapshot';
 import { startCpuProfile, stopCpuProfile } from '../lab/probes/cpuProfile';
 import {
   isProjectionTelemetryMessage,
@@ -39,6 +44,7 @@ import type { TableLiveOracleResult } from '../models/tableLiveOracle';
 import type { CssomTableLiveOracleResult } from '../models/cssomTableLiveOracle';
 import type { FormControlSnap } from '../models/formControlSnap';
 import { PlaneChannel } from '../plane';
+import { peekFrameHeader } from '../models/decode';
 import { ProjectionDataPlaneHost } from './projectionDataPlaneHost';
 
 function chromeArgs(): string[] {
@@ -54,13 +60,6 @@ function chromeArgs(): string[] {
 export type V4ProjectionFactoryOptions = {
   headless: boolean;
 };
-
-function peekFrameHeader(buf: Uint8Array): { generation: number; sequence: number } | null {
-  if (buf.length < 12) return null;
-  const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
-  if (view.getUint16(0, true) !== 0x5050) return null;
-  return { generation: view.getUint32(4, true), sequence: view.getUint32(8, true) };
-}
 
 export class V4ProjectionBrowserSession implements BrowserSession {
   private open = false;
@@ -334,34 +333,105 @@ export class V4ProjectionBrowserSession implements BrowserSession {
     formProps?: FormControlSnap[];
     reason?: string;
   }> {
+    const single = await this.snapshotContext(1, opts);
+    if (!single.ok) return { ok: false, reason: single.reason };
+    const v = single.value!;
+    return {
+      ok: true,
+      generation: v.generation,
+      sequence: v.sequence,
+      tableSize: v.table.rowCount,
+      o2: v.o2,
+      table: v.table,
+      cssomO2: v.cssomO2,
+      nodeNewConnected: v.nodeNewConnected,
+      cascade: v.cascade,
+      formProps: v.formProps,
+      tree: v.tree,
+    };
+  }
+
+  async snapshotContext(
+    contextId: number,
+    opts?: {
+      includeTree?: boolean;
+      cssom?: 'none' | 'committed' | 'scan';
+    },
+  ): Promise<
+    | {
+        ok: true;
+        value: {
+          contextId: number;
+          generation: number;
+          sequence: number;
+          o2: TableLiveOracleResult;
+          table: { rowCount: number; tableHash: string };
+          cssomO2: CssomTableLiveOracleResult | null;
+          nodeNewConnected: {
+            ok: boolean;
+            checked: number;
+            disconnectedIds: number[];
+          };
+          cascade: {
+            authorColor: string;
+            adoptedColor: string;
+            adoptedCount: number;
+            styleSheetCount: number;
+            styleElCount: number;
+            doublePaint: boolean;
+          } | null;
+          formProps: FormControlSnap[];
+          tree?: unknown;
+        };
+      }
+    | { ok: false; reason: string }
+  > {
+    try {
+      const includeTree = opts?.includeTree !== false;
+      const cssom = opts?.cssom ?? 'none';
+      const treeScript = includeTree && contextId === 1 ? loadSnapshotScriptForEvaluate() : '';
+      const fn = snapshotContextEvaluateExpression();
+      return (await this.requirePage().evaluate(
+        `(${fn})(${contextId}, ${JSON.stringify({ cssom, includeTree })}, ${JSON.stringify(treeScript)})`,
+      )) as Awaited<ReturnType<V4ProjectionBrowserSession['snapshotContext']>>;
+    } catch (err) {
+      return { ok: false, reason: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  async snapshotAllContexts(
+    contextIds: readonly number[],
+    opts?: {
+      includeTree?: boolean;
+      cssom?: 'none' | 'committed' | 'scan';
+    },
+  ): Promise<Record<number, Awaited<ReturnType<V4ProjectionBrowserSession['snapshotContext']>>>> {
+    try {
+      const includeTree = opts?.includeTree !== false;
+      const cssom = opts?.cssom ?? 'none';
+      const treeScript = includeTree ? loadSnapshotScriptForEvaluate() : '';
+      const fn = snapshotAllContextsEvaluateExpression();
+      return (await this.requirePage().evaluate(
+        `(${fn})(${JSON.stringify([...contextIds])}, ${JSON.stringify({ cssom, includeTree })}, ${JSON.stringify(treeScript)})`,
+      )) as Record<number, Awaited<ReturnType<V4ProjectionBrowserSession['snapshotContext']>>>;
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      const out: Record<number, { ok: false; reason: string }> = {};
+      for (const id of contextIds) out[id] = { ok: false, reason };
+      return out;
+    }
+  }
+
+  async resumeAllContexts(contextIds: readonly number[]): Promise<{ ok: boolean; reason?: string }> {
     try {
       return (await this.requirePage().evaluate(
-        coherentSnapshotExpression(opts?.includeTree !== false, opts?.cssom ?? 'none'),
-      )) as {
-        ok: boolean;
-        generation?: number;
-        sequence?: number;
-        tableSize?: number;
-        o2?: TableLiveOracleResult;
-        table?: { rowCount: number; tableHash: string };
-        cssomO2?: CssomTableLiveOracleResult | null;
-        nodeNewConnected?: {
-          ok: boolean;
-          checked: number;
-          disconnectedIds: number[];
-        };
-        cascade?: {
-          authorColor: string;
-          adoptedColor: string;
-          adoptedCount: number;
-          styleSheetCount: number;
-          styleElCount: number;
-          doublePaint: boolean;
-        } | null;
-        tree?: unknown;
-        formProps?: FormControlSnap[];
-        reason?: string;
-      };
+        `(async (ids) => {
+          const p = globalThis.__speculumProjection;
+          if (!p || typeof p.resumeAllKnown !== 'function') return { ok: false, reason: 'resumeAllKnown missing' };
+          await p.resumeAllKnown(ids);
+          return { ok: true };
+        })(${JSON.stringify([...contextIds])})`,
+      )) as { ok: boolean; reason?: string };
     } catch (err) {
       return { ok: false, reason: err instanceof Error ? err.message : String(err) };
     }

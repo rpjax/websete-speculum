@@ -87,6 +87,7 @@ class BinaryFrameEncoder {
         return (0, binaryWriter_1.assemblePart)({
             version: frame.version,
             flags,
+            contextId: frame.contextId,
             generation: frame.generation,
             sequence: frame.sequence,
             partIndex,
@@ -169,7 +170,8 @@ class BinaryFrameEncoder {
         w.u32(op.id);
         w.u8(op.kind);
         if (op.kind === opcodes_1.NodeKind.Element) {
-            w.u8(op.ns);
+            const nested = (0, elementNs_1.resolveElementNestedHost)(op);
+            w.u8((0, elementNs_1.packElementNsWireByte)(op.ns, nested.nestedHost));
             if (op.ns === elementNs_1.ElementNs.Custom) {
                 const uri = op.uri ?? '';
                 if (uri.length === 0) {
@@ -179,6 +181,8 @@ class BinaryFrameEncoder {
             }
             this.writeStrRef(w, op.name);
             this.writeAttrs(w, op.attrs);
+            if (nested.nestedHost)
+                w.u32(nested.childScopeId);
             return;
         }
         if (op.kind === opcodes_1.NodeKind.Doctype) {

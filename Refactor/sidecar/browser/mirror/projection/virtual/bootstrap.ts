@@ -10,7 +10,7 @@ import { readProjectionConfig } from './config/projectionConfig';
 import { MutationBuffer } from './dom/mutationBuffer';
 import { DomMutationObserver } from './dom/domMutationObserver';
 import { DomNodeTable } from './dom/domNodeTable';
-import { DOCUMENT_ID } from '../models/frame';
+import { DOCUMENT_ID, CONTEXT_ID_ROOT } from '../models/frame';
 import { OpCode } from '../models/opcodes';
 import { ReplicatedTable } from '../models/replicatedTable';
 import { BinaryFrameEncoder } from './frame/binaryFrameEncoder';
@@ -25,9 +25,11 @@ import { CssomIdleScheduler } from './cssom/cssomIdleScheduler';
 import { disabledCssomPlane, type CssomPlane } from './cssom/cssomPlane';
 import { ProjectionTelemetry } from './telemetry/projectionTelemetry';
 import type { FrameTransport } from './transport/frameTransport';
-import { ConsoleFrameTransport } from './transport/consoleFrameTransport';
 import { LoopbackFrameTransport } from './transport/loopbackFrameTransport';
-import { NullFrameTransport } from './transport/nullFrameTransport';
+import { BusFrameTransport } from './transport/busFrameTransport';
+import { ProjectionBus } from './bus/projectionBus';
+import { RootRuntime } from './runtime/rootRuntime';
+import { ChildScopeIndex, createMintPort } from './dom/childScopes';
 import type { TableLiveOracleResult } from '../models/tableLiveOracle';
 import type { CssomTableLiveOracleResult } from '../models/cssomTableLiveOracle';
 import { compareTableToLiveDom } from './dom/tableLiveOracle';
@@ -79,6 +81,20 @@ declare global {
             doublePaint: boolean;
           } | null;
         };
+        readonly contextId: number;
+        snapshotContext: (
+          contextId: number,
+          opts?: { cssom?: 'none' | 'committed' | 'scan'; includeTree?: boolean },
+        ) => Promise<
+          | { ok: true; value: import('./bus/projectionBus').SnapshotRpcPayload }
+          | { ok: false; reason: string }
+        >;
+        snapshotAllKnown: (
+          contextIds: number[],
+          opts?: { cssom?: 'none' | 'committed' | 'scan'; includeTree?: boolean },
+        ) => Promise<Record<number, import('./bus/projectionBus').SnapshotRpcPayload | { ok: false; reason: string }>>;
+        resumeContext: (contextId: number) => Promise<{ ok: boolean; reason?: string }>;
+        resumeAllKnown: (contextIds: number[]) => Promise<Record<number, { ok: boolean; reason?: string }>>;
       }
     | undefined;
 }
@@ -89,8 +105,35 @@ void (async () => {
   if (globalThis.__speculumProjection) return;
 
   const config = readProjectionConfig();
+  const isRoot = window.parent === window;
+  let mine = CONTEXT_ID_ROOT;
+  let frameTransport: FrameTransport;
+  let dataPlane: DataPlane | null = null;
+  let loopback: LoopbackFrameTransport | null = null;
+  let bus: ProjectionBus;
+  let mintFn: () => number | null;
+
+  if (isRoot) {
+    const runtime = new RootRuntime(config, window);
+    loopback = runtime.loopback;
+    frameTransport = runtime.frameTransport;
+    dataPlane = runtime.dataPlane;
+    bus = runtime.bus;
+    mintFn = () => runtime.mint();
+    mine = CONTEXT_ID_ROOT;
+  } else {
+    bus = new ProjectionBus({ window, parent: window.parent, role: 'nested' });
+    frameTransport = new BusFrameTransport(bus);
+    mintFn = createMintPort({ requestMint: () => bus.requestMint() });
+    mine = await bus.getScopeId();
+  }
+
+  const childScopes = new ChildScopeIndex(mintFn);
 
   const domNodes = new DomNodeTable();
+  bus.setScopeLookup((source) =>
+    childScopes.lookupByContentWindow(source, (id) => domNodes.get(id)),
+  );
   domNodes.bind(document, DOCUMENT_ID);
   domNodes.setGeneration(config.generation);
   const table = new ReplicatedTable();
@@ -102,30 +145,17 @@ void (async () => {
     domNodes,
     table,
     formIndex,
+    childScopes,
     observeShadowRoot: (root) => domMutationObserver.observeRoot(root),
     unobserveShadowRoot: (root) => domMutationObserver.unobserveRoot(root),
   });
   const encoder = new BinaryFrameEncoder({ maxFrameBytes: config.maxFrameBytes });
 
-  let frameTransport: FrameTransport;
-  let dataPlane: DataPlane | null = null;
-  let loopback: LoopbackFrameTransport | null = null;
-  if (config.transport === 'console') {
-    frameTransport = new ConsoleFrameTransport();
-  } else if (config.transport === 'discard') {
-    frameTransport = new NullFrameTransport();
-  } else {
-    loopback = new LoopbackFrameTransport({
-      bufferedAmountWatermark: config.bufferedAmountWatermark,
-    });
-    loopback.open(config.dataPlaneUrl);
-    frameTransport = loopback;
-    dataPlane = loopback.dataPlane;
-  }
-
   const telemetry = new ProjectionTelemetry({
     config: config.telemetry,
     dataPlane,
+    contextId: mine,
+    bus,
   });
 
   const cssomPoller =
@@ -143,7 +173,15 @@ void (async () => {
         })
       : disabledCssomPlane();
 
-  const resyncPlanes: ResyncPlanes = { domNodes, table, cssom, formIndex };
+  const resyncPlanes: ResyncPlanes = {
+    domNodes,
+    table,
+    cssom,
+    formIndex,
+    childScopes,
+    contextId: mine,
+    notePendingNestedHost: (el) => frameBuilder.notePendingNestedHost(el),
+  };
 
   const frameClock: FrameClock = new TimerFrameClock({
     frameRateHz: config.frameRateHz,
@@ -181,6 +219,41 @@ void (async () => {
     pullPendingMutations: () => domMutationObserver.takePendingIntoBuffer(),
     takePendingCssom: () => cssom.takePending(),
     table,
+    contextId: mine,
+  });
+
+  bus.setMine(mine);
+
+  const snapshotPlanes = {
+    domNodes,
+    table,
+    cssom,
+    cssomIds: cssomPoller?.ids ?? null,
+    currentSequence: () => frameEmitter.currentSequence,
+    flushDom: () => frameEmitter.flushNow(),
+    recordCssomPoll: (stats: import('../models/telemetry').CssomPollStats) => telemetry.recordCssomPoll(stats),
+  };
+
+  bus.setSnapshotHandler((opts) => {
+    const snapped = takeSnapshot(snapshotPlanes, { cssom: opts?.cssom ?? 'none' });
+    frameEmitter.stop();
+    cssom.halt();
+    return snapped;
+  });
+
+  bus.setResumeHandler(() => {
+    frameEmitter.start();
+    cssom.start();
+    domMutationObserver.syncObservedShadowRoots(domNodes);
+  });
+
+  bus.onResyncRequest((req) => {
+    if (req.contextId !== mine) return;
+    frameEmitter.requestResync((seq) => {
+      const { frame, cssom: cssomStats } = emitResyncFrame(resyncPlanes, seq);
+      telemetry.recordCssomPoll(cssomStats);
+      return frame;
+    });
   });
 
   if (loopback) {
@@ -193,18 +266,28 @@ void (async () => {
         return;
       }
       if (typeof msg !== 'object' || msg === null) return;
-      const req = msg as { type?: unknown; reason?: unknown; generation?: unknown; sequence?: unknown };
+      const req = msg as {
+        type?: unknown;
+        reason?: unknown;
+        generation?: unknown;
+        sequence?: unknown;
+        contextId?: unknown;
+      };
       if (req.type !== 'requestResync') return;
+      const contextId =
+        typeof req.contextId === 'number' && req.contextId > 0 ? req.contextId : CONTEXT_ID_ROOT;
       console.log(
-        '[speculumProjection] resync requested — reason=%s clientGeneration=%s clientSequence=%s',
+        '[speculumProjection] resync requested — reason=%s contextId=%s clientGeneration=%s clientSequence=%s',
         String(req.reason),
+        String(contextId),
         String(req.generation),
         String(req.sequence),
       );
-      frameEmitter.requestResync((seq) => {
-        const { frame, cssom: cssomStats } = emitResyncFrame(resyncPlanes, seq);
-        telemetry.recordCssomPoll(cssomStats);
-        return frame;
+      bus.publishResyncRequest({
+        contextId,
+        reason: typeof req.reason === 'string' ? req.reason : undefined,
+        generation: typeof req.generation === 'number' ? req.generation : undefined,
+        sequence: typeof req.sequence === 'number' ? req.sequence : undefined,
       });
     });
   }
@@ -228,6 +311,7 @@ void (async () => {
 
   globalThis.__speculumProjection = {
     version: 1,
+    contextId: mine,
     domNodes,
     table,
     frameClock,
@@ -254,21 +338,27 @@ void (async () => {
       return { generation: domNodes.generation, sequence: frameEmitter.currentSequence };
     },
     flushAndSnapshot: (opts) => {
-      const snapped = takeSnapshot(
-        {
-          domNodes,
-          table,
-          cssom,
-          cssomIds: cssomPoller?.ids ?? null,
-          currentSequence: () => frameEmitter.currentSequence,
-          flushDom: () => frameEmitter.flushNow(),
-          recordCssomPoll: (stats) => telemetry.recordCssomPoll(stats),
-        },
-        { cssom: opts?.cssom ?? 'none' },
-      );
+      const snapped = takeSnapshot(snapshotPlanes, { cssom: opts?.cssom ?? 'none' });
       frameEmitter.stop();
       cssom.halt();
       return snapped;
+    },
+    snapshotContext: (contextId, opts) => bus.requestSnapshot(contextId, opts),
+    snapshotAllKnown: async (contextIds, opts) => {
+      const entries = await Promise.all(
+        contextIds.map(async (id) => {
+          const result = await bus.requestSnapshot(id, opts);
+          return [id, result.ok ? result.value : { ok: false as const, reason: result.reason }] as const;
+        }),
+      );
+      return Object.fromEntries(entries);
+    },
+    resumeContext: (contextId) => bus.requestResumeContext(contextId),
+    resumeAllKnown: async (contextIds) => {
+      const entries = await Promise.all(
+        contextIds.map(async (id) => [id, await bus.requestResumeContext(id)] as const),
+      );
+      return Object.fromEntries(entries);
     },
   };
 })();

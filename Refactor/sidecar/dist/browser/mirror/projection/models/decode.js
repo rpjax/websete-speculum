@@ -17,12 +17,30 @@
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.FramePartAssembler = exports.PersistentStringTable = void 0;
+exports.peekFrameHeader = peekFrameHeader;
 exports.decodeFramePart = decodeFramePart;
 const elementNs_1 = require("./elementNs");
 const opcodes_1 = require("./opcodes");
 const propSet_1 = require("./propSet");
 const frame_1 = require("./frame");
 const limits_1 = require("./limits");
+/** Fixed-prefix peek — does not decode strings or ops. */
+function peekFrameHeader(bytes) {
+    if (bytes.byteLength < frame_1.FRAME_PREFIX_BYTES)
+        return null;
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    if (view.getUint16(0, true) !== 0x5050)
+        return null;
+    return {
+        version: bytes[2],
+        flags: bytes[3],
+        contextId: view.getUint32(4, true),
+        generation: view.getUint32(8, true),
+        sequence: view.getUint32(12, true),
+        partIndex: view.getUint16(16, true),
+        partCount: view.getUint16(18, true),
+    };
+}
 const WIRE_VERSION = frame_1.FRAME_WIRE_VERSION;
 const WIRE_MAGIC = 0x5050;
 const LOCAL_STR_BIT = 0x80000000;
@@ -102,7 +120,7 @@ function decodeFramePart(input, persistent) {
     const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
     try {
         const r = new ByteReader(bytes);
-        if (r.remaining < 24)
+        if (r.remaining < frame_1.FRAME_PREFIX_BYTES)
             return malformed('frame shorter than the fixed header');
         if (r.u16() !== WIRE_MAGIC)
             return malformed('bad magic');
@@ -111,6 +129,9 @@ function decodeFramePart(input, persistent) {
             return { ok: false, reason: 'unknown_version', message: `unsupported wire version ${version}` };
         }
         const flags = r.u8();
+        const contextId = r.u32();
+        if (contextId === 0)
+            return malformed('contextId 0 is invalid');
         const generation = r.u32();
         const sequence = r.u32();
         const partIndex = r.u16();
@@ -147,6 +168,7 @@ function decodeFramePart(input, persistent) {
             part: {
                 version,
                 resync: (flags & RESYNC_FLAG_BIT) !== 0,
+                contextId,
                 generation,
                 sequence,
                 partIndex,
@@ -212,12 +234,9 @@ function decodeOp(opCode, r, resolveStr, persistent) {
             const id = r.u32();
             const kind = r.u8();
             if (kind === opcodes_1.NodeKind.Element) {
-                const ns = r.u8();
-                if (ns > elementNs_1.ElementNs.Custom) {
-                    throw new Error(`NODE_NEW ns ${ns} out of range (frame-protocol.md §4.2)`);
-                }
+                const packed = (0, elementNs_1.unpackElementNsWireByte)(r.u8());
                 let uri;
-                if (ns === elementNs_1.ElementNs.Custom) {
+                if (packed.ns === elementNs_1.ElementNs.Custom) {
                     uri = resolveStr(r.u32());
                     if (uri.length === 0) {
                         throw new Error('NODE_NEW custom ns empty uri (frame-protocol.md §4.2)');
@@ -225,13 +244,22 @@ function decodeOp(opCode, r, resolveStr, persistent) {
                 }
                 const name = resolveStr(r.u32());
                 const attrs = decodeAttrs(r, resolveStr);
+                let nestedHost = false;
+                let childScopeId = null;
+                if (packed.nestedHost) {
+                    childScopeId = r.u32();
+                    (0, elementNs_1.assertNestedChildScopeId)(childScopeId);
+                    nestedHost = true;
+                }
                 return {
                     op: opcodes_1.OpCode.NodeNew,
                     id,
                     kind: opcodes_1.NodeKind.Element,
-                    ns: ns,
+                    ns: packed.ns,
                     name,
                     attrs,
+                    nestedHost,
+                    childScopeId,
                     ...(uri !== undefined ? { uri } : {}),
                 };
             }
@@ -369,9 +397,11 @@ function decodeOp(opCode, r, resolveStr, persistent) {
 class FramePartAssembler {
     pending = new Map();
     ingest(part) {
-        if (part.partCount <= 1)
-            return assemble(part, [part]);
-        const key = `${part.generation}:${part.sequence}`;
+        if (part.partCount <= 1) {
+            const assembled = assemble(part, [part]);
+            return assembled === 'malformed' ? 'malformed' : assembled;
+        }
+        const key = `${part.contextId}:${part.generation}:${part.sequence}`;
         let slot = this.pending.get(key);
         if (!slot || slot.parts.length !== part.partCount) {
             slot = { parts: new Array(part.partCount), received: 0 };
@@ -385,7 +415,10 @@ class FramePartAssembler {
         this.pending.delete(key);
         if (slot.received !== part.partCount)
             return 'missing_part';
-        return assemble(part, slot.parts);
+        const assembled = assemble(part, slot.parts);
+        if (assembled === 'malformed')
+            return 'malformed';
+        return assembled;
     }
     /** Drops every in-flight partial assembly (desync / generation bump). */
     reset() {
@@ -395,11 +428,15 @@ class FramePartAssembler {
 exports.FramePartAssembler = FramePartAssembler;
 function assemble(last, parts) {
     const ops = [];
-    for (const part of parts)
+    for (const part of parts) {
+        if (part.contextId !== last.contextId)
+            return 'malformed';
         ops.push(...part.ops);
+    }
     return {
         version: last.version,
         resync: last.resync,
+        contextId: last.contextId,
         generation: last.generation,
         sequence: last.sequence,
         preTableHash: last.preTableHash,

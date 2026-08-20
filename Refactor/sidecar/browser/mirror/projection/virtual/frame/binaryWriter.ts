@@ -138,6 +138,7 @@ export class BinaryWriter {
 export function assemblePart(args: {
   version: number;
   flags: number;
+  contextId: number;
   generation: number;
   sequence: number;
   partIndex: number;
@@ -146,7 +147,7 @@ export function assemblePart(args: {
   stringTable: Uint8Array;
   opsBody: Uint8Array;
 }): Uint8Array {
-  const headerSize = 2 + 1 + 1 + 4 + 4 + 2 + 2 + 8;
+  const headerSize = 2 + 1 + 1 + 4 + 4 + 4 + 2 + 2 + 8;
   const out = new Uint8Array(headerSize + args.stringTable.length + args.opsBody.length);
   const view = new DataView(out.buffer);
   let o = 0;
@@ -154,6 +155,8 @@ export function assemblePart(args: {
   o += 2;
   out[o++] = args.version & 0xff;
   out[o++] = args.flags & 0xff;
+  view.setUint32(o, args.contextId >>> 0, true);
+  o += 4;
   view.setUint32(o, args.generation >>> 0, true);
   o += 4;
   view.setUint32(o, args.sequence >>> 0, true);

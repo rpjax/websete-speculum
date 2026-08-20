@@ -42,6 +42,7 @@ import type { AssembledFrame } from '../models/decode';
 import { ReplicatedTable } from '../models/replicatedTable';
 import { applyFrameToTableChecked } from '../models/replicatedTableApply';
 import type { PageProjectionRegistry } from './registry';
+import { isNestedHostNavAttr } from '../models/nestedNav';
 
 export type DomDesyncReason = 'address_miss' | 'bad_target' | 'precondition' | 'malformed';
 export interface DomDesyncInfo {
@@ -66,6 +67,10 @@ export interface DomFrameApplierOptions {
   onApplied?: (frame: AssembledFrame, applyMs: number) => void;
   onOverrun?: (durationMs: number, lastSequence: number) => void;
   applyBudgetMs?: number;
+  /** Parent installs the nested apply into this blank host. */
+  onNestedHost?: (el: HTMLIFrameElement, childScopeId: number) => void;
+  /** Host row dropped — dispose the nested apply for that childScopeId. */
+  onNestedHostDrop?: (childScopeId: number) => void;
 }
 
 export class DomFrameApplier {
@@ -80,6 +85,8 @@ export class DomFrameApplier {
   private readonly rules = new Map<number, CSSRule>();
   /** Sheet id → `hostNode` (0 = document adopted list). Survives phase-1 drop of the row. */
   private readonly sheetHost = new Map<number, number>();
+  private readonly childScopes = new Map<number, number>();
+  private readonly nestedHostIds = new Set<number>();
 
   constructor(doc: Document, registry: PageProjectionRegistry, options: DomFrameApplierOptions = {}) {
     this.doc = doc;
@@ -130,6 +137,8 @@ export class DomFrameApplier {
     this.queued = [];
     this.table.reset();
     this.propDirty.reset();
+    this.childScopes.clear();
+    this.nestedHostIds.clear();
     this.clearCssom();
   }
 
@@ -238,6 +247,11 @@ export class DomFrameApplier {
    * surface before Phase 2 returns — there is no observable empty-document frame.
    */
   private applyEpochReset(): boolean {
+    for (const childScopeId of this.childScopes.values()) {
+      this.options.onNestedHostDrop?.(childScopeId);
+    }
+    this.childScopes.clear();
+    this.nestedHostIds.clear();
     this.doc.replaceChildren();
     this.registry.clear();
     this.registry.register(DOCUMENT_ID, this.doc);
@@ -525,6 +539,14 @@ export class DomFrameApplier {
 
   /** §4.2 `NODE_DROP` `DOM` effect: "none — the subtree is already detached." Registry-only. */
   private applyNodeDrop(op: Extract<FrameOp, { op: OpCode.NodeDrop }>): boolean {
+    for (const hostId of [...this.childScopes.keys()]) {
+      if (!this.table.has(hostId)) {
+        const childScopeId = this.childScopes.get(hostId);
+        this.childScopes.delete(hostId);
+        this.nestedHostIds.delete(hostId);
+        if (childScopeId !== undefined) this.options.onNestedHostDrop?.(childScopeId);
+      }
+    }
     for (let i = 0; i < op.ids.length; i++) {
       const node = this.registry.get(op.ids[i]!);
       if (node !== undefined) this.registry.unregisterSubtree(node);
@@ -550,9 +572,15 @@ export class DomFrameApplier {
       }
       const uri = elementNsUri(op.ns, op.uri);
       node = this.doc.createElementNS(uri, op.name);
+      const attrs =
+        op.nestedHost === true ? op.attrs.filter((a) => !isNestedHostNavAttr(a.name)) : op.attrs;
       // SEAL-DOM-P0-ATTR: register only after attrs land — failed setAttribute → desync.
-      if (!applyAttrs(node as Element, op.attrs)) {
+      if (!applyAttrs(node as Element, attrs)) {
         return this.fail('malformed', 'nodeNew', op.id);
+      }
+      if (op.nestedHost === true && op.childScopeId != null) {
+        this.childScopes.set(op.id, op.childScopeId);
+        this.nestedHostIds.add(op.id);
       }
     } else if (op.kind === NodeKind.Text) {
       node = this.doc.createTextNode(op.value);
@@ -595,6 +623,7 @@ export class DomFrameApplier {
       const node = this.registry.get(id);
       if (!node) return this.fail('address_miss', 'insert', id);
       parent.insertBefore(node, before);
+      this.maybeInstallNestedHost(id, node);
     }
     return true;
   }
@@ -624,7 +653,10 @@ export class DomFrameApplier {
   private applyAttrSet(op: Extract<FrameOp, { op: OpCode.AttrSet }>): boolean {
     const node = this.registry.get(op.node);
     if (!node || node.nodeType !== Node.ELEMENT_NODE) return this.fail('address_miss', 'attrSet', op.node);
-    if (!applyAttrs(node as Element, op.attrs)) {
+    const attrs = this.nestedHostIds.has(op.node)
+      ? op.attrs.filter((a) => !isNestedHostNavAttr(a.name))
+      : op.attrs;
+    if (!applyAttrs(node as Element, attrs)) {
       return this.fail('malformed', 'attrSet', op.node);
     }
     return true;
@@ -666,6 +698,16 @@ export class DomFrameApplier {
       return true;
     }
     return true;
+  }
+
+  private maybeInstallNestedHost(id: number, node: Node): void {
+    if (!this.nestedHostIds.has(id)) return;
+    const childScopeId = this.childScopes.get(id);
+    if (childScopeId === undefined) return;
+    const el = node as HTMLIFrameElement;
+    // Projected host stays about:blank — do not reinstall on the initial load (that
+    // would dispose the applier that already consumed buffered nested frames).
+    if (el.contentWindow) this.options.onNestedHost?.(el, childScopeId);
   }
 }
 

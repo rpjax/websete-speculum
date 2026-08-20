@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Parallel iframes + nest</title>
+    <style>
+      body {
+        margin: 1rem;
+        font-family: Georgia, serif;
+        background: #1c1917;
+        color: #fafaf9;
+      }
+      h1 { font-size: 1.25rem; margin: 0 0 0.35rem; }
+      p { margin: 0 0 0.75rem; font: 13px/1.4 sans-serif; color: #a8a29e; }
+      .root {
+        position: relative;
+        height: 88px;
+        margin: 0 0 12px;
+        background: #292524;
+        overflow: hidden;
+      }
+      .row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+        min-height: 420px;
+      }
+      iframe {
+        width: 100%;
+        height: 420px;
+        border: 3px solid #fafaf9;
+        background: #0c0a09;
+      }
+      #left { border-color: #f43f5e; }
+      #right { border-color: #22d3ee; }
+      #stage { position: relative; width: 100%; height: 100%; }
+      #box {
+        position: absolute;
+        left: 40%;
+        top: 20%;
+        width: 36px;
+        height: 36px;
+        background: #fafaf9;
+        border-radius: 8px;
+        will-change: transform;
+      }
+      #hud {
+        position: absolute;
+        z-index: 3;
+        top: 6px;
+        left: 8px;
+        margin: 0;
+        padding: 6px 8px;
+        font: 11px/1.35 ui-monospace, Consolas, monospace;
+        white-space: pre;
+        background: rgba(12, 10, 9, 0.82);
+        color: #fafaf9;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Two iframes + one nested</h1>
+    <p>Same transform work in root, A, B and C. HUD = emit fps + buildMs (min/max/avg) from that document's producer.</p>
+    <div class="root">
+      <pre id="hud">waiting</pre>
+      <div id="stage"><div id="box"></div></div>
+    </div>
+    <div class="row">
+      <iframe id="left" src="iframe-anim-a.html" title="layer-a"></iframe>
+      <iframe id="right" src="iframe-anim-b.html" title="layer-b"></iframe>
+    </div>
+    <script src="iframe-anim-work.js"></script>
+  </body>
+</html>

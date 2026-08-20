@@ -10,6 +10,7 @@ import type { DomNodeTable } from './domNodeTable';
 import { describeNodeNew, nodeKindOf } from './domNodeDescribe';
 import type { FormPropIndex } from './formPropIndex';
 import { admissibleShadowRoot } from './shadowAdmit';
+import type { ChildScopeIndex } from './childScopes';
 
 /** Clear identity (no generation bump) and allocate every connected describable node. */
 export function rebuildDomIdentity(domNodes: DomNodeTable, root: Node = document): void {
@@ -23,7 +24,19 @@ export function rebuildDomIdentity(domNodes: DomNodeTable, root: Node = document
  * Never `INSERT`s the `SHADOW_ROOT` under the host. Releases disconnected map rows.
  * Caller resets/applies the replicated table and appends CHECK.
  */
-export function describeDomResync(domNodes: DomNodeTable, formIndex: FormPropIndex): FrameOp[] {
+export type DescribeDomResyncOptions = {
+  childScopes?: ChildScopeIndex;
+  /** Same deferral as incremental `prepareChild` — mint not ready yet. */
+  notePendingNestedHost?: (el: Element) => void;
+};
+
+export function describeDomResync(
+  domNodes: DomNodeTable,
+  formIndex: FormPropIndex,
+  opts?: DescribeDomResyncOptions,
+): FrameOp[] {
+  const childScopes = opts?.childScopes;
+  const notePendingNestedHost = opts?.notePendingNestedHost;
   const ops: FrameOp[] = [];
   formIndex.rebuild(domNodes);
 
@@ -41,7 +54,18 @@ export function describeDomResync(domNodes: DomNodeTable, formIndex: FormPropInd
       ops.push(describeNodeNew(id, kind, node, hostId));
       continue;
     }
-    ops.push(describeNodeNew(id, kind, node));
+    let nested: { childScopeId: number } | null = null;
+    if (kind === NodeKind.Element && childScopes) {
+      const admitted = childScopes.admit(id, node);
+      if (admitted.kind === 'pending') {
+        formIndex.remove(node);
+        domNodes.release(node);
+        notePendingNestedHost?.(node as Element);
+        continue;
+      }
+      if (admitted.kind === 'host') nested = { childScopeId: admitted.contextId };
+    }
+    ops.push(describeNodeNew(id, kind, node, undefined, nested));
   }
 
   for (const [id, node] of domNodes.liveEntries()) {

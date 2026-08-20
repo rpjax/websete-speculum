@@ -11,7 +11,7 @@
  * are the binding constraint.
  */
 
-import { ElementNs } from '../../models/elementNs';
+import { ElementNs, packElementNsWireByte, resolveElementNestedHost } from '../../models/elementNs';
 import { NodeKind, OpCode } from '../../models/opcodes';
 import { propValueKind } from '../../models/propSet';
 import type {
@@ -118,6 +118,7 @@ export class BinaryFrameEncoder implements FrameEncoder {
     return assemblePart({
       version: frame.version,
       flags,
+      contextId: frame.contextId,
       generation: frame.generation,
       sequence: frame.sequence,
       partIndex,
@@ -207,7 +208,8 @@ export class BinaryFrameEncoder implements FrameEncoder {
     w.u32(op.id);
     w.u8(op.kind);
     if (op.kind === NodeKind.Element) {
-      w.u8(op.ns);
+      const nested = resolveElementNestedHost(op);
+      w.u8(packElementNsWireByte(op.ns, nested.nestedHost));
       if (op.ns === ElementNs.Custom) {
         const uri = op.uri ?? '';
         if (uri.length === 0) {
@@ -217,6 +219,7 @@ export class BinaryFrameEncoder implements FrameEncoder {
       }
       this.writeStrRef(w, op.name);
       this.writeAttrs(w, op.attrs);
+      if (nested.nestedHost) w.u32(nested.childScopeId);
       return;
     }
     if (op.kind === NodeKind.Doctype) {

@@ -14,9 +14,10 @@ import { tableDigestsEqual } from '../../models/tableDigest';
 import type { TreeNode } from '../../models/treeNode';
 import type { FormControlSnap } from '../../models/formControlSnap';
 import { formControlSnapsEqual } from '../../models/formControlSnap';
-import { diffTrees, countShadowTrees, type StructuralDiffResult } from './structuralDiff';
+import { diffTrees, countShadowTrees, countNestedDocuments, collectFrameHrefs, type StructuralDiffResult } from './structuralDiff';
 
 export type ClientStateSnapshot = {
+  contextId?: number;
   tree: TreeNode | null;
   table: ReplicatedTableDigest | null;
   /** Last successfully applied frame sequence (Node table apply). Omit for DOM lab client. */
@@ -72,6 +73,35 @@ export type IsomorphismResult = {
     virtualHosts: number;
     clientHosts: number;
   } | null;
+  nested: {
+    virtualDocs: number;
+    clientDocs: number;
+    clientFrameHrefs: string[];
+  } | null;
+  /** Per-context iso (OPEN-6). Root `1` is mirrored in legacy top-level fields. */
+  contexts?: Record<number, ContextIsoResult>;
+  allPass?: boolean;
+};
+
+export type ContextIsoResult = {
+  contextId: number;
+  sequence: number | null;
+  generation: number | null;
+  o2: TableLiveOracleResult | null;
+  cssomO2: CssomTableLiveOracleResult | null;
+  table: {
+    virtual: ReplicatedTableDigest | null;
+    client: ReplicatedTableDigest | null;
+    identical: boolean | null;
+  };
+  tableFailReason: string | null;
+  structuralDiff: StructuralDiffResult | null;
+  skipped: { id: string; reason: string }[];
+  nodeNewConnected: IsomorphismResult['nodeNewConnected'];
+  cascade: IsomorphismResult['cascade'];
+  formProps: IsomorphismResult['formProps'];
+  virtualTree?: TreeNode | null;
+  clientTree?: TreeNode | null;
 };
 
 const CLIENT_CATCH_UP_MS = 2_000;
@@ -108,17 +138,49 @@ async function waitClientAtSequence(
   return snap;
 }
 
-export async function runIsomorphism(opts: {
-  session: BrowserSession;
-  getClientSnapshot?: () => Promise<ClientStateSnapshot | null> | ClientStateSnapshot | null;
-}): Promise<IsomorphismResult> {
+function emptyIsoResult(skipped: { id: string; reason: string }[]): IsomorphismResult {
+  const emptyTable = { virtual: null, client: null, identical: null as boolean | null };
+  return {
+    sequence: null,
+    generation: null,
+    o2: null,
+    cssomO2: null,
+    table: emptyTable,
+    tableFailReason: null,
+    structuralDiff: null,
+    skipped,
+    nodeNewConnected: null,
+    cascade: null,
+    formProps: { virtual: null, client: null, identical: null, reason: null },
+    shadow: null,
+    nested: null,
+    contexts: {},
+    allPass: false,
+  };
+}
+
+async function compareContextPair(opts: {
+  contextId: number;
+  virtual: {
+    ok: boolean;
+    generation?: number;
+    sequence?: number;
+    o2?: TableLiveOracleResult;
+    table?: ReplicatedTableDigest;
+    cssomO2?: CssomTableLiveOracleResult | null;
+    nodeNewConnected?: IsomorphismResult['nodeNewConnected'];
+    cascade?: ClientStateSnapshot['cascade'];
+    formProps?: FormControlSnap[];
+    tree?: unknown;
+    reason?: string;
+  };
+  getClientSnapshot?: (contextId: number) => Promise<ClientStateSnapshot | null> | ClientStateSnapshot | null;
+}): Promise<ContextIsoResult> {
   const skipped: { id: string; reason: string }[] = [];
   const emptyTable = { virtual: null, client: null, identical: null as boolean | null };
-  const flushSnap = opts.session.flushProjectionSnapshot;
-  const resume = opts.session.resumeProjectionWorld;
-
-  if (!flushSnap) {
+  if (!opts.virtual.ok) {
     return {
+      contextId: opts.contextId,
       sequence: null,
       generation: null,
       o2: null,
@@ -126,160 +188,220 @@ export async function runIsomorphism(opts: {
       table: emptyTable,
       tableFailReason: null,
       structuralDiff: null,
-      skipped: [{ id: 'isomorphism', reason: 'session does not expose flushProjectionSnapshot' }],
+      skipped: [{ id: 'isomorphism', reason: opts.virtual.reason ?? 'virtual snapshot failed' }],
       nodeNewConnected: null,
       cascade: null,
       formProps: { virtual: null, client: null, identical: null, reason: null },
-      shadow: null,
     };
   }
 
-  try {
-    const virtual = await flushSnap.call(opts.session, { includeTree: true, cssom: 'scan' });
-    if (!virtual.ok) {
-      return {
-        sequence: null,
-        generation: null,
-        o2: null,
-        cssomO2: null,
-        table: emptyTable,
-        tableFailReason: null,
-        structuralDiff: null,
-        skipped: [{ id: 'isomorphism', reason: virtual.reason ?? 'flushProjectionSnapshot failed' }],
-        nodeNewConnected: null,
-        cascade: null,
-        formProps: { virtual: null, client: null, identical: null, reason: null },
-        shadow: null,
-      };
-    }
+  const virtualTable = opts.virtual.table ?? null;
+  const targetSeq = opts.virtual.sequence ?? 0;
 
-    const virtualTable = virtual.table ?? null;
-    const targetSeq = virtual.sequence ?? 0;
+  let clientSnap: ClientStateSnapshot | null = null;
+  if (opts.getClientSnapshot) {
+    clientSnap = await waitClientAtSequence(async () => {
+      const v = opts.getClientSnapshot!(opts.contextId);
+      return v instanceof Promise ? await v : v;
+    }, targetSeq);
+  }
 
-    let clientSnap: ClientStateSnapshot | null = null;
-    if (opts.getClientSnapshot) {
-      const getter = opts.getClientSnapshot;
-      clientSnap = await waitClientAtSequence(async () => {
-        const v = getter();
-        return v instanceof Promise ? await v : v;
-      }, targetSeq);
-    }
+  let structuralDiff: StructuralDiffResult | null = null;
+  if (!opts.getClientSnapshot) {
+    skipped.push({ id: 'structuralDiff', reason: 'no lab client apply surface' });
+    skipped.push({ id: 'table', reason: 'no lab client apply surface' });
+    skipped.push({ id: 'formProps', reason: 'no lab client apply surface' });
+  } else if (clientSnap == null) {
+    skipped.push({ id: 'structuralDiff', reason: 'client did not reply to requestSnapshot after flush' });
+    skipped.push({ id: 'table', reason: 'client did not reply to requestSnapshot after flush' });
+    skipped.push({ id: 'formProps', reason: 'client did not reply to requestSnapshot after flush' });
+  } else if (clientSnap.tree == null) {
+    skipped.push({ id: 'structuralDiff', reason: 'no DOM apply surface for context' });
+  } else if (opts.virtual.tree == null) {
+    skipped.push({ id: 'structuralDiff', reason: 'virtual tree missing for context' });
+  } else {
+    structuralDiff = diffTrees(opts.virtual.tree as TreeNode, clientSnap.tree);
+  }
 
-    let structuralDiff: StructuralDiffResult | null = null;
-    if (!opts.getClientSnapshot) {
-      skipped.push({
-        id: 'structuralDiff',
-        reason: 'structuralDiff unavailable: no lab client apply surface',
-      });
+  const virtualFormProps = opts.virtual.formProps ?? null;
+  const clientFormProps = clientSnap?.formProps ?? null;
+  let formIdentical: boolean | null = null;
+  let formReason: string | null = null;
+  if (opts.getClientSnapshot && clientSnap != null) {
+    const cmp = formControlSnapsEqual(virtualFormProps, clientFormProps);
+    formIdentical = cmp.identical;
+    formReason = cmp.reason;
+  } else {
+    formReason = skipped.find((s) => s.id === 'formProps')?.reason ?? 'no DOM client';
+  }
+
+  const clientTable = clientSnap?.table ?? null;
+  let tableIdentical: boolean | null = null;
+  let tableFailReason: string | null = null;
+  if (opts.getClientSnapshot && clientSnap != null) {
+    if (clientSnap.applyError || clientSnap.desynced) {
+      tableIdentical = false;
+      tableFailReason = clientSnap.applyError ?? 'client desynced';
+    } else if (clientSnap.sequence != null && clientSnap.sequence < targetSeq) {
       skipped.push({
         id: 'table',
-        reason: 'client table digest unavailable: no lab client apply surface',
+        reason: `client at sequence ${clientSnap.sequence}, Virtual at ${targetSeq}`,
       });
-      skipped.push({
-        id: 'formProps',
-        reason: 'client formProps unavailable: no lab client apply surface',
-      });
-    } else if (clientSnap == null) {
-      skipped.push({
-        id: 'structuralDiff',
-        reason: 'client did not reply to requestSnapshot after flush',
-      });
-      skipped.push({
-        id: 'table',
-        reason: 'client did not reply to requestSnapshot after flush',
-      });
-      skipped.push({
-        id: 'formProps',
-        reason: 'client did not reply to requestSnapshot after flush',
-      });
-    } else if (clientSnap.tree == null) {
-      skipped.push({
-        id: 'structuralDiff',
-        reason: 'no DOM apply surface (Node table apply only)',
-      });
-    } else if (virtual.tree == null) {
-      skipped.push({
-        id: 'structuralDiff',
-        reason: 'virtual tree missing',
-      });
-    } else {
-      structuralDiff = diffTrees(virtual.tree as TreeNode, clientSnap.tree);
-    }
-
-    const virtualFormProps = virtual.formProps ?? null;
-    const clientFormProps = clientSnap?.formProps ?? null;
-    let formIdentical: boolean | null = null;
-    let formReason: string | null = null;
-    if (opts.getClientSnapshot && clientSnap != null) {
-      const cmp = formControlSnapsEqual(virtualFormProps, clientFormProps);
-      formIdentical = cmp.identical;
-      formReason = cmp.reason;
-    } else {
-      formReason = skipped.find((s) => s.id === 'formProps')?.reason ?? 'no DOM client';
-    }
-
-    const clientTable = clientSnap?.table ?? null;
-    let tableIdentical: boolean | null = null;
-    let tableFailReason: string | null = null;
-
-    if (opts.getClientSnapshot && clientSnap != null) {
-      if (clientSnap.applyError || clientSnap.desynced) {
-        tableIdentical = false;
-        tableFailReason = clientSnap.applyError ?? 'client desynced';
-      } else if (clientSnap.sequence != null && clientSnap.sequence < targetSeq) {
-        skipped.push({
-          id: 'table',
-          reason: `Node table apply at sequence ${clientSnap.sequence}, Virtual at ${targetSeq}`,
-        });
-      } else if (virtualTable && clientTable) {
-        tableIdentical = tableDigestsEqual(virtualTable, clientTable);
-        if (!tableIdentical) {
-          tableFailReason = `virtual rows=${virtualTable.rowCount} client rows=${clientTable.rowCount} hash mismatch`;
-        }
-      } else if (virtualTable == null || clientTable == null) {
-        skipped.push({
-          id: 'table',
-          reason: virtualTable == null ? 'virtual table digest missing' : 'client table digest missing',
-        });
+    } else if (virtualTable && clientTable) {
+      tableIdentical = tableDigestsEqual(virtualTable, clientTable);
+      if (!tableIdentical) {
+        tableFailReason = `virtual rows=${virtualTable.rowCount} client rows=${clientTable.rowCount} hash mismatch`;
       }
+    } else if (virtualTable == null || clientTable == null) {
+      skipped.push({
+        id: 'table',
+        reason: virtualTable == null ? 'virtual table digest missing' : 'client table digest missing',
+      });
     }
+  }
+
+  return {
+    contextId: opts.contextId,
+    sequence: opts.virtual.sequence ?? null,
+    generation: opts.virtual.generation ?? null,
+    o2: opts.virtual.o2 ?? null,
+    cssomO2: opts.virtual.cssomO2 ?? null,
+    table: { virtual: virtualTable, client: clientTable, identical: tableIdentical },
+    tableFailReason,
+    structuralDiff,
+    nodeNewConnected:
+      opts.virtual.nodeNewConnected && typeof opts.virtual.nodeNewConnected.ok === 'boolean'
+        ? opts.virtual.nodeNewConnected
+        : null,
+    cascade: { virtual: opts.virtual.cascade ?? null, client: clientSnap?.cascade ?? null },
+    formProps: { virtual: virtualFormProps, client: clientFormProps, identical: formIdentical, reason: formReason },
+    skipped: [
+      ...skipped,
+      ...(opts.virtual.o2 ? [] : [{ id: 'o2', reason: 'O2 missing from virtual snapshot' }]),
+      ...(opts.virtual.cssomO2 ? [] : [{ id: 'isomorphism.cssom', reason: 'cssomO2 missing from virtual snapshot' }]),
+    ],
+    virtualTree: (opts.virtual.tree as TreeNode | null | undefined) ?? null,
+    clientTree: clientSnap?.tree ?? null,
+  };
+}
+
+function contextPasses(ctx: ContextIsoResult): boolean {
+  if (ctx.o2 && !ctx.o2.identical) return false;
+  if (ctx.cssomO2 && !ctx.cssomO2.identical) return false;
+  if (ctx.table.identical === false) return false;
+  if (ctx.structuralDiff && !ctx.structuralDiff.identical) return false;
+  if (ctx.formProps.identical === false) return false;
+  if (ctx.nodeNewConnected && !ctx.nodeNewConnected.ok) return false;
+  return true;
+}
+
+export async function runIsomorphism(opts: {
+  session: BrowserSession;
+  contextIds?: number[];
+  getClientSnapshot?: (
+    contextId: number,
+  ) => Promise<ClientStateSnapshot | null> | ClientStateSnapshot | null;
+  /** @deprecated use getClientSnapshot(contextId) */
+  getClientSnapshotLegacy?: () => Promise<ClientStateSnapshot | null> | ClientStateSnapshot | null;
+}): Promise<IsomorphismResult> {
+  const getClient =
+    opts.getClientSnapshot ??
+    (opts.getClientSnapshotLegacy
+      ? (contextId: number) => (contextId === 1 ? opts.getClientSnapshotLegacy!() : null)
+      : undefined);
+  const flushSnap = opts.session.flushProjectionSnapshot;
+  const snapshotAll = opts.session.snapshotAllContexts;
+  const resumeAll = opts.session.resumeAllContexts;
+  const resume = opts.session.resumeProjectionWorld;
+  const contextIds = opts.contextIds?.length ? [...opts.contextIds] : [1];
+
+  if (!flushSnap && !snapshotAll) {
+    return emptyIsoResult([{ id: 'isomorphism', reason: 'session does not expose snapshot RPC' }]);
+  }
+
+  try {
+    const contexts: Record<number, ContextIsoResult> = {};
+    if (snapshotAll) {
+      const virtualMap = await snapshotAll.call(opts.session, contextIds, {
+        includeTree: true,
+        cssom: 'scan',
+      });
+      for (const contextId of contextIds) {
+        const entry = virtualMap[contextId];
+        const virtual =
+          entry && entry.ok
+            ? {
+                ok: true as const,
+                generation: entry.value.generation,
+                sequence: entry.value.sequence,
+                o2: entry.value.o2,
+                table: entry.value.table,
+                cssomO2: entry.value.cssomO2,
+                nodeNewConnected: entry.value.nodeNewConnected,
+                cascade: entry.value.cascade,
+                formProps: entry.value.formProps,
+                tree: entry.value.tree,
+              }
+            : { ok: false as const, reason: entry && !entry.ok ? entry.reason : 'virtual snapshot missing' };
+        contexts[contextId] = await compareContextPair({ contextId, virtual, getClientSnapshot: getClient });
+      }
+    } else {
+      const virtual = await flushSnap!.call(opts.session, { includeTree: true, cssom: 'scan' });
+      const mapped =
+        virtual.ok
+          ? {
+              ok: true as const,
+              generation: virtual.generation,
+              sequence: virtual.sequence,
+              o2: virtual.o2,
+              table: virtual.table,
+              cssomO2: virtual.cssomO2,
+              nodeNewConnected: virtual.nodeNewConnected,
+              cascade: virtual.cascade,
+              formProps: virtual.formProps,
+              tree: virtual.tree,
+            }
+          : { ok: false as const, reason: virtual.reason ?? 'flushProjectionSnapshot failed' };
+      contexts[1] = await compareContextPair({ contextId: 1, virtual: mapped, getClientSnapshot: getClient });
+    }
+
+    const root = contexts[1] ?? Object.values(contexts)[0];
+    if (!root) return emptyIsoResult([{ id: 'isomorphism', reason: 'no context results' }]);
+
+    const allPass = Object.values(contexts).every(contextPasses);
 
     return {
-      sequence: virtual.sequence ?? null,
-      generation: virtual.generation ?? null,
-      o2: virtual.o2 ?? null,
-      cssomO2: virtual.cssomO2 ?? null,
-      table: { virtual: virtualTable, client: clientTable, identical: tableIdentical },
-      tableFailReason,
-      structuralDiff,
-      nodeNewConnected:
-        virtual.nodeNewConnected && typeof virtual.nodeNewConnected.ok === 'boolean'
-          ? virtual.nodeNewConnected
-          : null,
-      cascade: {
-        virtual: virtual.cascade ?? null,
-        client: clientSnap?.cascade ?? null,
-      },
-      formProps: {
-        virtual: virtualFormProps,
-        client: clientFormProps,
-        identical: formIdentical,
-        reason: formReason,
-      },
+      sequence: root.sequence,
+      generation: root.generation,
+      o2: root.o2,
+      cssomO2: root.cssomO2,
+      table: root.table,
+      tableFailReason: root.tableFailReason,
+      structuralDiff: root.structuralDiff,
+      nodeNewConnected: root.nodeNewConnected,
+      cascade: root.cascade,
+      formProps: root.formProps,
       shadow:
-        virtual.tree != null
+        root.virtualTree != null
           ? {
-              virtualHosts: countShadowTrees(virtual.tree as TreeNode),
-              clientHosts: clientSnap?.tree != null ? countShadowTrees(clientSnap.tree) : 0,
+              virtualHosts: countShadowTrees(root.virtualTree),
+              clientHosts: root.clientTree != null ? countShadowTrees(root.clientTree) : 0,
             }
           : null,
-      skipped: [
-        ...skipped,
-        ...(virtual.o2 ? [] : [{ id: 'o2', reason: 'O2 missing from flushProjectionSnapshot' }]),
-        ...(virtual.cssomO2 ? [] : [{ id: 'isomorphism.cssom', reason: 'cssomO2 missing from flushProjectionSnapshot' }]),
-      ],
+      nested:
+        root.virtualTree != null
+          ? {
+              virtualDocs: countNestedDocuments(root.virtualTree),
+              clientDocs: root.clientTree != null ? countNestedDocuments(root.clientTree) : 0,
+              clientFrameHrefs: root.clientTree != null ? collectFrameHrefs(root.clientTree) : [],
+            }
+          : null,
+      skipped: root.skipped,
+      contexts,
+      allPass,
     };
   } finally {
-    await resume?.call(opts.session);
+    if (resumeAll) await resumeAll.call(opts.session, contextIds);
+    else await resume?.call(opts.session);
   }
 }

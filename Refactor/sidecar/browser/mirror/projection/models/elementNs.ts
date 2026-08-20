@@ -11,6 +11,56 @@ export enum ElementNs {
   Custom = 4,
 }
 
+/**
+ * `NODE_NEW` ELEMENT `ns` byte: low nibble is {@link ElementNs}.
+ * Bit 7 set ⇒ `childScopeId: u32` follows the attribute list (nested-context host).
+ * Bits 4–6 reserved 0. Same omit pattern as `ns === custom` → uri StrRef.
+ */
+export const ELEMENT_NS_NESTED_HOST_BIT = 0x80;
+export const ELEMENT_NS_RESERVED_BITS = 0x70;
+
+export function packElementNsWireByte(ns: ElementNs, nestedHost: boolean): number {
+  if (ns > ElementNs.Custom) {
+    throw new Error(`NODE_NEW ns ${ns} out of range (frame-protocol.md §4.2)`);
+  }
+  return (nestedHost ? ELEMENT_NS_NESTED_HOST_BIT : 0) | ns;
+}
+
+export function unpackElementNsWireByte(byte: number): { ns: ElementNs; nestedHost: boolean } {
+  if ((byte & ELEMENT_NS_RESERVED_BITS) !== 0) {
+    throw new Error(`NODE_NEW ns reserved bits 0x${(byte & ELEMENT_NS_RESERVED_BITS).toString(16)} (frame-protocol.md §4.2)`);
+  }
+  const ns = byte & 0x0f;
+  if (ns > ElementNs.Custom) {
+    throw new Error(`NODE_NEW ns ${ns} out of range (frame-protocol.md §4.2)`);
+  }
+  return { ns: ns as ElementNs, nestedHost: (byte & ELEMENT_NS_NESTED_HOST_BIT) !== 0 };
+}
+
+/** Nested `contextId` is never `0` (none) or `1` (session root). */
+export function assertNestedChildScopeId(id: number): void {
+  if (!Number.isInteger(id) || id < 2 || id > 0xffffffff) {
+    throw new Error(`NODE_NEW childScopeId ${id} is not a nested context (frame-protocol.md §4.2)`);
+  }
+}
+
+/** Producer: omit both, or set a nested id (≥2). `nestedHost: false` with an id is malformed. */
+export function resolveElementNestedHost(op: {
+  nestedHost?: boolean;
+  childScopeId?: number | null;
+}): { nestedHost: false; childScopeId: null } | { nestedHost: true; childScopeId: number } {
+  const id = op.childScopeId ?? null;
+  if (op.nestedHost === false && id != null) {
+    throw new Error('NODE_NEW nestedHost=false with childScopeId (frame-protocol.md §4.2)');
+  }
+  if (op.nestedHost !== true && id == null) return { nestedHost: false, childScopeId: null };
+  if (id == null) {
+    throw new Error('NODE_NEW nestedHost without childScopeId (frame-protocol.md §4.2)');
+  }
+  assertNestedChildScopeId(id);
+  return { nestedHost: true, childScopeId: id };
+}
+
 export const ELEMENT_NS_HTML = 'http://www.w3.org/1999/xhtml';
 export const ELEMENT_NS_SVG = 'http://www.w3.org/2000/svg';
 export const ELEMENT_NS_MATHML = 'http://www.w3.org/1998/Math/MathML';

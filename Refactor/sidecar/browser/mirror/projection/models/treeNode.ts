@@ -16,4 +16,8 @@ export type TreeNode = {
   children?: TreeNode[];
   /** Open named shadow tree — not flattened into `children`. */
   shadow?: TreeNode;
+  /** Nested browsing context document (same-origin `contentDocument`). */
+  nested?: TreeNode;
+  /** `contentWindow.location.href` when readable — not compared by structuralDiff. */
+  frameHref?: string;
 };

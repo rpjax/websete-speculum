@@ -75,9 +75,12 @@ const cssomWalk_1 = require("./browser/mirror/projection/virtual/cssom/cssomWalk
 const cssomIds_1 = require("./browser/mirror/projection/virtual/cssom/cssomIds");
 const cssomOps_1 = require("./browser/mirror/projection/virtual/cssom/cssomOps");
 const telemetry_1 = require("./browser/mirror/projection/models/telemetry");
+const contextIndex_1 = require("./browser/mirror/projection/lab/host/contextIndex");
 const tableDigest_1 = require("./browser/mirror/projection/models/tableDigest");
 const cssomApplyIndex_1 = require("./browser/mirror/projection/models/cssomApplyIndex");
 const binaryFrameEncoder_1 = require("./browser/mirror/projection/virtual/frame/binaryFrameEncoder");
+const contextIdMint_1 = require("./browser/mirror/projection/models/contextIdMint");
+const nestedNav_1 = require("./browser/mirror/projection/models/nestedNav");
 const nodeTableApply_1 = require("./browser/mirror/projection/lab/probes/nodeTableApply");
 const propSet_1 = require("./browser/mirror/projection/models/propSet");
 const formPropDirty_1 = require("./browser/mirror/projection/models/formPropDirty");
@@ -1915,12 +1918,12 @@ function testCheckScopeRangeEncodeDecode() {
     console.log('[unit] CHECK_SCOPE_RANGE encode/decode round-trip ok');
 }
 function frameLocalStrCount(bytes) {
-    return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(24, true);
+    return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(frame_1.FRAME_PREFIX_BYTES, true);
 }
 function patchNodeNewNsByte(bytes, ns) {
     const out = bytes.slice();
     const view = new DataView(out.buffer, out.byteOffset, out.byteLength);
-    let o = 24;
+    let o = frame_1.FRAME_PREFIX_BYTES;
     const strCount = view.getUint32(o, true);
     o += 4;
     for (let i = 0; i < strCount; i++) {
@@ -1939,7 +1942,7 @@ function patchNodeNewNsByte(bytes, ns) {
 }
 function withEmptyFirstFrameString(bytes) {
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-    const header = 24;
+    const header = frame_1.FRAME_PREFIX_BYTES;
     const strCount = view.getUint32(header, true);
     let o = header + 4;
     const firstLen = view.getUint32(o, true);
@@ -1968,13 +1971,16 @@ function testNodeNewElementNsWire() {
     assert_1.default.ok(htmlDecoded.ok, 'html NODE_NEW must decode');
     if (!htmlDecoded.ok)
         return;
-    assert_1.default.strictEqual(htmlDecoded.part.version, 2);
+    assert_1.default.strictEqual(htmlDecoded.part.version, frame_1.FRAME_WIRE_VERSION);
+    assert_1.default.strictEqual(htmlDecoded.part.contextId, frame_1.CONTEXT_ID_ROOT);
     const htmlGot = htmlDecoded.part.ops[0];
     assert_1.default.strictEqual(htmlGot?.op, opcodes_1.OpCode.NodeNew);
     if (htmlGot?.op !== opcodes_1.OpCode.NodeNew || htmlGot.kind !== opcodes_1.NodeKind.Element)
         return;
     assert_1.default.strictEqual(htmlGot.ns, elementNs_1.ElementNs.Html);
     assert_1.default.strictEqual(htmlGot.uri, undefined);
+    assert_1.default.strictEqual(htmlGot.nestedHost, false);
+    assert_1.default.strictEqual(htmlGot.childScopeId, null);
     assert_1.default.strictEqual(frameLocalStrCount(htmlBytes), 1, 'html ns must not emit a namespace StrRef');
     const svgOp = {
         op: opcodes_1.OpCode.NodeNew,
@@ -2043,9 +2049,134 @@ function testNodeNewElementNsWire() {
     assert_1.default.notStrictEqual(htmlTable.getRow(10).contentHash, svgTable.getRow(10).contentHash, 'HTML <a> and SVG <a> must not share contentHash');
     console.log('[unit] NODE_NEW Element ns wire + hash split ok');
 }
+/** OPEN-6 cursor: nested-host bit on ns; u32 omitted on ordinary elements. */
+function testNodeNewNestedHostWire() {
+    const insert = { op: opcodes_1.OpCode.Insert, parent: 1, before: frame_1.INSERT_AT_END, ids: [10] };
+    const div = {
+        op: opcodes_1.OpCode.NodeNew,
+        id: 10,
+        kind: opcodes_1.NodeKind.Element,
+        ns: elementNs_1.ElementNs.Html,
+        name: 'iframe',
+        attrs: [],
+    };
+    const iframe = {
+        op: opcodes_1.OpCode.NodeNew,
+        id: 10,
+        kind: opcodes_1.NodeKind.Element,
+        ns: elementNs_1.ElementNs.Html,
+        name: 'iframe',
+        attrs: [],
+        nestedHost: true,
+        childScopeId: 2,
+    };
+    const plainBytes = new binaryFrameEncoder_1.BinaryFrameEncoder().encode((0, frame_1.createFrame)({ generation: 1, sequence: 1, ops: [div, insert] }))[0];
+    const hostBytes = new binaryFrameEncoder_1.BinaryFrameEncoder().encode((0, frame_1.createFrame)({ generation: 1, sequence: 1, ops: [iframe, insert] }))[0];
+    assert_1.default.strictEqual(hostBytes.byteLength, plainBytes.byteLength + 4, 'non-host must omit childScopeId u32');
+    const plainDecoded = (0, decode_1.decodeFramePart)(plainBytes, new decode_1.PersistentStringTable());
+    assert_1.default.ok(plainDecoded.ok, 'div + INSERT must decode');
+    if (!plainDecoded.ok)
+        return;
+    const plainNew = plainDecoded.part.ops[0];
+    if (plainNew?.op !== opcodes_1.OpCode.NodeNew || plainNew.kind !== opcodes_1.NodeKind.Element)
+        return;
+    assert_1.default.strictEqual(plainNew.nestedHost, false);
+    assert_1.default.strictEqual(plainNew.childScopeId, null);
+    assert_1.default.strictEqual(plainDecoded.part.ops[1]?.op, opcodes_1.OpCode.Insert);
+    const hostDecoded = (0, decode_1.decodeFramePart)(hostBytes, new decode_1.PersistentStringTable());
+    assert_1.default.ok(hostDecoded.ok, 'iframe host + INSERT must decode');
+    if (!hostDecoded.ok)
+        return;
+    const hostNew = hostDecoded.part.ops[0];
+    if (hostNew?.op !== opcodes_1.OpCode.NodeNew || hostNew.kind !== opcodes_1.NodeKind.Element)
+        return;
+    assert_1.default.strictEqual(hostNew.nestedHost, true);
+    assert_1.default.strictEqual(hostNew.childScopeId, 2);
+    assert_1.default.strictEqual(hostDecoded.part.ops[1]?.op, opcodes_1.OpCode.Insert, 'cursor must not eat the following INSERT');
+    const htmlOnly = {
+        op: opcodes_1.OpCode.NodeNew,
+        id: 10,
+        kind: opcodes_1.NodeKind.Element,
+        ns: elementNs_1.ElementNs.Html,
+        name: 'a',
+        attrs: [],
+    };
+    const htmlBytes = new binaryFrameEncoder_1.BinaryFrameEncoder().encode((0, frame_1.createFrame)({ generation: 1, sequence: 1, ops: [htmlOnly] }))[0];
+    const truncated = (0, decode_1.decodeFramePart)(patchNodeNewNsByte(htmlBytes, elementNs_1.ELEMENT_NS_NESTED_HOST_BIT | elementNs_1.ElementNs.Html), new decode_1.PersistentStringTable());
+    assert_1.default.strictEqual(truncated.ok, false, 'host bit without childScopeId u32 is malformed');
+    const reserved = (0, decode_1.decodeFramePart)(patchNodeNewNsByte(htmlBytes, 0x10), new decode_1.PersistentStringTable());
+    assert_1.default.strictEqual(reserved.ok, false, 'ns reserved bits are malformed');
+    assert_1.default.throws(() => new binaryFrameEncoder_1.BinaryFrameEncoder().encode((0, frame_1.createFrame)({
+        generation: 1,
+        sequence: 1,
+        ops: [{ op: opcodes_1.OpCode.NodeNew, id: 10, kind: opcodes_1.NodeKind.Element, ns: elementNs_1.ElementNs.Html, name: 'iframe', attrs: [], nestedHost: true }],
+    })));
+    assert_1.default.throws(() => new binaryFrameEncoder_1.BinaryFrameEncoder().encode((0, frame_1.createFrame)({
+        generation: 1,
+        sequence: 1,
+        ops: [{ op: opcodes_1.OpCode.NodeNew, id: 10, kind: opcodes_1.NodeKind.Element, ns: elementNs_1.ElementNs.Html, name: 'iframe', attrs: [], nestedHost: true, childScopeId: 1 }],
+    })));
+    console.log('[unit] NODE_NEW nested-host wire omit/presence ok');
+}
+function testHeaderV3ContextId() {
+    assert_1.default.strictEqual(frame_1.FRAME_WIRE_VERSION, 2);
+    assert_1.default.strictEqual(frame_1.FRAME_PREFIX_BYTES, 28);
+    const op = {
+        op: opcodes_1.OpCode.NodeNew,
+        id: 10,
+        kind: opcodes_1.NodeKind.Element,
+        ns: elementNs_1.ElementNs.Html,
+        name: 'div',
+        attrs: [],
+    };
+    const rootBytes = new binaryFrameEncoder_1.BinaryFrameEncoder().encode((0, frame_1.createFrame)({ generation: 1, sequence: 1, ops: [op] }))[0];
+    const peeked = (0, decode_1.peekFrameHeader)(rootBytes);
+    assert_1.default.ok(peeked);
+    assert_1.default.strictEqual(peeked.contextId, frame_1.CONTEXT_ID_ROOT);
+    assert_1.default.strictEqual(peeked.generation, 1);
+    assert_1.default.strictEqual(peeked.sequence, 1);
+    const decoded = (0, decode_1.decodeFramePart)(rootBytes, new decode_1.PersistentStringTable());
+    assert_1.default.ok(decoded.ok);
+    if (!decoded.ok)
+        return;
+    assert_1.default.strictEqual(decoded.part.contextId, frame_1.CONTEXT_ID_ROOT);
+    const nestedBytes = new binaryFrameEncoder_1.BinaryFrameEncoder().encode((0, frame_1.createFrame)({ generation: 1, sequence: 1, ops: [op], contextId: 2 }))[0];
+    const nestedDecoded = (0, decode_1.decodeFramePart)(nestedBytes, new decode_1.PersistentStringTable());
+    assert_1.default.ok(nestedDecoded.ok);
+    if (!nestedDecoded.ok)
+        return;
+    assert_1.default.strictEqual(nestedDecoded.part.contextId, 2);
+    const zero = nestedBytes.slice();
+    new DataView(zero.buffer, zero.byteOffset, zero.byteLength).setUint32(4, 0, true);
+    const zeroDecoded = (0, decode_1.decodeFramePart)(zero, new decode_1.PersistentStringTable());
+    assert_1.default.strictEqual(zeroDecoded.ok, false);
+    if (!zeroDecoded.ok)
+        assert_1.default.strictEqual(zeroDecoded.reason, 'malformed');
+    assert_1.default.throws(() => (0, frame_1.createFrame)({ generation: 1, sequence: 1, ops: [op], contextId: 0 }));
+    console.log('[unit] header contextId round-trip + zero malformed ok');
+}
+function testContextIdMintAndChildScopes() {
+    const mint = new contextIdMint_1.ContextIdMint();
+    const a = mint.mint();
+    const b = mint.mint();
+    assert_1.default.strictEqual(a, 2);
+    assert_1.default.strictEqual(b, 3);
+    assert_1.default.notStrictEqual(a, b);
+    const c = mint.mint();
+    assert_1.default.strictEqual(c, 4);
+    console.log('[unit] mint uniqueness ok');
+}
+function testNestedHostNavAttrSkip() {
+    assert_1.default.strictEqual((0, nestedNav_1.isNestedHostNavAttr)('src'), true);
+    assert_1.default.strictEqual((0, nestedNav_1.isNestedHostNavAttr)('srcdoc'), true);
+    assert_1.default.strictEqual((0, nestedNav_1.isNestedHostNavAttr)('SRC'), true);
+    assert_1.default.strictEqual((0, nestedNav_1.isNestedHostNavAttr)('id'), false);
+    assert_1.default.strictEqual((0, nestedNav_1.isNestedHostNavAttr)('title'), false);
+    console.log('[unit] nested host nav attr skip ok');
+}
 function skipToNodeNewKind(bytes) {
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-    let o = 24;
+    let o = frame_1.FRAME_PREFIX_BYTES;
     const strCount = view.getUint32(o, true);
     o += 4;
     for (let i = 0; i < strCount; i++) {
@@ -2075,7 +2206,7 @@ function testShadowRootWire() {
     assert_1.default.ok(decoded.ok, 'SHADOW_ROOT NODE_NEW must decode');
     if (!decoded.ok)
         return;
-    assert_1.default.strictEqual(decoded.part.version, 2);
+    assert_1.default.strictEqual(decoded.part.version, frame_1.FRAME_WIRE_VERSION);
     const got = decoded.part.ops[0];
     assert_1.default.strictEqual(got?.op, opcodes_1.OpCode.NodeNew);
     if (got?.op !== opcodes_1.OpCode.NodeNew || got.kind !== opcodes_1.NodeKind.ShadowRoot)
@@ -2278,6 +2409,9 @@ function testStructuralDiffShadowSeparate() {
     assert_1.default.ok(missingShadow.divergences.some((d) => d.path.includes('::shadow') && d.kind !== 'child_count_mismatch'), `shadow mismatch must not be light child_count, got ${JSON.stringify(missingShadow.divergences)}`);
     const both = (0, structuralDiff_1.diffTrees)({ tag: 'host', shadow: { tag: '#shadow-root', children: [{ tag: 'span' }] } }, { tag: 'host', shadow: { tag: '#shadow-root', children: [{ tag: 'span' }] } });
     assert_1.default.strictEqual(both.identical, true);
+    const missingNested = (0, structuralDiff_1.diffTrees)({ tag: 'iframe', nested: { tag: '#document', children: [{ tag: 'html' }] } }, { tag: 'iframe' });
+    assert_1.default.strictEqual(missingNested.identical, false);
+    assert_1.default.ok(missingNested.divergences.some((d) => d.path.includes('::nested')), `nested mismatch must walk ::nested, got ${JSON.stringify(missingNested.divergences)}`);
     console.log('[unit] structuralDiff shadow separate from light child_count ok');
 }
 function testStructuralDiffNsMismatch() {
@@ -2299,7 +2433,7 @@ function testPropSetWire() {
     assert_1.default.ok(valueDecoded.ok, 'VALUE PROP_SET must decode');
     if (!valueDecoded.ok)
         return;
-    assert_1.default.strictEqual(valueDecoded.part.version, 2);
+    assert_1.default.strictEqual(valueDecoded.part.version, frame_1.FRAME_WIRE_VERSION);
     const valueGot = valueDecoded.part.ops[0];
     assert_1.default.strictEqual(valueGot?.op, opcodes_1.OpCode.PropSet);
     if (valueGot?.op !== opcodes_1.OpCode.PropSet)
@@ -2346,7 +2480,7 @@ function testPropSetWire() {
 }
 function firstOpOffset(bytes) {
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-    let o = 24;
+    let o = frame_1.FRAME_PREFIX_BYTES;
     const strCount = view.getUint32(o, true);
     o += 4;
     for (let i = 0; i < strCount; i++) {
@@ -3308,6 +3442,57 @@ function testCssomPollTelemetrySchema() {
     assert_1.default.strictEqual(json.sequence, 1);
     console.log('[unit] cssom poll telemetry schema ok');
 }
+function testProjectionTelemetryV2ContextId() {
+    assert_1.default.ok(!(0, telemetry_1.isProjectionTelemetryMessage)({
+        v: 1,
+        kind: 'frameEmitted',
+        t: 1,
+        generation: 1,
+        sequence: 1,
+        opCount: 0,
+        partCount: 1,
+        bytes: 0,
+        tableSize: 0,
+        buildMs: 0,
+        encodeMs: 0,
+    }), 'v1 telemetry must be rejected');
+    assert_1.default.ok(!(0, telemetry_1.isProjectionTelemetryMessage)({
+        v: telemetry_1.TELEMETRY_WIRE_VERSION,
+        kind: 'frameEmitted',
+        t: 1,
+        generation: 1,
+        sequence: 1,
+        opCount: 0,
+        partCount: 1,
+        bytes: 0,
+        tableSize: 0,
+        buildMs: 0,
+        encodeMs: 0,
+    }), 'missing contextId must fail');
+    assert_1.default.ok((0, telemetry_1.isProjectionTelemetryMessage)({
+        v: telemetry_1.TELEMETRY_WIRE_VERSION,
+        contextId: 1,
+        kind: 'applyResult',
+        t: 1,
+        generation: 1,
+        sequence: 1,
+        ok: true,
+        opCount: 0,
+        applyMs: 0,
+        tableSize: 0,
+    }), 'v2 with contextId must pass');
+    console.log('[unit] projection telemetry v2 contextId validator ok');
+}
+function testLabContextIndex() {
+    const index = new contextIndex_1.ContextIndex();
+    index.noteBoot();
+    assert_1.default.deepStrictEqual(index.list(), [1]);
+    index.observeFrameHeader({ contextId: 2 });
+    index.observeFrameHeader({ contextId: 2 });
+    assert_1.default.deepStrictEqual(index.list(), [1, 2]);
+    assert_1.default.strictEqual(index.meta(2)?.frameCount, 2);
+    console.log('[unit] lab context index ok');
+}
 async function main() {
     // Debug instrumentation posts to the ingest server; don't hang unit runs on it.
     globalThis.fetch = (async () => new Response('{}', { status: 204 }));
@@ -3380,6 +3565,10 @@ async function main() {
     testApplyFrameToTableCheckedRangeScope();
     testCheckScopeRangeEncodeDecode();
     testNodeNewElementNsWire();
+    testNodeNewNestedHostWire();
+    testHeaderV3ContextId();
+    testContextIdMintAndChildScopes();
+    testNestedHostNavAttrSkip();
     testShadowRootWire();
     testShadowRootModeClosedMalformed();
     testShadowRootInitFlagsReservedBitMalformed();
@@ -3420,6 +3609,8 @@ async function main() {
     testCssomEncodeDecode();
     testHostileHonestyFramesEncodeDecode();
     testCssomPollTelemetrySchema();
+    testProjectionTelemetryV2ContextId();
+    testLabContextIndex();
     await (0, page_unit_1.runPageProjectionUnitTests)();
     await (0, v4ProjectionSession_unit_1.runV4ProjectionSessionUnitTests)();
     console.log('[unit] all passed');

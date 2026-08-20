@@ -49,6 +49,7 @@ const applyAttrs_1 = require("../blueprints/fold/applyAttrs");
 const svgNs_1 = require("../blueprints/fold/svgNs");
 const formsState_1 = require("../blueprints/fold/formsState");
 const shadowOpen_1 = require("../blueprints/fold/shadowOpen");
+const iframeOpen_1 = require("../blueprints/fold/iframeOpen");
 const applyHonestyDesync_1 = require("../blueprints/fold/applyHonestyDesync");
 const hostileFrames_1 = require("./hostileFrames");
 function sleep(ms) {
@@ -297,6 +298,7 @@ async function executeBlueprint(bp, hooks) {
                 chassis.browser?.sendPageProjectionControl?.({
                     type: 'requestResync',
                     reason: String(params.reason ?? bp.id),
+                    contextId: typeof params.contextId === 'number' && params.contextId > 0 ? params.contextId : 1,
                 });
                 return finish(true);
             }
@@ -325,9 +327,42 @@ async function executeBlueprint(bp, hooks) {
                     return finish(false, 'no session');
                 const iso = await (0, isomorphism_1.runIsomorphism)({
                     session,
-                    getClientSnapshot: hooks.requestClientSnapshot,
+                    contextIds: chassis.contextIndex.list(),
+                    getClientSnapshot: hooks.requestClientSnapshot
+                        ? (contextId) => hooks.requestClientSnapshot(contextId)
+                        : undefined,
                 });
                 chassis.journal.iso = iso;
+                if (iso.nested && iso.nested.virtualDocs + iso.nested.clientDocs > 0) {
+                    const prev = chassis.journal.nestedEvidence ?? {
+                        virtualDocs: 0,
+                        clientDocs: 0,
+                        clientFrameHrefs: [],
+                        treeIdenticalWhileNested: false,
+                        treeDivergencesWhileNested: 0,
+                    };
+                    const hrefs = [...prev.clientFrameHrefs];
+                    for (const h of iso.nested.clientFrameHrefs) {
+                        if (!hrefs.includes(h))
+                            hrefs.push(h);
+                    }
+                    let treeIdenticalWhileNested = prev.treeIdenticalWhileNested;
+                    let treeDivergencesWhileNested = prev.treeDivergencesWhileNested;
+                    if (iso.nested.virtualDocs > 0 && iso.structuralDiff) {
+                        if (iso.structuralDiff.identical)
+                            treeIdenticalWhileNested = true;
+                        else {
+                            treeDivergencesWhileNested = iso.structuralDiff.divergenceCount;
+                        }
+                    }
+                    chassis.journal.nestedEvidence = {
+                        virtualDocs: Math.max(prev.virtualDocs, iso.nested.virtualDocs),
+                        clientDocs: Math.max(prev.clientDocs, iso.nested.clientDocs),
+                        clientFrameHrefs: hrefs,
+                        treeIdenticalWhileNested,
+                        treeDivergencesWhileNested,
+                    };
+                }
                 if (chassis.dossierHandle) {
                     await (0, write_1.writeJson)(chassis.dossierHandle, 'probes/iso.json', {
                         sequence: iso.sequence,
@@ -358,7 +393,7 @@ async function executeBlueprint(bp, hooks) {
                 if (!chassis.hasClientRelay || !hooks.requestClientSnapshot) {
                     return record({ kind, skipped: true, skipReason: 'no DOM client' }, 'skipped: no DOM client');
                 }
-                const getClientSnapshot = hooks.requestClientSnapshot;
+                const getClientSnapshot = () => hooks.requestClientSnapshot(1);
                 chassis.suppressVirtualRelay = true;
                 try {
                     const live = await pollClientSnapshot(getClientSnapshot, (s) => s.armed === true && s.resyncInFlight !== true && s.sequence != null, INJECT_READY_MS);
@@ -491,6 +526,8 @@ async function executeBlueprint(bp, hooks) {
                     verdicts = (0, shadowOpen_1.foldShadowClosed)(chassis);
                 else if (ruleset === 'shadow-manual' || ruleset === 'fold/shadowManual')
                     verdicts = (0, shadowOpen_1.foldShadowManual)(chassis);
+                else if (ruleset === 'iframe-open' || ruleset === 'fold/iframeOpen')
+                    verdicts = (0, iframeOpen_1.foldIframeOpen)(chassis);
                 else if (ruleset === 'apply-honesty-desync' || ruleset === 'fold/applyHonestyDesync') {
                     const kind = parseHostileKind(params.kind, bp.id);
                     if (!kind)

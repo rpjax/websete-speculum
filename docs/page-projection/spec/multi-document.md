@@ -1,6 +1,6 @@
 # PageProjection — multi-document
 
-**Status:** design in progress (OPEN-6). Not on the wire.  
+**Status:** lab same-origin iframe on the wire (OPEN-6). XO / srcdoc / sandbox / fenced NIT. Production not cutover.  
 **Law:** this file is the spec. Code is a reflection. Do not invent in code what is still OPEN here.  
 **Index:** [README.md](README.md). PP ISA: [frame-protocol.md](frame-protocol.md).
 
@@ -14,115 +14,198 @@ The algorithm **observes** the page. It never writes host identity onto live DOM
 
 | # | Topic | State |
 |---|--------|--------|
-| Machine | Context, parent host map, reinstall | **LOCKED** (this file) |
-| Name | Header field `contextId` (was `documentId`) | **LOCKED** name; not shipped |
-| M2 | PP header v3 layout | **LOCKED** layout, not shipped |
+| Machine | Context, child-scope indexer, reinstall | **LOCKED** |
+| Runtime vs algorithm | Root runtime ≠ per-window algorithm | **LOCKED** (this file §1) |
+| Header `contextId` | This instance’s mine (contract “who am I”). Not a parent field. | **LOCKED** |
+| Root `contextId` | `1`; nested never `1`; `0` invalid; root does not call `getScopeId` | **LOCKED** |
+| Nested id | This instance mints into **its** indexer; child asks the contract who it is | **LOCKED** |
+| Mint | `u32`; root **runtime** RPC; reserve `1` for root. Not a GUID. | **LOCKED** |
+| Child-scope indexer | Per instance, like the node indexer. Drop with the host **row**. Not in `CHECK`. | **LOCKED** |
+| `NODE_NEW` extra arg | Only when nested-context host; omit otherwise. Presence = bit 7 of `ns` byte | **LOCKED** |
+| Classify host | `contentWindow != null` (not `.contentDocument`). Admit connected. | **LOCKED** |
+| Projected host iframe | Same-origin blank; do not navigate live `src`. Parent installs nested algorithm. | **LOCKED** |
+| Bus | Events all layers. Control = RPC. Loose = emit/listen. `emitFrame` implemented by **root runtime**. postMessage is the bus. | **LOCKED** |
+| Resync request | Loose bus event stamped with the desynced instance’s `contextId`. Matching Virtual `emitResyncFrame`. DataPlane does not route. | **LOCKED** |
+| RPC pipe | request / response / heartbeat; TCS awaiter; `getScopeId`, `mint`, **`snapshot`** | **LOCKED** shape; TS names OPEN |
+| Name | Header field `contextId` (was `documentId`) | **LOCKED** name |
+| M2 | PP header layout (`contextId: u32` after flags) | **LOCKED** layout |
 | Nav / blank `load` | Same `contextId`; reinstall; no remint | **LOCKED** |
-| ISA | `NODE_NEW` operand that fills the parent map | **OPEN** |
-| Ports | Names / TS of Id, Bus | **OPEN** |
-| Bus impl | postMessage vs CDP vs ports | **OPEN** (M8) |
-| Shadow | Feature 1 — [shadow.md](shadow.md); this file waits | not this file |
+| Shadow | Kind 1 — [shadow.md](shadow.md); shipped | not this file |
 
-Dead ends (child-only generate, session document table as router, `DOC_ATTACH` join, id on the element row, remint on `load`) stay in the decision log. They are not the machine.
+Dead ends (child-only generate, random child id, timeout-means-root, session document table as router, `DOC_ATTACH` join, id on the element row, remint on `load`, hashing `hosts` into `tableHash`) stay in the decision log. They are not the machine.
 
 ---
 
 ## 0.1 What this file is (and is not)
 
-Foundation: [subtrees.md](subtrees.md). This file is **kind 2** (nested browsing context). Shadow is [shadow.md](shadow.md) — later.
+Foundation: [subtrees.md](subtrees.md). This file is **kind 2** (nested browsing context). Shadow is the **same** algorithm instance ([shadow.md](shadow.md)).
 
-`.contentDocument` classifies nested browsing context. The parent still does not read that pointer.
+Classify a nested host with **`contentWindow != null`**. Do **not** read `.contentDocument` (null cross-origin; would miss XO iframes). Detached elements often have a null `contentWindow` — admit only **connected** nodes (already the producer rule).
 
-
----
-
-## 1. What the id is
-
-A **context** is one install of the projection algorithm. By design it observes **one tree**.
-
-Every context has a **host**:
-
-| Context | Host |
-|---------|------|
-| Session root | The session browsing context. No parent algorithm. `frameElement` is null. |
-| Nested (`iframe` / `frame` / `object` / `embed`) | An **element node** in the **parent** context’s tree |
-
-The id names that context, not an HTML `Document` object. Navigating the iframe replaces the inner JS heap and the inner tree; the host in the parent is the same node, so the id is the same. The new heap gets a **reinstall** of the algorithm, same id, cold `resyncVirtual` / empty apply + incoming resync.
-
-**Rename:** PP header field is `contextId` (not `documentId`). Same `u32` slot in v3.
-
-`0` invalid. Root is `1` on both Virtual and Projected (neither root generates independently). Nested ids are session-global, minted by the **parent** when it first admits the host node. Nested never `1`.
+The lab Projected **surface** iframe (where apply paints) is **not** a nested browsing context of the target. Do not treat it as a `contextId`.
 
 ---
 
-## 2. Parent map — not the page, not the node table
+## 1. Runtime vs algorithm
 
-Each context that can contain nested hosts keeps algorithm memory:
+Two codebases. The algorithm **consumes** the runtime through an interface. It does not own the Chromium↔sidecar socket.
+
+| | **Runtime** | **Algorithm** |
+|--|-------------|---------------|
+| Install | **Once**, session-root tab | **Every** `window` (root and each nested browsing context) |
+| Job | Sidecar connection. **Implements `emitFrame`.** Dumb mux. **`u32` mint allocator.** Bus (postMessage) so every layer can emit/listen. | Observe / produce / two-phase apply **one tree**. Calls `emitFrame` / listens; does not own the socket. |
+| Knows | How bytes leave the tab; next unused `contextId` | `mine`, node table, **child-scope indexer**, MO |
+| Does not | Observe the child’s DOM; apply frames | Open its own WS from a nested heap; hold the session mint counter |
+
+A nested algorithm does **not** open a socket. It calls the **interface** (`emitFrame`, `getScopeId`, `mint`). The **root runtime** implements `emitFrame` (bytes onto the sidecar). The bus carries events through every layer so that call works from a nested heap.
+
+The root algorithm instance is **not special** except: it has no embedder, so it does not call `getScopeId` (`mine = 1` from the contract). Same produce/apply loop as a child. When it admits a nested host, it still **mints** via the runtime (that is a different call).
+
+---
+
+## 2. What a context is
+
+A **context** is one install of the projection algorithm in one JS heap (`window`). By design it observes **one tree**.
+
+At init the algorithm asks the **contract** “who am I?”, stores `mine`, and stamps **every** frame it emits with `header.contextId = mine`. That field is **not** a parent/child binding. The embedder answering (`getScopeId`) is how the JS environment implements the contract for nested heaps — not the algorithm.
+
+| Context | Host | `contextId` |
+|---------|------|-------------|
+| Session root | The session browsing context. `window.parent === window` / `frameElement == null`. | **`1`** (both Virtual and Projected). Reserved. Not minted. |
+| Nested (`iframe` / `frame` / `object` / `embed`) | An **element node** in the **parent** context’s tree | Session-global `C ≠ 1`, minted when **that parent instance** first admits the host node |
+
+`0` is invalid. Space is **`u32`** (not a GUID).
+
+The id names the **context**, not an HTML `Document` object. It is a **different space** from node-table id `1` (that context’s Document row — [frame-protocol.md](frame-protocol.md) §1.2). Every nested instance still has Document row `1` **inside its own table**.
+
+**When `C` changes:** the host **row** is dropped, or a **new** host node is admitted. Inner navigation does **not** remint. Same-node move keeps the row → keeps `C`.
+
+Navigating the iframe replaces the inner JS heap and the inner tree; the host **row** in the parent is the same, so `C` is the same. The new heap **reinstalls** the algorithm, asks the contract who it is, gets the same `C`, cold `resyncVirtual` / empty apply + incoming resync.
+
+---
+
+## 3. Child-scope indexer — not the page, not the node table
+
+Each algorithm instance keeps its own indexer of **child** scopes (same idea as the node indexer; nesting recurses because every instance has one):
 
 ```text
-hosts: Map<nodeId, contextId>
+childScopes: Map<nodeId, contextId>
 ```
 
-- Virtual: when the observer first admits a nested-browsing-context host, `mint()` → `hosts.set(hostNodeId, childId)`. Live iframe is untouched.
-- That assignment **rides `NODE_NEW` of the host** (operand layout OPEN) so the Projected parent fills the **same map** while applying. Still not a DOM write. Still not a hashed column of the element row (the element did not change).
-- Child boot, both sides: `Id.myId()` asks the embedder. Embedder answers `hosts.get(thatHost)`. Projected does not mint. Child does not scrape frames to guess.
+- Virtual: when this instance first admits a **connected** node with **`contentWindow != null`**, it asks the root runtime to **mint** a `u32` `C`, then `childScopes.set(hostNodeId, C)`. Live iframe is untouched. Not a tag list. Not `.contentDocument`.
+- That `C` **rides `NODE_NEW` of the host** as an extra operand **only on that case**. Ordinary elements **omit** the field (logical `nestedHost=false`, `childScopeId=null`). Do not write an explicit `0` u32 on every ELEMENT.
+- **Cursor:** bit 7 of the ELEMENT `ns` byte is the presence mark (`ELEMENT_NS_NESTED_HOST_BIT`). Same omit pattern as `ns === custom` → uri. Bits 4–6 reserved 0. If the bit is set, `childScopeId: u32` follows attrs (`C ≥ 2`). Projected apply of that `NODE_NEW` fills the **same** indexer. Projected **never** mints. Still not a DOM write. Still not a hashed column of the element row. **Not** in `tableHash` / closing `CHECK`.
+- Drop of that **host row** (`NODE_DROP` of the node) drops the indexer entry. `REMOVE` that only detaches, or a same-tick move, does **not** remint. Inner nav does not touch the indexer.
+- No `SCOPE_NEW` opcode.
 
-This map is **not** a session router. Frames still go on the shared bus; each Projected context applies iff `header.contextId === mine`. `DOC_ATTACH` stays unimplemented.
+This indexer is **not** a session router. Frames still go on the shared bus; each instance applies iff `header.contextId === mine`. `DOC_ATTACH` stays unimplemented.
 
-`Id.mint()` uniqueness is session-global (not a per-parent JS counter). Who holds the allocator (root Virtual vs sidecar) is **OPEN**. Produce/apply do not implement it.
+**Mint:** session-global `u32` from the **root runtime** (simple RPC). `0` invalid. `1` reserved for the session root. Not a GUID. Not a per-heap `2, 3, 4…`. Nested and root algorithm instances both call mint when *they* admit a host; only the root runtime holds the counter. Nested **never** invents an id. Timeout never becomes an id.
 
 ---
 
-## 3. Sequences
+## 4. Bus — events at every layer
+
+The bus **propagates events through all layers**. It is not the algorithm. postMessage is the bus.
+
+Two shapes:
+
+| Kind | What | Examples |
+|------|------|----------|
+| **Control** | Invocation under rigid rules: request / response / heartbeat + TCS awaiter | `getScopeId`, `mint`, **`snapshot`** |
+| **Loose** | Someone produces an event and dumps it on the bus; whoever cares listens | PP frames (`emitFrame`); **resync request** (`contextId` of the desynced instance); **`telemetry`** (nested producer events → root runtime → sidecar) |
+
+Algorithm at any nesting level: `interface.emitFrame(frame)`. It does not know hops, `window.top`, or the sidecar socket.
+
+**Who implements `emitFrame`:** the **root runtime** (write to the sidecar). Nested heaps reach that implementation because the bus carries the event through the layers. **Resync request** is the same: the desynced Projected instance dumps a loose event stamped with **its** `mine`; the root runtime carries it; Virtual instances listen; the one with `mine === that contextId` runs `emitResyncFrame`. DataPlane does not route. Not a new opcode. Not in the PP body.
+
+**Who listens to frames:** every algorithm instance; apply iff `header.contextId === mine`. The DataPlane does not route by document.
+
+`getScopeId` is a **control** call: nested → immediate parent algorithm (`event.source === iframe.contentWindow` → `childScopes.get`). Not a broadcast. **`mint`** is control answered by the root runtime.
+
+Heartbeat keeps a control awaiter alive. It does not complete the call. `getScopeId` stays fast; retry if the embedder has not `childScopes.set` yet. Do **not** invent an id. Do **not** treat timeout as “I am root.”
+
+**Root never calls `getScopeId`.** `window.parent === window` / `frameElement == null` → `mine = 1`.
+
+Do not punch CSP to make page-JS `WebSocket` to localhost ([open.md](open.md) E-03/E-08). Nested has no own WS. The root runtime’s sidecar connection is not a page `connect()`.
+
+---
+
+## 4.1 Projected nested host — blank, same origin
+
+The host element exists for **DOM isomorphism**. It is **our** iframe: same-origin, blank (`about:blank` / no live navigation). It does **not** load the site’s `src` / `srcdoc`. Setting those as navigation would fetch the real page into Projected.
+
+Who paints inside that window is the **nested algorithm**. The **parent** installs it into that `contentWindow` (same-origin blank makes that legal). Virtual still observes the real nested document in Chromium.
+
+Table attrs `src` / `srcdoc` stay on the row (producer truth). Phase 2 on a nested-context host **must not** navigate the browsing context to those URLs.
+
+---
+
+## 5. Sequences
 
 ```text
-Virtual parent
-  observer sees host node
-  mint C, hosts.set(host, C)
-  NODE_NEW(host, …, childContextId=C)
-  frames use header.contextId = parent’s mine
+This instance (Virtual) admits a connected node with contentWindow != null
+  mint C from root runtime
+  childScopes.set(host, C)
+  NODE_NEW(host, …, childScopeId=C)   // extra arg only because it is a host
+  emitFrame — header.contextId = this instance’s mine
 
-Projected parent
-  apply NODE_NEW → create the iframe in this tree (as today)
-  hosts.set(host, C)     // map only
+Projected peer
+  apply NODE_NEW → our blank same-origin iframe; childScopes.set(host, C)
+  do not navigate live src
+  parent installs nested algorithm into that contentWindow
+  does not mint
 
-Inner document appears (blank, src, later navigation — same)
+Inner document (Virtual: real nested load; Projected: blank apply target)
   algorithm reinstalls in that JS heap
-  Id.myId() → C
-  Virtual: observe that tree, resyncVirtual, emit header.contextId = C
-  Projected: onFrame apply iff C
+  asks the contract who am I → C
+  Virtual: observe that tree, resyncVirtual, emitFrame stamped C
+  Projected: listen; apply iff C
 ```
 
-Navigate: parent MutationObserver is silent (host unchanged). Parent map unchanged. Old inner instances die with the old heap. New ones reinstall, ask, get the same `C`. No remint. No extra opcode to “update the id.”
+Navigate (Virtual inner): parent MutationObserver is silent (host row unchanged). Indexer unchanged. Old inner instances die with the old heap. New ones reinstall, ask, get the same `C`. No remint. No extra opcode to “update the id.”
 
-Blank then `src` (two `load`s): same host, same `C`, two reinstalls. First tree is empty-ish; second resync replaces it. Do **not** special-case this.
+Blank then `src` on **Virtual** (two `load`s): same host row, same `C`, two reinstalls. First tree is empty-ish; second resync replaces it. Do **not** special-case this. Projected inner stays blank; the nested algorithm applies the new tree.
 
-Host removed: drop `hosts` entry; inner heaps gone; leftover frames for that `C` → every remaining applier noops.
+Host **row** dropped: drop `childScopes` entry; inner heaps gone; leftover frames for that `C` → every remaining applier noops. A **new** host node (even same tag, same `src`) is a **new** `C`.
 
 ---
 
-## 4. Instance loop
+## 6. Instance loop
 
 ```text
 Virtual tick:
-  drain MO → table → encode PP v3 (header.contextId = mine) → Bus.emit
-  first admit of a host: mint + hosts.set + childContextId on that NODE_NEW
+  drain MO → table → encode PP v3 (header.contextId = mine) → emitFrame
+  first admit of nested host: contentWindow != null → mint + childScopes.set + extra arg on that NODE_NEW
 
-Projected onFrame(bytes):
-  peek header.contextId
-  if ≠ mine: return
+Projected onFrame (bus; iff header.contextId === mine):
   assemble parts → two-phase apply
+  NODE_NEW nested host → blank same-origin iframe, childScopes.set, parent installs nested algorithm
+  do not navigate src/srcdoc
 
 halt (this JS heap unloading):
   drop bus subscription; stop observe; instance gone with the realm
-  contextId remains assigned to the host until the host is removed
+  contextId remains in the embedder’s indexer until that host row is dropped
 ```
 
 In-flight frames from a previous install of the same `C` are the existing recovery path (`generation` / `sequence` / `preTableHash` / resync), not a new id. Do not remint to isolate them.
 
 ---
 
-## 5. PP header v3
+## 7. What each side needs
+
+| Role | Needs |
+|------|--------|
+| Nested Virtual | contract “who am I” → `C`; `emitFrame` stamped with `C` |
+| Nested Projected | contract “who am I” → `C`; listen; apply iff `C`; on desync dump resync request stamped `C` |
+| Any algorithm that can host nested contexts | Node table + **child-scope indexer**; mint on admit (`contentWindow != null`); answer `getScopeId` for `event.source === that contentWindow` |
+| Projected parent of a host | Blank same-origin iframe; **install** nested algorithm into `contentWindow`; never live `src` |
+| Root algorithm | `mine = 1`; no `getScopeId`; same loop; mint when *it* admits a host |
+| Root runtime | Sidecar connection; **implements `emitFrame`**; **`u32` mint**; bus; **telemetry fan-out**; **snapshot RPC routing** (forward/recurse like `mint`); not the child-scope indexer |
+
+---
+
+## 8. PP header v3
 
 Not shipped. Current engine version **2**. No shim.
 
@@ -130,7 +213,7 @@ Not shipped. Current engine version **2**. No shim.
 offset 0   magic        u16   0x5050
 offset 2   version      u8    3
 offset 3   flags        u8
-offset 4   contextId    u32   this context’s mine
+offset 4   contextId    u32   this instance’s mine (contract). Not a parent field.
 offset 8   generation   u32
 offset 12  sequence     u32
 offset 16  partIndex    u16
@@ -143,28 +226,25 @@ All parts of one frame share `contextId`, `generation`, `sequence`. Mismatch →
 
 ---
 
-## 6. Desync / CSSOM
+## 9. Desync / CSSOM
 
 | Event | Effect |
 |-------|--------|
-| Host removed | Inner contexts halt; leftover frames for those ids → noop |
-| Inner nav / blank→src | §3 reinstall, same `contextId` |
-| Applier desync | That `contextId` only: resync request; matching Virtual `emitResyncFrame` |
+| Host row dropped | Drop `childScopes` entry; inner contexts halt; leftover frames for those ids → noop |
+| Inner nav / blank→src | §5 reinstall, same `contextId` |
+| Applier desync | Loose bus event with that instance’s `contextId`; matching Virtual `emitResyncFrame`. DataPlane does not route. |
 | Producer map untrusted | That install `resyncVirtual` only |
 
 Input disarm and string table are per install (the current heap), not “per host forever.”
 
-CSSOM: that install’s poll + that node table. Shadow waits until shadow uses this machine.
+CSSOM: that install’s poll + that node table. Shadow stays **this** instance when the inner document has shadow.
 
 ---
 
-## 7. OPEN (do not code)
+## 10. OPEN (do not code)
 
-- `NODE_NEW` ELEMENT operand for `childContextId` (`0` = this node is not a nested host).
-- Who owns session-global `Id.mint()`.
-- Port TypeScript (Id, Bus).
-- Bus transport (postMessage is a candidate impl; antibot constrains the impl, not the algorithm).
-- Shadow, `srcdoc`, sandbox, fenced.
+- Port TypeScript names (Id, Bus, Rpc / `emitFrame`).
+- `srcdoc`, sandbox, fenced (NIT until decided). `object`/`embed`/`frame` follow `contentWindow`, not a separate kind.
 
 ---
 
@@ -183,3 +263,13 @@ CSSOM: that install’s poll + that node table. Shadow waits until shadow uses t
 | 2026-08-18 | Root id `1`; nested query; remint on nav (retracted below) |
 | 2026-08-18 | **Retract** id-on-element-row and remint-on-load. **Context** = algorithm install / one tree; parent `hosts: Map<nodeId, contextId>`; algorithm does not mutate the page; nav and blank→src are reinstall, same id. Header field renamed `contextId`. |
 | 2026-08-18 | **Three subtree products.** Nested browsing context (this file) ≠ shadow (same instance) ≠ inert `template.content` (ignore). Declarative shadow is shadow. |
+| 2026-08-19 | **Runtime ≠ algorithm.** Runtime once at the root tab (sidecar connection). Algorithm installs in every `window`. Nested has no own WS. |
+| 2026-08-19 | **Root `contextId = 1`** without RPC. Nested `getScopeId` to immediate parent (`event.source === iframe.contentWindow`). Timeout-as-root forbidden. Retry if parent has not indexed yet. |
+| 2026-08-19 | **RPC pipe** locked as shape: request / response / heartbeat + TCS awaiter. `getScopeId` is one method. Heartbeat is generic; `getScopeId` stays fast. |
+| 2026-08-19 | **`hosts` not in `CHECK`.** Assignment rides host `NODE_NEW`. New host element → new `C`. Inner nav → same `C`. |
+| 2026-08-19 | **Header is mine**, not a parent field. Child-scope indexer per instance. Extra `NODE_NEW` arg only for host nodes (omit otherwise). Mint = root-runtime `u32` RPC, not GUID; reserve `1`. Indexer lifetime = host **row**. `ns` bit 7 = nested-host presence (`childScopeId` u32 after attrs). |
+| 2026-08-19 | **Classify** `contentWindow != null`; never `.contentDocument`. Admit connected. |
+| 2026-08-19 | **Projected host** = our blank same-origin iframe; parent installs nested algorithm; do not navigate live `src`/`srcdoc`. |
+| 2026-08-19 | **Bus** = events all layers (control RPC vs loose emit/listen). `emitFrame` implemented by root runtime. postMessage is the bus. Not hop-vs-top as algorithm. |
+| 2026-08-19 | **Resync request** = loose bus event with that instance’s `contextId`. Matching Virtual `emitResyncFrame`. Not in the PP body. DataPlane does not route. |
+| 2026-08-19 | **Multi-context observability** — telemetry `contextId` + loose bus `telemetry`; control RPC **`snapshot`** per instance; lab context index; wire monitor per scope; CPU Profiler tab-level only. | [observability.md](observability.md) §10 |

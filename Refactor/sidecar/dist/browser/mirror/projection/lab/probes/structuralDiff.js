@@ -8,6 +8,8 @@
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.countShadowTrees = countShadowTrees;
+exports.countNestedDocuments = countNestedDocuments;
+exports.collectFrameHrefs = collectFrameHrefs;
 exports.diffTrees = diffTrees;
 const MAX_DIVERGENCES = 50;
 /** Number of open-shadow trees in the snapshot (hosts, including nested). Light-only = 0. */
@@ -15,10 +17,36 @@ function countShadowTrees(node) {
     let n = 0;
     if (node.shadow !== undefined)
         n += 1 + countShadowTrees(node.shadow);
+    if (node.nested !== undefined)
+        n += countShadowTrees(node.nested);
     const children = node.children ?? [];
     for (let i = 0; i < children.length; i++)
         n += countShadowTrees(children[i]);
     return n;
+}
+/** Nested browsing-context documents captured in the snapshot (SO `contentDocument`). */
+function countNestedDocuments(node) {
+    let n = 0;
+    if (node.nested !== undefined)
+        n += 1 + countNestedDocuments(node.nested);
+    if (node.shadow !== undefined)
+        n += countNestedDocuments(node.shadow);
+    const children = node.children ?? [];
+    for (let i = 0; i < children.length; i++)
+        n += countNestedDocuments(children[i]);
+    return n;
+}
+function collectFrameHrefs(node, out = []) {
+    if (node.frameHref)
+        out.push(node.frameHref);
+    if (node.nested)
+        collectFrameHrefs(node.nested, out);
+    if (node.shadow)
+        collectFrameHrefs(node.shadow, out);
+    const children = node.children ?? [];
+    for (let i = 0; i < children.length; i++)
+        collectFrameHrefs(children[i], out);
+    return out;
 }
 function diffTrees(virtual, client) {
     const divergences = [];
@@ -69,6 +97,9 @@ function walk(a, b, path, record) {
     }
     if (a.shadow !== undefined || b.shadow !== undefined) {
         walk(a.shadow, b.shadow, `${path}>${a.tag}::shadow`, record);
+    }
+    if (a.nested !== undefined || b.nested !== undefined) {
+        walk(a.nested, b.nested, `${path}>${a.tag}::nested`, record);
     }
 }
 function diffAttrs(a, b) {

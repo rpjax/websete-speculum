@@ -53,7 +53,13 @@ export function readAttrs(el: Element): AttrPair[] {
 }
 
 /** `NODE_NEW` descriptor, read fresh from the live node — never from a producer-side cache. */
-export function describeNodeNew(id: DomNodeKey, kind: DomNodeKind, node: Node, hostId?: DomNodeKey): FrameOp {
+export function describeNodeNew(
+  id: DomNodeKey,
+  kind: DomNodeKind,
+  node: Node,
+  hostId?: DomNodeKey,
+  nested?: { childScopeId: number } | null,
+): FrameOp {
   if (kind === NodeKind.ShadowRoot) {
     const sr = node as ShadowRoot;
     return {
@@ -76,6 +82,7 @@ export function describeNodeNew(id: DomNodeKey, kind: DomNodeKind, node: Node, h
       name: el.tagName.toLowerCase(),
       attrs: readAttrs(el),
       ...(classified.ns === ElementNs.Custom ? { uri: classified.uri } : {}),
+      ...(nested ? { nestedHost: true, childScopeId: nested.childScopeId } : {}),
     };
   }
   if (kind === NodeKind.Doctype) {

@@ -45,8 +45,8 @@ class NodeTableApplier {
             return;
         }
         const assembled = this.assembler.ingest(decoded.part);
-        if (assembled === 'missing_part') {
-            this.lastError = 'missing_part';
+        if (assembled === 'missing_part' || assembled === 'malformed') {
+            this.lastError = assembled;
             return;
         }
         if (assembled === null)

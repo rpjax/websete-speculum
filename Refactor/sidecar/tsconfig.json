@@ -19,6 +19,8 @@
     "dist",
     "browser/mirror/projection/virtual",
     "browser/mirror/projection/lab/client",
-    "browser/mirror/projection/client"
+    "browser/mirror/projection/client",
+    "browser/mirror/projection/bus",
+    "browser/mirror/projection/runtime"
   ]
 }

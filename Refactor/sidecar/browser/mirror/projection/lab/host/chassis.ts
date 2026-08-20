@@ -26,8 +26,10 @@ import { FrameInvariantMonitor } from '../probes/frameInvariantMonitor';
 import { MetricsAggregator } from '../probes/metricsAggregator';
 import { NodeTableApplier } from '../probes/nodeTableApply';
 import type { ClientStateSnapshot } from '../probes/isomorphism';
+import { ContextIndex } from './contextIndex';
 import { OpCode } from '../../models/opcodes';
-import { decodeFramePart, FramePartAssembler, PersistentStringTable } from '../../models/decode';
+import { decodeFramePart, peekFrameHeader as peekPpHeader, FramePartAssembler, PersistentStringTable } from '../../models/decode';
+import { CONTEXT_ID_ROOT } from '../../models/frame';
 
 export type ChassisOptions = {
   headless: boolean;
@@ -84,7 +86,7 @@ export class CssomOpWindow {
     const decoded = decodeFramePart(buf, this.persistent);
     if (!decoded.ok) return;
     const assembled = this.assembler.ingest(decoded.part);
-    if (assembled === 'missing_part' || assembled === null) return;
+    if (assembled === 'missing_part' || assembled === 'malformed' || assembled === null) return;
     for (const op of assembled.ops) {
       if (op.op === OpCode.SheetNew) this.counts.sheetNew += 1;
       else if (op.op === OpCode.SheetDrop) this.counts.sheetDrop += 1;
@@ -96,13 +98,14 @@ export class CssomOpWindow {
   }
 }
 
-function peekFrameHeader(buf: Buffer): { generation: number; sequence: number } | null {
-  if (buf.length < 12) return null;
-  if (buf.readUInt16LE(0) !== 0x5050) return null;
-  return {
-    generation: buf.readUInt32LE(4),
-    sequence: buf.readUInt32LE(8),
-  };
+function peekFrameHeader(buf: Buffer): {
+  generation: number;
+  sequence: number;
+  contextId: number;
+} | null {
+  const peeked = peekPpHeader(buf);
+  if (!peeked) return null;
+  return { generation: peeked.generation, sequence: peeked.sequence, contextId: peeked.contextId };
 }
 
 export class LabChassis {
@@ -125,7 +128,12 @@ export class LabChassis {
   };
 
   readonly metrics = new MetricsAggregator();
-  readonly invariantMonitor = new FrameInvariantMonitor();
+  readonly contextIndex = new ContextIndex();
+  private readonly invariantMonitors = new Map<number, FrameInvariantMonitor>();
+  /** Root-context wire monitor — legacy alias for CLI folds that expect a single monitor. */
+  get invariantMonitor(): FrameInvariantMonitor {
+    return this.monitorFor(CONTEXT_ID_ROOT);
+  }
   readonly nodeTable = new NodeTableApplier();
   readonly eventCounts: Record<string, number> = {};
   readonly desyncs: unknown[] = [];
@@ -144,6 +152,14 @@ export class LabChassis {
     snaps: { id: string; mode: string; result: unknown }[];
     opWindows: Record<string, CssomOpCounts>;
     iso?: unknown;
+    /** Peak nested-document evidence across iso actions (last iso is often post-drop). */
+    nestedEvidence?: {
+      virtualDocs: number;
+      clientDocs: number;
+      clientFrameHrefs: string[];
+      treeIdenticalWhileNested: boolean;
+      treeDivergencesWhileNested: number;
+    };
     injects: {
       kind: string;
       skipped?: boolean;
@@ -224,21 +240,33 @@ export class LabChassis {
     this.stats.framesFromVirtual += 1;
     this.stats.bytesFromVirtual += b.length;
     const hdr = peekFrameHeader(b);
+    this.contextIndex.observeFrameHeader(hdr);
     if (hdr) {
-      this.stats.lastGeneration = hdr.generation;
-      this.stats.lastSequence = hdr.sequence;
+      this.monitorFor(hdr.contextId).observeFrameBytes(b);
+      if (hdr.contextId === CONTEXT_ID_ROOT) {
+        this.stats.lastGeneration = hdr.generation;
+        this.stats.lastSequence = hdr.sequence;
+        this.nodeTable.observeFrameBytes(b);
+        for (const w of this.opWindows.values()) w.observe(b);
+      }
     }
     this.metrics.observeWireBytes(b.length);
-    this.invariantMonitor.observeFrameBytes(b);
-    this.nodeTable.observeFrameBytes(b);
-    for (const w of this.opWindows.values()) w.observe(b);
     if (!this.suppressVirtualRelay) this.onFrameRelay?.(b);
+  }
+
+  private monitorFor(contextId: number): FrameInvariantMonitor {
+    let monitor = this.invariantMonitors.get(contextId);
+    if (!monitor) {
+      monitor = new FrameInvariantMonitor();
+      this.invariantMonitors.set(contextId, monitor);
+    }
+    return monitor;
   }
 
   observeTelemetry(message: ProjectionTelemetryMessage): void {
     this.stats.telemetryMessages += 1;
     this.metrics.observeTelemetry(message);
-    this.invariantMonitor.observeTelemetry(message);
+    this.monitorFor(message.contextId).observeTelemetry(message);
     this.eventCounts[message.kind] = (this.eventCounts[message.kind] ?? 0) + 1;
     if (message.kind === 'desynced') this.desyncs.push(message);
     if (message.kind === 'cssomPoll') {
@@ -310,6 +338,8 @@ export class LabChassis {
     this.resyncPolls = 0;
     this.sheetsAbortedSum = 0;
     this.journal = { acts: [], snaps: [], opWindows: {}, injects: [], timeline: [] };
+    this.contextIndex.noteBoot();
+    this.invariantMonitors.clear();
     Object.keys(this.eventCounts).forEach((k) => delete this.eventCounts[k]);
     this.desyncs.length = 0;
 
@@ -377,7 +407,8 @@ export class LabChassis {
   async exportDossier(verdicts: LabVerdict[] = [], wallMs = 0): Promise<string | null> {
     if (!this.dossier || !this.record) return null;
     this.record.status = 'stopped';
-    await writeJson(this.dossier, 'wire/invariants.json', this.invariantMonitor.getSummary(), 'wire.invariants');
+    await writeJson(this.dossier, 'wire/invariants.json', this.invariantsDossier(), 'wire.invariants');
+    await writeJson(this.dossier, 'journal/contexts.json', this.contextIndex.toJSON(), 'journal.contexts');
     await writeJson(this.dossier, 'journal/acts.json', this.journal.acts, 'journal.acts');
     await writeJson(this.dossier, 'journal/timeline.json', this.journal.timeline, 'journal.timeline');
     if (this.journal.injects.length > 0) {
@@ -405,6 +436,17 @@ export class LabChassis {
     if (this.disposed) return;
     this.disposed = true;
     await this.disposeVirtual();
+  }
+
+  private invariantsDossier(): {
+    root: ReturnType<FrameInvariantMonitor['getSummary']>;
+    byContext: Record<string, ReturnType<FrameInvariantMonitor['getSummary']>>;
+  } {
+    const byContext: Record<string, ReturnType<FrameInvariantMonitor['getSummary']>> = {};
+    for (const [id, monitor] of this.invariantMonitors) {
+      byContext[String(id)] = monitor.getSummary();
+    }
+    return { root: this.monitorFor(CONTEXT_ID_ROOT).getSummary(), byContext };
   }
 }
 

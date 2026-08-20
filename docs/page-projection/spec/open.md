@@ -24,7 +24,7 @@
 
 **OPEN-8** is closed at the table. `takeRecords` before drain is closed. CLI `--iso` proves Virtual O2 + Node table×table; tree×tree needs lab UI DOM apply. **Production cutover is not licensed** by that — see [roadmap.md](roadmap.md) cutover law.
 
-No open DOM-table bugs. Stress-churn stacked digits = PP-FR-1 ([observability.md](observability.md) §8). Prepend `child_order` = green at seq 799 (`2026-08-15T00-32-28`). Lab tracker (QA → gaps → features): [seal-gaps.md](seal-gaps.md) — not table OPEN-*. Apply honesty P0 is closed (UI desync attr/ruleset/eof 2026-08-17). SVG namespace **closed 2026-08-17**. Form `PROP_SET` **closed 2026-08-18**. Open named shadow **closed 2026-08-18** ([shadow.md](shadow.md)). Next: nested browsing contexts ([multi-document.md](multi-document.md)).
+No open DOM-table bugs. Stress-churn stacked digits = PP-FR-1 ([observability.md](observability.md) §8). Prepend `child_order` = green at seq 799 (`2026-08-15T00-32-28`). Lab tracker (QA → gaps → features): [seal-gaps.md](seal-gaps.md) — not table OPEN-*. Apply honesty P0 is closed (UI desync attr/ruleset/eof 2026-08-17). SVG namespace **closed 2026-08-17**. Form `PROP_SET` **closed 2026-08-18**. Open named shadow **closed 2026-08-18** ([shadow.md](shadow.md)). Same-origin nested iframe **lab shipped 2026-08-19** (`iframe-open`). Remaining OPEN-6: XO / srcdoc / sandbox / fenced (NIT). Child-document CSSOM is [seal-gaps.md](seal-gaps.md) `SEAL-CSSOM-P2-PIERCE`.
 
 **Lab (2026-08-15 / 2026-08-16):** CSSOM poll **algorithm** — [cssom-poll-algorithm.md](cssom-poll-algorithm.md).
 **Accept:** DOM numerical 1:1; CSSOM live perceived ([acceptance.md](acceptance.md)).
@@ -46,7 +46,7 @@ kill list: [seal-gaps.md](seal-gaps.md). Telemetry `cssomPoll` sealed for the fo
 | **OPEN-3** | `CHECK.scope` granularity | **CLOSED 2026-08-17** — id ranges (§4.1). Units: `testApplyFrameToTableCheckedRangeScope`, `testCheckScopeRangeEncodeDecode`. |
 | **OPEN-4** | Establish HTML vs table | **CLOSED — moot.** Establish deleted (§4.7). |
 | **OPEN-5** | Recovery / mid-session attach | **CLOSED — §5.8.** Residuals below. |
-| **OPEN-6** | Multi-document | **Design in progress** — [multi-document.md](multi-document.md). Context + parent `hosts` map; `contextId` on header; nav = reinstall same id. ISA / ports / bus OPEN. |
+| **OPEN-6** | Multi-document | **Lab same-origin iframe shipped 2026-08-19** — [multi-document.md](multi-document.md). XO / `srcdoc` / sandbox / fenced NIT. Production not cutover. |
 | **OPEN-7** | `insertBatch` reverse-link | **CLOSED** — `nextSiblingOf.set(prev, before)` on insert-before-existing; unit falsifier in `unit.ts`. |
 | **OPEN-8** | `unlink` last-child leaves `nextSiblingOf[prev]` | **CLOSED 2026-08-14** — tail REMOVE after prepend; see frame-protocol §10. |
 
@@ -74,13 +74,13 @@ kill list: [seal-gaps.md](seal-gaps.md). Telemetry `cssomPoll` sealed for the fo
 | 5 | Bounded resync retry on **production** session layer with catalogued `errorCode`+`phase` | Lab has 3-attempt backoff + `resyncFailed{exhausted}`. Production hub analog is part of Production Integration |
 | 6 | Dual live paths (`LivePageProjection` vs lab engine) | **YES** — cutover (when product-complete) deletes the loser same day ([roadmap.md](roadmap.md)) |
 | 7 | Lab probe: `NODE_NEW` in frame S ⇒ `isConnected` — **closed** as **SEAL-DOM-P0-PROBE** (`probe.nodeNewConnected` + `iso.tree` fail-with-client). Halt iso alone still does not prove the class. | No |
-| 8 | Lab DOM/CSSOM tracker | [seal-gaps.md](seal-gaps.md) — QA + SVG closed 2026-08-17. Form `PROP_SET` closed 2026-08-18. Open named shadow closed 2026-08-18. Next: **OPEN-6**. |
+| 8 | Lab DOM/CSSOM tracker | [seal-gaps.md](seal-gaps.md) — QA + SVG closed 2026-08-17. Form `PROP_SET` closed 2026-08-18. Open named shadow closed 2026-08-18. Same-origin iframe lab closed 2026-08-19. Remaining nested: XO/NIT flavours; child-doc CSSOM. |
 
 ---
 
 ## Accepted product gaps
 
-See [support-matrix.md](support-matrix.md). Canvas/WebGL pixels, MSE/DRM, IME, timing-critical games, independent client zoom. **Iframes:** not an accepted gap — OPEN-6 is unfinished protocol, so pierced XO iframes are **unsupported until OPEN-6**, not “working.”
+See [support-matrix.md](support-matrix.md). Canvas/WebGL pixels, MSE/DRM, IME, timing-critical games, independent client zoom. **Iframes:** lab same-origin is shipped. Pierced XO iframes stay **unsupported** (NIT) until that cut — not “working.”
 
 ---
 
@@ -107,3 +107,4 @@ See [support-matrix.md](support-matrix.md). Canvas/WebGL pixels, MSE/DRM, IME, t
 | 2026-08-17 | Inject honesty ATTR/RULESET/EOF: harness, not apply. UI 4077 PASS. [observability.md](observability.md) §7 |
 | 2026-08-17 | QA closed (human looks + CHECK range + CSSStyleRule folds + detached-row GC / OPEN-2 / OPEN-3). SVG namespace closed same day. Next: [seal-gaps.md](seal-gaps.md) §3 |
 | 2026-08-17 | OPEN-1 **CLOSED** — `NODE_DROP` absent id is `malformed` |
+| 2026-08-19 | OPEN-6 lab same-origin iframe shipped — `iframe-open` `iso.nested` / `iso.nested.blank`. XO/srcdoc NIT. |

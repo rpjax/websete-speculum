@@ -54,7 +54,7 @@ V4 happy path is **only** the frame protocol ([frame-protocol.md](frame-protocol
 
 - Cold start = `resyncVirtual` then ordinary ticks — not a second full-tree dump.
 - Mid-session desync = `emitResyncFrame` into the double-buffer; swap after closing `CHECK`.
-- **`generation` / `EPOCH_RESET` only when the top-level Document object is replaced.** Soft-nav, SPA wipe, pierced iframe navigation, and resync itself MUST NOT invent a generation bump.
+- **`generation` / `EPOCH_RESET` only when that instance’s Document object is replaced.** Soft-nav, SPA wipe, and resync MUST NOT invent a generation bump on the **parent**. Inner browsing-context navigation is a **reinstall of that child instance**, same `contextId` — [multi-document.md](multi-document.md). Not a pierce.
 - Resync MUST NOT be used to paper over a producer table bug (OPEN-7): fix the table.
 
 (Historical T3 text lived in `diff-streams.md`; that file is archived. This section is the live rule.)

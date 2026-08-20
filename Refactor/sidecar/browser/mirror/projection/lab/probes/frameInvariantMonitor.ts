@@ -64,8 +64,8 @@ export class FrameInvariantMonitor {
       return;
     }
     const assembled = this.assembler.ingest(decoded.part);
-    if (assembled === 'missing_part') {
-      this.record('frame_decodable', 'fail', decoded.part.sequence, 'missing_part — part sequence gap');
+    if (assembled === 'missing_part' || assembled === 'malformed') {
+      this.record('frame_decodable', 'fail', decoded.part.sequence, assembled === 'malformed' ? 'part contextId mismatch' : 'missing_part — part sequence gap');
       return;
     }
     this.record('frame_decodable', 'pass', decoded.part.sequence);

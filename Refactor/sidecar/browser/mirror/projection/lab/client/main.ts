@@ -464,23 +464,27 @@ export function bootLabClient(): void {
         return;
       }
       if (msg.type === 'requestSnapshot') {
+        const contextId = typeof msg.contextId === 'number' && msg.contextId >= 1 ? msg.contextId : 1;
         const p = ensureProjection();
-        p.flushNow();
-        const tree = snapshotTree(p.document);
-        const tableSnap = p.snapshotTable();
+        const ctx = p.snapshotContext(contextId);
+        const doc = contextId === 1 ? p.document : p.nestedDocument(contextId);
+        const tree = doc ? snapshotTree(doc) : null;
+        const cascade = doc ? probeCssomPaintBoundary(doc) : null;
+        const formProps = doc ? snapshotFormControls(doc) : null;
         ws?.send(
           JSON.stringify({
             type: 'client.snapshotResult',
+            contextId,
             tree,
-            table: tableSnap.table,
-            sequence: tableSnap.sequence,
-            generation: tableSnap.generation,
-            desynced: p.desynced,
-            applyError: p.applyError,
-            armed: p.isArmed,
-            resyncInFlight: p.resyncInFlight,
-            cascade: probeCssomPaintBoundary(p.document),
-            formProps: snapshotFormControls(p.document),
+            table: ctx.table,
+            sequence: ctx.sequence,
+            generation: ctx.generation,
+            desynced: ctx.desynced,
+            applyError: ctx.applyError,
+            armed: ctx.armed,
+            resyncInFlight: ctx.resyncInFlight,
+            cascade,
+            formProps,
           }),
         );
         return;

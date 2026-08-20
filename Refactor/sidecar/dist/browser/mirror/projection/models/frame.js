@@ -11,15 +11,22 @@
  * `tableFrameBuilder.ts` for why persistent interning is deliberately deferred.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.CSSOM_SCOPE_PIERCE_HOST = exports.CSSOM_SCOPE_MAIN = exports.CHECK_SCOPE_RANGE = exports.CHECK_SCOPE_TABLE = exports.SHADOW_INIT_FLAGS_MASK = exports.SHADOW_INIT_SERIALIZABLE = exports.SHADOW_INIT_CLONABLE = exports.SHADOW_INIT_DELEGATES_FOCUS = exports.SHADOW_MODE_OPEN = exports.INSERT_AT_END = exports.DOCUMENT_ID = exports.FRAME_WIRE_VERSION = exports.NodeKind = void 0;
+exports.CSSOM_SCOPE_PIERCE_HOST = exports.CSSOM_SCOPE_MAIN = exports.CHECK_SCOPE_RANGE = exports.CHECK_SCOPE_TABLE = exports.SHADOW_INIT_FLAGS_MASK = exports.SHADOW_INIT_SERIALIZABLE = exports.SHADOW_INIT_CLONABLE = exports.SHADOW_INIT_DELEGATES_FOCUS = exports.SHADOW_MODE_OPEN = exports.INSERT_AT_END = exports.CONTEXT_ID_ROOT = exports.DOCUMENT_ID = exports.FRAME_PREFIX_BYTES = exports.FRAME_WIRE_VERSION = exports.NodeKind = void 0;
 exports.createFrame = createFrame;
 exports.spliceCssomBeforeCheck = spliceCssomBeforeCheck;
 const opcodes_1 = require("./opcodes");
 Object.defineProperty(exports, "NodeKind", { enumerable: true, get: function () { return opcodes_1.NodeKind; } });
-/** Current wire version. Operand change on `NODE_NEW` Element (`ns`) bumped 1 → 2; no shim (§9). */
+/** Wire version byte. Layout can change in lab without bumping this. */
 exports.FRAME_WIRE_VERSION = 2;
+/**
+ * Fixed PP prefix before the per-part string table: magic u16, version u8, flags u8,
+ * contextId u32, generation u32, sequence u32, partIndex u16, partCount u16, preTableHash u64.
+ */
+exports.FRAME_PREFIX_BYTES = 2 + 1 + 1 + 4 + 4 + 4 + 2 + 2 + 8;
 /** id `1` is reserved for the Document row (frame-protocol.md §1.2). */
 exports.DOCUMENT_ID = 1;
+/** Session-root `contextId` (OPEN-6). Nested never this value. `0` is invalid. */
+exports.CONTEXT_ID_ROOT = 1;
 /** `before = 0` in `INSERT` means "insert at end" (§4.3). */
 exports.INSERT_AT_END = 0;
 /** `NODE_NEW SHADOW_ROOT.mode` — open only this version (`1` closed is NIT malformed). */
@@ -39,9 +46,13 @@ exports.CHECK_SCOPE_RANGE = 1;
 exports.CSSOM_SCOPE_MAIN = 0;
 exports.CSSOM_SCOPE_PIERCE_HOST = 1;
 function createFrame(args) {
+    const contextId = args.contextId ?? exports.CONTEXT_ID_ROOT;
+    if (contextId === 0)
+        throw new Error('contextId 0 is invalid (frame-protocol.md §2)');
     return {
         version: exports.FRAME_WIRE_VERSION,
         flags: { resync: args.resync ?? false },
+        contextId,
         generation: args.generation,
         sequence: args.sequence,
         preTableHash: args.preTableHash ?? 0n,

@@ -1,6 +1,6 @@
 # PageProjection — frame protocol (V4)
 
-**Status:** **V4 CANON.** Implemented in the V4 engine (single document today). OPEN items in §10 and [open.md](open.md) MUST
+**Status:** **V4 CANON.** Implemented in the V4 engine (DOM table, open named shadow, lab same-origin nested contexts). OPEN items in §10 and [open.md](open.md) MUST
 NOT be guessed in code. Production cutover is [roadmap.md](roadmap.md).
 **Scope:** the replicated state (§1), the frame that carries changes to it (§2–§4), how the producer
 constructs one (§5), and how it is applied (§6–§9).
@@ -72,8 +72,10 @@ logic — but the "nothing to catch up from" framing was wrong and is retracted.
 Two replicated structures, both maintained identically on Virtual and client.
 
 OPEN-6 does **not** add a session document table and does **not** put nested identity on the
-element row. Parent context keeps `hosts: Map<nodeId, contextId>`; the PP header carries
-`contextId` — [multi-document.md](multi-document.md). Not on the wire yet.
+element row. Parent context keeps `hosts: Map<nodeId, contextId>` (not hashed into `CHECK`).
+The PP header carries `contextId`. Runtime is once at the root tab; the algorithm installs in
+every `window`. Nested does not open its own sidecar socket — [multi-document.md](multi-document.md).
+Not on the wire yet.
 
 ### 1.1 Structures
 
@@ -101,6 +103,10 @@ is: one node-id space per document, one logical node table per document, one has
 Ids are allocated **only** by the producer and are never reused within a `generation`. On
 `EPOCH_RESET` both tables are cleared and allocation restarts at `2`.
 
+**OPEN-6:** session `contextId` `1` is the **root algorithm instance**, not this Document row.
+Every nested instance still has Document row `1` **inside its own table**. Different spaces —
+[multi-document.md](multi-document.md).
+
 **Doctype.** `<!DOCTYPE html>` is a child of `Document`, sibling of `<html>`. If it is not projected,
 the client document renders in **quirks mode** — different box model, different layout: a silent K4
 parity failure. It is projected as a `DOCTYPE` row (§1.3), child of `1`. Test matrix needs a
@@ -112,7 +118,7 @@ quirks-mode row.
 |--------|------|---------|
 | `id` | `u32` | key |
 | `kind` | `u8` | `ELEMENT`=1, `TEXT`=2, `COMMENT`=3, `SHEET`=4, `RULE`=5, `DOCTYPE`=6, `SHADOW_ROOT`=7 |
-| `ns` | `u8` | `ELEMENT` only — `0` html, `1` svg, `2` mathml, `3` none (`namespaceURI === null`), `4` custom. Known values hash the `u8`. Custom URI is **not** a stored column; it rides `NODE_NEW` as `StrRef` when `ns=4` and is hashed into `contentHash`. |
+| `ns` | `u8` | `ELEMENT` only — `0` html, `1` svg, `2` mathml, `3` none (`namespaceURI === null`), `4` custom. Known values hash the `u8`. Custom URI is **not** a stored column; it rides `NODE_NEW` as `StrRef` when `ns=4` and is hashed into `contentHash`. **Wire** `NODE_NEW` packs this in the low nibble of the `ns` byte; bit 7 is nested-host presence (not stored on the row, not hashed). |
 | `parent` | `u32` | `0` when detached; for `RULE` the owning `SHEET`; for `SHEET` the pierce host or `0` |
 | `prevSibling` | `u32` | `0` when first child |
 | `name` | `StrRef` | `ELEMENT`: tag. `DOCTYPE`: root element name (`"html"`). `SHEET`/`RULE`: unused (`0`) |
@@ -153,7 +159,8 @@ tableHash = Σ rowHash   (mod 2^64, over all rows)
 the custom URI), `name`, `value`, each `(attrName, attrValue)` pair, each `(propId, propValue)` pair,
 and `flags`. `SHADOW_ROOT`: `mode` and `initFlags` are content (`parent` already names the host). Attribute order is not hashed — attribute order is not semantic for rendering, and
 commutativity makes `ATTR_SET` order-independent. HTML `<a>` and SVG `<a>` MUST NOT collide. Nested
-`contextId` is parent-map state, not element content ([multi-document.md](multi-document.md)).
+`childContextId` on host `NODE_NEW` is child-scope-indexer state, not element content
+([multi-document.md](multi-document.md)). Not hashed.
 
 **Update is O(1):** `tableHash += newRowHash − oldRowHash` (mod 2^64). A table hash recomputed in
 O(n) per frame does not meet **E5** and is a contract violation, not an optimization choice.
@@ -214,9 +221,10 @@ string table for a typical page is a few thousand entries.
 
 ```
 magic         u16   'PP'
-version       u8    current **2** (2026-08-17). unknown ⇒ desync, never best-effort parse
+version       u8    current **2**. unknown ⇒ desync, never best-effort parse
 flags         u8    bit0 unused (0) · bit1 resync — same generation; replaces the table wholesale
                      rather than extending it (§5.8)
+contextId     u32   this instance’s mine. Root `1`; nested never `1`; `0` malformed
 generation    u32
 sequence      u32
 partIndex     u16   0-based
@@ -231,7 +239,7 @@ ops           [ opcode u8, operands ] * opCount
 
 Little-endian throughout.
 
-**OPEN-6 (designed, not shipped):** version **3** inserts `contextId: u32` after `flags`. The producing context writes it. The DataPlane does not. Full: [multi-document.md](multi-document.md).
+**OPEN-6:** `contextId: u32` after `flags` — **this instance’s mine**, not a parent field. The producing context writes it. The DataPlane does not. Root is `1`; nested never `1`. Space stays `u32` (not GUID). Do **not** bump `version` for lab header growth. Full: [multi-document.md](multi-document.md).
 
 **Precondition placement.** `preTableHash` is a header field, not an instruction, so there is no
 "what if the precondition instruction is missing" failure mode.
@@ -294,7 +302,7 @@ is recreated empty. `DOM`: the surface is discarded (a new document buffer is pr
 
 **`0x20 NODE_NEW`** — `id: u32, kind: u8, descriptor` · phase 1 · idempotent¹
 `descriptor` by `kind`:
-- `ELEMENT`: `ns: u8`, if `ns === 4` then `uri: StrRef`, then `name: StrRef`, `attrCount: u16`, `[(nameRef: StrRef, valRef: StrRef)] * attrCount`
+- `ELEMENT`: `ns: u8` (low nibble `ElementNs`; bit 7 `ELEMENT_NS_NESTED_HOST_BIT` ⇒ nested-context host; bits 4–6 reserved 0), if `ns === 4` then `uri: StrRef`, then `name: StrRef`, `attrCount: u16`, `[(nameRef: StrRef, valRef: StrRef)] * attrCount`, then if bit 7 set `childScopeId: u32` (`≥ 2`). Ordinary elements omit the u32 (decode: `nestedHost=false`, `childScopeId=null`). Same omit pattern as custom `uri`. Not hashed. Lab same-origin host: producer sets the bit; Projected creates a blank iframe and skips `src`/`srcdoc`.
 - `TEXT` | `COMMENT`: `value: StrRef`
 - `SHEET`: `flags: u16`
 - `RULE`: `value: StrRef`
@@ -320,7 +328,7 @@ is recreated empty. `DOM`: the surface is discarded (a new document buffer is pr
 `Pre`: `id` exists.
 `flags`: `PLACEHOLDER`=0x01, `SHADOW_HOST`=0x02, `SHADOW_CLOSED`=0x04, `IFRAME_HOST`=0x08,
 `PIERCE_ROOT`=0x10, `CANVAS_PLACEHOLDER`=0x20.
-**Shadow:** `SHADOW_HOST` / `SHADOW_CLOSED` / `PIERCE_ROOT` are **superseded** ([shadow.md](shadow.md)). Do not emit them to mean a shadow; the root is a `SHADOW_ROOT` row. `IFRAME_HOST` waits OPEN-6.
+**Shadow:** `SHADOW_HOST` / `SHADOW_CLOSED` / `PIERCE_ROOT` are **superseded** ([shadow.md](shadow.md)). Do not emit them to mean a shadow; the root is a `SHADOW_ROOT` row. **`IFRAME_HOST` is not the OPEN-6 machine** — nested identity is the parent `hosts` map filled from host `NODE_NEW`, not a META flag on the element row ([multi-document.md](multi-document.md)). Do not emit `IFRAME_HOST`.
 `Table`: replaces `flags` wholesale (not a bitwise merge — replacement is idempotent).
 `DOM`: reflects the corresponding `speculum-*` marker attributes.
 
@@ -676,10 +684,7 @@ client; a hypothetically corrupted map). These need different primitives:
   place. Bootstrap (§5.1) always uses this primitive: there is nothing yet in the map for
   `emitResyncFrame` to iterate.
 
-**Trigger is out-of-band.** The resync *request* travels on the existing control channel (hub/gRPC,
-`contracts/07-recovery.md`'s `PageProjection.Resync` call), not the binary frame body — unchanged. Only
-what the *response* looks like is redesigned here. (Bootstrap has no "request" at all — it is not a
-response to anything, it is the one unconditional call every session makes before its first tick.)
+**Trigger is out-of-band.** The resync *request* is not in the PP body. OPEN-6: it is a **loose bus event** stamped with the desynced instance’s `contextId`; the matching Virtual runs `emitResyncFrame` ([multi-document.md](multi-document.md) §4). DataPlane does not route. (Bootstrap has no "request" at all — it is not a response to anything, it is the one unconditional call every session makes before its first tick.)
 
 **`emitResyncFrame` construction — two linear passes over the identity map, not a DOM walk:**
 
@@ -913,10 +918,11 @@ Every catalogued failure carries `errorCode` + `phase` + `sequence`
 - Changing an existing opcode's operands = version bump ⇒ old clients desync, which is correct.
 - No aliases, no compatibility shims (V1 rule).
 
-**Current `version`:** `2` (2026-08-17). `NODE_NEW` Element gained `ns: u8` (+ `uri: StrRef` only when
-`custom`). Version 1 peers desync. No shim. Adding `0x63 PROP_SET` (reserved range, new opcode) does
-**not** bump the version. Adding `SHADOW_ROOT` kind `7` **does not** bump the
-version — header layout unchanged. Unknown kind remains `malformed`. Header `contextId` is version **3** (OPEN-6, not shipped).
+**Current `version`:** `2`. Lab may grow the header (e.g. `contextId` after `flags`) **without** bumping
+this byte — there is no released peer to desync. Bump only when a frozen client must reject old
+frames. `NODE_NEW` Element `ns: u8` landed in version 2. Adding `0x63 PROP_SET` (reserved range, new
+opcode) did **not** bump the version. Adding `SHADOW_ROOT` kind `7` did **not** bump the version.
+Unknown kind remains `malformed`.
 
 ---
 
@@ -929,7 +935,7 @@ version — header layout unchanged. Unknown kind remains `malformed`. Header `c
 | **OPEN-3** | `CHECK.scope` granularity | **CLOSED 2026-08-17** — id ranges (§4.1). Subtree hashes rejected (change would propagate to the root). |
 | **OPEN-4** | ~~Establish: `EST_CHUNK_HTML` or `EST_TABLE`?~~ | **CLOSED — moot.** Establish does not exist (§4.7). There is nothing left to choose between. |
 | **OPEN-5** | ~~Recovery flow: mid-session attach + desync resync~~ | **CLOSED — see §5.8.** One mechanism (identity-map two-pass reconstruction, existing opcodes, existing double-buffer surface) covers both triggers. Residual non-blocking follow-ups listed at the end of §5.8 (old contract rewrites, a synchronous-walk budget number, test-matrix rows). |
-| **OPEN-6** | Multi-document | **Design in progress — [multi-document.md](multi-document.md).** Context + parent `hosts` map; header `contextId`; nav/reinstall same id. ISA / ports / bus impl OPEN. |
+| **OPEN-6** | Multi-document | **Lab same-origin iframe 2026-08-19** — [multi-document.md](multi-document.md). `contextId` on the header, child-scope indexer, blank Projected host, bus/`emitFrame`/resync-request. Effect: lab `iframe-open` `iso.nested` + `iso.nested.blank` (DOM client). |
 | **OPEN-7** | ~~`ReplicatedTable.insertBatch` reverse `nextSiblingOf` on insert-before-existing~~ | **CLOSED 2026-08-14.** `insertBatch` now sets `nextSiblingOf.set(prev, before)` when `before !== NONE` (same reverse write `linkAfter` already did). Falsifier: `INSERT(P, before=X, [A,L]); REMOVE(P,[L])` ⇒ `getRow(X).prevSibling === id(A)` — `testReplicatedTableInsertBeforeNextSiblingRepair` in `Refactor/sidecar/unit.ts`. Historical defect write-up remains in the 2026-08-14 “not fixed this pass” decision-log row below. **Does not cover prepend+tail-evict** — that is OPEN-8. |
 | **OPEN-8** | ~~`unlink` of the last child leaves `nextSiblingOf[prev]` → id~~ | **CLOSED 2026-08-14.** Derived `nextSiblingOf[prevLast]` still pointed at the removed last child. The next tail `REMOVE` took the “has next” branch (the next row still exists, now detached) and skipped `lastChildOf`. `orderedChildIds` then started at a detached id with `prevSibling=0` → walk length 1 vs hundreds hashed/live. O2 on `prepend-stress.html` (2026-08-14T19-30, seq 695, `#19 child_order_mismatch`). Wire `preTableHash` green (derived links not hashed — P0). Falsifier: `testReplicatedTablePrependEvictDerivedLinks` in `unit.ts`. Fix: `nextSiblingOf.delete(prev)` when unlinking the last child. Sibling of OPEN-7, not a reopen. |
 
@@ -994,3 +1000,8 @@ version — header layout unchanged. Unknown kind remains `malformed`. Header `c
 | 2026-08-18 | **Shadow initFlags** — `delegatesFocus` / `clonable` / `serializable` on `NODE_NEW SHADOW_ROOT`. Manual slot NIT. |
 | 2026-08-18 | **Shadow design complete for impl plan** — no INSERT/REMOVE of the root row; per-root MO same buffer; O2 enters shadow; CSSOM poll extends to admitted roots. |
 | 2026-08-18 | **SEAL-DOM-P1-SHADOW closed** — kind 7 on version 2; open named; real `attachShadow`; lab `shadow-open`. Closed/manual NIT. [shadow.md](shadow.md). |
+| 2026-08-19 | **OPEN-6 runtime ≠ algorithm** — runtime once at root tab; algorithm per `window`; nested no own WS; root `contextId=1` without RPC; nested `getScopeId` (`event.source === iframe.contentWindow`); timeout-as-root forbidden; RPC request/response/heartbeat; `hosts` not in `CHECK`. [multi-document.md](multi-document.md). |
+| 2026-08-19 | **OPEN-6 header = mine** (`u32`, not GUID). Child-scope indexer per instance. Extra `NODE_NEW` arg only for host nodes (`ns` bit 7 + `childScopeId` u32; omit otherwise). Mint = root-runtime RPC. Indexer drops with host row. |
+| 2026-08-19 | **OPEN-6 classify / Projected host / bus** — `contentWindow != null`; Projected blank same-origin iframe + parent install; bus events all layers, `emitFrame` = root runtime, postMessage. [multi-document.md](multi-document.md). |
+| 2026-08-19 | **OPEN-6 resync request** — loose bus event stamped with desynced `contextId`; matching Virtual `emitResyncFrame`. Not in the PP body. |
+| 2026-08-19 | **OPEN-6 lab same-origin iframe** — producer nested host + Projected blank iframe; lab `iframe-open` `iso.nested` / `iso.nested.blank`. Not a protocol version bump. Production not cutover. |

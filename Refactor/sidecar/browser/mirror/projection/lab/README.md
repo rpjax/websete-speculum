@@ -15,7 +15,7 @@ lab/
   client/       Browse / Run UI
   runner/       DAG scheduler + CLI
   probes/       iso, cpu, invariants, …
-  blueprints/   soak | stress | cssom-foundation | cssom-heavy | cssom-double | apply-attrs | svg-ns | forms-state | apply-honesty-desync-* + fold/
+  blueprints/   soak | stress | cssom-foundation | cssom-heavy | cssom-double | apply-attrs | svg-ns | forms-state | shadow-open | iframe-open | apply-honesty-desync-* + fold/
   fixtures/     HTML + manifest.json
   dossier/      sharded report writers
   static/       client.html + built client.js
@@ -47,6 +47,7 @@ npm run lab:run -- --blueprint apply-honesty-desync-attr   # skips without DOM c
 npm run lab:run -- --blueprint cssom-heavy
 npm run lab:cssom-foundation   # sugar: foundation + scale soaks
 npm run lab:cssom-heavy        # sugar
+npm run lab:iframe-open        # UI DOM client — nested iso; CLI without client fails iso.nested
 ```
 
 Last stdout line = dossier directory. Start at `report.json` (pointer) → `manifest.json` / `verdicts.json`.

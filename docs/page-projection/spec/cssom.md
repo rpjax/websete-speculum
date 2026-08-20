@@ -339,7 +339,7 @@ documents are **separate algorithm instances** ([multi-document.md](multi-docume
 does not walk `contentDocument`. Child CSSOM is that child’s poll + table (`scope = main` **in that
 document**). One WeakMap covering “main + all pierced” is **dead**.
 
-Shadow CSSOM stays **this** instance (same document) when shadow ships — not OPEN-6.
+Shadow CSSOM stays **this** instance (same document) — not OPEN-6.
 
 ### Identity & chronology (within one instance)
 

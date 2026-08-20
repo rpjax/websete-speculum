@@ -1,6 +1,23 @@
 "use strict";
 (() => {
   // browser/mirror/projection/models/elementNs.ts
+  var ELEMENT_NS_NESTED_HOST_BIT = 128;
+  var ELEMENT_NS_RESERVED_BITS = 112;
+  function unpackElementNsWireByte(byte) {
+    if ((byte & ELEMENT_NS_RESERVED_BITS) !== 0) {
+      throw new Error(`NODE_NEW ns reserved bits 0x${(byte & ELEMENT_NS_RESERVED_BITS).toString(16)} (frame-protocol.md \xA74.2)`);
+    }
+    const ns = byte & 15;
+    if (ns > 4 /* Custom */) {
+      throw new Error(`NODE_NEW ns ${ns} out of range (frame-protocol.md \xA74.2)`);
+    }
+    return { ns, nestedHost: (byte & ELEMENT_NS_NESTED_HOST_BIT) !== 0 };
+  }
+  function assertNestedChildScopeId(id) {
+    if (!Number.isInteger(id) || id < 2 || id > 4294967295) {
+      throw new Error(`NODE_NEW childScopeId ${id} is not a nested context (frame-protocol.md \xA74.2)`);
+    }
+  }
   var ELEMENT_NS_HTML = "http://www.w3.org/1999/xhtml";
   var ELEMENT_NS_SVG = "http://www.w3.org/2000/svg";
   var ELEMENT_NS_MATHML = "http://www.w3.org/1998/Math/MathML";
@@ -74,7 +91,9 @@
 
   // browser/mirror/projection/models/frame.ts
   var FRAME_WIRE_VERSION = 2;
+  var FRAME_PREFIX_BYTES = 2 + 1 + 1 + 4 + 4 + 4 + 2 + 2 + 8;
   var DOCUMENT_ID = 1;
+  var CONTEXT_ID_ROOT = 1;
   var INSERT_AT_END = 0;
   var SHADOW_MODE_OPEN = 0;
   var SHADOW_INIT_DELEGATES_FOCUS = 1;
@@ -94,6 +113,20 @@
   var MAX_ROWS = 2e5;
 
   // browser/mirror/projection/models/decode.ts
+  function peekFrameHeader(bytes) {
+    if (bytes.byteLength < FRAME_PREFIX_BYTES) return null;
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    if (view.getUint16(0, true) !== 20560) return null;
+    return {
+      version: bytes[2],
+      flags: bytes[3],
+      contextId: view.getUint32(4, true),
+      generation: view.getUint32(8, true),
+      sequence: view.getUint32(12, true),
+      partIndex: view.getUint16(16, true),
+      partCount: view.getUint16(18, true)
+    };
+  }
   var WIRE_VERSION = FRAME_WIRE_VERSION;
   var WIRE_MAGIC = 20560;
   var LOCAL_STR_BIT = 2147483648;
@@ -163,13 +196,15 @@
     const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
     try {
       const r = new ByteReader(bytes);
-      if (r.remaining < 24) return malformed("frame shorter than the fixed header");
+      if (r.remaining < FRAME_PREFIX_BYTES) return malformed("frame shorter than the fixed header");
       if (r.u16() !== WIRE_MAGIC) return malformed("bad magic");
       const version = r.u8();
       if (version !== WIRE_VERSION) {
         return { ok: false, reason: "unknown_version", message: `unsupported wire version ${version}` };
       }
       const flags = r.u8();
+      const contextId = r.u32();
+      if (contextId === 0) return malformed("contextId 0 is invalid");
       const generation = r.u32();
       const sequence = r.u32();
       const partIndex = r.u16();
@@ -197,6 +232,7 @@
         part: {
           version,
           resync: (flags & RESYNC_FLAG_BIT) !== 0,
+          contextId,
           generation,
           sequence,
           partIndex,
@@ -253,12 +289,9 @@
         const id = r.u32();
         const kind = r.u8();
         if (kind === 1 /* Element */) {
-          const ns = r.u8();
-          if (ns > 4 /* Custom */) {
-            throw new Error(`NODE_NEW ns ${ns} out of range (frame-protocol.md \xA74.2)`);
-          }
+          const packed = unpackElementNsWireByte(r.u8());
           let uri;
-          if (ns === 4 /* Custom */) {
+          if (packed.ns === 4 /* Custom */) {
             uri = resolveStr(r.u32());
             if (uri.length === 0) {
               throw new Error("NODE_NEW custom ns empty uri (frame-protocol.md \xA74.2)");
@@ -266,13 +299,22 @@
           }
           const name = resolveStr(r.u32());
           const attrs = decodeAttrs(r, resolveStr);
+          let nestedHost = false;
+          let childScopeId = null;
+          if (packed.nestedHost) {
+            childScopeId = r.u32();
+            assertNestedChildScopeId(childScopeId);
+            nestedHost = true;
+          }
           return {
             op: 32 /* NodeNew */,
             id,
             kind: 1 /* Element */,
-            ns,
+            ns: packed.ns,
             name,
             attrs,
+            nestedHost,
+            childScopeId,
             ...uri !== void 0 ? { uri } : {}
           };
         }
@@ -397,8 +439,11 @@
   var FramePartAssembler = class {
     pending = /* @__PURE__ */ new Map();
     ingest(part) {
-      if (part.partCount <= 1) return assemble(part, [part]);
-      const key = `${part.generation}:${part.sequence}`;
+      if (part.partCount <= 1) {
+        const assembled2 = assemble(part, [part]);
+        return assembled2 === "malformed" ? "malformed" : assembled2;
+      }
+      const key = `${part.contextId}:${part.generation}:${part.sequence}`;
       let slot = this.pending.get(key);
       if (!slot || slot.parts.length !== part.partCount) {
         slot = { parts: new Array(part.partCount), received: 0 };
@@ -409,7 +454,9 @@
       if (part.partIndex !== part.partCount - 1) return null;
       this.pending.delete(key);
       if (slot.received !== part.partCount) return "missing_part";
-      return assemble(part, slot.parts);
+      const assembled = assemble(part, slot.parts);
+      if (assembled === "malformed") return "malformed";
+      return assembled;
     }
     /** Drops every in-flight partial assembly (desync / generation bump). */
     reset() {
@@ -418,10 +465,14 @@
   };
   function assemble(last, parts) {
     const ops = [];
-    for (const part of parts) ops.push(...part.ops);
+    for (const part of parts) {
+      if (part.contextId !== last.contextId) return "malformed";
+      ops.push(...part.ops);
+    }
     return {
       version: last.version,
       resync: last.resync,
+      contextId: last.contextId,
       generation: last.generation,
       sequence: last.sequence,
       preTableHash: last.preTableHash,
@@ -1500,6 +1551,12 @@
     return { ok: true };
   }
 
+  // browser/mirror/projection/models/nestedNav.ts
+  function isNestedHostNavAttr(name) {
+    const n = name.toLowerCase();
+    return n === "src" || n === "srcdoc";
+  }
+
   // browser/mirror/projection/client/applyDom.ts
   var DomFrameApplier = class {
     queued = [];
@@ -1513,6 +1570,8 @@
     rules = /* @__PURE__ */ new Map();
     /** Sheet id → `hostNode` (0 = document adopted list). Survives phase-1 drop of the row. */
     sheetHost = /* @__PURE__ */ new Map();
+    childScopes = /* @__PURE__ */ new Map();
+    nestedHostIds = /* @__PURE__ */ new Set();
     constructor(doc, registry, options = {}) {
       this.doc = doc;
       this.registry = registry;
@@ -1556,6 +1615,8 @@
       this.queued = [];
       this.table.reset();
       this.propDirty.reset();
+      this.childScopes.clear();
+      this.nestedHostIds.clear();
       this.clearCssom();
     }
     /** Input plane marks this when the user is editing the control (§7.2). Unused in lab. */
@@ -1650,6 +1711,11 @@
      * surface before Phase 2 returns — there is no observable empty-document frame.
      */
     applyEpochReset() {
+      for (const childScopeId of this.childScopes.values()) {
+        this.options.onNestedHostDrop?.(childScopeId);
+      }
+      this.childScopes.clear();
+      this.nestedHostIds.clear();
       this.doc.replaceChildren();
       this.registry.clear();
       this.registry.register(DOCUMENT_ID, this.doc);
@@ -1915,6 +1981,14 @@
     }
     /** §4.2 `NODE_DROP` `DOM` effect: "none — the subtree is already detached." Registry-only. */
     applyNodeDrop(op) {
+      for (const hostId of [...this.childScopes.keys()]) {
+        if (!this.table.has(hostId)) {
+          const childScopeId = this.childScopes.get(hostId);
+          this.childScopes.delete(hostId);
+          this.nestedHostIds.delete(hostId);
+          if (childScopeId !== void 0) this.options.onNestedHostDrop?.(childScopeId);
+        }
+      }
       for (let i = 0; i < op.ids.length; i++) {
         const node = this.registry.get(op.ids[i]);
         if (node !== void 0) this.registry.unregisterSubtree(node);
@@ -1939,8 +2013,13 @@
         }
         const uri = elementNsUri(op.ns, op.uri);
         node = this.doc.createElementNS(uri, op.name);
-        if (!applyAttrs(node, op.attrs)) {
+        const attrs = op.nestedHost === true ? op.attrs.filter((a) => !isNestedHostNavAttr(a.name)) : op.attrs;
+        if (!applyAttrs(node, attrs)) {
           return this.fail("malformed", "nodeNew", op.id);
+        }
+        if (op.nestedHost === true && op.childScopeId != null) {
+          this.childScopes.set(op.id, op.childScopeId);
+          this.nestedHostIds.add(op.id);
         }
       } else if (op.kind === 2 /* Text */) {
         node = this.doc.createTextNode(op.value);
@@ -1982,6 +2061,7 @@
         const node = this.registry.get(id);
         if (!node) return this.fail("address_miss", "insert", id);
         parent.insertBefore(node, before);
+        this.maybeInstallNestedHost(id, node);
       }
       return true;
     }
@@ -2009,7 +2089,8 @@
     applyAttrSet(op) {
       const node = this.registry.get(op.node);
       if (!node || node.nodeType !== Node.ELEMENT_NODE) return this.fail("address_miss", "attrSet", op.node);
-      if (!applyAttrs(node, op.attrs)) {
+      const attrs = this.nestedHostIds.has(op.node) ? op.attrs.filter((a) => !isNestedHostNavAttr(a.name)) : op.attrs;
+      if (!applyAttrs(node, attrs)) {
         return this.fail("malformed", "attrSet", op.node);
       }
       return true;
@@ -2048,6 +2129,13 @@
         return true;
       }
       return true;
+    }
+    maybeInstallNestedHost(id, node) {
+      if (!this.nestedHostIds.has(id)) return;
+      const childScopeId = this.childScopes.get(id);
+      if (childScopeId === void 0) return;
+      const el = node;
+      if (el.contentWindow) this.options.onNestedHost?.(el, childScopeId);
     }
   };
   function applyAttrs(el, attrs) {
@@ -2122,6 +2210,124 @@
      */
     clear() {
       this.nodesById.clear();
+    }
+  };
+
+  // browser/mirror/projection/models/tableDigest.ts
+  function digestReplicatedTable(table) {
+    return { rowCount: table.size, tableHash: table.tableHash.toString() };
+  }
+
+  // browser/mirror/projection/client/nestedProjectedApply.ts
+  var NestedProjectedApply = class {
+    contextId;
+    persistent = new PersistentStringTable();
+    assembler = new FramePartAssembler();
+    registry;
+    applier;
+    generation = 1;
+    lastSequence = 0;
+    armed = false;
+    everArmed = false;
+    onArmedCb;
+    onNestedHostCb;
+    onNestedHostDropCb;
+    onRequestResyncCb;
+    constructor(opts) {
+      this.contextId = opts.contextId;
+      this.onArmedCb = opts.onArmed;
+      this.onNestedHostCb = opts.onNestedHost;
+      this.onNestedHostDropCb = opts.onNestedHostDrop;
+      this.onRequestResyncCb = opts.onRequestResync;
+      this.registry = new PageProjectionRegistry();
+      this.registry.register(DOCUMENT_ID, opts.document);
+      this.applier = this.createApplier(opts.document, this.registry);
+    }
+    get isArmed() {
+      return this.armed;
+    }
+    get document() {
+      return this.registry.get(DOCUMENT_ID);
+    }
+    ingest(bytes) {
+      const decoded = decodeFramePart(bytes, this.persistent);
+      if (!decoded.ok) {
+        this.desync(decoded.reason);
+        return;
+      }
+      if (decoded.part.contextId !== this.contextId) return;
+      const assembled = this.assembler.ingest(decoded.part);
+      if (assembled === "missing_part" || assembled === "malformed") {
+        this.desync(assembled);
+        return;
+      }
+      if (assembled === null) return;
+      this.applyAssembled(assembled);
+      this.applier.flush();
+    }
+    flush() {
+      this.applier.flush();
+    }
+    snapshotTable() {
+      return {
+        sequence: this.lastSequence,
+        generation: this.generation,
+        table: digestReplicatedTable(this.applier.replicatedTable)
+      };
+    }
+    dispose() {
+      this.applier.reset();
+    }
+    createApplier(doc, registry) {
+      return new DomFrameApplier(doc, registry, {
+        onDesync: (info) => this.desync(info.reason),
+        onNestedHost: (iframe, childScopeId) => this.onNestedHostCb?.(iframe, childScopeId),
+        onNestedHostDrop: (childScopeId) => this.onNestedHostDropCb?.(childScopeId),
+        onApplied: (frame) => {
+          this.lastSequence = frame.sequence;
+          this.generation = frame.generation;
+          if (!this.armed) {
+            this.armed = true;
+            this.everArmed = true;
+            this.onArmedCb?.();
+          }
+        }
+      });
+    }
+    applyAssembled(frame) {
+      if (frame.resync && this.everArmed) {
+        const doc = this.registry.get(DOCUMENT_ID);
+        if (!doc) {
+          this.desync("missing_document");
+          return;
+        }
+        this.applier.reset();
+        this.assembler.reset();
+        this.persistent = new PersistentStringTable();
+        this.registry = new PageProjectionRegistry();
+        this.registry.register(DOCUMENT_ID, doc);
+        this.applier = this.createApplier(doc, this.registry);
+        this.lastSequence = 0;
+      }
+      if (frame.generation !== this.generation) {
+        const firstOp = frame.ops[0];
+        const isEpochReset = firstOp !== void 0 && firstOp.op === 2 /* EpochReset */;
+        if (!isEpochReset || firstOp.generation !== frame.generation) {
+          this.desync("generation_mismatch");
+          return;
+        }
+        this.generation = frame.generation;
+        this.lastSequence = frame.sequence - 1;
+      }
+      this.applier.enqueue(frame);
+    }
+    desync(reason) {
+      this.onRequestResyncCb?.({
+        contextId: this.contextId,
+        generation: this.generation,
+        sequence: this.lastSequence,
+        reason
+      });
     }
   };
 
@@ -2204,12 +2410,8 @@
     };
   }
 
-  // browser/mirror/projection/models/tableDigest.ts
-  function digestReplicatedTable(table) {
-    return { rowCount: table.size, tableHash: table.tableHash.toString() };
-  }
-
   // browser/mirror/projection/models/telemetry.ts
+  var TELEMETRY_WIRE_VERSION = 2;
   var LAB_TELEMETRY_DEFAULTS = {
     enabled: true,
     frameEmitted: true,
@@ -2284,6 +2486,8 @@
     everArmed = false;
     /** Sticky until resetSurface — inject proofs must not lose the desync to a later resync. */
     lastDesyncReason = null;
+    nested = /* @__PURE__ */ new Map();
+    pendingNestedFrames = /* @__PURE__ */ new Map();
     constructor(opts) {
       this.surface = createSurfaceHost(opts.surfaceHost, {
         width: opts.width ?? 1280,
@@ -2296,6 +2500,40 @@
       const registry = new PageProjectionRegistry();
       registry.register(DOCUMENT_ID, this.surface.document);
       this.live = { applier: this.createApplier(this.surface.document, registry, true), registry };
+    }
+    installNestedHost(iframe, contextId) {
+      const doc = iframe.contentDocument;
+      const win = iframe.contentWindow;
+      if (!doc || !win) return;
+      if (this.nested.has(contextId)) return;
+      while (doc.firstChild) doc.removeChild(doc.firstChild);
+      const session = new NestedProjectedApply({
+        document: doc,
+        contextId,
+        onNestedHost: (iframe2, childScopeId) => this.installNestedHost(iframe2, childScopeId),
+        onNestedHostDrop: (childScopeId) => this.dropNestedHost(childScopeId),
+        onArmed: () => {
+          try {
+            win.__speculumNestedApplyArmed = true;
+          } catch {
+          }
+        },
+        onRequestResync: (info) => this.onRequestResyncCb?.(info)
+      });
+      this.nested.set(contextId, session);
+      const pending = this.pendingNestedFrames.get(contextId);
+      if (pending) {
+        this.pendingNestedFrames.delete(contextId);
+        for (let i = 0; i < pending.length; i++) session.ingest(pending[i]);
+      }
+      session.flush();
+    }
+    dropNestedHost(contextId) {
+      const existing = this.nested.get(contextId);
+      if (!existing) return;
+      existing.dispose();
+      this.nested.delete(contextId);
+      this.pendingNestedFrames.delete(contextId);
     }
     get isArmed() {
       return this.armed;
@@ -2320,10 +2558,51 @@
         table: digestReplicatedTable(this.live.applier.replicatedTable)
       };
     }
+    snapshotContext(contextId) {
+      this.flushNow();
+      if (contextId === CONTEXT_ID_ROOT) {
+        return {
+          contextId,
+          ...this.snapshotTable(),
+          desynced: this.desynced,
+          applyError: this.applyError,
+          armed: this.armed,
+          resyncInFlight: this.resyncInFlight
+        };
+      }
+      const nested = this.nested.get(contextId);
+      if (!nested) {
+        return {
+          contextId,
+          sequence: 0,
+          generation: 1,
+          table: { rowCount: 0, tableHash: "0" },
+          desynced: true,
+          applyError: "nested_context_missing",
+          armed: false,
+          resyncInFlight: false
+        };
+      }
+      return {
+        contextId,
+        ...nested.snapshotTable(),
+        desynced: false,
+        applyError: null,
+        armed: nested.isArmed,
+        resyncInFlight: false
+      };
+    }
+    /** Nested host document for per-context tree probes (lab iso). */
+    nestedDocument(contextId) {
+      if (contextId === CONTEXT_ID_ROOT) return this.document;
+      const nested = this.nested.get(contextId);
+      return nested?.isArmed ? nested.document : null;
+    }
     /** Drain queued frames before a lab snapshot / inject. */
     flushNow() {
       this.live.applier.flush();
       this.resync?.applier.flush();
+      for (const n of this.nested.values()) n.flush();
     }
     get desynced() {
       return this.lastDesyncReason !== null;
@@ -2363,20 +2642,35 @@
       this.armed = false;
       this.everArmed = false;
       this.lastDesyncReason = null;
+      for (const n of this.nested.values()) n.dispose();
+      this.nested.clear();
+      this.pendingNestedFrames.clear();
       this.surface.reset();
       const registry = new PageProjectionRegistry();
       registry.register(DOCUMENT_ID, this.surface.document);
       this.live = { applier: this.createApplier(this.surface.document, registry, true), registry };
     }
     ingest(bytes) {
+      const hdr = peekFrameHeader(bytes);
+      if (hdr && hdr.contextId !== CONTEXT_ID_ROOT && hdr.contextId !== 0) {
+        const nested = this.nested.get(hdr.contextId);
+        if (nested) {
+          nested.ingest(bytes);
+          return;
+        }
+        const q = this.pendingNestedFrames.get(hdr.contextId) ?? [];
+        q.push(bytes.slice());
+        this.pendingNestedFrames.set(hdr.contextId, q);
+        return;
+      }
       const decoded = decodeFramePart(bytes, this.persistentStrings);
       if (!decoded.ok) {
         this.desync(decoded.reason, { message: decoded.message });
         return;
       }
       const assembled = this.assembler.ingest(decoded.part);
-      if (assembled === "missing_part") {
-        this.desync("missing_part");
+      if (assembled === "missing_part" || assembled === "malformed") {
+        this.desync(assembled);
         return;
       }
       if (assembled === null) return;
@@ -2420,6 +2714,8 @@
     createApplier(doc, registry, initiallyLive) {
       const state = { swapped: initiallyLive };
       const applier = new DomFrameApplier(doc, registry, {
+        onNestedHost: (iframe, childScopeId) => this.installNestedHost(iframe, childScopeId),
+        onNestedHostDrop: (childScopeId) => this.dropNestedHost(childScopeId),
         onDesync: (info) => {
           if (state.swapped) {
             this.reportApplyResult({ ok: false, sequence: this.lastSequence, opCount: 0, applyMs: 0, reason: info.reason });
@@ -2451,7 +2747,8 @@
         },
         onOverrun: (durationMs, lastSequence) => {
           this.onTelemetry?.({
-            v: 1,
+            v: TELEMETRY_WIRE_VERSION,
+            contextId: CONTEXT_ID_ROOT,
             kind: "applyOverrun",
             t: performance.now(),
             generation: this.generation,
@@ -2489,7 +2786,8 @@
       this.resyncAttempts = 0;
       this.resyncExhausted = false;
       this.onTelemetry?.({
-        v: 1,
+        v: TELEMETRY_WIRE_VERSION,
+        contextId: CONTEXT_ID_ROOT,
         kind: "resyncCompleted",
         t: performance.now(),
         generation: this.generation,
@@ -2519,7 +2817,8 @@
         this.resync = null;
       }
       this.onTelemetry?.({
-        v: 1,
+        v: TELEMETRY_WIRE_VERSION,
+        contextId: CONTEXT_ID_ROOT,
         kind: "resyncFailed",
         t: performance.now(),
         generation: this.generation,
@@ -2557,7 +2856,8 @@
       if (attempt > MAX_RESYNC_ATTEMPTS) {
         this.resyncExhausted = true;
         this.onTelemetry?.({
-          v: 1,
+          v: TELEMETRY_WIRE_VERSION,
+          contextId: CONTEXT_ID_ROOT,
           kind: "resyncFailed",
           t: performance.now(),
           generation: this.generation,
@@ -2573,7 +2873,8 @@
         this.resyncBackoffTimer = null;
         this.resyncAttempts = attempt;
         this.onTelemetry?.({
-          v: 1,
+          v: TELEMETRY_WIRE_VERSION,
+          contextId: CONTEXT_ID_ROOT,
           kind: "resyncRequested",
           t: performance.now(),
           generation: this.generation,
@@ -2581,7 +2882,12 @@
           reason,
           attempt
         });
-        this.onRequestResyncCb?.({ generation: this.generation, sequence: this.lastSequence, reason });
+        this.onRequestResyncCb?.({
+          generation: this.generation,
+          sequence: this.lastSequence,
+          reason,
+          contextId: CONTEXT_ID_ROOT
+        });
         this.resyncTimeoutTimer = setTimeout(() => {
           this.resyncTimeoutTimer = null;
           this.failResyncAttempt("resync_timeout");
@@ -2591,7 +2897,8 @@
     emitFingerprint(sequence) {
       const fp = captureParityFingerprint(this.surface.document, this.live.registry);
       this.onTelemetry?.({
-        v: 1,
+        v: TELEMETRY_WIRE_VERSION,
+        contextId: CONTEXT_ID_ROOT,
         kind: "parityFingerprint",
         t: performance.now(),
         generation: this.generation,
@@ -2601,7 +2908,8 @@
     }
     reportApplyResult(info) {
       this.onTelemetry?.({
-        v: 1,
+        v: TELEMETRY_WIRE_VERSION,
+        contextId: CONTEXT_ID_ROOT,
         kind: "applyResult",
         t: performance.now(),
         generation: this.generation,
@@ -2621,7 +2929,8 @@
       this.assembler.reset();
       this.live.applier.reset();
       this.onTelemetry?.({
-        v: 1,
+        v: TELEMETRY_WIRE_VERSION,
+        contextId: CONTEXT_ID_ROOT,
         kind: "desynced",
         t: performance.now(),
         generation: this.generation,
@@ -2657,8 +2966,10 @@
       case 1: {
         const el = node;
         const attrs = [];
+        const host = el.contentWindow != null;
         for (let i = 0; i < el.attributes.length; i++) {
           const a = el.attributes[i];
+          if (host && (a.name === "src" || a.name === "srcdoc")) continue;
           attrs.push([a.name, a.value]);
         }
         attrs.sort((x, y) => x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : 0);
@@ -2672,6 +2983,16 @@
         if (sr !== null && sr.mode === "open" && sr.slotAssignment !== "manual") {
           const shadowKids = mapChildren(sr);
           result.shadow = { tag: "#shadow-root", ...shadowKids.length > 0 ? { children: shadowKids } : {} };
+        }
+        if (host) {
+          try {
+            const iframe = el;
+            const win = iframe.contentWindow;
+            if (win) result.frameHref = win.location.href;
+            const inner = iframe.contentDocument;
+            if (inner) result.nested = walkNode(inner);
+          } catch {
+          }
         }
         return result;
       }
@@ -3109,23 +3430,27 @@
           return;
         }
         if (msg.type === "requestSnapshot") {
+          const contextId = typeof msg.contextId === "number" && msg.contextId >= 1 ? msg.contextId : 1;
           const p = ensureProjection();
-          p.flushNow();
-          const tree = snapshotTree(p.document);
-          const tableSnap = p.snapshotTable();
+          const ctx = p.snapshotContext(contextId);
+          const doc = contextId === 1 ? p.document : p.nestedDocument(contextId);
+          const tree = doc ? snapshotTree(doc) : null;
+          const cascade = doc ? probeCssomPaintBoundary(doc) : null;
+          const formProps = doc ? snapshotFormControls(doc) : null;
           ws?.send(
             JSON.stringify({
               type: "client.snapshotResult",
+              contextId,
               tree,
-              table: tableSnap.table,
-              sequence: tableSnap.sequence,
-              generation: tableSnap.generation,
-              desynced: p.desynced,
-              applyError: p.applyError,
-              armed: p.isArmed,
-              resyncInFlight: p.resyncInFlight,
-              cascade: probeCssomPaintBoundary(p.document),
-              formProps: snapshotFormControls(p.document)
+              table: ctx.table,
+              sequence: ctx.sequence,
+              generation: ctx.generation,
+              desynced: ctx.desynced,
+              applyError: ctx.applyError,
+              armed: ctx.armed,
+              resyncInFlight: ctx.resyncInFlight,
+              cascade,
+              formProps
             })
           );
           return;

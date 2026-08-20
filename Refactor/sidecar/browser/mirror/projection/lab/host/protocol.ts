@@ -25,6 +25,7 @@ export type LabClientMessage =
   | { type: 'client.telemetry'; message: unknown }
   | {
       type: 'client.snapshotResult';
+      contextId?: number;
       tree?: unknown;
       table?: unknown;
       sequence?: number | null;
@@ -48,7 +49,7 @@ export type LabClientMessage =
         selected?: boolean;
       }> | null;
     }
-  | { type: 'client.requestResync'; reason?: string }
+  | { type: 'client.requestResync'; reason?: string; contextId?: number }
   | { type: 'client.tamperResult'; ok: boolean; reason?: string | null }
   | {
       type: 'client.injectResult';
@@ -92,7 +93,7 @@ export type LabHostMessage =
   | { type: 'stats'; payload: Record<string, unknown> }
   | { type: 'telemetry'; message: unknown }
   | { type: 'error'; message: string; code?: string }
-  | { type: 'requestSnapshot' }
+  | { type: 'requestSnapshot'; contextId: number }
   | { type: 'lab.tamper'; kind: 'ghostRule' }
   | { type: 'lab.injectFrame'; bytes: string };
 

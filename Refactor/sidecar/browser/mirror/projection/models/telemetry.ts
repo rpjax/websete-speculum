@@ -12,7 +12,7 @@
 import { OpCode } from './opcodes';
 import type { FrameOp } from './frame';
 
-export const TELEMETRY_WIRE_VERSION = 1 as const;
+export const TELEMETRY_WIRE_VERSION = 2 as const;
 
 export type ProjectionTelemetryCapabilities = {
   enabled: boolean;
@@ -74,6 +74,7 @@ export type TelemetryPhase = 'decode' | 'assemble' | 'apply' | 'sequence' | 'gen
 
 export type TelemetryFrameEmitted = {
   v: typeof TELEMETRY_WIRE_VERSION;
+  contextId: number;
   kind: 'frameEmitted';
   t: number;
   generation: number;
@@ -94,6 +95,7 @@ export type TelemetryFrameEmitted = {
 
 export type TelemetryTransportDeferred = {
   v: typeof TELEMETRY_WIRE_VERSION;
+  contextId: number;
   kind: 'transportDeferred';
   t: number;
   generation: number;
@@ -103,6 +105,7 @@ export type TelemetryTransportDeferred = {
 
 export type TelemetryAggregate = {
   v: typeof TELEMETRY_WIRE_VERSION;
+  contextId: number;
   kind: 'aggregate';
   t: number;
   framesEmitted: number;
@@ -117,6 +120,7 @@ export type TelemetryAggregate = {
 
 export type TelemetryClockStalled = {
   v: typeof TELEMETRY_WIRE_VERSION;
+  contextId: number;
   kind: 'clockStalled';
   t: number;
   sinceLastTickMs: number;
@@ -158,6 +162,7 @@ export type CssomPollStats = {
 
 export type TelemetryCssomPoll = {
   v: typeof TELEMETRY_WIRE_VERSION;
+  contextId: number;
   kind: 'cssomPoll';
   t: number;
 } & CssomPollStats;
@@ -269,6 +274,7 @@ export function stampCssomPoll(stats: CssomPollStats, patch: Partial<CssomPollSt
 
 export type TelemetryRateChanged = {
   v: typeof TELEMETRY_WIRE_VERSION;
+  contextId: number;
   kind: 'rateChanged';
   t: number;
   fromHz: number;
@@ -279,6 +285,7 @@ export type TelemetryRateChanged = {
 /** Lab client → session WS → re-broadcast as telemetry in Activity. */
 export type TelemetryApplyResult = {
   v: typeof TELEMETRY_WIRE_VERSION;
+  contextId: number;
   kind: 'applyResult';
   t: number;
   generation: number;
@@ -293,6 +300,7 @@ export type TelemetryApplyResult = {
 
 export type TelemetryDesynced = {
   v: typeof TELEMETRY_WIRE_VERSION;
+  contextId: number;
   kind: 'desynced';
   t: number;
   generation: number;
@@ -314,6 +322,7 @@ export type TelemetryDesynced = {
 
 export type TelemetryApplyOverrun = {
   v: typeof TELEMETRY_WIRE_VERSION;
+  contextId: number;
   kind: 'applyOverrun';
   t: number;
   generation: number;
@@ -331,6 +340,7 @@ export type TelemetryApplyOverrun = {
  */
 export type TelemetryResyncRequested = {
   v: typeof TELEMETRY_WIRE_VERSION;
+  contextId: number;
   kind: 'resyncRequested';
   t: number;
   generation: number;
@@ -341,6 +351,7 @@ export type TelemetryResyncRequested = {
 
 export type TelemetryResyncCompleted = {
   v: typeof TELEMETRY_WIRE_VERSION;
+  contextId: number;
   kind: 'resyncCompleted';
   t: number;
   generation: number;
@@ -359,6 +370,7 @@ export type TelemetryResyncCompleted = {
  */
 export type TelemetryResyncFailed = {
   v: typeof TELEMETRY_WIRE_VERSION;
+  contextId: number;
   kind: 'resyncFailed';
   t: number;
   generation: number;
@@ -384,8 +396,9 @@ export type ProjectionTelemetryMessage =
 
 export function isProjectionTelemetryMessage(value: unknown): value is ProjectionTelemetryMessage {
   if (typeof value !== 'object' || value === null) return false;
-  const v = value as { v?: unknown; kind?: unknown };
-  return v.v === TELEMETRY_WIRE_VERSION && typeof v.kind === 'string';
+  const v = value as { v?: unknown; kind?: unknown; contextId?: unknown };
+  if (v.v !== TELEMETRY_WIRE_VERSION || typeof v.kind !== 'string') return false;
+  return typeof v.contextId === 'number' && Number.isInteger(v.contextId) && v.contextId >= 1;
 }
 
 export function desyncPhase(errorCode: string): TelemetryPhase {

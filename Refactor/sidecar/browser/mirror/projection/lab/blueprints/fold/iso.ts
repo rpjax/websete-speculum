@@ -49,6 +49,24 @@ export type IsoJournal = {
     reason: string | null;
   };
   shadow?: { virtualHosts: number; clientHosts: number } | null;
+  nested?: {
+    virtualDocs: number;
+    clientDocs: number;
+    clientFrameHrefs: string[];
+  } | null;
+  contexts?: Record<
+    number,
+    {
+      o2?: { identical: boolean; divergenceCount: number } | null;
+      cssomO2?: { identical: boolean; divergenceCount: number } | null;
+      table?: { identical: boolean | null };
+      structuralDiff?: { identical: boolean; divergenceCount: number } | null;
+      formProps?: { identical: boolean | null };
+      nodeNewConnected?: NodeNewConnectedProbe | null;
+      skipped?: { id: string; reason: string }[];
+    }
+  >;
+  allPass?: boolean;
 };
 
 export function foldNodeNewConnected(probe: NodeNewConnectedProbe | null | undefined): LabVerdict {
@@ -261,5 +279,44 @@ export function foldIsoJournal(
     }
   }
   verdicts.push(foldNodeNewConnected(iso.nodeNewConnected));
+
+  if (iso.contexts) {
+    for (const [id, ctx] of Object.entries(iso.contexts)) {
+      const prefix = `iso.context.${id}`;
+      if (ctx.o2) {
+        verdicts.push({
+          id: `${prefix}.dom`,
+          status: ctx.o2.identical ? 'pass' : 'fail',
+          reason: ctx.o2.identical ? 'identical' : `${ctx.o2.divergenceCount} O2 divergences`,
+        });
+      }
+      if (ctx.cssomO2) {
+        verdicts.push({
+          id: `${prefix}.cssom`,
+          status: ctx.cssomO2.identical ? 'pass' : 'fail',
+          reason: ctx.cssomO2.identical ? 'identical' : `${ctx.cssomO2.divergenceCount} CSSOM divergences`,
+        });
+      }
+      if (ctx.table?.identical === true) {
+        verdicts.push({ id: `${prefix}.table`, status: 'pass', reason: 'hash match' });
+      } else if (ctx.table?.identical === false) {
+        verdicts.push({ id: `${prefix}.table`, status: 'fail', reason: 'table hash mismatch' });
+      }
+      if (ctx.structuralDiff) {
+        verdicts.push({
+          id: `${prefix}.tree`,
+          status: ctx.structuralDiff.identical ? 'pass' : 'fail',
+          reason: ctx.structuralDiff.identical ? 'identical' : `${ctx.structuralDiff.divergenceCount} divergences`,
+        });
+      }
+      if (ctx.formProps?.identical === true) {
+        verdicts.push({ id: `${prefix}.formProps`, status: 'pass', reason: 'form properties match' });
+      } else if (ctx.formProps?.identical === false) {
+        verdicts.push({ id: `${prefix}.formProps`, status: 'fail', reason: 'form properties mismatch' });
+      }
+      verdicts.push(foldNodeNewConnected(ctx.nodeNewConnected));
+    }
+  }
+
   return verdicts;
 }

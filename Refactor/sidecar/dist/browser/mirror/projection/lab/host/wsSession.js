@@ -51,7 +51,7 @@ class WsLabConnection {
         const rel = path.startsWith('fixtures/') ? path : `fixtures/${path}`;
         return `${this.opts.publicOrigin}/${rel}`;
     }
-    async requestClientSnapshot(timeoutMs = 5000) {
+    async requestClientSnapshot(contextId, timeoutMs = 5000) {
         if (this.client === null || this.client.readyState !== this.client.OPEN)
             return null;
         if (this.pendingSnapshot !== null)
@@ -62,7 +62,7 @@ class WsLabConnection {
                 resolve(null);
             }, timeoutMs);
             this.pendingSnapshot = { resolve, timer };
-            this.send({ type: 'requestSnapshot' });
+            this.send({ type: 'requestSnapshot', contextId });
         });
     }
     async requestTamper(timeoutMs = 2000) {
@@ -203,7 +203,7 @@ class WsLabConnection {
                     const result = await (0, execute_1.executeBlueprint)(bp, {
                         chassis: this.chassis,
                         resolveUrl: (u) => this.resolveUrl(u),
-                        requestClientSnapshot: () => this.requestClientSnapshot(),
+                        requestClientSnapshot: (contextId) => this.requestClientSnapshot(contextId),
                         requestTamper: () => this.requestTamper(),
                         injectClientFrame: (bytes) => this.injectClientFrame(bytes),
                         overrides,
@@ -262,6 +262,7 @@ class WsLabConnection {
                 this.chassis.browser?.sendPageProjectionControl?.({
                     type: 'requestResync',
                     reason: msg.reason ?? 'client',
+                    contextId: typeof msg.contextId === 'number' && msg.contextId > 0 ? msg.contextId : 1,
                 });
                 return;
             }
@@ -278,6 +279,7 @@ class WsLabConnection {
                         ? tableRaw
                         : null;
                     pending.resolve({
+                        contextId: typeof msg.contextId === 'number' ? msg.contextId : 1,
                         tree: msg.tree ?? null,
                         table,
                         sequence: msg.sequence ?? null,

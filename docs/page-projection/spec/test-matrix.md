@@ -3,7 +3,7 @@
 > Lab tracker (QA / gaps / features): [seal-gaps.md](seal-gaps.md). Proposed `PP-APPLY-*` /
 > `PP-CSSOM-A-*` rows are **open** until asserts land — do not mark PASS.
 > Rows that still say childList/establish/Node-mirror were **re-authored below** to V4 opcodes.
-> `PP-F-4` closed shadow = this slice unsupported; XO iframe = **OPEN-6** — fail as unsupported, do not fake a pass.
+> `PP-F-4` closed shadow = this slice unsupported; XO iframe = **OPEN-6 remainder** — fail as unsupported, do not fake a pass. Same-origin iframe = lab `iframe-open`.
 > `PP-DEN-1` remains unrun. Budgets: [budgets.md](budgets.md). Oracles: [oracles.md](oracles.md).
 
 # PageProjection — test matrix
@@ -27,7 +27,7 @@ A package (`WP`) is complete when **all** its `PP-*` rows pass and **all** its r
 | `PP-F-1` | Projected tree is structurally isomorphic to `F(Virtual)` after settle (O2) | WP3 |
 | `PP-F-2` | Adjacent text nodes are published 1:1 without collapsing; the client never calls `normalize()` | WP3 |
 | `PP-F-3` | Open shadow: Projected host has a real `ShadowRoot`; light `childNodes` and `shadowRoot.childNodes` match Virtual (browser slots). **Not** flattened on the wire. [shadow.md](shadow.md). Units listed under **SEAL-DOM-P1-SHADOW**. Lab `shadow-open`. | lab |
-| `PP-F-4` | **Split.** Closed shadow: **NIT**, lab `shadow-closed` fails `unsupported.shadow.closed` ([shadow.md](shadow.md)). Manual slot: lab `shadow-manual` fails `unsupported.shadow.manual`. Cross-origin iframe: **OPEN-6**, fail unsupported. Do not fake a pass. Not pierce. | WP3 |
+| `PP-F-4` | **Split.** Closed shadow: **NIT**, lab `shadow-closed` fails `unsupported.shadow.closed` ([shadow.md](shadow.md)). Manual slot: lab `shadow-manual` fails `unsupported.shadow.manual`. Same-origin iframe: lab `iframe-open` (`iso.nested`, `iso.nested.blank`) with DOM client. Cross-origin iframe: still NIT — fail unsupported. Do not fake a pass. Not pierce. | WP3 |
 | `PP-F-5` | `<title>`, `lang`, `dir` and `meta viewport` are projected; an RTL page renders RTL | WP3 |
 | `PP-F-SVG-1` | SVG / MathML `namespaceURI` matches Virtual (**SEAL-DOM-P1-SVG**). Units: `testNodeNewElementNsWire`, `testStructuralDiffNsMismatch`. Lab `svg-ns` (CLI without DOM client: `iso.tree` skip explicit; with client, `ns_mismatch` fails). | lab |
 | `PP-PROP-1` | Virtual `.value` / `.checked` / `option.selected` match Projected at sequence S **at settle** (**SEAL-DOM-P1-PROP**, closed 2026-08-18). Units: `testPropSetWire`, `testPropSetTableAndCheck`, `testFormPropDirtyDoesNotBlockTable`. Lab `forms-state` (CLI without DOM client: `iso.formProps` skip explicit; with client, mismatch fails). Not tree iso. Not `PP-IN-2` (caret). Green CHECK while dirty is not this assert. | lab |

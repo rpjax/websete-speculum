@@ -66,8 +66,10 @@ var __speculumSnapshot = (() => {
       case 1: {
         const el = node;
         const attrs = [];
+        const host = el.contentWindow != null;
         for (let i = 0; i < el.attributes.length; i++) {
           const a = el.attributes[i];
+          if (host && (a.name === "src" || a.name === "srcdoc")) continue;
           attrs.push([a.name, a.value]);
         }
         attrs.sort((x, y) => x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : 0);
@@ -81,6 +83,16 @@ var __speculumSnapshot = (() => {
         if (sr !== null && sr.mode === "open" && sr.slotAssignment !== "manual") {
           const shadowKids = mapChildren(sr);
           result.shadow = { tag: "#shadow-root", ...shadowKids.length > 0 ? { children: shadowKids } : {} };
+        }
+        if (host) {
+          try {
+            const iframe = el;
+            const win = iframe.contentWindow;
+            if (win) result.frameHref = win.location.href;
+            const inner = iframe.contentDocument;
+            if (inner) result.nested = walkNode(inner);
+          } catch {
+          }
         }
         return result;
       }

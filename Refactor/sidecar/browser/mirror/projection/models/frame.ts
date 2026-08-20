@@ -16,11 +16,19 @@ import { NodeKind, OpCode } from './opcodes';
 
 export { NodeKind };
 
-/** Current wire version. Operand change on `NODE_NEW` Element (`ns`) bumped 1 → 2; no shim (§9). */
+/** Wire version byte. Layout can change in lab without bumping this. */
 export const FRAME_WIRE_VERSION = 2 as const;
+
+/**
+ * Fixed PP prefix before the per-part string table: magic u16, version u8, flags u8,
+ * contextId u32, generation u32, sequence u32, partIndex u16, partCount u16, preTableHash u64.
+ */
+export const FRAME_PREFIX_BYTES = 2 + 1 + 1 + 4 + 4 + 4 + 2 + 2 + 8;
 
 /** id `1` is reserved for the Document row (frame-protocol.md §1.2). */
 export const DOCUMENT_ID: DomNodeKey = 1;
+/** Session-root `contextId` (OPEN-6). Nested never this value. `0` is invalid. */
+export const CONTEXT_ID_ROOT = 1;
 /** `before = 0` in `INSERT` means "insert at end" (§4.3). */
 export const INSERT_AT_END: DomNodeKey = 0;
 
@@ -62,7 +70,8 @@ export type StrDefOp = { op: OpCode.StrDef; strId: number; value: string };
 
 /**
  * `descriptor` shape by `kind` — §4.2. Element `uri` is present only when `ns === custom`;
- * omitted on the wire otherwise. `SHADOW_ROOT` carries `host`/`mode`/`initFlags` ([shadow.md](shadow.md)).
+ * omitted on the wire otherwise. Nested-context host: `nestedHost` + `childScopeId`; omitted on
+ * the wire otherwise (decode fills `false` / `null`). `SHADOW_ROOT` carries `host`/`mode`/`initFlags`.
  */
 export type NodeNewOp =
   | {
@@ -73,6 +82,10 @@ export type NodeNewOp =
       name: string;
       attrs: AttrPair[];
       uri?: string;
+      /** Decode always sets this. Producer may omit (`false`). */
+      nestedHost?: boolean;
+      /** Decode always sets this. Producer may omit (`null`). `0`/`1` illegal when nested host. */
+      childScopeId?: number | null;
     }
   | { op: OpCode.NodeNew; id: DomNodeKey; kind: NodeKind.Text | NodeKind.Comment; value: string }
   | { op: OpCode.NodeNew; id: DomNodeKey; kind: NodeKind.Doctype; name: string }
@@ -180,6 +193,7 @@ export type FrameFlags = {
 export type Frame = {
   version: typeof FRAME_WIRE_VERSION;
   flags: FrameFlags;
+  contextId: number;
   generation: number;
   sequence: number;
   preTableHash: bigint;
@@ -192,10 +206,14 @@ export function createFrame(args: {
   ops: FrameOp[];
   preTableHash?: bigint;
   resync?: boolean;
+  contextId?: number;
 }): Frame {
+  const contextId = args.contextId ?? CONTEXT_ID_ROOT;
+  if (contextId === 0) throw new Error('contextId 0 is invalid (frame-protocol.md §2)');
   return {
     version: FRAME_WIRE_VERSION,
     flags: { resync: args.resync ?? false },
+    contextId,
     generation: args.generation,
     sequence: args.sequence,
     preTableHash: args.preTableHash ?? 0n,

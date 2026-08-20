@@ -30,8 +30,10 @@ function walkNode(node: Node): TreeNode {
     case 1: { // Element
       const el = node as Element;
       const attrs: [string, string][] = [];
+      const host = (el as HTMLElement & { contentWindow?: Window | null }).contentWindow != null;
       for (let i = 0; i < el.attributes.length; i++) {
         const a = el.attributes[i]!;
+        if (host && (a.name === 'src' || a.name === 'srcdoc')) continue;
         attrs.push([a.name, a.value]);
       }
       attrs.sort((x, y) => (x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : 0));
@@ -45,6 +47,17 @@ function walkNode(node: Node): TreeNode {
       if (sr !== null && sr.mode === 'open' && sr.slotAssignment !== 'manual') {
         const shadowKids = mapChildren(sr);
         result.shadow = { tag: '#shadow-root', ...(shadowKids.length > 0 ? { children: shadowKids } : {}) };
+      }
+      if (host) {
+        try {
+          const iframe = el as HTMLIFrameElement;
+          const win = iframe.contentWindow;
+          if (win) result.frameHref = win.location.href;
+          const inner = iframe.contentDocument;
+          if (inner) result.nested = walkNode(inner);
+        } catch {
+          /* cross-origin — no inner snapshot */
+        }
       }
       return result;
     }

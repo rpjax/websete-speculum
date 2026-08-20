@@ -15,7 +15,7 @@
  * live under either.
  */
 
-import { ElementNs } from './elementNs';
+import { ElementNs, unpackElementNsWireByte, assertNestedChildScopeId } from './elementNs';
 import { NodeKind, OpCode } from './opcodes';
 import { propValueKind } from './propSet';
 import {
@@ -23,6 +23,7 @@ import {
   CHECK_SCOPE_TABLE,
   CSSOM_SCOPE_MAIN,
   CSSOM_SCOPE_PIERCE_HOST,
+  FRAME_PREFIX_BYTES,
   FRAME_WIRE_VERSION,
   INSERT_AT_END,
   SHADOW_INIT_FLAGS_MASK,
@@ -35,6 +36,7 @@ import { MAX_ATTRS, MAX_CHILDREN_PER_OP, MAX_OPS_PER_FRAME, MAX_STR_BYTES } from
 export interface DecodedFramePart {
   version: number;
   resync: boolean;
+  contextId: number;
   generation: number;
   sequence: number;
   partIndex: number;
@@ -47,10 +49,37 @@ export interface DecodedFramePart {
 export interface AssembledFrame {
   version: number;
   resync: boolean;
+  contextId: number;
   generation: number;
   sequence: number;
   preTableHash: bigint;
   ops: FrameOp[];
+}
+
+export type PeekedFrameHeader = {
+  version: number;
+  flags: number;
+  contextId: number;
+  generation: number;
+  sequence: number;
+  partIndex: number;
+  partCount: number;
+};
+
+/** Fixed-prefix peek — does not decode strings or ops. */
+export function peekFrameHeader(bytes: Uint8Array): PeekedFrameHeader | null {
+  if (bytes.byteLength < FRAME_PREFIX_BYTES) return null;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  if (view.getUint16(0, true) !== 0x5050) return null;
+  return {
+    version: bytes[2]!,
+    flags: bytes[3]!,
+    contextId: view.getUint32(4, true),
+    generation: view.getUint32(8, true),
+    sequence: view.getUint32(12, true),
+    partIndex: view.getUint16(16, true),
+    partCount: view.getUint16(18, true),
+  };
 }
 
 export type DecodeError = 'unknown_version' | 'malformed';
@@ -144,13 +173,15 @@ export function decodeFramePart(
   const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
   try {
     const r = new ByteReader(bytes);
-    if (r.remaining < 24) return malformed('frame shorter than the fixed header');
+    if (r.remaining < FRAME_PREFIX_BYTES) return malformed('frame shorter than the fixed header');
     if (r.u16() !== WIRE_MAGIC) return malformed('bad magic');
     const version = r.u8();
     if (version !== WIRE_VERSION) {
       return { ok: false, reason: 'unknown_version', message: `unsupported wire version ${version}` };
     }
     const flags = r.u8();
+    const contextId = r.u32();
+    if (contextId === 0) return malformed('contextId 0 is invalid');
     const generation = r.u32();
     const sequence = r.u32();
     const partIndex = r.u16();
@@ -186,6 +217,7 @@ export function decodeFramePart(
       part: {
         version,
         resync: (flags & RESYNC_FLAG_BIT) !== 0,
+        contextId,
         generation,
         sequence,
         partIndex,
@@ -255,12 +287,9 @@ function decodeOp(
       const id = r.u32();
       const kind = r.u8();
       if (kind === NodeKind.Element) {
-        const ns = r.u8();
-        if (ns > ElementNs.Custom) {
-          throw new Error(`NODE_NEW ns ${ns} out of range (frame-protocol.md §4.2)`);
-        }
+        const packed = unpackElementNsWireByte(r.u8());
         let uri: string | undefined;
-        if (ns === ElementNs.Custom) {
+        if (packed.ns === ElementNs.Custom) {
           uri = resolveStr(r.u32());
           if (uri.length === 0) {
             throw new Error('NODE_NEW custom ns empty uri (frame-protocol.md §4.2)');
@@ -268,13 +297,22 @@ function decodeOp(
         }
         const name = resolveStr(r.u32());
         const attrs = decodeAttrs(r, resolveStr);
+        let nestedHost = false;
+        let childScopeId: number | null = null;
+        if (packed.nestedHost) {
+          childScopeId = r.u32();
+          assertNestedChildScopeId(childScopeId);
+          nestedHost = true;
+        }
         return {
           op: OpCode.NodeNew,
           id,
           kind: NodeKind.Element,
-          ns: ns as ElementNs,
+          ns: packed.ns,
           name,
           attrs,
+          nestedHost,
+          childScopeId,
           ...(uri !== undefined ? { uri } : {}),
         };
       }
@@ -405,10 +443,13 @@ function decodeOp(
 export class FramePartAssembler {
   private readonly pending = new Map<string, { parts: (DecodedFramePart | undefined)[]; received: number }>();
 
-  ingest(part: DecodedFramePart): AssembledFrame | 'missing_part' | null {
-    if (part.partCount <= 1) return assemble(part, [part]);
+  ingest(part: DecodedFramePart): AssembledFrame | 'missing_part' | 'malformed' | null {
+    if (part.partCount <= 1) {
+      const assembled = assemble(part, [part]);
+      return assembled === 'malformed' ? 'malformed' : assembled;
+    }
 
-    const key = `${part.generation}:${part.sequence}`;
+    const key = `${part.contextId}:${part.generation}:${part.sequence}`;
     let slot = this.pending.get(key);
     if (!slot || slot.parts.length !== part.partCount) {
       slot = { parts: new Array(part.partCount), received: 0 };
@@ -420,7 +461,9 @@ export class FramePartAssembler {
     if (part.partIndex !== part.partCount - 1) return null;
     this.pending.delete(key);
     if (slot.received !== part.partCount) return 'missing_part';
-    return assemble(part, slot.parts as DecodedFramePart[]);
+    const assembled = assemble(part, slot.parts as DecodedFramePart[]);
+    if (assembled === 'malformed') return 'malformed';
+    return assembled;
   }
 
   /** Drops every in-flight partial assembly (desync / generation bump). */
@@ -429,12 +472,16 @@ export class FramePartAssembler {
   }
 }
 
-function assemble(last: DecodedFramePart, parts: DecodedFramePart[]): AssembledFrame {
+function assemble(last: DecodedFramePart, parts: DecodedFramePart[]): AssembledFrame | 'malformed' {
   const ops: FrameOp[] = [];
-  for (const part of parts) ops.push(...part.ops);
+  for (const part of parts) {
+    if (part.contextId !== last.contextId) return 'malformed';
+    ops.push(...part.ops);
+  }
   return {
     version: last.version,
     resync: last.resync,
+    contextId: last.contextId,
     generation: last.generation,
     sequence: last.sequence,
     preTableHash: last.preTableHash,

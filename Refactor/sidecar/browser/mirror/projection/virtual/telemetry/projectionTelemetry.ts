@@ -1,27 +1,38 @@
 /**
  * Virtual-side projection telemetry — push-active on DataPlane Telemetry channel.
- * Producer-only message kinds (frameEmitted / transportDeferred / aggregate / clock);
- * `applyResult` / `desynced` / `applyOverrun` are client-emitted and relayed by the lab
- * session, not created here (models/telemetry.ts).
+ * Nested instances emit on the postMessage bus; root runtime fans out to the DataPlane.
  */
 
 import { PlaneChannel } from '../../plane';
 import type { DataPlane } from '../../plane';
-import type {
-  ProjectionTelemetryConfig,
-  ProjectionTelemetryMessage,
-  TelemetryCssomPoll,
+import type { ProjectionBus } from '../bus/projectionBus';
+import {
+  TELEMETRY_WIRE_VERSION,
+  type ProjectionTelemetryConfig,
+  type ProjectionTelemetryMessage,
+  type TelemetryCssomPoll,
 } from '../../models/telemetry';
+
+export type EmissionStats = {
+  contextId: number;
+  samples: number;
+  fps: { min: number; max: number; avg: number };
+  buildMs: { min: number; max: number; avg: number };
+};
 
 export type ProjectionTelemetryOptions = {
   config: Readonly<ProjectionTelemetryConfig>;
   dataPlane: DataPlane | null;
+  contextId: number;
+  bus?: ProjectionBus | null;
   now?: () => number;
 };
 
 export class ProjectionTelemetry {
   private readonly config: Readonly<ProjectionTelemetryConfig>;
   private readonly dataPlane: DataPlane | null;
+  private readonly bus: ProjectionBus | null;
+  private readonly contextId: number;
   private readonly now: () => number;
   private readonly textEncoder = new TextEncoder();
 
@@ -35,9 +46,21 @@ export class ProjectionTelemetry {
   private encodeMsSum = 0;
   private aggregateTimer: ReturnType<typeof setInterval> | null = null;
 
+  private lastEmitAt: number | null = null;
+  private fpsSamples = 0;
+  private fpsSum = 0;
+  private fpsMin = Number.POSITIVE_INFINITY;
+  private fpsMax = 0;
+  private buildSamples = 0;
+  private buildStatSum = 0;
+  private buildMin = Number.POSITIVE_INFINITY;
+  private buildMax = 0;
+
   constructor(opts: ProjectionTelemetryOptions) {
     this.config = opts.config;
     this.dataPlane = opts.dataPlane;
+    this.bus = opts.bus ?? null;
+    this.contextId = opts.contextId;
     this.now = opts.now ?? (() => performance.now());
   }
 
@@ -73,9 +96,11 @@ export class ProjectionTelemetry {
     this.lastSequence = info.sequence;
     this.buildMsSum += info.buildMs;
     this.encodeMsSum += info.encodeMs;
+    this.noteEmission(info.buildMs);
     if (!this.config.frameEmitted) return;
     this.push({
-      v: 1,
+      v: TELEMETRY_WIRE_VERSION,
+      contextId: this.contextId,
       kind: 'frameEmitted',
       t: this.now(),
       generation: info.generation,
@@ -95,7 +120,8 @@ export class ProjectionTelemetry {
     this.deferredCount += 1;
     if (!this.config.transportDeferred) return;
     this.push({
-      v: 1,
+      v: TELEMETRY_WIRE_VERSION,
+      contextId: this.contextId,
       kind: 'transportDeferred',
       t: this.now(),
       generation: info.generation,
@@ -107,7 +133,8 @@ export class ProjectionTelemetry {
   recordClockStalled(info: { sinceLastTickMs: number; rateHz: number }): void {
     if (!this.config.enabled || !this.config.clock) return;
     this.push({
-      v: 1,
+      v: TELEMETRY_WIRE_VERSION,
+      contextId: this.contextId,
       kind: 'clockStalled',
       t: this.now(),
       sinceLastTickMs: info.sinceLastTickMs,
@@ -118,7 +145,8 @@ export class ProjectionTelemetry {
   recordRateChanged(info: { fromHz: number; toHz: number; reason: 'hidden' | 'degrade' | 'recover' | 'config' }): void {
     if (!this.config.enabled || !this.config.clock) return;
     this.push({
-      v: 1,
+      v: TELEMETRY_WIRE_VERSION,
+      contextId: this.contextId,
       kind: 'rateChanged',
       t: this.now(),
       fromHz: info.fromHz,
@@ -127,20 +155,60 @@ export class ProjectionTelemetry {
     });
   }
 
-  recordCssomPoll(info: Omit<TelemetryCssomPoll, 'v' | 'kind' | 't'>): void {
+  recordCssomPoll(info: Omit<TelemetryCssomPoll, 'v' | 'kind' | 't' | 'contextId'>): void {
     if (!this.config.enabled || !this.config.cssomPoll) return;
     this.push({
-      v: 1,
+      v: TELEMETRY_WIRE_VERSION,
+      contextId: this.contextId,
       kind: 'cssomPoll',
       t: this.now(),
       ...info,
     });
   }
 
+  /** Running min/max/avg of emit FPS and table buildMs — fixture HUD / investigation. */
+  emissionStats(): EmissionStats | null {
+    if (this.fpsSamples === 0 && this.buildSamples === 0) return null;
+    return {
+      contextId: this.contextId,
+      samples: Math.max(this.fpsSamples, this.buildSamples),
+      fps:
+        this.fpsSamples === 0
+          ? { min: 0, max: 0, avg: 0 }
+          : { min: this.fpsMin, max: this.fpsMax, avg: this.fpsSum / this.fpsSamples },
+      buildMs:
+        this.buildSamples === 0
+          ? { min: 0, max: 0, avg: 0 }
+          : { min: this.buildMin, max: this.buildMax, avg: this.buildStatSum / this.buildSamples },
+    };
+  }
+
+  private noteEmission(buildMs: number): void {
+    const t = this.now();
+    if (this.lastEmitAt !== null) {
+      const dt = t - this.lastEmitAt;
+      if (dt > 0) {
+        const fps = 1000 / dt;
+        this.fpsSamples += 1;
+        this.fpsSum += fps;
+        if (fps < this.fpsMin) this.fpsMin = fps;
+        if (fps > this.fpsMax) this.fpsMax = fps;
+      }
+    }
+    this.lastEmitAt = t;
+    if (buildMs > 0) {
+      this.buildSamples += 1;
+      this.buildStatSum += buildMs;
+      if (buildMs < this.buildMin) this.buildMin = buildMs;
+      if (buildMs > this.buildMax) this.buildMax = buildMs;
+    }
+  }
+
   private pushAggregate(): void {
     if (!this.config.enabled || !this.config.aggregate) return;
     this.push({
-      v: 1,
+      v: TELEMETRY_WIRE_VERSION,
+      contextId: this.contextId,
       kind: 'aggregate',
       t: this.now(),
       framesEmitted: this.framesEmitted,
@@ -156,8 +224,11 @@ export class ProjectionTelemetry {
 
   private push(message: ProjectionTelemetryMessage): void {
     const plane = this.dataPlane;
-    if (plane === null || !plane.isOpen) return;
-    const bytes = this.textEncoder.encode(JSON.stringify(message));
-    void plane.send(PlaneChannel.Telemetry, bytes);
+    if (plane !== null && plane.isOpen) {
+      const bytes = this.textEncoder.encode(JSON.stringify(message));
+      void plane.send(PlaneChannel.Telemetry, bytes);
+      return;
+    }
+    this.bus?.emitTelemetry(message);
   }
 }

@@ -14,18 +14,20 @@
 
 import {
   decodeFramePart,
+  peekFrameHeader,
   FramePartAssembler,
   PersistentStringTable,
   type AssembledFrame,
 } from '../models/decode';
 import { DomFrameApplier } from './applyDom';
+import { NestedProjectedApply } from './nestedProjectedApply';
 import { PageProjectionRegistry } from './registry';
 import { createSurfaceHost, type SurfaceHost } from './surface';
 import { captureParityFingerprint } from './parityFingerprint';
 import { digestReplicatedTable } from '../models/tableDigest';
-import { DOCUMENT_ID } from '../models/frame';
+import { CONTEXT_ID_ROOT, DOCUMENT_ID } from '../models/frame';
 import { OpCode } from '../models/opcodes';
-import { desyncPhase, type TelemetryPhase } from '../models/telemetry';
+import { desyncPhase, TELEMETRY_WIRE_VERSION, type TelemetryPhase } from '../models/telemetry';
 
 export type LabProjectionClientOptions = {
   surfaceHost: HTMLElement;
@@ -42,7 +44,12 @@ export type LabProjectionClientOptions = {
    * desync triggered it. The caller is expected to relay this over the session control WS
    * (`client.requestResync` on the lab control WS) — this class has no transport of its own.
    */
-  onRequestResync?: (info: { generation: number; sequence: number; reason: string }) => void;
+  onRequestResync?: (info: {
+    generation: number;
+    sequence: number;
+    reason: string;
+    contextId?: number;
+  }) => void;
 };
 
 /** One `DomFrameApplier` + its own registry — either the live surface or an in-flight standby build. */
@@ -66,7 +73,12 @@ export class LabProjectionClient {
   private readonly onTelemetry?: (msg: Record<string, unknown>) => void;
   private readonly onArmedCb?: () => void;
   private readonly onDesyncCb?: (reason: string) => void;
-  private readonly onRequestResyncCb?: (info: { generation: number; sequence: number; reason: string }) => void;
+  private readonly onRequestResyncCb?: (info: {
+    generation: number;
+    sequence: number;
+    reason: string;
+    contextId?: number;
+  }) => void;
 
   /** The currently-live target — reassigned wholesale on a successful resync swap. */
   private live: ApplyTarget;
@@ -93,6 +105,8 @@ export class LabProjectionClient {
   private everArmed = false;
   /** Sticky until resetSurface — inject proofs must not lose the desync to a later resync. */
   private lastDesyncReason: string | null = null;
+  private readonly nested = new Map<number, NestedProjectedApply>();
+  private readonly pendingNestedFrames = new Map<number, Uint8Array[]>();
 
   constructor(opts: LabProjectionClientOptions) {
     this.surface = createSurfaceHost(opts.surfaceHost, {
@@ -107,6 +121,45 @@ export class LabProjectionClient {
     const registry = new PageProjectionRegistry();
     registry.register(DOCUMENT_ID, this.surface.document);
     this.live = { applier: this.createApplier(this.surface.document, registry, true), registry };
+  }
+
+  private installNestedHost(iframe: HTMLIFrameElement, contextId: number): void {
+    const doc = iframe.contentDocument;
+    const win = iframe.contentWindow;
+    if (!doc || !win) return;
+    if (this.nested.has(contextId)) return;
+    // Same bare-document strip as the lab surface: about:blank's default html/head/body
+    // must not sit under id 1 when the nested resync INSERTs its own document element.
+    while (doc.firstChild) doc.removeChild(doc.firstChild);
+    const session = new NestedProjectedApply({
+      document: doc,
+      contextId,
+      onNestedHost: (iframe, childScopeId) => this.installNestedHost(iframe, childScopeId),
+      onNestedHostDrop: (childScopeId) => this.dropNestedHost(childScopeId),
+      onArmed: () => {
+        try {
+          (win as Window & { __speculumNestedApplyArmed?: boolean }).__speculumNestedApplyArmed = true;
+        } catch {
+          /* ignore */
+        }
+      },
+      onRequestResync: (info) => this.onRequestResyncCb?.(info),
+    });
+    this.nested.set(contextId, session);
+    const pending = this.pendingNestedFrames.get(contextId);
+    if (pending) {
+      this.pendingNestedFrames.delete(contextId);
+      for (let i = 0; i < pending.length; i++) session.ingest(pending[i]!);
+    }
+    session.flush();
+  }
+
+  private dropNestedHost(contextId: number): void {
+    const existing = this.nested.get(contextId);
+    if (!existing) return;
+    existing.dispose();
+    this.nested.delete(contextId);
+    this.pendingNestedFrames.delete(contextId);
   }
 
   get isArmed(): boolean {
@@ -140,10 +193,62 @@ export class LabProjectionClient {
     };
   }
 
+  snapshotContext(contextId: number): {
+    contextId: number;
+    sequence: number;
+    generation: number;
+    table: ReturnType<typeof digestReplicatedTable>;
+    desynced: boolean;
+    applyError: string | null;
+    armed: boolean;
+    resyncInFlight: boolean;
+  } {
+    this.flushNow();
+    if (contextId === CONTEXT_ID_ROOT) {
+      return {
+        contextId,
+        ...this.snapshotTable(),
+        desynced: this.desynced,
+        applyError: this.applyError,
+        armed: this.armed,
+        resyncInFlight: this.resyncInFlight,
+      };
+    }
+    const nested = this.nested.get(contextId);
+    if (!nested) {
+      return {
+        contextId,
+        sequence: 0,
+        generation: 1,
+        table: { rowCount: 0, tableHash: '0' },
+        desynced: true,
+        applyError: 'nested_context_missing',
+        armed: false,
+        resyncInFlight: false,
+      };
+    }
+    return {
+      contextId,
+      ...nested.snapshotTable(),
+      desynced: false,
+      applyError: null,
+      armed: nested.isArmed,
+      resyncInFlight: false,
+    };
+  }
+
+  /** Nested host document for per-context tree probes (lab iso). */
+  nestedDocument(contextId: number): Document | null {
+    if (contextId === CONTEXT_ID_ROOT) return this.document;
+    const nested = this.nested.get(contextId);
+    return nested?.isArmed ? nested.document : null;
+  }
+
   /** Drain queued frames before a lab snapshot / inject. */
   flushNow(): void {
     this.live.applier.flush();
     this.resync?.applier.flush();
+    for (const n of this.nested.values()) n.flush();
   }
 
   get desynced(): boolean {
@@ -188,6 +293,9 @@ export class LabProjectionClient {
     this.armed = false;
     this.everArmed = false;
     this.lastDesyncReason = null;
+    for (const n of this.nested.values()) n.dispose();
+    this.nested.clear();
+    this.pendingNestedFrames.clear();
     this.surface.reset();
     const registry = new PageProjectionRegistry();
     registry.register(DOCUMENT_ID, this.surface.document);
@@ -195,14 +303,26 @@ export class LabProjectionClient {
   }
 
   ingest(bytes: Uint8Array): void {
+    const hdr = peekFrameHeader(bytes);
+    if (hdr && hdr.contextId !== CONTEXT_ID_ROOT && hdr.contextId !== 0) {
+      const nested = this.nested.get(hdr.contextId);
+      if (nested) {
+        nested.ingest(bytes);
+        return;
+      }
+      const q = this.pendingNestedFrames.get(hdr.contextId) ?? [];
+      q.push(bytes.slice());
+      this.pendingNestedFrames.set(hdr.contextId, q);
+      return;
+    }
     const decoded = decodeFramePart(bytes, this.persistentStrings);
     if (!decoded.ok) {
       this.desync(decoded.reason, { message: decoded.message });
       return;
     }
     const assembled = this.assembler.ingest(decoded.part);
-    if (assembled === 'missing_part') {
-      this.desync('missing_part');
+    if (assembled === 'missing_part' || assembled === 'malformed') {
+      this.desync(assembled);
       return;
     }
     if (assembled === null) return;
@@ -264,6 +384,8 @@ export class LabProjectionClient {
   private createApplier(doc: Document, registry: PageProjectionRegistry, initiallyLive: boolean): DomFrameApplier {
     const state = { swapped: initiallyLive };
     const applier = new DomFrameApplier(doc, registry, {
+      onNestedHost: (iframe, childScopeId) => this.installNestedHost(iframe, childScopeId),
+      onNestedHostDrop: (childScopeId) => this.dropNestedHost(childScopeId),
       onDesync: (info) => {
         if (state.swapped) {
           this.reportApplyResult({ ok: false, sequence: this.lastSequence, opCount: 0, applyMs: 0, reason: info.reason });
@@ -295,7 +417,8 @@ export class LabProjectionClient {
       },
       onOverrun: (durationMs, lastSequence) => {
         this.onTelemetry?.({
-          v: 1,
+          v: TELEMETRY_WIRE_VERSION,
+      contextId: CONTEXT_ID_ROOT,
           kind: 'applyOverrun',
           t: performance.now(),
           generation: this.generation,
@@ -337,7 +460,8 @@ export class LabProjectionClient {
     this.resyncAttempts = 0;
     this.resyncExhausted = false;
     this.onTelemetry?.({
-      v: 1,
+      v: TELEMETRY_WIRE_VERSION,
+      contextId: CONTEXT_ID_ROOT,
       kind: 'resyncCompleted',
       t: performance.now(),
       generation: this.generation,
@@ -368,7 +492,8 @@ export class LabProjectionClient {
       this.resync = null;
     }
     this.onTelemetry?.({
-      v: 1,
+      v: TELEMETRY_WIRE_VERSION,
+      contextId: CONTEXT_ID_ROOT,
       kind: 'resyncFailed',
       t: performance.now(),
       generation: this.generation,
@@ -408,7 +533,8 @@ export class LabProjectionClient {
     if (attempt > MAX_RESYNC_ATTEMPTS) {
       this.resyncExhausted = true;
       this.onTelemetry?.({
-        v: 1,
+        v: TELEMETRY_WIRE_VERSION,
+      contextId: CONTEXT_ID_ROOT,
         kind: 'resyncFailed',
         t: performance.now(),
         generation: this.generation,
@@ -424,7 +550,8 @@ export class LabProjectionClient {
       this.resyncBackoffTimer = null;
       this.resyncAttempts = attempt;
       this.onTelemetry?.({
-        v: 1,
+        v: TELEMETRY_WIRE_VERSION,
+      contextId: CONTEXT_ID_ROOT,
         kind: 'resyncRequested',
         t: performance.now(),
         generation: this.generation,
@@ -432,7 +559,12 @@ export class LabProjectionClient {
         reason,
         attempt,
       });
-      this.onRequestResyncCb?.({ generation: this.generation, sequence: this.lastSequence, reason });
+      this.onRequestResyncCb?.({
+        generation: this.generation,
+        sequence: this.lastSequence,
+        reason,
+        contextId: CONTEXT_ID_ROOT,
+      });
       this.resyncTimeoutTimer = setTimeout(() => {
         this.resyncTimeoutTimer = null;
         this.failResyncAttempt('resync_timeout');
@@ -443,7 +575,8 @@ export class LabProjectionClient {
   private emitFingerprint(sequence: number): void {
     const fp = captureParityFingerprint(this.surface.document, this.live.registry);
     this.onTelemetry?.({
-      v: 1,
+      v: TELEMETRY_WIRE_VERSION,
+      contextId: CONTEXT_ID_ROOT,
       kind: 'parityFingerprint',
       t: performance.now(),
       generation: this.generation,
@@ -460,7 +593,8 @@ export class LabProjectionClient {
     reason?: string;
   }): void {
     this.onTelemetry?.({
-      v: 1,
+      v: TELEMETRY_WIRE_VERSION,
+      contextId: CONTEXT_ID_ROOT,
       kind: 'applyResult',
       t: performance.now(),
       generation: this.generation,
@@ -494,7 +628,8 @@ export class LabProjectionClient {
     this.assembler.reset();
     this.live.applier.reset();
     this.onTelemetry?.({
-      v: 1,
+      v: TELEMETRY_WIRE_VERSION,
+      contextId: CONTEXT_ID_ROOT,
       kind: 'desynced',
       t: performance.now(),
       generation: this.generation,

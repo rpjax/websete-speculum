@@ -630,6 +630,45 @@ export interface BrowserSession {
     formProps?: import('./mirror/projection/models/formControlSnap').FormControlSnap[];
     reason?: string;
   }>;
+  snapshotAllContexts?(
+    contextIds: readonly number[],
+    opts?: {
+      includeTree?: boolean;
+      cssom?: 'none' | 'committed' | 'scan';
+    },
+  ): Promise<
+    Record<
+      number,
+      | {
+          ok: true;
+          value: {
+            contextId: number;
+            generation: number;
+            sequence: number;
+            o2: import('./mirror/projection/models/tableLiveOracle').TableLiveOracleResult;
+            table: { rowCount: number; tableHash: string };
+            cssomO2: import('./mirror/projection/models/cssomTableLiveOracle').CssomTableLiveOracleResult | null;
+            nodeNewConnected: {
+              ok: boolean;
+              checked: number;
+              disconnectedIds: number[];
+            };
+            cascade: {
+              authorColor: string;
+              adoptedColor: string;
+              adoptedCount: number;
+              styleSheetCount: number;
+              styleElCount: number;
+              doublePaint: boolean;
+            } | null;
+            formProps: import('./mirror/projection/models/formControlSnap').FormControlSnap[];
+            tree?: unknown;
+          };
+        }
+      | { ok: false; reason: string }
+    >
+  >;
+  resumeAllContexts?(contextIds: readonly number[]): Promise<{ ok: boolean; reason?: string }>;
   startCpuProfile?(): Promise<{ ok: boolean; reason?: string }>;
   stopCpuProfile?(): Promise<{
     ok: boolean;

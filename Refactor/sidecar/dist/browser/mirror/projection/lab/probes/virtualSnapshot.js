@@ -12,6 +12,9 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.coherentSnapshotExpression = coherentSnapshotExpression;
+exports.loadSnapshotScriptForEvaluate = loadSnapshotScriptForEvaluate;
+exports.snapshotContextEvaluateExpression = snapshotContextEvaluateExpression;
+exports.snapshotAllContextsEvaluateExpression = snapshotAllContextsEvaluateExpression;
 exports.captureVirtualSnapshot = captureVirtualSnapshot;
 const node_fs_1 = __importDefault(require("node:fs"));
 const node_path_1 = __importDefault(require("node:path"));
@@ -44,8 +47,30 @@ function coherentSnapshotExpression(includeTree, cssom = 'none') {
         ? `${loadSnapshotScript()}\n    tree = __speculumSnapshot.snapshotTree();\n`
         : '';
     const cssomLit = JSON.stringify(cssom);
-    return `(() => {
+    const includeTreeLit = includeTree ? 'true' : 'false';
+    return `(async () => {
     const p = globalThis.__speculumProjection;
+    if (p && typeof p.snapshotContext === 'function') {
+      const r = await p.snapshotContext(1, { cssom: ${cssomLit}, includeTree: ${includeTreeLit} });
+      if (!r.ok) return { ok: false, reason: r.reason ?? 'snapshotContext failed' };
+      const v = r.value;
+      let tree = v.tree ?? null;
+      ${includeTree ? treePart.replace('tree = ', 'if (tree == null) tree = ') : ''}
+      return {
+        ok: true,
+        generation: v.generation,
+        sequence: v.sequence,
+        tableSize: p.table.size,
+        o2: v.o2,
+        table: v.table,
+        cssom: v.cssom,
+        cssomO2: v.cssomO2,
+        nodeNewConnected: v.nodeNewConnected,
+        cascade: v.cascade,
+        formProps: v.formProps,
+        tree,
+      };
+    }
     if (!p || typeof p.flushAndSnapshot !== 'function') {
       return { ok: false, reason: 'flushAndSnapshot missing' };
     }
@@ -67,6 +92,48 @@ function coherentSnapshotExpression(includeTree, cssom = 'none') {
       tree,
     };
   })()`;
+}
+/** Load snapshot bundle as a string suitable for in-page eval (root tree capture). */
+function loadSnapshotScriptForEvaluate() {
+    return loadSnapshotScript();
+}
+function snapshotContextEvaluateExpression() {
+    return `(async (contextId, opts, treeSrc) => {
+    if (treeSrc) { eval(treeSrc); }
+    const p = globalThis.__speculumProjection;
+    if (!p || typeof p.snapshotContext !== 'function') {
+      return { ok: false, reason: 'snapshotContext missing' };
+    }
+    const r = await p.snapshotContext(contextId, opts);
+    if (!r.ok) return r;
+    let tree = r.value.tree ?? null;
+    if (opts.includeTree && tree == null && typeof __speculumSnapshot?.snapshotTree === 'function') {
+      tree = __speculumSnapshot.snapshotTree();
+    }
+    return { ok: true, value: { ...r.value, tree } };
+  })`;
+}
+function snapshotAllContextsEvaluateExpression() {
+    return `(async (contextIds, opts, treeSrc) => {
+    if (treeSrc) { eval(treeSrc); }
+    const p = globalThis.__speculumProjection;
+    if (!p || typeof p.snapshotAllKnown !== 'function') return {};
+    const raw = await p.snapshotAllKnown(contextIds, opts);
+    const out = {};
+    for (const id of contextIds) {
+      const entry = raw[id];
+      if (!entry || entry.ok === false) {
+        out[id] = entry ?? { ok: false, reason: 'missing' };
+        continue;
+      }
+      let tree = entry.tree ?? null;
+      if (opts.includeTree && id === 1 && tree == null && typeof __speculumSnapshot?.snapshotTree === 'function') {
+        tree = __speculumSnapshot.snapshotTree();
+      }
+      out[id] = { ok: true, value: { ...entry, tree } };
+    }
+    return out;
+  })`;
 }
 /** Captures a structural snapshot of the Virtual page's live `document` (no pixels, no CSSOM). */
 async function captureVirtualSnapshot(page) {

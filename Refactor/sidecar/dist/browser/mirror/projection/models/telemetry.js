@@ -17,7 +17,7 @@ exports.stampCssomPoll = stampCssomPoll;
 exports.isProjectionTelemetryMessage = isProjectionTelemetryMessage;
 exports.desyncPhase = desyncPhase;
 const opcodes_1 = require("./opcodes");
-exports.TELEMETRY_WIRE_VERSION = 1;
+exports.TELEMETRY_WIRE_VERSION = 2;
 exports.DEFAULT_TELEMETRY_CONFIG = {
     enabled: false,
     frameEmitted: true,
@@ -156,7 +156,9 @@ function isProjectionTelemetryMessage(value) {
     if (typeof value !== 'object' || value === null)
         return false;
     const v = value;
-    return v.v === exports.TELEMETRY_WIRE_VERSION && typeof v.kind === 'string';
+    if (v.v !== exports.TELEMETRY_WIRE_VERSION || typeof v.kind !== 'string')
+        return false;
+    return typeof v.contextId === 'number' && Number.isInteger(v.contextId) && v.contextId >= 1;
 }
 function desyncPhase(errorCode) {
     switch (errorCode) {

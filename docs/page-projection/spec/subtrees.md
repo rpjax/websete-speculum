@@ -9,8 +9,8 @@ HTML has **two** kinds of subtree that walk does **not** see. There is no third 
 
 | Kind | What it is | Feature | Order |
 |------|------------|---------|--------|
-| **Shadow root** | A `ShadowRoot` on a host in **this** Document. How it was created does not matter. The walker follows `.shadowRoot`. | [shadow.md](shadow.md) | **1 — next** |
-| **Nested browsing context** | A **new** Document (new navigation context). Tags are how HTML creates it (`iframe`, `frame`, `object`, `embed`), not extra kinds. | [multi-document.md](multi-document.md) | **2 — after shadow** |
+| **Shadow root** | A `ShadowRoot` on a host in **this** Document. How it was created does not matter. The walker follows `.shadowRoot`. | [shadow.md](shadow.md) | **1 — shipped** (open/named) |
+| **Nested browsing context** | A **new** Document (new navigation context). Tags are how HTML creates it (`iframe`, `frame`, `object`, `embed`), not extra kinds. | [multi-document.md](multi-document.md) | **2 — lab same-origin iframe shipped** (XO / srcdoc / sandbox / fenced NIT) |
 
 `template.content` is not a kind: the walker already does not see it, and it does not paint. Stamp lands in `childNodes`.
 

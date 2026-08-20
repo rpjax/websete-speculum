@@ -1,0 +1,27 @@
+{
+  "id": "iframe-open",
+  "description": "Same-origin iframe — nested document iso, blank Projected host, post-boot mutate + drop",
+  "sessionPolicy": "cold",
+  "fold": "iframe-open",
+  "queues": [
+    {
+      "name": "main",
+      "actions": [
+        { "id": "boot", "type": "boot", "params": { "url": "fixtures/iframe-open.html" } },
+        { "id": "wait-settle", "type": "sleep", "dependsOn": ["boot"], "params": { "ms": 2000 } },
+        { "id": "snap-open", "type": "snap", "dependsOn": ["wait-settle"], "params": { "id": "iframeOpen", "cssom": "none" } },
+        { "id": "iso-open", "type": "iso", "dependsOn": ["snap-open"] },
+        { "id": "mutate", "type": "act", "dependsOn": ["iso-open"], "params": { "name": "mutate" } },
+        { "id": "wait-mutate", "type": "sleep", "dependsOn": ["mutate"], "params": { "ms": 800 } },
+        { "id": "snap-mut", "type": "snap", "dependsOn": ["wait-mutate"], "params": { "id": "iframeMut", "cssom": "none" } },
+        { "id": "iso-mut", "type": "iso", "dependsOn": ["snap-mut"] },
+        { "id": "drop", "type": "act", "dependsOn": ["iso-mut"], "params": { "name": "dropHost" } },
+        { "id": "wait-drop", "type": "sleep", "dependsOn": ["drop"], "params": { "ms": 800 } },
+        { "id": "snap-drop", "type": "snap", "dependsOn": ["wait-drop"], "params": { "id": "iframeDrop", "cssom": "none" } },
+        { "id": "iso-drop", "type": "iso", "dependsOn": ["snap-drop"] },
+        { "id": "fold", "type": "fold", "awaits": ["iso-open", "iso-mut", "iso-drop", "snap-open", "snap-mut", "snap-drop"], "params": { "ruleset": "iframe-open" } },
+        { "id": "writeDossier", "type": "writeDossier", "dependsOn": ["fold"] }
+      ]
+    }
+  ]
+}

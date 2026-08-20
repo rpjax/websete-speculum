@@ -18,6 +18,7 @@ const virtualSnapshot_1 = require("../lab/probes/virtualSnapshot");
 const cpuProfile_1 = require("../lab/probes/cpuProfile");
 const telemetry_1 = require("../models/telemetry");
 const plane_1 = require("../plane");
+const decode_1 = require("../models/decode");
 const projectionDataPlaneHost_1 = require("./projectionDataPlaneHost");
 function chromeArgs() {
     return [
@@ -27,14 +28,6 @@ function chromeArgs() {
         '--no-first-run',
         '--no-default-browser-check',
     ];
-}
-function peekFrameHeader(buf) {
-    if (buf.length < 12)
-        return null;
-    const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
-    if (view.getUint16(0, true) !== 0x5050)
-        return null;
-    return { generation: view.getUint32(4, true), sequence: view.getUint32(8, true) };
 }
 class V4ProjectionBrowserSession {
     sessionId;
@@ -59,7 +52,7 @@ class V4ProjectionBrowserSession {
         this.headless = factoryOpts.headless;
         this.dataPlane.dataPlane.setHandler((channel, payload) => {
             if (channel === plane_1.PlaneChannel.Frame) {
-                const header = peekFrameHeader(payload);
+                const header = (0, decode_1.peekFrameHeader)(payload);
                 this.events.onPageProjectionDiff?.({
                     sequence: header?.sequence ?? 0,
                     generation: header?.generation ?? 0,
@@ -237,8 +230,60 @@ class V4ProjectionBrowserSession {
         return raw;
     }
     async flushProjectionSnapshot(opts) {
+        const single = await this.snapshotContext(1, opts);
+        if (!single.ok)
+            return { ok: false, reason: single.reason };
+        const v = single.value;
+        return {
+            ok: true,
+            generation: v.generation,
+            sequence: v.sequence,
+            tableSize: v.table.rowCount,
+            o2: v.o2,
+            table: v.table,
+            cssomO2: v.cssomO2,
+            nodeNewConnected: v.nodeNewConnected,
+            cascade: v.cascade,
+            formProps: v.formProps,
+            tree: v.tree,
+        };
+    }
+    async snapshotContext(contextId, opts) {
         try {
-            return (await this.requirePage().evaluate((0, virtualSnapshot_1.coherentSnapshotExpression)(opts?.includeTree !== false, opts?.cssom ?? 'none')));
+            const includeTree = opts?.includeTree !== false;
+            const cssom = opts?.cssom ?? 'none';
+            const treeScript = includeTree && contextId === 1 ? (0, virtualSnapshot_1.loadSnapshotScriptForEvaluate)() : '';
+            const fn = (0, virtualSnapshot_1.snapshotContextEvaluateExpression)();
+            return (await this.requirePage().evaluate(`(${fn})(${contextId}, ${JSON.stringify({ cssom, includeTree })}, ${JSON.stringify(treeScript)})`));
+        }
+        catch (err) {
+            return { ok: false, reason: err instanceof Error ? err.message : String(err) };
+        }
+    }
+    async snapshotAllContexts(contextIds, opts) {
+        try {
+            const includeTree = opts?.includeTree !== false;
+            const cssom = opts?.cssom ?? 'none';
+            const treeScript = includeTree ? (0, virtualSnapshot_1.loadSnapshotScriptForEvaluate)() : '';
+            const fn = (0, virtualSnapshot_1.snapshotAllContextsEvaluateExpression)();
+            return (await this.requirePage().evaluate(`(${fn})(${JSON.stringify([...contextIds])}, ${JSON.stringify({ cssom, includeTree })}, ${JSON.stringify(treeScript)})`));
+        }
+        catch (err) {
+            const reason = err instanceof Error ? err.message : String(err);
+            const out = {};
+            for (const id of contextIds)
+                out[id] = { ok: false, reason };
+            return out;
+        }
+    }
+    async resumeAllContexts(contextIds) {
+        try {
+            return (await this.requirePage().evaluate(`(async (ids) => {
+          const p = globalThis.__speculumProjection;
+          if (!p || typeof p.resumeAllKnown !== 'function') return { ok: false, reason: 'resumeAllKnown missing' };
+          await p.resumeAllKnown(ids);
+          return { ok: true };
+        })(${JSON.stringify([...contextIds])})`));
         }
         catch (err) {
             return { ok: false, reason: err instanceof Error ? err.message : String(err) };

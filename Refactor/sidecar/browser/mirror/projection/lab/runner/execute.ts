@@ -17,6 +17,7 @@ import { foldApplyAttrs } from '../blueprints/fold/applyAttrs';
 import { foldSvgNs } from '../blueprints/fold/svgNs';
 import { foldFormsState } from '../blueprints/fold/formsState';
 import { foldShadowOpen, foldShadowClosed, foldShadowManual } from '../blueprints/fold/shadowOpen';
+import { foldIframeOpen } from '../blueprints/fold/iframeOpen';
 import { foldApplyHonestyDesync } from '../blueprints/fold/applyHonestyDesync';
 import type { HostileKind } from './hostileFrames';
 import {
@@ -38,7 +39,9 @@ export type InjectAck = {
 export type ExecuteHooks = {
   chassis: LabChassis;
   resolveUrl: (url: string) => string;
-  requestClientSnapshot?: () => Promise<import('../probes/isomorphism').ClientStateSnapshot | null>;
+  requestClientSnapshot?: (
+    contextId: number,
+  ) => Promise<import('../probes/isomorphism').ClientStateSnapshot | null>;
   requestTamper?: () => Promise<{ ok: boolean; reason?: string } | null>;
   injectClientFrame?: (bytes: Uint8Array) => Promise<InjectAck | null>;
   onProgress?: (p: {
@@ -319,6 +322,7 @@ export async function executeBlueprint(
         chassis.browser?.sendPageProjectionControl?.({
           type: 'requestResync',
           reason: String(params.reason ?? bp.id),
+          contextId: typeof params.contextId === 'number' && params.contextId > 0 ? params.contextId : 1,
         });
         return finish(true);
       }
@@ -350,9 +354,40 @@ export async function executeBlueprint(
         if (!session) return finish(false, 'no session');
         const iso = await runIsomorphism({
           session,
-          getClientSnapshot: hooks.requestClientSnapshot,
+          contextIds: chassis.contextIndex.list(),
+          getClientSnapshot: hooks.requestClientSnapshot
+            ? (contextId) => hooks.requestClientSnapshot!(contextId)
+            : undefined,
         });
         chassis.journal.iso = iso;
+        if (iso.nested && iso.nested.virtualDocs + iso.nested.clientDocs > 0) {
+          const prev = chassis.journal.nestedEvidence ?? {
+            virtualDocs: 0,
+            clientDocs: 0,
+            clientFrameHrefs: [] as string[],
+            treeIdenticalWhileNested: false,
+            treeDivergencesWhileNested: 0,
+          };
+          const hrefs = [...prev.clientFrameHrefs];
+          for (const h of iso.nested.clientFrameHrefs) {
+            if (!hrefs.includes(h)) hrefs.push(h);
+          }
+          let treeIdenticalWhileNested = prev.treeIdenticalWhileNested;
+          let treeDivergencesWhileNested = prev.treeDivergencesWhileNested;
+          if (iso.nested.virtualDocs > 0 && iso.structuralDiff) {
+            if (iso.structuralDiff.identical) treeIdenticalWhileNested = true;
+            else {
+              treeDivergencesWhileNested = iso.structuralDiff.divergenceCount;
+            }
+          }
+          chassis.journal.nestedEvidence = {
+            virtualDocs: Math.max(prev.virtualDocs, iso.nested.virtualDocs),
+            clientDocs: Math.max(prev.clientDocs, iso.nested.clientDocs),
+            clientFrameHrefs: hrefs,
+            treeIdenticalWhileNested,
+            treeDivergencesWhileNested,
+          };
+        }
         if (chassis.dossierHandle) {
           await writeJson(
             chassis.dossierHandle,
@@ -390,7 +425,7 @@ export async function executeBlueprint(
             'skipped: no DOM client',
           );
         }
-        const getClientSnapshot = hooks.requestClientSnapshot;
+        const getClientSnapshot = () => hooks.requestClientSnapshot!(1);
         chassis.suppressVirtualRelay = true;
         try {
           const live = await pollClientSnapshot(
@@ -561,6 +596,7 @@ export async function executeBlueprint(
         else if (ruleset === 'shadow-open' || ruleset === 'fold/shadowOpen') verdicts = foldShadowOpen(chassis);
         else if (ruleset === 'shadow-closed' || ruleset === 'fold/shadowClosed') verdicts = foldShadowClosed(chassis);
         else if (ruleset === 'shadow-manual' || ruleset === 'fold/shadowManual') verdicts = foldShadowManual(chassis);
+        else if (ruleset === 'iframe-open' || ruleset === 'fold/iframeOpen') verdicts = foldIframeOpen(chassis);
         else if (ruleset === 'apply-honesty-desync' || ruleset === 'fold/applyHonestyDesync') {
           const kind = parseHostileKind(params.kind, bp.id);
           if (!kind) return finish(false, `unknown honesty kind ${String(params.kind ?? bp.id)}`);

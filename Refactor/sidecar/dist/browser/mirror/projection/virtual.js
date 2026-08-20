@@ -163,6 +163,7 @@
   }
 
   // browser/mirror/projection/models/telemetry.ts
+  var TELEMETRY_WIRE_VERSION = 2;
   var DEFAULT_TELEMETRY_CONFIG = {
     enabled: false,
     frameEmitted: true,
@@ -565,7 +566,9 @@
 
   // browser/mirror/projection/models/frame.ts
   var FRAME_WIRE_VERSION = 2;
+  var FRAME_PREFIX_BYTES = 2 + 1 + 1 + 4 + 4 + 4 + 2 + 2 + 8;
   var DOCUMENT_ID = 1;
+  var CONTEXT_ID_ROOT = 1;
   var INSERT_AT_END = 0;
   var SHADOW_MODE_OPEN = 0;
   var SHADOW_INIT_DELEGATES_FOCUS = 1;
@@ -575,9 +578,12 @@
   var CSSOM_SCOPE_MAIN = 0;
   var CSSOM_SCOPE_PIERCE_HOST = 1;
   function createFrame(args) {
+    const contextId = args.contextId ?? CONTEXT_ID_ROOT;
+    if (contextId === 0) throw new Error("contextId 0 is invalid (frame-protocol.md \xA72)");
     return {
       version: FRAME_WIRE_VERSION,
       flags: { resync: args.resync ?? false },
+      contextId,
       generation: args.generation,
       sequence: args.sequence,
       preTableHash: args.preTableHash ?? 0n,
@@ -594,6 +600,30 @@
   }
 
   // browser/mirror/projection/models/elementNs.ts
+  var ELEMENT_NS_NESTED_HOST_BIT = 128;
+  function packElementNsWireByte(ns, nestedHost) {
+    if (ns > 4 /* Custom */) {
+      throw new Error(`NODE_NEW ns ${ns} out of range (frame-protocol.md \xA74.2)`);
+    }
+    return (nestedHost ? ELEMENT_NS_NESTED_HOST_BIT : 0) | ns;
+  }
+  function assertNestedChildScopeId(id) {
+    if (!Number.isInteger(id) || id < 2 || id > 4294967295) {
+      throw new Error(`NODE_NEW childScopeId ${id} is not a nested context (frame-protocol.md \xA74.2)`);
+    }
+  }
+  function resolveElementNestedHost(op) {
+    const id = op.childScopeId ?? null;
+    if (op.nestedHost === false && id != null) {
+      throw new Error("NODE_NEW nestedHost=false with childScopeId (frame-protocol.md \xA74.2)");
+    }
+    if (op.nestedHost !== true && id == null) return { nestedHost: false, childScopeId: null };
+    if (id == null) {
+      throw new Error("NODE_NEW nestedHost without childScopeId (frame-protocol.md \xA74.2)");
+    }
+    assertNestedChildScopeId(id);
+    return { nestedHost: true, childScopeId: id };
+  }
   var ELEMENT_NS_HTML = "http://www.w3.org/1999/xhtml";
   var ELEMENT_NS_SVG = "http://www.w3.org/2000/svg";
   var ELEMENT_NS_MATHML = "http://www.w3.org/1998/Math/MathML";
@@ -1187,7 +1217,7 @@
     }
   };
   function assemblePart(args) {
-    const headerSize = 2 + 1 + 1 + 4 + 4 + 2 + 2 + 8;
+    const headerSize = 2 + 1 + 1 + 4 + 4 + 4 + 2 + 2 + 8;
     const out = new Uint8Array(headerSize + args.stringTable.length + args.opsBody.length);
     const view = new DataView(out.buffer);
     let o = 0;
@@ -1195,6 +1225,8 @@
     o += 2;
     out[o++] = args.version & 255;
     out[o++] = args.flags & 255;
+    view.setUint32(o, args.contextId >>> 0, true);
+    o += 4;
     view.setUint32(o, args.generation >>> 0, true);
     o += 4;
     view.setUint32(o, args.sequence >>> 0, true);
@@ -1268,6 +1300,7 @@
       return assemblePart({
         version: frame.version,
         flags,
+        contextId: frame.contextId,
         generation: frame.generation,
         sequence: frame.sequence,
         partIndex,
@@ -1350,7 +1383,8 @@
       w.u32(op.id);
       w.u8(op.kind);
       if (op.kind === 1 /* Element */) {
-        w.u8(op.ns);
+        const nested = resolveElementNestedHost(op);
+        w.u8(packElementNsWireByte(op.ns, nested.nestedHost));
         if (op.ns === 4 /* Custom */) {
           const uri = op.uri ?? "";
           if (uri.length === 0) {
@@ -1360,6 +1394,7 @@
         }
         this.writeStrRef(w, op.name);
         this.writeAttrs(w, op.attrs);
+        if (nested.nestedHost) w.u32(nested.childScopeId);
         return;
       }
       if (op.kind === 6 /* Doctype */) {
@@ -1570,6 +1605,7 @@
     pullPendingMutations;
     takePendingCssom;
     table;
+    contextId;
     sequence = 0;
     idleTicks = 0;
     pendingFrame = null;
@@ -1590,6 +1626,7 @@
       this.pullPendingMutations = opts.pullPendingMutations ?? null;
       this.takePendingCssom = opts.takePendingCssom ?? null;
       this.table = opts.table ?? null;
+      this.contextId = opts.contextId ?? CONTEXT_ID_ROOT;
     }
     start() {
       this.clock.start(() => this.onBoundary());
@@ -1611,7 +1648,8 @@
       return this.sequence;
     }
     async sendInitial(frame) {
-      const parts = this.encoder.encode(frame);
+      const stamped = this.stamp(frame);
+      const parts = this.encoder.encode(stamped);
       if (parts.length === 0) return;
       for (let i = 0; i < parts.length; i++) {
         const bytes = parts[i];
@@ -1654,7 +1692,7 @@
         this.pendingResyncBuild = null;
         this.idleTicks = 0;
         this.builder.takeBuildStats?.();
-        const frame2 = build(this.sequence + 1);
+        const frame2 = this.stamp(build(this.sequence + 1));
         const parts2 = this.encoder.encode(frame2);
         if (parts2.length === 0) return;
         this.pendingFrame = frame2;
@@ -1700,12 +1738,15 @@
         last.hash = this.table.tableHash;
       }
       if (ops.length === 0) return;
-      const frame = built === null ? createFrame({
-        generation: snap.generation,
-        sequence: nextSequence,
-        ops,
-        preTableHash
-      }) : { ...built, ops };
+      const frame = this.stamp(
+        built === null ? createFrame({
+          generation: snap.generation,
+          sequence: nextSequence,
+          ops,
+          preTableHash,
+          contextId: this.contextId
+        }) : { ...built, ops }
+      );
       const parts = this.encoder.encode(frame);
       if (parts.length === 0) return;
       this.pendingFrame = frame;
@@ -1713,6 +1754,10 @@
       this.pendingPartIndex = 0;
       this.pendingRecords = null;
       this.trySendPending();
+    }
+    stamp(frame) {
+      if (frame.contextId === this.contextId) return frame;
+      return { ...frame, contextId: this.contextId };
     }
     trySendPending() {
       const parts = this.pendingParts;
@@ -1813,7 +1858,7 @@
     }
     return out;
   }
-  function describeNodeNew(id, kind, node, hostId) {
+  function describeNodeNew(id, kind, node, hostId, nested) {
     if (kind === 7 /* ShadowRoot */) {
       const sr = node;
       return {
@@ -1835,7 +1880,8 @@
         ns: classified.ns,
         name: el.tagName.toLowerCase(),
         attrs: readAttrs(el),
-        ...classified.ns === 4 /* Custom */ ? { uri: classified.uri } : {}
+        ...classified.ns === 4 /* Custom */ ? { uri: classified.uri } : {},
+        ...nested ? { nestedHost: true, childScopeId: nested.childScopeId } : {}
       };
     }
     if (kind === 6 /* Doctype */) {
@@ -1850,7 +1896,9 @@
     domNodes.bind(root, DOCUMENT_ID);
     allocateConnectedSubtree(root, domNodes);
   }
-  function describeDomResync(domNodes, formIndex) {
+  function describeDomResync(domNodes, formIndex, opts) {
+    const childScopes = opts?.childScopes;
+    const notePendingNestedHost = opts?.notePendingNestedHost;
     const ops = [];
     formIndex.rebuild(domNodes);
     for (const [id, node] of domNodes.liveEntries()) {
@@ -1867,7 +1915,18 @@
         ops.push(describeNodeNew(id, kind, node, hostId));
         continue;
       }
-      ops.push(describeNodeNew(id, kind, node));
+      let nested = null;
+      if (kind === 1 /* Element */ && childScopes) {
+        const admitted = childScopes.admit(id, node);
+        if (admitted.kind === "pending") {
+          formIndex.remove(node);
+          domNodes.release(node);
+          notePendingNestedHost?.(node);
+          continue;
+        }
+        if (admitted.kind === "host") nested = { childScopeId: admitted.contextId };
+      }
+      ops.push(describeNodeNew(id, kind, node, void 0, nested));
     }
     for (const [id, node] of domNodes.liveEntries()) {
       if (node instanceof ShadowRoot) {
@@ -1907,9 +1966,12 @@
 
   // browser/mirror/projection/virtual/resync.ts
   function emitResyncFrame(planes, sequence) {
-    const { domNodes, table, cssom, formIndex } = planes;
+    const { domNodes, table, cssom, formIndex, childScopes, contextId } = planes;
     const generation = domNodes.generation;
-    const domOps = describeDomResync(domNodes, formIndex);
+    const domOps = describeDomResync(domNodes, formIndex, {
+      childScopes,
+      notePendingNestedHost: planes.notePendingNestedHost
+    });
     const cssomScan = cssom.blockingScan();
     table.reset();
     table.setSequence(sequence);
@@ -1926,7 +1988,14 @@
       cssomScan.ops
     );
     return {
-      frame: createFrame({ generation, sequence, ops, resync: true, preTableHash: 0n }),
+      frame: createFrame({
+        generation,
+        sequence,
+        ops,
+        resync: true,
+        preTableHash: 0n,
+        contextId: contextId ?? CONTEXT_ID_ROOT
+      }),
       cssom: stampCssomPoll(cssomScan.stats, { source: "resync", sequence })
     };
   }
@@ -2405,6 +2474,8 @@
     maxNodeDropsPerSweep;
     observeShadowRoot;
     unobserveShadowRoot;
+    childScopes;
+    pendingHosts = /* @__PURE__ */ new Set();
     lastStats = null;
     pendingUnconsumed = null;
     // Reused across ticks (`.clear()`ed at the top of `build()`) instead of allocated fresh every
@@ -2425,6 +2496,7 @@
       this.maxNodeDropsPerSweep = opts.maxNodeDropsPerSweep ?? MAX_NODE_DROPS_PER_SWEEP;
       this.observeShadowRoot = opts.observeShadowRoot;
       this.unobserveShadowRoot = opts.unobserveShadowRoot;
+      this.childScopes = opts.childScopes;
     }
     takeBuildStats() {
       const s = this.lastStats;
@@ -2436,6 +2508,10 @@
       const r = this.pendingUnconsumed;
       this.pendingUnconsumed = null;
       return r;
+    }
+    /** Resync deferral — host re-described on the next tick once mint completes. */
+    notePendingNestedHost(el) {
+      this.pendingHosts.add(el);
     }
     /**
      * `records` may legitimately be empty — `frameEmitter.ts` also calls this on a periodic,
@@ -2453,6 +2529,20 @@
       this.removedThisTick.clear();
       this.attrDirty.clear();
       this.textDirty.clear();
+      if (this.pendingHosts.size > 0) {
+        for (const node of [...this.pendingHosts]) {
+          if (!node.isConnected) {
+            this.pendingHosts.delete(node);
+            continue;
+          }
+          const parent = node.parentNode;
+          if (!parent) continue;
+          const parentId = this.domNodes.keyOf(parent);
+          if (parentId === NONE_DOM_NODE_KEY) continue;
+          this.pendingHosts.delete(node);
+          this.walkSiblingRun({ 0: node, length: 1 }, parentId, ops);
+        }
+      }
       if (records.length > 0) {
         let consumedThrough = records.length;
         for (let i = 0; i < records.length; i++) {
@@ -2535,7 +2625,9 @@
       for (let i = 0; i < rootIds.length; i++) {
         const subtreeIds = this.table.subtreeIds(rootIds[i]);
         for (let j = 0; j < subtreeIds.length; j++) {
-          const node = this.domNodes.get(subtreeIds[j]);
+          const dropId = subtreeIds[j];
+          this.childScopes?.drop(dropId);
+          const node = this.domNodes.get(dropId);
           if (node !== void 0) {
             if (node instanceof ShadowRoot) this.unobserveShadowRoot?.(node);
             this.formIndex.remove(node);
@@ -2618,7 +2710,20 @@
       const id = this.domNodes.allocate(node);
       this.createdThisTick.add(node);
       this.formIndex.addIfIndexed(node);
-      ops.push(describeNodeNew(id, kind, node));
+      let nested = null;
+      if (kind === 1 /* Element */ && this.childScopes) {
+        const admitted = this.childScopes.admit(id, node);
+        if (admitted.kind === "pending") {
+          this.formIndex.remove(node);
+          this.createdThisTick.delete(node);
+          this.domNodes.release(node);
+          this.visited.delete(node);
+          this.pendingHosts.add(node);
+          return NONE_DOM_NODE_KEY;
+        }
+        if (admitted.kind === "host") nested = { childScopeId: admitted.contextId };
+      }
+      ops.push(describeNodeNew(id, kind, node, void 0, nested));
       this.walkSiblingRun(node.childNodes, id, ops);
       if (kind === 1 /* Element */) this.admitShadowIfAny(node, id, ops);
       return id;
@@ -3442,6 +3547,8 @@
   var ProjectionTelemetry = class {
     config;
     dataPlane;
+    bus;
+    contextId;
     now;
     textEncoder = new TextEncoder();
     framesEmitted = 0;
@@ -3453,9 +3560,20 @@
     buildMsSum = 0;
     encodeMsSum = 0;
     aggregateTimer = null;
+    lastEmitAt = null;
+    fpsSamples = 0;
+    fpsSum = 0;
+    fpsMin = Number.POSITIVE_INFINITY;
+    fpsMax = 0;
+    buildSamples = 0;
+    buildStatSum = 0;
+    buildMin = Number.POSITIVE_INFINITY;
+    buildMax = 0;
     constructor(opts) {
       this.config = opts.config;
       this.dataPlane = opts.dataPlane;
+      this.bus = opts.bus ?? null;
+      this.contextId = opts.contextId;
       this.now = opts.now ?? (() => performance.now());
     }
     start() {
@@ -3478,9 +3596,11 @@
       this.lastSequence = info.sequence;
       this.buildMsSum += info.buildMs;
       this.encodeMsSum += info.encodeMs;
+      this.noteEmission(info.buildMs);
       if (!this.config.frameEmitted) return;
       this.push({
-        v: 1,
+        v: TELEMETRY_WIRE_VERSION,
+        contextId: this.contextId,
         kind: "frameEmitted",
         t: this.now(),
         generation: info.generation,
@@ -3499,7 +3619,8 @@
       this.deferredCount += 1;
       if (!this.config.transportDeferred) return;
       this.push({
-        v: 1,
+        v: TELEMETRY_WIRE_VERSION,
+        contextId: this.contextId,
         kind: "transportDeferred",
         t: this.now(),
         generation: info.generation,
@@ -3510,7 +3631,8 @@
     recordClockStalled(info) {
       if (!this.config.enabled || !this.config.clock) return;
       this.push({
-        v: 1,
+        v: TELEMETRY_WIRE_VERSION,
+        contextId: this.contextId,
         kind: "clockStalled",
         t: this.now(),
         sinceLastTickMs: info.sinceLastTickMs,
@@ -3520,7 +3642,8 @@
     recordRateChanged(info) {
       if (!this.config.enabled || !this.config.clock) return;
       this.push({
-        v: 1,
+        v: TELEMETRY_WIRE_VERSION,
+        contextId: this.contextId,
         kind: "rateChanged",
         t: this.now(),
         fromHz: info.fromHz,
@@ -3531,16 +3654,48 @@
     recordCssomPoll(info) {
       if (!this.config.enabled || !this.config.cssomPoll) return;
       this.push({
-        v: 1,
+        v: TELEMETRY_WIRE_VERSION,
+        contextId: this.contextId,
         kind: "cssomPoll",
         t: this.now(),
         ...info
       });
     }
+    /** Running min/max/avg of emit FPS and table buildMs — fixture HUD / investigation. */
+    emissionStats() {
+      if (this.fpsSamples === 0 && this.buildSamples === 0) return null;
+      return {
+        contextId: this.contextId,
+        samples: Math.max(this.fpsSamples, this.buildSamples),
+        fps: this.fpsSamples === 0 ? { min: 0, max: 0, avg: 0 } : { min: this.fpsMin, max: this.fpsMax, avg: this.fpsSum / this.fpsSamples },
+        buildMs: this.buildSamples === 0 ? { min: 0, max: 0, avg: 0 } : { min: this.buildMin, max: this.buildMax, avg: this.buildStatSum / this.buildSamples }
+      };
+    }
+    noteEmission(buildMs) {
+      const t = this.now();
+      if (this.lastEmitAt !== null) {
+        const dt = t - this.lastEmitAt;
+        if (dt > 0) {
+          const fps = 1e3 / dt;
+          this.fpsSamples += 1;
+          this.fpsSum += fps;
+          if (fps < this.fpsMin) this.fpsMin = fps;
+          if (fps > this.fpsMax) this.fpsMax = fps;
+        }
+      }
+      this.lastEmitAt = t;
+      if (buildMs > 0) {
+        this.buildSamples += 1;
+        this.buildStatSum += buildMs;
+        if (buildMs < this.buildMin) this.buildMin = buildMs;
+        if (buildMs > this.buildMax) this.buildMax = buildMs;
+      }
+    }
     pushAggregate() {
       if (!this.config.enabled || !this.config.aggregate) return;
       this.push({
-        v: 1,
+        v: TELEMETRY_WIRE_VERSION,
+        contextId: this.contextId,
         kind: "aggregate",
         t: this.now(),
         framesEmitted: this.framesEmitted,
@@ -3555,9 +3710,689 @@
     }
     push(message) {
       const plane = this.dataPlane;
-      if (plane === null || !plane.isOpen) return;
-      const bytes = this.textEncoder.encode(JSON.stringify(message));
-      void plane.send(3 /* Telemetry */, bytes);
+      if (plane !== null && plane.isOpen) {
+        const bytes = this.textEncoder.encode(JSON.stringify(message));
+        void plane.send(3 /* Telemetry */, bytes);
+        return;
+      }
+      this.bus?.emitTelemetry(message);
+    }
+  };
+
+  // browser/mirror/projection/virtual/transport/busFrameTransport.ts
+  var BusFrameTransport = class {
+    constructor(bus) {
+      this.bus = bus;
+    }
+    send(bytes) {
+      this.bus.emitFrame(bytes);
+      return "accepted";
+    }
+  };
+
+  // browser/mirror/projection/virtual/bus/projectionBus.ts
+  var PROJECTION_BUS_CHANNEL = "speculum.projection.bus";
+  function isEnvelope(data) {
+    if (typeof data !== "object" || data === null) return false;
+    const rec = data;
+    return rec.channel === PROJECTION_BUS_CHANNEL && (rec.kind === "control" || rec.kind === "loose");
+  }
+  var GET_SCOPE_TIMEOUT_MS = 200;
+  var MINT_TIMEOUT_MS = 500;
+  var SNAPSHOT_TIMEOUT_MS = 8e3;
+  var RESUME_TIMEOUT_MS = 2e3;
+  var ProjectionBus = class {
+    win;
+    parent;
+    mintFn;
+    emitFrameFn;
+    sendSidecarResync;
+    corr = 1;
+    pending = /* @__PURE__ */ new Map();
+    forward = /* @__PURE__ */ new Map();
+    lookupScopeId = null;
+    frameListeners = /* @__PURE__ */ new Set();
+    resyncListeners = /* @__PURE__ */ new Set();
+    telemetryListeners = /* @__PURE__ */ new Set();
+    mine = 1;
+    snapshotHandler = null;
+    resumeHandler = null;
+    onMessage = (event) => {
+      void this.handleMessage(event);
+    };
+    constructor(opts) {
+      this.win = opts.window;
+      this.parent = opts.parent ?? null;
+      this.mintFn = opts.mint ?? null;
+      this.emitFrameFn = opts.emitFrame ?? null;
+      this.sendSidecarResync = opts.sendSidecarResync ?? null;
+      this.win.addEventListener("message", this.onMessage);
+    }
+    setMine(contextId) {
+      this.mine = contextId;
+    }
+    setSnapshotHandler(handler) {
+      this.snapshotHandler = handler;
+    }
+    setResumeHandler(handler) {
+      this.resumeHandler = handler;
+    }
+    setScopeLookup(fn) {
+      this.lookupScopeId = fn;
+    }
+    dispose() {
+      this.win.removeEventListener("message", this.onMessage);
+      for (const p of this.pending.values()) clearTimeout(p.timer);
+      this.pending.clear();
+    }
+    onFrame(cb) {
+      this.frameListeners.add(cb);
+      return () => this.frameListeners.delete(cb);
+    }
+    onResyncRequest(cb) {
+      this.resyncListeners.add(cb);
+      return () => this.resyncListeners.delete(cb);
+    }
+    onTelemetry(cb) {
+      this.telemetryListeners.add(cb);
+      return () => this.telemetryListeners.delete(cb);
+    }
+    emitFrame(bytes) {
+      if (this.emitFrameFn) {
+        this.emitFrameFn(bytes);
+        return;
+      }
+      this.postToParent({
+        channel: PROJECTION_BUS_CHANNEL,
+        kind: "loose",
+        type: "frame",
+        bytes: bytes.slice().buffer
+      });
+    }
+    emitResyncRequest(req) {
+      if (this.sendSidecarResync) {
+        this.sendSidecarResync(req);
+        this.dispatchResync(req);
+        return;
+      }
+      this.postToParent({
+        channel: PROJECTION_BUS_CHANNEL,
+        kind: "loose",
+        type: "resyncRequest",
+        contextId: req.contextId,
+        reason: req.reason,
+        generation: req.generation,
+        sequence: req.sequence
+      });
+    }
+    emitTelemetry(message) {
+      if (this.emitFrameFn) {
+        this.dispatchTelemetry(message);
+        this.fanoutTelemetry(message);
+        return;
+      }
+      this.postToParent({
+        channel: PROJECTION_BUS_CHANNEL,
+        kind: "loose",
+        type: "telemetry",
+        message
+      });
+    }
+    /** Nested: retry until parent answers with C ≥ 2. Timeout never means root. */
+    async getScopeId() {
+      for (; ; ) {
+        const value = await this.controlRequestNumber("getScopeId", GET_SCOPE_TIMEOUT_MS);
+        if (typeof value === "number" && value >= 2) return value;
+      }
+    }
+    async requestMint() {
+      if (this.mintFn) return this.mintFn();
+      return this.controlRequestNumber("mint", MINT_TIMEOUT_MS);
+    }
+    async requestSnapshot(contextId, opts) {
+      if (contextId === this.mine && this.snapshotHandler) {
+        const value = this.snapshotHandler(opts);
+        let tree;
+        if (opts?.includeTree) {
+          const snap = globalThis.__speculumSnapshot;
+          tree = snap?.snapshotTree?.() ?? null;
+        }
+        return { ok: true, value: { ...value, contextId, tree } };
+      }
+      const childHit = await this.askChildrenSnapshot(contextId, opts);
+      if (childHit !== null) return childHit;
+      if (this.parent) return this.controlRequestSnapshot(contextId, opts);
+      return { ok: false, reason: "context_not_found" };
+    }
+    async requestResumeContext(contextId) {
+      if (contextId === this.mine && this.resumeHandler) {
+        this.resumeHandler();
+        return { ok: true };
+      }
+      const childHit = await this.askChildrenResume(contextId);
+      if (childHit !== null) return childHit;
+      if (this.parent) return this.controlRequestResume(contextId);
+      return { ok: false, reason: "context_not_found" };
+    }
+    /** Fan inbound sidecar frames onto the bus (root runtime). */
+    publishFrame(bytes) {
+      this.dispatchFrame(bytes);
+      this.fanoutFrame(bytes);
+    }
+    publishResyncRequest(req) {
+      this.dispatchResync(req);
+      this.fanoutResync(req);
+    }
+    controlRequestNumber(method, timeoutMs) {
+      const parent = this.parent;
+      if (!parent) return Promise.resolve(void 0);
+      const correlationId = this.corr++;
+      return new Promise((resolve) => {
+        const timer = setTimeout(() => {
+          this.pending.delete(correlationId);
+          resolve(void 0);
+        }, timeoutMs);
+        this.pending.set(correlationId, { kind: "number", resolve, timer });
+        parent.postMessage(
+          {
+            channel: PROJECTION_BUS_CHANNEL,
+            kind: "control",
+            type: "request",
+            method,
+            correlationId
+          },
+          "*"
+        );
+      });
+    }
+    controlRequestSnapshot(contextId, opts) {
+      const parent = this.parent;
+      if (!parent) return Promise.resolve({ ok: false, reason: "no_parent" });
+      const correlationId = this.corr++;
+      return new Promise((resolve) => {
+        const timer = setTimeout(() => {
+          this.pending.delete(correlationId);
+          resolve({ ok: false, reason: "timeout" });
+        }, SNAPSHOT_TIMEOUT_MS);
+        this.pending.set(correlationId, { kind: "snapshot", resolve, timer });
+        parent.postMessage(
+          {
+            channel: PROJECTION_BUS_CHANNEL,
+            kind: "control",
+            type: "request",
+            method: "snapshot",
+            correlationId,
+            contextId,
+            opts
+          },
+          "*"
+        );
+      });
+    }
+    controlRequestResume(contextId) {
+      const parent = this.parent;
+      if (!parent) return Promise.resolve({ ok: false, reason: "no_parent" });
+      const correlationId = this.corr++;
+      return new Promise((resolve) => {
+        const timer = setTimeout(() => {
+          this.pending.delete(correlationId);
+          resolve({ ok: false, reason: "timeout" });
+        }, RESUME_TIMEOUT_MS);
+        this.pending.set(correlationId, { kind: "resume", resolve, timer });
+        parent.postMessage(
+          {
+            channel: PROJECTION_BUS_CHANNEL,
+            kind: "control",
+            type: "request",
+            method: "resumeContext",
+            correlationId,
+            contextId
+          },
+          "*"
+        );
+      });
+    }
+    askChildrenSnapshot(contextId, opts) {
+      const children = this.collectChildWindows();
+      if (children.length === 0) return Promise.resolve(null);
+      return new Promise((resolve) => {
+        let pending = children.length;
+        let answered = false;
+        const finish = (result) => {
+          if (answered) return;
+          if (result !== null) {
+            answered = true;
+            resolve(result);
+            return;
+          }
+          pending -= 1;
+          if (pending === 0) resolve(null);
+        };
+        for (let i = 0; i < children.length; i++) {
+          void this.askWindowSnapshot(children[i], contextId, opts).then(finish);
+        }
+      });
+    }
+    askWindowSnapshot(w, contextId, opts) {
+      const correlationId = this.corr++;
+      return new Promise((resolve) => {
+        const timer = setTimeout(() => {
+          this.pending.delete(correlationId);
+          resolve(null);
+        }, SNAPSHOT_TIMEOUT_MS);
+        this.pending.set(correlationId, {
+          kind: "snapshot",
+          resolve: (result) => {
+            resolve(result.ok ? result : null);
+          },
+          timer
+        });
+        w.postMessage(
+          {
+            channel: PROJECTION_BUS_CHANNEL,
+            kind: "control",
+            type: "request",
+            method: "snapshot",
+            correlationId,
+            contextId,
+            opts
+          },
+          "*"
+        );
+      });
+    }
+    askChildrenResume(contextId) {
+      const children = this.collectChildWindows();
+      if (children.length === 0) return Promise.resolve(null);
+      return new Promise((resolve) => {
+        let pending = children.length;
+        let answered = false;
+        const finish = (result) => {
+          if (answered) return;
+          if (result?.ok) {
+            answered = true;
+            resolve(result);
+            return;
+          }
+          pending -= 1;
+          if (pending === 0) resolve(null);
+        };
+        for (let i = 0; i < children.length; i++) {
+          void this.askWindowResume(children[i], contextId).then(finish);
+        }
+      });
+    }
+    askWindowResume(w, contextId) {
+      const correlationId = this.corr++;
+      return new Promise((resolve) => {
+        const timer = setTimeout(() => {
+          this.pending.delete(correlationId);
+          resolve(null);
+        }, RESUME_TIMEOUT_MS);
+        this.pending.set(correlationId, {
+          kind: "resume",
+          resolve: (result) => {
+            resolve(result.ok ? result : null);
+          },
+          timer
+        });
+        w.postMessage(
+          {
+            channel: PROJECTION_BUS_CHANNEL,
+            kind: "control",
+            type: "request",
+            method: "resumeContext",
+            correlationId,
+            contextId
+          },
+          "*"
+        );
+      });
+    }
+    postToParent(envelope) {
+      if (!this.parent) return;
+      this.parent.postMessage(envelope, "*");
+    }
+    async handleMessage(event) {
+      if (!isEnvelope(event.data)) return;
+      const env = event.data;
+      if (env.kind === "control") {
+        await this.handleControl(env, event);
+        return;
+      }
+      if (env.type === "frame") {
+        const bytes = new Uint8Array(env.bytes);
+        if (event.source === this.parent) {
+          this.dispatchFrame(bytes);
+          this.fanoutFrame(bytes);
+          return;
+        }
+        if (this.emitFrameFn) this.emitFrameFn(bytes);
+        else this.postToParent(env);
+        return;
+      }
+      if (env.type === "telemetry") {
+        if (event.source === this.parent) {
+          this.dispatchTelemetry(env.message);
+          this.fanoutTelemetry(env.message);
+          return;
+        }
+        if (this.emitFrameFn) {
+          this.dispatchTelemetry(env.message);
+          return;
+        }
+        this.postToParent(env);
+        return;
+      }
+      const req = {
+        contextId: env.contextId,
+        reason: env.reason,
+        generation: env.generation,
+        sequence: env.sequence
+      };
+      if (event.source === this.parent) {
+        this.dispatchResync(req);
+        this.fanoutResync(req);
+        return;
+      }
+      if (this.sendSidecarResync) {
+        this.sendSidecarResync(req);
+        this.dispatchResync(req);
+        return;
+      }
+      this.postToParent(env);
+    }
+    async handleControl(env, event) {
+      if (env.type === "response") {
+        const hop = this.forward.get(env.correlationId);
+        if (hop) {
+          this.forward.delete(env.correlationId);
+          hop.postMessage(env, "*");
+          return;
+        }
+        const pending = this.pending.get(env.correlationId);
+        if (!pending) return;
+        clearTimeout(pending.timer);
+        this.pending.delete(env.correlationId);
+        if (pending.kind === "number") {
+          pending.resolve(env.ok === true ? env.value : void 0);
+          return;
+        }
+        if (pending.kind === "snapshot") {
+          if (env.ok === true && env.value && typeof env.value === "object" && "sequence" in env.value) {
+            pending.resolve({ ok: true, value: env.value });
+          } else {
+            pending.resolve({ ok: false, reason: env.reason ?? "snapshot_failed" });
+          }
+          return;
+        }
+        pending.resolve({ ok: env.ok === true, reason: env.reason });
+        return;
+      }
+      if (env.type === "heartbeat") {
+        const pending = this.pending.get(env.correlationId);
+        if (!pending || pending.kind !== "number") return;
+        clearTimeout(pending.timer);
+        pending.timer = setTimeout(() => {
+          this.pending.delete(env.correlationId);
+          pending.resolve(void 0);
+        }, GET_SCOPE_TIMEOUT_MS);
+        return;
+      }
+      if (env.type !== "request") return;
+      const source = event.source;
+      if (source == null) return;
+      if (env.method === "getScopeId") {
+        const c = this.lookupScopeId?.(source);
+        if (c === void 0) {
+          source.postMessage(
+            {
+              channel: PROJECTION_BUS_CHANNEL,
+              kind: "control",
+              type: "heartbeat",
+              method: "getScopeId",
+              correlationId: env.correlationId
+            },
+            "*"
+          );
+          return;
+        }
+        source.postMessage(
+          {
+            channel: PROJECTION_BUS_CHANNEL,
+            kind: "control",
+            type: "response",
+            method: "getScopeId",
+            correlationId: env.correlationId,
+            ok: true,
+            value: c
+          },
+          "*"
+        );
+        return;
+      }
+      if (env.method === "mint") {
+        if (this.mintFn) {
+          source.postMessage(
+            {
+              channel: PROJECTION_BUS_CHANNEL,
+              kind: "control",
+              type: "response",
+              method: "mint",
+              correlationId: env.correlationId,
+              ok: true,
+              value: this.mintFn()
+            },
+            "*"
+          );
+          return;
+        }
+        if (!this.parent) return;
+        this.forward.set(env.correlationId, source);
+        this.parent.postMessage(env, "*");
+        return;
+      }
+      if (env.method === "snapshot") {
+        const contextId = env.contextId;
+        if (typeof contextId !== "number") {
+          source.postMessage(
+            {
+              channel: PROJECTION_BUS_CHANNEL,
+              kind: "control",
+              type: "response",
+              method: "snapshot",
+              correlationId: env.correlationId,
+              ok: false,
+              reason: "missing_contextId"
+            },
+            "*"
+          );
+          return;
+        }
+        if (contextId === this.mine && this.snapshotHandler) {
+          const value = this.snapshotHandler(env.opts);
+          let tree;
+          if (env.opts?.includeTree) {
+            const snap = globalThis.__speculumSnapshot;
+            tree = snap?.snapshotTree?.() ?? null;
+          }
+          source.postMessage(
+            {
+              channel: PROJECTION_BUS_CHANNEL,
+              kind: "control",
+              type: "response",
+              method: "snapshot",
+              correlationId: env.correlationId,
+              ok: true,
+              value: { ...value, contextId, tree }
+            },
+            "*"
+          );
+          return;
+        }
+        const childHit = await this.askChildrenSnapshot(contextId, env.opts);
+        if (childHit !== null) {
+          source.postMessage(
+            {
+              channel: PROJECTION_BUS_CHANNEL,
+              kind: "control",
+              type: "response",
+              method: "snapshot",
+              correlationId: env.correlationId,
+              ok: childHit.ok,
+              value: childHit.ok ? childHit.value : void 0,
+              reason: childHit.ok ? void 0 : childHit.reason
+            },
+            "*"
+          );
+          return;
+        }
+        if (this.parent) {
+          this.forward.set(env.correlationId, source);
+          this.parent.postMessage(env, "*");
+          return;
+        }
+        source.postMessage(
+          {
+            channel: PROJECTION_BUS_CHANNEL,
+            kind: "control",
+            type: "response",
+            method: "snapshot",
+            correlationId: env.correlationId,
+            ok: false,
+            reason: "context_not_found"
+          },
+          "*"
+        );
+        return;
+      }
+      if (env.method === "resumeContext") {
+        const contextId = env.contextId;
+        if (typeof contextId !== "number") {
+          source.postMessage(
+            {
+              channel: PROJECTION_BUS_CHANNEL,
+              kind: "control",
+              type: "response",
+              method: "resumeContext",
+              correlationId: env.correlationId,
+              ok: false,
+              reason: "missing_contextId"
+            },
+            "*"
+          );
+          return;
+        }
+        if (contextId === this.mine && this.resumeHandler) {
+          this.resumeHandler();
+          source.postMessage(
+            {
+              channel: PROJECTION_BUS_CHANNEL,
+              kind: "control",
+              type: "response",
+              method: "resumeContext",
+              correlationId: env.correlationId,
+              ok: true
+            },
+            "*"
+          );
+          return;
+        }
+        const childHit = await this.askChildrenResume(contextId);
+        if (childHit !== null) {
+          source.postMessage(
+            {
+              channel: PROJECTION_BUS_CHANNEL,
+              kind: "control",
+              type: "response",
+              method: "resumeContext",
+              correlationId: env.correlationId,
+              ok: childHit.ok,
+              reason: childHit.reason
+            },
+            "*"
+          );
+          return;
+        }
+        if (this.parent) {
+          this.forward.set(env.correlationId, source);
+          this.parent.postMessage(env, "*");
+          return;
+        }
+        source.postMessage(
+          {
+            channel: PROJECTION_BUS_CHANNEL,
+            kind: "control",
+            type: "response",
+            method: "resumeContext",
+            correlationId: env.correlationId,
+            ok: false,
+            reason: "context_not_found"
+          },
+          "*"
+        );
+      }
+    }
+    dispatchFrame(bytes) {
+      for (const cb of this.frameListeners) cb(bytes);
+    }
+    dispatchResync(req) {
+      for (const cb of this.resyncListeners) cb(req);
+    }
+    dispatchTelemetry(message) {
+      for (const cb of this.telemetryListeners) cb(message);
+    }
+    fanoutFrame(bytes) {
+      const copy = bytes.slice();
+      this.forEachChildWindow((w) => {
+        w.postMessage(
+          { channel: PROJECTION_BUS_CHANNEL, kind: "loose", type: "frame", bytes: copy.buffer },
+          "*"
+        );
+      });
+    }
+    fanoutResync(req) {
+      this.forEachChildWindow((w) => {
+        w.postMessage(
+          {
+            channel: PROJECTION_BUS_CHANNEL,
+            kind: "loose",
+            type: "resyncRequest",
+            contextId: req.contextId,
+            reason: req.reason,
+            generation: req.generation,
+            sequence: req.sequence
+          },
+          "*"
+        );
+      });
+    }
+    fanoutTelemetry(message) {
+      this.forEachChildWindow((w) => {
+        w.postMessage(
+          {
+            channel: PROJECTION_BUS_CHANNEL,
+            kind: "loose",
+            type: "telemetry",
+            message
+          },
+          "*"
+        );
+      });
+    }
+    collectChildWindows() {
+      const out = [];
+      this.forEachChildWindow((w) => out.push(w));
+      return out;
+    }
+    forEachChildWindow(fn) {
+      const doc = this.win.document;
+      const hosts = doc.querySelectorAll("iframe,frame,object,embed");
+      for (let i = 0; i < hosts.length; i++) {
+        const el = hosts[i];
+        const w = el.contentWindow;
+        if (w) fn(w);
+      }
     }
   };
 
@@ -3746,12 +4581,169 @@
     }
   };
 
+  // browser/mirror/projection/models/contextIdMint.ts
+  var ContextIdMint = class {
+    next = 2;
+    mint() {
+      const id = this.next;
+      if (id > 4294967295) throw new Error("contextId space exhausted");
+      this.next = id + 1;
+      return id >>> 0;
+    }
+  };
+
+  // browser/mirror/projection/virtual/runtime/rootRuntime.ts
+  var RootRuntime = class {
+    mintAllocator = new ContextIdMint();
+    bus;
+    frameTransport;
+    dataPlane;
+    loopback;
+    textEncoder = new TextEncoder();
+    telemetryUnsub = null;
+    constructor(config, win) {
+      let frameTransport;
+      let dataPlane = null;
+      let loopback = null;
+      if (config.transport === "console") {
+        frameTransport = new ConsoleFrameTransport();
+      } else if (config.transport === "discard") {
+        frameTransport = new NullFrameTransport();
+      } else {
+        loopback = new LoopbackFrameTransport({
+          bufferedAmountWatermark: config.bufferedAmountWatermark
+        });
+        loopback.open(config.dataPlaneUrl);
+        frameTransport = loopback;
+        dataPlane = loopback.dataPlane;
+      }
+      this.frameTransport = frameTransport;
+      this.dataPlane = dataPlane;
+      this.loopback = loopback;
+      this.bus = new ProjectionBus({
+        window: win,
+        role: "root",
+        mint: () => this.mint(),
+        emitFrame: (bytes) => {
+          this.frameTransport.send(bytes);
+        },
+        sendSidecarResync: (req) => this.forwardResyncToSidecar(req)
+      });
+      this.telemetryUnsub = this.bus.onTelemetry((message) => this.fanoutTelemetry(message));
+    }
+    mint() {
+      return this.mintAllocator.mint();
+    }
+    async whenOpen() {
+      if (!this.loopback) return;
+      await this.loopback.whenOpen();
+    }
+    dispose() {
+      this.telemetryUnsub?.();
+      this.telemetryUnsub = null;
+    }
+    fanoutTelemetry(message) {
+      const plane = this.dataPlane;
+      if (plane === null || !plane.isOpen) return;
+      const bytes = this.textEncoder.encode(JSON.stringify(message));
+      void plane.send(3 /* Telemetry */, bytes);
+    }
+    forwardResyncToSidecar(_req) {
+    }
+  };
+
+  // browser/mirror/projection/virtual/dom/nestedHost.ts
+  function isNestedBrowsingHost(node) {
+    if (node.nodeType !== 1) return false;
+    if (!node.isConnected) return false;
+    const cw = node.contentWindow;
+    return cw != null;
+  }
+
+  // browser/mirror/projection/virtual/dom/childScopes.ts
+  var ChildScopeIndex = class {
+    constructor(mint) {
+      this.mint = mint;
+    }
+    map = /* @__PURE__ */ new Map();
+    get mapView() {
+      return this.map;
+    }
+    get(nodeId) {
+      return this.map.get(nodeId);
+    }
+    drop(nodeId) {
+      this.map.delete(nodeId);
+    }
+    admit(nodeId, node) {
+      if (!isNestedBrowsingHost(node)) return { kind: "none" };
+      const existing = this.map.get(nodeId);
+      if (existing !== void 0) return { kind: "host", contextId: existing };
+      const minted = this.mint();
+      if (minted == null) return { kind: "pending" };
+      this.map.set(nodeId, minted);
+      return { kind: "host", contextId: minted };
+    }
+    lookupByContentWindow(source, nodeOf) {
+      for (const [nodeId, contextId] of this.map) {
+        const node = nodeOf(nodeId);
+        if (node && node.contentWindow === source) {
+          return contextId;
+        }
+      }
+      return void 0;
+    }
+  };
+  function createMintPort(opts) {
+    if (opts.mintSync) return () => opts.mintSync();
+    const cache = [];
+    let inflight = false;
+    const kick = () => {
+      if (inflight || !opts.requestMint) return;
+      inflight = true;
+      void opts.requestMint().then((c) => {
+        inflight = false;
+        if (typeof c === "number" && c >= 2) cache.push(c);
+      });
+    };
+    return () => {
+      if (cache.length > 0) return cache.shift();
+      kick();
+      return null;
+    };
+  }
+
   // browser/mirror/projection/virtual/bootstrap.ts
   document.currentScript?.remove();
   void (async () => {
     if (globalThis.__speculumProjection) return;
     const config = readProjectionConfig();
+    const isRoot = window.parent === window;
+    let mine = CONTEXT_ID_ROOT;
+    let frameTransport;
+    let dataPlane = null;
+    let loopback = null;
+    let bus;
+    let mintFn;
+    if (isRoot) {
+      const runtime = new RootRuntime(config, window);
+      loopback = runtime.loopback;
+      frameTransport = runtime.frameTransport;
+      dataPlane = runtime.dataPlane;
+      bus = runtime.bus;
+      mintFn = () => runtime.mint();
+      mine = CONTEXT_ID_ROOT;
+    } else {
+      bus = new ProjectionBus({ window, parent: window.parent, role: "nested" });
+      frameTransport = new BusFrameTransport(bus);
+      mintFn = createMintPort({ requestMint: () => bus.requestMint() });
+      mine = await bus.getScopeId();
+    }
+    const childScopes = new ChildScopeIndex(mintFn);
     const domNodes = new DomNodeTable();
+    bus.setScopeLookup(
+      (source) => childScopes.lookupByContentWindow(source, (id) => domNodes.get(id))
+    );
     domNodes.bind(document, DOCUMENT_ID);
     domNodes.setGeneration(config.generation);
     const table = new ReplicatedTable();
@@ -3762,28 +4754,16 @@
       domNodes,
       table,
       formIndex,
+      childScopes,
       observeShadowRoot: (root) => domMutationObserver.observeRoot(root),
       unobserveShadowRoot: (root) => domMutationObserver.unobserveRoot(root)
     });
     const encoder = new BinaryFrameEncoder({ maxFrameBytes: config.maxFrameBytes });
-    let frameTransport;
-    let dataPlane = null;
-    let loopback = null;
-    if (config.transport === "console") {
-      frameTransport = new ConsoleFrameTransport();
-    } else if (config.transport === "discard") {
-      frameTransport = new NullFrameTransport();
-    } else {
-      loopback = new LoopbackFrameTransport({
-        bufferedAmountWatermark: config.bufferedAmountWatermark
-      });
-      loopback.open(config.dataPlaneUrl);
-      frameTransport = loopback;
-      dataPlane = loopback.dataPlane;
-    }
     const telemetry = new ProjectionTelemetry({
       config: config.telemetry,
-      dataPlane
+      dataPlane,
+      contextId: mine,
+      bus
     });
     const cssomPoller = config.cssomPollHz > 0 ? new CssomPoller(new CssomIds(() => domNodes.mint()), (host) => {
       const id = domNodes.keyOf(host);
@@ -3793,7 +4773,15 @@
       poller: cssomPoller,
       minIntervalMs: 1e3 / config.cssomPollHz
     }) : disabledCssomPlane();
-    const resyncPlanes = { domNodes, table, cssom, formIndex };
+    const resyncPlanes = {
+      domNodes,
+      table,
+      cssom,
+      formIndex,
+      childScopes,
+      contextId: mine,
+      notePendingNestedHost: (el) => frameBuilder.notePendingNestedHost(el)
+    };
     const frameClock = new TimerFrameClock({
       frameRateHz: config.frameRateHz,
       onStall: (info) => {
@@ -3826,7 +4814,37 @@
       telemetry,
       pullPendingMutations: () => domMutationObserver.takePendingIntoBuffer(),
       takePendingCssom: () => cssom.takePending(),
-      table
+      table,
+      contextId: mine
+    });
+    bus.setMine(mine);
+    const snapshotPlanes = {
+      domNodes,
+      table,
+      cssom,
+      cssomIds: cssomPoller?.ids ?? null,
+      currentSequence: () => frameEmitter.currentSequence,
+      flushDom: () => frameEmitter.flushNow(),
+      recordCssomPoll: (stats) => telemetry.recordCssomPoll(stats)
+    };
+    bus.setSnapshotHandler((opts) => {
+      const snapped = takeSnapshot(snapshotPlanes, { cssom: opts?.cssom ?? "none" });
+      frameEmitter.stop();
+      cssom.halt();
+      return snapped;
+    });
+    bus.setResumeHandler(() => {
+      frameEmitter.start();
+      cssom.start();
+      domMutationObserver.syncObservedShadowRoots(domNodes);
+    });
+    bus.onResyncRequest((req) => {
+      if (req.contextId !== mine) return;
+      frameEmitter.requestResync((seq) => {
+        const { frame, cssom: cssomStats } = emitResyncFrame(resyncPlanes, seq);
+        telemetry.recordCssomPoll(cssomStats);
+        return frame;
+      });
     });
     if (loopback) {
       loopback.dataPlane.setHandler((channel, payload) => {
@@ -3840,16 +4858,19 @@
         if (typeof msg !== "object" || msg === null) return;
         const req = msg;
         if (req.type !== "requestResync") return;
+        const contextId = typeof req.contextId === "number" && req.contextId > 0 ? req.contextId : CONTEXT_ID_ROOT;
         console.log(
-          "[speculumProjection] resync requested \u2014 reason=%s clientGeneration=%s clientSequence=%s",
+          "[speculumProjection] resync requested \u2014 reason=%s contextId=%s clientGeneration=%s clientSequence=%s",
           String(req.reason),
+          String(contextId),
           String(req.generation),
           String(req.sequence)
         );
-        frameEmitter.requestResync((seq) => {
-          const { frame, cssom: cssomStats } = emitResyncFrame(resyncPlanes, seq);
-          telemetry.recordCssomPoll(cssomStats);
-          return frame;
+        bus.publishResyncRequest({
+          contextId,
+          reason: typeof req.reason === "string" ? req.reason : void 0,
+          generation: typeof req.generation === "number" ? req.generation : void 0,
+          sequence: typeof req.sequence === "number" ? req.sequence : void 0
         });
       });
     }
@@ -3870,6 +4891,7 @@
     cssom.start();
     globalThis.__speculumProjection = {
       version: 1,
+      contextId: mine,
       domNodes,
       table,
       frameClock,
@@ -3896,21 +4918,27 @@
         return { generation: domNodes.generation, sequence: frameEmitter.currentSequence };
       },
       flushAndSnapshot: (opts) => {
-        const snapped = takeSnapshot(
-          {
-            domNodes,
-            table,
-            cssom,
-            cssomIds: cssomPoller?.ids ?? null,
-            currentSequence: () => frameEmitter.currentSequence,
-            flushDom: () => frameEmitter.flushNow(),
-            recordCssomPoll: (stats) => telemetry.recordCssomPoll(stats)
-          },
-          { cssom: opts?.cssom ?? "none" }
-        );
+        const snapped = takeSnapshot(snapshotPlanes, { cssom: opts?.cssom ?? "none" });
         frameEmitter.stop();
         cssom.halt();
         return snapped;
+      },
+      snapshotContext: (contextId, opts) => bus.requestSnapshot(contextId, opts),
+      snapshotAllKnown: async (contextIds, opts) => {
+        const entries = await Promise.all(
+          contextIds.map(async (id) => {
+            const result = await bus.requestSnapshot(id, opts);
+            return [id, result.ok ? result.value : { ok: false, reason: result.reason }];
+          })
+        );
+        return Object.fromEntries(entries);
+      },
+      resumeContext: (contextId) => bus.requestResumeContext(contextId),
+      resumeAllKnown: async (contextIds) => {
+        const entries = await Promise.all(
+          contextIds.map(async (id) => [id, await bus.requestResumeContext(id)])
+        );
+        return Object.fromEntries(entries);
       }
     };
   })();

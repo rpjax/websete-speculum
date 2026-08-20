@@ -19,6 +19,7 @@
     "lab:run": "node scripts/lab-run.js",
     "lab:cssom-foundation": "node scripts/cssom-foundation.js",
     "lab:cssom-heavy": "node scripts/cssom-heavy.js",
+    "lab:iframe-open": "npm run build:virtual && npm run build:lab-client && npm run build:snapshot && tsc && node scripts/lab-iframe-open-ui.js",
     "smoke:projection-lab": "npm run build:virtual && npm run build:lab-client && npm run build:snapshot && tsc && node scripts/smoke-projection-lab.js",
     "smoke": "npm run build && node dist/smoke.js",
     "smoke:remote": "npm run build && node dist/smoke-remote.js",

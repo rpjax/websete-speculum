@@ -10,7 +10,7 @@ import type { FrameEncoder } from './frameEncoder';
 import type { FrameClock } from '../clock/frameClock';
 import type { FrameTransport } from '../transport/frameTransport';
 import { OpCode } from '../../models/opcodes';
-import { createFrame, spliceCssomBeforeCheck, type Frame } from '../../models/frame';
+import { createFrame, spliceCssomBeforeCheck, type Frame, CONTEXT_ID_ROOT } from '../../models/frame';
 import { stampCssomPoll } from '../../models/telemetry';
 import type { MutationBuffer } from '../dom/mutationBuffer';
 import type { ProjectionTelemetry } from '../telemetry/projectionTelemetry';
@@ -41,6 +41,8 @@ export type FrameEmitterOptions = {
   takePendingCssom?: () => CssomScanResult | null;
   /** Producer table — CSSOM ops apply here so the next preTableHash matches the client. */
   table?: ReplicatedTable;
+  /** Header `contextId` — this instance's mine. */
+  contextId?: number;
 };
 
 const IDLE_SWEEP_INTERVAL_TICKS = 30;
@@ -56,6 +58,7 @@ export class FrameEmitter {
   private readonly pullPendingMutations: (() => void) | null;
   private readonly takePendingCssom: (() => CssomScanResult | null) | null;
   private readonly table: ReplicatedTable | null;
+  private readonly contextId: number;
 
   private sequence = 0;
   private idleTicks = 0;
@@ -78,6 +81,7 @@ export class FrameEmitter {
     this.pullPendingMutations = opts.pullPendingMutations ?? null;
     this.takePendingCssom = opts.takePendingCssom ?? null;
     this.table = opts.table ?? null;
+    this.contextId = opts.contextId ?? CONTEXT_ID_ROOT;
   }
 
   start(): void {
@@ -104,7 +108,8 @@ export class FrameEmitter {
   }
 
   async sendInitial(frame: Frame): Promise<void> {
-    const parts = this.encoder.encode(frame);
+    const stamped = this.stamp(frame);
+    const parts = this.encoder.encode(stamped);
     if (parts.length === 0) return;
 
     for (let i = 0; i < parts.length; i++) {
@@ -155,7 +160,7 @@ export class FrameEmitter {
       this.pendingResyncBuild = null;
       this.idleTicks = 0;
       this.builder.takeBuildStats?.();
-      const frame = build(this.sequence + 1);
+      const frame = this.stamp(build(this.sequence + 1));
       const parts = this.encoder.encode(frame);
       if (parts.length === 0) return;
       this.pendingFrame = frame;
@@ -208,15 +213,17 @@ export class FrameEmitter {
 
     if (ops.length === 0) return;
 
-    const frame =
+    const frame = this.stamp(
       built === null
         ? createFrame({
             generation: snap.generation,
             sequence: nextSequence,
             ops,
             preTableHash,
+            contextId: this.contextId,
           })
-        : { ...built, ops };
+        : { ...built, ops },
+    );
 
     const parts = this.encoder.encode(frame);
     if (parts.length === 0) return;
@@ -226,6 +233,11 @@ export class FrameEmitter {
     this.pendingPartIndex = 0;
     this.pendingRecords = null;
     this.trySendPending();
+  }
+
+  private stamp(frame: Frame): Frame {
+    if (frame.contextId === this.contextId) return frame;
+    return { ...frame, contextId: this.contextId };
   }
 
   private trySendPending(): void {

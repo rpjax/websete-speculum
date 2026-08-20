@@ -61,13 +61,15 @@ import {
   applyOpsToTable,
 } from './browser/mirror/projection/models/replicatedTableApply';
 import { NodeKind, OpCode } from './browser/mirror/projection/models/opcodes';
-import { ElementNs } from './browser/mirror/projection/models/elementNs';
+import { ElementNs, ELEMENT_NS_NESTED_HOST_BIT } from './browser/mirror/projection/models/elementNs';
 import {
   CHECK_SCOPE_RANGE,
   CHECK_SCOPE_TABLE,
   CSSOM_SCOPE_MAIN,
   CSSOM_SCOPE_PIERCE_HOST,
   FRAME_WIRE_VERSION,
+  FRAME_PREFIX_BYTES,
+  CONTEXT_ID_ROOT,
   type FrameOp,
   createFrame,
   INSERT_AT_END,
@@ -79,7 +81,7 @@ import {
   SHADOW_MODE_OPEN,
 } from './browser/mirror/projection/models/frame';
 import { diffTrees } from './browser/mirror/projection/lab/probes/structuralDiff';
-import { decodeFramePart, PersistentStringTable } from './browser/mirror/projection/models/decode';
+import { decodeFramePart, peekFrameHeader, PersistentStringTable } from './browser/mirror/projection/models/decode';
 import { applyFramesUntilDesync } from './browser/mirror/projection/models/applyBatch';
 import { applyAttrPairs } from './browser/mirror/projection/models/attrApply';
 import { planRuleSetApply, ruleAcceptsInPlaceSet } from './browser/mirror/projection/models/cssomRuleSet';
@@ -88,13 +90,18 @@ import { CssomIds } from './browser/mirror/projection/virtual/cssom/cssomIds';
 import { emitLiveCssomOps, emitResyncCssomOps } from './browser/mirror/projection/virtual/cssom/cssomOps';
 import {
   CSSOM_POLL_STAT_KEYS,
+  TELEMETRY_WIRE_VERSION,
   countCssomOps,
   emptyCssomPollStats,
+  isProjectionTelemetryMessage,
   stampCssomPoll,
 } from './browser/mirror/projection/models/telemetry';
+import { ContextIndex } from './browser/mirror/projection/lab/host/contextIndex';
 import { digestReplicatedTable } from './browser/mirror/projection/models/tableDigest';
 import { insertIndexFromBefore, orderedSheetIds, orderedRuleIds, matchCssomEndOfFrame, declarationBlockFromRuleText } from './browser/mirror/projection/models/cssomApplyIndex';
 import { BinaryFrameEncoder } from './browser/mirror/projection/virtual/frame/binaryFrameEncoder';
+import { ContextIdMint } from './browser/mirror/projection/models/contextIdMint';
+import { isNestedHostNavAttr } from './browser/mirror/projection/models/nestedNav';
 import { NodeTableApplier } from './browser/mirror/projection/lab/probes/nodeTableApply';
 import { PROP_ID_CHECKED, PROP_ID_SELECTED, PROP_ID_VALUE } from './browser/mirror/projection/models/propSet';
 import { FormPropDirty } from './browser/mirror/projection/models/formPropDirty';
@@ -2292,13 +2299,13 @@ function testCheckScopeRangeEncodeDecode(): void {
 }
 
 function frameLocalStrCount(bytes: Uint8Array): number {
-  return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(24, true);
+  return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(FRAME_PREFIX_BYTES, true);
 }
 
 function patchNodeNewNsByte(bytes: Uint8Array, ns: number): Uint8Array {
   const out = bytes.slice();
   const view = new DataView(out.buffer, out.byteOffset, out.byteLength);
-  let o = 24;
+  let o = FRAME_PREFIX_BYTES;
   const strCount = view.getUint32(o, true);
   o += 4;
   for (let i = 0; i < strCount; i++) {
@@ -2318,7 +2325,7 @@ function patchNodeNewNsByte(bytes: Uint8Array, ns: number): Uint8Array {
 
 function withEmptyFirstFrameString(bytes: Uint8Array): Uint8Array {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const header = 24;
+  const header = FRAME_PREFIX_BYTES;
   const strCount = view.getUint32(header, true);
   let o = header + 4;
   const firstLen = view.getUint32(o, true);
@@ -2348,12 +2355,15 @@ function testNodeNewElementNsWire(): void {
   const htmlDecoded = decodeFramePart(htmlBytes, new PersistentStringTable());
   assert.ok(htmlDecoded.ok, 'html NODE_NEW must decode');
   if (!htmlDecoded.ok) return;
-  assert.strictEqual(htmlDecoded.part.version, 2);
+  assert.strictEqual(htmlDecoded.part.version, FRAME_WIRE_VERSION);
+  assert.strictEqual(htmlDecoded.part.contextId, CONTEXT_ID_ROOT);
   const htmlGot = htmlDecoded.part.ops[0];
   assert.strictEqual(htmlGot?.op, OpCode.NodeNew);
   if (htmlGot?.op !== OpCode.NodeNew || htmlGot.kind !== NodeKind.Element) return;
   assert.strictEqual(htmlGot.ns, ElementNs.Html);
   assert.strictEqual(htmlGot.uri, undefined);
+  assert.strictEqual(htmlGot.nestedHost, false);
+  assert.strictEqual(htmlGot.childScopeId, null);
   assert.strictEqual(frameLocalStrCount(htmlBytes), 1, 'html ns must not emit a namespace StrRef');
 
   const svgOp: FrameOp = {
@@ -2428,9 +2438,154 @@ function testNodeNewElementNsWire(): void {
   console.log('[unit] NODE_NEW Element ns wire + hash split ok');
 }
 
+/** OPEN-6 cursor: nested-host bit on ns; u32 omitted on ordinary elements. */
+function testNodeNewNestedHostWire(): void {
+  const insert: FrameOp = { op: OpCode.Insert, parent: 1, before: INSERT_AT_END, ids: [10] };
+  const div: FrameOp = {
+    op: OpCode.NodeNew,
+    id: 10,
+    kind: NodeKind.Element,
+    ns: ElementNs.Html,
+    name: 'iframe',
+    attrs: [],
+  };
+  const iframe: FrameOp = {
+    op: OpCode.NodeNew,
+    id: 10,
+    kind: NodeKind.Element,
+    ns: ElementNs.Html,
+    name: 'iframe',
+    attrs: [],
+    nestedHost: true,
+    childScopeId: 2,
+  };
+
+  const plainBytes = new BinaryFrameEncoder().encode(createFrame({ generation: 1, sequence: 1, ops: [div, insert] }))[0]!;
+  const hostBytes = new BinaryFrameEncoder().encode(createFrame({ generation: 1, sequence: 1, ops: [iframe, insert] }))[0]!;
+  assert.strictEqual(hostBytes.byteLength, plainBytes.byteLength + 4, 'non-host must omit childScopeId u32');
+
+  const plainDecoded = decodeFramePart(plainBytes, new PersistentStringTable());
+  assert.ok(plainDecoded.ok, 'div + INSERT must decode');
+  if (!plainDecoded.ok) return;
+  const plainNew = plainDecoded.part.ops[0];
+  if (plainNew?.op !== OpCode.NodeNew || plainNew.kind !== NodeKind.Element) return;
+  assert.strictEqual(plainNew.nestedHost, false);
+  assert.strictEqual(plainNew.childScopeId, null);
+  assert.strictEqual(plainDecoded.part.ops[1]?.op, OpCode.Insert);
+
+  const hostDecoded = decodeFramePart(hostBytes, new PersistentStringTable());
+  assert.ok(hostDecoded.ok, 'iframe host + INSERT must decode');
+  if (!hostDecoded.ok) return;
+  const hostNew = hostDecoded.part.ops[0];
+  if (hostNew?.op !== OpCode.NodeNew || hostNew.kind !== NodeKind.Element) return;
+  assert.strictEqual(hostNew.nestedHost, true);
+  assert.strictEqual(hostNew.childScopeId, 2);
+  assert.strictEqual(hostDecoded.part.ops[1]?.op, OpCode.Insert, 'cursor must not eat the following INSERT');
+
+  const htmlOnly: FrameOp = {
+    op: OpCode.NodeNew,
+    id: 10,
+    kind: NodeKind.Element,
+    ns: ElementNs.Html,
+    name: 'a',
+    attrs: [],
+  };
+  const htmlBytes = new BinaryFrameEncoder().encode(createFrame({ generation: 1, sequence: 1, ops: [htmlOnly] }))[0]!;
+  const truncated = decodeFramePart(
+    patchNodeNewNsByte(htmlBytes, ELEMENT_NS_NESTED_HOST_BIT | ElementNs.Html),
+    new PersistentStringTable(),
+  );
+  assert.strictEqual(truncated.ok, false, 'host bit without childScopeId u32 is malformed');
+
+  const reserved = decodeFramePart(patchNodeNewNsByte(htmlBytes, 0x10), new PersistentStringTable());
+  assert.strictEqual(reserved.ok, false, 'ns reserved bits are malformed');
+
+  assert.throws(() =>
+    new BinaryFrameEncoder().encode(
+      createFrame({
+        generation: 1,
+        sequence: 1,
+        ops: [{ op: OpCode.NodeNew, id: 10, kind: NodeKind.Element, ns: ElementNs.Html, name: 'iframe', attrs: [], nestedHost: true }],
+      }),
+    ),
+  );
+  assert.throws(() =>
+    new BinaryFrameEncoder().encode(
+      createFrame({
+        generation: 1,
+        sequence: 1,
+        ops: [{ op: OpCode.NodeNew, id: 10, kind: NodeKind.Element, ns: ElementNs.Html, name: 'iframe', attrs: [], nestedHost: true, childScopeId: 1 }],
+      }),
+    ),
+  );
+
+  console.log('[unit] NODE_NEW nested-host wire omit/presence ok');
+}
+
+function testHeaderV3ContextId(): void {
+  assert.strictEqual(FRAME_WIRE_VERSION, 2);
+  assert.strictEqual(FRAME_PREFIX_BYTES, 28);
+  const op: FrameOp = {
+    op: OpCode.NodeNew,
+    id: 10,
+    kind: NodeKind.Element,
+    ns: ElementNs.Html,
+    name: 'div',
+    attrs: [],
+  };
+  const rootBytes = new BinaryFrameEncoder().encode(createFrame({ generation: 1, sequence: 1, ops: [op] }))[0]!;
+  const peeked = peekFrameHeader(rootBytes);
+  assert.ok(peeked);
+  assert.strictEqual(peeked!.contextId, CONTEXT_ID_ROOT);
+  assert.strictEqual(peeked!.generation, 1);
+  assert.strictEqual(peeked!.sequence, 1);
+  const decoded = decodeFramePart(rootBytes, new PersistentStringTable());
+  assert.ok(decoded.ok);
+  if (!decoded.ok) return;
+  assert.strictEqual(decoded.part.contextId, CONTEXT_ID_ROOT);
+
+  const nestedBytes = new BinaryFrameEncoder().encode(
+    createFrame({ generation: 1, sequence: 1, ops: [op], contextId: 2 }),
+  )[0]!;
+  const nestedDecoded = decodeFramePart(nestedBytes, new PersistentStringTable());
+  assert.ok(nestedDecoded.ok);
+  if (!nestedDecoded.ok) return;
+  assert.strictEqual(nestedDecoded.part.contextId, 2);
+
+  const zero = nestedBytes.slice();
+  new DataView(zero.buffer, zero.byteOffset, zero.byteLength).setUint32(4, 0, true);
+  const zeroDecoded = decodeFramePart(zero, new PersistentStringTable());
+  assert.strictEqual(zeroDecoded.ok, false);
+  if (!zeroDecoded.ok) assert.strictEqual(zeroDecoded.reason, 'malformed');
+
+  assert.throws(() => createFrame({ generation: 1, sequence: 1, ops: [op], contextId: 0 }));
+  console.log('[unit] header contextId round-trip + zero malformed ok');
+}
+
+function testContextIdMintAndChildScopes(): void {
+  const mint = new ContextIdMint();
+  const a = mint.mint();
+  const b = mint.mint();
+  assert.strictEqual(a, 2);
+  assert.strictEqual(b, 3);
+  assert.notStrictEqual(a, b);
+  const c = mint.mint();
+  assert.strictEqual(c, 4);
+  console.log('[unit] mint uniqueness ok');
+}
+
+function testNestedHostNavAttrSkip(): void {
+  assert.strictEqual(isNestedHostNavAttr('src'), true);
+  assert.strictEqual(isNestedHostNavAttr('srcdoc'), true);
+  assert.strictEqual(isNestedHostNavAttr('SRC'), true);
+  assert.strictEqual(isNestedHostNavAttr('id'), false);
+  assert.strictEqual(isNestedHostNavAttr('title'), false);
+  console.log('[unit] nested host nav attr skip ok');
+}
+
 function skipToNodeNewKind(bytes: Uint8Array): number {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  let o = 24;
+  let o = FRAME_PREFIX_BYTES;
   const strCount = view.getUint32(o, true);
   o += 4;
   for (let i = 0; i < strCount; i++) {
@@ -2460,7 +2615,7 @@ function testShadowRootWire(): void {
   const decoded = decodeFramePart(bytes, new PersistentStringTable());
   assert.ok(decoded.ok, 'SHADOW_ROOT NODE_NEW must decode');
   if (!decoded.ok) return;
-  assert.strictEqual(decoded.part.version, 2);
+  assert.strictEqual(decoded.part.version, FRAME_WIRE_VERSION);
   const got = decoded.part.ops[0];
   assert.strictEqual(got?.op, OpCode.NodeNew);
   if (got?.op !== OpCode.NodeNew || got.kind !== NodeKind.ShadowRoot) return;
@@ -2673,6 +2828,15 @@ function testStructuralDiffShadowSeparate(): void {
     { tag: 'host', shadow: { tag: '#shadow-root', children: [{ tag: 'span' }] } },
   );
   assert.strictEqual(both.identical, true);
+  const missingNested = diffTrees(
+    { tag: 'iframe', nested: { tag: '#document', children: [{ tag: 'html' }] } },
+    { tag: 'iframe' },
+  );
+  assert.strictEqual(missingNested.identical, false);
+  assert.ok(
+    missingNested.divergences.some((d) => d.path.includes('::nested')),
+    `nested mismatch must walk ::nested, got ${JSON.stringify(missingNested.divergences)}`,
+  );
   console.log('[unit] structuralDiff shadow separate from light child_count ok');
 }
 
@@ -2700,7 +2864,7 @@ function testPropSetWire(): void {
   const valueDecoded = decodeFramePart(valueBytes, new PersistentStringTable());
   assert.ok(valueDecoded.ok, 'VALUE PROP_SET must decode');
   if (!valueDecoded.ok) return;
-  assert.strictEqual(valueDecoded.part.version, 2);
+  assert.strictEqual(valueDecoded.part.version, FRAME_WIRE_VERSION);
   const valueGot = valueDecoded.part.ops[0];
   assert.strictEqual(valueGot?.op, OpCode.PropSet);
   if (valueGot?.op !== OpCode.PropSet) return;
@@ -2751,7 +2915,7 @@ function testPropSetWire(): void {
 
 function firstOpOffset(bytes: Uint8Array): number {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  let o = 24;
+  let o = FRAME_PREFIX_BYTES;
   const strCount = view.getUint32(o, true);
   o += 4;
   for (let i = 0; i < strCount; i++) {
@@ -3830,6 +3994,68 @@ function testCssomPollTelemetrySchema(): void {
   console.log('[unit] cssom poll telemetry schema ok');
 }
 
+function testProjectionTelemetryV2ContextId(): void {
+  assert.ok(
+    !isProjectionTelemetryMessage({
+      v: 1,
+      kind: 'frameEmitted',
+      t: 1,
+      generation: 1,
+      sequence: 1,
+      opCount: 0,
+      partCount: 1,
+      bytes: 0,
+      tableSize: 0,
+      buildMs: 0,
+      encodeMs: 0,
+    }),
+    'v1 telemetry must be rejected',
+  );
+  assert.ok(
+    !isProjectionTelemetryMessage({
+      v: TELEMETRY_WIRE_VERSION,
+      kind: 'frameEmitted',
+      t: 1,
+      generation: 1,
+      sequence: 1,
+      opCount: 0,
+      partCount: 1,
+      bytes: 0,
+      tableSize: 0,
+      buildMs: 0,
+      encodeMs: 0,
+    }),
+    'missing contextId must fail',
+  );
+  assert.ok(
+    isProjectionTelemetryMessage({
+      v: TELEMETRY_WIRE_VERSION,
+      contextId: 1,
+      kind: 'applyResult',
+      t: 1,
+      generation: 1,
+      sequence: 1,
+      ok: true,
+      opCount: 0,
+      applyMs: 0,
+      tableSize: 0,
+    }),
+    'v2 with contextId must pass',
+  );
+  console.log('[unit] projection telemetry v2 contextId validator ok');
+}
+
+function testLabContextIndex(): void {
+  const index = new ContextIndex();
+  index.noteBoot();
+  assert.deepStrictEqual(index.list(), [1]);
+  index.observeFrameHeader({ contextId: 2 });
+  index.observeFrameHeader({ contextId: 2 });
+  assert.deepStrictEqual(index.list(), [1, 2]);
+  assert.strictEqual(index.meta(2)?.frameCount, 2);
+  console.log('[unit] lab context index ok');
+}
+
 async function main(): Promise<void> {
   // Debug instrumentation posts to the ingest server; don't hang unit runs on it.
   (globalThis as { fetch: typeof fetch }).fetch = (async () =>
@@ -3904,6 +4130,10 @@ async function main(): Promise<void> {
   testApplyFrameToTableCheckedRangeScope();
   testCheckScopeRangeEncodeDecode();
   testNodeNewElementNsWire();
+  testNodeNewNestedHostWire();
+  testHeaderV3ContextId();
+  testContextIdMintAndChildScopes();
+  testNestedHostNavAttrSkip();
   testShadowRootWire();
   testShadowRootModeClosedMalformed();
   testShadowRootInitFlagsReservedBitMalformed();
@@ -3944,6 +4174,8 @@ async function main(): Promise<void> {
   testCssomEncodeDecode();
   testHostileHonestyFramesEncodeDecode();
   testCssomPollTelemetrySchema();
+  testProjectionTelemetryV2ContextId();
+  testLabContextIndex();
   await runPageProjectionUnitTests();
   await runV4ProjectionSessionUnitTests();
   console.log('[unit] all passed');

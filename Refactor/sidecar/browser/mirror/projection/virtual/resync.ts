@@ -19,12 +19,18 @@ import { describeDomResync, rebuildDomIdentity } from './dom/domResync';
 import type { FormPropIndex } from './dom/formPropIndex';
 import type { CssomPlane } from './cssom/cssomPlane';
 import { stampCssomPoll, type CssomPollStats } from '../models/telemetry';
+import type { ChildScopeIndex } from './dom/childScopes';
+import { CONTEXT_ID_ROOT } from '../models/frame';
 
 export type ResyncPlanes = {
   domNodes: DomNodeTable;
   table: ReplicatedTable;
   cssom: CssomPlane;
   formIndex: FormPropIndex;
+  childScopes?: ChildScopeIndex;
+  contextId?: number;
+  /** Defer nested hosts whose mint is still in flight (same as incremental `pendingHosts`). */
+  notePendingNestedHost?: (el: Element) => void;
 };
 
 export type ResyncFrameResult = {
@@ -34,9 +40,12 @@ export type ResyncFrameResult = {
 
 /** Maps trusted: describe live identity, blocking CSSOM scan, wholesale replace. */
 export function emitResyncFrame(planes: ResyncPlanes, sequence: number): ResyncFrameResult {
-  const { domNodes, table, cssom, formIndex } = planes;
+  const { domNodes, table, cssom, formIndex, childScopes, contextId } = planes;
   const generation = domNodes.generation;
-  const domOps = describeDomResync(domNodes, formIndex);
+  const domOps = describeDomResync(domNodes, formIndex, {
+    childScopes,
+    notePendingNestedHost: planes.notePendingNestedHost,
+  });
   const cssomScan = cssom.blockingScan();
 
   table.reset();
@@ -55,7 +64,14 @@ export function emitResyncFrame(planes: ResyncPlanes, sequence: number): ResyncF
   );
 
   return {
-    frame: createFrame({ generation, sequence, ops, resync: true, preTableHash: 0n }),
+    frame: createFrame({
+      generation,
+      sequence,
+      ops,
+      resync: true,
+      preTableHash: 0n,
+      contextId: contextId ?? CONTEXT_ID_ROOT,
+    }),
     cssom: stampCssomPoll(cssomScan.stats, { source: 'resync', sequence }),
   };
 }

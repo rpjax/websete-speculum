@@ -13,8 +13,10 @@ const write_1 = require("../dossier/write");
 const frameInvariantMonitor_1 = require("../probes/frameInvariantMonitor");
 const metricsAggregator_1 = require("../probes/metricsAggregator");
 const nodeTableApply_1 = require("../probes/nodeTableApply");
+const contextIndex_1 = require("./contextIndex");
 const opcodes_1 = require("../../models/opcodes");
 const decode_1 = require("../../models/decode");
+const frame_1 = require("../../models/frame");
 class CssomOpWindow {
     enabled = false;
     counts = {
@@ -47,7 +49,7 @@ class CssomOpWindow {
         if (!decoded.ok)
             return;
         const assembled = this.assembler.ingest(decoded.part);
-        if (assembled === 'missing_part' || assembled === null)
+        if (assembled === 'missing_part' || assembled === 'malformed' || assembled === null)
             return;
         for (const op of assembled.ops) {
             if (op.op === opcodes_1.OpCode.SheetNew)
@@ -67,14 +69,10 @@ class CssomOpWindow {
 }
 exports.CssomOpWindow = CssomOpWindow;
 function peekFrameHeader(buf) {
-    if (buf.length < 12)
+    const peeked = (0, decode_1.peekFrameHeader)(buf);
+    if (!peeked)
         return null;
-    if (buf.readUInt16LE(0) !== 0x5050)
-        return null;
-    return {
-        generation: buf.readUInt32LE(4),
-        sequence: buf.readUInt32LE(8),
-    };
+    return { generation: peeked.generation, sequence: peeked.sequence, contextId: peeked.contextId };
 }
 class LabChassis {
     connectionId;
@@ -94,7 +92,12 @@ class LabChassis {
         telemetryMessages: 0,
     };
     metrics = new metricsAggregator_1.MetricsAggregator();
-    invariantMonitor = new frameInvariantMonitor_1.FrameInvariantMonitor();
+    contextIndex = new contextIndex_1.ContextIndex();
+    invariantMonitors = new Map();
+    /** Root-context wire monitor — legacy alias for CLI folds that expect a single monitor. */
+    get invariantMonitor() {
+        return this.monitorFor(frame_1.CONTEXT_ID_ROOT);
+    }
     nodeTable = new nodeTableApply_1.NodeTableApplier();
     eventCounts = {};
     desyncs = [];
@@ -157,22 +160,33 @@ class LabChassis {
         this.stats.framesFromVirtual += 1;
         this.stats.bytesFromVirtual += b.length;
         const hdr = peekFrameHeader(b);
+        this.contextIndex.observeFrameHeader(hdr);
         if (hdr) {
-            this.stats.lastGeneration = hdr.generation;
-            this.stats.lastSequence = hdr.sequence;
+            this.monitorFor(hdr.contextId).observeFrameBytes(b);
+            if (hdr.contextId === frame_1.CONTEXT_ID_ROOT) {
+                this.stats.lastGeneration = hdr.generation;
+                this.stats.lastSequence = hdr.sequence;
+                this.nodeTable.observeFrameBytes(b);
+                for (const w of this.opWindows.values())
+                    w.observe(b);
+            }
         }
         this.metrics.observeWireBytes(b.length);
-        this.invariantMonitor.observeFrameBytes(b);
-        this.nodeTable.observeFrameBytes(b);
-        for (const w of this.opWindows.values())
-            w.observe(b);
         if (!this.suppressVirtualRelay)
             this.onFrameRelay?.(b);
+    }
+    monitorFor(contextId) {
+        let monitor = this.invariantMonitors.get(contextId);
+        if (!monitor) {
+            monitor = new frameInvariantMonitor_1.FrameInvariantMonitor();
+            this.invariantMonitors.set(contextId, monitor);
+        }
+        return monitor;
     }
     observeTelemetry(message) {
         this.stats.telemetryMessages += 1;
         this.metrics.observeTelemetry(message);
-        this.invariantMonitor.observeTelemetry(message);
+        this.monitorFor(message.contextId).observeTelemetry(message);
         this.eventCounts[message.kind] = (this.eventCounts[message.kind] ?? 0) + 1;
         if (message.kind === 'desynced')
             this.desyncs.push(message);
@@ -237,6 +251,8 @@ class LabChassis {
         this.resyncPolls = 0;
         this.sheetsAbortedSum = 0;
         this.journal = { acts: [], snaps: [], opWindows: {}, injects: [], timeline: [] };
+        this.contextIndex.noteBoot();
+        this.invariantMonitors.clear();
         Object.keys(this.eventCounts).forEach((k) => delete this.eventCounts[k]);
         this.desyncs.length = 0;
         const sessionId = (0, node_crypto_1.randomUUID)();
@@ -298,7 +314,8 @@ class LabChassis {
         if (!this.dossier || !this.record)
             return null;
         this.record.status = 'stopped';
-        await (0, write_1.writeJson)(this.dossier, 'wire/invariants.json', this.invariantMonitor.getSummary(), 'wire.invariants');
+        await (0, write_1.writeJson)(this.dossier, 'wire/invariants.json', this.invariantsDossier(), 'wire.invariants');
+        await (0, write_1.writeJson)(this.dossier, 'journal/contexts.json', this.contextIndex.toJSON(), 'journal.contexts');
         await (0, write_1.writeJson)(this.dossier, 'journal/acts.json', this.journal.acts, 'journal.acts');
         await (0, write_1.writeJson)(this.dossier, 'journal/timeline.json', this.journal.timeline, 'journal.timeline');
         if (this.journal.injects.length > 0) {
@@ -326,6 +343,13 @@ class LabChassis {
             return;
         this.disposed = true;
         await this.disposeVirtual();
+    }
+    invariantsDossier() {
+        const byContext = {};
+        for (const [id, monitor] of this.invariantMonitors) {
+            byContext[String(id)] = monitor.getSummary();
+        }
+        return { root: this.monitorFor(frame_1.CONTEXT_ID_ROOT).getSummary(), byContext };
     }
 }
 exports.LabChassis = LabChassis;

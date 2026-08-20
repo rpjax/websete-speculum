@@ -33,6 +33,7 @@ import { describeNodeNew, nodeKindOf } from './domNodeDescribe';
 import type { FormPropIndex } from './formPropIndex';
 import { admissibleShadowRoot } from './shadowAdmit';
 import { NodeKind } from '../../models/opcodes';
+import type { ChildScopeIndex } from './childScopes';
 
 /** Shared sentinel returned when `collectOpCounts` is off — never mutated. */
 const EMPTY_OP_COUNTS: Record<string, number> = {};
@@ -58,6 +59,7 @@ export type TableFrameBuilderOptions = {
   /** One MutationObserver per admitted ShadowRoot — same buffer as the document observer. */
   observeShadowRoot?: (root: ShadowRoot) => void;
   unobserveShadowRoot?: (root: ShadowRoot) => void;
+  childScopes?: ChildScopeIndex;
 };
 
 export class TableFrameBuilder implements FrameBuilder {
@@ -69,6 +71,8 @@ export class TableFrameBuilder implements FrameBuilder {
   private readonly maxNodeDropsPerSweep: number;
   private readonly observeShadowRoot: ((root: ShadowRoot) => void) | undefined;
   private readonly unobserveShadowRoot: ((root: ShadowRoot) => void) | undefined;
+  private readonly childScopes: ChildScopeIndex | undefined;
+  private readonly pendingHosts = new Set<Element>();
   private lastStats: FrameBuildStats | null = null;
   private pendingUnconsumed: MutationRecord[] | null = null;
 
@@ -91,6 +95,7 @@ export class TableFrameBuilder implements FrameBuilder {
     this.maxNodeDropsPerSweep = opts.maxNodeDropsPerSweep ?? MAX_NODE_DROPS_PER_SWEEP;
     this.observeShadowRoot = opts.observeShadowRoot;
     this.unobserveShadowRoot = opts.unobserveShadowRoot;
+    this.childScopes = opts.childScopes;
   }
 
   takeBuildStats(): FrameBuildStats | null {
@@ -104,6 +109,11 @@ export class TableFrameBuilder implements FrameBuilder {
     const r = this.pendingUnconsumed;
     this.pendingUnconsumed = null;
     return r;
+  }
+
+  /** Resync deferral — host re-described on the next tick once mint completes. */
+  notePendingNestedHost(el: Element): void {
+    this.pendingHosts.add(el);
   }
 
   /**
@@ -127,6 +137,21 @@ export class TableFrameBuilder implements FrameBuilder {
     this.removedThisTick.clear();
     this.attrDirty.clear();
     this.textDirty.clear();
+
+    if (this.pendingHosts.size > 0) {
+      for (const node of [...this.pendingHosts]) {
+        if (!node.isConnected) {
+          this.pendingHosts.delete(node);
+          continue;
+        }
+        const parent = node.parentNode;
+        if (!parent) continue;
+        const parentId = this.domNodes.keyOf(parent);
+        if (parentId === NONE_DOM_NODE_KEY) continue;
+        this.pendingHosts.delete(node);
+        this.walkSiblingRun({ 0: node, length: 1 }, parentId, ops);
+      }
+    }
 
     if (records.length > 0) {
 
@@ -240,7 +265,9 @@ export class TableFrameBuilder implements FrameBuilder {
     for (let i = 0; i < rootIds.length; i++) {
       const subtreeIds = this.table.subtreeIds(rootIds[i]!);
       for (let j = 0; j < subtreeIds.length; j++) {
-        const node = this.domNodes.get(subtreeIds[j]!);
+        const dropId = subtreeIds[j]!;
+        this.childScopes?.drop(dropId);
+        const node = this.domNodes.get(dropId);
         if (node !== undefined) {
           if (node instanceof ShadowRoot) this.unobserveShadowRoot?.(node);
           this.formIndex.remove(node);
@@ -341,7 +368,20 @@ export class TableFrameBuilder implements FrameBuilder {
     const id = this.domNodes.allocate(node);
     this.createdThisTick.add(node);
     this.formIndex.addIfIndexed(node);
-    ops.push(describeNodeNew(id, kind, node));
+    let nested: { childScopeId: number } | null = null;
+    if (kind === NodeKind.Element && this.childScopes) {
+      const admitted = this.childScopes.admit(id, node);
+      if (admitted.kind === 'pending') {
+        this.formIndex.remove(node);
+        this.createdThisTick.delete(node);
+        this.domNodes.release(node);
+        this.visited.delete(node);
+        this.pendingHosts.add(node as Element);
+        return NONE_DOM_NODE_KEY;
+      }
+      if (admitted.kind === 'host') nested = { childScopeId: admitted.contextId };
+    }
+    ops.push(describeNodeNew(id, kind, node, undefined, nested));
     this.walkSiblingRun(node.childNodes, id, ops);
     if (kind === NodeKind.Element) this.admitShadowIfAny(node as Element, id, ops);
     return id;

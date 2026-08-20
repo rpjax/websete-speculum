@@ -37,9 +37,29 @@ const MAX_DIVERGENCES = 50;
 export function countShadowTrees(node: TreeNode): number {
   let n = 0;
   if (node.shadow !== undefined) n += 1 + countShadowTrees(node.shadow);
+  if (node.nested !== undefined) n += countShadowTrees(node.nested);
   const children = node.children ?? [];
   for (let i = 0; i < children.length; i++) n += countShadowTrees(children[i]!);
   return n;
+}
+
+/** Nested browsing-context documents captured in the snapshot (SO `contentDocument`). */
+export function countNestedDocuments(node: TreeNode): number {
+  let n = 0;
+  if (node.nested !== undefined) n += 1 + countNestedDocuments(node.nested);
+  if (node.shadow !== undefined) n += countNestedDocuments(node.shadow);
+  const children = node.children ?? [];
+  for (let i = 0; i < children.length; i++) n += countNestedDocuments(children[i]!);
+  return n;
+}
+
+export function collectFrameHrefs(node: TreeNode, out: string[] = []): string[] {
+  if (node.frameHref) out.push(node.frameHref);
+  if (node.nested) collectFrameHrefs(node.nested, out);
+  if (node.shadow) collectFrameHrefs(node.shadow, out);
+  const children = node.children ?? [];
+  for (let i = 0; i < children.length; i++) collectFrameHrefs(children[i]!, out);
+  return out;
 }
 
 export function diffTrees(virtual: TreeNode, client: TreeNode): StructuralDiffResult {
@@ -96,6 +116,9 @@ function walk(
 
   if (a.shadow !== undefined || b.shadow !== undefined) {
     walk(a.shadow, b.shadow, `${path}>${a.tag}::shadow`, record);
+  }
+  if (a.nested !== undefined || b.nested !== undefined) {
+    walk(a.nested, b.nested, `${path}>${a.tag}::nested`, record);
   }
 }
 

@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.desyncPhase = exports.isProjectionTelemetryMessage = exports.TELEMETRY_BOOL_CAPS = exports.LAB_TELEMETRY_DEFAULTS = exports.DEFAULT_TELEMETRY_CONFIG = exports.TELEMETRY_WIRE_VERSION = exports.PersistentStringTable = exports.FramePartAssembler = exports.decodeFramePart = exports.createFrame = exports.INSERT_AT_END = exports.DOCUMENT_ID = exports.FRAME_WIRE_VERSION = exports.elementNsSnapshotLabel = exports.elementNsUri = exports.classifyElementNs = exports.ELEMENT_NS_MATHML = exports.ELEMENT_NS_SVG = exports.ELEMENT_NS_HTML = exports.ElementNs = exports.NodeKind = exports.opCodeName = exports.OpCode = exports.NONE_DOM_NODE_KEY = void 0;
+exports.desyncPhase = exports.isProjectionTelemetryMessage = exports.TELEMETRY_BOOL_CAPS = exports.LAB_TELEMETRY_DEFAULTS = exports.DEFAULT_TELEMETRY_CONFIG = exports.TELEMETRY_WIRE_VERSION = exports.PersistentStringTable = exports.FramePartAssembler = exports.peekFrameHeader = exports.decodeFramePart = exports.isNestedHostNavAttr = exports.ContextIdMint = exports.createFrame = exports.INSERT_AT_END = exports.CONTEXT_ID_ROOT = exports.DOCUMENT_ID = exports.FRAME_PREFIX_BYTES = exports.FRAME_WIRE_VERSION = exports.unpackElementNsWireByte = exports.packElementNsWireByte = exports.elementNsSnapshotLabel = exports.elementNsUri = exports.classifyElementNs = exports.ELEMENT_NS_NESTED_HOST_BIT = exports.ELEMENT_NS_MATHML = exports.ELEMENT_NS_SVG = exports.ELEMENT_NS_HTML = exports.ElementNs = exports.NodeKind = exports.opCodeName = exports.OpCode = exports.NONE_DOM_NODE_KEY = void 0;
 /** Shared wire models — sidecar imports these to decode Virtual→host frames. */
 var domNodeKey_1 = require("./domNodeKey");
 Object.defineProperty(exports, "NONE_DOM_NODE_KEY", { enumerable: true, get: function () { return domNodeKey_1.NONE_DOM_NODE_KEY; } });
@@ -13,16 +13,26 @@ Object.defineProperty(exports, "ElementNs", { enumerable: true, get: function ()
 Object.defineProperty(exports, "ELEMENT_NS_HTML", { enumerable: true, get: function () { return elementNs_1.ELEMENT_NS_HTML; } });
 Object.defineProperty(exports, "ELEMENT_NS_SVG", { enumerable: true, get: function () { return elementNs_1.ELEMENT_NS_SVG; } });
 Object.defineProperty(exports, "ELEMENT_NS_MATHML", { enumerable: true, get: function () { return elementNs_1.ELEMENT_NS_MATHML; } });
+Object.defineProperty(exports, "ELEMENT_NS_NESTED_HOST_BIT", { enumerable: true, get: function () { return elementNs_1.ELEMENT_NS_NESTED_HOST_BIT; } });
 Object.defineProperty(exports, "classifyElementNs", { enumerable: true, get: function () { return elementNs_1.classifyElementNs; } });
 Object.defineProperty(exports, "elementNsUri", { enumerable: true, get: function () { return elementNs_1.elementNsUri; } });
 Object.defineProperty(exports, "elementNsSnapshotLabel", { enumerable: true, get: function () { return elementNs_1.elementNsSnapshotLabel; } });
+Object.defineProperty(exports, "packElementNsWireByte", { enumerable: true, get: function () { return elementNs_1.packElementNsWireByte; } });
+Object.defineProperty(exports, "unpackElementNsWireByte", { enumerable: true, get: function () { return elementNs_1.unpackElementNsWireByte; } });
 var frame_1 = require("./frame");
 Object.defineProperty(exports, "FRAME_WIRE_VERSION", { enumerable: true, get: function () { return frame_1.FRAME_WIRE_VERSION; } });
+Object.defineProperty(exports, "FRAME_PREFIX_BYTES", { enumerable: true, get: function () { return frame_1.FRAME_PREFIX_BYTES; } });
 Object.defineProperty(exports, "DOCUMENT_ID", { enumerable: true, get: function () { return frame_1.DOCUMENT_ID; } });
+Object.defineProperty(exports, "CONTEXT_ID_ROOT", { enumerable: true, get: function () { return frame_1.CONTEXT_ID_ROOT; } });
 Object.defineProperty(exports, "INSERT_AT_END", { enumerable: true, get: function () { return frame_1.INSERT_AT_END; } });
 Object.defineProperty(exports, "createFrame", { enumerable: true, get: function () { return frame_1.createFrame; } });
+var contextIdMint_1 = require("./contextIdMint");
+Object.defineProperty(exports, "ContextIdMint", { enumerable: true, get: function () { return contextIdMint_1.ContextIdMint; } });
+var nestedNav_1 = require("./nestedNav");
+Object.defineProperty(exports, "isNestedHostNavAttr", { enumerable: true, get: function () { return nestedNav_1.isNestedHostNavAttr; } });
 var decode_1 = require("./decode");
 Object.defineProperty(exports, "decodeFramePart", { enumerable: true, get: function () { return decode_1.decodeFramePart; } });
+Object.defineProperty(exports, "peekFrameHeader", { enumerable: true, get: function () { return decode_1.peekFrameHeader; } });
 Object.defineProperty(exports, "FramePartAssembler", { enumerable: true, get: function () { return decode_1.FramePartAssembler; } });
 Object.defineProperty(exports, "PersistentStringTable", { enumerable: true, get: function () { return decode_1.PersistentStringTable; } });
 var telemetry_1 = require("./telemetry");

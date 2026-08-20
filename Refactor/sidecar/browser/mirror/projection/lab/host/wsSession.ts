@@ -66,7 +66,7 @@ export class WsLabConnection {
     return `${this.opts.publicOrigin}/${rel}`;
   }
 
-  async requestClientSnapshot(timeoutMs = 5000): Promise<ClientStateSnapshot | null> {
+  async requestClientSnapshot(contextId: number, timeoutMs = 5000): Promise<ClientStateSnapshot | null> {
     if (this.client === null || this.client.readyState !== this.client.OPEN) return null;
     if (this.pendingSnapshot !== null) return null;
     return new Promise<ClientStateSnapshot | null>((resolve) => {
@@ -75,7 +75,7 @@ export class WsLabConnection {
         resolve(null);
       }, timeoutMs);
       this.pendingSnapshot = { resolve, timer };
-      this.send({ type: 'requestSnapshot' });
+      this.send({ type: 'requestSnapshot', contextId });
     });
   }
 
@@ -221,7 +221,7 @@ export class WsLabConnection {
           const result = await executeBlueprint(bp, {
             chassis: this.chassis,
             resolveUrl: (u) => this.resolveUrl(u),
-            requestClientSnapshot: () => this.requestClientSnapshot(),
+            requestClientSnapshot: (contextId) => this.requestClientSnapshot(contextId),
             requestTamper: () => this.requestTamper(),
             injectClientFrame: (bytes) => this.injectClientFrame(bytes),
             overrides,
@@ -277,6 +277,7 @@ export class WsLabConnection {
         this.chassis.browser?.sendPageProjectionControl?.({
           type: 'requestResync',
           reason: msg.reason ?? 'client',
+          contextId: typeof msg.contextId === 'number' && msg.contextId > 0 ? msg.contextId : 1,
         });
         return;
       }
@@ -294,6 +295,7 @@ export class WsLabConnection {
               ? (tableRaw as ReplicatedTableDigest)
               : null;
           pending.resolve({
+            contextId: typeof msg.contextId === 'number' ? msg.contextId : 1,
             tree: (msg.tree as TreeNode) ?? null,
             table,
             sequence: msg.sequence ?? null,

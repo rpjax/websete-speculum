@@ -3,15 +3,17 @@
 **Status:** official spec for `MirrorMode.PageProjection`.  
 **Accept bar:** [acceptance.md](acceptance.md) — 1:1 with the original site. **DOM** numerical; **CSSOM live** perceived/eventual (not 60 Hz lockstep).  
 **Protocol:** [frame-protocol.md](frame-protocol.md) — the V4 engine (replicated table, binary frames, two-phase apply, resync).  
-**Where you are:** the V4 **algorithm** under `Refactor/sidecar/browser/mirror/projection/` implements DOM table (single document), open named shadow, CSSOM for constructed adopted sheets + `CSSStyleRule` (including admitted shadow roots), and form `PROP_SET`. The **lab** is a harness that drives that algorithm — not the algorithm itself. Production (`PatchrightBrowserSession.ts`) still runs the **legacy** `LivePageProjection` path. `V4ProjectionBrowserSession` is the **temporary** session wrapper; at cutover it must be **complete** — [roadmap.md](roadmap.md) CUTOVER-SESSION. **Production cutover waits for the full product** (CSSOM + shadow + multi-document + redesigned input + **canvas projection** as last product feature). Next work: [multi-document.md](multi-document.md) (off-tree kind 2).
+**Where you are:** the V4 **algorithm** under `Refactor/sidecar/browser/mirror/projection/` implements DOM table, open named shadow, CSSOM for constructed adopted sheets + `CSSStyleRule` (including admitted shadow roots), form `PROP_SET`, and **lab same-origin nested iframes**. The **lab** is a harness that drives that algorithm — not the algorithm itself. Production (`PatchrightBrowserSession.ts`) still runs the **legacy** `LivePageProjection` path. `V4ProjectionBrowserSession` is the **temporary** session wrapper; at cutover it must be **complete** — [roadmap.md](roadmap.md) CUTOVER-SESSION. **Production cutover waits for the full product** (CSSOM + shadow + multi-document + redesigned input + **canvas projection** as last product feature). Remaining nested: XO / NIT flavours — [multi-document.md](multi-document.md).
 
 If you are an agent with limited context: **read this file (including Now), then `acceptance.md`, then `open.md`, then `seal-gaps.md`, then `roadmap.md`, then only the protocol sections you are changing.** Do not open `../archive/`.
 
 ---
 
-## Now (2026-08-18) — start a new chat here
+## Now (2026-08-19) — start a new chat here
 
-Next: **nested browsing contexts** ([multi-document.md](multi-document.md)). Open named shadow **closed 2026-08-18** ([shadow.md](shadow.md), lab `shadow-open`). Form `PROP_SET` **closed 2026-08-18**.
+Same-origin nested iframe in the **lab** (`iframe-open`, `iso.nested` + `iso.nested.blank`). Open named shadow **closed 2026-08-18**. Form `PROP_SET` **closed 2026-08-18**. Production cutover **not** licensed.
+
+**Next lab work:** multi-context observability (OPEN-6) — telemetry `contextId` + bus fan-out, snapshot RPC per scope, lab context index, iso N-way. See [observability.md](observability.md) §10.
 
 SVG / namespaced `NODE_NEW` **closed 2026-08-17**. Do **not** reopen apply honesty ([observability.md](observability.md) §7).
 
@@ -36,7 +38,7 @@ Talk to Rodrigo in Portuguese, papo reto: simple idea → simple sentence. Techn
 | CSSOM sensor **journey** (two truths, why not hooks/CDP, foundation vs amortizations) | **[cssom-sensor-journey.md](cssom-sensor-journey.md)** |
 | Off-`childNodes` subtrees (LOCKED) | **[subtrees.md](subtrees.md)** — two kinds only: shadow vs nested browsing context |
 | Shadow (kind 1) | **[shadow.md](shadow.md)** — same instance; walker follows `.shadowRoot` |
-| Multi-document (OPEN-6, kind 2) | **[multi-document.md](multi-document.md)** — N contexts; `contextId` on PP header; parent `hosts` map; DataPlane is a dumb mux |
+| Multi-document (OPEN-6, kind 2) | **[multi-document.md](multi-document.md)** — runtime implements `emitFrame`; algorithm per `window`; header `contextId` = mine; child-scope indexer; bus (postMessage) |
 | Input intents | **[input.md](input.md)** — address by `uint32` only |
 | Asset serve plane | **[virtual-assets.md](virtual-assets.md)** |
 | Published product gaps | **[support-matrix.md](support-matrix.md)** |
@@ -86,8 +88,8 @@ docs/page-projection/
     cssom-poll-algorithm.md poll sensor (I1–I11)
     cssom-sensor-journey.md why this detector; two truths; rulings
     subtrees.md             LOCKED: two off-childNodes kinds (shadow, nested browsing context)
-    shadow.md               kind 1 — same instance; next feature
-    multi-document.md       OPEN-6: N contexts, contextId on PP header, parent hosts map
+    shadow.md               kind 1 — same instance; open/named shipped
+    multi-document.md       OPEN-6: runtime ≠ algorithm; contextId u32; child-scope indexer; RPC pipe
     input.md                Projected → Virtual intents
     virtual-assets.md       URL serve plane
     support-matrix.md       accepted product gaps

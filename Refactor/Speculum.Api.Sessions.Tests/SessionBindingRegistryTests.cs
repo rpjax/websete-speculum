@@ -194,7 +194,7 @@ public sealed class SessionBindingRegistryTests
             => Result.Success();
 
         public IResult<IFrameStream> OpenFrameStream(Guid consumerId) => throw new NotSupportedException();
-        public IResult<IPageProjectionDiffStream> OpenPageProjectionDiffStream(Guid consumerId) => throw new NotSupportedException();
+        public IResult<IPageProjectionFramesStream> OpenPageProjectionFramesStream(Guid consumerId) => throw new NotSupportedException();
         public IResult<IConsoleOutputStream> OpenConsoleOutputStream(Guid consumerId) => throw new NotSupportedException();
         public IResult<INotificationStream> OpenNotificationStream(Guid consumerId) => throw new NotSupportedException();
 
@@ -327,37 +327,29 @@ public sealed class SessionBindingRegistryTests
             string? rangeHeader = null)
             => throw new NotSupportedException();
 
-        public Task<IResult<PageProjectionResyncSnapshot>> GetPageProjectionResyncAsync(
-            long generation,
-            long sequence,
-            CancellationToken ct = default)
-            => throw new NotSupportedException();
-
+        public Task<IResult> RequestResyncAsync(uint contextId = 1, string? reason = null, CancellationToken ct = default)
+            => Task.FromResult<IResult>(Result.Success());
         public Task<IResult> PutDomUploadAsync(
             string uploadId,
             byte[] body,
             string contentType,
             string name,
             CancellationToken ct = default)
-            => throw new NotSupportedException();
-
-        public Task<IResult> ReportPageProjectionClientStateAsync(
-            PageProjectionClientStateReport report,
-            CancellationToken ct = default)
-            => throw new NotSupportedException();
+            => Task.FromResult<IResult>(Result.Success());
 
         public IResult<Guid> RegisterCameraPermission(
             Func<CancellationToken, Task<PermissionDecision>> handler)
-            => throw new NotSupportedException();
+            => Result<Guid>.Failure("not implemented");
 
         public IResult UnregisterCameraPermission(Guid registrationId)
-            => throw new NotSupportedException();
+            => Result.Failure("not implemented");
 
         public IResult<Guid> RegisterMicrophonePermission(
             Func<CancellationToken, Task<PermissionDecision>> handler)
-            => throw new NotSupportedException();
+            => Result<Guid>.Failure("not implemented");
 
         public IResult UnregisterMicrophonePermission(Guid registrationId)
-            => throw new NotSupportedException();
+            => Result.Failure("not implemented");
+
     }
 }

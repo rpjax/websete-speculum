@@ -206,7 +206,8 @@ async function executeBlueprint(bp, hooks) {
             });
             return { ok, detail };
         };
-        switch (action.type) {
+        const actionType = action.type === 'pushDomInput' ? 'pushInput' : action.type;
+        switch (actionType) {
             case 'boot': {
                 const urlRaw = (typeof overrides.url === 'string' && overrides.url) ||
                     (typeof params.url === 'string' ? params.url : null);
@@ -265,10 +266,12 @@ async function executeBlueprint(bp, hooks) {
                 });
                 return finish(r.ok, r.errorMessage);
             }
-            case 'pushDomInput': {
+            case 'pushInput': {
                 const session = chassis.browser;
-                if (!session?.pushDomInput)
-                    return finish(false, 'pushDomInput missing');
+                const pushFn = session.pushInput?.bind(session);
+                if (!session || !pushFn)
+                    return finish(false, 'pushInput missing');
+                const push = pushFn;
                 const sequence = params.sequence;
                 if (Array.isArray(sequence)) {
                     for (const step of sequence) {
@@ -328,7 +331,7 @@ async function executeBlueprint(bp, hooks) {
                                 payloadJson: basePayload,
                             };
                             for (const type of ['mousemove', 'mousedown', 'mouseup']) {
-                                const out = await session.pushDomInput({ ...base, type });
+                                const out = await push({ ...base, type });
                                 if (out.status === 'dropped')
                                     return finish(false, `${type}: ${out.reason}`);
                             }
@@ -376,26 +379,44 @@ async function executeBlueprint(bp, hooks) {
                             chassis.journal.acts.push({ name: `scrollViewport:${scrollY}`, ok: true });
                             continue;
                         }
-                        const out = await session.pushDomInput(st);
+                        const out = await push(st);
                         if (out.status === 'dropped')
                             return finish(false, out.reason);
                     }
                     return finish(true);
                 }
-                const out = await session.pushDomInput(params);
+                const out = await push(params);
                 return finish(out.status === 'dispatched', out.status === 'dropped' ? out.reason : undefined);
             }
             case 'snap': {
                 const session = chassis.browser;
-                if (!session?.flushProjectionSnapshot)
-                    return finish(false, 'flushProjectionSnapshot missing');
+                if (!session)
+                    return finish(false, 'no session');
                 const mode = params.cssom ?? 'scan';
                 const id = String(params.id ?? action.id);
                 try {
-                    const result = await session.flushProjectionSnapshot({
-                        includeTree: params.includeTree === true,
+                    await session.haltClocks?.();
+                    const view = await (0, isomorphism_1.captureVirtualLabSnap)(session, 1, {
+                        table: 'full',
+                        tree: params.includeTree === true,
                         cssom: mode,
+                        formProps: true,
+                        frameNewNodes: true,
+                        liveChildOrder: true,
                     });
+                    const result = {
+                        ok: view.ok,
+                        reason: view.reason,
+                        generation: view.generation,
+                        sequence: view.sequence,
+                        o2: view.o2,
+                        cssomO2: view.cssomO2,
+                        table: view.table,
+                        tree: view.tree,
+                        formProps: view.formProps,
+                        nodeNewConnected: view.nodeNewConnected,
+                        cascade: view.cascade,
+                    };
                     chassis.journal.snaps.push({ id, mode, result });
                     if (chassis.dossierHandle) {
                         await (0, write_1.writeJson)(chassis.dossierHandle, `probes/snaps/${id}.json`, result, 'probes.snap');
@@ -403,7 +424,7 @@ async function executeBlueprint(bp, hooks) {
                     return finish(result.ok !== false, result.ok === false ? String(result.reason) : id);
                 }
                 finally {
-                    await session.resumeProjectionWorld?.();
+                    await session.resumeClocks?.();
                 }
             }
             case 'opWindow.start': {
@@ -415,8 +436,7 @@ async function executeBlueprint(bp, hooks) {
                 return finish(true, JSON.stringify(counts));
             }
             case 'requestResync': {
-                chassis.browser?.sendPageProjectionControl?.({
-                    type: 'requestResync',
+                await chassis.browser?.requestResync?.({
                     reason: String(params.reason ?? bp.id),
                     contextId: typeof params.contextId === 'number' && params.contextId > 0 ? params.contextId : 1,
                 });

@@ -6,7 +6,7 @@ namespace Speculum.Api.Sessions.Services.Streaming;
 internal enum OutputStreamKind
 {
     Frame,
-    PageProjectionDiff,
+    PageProjectionFrames,
     Console,
     Notification,
 }
@@ -17,7 +17,7 @@ internal static class OutputStreamKindNames
         => kind switch
         {
             OutputStreamKind.Frame => "frame",
-            OutputStreamKind.PageProjectionDiff => "pageProjectionDiff",
+            OutputStreamKind.PageProjectionFrames => "pageProjectionFrames",
             OutputStreamKind.Console => "console",
             OutputStreamKind.Notification => "notification",
             _ => "?",

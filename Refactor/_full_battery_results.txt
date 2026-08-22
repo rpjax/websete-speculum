@@ -1,0 +1,3 @@
+dotnet:Speculum.Api.Journal.Tests	1
+dotnet:Speculum.Api.Sessions.Tests	1
+dotnet:Speculum.Api.Telemetry.Tests	0

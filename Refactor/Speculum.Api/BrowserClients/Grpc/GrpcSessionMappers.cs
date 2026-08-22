@@ -21,22 +21,17 @@ namespace Speculum.Api.BrowserClients.Grpc;
 
 internal static class GrpcSessionMappers
 {
-    public static LaunchRequest ToLaunchRequest(
+    public static LaunchVideoStreamingRequest ToLaunchVideoStreamingRequest(
         Guid sessionId,
         int width,
         int height,
         SessionConfig configuration,
         Speculum.Api.Configurations.Models.Sessions.ViewportPolicy policy,
-        double screencastMaxEncodeScale = 2,
-        Speculum.Api.Configurations.Models.Sessions.MirrorMode mirrorMode =
-            Speculum.Api.Configurations.Models.Sessions.MirrorMode.VideoStreaming,
-        int pageProjectionDiffQueueCapacity = SequencedDiffChannels.DefaultCapacity,
-        Speculum.Api.Configurations.Models.Sessions.PageProjectionOptions? pageProjection = null)
+        double screencastMaxEncodeScale = 2)
     {
         ArgumentNullException.ThrowIfNull(configuration);
         ArgumentNullException.ThrowIfNull(policy);
-        var pp = pageProjection ?? new Speculum.Api.Configurations.Models.Sessions.PageProjectionOptions();
-        var request = new LaunchRequest
+        var request = new LaunchVideoStreamingRequest
         {
             SessionId = sessionId.ToString("D"),
             Width = width,
@@ -46,7 +41,32 @@ internal static class GrpcSessionMappers
             DisplayWidth = policy.Maximum.Width,
             DisplayHeight = policy.Maximum.Height,
             ScreencastMaxEncodeScale = ClampScreencastMaxEncodeScale(screencastMaxEncodeScale),
-            MirrorMode = ToMirrorModeWire(mirrorMode),
+        };
+        ApplyCommonLaunchFields(request, configuration);
+        return request;
+    }
+
+    public static LaunchPageProjectionRequest ToLaunchPageProjectionRequest(
+        Guid sessionId,
+        int width,
+        int height,
+        SessionConfig configuration,
+        Speculum.Api.Configurations.Models.Sessions.ViewportPolicy policy,
+        int pageProjectionDiffQueueCapacity = SequencedDiffChannels.DefaultCapacity,
+        Speculum.Api.Configurations.Models.Sessions.PageProjectionOptions? pageProjection = null)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+        ArgumentNullException.ThrowIfNull(policy);
+        var pp = pageProjection ?? new Speculum.Api.Configurations.Models.Sessions.PageProjectionOptions();
+        var request = new LaunchPageProjectionRequest
+        {
+            SessionId = sessionId.ToString("D"),
+            Width = width,
+            Height = height,
+            MinWidth = policy.Minimum.Width,
+            MinHeight = policy.Minimum.Height,
+            DisplayWidth = policy.Maximum.Width,
+            DisplayHeight = policy.Maximum.Height,
             PageProjectionDiffQueueCapacity = ClampPageProjectionDiffQueueCapacity(
                 pageProjectionDiffQueueCapacity),
             FrameRateHz = Math.Max(0, pp.FrameRateHz),
@@ -70,6 +90,14 @@ internal static class GrpcSessionMappers
             if (hz > 0) request.FrameRateLadder.Add(hz);
         }
 
+        ApplyCommonLaunchFields(request, configuration);
+        return request;
+    }
+
+    private static void ApplyCommonLaunchFields(
+        LaunchVideoStreamingRequest request,
+        SessionConfig configuration)
+    {
         var environment = configuration.ClientEnvironment
             ?? throw new ArgumentException(
                 "SessionConfig.ClientEnvironment is required",
@@ -114,8 +142,56 @@ internal static class GrpcSessionMappers
         {
             request.AllowedNavigationDomains.AddRange(domains);
         }
+    }
 
-        return request;
+    private static void ApplyCommonLaunchFields(
+        LaunchPageProjectionRequest request,
+        SessionConfig configuration)
+    {
+        var environment = configuration.ClientEnvironment
+            ?? throw new ArgumentException(
+                "SessionConfig.ClientEnvironment is required",
+                nameof(configuration));
+        request.Locale = environment.Locale;
+        request.Language = environment.Language;
+        request.TimezoneId = environment.TimeZoneId;
+        request.ColorScheme = environment.ColorScheme;
+
+        if (environment.Geolocation is { } geolocation)
+        {
+            request.Geolocation = new ProtoGeolocation
+            {
+                Latitude = geolocation.Latitude,
+                Longitude = geolocation.Longitude,
+                Accuracy = geolocation.Accuracy,
+            };
+        }
+
+        if (configuration.Device is { } device)
+        {
+            request.Device = ToProtoDevice(device);
+        }
+
+        if (configuration.Scripts is { Count: > 0 } scripts)
+        {
+            foreach (var s in scripts)
+            {
+                request.Scripts.Add(new ProtoScript
+                {
+                    Position = s.Position,
+                    Type = s.Type,
+                    File = s.File,
+                    Content = s.Content ?? "",
+                    RemoteUrl = s.RemoteUrl ?? "",
+                });
+                request.Scripts[^1].TargetRules.AddRange(s.TargetRules.Select(ToProtoUrlMatchRule));
+            }
+        }
+
+        if (configuration.AllowedNavigationDomains is { Count: > 0 } domains)
+        {
+            request.AllowedNavigationDomains.AddRange(domains);
+        }
     }
 
     public static double ClampScreencastMaxEncodeScale(double value)
@@ -568,7 +644,7 @@ internal static class GrpcSessionMappers
     /// API relays those bytes without parsing. Only the legacy V1 JSON-body scheme (non-empty
     /// plane and operation, JSON payload) is decoded into typed payloads below.
     /// </summary>
-    public static PageProjectionDiff? ToPageProjectionDiff(PageProjectionDiffFrame frame)
+    public static PageProjectionDiff? ToPageProjectionDiff(PageProjectionFrame frame)
     {
         var plane = (frame.Plane ?? string.Empty).Trim();
         var operation = (frame.Operation ?? string.Empty).Trim();
@@ -596,6 +672,7 @@ internal static class GrpcSessionMappers
                 PartCount = frame.PartCount == 0 ? 1 : frame.PartCount,
                 Flags = frame.Flags,
                 Version = frame.Version == 0 ? 1 : frame.Version,
+                ContextId = frame.ContextId == 0 ? 1 : frame.ContextId,
             };
         }
 

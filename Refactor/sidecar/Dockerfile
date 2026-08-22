@@ -51,6 +51,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
+# file: dep resolves to /packages/page-projection (sibling of /app)
+COPY packages/page-projection /packages/page-projection
+WORKDIR /packages/page-projection
+RUN npm install --no-save typescript@5.4.5 && npm run build
+
+WORKDIR /app
 COPY sidecar/package.json sidecar/package-lock.json ./
 RUN npm ci
 

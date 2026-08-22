@@ -43,15 +43,30 @@ export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.Un
       }
     },
 
-    async launch(
+    async launchPageProjection(
       call: grpc.ServerUnaryCall<any, any>,
       callback: grpc.sendUnaryData<any>,
     ): Promise<void> {
       try {
-        const sessionId = requireSessionId(call.request);
-        const { session, bridge } = registry.get(sessionId);
-        const options = toLaunchOptions(call.request);
+        const sid = requireSessionId(call.request);
+        const { session, bridge } = registry.get(sid);
+        const options = toLaunchOptions({ ...call.request, mirrorMode: 'pageProjection' });
         bridge.configureDomCapacity(options.pageProjectionDiffQueueCapacity);
+        const ready = await session.launch(options);
+        callback(null, ready);
+      } catch (err) {
+        callback(grpcError(err), null);
+      }
+    },
+
+    async launchVideoStreaming(
+      call: grpc.ServerUnaryCall<any, any>,
+      callback: grpc.sendUnaryData<any>,
+    ): Promise<void> {
+      try {
+        const sid = requireSessionId(call.request);
+        const { session } = registry.get(sid);
+        const options = toLaunchOptions({ ...call.request, mirrorMode: 'videoStreaming' });
         const ready = await session.launch(options);
         callback(null, ready);
       } catch (err) {
@@ -163,6 +178,32 @@ export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.Un
       try {
         const { session } = registry.get(requireSessionId(call.request));
         await session.refresh();
+        callback(null, {});
+      } catch (err) {
+        callback(grpcError(err), null);
+      }
+    },
+
+    async goBack(
+      call: grpc.ServerUnaryCall<any, any>,
+      callback: grpc.sendUnaryData<any>,
+    ): Promise<void> {
+      try {
+        const { session } = registry.get(requireSessionId(call.request));
+        await session.goBack();
+        callback(null, {});
+      } catch (err) {
+        callback(grpcError(err), null);
+      }
+    },
+
+    async goForward(
+      call: grpc.ServerUnaryCall<any, any>,
+      callback: grpc.sendUnaryData<any>,
+    ): Promise<void> {
+      try {
+        const { session } = registry.get(requireSessionId(call.request));
+        await session.goForward();
         callback(null, {});
       } catch (err) {
         callback(grpcError(err), null);
@@ -285,7 +326,7 @@ export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.Un
       watchStream(call, registry, (b) => b.video, (jpeg) => ({ jpeg }));
     },
 
-    watchPageProjectionDiff(call: grpc.ServerWritableStream<any, any>): void {
+    watchPageProjectionFrames(call: grpc.ServerWritableStream<any, any>): void {
       watchStream(
         call,
         registry,
@@ -297,11 +338,11 @@ export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.Un
           operation: d.operation,
           timestampMs: d.timestampMs,
           body: d.body,
-          // §5.5 binary wire — defaults reproduce a single-part V1 JSON frame's shape.
           partIndex: d.partIndex ?? 0,
           partCount: d.partCount ?? 1,
           flags: d.flags ?? 0,
           version: d.version ?? 1,
+          contextId: d.contextId ?? 1,
         }),
         (bridge) => ({
           onAfterDequeue: () => {
@@ -435,7 +476,8 @@ export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.Un
       pumpClientStream(call, callback, async (msg) => {
         const sid = requireSessionId(msg);
         const { session, bridge } = registry.get(sid);
-        if (!session.pushDomInput) {
+        const pushDom = (session as { pushDomInput?: (i: unknown) => Promise<{ status: string; reason?: string }> }).pushDomInput;
+        if (!pushDom) {
           throw Object.assign(new Error('PageProjection input not supported'), {
             code: 'FAILED_PRECONDITION',
           });
@@ -444,7 +486,7 @@ export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.Un
         const generation = Number(msg.generation ?? 0) || undefined;
         const rawTargetId = msg.targetId ?? msg.target_id;
         const targetId = rawTargetId != null ? Number(rawTargetId) : null;
-        const outcome = await session.pushDomInput({
+        const outcome = await pushDom({
           type: kind,
           anchor: msg.anchor != null ? String(msg.anchor) : null,
           targetId: targetId != null && Number.isFinite(targetId) ? targetId : null,
@@ -480,27 +522,6 @@ export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.Un
           });
         }
       });
-    },
-
-    reportPageProjectionClientState(
-      call: grpc.ServerUnaryCall<any, any>,
-      callback: grpc.sendUnaryData<any>,
-    ): void {
-      try {
-        const { session } = registry.get(requireSessionId(call.request));
-        session.reportPageProjectionClientState?.({
-          visibility: String(call.request.visibility ?? '') === 'hidden' ? 'hidden' : 'visible',
-          appliedThroughSequence:
-            Number(call.request.appliedThroughSequence ?? call.request.applied_through_sequence ?? 0) || 0,
-          queuedFrames: Number(call.request.queuedFrames ?? call.request.queued_frames ?? 0) || 0,
-          applyP50Ms: Number(call.request.applyP50Ms ?? call.request.apply_p50_ms ?? 0) || 0,
-          applyP95Ms: Number(call.request.applyP95Ms ?? call.request.apply_p95_ms ?? 0) || 0,
-          overrunCount: Number(call.request.overrunCount ?? call.request.overrun_count ?? 0) || 0,
-        });
-        callback(null, {});
-      } catch (err) {
-        callback(grpcError(err), null);
-      }
     },
 
     async getDomAsset(
@@ -552,47 +573,115 @@ export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.Un
       }
     },
 
-    async getPageProjectionResync(
+    async requestResync(
       call: grpc.ServerUnaryCall<any, any>,
       callback: grpc.sendUnaryData<any>,
     ): Promise<void> {
       try {
         const { session } = registry.get(requireSessionId(call.request));
-        if (!session.getPageProjectionResync) {
-          callback(grpcError(Object.assign(new Error('PageProjection resync unsupported'), {
-            code: 'FAILED_PRECONDITION',
-          })), null);
+        if (!session.requestResync) {
+          callback(
+            grpcError(
+              Object.assign(new Error('requestResync unsupported'), {
+                code: 'FAILED_PRECONDITION',
+              }),
+            ),
+            null,
+          );
           return;
         }
-        const snap = await session.getPageProjectionResync({
-          generation: Number(call.request.generation ?? 0) || undefined,
-          sequence: Number(call.request.sequence ?? 0) || undefined,
+        const contextId = Number(call.request.contextId ?? call.request.context_id ?? 1) || 1;
+        await session.requestResync({
+          contextId,
+          reason: call.request.reason != null ? String(call.request.reason) : undefined,
         });
-        if (!snap) {
-          callback(grpcError(Object.assign(new Error('resync snapshot unavailable'), {
-            code: 'FAILED_PRECONDITION',
-            errorCode: 'resync_unavailable',
-            phase: 'capture',
-          })), null);
+        callback(null, {});
+      } catch (err) {
+        callback(grpcError(err), null);
+      }
+    },
+
+    async haltClocks(
+      call: grpc.ServerUnaryCall<any, any>,
+      callback: grpc.sendUnaryData<any>,
+    ): Promise<void> {
+      try {
+        const { session } = registry.get(requireSessionId(call.request));
+        const r = (await session.haltClocks?.()) ?? { ok: false, reason: 'unsupported' };
+        callback(null, r);
+      } catch (err) {
+        callback(grpcError(err), null);
+      }
+    },
+
+    async resumeClocks(
+      call: grpc.ServerUnaryCall<any, any>,
+      callback: grpc.sendUnaryData<any>,
+    ): Promise<void> {
+      try {
+        const { session } = registry.get(requireSessionId(call.request));
+        const r = (await session.resumeClocks?.()) ?? { ok: false, reason: 'unsupported' };
+        callback(null, r);
+      } catch (err) {
+        callback(grpcError(err), null);
+      }
+    },
+
+    async emitFrame(
+      call: grpc.ServerUnaryCall<any, any>,
+      callback: grpc.sendUnaryData<any>,
+    ): Promise<void> {
+      try {
+        const { session } = registry.get(requireSessionId(call.request));
+        const contextId = Number(call.request.contextId ?? call.request.context_id ?? 0) || undefined;
+        const r = (await session.emitFrame?.(contextId)) ?? { ok: false, reason: 'unsupported' };
+        callback(null, r);
+      } catch (err) {
+        callback(grpcError(err), null);
+      }
+    },
+
+    async getStateSnapshot(
+      call: grpc.ServerUnaryCall<any, any>,
+      callback: grpc.sendUnaryData<any>,
+    ): Promise<void> {
+      try {
+        const { session } = registry.get(requireSessionId(call.request));
+        const contextId = Number(call.request.contextId ?? call.request.context_id ?? 1) || 1;
+        if (!session.getStateSnapshot) {
+          callback(null, { ok: false, reason: 'unsupported', contextId, snapshotJson: '' });
+          return;
+        }
+        const tableRaw = String(call.request.table ?? 'digest');
+        const snap = await session.getStateSnapshot(contextId, {
+          table: tableRaw === 'full' ? 'full' : 'digest',
+          liveChildOrder: !!call.request.liveChildOrder || !!call.request.live_child_order,
+          cssom: (String(call.request.cssom ?? 'none') as 'none' | 'committed' | 'scan') || 'none',
+          tree: !!call.request.tree,
+          formProps: !!call.request.formProps || !!call.request.form_props,
+          frameNewNodes: !!call.request.frameNewNodes || !!call.request.frame_new_nodes,
+        });
+        if (!snap.ok) {
+          callback(null, {
+            ok: false,
+            reason: snap.reason,
+            contextId: snap.contextId ?? contextId,
+            snapshotJson: '',
+          });
           return;
         }
         callback(null, {
+          ok: true,
+          contextId: snap.contextId,
           generation: snap.generation,
-          coversThroughSequence: snap.coversThroughSequence,
-          frameParts: (snap.frameParts ?? []).map((p) =>
-            Buffer.isBuffer(p) ? p : Buffer.from(p),
-          ),
-          pageEpochId: snap.pageEpochId,
-          source: snap.source,
-          domMapMs: snap.domMapMs,
-          cssomCloneMs: snap.cssomCloneMs,
-          rewriteMs: snap.rewriteMs,
-          serializeMs: snap.serializeMs,
+          sequence: snap.sequence,
+          snapshotJson: JSON.stringify(snap),
         });
       } catch (err) {
         callback(grpcError(err), null);
       }
     },
+
 
     async putDomUpload(
       call: grpc.ServerUnaryCall<any, any>,

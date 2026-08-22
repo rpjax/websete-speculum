@@ -1,17 +1,17 @@
-# Speculum sidecar (Refactor) — Patchright BrowserSession over gRPC
+# Speculum sidecar (Refactor) — BrowserSession over gRPC
 
 Two ways to run this tree:
 
 | Path | What it is | Ports | Chrome |
 |------|------------|-------|--------|
-| **gRPC host** (`npm start`) | Production-shaped sidecar for Api | `50051` gRPC, `3001` health | mock or Patchright |
+| **gRPC host** (`npm start`) | Production-shaped sidecar for Api | `50051` gRPC, `3001` health | mock or sealed factory (PP / video) |
 | **PageProjection lab** (`npm run lab:projection`) | Dev-only V4 engine as a `BrowserSession` caller. No gRPC, no .NET. | `4077` HTTP + WS | Patchright (one Virtual per client session) |
 
-Production `PatchrightBrowserSession` / `LivePageProjection` is unchanged until M1 cutover. Lab detail (today): [browser/mirror/projection/lab/README.md](browser/mirror/projection/lab/README.md). Lab **target design**: [docs/page-projection/spec/lab-design.md](../../docs/page-projection/spec/lab-design.md). Spec index: [docs/page-projection/spec/README.md](../../docs/page-projection/spec/README.md).
+Live composition uses `createSealedBrowserSessionFactory`: Launch `mirrorMode=pageProjection` → `PageProjectionBrowserSession`; otherwise `VideoStreamingBrowserSession`. `LivePageProjection` is deleted. Lab detail: [browser/mirror/projection/lab/README.md](browser/mirror/projection/lab/README.md). Lab **target design**: [docs/page-projection/spec/lab-design.md](../../docs/page-projection/spec/lab-design.md). Spec index: [docs/page-projection/spec/README.md](../../docs/page-projection/spec/README.md).
 
 ## PageProjection lab (local)
 
-Dev surface for Projected Live. The lab process **does not** launch Chromium or call CDP itself — `V4ProjectionBrowserSession` owns Patchright, inject, dataplane, and probes. HTTP serves the client shell + fixtures; frames are relayed on the lab WebSocket for apply.
+Dev surface for Projected Live. The lab process **does not** launch Chromium or call CDP itself — `PageProjectionBrowserSession` owns Patchright, inject, dataplane, and probes. HTTP serves the client shell + fixtures; frames are relayed on the lab WebSocket for apply.
 
 ### Prerequisites
 

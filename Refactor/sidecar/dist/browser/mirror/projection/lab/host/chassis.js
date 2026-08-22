@@ -7,9 +7,8 @@ exports.LabChassis = exports.CssomOpWindow = void 0;
 exports.acceptClientTelemetry = acceptClientTelemetry;
 const node_crypto_1 = require("node:crypto");
 const telemetry_1 = require("@speculum/page-projection/core/telemetry");
-const V4ProjectionBrowserSession_1 = require("../../session/V4ProjectionBrowserSession");
+const PageProjectionBrowserSession_1 = require("../../session/PageProjectionBrowserSession");
 const v4LabLaunch_1 = require("../../session/v4LabLaunch");
-const virtualSnapshot_1 = require("../probes/virtualSnapshot");
 const cpuProfile_1 = require("../probes/cpuProfile");
 const write_1 = require("../dossier/write");
 const frameInvariantMonitor_1 = require("../probes/frameInvariantMonitor");
@@ -231,7 +230,7 @@ class LabChassis {
         return {
             onVideoFrame: () => undefined,
             onAudioFrame: () => undefined,
-            onPageProjectionDiff: (diff) => {
+            onPageProjectionFrame: (diff) => {
                 this.observeFrameBytes(Buffer.from(diff.body));
             },
             onPageProjectionTelemetry: (message) => {
@@ -288,10 +287,9 @@ class LabChassis {
         });
         record.dossierDir = this.dossier.dir;
         this.record = record;
-        const factory = (0, V4ProjectionBrowserSession_1.createV4ProjectionBrowserSessionFactory)({
+        const factory = (0, PageProjectionBrowserSession_1.createPageProjectionBrowserSessionFactory)({
             headless: this.opts.headless,
             probes: {
-                captureVirtualSnapshot: virtualSnapshot_1.captureVirtualSnapshot,
                 startCpuProfile: cpuProfile_1.startCpuProfile,
                 stopCpuProfile: cpuProfile_1.stopCpuProfile,
             },

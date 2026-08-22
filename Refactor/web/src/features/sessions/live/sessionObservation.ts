@@ -14,7 +14,7 @@ import {
   type FrontDebugLogFields,
   type FrontDebugLogLevel,
 } from '@/features/sessions/debug/frontDebugLog'
-import { pageProjectionLagMs } from '@/features/sessions/live/page/pageProjectionLag'
+import { pageProjectionLagMs } from '@/features/sessions/live/pageProjectionLag'
 import {
   inputConsoleLine,
   lineFromConsoleOutput,
@@ -289,7 +289,7 @@ export function useSessionObservation({
     }
   }, [])
 
-  const onPageProjectionDiffEnded = useCallback((info: { reason: 'wire_stall' }) => {
+  const onPageProjectionFrameEnded = useCallback((info: { reason: 'wire_stall' }) => {
     for (const sink of diffEndedSinksRef.current) {
       sink(info)
     }
@@ -327,7 +327,7 @@ export function useSessionObservation({
     }
   }, [])
 
-  const onPageProjectionDiff = useCallback((diff: PageProjectionDiff) => {
+  const onPageProjectionFrame = useCallback((diff: PageProjectionDiff) => {
     const tClient = performance.now()
     const plane = String(diff.plane ?? 'unknown')
     const operation = String(diff.operation ?? 'unknown')
@@ -496,13 +496,13 @@ export function useSessionObservation({
     trace,
     log,
     onFrame,
-    onPageProjectionDiff,
+    onPageProjectionFrame,
     attachFrameSink,
     attachPageProjectionDiffSink,
     attachPageProjectionLifecycleSink,
     attachPageProjectionDiffEndedSink,
     onPageProjectionLifecycle,
-    onPageProjectionDiffEnded,
+    onPageProjectionFrameEnded,
     observePageProjectionDiffApply,
     registerPageProjectionApplierProbe,
     readPageProjectionApplierProbe,

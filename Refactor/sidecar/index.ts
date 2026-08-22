@@ -1,13 +1,13 @@
 /**
- * Composition root — Patchright BrowserSession (legacy Live) by default; mock when SPECULUM_BROWSER=mock.
- * V4ProjectionBrowserSession is lab-only until cutover (then it must be this factory's complete session).
+ * Composition root — sealed BrowserSession factory (PP vs video at Launch mirrorMode).
+ * Mock when SPECULUM_BROWSER=mock.
  */
 
 import * as http from 'http';
 import * as fs from 'fs';
 import * as grpc from '@grpc/grpc-js';
 import { createMockBrowserSessionFactory } from './browser/MockBrowserSession';
-import { createPatchrightFactory } from './browser/patchright/createPatchrightFactory';
+import { createSealedBrowserSessionFactory } from './browser/createSealedBrowserSessionFactory';
 import type { BrowserSessionFactory } from './browser/BrowserSession';
 import { SessionRegistry } from './host/SessionRegistry';
 import { isBenignBrowserRace } from './host/browserRace';
@@ -68,7 +68,7 @@ export function resolveBrowserFactory(options: {
     });
   }
   requireEnv('CHROME_EXECUTABLE');
-  return createPatchrightFactory();
+  return createSealedBrowserSessionFactory();
 }
 
 export function createSidecarServer(options: {

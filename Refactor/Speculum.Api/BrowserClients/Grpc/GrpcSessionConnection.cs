@@ -261,18 +261,31 @@ public sealed class GrpcSessionConnection : ISessionConnection
         return await CallValueAsync(async () =>
         {
             var ready = await WithLinkedAsync(ct, token =>
-                _client.LaunchAsync(
-                    GrpcSessionMappers.ToLaunchRequest(
+            {
+                if (sessions.MirrorMode == Speculum.Api.Configurations.Models.Sessions.MirrorMode.PageProjection)
+                {
+                    return _client.LaunchPageProjectionAsync(
+                        GrpcSessionMappers.ToLaunchPageProjectionRequest(
+                            SessionId,
+                            width,
+                            height,
+                            configuration!,
+                            policy,
+                            sessions.PageProjectionDiffQueueCapacity,
+                            sessions.PageProjection),
+                        cancellationToken: token).ResponseAsync;
+                }
+
+                return _client.LaunchVideoStreamingAsync(
+                    GrpcSessionMappers.ToLaunchVideoStreamingRequest(
                         SessionId,
                         width,
                         height,
                         configuration!,
                         policy,
-                        sessions.ScreencastPolicy.MaxEncodeScale,
-                        sessions.MirrorMode,
-                        sessions.PageProjectionDiffQueueCapacity,
-                        sessions.PageProjection),
-                    cancellationToken: token).ResponseAsync);
+                        sessions.ScreencastPolicy.MaxEncodeScale),
+                    cancellationToken: token).ResponseAsync;
+            });
             return Result<BrowserReadyInfo>.Success(GrpcSessionMappers.ToReadyInfo(ready));
         });
     }
@@ -564,40 +577,23 @@ public sealed class GrpcSessionConnection : ISessionConnection
         });
     }
 
-    public async Task<IResult<PageProjectionResyncSnapshot>> GetPageProjectionResyncAsync(
-        long generation,
-        long sequence,
+    public async Task<IResult> RequestResyncAsync(
+        uint contextId = 1,
+        string? reason = null,
         CancellationToken ct = default)
     {
-        return await CallValueAsync(async () =>
+        return await CallAsync(async () =>
         {
-            var response = await WithLinkedAsync(ct, token =>
-                _client.GetPageProjectionResyncAsync(
-                    new PageProjectionResyncRequest
+            await WithLinkedAsync(ct, token =>
+                _client.RequestResyncAsync(
+                    new RequestResyncRequest
                     {
                         SessionId = SessionId.ToString("D"),
-                        Generation = generation,
-                        Sequence = sequence,
+                        ContextId = contextId,
+                        Reason = reason ?? "",
                     },
                     cancellationToken: token).ResponseAsync);
-            var parts = new List<byte[]>(response.FrameParts.Count);
-            foreach (var part in response.FrameParts)
-            {
-                parts.Add(part.ToByteArray());
-            }
-
-            return Result<PageProjectionResyncSnapshot>.Success(new PageProjectionResyncSnapshot
-            {
-                Generation = response.Generation,
-                CoversThroughSequence = response.CoversThroughSequence,
-                FrameParts = parts,
-                PageEpochId = response.HasPageEpochId ? response.PageEpochId : null,
-                Source = response.HasSource ? response.Source : null,
-                DomMapMs = response.DomMapMs,
-                CssomCloneMs = response.CssomCloneMs,
-                RewriteMs = response.RewriteMs,
-                SerializeMs = response.SerializeMs,
-            });
+            return Result.Success();
         });
     }
 
@@ -626,29 +622,6 @@ public sealed class GrpcSessionConnection : ISessionConnection
                             ? "application/octet-stream"
                             : contentType,
                         Name = string.IsNullOrWhiteSpace(name) ? "file" : name,
-                    },
-                    cancellationToken: token).ResponseAsync);
-            return Result.Success();
-        });
-    }
-
-    public async Task<IResult> ReportPageProjectionClientStateAsync(
-        PageProjectionClientStateReport report,
-        CancellationToken ct = default)
-    {
-        return await CallAsync(async () =>
-        {
-            await WithLinkedAsync(ct, token =>
-                _client.ReportPageProjectionClientStateAsync(
-                    new PageProjectionClientStateRequest
-                    {
-                        SessionId = SessionId.ToString("D"),
-                        Visibility = report.Visibility,
-                        AppliedThroughSequence = report.AppliedThroughSequence,
-                        QueuedFrames = report.QueuedFrames,
-                        ApplyP50Ms = report.ApplyP50Ms,
-                        ApplyP95Ms = report.ApplyP95Ms,
-                        OverrunCount = report.OverrunCount,
                     },
                     cancellationToken: token).ResponseAsync);
             return Result.Success();
@@ -1087,8 +1060,8 @@ public sealed class GrpcSessionConnection : ISessionConnection
 
     private Task PumpDomAsync(CancellationToken ct) =>
         RunWatchLoopAsync(
-            "WatchPageProjectionDiff",
-            token => _client.WatchPageProjectionDiff(
+            "WatchPageProjectionFrames",
+            token => _client.WatchPageProjectionFrames(
                 new ProtoSessionId { SessionId_ = SessionId.ToString("D") },
                 cancellationToken: token),
             async (frame, token) =>

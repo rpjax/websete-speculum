@@ -57,6 +57,9 @@ public sealed class PageProjectionDiff
     [Key("version")]
     public uint Version { get; init; } = 1;
 
+    [Key("contextId")]
+    public uint ContextId { get; init; } = 1;
+
     [Key("document")]
     public PageProjectionDocumentPayload? Document { get; init; }
 

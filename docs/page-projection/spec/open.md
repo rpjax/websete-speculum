@@ -57,7 +57,7 @@ kill list: [seal-gaps.md](seal-gaps.md). Telemetry `cssomPoll` sealed for the fo
 | Id | Topic | Why it blocks | Notes |
 |----|-------|---------------|-------|
 | **CUTOVER-FULL** | Production cutover completeness | Live switch when V4 is the **only** path with **CSSOM + shadow + OPEN-6 + input-v2 + canvas** on Live — then Integration. Nested CSSOM is not a second algorithm. DOM-only lab is not M1. Input **lab** closed 2026-08-20. | [roadmap.md](roadmap.md) |
-| **CUTOVER-SESSION** | Session must match sealed mirror contracts | At cutover Live uses `PageProjectionBrowserSession` per [browser-session.md](browser-session.md) (lab rename from `V4ProjectionBrowserSession`). Full surface: core + PP product + lab probes as sealed — not by keeping legado. Incomplete session fails cutover. | [browser-session.md](browser-session.md); [roadmap.md](roadmap.md) |
+| **CUTOVER-SESSION** | Session sealed mirror contracts on Live | **DONE (shape 2026-08-21)** — `PageProjectionBrowserSession` + sealed factory; product gaps remain (antibot/assets/…). | [browser-session.md](browser-session.md); [roadmap.md](roadmap.md) gate 6.6 |
 | **E-03 / E-08** | Loopback WS + CSP strip / PNA | **DECIDED 2026-08-14 — reject header punch as prod data-plane enablement.** Enabling production data plane by page-JS `WebSocket(127.0.0.1)` via blunt CSP/`connect-src *` / disable PNA **is not antibot-safe**. Inject = CDP `addInitScript` (already). Bytes Virtual→sidecar in **production** = **not** a page `connect()` (CDP binding / hub). Lab loopback WS stays fixtures-only. **Amended 2026-08-20:** surgical Document CSP Response-stage surgery **is** normative for Virtual script/`connect-src`/nonce compensation — see [csp.md](csp.md). That amend does **not** license page WS as the Live data plane. | [csp.md](csp.md) · [roadmap.md](roadmap.md) gate 8 |
 | **Contracts pack fate** | Archive vs delete historical `contracts/` + `implementation/` | Already moved to `archive/`. Confirm deletion vs keep-for-provenance. | Default this pass: **keep in archive**, never implement from. |
 
@@ -72,7 +72,7 @@ kill list: [seal-gaps.md](seal-gaps.md). Telemetry `cssomPoll` sealed for the fo
 | 3 | Synchronous-walk latency budget at `MAX_ROWS` for `resyncVirtual` (not `emitResyncFrame`) | Before relying on walk-based rebuild in production at huge tables |
 | 4 | `contracts/07-recovery.md` full rewrite | **Dropped** — file archived; §5.8 is the spec |
 | 5 | Bounded resync retry on **production** session layer with catalogued `errorCode`+`phase` | Lab root + nested Projected clients have 3-attempt backoff + `resyncFailed{exhausted}`. Production: **`requestResync({ contextId?, reason? })`** → producer `emitResyncFrame` → client awaits frame on data plane. No get-pull / no sendControl bag. **Contract SEALED** — [browser-session.md](browser-session.md). |
-| 6 | Dual live paths (`LivePageProjection` vs lab engine) | **YES** — cutover (when product-complete) deletes the loser same day ([roadmap.md](roadmap.md)) |
+| 6 | Dual live paths (`LivePageProjection` vs lab engine) | **DONE (path)** — sealed factory + stub-delete LivePageProjection; product canvas/antibot still open |
 | 7 | Lab probe: `NODE_NEW` in frame S ⇒ `isConnected` — **closed** as **SEAL-DOM-P0-PROBE** (`frameNewNodes` / legacy `probe.nodeNewConnected` + `iso.tree` fail-with-client). Halt iso alone still does not prove the class. | No |
 | 8 | Lab DOM/CSSOM tracker | [seal-gaps.md](seal-gaps.md) — nested SO closed 2026-08-19. Open: XO/NIT; nested cssomO2 QA; CSS paint iso; scale. |
 

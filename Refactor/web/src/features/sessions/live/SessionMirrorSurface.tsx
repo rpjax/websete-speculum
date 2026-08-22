@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import {
+  ProjectionClient,
+  createProjectionClient,
+} from '@speculum/page-projection/projected/ProjectionClient'
+import { attachProjectedInputCapture } from '@speculum/page-projection/projected/input/projectedInputCapture'
+import { CONTEXT_ID_ROOT } from '@speculum/page-projection/core/frame'
+import type { PageProjectionIntentV2 } from '@speculum/page-projection/core/input/intentTypes'
 import type { PageProjectionDiff, PageProjectionIntent, MirrorMode, SessionFrame, SessionInput } from '@/lib/speculum'
 import { appendSessionBindingQuery } from '@/lib/speculum/sessionBindingAuth'
 import { cn } from '@/lib/utils'
@@ -11,9 +18,6 @@ import {
 } from '@/lib/clientConfig'
 import type { CanvasSize } from './CanvasViewportSync'
 import { SessionViewport, type SessionViewportProps } from './SessionViewport'
-import { SurfaceHost, type SurfaceHostHandle } from './page/surface'
-import { ProjectionClient } from './page/ProjectionClient'
-import type { PageProjectionClientState } from './page/clientState'
 import { useMeasureHostSync } from './useMeasureHostSync'
 import { measureCanvasElement } from './CanvasViewportSync'
 import type { SessionViewportBounds } from './sessionViewportPolicy'
@@ -25,11 +29,10 @@ import type {
 } from './sessionObservation'
 
 /**
- * Redesigned engine (docs/page-projection/spec/engine-redesign.md) — live V2 path.
- * Binary §5.5 diffs → `ProjectionClient.ingest`. OOB resync returns length-prefixed
- * binary parts (§5.7.2) — never a JSON→binary adapter (AGENTS.md ad-hoc ban).
+ * Live PageProjection surface — hub frames → package {@link ProjectionClient}.
+ * Resync is trigger-only (`RequestResync`); frames arrive on the Diff/Frames stream.
  */
-export { SurfaceHost, ProjectionClient }
+export { ProjectionClient }
 
 /** Shared CSS box for Video and Dom — measure host must not diverge across modes. */
 export const SESSION_MEASURE_HOST_CLASS =
@@ -52,11 +55,9 @@ export type SessionMirrorSurfaceProps = Omit<SessionViewportProps, 'attachFrameS
   onDomInput: (input: PageProjectionIntent) => void
   onDiffObserve?: (event: PageProjectionDiffObserveEvent) => void
   registerApplierProbe?: (probe: PageProjectionApplierProbe | null) => void
-  /** Optional override; otherwise loaded from public client-config PageProjection knobs. */
   pageProjectionKnobs?: PageProjectionClientKnobs
 }
 
-/** Coerces a wire `PageProjectionDiff.body` into ingest-ready bytes; `null` when absent/empty. */
 function toIngestBytes(body: PageProjectionDiff['body']): Uint8Array | null {
   if (body == null) return null
   if (body instanceof Uint8Array) return body.byteLength > 0 ? body : null
@@ -65,20 +66,16 @@ function toIngestBytes(body: PageProjectionDiff['body']): Uint8Array | null {
   return null
 }
 
-/** Split HTTP OOB resync body: repeating `[u32 LE length][part bytes]`. */
-export function splitLengthPrefixedParts(buf: ArrayBuffer): Uint8Array[] {
-  const view = new DataView(buf)
-  const parts: Uint8Array[] = []
-  let o = 0
-  const bytes = new Uint8Array(buf)
-  while (o + 4 <= view.byteLength) {
-    const len = view.getUint32(o, true)
-    o += 4
-    if (len === 0 || o + len > view.byteLength) break
-    parts.push(bytes.subarray(o, o + len))
-    o += len
+function intentToWire(intent: PageProjectionIntentV2): PageProjectionIntent {
+  return {
+    generation: intent.generation,
+    type: intent.type,
+    anchor: null,
+    targetId: intent.nodeId ?? null,
+    timestampClient: intent.timestampClient,
+    payload: intent.payload,
+    contextId: intent.contextId,
   }
-  return parts
 }
 
 interface PageProjectionV2SurfaceProps {
@@ -102,10 +99,6 @@ interface PageProjectionV2SurfaceProps {
   onRemoteViewportApplied?: (size: CanvasSize) => void
 }
 
-/**
- * Live v2 surface: double-buffered `SurfaceHost` fed by `ProjectionClient`.
- * Local-first interaction re-attaches on every `SurfaceHost.onSwap`.
- */
 function PageProjectionV2Surface({
   width,
   height,
@@ -125,8 +118,8 @@ function PageProjectionV2Surface({
   onRemoteViewportApplied,
 }: PageProjectionV2SurfaceProps) {
   const hostRef = useRef<HTMLDivElement>(null)
-  const surfaceHandleRef = useRef<SurfaceHostHandle | null>(null)
   const clientRef = useRef<ProjectionClient | null>(null)
+  const inputDetachRef = useRef<(() => void) | null>(null)
   const viewportRef = useRef({ width, height })
   viewportRef.current = { width, height }
   const onDomInputRef = useRef(onDomInput)
@@ -139,8 +132,7 @@ function PageProjectionV2Surface({
   onRemoteViewportAppliedRef.current = onRemoteViewportApplied
   const sessionRef = useRef({ sessionId, token, assetBaseUrl })
   sessionRef.current = { sessionId, token, assetBaseUrl }
-  const resyncAttemptRef = useRef(0)
-  const resyncInFlightRef = useRef<Promise<void> | null>(null)
+  const resyncInFlightRef = useRef(false)
   const lastSequenceRef = useRef(0)
   const [knobs, setKnobs] = useState<PageProjectionClientKnobs>(
     knobsProp ?? FALLBACK_PAGE_PROJECTION_CLIENT_KNOBS,
@@ -172,20 +164,6 @@ function PageProjectionV2Surface({
     return () => observer.disconnect()
   }, [])
 
-  const bindSurfaceHandle = useCallback((handle: SurfaceHostHandle | null) => {
-    surfaceHandleRef.current = handle
-    if (handle) {
-      clientRef.current?.attachSurface(handle)
-    }
-  }, [])
-
-  useLayoutEffect(() => {
-    const handle = surfaceHandleRef.current
-    if (handle) {
-      clientRef.current?.attachSurface(handle)
-    }
-  })
-
   useEffect(() => {
     if (knobsProp) {
       setKnobs(knobsProp)
@@ -197,38 +175,28 @@ function PageProjectionV2Surface({
         if (!cancelled) setKnobs(readPageProjectionClientKnobs(cfg))
       })
       .catch(() => {
-        /* keep fallback — operational PreStart already failed closed elsewhere */
+        /* keep fallback */
       })
     return () => {
       cancelled = true
     }
   }, [knobsProp])
 
-  const runOobResync = async (reason: string, generation: number) => {
-    const attempt = ++resyncAttemptRef.current
-    const expected = lastSequenceRef.current
-    let sid = sessionRef.current.sessionId
-    let tok = sessionRef.current.token
-    let baseUrl = sessionRef.current.assetBaseUrl
-    if (!sid || !tok) {
-      onDiffObserveRef.current?.({
-        kind: 'pageProjection',
-        hop: 'client_resync_failed',
-        reason: 'auth_token_missing',
-        generation,
-        expectedSequence: expected,
-        tClient: performance.now(),
-        level: 'warn',
-        extra: { phase: 'wait_binding', priorReason: reason },
-      })
-      const deadline = Date.now() + 5_000
-      while (Date.now() < deadline) {
-        await new Promise((r) => window.setTimeout(r, 50))
-        if (attempt !== resyncAttemptRef.current) return
-        sid = sessionRef.current.sessionId
-        tok = sessionRef.current.token
-        baseUrl = sessionRef.current.assetBaseUrl
-        if (sid && tok) break
+  /** Trigger-only RequestResync — frames arrive on the live stream. */
+  const triggerResync = async (reason: string, generation: number, contextId?: number) => {
+    if (resyncInFlightRef.current) return
+    resyncInFlightRef.current = true
+    try {
+      let { sessionId: sid, token: tok, assetBaseUrl: baseUrl } = sessionRef.current
+      if (!sid || !tok) {
+        const deadline = Date.now() + 5_000
+        while (Date.now() < deadline) {
+          await new Promise((r) => window.setTimeout(r, 50))
+          sid = sessionRef.current.sessionId
+          tok = sessionRef.current.token
+          baseUrl = sessionRef.current.assetBaseUrl
+          if (sid && tok) break
+        }
       }
       if (!sid || !tok) {
         onDiffObserveRef.current?.({
@@ -236,24 +204,19 @@ function PageProjectionV2Surface({
           hop: 'client_resync_failed',
           reason: 'auth_token_missing',
           generation,
-          expectedSequence: expected,
           tClient: performance.now(),
           level: 'warn',
-          extra: { phase: 'binding_timeout', priorReason: reason },
         })
         return
       }
-    }
-    onDiffObserveRef.current?.({
-      kind: 'pageProjection',
-      hop: 'client_resync_request',
-      reason,
-      generation,
-      expectedSequence: expected,
-      tClient: performance.now(),
-      level: 'wire',
-    })
-    try {
+      onDiffObserveRef.current?.({
+        kind: 'pageProjection',
+        hop: 'client_resync_request',
+        reason,
+        generation,
+        tClient: performance.now(),
+        level: 'wire',
+      })
       const base = baseUrl?.replace(/\/$/, '') || window.location.origin
       const url = appendSessionBindingQuery(
         new URL(`/w7s/api/sessions/${sid}/page-projection/resync`, base),
@@ -261,147 +224,135 @@ function PageProjectionV2Surface({
         tok,
       )
       url.searchParams.set('generation', String(generation))
-      url.searchParams.set('sequence', String(Math.max(0, expected)))
+      url.searchParams.set('sequence', String(Math.max(0, lastSequenceRef.current)))
+      if (contextId != null) url.searchParams.set('contextId', String(contextId))
       const res = await fetch(url.toString(), { method: 'POST' })
       if (!res.ok) {
         onDiffObserveRef.current?.({
           kind: 'pageProjection',
           hop: 'client_resync_failed',
           generation,
-          expectedSequence: expected,
           tClient: performance.now(),
           level: 'warn',
           extra: { httpStatus: res.status, reason },
         })
-        return
       }
-      if (attempt !== resyncAttemptRef.current) return
-      const buf = await res.arrayBuffer()
-      if (attempt !== resyncAttemptRef.current) return
-      const parts = splitLengthPrefixedParts(buf)
-      const client = clientRef.current
-      if (!client || parts.length === 0) {
-        onDiffObserveRef.current?.({
-          kind: 'pageProjection',
-          hop: 'client_resync_failed',
-          generation,
-          expectedSequence: expected,
-          tClient: performance.now(),
-          level: 'warn',
-          extra: { errorCode: 'resync_payload_invalid', phase: 'parse' },
-        })
-        return
-      }
-      for (const part of parts) client.ingest(part)
-      onDiffObserveRef.current?.({
-        kind: 'pageProjection',
-        hop: 'client_resync_applied',
-        generation,
-        expectedSequence: expected,
-        tClient: performance.now(),
-        level: 'wire',
-        extra: { partCount: parts.length },
-      })
-    } catch (err) {
+      // Body ignored — sealed path delivers establish/resync on the Frames stream.
+    } catch {
       onDiffObserveRef.current?.({
         kind: 'pageProjection',
         hop: 'client_resync_failed',
         generation,
-        expectedSequence: expected,
         tClient: performance.now(),
         level: 'warn',
-        extra: { message: err instanceof Error ? err.message.slice(0, 240) : 'fetch_error' },
+        extra: { reason },
       })
+    } finally {
+      resyncInFlightRef.current = false
     }
   }
 
-  const requestResync = (reason: string, generation: number) => {
-    if (resyncInFlightRef.current) return
-    resyncInFlightRef.current = runOobResync(reason, generation).finally(() => {
-      resyncInFlightRef.current = null
-    })
-  }
-
-  const sendClientState = async (state: PageProjectionClientState) => {
-    const { sessionId: sid, token: tok, assetBaseUrl: baseUrl } = sessionRef.current
-    if (!sid || !tok) return
-    try {
-      const base = baseUrl?.replace(/\/$/, '') || window.location.origin
-      const url = appendSessionBindingQuery(
-        new URL(`/w7s/api/sessions/${sid}/page-projection/client-state`, base),
-        sid,
-        tok,
+  const bindInput = (client: ProjectionClient) => {
+    inputDetachRef.current?.()
+    inputDetachRef.current = null
+    const root = client.document.documentElement
+    if (!root) return
+    const detachRoot = attachProjectedInputCapture(
+      root,
+      client.getLiveRegistry(),
+      (intent) => onDomInputRef.current(intentToWire(intent)),
+      {
+        contextId: CONTEXT_ID_ROOT,
+        getGeneration: () => client.getGeneration(),
+        getViewportSize: () => viewportRef.current,
+        isArmed: () => client.isArmed,
+        onMarkPropDirty: (id) => client.markPropDirty(id),
+        getSessionId: () => sessionRef.current.sessionId,
+        getToken: () => sessionRef.current.token,
+        getAssetBaseUrl: () =>
+          sessionRef.current.assetBaseUrl?.replace(/\/$/, '') || window.location.origin,
+      },
+    )
+    const nestedDetachers: Array<() => void> = []
+    client.forEachNestedInputSurface((info) => {
+      nestedDetachers.push(
+        attachProjectedInputCapture(
+          info.surface,
+          info.registry,
+          (intent) => onDomInputRef.current(intentToWire(intent)),
+          {
+            contextId: info.contextId,
+            getGeneration: info.getGeneration,
+            getViewportSize: () => viewportRef.current,
+            isArmed: info.isArmed,
+            onMarkPropDirty: info.markPropDirty,
+            getSessionId: () => sessionRef.current.sessionId,
+            getToken: () => sessionRef.current.token,
+            getAssetBaseUrl: () =>
+              sessionRef.current.assetBaseUrl?.replace(/\/$/, '') || window.location.origin,
+          },
+        ),
       )
-      await fetch(url.toString(), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          visibility: state.visibility,
-          appliedThroughSequence: state.appliedThroughSequence,
-          queuedFrames: state.queuedFrames,
-          applyP50Ms: state.applyP50Ms,
-          applyP95Ms: state.applyP95Ms,
-          overrunCount: state.overrunCount,
-        }),
-      })
-    } catch {
-      /* control channel is best-effort — never desync on report failure */
+    })
+    inputDetachRef.current = () => {
+      detachRoot()
+      for (const d of nestedDetachers) d()
     }
   }
 
   useEffect(() => {
-    const client = new ProjectionClient({
-      sendIntent: (intent) => {
-        onDomInputRef.current({
-          generation: intent.generation,
-          type: intent.type,
-          anchor: null,
-          targetId: intent.nodeId ?? null,
-          timestampClient: intent.timestampClient,
-          payload: intent.payload,
+    const host = hostRef.current
+    if (!host) return
+    const client = createProjectionClient({
+      surfaceHost: host,
+      width,
+      height,
+      onArmed: () => {
+        bindInput(client)
+        onDiffObserveRef.current?.({
+          kind: 'pageProjection',
+          hop: 'client_arm',
+          tClient: performance.now(),
+          level: 'wire',
         })
       },
-      sendClientState,
-      getViewportSize: () => viewportRef.current,
-      clientStateMs: knobs.clientStateMs,
-      applyBudgetMs: knobs.applyBudgetMs,
-      sessionId: sessionRef.current.sessionId,
-      token: sessionRef.current.token,
-      assetBaseUrl: sessionRef.current.assetBaseUrl,
-      getSessionId: () => sessionRef.current.sessionId,
-      getToken: () => sessionRef.current.token,
-      getAssetBaseUrl: () =>
-        sessionRef.current.assetBaseUrl?.replace(/\/$/, '') || window.location.origin,
-      onDesync: (reason, generation) => {
+      onDesync: (reason) => {
         onDiffObserveRef.current?.({
           kind: 'pageProjection',
           hop: 'client_desync',
           reason,
-          generation,
           dropped: true,
           tClient: performance.now(),
           level: 'warn',
         })
-        requestResync(reason, generation)
+      },
+      onRequestResync: (info) => {
+        void triggerResync(info.reason, info.generation, info.contextId)
       },
     })
     clientRef.current = client
-    client.attachVisibility(document)
-    client.start()
     return () => {
-      client.stop()
+      inputDetachRef.current?.()
+      inputDetachRef.current = null
+      client.reset()
       clientRef.current = null
+      host.replaceChildren()
     }
+    // width/height seed surface once; resize is remote via measure host.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [knobs.clientStateMs, knobs.applyBudgetMs])
+  }, [])
 
   useEffect(() => {
     return attachPageProjectionDiffSink((diff) => {
       const bytes = toIngestBytes(diff.body)
       if (!bytes) return
-      if (Number.isFinite(diff.sequence)) lastSequenceRef.current = Math.max(lastSequenceRef.current, Number(diff.sequence))
+      if (Number.isFinite(diff.sequence)) {
+        lastSequenceRef.current = Math.max(lastSequenceRef.current, Number(diff.sequence))
+      }
       clientRef.current?.ingest(bytes)
+      if (clientRef.current?.isArmed) bindInput(clientRef.current)
     })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [attachPageProjectionDiffSink])
 
   useEffect(() => {
@@ -415,20 +366,15 @@ function PageProjectionV2Surface({
         tClient: performance.now(),
         level: 'warn',
       })
-      requestResync('wire_stall', 0)
+      void triggerResync('wire_stall', 0)
     })
   }, [attachPageProjectionDiffEndedSink])
 
-  // Heavy establishes can finish before the data-stream sink is attached (or be
-  // DropAll'd). If FMP never arms, request OOB resync from the mirror once.
   useEffect(() => {
     if (!sessionId) return
     const timer = window.setTimeout(() => {
-      const host = hostRef.current
-      const armed =
-        host?.getAttribute('data-speculum-armed') === 'true' ||
-        Boolean(host?.querySelector('[data-speculum-armed="true"]'))
-      if (armed) return
+      const client = clientRef.current
+      if (client?.isArmed) return
       onDiffObserveRef.current?.({
         kind: 'pageProjection',
         hop: 'client_desync',
@@ -437,22 +383,18 @@ function PageProjectionV2Surface({
         tClient: performance.now(),
         level: 'warn',
       })
-      requestResync('establish_miss', 1)
+      void triggerResync('establish_miss', 1)
     }, Math.max(20_000, knobs.swapTimeoutMs * 8))
     return () => window.clearTimeout(timer)
   }, [sessionId, knobs.swapTimeoutMs])
 
   return (
-    <div ref={hostRef} className={className} style={{ position: 'relative', width: '100%', height: '100%' }}>
-      <SurfaceHost
-        ref={bindSurfaceHandle}
-        width={width}
-        height={height}
-        className="absolute inset-0 h-full w-full"
-        swapTimeoutMs={knobs.swapTimeoutMs}
-        onSwap={(doc) => clientRef.current?.attachInteraction(doc.documentElement)}
-      />
-    </div>
+    <div
+      ref={hostRef}
+      className={className}
+      style={{ position: 'relative', width: '100%', height: '100%' }}
+      data-pp-surface-host
+    />
   )
 }
 
@@ -481,10 +423,8 @@ export function SessionMirrorSurface({
   if (mirrorMode === 'pageProjection') {
     return (
       <PageProjectionV2Surface
-        width={viewportProps.width}
-        height={viewportProps.height}
         className={hostClass}
-        live={viewportProps.live}
+        live={Boolean(sessionId)}
         sessionId={sessionId}
         token={token}
         assetBaseUrl={assetBaseUrl}
@@ -493,6 +433,8 @@ export function SessionMirrorSurface({
         onDomInput={onDomInput}
         onDiffObserve={onDiffObserve}
         knobs={pageProjectionKnobs}
+        width={viewportProps.width}
+        height={viewportProps.height}
         requestRemoteResize={viewportProps.requestRemoteResize}
         viewportPolicy={viewportProps.viewportPolicy}
         onCanvasLayout={viewportProps.onCanvasLayout}
@@ -503,12 +445,10 @@ export function SessionMirrorSurface({
 
   return (
     <SessionViewport
-      {...viewportProps}
       className={hostClass}
       attachFrameSink={attachFrameSink}
       onInput={onInput}
+      {...viewportProps}
     />
   )
 }
-
-export type { CanvasSize }

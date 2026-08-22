@@ -129,7 +129,7 @@ export const INPAGE_SCRIPT_V2_CORE = String.raw`
   function bindIframeInterior(iframeEl) {
     let doc = null;
     try { doc = iframeEl.contentDocument; } catch (_) { doc = null; }
-    if (!doc) return; // cross-origin — liveAttach CDP pierce injects a satellite script into the child frame.
+    if (!doc) return; // cross-origin — CDP pierce injects a satellite script into the child frame.
     iframeDocHost.set(doc, iframeEl);
     knownIframeDocs.add(doc);
     armRoot(doc);

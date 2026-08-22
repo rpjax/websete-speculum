@@ -3,28 +3,21 @@
 **Status:** official spec for `MirrorMode.PageProjection`.  
 **Accept bar:** [acceptance.md](acceptance.md) — 1:1 with the original site. **DOM** numerical; **CSSOM live** perceived/eventual (not 60 Hz lockstep).  
 **Protocol:** [frame-protocol.md](frame-protocol.md) — the V4 engine (replicated table, binary frames, two-phase apply, resync).  
-**Where you are:** V4 **algorithm** = one bootstrap per `window` (root + nested). DOM, CSSOM poll+apply, shadow, resync, OPEN-6 SO, **Input V2 lab** — **same loop everywhere**. Lab harness shipped multi-context observability + nested Projected resync. Resync entry = Control plane only. Production still **legacy** `LivePageProjection`. Cutover waits: **canvas**, **Integration** — not “another CSSOM for iframes.”
+**Where you are:** V4 **algorithm** = one bootstrap per `window`. Session path + **web Integration (gate 10 surface)** landed: `PageProjectionBrowserSession`, sealed factory, `web/` → `@speculum/page-projection/projected`, Live CDP data plane, lab loopback-only. Remaining before full M1 accept: **canvas** (gate 7), antibot/asset store, compose MirrorMode for MotorAssert deep Live.
 
 ---
 
-## Now (2026-08-21) — start a new chat here
+## Now (2026-08-22) — start a new chat here
 
-**Shipped this branch (`feat/mirror-mode`):** OPEN-6 + observability + resync lacre. **ISA lacre (2026-08-20):** `frame-protocol.md` §4 = 16 opcodes in `opcodes.ts` only. **Input V2 lab M1 (2026-08-20):** [input-v2.md](input-v2.md) — click / forms / scroll (page + components + nested) closed in lab; touch/OS pointer M2 **not** planned (Projected is local — native).
-
-**Gate 6.5 packaging shipped:** shared TS lib `@speculum/page-projection` at `Refactor/packages/page-projection` (`core` / `virtual` / `projected`). Amends E-11 ([decision-log.md](decision-log.md) §J). Lab/session/dispatch stay callers. Sidecar consumes via `file:` + package `dist`.
-
-**BrowserSession contract SEALED 2026-08-21:** [browser-session.md](browser-session.md) — core + `IPageProjectionBrowserSession` + `IVideoStreamingBrowserSession`; sinks; permission host; raw `getStateSnapshot`; `requestResync` only. Class target: `PageProjectionBrowserSession` (lab still `V4ProjectionBrowserSession` until rename wave).
-
-**Cutover: started 2026-08-20** — working scratchpad (not spec): [../CUTOVER-WORKSPACE.md](../CUTOVER-WORKSPACE.md). Live switch still gated by [roadmap.md](roadmap.md) (canvas + Integration + session completo per sealed contract). Video streaming out of that workspace on purpose.
+**Shipped:** contract hygiene + Integration Live surface (gates 6.6 + 8 path + 10 smoke). Lab aliases out. Launch split + Frames stream. `web/live/page` apply deleted.
 
 **Next product work (ordered):**
-1. **Implement sealed session contract** — [browser-session.md](browser-session.md) + [CUTOVER-WORKSPACE](../CUTOVER-WORKSPACE.md): script inject → input pipeline → remaining core/PP surface (CSP already sealed — [csp.md](csp.md)).
-2. **Canvas content projection** — last engine feature before Integration ([roadmap.md](roadmap.md) gate 7); ships **into** the package.
-3. **Production Integration** — `web/` V4 apply from `@speculum/page-projection/projected` + delete `LivePageProjection` same day (gate 10). **MotorAssert on Live = cutover**, not development.
-4. OPEN-6 **NIT** flavours (XO / srcdoc / sandbox / fenced) when blueprints exist — fail `unsupported.*`, never soft-skip.
-5. Optional QA: nested `cssomO2` in `iframe-open` ([seal-gaps.md](seal-gaps.md) `SEAL-CSSOM-P2-NESTED-QA`) — same poll code, not new algorithm.
+1. **Canvas content projection** — last engine feature ([roadmap.md](roadmap.md) gate 7).
+2. MotorAssert compose seed `MirrorMode.PageProjection` for deep Live surface (Sessions.Tests `PP-LIVE-*` already green).
+3. OPEN-6 **NIT** flavours when blueprints exist.
+4. Antibot / asset store / IDB restore as Live needs them.
 
-Open named shadow **closed 2026-08-18**. Form `PROP_SET` **closed 2026-08-18**. SVG **closed 2026-08-17**. Input V2 lab **closed 2026-08-20**. Session mirror contract **sealed 2026-08-21**. Do **not** reopen apply honesty ([observability.md](observability.md) §7).
+Open named shadow / form PROP / SVG / Input V2 lab / session shape / **gate 10 surface** — closed. Do **not** reopen apply honesty ([observability.md](observability.md) §7).
 
 If you are an agent with limited context: **read this file (including Now), then `acceptance.md`, then `open.md`, then `seal-gaps.md`, then `roadmap.md`, then only the protocol sections you are changing.** Do not open `../archive/`.
 

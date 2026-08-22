@@ -5,11 +5,8 @@
  * C# ISessionConnection. Transport, wire codecs, and session registry stay outside.
  *
  * Implementations (injected at composition via {@link BrowserSessionFactory}):
- * - `PatchrightBrowserSession` — production Live today (legacy PageProjection).
- * - `V4ProjectionBrowserSession` — lab V4; **temporary name**. At production cutover
- *   this (or its successor) **is** the live session. It MUST implement this whole contract
- *   in V4 terms (CUTOVER-SESSION). Do not ship a projection-only subset. Do not keep
- *   LivePageProjection to “fill gaps.”
+ * - `VideoStreamingBrowserSession` / `PatchrightBrowserSession` — video Live.
+ * - `PageProjectionBrowserSession` — sealed PageProjection Live (via createSealedBrowserSessionFactory).
  * - `MockBrowserSession` — tests / SPECULUM_BROWSER=mock.
  *
  * V1 rules:
@@ -53,7 +50,7 @@ export interface BrowserSessionEvents {
    * part/flags/version fields describe the opaque `body` frame directly.
    * V1 (JSON wire, pre-cutover): `plane`/`operation` select the payload shape.
    */
-  onPageProjectionDiff?(diff: {
+  onPageProjectionFrame?(diff: {
     sequence: number;
     generation: number;
     plane: string;
@@ -68,6 +65,8 @@ export interface BrowserSessionEvents {
     flags?: number;
     /** §5.5 — wire format version (V2 only). */
     version?: number;
+    /** Browsing context id; root = 1. */
+    contextId?: number;
   }): void;
 
   /**
@@ -246,6 +245,12 @@ export interface BrowserLaunchOptions {
   >;
   /** When false, {@link BrowserSession.startCpuProfile} must not enable CDP Profiler. */
   cpuProfiling?: boolean;
+  /**
+   * PageProjection Virtual→sidecar data plane.
+   * `cdp` = exposeBinding (Live / E-03). `loopback` = page WS (lab fixtures only).
+   * Default `cdp`.
+   */
+  projectionDataPlane?: 'cdp' | 'loopback';
   /** Sessions.PageProjection.MaxFrameBytes (§5.3.5.5) — one wire message cap before splitting. */
   maxFrameBytes?: number;
   /** Sessions.PageProjection.BrowserPoolSize (§5.13, WP13) — 0 disables the pre-warm pool. */
@@ -485,6 +490,9 @@ export interface BrowserSession {
 
   navigate(url: string): Promise<void>;
   refresh(): Promise<void>;
+  /** History — core (not {@link pushInput}). */
+  goBack(): Promise<void>;
+  goForward(): Promise<void>;
 
   resize(request: BrowserResizeRequest): Promise<BrowserResizeResult>;
   probe(request: BrowserProbeRequest): Promise<BrowserProbeResult>;
@@ -502,38 +510,22 @@ export interface BrowserSession {
    */
   pushInput(input: BrowserInput): Promise<void>;
 
-  /**
-   * Dom Projection element input. No-op / throw when MirrorMode is not PageProjection.
-   * Returns CDP outcome for path telemetry (SidecarAdmitted / CdpDropped).
-   */
-  pushDomInput?(input: {
-    type: string;
-    anchor?: string | null;
-    /** Redesign §5.11 — uint32 id resolved via IdentitySpace reverse map (V2). */
-    targetId?: number | null;
-    /** V2 alias — same as targetId. */
-    nodeId?: number | null;
-    /** V4 multi-document browsing context (default root = 1). */
-    contextId?: number;
-    generation?: number;
-    timestampClient?: number | null;
-    payloadJson?: string;
-    /** V2 alias — same as payloadJson. */
-    payload?: string;
-  }): Promise<{ status: 'dispatched' } | { status: 'dropped'; reason: string }>;
 
-  /**
-   * §5.9.5 client → server control channel. Control message, not a diff — never
-   * affects `sequence`. No-op / throw when MirrorMode is not PageProjection.
-   */
-  reportPageProjectionClientState?(state: {
-    visibility: 'visible' | 'hidden';
-    appliedThroughSequence: number;
-    queuedFrames: number;
-    applyP50Ms: number;
-    applyP95Ms: number;
-    overrunCount: number;
-  }): void;
+  /** Sealed PP lab clocks (all contexts). */
+  haltClocks?(): Promise<{ ok: boolean; reason?: string }>;
+  resumeClocks?(): Promise<{ ok: boolean; reason?: string }>;
+  emitFrame?(contextId?: number): Promise<{
+    ok: boolean;
+    generation?: number;
+    sequence?: number;
+    reason?: string;
+  }>;
+  getStateSnapshot?(
+    contextId: number,
+    opts?: import('./contracts').StateSnapshotOpts,
+  ): Promise<import('./contracts').StateSnapshotResult>;
+  requestResync?(request?: { contextId?: number; reason?: string }): Promise<void>;
+
 
   /** Dom Projection virtual resource by path key / blob / data id. */
   getDomAsset?(
@@ -556,75 +548,9 @@ export interface BrowserSession {
     vary?: string;
   } | null>;
 
-  /**
-   * OOB PageProjection.Resync snapshot (does not advance live sequence). §5.7.2 W3 —
-   * `frameParts` are opaque §5.5 binary wire parts (resync flag set), the same shape
-   * `onPageProjectionDiff.body` carries; no V1 JSON `{ root, sheets }` shim.
-   */
-  getPageProjectionResync?(hint?: {
-    generation?: number;
-    sequence?: number;
-  }): Promise<{
-    generation: number;
-    coversThroughSequence: number;
-    frameParts: Uint8Array[];
-    /** PageEpoch parity telemetry — best-effort resync phase timings. */
-    pageEpochId?: string;
-    source?: 'mirror';
-    domMapMs?: number;
-    cssomCloneMs?: number;
-    rewriteMs?: number;
-    serializeMs?: number;
-  } | null>;
 
   putDomUpload?(id: string, body: Uint8Array, contentType: string, name: string): Promise<void>;
 
-  /**
-   * PageProjection V4 probes — optional; no-op / throw when MirrorMode is not PageProjection.
-   * Callers (lab, tests) invoke these; unused production paths pay zero cost.
-   */
-  haltProjectionWorld?(): Promise<{ ok: boolean; reason?: string }>;
-  resumeProjectionWorld?(): Promise<{ ok: boolean; reason?: string }>;
-  flushProjectionFrame?(): Promise<{
-    ok: boolean;
-    generation?: number;
-    sequence?: number;
-    reason?: string;
-  }>;
-  /**
-   * Virtual state snapshot at sequence S: takeRecords → emit S → o2/digest/tree in one turn.
-   * Stops the producer clock until {@link resumeProjectionWorld}.
-   * `contextId` defaults to root `1`. Lab multi-context: call once per id.
-   */
-  flushProjectionSnapshot?(opts?: {
-    contextId?: number;
-    includeTree?: boolean;
-    cssom?: 'none' | 'committed' | 'scan';
-  }): Promise<{
-    ok: boolean;
-    generation?: number;
-    sequence?: number;
-    tableSize?: number;
-    o2?: import('@speculum/page-projection/core/tableLiveOracle').TableLiveOracleResult;
-    table?: { rowCount: number; tableHash: string };
-    cssomO2?: import('@speculum/page-projection/core/cssomTableLiveOracle').CssomTableLiveOracleResult | null;
-    nodeNewConnected?: {
-      ok: boolean;
-      checked: number;
-      disconnectedIds: number[];
-    };
-    cascade?: {
-      authorColor: string;
-      adoptedColor: string;
-      adoptedCount: number;
-      styleSheetCount: number;
-      styleElCount: number;
-      doublePaint: boolean;
-    } | null;
-    tree?: unknown;
-    formProps?: import('@speculum/page-projection/core/formControlSnap').FormControlSnap[];
-    reason?: string;
-  }>;
   startCpuProfile?(): Promise<{ ok: boolean; reason?: string }>;
   stopCpuProfile?(): Promise<{
     ok: boolean;
@@ -637,9 +563,6 @@ export interface BrowserSession {
     profileBytes?: Uint8Array;
     reason?: string;
   }>;
-  /** Lab/test control-plane relay onto PlaneChannel.Control (e.g. requestResync). */
-  sendPageProjectionControl?(message: Record<string, unknown>): void;
-
   /** Client camera frame → virtual browser capture / getUserMedia path. */
   pushCameraFrame(frame: Uint8Array): Promise<void>;
 

@@ -18,9 +18,6 @@ const Probe_1 = require("./Probe");
 const screencast_encode_1 = require("./screencast-encode");
 const Viewport_1 = require("./Viewport");
 const viewport_bounds_1 = require("./viewport-bounds");
-const liveAttach_1 = require("./mirror/page/liveAttach");
-const DomElementInput_1 = require("./mirror/dom/DomElementInput");
-const EventBridge_1 = require("../../host/EventBridge");
 const VideoMirror_1 = require("./mirror/video/VideoMirror");
 /**
  * Production BrowserSession: composes Patchright capabilities.
@@ -43,9 +40,6 @@ class PatchrightBrowserSession {
     viewport = null;
     screencast = null;
     videoMirror = null;
-    pageProjection = null;
-    domElementInput = null;
-    detachDomAssets = null;
     input = null;
     navigation;
     pageState = new PageState_1.PageState();
@@ -132,12 +126,18 @@ class PatchrightBrowserSession {
         const { width, height } = validated;
         const maxW = options.viewportPolicy.maxWidth;
         const maxH = options.viewportPolicy.maxHeight;
+        if (options.mirrorMode === 'pageProjection') {
+            throw Object.assign(new Error('PatchrightBrowserSession is video-only — use PageProjectionBrowserSession'), {
+                code: 'FAILED_PRECONDITION',
+                errorCode: 'live_page_projection_removed',
+                phase: 'launch',
+            });
+        }
         let osInput = null;
-        const isDom = options.mirrorMode === 'pageProjection';
         try {
             const inputMode = (process.env['SPECULUM_INPUT_BACKEND'] ?? 'os').trim().toLowerCase();
             // Dom Projection never opens uinput — CDP element input only.
-            if (!isDom && inputMode === 'os') {
+            if (inputMode === 'os') {
                 // uinput nodes must exist before Xorg starts (no reliable hotplug without logind).
                 osInput = await OsInputBackend_1.OsInputBackend.open({
                     sessionId: this.sessionId,
@@ -150,7 +150,7 @@ class PatchrightBrowserSession {
             // §5.13, WP13 — a pre-warmed instance removes Chromium's ~3200ms boot from this
             // session's critical path. Gated to Dom Projection: it never opens OS input, so a
             // generic pre-warmed process (no uinput nodes bound at Xorg start) is always valid.
-            const pooled = isDom && (options.browserPoolSize ?? 0) > 0
+            const pooled = false && (options.browserPoolSize ?? 0) > 0
                 ? await BrowserPoolRegistry_1.sharedBrowserPool.tryAcquire({
                     size: options.browserPoolSize,
                     refillPerSec: options.browserPoolRefillPerSec ?? 2,
@@ -239,63 +239,19 @@ class PatchrightBrowserSession {
             }
             this.viewport.confirm(width, height, proven.device);
             const encode = this.resolveEncodeSize(width, height, proven.device);
-            if (isDom) {
-                const patchrightBackend = new PatchrightInputBackend_1.PatchrightInputBackend(this.chrome.page, this.chrome.cdp);
-                this.inputBackend = 'patchright';
-                this.input = new Input_1.InputController(this.chrome.page, patchrightBackend);
-                if (this.events instanceof EventBridge_1.EventBridge) {
-                    this.events.configureDomCapacity(options.pageProjectionDiffQueueCapacity);
-                }
-                this.pageProjection = await liveAttach_1.LivePageProjection.start(this.chrome.page, {
-                    onPageProjectionDiff: (diff) => this.events.onPageProjectionDiff?.(diff),
-                    onGenerationBumped: (event) => this.events.onPageProjectionGenerationBumped?.(event),
-                    onSoftNavObserved: (event) => this.events.onPageProjectionSoftNavObserved?.(event),
-                    onScrollEchoHit: (event) => this.events.onPageProjectionScrollEchoHit?.(event),
-                    onParity: (kind, payload) => this.events.onPageProjectionParity?.(kind, payload),
-                }, {
-                    browserLaunchedAtMs: this.browserLaunchedAtMs,
-                    frameRateHz: options.frameRateHz,
-                    maxFrameBytes: options.maxFrameBytes,
-                    establishChunkBytes: options.establishChunkBytes,
-                    hiddenRateHz: options.hiddenRateHz,
-                    rateRecoverMs: options.rateRecoverMs,
-                    frameStallMs: options.frameStallMs,
-                    rateLadder: options.frameRateLadder,
-                    mirrorMaxBytes: options.mirrorMaxBytes,
-                    assetCacheL1MaxBytes: options.assetCacheL1MaxBytes,
-                    assetPriorityViewportPx: options.assetPriorityViewportPx,
-                    aggregateIntervalMs: options.aggregateIntervalMs,
-                });
-                if (this.events instanceof EventBridge_1.EventBridge) {
-                    this.events.setDomBackpressureHandler((paused) => {
-                        void (async () => {
-                            if (!this.pageProjection)
-                                return;
-                            if (paused)
-                                await this.pageProjection.pauseLiveEmitForBackpressure();
-                            else
-                                await this.pageProjection.resumeLiveEmitAfterBackpressure();
-                        })();
-                    });
-                }
-                this.domElementInput = new DomElementInput_1.DomElementInput(this.chrome.page, this.pageProjection);
-                // Asset Fetch intercept deferred — Navigation.setupFetchGuard owns Fetch.enable.
-            }
-            else {
-                const inputBackend = await this.createInputBackend({
-                    maxW,
-                    maxH,
-                    width,
-                    height,
-                    preopenedOs: osInput,
-                });
-                this.inputBackend = inputBackend instanceof OsInputBackend_1.OsInputBackend ? 'os' : 'patchright';
-                this.input = new Input_1.InputController(this.chrome.page, inputBackend);
-                this.videoMirror = await VideoMirror_1.VideoMirror.start(this.chrome.cdp, encode.width, encode.height, (jpeg) => this.events.onVideoFrame(jpeg), width, height);
-                this.screencast = this.videoMirror.underlying;
-                this.lastEncodeWidth = encode.width;
-                this.lastEncodeHeight = encode.height;
-            }
+            const inputBackend = await this.createInputBackend({
+                maxW,
+                maxH,
+                width,
+                height,
+                preopenedOs: osInput,
+            });
+            this.inputBackend = inputBackend instanceof OsInputBackend_1.OsInputBackend ? 'os' : 'patchright';
+            this.input = new Input_1.InputController(this.chrome.page, inputBackend);
+            this.videoMirror = await VideoMirror_1.VideoMirror.start(this.chrome.cdp, encode.width, encode.height, (jpeg) => this.events.onVideoFrame(jpeg), width, height);
+            this.screencast = this.videoMirror.underlying;
+            this.lastEncodeWidth = encode.width;
+            this.lastEncodeHeight = encode.height;
             this.input.setTouchPrimary(touchPrimary(device));
             this.chromeWidth = width;
             this.chromeHeight = height;
@@ -468,7 +424,6 @@ class PatchrightBrowserSession {
         await this.runBrowserOp(async () => {
             this.ensureLive();
             this.editableFocus.stop();
-            this.pageProjection?.notePendingNavigation('goto');
             try {
                 await this.chrome.page.goto(url, { waitUntil: 'commit', timeout: 30_000 });
                 // Navigation can drop mobile CSS layout back to the legacy ~980px width
@@ -493,9 +448,6 @@ class PatchrightBrowserSession {
                 }
             }
             this.url = url;
-            if (this.pageProjection) {
-                await this.pageProjection.establishBoot();
-            }
             if (this.pendingState) {
                 try {
                     await this.pageState.importLocalStorage(this.chrome.page, this.pendingState);
@@ -512,7 +464,6 @@ class PatchrightBrowserSession {
         await this.runBrowserOp(async () => {
             this.ensureLive();
             this.editableFocus.stop();
-            this.pageProjection?.notePendingNavigation('reload');
             try {
                 await this.chrome.page.reload({ waitUntil: 'domcontentloaded', timeout: 30_000 });
                 await (0, device_emulation_1.reassertLogicalViewportAfterNavigation)(this.chrome.cdp, this.viewport.width, this.viewport.height, this.viewport.device, this.chrome.context);
@@ -535,6 +486,14 @@ class PatchrightBrowserSession {
                 }
             }
         });
+    }
+    async goBack() {
+        this.ensureLive();
+        this.input.enqueue({ type: 'goback' });
+    }
+    async goForward() {
+        this.ensureLive();
+        this.input.enqueue({ type: 'goforward' });
     }
     async resize(request) {
         this.ensureLive();
@@ -798,25 +757,6 @@ class PatchrightBrowserSession {
             this.screencast = null;
         }
         this.videoMirror = null;
-        if (this.detachDomAssets) {
-            try {
-                await this.detachDomAssets();
-            }
-            catch {
-                /* */
-            }
-            this.detachDomAssets = null;
-        }
-        if (this.pageProjection) {
-            try {
-                await this.pageProjection.stop();
-            }
-            catch {
-                /* */
-            }
-            this.pageProjection = null;
-        }
-        this.domElementInput = null;
         if (this.releasePooledBrowser) {
             // PP-SESS-2 — release destroys this instance; it is never recycled or handed to
             // another session. Fires the same 'display_released' telemetry as the direct path.
@@ -893,108 +833,13 @@ class PatchrightBrowserSession {
     async pushInput(input) {
         this.ensureLive();
         if (input.type === 'goback' || input.type === 'goforward') {
-            this.pageProjection?.notePendingNavigation('back_forward');
         }
         this.input.enqueue(input);
     }
-    async pushDomInput(input) {
-        this.ensureLive();
-        if (this.mirrorMode !== 'pageProjection' || !this.domElementInput) {
-            throw Object.assign(new Error('PageProjection input requires MirrorMode.PageProjection'), {
-                code: 'FAILED_PRECONDITION',
-                errorCode: 'mirror_mode_mismatch',
-                phase: 'input',
-            });
-        }
-        return await this.domElementInput.dispatch(input);
+    async getDomAsset(_key, _opts) {
+        return null;
     }
-    reportPageProjectionClientState(state) {
-        if (this.mirrorMode !== 'pageProjection' || !this.pageProjection)
-            return;
-        this.pageProjection.reportClientState(state);
-    }
-    async getDomAsset(key, opts) {
-        this.ensureLive();
-        if (!this.pageProjection || !key)
-            return null;
-        let lookup = key;
-        const kind = (opts?.kind ?? '').toLowerCase();
-        if (kind === 'blob')
-            lookup = key.startsWith('_blob/') ? key : `_blob/${key}`;
-        else if (kind === 'data')
-            lookup = key.startsWith('_data/') ? key : `_data/${key}`;
-        else if (kind === '' || kind === 'asset') {
-            // Align with DomAssetEndpoints serve key (`host/path?q`, no /w7s/virtual-assets/).
-            const prefix = '/w7s/virtual-assets/';
-            if (lookup.startsWith(prefix))
-                lookup = lookup.slice(prefix.length);
-        }
-        // §5.12.2 — only a plain "asset" fetch (never blob/data, which are session-synthesized,
-        // never origin subresources) is ever eligible for the API's SharedAssetCacheL2 tier.
-        const isAssetKind = kind === '' || kind === 'asset';
-        const hit = this.pageProjection.getAsset(lookup);
-        if (hit && hit.body.byteLength > 0 && hit.mode === 'cache' && !opts?.rangeHeader) {
-            return {
-                body: hit.body,
-                contentType: hit.contentType,
-                statusCode: 200,
-                ...(isAssetKind ? shareabilityFields(hit.shareability) : {}),
-            };
-        }
-        if (hit?.mode === 'pass-through' || opts?.rangeHeader || (hit && hit.body.byteLength === 0)) {
-            const pt = await this.pageProjection.fetchPassThrough(lookup, opts?.rangeHeader);
-            if (!pt)
-                return hit && hit.body.byteLength > 0
-                    ? { body: hit.body, contentType: hit.contentType, statusCode: 200 }
-                    : null;
-            return {
-                body: pt.body,
-                contentType: pt.contentType,
-                statusCode: pt.statusCode,
-                contentRange: pt.contentRange,
-                passThrough: pt.mode !== 'cache',
-                ...(isAssetKind ? shareabilityFields(pt.shareability) : {}),
-            };
-        }
-        if (hit && hit.body.byteLength > 0) {
-            return { body: hit.body, contentType: hit.contentType, statusCode: 200 };
-        }
-        // Warm miss: try pass-through reconstruct from key as https URL.
-        const pt = await this.pageProjection.fetchPassThrough(lookup, opts?.rangeHeader);
-        if (!pt)
-            return null;
-        return {
-            body: pt.body,
-            contentType: pt.contentType,
-            statusCode: pt.statusCode,
-            contentRange: pt.contentRange,
-            passThrough: pt.mode !== 'cache',
-            ...(isAssetKind ? shareabilityFields(pt.shareability) : {}),
-        };
-    }
-    async getPageProjectionResync(_hint) {
-        this.ensureLive();
-        if (!this.pageProjection)
-            return null;
-        const snap = await this.pageProjection.captureResyncSnapshot();
-        if (!snap)
-            return null;
-        return {
-            generation: snap.generation,
-            coversThroughSequence: snap.coversThroughSequence,
-            frameParts: snap.parts,
-            pageEpochId: snap.pageEpochId,
-            source: snap.source,
-            domMapMs: snap.domMapMs,
-            cssomCloneMs: snap.cssomCloneMs,
-            rewriteMs: snap.rewriteMs,
-            serializeMs: snap.serializeMs,
-        };
-    }
-    async putDomUpload(id, body, contentType, name) {
-        this.ensureLive();
-        this.pageProjection?.putUpload(id, Buffer.from(body), contentType, name);
-    }
+    async putDomUpload(_id, _body, _contentType, _name) { }
     async pushCameraFrame(frame) {
         await this.media.pushCameraFrame(frame);
     }

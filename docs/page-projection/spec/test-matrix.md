@@ -128,3 +128,11 @@ A package (`WP`) is complete when **all** its `PP-*` rows pass and **all** its r
 | **WP14** | Density calibration | `PP-DEN-1` at 100 sessions; §5.16 knobs set from measurement; E6, E7, E7b, E11 |
 | **WP15** | CDP spike | Decision recorded: adopt or reject, with evidence — see `Refactor/sidecar/browser/patchright/mirror/page/CDP_SPIKE.md` |
 | **WP16** | Doc closure | Supersession banners, T11/T12 closed, amended contracts updated, §11 published in the support matrix |
+
+## Gate 10 — Integration Live (surface smoke)
+
+| ID | Assert | Where |
+|----|--------|-------|
+| `PP-LIVE-1` | Live PP Frames stream delivers opaque body + `contextId` (not open-only) | `LiveSessionTests.MirrorMode_PageProjection_GatesVideoAndOpensDomStream` |
+| `PP-LIVE-2` | `RequestResync` reaches the connection (trigger; frames on stream) | same |
+

@@ -13,7 +13,7 @@ import {
 
 export const PROJECTION_CONFIG_GLOBAL = '__SPECULUM_PROJECTION__' as const;
 
-export type ProjectionTransportKind = 'console' | 'loopback' | 'discard';
+export type ProjectionTransportKind = 'console' | 'loopback' | 'cdp' | 'discard';
 
 export type ProjectionConfigBag = {
   dataPlaneUrl?: unknown;
@@ -82,9 +82,9 @@ function asNonNegativeNumber(value: unknown, fallback: number, label: string): n
 
 function asTransport(value: unknown): ProjectionTransportKind {
   if (value === undefined || value === null) return DEFAULTS.transport;
-  if (value === 'console' || value === 'loopback' || value === 'discard') return value;
+  if (value === 'console' || value === 'loopback' || value === 'cdp' || value === 'discard') return value;
   throw new Error(
-    `ProjectionConfig.transport must be "console" | "loopback" | "discard" (got ${String(value)})`,
+    `ProjectionConfig.transport must be "console" | "loopback" | "cdp" | "discard" (got ${String(value)})`,
   );
 }
 

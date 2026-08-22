@@ -1,16 +1,108 @@
 "use strict";
 /**
- * Lab isomorphism — compose BrowserSession probes. Not a session primitive.
+ * Lab isomorphism — compose BrowserSession diagnostics. Not a session primitive.
  *
- * Virtual side is one in-page turn ({@link BrowserSession.flushProjectionSnapshot}):
- * takeRecords, drain MO buffer, emit frame S (DOM + stashed CSSOM scan), DOM O2 + CSSOM O2 + digest + tree.
- * Caller table apply (Node `applyFrameToTableChecked` or DOM client) then snapshots at S.
+ * Virtual side is a **state snapshot** per `contextId` ({@link BrowserSession.getStateSnapshot}):
+ * takeRecords, drain MO buffer, emit frame S, table×DOM (`o2`) + CSSOM + digest + tree.
+ * Caller table apply then snapshots Projected at S. Multi-context = one call per id.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.mapStateSnapshotToOracleView = mapStateSnapshotToOracleView;
+exports.captureVirtualLabSnap = captureVirtualLabSnap;
 exports.runIsomorphism = runIsomorphism;
 const tableDigest_1 = require("@speculum/page-projection/core/tableDigest");
 const formControlSnap_1 = require("@speculum/page-projection/core/formControlSnap");
 const structuralDiff_1 = require("./structuralDiff");
+function mapStateSnapshotToOracleView(snap) {
+    if (!snap.ok) {
+        return {
+            ok: false,
+            reason: snap.reason ?? 'getStateSnapshot failed',
+            o2: null,
+            cssomO2: null,
+            table: null,
+        };
+    }
+    const digest = snap.table && typeof snap.table === 'object' && 'digest' in snap.table
+        ? snap.table.digest
+        : snap.table;
+    const rows = snap.table && typeof snap.table === 'object' && 'rows' in snap.table
+        ? (snap.table.rows ?? null)
+        : null;
+    const cssomO2 = snap.cssom && typeof snap.cssom === 'object'
+        ? (snap.cssom.live?.sheets ??
+            null)
+        : null;
+    const frameNew = snap.frameNewNodes;
+    const nodeNewConnected = frameNew
+        ? {
+            ok: frameNew.every((n) => n.connected),
+            checked: frameNew.length,
+            disconnectedIds: frameNew.filter((n) => !n.connected).map((n) => n.nodeId),
+        }
+        : undefined;
+    return {
+        ok: true,
+        generation: snap.generation,
+        sequence: snap.sequence,
+        o2: rows,
+        cssomO2,
+        table: digest,
+        tree: snap.tree ?? undefined,
+        formProps: snap.formProps ?? undefined,
+        nodeNewConnected,
+        cascade: null,
+    };
+}
+/**
+ * Lab capture: prefer concrete `snapshotContext` so PP-CSSOM-A-2 `cascade` stays caller-side
+ * (not on sealed {@link StateSnapshotResult}).
+ */
+async function captureVirtualLabSnap(session, contextId, opts) {
+    const cssom = opts.cssom ?? 'none';
+    const snapCtx = session.snapshotContext;
+    if (typeof snapCtx === 'function') {
+        const r = await snapCtx.call(session, contextId, {
+            includeTree: opts.tree === true,
+            cssom,
+        });
+        if (!r.ok) {
+            return { ok: false, reason: r.reason, o2: null, cssomO2: null, table: null };
+        }
+        const v = r.value;
+        return {
+            ok: true,
+            generation: v.generation,
+            sequence: v.sequence,
+            o2: v.o2 ?? null,
+            cssomO2: cssom === 'none' ? null : (v.cssomO2 ?? null),
+            table: v.table ?? null,
+            tree: opts.tree === true ? v.tree : undefined,
+            formProps: opts.formProps === true ? (v.formProps ?? []) : undefined,
+            nodeNewConnected: opts.frameNewNodes === true ? v.nodeNewConnected : undefined,
+            cascade: v.cascade ?? null,
+        };
+    }
+    const getSnap = session.getStateSnapshot;
+    if (!getSnap) {
+        return {
+            ok: false,
+            reason: 'session does not expose getStateSnapshot/snapshotContext',
+            o2: null,
+            cssomO2: null,
+            table: null,
+        };
+    }
+    const sealed = await getSnap.call(session, contextId, {
+        table: opts.table ?? 'full',
+        liveChildOrder: opts.liveChildOrder === true,
+        tree: opts.tree === true,
+        cssom,
+        formProps: opts.formProps === true,
+        frameNewNodes: opts.frameNewNodes === true,
+    });
+    return mapStateSnapshotToOracleView(sealed);
+}
 const CLIENT_CATCH_UP_MS = 2_000;
 const CLIENT_POLL_MS = 10;
 function sleep(ms) {
@@ -192,57 +284,44 @@ function contextPasses(ctx) {
 }
 async function runIsomorphism(opts) {
     const getClient = opts.getClientSnapshot;
-    const flushSnap = opts.session.flushProjectionSnapshot;
-    const snapshotAll = opts.session.snapshotAllContexts;
-    const resumeAll = opts.session.resumeAllContexts;
-    const resume = opts.session.resumeProjectionWorld;
+    const resume = opts.session.resumeClocks;
     const contextIds = opts.contextIds?.length ? [...opts.contextIds] : [1];
-    if (!flushSnap && !snapshotAll) {
-        return emptyIsoResult([{ id: 'isomorphism', reason: 'session does not expose snapshot RPC' }]);
+    const session = opts.session;
+    if (!session.getStateSnapshot && !session.snapshotContext) {
+        return emptyIsoResult([
+            { id: 'isomorphism', reason: 'session does not expose getStateSnapshot/snapshotContext' },
+        ]);
     }
     try {
         const contexts = {};
-        if (snapshotAll) {
-            const virtualMap = await snapshotAll.call(opts.session, contextIds, {
-                includeTree: true,
+        for (const contextId of contextIds) {
+            const view = await captureVirtualLabSnap(session, contextId, {
+                table: 'full',
+                liveChildOrder: true,
+                tree: true,
                 cssom: 'scan',
+                formProps: true,
+                frameNewNodes: true,
             });
-            for (const contextId of contextIds) {
-                const entry = virtualMap[contextId];
-                const virtual = entry && entry.ok
-                    ? {
-                        ok: true,
-                        generation: entry.value.generation,
-                        sequence: entry.value.sequence,
-                        o2: entry.value.o2,
-                        table: entry.value.table,
-                        cssomO2: entry.value.cssomO2,
-                        nodeNewConnected: entry.value.nodeNewConnected,
-                        cascade: entry.value.cascade,
-                        formProps: entry.value.formProps,
-                        tree: entry.value.tree,
-                    }
-                    : { ok: false, reason: entry && !entry.ok ? entry.reason : 'virtual snapshot missing' };
-                contexts[contextId] = await compareContextPair({ contextId, virtual, getClientSnapshot: getClient });
-            }
-        }
-        else {
-            const virtual = await flushSnap.call(opts.session, { includeTree: true, cssom: 'scan' });
-            const mapped = virtual.ok
+            const mapped = view.ok
                 ? {
                     ok: true,
-                    generation: virtual.generation,
-                    sequence: virtual.sequence,
-                    o2: virtual.o2,
-                    table: virtual.table,
-                    cssomO2: virtual.cssomO2,
-                    nodeNewConnected: virtual.nodeNewConnected,
-                    cascade: virtual.cascade,
-                    formProps: virtual.formProps,
-                    tree: virtual.tree,
+                    generation: view.generation,
+                    sequence: view.sequence,
+                    o2: view.o2,
+                    table: view.table,
+                    cssomO2: view.cssomO2,
+                    nodeNewConnected: view.nodeNewConnected,
+                    cascade: view.cascade ?? null,
+                    formProps: view.formProps,
+                    tree: view.tree,
                 }
-                : { ok: false, reason: virtual.reason ?? 'flushProjectionSnapshot failed' };
-            contexts[1] = await compareContextPair({ contextId: 1, virtual: mapped, getClientSnapshot: getClient });
+                : { ok: false, reason: view.reason ?? 'virtual snapshot failed' };
+            contexts[contextId] = await compareContextPair({
+                contextId,
+                virtual: mapped,
+                getClientSnapshot: getClient,
+            });
         }
         const root = contexts[1] ?? Object.values(contexts)[0];
         if (!root)
@@ -278,10 +357,7 @@ async function runIsomorphism(opts) {
         };
     }
     finally {
-        if (resumeAll)
-            await resumeAll.call(opts.session, contextIds);
-        else
-            await resume?.call(opts.session);
+        await resume?.call(opts.session);
     }
 }
 //# sourceMappingURL=isomorphism.js.map

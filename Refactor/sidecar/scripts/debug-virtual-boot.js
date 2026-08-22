@@ -1,11 +1,11 @@
-const { createV4ProjectionBrowserSessionFactory } = require('../dist/browser/mirror/projection/session/V4ProjectionBrowserSession');
+const { createPageProjectionBrowserSessionFactory } = require('../dist/browser/mirror/projection/session/PageProjectionBrowserSession');
 const { v4LabLaunchOptions } = require('../dist/browser/mirror/projection/session/v4LabLaunch');
 
 function events() {
   return {
     onVideoFrame() {},
     onAudioFrame() {},
-    onPageProjectionDiff() {},
+    onPageProjectionFrame() {},
     onConsole() {},
     onLocationChanged() {},
     onMainFrameNavigationBlocked() {},
@@ -17,7 +17,7 @@ function events() {
 }
 
 (async () => {
-  const factory = createV4ProjectionBrowserSessionFactory({ headless: true });
+  const factory = createPageProjectionBrowserSessionFactory({ headless: true });
   const session = factory.create('debug1', events());
   await session.launch(v4LabLaunchOptions({ frameRateHz: 30 }));
   await session.navigate('http://127.0.0.1:4098/fixtures/demo.html');
@@ -38,6 +38,6 @@ function events() {
   console.log('after navigate', after);
   await session.dispose();
 })().catch((e) => {
-  console.error('FAIL', e);
+  console.error(e);
   process.exit(1);
 });

@@ -40,7 +40,7 @@ USE CASES:  Browse (free nav, UI)  |  Run (blueprint DAG, UI+CLI)
                 └──────────── same chassis APIs ────────────┘
 CHASSIS: sessionId, boot, telemetry, collectors, dossier, probes
                 │
-     PageProjectionBrowserSession  (lab: V4ProjectionBrowserSession until rename)
+     PageProjectionBrowserSession
 ```
 
 ---

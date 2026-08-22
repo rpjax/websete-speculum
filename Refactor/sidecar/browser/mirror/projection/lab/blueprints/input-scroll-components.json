@@ -10,7 +10,7 @@
         { "id": "wait", "type": "sleep", "dependsOn": ["boot"], "params": { "ms": 2200 } },
         {
           "id": "scroll-list",
-          "type": "pushDomInput",
+          "type": "pushInput",
           "dependsOn": ["wait"],
           "params": {
             "sequence": [{ "type": "resolveAndScrollElement", "selector": "#panel-list", "scrollTop": 176 }]
@@ -18,7 +18,7 @@
         },
         {
           "id": "scroll-feed",
-          "type": "pushDomInput",
+          "type": "pushInput",
           "dependsOn": ["scroll-list"],
           "params": {
             "sequence": [{ "type": "resolveAndScrollElement", "selector": "#panel-feed", "scrollTop": 264 }]
@@ -26,7 +26,7 @@
         },
         {
           "id": "scroll-page",
-          "type": "pushDomInput",
+          "type": "pushInput",
           "dependsOn": ["scroll-feed"],
           "params": {
             "sequence": [{ "type": "resolveAndScrollViewport", "scrollY": 420 }]

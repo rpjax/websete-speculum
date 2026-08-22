@@ -118,7 +118,7 @@ internal static class SessionDataStreamsHost
     {
         try
         {
-            var opened = live.OpenPageProjectionDiffStream(consumerId);
+            var opened = live.OpenPageProjectionFramesStream(consumerId);
             if (opened.IsFailure)
             {
                 return;

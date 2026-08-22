@@ -10,7 +10,6 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.coherentSnapshotExpression = coherentSnapshotExpression;
 exports.loadSnapshotScriptForEvaluate = loadSnapshotScriptForEvaluate;
 exports.snapshotContextEvaluateExpression = snapshotContextEvaluateExpression;
-exports.snapshotAllContextsEvaluateExpression = snapshotAllContextsEvaluateExpression;
 const node_fs_1 = __importDefault(require("node:fs"));
 const node_path_1 = __importDefault(require("node:path"));
 const BUNDLE_NAME = 'domTreeSnapshot.js';
@@ -102,24 +101,6 @@ function snapshotContextEvaluateExpression() {
     const r = await p.snapshotContext(contextId, opts);
     if (!r.ok) return r;
     return { ok: true, value: r.value };
-  })`;
-}
-function snapshotAllContextsEvaluateExpression() {
-    return `(async (contextIds, opts, treeSrc) => {
-    if (treeSrc) { eval(treeSrc); }
-    const p = globalThis.__speculumProjection;
-    if (!p || typeof p.snapshotAllKnown !== 'function') return {};
-    const raw = await p.snapshotAllKnown(contextIds, opts);
-    const out = {};
-    for (const id of contextIds) {
-      const entry = raw[id];
-      if (!entry || entry.ok === false) {
-        out[id] = entry ?? { ok: false, reason: 'missing' };
-        continue;
-      }
-      out[id] = { ok: true, value: entry };
-    }
-    return out;
   })`;
 }
 //# sourceMappingURL=snapshotEvaluate.js.map

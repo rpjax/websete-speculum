@@ -158,7 +158,7 @@ export class NodeMirror {
     if (rootId === null) return out;
     const node = this.nodes.get(rootId);
     if (!node) return out;
-    // Element-only — must match liveAttach.collectTagsPreorder / client registry.
+    // Element-only — must match collectTagsPreorder / client registry.
     if (node.kind === 'element') {
       out.push(node.tag);
       for (const childId of node.childIds) this.collectTagsPreorder(childId, out);

@@ -70,7 +70,7 @@ internal sealed class SessionStreamMultiplexer : ISessionStreamMultiplexer
         var registration = kind switch
         {
             OutputStreamKind.Frame => OutputStreamRegistration.CreateFrame(streamId, consumerId),
-            OutputStreamKind.PageProjectionDiff
+            OutputStreamKind.PageProjectionFrames
                 => OutputStreamRegistration.CreatePageProjectionDiff(streamId, consumerId),
             OutputStreamKind.Console => OutputStreamRegistration.CreateConsole(streamId, consumerId),
             OutputStreamKind.Notification
@@ -94,7 +94,7 @@ internal sealed class SessionStreamMultiplexer : ISessionStreamMultiplexer
             consumerId,
             OutputStreamKindNames.ToTelemetry(kind),
             openStreamCount: _streams.Count,
-            diffChannelCapacity: kind == OutputStreamKind.PageProjectionDiff
+            diffChannelCapacity: kind == OutputStreamKind.PageProjectionFrames
                 ? SequencedDiffChannels.FanOutTargetCapacity
                 : 0);
         return Result.Success();
@@ -119,7 +119,7 @@ internal sealed class SessionStreamMultiplexer : ISessionStreamMultiplexer
     public IResult<long> GetDiffEpoch(Guid streamId)
     {
         if (!_streams.TryGetValue(streamId, out var registration)
-            || registration.Kind != OutputStreamKind.PageProjectionDiff)
+            || registration.Kind != OutputStreamKind.PageProjectionFrames)
         {
             return Result<long>.Failure("Diff stream is not registered");
         }
@@ -216,7 +216,7 @@ internal sealed class SessionStreamMultiplexer : ISessionStreamMultiplexer
     public IResult<ChannelReader<PageProjectionDiff>> GetPageProjectionDiffsChannel(Guid streamId)
     {
         if (!_streams.TryGetValue(streamId, out var registration)
-            || registration.Kind != OutputStreamKind.PageProjectionDiff)
+            || registration.Kind != OutputStreamKind.PageProjectionFrames)
         {
             return Result<ChannelReader<PageProjectionDiff>>.Failure("Diff stream is not registered");
         }

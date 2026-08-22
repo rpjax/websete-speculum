@@ -259,7 +259,7 @@ function testEventBridgeAcceptsBinaryShapedDiff(): void {
     { generation: 1, sequence: 1 },
   );
   assert.strictEqual(parts.length, 1);
-  bridge.onPageProjectionDiff({
+  bridge.onPageProjectionFrame({
     sequence: 1,
     generation: 1,
     plane: '',

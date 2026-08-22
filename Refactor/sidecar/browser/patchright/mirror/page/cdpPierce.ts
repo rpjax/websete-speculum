@@ -1,5 +1,5 @@
 /**
- * F1 — CDP closed-shadow + helpers shared by LivePageProjection (PP-F-4).
+ * F1 — CDP closed-shadow + helpers (PP-F-4).
  * Ported from V1 mirror/dom/PageProjection ensureClosedShadowPierce / walkCdpClosedShadows.
  */
 import type { CDPSession } from 'patchright';

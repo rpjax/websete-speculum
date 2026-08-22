@@ -155,6 +155,12 @@ class MockBrowserSession {
     async refresh() {
         this.scene?.refresh();
     }
+    async goBack() {
+        /* mock history no-op */
+    }
+    async goForward() {
+        /* mock history no-op */
+    }
     async resize(request) {
         if (!this.open || !this.viewportPolicy) {
             return {
@@ -271,7 +277,7 @@ class MockBrowserSession {
             this.frameTimer = null;
             if (!this.open)
                 return;
-            void this.emitFrame().finally(() => {
+            void this.emitVideoFrame().finally(() => {
                 if (!this.open || !this.emitFrames)
                     return;
                 this.frameTimer = setTimeout(tick, this.frameIntervalMs);
@@ -285,7 +291,7 @@ class MockBrowserSession {
             this.frameTimer = null;
         }
     }
-    async emitFrame() {
+    async emitVideoFrame() {
         if (this.frameBusy || !this.scene || !this.renderer || !this.open)
             return;
         this.frameBusy = true;
@@ -314,10 +320,6 @@ class MockBrowserSession {
         finally {
             this.frameBusy = false;
         }
-    }
-    async pushDomInput(_input) {
-        // Mock Dom Projection: accept intents without CDP.
-        return { status: 'dispatched' };
     }
     async getDomAsset(_key, _opts) {
         return null;

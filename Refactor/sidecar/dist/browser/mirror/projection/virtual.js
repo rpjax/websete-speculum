@@ -287,9 +287,9 @@
   }
   function asTransport(value) {
     if (value === void 0 || value === null) return DEFAULTS2.transport;
-    if (value === "console" || value === "loopback" || value === "discard") return value;
+    if (value === "console" || value === "loopback" || value === "cdp" || value === "discard") return value;
     throw new Error(
-      `ProjectionConfig.transport must be "console" | "loopback" | "discard" (got ${String(value)})`
+      `ProjectionConfig.transport must be "console" | "loopback" | "cdp" | "discard" (got ${String(value)})`
     );
   }
   function asBool(value, fallback) {
@@ -4603,6 +4603,91 @@
     }
   };
 
+  // ../packages/page-projection/src/virtual/transport/cdpBindingDataPlane.ts
+  function bytesToB64(bytes) {
+    let s = "";
+    for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+    return btoa(s);
+  }
+  function b64ToBytes(b64) {
+    const bin = atob(b64);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+  var CdpBindingDataPlane = class {
+    handler = null;
+    openFlag = false;
+    get isOpen() {
+      return this.openFlag && typeof globalThis.__speculumCdpPlane === "function";
+    }
+    open(_url) {
+      this.openFlag = true;
+      globalThis.__speculumCdpControlDeliver = (bytesB64) => {
+        if (this.handler === null) return;
+        const env = decodePlaneEnvelope(b64ToBytes(bytesB64));
+        if (env === null) return;
+        this.handler(env.channel, env.payload);
+      };
+    }
+    whenOpen(timeoutMs = 15e3) {
+      if (this.isOpen) return Promise.resolve();
+      const start = Date.now();
+      return new Promise((resolve, reject) => {
+        const tick = () => {
+          if (this.isOpen) {
+            resolve();
+            return;
+          }
+          if (Date.now() - start > timeoutMs) {
+            reject(new Error("CdpBindingDataPlane.whenOpen: timeout"));
+            return;
+          }
+          setTimeout(tick, 20);
+        };
+        tick();
+      });
+    }
+    close() {
+      this.openFlag = false;
+      globalThis.__speculumCdpControlDeliver = void 0;
+    }
+    setHandler(handler) {
+      this.handler = handler;
+    }
+    send(channel, payload) {
+      const fn = globalThis.__speculumCdpPlane;
+      if (!this.openFlag || typeof fn !== "function") return "deferred";
+      const envelope = encodePlaneEnvelope(channel, payload);
+      void Promise.resolve(fn(channel, bytesToB64(envelope))).catch(() => void 0);
+      return "accepted";
+    }
+  };
+
+  // ../packages/page-projection/src/virtual/transport/cdpBindingFrameTransport.ts
+  var CdpBindingFrameTransport = class {
+    plane = new CdpBindingDataPlane();
+    frames = new PlaneFrameTransport(this.plane);
+    get dataPlane() {
+      return this.plane;
+    }
+    get isOpen() {
+      return this.plane.isOpen;
+    }
+    open() {
+      this.plane.open();
+    }
+    whenOpen(timeoutMs) {
+      return this.plane.whenOpen(timeoutMs);
+    }
+    close() {
+      this.plane.close();
+    }
+    send(bytes) {
+      return this.frames.send(bytes);
+    }
+  };
+
   // ../packages/page-projection/src/virtual/transport/nullFrameTransport.ts
   var NullFrameTransport = class {
     send(_bytes) {
@@ -4628,16 +4713,23 @@
     frameTransport;
     dataPlane;
     loopback;
+    cdp;
     textEncoder = new TextEncoder();
     telemetryUnsub = null;
     constructor(config, win) {
       let frameTransport;
       let dataPlane = null;
       let loopback = null;
+      let cdp = null;
       if (config.transport === "console") {
         frameTransport = new ConsoleFrameTransport();
       } else if (config.transport === "discard") {
         frameTransport = new NullFrameTransport();
+      } else if (config.transport === "cdp") {
+        cdp = new CdpBindingFrameTransport();
+        cdp.open();
+        frameTransport = cdp;
+        dataPlane = cdp.dataPlane;
       } else {
         loopback = new LoopbackFrameTransport({
           bufferedAmountWatermark: config.bufferedAmountWatermark
@@ -4649,6 +4741,7 @@
       this.frameTransport = frameTransport;
       this.dataPlane = dataPlane;
       this.loopback = loopback;
+      this.cdp = cdp;
       this.bus = new ProjectionBus({
         window: win,
         role: "root",
@@ -4663,8 +4756,13 @@
       return this.mintAllocator.mint();
     }
     async whenOpen() {
-      if (!this.loopback) return;
-      await this.loopback.whenOpen();
+      if (this.loopback) {
+        await this.loopback.whenOpen();
+        return;
+      }
+      if (this.cdp) {
+        await this.cdp.whenOpen();
+      }
     }
     dispose() {
       this.telemetryUnsub?.();
@@ -4759,6 +4857,11 @@
       bus = runtime.bus;
       mintFn = () => runtime.mint();
       mine = CONTEXT_ID_ROOT;
+      try {
+        await runtime.whenOpen();
+      } catch (err) {
+        console.error("[speculumProjection] data plane open failed", err);
+      }
     } else {
       bus = new ProjectionBus({ window, parent: window.parent, role: "nested" });
       frameTransport = new BusFrameTransport(bus);
@@ -4819,13 +4922,6 @@
       onRateChanged: (info) => telemetry.recordRateChanged(info)
     });
     domMutationObserver.start();
-    if (loopback) {
-      try {
-        await loopback.whenOpen();
-      } catch (err) {
-        console.error("[speculumProjection] data plane open failed", err);
-      }
-    }
     const frameEmitter = new FrameEmitter({
       clock: frameClock,
       buffer: mutationBuffer,
@@ -4872,8 +4968,8 @@
         return frame;
       });
     });
-    if (loopback) {
-      loopback.dataPlane.setHandler((channel, payload) => {
+    if (dataPlane) {
+      dataPlane.setHandler((channel, payload) => {
         if (channel !== 2 /* Control */) return;
         let msg;
         try {

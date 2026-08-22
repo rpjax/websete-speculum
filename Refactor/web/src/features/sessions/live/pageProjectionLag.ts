@@ -1,4 +1,4 @@
-/** Lag helper re-homed from V1 PageProjectionDiffApplier (W9 prep). */
+/** Lag helper for PageProjection observation (sidecar wall clock → client). */
 export function pageProjectionLagMs(
   sidecarTimestamp: number | null | undefined,
   nowMs: number = Date.now(),

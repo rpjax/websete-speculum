@@ -24,23 +24,49 @@ function cspDocumentMutator(ctx) {
     };
 }
 /**
- * Enable Fetch on Document Response and attach the mutator pipeline.
+ * Enable Fetch on Document Response (+ optional stored-script Requests) and attach mutators.
  * Idempotent per CDP session only if called once — caller owns lifecycle with the page.
  */
 async function installDocumentResponseHook(cdp, opts) {
     const mutators = opts?.mutators ?? [cspDocumentMutator];
-    await cdp.send('Fetch.enable', {
-        patterns: [{ requestStage: 'Response', resourceType: 'Document' }],
-    });
+    const storedScripts = opts?.storedScripts ?? [];
+    const scriptMap = new Map(storedScripts.map((s) => [s.file, s]));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const patterns = [{ requestStage: 'Response', resourceType: 'Document' }];
+    for (const s of storedScripts) {
+        patterns.push({ requestStage: 'Request', urlPattern: `*${s.file}*` });
+    }
+    await cdp.send('Fetch.enable', { patterns });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     cdp.on('Fetch.requestPaused', async (event) => {
         const requestId = event?.requestId;
         if (!requestId)
             return;
         const responseStatusCode = event?.responseStatusCode;
-        // Request-stage events must never be fulfilled here — Document pattern is Response-only,
-        // but continue defensively if CDP delivers an unexpected pause.
+        // Request-stage: stored script fulfill, else continue.
         if (responseStatusCode === undefined) {
+            const url = event?.request?.url ?? '';
+            if (scriptMap.size > 0 && url) {
+                try {
+                    const { pathname } = new URL(url);
+                    const script = scriptMap.get(pathname);
+                    if (script) {
+                        await cdp.send('Fetch.fulfillRequest', {
+                            requestId,
+                            responseCode: 200,
+                            responseHeaders: [
+                                { name: 'content-type', value: 'text/javascript; charset=utf-8' },
+                                { name: 'cache-control', value: 'no-store' },
+                            ],
+                            body: Buffer.from(script.content, 'utf-8').toString('base64'),
+                        });
+                        return;
+                    }
+                }
+                catch {
+                    /* fall through */
+                }
+            }
             try {
                 await cdp.send('Fetch.continueRequest', { requestId });
             }

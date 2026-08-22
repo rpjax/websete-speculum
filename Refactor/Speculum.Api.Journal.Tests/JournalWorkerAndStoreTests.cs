@@ -489,6 +489,25 @@ public sealed class JournalWorkerAndStoreTests
         public Task<int> DeleteRemainingFactsOlderThanAsync(
             DateTimeOffset olderThan, int take, CancellationToken cancellationToken = default)
             => Task.FromResult(0);
+
+        public Task<int> DeleteByIndexKeyAsync(
+            string indexKeyType, string indexKeyValue, CancellationToken cancellationToken = default)
+            => Task.FromResult(0);
+
+        public Task<int> DeleteIndependentFactsAsync(
+            string? type, DateTimeOffset? olderThan, CancellationToken cancellationToken = default)
+            => Task.FromResult(0);
+
+        public Task<int> CountByIndexKeyAsync(
+            string indexKeyType, string indexKeyValue, CancellationToken cancellationToken = default)
+            => Task.FromResult(0);
+
+        public Task<int> CountIndependentFactsAsync(
+            string? type, DateTimeOffset? olderThan, CancellationToken cancellationToken = default)
+            => Task.FromResult(0);
+
+        public Task<int> DeleteAllAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult(0);
     }
 
     private sealed class FailingThenSucceedingRepository : IJournalRepository
@@ -529,6 +548,25 @@ public sealed class JournalWorkerAndStoreTests
 
         public Task<int> DeleteRemainingFactsOlderThanAsync(
             DateTimeOffset olderThan, int take, CancellationToken cancellationToken = default)
+            => Task.FromResult(0);
+
+        public Task<int> DeleteByIndexKeyAsync(
+            string indexKeyType, string indexKeyValue, CancellationToken cancellationToken = default)
+            => Task.FromResult(0);
+
+        public Task<int> DeleteIndependentFactsAsync(
+            string? type, DateTimeOffset? olderThan, CancellationToken cancellationToken = default)
+            => Task.FromResult(0);
+
+        public Task<int> CountByIndexKeyAsync(
+            string indexKeyType, string indexKeyValue, CancellationToken cancellationToken = default)
+            => Task.FromResult(0);
+
+        public Task<int> CountIndependentFactsAsync(
+            string? type, DateTimeOffset? olderThan, CancellationToken cancellationToken = default)
+            => Task.FromResult(0);
+
+        public Task<int> DeleteAllAsync(CancellationToken cancellationToken = default)
             => Task.FromResult(0);
     }
 

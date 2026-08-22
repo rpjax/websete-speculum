@@ -181,6 +181,14 @@ export class MockBrowserSession implements BrowserSession {
     this.scene?.refresh();
   }
 
+  async goBack(): Promise<void> {
+    /* mock history no-op */
+  }
+
+  async goForward(): Promise<void> {
+    /* mock history no-op */
+  }
+
   async resize(request: BrowserResizeRequest): Promise<BrowserResizeResult> {
     if (!this.open || !this.viewportPolicy) {
       return {
@@ -303,7 +311,7 @@ export class MockBrowserSession implements BrowserSession {
     const tick = (): void => {
       this.frameTimer = null;
       if (!this.open) return;
-      void this.emitFrame().finally(() => {
+      void this.emitVideoFrame().finally(() => {
         if (!this.open || !this.emitFrames) return;
         this.frameTimer = setTimeout(tick, this.frameIntervalMs);
       });
@@ -318,7 +326,7 @@ export class MockBrowserSession implements BrowserSession {
     }
   }
 
-  private async emitFrame(): Promise<void> {
+  private async emitVideoFrame(): Promise<void> {
     if (this.frameBusy || !this.scene || !this.renderer || !this.open) return;
     this.frameBusy = true;
     try {
@@ -345,16 +353,6 @@ export class MockBrowserSession implements BrowserSession {
     }
   }
 
-  async pushDomInput(_input: {
-    type: string;
-    anchor?: string | null;
-    generation?: number;
-    timestampClient?: number | null;
-    payloadJson?: string;
-  }): Promise<{ status: 'dispatched' } | { status: 'dropped'; reason: string }> {
-    // Mock Dom Projection: accept intents without CDP.
-    return { status: 'dispatched' };
-  }
 
   async getDomAsset(
     _key: string,

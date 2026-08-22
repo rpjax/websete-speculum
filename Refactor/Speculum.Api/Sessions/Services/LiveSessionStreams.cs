@@ -60,9 +60,9 @@ internal sealed class FrameStream : MuxBoundStream, IFrameStream
         => GetChannel(Mux.GetFramesChannel);
 }
 
-internal sealed class PageProjectionDiffStream : MuxBoundStream, IPageProjectionDiffStream
+internal sealed class PageProjectionFramesStream : MuxBoundStream, IPageProjectionFramesStream
 {
-    public PageProjectionDiffStream(Guid id, Guid consumerId, ISessionStreamMultiplexer mux)
+    public PageProjectionFramesStream(Guid id, Guid consumerId, ISessionStreamMultiplexer mux)
         : base(id, consumerId, mux)
     {
     }

@@ -62,10 +62,10 @@ export interface UseSessionLifecycleOptions {
   ) => void
   log: (level: FrontDebugLogLevel, label: string, detail?: unknown) => void
   onFrame: (frame: import('@/lib/speculum').SessionFrame) => void
-  onPageProjectionDiff: (diff: import('@/lib/speculum').PageProjectionDiff) => void
+  onPageProjectionFrame: (diff: import('@/lib/speculum').PageProjectionDiff) => void
   bumpNotificationCounter: () => void
   onPageProjectionLifecycle: (notification: import('@/lib/speculum').SessionNotification) => void
-  onPageProjectionDiffEnded: (info: { reason: 'wire_stall' }) => void
+  onPageProjectionFrameEnded: (info: { reason: 'wire_stall' }) => void
   onSessionConsole: (message: import('@/lib/speculum').SessionConsoleOutput) => void
   resetForStart: () => void
   appendConsoleInput: (code: string) => void
@@ -104,10 +104,10 @@ export function useSessionLifecycle({
   trace,
   log,
   onFrame,
-  onPageProjectionDiff,
+  onPageProjectionFrame,
   bumpNotificationCounter,
   onPageProjectionLifecycle,
-  onPageProjectionDiffEnded,
+  onPageProjectionFrameEnded,
   onSessionConsole,
   resetForStart,
   appendConsoleInput,
@@ -130,8 +130,8 @@ export function useSessionLifecycle({
     (session: LiveSession) => {
       sessionRef.current = session
       session.on('frame', onFrame)
-      session.on('pageProjectionDiff', onPageProjectionDiff)
-      session.on('pageProjectionDiffEnded', onPageProjectionDiffEnded)
+      session.on('pageProjectionDiff', onPageProjectionFrame)
+      session.on('pageProjectionDiffEnded', onPageProjectionFrameEnded)
       session.on('pageProjectionDiffRejected', (rej) => {
         log('warn', 'page_projection normalize_rejected', {
           plane: 'pageProjectionDiff',
@@ -237,9 +237,9 @@ export function useSessionLifecycle({
       client,
       debugRef,
       log,
-      onPageProjectionDiff,
+      onPageProjectionFrame,
       onPageProjectionLifecycle,
-      onPageProjectionDiffEnded,
+      onPageProjectionFrameEnded,
       onFrame,
       onSessionConsole,
       readPageProjectionApplierProbe,

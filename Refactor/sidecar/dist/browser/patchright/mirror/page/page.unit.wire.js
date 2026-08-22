@@ -220,7 +220,7 @@ function testEventBridgeAcceptsBinaryShapedDiff() {
     const bridge = new EventBridge_1.EventBridge('s-page-projection-v2-unit');
     const parts = (0, encode_1.encodeFrame)([{ op: 'patch', node: 1, snapshot: { kind: 'text', id: 1, value: 'x' } }], { generation: 1, sequence: 1 });
     assert_1.default.strictEqual(parts.length, 1);
-    bridge.onPageProjectionDiff({
+    bridge.onPageProjectionFrame({
         sequence: 1,
         generation: 1,
         plane: '',

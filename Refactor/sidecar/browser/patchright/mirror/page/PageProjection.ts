@@ -51,7 +51,7 @@ export class PageProjectionEngine<TNode extends object = object> {
   private readonly clock: FrameClock;
   private sequence = 0;
   private generation = 1;
-  /** §5.2.6 — set by the caller (`liveAttach.ts`) when title/lang/dir/viewport meta changes; emitted on the next tick alongside whatever else is dirty, then cleared. */
+  /** §5.2.6 — set by the caller when title/lang/dir/viewport meta changes; emitted on the next tick alongside whatever else is dirty, then cleared. */
   private pendingDocumentState: DocumentStateOp | null = null;
 
   constructor(private readonly opts: PageProjectionEngineOptions<TNode>) {

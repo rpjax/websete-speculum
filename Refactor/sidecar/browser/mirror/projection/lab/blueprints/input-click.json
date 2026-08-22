@@ -12,7 +12,7 @@
         { "id": "snap-before", "type": "snap", "dependsOn": ["wait-settle"], "params": { "id": "beforeClick", "cssom": "none", "includeTree": true } },
         {
           "id": "click-btn",
-          "type": "pushDomInput",
+          "type": "pushInput",
           "dependsOn": ["snap-before"],
           "params": {
             "sequence": [

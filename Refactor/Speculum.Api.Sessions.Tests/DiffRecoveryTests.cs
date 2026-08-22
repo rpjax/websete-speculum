@@ -126,7 +126,7 @@ public sealed class DiffRecoveryTests
         var qd = reports.First(s => s.Stage == "api_fanout_backpressure");
         Assert.Equal(blockingStreamId, qd.StreamId);
         Assert.Equal(blockingConsumerId, qd.ConsumerId);
-        Assert.Equal("pageProjectionDiff", qd.Kind);
+        Assert.Equal("pageProjectionFrames", qd.Kind);
         Assert.Equal(2, qd.TargetCount);
         Assert.Equal(SequencedDiffChannels.FanOutTargetCapacity, qd.DiffChannelCount);
 
@@ -209,7 +209,7 @@ public sealed class DiffRecoveryTests
         var fe = fanOutReports.Single();
         Assert.Equal(diff.StreamId, fe.StreamId);
         Assert.Equal(consumerId, fe.ConsumerId);
-        Assert.Equal("pageProjectionDiff", fe.Kind);
+        Assert.Equal("pageProjectionFrames", fe.Kind);
         Assert.Equal(1, fe.TargetCount);
         Assert.Empty(reports);
 
@@ -404,11 +404,8 @@ public sealed class DiffRecoveryTests
             string? rangeHeader = null)
             => throw new NotSupportedException();
 
-        public Task<IResult<PageProjectionResyncSnapshot>> GetPageProjectionResyncAsync(
-            long generation,
-            long sequence,
-            CancellationToken ct = default)
-            => throw new NotSupportedException();
+        public Task<IResult> RequestResyncAsync(uint contextId = 1, string? reason = null, CancellationToken ct = default)
+            => Task.FromResult<IResult>(Result.Success());
 
         public Task<IResult> PutDomUploadAsync(
             string uploadId,
@@ -416,11 +413,7 @@ public sealed class DiffRecoveryTests
             string contentType,
             string name,
             CancellationToken ct = default)
-            => throw new NotSupportedException();
+            => Task.FromResult<IResult>(Result.Success());
 
-        public Task<IResult> ReportPageProjectionClientStateAsync(
-            PageProjectionClientStateReport report,
-            CancellationToken ct = default)
-            => throw new NotSupportedException();
     }
 }

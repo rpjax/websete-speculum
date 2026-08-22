@@ -20,6 +20,7 @@ export function v4LabLaunchOptions(
     frameRateHz: overrides.frameRateHz ?? 60,
     projectionTelemetry: overrides.projectionTelemetry ?? { ...LAB_TELEMETRY_DEFAULTS },
     cpuProfiling: overrides.cpuProfiling ?? true,
+    projectionDataPlane: overrides.projectionDataPlane ?? 'loopback',
     locale: overrides.locale ?? 'en-US',
     language: overrides.language ?? 'en-US',
     timeZoneId: overrides.timeZoneId ?? 'UTC',

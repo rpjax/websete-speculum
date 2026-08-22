@@ -76,7 +76,7 @@ internal sealed class OutputStreamRegistration
         => new(
             streamId,
             consumerId,
-            OutputStreamKind.PageProjectionDiff,
+            OutputStreamKind.PageProjectionFrames,
             frames: null,
             SequencedDiffChannels.CreateForFanOutTarget<PageProjectionDiff>(
                 SequencedDiffChannels.FanOutTargetCapacity),

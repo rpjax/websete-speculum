@@ -4,13 +4,13 @@ using Speculum.Api.Journal.Models;
 namespace Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Diff;
 
 /// <summary>
-/// PageProjectionDiff frame received from sidecar WatchPageProjectionDiff (hot path — opt-in).
+/// PageProjectionDiff frame received from sidecar WatchPageProjectionFrames (hot path — opt-in).
 /// </summary>
 [JournalFact(
     "Telemetry.Sessions.PageProjection.Diff.FrameReceived",
     schemaVersion: 5,
     Name = "PageProjection diff · frame received",
-    Description = "API received a PageProjectionDiff frame from the sidecar WatchPageProjectionDiff stream.",
+    Description = "API received a PageProjectionDiff frame from the sidecar WatchPageProjectionFrames stream.",
     Owner = "telemetry",
     PublishPolicy = PublishPolicy.BestEffort)]
 public sealed class FrameReceived

@@ -5,7 +5,7 @@ import type { ElementHandle, Page } from 'patchright';
 
 /**
  * Minimal surface `DomElementInput` needs from a PageProjection host. Both
- * V1 `PageProjection` and V2 `LivePageProjection` (mirror/page/liveAttach.ts)
+ * Legacy Dom element input (video path unused; PP uses sealed inputDispatch).
  * structurally satisfy this without a shared base type.
  */
 export type DomProjectionInputHost = {

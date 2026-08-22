@@ -30,10 +30,10 @@ import {
 } from './browser/patchright/PageState';
 import { DomAssetCache } from './browser/patchright/mirror/dom/DomAssetCache';
 import { runPageProjectionUnitTests } from './browser/patchright/mirror/page/page.unit';
-import { runV4ProjectionSessionUnitTests } from './browser/mirror/projection/session/v4ProjectionSession.unit';
+import { runPageProjectionSessionUnitTests } from './browser/mirror/projection/session/pageProjectionSession.unit';
 import { runRelaxCspUnitTests } from './browser/mirror/projection/session/csp/relaxCsp.unit';
 import { runInputIntentTypesUnitTests } from './browser/mirror/projection/input/intentTypes.unit';
-import { runV4InputClickUnitTests } from './browser/mirror/projection/input/v4InputClick.unit';
+import { runPageProjectionInputClickUnitTests } from './browser/mirror/projection/input/pageProjectionInputClick.unit';
 import { mapSrcset, parseSrcset } from './browser/patchright/mirror/dom/srcsetParse';
 import { parseDataUrl } from './browser/patchright/mirror/page/parseDataUrl';
 import type { BrowserCookieState } from './browser/BrowserSession';
@@ -1150,7 +1150,7 @@ async function testEventBridgeQueueDroppedLifecycle(): Promise<void> {
   const cap = bridge.dom.maxCapacity;
   // Fill to capacity then one more → DropAll + lifecycle queue_dropped.
   for (let i = 0; i < cap; i++) {
-    bridge.onPageProjectionDiff({
+    bridge.onPageProjectionFrame({
       sequence: i + 1,
       generation: 1,
       plane: 'dom',
@@ -1159,7 +1159,7 @@ async function testEventBridgeQueueDroppedLifecycle(): Promise<void> {
       body,
     });
   }
-  bridge.onPageProjectionDiff({
+  bridge.onPageProjectionFrame({
     sequence: 2000,
     generation: 1,
     plane: 'cssom',
@@ -4182,8 +4182,8 @@ async function main(): Promise<void> {
   runInputIntentTypesUnitTests();
   await runPageProjectionUnitTests();
   await runRelaxCspUnitTests();
-  await runV4ProjectionSessionUnitTests();
-  await runV4InputClickUnitTests();
+  await runPageProjectionSessionUnitTests();
+  await runPageProjectionInputClickUnitTests();
   console.log('[unit] all passed');
 }
 

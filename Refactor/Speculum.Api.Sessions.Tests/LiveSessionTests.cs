@@ -158,10 +158,10 @@ public sealed class LiveSessionTests
 
         Assert.Equal(MirrorMode.VideoStreaming, live.MirrorMode);
         Assert.True(live.OpenFrameStream(Guid.NewGuid()).IsSuccess);
-        Assert.True(live.OpenPageProjectionDiffStream(Guid.NewGuid()).IsFailure);
+        Assert.True(live.OpenPageProjectionFramesStream(Guid.NewGuid()).IsFailure);
         Assert.Contains(
             SessionMirrorErrors.PageProjectionRequiredMessage,
-            live.OpenPageProjectionDiffStream(Guid.NewGuid()).Errors.Select(e => e.Message));
+            live.OpenPageProjectionFramesStream(Guid.NewGuid()).Errors.Select(e => e.Message));
         Assert.True(live.Attach(new RecordingAttachedClient()).IsSuccess);
         Assert.True(live.AdmitVideoStreamingInput(new VideoStreamingInput
         {
@@ -216,7 +216,7 @@ public sealed class LiveSessionTests
             Payload = """{"type":"mousemove","x":1,"y":2}""",
         }).IsFailure);
 
-        var openDom = live.OpenPageProjectionDiffStream(Guid.NewGuid());
+        var openDom = live.OpenPageProjectionFramesStream(Guid.NewGuid());
         Assert.True(openDom.IsSuccess);
 
         var admitDom = live.AdmitPageProjectionInput(new PageProjectionIntent
@@ -227,6 +227,36 @@ public sealed class LiveSessionTests
             Payload = """{"x":1,"y":2,"button":0}""",
         });
         Assert.True(admitDom.IsSuccess);
+
+        // Effect: opaque frame body + contextId on Frames stream (gate 10 surface smoke).
+        var body = new byte[] { 0x50, 0x50, 0x00, 0x01, 0x02 };
+        Assert.True(connection.PageProjectionDiffs.Writer.TryWrite(new PageProjectionDiff
+        {
+            Sequence = 1,
+            Generation = 1,
+            Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            Plane = "",
+            Operation = "",
+            Body = body,
+            PartIndex = 0,
+            PartCount = 1,
+            Flags = 1,
+            Version = 1,
+            ContextId = 1,
+        }));
+        using var frameCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var diffs = openDom.Value!.GetPageProjectionDiffsChannel();
+        Assert.True(diffs.IsSuccess);
+        var frame = await diffs.Value.ReadAsync(frameCts.Token);
+        Assert.Equal(1, frame.Sequence);
+        Assert.Equal(1u, frame.ContextId);
+        Assert.Equal(body, frame.Body);
+
+        var resync = await live.RequestResyncAsync(1, "gate10_surface", CancellationToken.None);
+        Assert.True(resync.IsSuccess);
+        Assert.Equal(1, connection.RequestResyncCallCount);
+        Assert.Equal(1u, connection.LastResyncContextId);
+        Assert.Equal("gate10_surface", connection.LastResyncReason);
 
         connection.DomAsset = new DomAsset { Body = [1, 2, 3], ContentType = "text/css" };
         var assetOk = await live.GetDomAssetAsync("deadbeef");
@@ -1583,6 +1613,9 @@ public sealed class LiveSessionTests
         public DomAsset? DomAsset { get; set; }
 
         public int GetDomAssetCallCount { get; private set; }
+        public int RequestResyncCallCount { get; private set; }
+        public uint LastResyncContextId { get; private set; }
+        public string? LastResyncReason { get; private set; }
 
         public Task<IResult<DomAsset>> GetDomAssetAsync(
             string key,
@@ -1596,12 +1629,13 @@ public sealed class LiveSessionTests
                 : Task.FromResult<IResult<DomAsset>>(Result<DomAsset>.Success(DomAsset));
         }
 
-        public Task<IResult<PageProjectionResyncSnapshot>> GetPageProjectionResyncAsync(
-            long generation,
-            long sequence,
-            CancellationToken ct = default)
-            => Task.FromResult<IResult<PageProjectionResyncSnapshot>>(
-                Result<PageProjectionResyncSnapshot>.Failure("not implemented"));
+        public Task<IResult> RequestResyncAsync(uint contextId = 1, string? reason = null, CancellationToken ct = default)
+        {
+            RequestResyncCallCount++;
+            LastResyncContextId = contextId;
+            LastResyncReason = reason;
+            return Task.FromResult<IResult>(Result.Success());
+        }
 
         public Task<IResult> PutDomUploadAsync(
             string uploadId,
@@ -1611,15 +1645,13 @@ public sealed class LiveSessionTests
             CancellationToken ct = default)
             => Task.FromResult<IResult>(Result.Success());
 
-        public Task<IResult> ReportPageProjectionClientStateAsync(
-            PageProjectionClientStateReport report,
-            CancellationToken ct = default)
-            => Task.FromResult<IResult>(Result.Success());
+        public IResult<Task> ConsumeConsoleInputAsync(
+            System.Threading.Channels.ChannelReader<Speculum.Api.Sessions.Models.ConsoleInput> channelReader)
+            => Result<Task>.Failure("not implemented");
 
-        public IResult<Task> ConsumeConsoleInputAsync(ChannelReader<ConsoleInput> channelReader)
-            => Result<Task>.Success(DrainAsync(channelReader, ConsoleInputReceived.Writer));
+        public void BindPageProjectionDiffTelemetry(
+            Speculum.Api.BrowserClients.IPageProjectionDiffTelemetry? telemetry) { }
 
-        public void BindPageProjectionDiffTelemetry(IPageProjectionDiffTelemetry? telemetry) { }
 
         public bool IsPageProjectionDiffFanOutEnqueuedEnabled() => false;
 

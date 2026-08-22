@@ -27,7 +27,7 @@ public enum SessionNotificationKind
     /// (phase = data_plane_received | grpc_pushed | sidecar_admitted | cdp_dropped).
     /// </summary>
     PageProjectionIntentPathTrace = 11,
-    /// <summary>PageProjectionDiff frame received from WatchPageProjectionDiff (opt-in journal).</summary>
+    /// <summary>PageProjectionDiff frame received from WatchPageProjectionFrames (opt-in journal).</summary>
     PageProjectionDiffFrame = 12,
     /// <summary>PageProjection lifecycle (generation_bumped | queue_dropped) from WatchPageProjectionLifecycle.</summary>
     PageProjectionLifecycle = 13,

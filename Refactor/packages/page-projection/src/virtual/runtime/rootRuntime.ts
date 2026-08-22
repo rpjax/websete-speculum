@@ -7,6 +7,7 @@ import type { DataPlane } from '../../core/plane';
 import type { FrameTransport } from '../transport/frameTransport';
 import { ConsoleFrameTransport } from '../transport/consoleFrameTransport';
 import { LoopbackFrameTransport } from '../transport/loopbackFrameTransport';
+import { CdpBindingFrameTransport } from '../transport/cdpBindingFrameTransport';
 import { NullFrameTransport } from '../transport/nullFrameTransport';
 import { ProjectionBus } from '../bus/projectionBus';
 import { ContextIdMint } from '../../core/contextIdMint';
@@ -18,6 +19,7 @@ export class RootRuntime {
   readonly frameTransport: FrameTransport;
   readonly dataPlane: DataPlane | null;
   readonly loopback: LoopbackFrameTransport | null;
+  readonly cdp: CdpBindingFrameTransport | null;
   private readonly textEncoder = new TextEncoder();
   private telemetryUnsub: (() => void) | null = null;
 
@@ -25,10 +27,16 @@ export class RootRuntime {
     let frameTransport: FrameTransport;
     let dataPlane: DataPlane | null = null;
     let loopback: LoopbackFrameTransport | null = null;
+    let cdp: CdpBindingFrameTransport | null = null;
     if (config.transport === 'console') {
       frameTransport = new ConsoleFrameTransport();
     } else if (config.transport === 'discard') {
       frameTransport = new NullFrameTransport();
+    } else if (config.transport === 'cdp') {
+      cdp = new CdpBindingFrameTransport();
+      cdp.open();
+      frameTransport = cdp;
+      dataPlane = cdp.dataPlane;
     } else {
       loopback = new LoopbackFrameTransport({
         bufferedAmountWatermark: config.bufferedAmountWatermark,
@@ -40,6 +48,7 @@ export class RootRuntime {
     this.frameTransport = frameTransport;
     this.dataPlane = dataPlane;
     this.loopback = loopback;
+    this.cdp = cdp;
     this.bus = new ProjectionBus({
       window: win,
       role: 'root',
@@ -56,8 +65,13 @@ export class RootRuntime {
   }
 
   async whenOpen(): Promise<void> {
-    if (!this.loopback) return;
-    await this.loopback.whenOpen();
+    if (this.loopback) {
+      await this.loopback.whenOpen();
+      return;
+    }
+    if (this.cdp) {
+      await this.cdp.whenOpen();
+    }
   }
 
   dispose(): void {

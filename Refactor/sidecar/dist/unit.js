@@ -53,10 +53,10 @@ const browserRace_1 = require("./host/browserRace");
 const PageState_1 = require("./browser/patchright/PageState");
 const DomAssetCache_1 = require("./browser/patchright/mirror/dom/DomAssetCache");
 const page_unit_1 = require("./browser/patchright/mirror/page/page.unit");
-const v4ProjectionSession_unit_1 = require("./browser/mirror/projection/session/v4ProjectionSession.unit");
+const pageProjectionSession_unit_1 = require("./browser/mirror/projection/session/pageProjectionSession.unit");
 const relaxCsp_unit_1 = require("./browser/mirror/projection/session/csp/relaxCsp.unit");
 const intentTypes_unit_1 = require("./browser/mirror/projection/input/intentTypes.unit");
-const v4InputClick_unit_1 = require("./browser/mirror/projection/input/v4InputClick.unit");
+const pageProjectionInputClick_unit_1 = require("./browser/mirror/projection/input/pageProjectionInputClick.unit");
 const srcsetParse_1 = require("./browser/patchright/mirror/dom/srcsetParse");
 const parseDataUrl_1 = require("./browser/patchright/mirror/page/parseDataUrl");
 const collectTelemetry_1 = require("./telemetry/collectTelemetry");
@@ -911,7 +911,7 @@ async function testEventBridgeQueueDroppedLifecycle() {
     const cap = bridge.dom.maxCapacity;
     // Fill to capacity then one more → DropAll + lifecycle queue_dropped.
     for (let i = 0; i < cap; i++) {
-        bridge.onPageProjectionDiff({
+        bridge.onPageProjectionFrame({
             sequence: i + 1,
             generation: 1,
             plane: 'dom',
@@ -920,7 +920,7 @@ async function testEventBridgeQueueDroppedLifecycle() {
             body,
         });
     }
-    bridge.onPageProjectionDiff({
+    bridge.onPageProjectionFrame({
         sequence: 2000,
         generation: 1,
         plane: 'cssom',
@@ -3617,8 +3617,8 @@ async function main() {
     (0, intentTypes_unit_1.runInputIntentTypesUnitTests)();
     await (0, page_unit_1.runPageProjectionUnitTests)();
     await (0, relaxCsp_unit_1.runRelaxCspUnitTests)();
-    await (0, v4ProjectionSession_unit_1.runV4ProjectionSessionUnitTests)();
-    await (0, v4InputClick_unit_1.runV4InputClickUnitTests)();
+    await (0, pageProjectionSession_unit_1.runPageProjectionSessionUnitTests)();
+    await (0, pageProjectionInputClick_unit_1.runPageProjectionInputClickUnitTests)();
     console.log('[unit] all passed');
 }
 function testSrcsetParseCloudinary() {

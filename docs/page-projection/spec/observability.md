@@ -13,7 +13,7 @@ If this file conflicts with a green smoke that compared telemetry fields to pass
 
 ## 1. One Chromium path
 
-There is **one** place that owns Patchright, inject of `virtual.js`, the data plane, frame relay, telemetry fan-out, and in-page probes: a **PageProjection session** implementing [browser-session.md](browser-session.md) (`PageProjectionBrowserSession` at cutover; lab still `V4ProjectionBrowserSession` until rename). Production still `PatchrightBrowserSession` + legacy `LivePageProjection` until **product-complete** cutover — [roadmap.md](roadmap.md).
+There is **one** place that owns Patchright Chromium, inject of `virtual.js`, the data plane, frame relay, telemetry fan-out, and in-page probes: **`PageProjectionBrowserSession`** implementing [browser-session.md](browser-session.md). Live composition: `createSealedBrowserSessionFactory` (Launch `mirrorMode=pageProjection`). Video mode is a sibling (`VideoStreamingBrowserSession`). `LivePageProjection` is gone. Product-complete M1 (canvas + `web/` Integration) is separate — [roadmap.md](roadmap.md).
 
 The **lab is a caller**, not a second browser:
 
@@ -108,7 +108,7 @@ A snapshot is a **raw state dump at S**, not an oracle result and not “a DOM d
 
 Default CSSOM mode is **`none`** (halt idle; DOM capture is not delayed for a CSSOM scan). Pass `{ cssom: 'committed' | 'scan' }` when the probe needs CSSOM — [cssom-poll-algorithm.md](cssom-poll-algorithm.md) use cases. Resync is not a snapshot: it always blocking-scans CSSOM.
 
-**What a lab CLI `--iso` run actually proves today:** Virtual table×DOM + digest at S, **CSSOM table×live** (Sheet/Rule × live Virtual `cssRules`, I2 top-level) via one `getStateSnapshot` / `flushProjectionSnapshot` turn (impl still catching up to sealed names), wire invariants, and table×table vs Node phase-1 apply. It does **not** prove tree×tree, or automated Projected CSS 1:1 vs Virtual paint. Form-control **property** 1:1 (`PP-PROP-1`) is lab `forms-state` (`iso.formProps`); CLI without a DOM client skips Projected explicitly. Lab client **does** materialize constructed CSSOM (C6) on the 4077 surface; CLI `--iso` still does not assert that paint. `cssomPoll` is investigation only (I10). O1 / O4 / O5 are not implemented. Seal kill lists: [seal-gaps.md](seal-gaps.md).
+**What a lab CLI `--iso` run actually proves today:** Virtual table×DOM + digest at S, **CSSOM table×live** (Sheet/Rule × live Virtual `cssRules`, I2 top-level) via one `getStateSnapshot` turn, wire invariants, and table×table vs Node phase-1 apply. It does **not** prove tree×tree, or automated Projected CSS 1:1 vs Virtual paint. Form-control **property** 1:1 (`PP-PROP-1`) is lab `forms-state` (`iso.formProps`); CLI without a DOM client skips Projected explicitly. Lab client **does** materialize constructed CSSOM (C6) on the 4077 surface; CLI `--iso` still does not assert that paint. `cssomPoll` is investigation only (I10). O1 / O4 / O5 are not implemented. Seal kill lists: [seal-gaps.md](seal-gaps.md).
 
 ---
 
@@ -144,7 +144,7 @@ Full comparison remains lab/CI only (O(n) — [oracles.md](oracles.md), E1).
 | 2026-08-17 | Inject ATTR / RULESET / EOF: client still synced → apply algorithm broken | Hostile lab frames used constructed `hostNode: 1` (phase 2 rejects ≠ 0); bundled client threw `desyncPhase is not defined` after a real apply fail; wait treated `sequence >= N` as applied; fold lowercased the reason then searched mixed-case tokens; `lastDesyncReason` stuck across Runs | Fix harness only (`lab/runner/hostileFrames.ts`, `labProjectionClient.ts`, inject wait until `desynced`, fold). Same decode/apply path — not a second algorithm. UI 4077 PASS the same day. Do not reopen `applyDom.ts` for these three. |
 | 2026-08-21 | Snapshot DTO carried oracle verdicts | Contract sealed: session returns raw planes; lab builds O2 / PP-FR-1 / etc. | [browser-session.md](browser-session.md); rename wave for method names |
 
-Code: `Refactor/sidecar/browser/mirror/projection/` (`session/V4ProjectionBrowserSession.ts` → `PageProjectionBrowserSession`, `lab/probes/isomorphism.ts`, `virtual/bootstrap.ts` `flushAndSnapshot`). Impl names may lag sealed contract until the rename wave.
+Code: `Refactor/sidecar/browser/mirror/projection/` (`session/PageProjectionBrowserSession.ts`, `lab/probes/isomorphism.ts`, `virtual/bootstrap.ts` `flushAndSnapshot`). Sealed method names: `haltClocks` / `resumeClocks` / `emitFrame` / `getStateSnapshot` / `requestResync`.
 
 ---
 

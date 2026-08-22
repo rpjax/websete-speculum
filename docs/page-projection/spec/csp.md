@@ -1,6 +1,6 @@
 # PageProjection — CSP (Virtual Document surgery)
 
-**Status:** **SEALED 2026-08-20** — normative for V4 cutover session (`PageProjectionBrowserSession` / lab `V4ProjectionBrowserSession` → Live).  
+**Status:** **SEALED 2026-08-20** — normative for V4 cutover session (`PageProjectionBrowserSession` → Live).  
 **Redesign — not a port of legado.** Legacy `Page.setBypassCSP` + `PERMISSIVE_*` CSP replace are **anti-models**.  
 **Index:** [README.md](README.md). Scratchpad: [../CUTOVER-WORKSPACE.md](../CUTOVER-WORKSPACE.md).  
 **Code:** `Refactor/sidecar/browser/mirror/projection/session/csp/`.
@@ -163,7 +163,7 @@ Em `Refactor/sidecar/browser/patchright/Navigation.ts`:
 |------|------|
 | Parse / merge / compensação | `session/csp/relaxCsp.ts` |
 | Hook Fetch Document Response | `session/csp/documentResponseHook.ts` |
-| Wire | `V4ProjectionBrowserSession.freshPage` → `installDocumentResponseHook` antes do `goto` |
+| Wire | `PageProjectionBrowserSession.freshPage` → `installDocumentResponseHook` antes do `goto` |
 | Units | `relaxCsp.unit.ts` + e2e nonce/meta no `v4ProjectionSession.unit.ts` |
 
 **Status (2026-08-20):** **SEALED** — Response-stage hook + `connect-src` + strip nonce/hash/`strict-dynamic` + compensação `'unsafe-inline'` / `*` / `blob:` / `data:` (delta). Do **not** reopen §§3–7 without a decision-log row. Inject de script tags = próximo passo cutover (mutator no mesmo hook).

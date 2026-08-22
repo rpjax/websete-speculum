@@ -1,14 +1,15 @@
 # BrowserSession contracts by mirror mode
 
-**Status:** **SEALED 2026-08-21** — normative session / mirror-mode contract for V4 cutover.  
-**Date sealed:** 2026-08-21 (Rodrigo).  
-**Context:** cutover V4; video streaming stays as **fallback**; PageProjection is primary. Product still V1 → **breaking OK**, no compat shims.  
-**Scratchpad (non-normative):** [../CUTOVER-WORKSPACE.md](../CUTOVER-WORKSPACE.md)  
-**Today’s port (pre-impl):** `Refactor/sidecar/browser/BrowserSession.ts` · wire `Refactor/proto/browser_session.proto`  
+**Status:** **SEALED 2026-08-21** — normative session / mirror-mode contract.  
+**Date sealed:** 2026-08-21 (Rodrigo). **Shape cutover impl:** same day (factory + PP class + wire).  
+**Context:** PageProjection is primary; video streaming stays as **fallback**. Product still V1 → **breaking OK**, no compat shims.  
+**Scratchpad (non-normative):** [../CUTOVER-WORKSPACE.md](../CUTOVER-WORKSPACE.md) — shape done; product leftovers listed.  
+**Impl ports:** `Refactor/sidecar/browser/contracts/` · `PageProjectionBrowserSession.ts` · `VideoStreamingBrowserSession.ts` · `createSealedBrowserSessionFactory.ts` · wire `Refactor/proto/browser_session.proto`  
+**Fat port (legacy callers mid-migrate):** `Refactor/sidecar/browser/BrowserSession.ts`  
 **Proposal provenance:** [../proposals/browser-session-mirror-contract.md](../proposals/browser-session-mirror-contract.md) (pointer only).
 
 **Naming (LOCKED):** .NET-style — interfaces `I…`, classes without `I`.  
-**PP class name (LOCKED):** `PageProjectionBrowserSession` (replaces lab `V4ProjectionBrowserSession` at cutover).
+**PP class name (LOCKED):** `PageProjectionBrowserSession` (lab file `V4ProjectionBrowserSession.ts` is a re-export only).
 
 ---
 
@@ -710,13 +711,17 @@ Connection handler: session is created as PP **or** video; only that contract’
 
 ## 8. Migration
 
-1. This doc is **SEALED**.  
-2. Split TS interfaces/classes as above (`PageProjectionBrowserSession` replaces `V4ProjectionBrowserSession`).  
-3. Split proto RPCs/messages (no Launch/Status oneof).  
-4. Prune PP launch knobs; implement PP `getTelemetrySnapshot` + raw `getStateSnapshot`.  
-5. Move oracles / fixture paint probes fully into lab (callers of the dump).  
-6. Api + web + MotorAssert same wave.  
-7. Delete god interface + optional bags.
+**Shape cutover (2026-08-21):** steps 1–2 + path flip done in sidecar/Api. See [../CUTOVER-WORKSPACE.md](../CUTOVER-WORKSPACE.md).
+
+| # | Step | Status |
+|---|------|--------|
+| 1 | This doc **SEALED** | **Done** |
+| 2 | TS `PageProjectionBrowserSession` + contracts + video class | **Done** |
+| 3 | Split proto RPCs (no Launch/Status oneof) | **Done** — `LaunchPageProjection` / `LaunchVideoStreaming` / `WatchPageProjectionFrames`; GetResync+ReportClientState dropped |
+| 4 | Prune PP launch knobs; PP telemetry + raw snapshot | **Partial** — methods exist; serializers / knob prune incomplete |
+| 5 | Oracles fully caller-side on dump | **Done** — lab iso uses `getStateSnapshot`; PP aliases removed |
+| 6 | Api + web + MotorAssert same wave | **Done surface** — Launch split + Frames; web package; Sessions.Tests `PP-LIVE-*` |
+| 7 | Delete god interface + optional bags | **Done path** — fat PP bags / LPP stub gone; hub MessagePack still `pageProjectionDiff` name |
 
 ### 8.1 Deferred until wire seal (shape OK; schemas TBD)
 

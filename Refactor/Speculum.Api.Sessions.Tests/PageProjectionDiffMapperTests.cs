@@ -17,7 +17,7 @@ public sealed class PageProjectionDiffMapperTests
     {
         // Not valid JSON — proves the mapper never attempts JsonDocument.Parse on it.
         var binaryPayload = new byte[] { 0x00, 0x01, 0xFF, 0x7B, 0x3A, 0x22 };
-        var frame = new PageProjectionDiffFrame
+        var frame = new PageProjectionFrame
         {
             Sequence = 42,
             Generation = 3,
@@ -54,7 +54,7 @@ public sealed class PageProjectionDiffMapperTests
         // Even a body that happens to look like JSON must not be parsed on the V2 path —
         // plane/operation empty is the sole discriminator (PP-WIRE-1).
         var jsonLookingPayload = Encoding.UTF8.GetBytes("""{"root":{"tag":"div"}}""");
-        var frame = new PageProjectionDiffFrame
+        var frame = new PageProjectionFrame
         {
             Sequence = 5,
             Generation = 1,
@@ -79,7 +79,7 @@ public sealed class PageProjectionDiffMapperTests
     [Fact]
     public void BinaryFrame_VersionZero_DefaultsToOne()
     {
-        var frame = new PageProjectionDiffFrame
+        var frame = new PageProjectionFrame
         {
             Sequence = 1,
             Generation = 1,
@@ -99,7 +99,7 @@ public sealed class PageProjectionDiffMapperTests
     [Fact]
     public void EmptyEnvelope_NoBodyAndEmptyPlaneOperation_ReturnsNull()
     {
-        var frame = new PageProjectionDiffFrame
+        var frame = new PageProjectionFrame
         {
             Sequence = 1,
             Generation = 1,
@@ -115,7 +115,7 @@ public sealed class PageProjectionDiffMapperTests
     [Fact]
     public void PartialEnvelope_OnlyPlaneSet_ReturnsNull()
     {
-        var frame = new PageProjectionDiffFrame
+        var frame = new PageProjectionFrame
         {
             Sequence = 1,
             Generation = 1,
@@ -131,7 +131,7 @@ public sealed class PageProjectionDiffMapperTests
     [Fact]
     public void LegacyV1Frame_ScrollViewport_StillDecodesJsonPayload()
     {
-        var frame = new PageProjectionDiffFrame
+        var frame = new PageProjectionFrame
         {
             Sequence = 9,
             Generation = 1,
@@ -156,7 +156,7 @@ public sealed class PageProjectionDiffMapperTests
     [Fact]
     public void LegacyV1Frame_CorruptJsonBody_ReturnsNullDecodeError()
     {
-        var frame = new PageProjectionDiffFrame
+        var frame = new PageProjectionFrame
         {
             Sequence = 1,
             Generation = 1,
@@ -172,7 +172,7 @@ public sealed class PageProjectionDiffMapperTests
     [Fact]
     public void LegacyV1Frame_UnknownPlane_ReturnsNull()
     {
-        var frame = new PageProjectionDiffFrame
+        var frame = new PageProjectionFrame
         {
             Sequence = 1,
             Generation = 1,

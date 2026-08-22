@@ -19,7 +19,7 @@ export type ActionKind =
   | 'fold'
   | 'writeDossier'
   | 'injectFrame'
-  | 'pushDomInput';
+  | 'pushInput';
 
 export type LabAction = {
   id: string;

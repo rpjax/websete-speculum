@@ -833,12 +833,8 @@ public sealed class SessionServiceTests
             string? rangeHeader = null)
             => Task.FromResult<IResult<DomAsset>>(Result<DomAsset>.Failure("not implemented"));
 
-        public Task<IResult<PageProjectionResyncSnapshot>> GetPageProjectionResyncAsync(
-            long generation,
-            long sequence,
-            CancellationToken ct = default)
-            => Task.FromResult<IResult<PageProjectionResyncSnapshot>>(
-                Result<PageProjectionResyncSnapshot>.Failure("not implemented"));
+        public Task<IResult> RequestResyncAsync(uint contextId = 1, string? reason = null, CancellationToken ct = default)
+            => Task.FromResult<IResult>(Result.Success());
 
         public Task<IResult> PutDomUploadAsync(
             string uploadId,
@@ -848,15 +844,13 @@ public sealed class SessionServiceTests
             CancellationToken ct = default)
             => Task.FromResult<IResult>(Result.Success());
 
-        public Task<IResult> ReportPageProjectionClientStateAsync(
-            PageProjectionClientStateReport report,
-            CancellationToken ct = default)
-            => Task.FromResult<IResult>(Result.Success());
+        public IResult<Task> ConsumeConsoleInputAsync(
+            System.Threading.Channels.ChannelReader<Speculum.Api.Sessions.Models.ConsoleInput> channelReader)
+            => Result<Task>.Failure("not implemented");
 
-        public IResult<Task> ConsumeConsoleInputAsync(ChannelReader<ConsoleInput> channelReader)
-            => Result<Task>.Success(Task.CompletedTask);
+        public void BindPageProjectionDiffTelemetry(
+            Speculum.Api.BrowserClients.IPageProjectionDiffTelemetry? telemetry) { }
 
-        public void BindPageProjectionDiffTelemetry(IPageProjectionDiffTelemetry? telemetry) { }
 
         public bool IsPageProjectionDiffFanOutEnqueuedEnabled() => false;
 

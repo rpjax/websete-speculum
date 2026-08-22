@@ -259,17 +259,17 @@ class WsLabConnection {
                 return;
             }
             case 'client.requestResync': {
-                this.chassis.browser?.sendPageProjectionControl?.({
-                    type: 'requestResync',
-                    reason: msg.reason ?? 'client',
+                void this.chassis.browser?.requestResync?.({
+                    reason: typeof msg.reason === 'string' ? msg.reason : 'client',
                     contextId: typeof msg.contextId === 'number' && msg.contextId > 0 ? msg.contextId : 1,
                 });
                 return;
             }
             case 'client.intent': {
                 const session = this.chassis.browser;
-                if (!session?.pushDomInput) {
-                    this.send({ type: 'error', message: 'pushDomInput unavailable', code: 'input_unavailable' });
+                const push = session?.pushInput?.bind(session);
+                if (!push) {
+                    this.send({ type: 'error', message: 'pushInput unavailable', code: 'input_unavailable' });
                     return;
                 }
                 const intentRaw = msg.intent;
@@ -277,8 +277,7 @@ class WsLabConnection {
                     this.send({ type: 'error', message: 'client.intent missing intent', code: 'invalid_intent' });
                     return;
                 }
-                void session
-                    .pushDomInput(intentRaw)
+                void push(intentRaw)
                     .catch((err) => {
                     this.send({
                         type: 'error',

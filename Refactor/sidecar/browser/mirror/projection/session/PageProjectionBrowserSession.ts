@@ -1,8 +1,8 @@
 /**
- * PageProjection V4 BrowserSession — Patchright Chromium + in-page producer + owned data plane.
+ * PageProjectionBrowserSession (sealed contract) — Patchright Chromium + in-page producer + owned data plane.
  *
- * **Temporary** until production cutover (`docs/page-projection/spec/roadmap.md` CUTOVER-SESSION). Replaces
- * `PatchrightBrowserSession` / `LivePageProjection` that day — delete the dual path.
+ * Implements sealed IPageProjectionBrowserSession; temporary file path until Live flip (`docs/page-projection/spec/roadmap.md` CUTOVER-SESSION). Replaces
+ * Sealed Live path — replace any leftover Patchright video dual path; do not revive DomMap.
  * Must grow to the **full** `BrowserSession` contract (input, cookies, eval, resize,
  * permissions, probes, …) as V4 work, not by preserving legado. Lab-incomplete is not
  * a cutover license.
@@ -43,9 +43,20 @@ import type { FormControlSnap } from '@speculum/page-projection/core/formControl
 import { PlaneChannel } from '@speculum/page-projection/core/plane';
 import { peekFrameHeader } from '@speculum/page-projection/core/decode';
 import { ProjectionDataPlaneHost } from './projectionDataPlaneHost';
-import { installDocumentResponseHook } from './csp/documentResponseHook';
+import { CdpBindingDataPlaneHost } from './cdpBindingDataPlaneHost';
+import { installDocumentResponseHook, cspDocumentMutator } from './csp/documentResponseHook';
+import { createScriptInjectMutator } from './csp/scriptInjectMutator';
 import { V4InputDispatch } from '../input/v4InputDispatch';
+import { EditableFocus } from '../../../patchright/EditableFocus';
+import { matchesAllowedDomain } from '../../../patchright/Navigation';
 import type { DomInputIngress } from '@speculum/page-projection/core/input/intentTypes';
+import type {
+  StateSnapshotOpts,
+  StateSnapshotResult,
+  PageProjectionResyncRequest,
+  PageProjectionTelemetrySnapshot,
+  StopCpuProfileResult,
+} from '../../../contracts';
 
 function chromeArgs(): string[] {
   return [
@@ -79,7 +90,7 @@ export type V4ProjectionFactoryOptions = {
   probes?: V4ProjectionProbes;
 };
 
-export class V4ProjectionBrowserSession implements BrowserSession {
+export class PageProjectionBrowserSession {
   private open = false;
   private width = 1280;
   private height = 720;
@@ -93,7 +104,10 @@ export class V4ProjectionBrowserSession implements BrowserSession {
   private cpuAllowed = false;
   private cpuRunning = false;
   private inputDispatch: V4InputDispatch | null = null;
+  private readonly editableFocus: EditableFocus;
   private readonly dataPlane = new ProjectionDataPlaneHost();
+  private readonly cdpPlane = new CdpBindingDataPlaneHost();
+  private dataPlaneMode: 'cdp' | 'loopback' = 'cdp';
   private readonly headless: boolean;
   private readonly probes: V4ProjectionProbes;
 
@@ -104,16 +118,18 @@ export class V4ProjectionBrowserSession implements BrowserSession {
   ) {
     this.headless = factoryOpts.headless;
     this.probes = factoryOpts.probes ?? {};
-    this.dataPlane.dataPlane.setHandler((channel, payload) => {
+    this.editableFocus = new EditableFocus(events);
+    const onPlane = (channel: number, payload: Uint8Array) => {
       if (channel === PlaneChannel.Frame) {
         const header = peekFrameHeader(payload);
-        this.events.onPageProjectionDiff?.({
+        this.events.onPageProjectionFrame?.({
           sequence: header?.sequence ?? 0,
           generation: header?.generation ?? 0,
           plane: '',
           operation: '',
           timestampMs: Date.now(),
           body: payload,
+          contextId: 1,
         });
         return;
       }
@@ -127,7 +143,9 @@ export class V4ProjectionBrowserSession implements BrowserSession {
         if (!isProjectionTelemetryMessage(parsed)) return;
         this.events.onPageProjectionTelemetry?.(parsed);
       }
-    });
+    };
+    this.dataPlane.dataPlane.setHandler(onPlane);
+    this.cdpPlane.setHandler(onPlane);
   }
 
   async launch(options: BrowserLaunchOptions): Promise<BrowserReadyInfo> {
@@ -135,15 +153,41 @@ export class V4ProjectionBrowserSession implements BrowserSession {
     this.width = options.width;
     this.height = options.height;
     this.cpuAllowed = options.cpuProfiling === true;
+    this.dataPlaneMode = options.projectionDataPlane === 'loopback' ? 'loopback' : 'cdp';
     if (options.mirrorMode !== 'pageProjection') {
-      throw new Error('V4ProjectionBrowserSession requires mirrorMode pageProjection');
+      throw new Error('PageProjectionBrowserSession requires mirrorMode pageProjection');
     }
     loadInpageScript();
-    await this.dataPlane.listen();
+    if (this.dataPlaneMode === 'loopback') {
+      await this.dataPlane.listen();
+    }
     const browser = await chromium.launch({ headless: this.headless, args: chromeArgs() });
     this.browser = browser;
     this.context = await browser.newContext({
       viewport: { width: this.width, height: this.height },
+      locale: options.locale || undefined,
+      timezoneId: options.timeZoneId || undefined,
+      colorScheme: options.colorScheme === 'no-preference' ? undefined : options.colorScheme,
+      geolocation: options.geolocation
+        ? {
+            latitude: options.geolocation.latitude,
+            longitude: options.geolocation.longitude,
+            accuracy: options.geolocation.accuracy,
+          }
+        : undefined,
+      userAgent: options.device?.userAgentProfile || undefined,
+    });
+    if (this.dataPlaneMode === 'cdp') {
+      await this.cdpPlane.attach(this.context);
+    }
+    browser.on('disconnected', () => {
+      if (!this.open) return;
+      this.open = false;
+      this.events.onCrash({
+        errorCode: 'browser_disconnected',
+        phase: 'runtime',
+        message: 'chromium disconnected',
+      });
     });
     this.generation = 1;
     this.open = true;
@@ -152,6 +196,7 @@ export class V4ProjectionBrowserSession implements BrowserSession {
   }
 
   async stop(): Promise<void> {
+    this.editableFocus.stop();
     this.open = false;
     this.cdpSession = null;
     this.inputDispatch = null;
@@ -160,6 +205,7 @@ export class V4ProjectionBrowserSession implements BrowserSession {
     this.context = null;
     this.page = null;
     if (browser) await browser.close();
+    this.cdpPlane.close();
     await this.dataPlane.close();
   }
 
@@ -182,12 +228,56 @@ export class V4ProjectionBrowserSession implements BrowserSession {
     };
   }
 
-  async restoreState(_state: BrowserState): Promise<CookieNormalizeStats> {
-    return { total: 0, skipped: 0, normalized: 0, applied: 0, failedIndividual: 0 };
+  async restoreState(state: BrowserState): Promise<CookieNormalizeStats> {
+    const cookies = state.cookies ?? [];
+    const total = cookies.length;
+    if (!this.context || total === 0) {
+      return { total, skipped: total, normalized: 0, applied: 0, failedIndividual: 0 };
+    }
+    let applied = 0;
+    let failed = 0;
+    for (const c of cookies) {
+      try {
+        await this.context.addCookies([
+          {
+            name: c.name,
+            value: c.value,
+            domain: c.domain,
+            path: c.path || '/',
+            expires: c.expires,
+            httpOnly: c.httpOnly,
+            secure: c.secure,
+            sameSite: (c.sameSite as 'Strict' | 'Lax' | 'None' | undefined) ?? 'Lax',
+          },
+        ]);
+        applied += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+    return { total, skipped: 0, normalized: applied + failed, applied, failedIndividual: failed };
   }
 
   async exportState(): Promise<BrowserState> {
-    return { cookies: [], localStorage: [], idbRecords: [], history: [] };
+    if (!this.context) {
+      return { cookies: [], localStorage: [], idbRecords: [], history: [] };
+    }
+    const raw = await this.context.cookies();
+    return {
+      cookies: raw.map((c) => ({
+        name: c.name,
+        value: c.value,
+        domain: c.domain,
+        path: c.path,
+        expires: c.expires,
+        httpOnly: c.httpOnly,
+        secure: c.secure,
+        sameSite: c.sameSite,
+      })),
+      localStorage: [],
+      idbRecords: [],
+      history: [],
+    };
   }
 
   async navigate(url: string): Promise<void> {
@@ -201,13 +291,48 @@ export class V4ProjectionBrowserSession implements BrowserSession {
     }
     this.page = await this.freshPage(dataPlaneUrl, opts);
     this.inputDispatch = new V4InputDispatch(this.page);
+    const allowed = opts.allowedNavigationDomains;
+    if (allowed && allowed.length > 0) {
+      try {
+        const host = new URL(url).hostname;
+        if (!matchesAllowedDomain(host, allowed)) {
+          this.events.onMainFrameNavigationBlocked(url);
+          throw Object.assign(new Error(`navigation blocked: ${host}`), {
+            code: 'PERMISSION_DENIED',
+            errorCode: 'navigation_blocked',
+            phase: 'navigate',
+          });
+        }
+      } catch (err) {
+        if ((err as { errorCode?: string }).errorCode === 'navigation_blocked') throw err;
+      }
+    }
+    this.editableFocus.stop();
     await this.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60_000 });
-    this.url = url;
-    this.events.onLocationChanged(url);
+    this.url = this.page.url() || url;
+    this.events.onLocationChanged(this.url);
+    this.editableFocus.rebind(this.page);
+    this.editableFocus.start(this.page);
   }
 
   async refresh(): Promise<void> {
     if (this.url && this.url !== 'about:blank') await this.navigate(this.url);
+  }
+
+  async goBack(): Promise<void> {
+    const page = this.page;
+    if (!page) return;
+    await page.goBack({ waitUntil: 'domcontentloaded', timeout: 30_000 }).catch(() => undefined);
+    this.url = page.url();
+    this.events.onLocationChanged(this.url);
+  }
+
+  async goForward(): Promise<void> {
+    const page = this.page;
+    if (!page) return;
+    await page.goForward({ waitUntil: 'domcontentloaded', timeout: 30_000 }).catch(() => undefined);
+    this.url = page.url();
+    this.events.onLocationChanged(this.url);
   }
 
   async resize(request: BrowserResizeRequest): Promise<BrowserResizeResult> {
@@ -217,8 +342,24 @@ export class V4ProjectionBrowserSession implements BrowserSession {
     return { ok: true, width: this.width, height: this.height, chromeWidth: this.width, chromeHeight: this.height };
   }
 
-  async probe(_request: BrowserProbeRequest): Promise<BrowserProbeResult> {
-    return { ok: false, errorCode: 'unsupported', message: 'use PageProjection probes on this session' };
+  async probe(request: BrowserProbeRequest): Promise<BrowserProbeResult> {
+    const data: Record<string, unknown> = {};
+    for (const op of request.ops ?? []) {
+      if (op === 'tabs') {
+        data.tabs = [{ url: this.url, active: true }];
+      } else if (op === 'cookies') {
+        data.cookies = this.context ? await this.context.cookies() : [];
+      } else if (op === 'evaluate' && request.evaluateExpression) {
+        const r = await this.evaluate(request.evaluateExpression);
+        data.evaluate = r;
+      } else if (op === 'dom' && request.domSelector && this.page) {
+        data.dom = await this.page.evaluate(
+          `(sel) => { const el = document.querySelector(sel); return el ? el.outerHTML.slice(0, 8000) : null; }`,
+          request.domSelector,
+        );
+      }
+    }
+    return { ok: true, data };
   }
 
   async evaluate(code: string): Promise<BrowserEvalResult> {
@@ -230,15 +371,11 @@ export class V4ProjectionBrowserSession implements BrowserSession {
     }
   }
 
-  async pushInput(_input: BrowserInput): Promise<void> {
-    // V4 lab session does not emulate OS input; Dom intents use pushDomInput.
-  }
-
-  async pushDomInput(input: DomInputIngress): Promise<
+  async pushInput(input: DomInputIngress): Promise<
     { status: 'dispatched' } | { status: 'dropped'; reason: string }
   > {
     if (!this.open || !this.page) {
-      throw Object.assign(new Error('V4ProjectionBrowserSession: session not live'), {
+      throw Object.assign(new Error('PageProjectionBrowserSession: session not live'), {
         code: 'FAILED_PRECONDITION',
         errorCode: 'session_not_live',
         phase: 'input',
@@ -253,6 +390,7 @@ export class V4ProjectionBrowserSession implements BrowserSession {
     }
     return this.inputDispatch.dispatchIngress(input);
   }
+
 
   async resolveAndClickDomInput(
     selector: string,
@@ -300,7 +438,7 @@ export class V4ProjectionBrowserSession implements BrowserSession {
   async pushCameraFrame(_frame: Uint8Array): Promise<void> {}
   async pushMicrophoneAudio(_chunk: Uint8Array): Promise<void> {}
 
-  async haltProjectionWorld(): Promise<{ ok: boolean; reason?: string }> {
+  async haltClocks(): Promise<{ ok: boolean; reason?: string }> {
     return this.callProducer<{ ok: boolean; reason?: string }>(
       `(() => {
         const p = globalThis.__speculumProjection;
@@ -311,7 +449,7 @@ export class V4ProjectionBrowserSession implements BrowserSession {
     );
   }
 
-  async resumeProjectionWorld(): Promise<{ ok: boolean; reason?: string }> {
+  async resumeClocks(): Promise<{ ok: boolean; reason?: string }> {
     return this.callProducer<{ ok: boolean; reason?: string }>(
       `(() => {
         const p = globalThis.__speculumProjection;
@@ -322,7 +460,7 @@ export class V4ProjectionBrowserSession implements BrowserSession {
     );
   }
 
-  async flushProjectionFrame(): Promise<{
+  async emitFrame(_contextId?: number): Promise<{
     ok: boolean;
     generation?: number;
     sequence?: number;
@@ -338,52 +476,53 @@ export class V4ProjectionBrowserSession implements BrowserSession {
     );
   }
 
-  async flushProjectionSnapshot(opts?: {
-    contextId?: number;
-    includeTree?: boolean;
-    cssom?: 'none' | 'committed' | 'scan';
-  }): Promise<{
-    ok: boolean;
-    generation?: number;
-    sequence?: number;
-    tableSize?: number;
-    o2?: TableLiveOracleResult;
-    table?: { rowCount: number; tableHash: string };
-    cssomO2?: CssomTableLiveOracleResult | null;
-    nodeNewConnected?: {
-      ok: boolean;
-      checked: number;
-      disconnectedIds: number[];
-    };
-    cascade?: {
-      authorColor: string;
-      adoptedColor: string;
-      adoptedCount: number;
-      styleSheetCount: number;
-      styleElCount: number;
-      doublePaint: boolean;
-    } | null;
-    tree?: unknown;
-    formProps?: FormControlSnap[];
-    reason?: string;
-  }> {
-    const single = await this.snapshotContext(opts?.contextId ?? 1, opts);
-    if (!single.ok) return { ok: false, reason: single.reason };
+  async getStateSnapshot(contextId: number = 1, opts?: StateSnapshotOpts): Promise<StateSnapshotResult> {
+    const single = await this.snapshotContext(contextId, {
+      includeTree: opts?.tree === true,
+      cssom: opts?.cssom ?? 'none',
+    });
+    if (!single.ok) return { ok: false, reason: single.reason, contextId };
     const v = single.value!;
-    return {
+    const result: StateSnapshotResult = {
       ok: true,
+      contextId,
       generation: v.generation,
       sequence: v.sequence,
-      tableSize: v.table.rowCount,
-      o2: v.o2,
-      table: v.table,
-      cssomO2: v.cssomO2,
-      nodeNewConnected: v.nodeNewConnected,
-      cascade: v.cascade,
-      formProps: v.formProps,
-      tree: v.tree,
+      table: opts?.table === 'full' ? { digest: v.table, rows: v.o2 ?? null } : v.table,
+      liveChildOrder:
+        opts?.liveChildOrder === true
+          ? {
+              childrenByParent: Array.isArray(
+                (v.o2 as unknown as { childrenByParent?: unknown } | null)?.childrenByParent,
+              )
+                ? (
+                    v.o2 as unknown as {
+                      childrenByParent: ReadonlyArray<readonly [number, readonly number[]]>;
+                    }
+                  ).childrenByParent
+                : [],
+            }
+          : null,
+      cssom:
+        opts?.cssom && opts.cssom !== 'none'
+          ? {
+              mode: opts.cssom,
+              table: { sheets: null, rules: null },
+              live: { sheets: v.cssomO2 ?? null },
+            }
+          : null,
+      tree: opts?.tree === true ? (v.tree ?? null) : null,
+      formProps: opts?.formProps === true ? (v.formProps ?? []) : null,
+      frameNewNodes:
+        opts?.frameNewNodes === true && v.nodeNewConnected
+          ? v.nodeNewConnected.disconnectedIds.map((nodeId) => ({ nodeId, connected: false }))
+          : opts?.frameNewNodes === true
+            ? []
+            : null,
     };
+    return result;
   }
+
 
   async snapshotContext(
     contextId: number,
@@ -427,7 +566,7 @@ export class V4ProjectionBrowserSession implements BrowserSession {
       const fn = snapshotContextEvaluateExpression();
       return (await this.requirePage().evaluate(
         `(${fn})(${contextId}, ${JSON.stringify({ cssom, includeTree })}, ${JSON.stringify(treeScript)})`,
-      )) as Awaited<ReturnType<V4ProjectionBrowserSession['snapshotContext']>>;
+      )) as Awaited<ReturnType<PageProjectionBrowserSession['snapshotContext']>>;
     } catch (err) {
       return { ok: false, reason: err instanceof Error ? err.message : String(err) };
     }
@@ -468,7 +607,43 @@ export class V4ProjectionBrowserSession implements BrowserSession {
     };
   }
 
-  sendPageProjectionControl(message: Record<string, unknown>): void {
+  async requestResync(request?: PageProjectionResyncRequest): Promise<void> {
+    this.sendControl({
+      type: 'requestResync',
+      contextId: request?.contextId ?? 1,
+      reason: request?.reason,
+    });
+  }
+
+  async getTelemetrySnapshot(contextId: number = 1): Promise<PageProjectionTelemetrySnapshot> {
+    return {
+      contextId,
+      logicalWidth: this.width,
+      logicalHeight: this.height,
+      chromeWidth: this.width,
+      chromeHeight: this.height,
+      dataPlaneListening: !!this.dataPlane.listenUrl,
+      generation: this.generation,
+      sequence: 0,
+      producerHalted: false,
+      frameQueueDepth: 0,
+      inputPendingCount: 0,
+    };
+  }
+
+  async getAsset(_key: string, _opts?: unknown): Promise<null> {
+    return null;
+  }
+
+  async putUpload(_id: string, _body: Uint8Array, _contentType: string, _name: string): Promise<void> {}
+
+  private sendControl(message: Record<string, unknown>): void {
+    if (this.dataPlaneMode === 'cdp') {
+      const page = this.page;
+      if (!page) return;
+      void this.cdpPlane.sendControl(page, message);
+      return;
+    }
     this.dataPlane.sendControl(message);
   }
 
@@ -478,10 +653,25 @@ export class V4ProjectionBrowserSession implements BrowserSession {
     const p = await context.newPage();
     p.on('console', (msg) => this.events.onConsole(consoleLevel(msg.type()), msg.text()));
     p.on('pageerror', (err) => this.events.onConsole(3, err.message));
+    p.on('framenavigated', (frame) => {
+      try {
+        if (frame !== p.mainFrame()) return;
+        const u = p.url();
+        if (!/^https?:\/\//i.test(u) && u !== 'about:blank') return;
+        this.url = u;
+        this.events.onLocationChanged(u);
+      } catch {
+        /* */
+      }
+    });
+    p.on('close', () => {
+      this.editableFocus.stop();
+    });
     const telemetry = (options.projectionTelemetry ?? LAB_TELEMETRY_DEFAULTS) as Partial<ProjectionTelemetryConfig>;
+    const useLoopback = this.dataPlaneMode === 'loopback';
     const configPre = buildConfigPreScript({
-      transport: 'loopback',
-      dataPlaneUrl,
+      transport: useLoopback ? 'loopback' : 'cdp',
+      dataPlaneUrl: useLoopback ? dataPlaneUrl : '',
       frameRateHz: options.frameRateHz ?? 60,
       telemetry,
       generation: this.generation,
@@ -489,20 +679,27 @@ export class V4ProjectionBrowserSession implements BrowserSession {
     });
     await p.addInitScript({ content: configPre });
     await p.addInitScript({ content: loadInpageScript() });
-    // Document Response-stage hook before any navigation — CSP surgery (script inject later).
+    // Document Response-stage hook before any navigation — CSP + optional launch scripts.
     // TLS/HTTP stay on Chromium; never fulfill Document from Node-originated bytes.
     this.cdpSession = await context.newCDPSession(p);
-    await installDocumentResponseHook(this.cdpSession);
+    const launchScripts = options.scripts ?? [];
+    const storedScripts = launchScripts
+      .filter((s) => !s.remoteUrl && s.file && s.content != null)
+      .map((s) => ({ file: s.file, content: s.content }));
+    await installDocumentResponseHook(this.cdpSession, {
+      mutators: [cspDocumentMutator, createScriptInjectMutator(launchScripts)],
+      storedScripts,
+    });
     return p;
   }
 
   private requirePage(): Page {
-    if (!this.page) throw new Error('V4ProjectionBrowserSession: page not open');
+    if (!this.page) throw new Error('PageProjectionBrowserSession: page not open');
     return this.page;
   }
 
   private requireLaunch(): BrowserLaunchOptions {
-    if (!this.launchOpts) throw new Error('V4ProjectionBrowserSession: not launched');
+    if (!this.launchOpts) throw new Error('PageProjectionBrowserSession: not launched');
     return this.launchOpts;
   }
 
@@ -530,12 +727,12 @@ function consoleLevel(type: string): number {
   return 1;
 }
 
-export function createV4ProjectionBrowserSessionFactory(
+export function createPageProjectionBrowserSessionFactory(
   opts: V4ProjectionFactoryOptions,
 ): BrowserSessionFactory {
   return {
     create(sessionId, events) {
-      return new V4ProjectionBrowserSession(sessionId, events, opts);
+      return new PageProjectionBrowserSession(sessionId, events, opts) as unknown as import('../../../BrowserSession').BrowserSession;
     },
   };
 }

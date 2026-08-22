@@ -1,7 +1,7 @@
 # Projection lab (dev-only)
 
 End-to-end PageProjection V4 **as a caller of `BrowserSession`**. The lab does not launch Chromium
-or call CDP itself — `V4ProjectionBrowserSession` owns Patchright, inject, dataplane, and probes.
+or call CDP itself — `PageProjectionBrowserSession` owns Patchright, inject, dataplane, and probes.
 
 **Architecture:** [lab-design.md](../../../../../../docs/page-projection/spec/lab-design.md) (L0–L12 cutover).  
 **Assert law:** [observability.md](../../../../../../docs/page-projection/spec/observability.md).  

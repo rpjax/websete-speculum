@@ -115,7 +115,7 @@ internal sealed class SessionOutputFanOut
     {
         switch (kind)
         {
-            case OutputStreamKind.PageProjectionDiff
+            case OutputStreamKind.PageProjectionFrames
                 when _mirrorMode == MirrorMode.PageProjection
                      && Interlocked.Exchange(ref _diffPumpStarted, 1) == 0:
                 _ = PumpPageProjectionDiffsAsync();
@@ -159,7 +159,7 @@ internal sealed class SessionOutputFanOut
 
                 await foreach (var item in opened.Value.ReadAllAsync(_lifetime).ConfigureAwait(false))
                 {
-                    var targets = ResolveTargets(OutputStreamKind.PageProjectionDiff).ToList();
+                    var targets = ResolveTargets(OutputStreamKind.PageProjectionFrames).ToList();
                     if (targets.Count == 0)
                     {
                         _connection.ReportPageProjectionDiffQueueDropped(
@@ -226,7 +226,7 @@ internal sealed class SessionOutputFanOut
             }
             finally
             {
-                foreach (var stream in StreamsOfKind(OutputStreamKind.PageProjectionDiff))
+                foreach (var stream in StreamsOfKind(OutputStreamKind.PageProjectionFrames))
                 {
                     stream.PageProjectionDiffs.Writer.TryComplete();
                 }
@@ -237,7 +237,7 @@ internal sealed class SessionOutputFanOut
                 break;
             }
 
-            foreach (var stream in StreamsOfKind(OutputStreamKind.PageProjectionDiff))
+            foreach (var stream in StreamsOfKind(OutputStreamKind.PageProjectionFrames))
             {
                 stream.ReplacePageProjectionDiffs();
             }

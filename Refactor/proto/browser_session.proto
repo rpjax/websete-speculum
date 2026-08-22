@@ -83,7 +83,7 @@ message CreateResponse {
   string session_id = 1;
 }
 
-message LaunchRequest {
+message LaunchVideoStreamingRequest {
   string session_id = 1;
   int32 width = 2;
   int32 height = 3;
@@ -95,31 +95,35 @@ message LaunchRequest {
   string timezone_id = 9;
   string color_scheme = 10;
   optional Geolocation geolocation = 11;
-  // Sessions.ViewportPolicy — sole product bounds; sidecar allocates Xvfb at display_* and
-  // rejects logical sizes outside min_*..display_*.
   int32 min_width = 12;
   int32 min_height = 13;
   int32 display_width = 14;
   int32 display_height = 15;
-  // Sessions.ScreencastPolicy.MaxEncodeScale — CSS→JPEG scale cap (1..2), also capped by display_*.
   double screencast_max_encode_scale = 16;
-  // Sessions.MirrorMode — videoStreaming | pageProjection (admin engine config; Launch-scoped).
-  string mirror_mode = 17;
+}
+
+message LaunchPageProjectionRequest {
+  string session_id = 1;
+  int32 width = 2;
+  int32 height = 3;
+  optional DeviceProfile device = 4;
+  repeated ScriptInjection scripts = 5;
+  repeated string allowed_navigation_domains = 6;
+  string locale = 7;
+  string language = 8;
+  string timezone_id = 9;
+  string color_scheme = 10;
+  optional Geolocation geolocation = 11;
+  int32 min_width = 12;
+  int32 min_height = 13;
+  int32 display_width = 14;
+  int32 display_height = 15;
   // Sessions.PageProjectionDiffQueueCapacity — sidecar EventBridge Dom queue (T5 DropAll).
   int32 page_projection_diff_queue_capacity = 18;
-  // Sessions.PageProjection.FrameRateHz (§5.3.4) — PageProjectionEngine top clock rate.
-  // 0/absent ⇒ sidecar default (60).
   int32 frame_rate_hz = 19;
-  // Sessions.PageProjection.MaxFrameBytes (§5.3.5.5) — one wire message cap before splitting.
-  // 0/absent ⇒ sidecar default (1 MiB).
   int32 max_frame_bytes = 20;
-  // Sessions.PageProjection.BrowserPoolSize (§5.13, WP13) — pre-warmed, never-navigated
-  // Chromium instances held ready host-wide. 0 ⇒ pool disabled (direct launch, V1 behavior).
   int32 browser_pool_size = 21;
-  // Sessions.PageProjection.BrowserPoolRefillPerSec (§5.13) — throttle for pool refill after
-  // a session claims a pre-warmed instance.
   int32 browser_pool_refill_per_sec = 22;
-  // Remaining §5.16 knobs (W6) — 0/absent ⇒ sidecar module defaults.
   repeated int32 frame_rate_ladder = 23;
   int32 hidden_rate_hz = 24;
   int32 rate_recover_ms = 25;
@@ -129,8 +133,6 @@ message LaunchRequest {
   int64 asset_cache_l1_max_bytes = 29;
   int32 asset_priority_viewport_px = 30;
   int32 aggregate_interval_ms = 31;
-  // Client-facing knobs also projected for SPA config (SwapTimeoutMs / ClientStateMs / ApplyBudgetMs
-  // ride the public client-config path separately; echoed here for sidecar awareness / future use).
   int32 swap_timeout_ms = 32;
   int32 client_state_ms = 33;
   int32 apply_budget_ms = 34;
@@ -367,33 +369,18 @@ message AllocationLifecycleEvent {
 // (magic/version/flags/generation/sequence/partIndex/partCount/strings/ops);
 // the API relays it without parsing (PP-WIRE-1). See
 // docs/page-projection-engine-redesign.md §5.5, §5.16.
-message PageProjectionDiffFrame {
+message PageProjectionFrame {
   int64 sequence = 1;
   int64 generation = 2;
-  string plane = 3; // dom | cssom — deprecated for binary frames, empty string
+  string plane = 3; // deprecated for binary frames, empty string
   string operation = 4; // deprecated for binary frames, empty string
   int64 timestamp_ms = 5;
-  bytes body = 6; // V1: UTF-8 JSON payload. Redesign: opaque binary frame/part.
-  // Redesign binary wire (§5.5.3) — a frame exceeding maxFrameBytes splits into
-  // parts, all sharing sequence/generation; the client applies once assembled.
+  bytes body = 6; // opaque §5.5 binary frame/part
   uint32 part_index = 7;
   uint32 part_count = 8;
-  uint32 flags = 9; // bit0 establish, bit1 resync (see sidecar mirror/page/encode.ts)
-  uint32 version = 10; // wire format version; an unknown version desyncs (PP-WIRE-2)
-}
-
-// Client → server control channel (§5.9.5) — NOT a diff, MUST NOT affect `sequence`.
-// Dedicated unary channel (deliberately not DomInputEvent — a control report, not an intent).
-message PageProjectionClientStateRequest {
-  string session_id = 1;
-  // "visible" | "hidden" (§5.3.5.3) — client tab visibility.
-  string visibility = 2;
-  int64 applied_through_sequence = 3;
-  int32 queued_frames = 4;
-  double apply_p50_ms = 5;
-  double apply_p95_ms = 6;
-  // Applies exceeding applyBudgetMs (E9) since the last report.
-  int32 overrun_count = 7;
+  uint32 flags = 9; // bit0 establish, bit1 resync
+  uint32 version = 10;
+  uint32 context_id = 11; // browsing context; root = 1
 }
 
 message DomInputEvent {
@@ -438,26 +425,48 @@ message GetDomAssetResponse {
   bool request_had_authorization = 9;
 }
 
-// OOB PageProjection.Resync (T8/C8) — does not advance live sequence.
-message PageProjectionResyncRequest {
+// Sealed one-path resync — response is a frame on WatchPageProjectionFrames.
+message RequestResyncRequest {
   string session_id = 1;
-  int64 generation = 2; // client last contiguous
-  int64 sequence = 3;
+  uint32 context_id = 2;
+  string reason = 3;
 }
 
-message PageProjectionResyncResponse {
-  int64 generation = 1;
-  int64 covers_through_sequence = 2;
-  // §5.7.2 / W3 — opaque §5.5 binary wire parts (resync flag set). Relayed without
-  // parsing (PP-WIRE-1). Replaces the retired V1 root_json / sheets_json JSON body.
-  repeated bytes frame_parts = 3;
-  // PageEpoch parity telemetry — resync phase timings (best-effort).
-  optional string page_epoch_id = 5;
-  optional string source = 6; // mirror | dump_fallback
-  optional int64 dom_map_ms = 7;
-  optional int64 cssom_clone_ms = 8;
-  optional int64 rewrite_ms = 9;
-  optional int64 serialize_ms = 10;
+message OkResult {
+  bool ok = 1;
+  string reason = 2;
+}
+
+message EmitFrameRequest {
+  string session_id = 1;
+  uint32 context_id = 2;
+}
+
+message EmitFrameResult {
+  bool ok = 1;
+  string reason = 2;
+  int64 generation = 3;
+  int64 sequence = 4;
+}
+
+message GetStateSnapshotRequest {
+  string session_id = 1;
+  uint32 context_id = 2;
+  string table = 3; // digest | full
+  bool live_child_order = 4;
+  string cssom = 5; // none | committed | scan
+  bool tree = 6;
+  bool form_props = 7;
+  bool frame_new_nodes = 8;
+}
+
+message GetStateSnapshotResponse {
+  bool ok = 1;
+  string reason = 2;
+  uint32 context_id = 3;
+  int64 generation = 4;
+  int64 sequence = 5;
+  string snapshot_json = 6;
 }
 
 message PutDomUploadRequest {
@@ -692,7 +701,8 @@ message HostResourcesStatusResponse {
 
 service BrowserSessionService {
   rpc Create(CreateRequest) returns (CreateResponse);
-  rpc Launch(LaunchRequest) returns (ReadyInfo);
+  rpc LaunchPageProjection(LaunchPageProjectionRequest) returns (ReadyInfo);
+  rpc LaunchVideoStreaming(LaunchVideoStreamingRequest) returns (ReadyInfo);
   rpc Stop(SessionId) returns (Empty);
   rpc Dispose(SessionId) returns (Empty);
 
@@ -702,12 +712,14 @@ service BrowserSessionService {
 
   rpc Navigate(NavigateRequest) returns (Empty);
   rpc Refresh(SessionId) returns (Empty);
+  rpc GoBack(SessionId) returns (Empty);
+  rpc GoForward(SessionId) returns (Empty);
   rpc Resize(ResizeRequest) returns (ResizeResult);
   rpc Probe(ProbeRequest) returns (ProbeResult);
   rpc Evaluate(EvaluateRequest) returns (EvaluateResult);
 
   rpc WatchVideo(SessionId) returns (stream VideoFrame);
-  rpc WatchPageProjectionDiff(SessionId) returns (stream PageProjectionDiffFrame);
+  rpc WatchPageProjectionFrames(SessionId) returns (stream PageProjectionFrame);
   rpc WatchAudio(SessionId) returns (stream AudioFrame);
   rpc WatchConsole(SessionId) returns (stream ConsoleEvent);
   rpc WatchLocation(SessionId) returns (stream LocationEvent);
@@ -721,14 +733,19 @@ service BrowserSessionService {
 
   rpc PushInput(stream InputEvent) returns (Empty);
   rpc PushDomInput(stream DomInputEvent) returns (Empty);
-  // Dedicated unary control channel (§5.9.5) — not routed through PushDomInput.
-  rpc ReportPageProjectionClientState(PageProjectionClientStateRequest) returns (Empty);
   rpc PushCamera(stream MediaChunk) returns (Empty);
   rpc PushMicrophone(stream MediaChunk) returns (Empty);
 
   rpc GetDomAsset(GetDomAssetRequest) returns (GetDomAssetResponse);
-  rpc GetPageProjectionResync(PageProjectionResyncRequest) returns (PageProjectionResyncResponse);
+  // One path: RequestResync → frame on WatchPageProjectionFrames.
+  rpc RequestResync(RequestResyncRequest) returns (Empty);
   rpc PutDomUpload(PutDomUploadRequest) returns (Empty);
+
+  // Lab / assert only (PageProjection) — Live product need not call.
+  rpc HaltClocks(SessionId) returns (OkResult);
+  rpc ResumeClocks(SessionId) returns (OkResult);
+  rpc EmitFrame(EmitFrameRequest) returns (EmitFrameResult);
+  rpc GetStateSnapshot(GetStateSnapshotRequest) returns (GetStateSnapshotResponse);
 
   rpc Control(stream ControlToSidecar) returns (stream ControlFromSidecar);
 

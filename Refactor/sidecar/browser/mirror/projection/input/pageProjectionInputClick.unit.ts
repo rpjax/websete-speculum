@@ -4,7 +4,7 @@ import http from 'node:http';
 import path from 'node:path';
 import type { BrowserSessionEvents } from '../../../BrowserSession';
 import { labAssetRoots } from '../lab/assetRoots';
-import { createV4ProjectionBrowserSessionFactory } from '../session/V4ProjectionBrowserSession';
+import { createPageProjectionBrowserSessionFactory } from '../session/PageProjectionBrowserSession';
 import { v4LabLaunchOptions } from '../session/v4LabLaunch';
 import { LAB_TELEMETRY_DEFAULTS } from '@speculum/page-projection/core/telemetry';
 
@@ -12,9 +12,9 @@ function wait(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-export async function runV4InputClickUnitTests(): Promise<void> {
-  if (process.env.SPECULUM_SKIP_V4_SESSION === '1') {
-    console.log('[unit] V4 input click skipped (SPECULUM_SKIP_V4_SESSION=1)');
+export async function runPageProjectionInputClickUnitTests(): Promise<void> {
+  if (process.env.SPECULUM_SKIP_PP_SESSION === '1') {
+    console.log('[unit] PP input click skipped (SPECULUM_SKIP_PP_SESSION=1)');
     return;
   }
 
@@ -35,7 +35,7 @@ export async function runV4InputClickUnitTests(): Promise<void> {
   const events: BrowserSessionEvents = {
     onVideoFrame: () => undefined,
     onAudioFrame: () => undefined,
-    onPageProjectionDiff: () => {
+    onPageProjectionFrame: () => {
       frames += 1;
     },
     onPageProjectionTelemetry: () => undefined,
@@ -48,8 +48,8 @@ export async function runV4InputClickUnitTests(): Promise<void> {
     onCrash: () => undefined,
   };
 
-  const factory = createV4ProjectionBrowserSessionFactory({ headless: true });
-  const session = factory.create('unit-v4-input', events);
+  const factory = createPageProjectionBrowserSessionFactory({ headless: true });
+  const session = factory.create('unit-pp-input', events);
   try {
     await session.launch(
       v4LabLaunchOptions({
@@ -105,7 +105,16 @@ export async function runV4InputClickUnitTests(): Promise<void> {
       payloadJson,
     };
 
-    const stale = await session.pushDomInput!({
+    const pushDom = session as unknown as {
+      pushInput(input: {
+        type: string;
+        generation: number;
+        targetId: number;
+        contextId: number;
+        payloadJson: string;
+      }): Promise<{ status: 'dispatched' } | { status: 'dropped'; reason: string }>;
+    };
+    const stale = await pushDom.pushInput({
       ...base,
       type: 'mousedown',
       generation: info.generation + 99,
@@ -114,7 +123,7 @@ export async function runV4InputClickUnitTests(): Promise<void> {
     assert.strictEqual(stale.reason, 'generation_stale');
 
     for (const type of ['mousemove', 'mousedown', 'mouseup'] as const) {
-      const out = await session.pushDomInput!({ ...base, type });
+      const out = await pushDom.pushInput({ ...base, type });
       assert.strictEqual(out.status, 'dispatched', type);
     }
 
@@ -131,5 +140,5 @@ export async function runV4InputClickUnitTests(): Promise<void> {
       server.close((err) => (err ? reject(err) : resolve()));
     });
   }
-  console.log('[unit] V4 input click + stale generation ok');
+  console.log('[unit] PP input click + stale generation ok');
 }

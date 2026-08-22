@@ -10,7 +10,7 @@ import {
   type ProjectionTelemetryConfig,
   type ProjectionTelemetryMessage,
 } from '@speculum/page-projection/core/telemetry';
-import { createV4ProjectionBrowserSessionFactory } from '../../session/V4ProjectionBrowserSession';
+import { createPageProjectionBrowserSessionFactory } from '../../session/PageProjectionBrowserSession';
 import { v4LabLaunchOptions } from '../../session/v4LabLaunch';
 import { startCpuProfile, stopCpuProfile } from '../probes/cpuProfile';
 import {
@@ -310,7 +310,7 @@ export class LabChassis {
     return {
       onVideoFrame: () => undefined,
       onAudioFrame: () => undefined,
-      onPageProjectionDiff: (diff) => {
+      onPageProjectionFrame: (diff) => {
         this.observeFrameBytes(Buffer.from(diff.body));
       },
       onPageProjectionTelemetry: (message) => {
@@ -380,7 +380,7 @@ export class LabChassis {
     record.dossierDir = this.dossier.dir;
     this.record = record;
 
-    const factory = createV4ProjectionBrowserSessionFactory({
+    const factory = createPageProjectionBrowserSessionFactory({
       headless: this.opts.headless,
       probes: {
         startCpuProfile,

@@ -1,7 +1,7 @@
 /**
  * Structural (topology-only) diff between a Virtual snapshot and a Client snapshot —
  * `TreeNode` shapes from `projected/domTreeSnapshot.ts` (Virtual tree via coherent
- * `flushProjectionSnapshot({ includeTree })` / `snapshotEvaluate`; Projected via client snapshot).
+ * `getStateSnapshot({ includeTree })` / `snapshotEvaluate`; Projected via client snapshot).
  * One "diff producer" (`kind: 'structural'`) — a future pixel/visual producer can sit next to
  * this one without touching it.
  */

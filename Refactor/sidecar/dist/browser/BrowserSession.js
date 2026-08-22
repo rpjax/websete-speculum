@@ -6,11 +6,8 @@
  * C# ISessionConnection. Transport, wire codecs, and session registry stay outside.
  *
  * Implementations (injected at composition via {@link BrowserSessionFactory}):
- * - `PatchrightBrowserSession` — production Live today (legacy PageProjection).
- * - `V4ProjectionBrowserSession` — lab V4; **temporary name**. At production cutover
- *   this (or its successor) **is** the live session. It MUST implement this whole contract
- *   in V4 terms (CUTOVER-SESSION). Do not ship a projection-only subset. Do not keep
- *   LivePageProjection to “fill gaps.”
+ * - `VideoStreamingBrowserSession` / `PatchrightBrowserSession` — video Live.
+ * - `PageProjectionBrowserSession` — sealed PageProjection Live (via createSealedBrowserSessionFactory).
  * - `MockBrowserSession` — tests / SPECULUM_BROWSER=mock.
  *
  * V1 rules:

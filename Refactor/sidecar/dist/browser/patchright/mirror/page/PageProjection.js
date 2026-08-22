@@ -22,7 +22,7 @@ class PageProjectionEngine {
     clock;
     sequence = 0;
     generation = 1;
-    /** §5.2.6 — set by the caller (`liveAttach.ts`) when title/lang/dir/viewport meta changes; emitted on the next tick alongside whatever else is dirty, then cleared. */
+    /** §5.2.6 — set by the caller when title/lang/dir/viewport meta changes; emitted on the next tick alongside whatever else is dirty, then cleared. */
     pendingDocumentState = null;
     constructor(opts) {
         this.opts = opts;

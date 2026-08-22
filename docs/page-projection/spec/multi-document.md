@@ -199,7 +199,7 @@ In-flight frames from a previous install of the same `C` are the existing recove
 | Role | Needs |
 |------|--------|
 | Nested Virtual | contract “who am I” → `C`; `emitFrame` stamped with `C` |
-| Nested Projected | contract “who am I” → `C`; listen; apply iff `C`; on desync → **`requestResync` via Control plane** (lab: WS → `sendPageProjectionControl`; same contract at cutover) |
+| Nested Projected | contract “who am I” → `C`; listen; apply iff `C`; on desync → **`requestResync` via Control plane** (lab: WS → session `requestResync`; same contract at cutover) |
 | Any algorithm that can host nested contexts | Node table + **child-scope indexer**; mint on admit (`contentWindow != null`); answer `getScopeId` for `event.source === that contentWindow` |
 | Projected parent of a host | Blank same-origin iframe; **install** nested algorithm into `contentWindow`; never live `src` |
 | Root algorithm | `mine = 1`; no `getScopeId`; same loop; mint when *it* admits a host |

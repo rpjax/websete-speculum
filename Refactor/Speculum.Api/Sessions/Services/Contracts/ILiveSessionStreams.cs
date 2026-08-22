@@ -16,7 +16,7 @@ public interface IFrameStream : IDisposable
 }
 
 /// <summary>Per-consumer Dom Projection diff stream. Dispose unregisters from the mux.</summary>
-public interface IPageProjectionDiffStream : IDisposable
+public interface IPageProjectionFramesStream : IDisposable
 {
     Guid Id { get; }
 

@@ -931,17 +931,17 @@ internal sealed class LiveSession : ILiveSession
             static (id, owner, mux) => (IFrameStream)new FrameStream(id, owner, mux));
     }
 
-    public IResult<IPageProjectionDiffStream> OpenPageProjectionDiffStream(Guid consumerId)
+    public IResult<IPageProjectionFramesStream> OpenPageProjectionFramesStream(Guid consumerId)
     {
         if (_mirrorMode != MirrorMode.PageProjection)
         {
-            return Result<IPageProjectionDiffStream>.Failure(SessionMirrorErrors.PageProjectionRequiredMessage);
+            return Result<IPageProjectionFramesStream>.Failure(SessionMirrorErrors.PageProjectionRequiredMessage);
         }
 
         return OpenStream(
             consumerId,
-            OutputStreamKind.PageProjectionDiff,
-            static (id, owner, mux) => (IPageProjectionDiffStream)new PageProjectionDiffStream(id, owner, mux));
+            OutputStreamKind.PageProjectionFrames,
+            static (id, owner, mux) => (IPageProjectionFramesStream)new PageProjectionFramesStream(id, owner, mux));
     }
 
     public IResult<IConsoleOutputStream> OpenConsoleOutputStream(Guid consumerId)
@@ -2155,27 +2155,26 @@ internal sealed class LiveSession : ILiveSession
         return cut < key.Length ? key[..cut] : key;
     }
 
-    public async Task<IResult<PageProjectionResyncSnapshot>> GetPageProjectionResyncAsync(
-        long generation,
-        long sequence,
+    public async Task<IResult> RequestResyncAsync(
+        uint contextId = 1,
+        string? reason = null,
         CancellationToken ct = default)
     {
         if (_mirrorMode != MirrorMode.PageProjection)
         {
-            return Result<PageProjectionResyncSnapshot>.Failure(
-                SessionMirrorErrors.PageProjectionRequiredMessage);
+            return Result.Failure(SessionMirrorErrors.PageProjectionRequiredMessage);
         }
 
         if (IsReleased || !_connection.IsOpen)
         {
-            return Result<PageProjectionResyncSnapshot>.Failure("Live session is released");
+            return Result.Failure("Live session is released");
         }
 
         if (_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionDiffResyncRequested))
         {
             try
             {
-                _telemetry.PageProjection.Diff.ResyncRequested(generation, sequence);
+                _telemetry.PageProjection.Diff.ResyncRequested(contextId, 0);
             }
             catch (Exception journalEx)
             {
@@ -2186,46 +2185,9 @@ internal sealed class LiveSession : ILiveSession
             }
         }
 
-        var started = Environment.TickCount64;
-        var result = await _connection
-            .GetPageProjectionResyncAsync(generation, sequence, ct)
+        return await _connection
+            .RequestResyncAsync(contextId, reason, ct)
             .ConfigureAwait(false);
-        if (result.IsFailure)
-        {
-            return result;
-        }
-
-        if (_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionDiffResyncServed))
-        {
-            try
-            {
-                // Binary §5.7.2 resync — sheet/rule counts are not JSON-parsed (PP-WIRE-1).
-                // Report part count in SheetCount so telemetry still has a size signal.
-                var partCount = result.Value.FrameParts.Count;
-                _telemetry.PageProjection.Diff.ResyncServed(
-                    result.Value.Generation,
-                    result.Value.CoversThroughSequence,
-                    partCount,
-                    0,
-                    0,
-                    Math.Max(0, Environment.TickCount64 - started),
-                    result.Value.PageEpochId,
-                    result.Value.Source,
-                    result.Value.DomMapMs,
-                    result.Value.CssomCloneMs,
-                    result.Value.RewriteMs,
-                    result.Value.SerializeMs);
-            }
-            catch (Exception journalEx)
-            {
-                _logger.LogWarning(
-                    journalEx,
-                    "Session {SessionId} failed to journal Telemetry.Sessions.PageProjection.Diff.ResyncServed.",
-                    SessionId);
-            }
-        }
-
-        return result;
     }
 
     private static (int SheetCount, int RuleCount, int SeededSheetCount) CountCssomSheets(byte[] sheetsJson)
@@ -2306,24 +2268,7 @@ internal sealed class LiveSession : ILiveSession
             .ConfigureAwait(false);
     }
 
-    public async Task<IResult> ReportPageProjectionClientStateAsync(
-        PageProjectionClientStateReport report,
-        CancellationToken ct = default)
-    {
-        if (_mirrorMode != MirrorMode.PageProjection)
-        {
-            return Result.Failure(SessionMirrorErrors.PageProjectionRequiredMessage);
-        }
-
-        if (IsReleased || !_connection.IsOpen)
-        {
-            return Result.Failure("Live session is released");
-        }
-
-        return await _connection
-            .ReportPageProjectionClientStateAsync(report, ct)
-            .ConfigureAwait(false);
-    }
+    // ReportPageProjectionClientState removed — sealed contract drop.
 
     // ── Hooks ────────────────────────────────────────────────────────────────
 

@@ -57,7 +57,7 @@ public interface ILiveSession
     IResult<IFrameStream> OpenFrameStream(Guid consumerId);
 
     /// <summary>Opens a Dom Projection diff stream (MirrorMode.PageProjection only).</summary>
-    IResult<IPageProjectionDiffStream> OpenPageProjectionDiffStream(Guid consumerId);
+    IResult<IPageProjectionFramesStream> OpenPageProjectionFramesStream(Guid consumerId);
 
     /// <summary>Opens a console output stream.</summary>
     IResult<IConsoleOutputStream> OpenConsoleOutputStream(Guid consumerId);
@@ -248,10 +248,10 @@ public interface ILiveSession
         string? kind = null,
         string? rangeHeader = null);
 
-    /// <summary>OOB PageProjection.Resync (MirrorMode.PageProjection only).</summary>
-    Task<IResult<PageProjectionResyncSnapshot>> GetPageProjectionResyncAsync(
-        long generation,
-        long sequence,
+    /// <summary>Sealed one-path resync — frame arrives on Diff watch stream.</summary>
+    Task<IResult> RequestResyncAsync(
+        uint contextId = 1,
+        string? reason = null,
         CancellationToken ct = default);
 
     Task<IResult> PutDomUploadAsync(
@@ -259,14 +259,6 @@ public interface ILiveSession
         byte[] body,
         string contentType,
         string name,
-        CancellationToken ct = default);
-
-    /// <summary>
-    /// Client → server control channel (§5.9.5, MirrorMode.PageProjection only). A control
-    /// report, not a diff — never advances the live `sequence`.
-    /// </summary>
-    Task<IResult> ReportPageProjectionClientStateAsync(
-        PageProjectionClientStateReport report,
         CancellationToken ct = default);
 
     // ── Hooks ────────────────────────────────────────────────────────────────

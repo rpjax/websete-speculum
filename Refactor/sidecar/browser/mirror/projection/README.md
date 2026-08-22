@@ -7,7 +7,7 @@ This tree holds **callers only**:
 
 | Folder | Role |
 |--------|------|
-| **`session/`** | `V4ProjectionBrowserSession` + data-plane host (probes via DI) |
+| **`session/`** | `PageProjectionBrowserSession` + data-plane host (probes via DI) |
 | **`inject/`** | Config pre-script + load `virtual.js` |
 | **`input/`** | CDP dispatch / resolve (Patchright) — not in the package |
 | **`lab/`** | Lab harness (chassis, blueprints, probes, `LabProjectedHarness`) |

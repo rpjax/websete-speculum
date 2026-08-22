@@ -182,10 +182,10 @@ public interface ISessionConnection
         string? kind = null,
         string? rangeHeader = null);
 
-    /// <summary>OOB PageProjection.Resync snapshot (does not advance live sequence).</summary>
-    Task<IResult<PageProjectionResyncSnapshot>> GetPageProjectionResyncAsync(
-        long generation,
-        long sequence,
+    /// <summary>Sealed one-path resync — frame arrives on Diff watch stream.</summary>
+    Task<IResult> RequestResyncAsync(
+        uint contextId = 1,
+        string? reason = null,
         CancellationToken ct = default);
 
     Task<IResult> PutDomUploadAsync(
@@ -193,14 +193,6 @@ public interface ISessionConnection
         byte[] body,
         string contentType,
         string name,
-        CancellationToken ct = default);
-
-    /// <summary>
-    /// Client → server control channel (§5.9.5) — a control report, never a diff;
-    /// does not advance the live `sequence`.
-    /// </summary>
-    Task<IResult> ReportPageProjectionClientStateAsync(
-        PageProjectionClientStateReport report,
         CancellationToken ct = default);
 
     /// <summary>

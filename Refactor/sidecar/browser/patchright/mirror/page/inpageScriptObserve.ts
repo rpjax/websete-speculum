@@ -203,7 +203,7 @@ export const INPAGE_SCRIPT_V2_OBSERVE = String.raw`  // ------------------------
               const built = buildRaw(innerDoc.documentElement);
               if (built) children.push(built);
             }
-            // else: cross-origin / not yet navigated — liveAttach CDP pierce merges interior under this id.
+            // else: cross-origin / not yet navigated — CDP pierce merges interior under this id.
           } else if (!PLACEHOLDERS.has(tag)) {
             const kids = childNodesFor(n);
             for (let i = 0; i < kids.length; i++) {

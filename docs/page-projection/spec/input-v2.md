@@ -29,7 +29,7 @@ Hub DTO: [PageProjectionIntent.cs](../../Refactor/Speculum.Api/Sessions/Mirror/P
 
 ## Client capture
 
-Module: [`projectedInputCapture.ts`](../../Refactor/packages/page-projection/src/projected/input/projectedInputCapture.ts) (shared projected) / [`interaction.ts`](../../Refactor/web/src/features/sessions/live/page/interaction.ts) (prod legado until gate 10).
+Module: [`projectedInputCapture.ts`](../../Refactor/packages/page-projection/src/projected/input/projectedInputCapture.ts) (shared projected; `web/` SessionMirrorSurface attaches it).
 
 - Listeners on **Projected surface** only (plus `document` / `window` for viewport `scroll`).
 - **Armed** after resync CHECK + generation match; **zero intents** while disarmed.
@@ -48,7 +48,7 @@ Module: [`v4InputDispatch.ts`](../../Refactor/sidecar/browser/mirror/projection/
 3. Nested mouse/wheel coords: frame-local → page via iframe `boundingBox` before CDP.
 4. Map surface coords → viewport; CDP `mouseMoved` → `mousePressed` → `mouseReleased`.
 
-Entry: `V4ProjectionBrowserSession.pushDomInput` / gRPC `PushDomInput` / lab `client.intent`.
+Entry: `PageProjectionBrowserSession.pushInput(DomInputIngress)` / gRPC `PushDomInput` / lab `client.intent` (blueprint act may still be named `pushDomInput`).
 
 ## MVP gates (lab blueprints) — closed
 
@@ -82,6 +82,6 @@ Live MotorAssert / Sessions E2E = **cutover** ([roadmap.md](roadmap.md) gate 10)
 | Types | `projection/input/intentTypes.ts` |
 | Virtual resolve | `projection/input/resolveVirtualNode.ts` |
 | Dispatch | `projection/input/v4InputDispatch.ts` |
-| Capture | `@speculum/page-projection` `projected/input/projectedInputCapture.ts` / [`interaction.ts`](../../Refactor/web/src/features/sessions/live/page/interaction.ts) (prod legado until gate 10) |
-| Session | `V4ProjectionBrowserSession.pushDomInput` |
+| Capture | `@speculum/page-projection` `projected/input/projectedInputCapture.ts` (web SessionMirrorSurface) |
+| Session | `PageProjectionBrowserSession.pushInput` |
 | Lab WS | `lab/host/protocol.ts` → `client.intent` |

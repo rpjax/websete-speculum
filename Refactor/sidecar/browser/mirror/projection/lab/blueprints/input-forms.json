@@ -10,7 +10,7 @@
         { "id": "wait", "type": "sleep", "dependsOn": ["boot"], "params": { "ms": 2000 } },
         {
           "id": "type-field",
-          "type": "pushDomInput",
+          "type": "pushInput",
           "dependsOn": ["wait"],
           "params": {
             "sequence": [{ "type": "resolveAndType", "selector": "#field", "value": "hello-input" }]

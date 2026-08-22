@@ -4,7 +4,7 @@ import http from 'node:http';
 import path from 'node:path';
 import type { BrowserSessionEvents } from '../../../BrowserSession';
 import { labAssetRoots } from '../lab/assetRoots';
-import { createV4ProjectionBrowserSessionFactory } from './V4ProjectionBrowserSession';
+import { createPageProjectionBrowserSessionFactory } from './PageProjectionBrowserSession';
 import { v4LabLaunchOptions } from './v4LabLaunch';
 import { LAB_TELEMETRY_DEFAULTS } from '@speculum/page-projection/core/telemetry';
 
@@ -16,7 +16,7 @@ function emptyEvents(): BrowserSessionEvents {
   return {
     onVideoFrame: () => undefined,
     onAudioFrame: () => undefined,
-    onPageProjectionDiff: () => undefined,
+    onPageProjectionFrame: () => undefined,
     onPageProjectionTelemetry: () => undefined,
     onConsole: () => undefined,
     onLocationChanged: () => undefined,
@@ -28,9 +28,9 @@ function emptyEvents(): BrowserSessionEvents {
   };
 }
 
-export async function runV4ProjectionSessionUnitTests(): Promise<void> {
-  if (process.env.SPECULUM_SKIP_V4_SESSION === '1') {
-    console.log('[unit] V4ProjectionBrowserSession skipped (SPECULUM_SKIP_V4_SESSION=1)');
+export async function runPageProjectionSessionUnitTests(): Promise<void> {
+  if (process.env.SPECULUM_SKIP_PP_SESSION === '1') {
+    console.log('[unit] PageProjectionBrowserSession skipped (SPECULUM_SKIP_PP_SESSION=1)');
     return;
   }
 
@@ -49,12 +49,12 @@ export async function runV4ProjectionSessionUnitTests(): Promise<void> {
 
   let frames = 0;
   const events = emptyEvents();
-  events.onPageProjectionDiff = () => {
+  events.onPageProjectionFrame = () => {
     frames += 1;
   };
 
-  const factory = createV4ProjectionBrowserSessionFactory({ headless: true });
-  const session = factory.create('unit-v4', events);
+  const factory = createPageProjectionBrowserSessionFactory({ headless: true });
+  const session = factory.create('unit-pp', events);
   try {
     await session.launch(
       v4LabLaunchOptions({
@@ -68,15 +68,22 @@ export async function runV4ProjectionSessionUnitTests(): Promise<void> {
     while (frames < 1 && Date.now() < deadline) await wait(50);
     assert.ok(frames >= 1, `expected at least one projection frame, got ${frames}`);
 
-    const o2 = await session.flushProjectionSnapshot?.({ includeTree: false });
-    assert.ok(o2?.ok && o2.o2, `coherent snapshot failed: ${o2?.reason}`);
-    assert.strictEqual(o2.o2!.kind, 'table_live');
-    assert.strictEqual(o2.o2!.identical, true, JSON.stringify(o2.o2!.divergences.slice(0, 3)));
-    assert.ok(o2.table && o2.table.rowCount >= 0);
-    assert.ok(typeof o2.table?.tableHash === 'string');
-    assert.ok((o2.sequence ?? 0) >= 1);
+    const snap = await session.getStateSnapshot?.(1, { table: 'full', tree: false });
+    assert.ok(snap?.ok, `coherent snapshot failed: ${snap && !snap.ok ? snap.reason : 'unknown'}`);
+    const rows = snap!.table && typeof snap!.table === 'object' && 'rows' in (snap!.table as object)
+      ? (snap!.table as { rows: { kind?: string; identical?: boolean; divergences?: unknown[] }; digest: { rowCount: number; tableHash: string } }).rows
+      : null;
+    const digest = snap!.table && typeof snap!.table === 'object' && 'digest' in (snap!.table as object)
+      ? (snap!.table as { digest: { rowCount: number; tableHash: string } }).digest
+      : (snap!.table as { rowCount: number; tableHash: string });
+    assert.ok(rows, 'expected table rows (o2)');
+    assert.strictEqual(rows!.kind, 'table_live');
+    assert.strictEqual(rows!.identical, true, JSON.stringify((rows!.divergences ?? []).slice(0, 3)));
+    assert.ok(digest && digest.rowCount >= 0);
+    assert.ok(typeof digest.tableHash === 'string');
+    assert.ok((snap!.sequence ?? 0) >= 1);
 
-    const resumed = await session.resumeProjectionWorld?.();
+    const resumed = await session.resumeClocks?.();
     assert.ok(resumed?.ok, resumed?.reason);
 
     const cpuDenied = await session.startCpuProfile?.();
@@ -87,13 +94,13 @@ export async function runV4ProjectionSessionUnitTests(): Promise<void> {
       server.close((err) => (err ? reject(err) : resolve()));
     });
   }
-  console.log('[unit] V4ProjectionBrowserSession frames+O2+halt/flush ok');
+  console.log('[unit] PageProjectionBrowserSession frames+O2+halt/flush ok');
 
-  await runV4DocumentCspHookUnitTests();
+  await runDocumentCspHookUnitTests();
 }
 
 /** Response-stage Document hook: meta CSP relaxed; nonce stripped; other directives preserved. */
-async function runV4DocumentCspHookUnitTests(): Promise<void> {
+async function runDocumentCspHookUnitTests(): Promise<void> {
   const policy =
     "script-src 'nonce-test' 'strict-dynamic'; connect-src 'none'; img-src https:";
   const html = `<!doctype html><html><head>
@@ -112,8 +119,8 @@ async function runV4DocumentCspHookUnitTests(): Promise<void> {
   if (!addr || typeof addr === 'string') throw new Error('no port');
   const url = `http://127.0.0.1:${addr.port}/`;
 
-  const factory = createV4ProjectionBrowserSessionFactory({ headless: true });
-  const session = factory.create('unit-v4-csp', emptyEvents());
+  const factory = createPageProjectionBrowserSessionFactory({ headless: true });
+  const session = factory.create('unit-pp-csp', emptyEvents());
   try {
     await session.launch(
       v4LabLaunchOptions({

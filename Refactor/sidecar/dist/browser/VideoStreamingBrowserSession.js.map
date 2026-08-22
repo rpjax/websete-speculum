@@ -1,0 +1,1 @@
+{"version":3,"file":"VideoStreamingBrowserSession.js","sourceRoot":"","sources":["../../browser/VideoStreamingBrowserSession.ts"],"names":[],"mappings":";AAAA;;;;GAIG;;;AAEH,oFAAiF;AAIjF,MAAa,4BAA6B,SAAQ,mDAAwB;IACxE,YAAY,SAAiB,EAAE,MAA4B,EAAE,QAA0B;QACrF,KAAK,CAAC,SAAS,EAAE,MAAM,EAAE,QAAQ,CAAC,CAAC;IACrC,CAAC;CACF;AAJD,oEAIC;AAED,gFAA4H;AAAnH,oJAAA,uBAAuB,OAA6C"}

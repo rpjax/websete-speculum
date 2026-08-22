@@ -48,6 +48,7 @@ export class EventBridge implements BrowserSessionEvents {
     partCount?: number;
     flags?: number;
     version?: number;
+    contextId?: number;
   }> {
     return this._dom;
   }
@@ -149,7 +150,7 @@ export class EventBridge implements BrowserSessionEvents {
     }
   }
 
-  /** Called by WatchPageProjectionDiff after each dequeue so clear can fire. */
+  /** Called by WatchPageProjectionFrames after each dequeue so clear can fire. */
   notifyDomQueueDrained(): void {
     this.updateDomBackpressureAfterWrite();
   }
@@ -182,7 +183,7 @@ export class EventBridge implements BrowserSessionEvents {
     this.video.tryWrite(jpeg);
   }
 
-  onPageProjectionDiff(diff: {
+  onPageProjectionFrame(diff: {
     sequence: number;
     generation: number;
     plane: string;
@@ -193,6 +194,7 @@ export class EventBridge implements BrowserSessionEvents {
     partCount?: number;
     flags?: number;
     version?: number;
+    contextId?: number;
   }): void {
     if (this.dom.isClosed) {
       this.emitLifecycleQueueDropped({

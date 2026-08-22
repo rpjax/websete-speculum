@@ -21,6 +21,7 @@
 | Date | Topic | Where the full text is |
 |------|-------|------------------------|
 | 2026-08-21 | **BrowserSession mirror contracts SEALED** — [browser-session.md](browser-session.md): core + PP + video; sinks; permission host; raw `getStateSnapshot`; `requestResync` only; no diagnostics facade; CPU profile on core | browser-session.md + observability.md §5 + open.md CUTOVER-SESSION |
+| 2026-08-21 | **Contract cutover impl** — sealed factory Live; `PageProjectionBrowserSession`; delete `LivePageProjection`; wire `RequestResync` / drop GetResync+ReportClientState | CUTOVER-WORKSPACE + sidecar + Api |
 | 2026-08-20 | **CSP SEALED** — [csp.md](csp.md) §§3–7 + `session/csp/*`; units/e2e. Next cutover: script inject (same hook). | csp.md + CUTOVER-WORKSPACE |
 | 2026-08-20 | **CSP cutover redesign** — surgical Response-stage Document mutate; nonce strip + compensation; amends E-03/E-08 (CSP ok ≠ page WS prod). | [csp.md](csp.md) |
 | 2026-08-20 | **Input V2 lab M1 closed** — [input-v2.md](input-v2.md); gate 6 lab done. Touch/OS pointer intents **out of scope** (Projected local/native). MotorAssert on Live = **cutover** (gate 10), not input development. Next product: canvas (gate 7). | roadmap.md + input-v2.md + README Now |
@@ -268,4 +269,6 @@ Closed and `slotAssignment: 'manual'` stay explicit unsupported fails. Not ifram
 | Lab probes | On same PP interface: `haltClocks` / `resumeClocks` / `emitFrame` / `getStateSnapshot` — no diagnostics facade |
 | State snapshot | Raw planes + opts; oracles / cascade fixture = caller; CPU profile on **core** |
 | Observability | [observability.md](observability.md) §5–§6 updated to match |
+
+**Impl cutover (2026-08-21):** sidecar `createSealedBrowserSessionFactory` selects PP vs `VideoStreamingBrowserSession` at Launch `mirrorMode`; `LivePageProjection` deleted (stub throw); proto drops `GetPageProjectionResync` / `ReportPageProjectionClientState`, adds `RequestResync` + lab clock/snapshot RPCs. Product leftovers (canvas, antibot, asset store) tracked in [CUTOVER-WORKSPACE.md](../CUTOVER-WORKSPACE.md) — do not block contract shape.
 

@@ -122,6 +122,11 @@ void (async () => {
     bus = runtime.bus;
     mintFn = () => runtime.mint();
     mine = CONTEXT_ID_ROOT;
+    try {
+      await runtime.whenOpen();
+    } catch (err) {
+      console.error('[speculumProjection] data plane open failed', err);
+    }
   } else {
     bus = new ProjectionBus({ window, parent: window.parent, role: 'nested' });
     frameTransport = new BusFrameTransport(bus);
@@ -197,14 +202,6 @@ void (async () => {
 
   domMutationObserver.start();
 
-  if (loopback) {
-    try {
-      await loopback.whenOpen();
-    } catch (err) {
-      console.error('[speculumProjection] data plane open failed', err);
-    }
-  }
-
   const frameEmitter = new FrameEmitter({
     clock: frameClock,
     buffer: mutationBuffer,
@@ -257,8 +254,8 @@ void (async () => {
     });
   });
 
-  if (loopback) {
-    loopback.dataPlane.setHandler((channel, payload) => {
+  if (dataPlane) {
+    dataPlane.setHandler((channel, payload) => {
       if (channel !== PlaneChannel.Control) return;
       let msg: unknown;
       try {

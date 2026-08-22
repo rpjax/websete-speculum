@@ -77,7 +77,7 @@ class EventBridge {
             this._onDomBackpressureChanged?.(false);
         }
     }
-    /** Called by WatchPageProjectionDiff after each dequeue so clear can fire. */
+    /** Called by WatchPageProjectionFrames after each dequeue so clear can fire. */
     notifyDomQueueDrained() {
         this.updateDomBackpressureAfterWrite();
     }
@@ -104,7 +104,7 @@ class EventBridge {
     onVideoFrame(jpeg) {
         this.video.tryWrite(jpeg);
     }
-    onPageProjectionDiff(diff) {
+    onPageProjectionFrame(diff) {
         if (this.dom.isClosed) {
             this.emitLifecycleQueueDropped({
                 reason: 'sidecar_bridge_closed',

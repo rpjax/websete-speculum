@@ -9,7 +9,7 @@
 
 **Status:** **SEALED design** — CSSOM plane + PageProjection naming (C0–C9, C3.1).  
 **Engine (2026-08-18):** constructed sheets on `adoptedStyleSheets` + top-level `CSSStyleRule` on the wire and applied. Sensor = in-page **poll** (C5). Nested inners ride grouping `cssText` (C3.2). Child-document CSSOM is OPEN-6 (that instance), not a hole in this poll.  
-**Live cutover** still requires this plane on the production path ([roadmap.md](roadmap.md) CUTOVER-FULL). Do not switch Live to V4 without that. T11 rename is part of that work, not a license to ship DOM-only.  
+**Live cutover (product):** CSSOM must stay on the PP session path and be asserted on the Live surface via `web/` Integration ([roadmap.md](roadmap.md) gate 10). Do not ship DomMap or a DOM-only Live. Session path already uses `PageProjectionBrowserSession` (gate 6.6).  
 **Dom plane (sealed):** [frame-protocol.md](frame-protocol.md)
 
 **Purpose of this file**

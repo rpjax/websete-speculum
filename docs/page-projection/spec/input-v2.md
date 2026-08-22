@@ -41,7 +41,7 @@ Module: [`projectedInputCapture.ts`](../../Refactor/packages/page-projection/src
 
 ## Sidecar dispatch
 
-Module: [`v4InputDispatch.ts`](../../Refactor/sidecar/browser/mirror/projection/input/v4InputDispatch.ts) wrapping [`DomElementInput.ts`](../../Refactor/sidecar/browser/patchright/mirror/dom/DomElementInput.ts).
+Module: [`pageProjectionInputDispatch.ts`](../../Refactor/sidecar/browser/mirror/projection/input/pageProjectionInputDispatch.ts) wrapping [`DomElementInput.ts`](../../Refactor/sidecar/browser/patchright/mirror/dom/DomElementInput.ts).
 
 1. Validate generation (stale → drop).
 2. Resolve `(contextId, nodeId)` → Virtual element via `__speculumProjection.domNodes.get` in the correct frame.
@@ -63,7 +63,7 @@ Entry: `PageProjectionBrowserSession.pushInput(DomInputIngress)` / gRPC `PushDom
 
 Human eye: fixture `input-scroll-matrix` (Browse) — wheel page / panels / iframe; bands must glide under sticky bars.
 
-Unit: `runV4InputClickUnitTests` in sidecar (`npm run unit`).
+Unit: `runPageProjectionInputClickUnitTests` in sidecar (`npm run unit`).
 
 Live MotorAssert / Sessions E2E = **cutover** ([roadmap.md](roadmap.md) gate 10), not input development.
 
@@ -81,7 +81,7 @@ Live MotorAssert / Sessions E2E = **cutover** ([roadmap.md](roadmap.md) gate 10)
 |-------|------|
 | Types | `projection/input/intentTypes.ts` |
 | Virtual resolve | `projection/input/resolveVirtualNode.ts` |
-| Dispatch | `projection/input/v4InputDispatch.ts` |
+| Dispatch | `projection/input/pageProjectionInputDispatch.ts` |
 | Capture | `@speculum/page-projection` `projected/input/projectedInputCapture.ts` (web SessionMirrorSurface) |
 | Session | `PageProjectionBrowserSession.pushInput` |
 | Lab WS | `lab/host/protocol.ts` → `client.intent` |

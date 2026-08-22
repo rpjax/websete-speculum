@@ -17,7 +17,7 @@ namespace Speculum.Api.Sessions.Services.Contracts;
 /// <c>IBrowserClient</c> / <c>ISessionConnection</c>.
 /// Stream handles are <see cref="IDisposable"/> — dispose to unregister; no close-by-id API.
 /// Visual and input streams are MirrorMode-gated: VideoStreaming uses frame + coordinate
-/// input; PageProjection uses PageProjectionDiff + element input.
+/// input; PageProjection uses PageProjectionFrame + element input.
 /// Attachment id is the consumer id for output streams and input pumps.
 /// </remarks>
 public interface ILiveSession
@@ -127,59 +127,59 @@ public interface ILiveSession
 
     /// <summary>
     /// Opt-in Journal hop: Diff written to the client data-plane stream.
-    /// No-op when <c>Telemetry.Sessions.PageProjection.Diff.WireDelivered</c> is disabled.
+    /// No-op when <c>Telemetry.Sessions.PageProjection.Frame.WireDelivered</c> is disabled.
     /// </summary>
-    void TracePageProjectionDiffWireDelivered(
-        PageProjectionDiff diff,
+    void TracePageProjectionFrameWireDelivered(
+        PageProjectionFrame diff,
         long durationMs = 0,
         Guid streamId = default,
         Guid consumerId = default,
-        long diffEpoch = 0);
+        long frameEpoch = 0);
 
     /// <summary>
     /// Opt-in Journal hop: Diff accepted into the per-stream fan-out channel.
-    /// No-op when <c>Telemetry.Sessions.PageProjection.Diff.FanOutEnqueued</c> is disabled.
+    /// No-op when <c>Telemetry.Sessions.PageProjection.Frame.FanOutEnqueued</c> is disabled.
     /// </summary>
-    void TracePageProjectionDiffFanOutEnqueued(
-        PageProjectionDiff diff,
+    void TracePageProjectionFrameFanOutEnqueued(
+        PageProjectionFrame diff,
         long waitMs,
         Guid streamId,
         Guid consumerId,
         string kind,
         int targetIndex,
         int targetCount,
-        int diffChannelCount,
-        long diffEpoch);
+        int frameChannelCount,
+        long frameEpoch);
 
     /// <summary>
-    /// Opt-in Journal hop: hub Diff pump dequeued a frame before stream write.
-    /// No-op when <c>Telemetry.Sessions.PageProjection.Diff.StreamDequeued</c> is disabled.
+    /// Opt-in Journal hop: hub frame pump dequeued a frame before stream write.
+    /// No-op when <c>Telemetry.Sessions.PageProjection.Frame.StreamDequeued</c> is disabled.
     /// </summary>
-    void TracePageProjectionDiffStreamDequeued(
-        PageProjectionDiff diff,
+    void TracePageProjectionFrameStreamDequeued(
+        PageProjectionFrame diff,
         Guid streamId = default,
         Guid consumerId = default,
-        long diffEpoch = 0);
+        long frameEpoch = 0);
 
     /// <summary>
-    /// True when <c>Telemetry.Sessions.PageProjection.Diff.WireDelivered</c> is catalog-enabled
+    /// True when <c>Telemetry.Sessions.PageProjection.Frame.WireDelivered</c> is catalog-enabled
     /// (callers may skip Stopwatch when false).
     /// </summary>
-    bool IsPageProjectionDiffWireDeliveredEnabled();
+    bool IsPageProjectionFrameWireDeliveredEnabled();
 
     /// <summary>
     /// Opt-in Journal hop: Diff frame received from sidecar (before connection enqueue).
-    /// No-op when <c>Telemetry.Sessions.PageProjection.Diff.FrameReceived</c> is disabled.
+    /// No-op when <c>Telemetry.Sessions.PageProjection.Frame.FrameReceived</c> is disabled.
     /// Journaled directly — not via the DropOldest notification channel.
     /// </summary>
-    void TracePageProjectionDiffFrameReceived(PageProjectionDiff diff);
+    void TracePageProjectionFrameReceived(PageProjectionFrame diff);
 
     /// <summary>
     /// Opt-in Journal hop: sequenced Diff queue drop at a named stage.
-    /// No-op when <c>Telemetry.Sessions.PageProjection.Diff.QueueDropped</c> is disabled.
+    /// No-op when <c>Telemetry.Sessions.PageProjection.Frame.QueueDropped</c> is disabled.
     /// Journaled directly — not via the DropOldest notification channel.
     /// </summary>
-    void TracePageProjectionDiffQueueDropped(
+    void TracePageProjectionFrameQueueDropped(
         string stage,
         int droppedCount,
         int capacity,
@@ -194,14 +194,14 @@ public interface ILiveSession
         Guid? consumerId = null,
         string? kind = null,
         int? targetCount = null,
-        int? diffChannelCount = null,
-        long? diffEpoch = null);
+        int? frameChannelCount = null,
+        long? frameEpoch = null);
 
     /// <summary>
     /// Chronology-breaking Diff queue drop: journals (when enabled) and publishes
     /// client-visible <c>PageProjectionLifecycle phase=queue_dropped</c> for T8 recovery.
     /// </summary>
-    void ReportPageProjectionDiffQueueDropped(
+    void ReportPageProjectionFrameQueueDropped(
         string stage,
         int droppedCount,
         int capacity,
@@ -216,8 +216,8 @@ public interface ILiveSession
         Guid? consumerId = null,
         string? kind = null,
         int? targetCount = null,
-        int? diffChannelCount = null,
-        long? diffEpoch = null);
+        int? frameChannelCount = null,
+        long? frameEpoch = null);
 
     // ── Commands ─────────────────────────────────────────────────────────────
 

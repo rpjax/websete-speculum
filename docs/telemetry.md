@@ -226,7 +226,7 @@ in a single "time to first paint" number:
 - **`bootMs`** (`Virtual.BootMarked`) — Chromium process launch → first commit. This is sidecar/
   browser boot, not site load. It happens once per sidecar session (or per faulted-session
   restart), not once per navigation. **Never mix `bootMs` into a site-load verdict.**
-- **`tSinceCommitMs`** (`Establish.FirstDiffEmitted`, `Establish.EstablishCompleted`,
+- **`tSinceCommitMs`** (`Establish.FirstFrameEmitted`, `Establish.EstablishCompleted`,
   `Virtual.Lifecycle`) — wall time from `Virtual.NavCommit` for *this* `pageEpochId` to a
   downstream milestone. This is the "liquid load" number that matters for parity: how long after
   the real navigation commit does the Projected surface become usable.
@@ -239,7 +239,7 @@ the Diff wire).
 | Subdomain | Facts | Keyed by |
 |-----------|-------|----------|
 | `Virtual` | `BootMarked`, `NavCommit`, `NavTiming`, `ResourceSummary`, `PageError`, `Lifecycle` | `pageEpochId` (`BootMarked.pageEpochId` optional — boot can precede the first commit) |
-| `Establish` | `StylesWaitStarted/Completed`, `DomMapStarted/Completed`, `CssomInstallStarted/Completed`, `FirstDiffEmitted`, `EstablishCompleted`, `EstablishFailed` | `pageEpochId` |
+| `Establish` | `StylesWaitStarted/Completed`, `DomMapStarted/Completed`, `CssomInstallStarted/Completed`, `FirstFrameEmitted`, `EstablishCompleted`, `EstablishFailed` | `pageEpochId` |
 | `Asset` | `RewriteSummary`, `FetchFinished` (per epoch); `ServeMiss`, `ServeSlow` (global — the DomAsset proxy has no epoch identity) | mixed |
 
 `Establish.EstablishFailed` always carries `errorCode` + `phase` (never published bare, per the

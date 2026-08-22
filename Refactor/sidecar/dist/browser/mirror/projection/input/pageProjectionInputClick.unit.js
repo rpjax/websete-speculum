@@ -10,7 +10,7 @@ const node_http_1 = __importDefault(require("node:http"));
 const node_path_1 = __importDefault(require("node:path"));
 const assetRoots_1 = require("../lab/assetRoots");
 const PageProjectionBrowserSession_1 = require("../session/PageProjectionBrowserSession");
-const v4LabLaunch_1 = require("../session/v4LabLaunch");
+const labLaunch_1 = require("../session/labLaunch");
 const telemetry_1 = require("@speculum/page-projection/core/telemetry");
 function wait(ms) {
     return new Promise((r) => setTimeout(r, ms));
@@ -51,7 +51,7 @@ async function runPageProjectionInputClickUnitTests() {
     const factory = (0, PageProjectionBrowserSession_1.createPageProjectionBrowserSessionFactory)({ headless: true });
     const session = factory.create('unit-pp-input', events);
     try {
-        await session.launch((0, v4LabLaunch_1.v4LabLaunchOptions)({
+        await session.launch((0, labLaunch_1.labLaunchOptions)({
             frameRateHz: 30,
             projectionTelemetry: { ...telemetry_1.LAB_TELEMETRY_DEFAULTS },
             cpuProfiling: false,

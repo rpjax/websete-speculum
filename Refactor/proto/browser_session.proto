@@ -118,8 +118,8 @@ message LaunchPageProjectionRequest {
   int32 min_height = 13;
   int32 display_width = 14;
   int32 display_height = 15;
-  // Sessions.PageProjectionDiffQueueCapacity — sidecar EventBridge Dom queue (T5 DropAll).
-  int32 page_projection_diff_queue_capacity = 18;
+  // Sessions.FrameQueueCapacity — sidecar EventBridge Dom queue (T5 DropAll).
+  int32 frame_queue_capacity = 18;
   int32 frame_rate_hz = 19;
   int32 max_frame_bytes = 20;
   int32 browser_pool_size = 21;
@@ -328,7 +328,7 @@ message PageProjectionInputPathEvent {
 }
 
 // Opt-in PageProjection lifecycle (API journals
-// Telemetry.Sessions.PageProjection.Diff.GenerationBumped / QueueDropped when enabled).
+// Telemetry.Sessions.PageProjection.Frame.GenerationBumped / QueueDropped when enabled).
 message PageProjectionLifecycleEvent {
   string kind = 1; // generation_bumped | queue_dropped
   int64 from_generation = 2;
@@ -337,7 +337,7 @@ message PageProjectionLifecycleEvent {
   // queue_dropped stage: sidecar_bridge | sidecar_grpc_congested
   string reason = 4;
   optional string url = 5; // generation_bumped: page url; queue_dropped: plane (dom|cssom)
-  optional string diff_kind = 6; // generation_bumped: plane when page_emit_sync; queue_dropped: operation
+  optional string frame_kind = 6; // generation_bumped: plane when page_emit_sync; queue_dropped: operation
   int64 unix_ms = 7;
   optional int32 dropped_count = 8; // queue_dropped
   optional int32 capacity = 9; // queue_dropped

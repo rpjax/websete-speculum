@@ -9,6 +9,8 @@ using DomainUrlMatchRule = Speculum.Api.Configurations.Models.Patterns.UrlMatchR
 using DomainDeviceProfile = Speculum.Api.Sessions.Models.DeviceProfile;
 using DomainEditingState = Speculum.Api.Sessions.Models.EditingState;
 using DomainResizeResult = Speculum.Api.Sessions.Models.ResizeResult;
+using DomainPageProjectionFrame = Speculum.Api.Sessions.Mirror.PageProjection.PageProjectionFrame;
+using ProtoPageProjectionFrame = Speculum.Api.Sidecar.V1.PageProjectionFrame;
 using ProtoDevice = Speculum.Api.Sidecar.V1.DeviceProfile;
 using ProtoResizeResult = Speculum.Api.Sidecar.V1.ResizeResult;
 using ProtoScript = Speculum.Api.Sidecar.V1.ScriptInjection;
@@ -52,7 +54,7 @@ internal static class GrpcSessionMappers
         int height,
         SessionConfig configuration,
         Speculum.Api.Configurations.Models.Sessions.ViewportPolicy policy,
-        int pageProjectionDiffQueueCapacity = SequencedDiffChannels.DefaultCapacity,
+        int frameQueueCapacity = SequencedDiffChannels.DefaultCapacity,
         Speculum.Api.Configurations.Models.Sessions.PageProjectionOptions? pageProjection = null)
     {
         ArgumentNullException.ThrowIfNull(configuration);
@@ -67,8 +69,8 @@ internal static class GrpcSessionMappers
             MinHeight = policy.Minimum.Height,
             DisplayWidth = policy.Maximum.Width,
             DisplayHeight = policy.Maximum.Height,
-            PageProjectionDiffQueueCapacity = ClampPageProjectionDiffQueueCapacity(
-                pageProjectionDiffQueueCapacity),
+            FrameQueueCapacity = ClampFrameQueueCapacity(
+                frameQueueCapacity),
             FrameRateHz = Math.Max(0, pp.FrameRateHz),
             MaxFrameBytes = (int)Math.Clamp(pp.MaxFrameBytes, 0, int.MaxValue),
             BrowserPoolSize = Math.Max(0, pp.BrowserPoolSize),
@@ -204,7 +206,7 @@ internal static class GrpcSessionMappers
         return Math.Clamp(value, 1, 2);
     }
 
-    public static int ClampPageProjectionDiffQueueCapacity(int value)
+    public static int ClampFrameQueueCapacity(int value)
     {
         if (value < 64)
         {
@@ -640,11 +642,11 @@ internal static class GrpcSessionMappers
 
     /// <summary>
     /// Maps a sidecar Diff frame to the API wire shape. Redesign binary frames (PP-WIRE-1)
-    /// carry an opaque <see cref="PageProjectionDiff.Body"/> with empty plane/operation — the
+    /// carry an opaque <see cref="DomainPageProjectionFrame.Body"/> with empty plane/operation — the
     /// API relays those bytes without parsing. Only the legacy V1 JSON-body scheme (non-empty
     /// plane and operation, JSON payload) is decoded into typed payloads below.
     /// </summary>
-    public static PageProjectionDiff? ToPageProjectionDiff(PageProjectionFrame frame)
+    public static DomainPageProjectionFrame? ToPageProjectionFrame(ProtoPageProjectionFrame frame)
     {
         var plane = (frame.Plane ?? string.Empty).Trim();
         var operation = (frame.Operation ?? string.Empty).Trim();
@@ -660,7 +662,7 @@ internal static class GrpcSessionMappers
                 return null;
             }
 
-            return new PageProjectionDiff
+            return new DomainPageProjectionFrame
             {
                 Sequence = frame.Sequence,
                 Generation = frame.Generation,
@@ -867,7 +869,7 @@ internal static class GrpcSessionMappers
             }
         }
 
-        return new PageProjectionDiff
+        return new DomainPageProjectionFrame
         {
             Sequence = frame.Sequence,
             Generation = frame.Generation,

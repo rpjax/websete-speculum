@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type {
-  PageProjectionDiff,
+  PageProjectionFrame,
   SessionClient,
   SessionConsoleOutput,
   SessionFrame,
@@ -59,12 +59,12 @@ export const EMPTY_JOURNAL: JournalFeed = {
 }
 
 type FrameSink = (frame: SessionFrame) => void
-type PageProjectionDiffSink = (diff: PageProjectionDiff) => void
+type PageProjectionFrameSink = (diff: PageProjectionFrame) => void
 
 /** Lab/Live attach for PageProjection lifecycle notifications (V2 surface API). */
 export type PageProjectionLifecycleSink = (notification: SessionNotification) => void
 /** Diff uni-stream EOF while session live → T8 OOB resync. */
-export type PageProjectionDiffEndedSink = (info: { reason: 'wire_stall' }) => void
+export type PageProjectionFrameEndedSink = (info: { reason: 'wire_stall' }) => void
 
 export type PageProjectionApplierProbe = () => {
   generation: number
@@ -73,7 +73,7 @@ export type PageProjectionApplierProbe = () => {
 }
 
 /** Opt-in apply/drop/desync/resync/arm hops for front observation ring. */
-export type PageProjectionDiffObserveEvent = {
+export type PageProjectionFrameObserveEvent = {
   kind: string
   hop:
     | 'client_apply'
@@ -165,11 +165,11 @@ export function useSessionObservation({
   const [stats, setStats] = useState<LiveSessionStats>(EMPTY_STATS)
 
   const sinksRef = useRef(new Set<FrameSink>())
-  const domDiffSinksRef = useRef(new Set<PageProjectionDiffSink>())
+  const domFrameSinksRef = useRef(new Set<PageProjectionFrameSink>())
   /** Establish can finish before React mounts the V2 sink — replay until first attach. */
-  const preSinkDiffsRef = useRef<PageProjectionDiff[]>([])
+  const preSinkFramesRef = useRef<PageProjectionFrame[]>([])
   const lifecycleSinksRef = useRef(new Set<PageProjectionLifecycleSink>())
-  const diffEndedSinksRef = useRef(new Set<PageProjectionDiffEndedSink>())
+  const frameEndedSinksRef = useRef(new Set<PageProjectionFrameEndedSink>())
   const countersRef = useRef<FrameCounters>(freshCounters())
   const logIdRef = useRef(0)
   const consoleIdRef = useRef(0)
@@ -259,13 +259,13 @@ export function useSessionObservation({
     }
   }, [])
 
-  const attachPageProjectionDiffSink = useCallback((sink: PageProjectionDiffSink) => {
-    domDiffSinksRef.current.add(sink)
-    const buffered = preSinkDiffsRef.current
-    preSinkDiffsRef.current = []
+  const attachPageProjectionFrameSink = useCallback((sink: PageProjectionFrameSink) => {
+    domFrameSinksRef.current.add(sink)
+    const buffered = preSinkFramesRef.current
+    preSinkFramesRef.current = []
     for (const diff of buffered) sink(diff)
     return () => {
-      domDiffSinksRef.current.delete(sink)
+      domFrameSinksRef.current.delete(sink)
     }
   }, [])
 
@@ -276,10 +276,10 @@ export function useSessionObservation({
     }
   }, [])
 
-  const attachPageProjectionDiffEndedSink = useCallback((sink: PageProjectionDiffEndedSink) => {
-    diffEndedSinksRef.current.add(sink)
+  const attachPageProjectionFrameEndedSink = useCallback((sink: PageProjectionFrameEndedSink) => {
+    frameEndedSinksRef.current.add(sink)
     return () => {
-      diffEndedSinksRef.current.delete(sink)
+      frameEndedSinksRef.current.delete(sink)
     }
   }, [])
 
@@ -290,7 +290,7 @@ export function useSessionObservation({
   }, [])
 
   const onPageProjectionFrameEnded = useCallback((info: { reason: 'wire_stall' }) => {
-    for (const sink of diffEndedSinksRef.current) {
+    for (const sink of frameEndedSinksRef.current) {
       sink(info)
     }
   }, [])
@@ -327,7 +327,7 @@ export function useSessionObservation({
     }
   }, [])
 
-  const onPageProjectionFrame = useCallback((diff: PageProjectionDiff) => {
+  const onPageProjectionFrame = useCallback((diff: PageProjectionFrame) => {
     const tClient = performance.now()
     const plane = String(diff.plane ?? 'unknown')
     const operation = String(diff.operation ?? 'unknown')
@@ -335,9 +335,9 @@ export function useSessionObservation({
     const sequence = diff.sequence != null ? Number(diff.sequence) : null
     const sidecarTs = diff.timestamp != null ? Number(diff.timestamp) : null
     const lagMs = pageProjectionLagMs(sidecarTs)
-    // Sheet/rule walks are opt-in only — near-zero cost when ClientObservation Diff is off.
+    // Sheet/rule walks are opt-in only — near-zero cost when ClientObservation Frame is off.
     let sheetExtra: Record<string, unknown> | undefined
-    if (observationAllowsPlane(observationRef.current, 'pageProjectionDiff')) {
+    if (observationAllowsPlane(observationRef.current, 'pageProjectionFrame')) {
       const sheets = Array.isArray(diff.install?.sheets) ? diff.install!.sheets! : []
       if (sheets.length > 0) {
         let ruleCount = 0
@@ -356,7 +356,7 @@ export function useSessionObservation({
       'wire',
       `page_projection ${plane}/${operation}`,
       {
-        plane: 'pageProjectionDiff',
+        plane: 'pageProjectionFrame',
         hop: 'client_recv',
         kind: `${plane}:${operation}`,
         generation,
@@ -369,18 +369,18 @@ export function useSessionObservation({
         },
       },
     )
-    for (const sink of domDiffSinksRef.current) {
+    for (const sink of domFrameSinksRef.current) {
       sink(diff)
     }
-    if (domDiffSinksRef.current.size === 0) {
+    if (domFrameSinksRef.current.size === 0) {
       // Cap so a detached lab tab cannot retain unbounded establish/live traffic.
-      if (preSinkDiffsRef.current.length < 4096) preSinkDiffsRef.current.push(diff)
+      if (preSinkFramesRef.current.length < 4096) preSinkFramesRef.current.push(diff)
     }
   }, [observationRef, trace])
 
-  const observePageProjectionDiffApply = useCallback(
-    (event: PageProjectionDiffObserveEvent) => {
-      if (!observationAllowsPlane(observationRef.current, 'pageProjectionDiff')) {
+  const observePageProjectionFrameApply = useCallback(
+    (event: PageProjectionFrameObserveEvent) => {
+      if (!observationAllowsPlane(observationRef.current, 'pageProjectionFrame')) {
         return
       }
       const tClient = event.tClient ?? performance.now()
@@ -416,7 +416,7 @@ export function useSessionObservation({
         event.level ?? (event.hop === 'client_drop' || event.hop === 'client_desync' ? 'warn' : 'wire'),
         `page_projection ${event.hop}`,
         {
-          plane: 'pageProjectionDiff',
+          plane: 'pageProjectionFrame',
           hop: event.hop,
           kind: event.kind,
           generation: event.generation ?? null,
@@ -498,12 +498,12 @@ export function useSessionObservation({
     onFrame,
     onPageProjectionFrame,
     attachFrameSink,
-    attachPageProjectionDiffSink,
+    attachPageProjectionFrameSink,
     attachPageProjectionLifecycleSink,
-    attachPageProjectionDiffEndedSink,
+    attachPageProjectionFrameEndedSink,
     onPageProjectionLifecycle,
     onPageProjectionFrameEnded,
-    observePageProjectionDiffApply,
+    observePageProjectionFrameApply,
     registerPageProjectionApplierProbe,
     readPageProjectionApplierProbe,
     bumpNotificationCounter,

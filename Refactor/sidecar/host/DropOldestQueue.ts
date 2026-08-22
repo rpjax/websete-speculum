@@ -56,7 +56,7 @@ export class DropOldestQueue<T> {
   }
 
   /**
-   * Sequenced PageProjection diffs (T5/D13): on overflow discard the whole
+   * Sequenced PageProjection frames (T5/D13): on overflow discard the whole
    * backlog then enqueue. Client observes a sequence gap → desync — never a
    * silently truncated contiguous stream.
    * @returns drained count + sequence range when items expose `.sequence`.

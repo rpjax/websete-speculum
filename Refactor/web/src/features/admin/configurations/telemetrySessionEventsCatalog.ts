@@ -19,17 +19,17 @@ export const TELEMETRY_SESSION_EVENT_TYPES = [
   'Telemetry.Sessions.VideoStreamingInput.SidecarAdmitted',
   'Telemetry.Sessions.VideoStreamingInput.Applied',
   'Telemetry.Sessions.VideoStreamingInput.Rejected',
-  'Telemetry.Sessions.PageProjection.Diff.FrameReceived',
-  'Telemetry.Sessions.PageProjection.Diff.GenerationBumped',
-  'Telemetry.Sessions.PageProjection.Diff.SoftNavObserved',
-  'Telemetry.Sessions.PageProjection.Diff.QueueDropped',
-  'Telemetry.Sessions.PageProjection.Diff.OutputStreamOpened',
-  'Telemetry.Sessions.PageProjection.Diff.OutputStreamClosed',
-  'Telemetry.Sessions.PageProjection.Diff.FanOutEnqueued',
-  'Telemetry.Sessions.PageProjection.Diff.StreamDequeued',
-  'Telemetry.Sessions.PageProjection.Diff.WireDelivered',
-  'Telemetry.Sessions.PageProjection.Diff.ResyncRequested',
-  'Telemetry.Sessions.PageProjection.Diff.ResyncServed',
+  'Telemetry.Sessions.PageProjection.Frame.FrameReceived',
+  'Telemetry.Sessions.PageProjection.Frame.GenerationBumped',
+  'Telemetry.Sessions.PageProjection.Frame.SoftNavObserved',
+  'Telemetry.Sessions.PageProjection.Frame.QueueDropped',
+  'Telemetry.Sessions.PageProjection.Frame.OutputStreamOpened',
+  'Telemetry.Sessions.PageProjection.Frame.OutputStreamClosed',
+  'Telemetry.Sessions.PageProjection.Frame.FanOutEnqueued',
+  'Telemetry.Sessions.PageProjection.Frame.StreamDequeued',
+  'Telemetry.Sessions.PageProjection.Frame.WireDelivered',
+  'Telemetry.Sessions.PageProjection.Frame.ResyncRequested',
+  'Telemetry.Sessions.PageProjection.Frame.ResyncServed',
   'Telemetry.Sessions.PageProjection.Input.DataPlaneReceived',
   'Telemetry.Sessions.PageProjection.Input.AdmissionDropped',
   'Telemetry.Sessions.PageProjection.Input.SidecarPushWritten',
@@ -50,7 +50,7 @@ export const TELEMETRY_SESSION_EVENT_TYPES = [
   'Telemetry.Sessions.PageProjection.Establish.DomMapCompleted',
   'Telemetry.Sessions.PageProjection.Establish.CssomInstallStarted',
   'Telemetry.Sessions.PageProjection.Establish.CssomInstallCompleted',
-  'Telemetry.Sessions.PageProjection.Establish.FirstDiffEmitted',
+  'Telemetry.Sessions.PageProjection.Establish.FirstFrameEmitted',
   'Telemetry.Sessions.PageProjection.Establish.EstablishCompleted',
   'Telemetry.Sessions.PageProjection.Establish.EstablishFailed',
   'Telemetry.Sessions.PageProjection.Asset.RewriteSummary',
@@ -81,7 +81,6 @@ export type TelemetrySessionEventType = (typeof TELEMETRY_SESSION_EVENT_TYPES)[n
 export type TelemetrySessionEventGroupId =
   | 'video-streaming-input-path'
   | 'video-streaming-input-outcomes'
-  | 'page-projection-diff'
   | 'page-projection-input-path'
   | 'page-projection-input-outcomes'
   | 'page-projection-virtual'
@@ -166,71 +165,91 @@ export const TELEMETRY_SESSION_EVENT_GROUPS: TelemetrySessionEventGroup[] = [
     ],
   },
   {
-    id: 'page-projection-diff',
-    title: 'PageProjection Diff',
-    blurb: 'Diff chronology: sidecar → API → client (opt-in full capture).',
+    id: 'page-projection-frame',
+    title: 'PageProjection Frame',
+    blurb: 'Frame chronology (sidecar → API → client) plus clock/rate aggregates (opt-in).',
     events: [
       {
-        type: 'Telemetry.Sessions.PageProjection.Diff.FrameReceived',
-        label: 'Diff · frame received',
-        help: 'API received a PageProjectionDiff frame from the sidecar (includes sheet/rule counts on install).',
+        type: 'Telemetry.Sessions.PageProjection.Frame.FrameReceived',
+        label: 'Frame · frame received',
+        help: 'API received a PageProjectionFrame from the sidecar (includes sheet/rule counts on install).',
         hotPath: true,
       },
       {
-        type: 'Telemetry.Sessions.PageProjection.Diff.QueueDropped',
-        label: 'Diff · queue dropped',
+        type: 'Telemetry.Sessions.PageProjection.Frame.QueueDropped',
+        label: 'Frame · queue dropped',
         help: 'DropAll overflow on sidecar bridge or API sequenced channel (client will desync). Fan-out stages include StreamId/ConsumerId/Kind when known.',
         hotPath: true,
       },
       {
-        type: 'Telemetry.Sessions.PageProjection.Diff.OutputStreamOpened',
-        label: 'Diff · output stream opened',
-        help: 'Mux Open*Stream registered one outbound stream of a single kind (frame | pageProjectionDiff | console | notification) owned by a consumer.',
+        type: 'Telemetry.Sessions.PageProjection.Frame.OutputStreamOpened',
+        label: 'Frame · output stream opened',
+        help: 'Mux Open*Stream registered one outbound stream of a single kind (frame | pageProjectionFrame | console | notification) owned by a consumer.',
       },
       {
-        type: 'Telemetry.Sessions.PageProjection.Diff.OutputStreamClosed',
-        label: 'Diff · output stream closed',
+        type: 'Telemetry.Sessions.PageProjection.Frame.OutputStreamClosed',
+        label: 'Frame · output stream closed',
         help: 'Mux output stream disposed / unregistered.',
       },
       {
-        type: 'Telemetry.Sessions.PageProjection.Diff.FanOutEnqueued',
-        label: 'Diff · fan-out enqueued',
-        help: 'API accepted the Diff into an open Diff fan-out channel (WaitMs, StreamId, ConsumerId, Kind, DiffChannelCount).',
+        type: 'Telemetry.Sessions.PageProjection.Frame.FanOutEnqueued',
+        label: 'Frame · fan-out enqueued',
+        help: 'API accepted the frame into an open fan-out channel (WaitMs, StreamId, ConsumerId, Kind, FrameChannelCount).',
         hotPath: true,
       },
       {
-        type: 'Telemetry.Sessions.PageProjection.Diff.StreamDequeued',
-        label: 'Diff · stream dequeued',
-        help: 'Hub Diff pump took the Diff from the fan-out channel before writing the data-plane stream (StreamId, ConsumerId).',
+        type: 'Telemetry.Sessions.PageProjection.Frame.StreamDequeued',
+        label: 'Frame · stream dequeued',
+        help: 'Hub frame pump took the frame from the fan-out channel before writing the data-plane stream (StreamId, ConsumerId).',
         hotPath: true,
       },
       {
-        type: 'Telemetry.Sessions.PageProjection.Diff.WireDelivered',
-        label: 'Diff · wire delivered',
-        help: 'API finished writing the Diff onto the client data-plane stream (DurationMs, StreamId, ConsumerId).',
+        type: 'Telemetry.Sessions.PageProjection.Frame.WireDelivered',
+        label: 'Frame · wire delivered',
+        help: 'API finished writing the Frame onto the client data-plane stream (DurationMs, StreamId, ConsumerId).',
         hotPath: true,
       },
       {
-        type: 'Telemetry.Sessions.PageProjection.Diff.GenerationBumped',
-        label: 'Diff · generation bumped',
+        type: 'Telemetry.Sessions.PageProjection.Frame.GenerationBumped',
+        label: 'Frame · generation bumped',
         help: 'Sidecar PageProjection generation changed (main_frame_navigated or page_emit_sync).',
         hotPath: true,
       },
       {
-        type: 'Telemetry.Sessions.PageProjection.Diff.SoftNavObserved',
-        label: 'Diff · soft nav observed',
+        type: 'Telemetry.Sessions.PageProjection.Frame.SoftNavObserved',
+        label: 'Frame · soft nav observed',
         help: 'Same-document soft navigation (D4) — observe-only; no remount.',
         hotPath: true,
       },
       {
-        type: 'Telemetry.Sessions.PageProjection.Diff.ResyncRequested',
-        label: 'Diff · resync requested',
+        type: 'Telemetry.Sessions.PageProjection.Frame.ResyncRequested',
+        label: 'Frame · resync requested',
         help: 'Client requested OOB joint Dom+Cssom resync.',
       },
       {
-        type: 'Telemetry.Sessions.PageProjection.Diff.ResyncServed',
-        label: 'Diff · resync served',
+        type: 'Telemetry.Sessions.PageProjection.Frame.ResyncServed',
+        label: 'Frame · resync served',
         help: 'API served the OOB resync snapshot (sheet/rule/seed counts + duration).',
+      },
+      {
+        type: 'Telemetry.Sessions.PageProjection.Frame.RateChanged',
+        label: 'Frame · rate changed',
+        help: 'Ladder step on the frame clock (fromHz → toHz).',
+      },
+      {
+        type: 'Telemetry.Sessions.PageProjection.Frame.ClockStalled',
+        label: 'Frame · clock stalled',
+        help: 'Watchdog fired — no tick within frameStallMs.',
+      },
+      {
+        type: 'Telemetry.Sessions.PageProjection.Frame.ApplyOverrun',
+        label: 'Frame · apply overrun',
+        help: 'Client reported applyBudgetMs overrun (E9).',
+      },
+      {
+        type: 'Telemetry.Sessions.PageProjection.Frame.Aggregate',
+        label: 'Frame · aggregate',
+        help: 'Periodic counters (frames/bytes/rate/stalls/mirrorBytes).',
       },
     ],
   },
@@ -290,7 +309,7 @@ export const TELEMETRY_SESSION_EVENT_GROUPS: TelemetrySessionEventGroup[] = [
       {
         type: 'Telemetry.Sessions.PageProjection.Input.ScrollEchoHit',
         label: 'Scroll echo hit',
-        help: 'Virtual scroll sensor suppressed a Diff because intent echo matched exactly.',
+        help: 'Virtual scroll sensor suppressed a Frame because intent echo matched exactly.',
         hotPath: true,
       },
     ],
@@ -370,9 +389,9 @@ export const TELEMETRY_SESSION_EVENT_GROUPS: TelemetrySessionEventGroup[] = [
         help: 'Cssom install finished (durationMs, sheetCount, ruleCount, seededSheetCount).',
       },
       {
-        type: 'Telemetry.Sessions.PageProjection.Establish.FirstDiffEmitted',
-        label: 'Establish · first diff emitted',
-        help: 'First Dom/Cssom Diff after commit (tSinceCommitMs) — liquid-load anchor.',
+        type: 'Telemetry.Sessions.PageProjection.Establish.FirstFrameEmitted',
+        label: 'Establish · first frame emitted',
+        help: 'First Dom/Cssom Frame after commit (tSinceCommitMs) — liquid-load anchor.',
         hotPath: true,
       },
       {
@@ -414,33 +433,6 @@ export const TELEMETRY_SESSION_EVENT_GROUPS: TelemetrySessionEventGroup[] = [
         label: 'Asset · serve slow',
         help: 'DomAsset proxy exceeded the slow-serve threshold (urlKey, durationMs).',
         hotPath: true,
-      },
-    ],
-  },
-  {
-    id: 'page-projection-frame',
-    title: 'PageProjection Frame',
-    blurb: 'Frame clock rate / stall / apply overrun / periodic aggregate (§5.15).',
-    events: [
-      {
-        type: 'Telemetry.Sessions.PageProjection.Frame.RateChanged',
-        label: 'Frame · rate changed',
-        help: 'Ladder step on the frame clock (fromHz → toHz).',
-      },
-      {
-        type: 'Telemetry.Sessions.PageProjection.Frame.ClockStalled',
-        label: 'Frame · clock stalled',
-        help: 'Watchdog fired — no tick within frameStallMs.',
-      },
-      {
-        type: 'Telemetry.Sessions.PageProjection.Frame.ApplyOverrun',
-        label: 'Frame · apply overrun',
-        help: 'Client reported applyBudgetMs overrun (E9).',
-      },
-      {
-        type: 'Telemetry.Sessions.PageProjection.Frame.Aggregate',
-        label: 'Frame · aggregate',
-        help: 'Periodic counters (frames/bytes/rate/stalls/mirrorBytes).',
       },
     ],
   },
@@ -606,9 +598,17 @@ const DOM_PROJECTION_INPUT_PATH_TYPES = TELEMETRY_SESSION_EVENT_GROUPS.find(
   (g) => g.id === 'page-projection-input-path',
 )!.events.map((e) => e.type)
 
-const PAGE_PROJECTION_DIFF_TYPES = TELEMETRY_SESSION_EVENT_GROUPS.find(
-  (g) => g.id === 'page-projection-diff',
-)!.events.map((e) => e.type)
+const PAGE_PROJECTION_FRAME_CHRONOLOGY_TYPES = TELEMETRY_SESSION_EVENT_GROUPS.find(
+  (g) => g.id === 'page-projection-frame',
+)!
+  .events.filter(
+    (e) =>
+      e.type !== 'Telemetry.Sessions.PageProjection.Frame.RateChanged'
+      && e.type !== 'Telemetry.Sessions.PageProjection.Frame.ClockStalled'
+      && e.type !== 'Telemetry.Sessions.PageProjection.Frame.ApplyOverrun'
+      && e.type !== 'Telemetry.Sessions.PageProjection.Frame.Aggregate',
+  )
+  .map((e) => e.type)
 
 const PAGE_PROJECTION_VIRTUAL_TYPES = TELEMETRY_SESSION_EVENT_GROUPS.find(
   (g) => g.id === 'page-projection-virtual',
@@ -629,12 +629,12 @@ export const TELEMETRY_VIDEO_STREAMING_INPUT_PATH_TYPES = VIDEO_STREAMING_INPUT_
 export const TELEMETRY_DOM_PROJECTION_INPUT_PATH_TYPES = DOM_PROJECTION_INPUT_PATH_TYPES
 
 /**
- * PageEpoch parity pack (plan C5): full Diff chronology + Intent path +
+ * PageEpoch parity pack (plan C5): full Frame chronology + Intent path +
  * ScrollEchoHit + Browse.LocationChanged + every Virtual/Establish/Asset fact.
  * Pair with the front ParityDebug pack and `build-page-epoch-story.cjs`.
  */
 export const TELEMETRY_PARITY_DEBUG_TYPES: TelemetrySessionEventType[] = [
-  ...PAGE_PROJECTION_DIFF_TYPES,
+  ...PAGE_PROJECTION_FRAME_CHRONOLOGY_TYPES,
   ...DOM_PROJECTION_INPUT_PATH_TYPES,
   'Telemetry.Sessions.PageProjection.Input.ScrollEchoHit',
   'Telemetry.Sessions.Browse.LocationChanged',

@@ -235,8 +235,8 @@ public sealed class GrpcRequestValidationTests
         Assert.Equal(1, capped.ScreencastMaxEncodeScale);
         Assert.Equal(1, GrpcSessionMappers.ClampScreencastMaxEncodeScale(0.5));
         Assert.Equal(2, GrpcSessionMappers.ClampScreencastMaxEncodeScale(3));
-        Assert.Equal(8192, GrpcSessionMappers.ClampPageProjectionDiffQueueCapacity(0));
-        Assert.Equal(4096, GrpcSessionMappers.ClampPageProjectionDiffQueueCapacity(4096));
+        Assert.Equal(8192, GrpcSessionMappers.ClampFrameQueueCapacity(0));
+        Assert.Equal(4096, GrpcSessionMappers.ClampFrameQueueCapacity(4096));
 
         var domLaunch = GrpcSessionMappers.ToLaunchPageProjectionRequest(
             Guid.NewGuid(),
@@ -244,8 +244,8 @@ public sealed class GrpcRequestValidationTests
             600,
             configuration,
             SessionsTestHarness.Sessions().ViewportPolicy,
-            pageProjectionDiffQueueCapacity: 4096);
-        Assert.Equal(4096, domLaunch.PageProjectionDiffQueueCapacity);
+            frameQueueCapacity: 4096);
+        Assert.Equal(4096, domLaunch.FrameQueueCapacity);
     }
 
     [Fact]

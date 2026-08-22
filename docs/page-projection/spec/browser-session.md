@@ -9,7 +9,7 @@
 **Proposal provenance:** [../proposals/browser-session-mirror-contract.md](../proposals/browser-session-mirror-contract.md) (pointer only).
 
 **Naming (LOCKED):** .NET-style — interfaces `I…`, classes without `I`.  
-**PP class name (LOCKED):** `PageProjectionBrowserSession` (lab file `V4ProjectionBrowserSession.ts` is a re-export only).
+**PP class name (LOCKED):** `PageProjectionBrowserSession`.
 
 ---
 
@@ -700,7 +700,7 @@ Connection handler: session is created as PP **or** video; only that contract’
 | Type | Role |
 |------|------|
 | `BrowserSession` | Shared Chromium/CSP/navigate/viewport/cookies/cam-mic ingress |
-| `PageProjectionBrowserSession` | replaces `V4ProjectionBrowserSession`; lab methods on same interface |
+| `PageProjectionBrowserSession` | PP Chromium session; lab methods on same interface |
 | `VideoStreamingBrowserSession` | video from Patchright path |
 | Mode sinks | Api (or EventBridge) implements `IPageProjectionSessionSink` / `IVideoStreamingSessionSink` |
 | `IBrowserPermissionHost` | Api implements; session awaits `requestPermission` |
@@ -721,7 +721,7 @@ Connection handler: session is created as PP **or** video; only that contract’
 | 4 | Prune PP launch knobs; PP telemetry + raw snapshot | **Partial** — methods exist; serializers / knob prune incomplete |
 | 5 | Oracles fully caller-side on dump | **Done** — lab iso uses `getStateSnapshot`; PP aliases removed |
 | 6 | Api + web + MotorAssert same wave | **Done surface** — Launch split + Frames; web package; Sessions.Tests `PP-LIVE-*` |
-| 7 | Delete god interface + optional bags | **Done path** — fat PP bags / LPP stub gone; hub MessagePack still `pageProjectionDiff` name |
+| 7 | Delete god interface + optional bags | **Done** — fat PP bags / LPP stub gone; hub MessagePack = `pageProjectionFrame*` |
 
 ### 8.1 Deferred until wire seal (shape OK; schemas TBD)
 

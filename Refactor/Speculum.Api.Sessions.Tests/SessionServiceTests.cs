@@ -737,7 +737,7 @@ public sealed class SessionServiceTests
         private readonly Action _onClose;
         private bool _open = true;
         private readonly Channel<Frame> _frames = Channel.CreateUnbounded<Frame>();
-        private readonly Channel<PageProjectionDiff> _domDiffs = Channel.CreateUnbounded<PageProjectionDiff>();
+        private readonly Channel<PageProjectionFrame> _domDiffs = Channel.CreateUnbounded<PageProjectionFrame>();
         private readonly Channel<ConsoleOutput> _console = Channel.CreateUnbounded<ConsoleOutput>();
         private readonly Channel<SessionNotification> _notifications = Channel.CreateUnbounded<SessionNotification>();
 
@@ -801,8 +801,8 @@ public sealed class SessionServiceTests
         public IResult<ChannelReader<Frame>> GetFrameReader()
             => Result<ChannelReader<Frame>>.Success(_frames.Reader);
 
-        public IResult<ChannelReader<PageProjectionDiff>> GetPageProjectionDiffReader()
-            => Result<ChannelReader<PageProjectionDiff>>.Success(_domDiffs.Reader);
+        public IResult<ChannelReader<PageProjectionFrame>> GetPageProjectionFrameReader()
+            => Result<ChannelReader<PageProjectionFrame>>.Success(_domDiffs.Reader);
 
         public IResult<ChannelReader<ConsoleOutput>> GetConsoleOutputReader()
             => Result<ChannelReader<ConsoleOutput>>.Success(_console.Reader);
@@ -848,37 +848,37 @@ public sealed class SessionServiceTests
             System.Threading.Channels.ChannelReader<Speculum.Api.Sessions.Models.ConsoleInput> channelReader)
             => Result<Task>.Failure("not implemented");
 
-        public void BindPageProjectionDiffTelemetry(
-            Speculum.Api.BrowserClients.IPageProjectionDiffTelemetry? telemetry) { }
+        public void BindPageProjectionFrameTelemetry(
+            Speculum.Api.BrowserClients.IPageProjectionFrameTelemetry? telemetry) { }
 
 
-        public bool IsPageProjectionDiffFanOutEnqueuedEnabled() => false;
+        public bool IsPageProjectionFrameFanOutEnqueuedEnabled() => false;
 
-        public void ReportPageProjectionDiffFanOutEnqueued(
-            PageProjectionDiff diff,
+        public void ReportPageProjectionFrameFanOutEnqueued(
+            PageProjectionFrame diff,
             long waitMs,
             Guid streamId,
             Guid consumerId,
             string kind,
             int targetIndex,
             int targetCount,
-            int diffChannelCount,
-            long diffEpoch) { }
+            int frameChannelCount,
+            long frameEpoch) { }
 
-        public void ReportPageProjectionDiffOutputStreamOpened(
+        public void ReportPageProjectionFrameOutputStreamOpened(
             Guid streamId,
             Guid consumerId,
             string kind,
             int openStreamCount,
             int diffChannelCapacity) { }
 
-        public void ReportPageProjectionDiffOutputStreamClosed(
+        public void ReportPageProjectionFrameOutputStreamClosed(
             Guid streamId,
             Guid consumerId,
             string kind,
             int openStreamCount) { }
 
-        public void ReportPageProjectionDiffQueueDropped(
+        public void ReportPageProjectionFrameQueueDropped(
             string stage,
             int droppedCount,
             int capacity,
@@ -893,7 +893,7 @@ public sealed class SessionServiceTests
             Guid? consumerId = null,
             string? kind = null,
             int? targetCount = null,
-            int? diffChannelCount = null,
-            long? diffEpoch = null) { }
+            int? frameChannelCount = null,
+            long? frameEpoch = null) { }
     }
 }

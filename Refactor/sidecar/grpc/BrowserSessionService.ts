@@ -51,7 +51,7 @@ export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.Un
         const sid = requireSessionId(call.request);
         const { session, bridge } = registry.get(sid);
         const options = toLaunchOptions({ ...call.request, mirrorMode: 'pageProjection' });
-        bridge.configureDomCapacity(options.pageProjectionDiffQueueCapacity);
+        bridge.configureDomCapacity(options.frameQueueCapacity);
         const ready = await session.launch(options);
         callback(null, ready);
       } catch (err) {
@@ -433,7 +433,7 @@ export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.Un
         toGeneration: e.toGeneration,
         reason: e.reason,
         url: e.url,
-        diffKind: e.diffKind,
+        frameKind: e.frameKind,
         unixMs: e.unixMs,
         droppedCount: e.droppedCount,
         capacity: e.capacity,

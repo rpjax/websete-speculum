@@ -45,7 +45,7 @@ internal static class SessionDataStreamsHost
             {
                 acceptTask,
                 PumpFramesAsync(session, live, consumerId, ct),
-                PumpPageProjectionDiffsAsync(session, live, consumerId, ct),
+                PumpPageProjectionFramesAsync(session, live, consumerId, ct),
                 PumpConsoleAsync(session, live, consumerId, ct),
                 PumpNotificationsAsync(session, live, consumerId, ct),
             };
@@ -110,7 +110,7 @@ internal static class SessionDataStreamsHost
             .ConfigureAwait(false);
     }
 
-    private static async Task PumpPageProjectionDiffsAsync(
+    private static async Task PumpPageProjectionFramesAsync(
         IDataStreamSession session,
         ILiveSession live,
         Guid consumerId,
@@ -132,7 +132,7 @@ internal static class SessionDataStreamsHost
             {
                 try
                 {
-                    var channel = source.GetPageProjectionDiffsChannel();
+                    var channel = source.GetPageProjectionFramesChannel();
                     if (channel.IsFailure)
                     {
                         return;
@@ -142,7 +142,7 @@ internal static class SessionDataStreamsHost
                     while (reader.Completion.IsCompleted && !ct.IsCancellationRequested)
                     {
                         await Task.Delay(25, ct).ConfigureAwait(false);
-                        channel = source.GetPageProjectionDiffsChannel();
+                        channel = source.GetPageProjectionFramesChannel();
                         if (channel.IsFailure)
                         {
                             return;
@@ -165,19 +165,19 @@ internal static class SessionDataStreamsHost
                     await using (pipe.ConfigureAwait(false))
                     {
                         var output = pipe.Output;
-                        await output.WriteAsync(new[] { (byte)SessionPipeKind.PageProjectionDiff }, ct)
+                        await output.WriteAsync(new[] { (byte)SessionPipeKind.PageProjectionFrame }, ct)
                             .ConfigureAwait(false);
                         await output.FlushAsync(ct).ConfigureAwait(false);
                         await foreach (var item in reader.ReadAllAsync(ct).ConfigureAwait(false))
                         {
-                            var epoch = source.GetDiffEpoch();
-                            live.TracePageProjectionDiffStreamDequeued(
+                            var epoch = source.GetFrameEpoch();
+                            live.TracePageProjectionFrameStreamDequeued(
                                 item,
                                 source.Id,
                                 source.ConsumerId,
                                 epoch);
                             long durationMs = 0;
-                            if (live.IsPageProjectionDiffWireDeliveredEnabled())
+                            if (live.IsPageProjectionFrameWireDeliveredEnabled())
                             {
                                 var writeClock = System.Diagnostics.Stopwatch.StartNew();
                                 await WriteMessageAsync(output, item, ct).ConfigureAwait(false);
@@ -188,7 +188,7 @@ internal static class SessionDataStreamsHost
                                 await WriteMessageAsync(output, item, ct).ConfigureAwait(false);
                             }
 
-                            live.TracePageProjectionDiffWireDelivered(
+                            live.TracePageProjectionFrameWireDelivered(
                                 item,
                                 durationMs,
                                 source.Id,
@@ -203,8 +203,8 @@ internal static class SessionDataStreamsHost
                 }
                 catch (Exception ex)
                 {
-                    // T5/D13: surface QueueDropped, then keep the Diff pump alive for T8 reopen.
-                    live.ReportPageProjectionDiffQueueDropped(
+                    // T5/D13: surface QueueDropped, then keep the frame pump alive for T8 reopen.
+                    live.ReportPageProjectionFrameQueueDropped(
                         "api_wire_stall",
                         droppedCount: 1,
                         capacity: SequencedDiffChannels.FanOutTargetCapacity,
@@ -545,7 +545,7 @@ internal static class SessionDataStreamsHost
         VideoStreamingInput = 4,
         ConsoleInput = 5,
         Status = 6,
-        PageProjectionDiff = 7,
+        PageProjectionFrame = 7,
         PageProjectionIntent = 8,
     }
 }

@@ -230,7 +230,7 @@ public sealed class LiveSessionTests
 
         // Effect: opaque frame body + contextId on Frames stream (gate 10 surface smoke).
         var body = new byte[] { 0x50, 0x50, 0x00, 0x01, 0x02 };
-        Assert.True(connection.PageProjectionDiffs.Writer.TryWrite(new PageProjectionDiff
+        Assert.True(connection.PageProjectionFrames.Writer.TryWrite(new PageProjectionFrame
         {
             Sequence = 1,
             Generation = 1,
@@ -245,7 +245,7 @@ public sealed class LiveSessionTests
             ContextId = 1,
         }));
         using var frameCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        var diffs = openDom.Value!.GetPageProjectionDiffsChannel();
+        var diffs = openDom.Value!.GetPageProjectionFramesChannel();
         Assert.True(diffs.IsSuccess);
         var frame = await diffs.Value.ReadAsync(frameCts.Token);
         Assert.Equal(1, frame.Sequence);
@@ -1486,7 +1486,7 @@ public sealed class LiveSessionTests
         {
             SessionId = sessionId;
             Frames = Channel.CreateUnbounded<Frame>();
-            PageProjectionDiffs = Channel.CreateUnbounded<PageProjectionDiff>();
+            PageProjectionFrames = Channel.CreateUnbounded<PageProjectionFrame>();
             Console = Channel.CreateUnbounded<ConsoleOutput>();
             Notifications = Channel.CreateUnbounded<SessionNotification>();
             VideoStreamingInputReceived = Channel.CreateUnbounded<VideoStreamingInput>();
@@ -1497,7 +1497,7 @@ public sealed class LiveSessionTests
         public Guid SessionId { get; }
         public bool IsOpen { get; set; } = true;
         public Channel<Frame> Frames { get; }
-        public Channel<PageProjectionDiff> PageProjectionDiffs { get; }
+        public Channel<PageProjectionFrame> PageProjectionFrames { get; }
         public Channel<ConsoleOutput> Console { get; }
         public Channel<SessionNotification> Notifications { get; }
         public Channel<VideoStreamingInput> VideoStreamingInputReceived { get; }
@@ -1579,8 +1579,8 @@ public sealed class LiveSessionTests
         public IResult<ChannelReader<Frame>> GetFrameReader()
             => Result<ChannelReader<Frame>>.Success(Frames.Reader);
 
-        public IResult<ChannelReader<PageProjectionDiff>> GetPageProjectionDiffReader()
-            => Result<ChannelReader<PageProjectionDiff>>.Success(PageProjectionDiffs.Reader);
+        public IResult<ChannelReader<PageProjectionFrame>> GetPageProjectionFrameReader()
+            => Result<ChannelReader<PageProjectionFrame>>.Success(PageProjectionFrames.Reader);
 
         public IResult<ChannelReader<ConsoleOutput>> GetConsoleOutputReader()
             => Result<ChannelReader<ConsoleOutput>>.Success(Console.Reader);
@@ -1649,37 +1649,37 @@ public sealed class LiveSessionTests
             System.Threading.Channels.ChannelReader<Speculum.Api.Sessions.Models.ConsoleInput> channelReader)
             => Result<Task>.Failure("not implemented");
 
-        public void BindPageProjectionDiffTelemetry(
-            Speculum.Api.BrowserClients.IPageProjectionDiffTelemetry? telemetry) { }
+        public void BindPageProjectionFrameTelemetry(
+            Speculum.Api.BrowserClients.IPageProjectionFrameTelemetry? telemetry) { }
 
 
-        public bool IsPageProjectionDiffFanOutEnqueuedEnabled() => false;
+        public bool IsPageProjectionFrameFanOutEnqueuedEnabled() => false;
 
-        public void ReportPageProjectionDiffFanOutEnqueued(
-            PageProjectionDiff diff,
+        public void ReportPageProjectionFrameFanOutEnqueued(
+            PageProjectionFrame diff,
             long waitMs,
             Guid streamId,
             Guid consumerId,
             string kind,
             int targetIndex,
             int targetCount,
-            int diffChannelCount,
-            long diffEpoch) { }
+            int frameChannelCount,
+            long frameEpoch) { }
 
-        public void ReportPageProjectionDiffOutputStreamOpened(
+        public void ReportPageProjectionFrameOutputStreamOpened(
             Guid streamId,
             Guid consumerId,
             string kind,
             int openStreamCount,
             int diffChannelCapacity) { }
 
-        public void ReportPageProjectionDiffOutputStreamClosed(
+        public void ReportPageProjectionFrameOutputStreamClosed(
             Guid streamId,
             Guid consumerId,
             string kind,
             int openStreamCount) { }
 
-        public void ReportPageProjectionDiffQueueDropped(
+        public void ReportPageProjectionFrameQueueDropped(
             string stage,
             int droppedCount,
             int capacity,
@@ -1694,8 +1694,8 @@ public sealed class LiveSessionTests
             Guid? consumerId = null,
             string? kind = null,
             int? targetCount = null,
-            int? diffChannelCount = null,
-            long? diffEpoch = null) { }
+            int? frameChannelCount = null,
+            long? frameEpoch = null) { }
 
         private static async Task DrainAsync<T>(ChannelReader<T> source, ChannelWriter<T> dest)
         {

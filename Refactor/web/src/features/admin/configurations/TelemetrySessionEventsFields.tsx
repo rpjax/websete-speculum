@@ -15,7 +15,7 @@ import {
 
 /** Groups opened by the ParityDebug pack shortcut (mirrors TELEMETRY_PARITY_DEBUG_TYPES). */
 const PARITY_DEBUG_GROUP_IDS = [
-  'page-projection-diff',
+  'page-projection-frame',
   'page-projection-input-path',
   'page-projection-input-outcomes',
   'browse',

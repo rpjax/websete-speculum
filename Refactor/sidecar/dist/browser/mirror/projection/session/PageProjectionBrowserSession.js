@@ -22,7 +22,7 @@ const projectionDataPlaneHost_1 = require("./projectionDataPlaneHost");
 const cdpBindingDataPlaneHost_1 = require("./cdpBindingDataPlaneHost");
 const documentResponseHook_1 = require("./csp/documentResponseHook");
 const scriptInjectMutator_1 = require("./csp/scriptInjectMutator");
-const v4InputDispatch_1 = require("../input/v4InputDispatch");
+const pageProjectionInputDispatch_1 = require("../input/pageProjectionInputDispatch");
 const EditableFocus_1 = require("../../../patchright/EditableFocus");
 const Navigation_1 = require("../../../patchright/Navigation");
 function chromeArgs() {
@@ -231,7 +231,7 @@ class PageProjectionBrowserSession {
             this.cdpSession = null;
         }
         this.page = await this.freshPage(dataPlaneUrl, opts);
-        this.inputDispatch = new v4InputDispatch_1.V4InputDispatch(this.page);
+        this.inputDispatch = new pageProjectionInputDispatch_1.PageProjectionInputDispatch(this.page);
         const allowed = opts.allowedNavigationDomains;
         if (allowed && allowed.length > 0) {
             try {

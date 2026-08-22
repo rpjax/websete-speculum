@@ -23,28 +23,28 @@ public static class TelemetryJournalFacts
         "Telemetry.Sessions.VideoStreamingInput.Applied";
     public const string VideoStreamingInputRejected =
         "Telemetry.Sessions.VideoStreamingInput.Rejected";
-    public const string PageProjectionDiffFrameReceived =
-        "Telemetry.Sessions.PageProjection.Diff.FrameReceived";
-    public const string PageProjectionDiffGenerationBumped =
-        "Telemetry.Sessions.PageProjection.Diff.GenerationBumped";
-    public const string PageProjectionDiffSoftNavObserved =
-        "Telemetry.Sessions.PageProjection.Diff.SoftNavObserved";
-    public const string PageProjectionDiffQueueDropped =
-        "Telemetry.Sessions.PageProjection.Diff.QueueDropped";
-    public const string PageProjectionDiffWireDelivered =
-        "Telemetry.Sessions.PageProjection.Diff.WireDelivered";
-    public const string PageProjectionDiffFanOutEnqueued =
-        "Telemetry.Sessions.PageProjection.Diff.FanOutEnqueued";
-    public const string PageProjectionDiffStreamDequeued =
-        "Telemetry.Sessions.PageProjection.Diff.StreamDequeued";
-    public const string PageProjectionDiffOutputStreamOpened =
-        "Telemetry.Sessions.PageProjection.Diff.OutputStreamOpened";
-    public const string PageProjectionDiffOutputStreamClosed =
-        "Telemetry.Sessions.PageProjection.Diff.OutputStreamClosed";
-    public const string PageProjectionDiffResyncRequested =
-        "Telemetry.Sessions.PageProjection.Diff.ResyncRequested";
-    public const string PageProjectionDiffResyncServed =
-        "Telemetry.Sessions.PageProjection.Diff.ResyncServed";
+    public const string PageProjectionFrameReceived =
+        "Telemetry.Sessions.PageProjection.Frame.FrameReceived";
+    public const string PageProjectionFrameGenerationBumped =
+        "Telemetry.Sessions.PageProjection.Frame.GenerationBumped";
+    public const string PageProjectionFrameSoftNavObserved =
+        "Telemetry.Sessions.PageProjection.Frame.SoftNavObserved";
+    public const string PageProjectionFrameQueueDropped =
+        "Telemetry.Sessions.PageProjection.Frame.QueueDropped";
+    public const string PageProjectionFrameWireDelivered =
+        "Telemetry.Sessions.PageProjection.Frame.WireDelivered";
+    public const string PageProjectionFrameFanOutEnqueued =
+        "Telemetry.Sessions.PageProjection.Frame.FanOutEnqueued";
+    public const string PageProjectionFrameStreamDequeued =
+        "Telemetry.Sessions.PageProjection.Frame.StreamDequeued";
+    public const string PageProjectionFrameOutputStreamOpened =
+        "Telemetry.Sessions.PageProjection.Frame.OutputStreamOpened";
+    public const string PageProjectionFrameOutputStreamClosed =
+        "Telemetry.Sessions.PageProjection.Frame.OutputStreamClosed";
+    public const string PageProjectionFrameResyncRequested =
+        "Telemetry.Sessions.PageProjection.Frame.ResyncRequested";
+    public const string PageProjectionFrameResyncServed =
+        "Telemetry.Sessions.PageProjection.Frame.ResyncServed";
     public const string PageProjectionIntentDataPlaneReceived =
         "Telemetry.Sessions.PageProjection.Input.DataPlaneReceived";
     public const string PageProjectionIntentAdmissionDropped =
@@ -87,8 +87,8 @@ public static class TelemetryJournalFacts
         "Telemetry.Sessions.PageProjection.Establish.CssomInstallStarted";
     public const string PageProjectionEstablishCssomInstallCompleted =
         "Telemetry.Sessions.PageProjection.Establish.CssomInstallCompleted";
-    public const string PageProjectionEstablishFirstDiffEmitted =
-        "Telemetry.Sessions.PageProjection.Establish.FirstDiffEmitted";
+    public const string PageProjectionEstablishFirstFrameEmitted =
+        "Telemetry.Sessions.PageProjection.Establish.FirstFrameEmitted";
     public const string PageProjectionEstablishCompleted =
         "Telemetry.Sessions.PageProjection.Establish.EstablishCompleted";
     public const string PageProjectionEstablishFailed =

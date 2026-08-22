@@ -86,7 +86,7 @@ public sealed class PublicClientConfigProjector : IPublicClientConfigProjector
                     IsEnabled = observation.IsEnabled,
                     SessionWire = observation.SessionWire,
                     VideoStreamingInput = observation.VideoStreamingInput,
-                    PageProjectionDiff = observation.PageProjectionDiff,
+                    PageProjectionFrame = observation.PageProjectionFrame,
                     PageProjectionIntent = observation.PageProjectionIntent,
                 },
             },
@@ -175,7 +175,7 @@ public sealed class PublicClientObservationConfig
     public bool IsEnabled { get; init; }
     public bool SessionWire { get; init; }
     public bool VideoStreamingInput { get; init; }
-    public bool PageProjectionDiff { get; init; }
+    public bool PageProjectionFrame { get; init; }
     public bool PageProjectionIntent { get; init; }
 }
 

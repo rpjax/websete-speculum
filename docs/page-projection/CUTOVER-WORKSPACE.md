@@ -5,7 +5,8 @@
 **Normativo:** [spec/browser-session.md](spec/browser-session.md).
 
 **Alvo:** `PageProjectionBrowserSession` + sealed factory + `web/` → `@speculum/page-projection/projected`  
-**LivePageProjection:** deleted. Lab aliases (`flushProjection*`) deleted. Live data plane = CDP binding (lab = loopback).
+**LivePageProjection:** deleted. Lab aliases (`flushProjection*`) deleted. Live data plane = CDP binding (lab = loopback).  
+**Cleanup wave (W3):** `labLaunch` / `PageProjectionInputDispatch` / `PageProjectionFactoryOptions` renames; `FirstFrameEmitted` journal fact; dead `IPageProjectionDiffTelemetry` / `PageProjectionClientStateReport` removed.
 
 Quando o produto restante fechar: apagar este arquivo.
 

@@ -67,12 +67,12 @@ internal sealed class PageProjectionFramesStream : MuxBoundStream, IPageProjecti
     {
     }
 
-    public IResult<ChannelReader<PageProjectionDiff>> GetPageProjectionDiffsChannel()
-        => GetChannel(Mux.GetPageProjectionDiffsChannel);
+    public IResult<ChannelReader<PageProjectionFrame>> GetPageProjectionFramesChannel()
+        => GetChannel(Mux.GetPageProjectionFramesChannel);
 
-    public long GetDiffEpoch()
+    public long GetFrameEpoch()
     {
-        var epoch = Mux.GetDiffEpoch(Id);
+        var epoch = Mux.GetFrameEpoch(Id);
         return epoch.IsSuccess ? epoch.Value : -1;
     }
 }

@@ -59,12 +59,12 @@ export default function SessionLivePage() {
         height={session.remoteViewport.height}
         live={session.isLive}
         attachFrameSink={session.attachFrameSink}
-        attachPageProjectionDiffSink={session.attachPageProjectionDiffSink}
+        attachPageProjectionFrameSink={session.attachPageProjectionFrameSink}
         attachPageProjectionLifecycleSink={session.attachPageProjectionLifecycleSink}
-        attachPageProjectionDiffEndedSink={session.attachPageProjectionDiffEndedSink}
+        attachPageProjectionFrameEndedSink={session.attachPageProjectionFrameEndedSink}
         onInput={session.sendInput}
         onDomInput={session.sendDomInput}
-        onDiffObserve={session.observePageProjectionDiffApply}
+        onFrameObserve={session.observePageProjectionFrameApply}
         registerApplierProbe={session.registerPageProjectionApplierProbe}
         requestRemoteResize={session.requestRemoteResize}
         viewportPolicy={session.viewportPolicy ?? undefined}

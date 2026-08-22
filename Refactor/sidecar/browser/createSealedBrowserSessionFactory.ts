@@ -21,7 +21,7 @@ import type {
 } from './BrowserSession';
 import {
   PageProjectionBrowserSession,
-  type V4ProjectionFactoryOptions,
+  type PageProjectionFactoryOptions,
 } from './mirror/projection/session/PageProjectionBrowserSession';
 import { VideoStreamingBrowserSession } from './VideoStreamingBrowserSession';
 import { DisplayAllocator } from './patchright/Display';
@@ -50,7 +50,7 @@ class ModeSelectingSession implements BrowserSession {
     readonly sessionId: string,
     private readonly events: BrowserSessionEvents,
     private readonly displays: DisplayAllocator,
-    private readonly ppOpts: V4ProjectionFactoryOptions,
+    private readonly ppOpts: PageProjectionFactoryOptions,
   ) {}
 
   private requireInner(): BrowserSession {
@@ -191,7 +191,7 @@ export function createSealedBrowserSessionFactory(options?: {
   displays?: DisplayAllocator;
 }): BrowserSessionFactory & IBrowserSessionFactory {
   const displays = options?.displays ?? new DisplayAllocator();
-  const ppOpts: V4ProjectionFactoryOptions = { headless: options?.headless ?? true };
+  const ppOpts: PageProjectionFactoryOptions = { headless: options?.headless ?? true };
   void DenyAllPermissions;
 
   const legacy: BrowserSessionFactory = {

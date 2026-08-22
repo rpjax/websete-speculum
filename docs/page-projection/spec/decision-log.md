@@ -248,7 +248,7 @@ Closed and `slotAssignment: 'manual'` stay explicit unsupported fails. Not ifram
 | Folders | `src/core/` · `src/virtual/` · `src/projected/` — **no** package root barrel that re-exports all three |
 | E-11 map | `models/` → `core/` (wire + shared helpers); `virtual/` → `virtual/` (same endpoint spirit); `client/` → `projected/` (two-phase apply) |
 | `core` semantics | Wire/ISA + pure table helpers + `plane/` constants + `intentTypes` + `domTreeSnapshot` — **not** session/host/CDP/lab |
-| Out of package | `lab/` · `session/` · `inject/` · CDP `v4InputDispatch`/`resolveVirtualNode` · gRPC · React UI · oracles package |
+| Out of package | `lab/` · `session/` · `inject/` · CDP `pageProjectionInputDispatch`/`resolveVirtualNode` · gRPC · React UI · oracles package |
 | D-SPEC-6 | Still **one** IIFE `virtual.js` from `virtual/bootstrap.ts` (path moves with package) |
 | Client API | `ProjectionClient` + `createProjectionClient(deps)` — DI callbacks; no WS/hub inside. Lab-only APIs live in sidecar `LabProjectedHarness` |
 | Dependency direction | `virtual`→`core`, `projected`→`core` only; package never imports `lab/`; after extract, `session` must not import `lab/` (probes via DI) |

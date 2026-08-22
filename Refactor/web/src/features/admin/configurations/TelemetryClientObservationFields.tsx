@@ -7,7 +7,7 @@ export interface TelemetryClientObservationValue {
   isEnabled: boolean
   sessionWire: boolean
   videoStreamingInput: boolean
-  pageProjectionDiff: boolean
+  pageProjectionFrame: boolean
   pageProjectionIntent: boolean
 }
 
@@ -15,7 +15,7 @@ export const EMPTY_TELEMETRY_CLIENT_OBSERVATION: TelemetryClientObservationValue
   isEnabled: false,
   sessionWire: true,
   videoStreamingInput: false,
-  pageProjectionDiff: false,
+  pageProjectionFrame: false,
   pageProjectionIntent: false,
 }
 
@@ -28,7 +28,7 @@ export function normalizeClientObservation(raw: unknown): TelemetryClientObserva
     isEnabled: o.isEnabled === true,
     sessionWire: o.sessionWire !== false,
     videoStreamingInput: o.videoStreamingInput === true,
-    pageProjectionDiff: o.pageProjectionDiff === true,
+    pageProjectionFrame: o.pageProjectionFrame === true,
     pageProjectionIntent: o.pageProjectionIntent === true,
   }
 }
@@ -45,9 +45,9 @@ const PLANES = [
     help: 'Mouse/keyboard on the screencast path.',
   },
   {
-    key: 'pageProjectionDiff' as const,
-    label: 'PageProjection Diff',
-    help: 'Diff frames received, applied, desync/resync, arm.',
+    key: 'pageProjectionFrame' as const,
+    label: 'PageProjection Frame',
+    help: 'Frames received, applied, desync/resync, arm.',
   },
   {
     key: 'pageProjectionIntent' as const,

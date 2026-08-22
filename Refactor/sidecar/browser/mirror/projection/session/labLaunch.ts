@@ -2,7 +2,7 @@ import type { BrowserLaunchOptions } from '../../../BrowserSession';
 import { LAB_TELEMETRY_DEFAULTS } from '@speculum/page-projection/core/telemetry';
 
 /** Fill Sessions Launch fields the lab/.NET Launch would supply so lab callers stay thin. */
-export function v4LabLaunchOptions(
+export function labLaunchOptions(
   overrides: Partial<BrowserLaunchOptions> = {},
 ): BrowserLaunchOptions {
   return {
@@ -16,7 +16,7 @@ export function v4LabLaunchOptions(
     },
     screencastMaxEncodeScale: overrides.screencastMaxEncodeScale ?? 1,
     mirrorMode: overrides.mirrorMode ?? 'pageProjection',
-    pageProjectionDiffQueueCapacity: overrides.pageProjectionDiffQueueCapacity ?? 8192,
+    frameQueueCapacity: overrides.frameQueueCapacity ?? 8192,
     frameRateHz: overrides.frameRateHz ?? 60,
     projectionTelemetry: overrides.projectionTelemetry ?? { ...LAB_TELEMETRY_DEFAULTS },
     cpuProfiling: overrides.cpuProfiling ?? true,

@@ -29,11 +29,11 @@ public sealed class SessionsConfigurationValidator : IValidateOptions<SessionsCo
                 "Sessions.MirrorMode must be videoStreaming or pageProjection.");
         }
 
-        if (options.PageProjectionDiffQueueCapacity < 64
-            || options.PageProjectionDiffQueueCapacity > 65_536)
+        if (options.FrameQueueCapacity < 64
+            || options.FrameQueueCapacity > 65_536)
         {
             return ValidateOptionsResult.Fail(
-                "Sessions.PageProjectionDiffQueueCapacity must be in [64, 65536].");
+                "Sessions.FrameQueueCapacity must be in [64, 65536].");
         }
 
         if (!IsValidPageProjectionOptions(options.PageProjection, out var pageProjectionError))

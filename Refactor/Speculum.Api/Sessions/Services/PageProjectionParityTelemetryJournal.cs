@@ -149,9 +149,9 @@ internal static class PageProjectionParityTelemetryJournal
                     (int)Long(root, "seededSheetCount"),
                     Long(root, "tVirtualMs"));
                 break;
-            case "parity_establish_first_diff_emitted":
-                if (!catalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionEstablishFirstDiffEmitted)) return;
-                pageProjection.Establish.FirstDiffEmitted(
+            case "parity_establish_first_frame_emitted":
+                if (!catalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionEstablishFirstFrameEmitted)) return;
+                pageProjection.Establish.FirstFrameEmitted(
                     Required(root, "pageEpochId"),
                     Long(root, "generation"),
                     Required(root, "plane"),

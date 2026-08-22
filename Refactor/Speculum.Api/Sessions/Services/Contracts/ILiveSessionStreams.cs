@@ -22,10 +22,10 @@ public interface IPageProjectionFramesStream : IDisposable
 
     Guid ConsumerId { get; }
 
-    IResult<ChannelReader<PageProjectionDiff>> GetPageProjectionDiffsChannel();
+    IResult<ChannelReader<PageProjectionFrame>> GetPageProjectionFramesChannel();
 
-    /// <summary>Current Diff channel epoch for this stream (-1 when unregistered).</summary>
-    long GetDiffEpoch();
+    /// <summary>Current frame channel epoch for this stream (-1 when unregistered).</summary>
+    long GetFrameEpoch();
 }
 
 /// <summary>Per-consumer browser console output stream. Dispose unregisters from the mux.</summary>

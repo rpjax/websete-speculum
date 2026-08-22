@@ -128,8 +128,7 @@ The replicated structure is a **node table** (`ReplicatedTable`), not a belief a
 ## Anti-sources (do not design from)
 
 - `docs/page-projection/archive/**`
-- `Refactor/sidecar/browser/patchright/mirror/page/**`
-- `Refactor/web/src/features/sessions/live/page/**`
+- Deleted legado trees (do not reintroduce): `patchright/mirror/page/**`, `web/.../live/page/**`
 - Any doc that still says establish HTML / Node mirror / `speculum-anchor` / DomMap bootstrap as the happy path
 - Green protocol hops (`200`, `ResyncServed`, `htmlLen`) as accept
 

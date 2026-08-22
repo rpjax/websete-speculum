@@ -10,12 +10,12 @@ type LabCanvasStageProps = Pick<
   | 'height'
   | 'live'
   | 'attachFrameSink'
-  | 'attachPageProjectionDiffSink'
+  | 'attachPageProjectionFrameSink'
   | 'attachPageProjectionLifecycleSink'
-  | 'attachPageProjectionDiffEndedSink'
+  | 'attachPageProjectionFrameEndedSink'
   | 'onInput'
   | 'onDomInput'
-  | 'onDiffObserve'
+  | 'onFrameObserve'
   | 'registerApplierProbe'
   | 'requestRemoteResize'
   | 'viewportPolicy'
@@ -45,12 +45,12 @@ export function LabCanvasStage({
   height,
   live,
   attachFrameSink,
-  attachPageProjectionDiffSink,
+  attachPageProjectionFrameSink,
   attachPageProjectionLifecycleSink,
-  attachPageProjectionDiffEndedSink,
+  attachPageProjectionFrameEndedSink,
   onInput,
   onDomInput,
-  onDiffObserve,
+  onFrameObserve,
   registerApplierProbe,
   requestRemoteResize,
   viewportPolicy,
@@ -79,12 +79,12 @@ export function LabCanvasStage({
         height={height}
         live={live}
         attachFrameSink={attachFrameSink}
-        attachPageProjectionDiffSink={attachPageProjectionDiffSink}
+        attachPageProjectionFrameSink={attachPageProjectionFrameSink}
         attachPageProjectionLifecycleSink={attachPageProjectionLifecycleSink}
-        attachPageProjectionDiffEndedSink={attachPageProjectionDiffEndedSink}
+        attachPageProjectionFrameEndedSink={attachPageProjectionFrameEndedSink}
         onInput={onInput}
         onDomInput={onDomInput}
-        onDiffObserve={onDiffObserve}
+        onFrameObserve={onFrameObserve}
         registerApplierProbe={registerApplierProbe}
         requestRemoteResize={requestRemoteResize}
         viewportPolicy={viewportPolicy}

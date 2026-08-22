@@ -6,7 +6,7 @@ import {
 import { attachProjectedInputCapture } from '@speculum/page-projection/projected/input/projectedInputCapture'
 import { CONTEXT_ID_ROOT } from '@speculum/page-projection/core/frame'
 import type { PageProjectionIntentV2 } from '@speculum/page-projection/core/input/intentTypes'
-import type { PageProjectionDiff, PageProjectionIntent, MirrorMode, SessionFrame, SessionInput } from '@/lib/speculum'
+import type { PageProjectionFrame, PageProjectionIntent, MirrorMode, SessionFrame, SessionInput } from '@/lib/speculum'
 import { appendSessionBindingQuery } from '@/lib/speculum/sessionBindingAuth'
 import { cn } from '@/lib/utils'
 import { API_URL } from '@/lib/env'
@@ -23,8 +23,8 @@ import { measureCanvasElement } from './CanvasViewportSync'
 import type { SessionViewportBounds } from './sessionViewportPolicy'
 import type {
   PageProjectionApplierProbe,
-  PageProjectionDiffEndedSink,
-  PageProjectionDiffObserveEvent,
+  PageProjectionFrameEndedSink,
+  PageProjectionFrameObserveEvent,
   PageProjectionLifecycleSink,
 } from './sessionObservation'
 
@@ -44,21 +44,21 @@ export type SessionMirrorSurfaceProps = Omit<SessionViewportProps, 'attachFrameS
   token: string | null
   assetBaseUrl?: string
   attachFrameSink: (sink: (frame: SessionFrame) => void) => () => void
-  attachPageProjectionDiffSink: (sink: (diff: PageProjectionDiff) => void) => () => void
+  attachPageProjectionFrameSink: (sink: (diff: PageProjectionFrame) => void) => () => void
   attachPageProjectionLifecycleSink?: (
     sink: PageProjectionLifecycleSink,
   ) => () => void
-  attachPageProjectionDiffEndedSink?: (
-    sink: PageProjectionDiffEndedSink,
+  attachPageProjectionFrameEndedSink?: (
+    sink: PageProjectionFrameEndedSink,
   ) => () => void
   onInput: (input: SessionInput) => void
   onDomInput: (input: PageProjectionIntent) => void
-  onDiffObserve?: (event: PageProjectionDiffObserveEvent) => void
+  onFrameObserve?: (event: PageProjectionFrameObserveEvent) => void
   registerApplierProbe?: (probe: PageProjectionApplierProbe | null) => void
   pageProjectionKnobs?: PageProjectionClientKnobs
 }
 
-function toIngestBytes(body: PageProjectionDiff['body']): Uint8Array | null {
+function toIngestBytes(body: PageProjectionFrame['body']): Uint8Array | null {
   if (body == null) return null
   if (body instanceof Uint8Array) return body.byteLength > 0 ? body : null
   if (body instanceof ArrayBuffer) return body.byteLength > 0 ? new Uint8Array(body) : null
@@ -86,12 +86,12 @@ interface PageProjectionV2SurfaceProps {
   sessionId: string | null
   token: string | null
   assetBaseUrl?: string
-  attachPageProjectionDiffSink: (sink: (diff: PageProjectionDiff) => void) => () => void
-  attachPageProjectionDiffEndedSink?: (
-    sink: PageProjectionDiffEndedSink,
+  attachPageProjectionFrameSink: (sink: (diff: PageProjectionFrame) => void) => () => void
+  attachPageProjectionFrameEndedSink?: (
+    sink: PageProjectionFrameEndedSink,
   ) => () => void
   onDomInput: (input: PageProjectionIntent) => void
-  onDiffObserve?: (event: PageProjectionDiffObserveEvent) => void
+  onFrameObserve?: (event: PageProjectionFrameObserveEvent) => void
   knobs?: PageProjectionClientKnobs
   requestRemoteResize?: SessionViewportProps['requestRemoteResize']
   viewportPolicy?: SessionViewportBounds
@@ -107,10 +107,10 @@ function PageProjectionV2Surface({
   sessionId,
   token,
   assetBaseUrl,
-  attachPageProjectionDiffSink,
-  attachPageProjectionDiffEndedSink,
+  attachPageProjectionFrameSink,
+  attachPageProjectionFrameEndedSink,
   onDomInput,
-  onDiffObserve,
+  onFrameObserve,
   knobs: knobsProp,
   requestRemoteResize,
   viewportPolicy,
@@ -124,8 +124,8 @@ function PageProjectionV2Surface({
   viewportRef.current = { width, height }
   const onDomInputRef = useRef(onDomInput)
   onDomInputRef.current = onDomInput
-  const onDiffObserveRef = useRef(onDiffObserve)
-  onDiffObserveRef.current = onDiffObserve
+  const onFrameObserveRef = useRef(onFrameObserve)
+  onFrameObserveRef.current = onFrameObserve
   const onCanvasLayoutRef = useRef(onCanvasLayout)
   onCanvasLayoutRef.current = onCanvasLayout
   const onRemoteViewportAppliedRef = useRef(onRemoteViewportApplied)
@@ -199,7 +199,7 @@ function PageProjectionV2Surface({
         }
       }
       if (!sid || !tok) {
-        onDiffObserveRef.current?.({
+        onFrameObserveRef.current?.({
           kind: 'pageProjection',
           hop: 'client_resync_failed',
           reason: 'auth_token_missing',
@@ -209,7 +209,7 @@ function PageProjectionV2Surface({
         })
         return
       }
-      onDiffObserveRef.current?.({
+      onFrameObserveRef.current?.({
         kind: 'pageProjection',
         hop: 'client_resync_request',
         reason,
@@ -228,7 +228,7 @@ function PageProjectionV2Surface({
       if (contextId != null) url.searchParams.set('contextId', String(contextId))
       const res = await fetch(url.toString(), { method: 'POST' })
       if (!res.ok) {
-        onDiffObserveRef.current?.({
+        onFrameObserveRef.current?.({
           kind: 'pageProjection',
           hop: 'client_resync_failed',
           generation,
@@ -239,7 +239,7 @@ function PageProjectionV2Surface({
       }
       // Body ignored — sealed path delivers establish/resync on the Frames stream.
     } catch {
-      onDiffObserveRef.current?.({
+      onFrameObserveRef.current?.({
         kind: 'pageProjection',
         hop: 'client_resync_failed',
         generation,
@@ -309,7 +309,7 @@ function PageProjectionV2Surface({
       height,
       onArmed: () => {
         bindInput(client)
-        onDiffObserveRef.current?.({
+        onFrameObserveRef.current?.({
           kind: 'pageProjection',
           hop: 'client_arm',
           tClient: performance.now(),
@@ -317,7 +317,7 @@ function PageProjectionV2Surface({
         })
       },
       onDesync: (reason) => {
-        onDiffObserveRef.current?.({
+        onFrameObserveRef.current?.({
           kind: 'pageProjection',
           hop: 'client_desync',
           reason,
@@ -343,7 +343,7 @@ function PageProjectionV2Surface({
   }, [])
 
   useEffect(() => {
-    return attachPageProjectionDiffSink((diff) => {
+    return attachPageProjectionFrameSink((diff) => {
       const bytes = toIngestBytes(diff.body)
       if (!bytes) return
       if (Number.isFinite(diff.sequence)) {
@@ -353,12 +353,12 @@ function PageProjectionV2Surface({
       if (clientRef.current?.isArmed) bindInput(clientRef.current)
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [attachPageProjectionDiffSink])
+  }, [attachPageProjectionFrameSink])
 
   useEffect(() => {
-    if (!attachPageProjectionDiffEndedSink) return
-    return attachPageProjectionDiffEndedSink(() => {
-      onDiffObserveRef.current?.({
+    if (!attachPageProjectionFrameEndedSink) return
+    return attachPageProjectionFrameEndedSink(() => {
+      onFrameObserveRef.current?.({
         kind: 'pageProjection',
         hop: 'client_desync',
         reason: 'wire_stall',
@@ -368,14 +368,14 @@ function PageProjectionV2Surface({
       })
       void triggerResync('wire_stall', 0)
     })
-  }, [attachPageProjectionDiffEndedSink])
+  }, [attachPageProjectionFrameEndedSink])
 
   useEffect(() => {
     if (!sessionId) return
     const timer = window.setTimeout(() => {
       const client = clientRef.current
       if (client?.isArmed) return
-      onDiffObserveRef.current?.({
+      onFrameObserveRef.current?.({
         kind: 'pageProjection',
         hop: 'client_desync',
         reason: 'establish_miss',
@@ -409,11 +409,11 @@ export function SessionMirrorSurface({
   token,
   assetBaseUrl,
   attachFrameSink,
-  attachPageProjectionDiffSink,
-  attachPageProjectionDiffEndedSink,
+  attachPageProjectionFrameSink,
+  attachPageProjectionFrameEndedSink,
   onInput,
   onDomInput,
-  onDiffObserve,
+  onFrameObserve,
   pageProjectionKnobs,
   className,
   ...viewportProps
@@ -428,10 +428,10 @@ export function SessionMirrorSurface({
         sessionId={sessionId}
         token={token}
         assetBaseUrl={assetBaseUrl}
-        attachPageProjectionDiffSink={attachPageProjectionDiffSink}
-        attachPageProjectionDiffEndedSink={attachPageProjectionDiffEndedSink}
+        attachPageProjectionFrameSink={attachPageProjectionFrameSink}
+        attachPageProjectionFrameEndedSink={attachPageProjectionFrameEndedSink}
         onDomInput={onDomInput}
-        onDiffObserve={onDiffObserve}
+        onFrameObserve={onFrameObserve}
         knobs={pageProjectionKnobs}
         width={viewportProps.width}
         height={viewportProps.height}

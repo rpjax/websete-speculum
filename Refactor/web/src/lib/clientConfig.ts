@@ -156,7 +156,7 @@ export interface ClientConfig {
       isEnabled?: boolean
       sessionWire?: boolean
       videoStreamingInput?: boolean
-      pageProjectionDiff?: boolean
+      pageProjectionFrame?: boolean
       pageProjectionIntent?: boolean
     }
   }

@@ -149,7 +149,7 @@ export interface LabTelemetryClientObservationConfig {
   isEnabled: boolean
   sessionWire: boolean
   videoStreamingInput: boolean
-  pageProjectionDiff: boolean
+  pageProjectionFrame: boolean
   pageProjectionIntent: boolean
 }
 
@@ -338,7 +338,7 @@ export function createLabTelemetryBaseline(): LabTelemetryConfig {
       isEnabled: false,
       sessionWire: true,
       videoStreamingInput: false,
-      pageProjectionDiff: false,
+      pageProjectionFrame: false,
       pageProjectionIntent: false,
     },
     host: {

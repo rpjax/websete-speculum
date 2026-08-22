@@ -118,7 +118,7 @@ internal sealed class SessionOutputFanOut
             case OutputStreamKind.PageProjectionFrames
                 when _mirrorMode == MirrorMode.PageProjection
                      && Interlocked.Exchange(ref _diffPumpStarted, 1) == 0:
-                _ = PumpPageProjectionDiffsAsync();
+                _ = PumpPageProjectionFramesAsync();
                 break;
             case OutputStreamKind.Frame
                 when _mirrorMode == MirrorMode.VideoStreaming
@@ -144,14 +144,14 @@ internal sealed class SessionOutputFanOut
         }
     }
 
-    private async Task PumpPageProjectionDiffsAsync()
+    private async Task PumpPageProjectionFramesAsync()
     {
         while (!_lifetime.IsCancellationRequested)
         {
             var cutForRecovery = false;
             try
             {
-                var opened = _connection.GetPageProjectionDiffReader();
+                var opened = _connection.GetPageProjectionFrameReader();
                 if (opened.IsFailure)
                 {
                     return;
@@ -162,7 +162,7 @@ internal sealed class SessionOutputFanOut
                     var targets = ResolveTargets(OutputStreamKind.PageProjectionFrames).ToList();
                     if (targets.Count == 0)
                     {
-                        _connection.ReportPageProjectionDiffQueueDropped(
+                        _connection.ReportPageProjectionFrameQueueDropped(
                             "api_fanout_no_target",
                             droppedCount: 1,
                             capacity: SequencedDiffChannels.FanOutTargetCapacity,
@@ -185,7 +185,7 @@ internal sealed class SessionOutputFanOut
                         catch (ChannelClosedException)
                         {
                             var blocked = targets[i];
-                            _connection.ReportPageProjectionDiffQueueDropped(
+                            _connection.ReportPageProjectionFrameQueueDropped(
                                 "api_fanout_pipe_closed",
                                 droppedCount: 1,
                                 capacity: SequencedDiffChannels.FanOutTargetCapacity,
@@ -199,8 +199,8 @@ internal sealed class SessionOutputFanOut
                                 consumerId: blocked.ConsumerId,
                                 kind: OutputStreamKindNames.ToTelemetry(blocked.Kind),
                                 targetCount: targets.Count,
-                                diffChannelCount: DiffChannelCountOrUnknown(blocked),
-                                diffEpoch: blocked.DiffEpoch);
+                                frameChannelCount: FrameChannelCountOrUnknown(blocked),
+                                frameEpoch: blocked.FrameEpoch);
                             cutForRecovery = true;
                             break;
                         }
@@ -228,7 +228,7 @@ internal sealed class SessionOutputFanOut
             {
                 foreach (var stream in StreamsOfKind(OutputStreamKind.PageProjectionFrames))
                 {
-                    stream.PageProjectionDiffs.Writer.TryComplete();
+                    stream.PageProjectionFrames.Writer.TryComplete();
                 }
             }
 
@@ -239,29 +239,29 @@ internal sealed class SessionOutputFanOut
 
             foreach (var stream in StreamsOfKind(OutputStreamKind.PageProjectionFrames))
             {
-                stream.ReplacePageProjectionDiffs();
+                stream.ReplacePageProjectionFrames();
             }
         }
     }
 
     private async Task WriteFanOutDiffAsync(
         OutputStreamRegistration stream,
-        PageProjectionDiff item,
+        PageProjectionFrame item,
         int targetIndex,
         int targetCount)
     {
         using var budget = CancellationTokenSource.CreateLinkedTokenSource(_lifetime);
         budget.CancelAfter(_fanOutWriteBudgetMs);
-        var journalEnqueue = _connection.IsPageProjectionDiffFanOutEnqueuedEnabled();
+        var journalEnqueue = _connection.IsPageProjectionFrameFanOutEnqueuedEnabled();
         var waitClock = journalEnqueue ? System.Diagnostics.Stopwatch.StartNew() : null;
         try
         {
-            await stream.PageProjectionDiffs.Writer
+            await stream.PageProjectionFrames.Writer
                 .WriteAsync(item, budget.Token)
                 .ConfigureAwait(false);
             if (journalEnqueue)
             {
-                _connection.ReportPageProjectionDiffFanOutEnqueued(
+                _connection.ReportPageProjectionFrameFanOutEnqueued(
                     item,
                     waitClock!.ElapsedMilliseconds,
                     stream.StreamId,
@@ -269,15 +269,15 @@ internal sealed class SessionOutputFanOut
                     OutputStreamKindNames.ToTelemetry(stream.Kind),
                     targetIndex,
                     targetCount,
-                    DiffChannelCountOrUnknown(stream),
-                    stream.DiffEpoch);
+                    FrameChannelCountOrUnknown(stream),
+                    stream.FrameEpoch);
             }
 
             return;
         }
         catch (OperationCanceledException) when (!_lifetime.IsCancellationRequested)
         {
-            _connection.ReportPageProjectionDiffQueueDropped(
+            _connection.ReportPageProjectionFrameQueueDropped(
                 "api_fanout_backpressure",
                 droppedCount: 1,
                 capacity: SequencedDiffChannels.FanOutTargetCapacity,
@@ -292,17 +292,17 @@ internal sealed class SessionOutputFanOut
                 consumerId: stream.ConsumerId,
                 kind: OutputStreamKindNames.ToTelemetry(stream.Kind),
                 targetCount: targetCount,
-                diffChannelCount: DiffChannelCountOrUnknown(stream),
-                diffEpoch: stream.DiffEpoch);
-            stream.PageProjectionDiffs.Writer.TryComplete(
+                frameChannelCount: FrameChannelCountOrUnknown(stream),
+                frameEpoch: stream.FrameEpoch);
+            stream.PageProjectionFrames.Writer.TryComplete(
                 new InvalidOperationException("api_fanout_backpressure"));
             throw new InvalidOperationException("api_fanout_backpressure");
         }
     }
 
-    private static int DiffChannelCountOrUnknown(OutputStreamRegistration stream)
+    private static int FrameChannelCountOrUnknown(OutputStreamRegistration stream)
     {
-        var reader = stream.PageProjectionDiffs.Reader;
+        var reader = stream.PageProjectionFrames.Reader;
         return reader.CanCount ? reader.Count : -1;
     }
 

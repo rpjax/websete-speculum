@@ -4,7 +4,7 @@ import { PipeKind } from './constants'
 import type { DataStreamPipe, DataStreamTransport } from './dataStreamTransport'
 import { DataStreams } from './dataStreams'
 import { FramedReader, writePipeHeader } from './framing'
-import type { PageProjectionDiff, SessionEventMap } from './types'
+import type { PageProjectionFrame, SessionEventMap } from './types'
 
 /** Captures bytes written to client→server pipes after the PipeKind header. */
 class MockDataStreamTransport implements DataStreamTransport {
@@ -289,7 +289,7 @@ describe('DataStreams.sendInput', () => {
   })
 })
 
-describe('DataStreams pageProjectionDiff normalize', () => {
+describe('DataStreams pageProjectionFrame normalize', () => {
   it('accepts a V2 binary frame (empty plane/operation, body present)', async () => {
     const transport = new MockIncomingTransport()
     const streams = new DataStreams({
@@ -300,8 +300,8 @@ describe('DataStreams pageProjectionDiff normalize', () => {
     })
     await streams.open()
 
-    const pending = nextEvent(streams, 'pageProjectionDiff')
-    transport.pushIncoming(PipeKind.PageProjectionDiff, [
+    const pending = nextEvent(streams, 'pageProjectionFrame')
+    transport.pushIncoming(PipeKind.PageProjectionFrame, [
       {
         sequence: 7,
         generation: 2,
@@ -316,7 +316,7 @@ describe('DataStreams pageProjectionDiff normalize', () => {
       },
     ])
 
-    const diff = (await pending) as PageProjectionDiff
+    const diff = (await pending) as PageProjectionFrame
     expect(diff.plane).toBe('')
     expect(diff.operation).toBe('')
     expect(diff.body).toBeInstanceOf(Uint8Array)
@@ -341,8 +341,8 @@ describe('DataStreams pageProjectionDiff normalize', () => {
     })
     await streams.open()
 
-    const pending = nextEvent(streams, 'pageProjectionDiffRejected')
-    transport.pushIncoming(PipeKind.PageProjectionDiff, [
+    const pending = nextEvent(streams, 'pageProjectionFrameRejected')
+    transport.pushIncoming(PipeKind.PageProjectionFrame, [
       { sequence: 1, generation: 1, timestamp: 1, plane: '', operation: '' },
     ])
 
@@ -362,8 +362,8 @@ describe('DataStreams pageProjectionDiff normalize', () => {
     })
     await streams.open()
 
-    const pending = nextEvent(streams, 'pageProjectionDiff')
-    transport.pushIncoming(PipeKind.PageProjectionDiff, [
+    const pending = nextEvent(streams, 'pageProjectionFrame')
+    transport.pushIncoming(PipeKind.PageProjectionFrame, [
       {
         sequence: 9,
         generation: 1,
@@ -374,7 +374,7 @@ describe('DataStreams pageProjectionDiff normalize', () => {
       },
     ])
 
-    const diff = (await pending) as PageProjectionDiff
+    const diff = (await pending) as PageProjectionFrame
     expect(diff.plane).toBe('dom')
     expect(diff.operation).toBe('scrollViewport')
     expect(diff.body).toBeUndefined()

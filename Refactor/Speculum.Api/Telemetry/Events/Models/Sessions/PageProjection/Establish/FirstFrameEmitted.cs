@@ -4,13 +4,13 @@ using Speculum.Api.Journal.Models;
 namespace Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Establish;
 
 [JournalFact(
-    "Telemetry.Sessions.PageProjection.Establish.FirstDiffEmitted",
+    "Telemetry.Sessions.PageProjection.Establish.FirstFrameEmitted",
     schemaVersion: 1,
-    Name = "PageProjection establish · FirstDiffEmitted",
-    Description = "PageEpoch parity telemetry: FirstDiffEmitted.",
+    Name = "PageProjection establish · FirstFrameEmitted",
+    Description = "PageEpoch parity telemetry: FirstFrameEmitted.",
     Owner = "telemetry",
     PublishPolicy = PublishPolicy.BestEffort)]
-public sealed class FirstDiffEmitted
+public sealed class FirstFrameEmitted
 {
     [JournalIndex("profile")]
     public required Guid ProfileId { get; init; }

@@ -78,7 +78,7 @@ export interface BrowserSessionEvents {
     toGeneration: number;
     reason: string;
     url?: string;
-    diffKind?: string;
+    frameKind?: string;
   }): void;
 
   onPageProjectionSoftNavObserved?(event: {
@@ -232,8 +232,8 @@ export interface BrowserLaunchOptions {
   screencastMaxEncodeScale: number;
   /** Sessions.MirrorMode from Launch (admin engine config). */
   mirrorMode: 'videoStreaming' | 'pageProjection';
-  /** Sessions.PageProjectionDiffQueueCapacity — EventBridge Dom queue depth. */
-  pageProjectionDiffQueueCapacity: number;
+  /** Sessions.frameQueueCapacity — EventBridge Dom queue depth. */
+  frameQueueCapacity: number;
   /** Sessions.PageProjection.FrameRateHz (§5.3.4) — PageProjectionEngine top clock rate. */
   frameRateHz?: number;
   /**

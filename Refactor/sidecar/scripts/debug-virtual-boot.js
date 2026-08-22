@@ -1,5 +1,5 @@
 const { createPageProjectionBrowserSessionFactory } = require('../dist/browser/mirror/projection/session/PageProjectionBrowserSession');
-const { v4LabLaunchOptions } = require('../dist/browser/mirror/projection/session/v4LabLaunch');
+const { labLaunchOptions } = require('../dist/browser/mirror/projection/session/labLaunch');
 
 function events() {
   return {
@@ -19,7 +19,7 @@ function events() {
 (async () => {
   const factory = createPageProjectionBrowserSessionFactory({ headless: true });
   const session = factory.create('debug1', events());
-  await session.launch(v4LabLaunchOptions({ frameRateHz: 30 }));
+  await session.launch(labLaunchOptions({ frameRateHz: 30 }));
   await session.navigate('http://127.0.0.1:4098/fixtures/demo.html');
   await new Promise((r) => setTimeout(r, 1500));
   const before = await session.evaluate(`({

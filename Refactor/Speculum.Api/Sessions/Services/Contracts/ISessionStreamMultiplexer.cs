@@ -31,8 +31,8 @@ internal interface ISessionStreamMultiplexer : IDisposable
     /// <summary>Notifies Exclusive/FirstAttached which consumer is currently attached.</summary>
     void SetAttachedConsumer(Guid? consumerId);
 
-    /// <summary>Diff channel epoch for a Diff stream (bumped on Replace).</summary>
-    IResult<long> GetDiffEpoch(Guid streamId);
+    /// <summary>Frame channel epoch for a frame stream (bumped on Replace).</summary>
+    IResult<long> GetFrameEpoch(Guid streamId);
 
     IResult RegisterInputConsumer(Guid consumerId);
 
@@ -40,7 +40,7 @@ internal interface ISessionStreamMultiplexer : IDisposable
 
     IResult<ChannelReader<Frame>> GetFramesChannel(Guid streamId);
 
-    IResult<ChannelReader<PageProjectionDiff>> GetPageProjectionDiffsChannel(Guid streamId);
+    IResult<ChannelReader<PageProjectionFrame>> GetPageProjectionFramesChannel(Guid streamId);
 
     IResult<ChannelReader<ConsoleOutput>> GetConsoleOutputChannel(Guid streamId);
 

@@ -46,7 +46,7 @@ import { ProjectionDataPlaneHost } from './projectionDataPlaneHost';
 import { CdpBindingDataPlaneHost } from './cdpBindingDataPlaneHost';
 import { installDocumentResponseHook, cspDocumentMutator } from './csp/documentResponseHook';
 import { createScriptInjectMutator } from './csp/scriptInjectMutator';
-import { V4InputDispatch } from '../input/v4InputDispatch';
+import { PageProjectionInputDispatch } from '../input/pageProjectionInputDispatch';
 import { EditableFocus } from '../../../patchright/EditableFocus';
 import { matchesAllowedDomain } from '../../../patchright/Navigation';
 import type { DomInputIngress } from '@speculum/page-projection/core/input/intentTypes';
@@ -69,7 +69,7 @@ function chromeArgs(): string[] {
 }
 
 /** Optional lab/host probe adapters — session must not import `lab/` directly. */
-export type V4ProjectionProbes = {
+export type PageProjectionProbes = {
   startCpuProfile?: (cdp: CDPSession) => Promise<void>;
   stopCpuProfile?: (
     cdp: CDPSession,
@@ -85,9 +85,9 @@ export type V4ProjectionProbes = {
   }>;
 };
 
-export type V4ProjectionFactoryOptions = {
+export type PageProjectionFactoryOptions = {
   headless: boolean;
-  probes?: V4ProjectionProbes;
+  probes?: PageProjectionProbes;
 };
 
 export class PageProjectionBrowserSession {
@@ -103,18 +103,18 @@ export class PageProjectionBrowserSession {
   private generation = 1;
   private cpuAllowed = false;
   private cpuRunning = false;
-  private inputDispatch: V4InputDispatch | null = null;
+  private inputDispatch: PageProjectionInputDispatch | null = null;
   private readonly editableFocus: EditableFocus;
   private readonly dataPlane = new ProjectionDataPlaneHost();
   private readonly cdpPlane = new CdpBindingDataPlaneHost();
   private dataPlaneMode: 'cdp' | 'loopback' = 'cdp';
   private readonly headless: boolean;
-  private readonly probes: V4ProjectionProbes;
+  private readonly probes: PageProjectionProbes;
 
   constructor(
     readonly sessionId: string,
     private readonly events: BrowserSessionEvents,
-    factoryOpts: V4ProjectionFactoryOptions,
+    factoryOpts: PageProjectionFactoryOptions,
   ) {
     this.headless = factoryOpts.headless;
     this.probes = factoryOpts.probes ?? {};
@@ -290,7 +290,7 @@ export class PageProjectionBrowserSession {
       this.cdpSession = null;
     }
     this.page = await this.freshPage(dataPlaneUrl, opts);
-    this.inputDispatch = new V4InputDispatch(this.page);
+    this.inputDispatch = new PageProjectionInputDispatch(this.page);
     const allowed = opts.allowedNavigationDomains;
     if (allowed && allowed.length > 0) {
       try {
@@ -728,7 +728,7 @@ function consoleLevel(type: string): number {
 }
 
 export function createPageProjectionBrowserSessionFactory(
-  opts: V4ProjectionFactoryOptions,
+  opts: PageProjectionFactoryOptions,
 ): BrowserSessionFactory {
   return {
     create(sessionId, events) {

@@ -95,10 +95,10 @@ internal sealed class LiveSession : ILiveSession
         _logger = logger;
 
         hooks.BindToConnection(connection);
-        connection.BindPageProjectionDiffTelemetry(new DiffTelemetryBridge(this));
+        connection.BindPageProjectionFrameTelemetry(new FrameTelemetryBridge(this));
     }
 
-    private sealed class DiffTelemetryBridge(LiveSession session) : IPageProjectionDiffTelemetry
+    private sealed class FrameTelemetryBridge(LiveSession session) : IPageProjectionFrameTelemetry
     {
         public void FrameReceived(
             string plane,
@@ -110,7 +110,7 @@ internal sealed class LiveSession : ILiveSession
             int? ruleCount = null,
             int? seededSheetCount = null)
         {
-            session.TracePageProjectionDiffFrameReceivedCore(
+            session.TracePageProjectionFrameReceivedCore(
                 plane,
                 operation,
                 sequence,
@@ -136,10 +136,10 @@ internal sealed class LiveSession : ILiveSession
             Guid? consumerId = null,
             string? kind = null,
             int? targetCount = null,
-            int? diffChannelCount = null,
-            long? diffEpoch = null)
+            int? frameChannelCount = null,
+            long? frameEpoch = null)
         {
-            session.TracePageProjectionDiffQueueDropped(
+            session.TracePageProjectionFrameQueueDropped(
                 stage,
                 droppedCount,
                 capacity,
@@ -154,8 +154,8 @@ internal sealed class LiveSession : ILiveSession
                 consumerId,
                 kind,
                 targetCount,
-                diffChannelCount,
-                diffEpoch);
+                frameChannelCount,
+                frameEpoch);
         }
 
         public void FanOutEnqueued(
@@ -170,10 +170,10 @@ internal sealed class LiveSession : ILiveSession
             string kind,
             int targetIndex,
             int targetCount,
-            int diffChannelCount,
-            long diffEpoch)
+            int frameChannelCount,
+            long frameEpoch)
         {
-            session.TracePageProjectionDiffFanOutEnqueuedCore(
+            session.TracePageProjectionFrameFanOutEnqueuedCore(
                 plane,
                 operation,
                 sequence,
@@ -185,8 +185,8 @@ internal sealed class LiveSession : ILiveSession
                 kind,
                 targetIndex,
                 targetCount,
-                diffChannelCount,
-                diffEpoch);
+                frameChannelCount,
+                frameEpoch);
         }
 
         public void OutputStreamOpened(
@@ -194,14 +194,14 @@ internal sealed class LiveSession : ILiveSession
             Guid consumerId,
             string kind,
             int openStreamCount,
-            int diffChannelCapacity)
+            int frameChannelCapacity)
         {
-            session.TracePageProjectionDiffOutputStreamOpened(
+            session.TracePageProjectionFrameOutputStreamOpened(
                 streamId,
                 consumerId,
                 kind,
                 openStreamCount,
-                diffChannelCapacity);
+                frameChannelCapacity);
         }
 
         public void OutputStreamClosed(
@@ -210,7 +210,7 @@ internal sealed class LiveSession : ILiveSession
             string kind,
             int openStreamCount)
         {
-            session.TracePageProjectionDiffOutputStreamClosed(
+            session.TracePageProjectionFrameOutputStreamClosed(
                 streamId,
                 consumerId,
                 kind,
@@ -260,7 +260,7 @@ internal sealed class LiveSession : ILiveSession
 
         _featureNotifications?.Dispose();
         _featureNotifications = null;
-        _connection.BindPageProjectionDiffTelemetry(null);
+        _connection.BindPageProjectionFrameTelemetry(null);
         _hooks.Unbind(_connection.IsOpen ? _connection : null);
         var admission = Interlocked.Exchange(ref _videoStreamingInputAdmission, null);
         admission?.Complete();
@@ -763,25 +763,25 @@ internal sealed class LiveSession : ILiveSession
                     }
 
                     break;
-                case SessionNotificationKind.PageProjectionDiffFrame:
-                case SessionNotificationKind.PageProjectionDiffQueueDropped:
-                    // FR/QD journal via IPageProjectionDiffTelemetry (direct), not DropOldest notifications.
+                case SessionNotificationKind.PageProjectionFrame:
+                case SessionNotificationKind.PageProjectionFrameQueueDropped:
+                    // FR/QD journal via IPageProjectionFrameTelemetry (direct), not DropOldest notifications.
                     break;
                 case SessionNotificationKind.PageProjectionLifecycle:
                     if (string.Equals(notification.Phase, "queue_dropped", StringComparison.Ordinal))
                     {
                         // Client-visible QD (and sidecar bridge) journals via Diff telemetry
-                        // on ReportPageProjectionDiffQueueDropped — do not double-journal here.
+                        // on ReportPageProjectionFrameQueueDropped — do not double-journal here.
                         break;
                     }
 
                     if (string.Equals(notification.Phase, "soft_nav_observed", StringComparison.Ordinal))
                     {
-                        _telemetry.PageProjection.Diff.SoftNavObserved(
+                        _telemetry.PageProjection.Frame.SoftNavObserved(
                             notification.DomGeneration ?? 0,
                             notification.Url,
                             notification.Reason,
-                            string.Equals(notification.PageProjectionDiffOperation, "armed", StringComparison.Ordinal));
+                            string.Equals(notification.PageProjectionFrameOperation, "armed", StringComparison.Ordinal));
                         break;
                     }
 
@@ -846,12 +846,12 @@ internal sealed class LiveSession : ILiveSession
                         break;
                     }
 
-                    _telemetry.PageProjection.Diff.GenerationBumped(
+                    _telemetry.PageProjection.Frame.GenerationBumped(
                         notification.DomFromGeneration ?? 0,
                         notification.DomGeneration ?? 0,
                         notification.Reason.Trim(),
                         notification.Url,
-                        notification.PageProjectionDiffPlane);
+                        notification.PageProjectionFramePlane);
                     break;
                 case SessionNotificationKind.AllocationLifecycle:
                     if (string.IsNullOrWhiteSpace(notification.AllocationKind))
@@ -1179,14 +1179,14 @@ internal sealed class LiveSession : ILiveSession
         }
     }
 
-    public void TracePageProjectionDiffWireDelivered(
-        PageProjectionDiff diff,
+    public void TracePageProjectionFrameWireDelivered(
+        PageProjectionFrame diff,
         long durationMs = 0,
         Guid streamId = default,
         Guid consumerId = default,
-        long diffEpoch = 0)
+        long frameEpoch = 0)
     {
-        if (!_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionDiffWireDelivered))
+        if (!_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionFrameWireDelivered))
         {
             return;
         }
@@ -1198,7 +1198,7 @@ internal sealed class LiveSession : ILiveSession
 
         try
         {
-            _telemetry.PageProjection.Diff.WireDelivered(
+            _telemetry.PageProjection.Frame.WireDelivered(
                 diff.Plane.Trim(),
                 diff.Operation.Trim(),
                 diff.Sequence,
@@ -1207,32 +1207,32 @@ internal sealed class LiveSession : ILiveSession
                 durationMs,
                 streamId,
                 consumerId,
-                diffEpoch);
+                frameEpoch);
         }
         catch (Exception journalEx)
         {
             _logger.LogWarning(
                 journalEx,
-                "Session {SessionId} failed to journal Telemetry.Sessions.PageProjection.Diff.WireDelivered.",
+                "Session {SessionId} failed to journal Telemetry.Sessions.PageProjection.Frame.WireDelivered.",
                 SessionId);
         }
     }
 
-    public bool IsPageProjectionDiffWireDeliveredEnabled()
-        => _journalCatalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionDiffWireDelivered);
+    public bool IsPageProjectionFrameWireDeliveredEnabled()
+        => _journalCatalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionFrameWireDelivered);
 
-    public void TracePageProjectionDiffFanOutEnqueued(
-        PageProjectionDiff diff,
+    public void TracePageProjectionFrameFanOutEnqueued(
+        PageProjectionFrame diff,
         long waitMs,
         Guid streamId,
         Guid consumerId,
         string kind,
         int targetIndex,
         int targetCount,
-        int diffChannelCount,
-        long diffEpoch)
+        int frameChannelCount,
+        long frameEpoch)
     {
-        if (!_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionDiffFanOutEnqueued))
+        if (!_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionFrameFanOutEnqueued))
         {
             return;
         }
@@ -1244,7 +1244,7 @@ internal sealed class LiveSession : ILiveSession
             return;
         }
 
-        TracePageProjectionDiffFanOutEnqueuedCore(
+        TracePageProjectionFrameFanOutEnqueuedCore(
             diff.Plane.Trim(),
             diff.Operation.Trim(),
             diff.Sequence,
@@ -1256,11 +1256,11 @@ internal sealed class LiveSession : ILiveSession
             kind.Trim(),
             targetIndex,
             targetCount,
-            diffChannelCount,
-            diffEpoch);
+            frameChannelCount,
+            frameEpoch);
     }
 
-    internal void TracePageProjectionDiffFanOutEnqueuedCore(
+    internal void TracePageProjectionFrameFanOutEnqueuedCore(
         string plane,
         string operation,
         long sequence,
@@ -1272,17 +1272,17 @@ internal sealed class LiveSession : ILiveSession
         string kind,
         int targetIndex,
         int targetCount,
-        int diffChannelCount,
-        long diffEpoch)
+        int frameChannelCount,
+        long frameEpoch)
     {
-        if (!_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionDiffFanOutEnqueued))
+        if (!_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionFrameFanOutEnqueued))
         {
             return;
         }
 
         try
         {
-            _telemetry.PageProjection.Diff.FanOutEnqueued(
+            _telemetry.PageProjection.Frame.FanOutEnqueued(
                 plane,
                 operation,
                 sequence,
@@ -1294,25 +1294,25 @@ internal sealed class LiveSession : ILiveSession
                 kind,
                 targetIndex,
                 targetCount,
-                diffChannelCount,
-                diffEpoch);
+                frameChannelCount,
+                frameEpoch);
         }
         catch (Exception journalEx)
         {
             _logger.LogWarning(
                 journalEx,
-                "Session {SessionId} failed to journal Telemetry.Sessions.PageProjection.Diff.FanOutEnqueued.",
+                "Session {SessionId} failed to journal Telemetry.Sessions.PageProjection.Frame.FanOutEnqueued.",
                 SessionId);
         }
     }
 
-    public void TracePageProjectionDiffStreamDequeued(
-        PageProjectionDiff diff,
+    public void TracePageProjectionFrameStreamDequeued(
+        PageProjectionFrame diff,
         Guid streamId = default,
         Guid consumerId = default,
-        long diffEpoch = 0)
+        long frameEpoch = 0)
     {
-        if (!_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionDiffStreamDequeued))
+        if (!_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionFrameStreamDequeued))
         {
             return;
         }
@@ -1324,7 +1324,7 @@ internal sealed class LiveSession : ILiveSession
 
         try
         {
-            _telemetry.PageProjection.Diff.StreamDequeued(
+            _telemetry.PageProjection.Frame.StreamDequeued(
                 diff.Plane.Trim(),
                 diff.Operation.Trim(),
                 diff.Sequence,
@@ -1332,25 +1332,25 @@ internal sealed class LiveSession : ILiveSession
                 diff.Timestamp,
                 streamId,
                 consumerId,
-                diffEpoch);
+                frameEpoch);
         }
         catch (Exception journalEx)
         {
             _logger.LogWarning(
                 journalEx,
-                "Session {SessionId} failed to journal Telemetry.Sessions.PageProjection.Diff.StreamDequeued.",
+                "Session {SessionId} failed to journal Telemetry.Sessions.PageProjection.Frame.StreamDequeued.",
                 SessionId);
         }
     }
 
-    public void TracePageProjectionDiffOutputStreamOpened(
+    public void TracePageProjectionFrameOutputStreamOpened(
         Guid streamId,
         Guid consumerId,
         string kind,
         int openStreamCount,
-        int diffChannelCapacity)
+        int frameChannelCapacity)
     {
-        if (!_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionDiffOutputStreamOpened))
+        if (!_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionFrameOutputStreamOpened))
         {
             return;
         }
@@ -1362,29 +1362,29 @@ internal sealed class LiveSession : ILiveSession
 
         try
         {
-            _telemetry.PageProjection.Diff.OutputStreamOpened(
+            _telemetry.PageProjection.Frame.OutputStreamOpened(
                 streamId,
                 consumerId,
                 kind.Trim(),
                 openStreamCount,
-                diffChannelCapacity);
+                frameChannelCapacity);
         }
         catch (Exception journalEx)
         {
             _logger.LogWarning(
                 journalEx,
-                "Session {SessionId} failed to journal Telemetry.Sessions.PageProjection.Diff.OutputStreamOpened.",
+                "Session {SessionId} failed to journal Telemetry.Sessions.PageProjection.Frame.OutputStreamOpened.",
                 SessionId);
         }
     }
 
-    public void TracePageProjectionDiffOutputStreamClosed(
+    public void TracePageProjectionFrameOutputStreamClosed(
         Guid streamId,
         Guid consumerId,
         string kind,
         int openStreamCount)
     {
-        if (!_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionDiffOutputStreamClosed))
+        if (!_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionFrameOutputStreamClosed))
         {
             return;
         }
@@ -1396,7 +1396,7 @@ internal sealed class LiveSession : ILiveSession
 
         try
         {
-            _telemetry.PageProjection.Diff.OutputStreamClosed(
+            _telemetry.PageProjection.Frame.OutputStreamClosed(
                 streamId,
                 consumerId,
                 kind.Trim(),
@@ -1406,14 +1406,14 @@ internal sealed class LiveSession : ILiveSession
         {
             _logger.LogWarning(
                 journalEx,
-                "Session {SessionId} failed to journal Telemetry.Sessions.PageProjection.Diff.OutputStreamClosed.",
+                "Session {SessionId} failed to journal Telemetry.Sessions.PageProjection.Frame.OutputStreamClosed.",
                 SessionId);
         }
     }
 
-    public void TracePageProjectionDiffFrameReceived(PageProjectionDiff diff)
+    public void TracePageProjectionFrameReceived(PageProjectionFrame diff)
     {
-        if (!_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionDiffFrameReceived))
+        if (!_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionFrameReceived))
         {
             return;
         }
@@ -1463,7 +1463,7 @@ internal sealed class LiveSession : ILiveSession
             seededSheetCount = seeded;
         }
 
-        TracePageProjectionDiffFrameReceivedCore(
+        TracePageProjectionFrameReceivedCore(
             diff.Plane.Trim(),
             diff.Operation.Trim(),
             diff.Sequence,
@@ -1474,7 +1474,7 @@ internal sealed class LiveSession : ILiveSession
             seededSheetCount);
     }
 
-    private void TracePageProjectionDiffFrameReceivedCore(
+    private void TracePageProjectionFrameReceivedCore(
         string plane,
         string operation,
         long sequence,
@@ -1484,14 +1484,14 @@ internal sealed class LiveSession : ILiveSession
         int? ruleCount,
         int? seededSheetCount)
     {
-        if (!_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionDiffFrameReceived))
+        if (!_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionFrameReceived))
         {
             return;
         }
 
         try
         {
-            _telemetry.PageProjection.Diff.FrameReceived(
+            _telemetry.PageProjection.Frame.FrameReceived(
                 plane,
                 operation,
                 sequence,
@@ -1505,12 +1505,12 @@ internal sealed class LiveSession : ILiveSession
         {
             _logger.LogWarning(
                 journalEx,
-                "Session {SessionId} failed to journal Telemetry.Sessions.PageProjection.Diff.FrameReceived.",
+                "Session {SessionId} failed to journal Telemetry.Sessions.PageProjection.Frame.FrameReceived.",
                 SessionId);
         }
     }
 
-    public void TracePageProjectionDiffQueueDropped(
+    public void TracePageProjectionFrameQueueDropped(
         string stage,
         int droppedCount,
         int capacity,
@@ -1525,19 +1525,19 @@ internal sealed class LiveSession : ILiveSession
         Guid? consumerId = null,
         string? kind = null,
         int? targetCount = null,
-        int? diffChannelCount = null,
-        long? diffEpoch = null)
+        int? frameChannelCount = null,
+        long? frameEpoch = null)
     {
         if (droppedCount <= 0
             || string.IsNullOrWhiteSpace(stage)
-            || !_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionDiffQueueDropped))
+            || !_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionFrameQueueDropped))
         {
             return;
         }
 
         try
         {
-            _telemetry.PageProjection.Diff.QueueDropped(
+            _telemetry.PageProjection.Frame.QueueDropped(
                 stage.Trim(),
                 droppedCount,
                 capacity,
@@ -1552,19 +1552,19 @@ internal sealed class LiveSession : ILiveSession
                 consumerId,
                 kind,
                 targetCount,
-                diffChannelCount,
-                diffEpoch);
+                frameChannelCount,
+                frameEpoch);
         }
         catch (Exception journalEx)
         {
             _logger.LogWarning(
                 journalEx,
-                "Session {SessionId} failed to journal Telemetry.Sessions.PageProjection.Diff.QueueDropped.",
+                "Session {SessionId} failed to journal Telemetry.Sessions.PageProjection.Frame.QueueDropped.",
                 SessionId);
         }
     }
 
-    public void ReportPageProjectionDiffQueueDropped(
+    public void ReportPageProjectionFrameQueueDropped(
         string stage,
         int droppedCount,
         int capacity,
@@ -1579,9 +1579,9 @@ internal sealed class LiveSession : ILiveSession
         Guid? consumerId = null,
         string? kind = null,
         int? targetCount = null,
-        int? diffChannelCount = null,
-        long? diffEpoch = null)
-        => _connection.ReportPageProjectionDiffQueueDropped(
+        int? frameChannelCount = null,
+        long? frameEpoch = null)
+        => _connection.ReportPageProjectionFrameQueueDropped(
             stage,
             droppedCount,
             capacity,
@@ -1596,8 +1596,8 @@ internal sealed class LiveSession : ILiveSession
             consumerId,
             kind,
             targetCount,
-            diffChannelCount,
-            diffEpoch);
+            frameChannelCount,
+            frameEpoch);
 
     private IResult EnsureVideoStreamingInputAdmission()
     {
@@ -2170,17 +2170,17 @@ internal sealed class LiveSession : ILiveSession
             return Result.Failure("Live session is released");
         }
 
-        if (_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionDiffResyncRequested))
+        if (_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionFrameResyncRequested))
         {
             try
             {
-                _telemetry.PageProjection.Diff.ResyncRequested(contextId, 0);
+                _telemetry.PageProjection.Frame.ResyncRequested(contextId, 0);
             }
             catch (Exception journalEx)
             {
                 _logger.LogWarning(
                     journalEx,
-                    "Session {SessionId} failed to journal Telemetry.Sessions.PageProjection.Diff.ResyncRequested.",
+                    "Session {SessionId} failed to journal Telemetry.Sessions.PageProjection.Frame.ResyncRequested.",
                     SessionId);
             }
         }

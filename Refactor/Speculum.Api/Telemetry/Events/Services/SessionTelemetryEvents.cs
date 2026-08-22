@@ -7,17 +7,17 @@ using Speculum.Api.Telemetry.Events.Models.Sessions.Client;
 using Speculum.Api.Telemetry.Events.Models.Sessions.Persist;
 using Speculum.Api.Telemetry.Events.Models.Sessions.Sidecar;
 using Speculum.Api.Telemetry.Events.Services.Contracts;
-using PageProjectionDiffFrameReceived = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Diff.FrameReceived;
-using PageProjectionDiffGenerationBumped = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Diff.GenerationBumped;
-using PageProjectionDiffSoftNavObserved = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Diff.SoftNavObserved;
-using PageProjectionDiffQueueDropped = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Diff.QueueDropped;
-using PageProjectionDiffWireDelivered = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Diff.WireDelivered;
-using PageProjectionDiffFanOutEnqueued = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Diff.FanOutEnqueued;
-using PageProjectionDiffStreamDequeued = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Diff.StreamDequeued;
-using PageProjectionDiffOutputStreamOpened = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Diff.OutputStreamOpened;
-using PageProjectionDiffOutputStreamClosed = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Diff.OutputStreamClosed;
-using PageProjectionDiffResyncRequested = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Diff.ResyncRequested;
-using PageProjectionDiffResyncServed = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Diff.ResyncServed;
+using PageProjectionFrameReceived = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Frame.FrameReceived;
+using PageProjectionFrameGenerationBumped = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Frame.GenerationBumped;
+using PageProjectionFrameSoftNavObserved = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Frame.SoftNavObserved;
+using PageProjectionFrameQueueDropped = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Frame.QueueDropped;
+using PageProjectionFrameWireDelivered = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Frame.WireDelivered;
+using PageProjectionFrameFanOutEnqueued = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Frame.FanOutEnqueued;
+using PageProjectionFrameStreamDequeued = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Frame.StreamDequeued;
+using PageProjectionFrameOutputStreamOpened = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Frame.OutputStreamOpened;
+using PageProjectionFrameOutputStreamClosed = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Frame.OutputStreamClosed;
+using PageProjectionFrameResyncRequested = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Frame.ResyncRequested;
+using PageProjectionFrameResyncServed = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Frame.ResyncServed;
 using PageProjectionVirtualBootMarked = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Virtual.BootMarked;
 using PageProjectionVirtualNavCommit = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Virtual.NavCommit;
 using PageProjectionVirtualNavTiming = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Virtual.NavTiming;
@@ -30,7 +30,7 @@ using PageProjectionEstablishDomMapStarted = Speculum.Api.Telemetry.Events.Model
 using PageProjectionEstablishDomMapCompleted = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Establish.DomMapCompleted;
 using PageProjectionEstablishCssomInstallStarted = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Establish.CssomInstallStarted;
 using PageProjectionEstablishCssomInstallCompleted = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Establish.CssomInstallCompleted;
-using PageProjectionEstablishFirstDiffEmitted = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Establish.FirstDiffEmitted;
+using PageProjectionEstablishFirstFrameEmitted = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Establish.FirstFrameEmitted;
 using PageProjectionEstablishCompleted = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Establish.EstablishCompleted;
 using PageProjectionEstablishFailed = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Establish.EstablishFailed;
 using PageProjectionAssetRewriteSummary = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Asset.RewriteSummary;
@@ -267,8 +267,8 @@ internal sealed class SessionTelemetryEvents : ISessionTelemetryEvents
     private sealed class PageProjectionEvents(IJournalWriter writer, Guid sessionId, Guid profileId)
         : ISessionPageProjectionTelemetryEvents
     {
-        public ISessionPageProjectionDiffTelemetryEvents Diff { get; } =
-            new PageProjectionDiffEvents(writer, sessionId, profileId);
+        public ISessionPageProjectionFrameTelemetryEvents Frame { get; } =
+            new PageProjectionFrameEvents(writer, sessionId, profileId);
 
         public ISessionPageProjectionInputTelemetryEvents Input { get; } =
             new PageProjectionIntentEvents(writer, sessionId, profileId);
@@ -282,15 +282,12 @@ internal sealed class SessionTelemetryEvents : ISessionTelemetryEvents
         public ISessionPageProjectionAssetTelemetryEvents Asset { get; } =
             new PageProjectionAssetEvents(writer, sessionId, profileId);
 
-        public ISessionPageProjectionFrameTelemetryEvents Frame { get; } =
-            new PageProjectionFrameEvents(writer, sessionId, profileId);
-
         public ISessionPageProjectionPoolTelemetryEvents Pool { get; } =
             new PageProjectionPoolEvents(writer, sessionId, profileId);
     }
 
-    private sealed class PageProjectionDiffEvents(IJournalWriter writer, Guid sessionId, Guid profileId)
-        : Scoped(writer, sessionId, profileId), ISessionPageProjectionDiffTelemetryEvents
+    private sealed class PageProjectionFrameEvents(IJournalWriter writer, Guid sessionId, Guid profileId)
+        : Scoped(writer, sessionId, profileId), ISessionPageProjectionFrameTelemetryEvents
     {
         public void FrameReceived(
             string plane,
@@ -304,7 +301,7 @@ internal sealed class SessionTelemetryEvents : ISessionTelemetryEvents
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(plane);
             ArgumentException.ThrowIfNullOrWhiteSpace(operation);
-            Writer.Append(new PageProjectionDiffFrameReceived
+            Writer.Append(new PageProjectionFrameReceived
             {
                 SessionId = SessionId,
                 ProfileId = ProfileId,
@@ -324,10 +321,10 @@ internal sealed class SessionTelemetryEvents : ISessionTelemetryEvents
             long toGeneration,
             string reason,
             string? url = null,
-            string? diffKind = null)
+            string? frameKind = null)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(reason);
-            Writer.Append(new PageProjectionDiffGenerationBumped
+            Writer.Append(new PageProjectionFrameGenerationBumped
             {
                 SessionId = SessionId,
                 ProfileId = ProfileId,
@@ -335,7 +332,7 @@ internal sealed class SessionTelemetryEvents : ISessionTelemetryEvents
                 ToGeneration = toGeneration,
                 Reason = reason.Trim(),
                 Url = url,
-                DiffKind = diffKind,
+                FrameKind = frameKind,
             });
         }
 
@@ -345,7 +342,7 @@ internal sealed class SessionTelemetryEvents : ISessionTelemetryEvents
             string? documentEpoch,
             bool liveArmed)
         {
-            Writer.Append(new PageProjectionDiffSoftNavObserved
+            Writer.Append(new PageProjectionFrameSoftNavObserved
             {
                 SessionId = SessionId,
                 ProfileId = ProfileId,
@@ -371,11 +368,11 @@ internal sealed class SessionTelemetryEvents : ISessionTelemetryEvents
             Guid? consumerId = null,
             string? kind = null,
             int? targetCount = null,
-            int? diffChannelCount = null,
-            long? diffEpoch = null)
+            int? frameChannelCount = null,
+            long? frameEpoch = null)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(stage);
-            Writer.Append(new PageProjectionDiffQueueDropped
+            Writer.Append(new PageProjectionFrameQueueDropped
             {
                 SessionId = SessionId,
                 ProfileId = ProfileId,
@@ -393,8 +390,8 @@ internal sealed class SessionTelemetryEvents : ISessionTelemetryEvents
                 ConsumerId = consumerId,
                 Kind = NullIfEmpty(kind),
                 TargetCount = targetCount,
-                DiffChannelCount = diffChannelCount,
-                DiffEpoch = diffEpoch,
+                FrameChannelCount = frameChannelCount,
+                FrameEpoch = frameEpoch,
             });
         }
 
@@ -407,11 +404,11 @@ internal sealed class SessionTelemetryEvents : ISessionTelemetryEvents
             long durationMs,
             Guid streamId,
             Guid consumerId,
-            long diffEpoch)
+            long frameEpoch)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(plane);
             ArgumentException.ThrowIfNullOrWhiteSpace(operation);
-            Writer.Append(new PageProjectionDiffWireDelivered
+            Writer.Append(new PageProjectionFrameWireDelivered
             {
                 SessionId = SessionId,
                 ProfileId = ProfileId,
@@ -423,7 +420,7 @@ internal sealed class SessionTelemetryEvents : ISessionTelemetryEvents
                 DurationMs = durationMs,
                 StreamId = streamId,
                 ConsumerId = consumerId,
-                DiffEpoch = diffEpoch,
+                FrameEpoch = frameEpoch,
             });
         }
 
@@ -439,13 +436,13 @@ internal sealed class SessionTelemetryEvents : ISessionTelemetryEvents
             string kind,
             int targetIndex,
             int targetCount,
-            int diffChannelCount,
-            long diffEpoch)
+            int frameChannelCount,
+            long frameEpoch)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(plane);
             ArgumentException.ThrowIfNullOrWhiteSpace(operation);
             ArgumentException.ThrowIfNullOrWhiteSpace(kind);
-            Writer.Append(new PageProjectionDiffFanOutEnqueued
+            Writer.Append(new PageProjectionFrameFanOutEnqueued
             {
                 SessionId = SessionId,
                 ProfileId = ProfileId,
@@ -460,8 +457,8 @@ internal sealed class SessionTelemetryEvents : ISessionTelemetryEvents
                 Kind = kind.Trim(),
                 TargetIndex = targetIndex,
                 TargetCount = targetCount,
-                DiffChannelCount = diffChannelCount,
-                DiffEpoch = diffEpoch,
+                FrameChannelCount = frameChannelCount,
+                FrameEpoch = frameEpoch,
             });
         }
 
@@ -473,11 +470,11 @@ internal sealed class SessionTelemetryEvents : ISessionTelemetryEvents
             long timestamp,
             Guid streamId,
             Guid consumerId,
-            long diffEpoch)
+            long frameEpoch)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(plane);
             ArgumentException.ThrowIfNullOrWhiteSpace(operation);
-            Writer.Append(new PageProjectionDiffStreamDequeued
+            Writer.Append(new PageProjectionFrameStreamDequeued
             {
                 SessionId = SessionId,
                 ProfileId = ProfileId,
@@ -488,7 +485,7 @@ internal sealed class SessionTelemetryEvents : ISessionTelemetryEvents
                 Timestamp = timestamp,
                 StreamId = streamId,
                 ConsumerId = consumerId,
-                DiffEpoch = diffEpoch,
+                FrameEpoch = frameEpoch,
             });
         }
 
@@ -497,10 +494,10 @@ internal sealed class SessionTelemetryEvents : ISessionTelemetryEvents
             Guid consumerId,
             string kind,
             int openStreamCount,
-            int diffChannelCapacity)
+            int frameChannelCapacity)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(kind);
-            Writer.Append(new PageProjectionDiffOutputStreamOpened
+            Writer.Append(new PageProjectionFrameOutputStreamOpened
             {
                 SessionId = SessionId,
                 ProfileId = ProfileId,
@@ -508,7 +505,7 @@ internal sealed class SessionTelemetryEvents : ISessionTelemetryEvents
                 ConsumerId = consumerId,
                 Kind = kind.Trim(),
                 OpenStreamCount = openStreamCount,
-                DiffChannelCapacity = diffChannelCapacity,
+                FrameChannelCapacity = frameChannelCapacity,
             });
         }
 
@@ -519,7 +516,7 @@ internal sealed class SessionTelemetryEvents : ISessionTelemetryEvents
             int openStreamCount)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(kind);
-            Writer.Append(new PageProjectionDiffOutputStreamClosed
+            Writer.Append(new PageProjectionFrameOutputStreamClosed
             {
                 SessionId = SessionId,
                 ProfileId = ProfileId,
@@ -532,7 +529,7 @@ internal sealed class SessionTelemetryEvents : ISessionTelemetryEvents
 
         public void ResyncRequested(long hintGeneration, long hintSequence)
         {
-            Writer.Append(new PageProjectionDiffResyncRequested
+            Writer.Append(new PageProjectionFrameResyncRequested
             {
                 SessionId = SessionId,
                 ProfileId = ProfileId,
@@ -555,7 +552,7 @@ internal sealed class SessionTelemetryEvents : ISessionTelemetryEvents
             long rewriteMs = 0,
             long serializeMs = 0)
         {
-            Writer.Append(new PageProjectionDiffResyncServed
+            Writer.Append(new PageProjectionFrameResyncServed
             {
                 SessionId = SessionId,
                 ProfileId = ProfileId,
@@ -571,6 +568,73 @@ internal sealed class SessionTelemetryEvents : ISessionTelemetryEvents
                 CssomCloneMs = cssomCloneMs,
                 RewriteMs = rewriteMs,
                 SerializeMs = serializeMs,
+            });
+        }
+
+        public void RateChanged(string pageEpochId, long fromHz, long toHz, long generation)
+        {
+            Writer.Append(new PageProjectionFrameRateChanged
+            {
+                SessionId = SessionId,
+                ProfileId = ProfileId,
+                PageEpochId = pageEpochId?.Trim() ?? "",
+                FromHz = fromHz,
+                ToHz = toHz,
+                Generation = generation,
+            });
+        }
+
+        public void ClockStalled(string pageEpochId, long sinceLastTickMs, long generation)
+        {
+            Writer.Append(new PageProjectionFrameClockStalled
+            {
+                SessionId = SessionId,
+                ProfileId = ProfileId,
+                PageEpochId = pageEpochId?.Trim() ?? "",
+                SinceLastTickMs = sinceLastTickMs,
+                Generation = generation,
+            });
+        }
+
+        public void ApplyOverrun(string pageEpochId, long overrunCount, long queuedFrames, long generation)
+        {
+            Writer.Append(new PageProjectionFrameApplyOverrun
+            {
+                SessionId = SessionId,
+                ProfileId = ProfileId,
+                PageEpochId = pageEpochId?.Trim() ?? "",
+                OverrunCount = overrunCount,
+                QueuedFrames = queuedFrames,
+                Generation = generation,
+            });
+        }
+
+        public void Aggregate(
+            string pageEpochId,
+            long generation,
+            long framesEmitted,
+            long bytesEmitted,
+            long rateHz,
+            long stallCount,
+            long applyOverrunReports,
+            long mirrorBytes,
+            long intervalMs,
+            long tVirtualMs)
+        {
+            Writer.Append(new PageProjectionFrameAggregate
+            {
+                SessionId = SessionId,
+                ProfileId = ProfileId,
+                PageEpochId = pageEpochId?.Trim() ?? "",
+                Generation = generation,
+                FramesEmitted = framesEmitted,
+                BytesEmitted = bytesEmitted,
+                RateHz = rateHz,
+                StallCount = stallCount,
+                ApplyOverrunReports = applyOverrunReports,
+                MirrorBytes = mirrorBytes,
+                IntervalMs = intervalMs,
+                TVirtualMs = tVirtualMs,
             });
         }
     }
@@ -828,7 +892,7 @@ internal sealed class SessionTelemetryEvents : ISessionTelemetryEvents
             });
         }
 
-        public void FirstDiffEmitted(
+        public void FirstFrameEmitted(
             string pageEpochId,
             long generation,
             string plane,
@@ -840,7 +904,7 @@ internal sealed class SessionTelemetryEvents : ISessionTelemetryEvents
             ArgumentException.ThrowIfNullOrWhiteSpace(pageEpochId);
             ArgumentException.ThrowIfNullOrWhiteSpace(plane);
             ArgumentException.ThrowIfNullOrWhiteSpace(operation);
-            Writer.Append(new PageProjectionEstablishFirstDiffEmitted
+            Writer.Append(new PageProjectionEstablishFirstFrameEmitted
             {
                 SessionId = SessionId,
                 ProfileId = ProfileId,
@@ -977,77 +1041,6 @@ internal sealed class SessionTelemetryEvents : ISessionTelemetryEvents
                 UrlKey = urlKey.Trim(),
                 DurationMs = durationMs,
                 Status = status,
-            });
-        }
-    }
-
-    private sealed class PageProjectionFrameEvents(IJournalWriter writer, Guid sessionId, Guid profileId)
-        : Scoped(writer, sessionId, profileId), ISessionPageProjectionFrameTelemetryEvents
-    {
-        public void RateChanged(string pageEpochId, long fromHz, long toHz, long generation)
-        {
-            Writer.Append(new PageProjectionFrameRateChanged
-            {
-                SessionId = SessionId,
-                ProfileId = ProfileId,
-                PageEpochId = pageEpochId?.Trim() ?? "",
-                FromHz = fromHz,
-                ToHz = toHz,
-                Generation = generation,
-            });
-        }
-
-        public void ClockStalled(string pageEpochId, long sinceLastTickMs, long generation)
-        {
-            Writer.Append(new PageProjectionFrameClockStalled
-            {
-                SessionId = SessionId,
-                ProfileId = ProfileId,
-                PageEpochId = pageEpochId?.Trim() ?? "",
-                SinceLastTickMs = sinceLastTickMs,
-                Generation = generation,
-            });
-        }
-
-        public void ApplyOverrun(string pageEpochId, long overrunCount, long queuedFrames, long generation)
-        {
-            Writer.Append(new PageProjectionFrameApplyOverrun
-            {
-                SessionId = SessionId,
-                ProfileId = ProfileId,
-                PageEpochId = pageEpochId?.Trim() ?? "",
-                OverrunCount = overrunCount,
-                QueuedFrames = queuedFrames,
-                Generation = generation,
-            });
-        }
-
-        public void Aggregate(
-            string pageEpochId,
-            long generation,
-            long framesEmitted,
-            long bytesEmitted,
-            long rateHz,
-            long stallCount,
-            long applyOverrunReports,
-            long mirrorBytes,
-            long intervalMs,
-            long tVirtualMs)
-        {
-            Writer.Append(new PageProjectionFrameAggregate
-            {
-                SessionId = SessionId,
-                ProfileId = ProfileId,
-                PageEpochId = pageEpochId?.Trim() ?? "",
-                Generation = generation,
-                FramesEmitted = framesEmitted,
-                BytesEmitted = bytesEmitted,
-                RateHz = rateHz,
-                StallCount = stallCount,
-                ApplyOverrunReports = applyOverrunReports,
-                MirrorBytes = mirrorBytes,
-                IntervalMs = intervalMs,
-                TVirtualMs = tVirtualMs,
             });
         }
     }

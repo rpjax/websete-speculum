@@ -54,8 +54,8 @@ export function toLaunchOptions(req: any): BrowserLaunchOptions {
       req.screencastMaxEncodeScale ?? req.screencast_max_encode_scale,
     ),
     mirrorMode: resolveMirrorMode(req.mirrorMode ?? req.mirror_mode),
-    pageProjectionDiffQueueCapacity: resolvePageProjectionDiffQueueCapacity(
-      req.pageProjectionDiffQueueCapacity ?? req.page_projection_diff_queue_capacity,
+    frameQueueCapacity: resolveframeQueueCapacity(
+      req.frameQueueCapacity ?? req.frame_queue_capacity,
     ),
     frameRateHz: resolvePositiveIntOrUndefined(req.frameRateHz ?? req.frame_rate_hz),
     maxFrameBytes: resolvePositiveIntOrUndefined(req.maxFrameBytes ?? req.max_frame_bytes),
@@ -105,7 +105,7 @@ function resolveMirrorMode(raw: unknown): 'videoStreaming' | 'pageProjection' {
   return raw === 'pageProjection' ? 'pageProjection' : 'videoStreaming';
 }
 
-function resolvePageProjectionDiffQueueCapacity(raw: unknown): number {
+function resolveframeQueueCapacity(raw: unknown): number {
   const n = Number(raw);
   if (!Number.isFinite(n) || n < 64) {
     return 8192;

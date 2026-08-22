@@ -52,13 +52,11 @@ const DropOldestQueue_1 = require("./host/DropOldestQueue");
 const browserRace_1 = require("./host/browserRace");
 const PageState_1 = require("./browser/patchright/PageState");
 const DomAssetCache_1 = require("./browser/patchright/mirror/dom/DomAssetCache");
-const page_unit_1 = require("./browser/patchright/mirror/page/page.unit");
 const pageProjectionSession_unit_1 = require("./browser/mirror/projection/session/pageProjectionSession.unit");
 const relaxCsp_unit_1 = require("./browser/mirror/projection/session/csp/relaxCsp.unit");
 const intentTypes_unit_1 = require("./browser/mirror/projection/input/intentTypes.unit");
 const pageProjectionInputClick_unit_1 = require("./browser/mirror/projection/input/pageProjectionInputClick.unit");
 const srcsetParse_1 = require("./browser/patchright/mirror/dom/srcsetParse");
-const parseDataUrl_1 = require("./browser/patchright/mirror/page/parseDataUrl");
 const collectTelemetry_1 = require("./telemetry/collectTelemetry");
 const hostResources_1 = require("./host/hostResources");
 const rowHash_1 = require("@speculum/page-projection/core/rowHash");
@@ -578,7 +576,7 @@ function testLaunchEnvironmentIsRequired() {
     });
     assert_1.default.strictEqual(options.screencastMaxEncodeScale, 2);
     assert_1.default.strictEqual(options.mirrorMode, 'videoStreaming');
-    assert_1.default.strictEqual(options.pageProjectionDiffQueueCapacity, 8192);
+    assert_1.default.strictEqual(options.frameQueueCapacity, 8192);
     const scaled = (0, mappers_1.toLaunchOptions)({
         width: 800,
         height: 600,
@@ -606,10 +604,10 @@ function testLaunchEnvironmentIsRequired() {
         timezoneId: 'UTC',
         colorScheme: 'light',
         mirrorMode: 'pageProjection',
-        page_projection_diff_queue_capacity: 4096,
+        frame_queue_capacity: 4096,
     });
     assert_1.default.strictEqual(dom.mirrorMode, 'pageProjection');
-    assert_1.default.strictEqual(dom.pageProjectionDiffQueueCapacity, 4096);
+    assert_1.default.strictEqual(dom.frameQueueCapacity, 4096);
     console.log('[unit] launch environment ok');
 }
 function testScreencastEncodeSize() {
@@ -933,7 +931,7 @@ async function testEventBridgeQueueDroppedLifecycle() {
     assert_1.default.strictEqual(ev.kind, 'queue_dropped');
     assert_1.default.strictEqual(ev.reason, 'sidecar_bridge');
     assert_1.default.strictEqual(ev.url, 'cssom');
-    assert_1.default.strictEqual(ev.diffKind, 'install');
+    assert_1.default.strictEqual(ev.frameKind, 'install');
     assert_1.default.strictEqual(ev.sequence, 2000);
     assert_1.default.strictEqual(ev.toGeneration, 1);
     assert_1.default.ok((ev.droppedCount ?? 0) >= cap);
@@ -3551,7 +3549,6 @@ async function main() {
     await testBrowserPoolExhaustionFallsBackToOnDemandLaunch();
     await testBrowserPoolRegistryPolicy();
     testSrcsetParseCloudinary();
-    testParseDataUrlHardening();
     testRowHashPrimitives();
     testTableHashTrackerOrderIndependence();
     testReplicatedTableRowContentHash();
@@ -3615,7 +3612,6 @@ async function main() {
     testProjectionTelemetryV2ContextId();
     testLabContextIndex();
     (0, intentTypes_unit_1.runInputIntentTypesUnitTests)();
-    await (0, page_unit_1.runPageProjectionUnitTests)();
     await (0, relaxCsp_unit_1.runRelaxCspUnitTests)();
     await (0, pageProjectionSession_unit_1.runPageProjectionSessionUnitTests)();
     await (0, pageProjectionInputClick_unit_1.runPageProjectionInputClickUnitTests)();
@@ -3639,17 +3635,6 @@ function testSrcsetParseCloudinary() {
     assert_1.default.ok(mapped.includes('f_avif,q_auto,w_1920'));
     assert_1.default.ok(!mapped.includes('/f_avif 1920w'));
     console.log('[unit] srcsetParse Cloudinary ok');
-}
-function testParseDataUrlHardening() {
-    const png = 'data:image/png;charset=utf-8;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
-    const ok = (0, parseDataUrl_1.parseDataUrl)(png);
-    assert_1.default.ok(ok, 'charset before base64 must parse');
-    assert_1.default.ok(ok.body.length > 0);
-    assert_1.default.ok(ok.contentType.includes('image/png'));
-    assert_1.default.strictEqual((0, parseDataUrl_1.parseDataUrl)('data:image/png;base64'), null, 'missing comma must fail');
-    assert_1.default.strictEqual((0, parseDataUrl_1.parseDataUrl)('not-a-data-url'), null);
-    assert_1.default.strictEqual((0, parseDataUrl_1.parseDataUrl)('data:text/plain,hello')?.body.toString('utf8'), 'hello');
-    console.log('[unit] parseDataUrl hardening contract ok');
 }
 function testDomAssetCache() {
     const cache = new DomAssetCache_1.DomAssetCache(1024, 2);

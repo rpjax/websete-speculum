@@ -62,7 +62,7 @@ export interface UseSessionLifecycleOptions {
   ) => void
   log: (level: FrontDebugLogLevel, label: string, detail?: unknown) => void
   onFrame: (frame: import('@/lib/speculum').SessionFrame) => void
-  onPageProjectionFrame: (diff: import('@/lib/speculum').PageProjectionDiff) => void
+  onPageProjectionFrame: (diff: import('@/lib/speculum').PageProjectionFrame) => void
   bumpNotificationCounter: () => void
   onPageProjectionLifecycle: (notification: import('@/lib/speculum').SessionNotification) => void
   onPageProjectionFrameEnded: (info: { reason: 'wire_stall' }) => void
@@ -130,11 +130,11 @@ export function useSessionLifecycle({
     (session: LiveSession) => {
       sessionRef.current = session
       session.on('frame', onFrame)
-      session.on('pageProjectionDiff', onPageProjectionFrame)
-      session.on('pageProjectionDiffEnded', onPageProjectionFrameEnded)
-      session.on('pageProjectionDiffRejected', (rej) => {
+      session.on('pageProjectionFrame', onPageProjectionFrame)
+      session.on('pageProjectionFrameEnded', onPageProjectionFrameEnded)
+      session.on('pageProjectionFrameRejected', (rej) => {
         log('warn', 'page_projection normalize_rejected', {
-          plane: 'pageProjectionDiff',
+          plane: 'pageProjectionFrame',
           hop: 'client_drop',
           reason: 'client_normalize_rejected',
           rejectReason: rej.reason,
@@ -144,7 +144,7 @@ export function useSessionLifecycle({
           operation: rej.operation,
         })
         trace('warn', 'page_projection normalize_rejected', {
-          plane: 'pageProjectionDiff',
+          plane: 'pageProjectionFrame',
           hop: 'client_drop',
           kind: 'client_normalize_rejected',
           sequence: rej.sequence,

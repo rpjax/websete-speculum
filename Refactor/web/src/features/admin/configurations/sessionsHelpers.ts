@@ -44,7 +44,7 @@ export const MIRROR_MODE_OPTIONS: Array<[string, string, string]> = [
   [
     'pageProjection',
     'DOM projection',
-    'Projected DOM diffs and element input.',
+    'Projected PageProjection frames and element input.',
   ],
 ]
 
@@ -53,7 +53,7 @@ export const SESSIONS_BASELINE: JsonObject = {
   isJsBridgeEnabled: true,
   dataStreamTransport: 'webTransport',
   mirrorMode: 'videoStreaming',
-  pageProjectionDiffQueueCapacity: 8192,
+  frameQueueCapacity: 8192,
   viewportPolicy: {
     minimum: {
       width: SESSION_VIEWPORT_BASELINE.minWidth,

@@ -8,8 +8,8 @@ export const PipeKind = {
   VideoStreamingInput: 4,
   ConsoleInput: 5,
   Status: 6,
-  /** Dom Projection outbound diffs. */
-  PageProjectionDiff: 7,
+  /** PageProjection outbound frames. */
+  PageProjectionFrame: 7,
   /** Dom Projection element input. */
   PageProjectionIntent: 8,
 } as const
@@ -33,10 +33,10 @@ export const NotificationKind = {
   PageProjectionIntentRejected: 9,
   PageProjectionIntentApplied: 10,
   PageProjectionIntentPathTrace: 11,
-  PageProjectionDiffFrame: 12,
+  PageProjectionFrame: 12,
   /** PageProjection lifecycle (generation_bumped | soft_nav_observed | …). */
   PageProjectionLifecycle: 13,
-  PageProjectionDiffQueueDropped: 14,
+  PageProjectionFrameQueueDropped: 14,
 } as const
 
 /** Public SignalR hub path (control plane under `/w7s`). */
@@ -45,7 +45,7 @@ export const DefaultHubPath = w7sPath('/vhub')
 export const DefaultTransportPath = w7sPath('/vtransport')
 /** Public WebSocket mux data-plane path under `/w7s`. */
 export const DefaultStreamPath = w7sPath('/vstream')
-/** Length-prefixed data-plane message ceiling (WS/WT). Sized for PageProjection establish Diffs. */
+/** Length-prefixed data-plane message ceiling (WS/WT). Sized for PageProjection establish frames. */
 export const MaxMessageBytes = 10 * 1024 * 1024
 
 /** Sessions.dataStreamTransport / client-config values. */

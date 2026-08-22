@@ -32,7 +32,7 @@ public interface ISessionPageProjectionEstablishTelemetryEvents
         int ruleCount,
         int seededSheetCount,
         long tVirtualMs);
-    void FirstDiffEmitted(
+    void FirstFrameEmitted(
         string pageEpochId,
         long generation,
         string plane,

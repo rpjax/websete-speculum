@@ -44,7 +44,7 @@ class EventBridge {
         this.sessionId = sessionId;
     }
     /**
-     * Apply Sessions.PageProjectionDiffQueueCapacity at Launch (queue must be empty —
+     * Apply Sessions.frameQueueCapacity at Launch (queue must be empty —
      * Create→Launch window has no Dom emits yet).
      */
     configureDomCapacity(capacity) {
@@ -150,7 +150,7 @@ class EventBridge {
             fromGeneration: 0,
             toGeneration: ev.generation,
             reason: ev.reason,
-            diffKind: ev.operation,
+            frameKind: ev.operation,
             url: ev.plane,
             unixMs: Date.now(),
             droppedCount: ev.droppedCount,
@@ -167,7 +167,7 @@ class EventBridge {
                 fromGeneration: 0,
                 toGeneration: ev.generation,
                 reason: 'sidecar_lifecycle_overflow',
-                diffKind: ev.operation,
+                frameKind: ev.operation,
                 url: ev.plane,
                 unixMs: Date.now(),
                 droppedCount: 1,
@@ -185,7 +185,7 @@ class EventBridge {
             toGeneration: event.toGeneration,
             reason: event.reason,
             url: event.url,
-            diffKind: event.diffKind,
+            frameKind: event.frameKind,
             unixMs: Date.now(),
         });
     }
@@ -196,7 +196,7 @@ class EventBridge {
             toGeneration: event.generation,
             reason: event.documentEpoch ?? '',
             url: event.url,
-            diffKind: event.liveArmed ? 'armed' : 'disarmed',
+            frameKind: event.liveArmed ? 'armed' : 'disarmed',
             unixMs: Date.now(),
         });
     }
@@ -236,7 +236,7 @@ class EventBridge {
             toGeneration: event.generation ?? 0,
             reason: event.kind,
             url: event.anchor,
-            diffKind: coords,
+            frameKind: coords,
             unixMs: Date.now(),
         });
     }

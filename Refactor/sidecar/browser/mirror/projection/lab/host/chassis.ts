@@ -11,7 +11,7 @@ import {
   type ProjectionTelemetryMessage,
 } from '@speculum/page-projection/core/telemetry';
 import { createPageProjectionBrowserSessionFactory } from '../../session/PageProjectionBrowserSession';
-import { v4LabLaunchOptions } from '../../session/v4LabLaunch';
+import { labLaunchOptions } from '../../session/labLaunch';
 import { startCpuProfile, stopCpuProfile } from '../probes/cpuProfile';
 import {
   createDossier,
@@ -389,7 +389,7 @@ export class LabChassis {
     });
     this.session = factory.create(sessionId, this.browserEvents());
     await this.session.launch(
-      v4LabLaunchOptions({
+      labLaunchOptions({
         frameRateHz: this.frameRateHz,
         projectionTelemetry: this.telemetry,
         cpuProfiling: this.cpuProfiling,

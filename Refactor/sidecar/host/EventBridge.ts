@@ -87,7 +87,7 @@ export class EventBridge implements BrowserSessionEvents {
     toGeneration: number;
     reason: string;
     url?: string;
-    diffKind?: string;
+    frameKind?: string;
     unixMs: number;
     droppedCount?: number;
     capacity?: number;
@@ -114,7 +114,7 @@ export class EventBridge implements BrowserSessionEvents {
   constructor(readonly sessionId: string) {}
 
   /**
-   * Apply Sessions.PageProjectionDiffQueueCapacity at Launch (queue must be empty —
+   * Apply Sessions.frameQueueCapacity at Launch (queue must be empty —
    * Create→Launch window has no Dom emits yet).
    */
   configureDomCapacity(capacity: number): void {
@@ -252,7 +252,7 @@ export class EventBridge implements BrowserSessionEvents {
       fromGeneration: 0,
       toGeneration: ev.generation,
       reason: ev.reason,
-      diffKind: ev.operation,
+      frameKind: ev.operation,
       url: ev.plane,
       unixMs: Date.now(),
       droppedCount: ev.droppedCount,
@@ -269,7 +269,7 @@ export class EventBridge implements BrowserSessionEvents {
         fromGeneration: 0,
         toGeneration: ev.generation,
         reason: 'sidecar_lifecycle_overflow',
-        diffKind: ev.operation,
+        frameKind: ev.operation,
         url: ev.plane,
         unixMs: Date.now(),
         droppedCount: 1,
@@ -286,7 +286,7 @@ export class EventBridge implements BrowserSessionEvents {
     toGeneration: number;
     reason: string;
     url?: string;
-    diffKind?: string;
+    frameKind?: string;
   }): void {
     this.pageProjectionLifecycle.tryWrite({
       kind: 'generation_bumped',
@@ -294,7 +294,7 @@ export class EventBridge implements BrowserSessionEvents {
       toGeneration: event.toGeneration,
       reason: event.reason,
       url: event.url,
-      diffKind: event.diffKind,
+      frameKind: event.frameKind,
       unixMs: Date.now(),
     });
   }
@@ -311,7 +311,7 @@ export class EventBridge implements BrowserSessionEvents {
       toGeneration: event.generation,
       reason: event.documentEpoch ?? '',
       url: event.url,
-      diffKind: event.liveArmed ? 'armed' : 'disarmed',
+      frameKind: event.liveArmed ? 'armed' : 'disarmed',
       unixMs: Date.now(),
     });
   }
@@ -362,7 +362,7 @@ export class EventBridge implements BrowserSessionEvents {
       toGeneration: event.generation ?? 0,
       reason: event.kind,
       url: event.anchor,
-      diffKind: coords,
+      frameKind: coords,
       unixMs: Date.now(),
     });
   }

@@ -16,6 +16,7 @@ using DomainCookieNormalizeStats = Speculum.Api.Sessions.Models.CookieNormalizeS
 using DomainDeviceProfile = Speculum.Api.Sessions.Models.DeviceProfile;
 using DomainEditingState = Speculum.Api.Sessions.Models.EditingState;
 using DomainResizeResult = Speculum.Api.Sessions.Models.ResizeResult;
+using DomainPageProjectionFrame = Speculum.Api.Sessions.Mirror.PageProjection.PageProjectionFrame;
 using ProtoEmpty = Speculum.Api.Sidecar.V1.Empty;
 using ProtoSessionId = Speculum.Api.Sidecar.V1.SessionId;
 
@@ -47,7 +48,7 @@ public sealed class GrpcSessionConnection : ISessionConnection
         SingleWriter = false,
     });
 
-    private readonly Channel<PageProjectionDiff> _domDiffs;
+    private readonly Channel<DomainPageProjectionFrame> _domDiffs;
     private readonly int _domDiffCapacity;
 
     private readonly Channel<ConsoleOutput> _console = Channel.CreateBounded<ConsoleOutput>(
@@ -79,7 +80,7 @@ public sealed class GrpcSessionConnection : ISessionConnection
     private int _transportLost;
     /// <summary>Set once a Chromium <see cref="SessionNotificationKind.Crashed"/> is queued — blocks further DropOldest churn from evicting it.</summary>
     private int _crashQueued;
-    private IPageProjectionDiffTelemetry? _diffTelemetry;
+    private IPageProjectionFrameTelemetry? _diffTelemetry;
 
     public GrpcSessionConnection(
         Guid sessionId,
@@ -100,9 +101,9 @@ public sealed class GrpcSessionConnection : ISessionConnection
         _onClosed = onClosed;
         _linkRetryCount = options.LinkRetryCount;
         _linkRetryBackoff = options.LinkRetryBackoff;
-        _domDiffCapacity = GrpcSessionMappers.ClampPageProjectionDiffQueueCapacity(
-            configuration.GetCurrent().Sessions.PageProjectionDiffQueueCapacity);
-        _domDiffs = SequencedDiffChannels.Create<PageProjectionDiff>(_domDiffCapacity);
+        _domDiffCapacity = GrpcSessionMappers.ClampFrameQueueCapacity(
+            configuration.GetCurrent().Sessions.FrameQueueCapacity);
+        _domDiffs = SequencedDiffChannels.Create<DomainPageProjectionFrame>(_domDiffCapacity);
     }
 
     public Guid SessionId { get; }
@@ -271,7 +272,7 @@ public sealed class GrpcSessionConnection : ISessionConnection
                             height,
                             configuration!,
                             policy,
-                            sessions.PageProjectionDiffQueueCapacity,
+                            sessions.FrameQueueCapacity,
                             sessions.PageProjection),
                         cancellationToken: token).ResponseAsync;
                 }
@@ -447,10 +448,10 @@ public sealed class GrpcSessionConnection : ISessionConnection
         return Result<ChannelReader<Frame>>.Success(_frames.Reader);
     }
 
-    public IResult<ChannelReader<PageProjectionDiff>> GetPageProjectionDiffReader()
+    public IResult<ChannelReader<DomainPageProjectionFrame>> GetPageProjectionFrameReader()
     {
-        if (!IsOpen) return Result<ChannelReader<PageProjectionDiff>>.Failure("Connection closed");
-        return Result<ChannelReader<PageProjectionDiff>>.Success(_domDiffs.Reader);
+        if (!IsOpen) return Result<ChannelReader<DomainPageProjectionFrame>>.Failure("Connection closed");
+        return Result<ChannelReader<DomainPageProjectionFrame>>.Success(_domDiffs.Reader);
     }
 
     public IResult<ChannelReader<ConsoleOutput>> GetConsoleOutputReader()
@@ -1066,9 +1067,9 @@ public sealed class GrpcSessionConnection : ISessionConnection
                 cancellationToken: token),
             async (frame, token) =>
             {
-                if (GrpcSessionMappers.ToPageProjectionDiff(frame) is not { } diff)
+                if (GrpcSessionMappers.ToPageProjectionFrame(frame) is not { } diff)
                 {
-                    TryPublishPageProjectionDiffQueueDropped(
+                    TryPublishPageProjectionFrameQueueDropped(
                         "mapper_rejected",
                         droppedCount: 1,
                         capacity: 0,
@@ -1078,11 +1079,11 @@ public sealed class GrpcSessionConnection : ISessionConnection
                         plane: frame.Plane,
                         operation: frame.Operation,
                         generation: frame.Generation,
-                        reason: "ToPageProjectionDiff_null");
+                        reason: "ToPageProjectionFrame_null");
                     return;
                 }
 
-                TryPublishPageProjectionDiffFrame(diff);
+                TryPublishPageProjectionFrame(diff);
                 var (dropped, lowest, highest) = await SequencedDiffChannels
                     .WriteDropAllOnOverflowDetailedAsync(
                         _domDiffs,
@@ -1091,7 +1092,7 @@ public sealed class GrpcSessionConnection : ISessionConnection
                         token).ConfigureAwait(false);
                 if (dropped > 0)
                 {
-                    TryPublishPageProjectionDiffQueueDropped(
+                    TryPublishPageProjectionFrameQueueDropped(
                         "api_sequenced",
                         dropped,
                         _domDiffCapacity,
@@ -1355,19 +1356,19 @@ public sealed class GrpcSessionConnection : ISessionConnection
                 DomFromGeneration = ev.FromGeneration,
                 DomGeneration = ev.ToGeneration,
                 Url = ev.HasUrl ? ev.Url : null,
-                PageProjectionDiffPlane = ev.HasDiffKind ? ev.DiffKind : null,
+                PageProjectionFramePlane = ev.HasFrameKind ? ev.FrameKind : null,
             });
             return;
         }
 
         if (string.Equals(kind, "queue_dropped", StringComparison.Ordinal))
         {
-            if (!_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionDiffQueueDropped))
+            if (!_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionFrameQueueDropped))
             {
                 return;
             }
 
-            // Sidecar packs stage in reason; plane in url; operation in diff_kind.
+            // Sidecar packs stage in reason; plane in url; operation in frame_kind.
             var stage = string.IsNullOrWhiteSpace(ev.Reason) ? "sidecar_bridge" : ev.Reason.Trim();
             var dropped = ev.HasDroppedCount ? ev.DroppedCount : 0;
             if (dropped <= 0)
@@ -1375,7 +1376,7 @@ public sealed class GrpcSessionConnection : ISessionConnection
                 return;
             }
 
-            TryPublishPageProjectionDiffQueueDropped(
+            TryPublishPageProjectionFrameQueueDropped(
                 stage,
                 dropped,
                 ev.HasCapacity ? ev.Capacity : 0,
@@ -1383,7 +1384,7 @@ public sealed class GrpcSessionConnection : ISessionConnection
                 ev.HasLowestDroppedSequence ? ev.LowestDroppedSequence : null,
                 ev.HasHighestDroppedSequence ? ev.HighestDroppedSequence : null,
                 plane: ev.HasUrl ? ev.Url : null,
-                operation: ev.HasDiffKind ? ev.DiffKind : null,
+                operation: ev.HasFrameKind ? ev.FrameKind : null,
                 generation: ev.ToGeneration != 0 ? ev.ToGeneration : null,
                 sequenceOverride: ev.HasSequence ? ev.Sequence : null);
             return;
@@ -1391,7 +1392,7 @@ public sealed class GrpcSessionConnection : ISessionConnection
 
         if (string.Equals(kind, "soft_nav_observed", StringComparison.Ordinal))
         {
-            if (!_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionDiffSoftNavObserved))
+            if (!_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionFrameSoftNavObserved))
             {
                 return;
             }
@@ -1403,7 +1404,7 @@ public sealed class GrpcSessionConnection : ISessionConnection
                 Url = ev.HasUrl ? ev.Url : null,
                 DomGeneration = ev.ToGeneration,
                 Reason = string.IsNullOrWhiteSpace(ev.Reason) ? null : ev.Reason,
-                PageProjectionDiffOperation = ev.HasDiffKind ? ev.DiffKind : null,
+                PageProjectionFrameOperation = ev.HasFrameKind ? ev.FrameKind : null,
             });
             return;
         }
@@ -1422,7 +1423,7 @@ public sealed class GrpcSessionConnection : ISessionConnection
                 InputKind = string.IsNullOrWhiteSpace(ev.Reason) ? null : ev.Reason,
                 DomAnchor = ev.HasUrl ? ev.Url : null,
                 DomGeneration = ev.ToGeneration != 0 ? ev.ToGeneration : null,
-                Reason = ev.HasDiffKind ? ev.DiffKind : null,
+                Reason = ev.HasFrameKind ? ev.FrameKind : null,
             });
             return;
         }
@@ -1445,24 +1446,24 @@ public sealed class GrpcSessionConnection : ISessionConnection
         }
     }
 
-    public void BindPageProjectionDiffTelemetry(IPageProjectionDiffTelemetry? telemetry)
+    public void BindPageProjectionFrameTelemetry(IPageProjectionFrameTelemetry? telemetry)
         => Volatile.Write(ref _diffTelemetry, telemetry);
 
-    public bool IsPageProjectionDiffFanOutEnqueuedEnabled()
-        => _journalCatalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionDiffFanOutEnqueued);
+    public bool IsPageProjectionFrameFanOutEnqueuedEnabled()
+        => _journalCatalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionFrameFanOutEnqueued);
 
-    public void ReportPageProjectionDiffFanOutEnqueued(
-        PageProjectionDiff diff,
+    public void ReportPageProjectionFrameFanOutEnqueued(
+        DomainPageProjectionFrame diff,
         long waitMs,
         Guid streamId,
         Guid consumerId,
         string kind,
         int targetIndex,
         int targetCount,
-        int diffChannelCount,
-        long diffEpoch)
+        int frameChannelCount,
+        long frameEpoch)
     {
-        if (!_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionDiffFanOutEnqueued))
+        if (!_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionFrameFanOutEnqueued))
         {
             return;
         }
@@ -1486,18 +1487,18 @@ public sealed class GrpcSessionConnection : ISessionConnection
             kind.Trim(),
             targetIndex,
             targetCount,
-            diffChannelCount,
-            diffEpoch);
+            frameChannelCount,
+            frameEpoch);
     }
 
-    public void ReportPageProjectionDiffOutputStreamOpened(
+    public void ReportPageProjectionFrameOutputStreamOpened(
         Guid streamId,
         Guid consumerId,
         string kind,
         int openStreamCount,
-        int diffChannelCapacity)
+        int frameChannelCapacity)
     {
-        if (!_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionDiffOutputStreamOpened))
+        if (!_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionFrameOutputStreamOpened))
         {
             return;
         }
@@ -1512,16 +1513,16 @@ public sealed class GrpcSessionConnection : ISessionConnection
             consumerId,
             kind.Trim(),
             openStreamCount,
-            diffChannelCapacity);
+            frameChannelCapacity);
     }
 
-    public void ReportPageProjectionDiffOutputStreamClosed(
+    public void ReportPageProjectionFrameOutputStreamClosed(
         Guid streamId,
         Guid consumerId,
         string kind,
         int openStreamCount)
     {
-        if (!_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionDiffOutputStreamClosed))
+        if (!_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionFrameOutputStreamClosed))
         {
             return;
         }
@@ -1538,7 +1539,7 @@ public sealed class GrpcSessionConnection : ISessionConnection
             openStreamCount);
     }
 
-    public void ReportPageProjectionDiffQueueDropped(
+    public void ReportPageProjectionFrameQueueDropped(
         string stage,
         int droppedCount,
         int capacity,
@@ -1553,10 +1554,10 @@ public sealed class GrpcSessionConnection : ISessionConnection
         Guid? consumerId = null,
         string? kind = null,
         int? targetCount = null,
-        int? diffChannelCount = null,
-        long? diffEpoch = null)
+        int? frameChannelCount = null,
+        long? frameEpoch = null)
     {
-        TryPublishPageProjectionDiffQueueDropped(
+        TryPublishPageProjectionFrameQueueDropped(
             stage,
             droppedCount,
             capacity,
@@ -1572,8 +1573,8 @@ public sealed class GrpcSessionConnection : ISessionConnection
             consumerId: consumerId,
             kind: kind,
             targetCount: targetCount,
-            diffChannelCount: diffChannelCount,
-            diffEpoch: diffEpoch);
+            frameChannelCount: frameChannelCount,
+            frameEpoch: frameEpoch);
     }
 
     /// <summary>
@@ -1586,11 +1587,11 @@ public sealed class GrpcSessionConnection : ISessionConnection
             or "api_wire_stall"
             or "api_fanout_pipe_closed";
 
-    private void TryPublishPageProjectionDiffQueueDropped(
+    private void TryPublishPageProjectionFrameQueueDropped(
         string stage,
         int droppedCount,
         int capacity,
-        PageProjectionDiff? kept,
+        DomainPageProjectionFrame? kept,
         long? lowestDroppedSequence = null,
         long? highestDroppedSequence = null,
         string? plane = null,
@@ -1602,8 +1603,8 @@ public sealed class GrpcSessionConnection : ISessionConnection
         Guid? consumerId = null,
         string? kind = null,
         int? targetCount = null,
-        int? diffChannelCount = null,
-        long? diffEpoch = null)
+        int? frameChannelCount = null,
+        long? frameEpoch = null)
     {
         if (droppedCount <= 0 || string.IsNullOrWhiteSpace(stage))
         {
@@ -1619,20 +1620,20 @@ public sealed class GrpcSessionConnection : ISessionConnection
                 Kind = SessionNotificationKind.PageProjectionLifecycle,
                 Phase = "queue_dropped",
                 Reason = stageTrim,
-                PageProjectionDiffQueueStage = stageTrim,
-                PageProjectionDiffDroppedCount = droppedCount,
-                PageProjectionDiffQueueCapacity = capacity,
-                PageProjectionDiffSequence = sequenceOverride ?? kept?.Sequence ?? lowestDroppedSequence,
+                PageProjectionFrameQueueStage = stageTrim,
+                PageProjectionFrameDroppedCount = droppedCount,
+                PageProjectionFrameQueueCapacity = capacity,
+                PageProjectionFrameSequence = sequenceOverride ?? kept?.Sequence ?? lowestDroppedSequence,
                 DomGeneration = kept?.Generation ?? generation,
-                PageProjectionDiffPlane = kept?.Plane ?? plane,
-                PageProjectionDiffOperation = kept?.Operation ?? operation,
-                PageProjectionDiffLowestDroppedSequence = lowestDroppedSequence,
-                PageProjectionDiffHighestDroppedSequence = highestDroppedSequence,
+                PageProjectionFramePlane = kept?.Plane ?? plane,
+                PageProjectionFrameOperation = kept?.Operation ?? operation,
+                PageProjectionFrameLowestDroppedSequence = lowestDroppedSequence,
+                PageProjectionFrameHighestDroppedSequence = highestDroppedSequence,
                 Message = reason,
             });
         }
 
-        if (!_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionDiffQueueDropped))
+        if (!_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionFrameQueueDropped))
         {
             return;
         }
@@ -1652,13 +1653,13 @@ public sealed class GrpcSessionConnection : ISessionConnection
             consumerId,
             kind,
             targetCount,
-            diffChannelCount,
-            diffEpoch);
+            frameChannelCount,
+            frameEpoch);
     }
 
-    private void TryPublishPageProjectionDiffFrame(PageProjectionDiff diff)
+    private void TryPublishPageProjectionFrame(DomainPageProjectionFrame diff)
     {
-        if (!_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionDiffFrameReceived))
+        if (!_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionFrameReceived))
         {
             return;
         }

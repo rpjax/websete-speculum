@@ -27,12 +27,12 @@ public enum SessionNotificationKind
     /// (phase = data_plane_received | grpc_pushed | sidecar_admitted | cdp_dropped).
     /// </summary>
     PageProjectionIntentPathTrace = 11,
-    /// <summary>PageProjectionDiff frame received from WatchPageProjectionFrames (opt-in journal).</summary>
-    PageProjectionDiffFrame = 12,
+    /// <summary>PageProjectionFrame frame received from WatchPageProjectionFrames (opt-in journal).</summary>
+    PageProjectionFrame = 12,
     /// <summary>PageProjection lifecycle (generation_bumped | queue_dropped) from WatchPageProjectionLifecycle.</summary>
     PageProjectionLifecycle = 13,
     /// <summary>API sequenced Diff channel DropAll (opt-in journal).</summary>
-    PageProjectionDiffQueueDropped = 14,
+    PageProjectionFrameQueueDropped = 14,
 }
 
 /// <summary>
@@ -100,50 +100,50 @@ public sealed class SessionNotification
     [Key("domAnchor")]
     public string? DomAnchor { get; init; }
 
-    /// <summary>PageProjectionDiff plane (dom | cssom).</summary>
-    [Key("pageProjectionDiffPlane")]
-    public string? PageProjectionDiffPlane { get; init; }
+    /// <summary>PageProjectionFrame plane (dom | cssom).</summary>
+    [Key("pageProjectionFramePlane")]
+    public string? PageProjectionFramePlane { get; init; }
 
-    /// <summary>PageProjectionDiff operation.</summary>
-    [Key("pageProjectionDiffOperation")]
-    public string? PageProjectionDiffOperation { get; init; }
+    /// <summary>PageProjectionFrame operation.</summary>
+    [Key("pageProjectionFrameOperation")]
+    public string? PageProjectionFrameOperation { get; init; }
 
-    [Key("pageProjectionDiffSequence")]
-    public long? PageProjectionDiffSequence { get; init; }
+    [Key("pageProjectionFrameSequence")]
+    public long? PageProjectionFrameSequence { get; init; }
 
-    /// <summary>Sidecar/API PageProjectionDiff timestamp (ms) for FrameReceived facts.</summary>
-    [Key("pageProjectionDiffTimestamp")]
-    public long? PageProjectionDiffTimestamp { get; init; }
+    /// <summary>Sidecar/API PageProjectionFrame timestamp (ms) for FrameReceived facts.</summary>
+    [Key("pageProjectionFrameTimestamp")]
+    public long? PageProjectionFrameTimestamp { get; init; }
 
     /// <summary>Cssom install sheet count (FrameReceived enrichment).</summary>
-    [Key("pageProjectionDiffSheetCount")]
-    public int? PageProjectionDiffSheetCount { get; init; }
+    [Key("pageProjectionFrameSheetCount")]
+    public int? PageProjectionFrameSheetCount { get; init; }
 
-    [Key("pageProjectionDiffRuleCount")]
-    public int? PageProjectionDiffRuleCount { get; init; }
+    [Key("pageProjectionFrameRuleCount")]
+    public int? PageProjectionFrameRuleCount { get; init; }
 
-    [Key("pageProjectionDiffSeededSheetCount")]
-    public int? PageProjectionDiffSeededSheetCount { get; init; }
+    [Key("pageProjectionFrameSeededSheetCount")]
+    public int? PageProjectionFrameSeededSheetCount { get; init; }
 
     /// <summary>
     /// QueueDropped stage (api_sequenced | api_fanout_no_target | api_fanout_pipe_closed |
     /// api_fanout_backpressure | api_wire_stall | sidecar_bridge | sidecar_requeue_overflow |
     /// sidecar_grpc_inflight | sidecar_lifecycle_overflow | sidecar_bridge_closed | mapper_rejected).
     /// </summary>
-    [Key("pageProjectionDiffQueueStage")]
-    public string? PageProjectionDiffQueueStage { get; init; }
+    [Key("pageProjectionFrameQueueStage")]
+    public string? PageProjectionFrameQueueStage { get; init; }
 
-    [Key("pageProjectionDiffDroppedCount")]
-    public int? PageProjectionDiffDroppedCount { get; init; }
+    [Key("pageProjectionFrameDroppedCount")]
+    public int? PageProjectionFrameDroppedCount { get; init; }
 
-    [Key("pageProjectionDiffQueueCapacity")]
-    public int? PageProjectionDiffQueueCapacity { get; init; }
+    [Key("pageProjectionFrameQueueCapacity")]
+    public int? PageProjectionFrameQueueCapacity { get; init; }
 
-    [Key("pageProjectionDiffLowestDroppedSequence")]
-    public long? PageProjectionDiffLowestDroppedSequence { get; init; }
+    [Key("pageProjectionFrameLowestDroppedSequence")]
+    public long? PageProjectionFrameLowestDroppedSequence { get; init; }
 
-    [Key("pageProjectionDiffHighestDroppedSequence")]
-    public long? PageProjectionDiffHighestDroppedSequence { get; init; }
+    [Key("pageProjectionFrameHighestDroppedSequence")]
+    public long? PageProjectionFrameHighestDroppedSequence { get; init; }
 
     /// <summary>Client wire correlation id (when present on input).</summary>
     [Key("traceId")]

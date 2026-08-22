@@ -31,7 +31,7 @@ export interface LiveSessionOptions {
 
 /**
  * One live browsing session: hub lifecycle + data streams I/O.
- * Events: frame, pageProjectionDiff, console, notification, syncUrl, redirect, ended, error, close.
+ * Events: frame, pageProjectionFrame, console, notification, syncUrl, redirect, ended, error, close.
  */
 export class LiveSession extends Emitter<SessionEventMap> {
   readonly sessionId: string
@@ -101,9 +101,9 @@ export class LiveSession extends Emitter<SessionEventMap> {
 
   async open(): Promise<void> {
     this.forward('frame')
-    this.forward('pageProjectionDiff')
-    this.forward('pageProjectionDiffRejected')
-    this.forward('pageProjectionDiffEnded')
+    this.forward('pageProjectionFrame')
+    this.forward('pageProjectionFrameRejected')
+    this.forward('pageProjectionFrameEnded')
     this.forward('console')
     this.forward('notification')
     this.forward('error')

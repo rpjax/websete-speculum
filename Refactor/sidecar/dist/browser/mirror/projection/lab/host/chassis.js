@@ -8,7 +8,7 @@ exports.acceptClientTelemetry = acceptClientTelemetry;
 const node_crypto_1 = require("node:crypto");
 const telemetry_1 = require("@speculum/page-projection/core/telemetry");
 const PageProjectionBrowserSession_1 = require("../../session/PageProjectionBrowserSession");
-const v4LabLaunch_1 = require("../../session/v4LabLaunch");
+const labLaunch_1 = require("../../session/labLaunch");
 const cpuProfile_1 = require("../probes/cpuProfile");
 const write_1 = require("../dossier/write");
 const frameInvariantMonitor_1 = require("../probes/frameInvariantMonitor");
@@ -295,7 +295,7 @@ class LabChassis {
             },
         });
         this.session = factory.create(sessionId, this.browserEvents());
-        await this.session.launch((0, v4LabLaunch_1.v4LabLaunchOptions)({
+        await this.session.launch((0, labLaunch_1.labLaunchOptions)({
             frameRateHz: this.frameRateHz,
             projectionTelemetry: this.telemetry,
             cpuProfiling: this.cpuProfiling,

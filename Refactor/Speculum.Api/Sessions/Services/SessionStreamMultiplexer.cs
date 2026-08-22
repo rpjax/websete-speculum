@@ -71,7 +71,7 @@ internal sealed class SessionStreamMultiplexer : ISessionStreamMultiplexer
         {
             OutputStreamKind.Frame => OutputStreamRegistration.CreateFrame(streamId, consumerId),
             OutputStreamKind.PageProjectionFrames
-                => OutputStreamRegistration.CreatePageProjectionDiff(streamId, consumerId),
+                => OutputStreamRegistration.CreatePageProjectionFrames(streamId, consumerId),
             OutputStreamKind.Console => OutputStreamRegistration.CreateConsole(streamId, consumerId),
             OutputStreamKind.Notification
                 => OutputStreamRegistration.CreateNotification(streamId, consumerId),
@@ -89,12 +89,12 @@ internal sealed class SessionStreamMultiplexer : ISessionStreamMultiplexer
         }
 
         _fanOut.OnStreamRegistered(streamId);
-        _connection.ReportPageProjectionDiffOutputStreamOpened(
+        _connection.ReportPageProjectionFrameOutputStreamOpened(
             streamId,
             consumerId,
             OutputStreamKindNames.ToTelemetry(kind),
             openStreamCount: _streams.Count,
-            diffChannelCapacity: kind == OutputStreamKind.PageProjectionFrames
+            frameChannelCapacity: kind == OutputStreamKind.PageProjectionFrames
                 ? SequencedDiffChannels.FanOutTargetCapacity
                 : 0);
         return Result.Success();
@@ -109,14 +109,14 @@ internal sealed class SessionStreamMultiplexer : ISessionStreamMultiplexer
 
         _fanOut.OnStreamUnregistered(streamId);
         registration.Complete();
-        _connection.ReportPageProjectionDiffOutputStreamClosed(
+        _connection.ReportPageProjectionFrameOutputStreamClosed(
             streamId,
             registration.ConsumerId,
             OutputStreamKindNames.ToTelemetry(registration.Kind),
             openStreamCount: _streams.Count);
     }
 
-    public IResult<long> GetDiffEpoch(Guid streamId)
+    public IResult<long> GetFrameEpoch(Guid streamId)
     {
         if (!_streams.TryGetValue(streamId, out var registration)
             || registration.Kind != OutputStreamKind.PageProjectionFrames)
@@ -124,7 +124,7 @@ internal sealed class SessionStreamMultiplexer : ISessionStreamMultiplexer
             return Result<long>.Failure("Diff stream is not registered");
         }
 
-        return Result<long>.Success(registration.DiffEpoch);
+        return Result<long>.Success(registration.FrameEpoch);
     }
 
     public IResult RegisterInputConsumer(Guid consumerId)
@@ -213,15 +213,15 @@ internal sealed class SessionStreamMultiplexer : ISessionStreamMultiplexer
         return Result<ChannelReader<Frame>>.Success(registration.Frames.Reader);
     }
 
-    public IResult<ChannelReader<PageProjectionDiff>> GetPageProjectionDiffsChannel(Guid streamId)
+    public IResult<ChannelReader<PageProjectionFrame>> GetPageProjectionFramesChannel(Guid streamId)
     {
         if (!_streams.TryGetValue(streamId, out var registration)
             || registration.Kind != OutputStreamKind.PageProjectionFrames)
         {
-            return Result<ChannelReader<PageProjectionDiff>>.Failure("Diff stream is not registered");
+            return Result<ChannelReader<PageProjectionFrame>>.Failure("Diff stream is not registered");
         }
 
-        return Result<ChannelReader<PageProjectionDiff>>.Success(registration.PageProjectionDiffs.Reader);
+        return Result<ChannelReader<PageProjectionFrame>>.Success(registration.PageProjectionFrames.Reader);
     }
 
     public IResult<ChannelReader<ConsoleOutput>> GetConsoleOutputChannel(Guid streamId)

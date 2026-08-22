@@ -473,7 +473,7 @@
      * navigation re-injects this whole script into a fresh JS realm, so the *identity map* is
      * already empty by construction — there is nothing to clear here, unlike `bumpGeneration()`.
      * This exists purely so a fresh instance reports the `generation` the orchestrator
-     * (`V4ProjectionBrowserSession`) already knows this navigation is (via `ProjectionConfig.generation`),
+     * (`PageProjectionBrowserSession`) already knows this navigation is (via `ProjectionConfig.generation`),
      * so a `rebuildAndResync` frame — and every ordinary tick after it — carries the right number for
      * `bootstrap.ts` to decide whether to prepend `EPOCH_RESET`.
      */

@@ -26,7 +26,7 @@ function createBrowserSessionHandlers(registry) {
                 const sid = (0, validate_1.requireSessionId)(call.request);
                 const { session, bridge } = registry.get(sid);
                 const options = (0, mappers_1.toLaunchOptions)({ ...call.request, mirrorMode: 'pageProjection' });
-                bridge.configureDomCapacity(options.pageProjectionDiffQueueCapacity);
+                bridge.configureDomCapacity(options.frameQueueCapacity);
                 const ready = await session.launch(options);
                 callback(null, ready);
             }
@@ -341,7 +341,7 @@ function createBrowserSessionHandlers(registry) {
                 toGeneration: e.toGeneration,
                 reason: e.reason,
                 url: e.url,
-                diffKind: e.diffKind,
+                frameKind: e.frameKind,
                 unixMs: e.unixMs,
                 droppedCount: e.droppedCount,
                 capacity: e.capacity,

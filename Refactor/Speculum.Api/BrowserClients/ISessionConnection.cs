@@ -141,7 +141,7 @@ public interface ISessionConnection
     IResult<ChannelReader<Frame>> GetFrameReader();
 
     /// <summary>Dom Projection diff stream from the sidecar (MirrorMode.PageProjection).</summary>
-    IResult<ChannelReader<PageProjectionDiff>> GetPageProjectionDiffReader();
+    IResult<ChannelReader<PageProjectionFrame>> GetPageProjectionFrameReader();
 
     /// <summary>Console output stream from the live browser.</summary>
     IResult<ChannelReader<ConsoleOutput>> GetConsoleOutputReader();
@@ -205,42 +205,42 @@ public interface ISessionConnection
     /// Binds LiveSession Diff telemetry (FrameReceived / QueueDropped / FanOutEnqueued).
     /// Journaled directly — never via the DropOldest notification channel. Pass null to unbind.
     /// </summary>
-    void BindPageProjectionDiffTelemetry(IPageProjectionDiffTelemetry? telemetry);
+    void BindPageProjectionFrameTelemetry(IPageProjectionFrameTelemetry? telemetry);
 
     /// <summary>
-    /// True when <c>Telemetry.Sessions.PageProjection.Diff.FanOutEnqueued</c> is catalog-enabled
+    /// True when <c>Telemetry.Sessions.PageProjection.Frame.FanOutEnqueued</c> is catalog-enabled
     /// (fan-out may skip Stopwatch when false).
     /// </summary>
-    bool IsPageProjectionDiffFanOutEnqueuedEnabled();
+    bool IsPageProjectionFrameFanOutEnqueuedEnabled();
 
     /// <summary>
     /// Reports Diff accepted into an open Diff fan-out channel. No-op when unbound or catalog disabled.
     /// </summary>
-    void ReportPageProjectionDiffFanOutEnqueued(
-        PageProjectionDiff diff,
+    void ReportPageProjectionFrameFanOutEnqueued(
+        PageProjectionFrame diff,
         long waitMs,
         Guid streamId,
         Guid consumerId,
         string kind,
         int targetIndex,
         int targetCount,
-        int diffChannelCount,
-        long diffEpoch);
+        int frameChannelCount,
+        long frameEpoch);
 
     /// <summary>
     /// Reports mux output stream open. No-op when unbound or catalog disabled.
     /// </summary>
-    void ReportPageProjectionDiffOutputStreamOpened(
+    void ReportPageProjectionFrameOutputStreamOpened(
         Guid streamId,
         Guid consumerId,
         string kind,
         int openStreamCount,
-        int diffChannelCapacity);
+        int frameChannelCapacity);
 
     /// <summary>
     /// Reports mux output stream close. No-op when unbound or catalog disabled.
     /// </summary>
-    void ReportPageProjectionDiffOutputStreamClosed(
+    void ReportPageProjectionFrameOutputStreamClosed(
         Guid streamId,
         Guid consumerId,
         string kind,
@@ -250,7 +250,7 @@ public interface ISessionConnection
     /// Reports a sequenced Diff queue drop (api_sequenced, fan-out, mapper, …) through the
     /// bound Diff telemetry sink. No-op when unbound or catalog disabled.
     /// </summary>
-    void ReportPageProjectionDiffQueueDropped(
+    void ReportPageProjectionFrameQueueDropped(
         string stage,
         int droppedCount,
         int capacity,
@@ -265,6 +265,6 @@ public interface ISessionConnection
         Guid? consumerId = null,
         string? kind = null,
         int? targetCount = null,
-        int? diffChannelCount = null,
-        long? diffEpoch = null);
+        int? frameChannelCount = null,
+        long? frameEpoch = null);
 }

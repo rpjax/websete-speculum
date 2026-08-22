@@ -10,15 +10,15 @@ namespace Speculum.Api.Sessions.Services.Streaming;
 internal sealed class OutputStreamRegistration
 {
     private readonly object _diffGate = new();
-    private Channel<PageProjectionDiff>? _diffs;
-    private long _diffEpoch;
+    private Channel<PageProjectionFrame>? _diffs;
+    private long _frameEpoch;
 
     private OutputStreamRegistration(
         Guid streamId,
         Guid consumerId,
         OutputStreamKind kind,
         Channel<Frame>? frames,
-        Channel<PageProjectionDiff>? diffs,
+        Channel<PageProjectionFrame>? diffs,
         Channel<ConsoleOutput>? console,
         Channel<SessionNotification>? notifications)
     {
@@ -39,25 +39,25 @@ internal sealed class OutputStreamRegistration
     public Channel<ConsoleOutput>? Console { get; }
     public Channel<SessionNotification>? Notifications { get; }
 
-    public Channel<PageProjectionDiff> PageProjectionDiffs
+    public Channel<PageProjectionFrame> PageProjectionFrames
     {
         get
         {
             lock (_diffGate)
             {
                 return _diffs
-                    ?? throw new InvalidOperationException("Stream is not a PageProjectionDiff stream");
+                    ?? throw new InvalidOperationException("Stream is not a PageProjectionFrame stream");
             }
         }
     }
 
-    public long DiffEpoch
+    public long FrameEpoch
     {
         get
         {
             lock (_diffGate)
             {
-                return _diffEpoch;
+                return _frameEpoch;
             }
         }
     }
@@ -72,13 +72,13 @@ internal sealed class OutputStreamRegistration
             console: null,
             notifications: null);
 
-    public static OutputStreamRegistration CreatePageProjectionDiff(Guid streamId, Guid consumerId)
+    public static OutputStreamRegistration CreatePageProjectionFrames(Guid streamId, Guid consumerId)
         => new(
             streamId,
             consumerId,
             OutputStreamKind.PageProjectionFrames,
             frames: null,
-            SequencedDiffChannels.CreateForFanOutTarget<PageProjectionDiff>(
+            SequencedDiffChannels.CreateForFanOutTarget<PageProjectionFrame>(
                 SequencedDiffChannels.FanOutTargetCapacity),
             console: null,
             notifications: null);
@@ -103,19 +103,19 @@ internal sealed class OutputStreamRegistration
             console: null,
             DropOldestChannels.Create<SessionNotification>(capacity: 512));
 
-    public ChannelReader<PageProjectionDiff> ReplacePageProjectionDiffs()
+    public ChannelReader<PageProjectionFrame> ReplacePageProjectionFrames()
     {
         lock (_diffGate)
         {
             if (_diffs is null)
             {
-                throw new InvalidOperationException("Stream is not a PageProjectionDiff stream");
+                throw new InvalidOperationException("Stream is not a PageProjectionFrame stream");
             }
 
             _diffs.Writer.TryComplete();
-            _diffs = SequencedDiffChannels.CreateForFanOutTarget<PageProjectionDiff>(
+            _diffs = SequencedDiffChannels.CreateForFanOutTarget<PageProjectionFrame>(
                 SequencedDiffChannels.FanOutTargetCapacity);
-            _diffEpoch++;
+            _frameEpoch++;
             return _diffs.Reader;
         }
     }

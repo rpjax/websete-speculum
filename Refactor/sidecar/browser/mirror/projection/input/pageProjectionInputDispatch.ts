@@ -1,5 +1,5 @@
 /**
- * V4 PageProjection input dispatch — serial CDP chain via legacy DomElementInput.
+ * PageProjection input dispatch — serial CDP chain via legacy DomElementInput.
  */
 
 import type { Page } from 'patchright';
@@ -25,7 +25,7 @@ type ResolveHit = {
   y?: number;
 };
 
-export class V4InputDispatch {
+export class PageProjectionInputDispatch {
   private readonly domInput: DomElementInput;
   private readonly host: DomProjectionInputHost;
   private cachedGeneration = 0;

@@ -3,7 +3,7 @@ import type { DataStreamTransport } from './dataStreamTransport'
 import { Emitter } from './emitter'
 import { FramedReader, writeMessage } from './framing'
 import type {
-  PageProjectionDiff,
+  PageProjectionFrame,
   PageProjectionIntent,
   EvalResult,
   MirrorMode,
@@ -38,7 +38,7 @@ export interface DataStreamsOptions {
 }
 
 /**
- * Logical data streams for a live session (frames, PageProjectionDiffs, input, console, notifications, status).
+ * Logical data streams for a live session (frames, PageProjectionFrames, input, console, notifications, status).
  * Carrier is pluggable via {@link DataStreamTransport}.
  */
 export class DataStreams extends Emitter<SessionEventMap> {
@@ -301,13 +301,13 @@ export class DataStreams extends Emitter<SessionEventMap> {
           case PipeKind.Frame:
             this.emit('frame', message as SessionEventMap['frame'])
             break
-          case PipeKind.PageProjectionDiff:
-            const normalized = normalizePageProjectionDiff(message)
+          case PipeKind.PageProjectionFrame:
+            const normalized = normalizePageProjectionFrame(message)
             if (normalized) {
-              this.emit('pageProjectionDiff', normalized)
+              this.emit('pageProjectionFrame', normalized)
             } else {
               const raw = (message ?? {}) as Record<string, unknown>
-              this.emit('pageProjectionDiffRejected', {
+              this.emit('pageProjectionFrameRejected', {
                 sequence: Number(raw.sequence ?? 0) || null,
                 generation: Number(raw.generation ?? 0) || null,
                 plane: raw.plane != null ? String(raw.plane) : null,
@@ -332,14 +332,14 @@ export class DataStreams extends Emitter<SessionEventMap> {
       }
     } finally {
       reader.releaseLock()
-      // Fan-out Complete / wire cut ends the Diff uni-stream while WT/WS stays up.
+      // Fan-out Complete / wire cut ends the PageProjection uni-stream while WT/WS stays up.
       // Surface EOF so DomProjector can T8 OOB resync (journal-only QD is invisible).
       if (
-        kind === PipeKind.PageProjectionDiff
+        kind === PipeKind.PageProjectionFrame
         && !this.closed
         && this.connected
       ) {
-        this.emit('pageProjectionDiffEnded', { reason: 'wire_stall' })
+        this.emit('pageProjectionFrameEnded', { reason: 'wire_stall' })
       }
     }
   }
@@ -400,7 +400,7 @@ function toBodyBytes(value: unknown): Uint8Array | null {
   return null
 }
 
-/** Normalize hub PageProjectionDiff; reject legacy snapshot wire shapes. */
+/** Normalize hub PageProjectionFrame; reject legacy snapshot wire shapes. */
 function rejectReason(raw: Record<string, unknown>): string {
   if (raw.kind === 'snapshot' || raw.root != null || Array.isArray(raw.nodes) || Array.isArray(raw.urls)) {
     return 'legacy_snapshot_shape'
@@ -416,7 +416,7 @@ function rejectReason(raw: Record<string, unknown>): string {
   return 'normalize_rejected'
 }
 
-function normalizePageProjectionDiff(message: unknown): PageProjectionDiff | null {
+function normalizePageProjectionFrame(message: unknown): PageProjectionFrame | null {
   const raw = (message ?? {}) as Record<string, unknown>
   // Retired legacy shapes.
   if (raw.kind === 'snapshot' || raw.root != null || Array.isArray(raw.nodes) || Array.isArray(raw.urls)) {
@@ -455,15 +455,15 @@ function normalizePageProjectionDiff(message: unknown): PageProjectionDiff | nul
     timestamp: Number(raw.timestamp ?? 0),
     plane,
     operation,
-    document: (raw.document as PageProjectionDiff['document']) ?? null,
-    childList: (raw.childList as PageProjectionDiff['childList']) ?? null,
-    patch: (raw.patch as PageProjectionDiff['patch']) ?? null,
-    scrollViewport: (raw.scrollViewport as PageProjectionDiff['scrollViewport']) ?? null,
-    scrollElement: (raw.scrollElement as PageProjectionDiff['scrollElement']) ?? null,
-    install: (raw.install as PageProjectionDiff['install']) ?? null,
-    sheetList: (raw.sheetList as PageProjectionDiff['sheetList']) ?? null,
-    ruleList: (raw.ruleList as PageProjectionDiff['ruleList']) ?? null,
-    cssomPatch: (raw.cssomPatch as PageProjectionDiff['cssomPatch']) ?? null,
+    document: (raw.document as PageProjectionFrame['document']) ?? null,
+    childList: (raw.childList as PageProjectionFrame['childList']) ?? null,
+    patch: (raw.patch as PageProjectionFrame['patch']) ?? null,
+    scrollViewport: (raw.scrollViewport as PageProjectionFrame['scrollViewport']) ?? null,
+    scrollElement: (raw.scrollElement as PageProjectionFrame['scrollElement']) ?? null,
+    install: (raw.install as PageProjectionFrame['install']) ?? null,
+    sheetList: (raw.sheetList as PageProjectionFrame['sheetList']) ?? null,
+    ruleList: (raw.ruleList as PageProjectionFrame['ruleList']) ?? null,
+    cssomPatch: (raw.cssomPatch as PageProjectionFrame['cssomPatch']) ?? null,
   }
 }
 

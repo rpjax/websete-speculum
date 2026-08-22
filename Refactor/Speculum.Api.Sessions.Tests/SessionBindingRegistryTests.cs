@@ -232,35 +232,35 @@ public sealed class SessionBindingRegistryTests
             string? traceId = null,
             long? clientTimestampMs = null) { }
 
-        public void TracePageProjectionDiffWireDelivered(
-            PageProjectionDiff diff,
+        public void TracePageProjectionFrameWireDelivered(
+            PageProjectionFrame diff,
             long durationMs = 0,
             Guid streamId = default,
             Guid consumerId = default,
-            long diffEpoch = 0) { }
+            long frameEpoch = 0) { }
 
-        public void TracePageProjectionDiffFanOutEnqueued(
-            PageProjectionDiff diff,
+        public void TracePageProjectionFrameFanOutEnqueued(
+            PageProjectionFrame diff,
             long waitMs,
             Guid streamId,
             Guid consumerId,
             string kind,
             int targetIndex,
             int targetCount,
-            int diffChannelCount,
-            long diffEpoch) { }
+            int frameChannelCount,
+            long frameEpoch) { }
 
-        public void TracePageProjectionDiffStreamDequeued(
-            PageProjectionDiff diff,
+        public void TracePageProjectionFrameStreamDequeued(
+            PageProjectionFrame diff,
             Guid streamId = default,
             Guid consumerId = default,
-            long diffEpoch = 0) { }
+            long frameEpoch = 0) { }
 
-        public bool IsPageProjectionDiffWireDeliveredEnabled() => false;
+        public bool IsPageProjectionFrameWireDeliveredEnabled() => false;
 
-        public void TracePageProjectionDiffFrameReceived(PageProjectionDiff diff) { }
+        public void TracePageProjectionFrameReceived(PageProjectionFrame diff) { }
 
-        public void TracePageProjectionDiffQueueDropped(
+        public void TracePageProjectionFrameQueueDropped(
             string stage,
             int droppedCount,
             int capacity,
@@ -275,10 +275,10 @@ public sealed class SessionBindingRegistryTests
             Guid? consumerId = null,
             string? kind = null,
             int? targetCount = null,
-            int? diffChannelCount = null,
-            long? diffEpoch = null) { }
+            int? frameChannelCount = null,
+            long? frameEpoch = null) { }
 
-        public void ReportPageProjectionDiffQueueDropped(
+        public void ReportPageProjectionFrameQueueDropped(
             string stage,
             int droppedCount,
             int capacity,
@@ -293,8 +293,8 @@ public sealed class SessionBindingRegistryTests
             Guid? consumerId = null,
             string? kind = null,
             int? targetCount = null,
-            int? diffChannelCount = null,
-            long? diffEpoch = null) { }
+            int? frameChannelCount = null,
+            long? frameEpoch = null) { }
 
         public Task<IResult<SessionStatus>> GetStatusAsync(CancellationToken ct = default)
             => throw new NotSupportedException();

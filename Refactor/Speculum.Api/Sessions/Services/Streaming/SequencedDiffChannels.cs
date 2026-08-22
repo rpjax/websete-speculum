@@ -4,7 +4,7 @@ using Speculum.Api.Sessions.Mirror.PageProjection;
 namespace Speculum.Api.Sessions.Services.Streaming;
 
 /// <summary>
-/// Bounded channels for sequenced PageProjection diffs (T5/D13).
+/// Bounded channels for sequenced PageProjection frames (T5/D13).
 /// Connection enqueue uses DropAll-on-overflow (gap → desync, never silent DropOldest chronology).
 /// Per-pipe fan-out targets use Wait + small capacity so wire stall quickly back-pressures
 /// the connection queue (api_sequenced DropAll) — never a silent FR≫WD freeze.
@@ -59,7 +59,7 @@ internal static class SequencedDiffChannels
         out int droppedCount)
         => TryWriteDropAllOnOverflow(channel, capacity, item, out droppedCount, out _, out _);
 
-    /// <returns>True when a write was accepted; reports drained count + sequence range when T is PageProjectionDiff.</returns>
+    /// <returns>True when a write was accepted; reports drained count + sequence range when T is PageProjectionFrame.</returns>
     public static bool TryWriteDropAllOnOverflow<T>(
         Channel<T> channel,
         int capacity,
@@ -137,7 +137,7 @@ internal static class SequencedDiffChannels
         ref long? lowest,
         ref long? highest)
     {
-        if (drained is not PageProjectionDiff diff)
+        if (drained is not PageProjectionFrame diff)
         {
             return;
         }

@@ -49,7 +49,7 @@ function toLaunchOptions(req) {
             : undefined,
         screencastMaxEncodeScale: resolveScreencastMaxEncodeScale(req.screencastMaxEncodeScale ?? req.screencast_max_encode_scale),
         mirrorMode: resolveMirrorMode(req.mirrorMode ?? req.mirror_mode),
-        pageProjectionDiffQueueCapacity: resolvePageProjectionDiffQueueCapacity(req.pageProjectionDiffQueueCapacity ?? req.page_projection_diff_queue_capacity),
+        frameQueueCapacity: resolveframeQueueCapacity(req.frameQueueCapacity ?? req.frame_queue_capacity),
         frameRateHz: resolvePositiveIntOrUndefined(req.frameRateHz ?? req.frame_rate_hz),
         maxFrameBytes: resolvePositiveIntOrUndefined(req.maxFrameBytes ?? req.max_frame_bytes),
         browserPoolSize: resolveNonNegativeIntOrUndefined(req.browserPoolSize ?? req.browser_pool_size),
@@ -84,7 +84,7 @@ function resolveNonNegativeIntOrUndefined(raw) {
 function resolveMirrorMode(raw) {
     return raw === 'pageProjection' ? 'pageProjection' : 'videoStreaming';
 }
-function resolvePageProjectionDiffQueueCapacity(raw) {
+function resolveframeQueueCapacity(raw) {
     const n = Number(raw);
     if (!Number.isFinite(n) || n < 64) {
         return 8192;

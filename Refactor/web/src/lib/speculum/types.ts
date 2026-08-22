@@ -137,7 +137,7 @@ export interface CssomSheet {
 }
 
 /** PageProjection outbound unit (Dom or Cssom plane, or an opaque §5.5 V2 binary frame/part). */
-export interface PageProjectionDiff {
+export interface PageProjectionFrame {
   sequence: number
   generation: number
   timestamp: number
@@ -229,9 +229,9 @@ export interface SessionNotification {
   domGeneration?: number | null
   domFromGeneration?: number | null
   domAnchor?: string | null
-  pageProjectionDiffPlane?: string | null
-  pageProjectionDiffOperation?: string | null
-  pageProjectionDiffSequence?: number | null
+  pageProjectionFramePlane?: string | null
+  pageProjectionFrameOperation?: string | null
+  pageProjectionFrameSequence?: number | null
   traceId?: string | null
   clientTimestampMs?: number | null
 }
@@ -321,9 +321,9 @@ export interface JournalStreamSubscription {
 
 export interface SessionEventMap {
   frame: SessionFrame
-  pageProjectionDiff: PageProjectionDiff
+  pageProjectionFrame: PageProjectionFrame
   /** Wire frame rejected by normalize (legacy shape / invalid plane). */
-  pageProjectionDiffRejected: {
+  pageProjectionFrameRejected: {
     sequence: number | null
     generation: number | null
     plane: string | null
@@ -331,10 +331,10 @@ export interface SessionEventMap {
     reason: string
   }
   /**
-   * Diff unidirectional pipe ended while the data-plane session is still open
+   * Frame unidirectional pipe ended while the data-plane session is still open
    * (fan-out Complete / wire stall) — T8 OOB resync trigger.
    */
-  pageProjectionDiffEnded: {
+  pageProjectionFrameEnded: {
     reason: 'wire_stall'
   }
   console: SessionConsoleOutput

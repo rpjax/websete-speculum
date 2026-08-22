@@ -5,7 +5,7 @@ import path from 'node:path';
 import type { BrowserSessionEvents } from '../../../BrowserSession';
 import { labAssetRoots } from '../lab/assetRoots';
 import { createPageProjectionBrowserSessionFactory } from '../session/PageProjectionBrowserSession';
-import { v4LabLaunchOptions } from '../session/v4LabLaunch';
+import { labLaunchOptions } from '../session/labLaunch';
 import { LAB_TELEMETRY_DEFAULTS } from '@speculum/page-projection/core/telemetry';
 
 function wait(ms: number): Promise<void> {
@@ -52,7 +52,7 @@ export async function runPageProjectionInputClickUnitTests(): Promise<void> {
   const session = factory.create('unit-pp-input', events);
   try {
     await session.launch(
-      v4LabLaunchOptions({
+      labLaunchOptions({
         frameRateHz: 30,
         projectionTelemetry: { ...LAB_TELEMETRY_DEFAULTS },
         cpuProfiling: false,

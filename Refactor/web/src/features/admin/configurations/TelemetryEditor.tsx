@@ -138,7 +138,7 @@ export function TelemetryEditor({
     ? [
         clientObservation.sessionWire && 'wire',
         clientObservation.videoStreamingInput && 'video',
-        clientObservation.pageProjectionDiff && 'page diff',
+        clientObservation.pageProjectionFrame && 'page frame',
         clientObservation.pageProjectionIntent && 'page intent',
       ]
         .filter(Boolean)

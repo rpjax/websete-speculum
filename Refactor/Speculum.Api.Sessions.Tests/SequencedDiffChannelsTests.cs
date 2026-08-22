@@ -9,7 +9,7 @@ public sealed class SequencedDiffChannelsTests
     [Fact]
     public void TryWriteDropAllOnOverflow_DrainsBacklogThenKeepsNewest()
     {
-        var channel = SequencedDiffChannels.Create<PageProjectionDiff>(capacity: 2);
+        var channel = SequencedDiffChannels.Create<PageProjectionFrame>(capacity: 2);
         Assert.True(SequencedDiffChannels.TryWriteDropAllOnOverflow(channel, 2, Diff(1)));
         Assert.True(SequencedDiffChannels.TryWriteDropAllOnOverflow(channel, 2, Diff(2)));
 
@@ -33,7 +33,7 @@ public sealed class SequencedDiffChannelsTests
     [Fact]
     public async Task FanOutTarget_WriteAsyncWaitsUntilConsumerReads()
     {
-        var channel = SequencedDiffChannels.CreateForFanOutTarget<PageProjectionDiff>(capacity: 1);
+        var channel = SequencedDiffChannels.CreateForFanOutTarget<PageProjectionFrame>(capacity: 1);
         Assert.True(channel.Writer.TryWrite(Diff(1)));
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
@@ -53,7 +53,7 @@ public sealed class SequencedDiffChannelsTests
     [Fact]
     public async Task FanOutTarget_DoesNotDropAllWhenFull()
     {
-        var channel = SequencedDiffChannels.CreateForFanOutTarget<PageProjectionDiff>(capacity: 2);
+        var channel = SequencedDiffChannels.CreateForFanOutTarget<PageProjectionFrame>(capacity: 2);
         Assert.True(channel.Writer.TryWrite(Diff(1)));
         Assert.True(channel.Writer.TryWrite(Diff(2)));
 
@@ -85,8 +85,8 @@ public sealed class SequencedDiffChannelsTests
     {
         const int connectionCap = 4;
         const int fanOutCap = 2;
-        var connection = SequencedDiffChannels.Create<PageProjectionDiff>(capacity: connectionCap);
-        var fanOut = SequencedDiffChannels.CreateForFanOutTarget<PageProjectionDiff>(capacity: fanOutCap);
+        var connection = SequencedDiffChannels.Create<PageProjectionFrame>(capacity: connectionCap);
+        var fanOut = SequencedDiffChannels.CreateForFanOutTarget<PageProjectionFrame>(capacity: fanOutCap);
 
         using var lifetime = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         var fanOutFull = false;
@@ -140,7 +140,7 @@ public sealed class SequencedDiffChannelsTests
             "production fan-out must stay small enough that Beleza-scale FR−WD cannot hide");
     }
 
-    private static PageProjectionDiff Diff(long sequence) => new()
+    private static PageProjectionFrame Diff(long sequence) => new()
     {
         Sequence = sequence,
         Generation = 1,

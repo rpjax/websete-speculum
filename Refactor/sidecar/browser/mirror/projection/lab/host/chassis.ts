@@ -9,9 +9,10 @@ import {
   isProjectionTelemetryMessage,
   type ProjectionTelemetryConfig,
   type ProjectionTelemetryMessage,
-} from '../../models/telemetry';
+} from '@speculum/page-projection/core/telemetry';
 import { createV4ProjectionBrowserSessionFactory } from '../../session/V4ProjectionBrowserSession';
 import { v4LabLaunchOptions } from '../../session/v4LabLaunch';
+import { startCpuProfile, stopCpuProfile } from '../probes/cpuProfile';
 import {
   createDossier,
   defaultLabRunsDir,
@@ -27,9 +28,9 @@ import { MetricsAggregator } from '../probes/metricsAggregator';
 import { NodeTableApplier } from '../probes/nodeTableApply';
 import type { ClientStateSnapshot } from '../probes/isomorphism';
 import { ContextIndex } from './contextIndex';
-import { OpCode } from '../../models/opcodes';
-import { decodeFramePart, peekFrameHeader as peekPpHeader, FramePartAssembler, PersistentStringTable } from '../../models/decode';
-import { CONTEXT_ID_ROOT } from '../../models/frame';
+import { OpCode } from '@speculum/page-projection/core/opcodes';
+import { decodeFramePart, peekFrameHeader as peekPpHeader, FramePartAssembler, PersistentStringTable } from '@speculum/page-projection/core/decode';
+import { CONTEXT_ID_ROOT } from '@speculum/page-projection/core/frame';
 
 export type ChassisOptions = {
   headless: boolean;
@@ -39,7 +40,9 @@ export type ChassisOptions = {
 export type ChassisStats = {
   framesFromVirtual: number;
   bytesFromVirtual: number;
+  /** Last root-context (contextId 1) frame sequence — CLI inject continuity only. */
   lastSequence: number | null;
+  /** Last root-context generation — CLI inject continuity only. */
   lastGeneration: number | null;
   telemetryMessages: number;
 };
@@ -134,6 +137,11 @@ export class LabChassis {
   get invariantMonitor(): FrameInvariantMonitor {
     return this.monitorFor(CONTEXT_ID_ROOT);
   }
+  /**
+   * Root-only apply mirror for CLI inject folds — tracks the top-level context sequence/table.
+   * Nested context frames update per-context invariant monitors but not this applier or
+   * `stats.lastSequence` (inject proofs target the root surface).
+   */
   readonly nodeTable = new NodeTableApplier();
   readonly eventCounts: Record<string, number> = {};
   readonly desyncs: unknown[] = [];
@@ -265,6 +273,7 @@ export class LabChassis {
 
   observeTelemetry(message: ProjectionTelemetryMessage): void {
     this.stats.telemetryMessages += 1;
+    this.contextIndex.observeTelemetry(message);
     this.metrics.observeTelemetry(message);
     this.monitorFor(message.contextId).observeTelemetry(message);
     this.eventCounts[message.kind] = (this.eventCounts[message.kind] ?? 0) + 1;
@@ -371,7 +380,13 @@ export class LabChassis {
     record.dossierDir = this.dossier.dir;
     this.record = record;
 
-    const factory = createV4ProjectionBrowserSessionFactory({ headless: this.opts.headless });
+    const factory = createV4ProjectionBrowserSessionFactory({
+      headless: this.opts.headless,
+      probes: {
+        startCpuProfile,
+        stopCpuProfile,
+      },
+    });
     this.session = factory.create(sessionId, this.browserEvents());
     await this.session.launch(
       v4LabLaunchOptions({

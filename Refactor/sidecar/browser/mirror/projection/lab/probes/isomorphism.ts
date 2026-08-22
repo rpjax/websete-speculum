@@ -1,19 +1,19 @@
 /**
- * Lab isomorphism — compose BrowserSession probes. Not a session primitive.
+ * Lab isomorphism — compose BrowserSession diagnostics. Not a session primitive.
  *
- * Virtual side is one in-page turn ({@link BrowserSession.flushProjectionSnapshot}):
- * takeRecords, drain MO buffer, emit frame S (DOM + stashed CSSOM scan), DOM O2 + CSSOM O2 + digest + tree.
- * Caller table apply (Node `applyFrameToTableChecked` or DOM client) then snapshots at S.
+ * Virtual side is a **state snapshot** per `contextId` ({@link BrowserSession.flushProjectionSnapshot}):
+ * takeRecords, drain MO buffer, emit frame S, table×DOM (`o2`) + CSSOM + digest + tree.
+ * Caller table apply then snapshots Projected at S. Multi-context = one call per id.
  */
 
 import type { BrowserSession } from '../../../../BrowserSession';
-import type { TableLiveOracleResult } from '../../models/tableLiveOracle';
-import type { CssomTableLiveOracleResult } from '../../models/cssomTableLiveOracle';
-import type { ReplicatedTableDigest } from '../../models/tableDigest';
-import { tableDigestsEqual } from '../../models/tableDigest';
-import type { TreeNode } from '../../models/treeNode';
-import type { FormControlSnap } from '../../models/formControlSnap';
-import { formControlSnapsEqual } from '../../models/formControlSnap';
+import type { TableLiveOracleResult } from '@speculum/page-projection/core/tableLiveOracle';
+import type { CssomTableLiveOracleResult } from '@speculum/page-projection/core/cssomTableLiveOracle';
+import type { ReplicatedTableDigest } from '@speculum/page-projection/core/tableDigest';
+import { tableDigestsEqual } from '@speculum/page-projection/core/tableDigest';
+import type { TreeNode } from '@speculum/page-projection/core/treeNode';
+import type { FormControlSnap } from '@speculum/page-projection/core/formControlSnap';
+import { formControlSnapsEqual } from '@speculum/page-projection/core/formControlSnap';
 import { diffTrees, countShadowTrees, countNestedDocuments, collectFrameHrefs, type StructuralDiffResult } from './structuralDiff';
 
 export type ClientStateSnapshot = {
@@ -301,52 +301,24 @@ export async function runIsomorphism(opts: {
   getClientSnapshot?: (
     contextId: number,
   ) => Promise<ClientStateSnapshot | null> | ClientStateSnapshot | null;
-  /** @deprecated use getClientSnapshot(contextId) */
-  getClientSnapshotLegacy?: () => Promise<ClientStateSnapshot | null> | ClientStateSnapshot | null;
 }): Promise<IsomorphismResult> {
-  const getClient =
-    opts.getClientSnapshot ??
-    (opts.getClientSnapshotLegacy
-      ? (contextId: number) => (contextId === 1 ? opts.getClientSnapshotLegacy!() : null)
-      : undefined);
-  const flushSnap = opts.session.flushProjectionSnapshot;
-  const snapshotAll = opts.session.snapshotAllContexts;
-  const resumeAll = opts.session.resumeAllContexts;
+  const getClient = opts.getClientSnapshot;
+  const stateSnapshot = opts.session.flushProjectionSnapshot;
   const resume = opts.session.resumeProjectionWorld;
   const contextIds = opts.contextIds?.length ? [...opts.contextIds] : [1];
 
-  if (!flushSnap && !snapshotAll) {
-    return emptyIsoResult([{ id: 'isomorphism', reason: 'session does not expose snapshot RPC' }]);
+  if (!stateSnapshot) {
+    return emptyIsoResult([{ id: 'isomorphism', reason: 'session does not expose state snapshot RPC' }]);
   }
 
   try {
     const contexts: Record<number, ContextIsoResult> = {};
-    if (snapshotAll) {
-      const virtualMap = await snapshotAll.call(opts.session, contextIds, {
+    for (const contextId of contextIds) {
+      const virtual = await stateSnapshot.call(opts.session, {
+        contextId,
         includeTree: true,
         cssom: 'scan',
       });
-      for (const contextId of contextIds) {
-        const entry = virtualMap[contextId];
-        const virtual =
-          entry && entry.ok
-            ? {
-                ok: true as const,
-                generation: entry.value.generation,
-                sequence: entry.value.sequence,
-                o2: entry.value.o2,
-                table: entry.value.table,
-                cssomO2: entry.value.cssomO2,
-                nodeNewConnected: entry.value.nodeNewConnected,
-                cascade: entry.value.cascade,
-                formProps: entry.value.formProps,
-                tree: entry.value.tree,
-              }
-            : { ok: false as const, reason: entry && !entry.ok ? entry.reason : 'virtual snapshot missing' };
-        contexts[contextId] = await compareContextPair({ contextId, virtual, getClientSnapshot: getClient });
-      }
-    } else {
-      const virtual = await flushSnap!.call(opts.session, { includeTree: true, cssom: 'scan' });
       const mapped =
         virtual.ok
           ? {
@@ -361,8 +333,8 @@ export async function runIsomorphism(opts: {
               formProps: virtual.formProps,
               tree: virtual.tree,
             }
-          : { ok: false as const, reason: virtual.reason ?? 'flushProjectionSnapshot failed' };
-      contexts[1] = await compareContextPair({ contextId: 1, virtual: mapped, getClientSnapshot: getClient });
+          : { ok: false as const, reason: virtual.reason ?? 'getStateSnapshot failed' };
+      contexts[contextId] = await compareContextPair({ contextId, virtual: mapped, getClientSnapshot: getClient });
     }
 
     const root = contexts[1] ?? Object.values(contexts)[0];
@@ -401,7 +373,6 @@ export async function runIsomorphism(opts: {
       allPass,
     };
   } finally {
-    if (resumeAll) await resumeAll.call(opts.session, contextIds);
-    else await resume?.call(opts.session);
+    await resume?.call(opts.session);
   }
 }

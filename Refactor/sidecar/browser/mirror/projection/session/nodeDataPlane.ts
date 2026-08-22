@@ -10,7 +10,7 @@ import {
   type DataPlane,
   type DataPlaneMessageHandler,
   type DataPlaneResult,
-} from '../../plane';
+} from '@speculum/page-projection/core/plane';
 
 export type NodeDataPlaneOptions = {
   bufferedAmountWatermark?: number;

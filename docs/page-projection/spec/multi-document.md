@@ -1,6 +1,6 @@
 # PageProjection — multi-document
 
-**Status:** lab same-origin iframe on the wire (OPEN-6). XO / srcdoc / sandbox / fenced NIT. Production not cutover.  
+**Status:** lab same-origin iframe on the wire (OPEN-6). Multi-context observability **shipped**. XO / srcdoc / sandbox / fenced NIT. Production not cutover.  
 **Law:** this file is the spec. Code is a reflection. Do not invent in code what is still OPEN here.  
 **Index:** [README.md](README.md). PP ISA: [frame-protocol.md](frame-protocol.md).
 
@@ -25,7 +25,7 @@ The algorithm **observes** the page. It never writes host identity onto live DOM
 | Classify host | `contentWindow != null` (not `.contentDocument`). Admit connected. | **LOCKED** |
 | Projected host iframe | Same-origin blank; do not navigate live `src`. Parent installs nested algorithm. | **LOCKED** |
 | Bus | Events all layers. Control = RPC. Loose = emit/listen. `emitFrame` implemented by **root runtime**. postMessage is the bus. | **LOCKED** |
-| Resync request | Loose bus event stamped with the desynced instance’s `contextId`. Matching Virtual `emitResyncFrame`. DataPlane does not route. | **LOCKED** |
+| Resync request | **Control plane only:** `{ type: 'requestResync', contextId, … }` on `PlaneChannel.Control` → root bootstrap `publishResyncRequest` → matching Virtual `emitResyncFrame`. Loose bus `resyncRequest` is **fan-down only** (root → nested producers), never an entry path. | **LOCKED** |
 | RPC pipe | request / response / heartbeat; TCS awaiter; `getScopeId`, `mint`, **`snapshot`** | **LOCKED** shape; TS names OPEN |
 | Name | Header field `contextId` (was `documentId`) | **LOCKED** name |
 | M2 | PP header layout (`contextId: u32` after flags) | **LOCKED** layout |
@@ -113,11 +113,13 @@ Two shapes:
 | Kind | What | Examples |
 |------|------|----------|
 | **Control** | Invocation under rigid rules: request / response / heartbeat + TCS awaiter | `getScopeId`, `mint`, **`snapshot`** |
-| **Loose** | Someone produces an event and dumps it on the bus; whoever cares listens | PP frames (`emitFrame`); **resync request** (`contextId` of the desynced instance); **`telemetry`** (nested producer events → root runtime → sidecar) |
+| **Loose** | Fan-out / telemetry only — **not** resync entry | PP frames (`emitFrame`); **`telemetry`** (nested → root → sidecar); **`resyncRequest` fan-down** after Control-plane entry |
 
 Algorithm at any nesting level: `interface.emitFrame(frame)`. It does not know hops, `window.top`, or the sidecar socket.
 
-**Who implements `emitFrame`:** the **root runtime** (write to the sidecar). Nested heaps reach that implementation because the bus carries the event through the layers. **Resync request** is the same: the desynced Projected instance dumps a loose event stamped with **its** `mine`; the root runtime carries it; Virtual instances listen; the one with `mine === that contextId` runs `emitResyncFrame`. DataPlane does not route. Not a new opcode. Not in the PP body.
+**Who implements `emitFrame`:** the **root runtime** (write to the sidecar). Nested heaps reach that implementation because the bus carries the event through the layers.
+
+**Resync:** Projected client (root or nested) → session/lab relay → **`PlaneChannel.Control` `requestResync`** → root bootstrap → `publishResyncRequest` → local `onResyncRequest` listeners + loose fan-down to nested producer windows. There is **no** upward loose resync, **no** `emitResyncRequest`, **no** parallel sidecar stub. DataPlane does not route by `contextId`; Control plane is the contract ([open.md](open.md) closed 2026-08-19).
 
 **Who listens to frames:** every algorithm instance; apply iff `header.contextId === mine`. The DataPlane does not route by document.
 
@@ -175,7 +177,7 @@ Host **row** dropped: drop `childScopes` entry; inner heaps gone; leftover frame
 
 ```text
 Virtual tick:
-  drain MO → table → encode PP v3 (header.contextId = mine) → emitFrame
+  drain MO → table → encode PP (header.contextId = mine, wire v2) → emitFrame
   first admit of nested host: contentWindow != null → mint + childScopes.set + extra arg on that NODE_NEW
 
 Projected onFrame (bus; iff header.contextId === mine):
@@ -197,7 +199,7 @@ In-flight frames from a previous install of the same `C` are the existing recove
 | Role | Needs |
 |------|--------|
 | Nested Virtual | contract “who am I” → `C`; `emitFrame` stamped with `C` |
-| Nested Projected | contract “who am I” → `C`; listen; apply iff `C`; on desync dump resync request stamped `C` |
+| Nested Projected | contract “who am I” → `C`; listen; apply iff `C`; on desync → **`requestResync` via Control plane** (lab: WS → `sendPageProjectionControl`; same contract at cutover) |
 | Any algorithm that can host nested contexts | Node table + **child-scope indexer**; mint on admit (`contentWindow != null`); answer `getScopeId` for `event.source === that contentWindow` |
 | Projected parent of a host | Blank same-origin iframe; **install** nested algorithm into `contentWindow`; never live `src` |
 | Root algorithm | `mine = 1`; no `getScopeId`; same loop; mint when *it* admits a host |
@@ -205,13 +207,13 @@ In-flight frames from a previous install of the same `C` are the existing recove
 
 ---
 
-## 8. PP header v3
+## 8. PP header (wire v2 + `contextId`)
 
-Not shipped. Current engine version **2**. No shim.
+Shipped at **`FRAME_WIRE_VERSION` 2** — `contextId: u32` in the fixed prefix ([frame.ts](../../../Refactor/sidecar/browser/mirror/projection/models/frame.ts)). Not a separate v3 bump.
 
 ```text
 offset 0   magic        u16   0x5050
-offset 2   version      u8    3
+offset 2   version      u8    2
 offset 3   flags        u8
 offset 4   contextId    u32   this instance’s mine (contract). Not a parent field.
 offset 8   generation   u32
@@ -232,7 +234,7 @@ All parts of one frame share `contextId`, `generation`, `sequence`. Mismatch →
 |-------|--------|
 | Host row dropped | Drop `childScopes` entry; inner contexts halt; leftover frames for those ids → noop |
 | Inner nav / blank→src | §5 reinstall, same `contextId` |
-| Applier desync | Loose bus event with that instance’s `contextId`; matching Virtual `emitResyncFrame`. DataPlane does not route. |
+| Applier desync | Projected client requests resync on **Control plane** with that instance’s `contextId`; matching Virtual `emitResyncFrame` after `publishResyncRequest` |
 | Producer map untrusted | That install `resyncVirtual` only |
 
 Input disarm and string table are per install (the current heap), not “per host forever.”
@@ -254,7 +256,7 @@ CSSOM: that install’s poll + that node table. Shadow stays **this** instance w
 |------|--------|
 | 2026-08-18 | Premises: N instances; DataPlane dumb; id on PP header not envelope |
 | 2026-08-18 | Document table schema + `byId`/`byHost`; Virtual = slice, client = union |
-| 2026-08-18 | Header v3 layout (28-byte prefix); not shipped |
+| 2026-08-18 | Header v3 layout (28-byte prefix) — **superseded:** shipped as **v2 + `contextId`** (no v3 bump) | [multi-document.md](multi-document.md) §8 |
 | 2026-08-18 | M4 binding was OPEN — mint/join across heaps |
 | 2026-08-18 | **Restate.** Algorithm + ports; self id; bus filter; install inside |
 | 2026-08-18 | Retract produce-onFrame-noop |
@@ -271,5 +273,5 @@ CSSOM: that install’s poll + that node table. Shadow stays **this** instance w
 | 2026-08-19 | **Classify** `contentWindow != null`; never `.contentDocument`. Admit connected. |
 | 2026-08-19 | **Projected host** = our blank same-origin iframe; parent installs nested algorithm; do not navigate live `src`/`srcdoc`. |
 | 2026-08-19 | **Bus** = events all layers (control RPC vs loose emit/listen). `emitFrame` implemented by root runtime. postMessage is the bus. Not hop-vs-top as algorithm. |
-| 2026-08-19 | **Resync request** = loose bus event with that instance’s `contextId`. Matching Virtual `emitResyncFrame`. Not in the PP body. DataPlane does not route. |
+| 2026-08-19 | **Resync request** — **Control plane only** (`requestResync` → `publishResyncRequest`); loose bus `resyncRequest` fan-down only. Matching Virtual `emitResyncFrame`. Not in PP body. |
 | 2026-08-19 | **Multi-context observability** — telemetry `contextId` + loose bus `telemetry`; control RPC **`snapshot`** per instance; lab context index; wire monitor per scope; CPU Profiler tab-level only. | [observability.md](observability.md) §10 |

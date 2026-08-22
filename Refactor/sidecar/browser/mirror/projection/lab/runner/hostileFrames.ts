@@ -3,16 +3,16 @@
  * Client relay only (not Virtual, not chassis nodeTable).
  */
 
-import { BinaryFrameEncoder } from '../../virtual/frame/binaryFrameEncoder';
+import { BinaryFrameEncoder } from '@speculum/page-projection/virtual/frame/binaryFrameEncoder';
 import {
   CHECK_SCOPE_TABLE,
   CSSOM_SCOPE_MAIN,
   INSERT_AT_END,
   createFrame,
   type FrameOp,
-} from '../../models/frame';
-import { ElementNs } from '../../models/elementNs';
-import { NodeKind, OpCode } from '../../models/opcodes';
+} from '@speculum/page-projection/core/frame';
+import { ElementNs } from '@speculum/page-projection/core/elementNs';
+import { NodeKind, OpCode } from '@speculum/page-projection/core/opcodes';
 
 export type HostileKind = 'attr' | 'ruleset' | 'eof';
 

@@ -1,7 +1,7 @@
 "use strict";
 /**
  * Structural (topology-only) diff between a Virtual snapshot and a Client snapshot —
- * `TreeNode` shapes from `models/treeNode.ts` (produced by `client/domTreeSnapshot.ts` on
+ * `TreeNode` shapes from `models/treeNode.ts` (produced by `projected/domTreeSnapshot.ts` on
  * either side, see `lab/virtualSnapshot.ts` for the Virtual side). One "diff producer"
  * (`kind: 'structural'`) — a future pixel/visual producer can sit next to this one without
  * touching it.

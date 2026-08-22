@@ -1,8 +1,6 @@
 "use strict";
 /**
- * Percentile/volume aggregation over one benchmark run's telemetry window — extracts the
- * stats math already written ad-hoc in scripts/perf-projection-lab.js (this session's
- * eneba.com/belezanaweb.com.br runs) into a shared, reusable module instead of a fourth copy.
+ * Percentile/volume aggregation over one benchmark run's telemetry window.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.MetricsAggregator = void 0;
@@ -31,7 +29,7 @@ function computeStats(values) {
 }
 /** Sequence `1` is always the cold-start `rebuildAndResync` frame (frame-protocol.md §5.1) — a
  * structurally different cost than a tick-driven `TableFrameBuilder` frame, so it is reported
- * separately rather than pulled into the same percentiles (same split as the ad-hoc script). */
+ * separately rather than pulled into the same percentiles. */
 class MetricsAggregator {
     frameEmitted = [];
     applyResults = [];
@@ -40,22 +38,39 @@ class MetricsAggregator {
     applyOverrunCount = 0;
     transportDeferredCount = 0;
     wireBytesTotal = 0;
+    perContext = new Map();
+    countsFor(contextId) {
+        let row = this.perContext.get(contextId);
+        if (!row) {
+            row = { applyOk: 0, applyFail: 0, desyncCount: 0, applyOverrunCount: 0, frameEmitted: 0 };
+            this.perContext.set(contextId, row);
+        }
+        return row;
+    }
     observeTelemetry(msg) {
+        const ctx = this.countsFor(msg.contextId);
         switch (msg.kind) {
             case 'frameEmitted':
                 this.frameEmitted.push(msg);
+                ctx.frameEmitted += 1;
                 return;
             case 'applyResult':
                 this.applyResults.push(msg);
+                if (msg.ok)
+                    ctx.applyOk += 1;
+                else
+                    ctx.applyFail += 1;
                 return;
             case 'cssomPoll':
                 this.cssomPolls.push(msg);
                 return;
             case 'desynced':
                 this.desyncCount += 1;
+                ctx.desyncCount += 1;
                 return;
             case 'applyOverrun':
                 this.applyOverrunCount += 1;
+                ctx.applyOverrunCount += 1;
                 return;
             case 'transportDeferred':
                 this.transportDeferredCount += 1;
@@ -102,6 +117,7 @@ class MetricsAggregator {
             desyncCount: this.desyncCount,
             applyOverrunCount: this.applyOverrunCount,
             transportDeferredCount: this.transportDeferredCount,
+            perContext: Object.fromEntries(this.perContext),
             cssomPoll: {
                 passes: this.cssomPolls.length,
                 pollMs: computeStats(this.cssomPolls.map((s) => s.pollMs)),

@@ -4,7 +4,7 @@
  */
 
 import type { CssomPlane, CssomScanResult } from './cssomPlane';
-import { stampCssomPoll } from '../../models/telemetry';
+import { stampCssomPoll } from '../../core/telemetry';
 import {
   foldSheetPieces,
   type CssomPoller,

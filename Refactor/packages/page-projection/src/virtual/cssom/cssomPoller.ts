@@ -14,14 +14,14 @@ import {
   liveRuleList,
   shouldAbortSheet,
 } from './cssomWalk';
-import type { FrameOp } from '../../models/frame';
+import type { FrameOp } from '../../core/frame';
 import {
   countCssomOps,
   emptyCssomPollStats,
   stampCssomPoll,
   type CssomPollSource,
   type CssomPollStats,
-} from '../../models/telemetry';
+} from '../../core/telemetry';
 
 export type { CssomPollStats, CssomPollSource };
 
@@ -243,7 +243,10 @@ export class CssomPoller {
         ? emitResyncCssomOps(this.ids, hashed)
         : emitLiveCssomOps(this.ids, this.lastSheetOrder, nextOrder, this.lastRules);
     for (const c of hashed) this.commitSheet(c.sheet as CSSStyleSheet, c.snaps);
-    this.lastSheetOrder = nextOrder.map((c) => ({ sheet: c.sheet, hostNode: c.hostNode }));
+    this.lastSheetOrder = nextOrder.map((c) => ({
+      sheet: c.sheet,
+      hostNode: c.hostNode ?? 0,
+    }));
     return ops;
   }
 
@@ -352,4 +355,4 @@ function styleElementTextHash(sheet: CSSStyleSheet): number | null {
   return fnv1a32(el.textContent ?? '');
 }
 
-export { emptyCssomPollStats } from '../../models/telemetry';
+export { emptyCssomPollStats } from '../../core/telemetry';

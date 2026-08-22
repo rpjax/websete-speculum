@@ -26,6 +26,10 @@ public sealed class PageProjectionIntent
     [Key("targetId")]
     public uint? TargetId { get; init; }
 
+    /// <summary>V4 multi-document browsing context (root = 1).</summary>
+    [Key("contextId")]
+    public uint ContextId { get; init; } = 1;
+
     [Key("timestampClient")]
     public double? TimestampClient { get; init; }
 

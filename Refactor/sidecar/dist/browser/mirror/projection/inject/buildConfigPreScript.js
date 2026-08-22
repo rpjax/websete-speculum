@@ -5,7 +5,7 @@
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.buildConfigPreScript = buildConfigPreScript;
-const projectionConfig_1 = require("../virtual/config/projectionConfig");
+const projectionConfig_1 = require("@speculum/page-projection/virtual/config/projectionConfig");
 /**
  * Returns a JS statement string suitable for `addInitScript` / CDP evaluate-on-new-document,
  * injected **before** the main Virtual bundle.

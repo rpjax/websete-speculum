@@ -11,8 +11,8 @@
  *      `contentDocument`.
  */
 
-import type { TreeNode } from '../models/treeNode';
-import { elementNsSnapshotLabel } from '../models/elementNs';
+import type { TreeNode } from '../treeNode';
+import { elementNsSnapshotLabel } from '../elementNs';
 
 /** `root` defaults to the calling context's own `document` — the case `page.evaluate` needs. */
 export function snapshotTree(root?: Node): TreeNode {

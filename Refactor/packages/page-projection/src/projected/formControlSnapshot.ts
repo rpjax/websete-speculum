@@ -1,6 +1,6 @@
 /** PP-PROP-1 capture of live form properties on a Document (lab client). */
 
-import type { FormControlSnap } from '../models/formControlSnap';
+import type { FormControlSnap } from '../core/formControlSnap';
 
 const SKIP_INPUT_TYPES = new Set(['file', 'button', 'submit', 'reset', 'image']);
 

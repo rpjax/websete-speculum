@@ -22,7 +22,6 @@ export {
   createFrame,
   type AttrPair,
   type EpochResetOp,
-  type StrDefOp,
   type NodeNewOp,
   type InsertOp,
   type RemoveOp,
@@ -66,3 +65,39 @@ export {
   type TelemetryRateChanged,
   type TelemetryTransportDeferred,
 } from './telemetry';
+export {
+  PlaneChannel,
+  planeChannelName,
+  PLANE_MAGIC,
+  PLANE_VERSION,
+  PLANE_HEADER_SIZE,
+  encodePlaneEnvelope,
+  decodePlaneEnvelope,
+  isPlaneEnvelope,
+  type PlaneEnvelope,
+  type DataPlane,
+  type DataPlaneResult,
+  type DataPlaneMessageHandler,
+} from './plane';
+export {
+  INTENT_SCHEMA_VERSION,
+  normalizeDomInput,
+  intentV2ToLegacy,
+  type PageProjectionIntentV2,
+  type DomInputIngress,
+} from './input/intentTypes';
+export { snapshotTree } from './snapshot/domTreeSnapshot';
+export type { TreeNode } from './treeNode';
+export { digestReplicatedTable, tableDigestsEqual, type ReplicatedTableDigest } from './tableDigest';
+export { ReplicatedTable } from './replicatedTable';
+export {
+  applyOpsToTable,
+  applyFrameToTableChecked,
+} from './replicatedTableApply';
+export type { TableLiveOracleResult } from './tableLiveOracle';
+export { compareTableToLiveOrder } from './tableLiveOracle';
+export type { CssomTableLiveOracleResult } from './cssomTableLiveOracle';
+export { compareTableToLiveCssom } from './cssomTableLiveOracle';
+export type { FormControlSnap } from './formControlSnap';
+export { formControlSnapsEqual } from './formControlSnap';
+

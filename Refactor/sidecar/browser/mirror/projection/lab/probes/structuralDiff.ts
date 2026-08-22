@@ -1,12 +1,12 @@
 /**
  * Structural (topology-only) diff between a Virtual snapshot and a Client snapshot —
- * `TreeNode` shapes from `models/treeNode.ts` (produced by `client/domTreeSnapshot.ts` on
- * either side, see `lab/virtualSnapshot.ts` for the Virtual side). One "diff producer"
- * (`kind: 'structural'`) — a future pixel/visual producer can sit next to this one without
- * touching it.
+ * `TreeNode` shapes from `projected/domTreeSnapshot.ts` (Virtual tree via coherent
+ * `flushProjectionSnapshot({ includeTree })` / `snapshotEvaluate`; Projected via client snapshot).
+ * One "diff producer" (`kind: 'structural'`) — a future pixel/visual producer can sit next to
+ * this one without touching it.
  */
 
-import type { TreeNode } from '../../models/treeNode';
+import type { TreeNode } from '@speculum/page-projection/core/treeNode';
 
 export type DivergenceKind =
   | 'tag_mismatch'

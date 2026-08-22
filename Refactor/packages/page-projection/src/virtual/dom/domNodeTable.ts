@@ -6,7 +6,7 @@
 import {
   NONE_DOM_NODE_KEY,
   type DomNodeKey,
-} from '../../models/domNodeKey';
+} from '../../core/domNodeKey';
 
 export { NONE_DOM_NODE_KEY, type DomNodeKey };
 

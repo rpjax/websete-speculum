@@ -29,9 +29,10 @@ The public HTTP mount **`/w7s`** (PathBase + SPA surfaces) and the query param *
 introduce new `DomProjection` mode, stream, or catalog names. `Dom*` stays
 valid for **DOM-plane** types (`DomSelector`, `DomNode`, DOM-plane input).
 
-**PageProjection (algorithm vs lab).** The **algorithm** is the Virtual producer + client apply
-(`Refactor/sidecar/browser/mirror/projection/`, minus `lab/`). The **lab** is a harness that
-calls that algorithm. Do not name the algorithm “lab”.
+**PageProjection (algorithm vs lab).** The **algorithm** lives in the shared package
+`@speculum/page-projection` (`Refactor/packages/page-projection` — `core` / `virtual` /
+`projected`). Sidecar `lab/`, `session/`, and CDP `input/` are **callers**. Do not name the
+algorithm “lab”. Do not put lab harness code inside the package.
 
 **PageProjection off-`childNodes` subtrees.** Two kinds only: **shadow** (same Document, same instance) and **nested browsing context** (new Document). Premise: [page-projection/spec/subtrees.md](page-projection/spec/subtrees.md). Feature 1: [shadow.md](page-projection/spec/shadow.md). Feature 2: [multi-document.md](page-projection/spec/multi-document.md).
 

@@ -9,14 +9,14 @@ import type { FrameBuilder } from './frameBuilder';
 import type { FrameEncoder } from './frameEncoder';
 import type { FrameClock } from '../clock/frameClock';
 import type { FrameTransport } from '../transport/frameTransport';
-import { OpCode } from '../../models/opcodes';
-import { createFrame, spliceCssomBeforeCheck, type Frame, CONTEXT_ID_ROOT } from '../../models/frame';
-import { stampCssomPoll } from '../../models/telemetry';
+import { OpCode } from '../../core/opcodes';
+import { createFrame, spliceCssomBeforeCheck, type Frame, CONTEXT_ID_ROOT } from '../../core/frame';
+import { stampCssomPoll } from '../../core/telemetry';
 import type { MutationBuffer } from '../dom/mutationBuffer';
 import type { ProjectionTelemetry } from '../telemetry/projectionTelemetry';
 import type { CssomScanResult } from '../cssom/cssomPlane';
-import type { ReplicatedTable } from '../../models/replicatedTable';
-import { applyOpsToTable } from '../../models/replicatedTableApply';
+import type { ReplicatedTable } from '../../core/replicatedTable';
+import { applyOpsToTable } from '../../core/replicatedTableApply';
 
 export type FrameTableCensus = {
   generation: number;

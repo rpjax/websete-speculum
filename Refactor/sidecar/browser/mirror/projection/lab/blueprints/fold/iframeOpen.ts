@@ -1,7 +1,7 @@
 import type { LabChassis } from '../../host/chassis';
 import type { LabVerdict } from '../../dossier/types';
 import { foldApplyAttrs } from './applyAttrs';
-import type { IsoJournal } from './iso';
+import { isNestedContextGone, type IsoJournal } from './iso';
 
 function isAboutBlank(href: string): boolean {
   return href === 'about:blank' || href.startsWith('about:blank') || href === '';
@@ -65,18 +65,35 @@ export function foldIframeOpen(chassis: LabChassis): LabVerdict[] {
     });
   }
 
+  // ContextIndex keeps ids forever; last iso is often post-dropHost. Prove nested while live
+  // via nestedEvidence / successful context iso — do not fail because the child is gone now.
+  const nestedProven =
+    (chassis.journal.nestedEvidence?.clientDocs ?? 0) > 0 &&
+    (chassis.journal.nestedEvidence?.treeIdenticalWhileNested === true ||
+      ((chassis.journal.nestedEvidence?.treeDivergencesWhileNested ?? 0) === 0 &&
+        (chassis.journal.nestedEvidence?.virtualDocs ?? 0) > 0));
   const contextIds = chassis.contextIndex.list().filter((id) => id >= 2);
   if (contextIds.length > 0) {
     const contexts = iso?.contexts ?? {};
     for (const id of contextIds) {
       const ctx = contexts[id];
-      const tableOk = ctx?.table?.identical === true;
-      const treeOk = ctx?.structuralDiff?.identical === true;
-      if (!ctx || !tableOk || !treeOk) {
+      if (!ctx || isNestedContextGone(ctx)) {
+        verdicts.push({
+          id: `iso.context.${id}.nested`,
+          status: nestedProven ? 'pass' : 'skipped',
+          reason: nestedProven
+            ? 'nested proven while live; absent after drop'
+            : 'nested context absent (post-drop)',
+        });
+        continue;
+      }
+      const tableOk = ctx.table?.identical === true;
+      const treeOk = ctx.structuralDiff?.identical === true;
+      if (!tableOk || !treeOk) {
         verdicts.push({
           id: `iso.context.${id}.nested`,
           status: 'fail',
-          reason: ctx ? 'table or tree mismatch for nested context' : 'missing iso for nested context',
+          reason: 'table or tree mismatch for nested context',
         });
       } else {
         verdicts.push({

@@ -2,10 +2,46 @@
  * Lab client — Browse + Run (protocol v1).
  */
 
-import { LabProjectionClient } from '../../client/labProjectionClient';
-import { snapshotTree } from '../../client/domTreeSnapshot';
-import { snapshotFormControls } from '../../client/formControlSnapshot';
-import { LAB_TELEMETRY_DEFAULTS, TELEMETRY_BOOL_CAPS } from '../../models/telemetry';
+import { LabProjectedHarness } from './LabProjectedHarness';
+import { attachProjectedInputCapture } from '@speculum/page-projection/projected/input/projectedInputCapture';
+import type { PageProjectionIntentV2 } from '@speculum/page-projection/core/input/intentTypes';
+import { snapshotTree } from '@speculum/page-projection/core/snapshot/domTreeSnapshot';
+import { snapshotFormControls } from '@speculum/page-projection/projected/formControlSnapshot';
+import { peekFrameHeader } from '@speculum/page-projection/core/decode';
+import { LAB_TELEMETRY_DEFAULTS, TELEMETRY_BOOL_CAPS } from '@speculum/page-projection/core/telemetry';
+import { CONTEXT_ID_ROOT } from '@speculum/page-projection/core/frame';
+
+type ContextStreamStats = {
+  wireFrames: number;
+  emitted: number;
+  applyOk: number;
+  applyFail: number;
+  desync: number;
+  resync: number;
+  overrun: number;
+  lastApplyMs: number | null;
+  lastBuildMs: number | null;
+  lastEncodeMs: number | null;
+  lastSequence: number | null;
+  generation: number | null;
+};
+
+function emptyContextStats(): ContextStreamStats {
+  return {
+    wireFrames: 0,
+    emitted: 0,
+    applyOk: 0,
+    applyFail: 0,
+    desync: 0,
+    resync: 0,
+    overrun: 0,
+    lastApplyMs: null,
+    lastBuildMs: null,
+    lastEncodeMs: null,
+    lastSequence: null,
+    generation: null,
+  };
+}
 
 type FixtureEntry = { id: string; path: string; tags?: string[]; notes?: string };
 type BlueprintSummary = {
@@ -116,17 +152,96 @@ function setChip(id: string, text: string, kind?: 'ok' | 'warn' | 'danger' | 'li
 
 export function bootLabClient(): void {
   let ws: WebSocket | null = null;
-  let projection: LabProjectionClient | null = null;
+  let projection: LabProjectedHarness | null = null;
+  const inputDetachers = new Map<number, () => void>();
+  const VIEWPORT = { width: 1280, height: 720 };
+
+  function sendInputIntent(intent: PageProjectionIntentV2): void {
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'client.intent', intent }));
+    }
+  }
+
+  function bindInputSurfaces(client: LabProjectedHarness): void {
+    for (const detach of inputDetachers.values()) detach();
+    inputDetachers.clear();
+
+    // Capture must bind inside the projected document. Listeners on the host
+    // <iframe> never see pointer/keyboard events that fire in contentDocument.
+    // Do not use `instanceof HTMLElement` — iframe realm makes it always false.
+    const rootSurface = client.document.documentElement;
+    if (rootSurface && rootSurface.nodeType === 1) {
+      const detach = attachProjectedInputCapture(rootSurface, client.getLiveRegistry(), sendInputIntent, {
+        contextId: CONTEXT_ID_ROOT,
+        getGeneration: () => client.getGeneration(),
+        getViewportSize: () => VIEWPORT,
+        isArmed: () => client.isArmed,
+        onMarkPropDirty: (id) => client.markPropDirty(id),
+      });
+      inputDetachers.set(CONTEXT_ID_ROOT, detach);
+    }
+
+    client.forEachNestedInputSurface((info) => {
+      const nestedDoc = info.surface.contentDocument;
+      const nestedSurface = nestedDoc?.documentElement;
+      if (!nestedSurface || nestedSurface.nodeType !== 1) return;
+      const detach = attachProjectedInputCapture(nestedSurface, info.registry, sendInputIntent, {
+        contextId: info.contextId,
+        getGeneration: info.getGeneration,
+        getViewportSize: () => {
+          const win = nestedDoc?.defaultView;
+          const w = win?.innerWidth ?? 0;
+          const h = win?.innerHeight ?? 0;
+          return w > 0 && h > 0 ? { width: w, height: h } : VIEWPORT;
+        },
+        isArmed: info.isArmed,
+        onMarkPropDirty: info.markPropDirty,
+      });
+      inputDetachers.set(info.contextId, detach);
+    });
+  }
   let mode: 'browse' | 'run' = 'browse';
   let runInFlight = false;
   let sessionLive = false;
   let sessionId: string | null = null;
   let phase: Phase = 'idle';
-  let frames = 0;
-  let applyOk = 0;
-  let desync = 0;
-  let resyncCount = 0;
   let opsTotal = 0;
+  const byContext = new Map<number, ContextStreamStats>();
+
+  function ctxStats(contextId: number): ContextStreamStats {
+    let row = byContext.get(contextId);
+    if (!row) {
+      row = emptyContextStats();
+      byContext.set(contextId, row);
+    }
+    return row;
+  }
+
+  function observeStreamTelemetry(msg: Record<string, unknown>): void {
+    const kind = typeof msg.kind === 'string' ? msg.kind : '';
+    const ctxId =
+      typeof msg.contextId === 'number' && Number.isInteger(msg.contextId) && msg.contextId >= 1
+        ? msg.contextId
+        : CONTEXT_ID_ROOT;
+    const row = ctxStats(ctxId);
+    if (kind === 'frameEmitted') {
+      row.emitted += 1;
+      if (typeof msg.sequence === 'number') row.lastSequence = msg.sequence;
+      if (typeof msg.generation === 'number') row.generation = msg.generation;
+      if (typeof msg.buildMs === 'number') row.lastBuildMs = msg.buildMs;
+      if (typeof msg.encodeMs === 'number') row.lastEncodeMs = msg.encodeMs;
+    }
+    if (kind === 'applyResult') {
+      const ok = msg.ok === true;
+      if (ok) row.applyOk += 1;
+      else row.applyFail += 1;
+      if (typeof msg.applyMs === 'number') row.lastApplyMs = msg.applyMs;
+      if (typeof msg.sequence === 'number') row.lastSequence = msg.sequence;
+      if (typeof msg.generation === 'number') row.generation = msg.generation;
+    }
+    if (kind === 'desynced' || kind === 'desync') row.desync += 1;
+    if (kind === 'applyOverrun') row.overrun += 1;
+  }
 
   const fixtureSelect = $('fixture') as HTMLSelectElement;
   const urlInput = $('url') as HTMLInputElement;
@@ -275,21 +390,59 @@ export function bootLabClient(): void {
   }
 
   function updateStream(): void {
-    $('streamFrames').textContent = String(frames);
-    $('streamApply').textContent = String(applyOk);
-    $('streamDesync').textContent = String(desync);
-    $('streamResync').textContent = String(resyncCount);
+    const root = ctxStats(CONTEXT_ID_ROOT);
+    $('streamFrames').textContent = String(root.wireFrames);
+    $('streamApply').textContent = String(root.applyOk);
+    $('streamDesync').textContent = String(root.desync);
+    $('streamResync').textContent = String(root.resync);
     $('streamOps').textContent = opsTotal > 0 ? String(opsTotal) : '—';
     if (projection) {
       $('streamSeq').textContent = String(projection.lastAcceptedSequence);
     }
+    if (root.generation !== null) $('streamGen').textContent = String(root.generation);
+    if (root.lastApplyMs !== null) $('streamApplyMs').textContent = root.lastApplyMs.toFixed(1);
+
+    const tbody = $('streamContextBody');
+    tbody.replaceChildren();
+    const ids = [...byContext.keys()].sort((a, b) => a - b);
+    if (ids.length === 0) {
+      const tr = document.createElement('tr');
+      const td = document.createElement('td');
+      td.colSpan = 11;
+      td.className = 'stream-empty';
+      td.textContent = 'No context traffic yet';
+      tr.append(td);
+      tbody.append(tr);
+      return;
+    }
+    for (const id of ids) {
+      const s = byContext.get(id)!;
+      const tr = document.createElement('tr');
+      if (id === CONTEXT_ID_ROOT) tr.className = 'stream-root';
+      const cells = [
+        String(id),
+        String(s.wireFrames),
+        String(s.emitted),
+        String(s.applyOk),
+        s.applyFail > 0 ? String(s.applyFail) : '—',
+        String(s.desync),
+        String(s.resync),
+        s.overrun > 0 ? String(s.overrun) : '—',
+        s.lastSequence !== null ? String(s.lastSequence) : '—',
+        s.lastBuildMs !== null ? s.lastBuildMs.toFixed(1) : '—',
+        s.lastApplyMs !== null ? s.lastApplyMs.toFixed(1) : '—',
+      ];
+      for (const text of cells) {
+        const td = document.createElement('td');
+        td.textContent = text;
+        tr.append(td);
+      }
+      tbody.append(tr);
+    }
   }
 
   function resetStreamCounters(): void {
-    frames = 0;
-    applyOk = 0;
-    desync = 0;
-    resyncCount = 0;
+    byContext.clear();
     opsTotal = 0;
     $('streamGen').textContent = '—';
     $('streamApplyMs').textContent = '—';
@@ -297,37 +450,52 @@ export function bootLabClient(): void {
     updateStream();
   }
 
-  function ensureProjection(): LabProjectionClient {
+  function ensureProjection(): LabProjectedHarness {
     if (projection) return projection;
-    projection = new LabProjectionClient({
+    projection = new LabProjectedHarness({
       surfaceHost,
+      width: VIEWPORT.width,
+      height: VIEWPORT.height,
+      onArmed: () => {
+        bindInputSurfaces(projection!);
+      },
       onTelemetry: (msg) => {
-        const m = msg as { kind?: string; generation?: number; opCount?: number; applyMs?: number };
-        if (m.kind === 'applyResult') {
-          applyOk += 1;
-          if (typeof m.generation === 'number') $('streamGen').textContent = String(m.generation);
-          if (typeof m.opCount === 'number') {
-            opsTotal += m.opCount;
-            $('streamOps').textContent = String(m.opCount);
-          }
-          if (typeof m.applyMs === 'number') $('streamApplyMs').textContent = m.applyMs.toFixed(1);
+        observeStreamTelemetry(msg);
+        const m = msg as { kind?: string; contextId?: number; opCount?: number; ok?: boolean; errorCode?: string };
+        const ctxId = typeof m.contextId === 'number' ? m.contextId : CONTEXT_ID_ROOT;
+        if (m.kind === 'applyResult' && m.ok === true && ctxId !== CONTEXT_ID_ROOT && projection) {
+          bindInputSurfaces(projection);
         }
-        if (m.kind === 'desynced' || m.kind === 'desync') desync += 1;
+        if (m.kind === 'applyResult' && typeof m.opCount === 'number' && ctxId === CONTEXT_ID_ROOT && m.ok === true) {
+          opsTotal += m.opCount;
+          $('streamOps').textContent = String(m.opCount);
+        }
+        if (m.kind === 'desynced' || m.kind === 'desync') {
+          logActivity(
+            ctxId === CONTEXT_ID_ROOT
+              ? `desync ${(msg as { errorCode?: string }).errorCode ?? m.kind}`
+              : `ctx${ctxId} desync ${(msg as { errorCode?: string }).errorCode ?? m.kind}`,
+          );
+        }
         if (ws?.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: 'client.telemetry', message: msg }));
         }
         updateStream();
       },
       onRequestResync: (info) => {
-        resyncCount += 1;
+        const ctxId = info.contextId ?? CONTEXT_ID_ROOT;
+        ctxStats(ctxId).resync += 1;
+        logActivity(
+          ctxId === CONTEXT_ID_ROOT
+            ? `resync requested reason=${info.reason}`
+            : `ctx${ctxId} resync requested reason=${info.reason}`,
+        );
         updateStream();
-        logActivity(`resync requested reason=${info.reason}`);
         if (ws?.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: 'client.requestResync', ...info }));
         }
       },
       onDesync: (reason) => {
-        desync += 1;
         updateStream();
         logActivity(`desync ${reason}`);
       },
@@ -452,8 +620,11 @@ export function bootLabClient(): void {
     ws.addEventListener('message', (ev) => {
       if (typeof ev.data !== 'string') {
         const p = ensureProjection();
-        p.ingest(new Uint8Array(ev.data as ArrayBuffer));
-        frames += 1;
+        const bytes = new Uint8Array(ev.data as ArrayBuffer);
+        const hdr = peekFrameHeader(bytes);
+        const ctxId = hdr && hdr.contextId >= 1 ? hdr.contextId : CONTEXT_ID_ROOT;
+        ctxStats(ctxId).wireFrames += 1;
+        p.ingest(bytes);
         updateStream();
         return;
       }
@@ -461,6 +632,14 @@ export function bootLabClient(): void {
       try {
         msg = JSON.parse(ev.data);
       } catch {
+        return;
+      }
+      if (msg.type === 'telemetry') {
+        const tel = msg.message;
+        if (typeof tel === 'object' && tel !== null) {
+          observeStreamTelemetry(tel as Record<string, unknown>);
+          updateStream();
+        }
         return;
       }
       if (msg.type === 'requestSnapshot') {

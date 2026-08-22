@@ -80,7 +80,7 @@ Kind `SHADOW_ROOT = 7`. Frame **version stays 2**.
 
 Other bits `malformed`. Hashed with `mode`. `INSERT`/`REMOVE` parent may be `SHADOW_ROOT`; ids must not be `SHADOW_ROOT`.
 
-`NODE_META` `SHADOW_HOST` / `SHADOW_CLOSED` / `PIERCE_ROOT` are **dead**. Do not emit them to mean a shadow.
+Shadow uses a **`SHADOW_ROOT` row** ([shadow.md](shadow.md)). Early-draft `NODE_META` shadow flags were never shipped.
 
 ---
 

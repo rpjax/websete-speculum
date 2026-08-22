@@ -31,6 +31,9 @@ import {
 import { DomAssetCache } from './browser/patchright/mirror/dom/DomAssetCache';
 import { runPageProjectionUnitTests } from './browser/patchright/mirror/page/page.unit';
 import { runV4ProjectionSessionUnitTests } from './browser/mirror/projection/session/v4ProjectionSession.unit';
+import { runRelaxCspUnitTests } from './browser/mirror/projection/session/csp/relaxCsp.unit';
+import { runInputIntentTypesUnitTests } from './browser/mirror/projection/input/intentTypes.unit';
+import { runV4InputClickUnitTests } from './browser/mirror/projection/input/v4InputClick.unit';
 import { mapSrcset, parseSrcset } from './browser/patchright/mirror/dom/srcsetParse';
 import { parseDataUrl } from './browser/patchright/mirror/page/parseDataUrl';
 import type { BrowserCookieState } from './browser/BrowserSession';
@@ -50,18 +53,18 @@ import {
   hashValue,
   subMod64,
   TableHashTracker,
-} from './browser/mirror/projection/models/rowHash';
-import { ReplicatedTable } from './browser/mirror/projection/models/replicatedTable';
-import { compareTableToLiveOrder } from './browser/mirror/projection/models/tableLiveOracle';
-import { compareTableToLiveCssom } from './browser/mirror/projection/models/cssomTableLiveOracle';
+} from '@speculum/page-projection/core/rowHash';
+import { ReplicatedTable } from '@speculum/page-projection/core/replicatedTable';
+import { compareTableToLiveOrder } from '@speculum/page-projection/core/tableLiveOracle';
+import { compareTableToLiveCssom } from '@speculum/page-projection/core/cssomTableLiveOracle';
 import {
   applyFrameToTable,
   applyFrameToTableChecked,
   applyOpToTable,
   applyOpsToTable,
-} from './browser/mirror/projection/models/replicatedTableApply';
-import { NodeKind, OpCode } from './browser/mirror/projection/models/opcodes';
-import { ElementNs, ELEMENT_NS_NESTED_HOST_BIT } from './browser/mirror/projection/models/elementNs';
+} from '@speculum/page-projection/core/replicatedTableApply';
+import { NodeKind, OpCode } from '@speculum/page-projection/core/opcodes';
+import { ElementNs, ELEMENT_NS_NESTED_HOST_BIT } from '@speculum/page-projection/core/elementNs';
 import {
   CHECK_SCOPE_RANGE,
   CHECK_SCOPE_TABLE,
@@ -79,15 +82,15 @@ import {
   SHADOW_INIT_FLAGS_MASK,
   SHADOW_INIT_SERIALIZABLE,
   SHADOW_MODE_OPEN,
-} from './browser/mirror/projection/models/frame';
+} from '@speculum/page-projection/core/frame';
 import { diffTrees } from './browser/mirror/projection/lab/probes/structuralDiff';
-import { decodeFramePart, peekFrameHeader, PersistentStringTable } from './browser/mirror/projection/models/decode';
-import { applyFramesUntilDesync } from './browser/mirror/projection/models/applyBatch';
-import { applyAttrPairs } from './browser/mirror/projection/models/attrApply';
-import { planRuleSetApply, ruleAcceptsInPlaceSet } from './browser/mirror/projection/models/cssomRuleSet';
-import { shouldAbortSheet, isRuleSlotLive, MASS_ABORT_STALE_FRACTION } from './browser/mirror/projection/virtual/cssom/cssomWalk';
-import { CssomIds } from './browser/mirror/projection/virtual/cssom/cssomIds';
-import { emitLiveCssomOps, emitResyncCssomOps } from './browser/mirror/projection/virtual/cssom/cssomOps';
+import { decodeFramePart, peekFrameHeader, PersistentStringTable } from '@speculum/page-projection/core/decode';
+import { applyFramesUntilDesync } from '@speculum/page-projection/core/applyBatch';
+import { applyAttrPairs } from '@speculum/page-projection/core/attrApply';
+import { planRuleSetApply, ruleAcceptsInPlaceSet } from '@speculum/page-projection/core/cssomRuleSet';
+import { shouldAbortSheet, isRuleSlotLive, MASS_ABORT_STALE_FRACTION } from '@speculum/page-projection/virtual/cssom/cssomWalk';
+import { CssomIds } from '@speculum/page-projection/virtual/cssom/cssomIds';
+import { emitLiveCssomOps, emitResyncCssomOps } from '@speculum/page-projection/virtual/cssom/cssomOps';
 import {
   CSSOM_POLL_STAT_KEYS,
   TELEMETRY_WIRE_VERSION,
@@ -95,17 +98,17 @@ import {
   emptyCssomPollStats,
   isProjectionTelemetryMessage,
   stampCssomPoll,
-} from './browser/mirror/projection/models/telemetry';
+} from '@speculum/page-projection/core/telemetry';
 import { ContextIndex } from './browser/mirror/projection/lab/host/contextIndex';
-import { digestReplicatedTable } from './browser/mirror/projection/models/tableDigest';
-import { insertIndexFromBefore, orderedSheetIds, orderedRuleIds, matchCssomEndOfFrame, declarationBlockFromRuleText } from './browser/mirror/projection/models/cssomApplyIndex';
-import { BinaryFrameEncoder } from './browser/mirror/projection/virtual/frame/binaryFrameEncoder';
-import { ContextIdMint } from './browser/mirror/projection/models/contextIdMint';
-import { isNestedHostNavAttr } from './browser/mirror/projection/models/nestedNav';
+import { digestReplicatedTable } from '@speculum/page-projection/core/tableDigest';
+import { insertIndexFromBefore, orderedSheetIds, orderedRuleIds, matchCssomEndOfFrame, declarationBlockFromRuleText } from '@speculum/page-projection/core/cssomApplyIndex';
+import { BinaryFrameEncoder } from '@speculum/page-projection/virtual/frame/binaryFrameEncoder';
+import { ContextIdMint } from '@speculum/page-projection/core/contextIdMint';
+import { isNestedHostNavAttr } from '@speculum/page-projection/core/nestedNav';
 import { NodeTableApplier } from './browser/mirror/projection/lab/probes/nodeTableApply';
-import { PROP_ID_CHECKED, PROP_ID_SELECTED, PROP_ID_VALUE } from './browser/mirror/projection/models/propSet';
-import { FormPropDirty } from './browser/mirror/projection/models/formPropDirty';
-import { formControlSnapsEqual } from './browser/mirror/projection/models/formControlSnap';
+import { PROP_ID_CHECKED, PROP_ID_SELECTED, PROP_ID_VALUE } from '@speculum/page-projection/core/propSet';
+import { FormPropDirty } from '@speculum/page-projection/core/formPropDirty';
+import { formControlSnapsEqual } from '@speculum/page-projection/core/formControlSnap';
 import { validateBlueprint } from './browser/mirror/projection/lab/runner/validate';
 import {
   encodeAttrDesyncFrame,
@@ -114,9 +117,9 @@ import {
 } from './browser/mirror/projection/lab/runner/hostileFrames';
 import { runBlueprintSchedule } from './browser/mirror/projection/lab/runner/schedule';
 import type { LabBlueprint } from './browser/mirror/projection/lab/runner/types';
-import { MAX_CHILDREN_PER_OP, MAX_ROWS } from './browser/mirror/projection/models/limits';
-import { fnv1a32 } from './browser/mirror/projection/virtual/cssom/fnv32';
-import { diffRules } from './browser/mirror/projection/virtual/cssom/cssomReconcile';
+import { MAX_CHILDREN_PER_OP, MAX_ROWS } from '@speculum/page-projection/core/limits';
+import { fnv1a32 } from '@speculum/page-projection/virtual/cssom/fnv32';
+import { diffRules } from '@speculum/page-projection/virtual/cssom/cssomReconcile';
 
 /** Test stand-in for Sessions.ViewportPolicy — production gets this on Launch. */
 const POLICY = {
@@ -4176,8 +4179,11 @@ async function main(): Promise<void> {
   testCssomPollTelemetrySchema();
   testProjectionTelemetryV2ContextId();
   testLabContextIndex();
+  runInputIntentTypesUnitTests();
   await runPageProjectionUnitTests();
+  await runRelaxCspUnitTests();
   await runV4ProjectionSessionUnitTests();
+  await runV4InputClickUnitTests();
   console.log('[unit] all passed');
 }
 

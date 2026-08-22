@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Input forms fixture</title>
+  </head>
+  <body>
+    <h1>Input M1b</h1>
+    <label>Name <input id="field" type="text" value="" /></label>
+    <p id="mirror" data-value="">empty</p>
+    <script>
+      const field = document.getElementById('field');
+      const mirror = document.getElementById('mirror');
+      field.addEventListener('input', () => {
+        mirror.textContent = field.value;
+        mirror.setAttribute('data-value', field.value);
+      });
+    </script>
+  </body>
+</html>

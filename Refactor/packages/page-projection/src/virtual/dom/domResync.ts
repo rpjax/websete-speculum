@@ -3,9 +3,9 @@
  * Does not close CHECK, does not touch CSSOM — {@link ../resync.ts} orchestrates the system frame.
  */
 
-import { NodeKind, OpCode } from '../../models/opcodes';
-import { DOCUMENT_ID, INSERT_AT_END, type FrameOp } from '../../models/frame';
-import { NONE_DOM_NODE_KEY, type DomNodeKey } from '../../models/domNodeKey';
+import { NodeKind, OpCode } from '../../core/opcodes';
+import { DOCUMENT_ID, INSERT_AT_END, type FrameOp } from '../../core/frame';
+import { NONE_DOM_NODE_KEY, type DomNodeKey } from '../../core/domNodeKey';
 import type { DomNodeTable } from './domNodeTable';
 import { describeNodeNew, nodeKindOf } from './domNodeDescribe';
 import type { FormPropIndex } from './formPropIndex';
@@ -88,7 +88,8 @@ function pushChildInsert(
   domNodes: DomNodeTable,
 ): void {
   const ids: DomNodeKey[] = [];
-  for (const child of children) {
+  for (let i = 0; i < children.length; i++) {
+    const child = children[i]!;
     const childId = domNodes.keyOf(child);
     if (childId === NONE_DOM_NODE_KEY) continue;
     ids.push(childId);

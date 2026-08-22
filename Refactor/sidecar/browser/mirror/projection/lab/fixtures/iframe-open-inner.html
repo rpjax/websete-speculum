@@ -10,5 +10,14 @@
   </head>
   <body>
     <p id="inner-label">INNER-BOOT</p>
+    <button id="inner-click" type="button">Inner click</button>
+    <p id="inner-status" data-state="idle">idle</p>
+    <script>
+      document.getElementById('inner-click').addEventListener('click', function () {
+        var el = document.getElementById('inner-status');
+        el.textContent = 'clicked';
+        el.setAttribute('data-state', 'clicked');
+      });
+    </script>
   </body>
 </html>

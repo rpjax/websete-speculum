@@ -11,6 +11,7 @@ const node_path_1 = require("node:path");
 class DomElementInput {
     page;
     projection;
+    options;
     /** §6.4 defaults — collapse moves under inject-chain pressure. */
     static INJECT_CHAIN_MAX_DEPTH = 64;
     static INJECT_MOVE_COLLAPSE_AGE_MS = 50;
@@ -23,9 +24,10 @@ class DomElementInput {
     moveFlushEnqueued = false;
     /** Keys that used insertText on keydown — skip matching keyup. */
     insertTextKeys = new Set();
-    constructor(page, projection) {
+    constructor(page, projection, options) {
         this.page = page;
         this.projection = projection;
+        this.options = options;
     }
     async dispatch(event) {
         const type = event.type.trim().toLowerCase();
@@ -137,15 +139,15 @@ class DomElementInput {
             return { status: 'dispatched' };
         }
         if (type === 'keydown' || type === 'keyup') {
-            const reason = await this.dispatchKey(type, event.anchor, payload, event.targetId);
+            const reason = await this.dispatchKey(type, event.anchor, payload, event.targetId, event.contextId);
             return reason ? { status: 'dropped', reason } : { status: 'dispatched' };
         }
         if (type === 'input') {
-            const reason = await this.dispatchInput(event.anchor, payload, event.targetId);
+            const reason = await this.dispatchInput(event.anchor, payload, event.targetId, event.contextId);
             return reason ? { status: 'dropped', reason } : { status: 'dispatched' };
         }
         if (type === 'setfiles') {
-            const reason = await this.dispatchSetFiles(event.anchor, payload, event.targetId);
+            const reason = await this.dispatchSetFiles(event.anchor, payload, event.targetId, event.contextId);
             return reason ? { status: 'dropped', reason } : { status: 'dispatched' };
         }
         if (type === 'scrollviewport') {
@@ -153,15 +155,15 @@ class DomElementInput {
             return { status: 'dispatched' };
         }
         if (type === 'scrollelement') {
-            const reason = await this.dispatchScrollElement(event.anchor, payload, event.targetId);
+            const reason = await this.dispatchScrollElement(event.anchor, payload, event.targetId, event.contextId);
             return reason ? { status: 'dropped', reason } : { status: 'dispatched' };
         }
         if (type === 'focus') {
-            const reason = await this.focusAnchor(event.anchor, event.targetId);
+            const reason = await this.focusAnchor(event.anchor, event.targetId, event.contextId);
             return reason ? { status: 'dropped', reason } : { status: 'dispatched' };
         }
         if (type === 'blur') {
-            const reason = await this.blurAnchor(event.anchor, event.targetId);
+            const reason = await this.blurAnchor(event.anchor, event.targetId, event.contextId);
             return reason ? { status: 'dropped', reason } : { status: 'dispatched' };
         }
         return { status: 'dropped', reason: 'unknown_type' };
@@ -218,9 +220,9 @@ class DomElementInput {
         await this.page.mouse.wheel(deltaX, deltaY);
     }
     /** @returns drop reason or null when CDP work ran / intentional keyup skip after insertText. */
-    async dispatchKey(type, anchor, payload, targetId) {
+    async dispatchKey(type, anchor, payload, targetId, contextId) {
         if (anchor || (targetId && targetId > 0)) {
-            const focusReason = await this.focusAnchor(anchor, targetId);
+            const focusReason = await this.focusAnchor(anchor, targetId, contextId);
             if (focusReason)
                 return focusReason;
         }
@@ -246,8 +248,8 @@ class DomElementInput {
         }
         return null;
     }
-    async dispatchInput(anchor, payload, targetId) {
-        const el = await this.resolveElement(anchor, targetId);
+    async dispatchInput(anchor, payload, targetId, contextId) {
+        const el = await this.resolveElement(anchor, targetId, contextId);
         if (!el)
             return 'anchor_missing';
         try {
@@ -281,8 +283,8 @@ class DomElementInput {
             await el.dispose().catch(() => undefined);
         }
     }
-    async dispatchSetFiles(anchor, payload, targetId) {
-        const el = await this.resolveElement(anchor, targetId);
+    async dispatchSetFiles(anchor, payload, targetId, contextId) {
+        const el = await this.resolveElement(anchor, targetId, contextId);
         if (!el)
             return 'anchor_missing';
         if (!payload.files?.length) {
@@ -345,10 +347,10 @@ class DomElementInput {
             }
         }, { x, y });
     }
-    async dispatchScrollElement(anchor, payload, targetId) {
+    async dispatchScrollElement(anchor, payload, targetId, contextId) {
         const top = Number(payload.scrollTop ?? 0);
         const left = Number(payload.scrollLeft ?? 0);
-        const el = await this.resolveElement(anchor, targetId);
+        const el = await this.resolveElement(anchor, targetId, contextId);
         if (!el)
             return 'anchor_missing';
         try {
@@ -393,8 +395,8 @@ class DomElementInput {
             await el.dispose().catch(() => undefined);
         }
     }
-    async focusAnchor(anchor, targetId) {
-        const el = await this.resolveElement(anchor, targetId);
+    async focusAnchor(anchor, targetId, contextId) {
+        const el = await this.resolveElement(anchor, targetId, contextId);
         if (!el)
             return 'anchor_missing';
         try {
@@ -405,8 +407,8 @@ class DomElementInput {
             await el.dispose().catch(() => undefined);
         }
     }
-    async blurAnchor(anchor, targetId) {
-        const el = await this.resolveElement(anchor, targetId);
+    async blurAnchor(anchor, targetId, contextId) {
+        const el = await this.resolveElement(anchor, targetId, contextId);
         if (!el)
             return 'anchor_missing';
         try {
@@ -425,7 +427,16 @@ class DomElementInput {
      * Prefer uint32 targetId via __speculumPageProjectionV2.reverse map;
      * fall back to deprecated speculum-anchor string for V1 transition.
      */
-    async resolveElement(anchor, targetId) {
+    async resolveElement(anchor, targetId, contextId) {
+        if (targetId && targetId > 0 && this.options?.resolveTarget) {
+            for (let attempt = 0; attempt < 3; attempt++) {
+                const el = await this.options.resolveTarget(targetId, contextId);
+                if (el)
+                    return el;
+                await new Promise((r) => setTimeout(r, 16 * (attempt + 1)));
+            }
+            // miss → fall through to legacy resolve when anchor present
+        }
         if (targetId && targetId > 0) {
             for (let attempt = 0; attempt < 3; attempt++) {
                 for (const frame of this.page.frames()) {

@@ -3,9 +3,9 @@
  * before `virtual.js` runs.
  */
 
-import { PROJECTION_CONFIG_GLOBAL } from '../virtual/config/projectionConfig';
-import type { ProjectionTransportKind } from '../virtual/config/projectionConfig';
-import type { ProjectionTelemetryConfig } from '../models/telemetry';
+import { PROJECTION_CONFIG_GLOBAL } from '@speculum/page-projection/virtual/config/projectionConfig';
+import type { ProjectionTransportKind } from '@speculum/page-projection/virtual/config/projectionConfig';
+import type { ProjectionTelemetryConfig } from '@speculum/page-projection/core/telemetry';
 
 export type ProjectionConfigPreScriptOptions = {
   transport?: ProjectionTransportKind;

@@ -19,9 +19,16 @@ export type DomElementInputEvent = {
   anchor?: string | null;
   /** Redesign §5.11 — uint32 id resolved via IdentitySpace reverse map. */
   targetId?: number | null;
+  /** V4 multi-document — resolve in the producer context carrying this id. */
+  contextId?: number;
   generation?: number;
   timestampClient?: number | null;
   payloadJson?: string;
+};
+
+export type DomElementInputOptions = {
+  /** V4 adapter — when set, used before legacy __speculumPageProjectionV2 resolve. */
+  resolveTarget?: (targetId: number, contextId?: number) => Promise<ElementHandle | null>;
 };
 
 export type DomElementInputOutcome =
@@ -83,6 +90,7 @@ export class DomElementInput {
   constructor(
     private readonly page: Page,
     private readonly projection?: DomProjectionInputHost,
+    private readonly options?: DomElementInputOptions,
   ) {}
 
   async dispatch(event: DomElementInputEvent): Promise<DomElementInputOutcome> {
@@ -205,15 +213,15 @@ export class DomElementInput {
       return { status: 'dispatched' };
     }
     if (type === 'keydown' || type === 'keyup') {
-      const reason = await this.dispatchKey(type, event.anchor, payload, event.targetId);
+      const reason = await this.dispatchKey(type, event.anchor, payload, event.targetId, event.contextId);
       return reason ? { status: 'dropped', reason } : { status: 'dispatched' };
     }
     if (type === 'input') {
-      const reason = await this.dispatchInput(event.anchor, payload, event.targetId);
+      const reason = await this.dispatchInput(event.anchor, payload, event.targetId, event.contextId);
       return reason ? { status: 'dropped', reason } : { status: 'dispatched' };
     }
     if (type === 'setfiles') {
-      const reason = await this.dispatchSetFiles(event.anchor, payload, event.targetId);
+      const reason = await this.dispatchSetFiles(event.anchor, payload, event.targetId, event.contextId);
       return reason ? { status: 'dropped', reason } : { status: 'dispatched' };
     }
     if (type === 'scrollviewport') {
@@ -221,15 +229,15 @@ export class DomElementInput {
       return { status: 'dispatched' };
     }
     if (type === 'scrollelement') {
-      const reason = await this.dispatchScrollElement(event.anchor, payload, event.targetId);
+      const reason = await this.dispatchScrollElement(event.anchor, payload, event.targetId, event.contextId);
       return reason ? { status: 'dropped', reason } : { status: 'dispatched' };
     }
     if (type === 'focus') {
-      const reason = await this.focusAnchor(event.anchor, event.targetId);
+      const reason = await this.focusAnchor(event.anchor, event.targetId, event.contextId);
       return reason ? { status: 'dropped', reason } : { status: 'dispatched' };
     }
     if (type === 'blur') {
-      const reason = await this.blurAnchor(event.anchor, event.targetId);
+      const reason = await this.blurAnchor(event.anchor, event.targetId, event.contextId);
       return reason ? { status: 'dropped', reason } : { status: 'dispatched' };
     }
     return { status: 'dropped', reason: 'unknown_type' };
@@ -294,9 +302,10 @@ export class DomElementInput {
     anchor: string | null | undefined,
     payload: IntentPayload,
     targetId?: number | null,
+    contextId?: number,
   ): Promise<string | null> {
     if (anchor || (targetId && targetId > 0)) {
-      const focusReason = await this.focusAnchor(anchor, targetId);
+      const focusReason = await this.focusAnchor(anchor, targetId, contextId);
       if (focusReason) return focusReason;
     }
     const key = typeof payload.key === 'string' ? payload.key : '';
@@ -324,8 +333,9 @@ export class DomElementInput {
     anchor: string | null | undefined,
     payload: IntentPayload,
     targetId?: number | null,
+    contextId?: number,
   ): Promise<string | null> {
-    const el = await this.resolveElement(anchor, targetId);
+    const el = await this.resolveElement(anchor, targetId, contextId);
     if (!el) return 'anchor_missing';
     try {
       await el.focus();
@@ -368,8 +378,9 @@ export class DomElementInput {
     anchor: string | null | undefined,
     payload: IntentPayload,
     targetId?: number | null,
+    contextId?: number,
   ): Promise<string | null> {
-    const el = await this.resolveElement(anchor, targetId);
+    const el = await this.resolveElement(anchor, targetId, contextId);
     if (!el) return 'anchor_missing';
     if (!payload.files?.length) {
       await el.dispose().catch(() => undefined);
@@ -449,10 +460,11 @@ export class DomElementInput {
     anchor: string | null | undefined,
     payload: IntentPayload,
     targetId?: number | null,
+    contextId?: number,
   ): Promise<string | null> {
     const top = Number(payload.scrollTop ?? 0);
     const left = Number(payload.scrollLeft ?? 0);
-    const el = await this.resolveElement(anchor, targetId);
+    const el = await this.resolveElement(anchor, targetId, contextId);
     if (!el) return 'anchor_missing';
     try {
       await el.evaluate(
@@ -510,8 +522,12 @@ export class DomElementInput {
     }
   }
 
-  private async focusAnchor(anchor: string | null | undefined, targetId?: number | null): Promise<string | null> {
-    const el = await this.resolveElement(anchor, targetId);
+  private async focusAnchor(
+    anchor: string | null | undefined,
+    targetId?: number | null,
+    contextId?: number,
+  ): Promise<string | null> {
+    const el = await this.resolveElement(anchor, targetId, contextId);
     if (!el) return 'anchor_missing';
     try {
       await el.focus();
@@ -521,8 +537,12 @@ export class DomElementInput {
     }
   }
 
-  private async blurAnchor(anchor: string | null | undefined, targetId?: number | null): Promise<string | null> {
-    const el = await this.resolveElement(anchor, targetId);
+  private async blurAnchor(
+    anchor: string | null | undefined,
+    targetId?: number | null,
+    contextId?: number,
+  ): Promise<string | null> {
+    const el = await this.resolveElement(anchor, targetId, contextId);
     if (!el) return 'anchor_missing';
     try {
       await el.evaluate((node) => {
@@ -543,7 +563,16 @@ export class DomElementInput {
   private async resolveElement(
     anchor: string | null | undefined,
     targetId?: number | null,
+    contextId?: number,
   ): Promise<ElementHandle | null> {
+    if (targetId && targetId > 0 && this.options?.resolveTarget) {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const el = await this.options.resolveTarget(targetId, contextId);
+        if (el) return el;
+        await new Promise((r) => setTimeout(r, 16 * (attempt + 1)));
+      }
+      // miss → fall through to legacy resolve when anchor present
+    }
     if (targetId && targetId > 0) {
       for (let attempt = 0; attempt < 3; attempt++) {
         for (const frame of this.page.frames()) {

@@ -1,4 +1,5 @@
 (() => {
+  // Root producer HUD only — nested contexts do not run this fixture script.
   const stage = document.getElementById('stage');
   const box = document.getElementById('box');
   const hud = document.getElementById('hud');

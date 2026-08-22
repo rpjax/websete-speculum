@@ -3,9 +3,9 @@
  */
 
 import type { WebSocket } from 'ws';
-import type { TreeNode } from '../../models/treeNode';
-import type { ReplicatedTableDigest } from '../../models/tableDigest';
-import { LAB_TELEMETRY_DEFAULTS } from '../../models/telemetry';
+import type { TreeNode } from '@speculum/page-projection/core/treeNode';
+import type { ReplicatedTableDigest } from '@speculum/page-projection/core/tableDigest';
+import { LAB_TELEMETRY_DEFAULTS } from '@speculum/page-projection/core/telemetry';
 import { LabChassis, acceptClientTelemetry, type ClientStateSnapshot } from './chassis';
 import { LAB_PROTOCOL_VERSION, parseClientMessage, type LabHostMessage } from './protocol';
 import { loadBlueprint } from '../runner/loadBlueprint';
@@ -279,6 +279,28 @@ export class WsLabConnection {
           reason: msg.reason ?? 'client',
           contextId: typeof msg.contextId === 'number' && msg.contextId > 0 ? msg.contextId : 1,
         });
+        return;
+      }
+      case 'client.intent': {
+        const session = this.chassis.browser;
+        if (!session?.pushDomInput) {
+          this.send({ type: 'error', message: 'pushDomInput unavailable', code: 'input_unavailable' });
+          return;
+        }
+        const intentRaw = msg.intent;
+        if (!intentRaw || typeof intentRaw !== 'object') {
+          this.send({ type: 'error', message: 'client.intent missing intent', code: 'invalid_intent' });
+          return;
+        }
+        void session
+          .pushDomInput(intentRaw as Parameters<NonNullable<typeof session.pushDomInput>>[0])
+          .catch((err: unknown) => {
+            this.send({
+              type: 'error',
+              message: err instanceof Error ? err.message : String(err),
+              code: 'input_dispatch_failed',
+            });
+          });
         return;
       }
       case 'client.snapshotResult': {

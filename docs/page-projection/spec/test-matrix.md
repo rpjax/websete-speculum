@@ -4,7 +4,7 @@
 > `PP-CSSOM-A-*` rows are **open** until asserts land — do not mark PASS.
 > Rows that still say childList/establish/Node-mirror were **re-authored below** to V4 opcodes.
 > `PP-F-4` closed shadow = this slice unsupported; XO iframe = **OPEN-6 remainder** — fail as unsupported, do not fake a pass. Same-origin iframe = lab `iframe-open`.
-> `PP-DEN-1` remains unrun. Budgets: [budgets.md](budgets.md). Oracles: [oracles.md](oracles.md).
+> **`PP-F-5`**, **`PP-MOVE-3`**, **`PP-EST-4`**, **`PP-D16-*`:** not in the **shipped ISA** (frame-protocol §4 lacre 2026-08-20). Parity targets for title/lang/scroll/dialog/media may be pursued via DOM attrs + resync or a future version bump — not open ISA rows in [seal-gaps.md](seal-gaps.md).
 
 # PageProjection — test matrix
 

@@ -3,14 +3,14 @@
  * Author `ownerNode` sheets are excluded (C6 no double-emit — paint via projected DOM).
  */
 
-import { hashValue } from '../../models/rowHash';
-import type { ReplicatedTable } from '../../models/replicatedTable';
+import { hashValue } from '../../core/rowHash';
+import type { ReplicatedTable } from '../../core/replicatedTable';
 import {
   compareTableToLiveCssom,
   emptyCssomTableLiveOracleResult,
   type CssomLiveSheetSnap,
   type CssomTableLiveOracleResult,
-} from '../../models/cssomTableLiveOracle';
+} from '../../core/cssomTableLiveOracle';
 import type { CssomIds } from './cssomIds';
 import { collectCssomPlaneSheets } from './cssomSheetList';
 

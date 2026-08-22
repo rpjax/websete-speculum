@@ -4,18 +4,14 @@
  * Layout matches client `decode.ts`.
  *
  * v0 string policy: every string is encoded as a **frame-local** `StrRef` (bit31 set,
- * low 31 bits = index into this part's string table via `BinaryWriter.str()`). Persistent,
- * session-lived interning (`STR_DEF`, §1.7) is part of the wire format (decodable — see
- * client `decode.ts`) but this producer never emits it yet: interning is a wire-bytes
- * optimization, and the thing this lab increment measures is CPU per operation, not bytes
- * (frame-protocol.md decision log, 2026-08-13, "ISA"). Revisit once a perf pass shows bytes
- * are the binding constraint.
+ * low 31 bits = index into this part's string table via `BinaryWriter.str()`). The header
+ * `strings` block (§2) carries definitions — no `STR_DEF` opcode in the shipped ISA.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.BinaryFrameEncoder = void 0;
-const elementNs_1 = require("../../models/elementNs");
-const opcodes_1 = require("../../models/opcodes");
-const propSet_1 = require("../../models/propSet");
+const elementNs_1 = require("../../core/elementNs");
+const opcodes_1 = require("../../core/opcodes");
+const propSet_1 = require("../../core/propSet");
 const binaryWriter_1 = require("./binaryWriter");
 const LOCAL_STR_BIT = 0x80000000;
 /**
@@ -113,8 +109,6 @@ class BinaryFrameEncoder {
                 return this.writeCheck(w, op);
             case opcodes_1.OpCode.EpochReset:
                 return this.writeEpochReset(w, op);
-            case opcodes_1.OpCode.StrDef:
-                return this.writeStrDef(w, op);
             case opcodes_1.OpCode.NodeNew:
                 return this.writeNodeNew(w, op);
             case opcodes_1.OpCode.NodeDrop:
@@ -158,12 +152,6 @@ class BinaryFrameEncoder {
     writeEpochReset(w, op) {
         w.u8(opcodes_1.OpCode.EpochReset);
         w.u32(op.generation);
-    }
-    /** Persistent `STR_DEF` bytes are raw (this instruction IS the definition), never interned. */
-    writeStrDef(w, op) {
-        w.u8(opcodes_1.OpCode.StrDef);
-        w.u32(op.strId);
-        w.utf8Raw(op.value);
     }
     writeNodeNew(w, op) {
         w.u8(opcodes_1.OpCode.NodeNew);

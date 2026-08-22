@@ -3,7 +3,7 @@
  * Lab and production sessions implement this; Virtual only pushes on DataPlane.
  */
 
-import type { ProjectionTelemetryMessage } from '../../models/telemetry';
+import type { ProjectionTelemetryMessage } from '@speculum/page-projection/core/telemetry';
 
 export type ProjectionTelemetrySink = {
   /**

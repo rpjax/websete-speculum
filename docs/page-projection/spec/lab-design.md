@@ -2,8 +2,8 @@
 
 **Status:** **shipped 2026-08-16.** This file is the architecture of the current lab (chassis, browse vs run, blueprints, dossier). The old lab was deleted the same day.  
 **Audience:** humans and agents working in `Refactor/sidecar/browser/mirror/projection/lab/`.  
-**Does not change:** `BrowserSession` / `V4ProjectionBrowserSession` / Virtual producer / frame protocol.  
-**Does not replace:** [observability.md](observability.md) (probes vs events, coherent snapshot, I10). This file owns **lab product shape**.
+**Does not change:** Virtual producer / frame protocol. Lab adapts to the sealed session contract ([browser-session.md](browser-session.md)); do not invent parallel session APIs.  
+**Does not replace:** [observability.md](observability.md) (probes vs events, state snapshot, I10). This file owns **lab product shape**.
 
 §12 below is **historical** (the cutover plan). Do not start a second lab.
 
@@ -22,8 +22,8 @@ Dev-only instrument to test, validate, debug, observe, and diagnose the PageProj
 
 | Rule | Meaning |
 |------|---------|
-| Lab is a caller | No Chromium/CDP/`page.evaluate` beside `BrowserSession` ([observability.md](observability.md) §1) |
-| Do not modify `BrowserSession` | Chassis adapts to existing contract |
+| Lab is a caller | No Chromium/CDP/`page.evaluate` beside the PP session ([observability.md](observability.md) §1; [browser-session.md](browser-session.md)) |
+| Do not invent session APIs | Chassis adapts to sealed [browser-session.md](browser-session.md) |
 | UI + agents first-class | Same chassis, blueprints, dossier |
 | Session identity | Virtual boot → `sessionId`; all data binds to it |
 | Observe then fold | Events never pass/fail iso (I10) |
@@ -40,7 +40,7 @@ USE CASES:  Browse (free nav, UI)  |  Run (blueprint DAG, UI+CLI)
                 └──────────── same chassis APIs ────────────┘
 CHASSIS: sessionId, boot, telemetry, collectors, dossier, probes
                 │
-     V4ProjectionBrowserSession  (do not edit)
+     PageProjectionBrowserSession  (lab: V4ProjectionBrowserSession until rename)
 ```
 
 ---
@@ -279,7 +279,7 @@ Coverage ≥ old gates; clearer dotted ids; map legacy→new in each fold file.
 
 ### Risks
 
-Finish Browse before deleting old Browse capability; port folds before deleting CSSOM mains; no `BrowserSession` diffs; pointer `report.json` from W2.
+Finish Browse before deleting old Browse capability; port folds before deleting CSSOM mains; follow sealed [browser-session.md](browser-session.md) (do not invent session APIs); pointer `report.json` from W2.
 
 ### Non-goals
 

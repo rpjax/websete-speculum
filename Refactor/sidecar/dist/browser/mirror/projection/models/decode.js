@@ -224,12 +224,6 @@ function decodeOp(opCode, r, resolveStr, persistent) {
                 ids[i] = r.u32();
             return { op: opcodes_1.OpCode.NodeDrop, ids };
         }
-        case opcodes_1.OpCode.StrDef: {
-            const strId = r.u32();
-            const value = r.utf8(r.u32());
-            persistent.define(strId, value);
-            return { op: opcodes_1.OpCode.StrDef, strId, value };
-        }
         case opcodes_1.OpCode.NodeNew: {
             const id = r.u32();
             const kind = r.u8();

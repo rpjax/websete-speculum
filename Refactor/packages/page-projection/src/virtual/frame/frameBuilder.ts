@@ -3,7 +3,7 @@
  * Impl: {@link TableFrameBuilder} in `virtual/dom/` (DOM drain). This folder is the pipe.
  */
 
-import type { Frame } from '../../models/frame';
+import type { Frame } from '../../core/frame';
 
 export type FrameBuilderContext = {
   generation: number;

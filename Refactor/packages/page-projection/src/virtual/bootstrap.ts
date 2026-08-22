@@ -10,12 +10,13 @@ import { readProjectionConfig } from './config/projectionConfig';
 import { MutationBuffer } from './dom/mutationBuffer';
 import { DomMutationObserver } from './dom/domMutationObserver';
 import { DomNodeTable } from './dom/domNodeTable';
-import { DOCUMENT_ID, CONTEXT_ID_ROOT } from '../models/frame';
-import { OpCode } from '../models/opcodes';
-import { ReplicatedTable } from '../models/replicatedTable';
+import { DOCUMENT_ID, CONTEXT_ID_ROOT } from '../core/frame';
+import { OpCode } from '../core/opcodes';
+import { ReplicatedTable } from '../core/replicatedTable';
 import { BinaryFrameEncoder } from './frame/binaryFrameEncoder';
 import { FrameEmitter } from './frame/frameEmitter';
 import { emitResyncFrame, rebuildAndResync, type ResyncPlanes } from './resync';
+import { snapshotTree } from '../core/snapshot/domTreeSnapshot';
 import { takeSnapshot } from './snapshot';
 import { TableFrameBuilder } from './dom/tableFrameBuilder';
 import { FormPropIndex } from './dom/formPropIndex';
@@ -30,10 +31,10 @@ import { BusFrameTransport } from './transport/busFrameTransport';
 import { ProjectionBus } from './bus/projectionBus';
 import { RootRuntime } from './runtime/rootRuntime';
 import { ChildScopeIndex, createMintPort } from './dom/childScopes';
-import type { TableLiveOracleResult } from '../models/tableLiveOracle';
-import type { CssomTableLiveOracleResult } from '../models/cssomTableLiveOracle';
+import type { TableLiveOracleResult } from '../core/tableLiveOracle';
+import type { CssomTableLiveOracleResult } from '../core/cssomTableLiveOracle';
 import { compareTableToLiveDom } from './dom/tableLiveOracle';
-import { PlaneChannel, type DataPlane } from '../plane';
+import { PlaneChannel, type DataPlane } from '../core/plane';
 import type { CssomPollStats } from './cssom/cssomPoller';
 
 declare global {
@@ -231,7 +232,7 @@ void (async () => {
     cssomIds: cssomPoller?.ids ?? null,
     currentSequence: () => frameEmitter.currentSequence,
     flushDom: () => frameEmitter.flushNow(),
-    recordCssomPoll: (stats: import('../models/telemetry').CssomPollStats) => telemetry.recordCssomPoll(stats),
+    recordCssomPoll: (stats: import('../core/telemetry').CssomPollStats) => telemetry.recordCssomPoll(stats),
   };
 
   bus.setSnapshotHandler((opts) => {
@@ -283,6 +284,7 @@ void (async () => {
         String(req.generation),
         String(req.sequence),
       );
+      // Sole resync entry: PlaneChannel.Control → publishResyncRequest (lab, Sessions, runner).
       bus.publishResyncRequest({
         contextId,
         reason: typeof req.reason === 'string' ? req.reason : undefined,
@@ -308,6 +310,11 @@ void (async () => {
   frameEmitter.start();
   telemetry.start();
   cssom.start();
+
+  // Each producer context (root + nested) exposes tree capture for bus snapshot RPC (`includeTree`).
+  (globalThis as { __speculumSnapshot?: { snapshotTree: typeof snapshotTree } }).__speculumSnapshot = {
+    snapshotTree,
+  };
 
   globalThis.__speculumProjection = {
     version: 1,

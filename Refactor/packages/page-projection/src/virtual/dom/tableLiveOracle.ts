@@ -3,10 +3,10 @@
  * Lab-only; called from __speculumProjection.compareTableToLiveDom (not the tick loop).
  */
 
-import { DOCUMENT_ID } from '../../models/frame';
-import { NONE_DOM_NODE_KEY } from '../../models/domNodeKey';
-import { compareTableToLiveOrder, type TableLiveOracleResult } from '../../models/tableLiveOracle';
-import type { ReplicatedTable } from '../../models/replicatedTable';
+import { DOCUMENT_ID } from '../../core/frame';
+import { NONE_DOM_NODE_KEY } from '../../core/domNodeKey';
+import { compareTableToLiveOrder, type TableLiveOracleResult } from '../../core/tableLiveOracle';
+import type { ReplicatedTable } from '../../core/replicatedTable';
 import type { DomNodeTable } from './domNodeTable';
 import { nodeKindOf } from './domNodeDescribe';
 import { admissibleShadowRoot } from './shadowAdmit';

@@ -1,4 +1,6 @@
 "use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.PageProjectionRegistry = void 0;
 /**
  * Client identity registry (frame-protocol.md §1.2, §6). Address space is a bare `u32`
  * mapping 1:1 to the producer's `DomNodeTable` ids. Resolution is O(1): `Map<u32, Node>`
@@ -8,9 +10,6 @@
  * No anchor-attribute / establish-checksum machinery here — that was the Node-mirror
  * resync path (contracts/07-recovery.md), dead and superseded by frame-protocol.md §5.8.
  */
-/// <reference lib="dom" />
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.PageProjectionRegistry = void 0;
 class PageProjectionRegistry {
     nodesById = new Map();
     idsByNode = new WeakMap();
@@ -39,7 +38,11 @@ class PageProjectionRegistry {
             const id = this.idsByNode.get(cur);
             if (id != null)
                 return id;
-            cur = cur.parentNode;
+            cur =
+                cur.parentNode ??
+                    (cur.nodeType === Node.DOCUMENT_FRAGMENT_NODE && cur.host != null
+                        ? cur.host
+                        : null);
         }
         return undefined;
     }
@@ -63,6 +66,11 @@ class PageProjectionRegistry {
             }
             for (const child of Array.from(node.childNodes))
                 stack.push(child);
+            if (node.nodeType === Node.ELEMENT_NODE) {
+                const sr = node.shadowRoot;
+                if (sr)
+                    stack.push(sr);
+            }
         }
     }
     /** Total registered ids — perf/soak signal. */

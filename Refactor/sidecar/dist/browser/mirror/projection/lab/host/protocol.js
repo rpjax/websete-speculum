@@ -24,6 +24,7 @@ function parseClientMessage(raw) {
         case 'client.telemetry':
         case 'client.snapshotResult':
         case 'client.requestResync':
+        case 'client.intent':
         case 'client.tamperResult':
         case 'client.injectResult':
             return msg;

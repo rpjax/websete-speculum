@@ -9,9 +9,9 @@ import {
   CSSOM_SCOPE_PIERCE_HOST,
   INSERT_AT_END,
   type FrameOp,
-} from '../../models/frame';
-import { OpCode } from '../../models/opcodes';
-import { ruleAcceptsInPlaceSet } from '../../models/cssomRuleSet';
+} from '../../core/frame';
+import { OpCode } from '../../core/opcodes';
+import { ruleAcceptsInPlaceSet } from '../../core/cssomRuleSet';
 import type { CssomIds } from './cssomIds';
 import type { RuleSnap } from './cssomReconcile';
 

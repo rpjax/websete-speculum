@@ -110,7 +110,7 @@ export interface BrowserSessionEvents {
    * PageProjection telemetry pushed on the dataplane Telemetry channel (opt-in caps at launch).
    * Off = zero messages.
    */
-  onPageProjectionTelemetry?(message: import('./mirror/projection/models/telemetry').ProjectionTelemetryMessage): void;
+  onPageProjectionTelemetry?(message: import('@speculum/page-projection/core/telemetry').ProjectionTelemetryMessage): void;
 
   // page console (side effects of page scripts / evaluate; not the eval return value)
   onConsole(level: number, text: string): void;
@@ -242,7 +242,7 @@ export interface BrowserLaunchOptions {
    * Default off (zero cost). Lab composition typically passes {@link LAB_TELEMETRY_DEFAULTS}.
    */
   projectionTelemetry?: Partial<
-    import('./mirror/projection/models/telemetry').ProjectionTelemetryConfig
+    import('@speculum/page-projection/core/telemetry').ProjectionTelemetryConfig
   >;
   /** When false, {@link BrowserSession.startCpuProfile} must not enable CDP Profiler. */
   cpuProfiling?: boolean;
@@ -511,9 +511,15 @@ export interface BrowserSession {
     anchor?: string | null;
     /** Redesign §5.11 — uint32 id resolved via IdentitySpace reverse map (V2). */
     targetId?: number | null;
+    /** V2 alias — same as targetId. */
+    nodeId?: number | null;
+    /** V4 multi-document browsing context (default root = 1). */
+    contextId?: number;
     generation?: number;
     timestampClient?: number | null;
     payloadJson?: string;
+    /** V2 alias — same as payloadJson. */
+    payload?: string;
   }): Promise<{ status: 'dispatched' } | { status: 'dropped'; reason: string }>;
 
   /**
@@ -585,24 +591,13 @@ export interface BrowserSession {
     sequence?: number;
     reason?: string;
   }>;
-  snapshotProjectionVirtual?(opts?: { includeTree?: boolean }): Promise<{
-    ok: boolean;
-    generation?: number;
-    sequence?: number;
-    tableSize?: number;
-    tree?: unknown;
-    reason?: string;
-  }>;
-  compareProjectionTableToLiveDom?(): Promise<{
-    ok: boolean;
-    result?: import('./mirror/projection/models/tableLiveOracle').TableLiveOracleResult;
-    reason?: string;
-  }>;
   /**
-   * Coherent Virtual snapshot: `takeRecords` then drain/emit S then O2 + digest + optional tree
-   * in one in-page turn. Stops the producer clock until {@link resumeProjectionWorld}.
+   * Virtual state snapshot at sequence S: takeRecords → emit S → o2/digest/tree in one turn.
+   * Stops the producer clock until {@link resumeProjectionWorld}.
+   * `contextId` defaults to root `1`. Lab multi-context: call once per id.
    */
   flushProjectionSnapshot?(opts?: {
+    contextId?: number;
     includeTree?: boolean;
     cssom?: 'none' | 'committed' | 'scan';
   }): Promise<{
@@ -610,9 +605,9 @@ export interface BrowserSession {
     generation?: number;
     sequence?: number;
     tableSize?: number;
-    o2?: import('./mirror/projection/models/tableLiveOracle').TableLiveOracleResult;
+    o2?: import('@speculum/page-projection/core/tableLiveOracle').TableLiveOracleResult;
     table?: { rowCount: number; tableHash: string };
-    cssomO2?: import('./mirror/projection/models/cssomTableLiveOracle').CssomTableLiveOracleResult | null;
+    cssomO2?: import('@speculum/page-projection/core/cssomTableLiveOracle').CssomTableLiveOracleResult | null;
     nodeNewConnected?: {
       ok: boolean;
       checked: number;
@@ -627,48 +622,9 @@ export interface BrowserSession {
       doublePaint: boolean;
     } | null;
     tree?: unknown;
-    formProps?: import('./mirror/projection/models/formControlSnap').FormControlSnap[];
+    formProps?: import('@speculum/page-projection/core/formControlSnap').FormControlSnap[];
     reason?: string;
   }>;
-  snapshotAllContexts?(
-    contextIds: readonly number[],
-    opts?: {
-      includeTree?: boolean;
-      cssom?: 'none' | 'committed' | 'scan';
-    },
-  ): Promise<
-    Record<
-      number,
-      | {
-          ok: true;
-          value: {
-            contextId: number;
-            generation: number;
-            sequence: number;
-            o2: import('./mirror/projection/models/tableLiveOracle').TableLiveOracleResult;
-            table: { rowCount: number; tableHash: string };
-            cssomO2: import('./mirror/projection/models/cssomTableLiveOracle').CssomTableLiveOracleResult | null;
-            nodeNewConnected: {
-              ok: boolean;
-              checked: number;
-              disconnectedIds: number[];
-            };
-            cascade: {
-              authorColor: string;
-              adoptedColor: string;
-              adoptedCount: number;
-              styleSheetCount: number;
-              styleElCount: number;
-              doublePaint: boolean;
-            } | null;
-            formProps: import('./mirror/projection/models/formControlSnap').FormControlSnap[];
-            tree?: unknown;
-          };
-        }
-      | { ok: false; reason: string }
-    >
-  >;
-  resumeAllContexts?(contextIds: readonly number[]): Promise<{ ok: boolean; reason?: string }>;
   startCpuProfile?(): Promise<{ ok: boolean; reason?: string }>;
   stopCpuProfile?(): Promise<{
     ok: boolean;

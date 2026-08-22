@@ -5,22 +5,22 @@
  * §5.8 names: `emitResyncFrame` (trusted maps) · `resyncVirtual` = {@link rebuildAndResync}.
  */
 
-import { OpCode } from '../models/opcodes';
+import { OpCode } from '../core/opcodes';
 import {
   CHECK_SCOPE_TABLE,
   createFrame,
   spliceCssomBeforeCheck,
   type Frame,
-} from '../models/frame';
-import type { ReplicatedTable } from '../models/replicatedTable';
-import { applyOpsToTable } from '../models/replicatedTableApply';
+} from '../core/frame';
+import type { ReplicatedTable } from '../core/replicatedTable';
+import { applyOpsToTable } from '../core/replicatedTableApply';
 import type { DomNodeTable } from './dom/domNodeTable';
 import { describeDomResync, rebuildDomIdentity } from './dom/domResync';
 import type { FormPropIndex } from './dom/formPropIndex';
 import type { CssomPlane } from './cssom/cssomPlane';
-import { stampCssomPoll, type CssomPollStats } from '../models/telemetry';
+import { stampCssomPoll, type CssomPollStats } from '../core/telemetry';
 import type { ChildScopeIndex } from './dom/childScopes';
-import { CONTEXT_ID_ROOT } from '../models/frame';
+import { CONTEXT_ID_ROOT } from '../core/frame';
 
 export type ResyncPlanes = {
   domNodes: DomNodeTable;

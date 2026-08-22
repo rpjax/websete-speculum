@@ -7,10 +7,10 @@ import {
   decodeFramePart,
   FramePartAssembler,
   PersistentStringTable,
-} from '../../models/decode';
-import { ReplicatedTable } from '../../models/replicatedTable';
-import { applyFrameToTableChecked, type CheckedApplyResult } from '../../models/replicatedTableApply';
-import { digestReplicatedTable, type ReplicatedTableDigest } from '../../models/tableDigest';
+} from '@speculum/page-projection/core/decode';
+import { ReplicatedTable } from '@speculum/page-projection/core/replicatedTable';
+import { applyFrameToTableChecked, type CheckedApplyResult } from '@speculum/page-projection/core/replicatedTableApply';
+import { digestReplicatedTable, type ReplicatedTableDigest } from '@speculum/page-projection/core/tableDigest';
 import type { ClientStateSnapshot } from './isomorphism';
 
 function formatApplyError(result: Extract<CheckedApplyResult, { ok: false }>): string {

@@ -39,8 +39,6 @@ export function applyOpToTable(table: ReplicatedTable, op: FrameOp): void {
     case OpCode.EpochReset:
       table.reset();
       return;
-    case OpCode.StrDef:
-      return;
     case OpCode.NodeNew:
       if (op.kind === NodeKind.Element) table.createElementRow(op.id, op.name, op.attrs, op.ns, op.uri);
       else if (op.kind === NodeKind.Doctype) table.createLeafRow(op.id, op.kind, op.name);

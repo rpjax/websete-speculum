@@ -14,7 +14,7 @@ const chassis_1 = require("../host/chassis");
 const loadBlueprint_1 = require("./loadBlueprint");
 const execute_1 = require("./execute");
 const types_1 = require("../dossier/types");
-const telemetry_1 = require("../../models/telemetry");
+const telemetry_1 = require("@speculum/page-projection/core/telemetry");
 function parseDuration(raw) {
     const m = /^(\d+(?:\.\d+)?)(ms|s|m)?$/i.exec(raw.trim());
     if (!m)

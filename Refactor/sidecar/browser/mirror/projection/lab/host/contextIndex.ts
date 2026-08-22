@@ -2,7 +2,7 @@
  * Lab-only registry of contextId values seen on the wire (OPEN-6 observability).
  */
 
-import { CONTEXT_ID_ROOT } from '../../models/frame';
+import { CONTEXT_ID_ROOT } from '@speculum/page-projection/core/frame';
 
 export type ContextIndexEntry = {
   contextId: number;
@@ -25,6 +25,10 @@ export class ContextIndex {
   observeFrameHeader(hdr: { contextId: number } | null): void {
     if (!hdr || hdr.contextId < 1) return;
     this.observeContext(hdr.contextId);
+  }
+
+  observeTelemetry(message: { contextId: number }): void {
+    if (message.contextId >= 1) this.observeContext(message.contextId);
   }
 
   private observeContext(contextId: number): void {

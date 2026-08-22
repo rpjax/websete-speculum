@@ -71,11 +71,8 @@ logic — but the "nothing to catch up from" framing was wrong and is retracted.
 
 Two replicated structures, both maintained identically on Virtual and client.
 
-OPEN-6 does **not** add a session document table and does **not** put nested identity on the
-element row. Parent context keeps `hosts: Map<nodeId, contextId>` (not hashed into `CHECK`).
-The PP header carries `contextId`. Runtime is once at the root tab; the algorithm installs in
-every `window`. Nested does not open its own sidecar socket — [multi-document.md](multi-document.md).
-Not on the wire yet.
+OPEN-6: session `contextId` on the PP header, child-scope indexer, one bootstrap per `window` —
+[multi-document.md](multi-document.md). **Lab shipped** same-origin iframe 2026-08-19.
 
 ### 1.1 Structures
 
@@ -124,8 +121,7 @@ quirks-mode row.
 | `name` | `StrRef` | `ELEMENT`: tag. `DOCTYPE`: root element name (`"html"`). `SHEET`/`RULE`: unused (`0`) |
 | `value` | `StrRef` | `TEXT`/`COMMENT`: character data. `RULE`: rule text. Otherwise `0` |
 | `attrs` | map `StrRef → StrRef` | `ELEMENT` only |
-| `props` | map `u8 → scalar` | `ELEMENT` only — §4.4 `PROP_SET` |
-| `flags` | `u16` | §4.2 `NODE_META` |
+| `props` | map `u8 → scalar` | `ELEMENT` only — §4.4 `PROP_SET` (`VALUE`, `CHECKED`, `SELECTED`) |
 | `lms` | `u32` | frame `sequence` at which this row was last touched |
 | `rowHash` | `u64` | derived, §1.5 |
 
@@ -156,8 +152,8 @@ tableHash = Σ rowHash   (mod 2^64, over all rows)
 ```
 
 `contentHash` is a commutative combine over the row's content: `ns` (ELEMENT: known `u8`, or hash of
-the custom URI), `name`, `value`, each `(attrName, attrValue)` pair, each `(propId, propValue)` pair,
-and `flags`. `SHADOW_ROOT`: `mode` and `initFlags` are content (`parent` already names the host). Attribute order is not hashed — attribute order is not semantic for rendering, and
+the custom URI), `name`, `value`, each `(attrName, attrValue)` pair, each `(propId, propValue)` pair.
+`SHADOW_ROOT`: `mode` and `initFlags` are content (`parent` already names the host). Attribute order is not hashed — attribute order is not semantic for rendering, and
 commutativity makes `ATTR_SET` order-independent. HTML `<a>` and SVG `<a>` MUST NOT collide. Nested
 `childContextId` on host `NODE_NEW` is child-scope-indexer state, not element content
 ([multi-document.md](multi-document.md)). Not hashed.
@@ -193,8 +189,11 @@ is waste that grows with session length.
 
 | Kind | Lifetime | Defined by |
 |------|----------|------------|
-| **Persistent** | session, until `EPOCH_RESET` | `STR_DEF` (§4.1) |
-| **Frame-local** | one frame | the frame's `strings` array |
+| **Frame-local** | one frame part | the part's header `strings` block (§2) |
+
+**Shipped ISA (lacre):** the producer uses **frame-local** refs only (bit 31 set). Bit 31 clear
+(persistent id) is reserved — no `STR_DEF` opcode ships; a persistent ref without a future version
+defining it is **`malformed`**.
 
 `StrRef` is a `u32`:
 
@@ -206,9 +205,9 @@ is waste that grows with session length.
 The producer interns anything it expects to repeat (tag names, attribute names, class values, URLs)
 and uses frame-local for one-shot content (text node values).
 
-**The string table is append-only and immutable**: once defined, a string id never changes meaning.
-It therefore cannot diverge by mutation. A lost `STR_DEF` is caught the first time an instruction
-references an undefined id — `malformed`, per **P7**. No separate hash is required.
+**The string table is append-only and immutable**: once defined in a part's `strings` block, a
+frame-local index never changes meaning within that part. An instruction that references an undefined
+`StrRef` is **`malformed`**, per **P7**. No separate hash is required.
 
 ### 1.8 Memory budget
 
@@ -260,7 +259,7 @@ arrives. A missing part ⇒ desync. Atomicity is never split. Frame-local string
 | `0x20–0x3F` | table |
 | `0x40–0x5F` | structure |
 | `0x60–0x7F` | node state |
-| `0x80–0x9F` | document / viewport |
+| `0x80–0x9F` | **reserved** — no opcodes shipped in V4 lacre |
 | `0xA0–0xBF` | CSSOM |
 | `0xC0–0xDF` | reserved — resync needs no new opcodes (§5.8 reuses `NODE_NEW`/`INSERT`/`CHECK`/CSSOM ops) |
 | `0xE0–0xFE` | reserved |
@@ -272,7 +271,21 @@ and must fail immediately rather than decode as valid. An opcode in a **reserved
 
 ---
 
-## 4. Instruction set — DECIDED
+## 4. Instruction set — DECIDED (shipped ISA)
+
+**Lacre rule (2026-08-20):** §4 lists **only** opcodes the lab producer emits and the client
+materializes on the happy path. Source of truth: `Refactor/packages/page-projection/src/core/opcodes.ts` (`@speculum/page-projection/core`).
+Reserved ranges (§3) stay for future append-only extension. An opcode byte in `ops` that is **not**
+listed here ⇒ **`version_skew`** if it falls in a reserved range, else **desync** — never
+best-effort apply. Early design drafts (`NODE_META`, `DOC_STATE`, `SCROLL_*`, `NODE_SNAPSHOT`,
+`DOC_ATTACH`, extended `PROP_SET` ids) are **not** part of V4; do not document or implement them
+until a version bump adds them explicitly.
+
+**Shipped opcodes (16):** `CHECK`, `EPOCH_RESET`, `NODE_NEW`, `NODE_DROP`, `INSERT`, `REMOVE`,
+`ATTR_SET`, `ATTR_DEL`, `TEXT_SET`, `PROP_SET`, `SHEET_NEW`, `SHEET_DROP`, `SHEET_ORDER`,
+`RULE_NEW`, `RULE_DROP`, `RULE_SET`.
+
+Strings are **not** defined by a control opcode — they live in each part's header `strings` block (§2).
 
 Notation: `Pre` = preconditions (violation ⇒ `precondition` failure unless stated).
 `Table` = phase-1 effect. `DOM` = phase-2 effect. Every instruction that touches a row sets that
@@ -291,12 +304,7 @@ A frame containing only a `CHECK` is a reconciliation heartbeat.
 `Table`: clears the node table and the persistent string table; id allocation restarts at `2`; row `1`
 is recreated empty. `DOM`: the surface is discarded (a new document buffer is prepared — §6).
 
-**`0x03 STR_DEF`** — `strId: u32, byteLen: u32, bytes: u8[]` · phase 1 · idempotent
-`Pre`: `strId` has bit 31 clear; `strId` is undefined, **or** defined with identical bytes
-(re-definition with different bytes is `malformed`). `byteLen ≤ MAX_STR_BYTES`.
-`Table`: interns the string. `DOM`: none.
-
-**`0x04 NOP`** — no operands · no phase · idempotent
+**`0x03`–`0x1F`:** reserved in the control range (no `STR_DEF` / `NOP` opcode shipped — strings are header-local only, §2).
 
 ### 4.2 Table
 
@@ -324,13 +332,7 @@ is recreated empty. `DOM`: the surface is discarded (a new document buffer is pr
 `Table`: drops each row **and all its descendants** (a detached row may still have children). For an `ELEMENT`, descendants include the light `prevSibling` chain **and** the owned `SHADOW_ROOT` (if any).
 `DOM`: none — the subtree is already detached.
 
-**`0x22 NODE_META`** — `id: u32, flags: u16` · phase 1 · idempotent
-`Pre`: `id` exists.
-`flags`: `PLACEHOLDER`=0x01, `SHADOW_HOST`=0x02, `SHADOW_CLOSED`=0x04, `IFRAME_HOST`=0x08,
-`PIERCE_ROOT`=0x10, `CANVAS_PLACEHOLDER`=0x20.
-**Shadow:** `SHADOW_HOST` / `SHADOW_CLOSED` / `PIERCE_ROOT` are **superseded** ([shadow.md](shadow.md)). Do not emit them to mean a shadow; the root is a `SHADOW_ROOT` row. **`IFRAME_HOST` is not the OPEN-6 machine** — nested identity is the parent `hosts` map filled from host `NODE_NEW`, not a META flag on the element row ([multi-document.md](multi-document.md)). Do not emit `IFRAME_HOST`.
-`Table`: replaces `flags` wholesale (not a bitwise merge — replacement is idempotent).
-`DOM`: reflects the corresponding `speculum-*` marker attributes.
+**`0x22`–`0x3F`:** reserved in the table range.
 
 ### 4.3 Structure
 
@@ -385,56 +387,28 @@ Separate from `ATTR_SET` because **the empty string is a legitimate attribute va
 | `0x01` | `VALUE` | `StrRef` |
 | `0x02` | `CHECKED` | `u8` bool |
 | `0x03` | `SELECTED` | `u8` bool |
-| `0x04` | `DIALOG_MODAL` | `u8` bool |
-| `0x05` | `POPOVER_OPEN` | `u8` bool |
-| `0x06` | `MEDIA_PAUSED` | `u8` bool |
-| `0x07` | `MEDIA_TIME` | `f32` |
-| `0x08` | `MEDIA_MUTED` | `u8` bool |
-| `0x09` | `MEDIA_VOLUME` | `f32` |
-| `0x0A` | `CUSTOM_VALIDITY` | `StrRef` |
+
+Any other `propId` is **`malformed`**.
 
 `Table`: sets `props[propId]` (phase 1 — always). `DOM` (phase 2): applies as a **property**, not an
 attribute — `VALUE` sets `.value`, `CHECKED` sets `.checked`, `SELECTED` sets `.selected` on
 `<option>` — **only if the control is not locally dirty** ([input.md](input.md) §7.2). Dirty: stash
 the latest sample; do not rewind the live field. `CHECK` / `preTableHash` never read the live
-`.value`. `DIALOG_MODAL` calls `showModal()`/`close()`, `POPOVER_OPEN` calls
-`showPopover()`/`hidePopover()`, `CUSTOM_VALIDITY` calls `setCustomValidity()`. Bool operands are
-`u8` `0` or `1`; any other value is `malformed`. `propId` outside this table is `malformed`.
+`.value`. Bool operands are `u8` `0` or `1`; any other value is `malformed`.
 
 Separate from `ATTR_SET` because the live property is the truth (JS `el.value = …` does not update the
 HTML attribute). Do **not** publish this state as `speculum-*` attributes — apply the property
 ([input.md](input.md) §7). Tag/property compatibility is the producer's responsibility and is not
-verified.
+verified. Producer: `formPropIndex` samples membership every tick (§5.9).
 
-**Lab happy path (2026-08-18):** producer emits and client materializes `VALUE` / `CHECKED` /
-`SELECTED` only (§5.9). `0x04`–`0x0A` stay on the ISA ([seal-gaps.md](seal-gaps.md) `PP-D16-*`); this
-cut does not emit them. Decoder still accepts every defined `propId`.
-
-**`0x64 NODE_SNAPSHOT`** — `node: u32, descriptor` · 1+2 · idempotent
-`Pre`: `node` exists; `descriptor` matches the row's `kind`.
-`Table`: replaces the row's entire local state (`name`, `value`, `attrs`, `props`) — topology, `flags`
-and `id` untouched.
-`DOM`: reconciles the node's attributes and value to match.
-This is the **per-node cure path**: emitted when a partial update would be unsafe, so one bad node does
-not desync the session.
+**`0x64`–`0x7F`:** reserved in the node-state range.
 
 ### 4.5 Document / viewport
 
-**`0x80 DOC_STATE`** — `title: StrRef, lang: StrRef, dir: StrRef, viewport: StrRef` · 1+2 · idempotent
-`0` in any field means unchanged.
-`Table`: stored on row `1`. `DOM`: sets `document.title` and the root element's `lang`/`dir`.
-
-**`0x81 SCROLL_VIEWPORT`** — `x: f32, y: f32` · phase 2 · idempotent — absolute position.
-
-**`0x82 SCROLL_ELEMENT`** — `node: u32, top: f32, left: f32` · phase 2 · idempotent
-`Pre`: `node` exists. Absolute position.
-
-Scroll is phase 2 only: it is viewport state, not replicated table state, and is therefore excluded
-from `tableHash`.
-
-**`0x83 DOC_ATTACH`** — `hostId: u32, childDocumentId: u32` · **do not implement for OPEN-6.** Earlier join/router draft. Nested id is the parent `hosts` map, filled from host `NODE_NEW`. [multi-document.md](multi-document.md).
-
-**`0x84 DOC_DETACH`** — `hostId: u32` · **same — do not implement for OPEN-6.** Teardown is host `REMOVE` / inner realm gone.
+**No opcodes shipped.** `0x80`–`0x9F` reserved. Document title, `lang`, `dir`, viewport meta, and
+scroll position are **not** replicated by dedicated ops in V4 lacre — they ride ordinary DOM
+(`ATTR_SET` on `<html>` / `<meta>`, resync, or future version if added). Nested identity is OPEN-6
+host `NODE_NEW`, not `DOC_ATTACH` ([multi-document.md](multi-document.md)).
 
 ### 4.6 CSSOM
 
@@ -874,10 +848,9 @@ The second runs every frame. The first is what catches the producer lying.
 ## 7. Ordering within a frame — DECIDED
 
 1. `EPOCH_RESET` first, if present.
-2. `STR_DEF` before any instruction referencing that string id.
-3. `NODE_NEW` before any instruction referencing that id.
-4. `NODE_DROP` after every `REMOVE` of that node.
-5. `CHECK` verifies the state at the point it appears.
+2. `NODE_NEW` before any instruction referencing that id.
+3. `NODE_DROP` after every `REMOVE` of that node.
+4. `CHECK` verifies the state at the point it appears.
 
 `sequence` belongs to the **frame**. Within a frame, instructions have an **index**, not a sequence.
 Per-instruction sequence would make the instruction the wire unit and discard the frame model.
@@ -948,7 +921,8 @@ Unknown kind remains `malformed`.
 | 2026-08-13 | Foundation | The node table becomes the replicated structure; the DOM on both sides is a projection of it (**P0**). Eliminates the producer-belief failure class structurally rather than by guard. |
 | 2026-08-13 | Execution | Two-phase frame: table then materialization (**P3**). Restores whole-frame validate-then-mutate with no undo log or scratch tree. |
 | 2026-08-13 | Safety | Frame-level `preTableHash` licenses non-idempotent instructions (**P2**). Supersedes the earlier `prevCount` proposal, which verified a proxy (child count) rather than state identity. |
-| 2026-08-13 | Instruction set | 27 opcodes in reserved ranges. No `MOVE`, no `REPLACE` (**P6**). `ATTR_SET`/`ATTR_DEL` split because the empty string is a valid value. `PROP_SET` split from `ATTR_SET` because internal state is published as an attribute but applied as a property. |
+| 2026-08-13 | Instruction set | **16 opcodes shipped** (V4 lacre 2026-08-20). Reserved ranges for append-only extension. No `MOVE`, no `REPLACE` (**P6**). `ATTR_SET`/`ATTR_DEL` split because the empty string is a valid value. `PROP_SET` split from `ATTR_SET` because internal state is published as an attribute but applied as a property. |
+| 2026-08-20 | **ISA lacre** | Spec §4 lists only shipped opcodes (`opcodes.ts`). Early-draft ops removed from normative text (`NODE_META`, `DOC_STATE`, `SCROLL_*`, `NODE_SNAPSHOT`, `DOC_ATTACH`, extended `PROP_SET`). Strings = header `strings` block only. |
 | 2026-08-13 | ISA | A cursor-based instruction machine was considered and **rejected for now**: it optimizes bytes, and the binding constraint is CPU per operation (**E3/E4**). It would also cost frame atomicity, idempotence and telemetry legibility. Reopen only if O3 shows bytes as the active constraint. |
 | 2026-08-13 | Topology | Order is `parent` + `prevSibling`, **not** a positional index. A positional index would renumber and rehash every following sibling on a middle insert — O(n) on exactly the long-list shape live odds produces. `prevSibling` makes every structural edit touch two rows. |
 | 2026-08-13 | Hashing | `rowHash = H64(id, kind, parent, prevSibling, contentHash)`; `tableHash = Σ rowHash mod 2^64`, updated by subtract-old/add-new in O(1). Addition rather than XOR to remove the duplicate-cancellation class. Attribute order is not hashed. |

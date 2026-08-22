@@ -18,7 +18,8 @@ export type ActionKind =
   | 'collect.enable'
   | 'fold'
   | 'writeDossier'
-  | 'injectFrame';
+  | 'injectFrame'
+  | 'pushDomInput';
 
 export type LabAction = {
   id: string;

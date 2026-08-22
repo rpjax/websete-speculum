@@ -1,5 +1,5 @@
 import type { BrowserLaunchOptions } from '../../../BrowserSession';
-import { LAB_TELEMETRY_DEFAULTS } from '../models/telemetry';
+import { LAB_TELEMETRY_DEFAULTS } from '@speculum/page-projection/core/telemetry';
 
 /** Fill Sessions Launch fields the lab/.NET Launch would supply so lab callers stay thin. */
 export function v4LabLaunchOptions(

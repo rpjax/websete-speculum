@@ -5,7 +5,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.reportExitCode = exports.listLabBlueprintSummaries = exports.listLabBlueprints = exports.WsLabConnection = void 0;
 exports.labFixturesManifestPath = labFixturesManifestPath;
-const telemetry_1 = require("../../models/telemetry");
+const telemetry_1 = require("@speculum/page-projection/core/telemetry");
 const chassis_1 = require("./chassis");
 const protocol_1 = require("./protocol");
 const loadBlueprint_1 = require("../runner/loadBlueprint");
@@ -263,6 +263,28 @@ class WsLabConnection {
                     type: 'requestResync',
                     reason: msg.reason ?? 'client',
                     contextId: typeof msg.contextId === 'number' && msg.contextId > 0 ? msg.contextId : 1,
+                });
+                return;
+            }
+            case 'client.intent': {
+                const session = this.chassis.browser;
+                if (!session?.pushDomInput) {
+                    this.send({ type: 'error', message: 'pushDomInput unavailable', code: 'input_unavailable' });
+                    return;
+                }
+                const intentRaw = msg.intent;
+                if (!intentRaw || typeof intentRaw !== 'object') {
+                    this.send({ type: 'error', message: 'client.intent missing intent', code: 'invalid_intent' });
+                    return;
+                }
+                void session
+                    .pushDomInput(intentRaw)
+                    .catch((err) => {
+                    this.send({
+                        type: 'error',
+                        message: err instanceof Error ? err.message : String(err),
+                        code: 'input_dispatch_failed',
+                    });
                 });
                 return;
             }

@@ -50,6 +50,7 @@ export type LabClientMessage =
       }> | null;
     }
   | { type: 'client.requestResync'; reason?: string; contextId?: number }
+  | { type: 'client.intent'; intent: Record<string, unknown> }
   | { type: 'client.tamperResult'; ok: boolean; reason?: string | null }
   | {
       type: 'client.injectResult';
@@ -113,6 +114,7 @@ export function parseClientMessage(raw: unknown): LabClientMessage | { error: st
     case 'client.telemetry':
     case 'client.snapshotResult':
     case 'client.requestResync':
+    case 'client.intent':
     case 'client.tamperResult':
     case 'client.injectResult':
       return msg as LabClientMessage;

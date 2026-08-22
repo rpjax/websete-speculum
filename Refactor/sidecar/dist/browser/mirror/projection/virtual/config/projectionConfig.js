@@ -10,7 +10,7 @@ exports.PROJECTION_CONFIG_GLOBAL = void 0;
 exports.readProjectionConfig = readProjectionConfig;
 exports.getProjectionConfig = getProjectionConfig;
 exports.clearProjectionConfigCache = clearProjectionConfigCache;
-const telemetry_1 = require("../../models/telemetry");
+const telemetry_1 = require("../../core/telemetry");
 exports.PROJECTION_CONFIG_GLOBAL = '__SPECULUM_PROJECTION__';
 const DEFAULTS = {
     transport: 'loopback',

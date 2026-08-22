@@ -1,6 +1,6 @@
 "use strict";
 (() => {
-  // browser/mirror/projection/virtual/clock/timerFrameClock.ts
+  // ../packages/page-projection/src/virtual/clock/timerFrameClock.ts
   var FRAME_RATE_LADDER = [60, 30, 15, 5];
   var DEFAULTS = {
     frameRateHz: 60,
@@ -138,11 +138,10 @@
     }
   };
 
-  // browser/mirror/projection/models/opcodes.ts
+  // ../packages/page-projection/src/core/opcodes.ts
   var NAMES = {
     [1 /* Check */]: "check",
     [2 /* EpochReset */]: "epochReset",
-    [3 /* StrDef */]: "strDef",
     [32 /* NodeNew */]: "nodeNew",
     [33 /* NodeDrop */]: "nodeDrop",
     [64 /* Insert */]: "insert",
@@ -162,7 +161,7 @@
     return NAMES[code] ?? `unknown(${code})`;
   }
 
-  // browser/mirror/projection/models/telemetry.ts
+  // ../packages/page-projection/src/core/telemetry.ts
   var TELEMETRY_WIRE_VERSION = 2;
   var DEFAULT_TELEMETRY_CONFIG = {
     enabled: false,
@@ -260,7 +259,7 @@
     return { ...stats, ...patch };
   }
 
-  // browser/mirror/projection/virtual/config/projectionConfig.ts
+  // ../packages/page-projection/src/virtual/config/projectionConfig.ts
   var PROJECTION_CONFIG_GLOBAL = "__SPECULUM_PROJECTION__";
   var DEFAULTS2 = {
     transport: "loopback",
@@ -349,7 +348,7 @@
     return cached;
   }
 
-  // browser/mirror/projection/virtual/dom/mutationBuffer.ts
+  // ../packages/page-projection/src/virtual/dom/mutationBuffer.ts
   var MutationBuffer = class {
     records = [];
     push(batch) {
@@ -372,7 +371,7 @@
     }
   };
 
-  // browser/mirror/projection/virtual/dom/domMutationObserver.ts
+  // ../packages/page-projection/src/virtual/dom/domMutationObserver.ts
   var OBSERVE_OPTIONS = {
     subtree: true,
     childList: true,
@@ -447,10 +446,10 @@
     }
   };
 
-  // browser/mirror/projection/models/domNodeKey.ts
+  // ../packages/page-projection/src/core/domNodeKey.ts
   var NONE_DOM_NODE_KEY = 0;
 
-  // browser/mirror/projection/virtual/dom/domNodeTable.ts
+  // ../packages/page-projection/src/virtual/dom/domNodeTable.ts
   var DomNodeTable = class {
     byNode = /* @__PURE__ */ new WeakMap();
     byKey = /* @__PURE__ */ new Map();
@@ -564,7 +563,7 @@
     }
   };
 
-  // browser/mirror/projection/models/frame.ts
+  // ../packages/page-projection/src/core/frame.ts
   var FRAME_WIRE_VERSION = 2;
   var FRAME_PREFIX_BYTES = 2 + 1 + 1 + 4 + 4 + 4 + 2 + 2 + 8;
   var DOCUMENT_ID = 1;
@@ -599,7 +598,7 @@
     return [...ops, ...cssom];
   }
 
-  // browser/mirror/projection/models/elementNs.ts
+  // ../packages/page-projection/src/core/elementNs.ts
   var ELEMENT_NS_NESTED_HOST_BIT = 128;
   function packElementNsWireByte(ns, nestedHost) {
     if (ns > 4 /* Custom */) {
@@ -634,8 +633,23 @@
     if (namespaceURI === ELEMENT_NS_MATHML) return { ns: 2 /* Mathml */ };
     return { ns: 4 /* Custom */, uri: namespaceURI };
   }
+  function elementNsSnapshotLabel(namespaceURI) {
+    const { ns, uri } = classifyElementNs(namespaceURI);
+    switch (ns) {
+      case 0 /* Html */:
+        return void 0;
+      case 1 /* Svg */:
+        return "svg";
+      case 2 /* Mathml */:
+        return "mathml";
+      case 3 /* None */:
+        return "none";
+      case 4 /* Custom */:
+        return uri;
+    }
+  }
 
-  // browser/mirror/projection/models/rowHash.ts
+  // ../packages/page-projection/src/core/rowHash.ts
   var FNV_OFFSET_BASIS = 14695981039346656037n;
   var FNV_PRIME = 1099511628211n;
   var MASK64 = 0xffffffffffffffffn;
@@ -729,7 +743,7 @@
     }
   };
 
-  // browser/mirror/projection/models/replicatedTable.ts
+  // ../packages/page-projection/src/core/replicatedTable.ts
   var NONE = 0;
   var ReplicatedTable = class {
     rows = /* @__PURE__ */ new Map();
@@ -1070,32 +1084,17 @@
     }
   };
 
-  // browser/mirror/projection/models/propSet.ts
+  // ../packages/page-projection/src/core/propSet.ts
   var PROP_ID_VALUE = 1;
   var PROP_ID_CHECKED = 2;
   var PROP_ID_SELECTED = 3;
-  var PROP_ID_DIALOG_MODAL = 4;
-  var PROP_ID_POPOVER_OPEN = 5;
-  var PROP_ID_MEDIA_PAUSED = 6;
-  var PROP_ID_MEDIA_TIME = 7;
-  var PROP_ID_MEDIA_MUTED = 8;
-  var PROP_ID_MEDIA_VOLUME = 9;
-  var PROP_ID_CUSTOM_VALIDITY = 10;
   function propValueKind(propId) {
     switch (propId) {
       case PROP_ID_VALUE:
-      case PROP_ID_CUSTOM_VALIDITY:
         return "str";
       case PROP_ID_CHECKED:
       case PROP_ID_SELECTED:
-      case PROP_ID_DIALOG_MODAL:
-      case PROP_ID_POPOVER_OPEN:
-      case PROP_ID_MEDIA_PAUSED:
-      case PROP_ID_MEDIA_MUTED:
         return "bool";
-      case PROP_ID_MEDIA_TIME:
-      case PROP_ID_MEDIA_VOLUME:
-        return "f32";
       default:
         return null;
     }
@@ -1104,7 +1103,7 @@
     return a === b;
   }
 
-  // browser/mirror/projection/virtual/frame/binaryWriter.ts
+  // ../packages/page-projection/src/virtual/frame/binaryWriter.ts
   var BinaryWriter = class {
     buf;
     view;
@@ -1243,7 +1242,7 @@
     return out;
   }
 
-  // browser/mirror/projection/virtual/frame/binaryFrameEncoder.ts
+  // ../packages/page-projection/src/virtual/frame/binaryFrameEncoder.ts
   var LOCAL_STR_BIT = 2147483648;
   var DEBUG_FIRST_FRAME_BYTES = false;
   var DEFAULT_MAX_FRAME_BYTES = 1 << 20;
@@ -1326,8 +1325,6 @@
           return this.writeCheck(w, op);
         case 2 /* EpochReset */:
           return this.writeEpochReset(w, op);
-        case 3 /* StrDef */:
-          return this.writeStrDef(w, op);
         case 32 /* NodeNew */:
           return this.writeNodeNew(w, op);
         case 33 /* NodeDrop */:
@@ -1371,12 +1368,6 @@
     writeEpochReset(w, op) {
       w.u8(2 /* EpochReset */);
       w.u32(op.generation);
-    }
-    /** Persistent `STR_DEF` bytes are raw (this instruction IS the definition), never interned. */
-    writeStrDef(w, op) {
-      w.u8(3 /* StrDef */);
-      w.u32(op.strId);
-      w.utf8Raw(op.value);
     }
     writeNodeNew(w, op) {
       w.u8(32 /* NodeNew */);
@@ -1502,21 +1493,19 @@
     }
   };
 
-  // browser/mirror/projection/models/limits.ts
+  // ../packages/page-projection/src/core/limits.ts
   var MAX_STR_BYTES = 1 << 20;
   var MAX_DIRTY_NODES = 2e4;
   var NODE_DROP_AGE_SEQUENCES = 20;
   var MAX_NODE_DROPS_PER_SWEEP = 500;
 
-  // browser/mirror/projection/models/replicatedTableApply.ts
+  // ../packages/page-projection/src/core/replicatedTableApply.ts
   function applyOpToTable(table, op) {
     switch (op.op) {
       case 1 /* Check */:
         return;
       case 2 /* EpochReset */:
         table.reset();
-        return;
-      case 3 /* StrDef */:
         return;
       case 32 /* NodeNew */:
         if (op.kind === 1 /* Element */) table.createElementRow(op.id, op.name, op.attrs, op.ns, op.uri);
@@ -1592,7 +1581,7 @@
     for (let i = 0; i < ops.length; i++) applyOpToTable(table, ops[i]);
   }
 
-  // browser/mirror/projection/virtual/frame/frameEmitter.ts
+  // ../packages/page-projection/src/virtual/frame/frameEmitter.ts
   var IDLE_SWEEP_INTERVAL_TICKS = 30;
   var FrameEmitter = class {
     clock;
@@ -1800,7 +1789,7 @@
     }
   };
 
-  // browser/mirror/projection/virtual/dom/shadowAdmit.ts
+  // ../packages/page-projection/src/virtual/dom/shadowAdmit.ts
   function admissibleShadowRoot(el) {
     const sr = el.shadowRoot;
     if (sr == null) return null;
@@ -1833,7 +1822,7 @@
     return out;
   }
 
-  // browser/mirror/projection/virtual/dom/domNodeDescribe.ts
+  // ../packages/page-projection/src/virtual/dom/domNodeDescribe.ts
   function nodeKindOf(node) {
     if (node instanceof ShadowRoot) return 7 /* ShadowRoot */;
     switch (node.nodeType) {
@@ -1890,7 +1879,7 @@
     return { op: 32 /* NodeNew */, id, kind, value: node.textContent ?? "" };
   }
 
-  // browser/mirror/projection/virtual/dom/domResync.ts
+  // ../packages/page-projection/src/virtual/dom/domResync.ts
   function rebuildDomIdentity(domNodes, root = document) {
     domNodes.resetIdentity();
     domNodes.bind(root, DOCUMENT_ID);
@@ -1941,7 +1930,8 @@
   }
   function pushChildInsert(ops, parent, children, domNodes) {
     const ids = [];
-    for (const child of children) {
+    for (let i = 0; i < children.length; i++) {
+      const child = children[i];
       const childId = domNodes.keyOf(child);
       if (childId === NONE_DOM_NODE_KEY) continue;
       ids.push(childId);
@@ -1964,7 +1954,7 @@
     }
   }
 
-  // browser/mirror/projection/virtual/resync.ts
+  // ../packages/page-projection/src/virtual/resync.ts
   function emitResyncFrame(planes, sequence) {
     const { domNodes, table, cssom, formIndex, childScopes, contextId } = planes;
     const generation = domNodes.generation;
@@ -2004,12 +1994,72 @@
     return emitResyncFrame(planes, sequence);
   }
 
-  // browser/mirror/projection/models/tableDigest.ts
+  // ../packages/page-projection/src/core/snapshot/domTreeSnapshot.ts
+  function snapshotTree(root) {
+    return walkNode(root ?? document);
+  }
+  function walkNode(node) {
+    switch (node.nodeType) {
+      case 9:
+        return { tag: "#document", children: mapChildren(node) };
+      case 10: {
+        const dt = node;
+        return { tag: "#doctype", text: dt.name };
+      }
+      case 1: {
+        const el = node;
+        const attrs = [];
+        const host = el.contentWindow != null;
+        for (let i = 0; i < el.attributes.length; i++) {
+          const a = el.attributes[i];
+          if (host && (a.name === "src" || a.name === "srcdoc")) continue;
+          attrs.push([a.name, a.value]);
+        }
+        attrs.sort((x, y) => x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : 0);
+        const result = { tag: el.tagName.toLowerCase() };
+        const ns = elementNsSnapshotLabel(el.namespaceURI);
+        if (ns !== void 0) result.ns = ns;
+        if (attrs.length > 0) result.attrs = attrs;
+        const children = mapChildren(node);
+        if (children.length > 0) result.children = children;
+        const sr = el.shadowRoot;
+        if (sr !== null && sr.mode === "open" && sr.slotAssignment !== "manual") {
+          const shadowKids = mapChildren(sr);
+          result.shadow = { tag: "#shadow-root", ...shadowKids.length > 0 ? { children: shadowKids } : {} };
+        }
+        if (host) {
+          try {
+            const iframe = el;
+            const win = iframe.contentWindow;
+            if (win) result.frameHref = win.location.href;
+            const inner = iframe.contentDocument;
+            if (inner) result.nested = walkNode(inner);
+          } catch {
+          }
+        }
+        return result;
+      }
+      case 3:
+        return { tag: "#text", text: node.textContent ?? "" };
+      case 8:
+        return { tag: "#comment", text: node.textContent ?? "" };
+      default:
+        return { tag: `#unknown(${node.nodeType})` };
+    }
+  }
+  function mapChildren(node) {
+    const out = [];
+    const children = node.childNodes;
+    for (let i = 0; i < children.length; i++) out.push(walkNode(children[i]));
+    return out;
+  }
+
+  // ../packages/page-projection/src/core/tableDigest.ts
   function digestReplicatedTable(table) {
     return { rowCount: table.size, tableHash: table.tableHash.toString() };
   }
 
-  // browser/mirror/projection/models/tableLiveOracle.ts
+  // ../packages/page-projection/src/core/tableLiveOracle.ts
   var MAX_DIVERGENCES = 50;
   var NONE2 = 0;
   function isSkippedKind(kind) {
@@ -2080,7 +2130,7 @@
     return { kind: "table_live", identical: count === 0, divergenceCount: count, divergences };
   }
 
-  // browser/mirror/projection/virtual/dom/tableLiveOracle.ts
+  // ../packages/page-projection/src/virtual/dom/tableLiveOracle.ts
   function compareTableToLiveDom(table, domNodes, root) {
     const liveChildren = /* @__PURE__ */ new Map();
     const visit = (node, id) => {
@@ -2123,7 +2173,7 @@
     };
   }
 
-  // browser/mirror/projection/models/cssomTableLiveOracle.ts
+  // ../packages/page-projection/src/core/cssomTableLiveOracle.ts
   var MAX_DIVERGENCES2 = 50;
   function idsEqual2(a, b) {
     if (a.length !== b.length) return false;
@@ -2221,7 +2271,7 @@
     return { kind: "cssom_table_live", identical: count === 0, divergenceCount: count, divergences };
   }
 
-  // browser/mirror/projection/virtual/cssom/cssomSheetList.ts
+  // ../packages/page-projection/src/virtual/cssom/cssomSheetList.ts
   function pushAdopted(out, adopted, hostNode) {
     if (!adopted) return;
     for (let i = 0; i < adopted.length; i++) {
@@ -2244,7 +2294,7 @@
     return out;
   }
 
-  // browser/mirror/projection/virtual/cssom/cssomTableLiveOracle.ts
+  // ../packages/page-projection/src/virtual/cssom/cssomTableLiveOracle.ts
   function compareTableToLiveCssomDom(table, ids, doc = document, hostIdOf) {
     if (ids === null) return emptyCssomTableLiveOracleResult();
     const liveSheets = [];
@@ -2281,7 +2331,7 @@
     }
   }
 
-  // browser/mirror/projection/virtual/dom/formPropIndex.ts
+  // ../packages/page-projection/src/virtual/dom/formPropIndex.ts
   var SKIP_INPUT_TYPES = /* @__PURE__ */ new Set(["file", "button", "submit", "reset", "image"]);
   function classifyFormControl(node) {
     if (!(node instanceof Element)) return null;
@@ -2371,7 +2421,7 @@
     return null;
   }
 
-  // browser/mirror/projection/virtual/snapshot.ts
+  // ../packages/page-projection/src/virtual/snapshot.ts
   function probeNodeNewConnected(ops, domNodes) {
     const disconnectedIds = [];
     let checked = 0;
@@ -2463,7 +2513,7 @@
     };
   }
 
-  // browser/mirror/projection/virtual/dom/tableFrameBuilder.ts
+  // ../packages/page-projection/src/virtual/dom/tableFrameBuilder.ts
   var EMPTY_OP_COUNTS = {};
   var TableFrameBuilder = class {
     domNodes;
@@ -2812,7 +2862,7 @@
     }
   };
 
-  // browser/mirror/projection/virtual/cssom/cssomIds.ts
+  // ../packages/page-projection/src/virtual/cssom/cssomIds.ts
   var ID_SPACE_MAX = 4294967295;
   function standaloneMintState() {
     return { next: 2 };
@@ -2860,7 +2910,7 @@
     }
   };
 
-  // browser/mirror/projection/virtual/cssom/cssomReconcile.ts
+  // ../packages/page-projection/src/virtual/cssom/cssomReconcile.ts
   function diffRules(prev, next) {
     const prevHash = /* @__PURE__ */ new Map();
     for (const r of prev) prevHash.set(r.key, r.contentHash);
@@ -2889,7 +2939,7 @@
     return { ruleListChanged, rulesAppeared, rulesDisappeared, rulesTextChangedInPlace };
   }
 
-  // browser/mirror/projection/virtual/cssom/fnv32.ts
+  // ../packages/page-projection/src/virtual/cssom/fnv32.ts
   var OFFSET = 2166136261;
   var PRIME = 16777619;
   function fnv1a32(text) {
@@ -2901,12 +2951,12 @@
     return h >>> 0;
   }
 
-  // browser/mirror/projection/models/cssomRuleSet.ts
+  // ../packages/page-projection/src/core/cssomRuleSet.ts
   function ruleAcceptsInPlaceSet(rule) {
     return rule.constructor.name === "CSSStyleRule";
   }
 
-  // browser/mirror/projection/virtual/cssom/cssomOps.ts
+  // ../packages/page-projection/src/virtual/cssom/cssomOps.ts
   function emitResyncCssomOps(ids, sheets) {
     const ops = [];
     const idsByHost = /* @__PURE__ */ new Map();
@@ -3056,7 +3106,7 @@
     return true;
   }
 
-  // browser/mirror/projection/virtual/cssom/cssomWalk.ts
+  // ../packages/page-projection/src/virtual/cssom/cssomWalk.ts
   var MASS_ABORT_STALE_FRACTION = 0.9;
   var MASS_ABORT_LENGTH_LO = 0.1;
   var MASS_ABORT_LENGTH_HI = 2;
@@ -3088,7 +3138,7 @@
     return false;
   }
 
-  // browser/mirror/projection/virtual/cssom/cssomPoller.ts
+  // ../packages/page-projection/src/virtual/cssom/cssomPoller.ts
   var CssomPoller = class {
     lastRules = /* @__PURE__ */ new WeakMap();
     lastStyleTagTextHash = /* @__PURE__ */ new WeakMap();
@@ -3253,7 +3303,10 @@
       }
       const ops = mode === "resync" ? emitResyncCssomOps(this.ids, hashed) : emitLiveCssomOps(this.ids, this.lastSheetOrder, nextOrder, this.lastRules);
       for (const c of hashed) this.commitSheet(c.sheet, c.snaps);
-      this.lastSheetOrder = nextOrder.map((c) => ({ sheet: c.sheet, hostNode: c.hostNode }));
+      this.lastSheetOrder = nextOrder.map((c) => ({
+        sheet: c.sheet,
+        hostNode: c.hostNode ?? 0
+      }));
       return ops;
     }
     /**
@@ -3353,7 +3406,7 @@
     return fnv1a32(el.textContent ?? "");
   }
 
-  // browser/mirror/projection/virtual/cssom/cssomIdleScheduler.ts
+  // ../packages/page-projection/src/virtual/cssom/cssomIdleScheduler.ts
   var SLICE_FLOOR_MS = 1;
   var CssomIdleScheduler = class {
     enabled = true;
@@ -3498,7 +3551,7 @@
     }
   };
 
-  // browser/mirror/projection/virtual/cssom/cssomPlane.ts
+  // ../packages/page-projection/src/virtual/cssom/cssomPlane.ts
   function disabledCssomPlane() {
     return {
       enabled: false,
@@ -3515,7 +3568,7 @@
     };
   }
 
-  // browser/mirror/projection/plane/envelope.ts
+  // ../packages/page-projection/src/core/plane/envelope.ts
   var PLANE_MAGIC = 20563;
   var PLANE_VERSION = 1;
   var PLANE_HEADER_SIZE = 5;
@@ -3543,7 +3596,7 @@
     };
   }
 
-  // browser/mirror/projection/virtual/telemetry/projectionTelemetry.ts
+  // ../packages/page-projection/src/virtual/telemetry/projectionTelemetry.ts
   var ProjectionTelemetry = class {
     config;
     dataPlane;
@@ -3719,7 +3772,7 @@
     }
   };
 
-  // browser/mirror/projection/virtual/transport/busFrameTransport.ts
+  // ../packages/page-projection/src/virtual/transport/busFrameTransport.ts
   var BusFrameTransport = class {
     constructor(bus) {
       this.bus = bus;
@@ -3730,7 +3783,7 @@
     }
   };
 
-  // browser/mirror/projection/virtual/bus/projectionBus.ts
+  // ../packages/page-projection/src/virtual/bus/projectionBus.ts
   var PROJECTION_BUS_CHANNEL = "speculum.projection.bus";
   function isEnvelope(data) {
     if (typeof data !== "object" || data === null) return false;
@@ -3746,7 +3799,6 @@
     parent;
     mintFn;
     emitFrameFn;
-    sendSidecarResync;
     corr = 1;
     pending = /* @__PURE__ */ new Map();
     forward = /* @__PURE__ */ new Map();
@@ -3765,7 +3817,6 @@
       this.parent = opts.parent ?? null;
       this.mintFn = opts.mint ?? null;
       this.emitFrameFn = opts.emitFrame ?? null;
-      this.sendSidecarResync = opts.sendSidecarResync ?? null;
       this.win.addEventListener("message", this.onMessage);
     }
     setMine(contextId) {
@@ -3807,22 +3858,6 @@
         kind: "loose",
         type: "frame",
         bytes: bytes.slice().buffer
-      });
-    }
-    emitResyncRequest(req) {
-      if (this.sendSidecarResync) {
-        this.sendSidecarResync(req);
-        this.dispatchResync(req);
-        return;
-      }
-      this.postToParent({
-        channel: PROJECTION_BUS_CHANNEL,
-        kind: "loose",
-        type: "resyncRequest",
-        contextId: req.contextId,
-        reason: req.reason,
-        generation: req.generation,
-        sequence: req.sequence
       });
     }
     emitTelemetry(message) {
@@ -3879,6 +3914,7 @@
       this.dispatchFrame(bytes);
       this.fanoutFrame(bytes);
     }
+    /** After Control plane `requestResync` — local listeners + nested producer fan-out only. */
     publishResyncRequest(req) {
       this.dispatchResync(req);
       this.fanoutResync(req);
@@ -4084,23 +4120,16 @@
         this.postToParent(env);
         return;
       }
+      if (env.type !== "resyncRequest") return;
+      if (event.source !== this.parent) return;
       const req = {
         contextId: env.contextId,
         reason: env.reason,
         generation: env.generation,
         sequence: env.sequence
       };
-      if (event.source === this.parent) {
-        this.dispatchResync(req);
-        this.fanoutResync(req);
-        return;
-      }
-      if (this.sendSidecarResync) {
-        this.sendSidecarResync(req);
-        this.dispatchResync(req);
-        return;
-      }
-      this.postToParent(env);
+      this.dispatchResync(req);
+      this.fanoutResync(req);
     }
     async handleControl(env, event) {
       if (env.type === "response") {
@@ -4396,7 +4425,7 @@
     }
   };
 
-  // browser/mirror/projection/virtual/transport/consoleFrameTransport.ts
+  // ../packages/page-projection/src/virtual/transport/consoleFrameTransport.ts
   function hexPreview(bytes, max) {
     const n = Math.min(bytes.length, max);
     const parts = [];
@@ -4439,7 +4468,7 @@
     }
   };
 
-  // browser/mirror/projection/virtual/transport/loopbackDataPlane.ts
+  // ../packages/page-projection/src/virtual/transport/loopbackDataPlane.ts
   var DEFAULT_WATERMARK = 256 * 1024;
   var LoopbackDataPlane = class {
     socket = null;
@@ -4532,7 +4561,7 @@
     }
   };
 
-  // browser/mirror/projection/virtual/transport/planeFrameTransport.ts
+  // ../packages/page-projection/src/virtual/transport/planeFrameTransport.ts
   var PlaneFrameTransport = class {
     constructor(plane) {
       this.plane = plane;
@@ -4542,7 +4571,7 @@
     }
   };
 
-  // browser/mirror/projection/virtual/transport/loopbackFrameTransport.ts
+  // ../packages/page-projection/src/virtual/transport/loopbackFrameTransport.ts
   var LoopbackFrameTransport = class {
     plane;
     frames;
@@ -4574,14 +4603,14 @@
     }
   };
 
-  // browser/mirror/projection/virtual/transport/nullFrameTransport.ts
+  // ../packages/page-projection/src/virtual/transport/nullFrameTransport.ts
   var NullFrameTransport = class {
     send(_bytes) {
       return "accepted";
     }
   };
 
-  // browser/mirror/projection/models/contextIdMint.ts
+  // ../packages/page-projection/src/core/contextIdMint.ts
   var ContextIdMint = class {
     next = 2;
     mint() {
@@ -4592,7 +4621,7 @@
     }
   };
 
-  // browser/mirror/projection/virtual/runtime/rootRuntime.ts
+  // ../packages/page-projection/src/virtual/runtime/rootRuntime.ts
   var RootRuntime = class {
     mintAllocator = new ContextIdMint();
     bus;
@@ -4626,8 +4655,7 @@
         mint: () => this.mint(),
         emitFrame: (bytes) => {
           this.frameTransport.send(bytes);
-        },
-        sendSidecarResync: (req) => this.forwardResyncToSidecar(req)
+        }
       });
       this.telemetryUnsub = this.bus.onTelemetry((message) => this.fanoutTelemetry(message));
     }
@@ -4648,11 +4676,9 @@
       const bytes = this.textEncoder.encode(JSON.stringify(message));
       void plane.send(3 /* Telemetry */, bytes);
     }
-    forwardResyncToSidecar(_req) {
-    }
   };
 
-  // browser/mirror/projection/virtual/dom/nestedHost.ts
+  // ../packages/page-projection/src/virtual/dom/nestedHost.ts
   function isNestedBrowsingHost(node) {
     if (node.nodeType !== 1) return false;
     if (!node.isConnected) return false;
@@ -4660,7 +4686,7 @@
     return cw != null;
   }
 
-  // browser/mirror/projection/virtual/dom/childScopes.ts
+  // ../packages/page-projection/src/virtual/dom/childScopes.ts
   var ChildScopeIndex = class {
     constructor(mint) {
       this.mint = mint;
@@ -4713,7 +4739,7 @@
     };
   }
 
-  // browser/mirror/projection/virtual/bootstrap.ts
+  // ../packages/page-projection/src/virtual/bootstrap.ts
   document.currentScript?.remove();
   void (async () => {
     if (globalThis.__speculumProjection) return;
@@ -4889,6 +4915,9 @@
     frameEmitter.start();
     telemetry.start();
     cssom.start();
+    globalThis.__speculumSnapshot = {
+      snapshotTree
+    };
     globalThis.__speculumProjection = {
       version: 1,
       contextId: mine,

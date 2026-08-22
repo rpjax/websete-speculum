@@ -3,15 +3,15 @@
  * Nested instances emit on the postMessage bus; root runtime fans out to the DataPlane.
  */
 
-import { PlaneChannel } from '../../plane';
-import type { DataPlane } from '../../plane';
+import { PlaneChannel } from '../../core/plane';
+import type { DataPlane } from '../../core/plane';
 import type { ProjectionBus } from '../bus/projectionBus';
 import {
   TELEMETRY_WIRE_VERSION,
   type ProjectionTelemetryConfig,
   type ProjectionTelemetryMessage,
   type TelemetryCssomPoll,
-} from '../../models/telemetry';
+} from '../../core/telemetry';
 
 export type EmissionStats = {
   contextId: number;

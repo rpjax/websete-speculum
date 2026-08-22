@@ -8,8 +8,8 @@
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.runIsomorphism = runIsomorphism;
-const tableDigest_1 = require("../../models/tableDigest");
-const formControlSnap_1 = require("../../models/formControlSnap");
+const tableDigest_1 = require("@speculum/page-projection/core/tableDigest");
+const formControlSnap_1 = require("@speculum/page-projection/core/formControlSnap");
 const structuralDiff_1 = require("./structuralDiff");
 const CLIENT_CATCH_UP_MS = 2_000;
 const CLIENT_POLL_MS = 10;
@@ -191,10 +191,7 @@ function contextPasses(ctx) {
     return true;
 }
 async function runIsomorphism(opts) {
-    const getClient = opts.getClientSnapshot ??
-        (opts.getClientSnapshotLegacy
-            ? (contextId) => (contextId === 1 ? opts.getClientSnapshotLegacy() : null)
-            : undefined);
+    const getClient = opts.getClientSnapshot;
     const flushSnap = opts.session.flushProjectionSnapshot;
     const snapshotAll = opts.session.snapshotAllContexts;
     const resumeAll = opts.session.resumeAllContexts;

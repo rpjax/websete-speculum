@@ -4,7 +4,7 @@
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ContextIndex = void 0;
-const frame_1 = require("../../models/frame");
+const frame_1 = require("@speculum/page-projection/core/frame");
 class ContextIndex {
     entries = new Map();
     booted = false;
@@ -19,6 +19,10 @@ class ContextIndex {
         if (!hdr || hdr.contextId < 1)
             return;
         this.observeContext(hdr.contextId);
+    }
+    observeTelemetry(message) {
+        if (message.contextId >= 1)
+            this.observeContext(message.contextId);
     }
     observeContext(contextId) {
         const now = new Date().toISOString();

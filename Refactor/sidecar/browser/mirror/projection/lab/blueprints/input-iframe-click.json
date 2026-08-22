@@ -1,0 +1,38 @@
+{
+  "id": "input-iframe-click",
+  "description": "M1d — nested context click via frame-aware resolve (inner #inner-click)",
+  "sessionPolicy": "cold",
+  "queues": [
+    {
+      "name": "main",
+      "actions": [
+        { "id": "boot", "type": "boot", "params": { "url": "fixtures/iframe-open.html" } },
+        { "id": "wait", "type": "sleep", "dependsOn": ["boot"], "params": { "ms": 2500 } },
+        {
+          "id": "click-inner",
+          "type": "pushDomInput",
+          "dependsOn": ["wait"],
+          "params": {
+            "sequence": [
+              {
+                "type": "resolveAndClick",
+                "selector": "#inner-click",
+                "contextId": 2
+              }
+            ]
+          }
+        },
+        { "id": "wait-click", "type": "sleep", "dependsOn": ["click-inner"], "params": { "ms": 500 } },
+        {
+          "id": "assert-inner",
+          "type": "evaluate",
+          "dependsOn": ["wait-click"],
+          "params": {
+            "expression": "(() => { const f = document.getElementById('child'); const st = f?.contentDocument?.getElementById('inner-status')?.getAttribute('data-state'); if (st !== 'clicked') throw new Error('inner status=' + st); return 'ok'; })()"
+          }
+        },
+        { "id": "writeDossier", "type": "writeDossier", "dependsOn": ["assert-inner"] }
+      ]
+    }
+  ]
+}

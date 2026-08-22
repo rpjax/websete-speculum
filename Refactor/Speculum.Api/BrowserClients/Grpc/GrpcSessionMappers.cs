@@ -843,6 +843,10 @@ internal static class GrpcSessionMappers
         {
             mapped.TargetId = targetId;
         }
+        if (input.ContextId > 0)
+        {
+            mapped.ContextId = input.ContextId;
+        }
 
         domInput = mapped;
         return true;

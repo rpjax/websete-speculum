@@ -28,24 +28,24 @@ import {
 import { buildConfigPreScript } from '../inject/buildConfigPreScript';
 import { loadInpageScript } from '../inject/loadInpageScript';
 import {
-  captureVirtualSnapshot,
   loadSnapshotScriptForEvaluate,
-  snapshotAllContextsEvaluateExpression,
   snapshotContextEvaluateExpression,
-} from '../lab/probes/virtualSnapshot';
-import { startCpuProfile, stopCpuProfile } from '../lab/probes/cpuProfile';
+} from './snapshotEvaluate';
 import {
   isProjectionTelemetryMessage,
   LAB_TELEMETRY_DEFAULTS,
   type ProjectionTelemetryConfig,
   type ProjectionTelemetryMessage,
-} from '../models/telemetry';
-import type { TableLiveOracleResult } from '../models/tableLiveOracle';
-import type { CssomTableLiveOracleResult } from '../models/cssomTableLiveOracle';
-import type { FormControlSnap } from '../models/formControlSnap';
-import { PlaneChannel } from '../plane';
-import { peekFrameHeader } from '../models/decode';
+} from '@speculum/page-projection/core/telemetry';
+import type { TableLiveOracleResult } from '@speculum/page-projection/core/tableLiveOracle';
+import type { CssomTableLiveOracleResult } from '@speculum/page-projection/core/cssomTableLiveOracle';
+import type { FormControlSnap } from '@speculum/page-projection/core/formControlSnap';
+import { PlaneChannel } from '@speculum/page-projection/core/plane';
+import { peekFrameHeader } from '@speculum/page-projection/core/decode';
 import { ProjectionDataPlaneHost } from './projectionDataPlaneHost';
+import { installDocumentResponseHook } from './csp/documentResponseHook';
+import { V4InputDispatch } from '../input/v4InputDispatch';
+import type { DomInputIngress } from '@speculum/page-projection/core/input/intentTypes';
 
 function chromeArgs(): string[] {
   return [
@@ -57,8 +57,26 @@ function chromeArgs(): string[] {
   ];
 }
 
+/** Optional lab/host probe adapters — session must not import `lab/` directly. */
+export type V4ProjectionProbes = {
+  startCpuProfile?: (cdp: CDPSession) => Promise<void>;
+  stopCpuProfile?: (
+    cdp: CDPSession,
+    topN: number,
+  ) => Promise<{
+    raw: unknown;
+    summary: {
+      totalSamples: number;
+      wallMs: number;
+      approxCpuMs: number;
+      ourCode: { totalPct: number; totalMs: number };
+    };
+  }>;
+};
+
 export type V4ProjectionFactoryOptions = {
   headless: boolean;
+  probes?: V4ProjectionProbes;
 };
 
 export class V4ProjectionBrowserSession implements BrowserSession {
@@ -74,8 +92,10 @@ export class V4ProjectionBrowserSession implements BrowserSession {
   private generation = 1;
   private cpuAllowed = false;
   private cpuRunning = false;
+  private inputDispatch: V4InputDispatch | null = null;
   private readonly dataPlane = new ProjectionDataPlaneHost();
   private readonly headless: boolean;
+  private readonly probes: V4ProjectionProbes;
 
   constructor(
     readonly sessionId: string,
@@ -83,6 +103,7 @@ export class V4ProjectionBrowserSession implements BrowserSession {
     factoryOpts: V4ProjectionFactoryOptions,
   ) {
     this.headless = factoryOpts.headless;
+    this.probes = factoryOpts.probes ?? {};
     this.dataPlane.dataPlane.setHandler((channel, payload) => {
       if (channel === PlaneChannel.Frame) {
         const header = peekFrameHeader(payload);
@@ -133,6 +154,7 @@ export class V4ProjectionBrowserSession implements BrowserSession {
   async stop(): Promise<void> {
     this.open = false;
     this.cdpSession = null;
+    this.inputDispatch = null;
     const browser = this.browser;
     this.browser = null;
     this.context = null;
@@ -173,10 +195,12 @@ export class V4ProjectionBrowserSession implements BrowserSession {
     const dataPlaneUrl = this.dataPlane.listenUrl;
     if (this.page) {
       this.generation += 1;
+      this.inputDispatch = null;
       await this.page.close();
       this.cdpSession = null;
     }
     this.page = await this.freshPage(dataPlaneUrl, opts);
+    this.inputDispatch = new V4InputDispatch(this.page);
     await this.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60_000 });
     this.url = url;
     this.events.onLocationChanged(url);
@@ -207,7 +231,70 @@ export class V4ProjectionBrowserSession implements BrowserSession {
   }
 
   async pushInput(_input: BrowserInput): Promise<void> {
-    // V4 lab session does not emulate OS input; lab UI applies on the client surface.
+    // V4 lab session does not emulate OS input; Dom intents use pushDomInput.
+  }
+
+  async pushDomInput(input: DomInputIngress): Promise<
+    { status: 'dispatched' } | { status: 'dropped'; reason: string }
+  > {
+    if (!this.open || !this.page) {
+      throw Object.assign(new Error('V4ProjectionBrowserSession: session not live'), {
+        code: 'FAILED_PRECONDITION',
+        errorCode: 'session_not_live',
+        phase: 'input',
+      });
+    }
+    if (!this.inputDispatch) {
+      throw Object.assign(new Error('PageProjection input dispatch not ready'), {
+        code: 'FAILED_PRECONDITION',
+        errorCode: 'input_dispatch_missing',
+        phase: 'input',
+      });
+    }
+    return this.inputDispatch.dispatchIngress(input);
+  }
+
+  async resolveAndClickDomInput(
+    selector: string,
+    contextId: number = 1,
+  ): Promise<{ status: 'dispatched' } | { status: 'dropped'; reason: string }> {
+    if (!this.inputDispatch) {
+      return { status: 'dropped', reason: 'input_dispatch_missing' };
+    }
+    return this.inputDispatch.resolveAndClick(selector, contextId);
+  }
+
+  async resolveAndTypeDomInput(
+    selector: string,
+    value: string,
+    contextId: number = 1,
+  ): Promise<{ status: 'dispatched' } | { status: 'dropped'; reason: string }> {
+    if (!this.inputDispatch) {
+      return { status: 'dropped', reason: 'input_dispatch_missing' };
+    }
+    return this.inputDispatch.resolveAndType(selector, value, contextId);
+  }
+
+  async resolveAndScrollElementDomInput(
+    selector: string,
+    scrollTop: number,
+    contextId: number = 1,
+  ): Promise<{ status: 'dispatched' } | { status: 'dropped'; reason: string }> {
+    if (!this.inputDispatch) {
+      return { status: 'dropped', reason: 'input_dispatch_missing' };
+    }
+    return this.inputDispatch.resolveAndScrollElement(selector, scrollTop, contextId);
+  }
+
+  async resolveAndScrollViewportDomInput(
+    scrollY: number,
+    scrollX: number = 0,
+    contextId: number = 1,
+  ): Promise<{ status: 'dispatched' } | { status: 'dropped'; reason: string }> {
+    if (!this.inputDispatch) {
+      return { status: 'dropped', reason: 'input_dispatch_missing' };
+    }
+    return this.inputDispatch.resolveAndScrollViewport(scrollY, scrollX, contextId);
   }
 
   async pushCameraFrame(_frame: Uint8Array): Promise<void> {}
@@ -251,61 +338,8 @@ export class V4ProjectionBrowserSession implements BrowserSession {
     );
   }
 
-  async snapshotProjectionVirtual(opts?: { includeTree?: boolean }): Promise<{
-    ok: boolean;
-    generation?: number;
-    sequence?: number;
-    tableSize?: number;
-    tree?: unknown;
-    reason?: string;
-  }> {
-    const page = this.requirePage();
-    const meta = await this.callProducer<{
-      ok: boolean;
-      generation?: number;
-      sequence?: number;
-      tableSize?: number;
-      reason?: string;
-    }>(
-      `(() => {
-        const p = globalThis.__speculumProjection;
-        if (!p) return { ok: false, reason: 'producer missing' };
-        return {
-          ok: true,
-          generation: p.domNodes.generation,
-          sequence: p.frameEmitter.currentSequence,
-          tableSize: p.table.size,
-        };
-      })()`,
-    );
-    if (!meta.ok) return meta;
-    if (opts?.includeTree === false) return meta;
-    try {
-      const tree = await captureVirtualSnapshot(page);
-      return { ...meta, tree };
-    } catch (err) {
-      return { ...meta, reason: err instanceof Error ? err.message : String(err) };
-    }
-  }
-
-  async compareProjectionTableToLiveDom(): Promise<{
-    ok: boolean;
-    result?: TableLiveOracleResult;
-    reason?: string;
-  }> {
-    const raw = await this.callProducer<{ ok: boolean; result?: TableLiveOracleResult; reason?: string }>(
-      `(() => {
-        const p = globalThis.__speculumProjection;
-        if (!p || typeof p.compareTableToLiveDom !== 'function') {
-          return { ok: false, reason: 'compareTableToLiveDom missing' };
-        }
-        return { ok: true, result: p.compareTableToLiveDom() };
-      })()`,
-    );
-    return raw;
-  }
-
   async flushProjectionSnapshot(opts?: {
+    contextId?: number;
     includeTree?: boolean;
     cssom?: 'none' | 'committed' | 'scan';
   }): Promise<{
@@ -333,7 +367,7 @@ export class V4ProjectionBrowserSession implements BrowserSession {
     formProps?: FormControlSnap[];
     reason?: string;
   }> {
-    const single = await this.snapshotContext(1, opts);
+    const single = await this.snapshotContext(opts?.contextId ?? 1, opts);
     if (!single.ok) return { ok: false, reason: single.reason };
     const v = single.value!;
     return {
@@ -399,49 +433,13 @@ export class V4ProjectionBrowserSession implements BrowserSession {
     }
   }
 
-  async snapshotAllContexts(
-    contextIds: readonly number[],
-    opts?: {
-      includeTree?: boolean;
-      cssom?: 'none' | 'committed' | 'scan';
-    },
-  ): Promise<Record<number, Awaited<ReturnType<V4ProjectionBrowserSession['snapshotContext']>>>> {
-    try {
-      const includeTree = opts?.includeTree !== false;
-      const cssom = opts?.cssom ?? 'none';
-      const treeScript = includeTree ? loadSnapshotScriptForEvaluate() : '';
-      const fn = snapshotAllContextsEvaluateExpression();
-      return (await this.requirePage().evaluate(
-        `(${fn})(${JSON.stringify([...contextIds])}, ${JSON.stringify({ cssom, includeTree })}, ${JSON.stringify(treeScript)})`,
-      )) as Record<number, Awaited<ReturnType<V4ProjectionBrowserSession['snapshotContext']>>>;
-    } catch (err) {
-      const reason = err instanceof Error ? err.message : String(err);
-      const out: Record<number, { ok: false; reason: string }> = {};
-      for (const id of contextIds) out[id] = { ok: false, reason };
-      return out;
-    }
-  }
-
-  async resumeAllContexts(contextIds: readonly number[]): Promise<{ ok: boolean; reason?: string }> {
-    try {
-      return (await this.requirePage().evaluate(
-        `(async (ids) => {
-          const p = globalThis.__speculumProjection;
-          if (!p || typeof p.resumeAllKnown !== 'function') return { ok: false, reason: 'resumeAllKnown missing' };
-          await p.resumeAllKnown(ids);
-          return { ok: true };
-        })(${JSON.stringify([...contextIds])})`,
-      )) as { ok: boolean; reason?: string };
-    } catch (err) {
-      return { ok: false, reason: err instanceof Error ? err.message : String(err) };
-    }
-  }
-
   async startCpuProfile(): Promise<{ ok: boolean; reason?: string }> {
     if (!this.cpuAllowed) return { ok: false, reason: 'cpuProfiling disabled at launch' };
     if (this.cpuRunning) return { ok: false, reason: 'cpu profile already running' };
+    const start = this.probes.startCpuProfile;
+    if (!start) return { ok: false, reason: 'startCpuProfile probe not registered' };
     const cdp = await this.ensureCdp();
-    await startCpuProfile(cdp);
+    await start(cdp);
     this.cpuRunning = true;
     return { ok: true };
   }
@@ -453,8 +451,10 @@ export class V4ProjectionBrowserSession implements BrowserSession {
     reason?: string;
   }> {
     if (!this.cpuRunning) return { ok: false, reason: 'cpu profile not running' };
+    const stop = this.probes.stopCpuProfile;
+    if (!stop) return { ok: false, reason: 'stopCpuProfile probe not registered' };
     const cdp = await this.ensureCdp();
-    const { raw, summary } = await stopCpuProfile(cdp, 20);
+    const { raw, summary } = await stop(cdp, 20);
     this.cpuRunning = false;
     return {
       ok: true,
@@ -489,6 +489,10 @@ export class V4ProjectionBrowserSession implements BrowserSession {
     });
     await p.addInitScript({ content: configPre });
     await p.addInitScript({ content: loadInpageScript() });
+    // Document Response-stage hook before any navigation — CSP surgery (script inject later).
+    // TLS/HTTP stay on Chromium; never fulfill Document from Node-originated bytes.
+    this.cdpSession = await context.newCDPSession(p);
+    await installDocumentResponseHook(this.cdpSession);
     return p;
   }
 

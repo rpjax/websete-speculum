@@ -13,6 +13,7 @@ import type { PageProjectionRegistry } from './registry'
 export interface PageProjectionIntentWire {
   generation: number
   type: string
+  contextId: number
   /** §5.11.1 — resolved through the registry's reverse map; `null` when untargeted. */
   nodeId: number | null
   timestampClient: number
@@ -22,6 +23,8 @@ export interface PageProjectionIntentWire {
 export type PageProjectionIntentSender = (intent: PageProjectionIntentWire) => void | Promise<void>
 
 export interface InteractionOptions {
+  /** Browsing context for emitted intents (root = 1). */
+  contextId?: number
   getGeneration: () => number
   getViewportSize: () => { width: number; height: number }
   /** No intents before arm; disarmed while desynced (§5.6.7, §5.7.1). */
@@ -40,6 +43,19 @@ export interface InteractionOptions {
 
 const INTERACTIVE =
   'a, button, [role="button"], input, select, textarea, summary, label, [role="link"], [role="menuitem"]'
+
+/** Projected nodes live in the surface iframe realm — parent `instanceof` always fails. */
+function isElement(node: EventTarget | null | undefined): node is Element {
+  return !!node && typeof node === 'object' && (node as Node).nodeType === 1
+}
+
+function isNode(node: EventTarget | null | undefined): node is Node {
+  return !!node && typeof node === 'object' && typeof (node as Node).nodeType === 'number'
+}
+
+function tagName(node: EventTarget | null | undefined): string {
+  return isElement(node) ? node.tagName.toUpperCase() : ''
+}
 
 /**
  * Applies an upstream control value without moving the caret (§5.9.3). Safe to
@@ -120,6 +136,7 @@ export function attachPageProjectionInteraction(
   const intent = (type: string, nodeId: number | null, payload: string): PageProjectionIntentWire => ({
     generation: opts.getGeneration(),
     type,
+    contextId: opts.contextId ?? 1,
     nodeId,
     timestampClient: performance.now(),
     payload,
@@ -136,8 +153,8 @@ export function attachPageProjectionInteraction(
     // Same-origin projected iframe — hit-test inside the active buffer (parent
     // elementsFromPoint only returns the <iframe> element itself).
     for (const node of stack) {
-      if (!(node instanceof HTMLIFrameElement) || !surface.contains(node)) continue
-      const childDoc = node.contentDocument
+      if (tagName(node) !== 'IFRAME' || !surface.contains(node)) continue
+      const childDoc = (node as HTMLIFrameElement).contentDocument
       if (!childDoc) continue
       const rect = node.getBoundingClientRect()
       const cx = clientX - rect.left
@@ -171,7 +188,7 @@ export function attachPageProjectionInteraction(
       const hit = nodeIdAtPoint(point.x, point.y)
       if (hit != null) return hit
     }
-    if (!(target instanceof Node)) return null
+    if (!isNode(target)) return null
     return registry.idOfNearest(target) ?? null
   }
 
@@ -240,24 +257,25 @@ export function attachPageProjectionInteraction(
   const onContextMenu = (event: MouseEvent) => event.preventDefault()
   const onWheel = (event: WheelEvent) => {
     if (!opts.isArmed()) return
-    event.preventDefault()
-    const payload = basePayload(event, { deltaX: event.deltaX, deltaY: event.deltaY, deltaMode: event.deltaMode })
-    if (!payload) return
-    fire(intent('wheel', nodeIdOf(event.target, { x: event.clientX, y: event.clientY }), payload))
+    // Local-first: let overflow scroll paint; onScroll emits scrollElement/scrollViewport.
+    void event
   }
 
   const onInput = (event: Event) => {
     if (!opts.isArmed()) return
     const target = event.target
-    if (!(target instanceof HTMLElement)) return
+    if (!isElement(target)) return
     const nodeId = registry.idOfNearest(target)
     if (nodeId == null) return
     let value = ''
     let checked: boolean | undefined
-    if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) {
-      value = target.value
-      if (target instanceof HTMLInputElement && (target.type === 'checkbox' || target.type === 'radio')) {
-        checked = target.checked
+    const tag = tagName(target)
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') {
+      const el = target as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
+      value = el.value
+      if (tag === 'INPUT') {
+        const input = el as HTMLInputElement
+        if (input.type === 'checkbox' || input.type === 'radio') checked = input.checked
       }
     }
     fire(intent('input', nodeId, JSON.stringify({ value, checked })))
@@ -265,11 +283,18 @@ export function attachPageProjectionInteraction(
 
   const onKey = (event: KeyboardEvent) => {
     if (!opts.isArmed()) return
+    const tag = tagName(event.target)
+    const type =
+      tag === 'INPUT'
+        ? (event.target as HTMLInputElement).type
+        : tag === 'BUTTON'
+          ? (event.target as HTMLButtonElement).type
+          : ''
     if (
       event.key === 'Enter' &&
-      (event.target instanceof HTMLAnchorElement ||
-        (event.target instanceof HTMLButtonElement && event.target.type === 'submit') ||
-        (event.target instanceof HTMLInputElement && (event.target.type === 'submit' || event.target.type === 'image')))
+      (tag === 'A' ||
+        (tag === 'BUTTON' && type === 'submit') ||
+        (tag === 'INPUT' && (type === 'submit' || type === 'image')))
     ) {
       event.preventDefault()
       event.stopPropagation()
@@ -309,10 +334,13 @@ export function attachPageProjectionInteraction(
     if (!opts.isArmed()) return
     const el = event.target
     const doc = surface.ownerDocument
-    if (el === doc || el === doc.defaultView) {
-      const win = doc.defaultView!
-      const top = win.scrollY
-      const left = win.scrollX
+    const win = doc.defaultView
+    // Viewport scroll targets Document/Window (and sometimes scrollingElement).
+    // Listeners on documentElement alone never see Document-target scroll events.
+    if (el === doc || el === win || (isElement(el) && el === doc.scrollingElement)) {
+      if (!win) return
+      const top = win.scrollY || doc.scrollingElement?.scrollTop || 0
+      const left = win.scrollX || doc.scrollingElement?.scrollLeft || 0
       if (opts.consumeScrollEcho?.('viewport', { top, left })) {
         opts.onProgrammaticScrollSuppress?.('viewport')
         return
@@ -321,7 +349,7 @@ export function attachPageProjectionInteraction(
       if (!scrollRaf) scrollRaf = requestAnimationFrame(flushScroll)
       return
     }
-    if (!(el instanceof Element)) return
+    if (!isElement(el)) return
     const nodeId = registry.idOfNearest(el)
     if (nodeId == null) return
     const top = el.scrollTop
@@ -350,20 +378,21 @@ export function attachPageProjectionInteraction(
   const INLINE_MAX_BYTES = 256 * 1024
   const onFileActivate = (event: Event) => {
     const target = event.target
-    if (!(target instanceof HTMLInputElement) || target.type !== 'file') return
+    if (tagName(target) !== 'INPUT' || (target as HTMLInputElement).type !== 'file') return
     event.preventDefault()
     event.stopPropagation()
     if (!opts.isArmed()) return
-    const nodeId = registry.idOfNearest(target)
+    const nodeId = registry.idOfNearest(target as Element)
     if (nodeId == null) return
     const sid = opts.getSessionId?.() ?? opts.sessionId
     const tok = opts.getToken?.() ?? opts.token
     if (!sid || !tok) return
 
+    const fileInput = target as HTMLInputElement
     const picker = document.createElement('input')
     picker.type = 'file'
-    picker.multiple = target.multiple
-    if (target.accept) picker.accept = target.accept
+    picker.multiple = fileInput.multiple
+    if (fileInput.accept) picker.accept = fileInput.accept
     picker.style.display = 'none'
     document.body.appendChild(picker)
     picker.addEventListener('change', () => {
@@ -412,6 +441,9 @@ export function attachPageProjectionInteraction(
     picker.click()
   }
 
+  const doc = surface.ownerDocument
+  const win = doc.defaultView
+
   surface.addEventListener('pointermove', onPointerMove)
   surface.addEventListener('pointerdown', onPointerDown)
   surface.addEventListener('pointerup', onPointerUp)
@@ -424,6 +456,8 @@ export function attachPageProjectionInteraction(
   surface.addEventListener('keydown', onKey, true)
   surface.addEventListener('keyup', onKey, true)
   surface.addEventListener('scroll', onScroll, true)
+  doc.addEventListener('scroll', onScroll, true)
+  win?.addEventListener('scroll', onScroll, true)
   surface.addEventListener('focusin', onFocusIn, true)
   surface.addEventListener('focusout', onFocusOut, true)
   surface.addEventListener('click', onFileActivate, true)
@@ -443,6 +477,8 @@ export function attachPageProjectionInteraction(
     surface.removeEventListener('keydown', onKey, true)
     surface.removeEventListener('keyup', onKey, true)
     surface.removeEventListener('scroll', onScroll, true)
+    doc.removeEventListener('scroll', onScroll, true)
+    win?.removeEventListener('scroll', onScroll, true)
     surface.removeEventListener('focusin', onFocusIn, true)
     surface.removeEventListener('focusout', onFocusOut, true)
     surface.removeEventListener('click', onFileActivate, true)

@@ -1,5 +1,5 @@
 /**
- * Lab DOM projection client — decode → apply straight into a live document → surface.
+ * Projected DOM client — decode → apply into a live document → surface.
  * No establish / armed-vs-building split (frame-protocol.md §4.7): the first frame this
  * client ever applies is an ordinary frame carrying the whole initial document as
  * `NODE_NEW`/`INSERT` ops, applied the same way as every later frame (P8).
@@ -10,6 +10,9 @@
  * its own registry — so a resync build can never touch the still-visible, still-correct-enough
  * live surface until its own closing `CHECK` verifies OK. See `beginResyncTarget`/
  * `commitResyncSwap`/`failResyncAttempt` below for the state machine.
+ *
+ * Transport (WS/hub) is injected by the composition root via `onRequestResync` — this class
+ * has no transport of its own.
  */
 
 import {
@@ -18,18 +21,17 @@ import {
   FramePartAssembler,
   PersistentStringTable,
   type AssembledFrame,
-} from '../models/decode';
+} from '../core/decode';
 import { DomFrameApplier } from './applyDom';
 import { NestedProjectedApply } from './nestedProjectedApply';
 import { PageProjectionRegistry } from './registry';
 import { createSurfaceHost, type SurfaceHost } from './surface';
-import { captureParityFingerprint } from './parityFingerprint';
-import { digestReplicatedTable } from '../models/tableDigest';
-import { CONTEXT_ID_ROOT, DOCUMENT_ID } from '../models/frame';
-import { OpCode } from '../models/opcodes';
-import { desyncPhase, TELEMETRY_WIRE_VERSION, type TelemetryPhase } from '../models/telemetry';
+import { digestReplicatedTable } from '../core/tableDigest';
+import { CONTEXT_ID_ROOT, DOCUMENT_ID } from '../core/frame';
+import { OpCode } from '../core/opcodes';
+import { desyncPhase, TELEMETRY_WIRE_VERSION, type TelemetryPhase } from '../core/telemetry';
 
-export type LabProjectionClientOptions = {
+export type ProjectionClientOptions = {
   surfaceHost: HTMLElement;
   width?: number;
   height?: number;
@@ -66,7 +68,7 @@ const RESYNC_BACKOFF_MS = 300;
 /** How long to wait for a resync-flagged frame to arrive after requesting one before retrying. */
 const RESYNC_RESPONSE_TIMEOUT_MS = 5_000;
 
-export class LabProjectionClient {
+export class ProjectionClient {
   private persistentStrings = new PersistentStringTable();
   private assembler = new FramePartAssembler();
   private readonly surface: SurfaceHost;
@@ -108,7 +110,7 @@ export class LabProjectionClient {
   private readonly nested = new Map<number, NestedProjectedApply>();
   private readonly pendingNestedFrames = new Map<number, Uint8Array[]>();
 
-  constructor(opts: LabProjectionClientOptions) {
+  constructor(opts: ProjectionClientOptions) {
     this.surface = createSurfaceHost(opts.surfaceHost, {
       width: opts.width ?? 1280,
       height: opts.height ?? 720,
@@ -132,10 +134,12 @@ export class LabProjectionClient {
     // must not sit under id 1 when the nested resync INSERTs its own document element.
     while (doc.firstChild) doc.removeChild(doc.firstChild);
     const session = new NestedProjectedApply({
+      hostIframe: iframe,
       document: doc,
       contextId,
       onNestedHost: (iframe, childScopeId) => this.installNestedHost(iframe, childScopeId),
       onNestedHostDrop: (childScopeId) => this.dropNestedHost(childScopeId),
+      onTelemetry: (msg) => this.onTelemetry?.(msg),
       onArmed: () => {
         try {
           (win as Window & { __speculumNestedApplyArmed?: boolean }).__speculumNestedApplyArmed = true;
@@ -143,7 +147,13 @@ export class LabProjectionClient {
           /* ignore */
         }
       },
-      onRequestResync: (info) => this.onRequestResyncCb?.(info),
+      onRequestResync: (info) =>
+        this.onRequestResyncCb?.({
+          generation: info.generation,
+          sequence: info.sequence,
+          reason: info.reason,
+          contextId: info.contextId,
+        }),
     });
     this.nested.set(contextId, session);
     const pending = this.pendingNestedFrames.get(contextId);
@@ -166,10 +176,43 @@ export class LabProjectionClient {
     return this.armed;
   }
 
+  getGeneration(): number {
+    return this.generation;
+  }
+
+  getLiveRegistry(): PageProjectionRegistry {
+    return this.live.registry;
+  }
+
+  markPropDirty(id: number): void {
+    this.live.applier.markPropDirty(id);
+  }
+
+  forEachNestedInputSurface(
+    cb: (info: {
+      contextId: number;
+      surface: HTMLIFrameElement;
+      registry: PageProjectionRegistry;
+      isArmed: () => boolean;
+      getGeneration: () => number;
+      markPropDirty: (id: number) => void;
+    }) => void,
+  ): void {
+    for (const [contextId, nested] of this.nested) {
+      cb({
+        contextId,
+        surface: nested.hostIframe,
+        registry: nested.registry,
+        isArmed: () => nested.isArmed,
+        getGeneration: () => nested.getGeneration(),
+        markPropDirty: (id) => nested.markPropDirty(id),
+      });
+    }
+  }
+
   /**
    * Last sequence accepted into the apply queue (may still be one `requestAnimationFrame` away
-   * from actually hitting the DOM) — lab test introspection only (Stage 2 gate: a test needs
-   * this to construct a corrupted frame's `sequence` field as exactly `lastAcceptedSequence + 1`).
+   * from actually hitting the DOM). Used by harness inject proofs and debug UIs.
    */
   get lastAcceptedSequence(): number {
     return this.lastSequence;
@@ -180,8 +223,8 @@ export class LabProjectionClient {
     return this.surface.document;
   }
 
-  /** Probe: replicated table at the last applied sequence (same turn as the caller). */
-  snapshotTable(): {
+  /** Digests of the live replicated table at the last applied sequence. */
+  liveTableDigest(): {
     sequence: number;
     generation: number;
     table: ReturnType<typeof digestReplicatedTable>;
@@ -193,59 +236,13 @@ export class LabProjectionClient {
     };
   }
 
-  snapshotContext(contextId: number): {
-    contextId: number;
-    sequence: number;
-    generation: number;
-    table: ReturnType<typeof digestReplicatedTable>;
-    desynced: boolean;
-    applyError: string | null;
-    armed: boolean;
-    resyncInFlight: boolean;
-  } {
-    this.flushNow();
-    if (contextId === CONTEXT_ID_ROOT) {
-      return {
-        contextId,
-        ...this.snapshotTable(),
-        desynced: this.desynced,
-        applyError: this.applyError,
-        armed: this.armed,
-        resyncInFlight: this.resyncInFlight,
-      };
-    }
-    const nested = this.nested.get(contextId);
-    if (!nested) {
-      return {
-        contextId,
-        sequence: 0,
-        generation: 1,
-        table: { rowCount: 0, tableHash: '0' },
-        desynced: true,
-        applyError: 'nested_context_missing',
-        armed: false,
-        resyncInFlight: false,
-      };
-    }
-    return {
-      contextId,
-      ...nested.snapshotTable(),
-      desynced: false,
-      applyError: null,
-      armed: nested.isArmed,
-      resyncInFlight: false,
-    };
+  /** Nested apply instance for harness / multi-context probes. */
+  getNestedApply(contextId: number): NestedProjectedApply | undefined {
+    return this.nested.get(contextId);
   }
 
-  /** Nested host document for per-context tree probes (lab iso). */
-  nestedDocument(contextId: number): Document | null {
-    if (contextId === CONTEXT_ID_ROOT) return this.document;
-    const nested = this.nested.get(contextId);
-    return nested?.isArmed ? nested.document : null;
-  }
-
-  /** Drain queued frames before a lab snapshot / inject. */
-  flushNow(): void {
+  /** Drain queued frames before a snapshot / inject. */
+  flush(): void {
     this.live.applier.flush();
     this.resync?.applier.flush();
     for (const n of this.nested.values()) n.flush();
@@ -259,30 +256,13 @@ export class LabProjectionClient {
     return this.lastDesyncReason;
   }
 
-  /** Standby resync build in flight — lab inject must wait so the hostile frame hits live. */
+  /** Standby resync build in flight. */
   get resyncInFlight(): boolean {
     return this.resync !== null;
   }
 
-  /**
-   * Lab inject (SEAL-CSSOM-P0-EOF): extra live rule with no table row.
-   * Honest producer never emits this; CHECK after this must desync at end-of-frame verify.
-   * Only constructed/`adoptedStyleSheets` — author `document.styleSheets` is invisible to EOF verify.
-   */
-  tamperGhostCssRule(): { ok: boolean; reason?: string } {
-    const adopted = this.document.adoptedStyleSheets;
-    const sheet = adopted.length > 0 ? adopted[adopted.length - 1] : undefined;
-    if (!sheet) return { ok: false, reason: 'tamper missed constructed sheet' };
-    try {
-      sheet.insertRule('.lab-ghost-eof{color:red}', 0);
-      return { ok: true };
-    } catch (err) {
-      return { ok: false, reason: err instanceof Error ? err.message : String(err) };
-    }
-  }
-
-  /** Lab UI: empty the projected iframe and reset apply state. Does not touch Virtual. */
-  resetSurface(): void {
+  /** Empty the projected iframe and reset apply state. Does not touch Virtual. */
+  reset(): void {
     this.abandonResyncAttempt();
     this.resyncAttempts = 0;
     this.resyncExhausted = false;
@@ -404,7 +384,6 @@ export class LabProjectionClient {
       onApplied: (frame, applyMs) => {
         if (state.swapped) {
           this.reportApplyResult({ ok: true, sequence: frame.sequence, opCount: frame.ops.length, applyMs });
-          this.emitFingerprint(frame.sequence);
           if (!this.armed) {
             this.armed = true;
             this.everArmed = true;
@@ -418,7 +397,7 @@ export class LabProjectionClient {
       onOverrun: (durationMs, lastSequence) => {
         this.onTelemetry?.({
           v: TELEMETRY_WIRE_VERSION,
-      contextId: CONTEXT_ID_ROOT,
+          contextId: CONTEXT_ID_ROOT,
           kind: 'applyOverrun',
           t: performance.now(),
           generation: this.generation,
@@ -469,7 +448,6 @@ export class LabProjectionClient {
       attempt: built.attempt,
     });
     this.reportApplyResult({ ok: true, sequence: frame.sequence, opCount: frame.ops.length, applyMs });
-    this.emitFingerprint(frame.sequence);
     if (!this.armed) {
       this.armed = true;
       this.everArmed = true;
@@ -526,7 +504,7 @@ export class LabProjectionClient {
    * never a silent, indefinite retry loop"). One attempt in flight at a time — a concurrent
    * backoff timer or an already-answered-and-building resync makes this a no-op.
    */
-  private scheduleResyncAttempt(reason: string): void {
+  private scheduleResyncAttempt(reason: string, contextId: number = CONTEXT_ID_ROOT): void {
     if (this.resyncExhausted) return;
     if (this.resyncBackoffTimer !== null || this.resyncTimeoutTimer !== null || this.resync !== null) return;
     const attempt = this.resyncAttempts + 1;
@@ -534,7 +512,7 @@ export class LabProjectionClient {
       this.resyncExhausted = true;
       this.onTelemetry?.({
         v: TELEMETRY_WIRE_VERSION,
-      contextId: CONTEXT_ID_ROOT,
+        contextId,
         kind: 'resyncFailed',
         t: performance.now(),
         generation: this.generation,
@@ -551,7 +529,7 @@ export class LabProjectionClient {
       this.resyncAttempts = attempt;
       this.onTelemetry?.({
         v: TELEMETRY_WIRE_VERSION,
-      contextId: CONTEXT_ID_ROOT,
+        contextId,
         kind: 'resyncRequested',
         t: performance.now(),
         generation: this.generation,
@@ -563,26 +541,13 @@ export class LabProjectionClient {
         generation: this.generation,
         sequence: this.lastSequence,
         reason,
-        contextId: CONTEXT_ID_ROOT,
+        contextId,
       });
       this.resyncTimeoutTimer = setTimeout(() => {
         this.resyncTimeoutTimer = null;
         this.failResyncAttempt('resync_timeout');
       }, RESYNC_RESPONSE_TIMEOUT_MS);
     }, delay);
-  }
-
-  private emitFingerprint(sequence: number): void {
-    const fp = captureParityFingerprint(this.surface.document, this.live.registry);
-    this.onTelemetry?.({
-      v: TELEMETRY_WIRE_VERSION,
-      contextId: CONTEXT_ID_ROOT,
-      kind: 'parityFingerprint',
-      t: performance.now(),
-      generation: this.generation,
-      sequence,
-      ...fp,
-    });
   }
 
   private reportApplyResult(info: {
@@ -657,4 +622,9 @@ export class LabProjectionClient {
     // milliseconds instead of waiting out `RESYNC_RESPONSE_TIMEOUT_MS` between attempts).
     this.scheduleResyncAttempt(reason);
   }
+}
+
+/** Composition-root factory — same DI surface as `new ProjectionClient(opts)`. */
+export function createProjectionClient(opts: ProjectionClientOptions): ProjectionClient {
+  return new ProjectionClient(opts);
 }

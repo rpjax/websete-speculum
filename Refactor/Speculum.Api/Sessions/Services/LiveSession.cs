@@ -1037,6 +1037,8 @@ internal sealed class LiveSession : ILiveSession
             Generation = input.Generation,
             Type = input.Type.Trim(),
             Anchor = input.Anchor,
+            TargetId = input.TargetId,
+            ContextId = input.ContextId > 0 ? input.ContextId : 1,
             TimestampClient = input.TimestampClient,
             TraceId = input.TraceId,
             Payload = string.IsNullOrWhiteSpace(input.Payload) ? "{}" : input.Payload,

@@ -3,19 +3,30 @@
 **Status:** official spec for `MirrorMode.PageProjection`.  
 **Accept bar:** [acceptance.md](acceptance.md) — 1:1 with the original site. **DOM** numerical; **CSSOM live** perceived/eventual (not 60 Hz lockstep).  
 **Protocol:** [frame-protocol.md](frame-protocol.md) — the V4 engine (replicated table, binary frames, two-phase apply, resync).  
-**Where you are:** the V4 **algorithm** under `Refactor/sidecar/browser/mirror/projection/` implements DOM table, open named shadow, CSSOM for constructed adopted sheets + `CSSStyleRule` (including admitted shadow roots), form `PROP_SET`, and **lab same-origin nested iframes**. The **lab** is a harness that drives that algorithm — not the algorithm itself. Production (`PatchrightBrowserSession.ts`) still runs the **legacy** `LivePageProjection` path. `V4ProjectionBrowserSession` is the **temporary** session wrapper; at cutover it must be **complete** — [roadmap.md](roadmap.md) CUTOVER-SESSION. **Production cutover waits for the full product** (CSSOM + shadow + multi-document + redesigned input + **canvas projection** as last product feature). Remaining nested: XO / NIT flavours — [multi-document.md](multi-document.md).
-
-If you are an agent with limited context: **read this file (including Now), then `acceptance.md`, then `open.md`, then `seal-gaps.md`, then `roadmap.md`, then only the protocol sections you are changing.** Do not open `../archive/`.
+**Where you are:** V4 **algorithm** = one bootstrap per `window` (root + nested). DOM, CSSOM poll+apply, shadow, resync, OPEN-6 SO, **Input V2 lab** — **same loop everywhere**. Lab harness shipped multi-context observability + nested Projected resync. Resync entry = Control plane only. Production still **legacy** `LivePageProjection`. Cutover waits: **canvas**, **Integration** — not “another CSSOM for iframes.”
 
 ---
 
-## Now (2026-08-19) — start a new chat here
+## Now (2026-08-21) — start a new chat here
 
-Same-origin nested iframe in the **lab** (`iframe-open`, `iso.nested` + `iso.nested.blank`). Open named shadow **closed 2026-08-18**. Form `PROP_SET` **closed 2026-08-18**. Production cutover **not** licensed.
+**Shipped this branch (`feat/mirror-mode`):** OPEN-6 + observability + resync lacre. **ISA lacre (2026-08-20):** `frame-protocol.md` §4 = 16 opcodes in `opcodes.ts` only. **Input V2 lab M1 (2026-08-20):** [input-v2.md](input-v2.md) — click / forms / scroll (page + components + nested) closed in lab; touch/OS pointer M2 **not** planned (Projected is local — native).
 
-**Next lab work:** multi-context observability (OPEN-6) — telemetry `contextId` + bus fan-out, snapshot RPC per scope, lab context index, iso N-way. See [observability.md](observability.md) §10.
+**Gate 6.5 packaging shipped:** shared TS lib `@speculum/page-projection` at `Refactor/packages/page-projection` (`core` / `virtual` / `projected`). Amends E-11 ([decision-log.md](decision-log.md) §J). Lab/session/dispatch stay callers. Sidecar consumes via `file:` + package `dist`.
 
-SVG / namespaced `NODE_NEW` **closed 2026-08-17**. Do **not** reopen apply honesty ([observability.md](observability.md) §7).
+**BrowserSession contract SEALED 2026-08-21:** [browser-session.md](browser-session.md) — core + `IPageProjectionBrowserSession` + `IVideoStreamingBrowserSession`; sinks; permission host; raw `getStateSnapshot`; `requestResync` only. Class target: `PageProjectionBrowserSession` (lab still `V4ProjectionBrowserSession` until rename wave).
+
+**Cutover: started 2026-08-20** — working scratchpad (not spec): [../CUTOVER-WORKSPACE.md](../CUTOVER-WORKSPACE.md). Live switch still gated by [roadmap.md](roadmap.md) (canvas + Integration + session completo per sealed contract). Video streaming out of that workspace on purpose.
+
+**Next product work (ordered):**
+1. **Implement sealed session contract** — [browser-session.md](browser-session.md) + [CUTOVER-WORKSPACE](../CUTOVER-WORKSPACE.md): script inject → input pipeline → remaining core/PP surface (CSP already sealed — [csp.md](csp.md)).
+2. **Canvas content projection** — last engine feature before Integration ([roadmap.md](roadmap.md) gate 7); ships **into** the package.
+3. **Production Integration** — `web/` V4 apply from `@speculum/page-projection/projected` + delete `LivePageProjection` same day (gate 10). **MotorAssert on Live = cutover**, not development.
+4. OPEN-6 **NIT** flavours (XO / srcdoc / sandbox / fenced) when blueprints exist — fail `unsupported.*`, never soft-skip.
+5. Optional QA: nested `cssomO2` in `iframe-open` ([seal-gaps.md](seal-gaps.md) `SEAL-CSSOM-P2-NESTED-QA`) — same poll code, not new algorithm.
+
+Open named shadow **closed 2026-08-18**. Form `PROP_SET` **closed 2026-08-18**. SVG **closed 2026-08-17**. Input V2 lab **closed 2026-08-20**. Session mirror contract **sealed 2026-08-21**. Do **not** reopen apply honesty ([observability.md](observability.md) §7).
+
+If you are an agent with limited context: **read this file (including Now), then `acceptance.md`, then `open.md`, then `seal-gaps.md`, then `roadmap.md`, then only the protocol sections you are changing.** Do not open `../archive/`.
 
 Lab UI: `npm run lab:projection` in `Refactor/sidecar` → **http://127.0.0.1:4077/**. Headed: `SPECULUM_LAB_HEADED=1`. Always name the full blueprint id + description + fixture when asking a human to run something.
 
@@ -39,15 +50,17 @@ Talk to Rodrigo in Portuguese, papo reto: simple idea → simple sentence. Techn
 | Off-`childNodes` subtrees (LOCKED) | **[subtrees.md](subtrees.md)** — two kinds only: shadow vs nested browsing context |
 | Shadow (kind 1) | **[shadow.md](shadow.md)** — same instance; walker follows `.shadowRoot` |
 | Multi-document (OPEN-6, kind 2) | **[multi-document.md](multi-document.md)** — runtime implements `emitFrame`; algorithm per `window`; header `contextId` = mine; child-scope indexer; bus (postMessage) |
-| Input intents | **[input.md](input.md)** — address by `uint32` only |
+| Input intents | **[input-v2.md](input-v2.md)** (normative V4) — [input.md](input.md) is V1 provenance only |
 | Asset serve plane | **[virtual-assets.md](virtual-assets.md)** |
+| Virtual Document **CSP surgery** (cutover session) | **[csp.md](csp.md)** |
+| Session / mirror-mode contracts (sidecar port) | **[browser-session.md](browser-session.md)** — SEALED 2026-08-21 |
 | Published product gaps | **[support-matrix.md](support-matrix.md)** |
 | Lab tracker (QA / gaps / features; DOM and CSSOM independent) | **[seal-gaps.md](seal-gaps.md)** |
 | What to build next | **[roadmap.md](roadmap.md)** |
 | Open bugs / OPEN-* / pending rulings | **[open.md](open.md)** |
 | Why a decision exists | **[decision-log.md](decision-log.md)** (append-only; never rewrite history) |
 
-If two live docs disagree on the **PP frame** (table, opcodes, apply), **frame-protocol.md wins**. Off-tree kinds: **[subtrees.md](subtrees.md)**. Multi-document: **[multi-document.md](multi-document.md)**. DataPlane envelope does not carry `contextId`. Do not “choose in code.” Append a decision-log row if you change behaviour.
+If two live docs disagree on the **PP frame** (table, opcodes, apply), **frame-protocol.md wins**. Off-tree kinds: **[subtrees.md](subtrees.md)**. Multi-document: **[multi-document.md](multi-document.md)**. Session / mirror port: **[browser-session.md](browser-session.md)**. DataPlane envelope does not carry `contextId`. Do not “choose in code.” Append a decision-log row if you change behaviour.
 
 **V4 prevails.** Pre-V4 designs (establish HTML chunks, Node mirror, `childList FULL/APPEND`, `speculum-anchor`, DomMap bootstrap, resync watermark, `document` opcode as tree dump) are **dead**. They live only under [`../archive/`](../archive/README.md) for provenance.
 
@@ -65,8 +78,9 @@ If two live docs disagree on the **PP frame** (table, opcodes, apply), **frame-p
 | 6 | [frame-protocol.md](frame-protocol.md) | The engine |
 | 7 | [budgets.md](budgets.md) + [oracles.md](oracles.md) | If touching cost, CI, or accept |
 | 8 | [observability.md](observability.md) | If touching lab, telemetry events, probes, `report.json`, isomorphism |
-| 8b | [lab-design.md](lab-design.md) | If restructuring lab host/UI/CLI/dossier/blueprints (do not touch BrowserSession) |
-| 9 | Adjacent layer file | cssom / **cssom-poll-algorithm** / **cssom-sensor-journey** / **subtrees** / **shadow** / **multi-document** / input / virtual-assets / support-matrix / test-matrix |
+| 8a | [browser-session.md](browser-session.md) | If touching sidecar session / sinks / resync / state snapshot / mirror modes |
+| 8b | [lab-design.md](lab-design.md) | If restructuring lab host/UI/CLI/dossier/blueprints (do not invent session APIs — follow browser-session.md) |
+| 9 | Adjacent layer file | cssom / **csp** / **cssom-poll-algorithm** / **cssom-sensor-journey** / **subtrees** / **shadow** / **multi-document** / input / virtual-assets / support-matrix / test-matrix |
 | 10 | [decision-log.md](decision-log.md) | Index; full CSSOM *why* is [cssom-sensor-journey.md](cssom-sensor-journey.md) |
 
 ---
@@ -82,7 +96,7 @@ docs/page-projection/
     frame-protocol.md       V4 protocol (normative)
     budgets.md              K1–K5, P*, E*
     oracles.md              O1–O5
-    observability.md        probes vs events; coherent snapshot; lab as caller
+    observability.md        probes vs events; state snapshot; lab as caller
     lab-design.md           lab chassis / browse vs run / blueprints / dossier (shipped)
     cssom.md                CSSOM plane (materialize)
     cssom-poll-algorithm.md poll sensor (I1–I11)
@@ -90,7 +104,10 @@ docs/page-projection/
     subtrees.md             LOCKED: two off-childNodes kinds (shadow, nested browsing context)
     shadow.md               kind 1 — same instance; open/named shipped
     multi-document.md       OPEN-6: runtime ≠ algorithm; contextId u32; child-scope indexer; RPC pipe
-    input.md                Projected → Virtual intents
+    input.md                Projected → Virtual intents (V1 provenance)
+    input-v2.md             Input V4 normative (lab M1 closed)
+    csp.md                  Virtual Document CSP surgery (cutover)
+    browser-session.md      Session / mirror-mode contracts (SEALED)
     virtual-assets.md       URL serve plane
     support-matrix.md       accepted product gaps
     test-matrix.md          PP-* coverage (some rows pending V4 re-author)
@@ -101,9 +118,8 @@ docs/page-projection/
   archive/                  DO NOT IMPLEMENT FROM
 ```
 
-Code that implements V4: `Refactor/sidecar/browser/mirror/projection/`.  
-Lab is a **caller** of `V4ProjectionBrowserSession` — [observability.md](observability.md).  
-Lab architecture (cutover): [lab-design.md](lab-design.md).  
+Code that implements V4 algorithm: `@speculum/page-projection` (`Refactor/packages/page-projection` — `core` / `virtual` / `projected`).  
+Sidecar callers: `lab/`, `session/`, `inject/`, CDP `input/` — [observability.md](observability.md), [lab-design.md](lab-design.md).  
 Lab UI: `npm run lab:projection`. Agent: `npm run lab:run -- --blueprint soak …` → dossier dir / `verdicts.json`.  
 Lab smoke: `Refactor/sidecar/scripts/smoke-projection-lab.js`.  
 Lab units: `Refactor/sidecar/unit.ts` (includes V4 session + lab scheduler tests).

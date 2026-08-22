@@ -19,9 +19,9 @@
  * whole frame via `onDesync({ reason: 'precondition', ... })` before any DOM node is touched.
  */
 
-import { NodeKind, OpCode } from '../models/opcodes';
-import { ElementNs, elementNsUri } from '../models/elementNs';
-import { applyFramesUntilDesync } from '../models/applyBatch';
+import { NodeKind, OpCode } from '../core/opcodes';
+import { ElementNs, elementNsUri } from '../core/elementNs';
+import { applyFramesUntilDesync } from '../core/applyBatch';
 import {
   CSSOM_SCOPE_PIERCE_HOST,
   DOCUMENT_ID,
@@ -32,17 +32,17 @@ import {
   type AttrPair,
   type FrameOp,
   type PropSetOp,
-} from '../models/frame';
-import { FormPropDirty } from '../models/formPropDirty';
-import { PROP_ID_CHECKED, PROP_ID_SELECTED, PROP_ID_VALUE } from '../models/propSet';
-import { applyAttrPairs } from '../models/attrApply';
-import { insertIndexFromBefore, allSheetIds, orderedRuleIds, matchCssomEndOfFrame, declarationBlockFromRuleText } from '../models/cssomApplyIndex';
-import { planRuleSetApply } from '../models/cssomRuleSet';
-import type { AssembledFrame } from '../models/decode';
-import { ReplicatedTable } from '../models/replicatedTable';
-import { applyFrameToTableChecked } from '../models/replicatedTableApply';
+} from '../core/frame';
+import { FormPropDirty } from '../core/formPropDirty';
+import { PROP_ID_CHECKED, PROP_ID_SELECTED, PROP_ID_VALUE } from '../core/propSet';
+import { applyAttrPairs } from '../core/attrApply';
+import { insertIndexFromBefore, allSheetIds, orderedRuleIds, matchCssomEndOfFrame, declarationBlockFromRuleText } from '../core/cssomApplyIndex';
+import { planRuleSetApply } from '../core/cssomRuleSet';
+import type { AssembledFrame } from '../core/decode';
+import { ReplicatedTable } from '../core/replicatedTable';
+import { applyFrameToTableChecked } from '../core/replicatedTableApply';
 import type { PageProjectionRegistry } from './registry';
-import { isNestedHostNavAttr } from '../models/nestedNav';
+import { isNestedHostNavAttr } from '../core/nestedNav';
 
 export type DomDesyncReason = 'address_miss' | 'bad_target' | 'precondition' | 'malformed';
 export interface DomDesyncInfo {
@@ -203,8 +203,6 @@ export class DomFrameApplier {
         return true; // §4.1 — no DOM effect; already evaluated in phase 1
       case OpCode.EpochReset:
         return this.applyEpochReset();
-      case OpCode.StrDef:
-        return true; // already resolved at decode time (decode.ts PersistentStringTable)
       case OpCode.NodeNew:
         return this.applyNodeNew(op);
       case OpCode.NodeDrop:

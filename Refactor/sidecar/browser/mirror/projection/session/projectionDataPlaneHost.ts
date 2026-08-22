@@ -5,8 +5,8 @@
 
 import http from 'node:http';
 import { WebSocketServer, type WebSocket } from 'ws';
-import { NodeDataPlane } from '../lab/probes/nodeDataPlane';
-import { PlaneChannel } from '../plane';
+import { NodeDataPlane } from './nodeDataPlane';
+import { PlaneChannel } from '@speculum/page-projection/core/plane';
 
 export class ProjectionDataPlaneHost {
   readonly dataPlane = new NodeDataPlane();

@@ -6,9 +6,9 @@
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.FrameInvariantMonitor = void 0;
-const opcodes_1 = require("../../models/opcodes");
-const frame_1 = require("../../models/frame");
-const decode_1 = require("../../models/decode");
+const opcodes_1 = require("@speculum/page-projection/core/opcodes");
+const frame_1 = require("@speculum/page-projection/core/frame");
+const decode_1 = require("@speculum/page-projection/core/decode");
 const MAX_FAILURES_PER_CHECK = 20;
 const CHECK_DEFINITIONS = [
     { id: 'frame_decodable', description: 'Every frame/part received from Virtual decodes and assembles cleanly (no malformed bytes, no missing parts)' },
@@ -94,7 +94,6 @@ class FrameInvariantMonitor {
     processOp(op, sequence) {
         switch (op.op) {
             case opcodes_1.OpCode.EpochReset:
-            case opcodes_1.OpCode.StrDef:
                 return; // no id semantics
             case opcodes_1.OpCode.NodeNew: {
                 if (this.liveIds.has(op.id)) {

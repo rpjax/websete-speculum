@@ -409,6 +409,29 @@ public sealed class GrpcRequestValidationTests
     }
 
     [Fact]
+    public void PageProjectionIntent_MessagePack_RoundTripsContextId()
+    {
+        var options = Speculum.Api.Presentation.SessionHubMessagePack.Options;
+        var map = new Dictionary<string, object>
+        {
+            ["generation"] = 2L,
+            ["type"] = "mousedown",
+            ["targetId"] = 42U,
+            ["contextId"] = 2U,
+            ["payload"] = "{}",
+        };
+        var bytes = MessagePack.MessagePackSerializer.Serialize(map, options);
+        var decoded = MessagePack.MessagePackSerializer.Deserialize<PageProjectionIntent>(bytes, options);
+
+        Assert.Equal(2U, decoded.ContextId);
+        Assert.Equal(42U, decoded.TargetId);
+        Assert.True(
+            GrpcSessionMappers.TryParseDomInputEvent(Guid.NewGuid(), decoded, out var input)
+            && input is not null);
+        Assert.Equal(2U, input!.ContextId);
+    }
+
+    [Fact]
     public void PageProjectionIntent_MessagePack_RoundTripsTraceId()
     {
         var options = Speculum.Api.Presentation.SessionHubMessagePack.Options;

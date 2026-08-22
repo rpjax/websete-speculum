@@ -21,18 +21,18 @@
  * table must already be in before this frame applies (§2).
  */
 
-import { OpCode, opCodeName } from '../../models/opcodes';
-import { createFrame, INSERT_AT_END, type AttrPair, type Frame, type FrameOp } from '../../models/frame';
-import { MAX_DIRTY_NODES, MAX_NODE_DROPS_PER_SWEEP, NODE_DROP_AGE_SEQUENCES } from '../../models/limits';
-import { NONE_DOM_NODE_KEY, type DomNodeKey } from '../../models/domNodeKey';
+import { OpCode, opCodeName } from '../../core/opcodes';
+import { createFrame, INSERT_AT_END, type AttrPair, type Frame, type FrameOp } from '../../core/frame';
+import { MAX_DIRTY_NODES, MAX_NODE_DROPS_PER_SWEEP, NODE_DROP_AGE_SEQUENCES } from '../../core/limits';
+import { NONE_DOM_NODE_KEY, type DomNodeKey } from '../../core/domNodeKey';
 import type { DomNodeTable } from './domNodeTable';
-import type { ReplicatedTable } from '../../models/replicatedTable';
-import { applyOpsToTable } from '../../models/replicatedTableApply';
+import type { ReplicatedTable } from '../../core/replicatedTable';
+import { applyOpsToTable } from '../../core/replicatedTableApply';
 import type { FrameBuilder, FrameBuilderContext, FrameBuildStats } from '../frame/frameBuilder';
 import { describeNodeNew, nodeKindOf } from './domNodeDescribe';
 import type { FormPropIndex } from './formPropIndex';
 import { admissibleShadowRoot } from './shadowAdmit';
-import { NodeKind } from '../../models/opcodes';
+import { NodeKind } from '../../core/opcodes';
 import type { ChildScopeIndex } from './childScopes';
 
 /** Shared sentinel returned when `collectOpCounts` is off — never mutated. */

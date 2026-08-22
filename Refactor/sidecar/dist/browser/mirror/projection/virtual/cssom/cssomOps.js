@@ -7,9 +7,9 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.emitResyncCssomOps = emitResyncCssomOps;
 exports.emitLiveCssomOps = emitLiveCssomOps;
-const frame_1 = require("../../models/frame");
-const opcodes_1 = require("../../models/opcodes");
-const cssomRuleSet_1 = require("../../models/cssomRuleSet");
+const frame_1 = require("../../core/frame");
+const opcodes_1 = require("../../core/opcodes");
+const cssomRuleSet_1 = require("../../core/cssomRuleSet");
 function emitResyncCssomOps(ids, sheets) {
     const ops = [];
     const idsByHost = new Map();

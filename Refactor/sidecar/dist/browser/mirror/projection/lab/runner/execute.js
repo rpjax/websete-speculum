@@ -265,6 +265,126 @@ async function executeBlueprint(bp, hooks) {
                 });
                 return finish(r.ok, r.errorMessage);
             }
+            case 'pushDomInput': {
+                const session = chassis.browser;
+                if (!session?.pushDomInput)
+                    return finish(false, 'pushDomInput missing');
+                const sequence = params.sequence;
+                if (Array.isArray(sequence)) {
+                    for (const step of sequence) {
+                        if (!step || typeof step !== 'object')
+                            return finish(false, 'invalid pushDomInput step');
+                        const st = step;
+                        if (st.type === 'resolveAndClick') {
+                            const selector = String(st.selector ?? '');
+                            const contextId = typeof st.contextId === 'number' && st.contextId > 0 ? st.contextId : 1;
+                            const v4 = session;
+                            if (typeof v4.resolveAndClickDomInput === 'function') {
+                                const out = await v4.resolveAndClickDomInput(selector, contextId);
+                                if (out.status === 'dropped')
+                                    return finish(false, out.reason ?? 'click failed');
+                                chassis.journal.acts.push({ name: `click:${selector}`, ok: true });
+                                continue;
+                            }
+                            const r = await session.evaluate(`(() => {
+                  const p = globalThis.__speculumProjection;
+                  if (!p || p.contextId !== ${contextId}) return { ok: false, reason: 'producer' };
+                  const el = document.querySelector(${JSON.stringify(selector)});
+                  if (!el) return { ok: false, reason: 'missing_element' };
+                  const id = p.domNodes.keyOf(el);
+                  if (!id || id <= 0) return { ok: false, reason: 'no_node_id' };
+                  const rect = el.getBoundingClientRect();
+                  return {
+                    ok: true,
+                    id,
+                    generation: p.domNodes.generation,
+                    x: rect.left + rect.width / 2,
+                    y: rect.top + rect.height / 2,
+                  };
+                })()`);
+                            if (!r.ok)
+                                return finish(false, r.errorMessage ?? 'resolveAndClick evaluate failed');
+                            let info;
+                            try {
+                                info = JSON.parse(r.value ?? '{}');
+                            }
+                            catch {
+                                return finish(false, 'resolveAndClick parse failed');
+                            }
+                            if (!info.id)
+                                return finish(false, 'resolveAndClick no id');
+                            const basePayload = JSON.stringify({
+                                x: info.x,
+                                y: info.y,
+                                button: 0,
+                                buttons: 0,
+                                modifiers: {},
+                            });
+                            const base = {
+                                generation: info.generation,
+                                targetId: info.id,
+                                contextId,
+                                timestampClient: Date.now(),
+                                payloadJson: basePayload,
+                            };
+                            for (const type of ['mousemove', 'mousedown', 'mouseup']) {
+                                const out = await session.pushDomInput({ ...base, type });
+                                if (out.status === 'dropped')
+                                    return finish(false, `${type}: ${out.reason}`);
+                            }
+                            chassis.journal.acts.push({ name: `click:${selector}`, ok: true });
+                            continue;
+                        }
+                        if (st.type === 'resolveAndType') {
+                            const selector = String(st.selector ?? '');
+                            const value = String(st.value ?? '');
+                            const contextId = typeof st.contextId === 'number' && st.contextId > 0 ? st.contextId : 1;
+                            const v4 = session;
+                            if (typeof v4.resolveAndTypeDomInput !== 'function')
+                                return finish(false, 'resolveAndType missing');
+                            const out = await v4.resolveAndTypeDomInput(selector, value, contextId);
+                            if (out.status === 'dropped')
+                                return finish(false, out.reason ?? 'type failed');
+                            chassis.journal.acts.push({ name: `type:${selector}`, ok: true });
+                            continue;
+                        }
+                        if (st.type === 'resolveAndScrollElement') {
+                            const selector = String(st.selector ?? '');
+                            const scrollTop = typeof st.scrollTop === 'number' ? st.scrollTop : 0;
+                            const contextId = typeof st.contextId === 'number' && st.contextId > 0 ? st.contextId : 1;
+                            const v4 = session;
+                            if (typeof v4.resolveAndScrollElementDomInput !== 'function') {
+                                return finish(false, 'resolveAndScrollElement missing');
+                            }
+                            const out = await v4.resolveAndScrollElementDomInput(selector, scrollTop, contextId);
+                            if (out.status === 'dropped')
+                                return finish(false, out.reason ?? 'scroll failed');
+                            chassis.journal.acts.push({ name: `scroll:${selector}`, ok: true });
+                            continue;
+                        }
+                        if (st.type === 'resolveAndScrollViewport') {
+                            const scrollY = typeof st.scrollY === 'number' ? st.scrollY : 0;
+                            const scrollX = typeof st.scrollX === 'number' ? st.scrollX : 0;
+                            const contextId = typeof st.contextId === 'number' && st.contextId > 0 ? st.contextId : 1;
+                            const v4 = session;
+                            if (typeof v4.resolveAndScrollViewportDomInput !== 'function') {
+                                return finish(false, 'resolveAndScrollViewport missing');
+                            }
+                            const out = await v4.resolveAndScrollViewportDomInput(scrollY, scrollX, contextId);
+                            if (out.status === 'dropped')
+                                return finish(false, out.reason ?? 'viewport scroll failed');
+                            chassis.journal.acts.push({ name: `scrollViewport:${scrollY}`, ok: true });
+                            continue;
+                        }
+                        const out = await session.pushDomInput(st);
+                        if (out.status === 'dropped')
+                            return finish(false, out.reason);
+                    }
+                    return finish(true);
+                }
+                const out = await session.pushDomInput(params);
+                return finish(out.status === 'dispatched', out.status === 'dropped' ? out.reason : undefined);
+            }
             case 'snap': {
                 const session = chassis.browser;
                 if (!session?.flushProjectionSnapshot)

@@ -1,11 +1,7 @@
 "use strict";
 /**
- * CDP CPU-profile capture + aggregation for the Virtual/producer side — formalizes the
- * pattern this session proved out ad-hoc in scripts/profile-virtual.js and
- * scripts/profile-real-site-full.js (both now import this instead of duplicating the
- * math; see scripts/lib/... call sites). Deliberately Virtual-side only — see
- * frame-protocol.md's lab-consolidation decision log entry for why client-side CPU stays
- * wall-clock (`applyMs`, already in telemetry) instead of CDP self-time.
+ * CDP CPU-profile capture + aggregation for the Virtual/producer side.
+ * Virtual-side only — client apply cost stays wall-clock (`applyMs` in telemetry).
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.OUR_FUNCTION_NAMES = void 0;
@@ -84,8 +80,7 @@ exports.OUR_FUNCTION_NAMES = new Set([
 /**
  * `Profiler.*` is not declared in patchright's bundled `Protocol.CommandParameters`
  * (confirmed: absent from `node_modules/patchright-core/types/protocol.d.ts` — Playwright
- * itself never uses this CDP domain), even though Chromium supports it at runtime — proven
- * repeatedly this session against real sites via the ad-hoc scripts this module replaces.
+ * itself never uses this CDP domain), even though Chromium supports it at runtime.
  * This is the one narrow, explicit escape hatch for that vendored-type gap, not a general
  * `any` — every other CDP call in this codebase keeps full typing.
  */

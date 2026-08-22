@@ -3,20 +3,20 @@
  * Resync is not this file — {@link ./resync.ts} always pays the full system.
  */
 
-import type { ReplicatedTable } from '../models/replicatedTable';
-import { digestReplicatedTable } from '../models/tableDigest';
-import type { TableLiveOracleResult } from '../models/tableLiveOracle';
-import type { CssomTableLiveOracleResult } from '../models/cssomTableLiveOracle';
-import type { FrameOp } from '../models/frame';
-import { OpCode } from '../models/opcodes';
+import type { ReplicatedTable } from '../core/replicatedTable';
+import { digestReplicatedTable } from '../core/tableDigest';
+import type { TableLiveOracleResult } from '../core/tableLiveOracle';
+import type { CssomTableLiveOracleResult } from '../core/cssomTableLiveOracle';
+import type { FrameOp } from '../core/frame';
+import { OpCode } from '../core/opcodes';
 import type { DomNodeTable } from './dom/domNodeTable';
 import { compareTableToLiveDom } from './dom/tableLiveOracle';
 import type { CssomPlane } from './cssom/cssomPlane';
 import type { CssomIds } from './cssom/cssomIds';
 import { compareTableToLiveCssomDom } from './cssom/cssomTableLiveOracle';
-import { stampCssomPoll, type CssomPollStats } from '../models/telemetry';
+import { stampCssomPoll, type CssomPollStats } from '../core/telemetry';
 import { snapshotFormControls } from './dom/formPropIndex';
-import type { FormControlSnap } from '../models/formControlSnap';
+import type { FormControlSnap } from '../core/formControlSnap';
 
 /** What CSSOM truth this snapshot needs. */
 export type SnapshotCssom = 'none' | 'committed' | 'scan';

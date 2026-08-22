@@ -5,10 +5,10 @@
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.NodeTableApplier = void 0;
-const decode_1 = require("../../models/decode");
-const replicatedTable_1 = require("../../models/replicatedTable");
-const replicatedTableApply_1 = require("../../models/replicatedTableApply");
-const tableDigest_1 = require("../../models/tableDigest");
+const decode_1 = require("@speculum/page-projection/core/decode");
+const replicatedTable_1 = require("@speculum/page-projection/core/replicatedTable");
+const replicatedTableApply_1 = require("@speculum/page-projection/core/replicatedTableApply");
+const tableDigest_1 = require("@speculum/page-projection/core/tableDigest");
 function formatApplyError(result) {
     if (result.opName === 'check') {
         return `check mismatch expected=${result.expected} actual=${result.actual}`;

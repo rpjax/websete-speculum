@@ -7,8 +7,8 @@
  * `none` | `committed` | `scan`. Live/resync emit §4.6 ops; client phase 2 CSSOM is a no-op (C6).
  */
 
-import type { FrameOp } from '../../models/frame';
-import { emptyCssomPollStats, type CssomPollStats } from '../../models/telemetry';
+import type { FrameOp } from '../../core/frame';
+import { emptyCssomPollStats, type CssomPollStats } from '../../core/telemetry';
 
 export type CssomScanResult = {
   ops: FrameOp[];

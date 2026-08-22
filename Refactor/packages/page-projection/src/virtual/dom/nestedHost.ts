@@ -2,7 +2,7 @@
  * Nested browsing-context host — classify with `contentWindow != null`, not `.contentDocument`.
  */
 
-export { isNestedHostNavAttr } from '../../models/nestedNav';
+export { isNestedHostNavAttr } from '../../core/nestedNav';
 
 export function isNestedBrowsingHost(node: Node): boolean {
   if (node.nodeType !== 1) return false;

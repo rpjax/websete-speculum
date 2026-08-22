@@ -1,0 +1,32 @@
+{
+  "id": "input-scroll",
+  "description": "M1c — scrollElement intent updates Virtual scrollTop",
+  "sessionPolicy": "cold",
+  "queues": [
+    {
+      "name": "main",
+      "actions": [
+        { "id": "boot", "type": "boot", "params": { "url": "fixtures/input-scroll.html" } },
+        { "id": "wait", "type": "sleep", "dependsOn": ["boot"], "params": { "ms": 2000 } },
+        {
+          "id": "scroll-box",
+          "type": "pushDomInput",
+          "dependsOn": ["wait"],
+          "params": {
+            "sequence": [{ "type": "resolveAndScrollElement", "selector": "#scroller", "scrollTop": 120 }]
+          }
+        },
+        { "id": "wait-scroll", "type": "sleep", "dependsOn": ["scroll-box"], "params": { "ms": 400 } },
+        {
+          "id": "assert-scroll",
+          "type": "evaluate",
+          "dependsOn": ["wait-scroll"],
+          "params": {
+            "expression": "(() => { const t = document.getElementById('scroller')?.scrollTop ?? 0; if (t < 100) throw new Error('scrollTop=' + t); return 'ok'; })()"
+          }
+        },
+        { "id": "writeDossier", "type": "writeDossier", "dependsOn": ["assert-scroll"] }
+      ]
+    }
+  ]
+}

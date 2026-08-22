@@ -448,6 +448,11 @@ export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.Un
           type: kind,
           anchor: msg.anchor != null ? String(msg.anchor) : null,
           targetId: targetId != null && Number.isFinite(targetId) ? targetId : null,
+          contextId: (() => {
+            const raw = msg.contextId ?? msg.context_id;
+            const n = raw != null ? Number(raw) : 1;
+            return Number.isFinite(n) && n > 0 ? n : 1;
+          })(),
           generation,
           timestampClient:
             msg.timestampClient != null || msg.timestamp_client != null

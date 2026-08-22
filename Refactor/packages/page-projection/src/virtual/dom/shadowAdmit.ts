@@ -7,7 +7,7 @@ import {
   SHADOW_INIT_CLONABLE,
   SHADOW_INIT_DELEGATES_FOCUS,
   SHADOW_INIT_SERIALIZABLE,
-} from '../../models/frame';
+} from '../../core/frame';
 
 export function admissibleShadowRoot(el: Element): ShadowRoot | null {
   const sr = el.shadowRoot;

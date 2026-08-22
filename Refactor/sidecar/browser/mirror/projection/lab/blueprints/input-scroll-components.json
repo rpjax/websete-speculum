@@ -1,0 +1,48 @@
+{
+  "id": "input-scroll-components",
+  "description": "M1c+ — two overflow components (#panel-list, #panel-feed) + page viewport scroll",
+  "sessionPolicy": "cold",
+  "queues": [
+    {
+      "name": "main",
+      "actions": [
+        { "id": "boot", "type": "boot", "params": { "url": "fixtures/input-scroll-matrix.html" } },
+        { "id": "wait", "type": "sleep", "dependsOn": ["boot"], "params": { "ms": 2200 } },
+        {
+          "id": "scroll-list",
+          "type": "pushDomInput",
+          "dependsOn": ["wait"],
+          "params": {
+            "sequence": [{ "type": "resolveAndScrollElement", "selector": "#panel-list", "scrollTop": 176 }]
+          }
+        },
+        {
+          "id": "scroll-feed",
+          "type": "pushDomInput",
+          "dependsOn": ["scroll-list"],
+          "params": {
+            "sequence": [{ "type": "resolveAndScrollElement", "selector": "#panel-feed", "scrollTop": 264 }]
+          }
+        },
+        {
+          "id": "scroll-page",
+          "type": "pushDomInput",
+          "dependsOn": ["scroll-feed"],
+          "params": {
+            "sequence": [{ "type": "resolveAndScrollViewport", "scrollY": 420 }]
+          }
+        },
+        { "id": "wait-scroll", "type": "sleep", "dependsOn": ["scroll-page"], "params": { "ms": 500 } },
+        {
+          "id": "assert-scroll",
+          "type": "evaluate",
+          "dependsOn": ["wait-scroll"],
+          "params": {
+            "expression": "(() => { const list = document.getElementById('panel-list')?.scrollTop ?? 0; const feed = document.getElementById('panel-feed')?.scrollTop ?? 0; const y = window.scrollY || 0; if (list < 150) throw new Error('list scrollTop=' + list); if (feed < 200) throw new Error('feed scrollTop=' + feed); if (y < 300) throw new Error('scrollY=' + y); return 'ok'; })()"
+          }
+        },
+        { "id": "writeDossier", "type": "writeDossier", "dependsOn": ["assert-scroll"] }
+      ]
+    }
+  ]
+}

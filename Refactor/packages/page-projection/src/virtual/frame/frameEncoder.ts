@@ -5,7 +5,7 @@
  * Returns one or more parts (same generation/sequence; differing partIndex).
  */
 
-import type { Frame } from '../../models/frame';
+import type { Frame } from '../../core/frame';
 
 export type FrameEncoder = {
   encode(frame: Frame): Uint8Array[];

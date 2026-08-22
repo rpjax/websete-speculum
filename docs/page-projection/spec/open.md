@@ -24,7 +24,7 @@
 
 **OPEN-8** is closed at the table. `takeRecords` before drain is closed. CLI `--iso` proves Virtual O2 + Node table×table; tree×tree needs lab UI DOM apply. **Production cutover is not licensed** by that — see [roadmap.md](roadmap.md) cutover law.
 
-No open DOM-table bugs. Stress-churn stacked digits = PP-FR-1 ([observability.md](observability.md) §8). Prepend `child_order` = green at seq 799 (`2026-08-15T00-32-28`). Lab tracker (QA → gaps → features): [seal-gaps.md](seal-gaps.md) — not table OPEN-*. Apply honesty P0 is closed (UI desync attr/ruleset/eof 2026-08-17). SVG namespace **closed 2026-08-17**. Form `PROP_SET` **closed 2026-08-18**. Open named shadow **closed 2026-08-18** ([shadow.md](shadow.md)). Same-origin nested iframe **lab shipped 2026-08-19** (`iframe-open`). Remaining OPEN-6: XO / srcdoc / sandbox / fenced (NIT). Child-document CSSOM is [seal-gaps.md](seal-gaps.md) `SEAL-CSSOM-P2-PIERCE`.
+No open DOM-table bugs. Stress-churn stacked digits = PP-FR-1 ([observability.md](observability.md) §8). Prepend `child_order` = green at seq 799 (`2026-08-15T00-32-28`). Lab tracker (QA → gaps → features): [seal-gaps.md](seal-gaps.md) — not table OPEN-*. Apply honesty P0 is closed (UI desync attr/ruleset/eof 2026-08-17). SVG namespace **closed 2026-08-17**. Form `PROP_SET` **closed 2026-08-18**. Open named shadow **closed 2026-08-18**. Same-origin nested iframe **lab shipped 2026-08-19** (`iframe-open`). **OPEN-6 observability shipped 2026-08-19**. CSSOM in nested contexts = **same algorithm instance** (not a separate feature). Remaining OPEN-6: XO / srcdoc / sandbox / fenced (NIT). Optional QA: nested `cssomO2` assert — [seal-gaps.md](seal-gaps.md) `SEAL-CSSOM-P2-NESTED-QA`.
 
 **Lab (2026-08-15 / 2026-08-16):** CSSOM poll **algorithm** — [cssom-poll-algorithm.md](cssom-poll-algorithm.md).
 **Accept:** DOM numerical 1:1; CSSOM live perceived ([acceptance.md](acceptance.md)).
@@ -46,7 +46,7 @@ kill list: [seal-gaps.md](seal-gaps.md). Telemetry `cssomPoll` sealed for the fo
 | **OPEN-3** | `CHECK.scope` granularity | **CLOSED 2026-08-17** — id ranges (§4.1). Units: `testApplyFrameToTableCheckedRangeScope`, `testCheckScopeRangeEncodeDecode`. |
 | **OPEN-4** | Establish HTML vs table | **CLOSED — moot.** Establish deleted (§4.7). |
 | **OPEN-5** | Recovery / mid-session attach | **CLOSED — §5.8.** Residuals below. |
-| **OPEN-6** | Multi-document | **Lab same-origin iframe shipped 2026-08-19** — [multi-document.md](multi-document.md). XO / `srcdoc` / sandbox / fenced NIT. Production not cutover. |
+| **OPEN-6** | Multi-document | **Lab same-origin iframe + observability shipped 2026-08-19** — [multi-document.md](multi-document.md). XO / `srcdoc` / sandbox / fenced NIT. Child-doc CSSOM feature open. **Production not cutover.** |
 | **OPEN-7** | `insertBatch` reverse-link | **CLOSED** — `nextSiblingOf.set(prev, before)` on insert-before-existing; unit falsifier in `unit.ts`. |
 | **OPEN-8** | `unlink` last-child leaves `nextSiblingOf[prev]` | **CLOSED 2026-08-14** — tail REMOVE after prepend; see frame-protocol §10. |
 
@@ -56,9 +56,9 @@ kill list: [seal-gaps.md](seal-gaps.md). Telemetry `cssomPoll` sealed for the fo
 
 | Id | Topic | Why it blocks | Notes |
 |----|-------|---------------|-------|
-| **CUTOVER-FULL** | Production cutover completeness | Live switch only when V4 has **CSSOM + shadow + OPEN-6 + redesigned input + canvas projection** (canvas = last product feature before Integration), then Integration. DOM-only lab is not M1. | [roadmap.md](roadmap.md) |
-| **CUTOVER-SESSION** | `V4ProjectionBrowserSession` is temporary | At cutover it **is** the live `BrowserSession`. Must cover capabilities Live already has (input, cookies, eval, resize, permissions, …) **redesigned in V4**, not by keeping legado. Incomplete session fails cutover. | [roadmap.md](roadmap.md); `BrowserSession.ts` |
-| **E-03 / E-08** | Loopback WS + CSP strip / PNA | **DECIDED 2026-08-14 — reject header punch.** `connect-src *` / `script-src *` / strip CSP / disable PNA to make page-JS `WebSocket(127.0.0.1)` work **is not antibot-safe** (Akamai/CF see rewritten CSP, extra sockets, public→localhost). Do **not** enable the data plane by mutating the site’s CSP. Inject = CDP `addInitScript` (already). Bytes Virtual→sidecar = **not** a page `connect()` (CDP binding / hub — implement next). Lab loopback WS stays fixtures-only. | [roadmap.md](roadmap.md) gate 8 |
+| **CUTOVER-FULL** | Production cutover completeness | Live switch when V4 is the **only** path with **CSSOM + shadow + OPEN-6 + input-v2 + canvas** on Live — then Integration. Nested CSSOM is not a second algorithm. DOM-only lab is not M1. Input **lab** closed 2026-08-20. | [roadmap.md](roadmap.md) |
+| **CUTOVER-SESSION** | Session must match sealed mirror contracts | At cutover Live uses `PageProjectionBrowserSession` per [browser-session.md](browser-session.md) (lab rename from `V4ProjectionBrowserSession`). Full surface: core + PP product + lab probes as sealed — not by keeping legado. Incomplete session fails cutover. | [browser-session.md](browser-session.md); [roadmap.md](roadmap.md) |
+| **E-03 / E-08** | Loopback WS + CSP strip / PNA | **DECIDED 2026-08-14 — reject header punch as prod data-plane enablement.** Enabling production data plane by page-JS `WebSocket(127.0.0.1)` via blunt CSP/`connect-src *` / disable PNA **is not antibot-safe**. Inject = CDP `addInitScript` (already). Bytes Virtual→sidecar in **production** = **not** a page `connect()` (CDP binding / hub). Lab loopback WS stays fixtures-only. **Amended 2026-08-20:** surgical Document CSP Response-stage surgery **is** normative for Virtual script/`connect-src`/nonce compensation — see [csp.md](csp.md). That amend does **not** license page WS as the Live data plane. | [csp.md](csp.md) · [roadmap.md](roadmap.md) gate 8 |
 | **Contracts pack fate** | Archive vs delete historical `contracts/` + `implementation/` | Already moved to `archive/`. Confirm deletion vs keep-for-provenance. | Default this pass: **keep in archive**, never implement from. |
 
 ---
@@ -71,10 +71,10 @@ kill list: [seal-gaps.md](seal-gaps.md). Telemetry `cssomPoll` sealed for the fo
 | 2 | [test-matrix.md](test-matrix.md) `PP-EST-*` / `PP-REC-2/3` / some `PP-FR-*` still named for childList/establish — **re-authored in place as V4 intent** this pass; WP exit table still historical | Prefer before MotorAssert live-path coverage |
 | 3 | Synchronous-walk latency budget at `MAX_ROWS` for `resyncVirtual` (not `emitResyncFrame`) | Before relying on walk-based rebuild in production at huge tables |
 | 4 | `contracts/07-recovery.md` full rewrite | **Dropped** — file archived; §5.8 is the spec |
-| 5 | Bounded resync retry on **production** session layer with catalogued `errorCode`+`phase` | Lab has 3-attempt backoff + `resyncFailed{exhausted}`. Production hub analog is part of Production Integration |
+| 5 | Bounded resync retry on **production** session layer with catalogued `errorCode`+`phase` | Lab root + nested Projected clients have 3-attempt backoff + `resyncFailed{exhausted}`. Production: **`requestResync({ contextId?, reason? })`** → producer `emitResyncFrame` → client awaits frame on data plane. No get-pull / no sendControl bag. **Contract SEALED** — [browser-session.md](browser-session.md). |
 | 6 | Dual live paths (`LivePageProjection` vs lab engine) | **YES** — cutover (when product-complete) deletes the loser same day ([roadmap.md](roadmap.md)) |
-| 7 | Lab probe: `NODE_NEW` in frame S ⇒ `isConnected` — **closed** as **SEAL-DOM-P0-PROBE** (`probe.nodeNewConnected` + `iso.tree` fail-with-client). Halt iso alone still does not prove the class. | No |
-| 8 | Lab DOM/CSSOM tracker | [seal-gaps.md](seal-gaps.md) — QA + SVG closed 2026-08-17. Form `PROP_SET` closed 2026-08-18. Open named shadow closed 2026-08-18. Same-origin iframe lab closed 2026-08-19. Remaining nested: XO/NIT flavours; child-doc CSSOM. |
+| 7 | Lab probe: `NODE_NEW` in frame S ⇒ `isConnected` — **closed** as **SEAL-DOM-P0-PROBE** (`frameNewNodes` / legacy `probe.nodeNewConnected` + `iso.tree` fail-with-client). Halt iso alone still does not prove the class. | No |
+| 8 | Lab DOM/CSSOM tracker | [seal-gaps.md](seal-gaps.md) — nested SO closed 2026-08-19. Open: XO/NIT; nested cssomO2 QA; CSS paint iso; scale. |
 
 ---
 
@@ -108,3 +108,7 @@ See [support-matrix.md](support-matrix.md). Canvas/WebGL pixels, MSE/DRM, IME, t
 | 2026-08-17 | QA closed (human looks + CHECK range + CSSStyleRule folds + detached-row GC / OPEN-2 / OPEN-3). SVG namespace closed same day. Next: [seal-gaps.md](seal-gaps.md) §3 |
 | 2026-08-17 | OPEN-1 **CLOSED** — `NODE_DROP` absent id is `malformed` |
 | 2026-08-19 | OPEN-6 lab same-origin iframe shipped — `iframe-open` `iso.nested` / `iso.nested.blank`. XO/srcdoc NIT. |
+| 2026-08-19 | **OPEN-6 observability shipped** — telemetry v2 + `contextId`, bus snapshot RPC, lab context index, iso N-way, Stream HUD per context ([observability.md](observability.md) §10). |
+| 2026-08-21 | **BrowserSession contract SEALED** — [browser-session.md](browser-session.md): core + PP + video; raw `getStateSnapshot`; `requestResync` only; no diagnostics facade. |
+| 2026-08-19 | **Resync single entry path** — `PlaneChannel.Control` `requestResync` only; removed `emitResyncRequest` / upward loose bus / empty `forwardResyncToSidecar` stub. |
+| 2026-08-19 | **`parityFingerprint` removed** — not in telemetry v2 schema; iso probes are the assert source. |

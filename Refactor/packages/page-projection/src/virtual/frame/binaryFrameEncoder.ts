@@ -3,17 +3,13 @@
  * Layout matches client `decode.ts`.
  *
  * v0 string policy: every string is encoded as a **frame-local** `StrRef` (bit31 set,
- * low 31 bits = index into this part's string table via `BinaryWriter.str()`). Persistent,
- * session-lived interning (`STR_DEF`, §1.7) is part of the wire format (decodable — see
- * client `decode.ts`) but this producer never emits it yet: interning is a wire-bytes
- * optimization, and the thing this lab increment measures is CPU per operation, not bytes
- * (frame-protocol.md decision log, 2026-08-13, "ISA"). Revisit once a perf pass shows bytes
- * are the binding constraint.
+ * low 31 bits = index into this part's string table via `BinaryWriter.str()`). The header
+ * `strings` block (§2) carries definitions — no `STR_DEF` opcode in the shipped ISA.
  */
 
-import { ElementNs, packElementNsWireByte, resolveElementNestedHost } from '../../models/elementNs';
-import { NodeKind, OpCode } from '../../models/opcodes';
-import { propValueKind } from '../../models/propSet';
+import { ElementNs, packElementNsWireByte, resolveElementNestedHost } from '../../core/elementNs';
+import { NodeKind, OpCode } from '../../core/opcodes';
+import { propValueKind } from '../../core/propSet';
 import type {
   AttrPair,
   CheckOp,
@@ -24,7 +20,6 @@ import type {
   NodeDropOp,
   NodeNewOp,
   RemoveOp,
-  StrDefOp,
   AttrSetOp,
   AttrDelOp,
   TextSetOp,
@@ -35,7 +30,7 @@ import type {
   RuleNewOp,
   RuleDropOp,
   RuleSetOp,
-} from '../../models/frame';
+} from '../../core/frame';
 import type { FrameEncoder } from './frameEncoder';
 import { assemblePart, BinaryWriter } from './binaryWriter';
 
@@ -147,8 +142,6 @@ export class BinaryFrameEncoder implements FrameEncoder {
         return this.writeCheck(w, op);
       case OpCode.EpochReset:
         return this.writeEpochReset(w, op);
-      case OpCode.StrDef:
-        return this.writeStrDef(w, op);
       case OpCode.NodeNew:
         return this.writeNodeNew(w, op);
       case OpCode.NodeDrop:
@@ -194,13 +187,6 @@ export class BinaryFrameEncoder implements FrameEncoder {
   private writeEpochReset(w: BinaryWriter, op: EpochResetOp): void {
     w.u8(OpCode.EpochReset);
     w.u32(op.generation);
-  }
-
-  /** Persistent `STR_DEF` bytes are raw (this instruction IS the definition), never interned. */
-  private writeStrDef(w: BinaryWriter, op: StrDefOp): void {
-    w.u8(OpCode.StrDef);
-    w.u32(op.strId);
-    w.utf8Raw(op.value);
   }
 
   private writeNodeNew(w: BinaryWriter, op: NodeNewOp): void {

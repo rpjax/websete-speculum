@@ -99,7 +99,7 @@ async function smokeUiApply() {
       ok = true;
       break;
     }
-    const status = await page.textContent('#status');
+    const status = await page.textContent('#statusStrip').catch(() => null);
     if (status && /fault/i.test(status)) throw new Error(`UI fault: ${status}`);
     await wait(200);
   }
@@ -134,7 +134,10 @@ async function main() {
     const blueprints = await fetch(`http://${HOST}:${PORT}/lab/blueprints`);
     if (!blueprints.ok) throw new Error('GET /lab/blueprints failed');
     const bp = await blueprints.json();
-    if (!bp.blueprints?.includes('soak')) throw new Error('soak blueprint missing from catalog');
+    const ids = Array.isArray(bp.blueprints)
+      ? bp.blueprints.map((b) => (typeof b === 'string' ? b : b?.id)).filter(Boolean)
+      : [];
+    if (!ids.includes('soak')) throw new Error('soak blueprint missing from catalog');
 
     await smokeBrowseFirstFrame();
     await smokeUiApply();

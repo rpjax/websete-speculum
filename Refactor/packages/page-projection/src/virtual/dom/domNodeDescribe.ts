@@ -5,10 +5,10 @@
  * from a different traversal (mutation-driven DFS vs. identity-map iteration).
  */
 
-import { classifyElementNs, ElementNs } from '../../models/elementNs';
-import { NodeKind, OpCode } from '../../models/opcodes';
-import { SHADOW_MODE_OPEN, type AttrPair, type FrameOp } from '../../models/frame';
-import type { DomNodeKey } from '../../models/domNodeKey';
+import { classifyElementNs, ElementNs } from '../../core/elementNs';
+import { NodeKind, OpCode } from '../../core/opcodes';
+import { SHADOW_MODE_OPEN, type AttrPair, type FrameOp } from '../../core/frame';
+import type { DomNodeKey } from '../../core/domNodeKey';
 import { shadowInitFlags } from './shadowAdmit';
 
 /** The kinds a live DOM node can produce (Sheet/Rule are CSSOM-only). */

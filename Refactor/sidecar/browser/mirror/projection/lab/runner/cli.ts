@@ -10,7 +10,7 @@ import { LabChassis } from '../host/chassis';
 import { loadBlueprint, listBlueprintIds } from './loadBlueprint';
 import { executeBlueprint } from './execute';
 import { reportExitCode } from '../dossier/types';
-import { LAB_TELEMETRY_DEFAULTS } from '../../models/telemetry';
+import { LAB_TELEMETRY_DEFAULTS } from '@speculum/page-projection/core/telemetry';
 
 type Args = {
   blueprint: string;

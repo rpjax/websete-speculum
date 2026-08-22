@@ -18,13 +18,13 @@ var __speculumSnapshot = (() => {
   };
   var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
-  // browser/mirror/projection/client/domTreeSnapshot.ts
+  // ../packages/page-projection/src/core/snapshot/domTreeSnapshot.ts
   var domTreeSnapshot_exports = {};
   __export(domTreeSnapshot_exports, {
     snapshotTree: () => snapshotTree
   });
 
-  // browser/mirror/projection/models/elementNs.ts
+  // ../packages/page-projection/src/core/elementNs.ts
   var ELEMENT_NS_HTML = "http://www.w3.org/1999/xhtml";
   var ELEMENT_NS_SVG = "http://www.w3.org/2000/svg";
   var ELEMENT_NS_MATHML = "http://www.w3.org/1998/Math/MathML";
@@ -51,7 +51,7 @@ var __speculumSnapshot = (() => {
     }
   }
 
-  // browser/mirror/projection/client/domTreeSnapshot.ts
+  // ../packages/page-projection/src/core/snapshot/domTreeSnapshot.ts
   function snapshotTree(root) {
     return walkNode(root ?? document);
   }

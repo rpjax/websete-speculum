@@ -1,16 +1,10 @@
 /**
- * Server-side capture of a structural DOM snapshot from the Virtual Chromium page.
- * `client/domTreeSnapshot.ts` is DOM-typed and esbuild-only (see its header) and must never be
- * imported from tsc-checked code, so this loads its prebuilt standalone bundle
- * (`npm run build:snapshot`) as text and hands it to Patchright's `page.evaluate(string)` —
- * the same "load a prebuilt bundle, inject as a string" pattern already used for the whole
- * Virtual producer (`inject/loadInpageScript.ts`).
+ * Neutral in-page snapshot evaluate expressions — shared by session RPC and lab probes.
+ * `projected/domTreeSnapshot.ts` stays esbuild-only; this loads its prebuilt bundle as text.
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
-import type { Page } from 'patchright';
-import type { TreeNode } from '../../models/treeNode';
 
 const BUNDLE_NAME = 'domTreeSnapshot.js';
 
@@ -111,40 +105,6 @@ export function snapshotContextEvaluateExpression(): string {
     }
     const r = await p.snapshotContext(contextId, opts);
     if (!r.ok) return r;
-    let tree = r.value.tree ?? null;
-    if (opts.includeTree && tree == null && typeof __speculumSnapshot?.snapshotTree === 'function') {
-      tree = __speculumSnapshot.snapshotTree();
-    }
-    return { ok: true, value: { ...r.value, tree } };
+    return { ok: true, value: r.value };
   })`;
-}
-
-export function snapshotAllContextsEvaluateExpression(): string {
-  return `(async (contextIds, opts, treeSrc) => {
-    if (treeSrc) { eval(treeSrc); }
-    const p = globalThis.__speculumProjection;
-    if (!p || typeof p.snapshotAllKnown !== 'function') return {};
-    const raw = await p.snapshotAllKnown(contextIds, opts);
-    const out = {};
-    for (const id of contextIds) {
-      const entry = raw[id];
-      if (!entry || entry.ok === false) {
-        out[id] = entry ?? { ok: false, reason: 'missing' };
-        continue;
-      }
-      let tree = entry.tree ?? null;
-      if (opts.includeTree && id === 1 && tree == null && typeof __speculumSnapshot?.snapshotTree === 'function') {
-        tree = __speculumSnapshot.snapshotTree();
-      }
-      out[id] = { ok: true, value: { ...entry, tree } };
-    }
-    return out;
-  })`;
-}
-
-/** Captures a structural snapshot of the Virtual page's live `document` (no pixels, no CSSOM). */
-export async function captureVirtualSnapshot(page: Page): Promise<TreeNode> {
-  const source = loadSnapshotScript();
-  const expression = `(() => {\n${source}\nreturn __speculumSnapshot.snapshotTree();\n})()`;
-  return page.evaluate<TreeNode>(expression);
 }

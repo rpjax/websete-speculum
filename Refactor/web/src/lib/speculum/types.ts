@@ -189,6 +189,8 @@ export interface PageProjectionIntent {
   anchor?: string | null
   /** Redesigned id-addressed target (§5.11); null for pure motion or V1 anchor addressing. */
   targetId?: number | null
+  /** V4 browsing context (root = 1). */
+  contextId?: number
   timestampClient?: number | null
   /** Opaque E2E correlation id (always stamped on product send). */
   traceId?: string | null

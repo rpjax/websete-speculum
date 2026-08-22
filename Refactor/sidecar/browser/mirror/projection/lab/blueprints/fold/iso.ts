@@ -69,22 +69,45 @@ export type IsoJournal = {
   allPass?: boolean;
 };
 
-export function foldNodeNewConnected(probe: NodeNewConnectedProbe | null | undefined): LabVerdict {
+export function foldNodeNewConnected(
+  probe: NodeNewConnectedProbe | null | undefined,
+  opts?: { id?: string },
+): LabVerdict {
+  const id = opts?.id ?? 'probe.nodeNewConnected';
   if (!probe) {
-    return { id: 'probe.nodeNewConnected', status: 'fail', reason: 'probe missing' };
+    return { id, status: 'fail', reason: 'probe missing' };
   }
   if (!probe.ok) {
     return {
-      id: 'probe.nodeNewConnected',
+      id,
       status: 'fail',
       reason: `disconnected ids=[${probe.disconnectedIds.join(',')}] checked=${probe.checked}`,
     };
   }
   return {
-    id: 'probe.nodeNewConnected',
+    id,
     status: 'pass',
     reason: `checked=${probe.checked}`,
   };
+}
+
+/** Nested context vanished (typical after dropHost) — Virtual snapshot failed / no surface. */
+export function isNestedContextGone(ctx: {
+  skipped?: { id: string; reason: string }[];
+  nodeNewConnected?: NodeNewConnectedProbe | null;
+  table?: { identical: boolean | null };
+  structuralDiff?: { identical: boolean; divergenceCount: number } | null;
+}): boolean {
+  const skipReason = (ctx.skipped ?? []).map((s) => s.reason).join(' ');
+  if (/context_not_found|context not found|missing|no longer|unknown context/i.test(skipReason)) {
+    return true;
+  }
+  return (
+    ctx.nodeNewConnected == null &&
+    ctx.table?.identical == null &&
+    ctx.structuralDiff == null &&
+    (ctx.skipped?.length ?? 0) > 0
+  );
 }
 
 function colorLooksRed(c: string): boolean {
@@ -282,7 +305,17 @@ export function foldIsoJournal(
 
   if (iso.contexts) {
     for (const [id, ctx] of Object.entries(iso.contexts)) {
+      const contextId = Number(id);
       const prefix = `iso.context.${id}`;
+      // Last iso is often post-dropHost: nested ids stay in ContextIndex but Virtual is gone.
+      if (contextId >= 2 && isNestedContextGone(ctx)) {
+        verdicts.push({
+          id: `${prefix}.gone`,
+          status: 'skipped',
+          reason: 'nested context absent (post-drop)',
+        });
+        continue;
+      }
       if (ctx.o2) {
         verdicts.push({
           id: `${prefix}.dom`,
@@ -314,7 +347,11 @@ export function foldIsoJournal(
       } else if (ctx.formProps?.identical === false) {
         verdicts.push({ id: `${prefix}.formProps`, status: 'fail', reason: 'form properties mismatch' });
       }
-      verdicts.push(foldNodeNewConnected(ctx.nodeNewConnected));
+      verdicts.push(
+        foldNodeNewConnected(ctx.nodeNewConnected, {
+          id: contextId === 1 ? 'probe.nodeNewConnected' : `${prefix}.probe.nodeNewConnected`,
+        }),
+      );
     }
   }
 

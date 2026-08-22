@@ -1,7 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.v4LabLaunchOptions = v4LabLaunchOptions;
-const telemetry_1 = require("../models/telemetry");
+const telemetry_1 = require("@speculum/page-projection/core/telemetry");
 /** Fill Sessions Launch fields the lab/.NET Launch would supply so lab callers stay thin. */
 function v4LabLaunchOptions(overrides = {}) {
     return {

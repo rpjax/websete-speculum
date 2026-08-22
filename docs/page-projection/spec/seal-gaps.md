@@ -51,7 +51,7 @@ Until a closed-shadow fixture is in scope for a later cut, it must **fail explic
 
 ## 2. Gaps (current path is wrong or unsealed)
 
-**Empty.** SVG namespace closed 2026-08-17. Form `PROP_SET` closed 2026-08-18. Open named shadow closed 2026-08-18. Same-origin nested iframe lab closed 2026-08-19. Remaining nested flavours (XO / srcdoc / sandbox / fenced) are NIT until those blueprints exist — fail unsupported, never soft-skip.
+**Empty.** SVG namespace closed 2026-08-17. Form `PROP_SET` closed 2026-08-18. Open named shadow closed 2026-08-18. Same-origin nested iframe lab closed 2026-08-19. Nested Projected resync parity + single Control-plane resync entry closed 2026-08-19. Remaining nested flavours (XO / srcdoc / sandbox / fenced) are NIT until those blueprints exist — fail unsupported, never soft-skip.
 
 Honesty P0 for apply (flush-after-desync, failed `setAttribute`, phase-1 pres, `NODE_NEW` connected probe, `RULE_SET` on grouping, EOF rule membership, author vs adopted paint, doc/code alignment) is **closed** — archive at the bottom. UI desync proofs for attr / ruleset / eof: 2026-08-17.
 
@@ -63,25 +63,23 @@ Not gaps in `NODE_NEW` / `RULE_SET` / CHECK. These ops or walks **are not on the
 
 ### DOM / protocol
 
-| Id | What to build | Assert | Status |
-|----|---------------|--------|--------|
-| **SEAL-DOM-P2-ISA** | Remaining opcodes on the happy path: `NODE_META`, `DOC_STATE`, `SCROLL_*`, `NODE_SNAPSHOT`, related. | Per-opcode matrix (**PP-F-5**, **PP-EST-4**, **PP-MOVE-3**, **PP-D16-***) with **effect** probes — not “opcode exists”. | open |
+No open rows — shipped ISA is complete for the lab happy path ([frame-protocol.md](frame-protocol.md) §4 lacre 2026-08-20). Future opcodes append into reserved ranges at a version bump; not tracked here.
 
 ### CSSOM
 
-Algorithm (poll + top-level serialize) is **closed**. Child-document CSSOM is OPEN-6 (that child’s instance), not a second CSSOM algorithm. Remaining CSSOM feature rows: child docs, scale, paint iso.
+Algorithm (poll + top-level serialize) is **closed** — **same code per algorithm instance** (root and nested). OPEN-6 does not add a second CSSOM path; nested heaps run the same `bootstrap.ts` + poll. Remaining CSSOM rows: **QA** on nested contexts (optional), scale, paint iso.
 
 | Id | What to build | Assert | Status |
 |----|---------------|--------|--------|
-| **SEAL-CSSOM-P2-PIERCE** | CSSOM of a **child document** — that instance’s poll + table. Parent does not walk `contentDocument`. | OPEN-6 + **PP-F-4**. | open |
+| **SEAL-CSSOM-P2-NESTED-QA** | **Not a new algorithm.** Prove CSSOM O2 on a nested `contextId` in lab (e.g. `iframe-open` snap with `cssom: 'scan'`). Same poll + apply as root. | Per-context `cssomO2` in iso N-way; fails if nested instance poll/apply regresses. | open (QA only) |
 | **SEAL-CSSOM-P2-SCALE** | Scale amortizations (generations, skip-serialize, hints) after the path is correct. | Capacity in `perf.yml`; functional settle still fails on an incomplete sheet. | open |
-| **SEAL-CSSOM-P2-ISO** | Automated Projected CSS vs Virtual (beyond table×live). | New probe class; CLI `--iso` does **not** claim this today ([observability.md](observability.md)). | open |
+| **SEAL-CSSOM-P2-ISO** | Automated Projected **paint** CSS vs Virtual (beyond table×live O2). | New probe class; CLI `--iso` does **not** claim this today ([observability.md](observability.md)). | open |
 
 **Not a row:** nested rules as own table ids — future opt ([cssom.md](cssom.md) C3.2). Poll is the sensor ([cssom.md](cssom.md) C5).
 
 ### Product (not this file’s kill list)
 
-- Dual live paths, full V4 session contract, redesigned input, `<canvas>` **content**: [roadmap.md](roadmap.md). Canvas is the last product feature before Integration — [support-matrix.md](support-matrix.md).
+- Dual live paths, full V4 session contract, `<canvas>` **content**: [roadmap.md](roadmap.md). Canvas is the last product feature before Integration — [support-matrix.md](support-matrix.md). Input V2 lab closed 2026-08-20 ([input-v2.md](input-v2.md)).
 
 ---
 
@@ -91,7 +89,7 @@ Algorithm (poll + top-level serialize) is **closed**. Child-document CSSOM is OP
 |------|------|--------|
 | **QA / tests** | 0 | Human looks + CHECK range + CSSStyleRule live + detached-row GC closed 2026-08-17 |
 | **Gaps** | 0 | SVG namespace closed 2026-08-17 |
-| **Features** | 4 ids | remaining ISA, child-doc CSSOM, scale, CSS iso |
+| **Features** | 3 ids | nested CSSOM QA, scale, CSS paint iso |
 
 Closed honesty + QA 2026-08-17: FLUSH, ATTR, PHASE1, PROBE, OPEN2, OPEN3, RULESET, DOUBLE, EOF, DOCS, STYLE, IDSPACE, OPEN-1, SVG.
 
@@ -132,7 +130,7 @@ Kept so ids and dates stay searchable. Do not reopen because CLI `--iso` skipped
 | **SEAL-DOM-P1-SVG** | `NODE_NEW` always HTML `createElement`. | **PP-F-SVG-1**: units `testNodeNewElementNsWire`, `testStructuralDiffNsMismatch`; lab `svg-ns` (CLI tree skip without DOM client; `ns_mismatch` fails with client). | **closed 2026-08-17** |
 | **SEAL-DOM-P1-PROP** | Live form properties not on the wire / not applied as properties. | **PP-PROP-1**: units `testPropSetWire`, `testPropSetTableAndCheck`, `testFormPropDirtyDoesNotBlockTable`; lab `forms-state` (CLI `iso.formProps` skip explicit without DOM client; with client, Virtual vs Projected properties fail on mismatch). | **closed 2026-08-18** |
 | **SEAL-DOM-P1-SHADOW** | Shadow not on the walk / wire. | **PP-F-3**: units `testShadowRootWire`, `testShadowRootModeClosedMalformed`, `testShadowRootInitFlagsReservedBitMalformed`, `testCreateShadowRootNotInLightChildOrder`, `testDropSubtreeIncludesShadowRoot`, `testInsertRemoveUnderShadowRoot`, `testRejectInsertOrRemoveShadowRootId`, `testSecondShadowRootSameHostMalformed`, `testMoveLightIntoShadow`, `testStructuralDiffShadowSeparate`; lab `shadow-open` (CLI tree skip without DOM client; with client, light-only / missing Projected `.shadowRoot` fails). **PP-F-4**: lab `shadow-closed` → `unsupported.shadow.closed`; `shadow-manual` → `unsupported.shadow.manual`. | **closed 2026-08-18** |
-| **SEAL-DOM-P2-OPEN6** | Nested browsing contexts not on the wire. | Lab `iframe-open` with DOM client: `iso.nested` (tree enters the child document) + `iso.nested.blank` (Projected host stayed about:blank). CLI without DOM client **fails** `iso.nested` (honest). Units: `testHeaderV3ContextId`, `testNodeNewNestedHostWire`, `testNestedHostNavAttrSkip`, `testContextIdMintAndChildScopes`. XO / `srcdoc` / sandbox / fenced: NIT — fail `unsupported.*` if those blueprints are added; never soft-skip. | **closed 2026-08-19** (lab same-origin iframe; not production) |
+| **SEAL-DOM-P2-OPEN6** | Nested browsing contexts not on the wire. | Lab `iframe-open` with DOM client: `iso.nested` (tree enters the child document) + `iso.nested.blank` (Projected host stayed about:blank). Wire v2 header + `contextId`. CLI without DOM client **fails** `iso.nested` (honest). Units: `testHeaderV3ContextId` (legacy name — asserts v2 + `contextId`), `testNodeNewNestedHostWire`, `testNestedHostNavAttrSkip`, `testContextIdMintAndChildScopes`. XO / `srcdoc` / sandbox / fenced: NIT — fail `unsupported.*` if those blueprints are added; never soft-skip. | **closed 2026-08-19** (lab same-origin iframe; not production) |
 
 ### CSSOM
 

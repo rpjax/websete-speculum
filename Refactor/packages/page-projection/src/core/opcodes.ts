@@ -1,16 +1,13 @@
 /**
- * docs/page-projection/spec/frame-protocol.md §3–§4 — one opcode space, table + structure + node state.
- * Values are wire-stable: never renumber, only append. Ranges match §3 exactly.
- *
- * CSSOM opcodes `0xA0–0xA5` (§4.6) are on the wire. Lab client phase 2 materializes owned
- * constructed sheets on `adoptedStyleSheets` + `CSSStyleRule` (C6); pierce still desyncs.
- * `Check`/`NodeDrop` are used. OPEN-2 deferred GC still applies to DOM rows.
+ * docs/page-projection/spec/frame-protocol.md §3–§4 — shipped ISA (lacre 2026-08-20).
+ * Values are wire-stable: never renumber, only append into reserved ranges.
+ * Source of truth for §4 opcode list. Strings ship in the frame header `strings` block, not as ops.
  */
 
 export enum OpCode {
   Check = 0x01,
   EpochReset = 0x02,
-  StrDef = 0x03,
+  // 0x03–0x1F reserved (control range; no STR_DEF opcode — strings are header-local)
 
   NodeNew = 0x20,
   NodeDrop = 0x21,
@@ -34,7 +31,6 @@ export enum OpCode {
 const NAMES: Readonly<Partial<Record<OpCode, string>>> = {
   [OpCode.Check]: 'check',
   [OpCode.EpochReset]: 'epochReset',
-  [OpCode.StrDef]: 'strDef',
   [OpCode.NodeNew]: 'nodeNew',
   [OpCode.NodeDrop]: 'nodeDrop',
   [OpCode.Insert]: 'insert',

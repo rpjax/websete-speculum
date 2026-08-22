@@ -5,24 +5,37 @@
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.foldNodeNewConnected = foldNodeNewConnected;
+exports.isNestedContextGone = isNestedContextGone;
 exports.foldCssomPaintBoundary = foldCssomPaintBoundary;
 exports.foldIsoJournal = foldIsoJournal;
-function foldNodeNewConnected(probe) {
+function foldNodeNewConnected(probe, opts) {
+    const id = opts?.id ?? 'probe.nodeNewConnected';
     if (!probe) {
-        return { id: 'probe.nodeNewConnected', status: 'fail', reason: 'probe missing' };
+        return { id, status: 'fail', reason: 'probe missing' };
     }
     if (!probe.ok) {
         return {
-            id: 'probe.nodeNewConnected',
+            id,
             status: 'fail',
             reason: `disconnected ids=[${probe.disconnectedIds.join(',')}] checked=${probe.checked}`,
         };
     }
     return {
-        id: 'probe.nodeNewConnected',
+        id,
         status: 'pass',
         reason: `checked=${probe.checked}`,
     };
+}
+/** Nested context vanished (typical after dropHost) — Virtual snapshot failed / no surface. */
+function isNestedContextGone(ctx) {
+    const skipReason = (ctx.skipped ?? []).map((s) => s.reason).join(' ');
+    if (/context_not_found|context not found|missing|no longer|unknown context/i.test(skipReason)) {
+        return true;
+    }
+    return (ctx.nodeNewConnected == null &&
+        ctx.table?.identical == null &&
+        ctx.structuralDiff == null &&
+        (ctx.skipped?.length ?? 0) > 0);
 }
 function colorLooksRed(c) {
     return /rgb\(\s*255\s*,\s*0\s*,\s*0/.test(c) || c === 'red';
@@ -215,7 +228,17 @@ function foldIsoJournal(iso, opts) {
     verdicts.push(foldNodeNewConnected(iso.nodeNewConnected));
     if (iso.contexts) {
         for (const [id, ctx] of Object.entries(iso.contexts)) {
+            const contextId = Number(id);
             const prefix = `iso.context.${id}`;
+            // Last iso is often post-dropHost: nested ids stay in ContextIndex but Virtual is gone.
+            if (contextId >= 2 && isNestedContextGone(ctx)) {
+                verdicts.push({
+                    id: `${prefix}.gone`,
+                    status: 'skipped',
+                    reason: 'nested context absent (post-drop)',
+                });
+                continue;
+            }
             if (ctx.o2) {
                 verdicts.push({
                     id: `${prefix}.dom`,
@@ -249,7 +272,9 @@ function foldIsoJournal(iso, opts) {
             else if (ctx.formProps?.identical === false) {
                 verdicts.push({ id: `${prefix}.formProps`, status: 'fail', reason: 'form properties mismatch' });
             }
-            verdicts.push(foldNodeNewConnected(ctx.nodeNewConnected));
+            verdicts.push(foldNodeNewConnected(ctx.nodeNewConnected, {
+                id: contextId === 1 ? 'probe.nodeNewConnected' : `${prefix}.probe.nodeNewConnected`,
+            }));
         }
     }
     return verdicts;

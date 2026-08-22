@@ -8,10 +8,10 @@ exports.encodeAttrDesyncFrame = encodeAttrDesyncFrame;
 exports.encodeRulesetDesyncFrame = encodeRulesetDesyncFrame;
 exports.encodeEofSetupFrame = encodeEofSetupFrame;
 exports.encodeEofCheckFrame = encodeEofCheckFrame;
-const binaryFrameEncoder_1 = require("../../virtual/frame/binaryFrameEncoder");
-const frame_1 = require("../../models/frame");
-const elementNs_1 = require("../../models/elementNs");
-const opcodes_1 = require("../../models/opcodes");
+const binaryFrameEncoder_1 = require("@speculum/page-projection/virtual/frame/binaryFrameEncoder");
+const frame_1 = require("@speculum/page-projection/core/frame");
+const elementNs_1 = require("@speculum/page-projection/core/elementNs");
+const opcodes_1 = require("@speculum/page-projection/core/opcodes");
 /** High ids — well above a typical lab document allocator. */
 const ATTR_NODE_ID = 199_991;
 const SHEET_ID = 199_980;

@@ -4,16 +4,16 @@
  * Table×table and table×DOM asserts belong on the coherent snapshot probe.
  */
 
-import { OpCode } from '../../models/opcodes';
-import { DOCUMENT_ID, INSERT_AT_END, type FrameOp } from '../../models/frame';
-import type { DomNodeKey } from '../../models/domNodeKey';
+import { OpCode } from '@speculum/page-projection/core/opcodes';
+import { DOCUMENT_ID, INSERT_AT_END, type FrameOp } from '@speculum/page-projection/core/frame';
+import type { DomNodeKey } from '@speculum/page-projection/core/domNodeKey';
 import {
   decodeFramePart,
   FramePartAssembler,
   PersistentStringTable,
   type AssembledFrame,
-} from '../../models/decode';
-import type { ProjectionTelemetryMessage } from '../../models/telemetry';
+} from '@speculum/page-projection/core/decode';
+import type { ProjectionTelemetryMessage } from '@speculum/page-projection/core/telemetry';
 
 export type InvariantStatus = 'pass' | 'fail';
 export type InvariantFailure = { sequence: number; details: string };
@@ -127,7 +127,6 @@ export class FrameInvariantMonitor {
   private processOp(op: FrameOp, sequence: number): void {
     switch (op.op) {
       case OpCode.EpochReset:
-      case OpCode.StrDef:
         return; // no id semantics
       case OpCode.NodeNew: {
         if (this.liveIds.has(op.id)) {

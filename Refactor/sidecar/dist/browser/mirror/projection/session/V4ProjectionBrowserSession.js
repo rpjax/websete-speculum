@@ -14,12 +14,13 @@ exports.createV4ProjectionBrowserSessionFactory = createV4ProjectionBrowserSessi
 const patchright_1 = require("patchright");
 const buildConfigPreScript_1 = require("../inject/buildConfigPreScript");
 const loadInpageScript_1 = require("../inject/loadInpageScript");
-const virtualSnapshot_1 = require("../lab/probes/virtualSnapshot");
-const cpuProfile_1 = require("../lab/probes/cpuProfile");
-const telemetry_1 = require("../models/telemetry");
-const plane_1 = require("../plane");
-const decode_1 = require("../models/decode");
+const snapshotEvaluate_1 = require("./snapshotEvaluate");
+const telemetry_1 = require("@speculum/page-projection/core/telemetry");
+const plane_1 = require("@speculum/page-projection/core/plane");
+const decode_1 = require("@speculum/page-projection/core/decode");
 const projectionDataPlaneHost_1 = require("./projectionDataPlaneHost");
+const documentResponseHook_1 = require("./csp/documentResponseHook");
+const v4InputDispatch_1 = require("../input/v4InputDispatch");
 function chromeArgs() {
     return [
         '--disable-background-timer-throttling',
@@ -44,12 +45,15 @@ class V4ProjectionBrowserSession {
     generation = 1;
     cpuAllowed = false;
     cpuRunning = false;
+    inputDispatch = null;
     dataPlane = new projectionDataPlaneHost_1.ProjectionDataPlaneHost();
     headless;
+    probes;
     constructor(sessionId, events, factoryOpts) {
         this.sessionId = sessionId;
         this.events = events;
         this.headless = factoryOpts.headless;
+        this.probes = factoryOpts.probes ?? {};
         this.dataPlane.dataPlane.setHandler((channel, payload) => {
             if (channel === plane_1.PlaneChannel.Frame) {
                 const header = (0, decode_1.peekFrameHeader)(payload);
@@ -100,6 +104,7 @@ class V4ProjectionBrowserSession {
     async stop() {
         this.open = false;
         this.cdpSession = null;
+        this.inputDispatch = null;
         const browser = this.browser;
         this.browser = null;
         this.context = null;
@@ -136,10 +141,12 @@ class V4ProjectionBrowserSession {
         const dataPlaneUrl = this.dataPlane.listenUrl;
         if (this.page) {
             this.generation += 1;
+            this.inputDispatch = null;
             await this.page.close();
             this.cdpSession = null;
         }
         this.page = await this.freshPage(dataPlaneUrl, opts);
+        this.inputDispatch = new v4InputDispatch_1.V4InputDispatch(this.page);
         await this.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60_000 });
         this.url = url;
         this.events.onLocationChanged(url);
@@ -167,7 +174,48 @@ class V4ProjectionBrowserSession {
         }
     }
     async pushInput(_input) {
-        // V4 lab session does not emulate OS input; lab UI applies on the client surface.
+        // V4 lab session does not emulate OS input; Dom intents use pushDomInput.
+    }
+    async pushDomInput(input) {
+        if (!this.open || !this.page) {
+            throw Object.assign(new Error('V4ProjectionBrowserSession: session not live'), {
+                code: 'FAILED_PRECONDITION',
+                errorCode: 'session_not_live',
+                phase: 'input',
+            });
+        }
+        if (!this.inputDispatch) {
+            throw Object.assign(new Error('PageProjection input dispatch not ready'), {
+                code: 'FAILED_PRECONDITION',
+                errorCode: 'input_dispatch_missing',
+                phase: 'input',
+            });
+        }
+        return this.inputDispatch.dispatchIngress(input);
+    }
+    async resolveAndClickDomInput(selector, contextId = 1) {
+        if (!this.inputDispatch) {
+            return { status: 'dropped', reason: 'input_dispatch_missing' };
+        }
+        return this.inputDispatch.resolveAndClick(selector, contextId);
+    }
+    async resolveAndTypeDomInput(selector, value, contextId = 1) {
+        if (!this.inputDispatch) {
+            return { status: 'dropped', reason: 'input_dispatch_missing' };
+        }
+        return this.inputDispatch.resolveAndType(selector, value, contextId);
+    }
+    async resolveAndScrollElementDomInput(selector, scrollTop, contextId = 1) {
+        if (!this.inputDispatch) {
+            return { status: 'dropped', reason: 'input_dispatch_missing' };
+        }
+        return this.inputDispatch.resolveAndScrollElement(selector, scrollTop, contextId);
+    }
+    async resolveAndScrollViewportDomInput(scrollY, scrollX = 0, contextId = 1) {
+        if (!this.inputDispatch) {
+            return { status: 'dropped', reason: 'input_dispatch_missing' };
+        }
+        return this.inputDispatch.resolveAndScrollViewport(scrollY, scrollX, contextId);
     }
     async pushCameraFrame(_frame) { }
     async pushMicrophoneAudio(_chunk) { }
@@ -212,7 +260,10 @@ class V4ProjectionBrowserSession {
         if (opts?.includeTree === false)
             return meta;
         try {
-            const tree = await (0, virtualSnapshot_1.captureVirtualSnapshot)(page);
+            const capture = this.probes.captureVirtualSnapshot;
+            if (!capture)
+                return { ...meta, reason: 'captureVirtualSnapshot probe not registered' };
+            const tree = await capture(page);
             return { ...meta, tree };
         }
         catch (err) {
@@ -252,8 +303,8 @@ class V4ProjectionBrowserSession {
         try {
             const includeTree = opts?.includeTree !== false;
             const cssom = opts?.cssom ?? 'none';
-            const treeScript = includeTree && contextId === 1 ? (0, virtualSnapshot_1.loadSnapshotScriptForEvaluate)() : '';
-            const fn = (0, virtualSnapshot_1.snapshotContextEvaluateExpression)();
+            const treeScript = includeTree && contextId === 1 ? (0, snapshotEvaluate_1.loadSnapshotScriptForEvaluate)() : '';
+            const fn = (0, snapshotEvaluate_1.snapshotContextEvaluateExpression)();
             return (await this.requirePage().evaluate(`(${fn})(${contextId}, ${JSON.stringify({ cssom, includeTree })}, ${JSON.stringify(treeScript)})`));
         }
         catch (err) {
@@ -264,8 +315,8 @@ class V4ProjectionBrowserSession {
         try {
             const includeTree = opts?.includeTree !== false;
             const cssom = opts?.cssom ?? 'none';
-            const treeScript = includeTree ? (0, virtualSnapshot_1.loadSnapshotScriptForEvaluate)() : '';
-            const fn = (0, virtualSnapshot_1.snapshotAllContextsEvaluateExpression)();
+            const treeScript = includeTree && contextIds.includes(1) ? (0, snapshotEvaluate_1.loadSnapshotScriptForEvaluate)() : '';
+            const fn = (0, snapshotEvaluate_1.snapshotAllContextsEvaluateExpression)();
             return (await this.requirePage().evaluate(`(${fn})(${JSON.stringify([...contextIds])}, ${JSON.stringify({ cssom, includeTree })}, ${JSON.stringify(treeScript)})`));
         }
         catch (err) {
@@ -294,16 +345,22 @@ class V4ProjectionBrowserSession {
             return { ok: false, reason: 'cpuProfiling disabled at launch' };
         if (this.cpuRunning)
             return { ok: false, reason: 'cpu profile already running' };
+        const start = this.probes.startCpuProfile;
+        if (!start)
+            return { ok: false, reason: 'startCpuProfile probe not registered' };
         const cdp = await this.ensureCdp();
-        await (0, cpuProfile_1.startCpuProfile)(cdp);
+        await start(cdp);
         this.cpuRunning = true;
         return { ok: true };
     }
     async stopCpuProfile() {
         if (!this.cpuRunning)
             return { ok: false, reason: 'cpu profile not running' };
+        const stop = this.probes.stopCpuProfile;
+        if (!stop)
+            return { ok: false, reason: 'stopCpuProfile probe not registered' };
         const cdp = await this.ensureCdp();
-        const { raw, summary } = await (0, cpuProfile_1.stopCpuProfile)(cdp, 20);
+        const { raw, summary } = await stop(cdp, 20);
         this.cpuRunning = false;
         return {
             ok: true,
@@ -337,6 +394,10 @@ class V4ProjectionBrowserSession {
         });
         await p.addInitScript({ content: configPre });
         await p.addInitScript({ content: (0, loadInpageScript_1.loadInpageScript)() });
+        // Document Response-stage hook before any navigation — CSP surgery (script inject later).
+        // TLS/HTTP stay on Chromium; never fulfill Document from Node-originated bytes.
+        this.cdpSession = await context.newCDPSession(p);
+        await (0, documentResponseHook_1.installDocumentResponseHook)(this.cdpSession);
         return p;
     }
     requirePage() {

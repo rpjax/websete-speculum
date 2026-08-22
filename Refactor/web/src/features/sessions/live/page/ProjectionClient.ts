@@ -56,6 +56,8 @@ export type PageProjectionDesyncReason =
 export interface ProjectionClientOptions {
   sendIntent: PageProjectionIntentSender
   sendClientState: PageProjectionClientStateSender
+  /** Root browsing context id (default 1). */
+  contextId?: number
   getViewportSize: () => { width: number; height: number }
   /** Default 1000 — §5.16 `clientStateMs`. */
   clientStateMs?: number
@@ -138,6 +140,7 @@ export class ProjectionClient {
   attachInteraction(surfaceElement: HTMLElement): void {
     this.detachInteraction?.()
     this.detachInteraction = attachPageProjectionInteraction(surfaceElement, this.registry, this.options.sendIntent, {
+      contextId: this.options.contextId ?? 1,
       getGeneration: () => this.generation,
       getViewportSize: this.options.getViewportSize,
       isArmed: () => this.isArmed(),

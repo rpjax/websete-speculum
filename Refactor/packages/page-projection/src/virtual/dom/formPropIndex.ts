@@ -3,16 +3,16 @@
  * Membership only. Not hashed. Sample every tick; emit PROP_SET on change.
  */
 
-import { OpCode } from '../../models/opcodes';
+import { OpCode } from '../../core/opcodes';
 import {
   PROP_ID_CHECKED,
   PROP_ID_SELECTED,
   PROP_ID_VALUE,
   propScalarsEqual,
-} from '../../models/propSet';
-import type { FrameOp } from '../../models/frame';
-import type { FormControlSnap } from '../../models/formControlSnap';
-import type { ReplicatedTable } from '../../models/replicatedTable';
+} from '../../core/propSet';
+import type { FrameOp } from '../../core/frame';
+import type { FormControlSnap } from '../../core/formControlSnap';
+import type { ReplicatedTable } from '../../core/replicatedTable';
 import { NONE_DOM_NODE_KEY, type DomNodeTable } from './domNodeTable';
 
 const SKIP_INPUT_TYPES = new Set(['file', 'button', 'submit', 'reset', 'image']);

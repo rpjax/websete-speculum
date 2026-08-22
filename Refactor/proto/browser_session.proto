@@ -407,6 +407,8 @@ message DomInputEvent {
   // Redesign id-addressed intents (§5.11): resolved through the sidecar's
   // reverse id map (identity.ts); a miss follows the retry-then-drop policy.
   optional uint32 target_id = 8;
+  // V4 multi-document browsing context (root = 1).
+  optional uint32 context_id = 9;
 }
 
 message GetDomAssetRequest {

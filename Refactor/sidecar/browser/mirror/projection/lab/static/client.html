@@ -300,6 +300,41 @@
         font-size: 1.02rem;
         margin-top: 0.12rem;
       }
+      .stream-context-wrap {
+        margin-top: 0.85rem;
+      }
+      .stream-context-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-family: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+        font-size: 10px;
+      }
+      .stream-context-table th,
+      .stream-context-table td {
+        border: 1px solid var(--line);
+        padding: 0.28rem 0.35rem;
+        text-align: right;
+      }
+      .stream-context-table th:first-child,
+      .stream-context-table td:first-child {
+        text-align: left;
+      }
+      .stream-context-table th {
+        font-size: 9px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--muted);
+        background: #fafaf7;
+        font-weight: 600;
+      }
+      .stream-context-table tr.stream-root td {
+        background: #f5f8ff;
+      }
+      .stream-context-table .stream-empty {
+        text-align: center;
+        color: var(--muted);
+        font-style: italic;
+      }
       #activity {
         font-family: "IBM Plex Mono", ui-monospace, Consolas, monospace;
         font-size: 11px;
@@ -476,6 +511,29 @@
             <div class="metric"><div class="label">Resyncs</div><div class="value" id="streamResync">0</div></div>
             <div class="metric"><div class="label">Ops (last)</div><div class="value" id="streamOps">—</div></div>
             <div class="metric"><div class="label">Apply ms</div><div class="value" id="streamApplyMs">—</div></div>
+          </div>
+          <div class="stream-context-wrap">
+            <h3 class="panel-title">By context</h3>
+            <table class="stream-context-table" aria-label="Per-context stream metrics">
+              <thead>
+                <tr>
+                  <th scope="col">Ctx</th>
+                  <th scope="col" title="Wire frame parts received">Wire</th>
+                  <th scope="col" title="Virtual frameEmitted">Emit</th>
+                  <th scope="col">Apply+</th>
+                  <th scope="col">Apply−</th>
+                  <th scope="col">Desync</th>
+                  <th scope="col">Resync</th>
+                  <th scope="col">Ovr</th>
+                  <th scope="col">Seq</th>
+                  <th scope="col">Build ms</th>
+                  <th scope="col">Apply ms</th>
+                </tr>
+              </thead>
+              <tbody id="streamContextBody">
+                <tr><td colspan="11" class="stream-empty">No context traffic yet</td></tr>
+              </tbody>
+            </table>
           </div>
         </div>
         <div id="panelActivity" class="panel" hidden role="tabpanel">

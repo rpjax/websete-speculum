@@ -20,12 +20,16 @@
 
 | Date | Topic | Where the full text is |
 |------|-------|------------------------|
+| 2026-08-21 | **BrowserSession mirror contracts SEALED** — [browser-session.md](browser-session.md): core + PP + video; sinks; permission host; raw `getStateSnapshot`; `requestResync` only; no diagnostics facade; CPU profile on core | browser-session.md + observability.md §5 + open.md CUTOVER-SESSION |
+| 2026-08-20 | **CSP SEALED** — [csp.md](csp.md) §§3–7 + `session/csp/*`; units/e2e. Next cutover: script inject (same hook). | csp.md + CUTOVER-WORKSPACE |
+| 2026-08-20 | **CSP cutover redesign** — surgical Response-stage Document mutate; nonce strip + compensation; amends E-03/E-08 (CSP ok ≠ page WS prod). | [csp.md](csp.md) |
+| 2026-08-20 | **Input V2 lab M1 closed** — [input-v2.md](input-v2.md); gate 6 lab done. Touch/OS pointer intents **out of scope** (Projected local/native). MotorAssert on Live = **cutover** (gate 10), not input development. Next product: canvas (gate 7). | roadmap.md + input-v2.md + README Now |
 | 2026-08-13 | Table = replicated structure (P0); two-phase apply; preTableHash; 27 opcodes; no MOVE/REPLACE; prevSibling topology; tableHash; STR_DEF deferred; establish **deleted**; id 1 = Document; producer construction §5; P8 no lifecycle branches | frame-protocol.md decision log |
 | 2026-08-13 | OPEN-5 closed: `emitResyncFrame` / `resyncVirtual`; double-buffer swap on CHECK | frame-protocol.md §5.8 + log |
 | 2026-08-13 | OPEN-6 reframed multi-document / nested documents — pinned for lab | frame-protocol.md §10 |
 | 2026-08-14 | Production cutover requires full product (CSSOM + OPEN-6 + input redesign) | roadmap.md + open.md CUTOVER-FULL |
 | 2026-08-16 | Canvas **content** projection = **last product feature** before Integration / cutover (interim placeholder until then; not a seal-gap) | roadmap.md gate 6 + support-matrix.md + seal-gaps.md Related |
-| 2026-08-14 | V4ProjectionBrowserSession temporary; must be a complete BrowserSession at cutover (not legado, not a lab stub) | roadmap.md + open.md CUTOVER-SESSION |
+| 2026-08-14 | V4ProjectionBrowserSession temporary; must be a complete BrowserSession at cutover (not legado, not a lab stub) | roadmap.md + open.md CUTOVER-SESSION — **amended 2026-08-21** by sealed [browser-session.md](browser-session.md) (`PageProjectionBrowserSession`) |
 | 2026-08-14 | E-03/E-08: reject CSP strip / `connect-src *` as antibot-unsafe; no page WebSocket for production data plane | open.md E-03/E-08 |
 | 2026-08-14 | PP-FR-1 prune at drain (`!isConnected`); client REMOVE parent mismatch → desync. Stress-churn stacked digits closed; prepend O2 still open. Narrative: observability.md §8 | observability.md §8 + frame-protocol.md §5.4/§5.6/§6 |
 | 2026-08-13 | Micro-opts: Set reuse, `element.attributes`, conditional opCounts | frame-protocol.md log |
@@ -88,9 +92,13 @@
 | 2026-08-19 | **OPEN-6 runtime ≠ algorithm** — runtime once at the root tab (sidecar mux). Algorithm installs in every `window`. Nested has no own WS. Root `contextId=1` without RPC. Nested `getScopeId` to immediate parent (`event.source === iframe.contentWindow`). Timeout-as-root forbidden. RPC = request/response/heartbeat + TCS awaiter. `hosts` not in `CHECK`. | [multi-document.md](multi-document.md) |
 | 2026-08-19 | **OPEN-6 header = mine** (`u32`, not GUID). Child-scope indexer per instance. Extra `NODE_NEW` arg only for host nodes (`ns` bit 7 + `childScopeId`; omit otherwise). Mint = root-runtime RPC. Indexer drops with host row. | [multi-document.md](multi-document.md) |
 | 2026-08-19 | **OPEN-6 classify / Projected host / bus** — `contentWindow != null`; blank same-origin Projected iframe + parent install; bus all layers, `emitFrame` = root runtime, postMessage. | [multi-document.md](multi-document.md) |
-| 2026-08-19 | **OPEN-6 resync request** — loose bus event with desynced `contextId`; matching Virtual `emitResyncFrame`. | [multi-document.md](multi-document.md) |
-| 2026-08-19 | **OPEN-6 lab same-origin iframe shipped** — header v3; `iframe-open` `iso.nested` + `iso.nested.blank`. XO/srcdoc/sandbox/fenced NIT. Production not cutover. | [multi-document.md](multi-document.md); [seal-gaps.md](seal-gaps.md) `SEAL-DOM-P2-OPEN6` |
+| 2026-08-19 | **OPEN-6 resync request** — **superseded same day** by Control-plane-only entry (`requestResync` → `publishResyncRequest`; loose bus fan-down only). | [multi-document.md](multi-document.md) §4 |
+| 2026-08-19 | **Resync single Control-plane entry** — removed upward loose bus + `emitResyncRequest` / `forwardResyncToSidecar` stub; fan-down only after `publishResyncRequest`. |
+| 2026-08-19 | **Nested Projected resync parity** — per-context double-buffer + bounded retry ([client/nestedResyncSurface.ts](../../../Refactor/sidecar/browser/mirror/projection/client/nestedResyncSurface.ts)). |
+| 2026-08-19 | **Tree snapshot per context** — `__speculumSnapshot` in every bootstrap; bus snapshot RPC `includeTree`. |
+| 2026-08-19 | **`parityFingerprint` removed** — not in telemetry v2 schema; iso probes are the assert source. | [observability.md](observability.md) |
 | 2026-08-19 | **Multi-context observability** — `TELEMETRY_WIRE_VERSION` 2 + mandatory `contextId`; nested telemetry via bus loose `telemetry` → root fan-out; control RPC **`snapshot`** per instance; lab context index + wire monitor per scope; iso N-way without cross-context sequence sync; CPU Profiler tab-level only. | [observability.md](observability.md) §10; [multi-document.md](multi-document.md) |
+| 2026-08-20 | **ISA lacre** — §4 lists only 16 shipped opcodes (`opcodes.ts`). Removed normative text for early-draft ops (`NODE_META`, `DOC_STATE`, `SCROLL_*`, `NODE_SNAPSHOT`, `DOC_ATTACH`, extended `PROP_SET`, `STR_DEF`). Reserved ranges unchanged. | [frame-protocol.md](frame-protocol.md) §3–§4 |
 
 **Stage 4 confirmed (Rodrigo):** mid-session recovery = **`emitResyncFrame` alone** (ids preserved; does not self-heal a corrupt map shape). Client = **real double buffer**, swap only after resync frame CHECK. Lab transport = existing control WS + `PlaneChannel.Control`. Production hub/gRPC is gate 5.
 
@@ -136,7 +144,7 @@ Original: [`../archive/engine-redesign-extension.md`](../archive/engine-redesign
 | 2026-08-12 | E-08 | CSP / PNA bypass for E-03 | Strip CSP, PNA flags | **SUPERSEDED 2026-08-14** — punch rejected (antibot). Keep site CSP. |
 | 2026-08-12 | E-09 | Slice order | Dual track oracles + engine | Lab oracles partial; O1/O4/O5 still open |
 | 2026-08-12 | E-10 | No absolute E2E ms as contract | Measure E1/E3/E5 | **IN FORCE** |
-| 2026-08-12 | E-11 | `virtual/` module layout | esbuild `virtual.js` | **IN FORCE** (lab tree) |
+| 2026-08-12 | E-11 | `virtual/` module layout | esbuild `virtual.js` | **AMENDED 2026-08-20** — see §J (shared package `core`/`virtual`/`projected`); spirit IN FORCE (one `virtual.js`, Virtual endpoint layout) |
 
 ---
 
@@ -207,9 +215,9 @@ Full text: [observability.md](observability.md). Sealed with Rodrigo:
 
 - One Chromium path (`BrowserSession`). Lab does not launch Chromium or `page.evaluate`.
 - Telemetry = **events** (push, time-series) + **embedded** + **probes** (caller fetch). CPU = CDP probe.
-- **Events are not asserts.** Table×table, table×DOM, tree×tree at frame S = coherent snapshot probe.
-- Halt/flush/oracle/tree in **one** in-page turn (`flushAndSnapshot`); split evaluates are torn reads.
-- Snapshot is **state** (replicated table digest + whatever indexers matter), not DOM-only.
+- **Events are not asserts.** Table×table, table×DOM, tree×tree at frame S = **state snapshot** dump + lab oracles ([observability.md](observability.md) §5–§6; [browser-session.md](browser-session.md)).
+- Halt/emit/capture in **one** in-page turn; split evaluates are torn reads.
+- Snapshot is **raw state planes** at S (digest + opted faces); oracles are caller-side — not session DTO fields.
 - `frameEmitted.tableSize` = protocol table size; `identitySize` = WeakRef map (diagnostic only).
 - `FrameInvariantMonitor` = wire bytes only. `report.json` = lab dossier, not a session RPC.
 
@@ -228,4 +236,36 @@ desync-when-needed. Helper-only units do not close ATTR / EOF / RULESET.
 Kind `7` on version 2. Root row is not a light child. Per-root MutationObserver, same buffer.
 Projected `attachShadow({ mode: 'open' })`. CSSOM poll includes each admitted root (`pierceHost`).
 Closed and `slotAssignment: 'manual'` stay explicit unsupported fails. Not iframe.
+
+## J. Shared TS package `@speculum/page-projection` (2026-08-20) — AMENDS E-11
+
+**Status:** DECIDED (Rodrigo). Gate **6.5** packaging hygiene — **not** canvas (gate 7), **not** Production Integration (gate 10).
+
+| Topic | Decision |
+|-------|----------|
+| Package | `@speculum/page-projection` at `Refactor/packages/page-projection` (`private`; sidecar `file:` link; no root workspaces required) |
+| Folders | `src/core/` · `src/virtual/` · `src/projected/` — **no** package root barrel that re-exports all three |
+| E-11 map | `models/` → `core/` (wire + shared helpers); `virtual/` → `virtual/` (same endpoint spirit); `client/` → `projected/` (two-phase apply) |
+| `core` semantics | Wire/ISA + pure table helpers + `plane/` constants + `intentTypes` + `domTreeSnapshot` — **not** session/host/CDP/lab |
+| Out of package | `lab/` · `session/` · `inject/` · CDP `v4InputDispatch`/`resolveVirtualNode` · gRPC · React UI · oracles package |
+| D-SPEC-6 | Still **one** IIFE `virtual.js` from `virtual/bootstrap.ts` (path moves with package) |
+| Client API | `ProjectionClient` + `createProjectionClient(deps)` — DI callbacks; no WS/hub inside. Lab-only APIs live in sidecar `LabProjectedHarness` |
+| Dependency direction | `virtual`→`core`, `projected`→`core` only; package never imports `lab/`; after extract, `session` must not import `lab/` (probes via DI) |
+| Web | Consumes `/projected` + `/core` at **gate 10** only; until then legacy `web/live/page` stays anti-source |
+| Timing | Complete extract **before** canvas work; canvas ships into this package. Extract ≠ cutover |
+
+## K. BrowserSession mirror contracts (2026-08-21) — SEALED
+
+**Status:** SEALED (Rodrigo). Normative: [browser-session.md](browser-session.md).
+
+| Topic | Decision |
+|-------|----------|
+| Shape | `IBrowserSession` (shared) + `IPageProjectionBrowserSession` + `IVideoStreamingBrowserSession` — no covariance / no Launch `oneof` |
+| PP class | `PageProjectionBrowserSession` (replaces lab `V4ProjectionBrowserSession` at cutover) |
+| Streams | Factory binds session↔mode sink; PP = `onFrame(PageProjectionFrame)` + `onProjectionTelemetry` only |
+| Permission | `IBrowserPermissionHost.requestPermission(kind)` — RPC, not sink |
+| Resync | `requestResync({ contextId?, reason? })` → frame on stream; drop getResync / sendControl / reportClientState |
+| Lab probes | On same PP interface: `haltClocks` / `resumeClocks` / `emitFrame` / `getStateSnapshot` — no diagnostics facade |
+| State snapshot | Raw planes + opts; oracles / cascade fixture = caller; CPU profile on **core** |
+| Observability | [observability.md](observability.md) §5–§6 updated to match |
 

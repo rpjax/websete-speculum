@@ -9,7 +9,7 @@ import {
   type DataPlaneMessageHandler,
   type DataPlaneResult,
   type PlaneChannel,
-} from '../../plane';
+} from '../../core/plane';
 
 export type LoopbackDataPlaneOptions = {
   /** Deferred when socket.bufferedAmount exceeds this (default 256 KiB). */

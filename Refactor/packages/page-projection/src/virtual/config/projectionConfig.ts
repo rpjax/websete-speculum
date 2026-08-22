@@ -9,7 +9,7 @@ import {
   DEFAULT_TELEMETRY_CONFIG,
   TELEMETRY_BOOL_CAPS,
   type ProjectionTelemetryConfig,
-} from '../../models/telemetry';
+} from '../../core/telemetry';
 
 export const PROJECTION_CONFIG_GLOBAL = '__SPECULUM_PROJECTION__' as const;
 

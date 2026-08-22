@@ -6,17 +6,19 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.LabChassis = exports.CssomOpWindow = void 0;
 exports.acceptClientTelemetry = acceptClientTelemetry;
 const node_crypto_1 = require("node:crypto");
-const telemetry_1 = require("../../models/telemetry");
+const telemetry_1 = require("@speculum/page-projection/core/telemetry");
 const V4ProjectionBrowserSession_1 = require("../../session/V4ProjectionBrowserSession");
 const v4LabLaunch_1 = require("../../session/v4LabLaunch");
+const virtualSnapshot_1 = require("../probes/virtualSnapshot");
+const cpuProfile_1 = require("../probes/cpuProfile");
 const write_1 = require("../dossier/write");
 const frameInvariantMonitor_1 = require("../probes/frameInvariantMonitor");
 const metricsAggregator_1 = require("../probes/metricsAggregator");
 const nodeTableApply_1 = require("../probes/nodeTableApply");
 const contextIndex_1 = require("./contextIndex");
-const opcodes_1 = require("../../models/opcodes");
-const decode_1 = require("../../models/decode");
-const frame_1 = require("../../models/frame");
+const opcodes_1 = require("@speculum/page-projection/core/opcodes");
+const decode_1 = require("@speculum/page-projection/core/decode");
+const frame_1 = require("@speculum/page-projection/core/frame");
 class CssomOpWindow {
     enabled = false;
     counts = {
@@ -98,6 +100,11 @@ class LabChassis {
     get invariantMonitor() {
         return this.monitorFor(frame_1.CONTEXT_ID_ROOT);
     }
+    /**
+     * Root-only apply mirror for CLI inject folds — tracks the top-level context sequence/table.
+     * Nested context frames update per-context invariant monitors but not this applier or
+     * `stats.lastSequence` (inject proofs target the root surface).
+     */
     nodeTable = new nodeTableApply_1.NodeTableApplier();
     eventCounts = {};
     desyncs = [];
@@ -185,6 +192,7 @@ class LabChassis {
     }
     observeTelemetry(message) {
         this.stats.telemetryMessages += 1;
+        this.contextIndex.observeTelemetry(message);
         this.metrics.observeTelemetry(message);
         this.monitorFor(message.contextId).observeTelemetry(message);
         this.eventCounts[message.kind] = (this.eventCounts[message.kind] ?? 0) + 1;
@@ -280,7 +288,14 @@ class LabChassis {
         });
         record.dossierDir = this.dossier.dir;
         this.record = record;
-        const factory = (0, V4ProjectionBrowserSession_1.createV4ProjectionBrowserSessionFactory)({ headless: this.opts.headless });
+        const factory = (0, V4ProjectionBrowserSession_1.createV4ProjectionBrowserSessionFactory)({
+            headless: this.opts.headless,
+            probes: {
+                captureVirtualSnapshot: virtualSnapshot_1.captureVirtualSnapshot,
+                startCpuProfile: cpuProfile_1.startCpuProfile,
+                stopCpuProfile: cpuProfile_1.stopCpuProfile,
+            },
+        });
         this.session = factory.create(sessionId, this.browserEvents());
         await this.session.launch((0, v4LabLaunch_1.v4LabLaunchOptions)({
             frameRateHz: this.frameRateHz,

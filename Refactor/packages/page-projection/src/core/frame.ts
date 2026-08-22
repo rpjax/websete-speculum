@@ -66,8 +66,6 @@ export type CheckOp = {
 
 export type EpochResetOp = { op: OpCode.EpochReset; generation: number };
 
-export type StrDefOp = { op: OpCode.StrDef; strId: number; value: string };
-
 /**
  * `descriptor` shape by `kind` — §4.2. Element `uri` is present only when `ns === custom`;
  * omitted on the wire otherwise. Nested-context host: `nestedHost` + `childScopeId`; omitted on
@@ -161,7 +159,6 @@ export type RuleSetOp = { op: OpCode.RuleSet; id: DomNodeKey; text: string };
 export type FrameOp =
   | CheckOp
   | EpochResetOp
-  | StrDefOp
   | NodeNewOp
   | NodeDropOp
   | InsertOp

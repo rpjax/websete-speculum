@@ -9,7 +9,7 @@
  *
  * Lives in `models/` (not `client/`) because it has zero DOM dependency (pure
  * `Uint8Array`/`DataView`/`TextDecoder`) and is consumed on both sides of the process
- * boundary: the browser client bundle (via esbuild, `client/labProjectionClient.ts`) and
+ * boundary: the browser client bundle (via esbuild, `projected/ProjectionClient.ts`) and
  * the lab server (via tsc, `lab/frameInvariantMonitor.ts`) — `client/` and `virtual/` are
  * both esbuild-only and excluded from the tsc project, so a dual-consumed module cannot
  * live under either.
@@ -276,12 +276,6 @@ function decodeOp(
       const ids: number[] = new Array(count);
       for (let i = 0; i < count; i++) ids[i] = r.u32();
       return { op: OpCode.NodeDrop, ids };
-    }
-    case OpCode.StrDef: {
-      const strId = r.u32();
-      const value = r.utf8(r.u32());
-      persistent.define(strId, value);
-      return { op: OpCode.StrDef, strId, value };
     }
     case OpCode.NodeNew: {
       const id = r.u32();
